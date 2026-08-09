@@ -8,6 +8,7 @@ import kipy
 from kipy.board_types import FootprintInstance, Zone, Net, Via, ViaType, Track, BoardLayer, Pad, Field, Group
 from kipy.geometry import Vector2, Box2, Angle
 from kipy.proto.board import board_commands_pb2
+from kipy.errors import FutureVersionError
 
 from .interfaces import IBoardAdapter
 from ..exceptions import BoardNotFoundError, ComponentNotFoundError, ValidationError, format_fatal_error
@@ -24,6 +25,23 @@ class KiCadBoardAdapter(IBoardAdapter):
         logger.debug(_("Creating kipy.KiCad instance..."))
         self._kicad = kipy.KiCad(timeout_ms=timeout_ms)
         logger.debug(_("kipy.KiCad instance created"))
+        # Connects to a fixed default IPC socket (unless KICAD_API_SOCKET
+        # overrides it) — with several native/AppImage KiCad builds
+        # installed side by side, it's easy to end up silently talking to
+        # the wrong one. Log what we actually got, and warn (non-fatal) if
+        # it's newer than the KiCad version kipy was generated against —
+        # found 2026-08-09 chasing a footprint-move pad-rotation corruption
+        # that only reproduced against a KiCad nightly far ahead of kipy's
+        # pinned API version.
+        try:
+            live_version = self._kicad.get_version()
+            logger.info(_("Connected to KiCad {version}").format(version=live_version))
+            try:
+                self._kicad.check_version()
+            except FutureVersionError as exc:
+                logger.warning(str(exc))
+        except Exception:
+            logger.debug(_("Could not query KiCad version after connect"), exc_info=True)
         self._board = None
         self._write_risk_checked = False
         self._footprints_cache: list[FootprintInstance] | None = None
