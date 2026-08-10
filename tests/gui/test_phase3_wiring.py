@@ -67,37 +67,11 @@ def test_config_tree_file_selected_reaches_extract_and_placer(real_main_window, 
     assert real_main_window.placer_dock._placer_path == target_file
 
 
-def test_config_tree_restores_last_root_after_restart(qapp, tmp_path):
+def test_root_metadata_dock_restores_last_root_after_restart(qapp, tmp_path):
     """A previous session's root file must be restored on startup —
-    ConfigTreeDock._restore_last_root(), the replacement for
-    FilePickerDock's restore_roles()."""
-    root_file = tmp_path / "root.yaml"
-    _write(root_file)
-
-    data = settings.load()
-    data["last_root_file"] = str(root_file)
-    settings.save(data)
-
-    window = MainWindow(timeout_ms=10, verbose=False)
-    try:
-        assert window.config_tree_dock._root_path == root_file
-    finally:
-        window._timer.stop()
-        window._selection_timer.stop()
-        window._poll_worker.stop()
-
-
-def test_root_metadata_dock_picks_up_a_root_restored_before_wiring_existed(qapp, tmp_path):
-    """Found live 2026-08-05 (Denis: "он не видит настроек корневого
-    проекта. No root file open"): ConfigTreeDock._restore_last_root() runs
-    inside ITS OWN __init__ (see test_config_tree_restores_last_root_after_
-    restart above), which happens before DockHub even constructs the Root/
-    Project panel — so the very first root_file_changed emit fired into the
-    void, before DockHub._wire() ever connected it. A restored project used
-    to silently open with the panel stuck on its placeholder text despite
-    the Config tree itself showing the right root. DockHub._wire() must
-    sync explicitly from config_tree_dock.root_path, not rely solely on the
-    signal."""
+    RootMetadataDock._restore_last_root() (root ownership moved here
+    2026-08-11, was ConfigTreeDock's own — see gui/docks/root_metadata.py's
+    module docstring)."""
     root_file = tmp_path / "root.yaml"
     _write(root_file)
 
@@ -108,6 +82,33 @@ def test_root_metadata_dock_picks_up_a_root_restored_before_wiring_existed(qapp,
     window = MainWindow(timeout_ms=10, verbose=False)
     try:
         assert window.root_metadata_dock._path == root_file
+    finally:
+        window._timer.stop()
+        window._selection_timer.stop()
+        window._poll_worker.stop()
+
+
+def test_config_tree_picks_up_a_root_restored_before_wiring_existed(qapp, tmp_path):
+    """Found live 2026-08-05 (Denis: "он не видит настроек корневого
+    проекта. No root file open") for the ORIGINAL ConfigTreeDock-owned
+    case this now mirrors in reverse: RootMetadataDock._restore_last_root()
+    runs inside ITS OWN __init__ (see test_root_metadata_dock_restores_
+    last_root_after_restart above), which happens before DockHub._wire()
+    ever connects root_changed — so the very first emit (if a root was
+    restored on startup) fires into the void. A restored project used to
+    silently open with the panel/tree stuck on its placeholder despite the
+    OTHER one showing the right root. DockHub._wire() must sync explicitly
+    from root_metadata_dock.root_path, not rely solely on the signal."""
+    root_file = tmp_path / "root.yaml"
+    _write(root_file)
+
+    data = settings.load()
+    data["last_root_file"] = str(root_file)
+    settings.save(data)
+
+    window = MainWindow(timeout_ms=10, verbose=False)
+    try:
+        assert window.config_tree_dock._root_path == root_file
     finally:
         window._timer.stop()
         window._selection_timer.stop()
@@ -573,12 +574,15 @@ def test_dock_hub_constructs_all_docks_and_wires_file_selected(main_window, tmp_
         _teardown_hub(hub)
 
 
-def test_dock_hub_wires_root_file_changed_to_root_metadata_dock(main_window, tmp_path):
-    """Root is the one exception to file_selected (2026-08-05, Denis:
-    "root-панель должна читать/хранить/править настройки текущего проекта,
-    независимо от того, выбран узел root или нет") — it must NOT retarget
-    on a plain tree click into an included file, only on root_file_changed
-    (fired solely by set_root_file(), see config_tree.py)."""
+def test_dock_hub_wires_root_changed_to_config_tree_dock(main_window, tmp_path):
+    """Root ownership moved to RootMetadataDock 2026-08-11 (was
+    ConfigTreeDock's — see gui/docks/root_metadata.py's module docstring):
+    a plain tree click (file_selected) must NOT retarget the Project
+    panel's own root (Denis, 2026-08-05, original reasoning this mirrors:
+    "root-панель должна... независимо от того, выбран узел root или
+    нет"); setting the root via RootMetadataDock.set_root_file() must
+    reach ConfigTreeDock in the OTHER direction now — it rebuilds its tree
+    from whatever root_changed carries."""
     included_file = tmp_path / "included.yaml"
     _write(included_file)
     root_file = tmp_path / "root.yaml"
@@ -589,17 +593,17 @@ def test_dock_hub_wires_root_file_changed_to_root_metadata_dock(main_window, tmp
         hub.config_tree_dock.file_selected.emit(included_file)
         assert hub.root_metadata_dock._path is None
 
-        hub.config_tree_dock.root_file_changed.emit(root_file)
-        assert hub.root_metadata_dock._path == root_file
+        hub.root_metadata_dock.set_root_file(root_file)
+        assert hub.config_tree_dock._root_path == root_file
     finally:
         _teardown_hub(hub)
 
 
-def test_dock_hub_wires_root_file_changed_to_rules_dock(main_window, tmp_path):
-    """RuleDock is the SECOND listener on root_file_changed (2026-08-05) —
-    its Cell/Point combos need the whole include graph starting from the
-    project's root, same reasoning as test_dock_hub_wires_root_file_
-    changed_to_root_metadata_dock above."""
+def test_dock_hub_wires_root_changed_to_rules_dock(main_window, tmp_path):
+    """RuleDock is a listener on root_changed (RootMetadataDock's, moved
+    here 2026-08-11 from ConfigTreeDock's old root_file_changed) — its
+    Cell/Point combos need the whole include graph starting from the
+    project's root."""
     root_file = tmp_path / "root.yaml"
     root_file.write_text("cells:\n  cap_pair: {}\n", encoding="utf-8")
 
@@ -607,7 +611,7 @@ def test_dock_hub_wires_root_file_changed_to_rules_dock(main_window, tmp_path):
     try:
         assert hub.rules_dock._root_path is None
 
-        hub.config_tree_dock.root_file_changed.emit(root_file)
+        hub.root_metadata_dock.root_changed.emit(root_file)
 
         assert hub.rules_dock._root_path == root_file
         assert "cap_pair" in [hub.rules_dock.spoke_cell_combo.itemText(i)
@@ -635,7 +639,7 @@ def test_dock_hub_attaches_a_file_handler_from_the_root_configs_log_file(main_wi
     try:
         assert hub._log_file_handler is None
 
-        hub.config_tree_dock.root_file_changed.emit(root_file)
+        hub.root_metadata_dock.root_changed.emit(root_file)
 
         assert hub._log_file_handler is not None
         assert Path(hub._log_file_handler.baseFilename) == (tmp_path / "logs" / "run.log").resolve()
@@ -658,11 +662,11 @@ def test_dock_hub_swaps_the_file_handler_when_the_root_file_changes(main_window,
 
     hub = DockHub(main_window, connection=main_window.connection, verbose=False)
     try:
-        hub.config_tree_dock.root_file_changed.emit(first_dir / "root.yaml")
+        hub.root_metadata_dock.root_changed.emit(first_dir / "root.yaml")
         first_handler = hub._log_file_handler
         assert Path(first_handler.baseFilename) == (first_dir / "logs" / "first.log").resolve()
 
-        hub.config_tree_dock.root_file_changed.emit(second_dir / "root.yaml")
+        hub.root_metadata_dock.root_changed.emit(second_dir / "root.yaml")
 
         assert hub._log_file_handler is not first_handler
         assert first_handler not in logging.getLogger().handlers  # old one detached, not leaked
@@ -677,7 +681,7 @@ def test_dock_hub_has_no_file_handler_when_root_config_has_no_log_file(main_wind
 
     hub = DockHub(main_window, connection=main_window.connection, verbose=False)
     try:
-        hub.config_tree_dock.root_file_changed.emit(root_file)
+        hub.root_metadata_dock.root_changed.emit(root_file)
         assert hub._log_file_handler is None
     finally:
         _teardown_hub(hub)

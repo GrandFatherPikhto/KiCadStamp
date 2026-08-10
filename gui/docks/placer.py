@@ -69,7 +69,7 @@ UI for them if they turn out to be needed often.
 
 anchor_point IS autocompleted (closed 2026-08-06, Denis: "думаю имена
 Points тоже надо делать выпадашкой с именами") — set_root_path(), wired to
-ConfigTreeDock's root_file_changed same as RuleDock's own (gui/docks/
+RootMetadataDock's root_changed same as RuleDock's own (gui/docks/
 rules.py), sources the combo from the WHOLE include graph via
 collect_all_point_names(), not just this dock's own target file.
 
@@ -484,7 +484,7 @@ class PlacerDock(QWidget):
         self._placer_path = path
 
     def set_root_path(self, path: Optional[Path]) -> None:
-        """Wired to ConfigTreeDock's root_file_changed — the Point combo is
+        """Wired to RootMetadataDock's root_changed — the Point combo is
         sourced from the WHOLE include graph (a Point routinely lives in a
         different file than the clone_placement referencing it), same
         reasoning/pattern as RuleDock's own set_root_path (gui/docks/rules.py).

@@ -134,34 +134,51 @@ class DockHub:
         self.config_tree_dock.file_selected.connect(self.points_dock.set_target_file)
         self.config_tree_dock.file_selected.connect(self.rules_dock.set_target_file)
         self.config_tree_dock.file_selected.connect(self.cells_dock.set_target_file)
-        # Root is the one exception (2026-08-05): it always edits the
-        # project's single root file, not whatever file the tree happens to
-        # be browsing — root_file_changed only fires from set_root_file()
-        # (Open/New/Recent/restore-on-startup), never on a plain tree click.
-        self.config_tree_dock.root_file_changed.connect(self.root_metadata_dock.set_target_file)
-        # Rules' own Cell/Point combos need the WHOLE include graph (see
-        # gui/docks/rules.py's module docstring), which starts from the
-        # project's root, not whatever file rules_dock.set_target_file above
-        # points it at — same root_file_changed signal as Root, second
-        # listener. Placer's/ThermalVia's own Point combos (added
-        # 2026-08-06, closing the "anchor_point Point-name autocomplete" gap
-        # their own module docstrings had deferred) need the same whole-
-        # graph source, same reasoning.
-        self.config_tree_dock.root_file_changed.connect(self.rules_dock.set_root_path)
-        self.config_tree_dock.root_file_changed.connect(self.placer_dock.set_root_path)
-        self.config_tree_dock.root_file_changed.connect(self.thermal_via_dock.set_root_path)
-        self.config_tree_dock.root_file_changed.connect(self.cells_dock.set_root_path)
+        # RootMetadataDock's Working file combobox (2026-08-11, Denis: "туда
+        # же напрашивается и выбор текущего рабочего файла... без прыжков
+        # между доками") — a second, direct entry point for the exact same
+        # target-file broadcast as the 9 file_selected lines above, so the
+        # working file can be changed from the Project tab without
+        # navigating the tree. The tree still feeds the combobox's own
+        # DISPLAY (set_working_file_from_tree, no re-broadcast — see
+        # gui/docks/root_metadata.py's module docstring), so it never goes
+        # stale relative to whatever was last clicked.
+        self.config_tree_dock.file_selected.connect(self.root_metadata_dock.set_working_file_from_tree)
+        self.root_metadata_dock.working_file_changed.connect(self.extract_dock.set_target_file)
+        self.root_metadata_dock.working_file_changed.connect(self.extract_dock.set_profile_file)
+        self.root_metadata_dock.working_file_changed.connect(self.extract_dock.set_placer_file)
+        self.root_metadata_dock.working_file_changed.connect(self.placer_dock.set_cells_file)
+        self.root_metadata_dock.working_file_changed.connect(self.placer_dock.set_placer_file)
+        self.root_metadata_dock.working_file_changed.connect(self.thermal_via_dock.set_target_file)
+        self.root_metadata_dock.working_file_changed.connect(self.points_dock.set_target_file)
+        self.root_metadata_dock.working_file_changed.connect(self.rules_dock.set_target_file)
+        self.root_metadata_dock.working_file_changed.connect(self.cells_dock.set_target_file)
+        # Root ownership moved to RootMetadataDock 2026-08-11 (was
+        # ConfigTreeDock's — see gui/docks/root_metadata.py's module
+        # docstring for the full reasoning); root_changed replaces the old
+        # root_file_changed as the source every listener below follows,
+        # INCLUDING ConfigTreeDock itself now (it only rebuilds its tree,
+        # no longer owns Open/New/Recent). Rules'/Placer's/ThermalVia's own
+        # Cell/Point combos need the WHOLE include graph (see gui/docks/
+        # rules.py's module docstring), which starts from the project's
+        # root, not whatever file each dock's own set_target_file above
+        # points it at.
+        self.root_metadata_dock.root_changed.connect(self.config_tree_dock.set_root_file)
+        self.root_metadata_dock.root_changed.connect(self.rules_dock.set_root_path)
+        self.root_metadata_dock.root_changed.connect(self.placer_dock.set_root_path)
+        self.root_metadata_dock.root_changed.connect(self.thermal_via_dock.set_root_path)
+        self.root_metadata_dock.root_changed.connect(self.cells_dock.set_root_path)
         # Extract's own Cell file/Profile file combos (added 2026-08-06,
         # Denis: "имя файла, куда пишем extract и cell... тоже, выпадашками"
         # — un-couples them from always following the same file_selected
         # click) need the whole include graph too, same reasoning as above.
-        self.config_tree_dock.root_file_changed.connect(self.extract_dock.set_root_path)
+        self.root_metadata_dock.root_changed.connect(self.extract_dock.set_root_path)
         # fieldstool's root_sheet (added 2026-08-07, see config/models.py's
-        # Config.root_sheet docstring) — same root_file_changed source, so
+        # Config.root_sheet docstring) — same root_changed source, so
         # opening/switching a project automatically re-points fieldstool's
         # schematic-vs-board diff instead of silently keeping the previous
         # project's manually-picked root sheet.
-        self.config_tree_dock.root_file_changed.connect(self.fieldstool_dock.set_root_path)
+        self.root_metadata_dock.root_changed.connect(self.fieldstool_dock.set_root_path)
         # log_file: (Config.log_file, root-file top-level key) — 2026-08-06,
         # found live: Denis had it set in root.yaml already, assumed
         # (reasonably) it already covered GUI runs too, but the GUI's own
@@ -169,23 +186,23 @@ class DockHub:
         # at all — only kicadstamp_cli.py's `apply` command honored it (see
         # cli_common.peek_log_file). Reused here so a project's log_file:
         # covers the GUI too, not just the CLI.
-        self.config_tree_dock.root_file_changed.connect(self._on_root_file_changed_for_logging)
-        # ConfigTreeDock's own _restore_last_root() runs inside ITS __init__
-        # (gui/docks/config_tree.py), which happens before this dock even
-        # exists — so the very first root_file_changed emit (if a root was
-        # restored on startup) fires into the void, before the connect()
-        # above. Sync explicitly with whatever value is already current, or
-        # a restored project silently opens with the Project panel showing
-        # "No root file open" (found live, 2026-08-05) / Rules' Cell combo
-        # empty.
-        self.root_metadata_dock.set_target_file(self.config_tree_dock.root_path)
-        self.rules_dock.set_root_path(self.config_tree_dock.root_path)
-        self.placer_dock.set_root_path(self.config_tree_dock.root_path)
-        self.thermal_via_dock.set_root_path(self.config_tree_dock.root_path)
-        self.cells_dock.set_root_path(self.config_tree_dock.root_path)
-        self.extract_dock.set_root_path(self.config_tree_dock.root_path)
-        self.fieldstool_dock.set_root_path(self.config_tree_dock.root_path)
-        self._on_root_file_changed_for_logging(self.config_tree_dock.root_path)
+        self.root_metadata_dock.root_changed.connect(self._on_root_file_changed_for_logging)
+        # RootMetadataDock's own _restore_last_root() runs inside ITS
+        # __init__ (gui/docks/root_metadata.py), which happens before
+        # THIS wiring exists — so the very first root_changed emit (if a
+        # root was restored on startup) fires into the void, before the
+        # connect() above. Sync explicitly with whatever value is already
+        # current, or a restored project silently opens with the Config
+        # tree empty / Rules' Cell combo empty (found live 2026-08-05 for
+        # the equivalent ConfigTreeDock-owned case this mirrors).
+        self.config_tree_dock.set_root_file(self.root_metadata_dock.root_path)
+        self.rules_dock.set_root_path(self.root_metadata_dock.root_path)
+        self.placer_dock.set_root_path(self.root_metadata_dock.root_path)
+        self.thermal_via_dock.set_root_path(self.root_metadata_dock.root_path)
+        self.cells_dock.set_root_path(self.root_metadata_dock.root_path)
+        self.extract_dock.set_root_path(self.root_metadata_dock.root_path)
+        self.fieldstool_dock.set_root_path(self.root_metadata_dock.root_path)
+        self._on_root_file_changed_for_logging(self.root_metadata_dock.root_path)
         # file_selected fires BEFORE the more specific cell_picked/
         # placement_picked/profile_picked signal on a leaf click (see
         # config_tree.py's _on_clicked) — so this fallback runs first and

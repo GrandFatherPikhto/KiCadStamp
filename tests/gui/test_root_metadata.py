@@ -1,7 +1,19 @@
 # tests/gui/test_root_metadata.py
 import yaml
 
+import gui.docks.root_metadata as root_metadata_mod
+from gui import settings
 from gui.docks.root_metadata import RootMetadataDock
+
+MINIMAL_CELL = """
+cells:
+  one_role:
+    components:
+      - role: THE_ROLE
+        offset_along_mm: 0.0
+        offset_across_mm: 0.0
+        angle_deg: 0.0
+"""
 
 
 def _write_yaml(path, data) -> None:
@@ -10,6 +22,194 @@ def _write_yaml(path, data) -> None:
 
 def _read_yaml(path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+
+# ── Root ownership: Open/New/Recent/restore (moved here 2026-08-11 from
+# ConfigTreeDock, see gui/docks/root_metadata.py's module docstring) ───────
+
+def test_open_root_via_dialog_sets_root_and_remembers_it(main_window, tmp_path, monkeypatch):
+    root = tmp_path / "root.yaml"
+    root.write_text(MINIMAL_CELL, encoding="utf-8")
+
+    dock = RootMetadataDock(main_window)
+    monkeypatch.setattr(root_metadata_mod.QFileDialog, "getOpenFileName",
+                        staticmethod(lambda *a, **k: (str(root), "")))
+    dock._on_open_root()
+
+    assert dock._path == root
+    assert settings.state.get("last_root_file") == str(root)
+    assert settings.state.get("recent_root_files") == [str(root)]
+
+
+def test_open_root_dialog_cancelled_leaves_root_untouched(main_window, tmp_path, monkeypatch):
+    root = tmp_path / "root.yaml"
+    root.write_text(MINIMAL_CELL, encoding="utf-8")
+
+    dock = RootMetadataDock(main_window)
+    dock.set_root_file(root)
+
+    monkeypatch.setattr(root_metadata_mod.QFileDialog, "getOpenFileName",
+                        staticmethod(lambda *a, **k: ("", "")))
+    dock._on_open_root()
+
+    assert dock._path == root
+
+
+def test_new_root_creates_an_empty_file_and_opens_it(main_window, tmp_path, monkeypatch):
+    new_root = tmp_path / "brand_new.yaml"
+    assert not new_root.exists()
+
+    dock = RootMetadataDock(main_window)
+    monkeypatch.setattr(root_metadata_mod.QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (str(new_root), "")))
+    dock._on_new_root()
+
+    assert new_root.exists()
+    assert yaml.safe_load(new_root.read_text(encoding="utf-8")) == {}
+    assert dock._path == new_root
+
+
+def test_new_root_does_not_overwrite_an_existing_file(main_window, tmp_path, monkeypatch):
+    existing = tmp_path / "already_here.yaml"
+    existing.write_text(MINIMAL_CELL, encoding="utf-8")
+    before = existing.read_text(encoding="utf-8")
+
+    dock = RootMetadataDock(main_window)
+    monkeypatch.setattr(root_metadata_mod.QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (str(existing), "")))
+    dock._on_new_root()
+
+    assert existing.read_text(encoding="utf-8") == before
+    assert dock._path == existing
+
+
+def test_new_root_dialog_cancelled_leaves_root_untouched(main_window, tmp_path, monkeypatch):
+    root = tmp_path / "root.yaml"
+    root.write_text(MINIMAL_CELL, encoding="utf-8")
+
+    dock = RootMetadataDock(main_window)
+    dock.set_root_file(root)
+
+    monkeypatch.setattr(root_metadata_mod.QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: ("", "")))
+    dock._on_new_root()
+
+    assert dock._path == root
+
+
+def test_set_root_file_emits_root_changed(main_window, tmp_path):
+    """root_changed (moved here 2026-08-11, was ConfigTreeDock's own
+    root_file_changed) is the signal every other dock's set_root_path
+    listens to instead of file_selected — set_root_file() is its only
+    source, unlike file_selected which fires on every plain tree click too."""
+    root = tmp_path / "root.yaml"
+    root.write_text("cells: {}\n", encoding="utf-8")
+
+    dock = RootMetadataDock(main_window)
+    received = []
+    dock.root_changed.connect(received.append)
+
+    dock.set_root_file(root)
+    assert received == [root]
+
+    dock.set_root_file(None)
+    assert received == [root, None]
+
+
+def test_recent_list_most_recent_first_and_deduplicated(main_window, tmp_path):
+    a = tmp_path / "a.yaml"
+    b = tmp_path / "b.yaml"
+    a.write_text("cells: {}\n", encoding="utf-8")
+    b.write_text("cells: {}\n", encoding="utf-8")
+
+    dock = RootMetadataDock(main_window)
+    dock.set_root_file(a)
+    dock.set_root_file(b)
+    dock.set_root_file(a)  # re-opening a must move it back to front, not duplicate
+
+    assert settings.state.get("recent_root_files") == [str(a), str(b)]
+    assert dock.recent_combo.count() == 2
+    assert dock.recent_combo.itemData(0) == str(a)
+    assert dock.recent_combo.itemData(1) == str(b)
+
+
+def test_selecting_a_recent_entry_reopens_it(main_window, tmp_path):
+    a = tmp_path / "a.yaml"
+    a.write_text(MINIMAL_CELL, encoding="utf-8")
+
+    dock = RootMetadataDock(main_window)
+    dock.set_root_file(a)
+    dock.set_root_file(None)
+
+    dock._on_recent_selected(0)  # only entry: a.yaml
+
+    assert dock._path == a
+
+
+def test_restores_last_root_file_on_construction(main_window, tmp_path):
+    root = tmp_path / "root.yaml"
+    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    settings.state.set("last_root_file", str(root))
+
+    dock = RootMetadataDock(main_window)
+
+    assert dock._path == root
+
+
+# ── Working file combobox (2026-08-11) — deliberately separate from Root,
+# see module docstring ──────────────────────────────────────────────────
+
+def test_working_file_choices_come_from_the_whole_include_graph(main_window, tmp_path):
+    root = tmp_path / "root.yaml"
+    included = tmp_path / "power.yaml"
+    root.write_text("include:\n  - power.yaml\n", encoding="utf-8")
+    included.write_text("cells: {}\n", encoding="utf-8")
+
+    dock = RootMetadataDock(main_window)
+    dock.set_root_file(root)
+
+    choices = {dock.working_file_combo.itemData(i)
+               for i in range(dock.working_file_combo.count())}
+    assert choices == {str(root), str(included)}
+
+
+def test_picking_a_working_file_emits_working_file_changed(main_window, tmp_path):
+    root = tmp_path / "root.yaml"
+    included = tmp_path / "power.yaml"
+    root.write_text("include:\n  - power.yaml\n", encoding="utf-8")
+    included.write_text("cells: {}\n", encoding="utf-8")
+
+    dock = RootMetadataDock(main_window)
+    dock.set_root_file(root)
+    received = []
+    dock.working_file_changed.connect(received.append)
+
+    idx = dock.working_file_combo.findData(str(included))
+    dock.working_file_combo.setCurrentIndex(idx)
+    dock._on_working_file_combo_changed(idx)
+
+    assert received == [included]
+
+
+def test_tree_click_updates_the_combo_without_emitting_working_file_changed(main_window, tmp_path):
+    """set_working_file_from_tree (wired to ConfigTreeDock's file_selected,
+    see gui/dock_hub.py) mirrors the tree's own selection into the combo's
+    DISPLAY only — it must not re-emit working_file_changed, since the tree
+    already drives every entity dock directly."""
+    root = tmp_path / "root.yaml"
+    included = tmp_path / "power.yaml"
+    root.write_text("include:\n  - power.yaml\n", encoding="utf-8")
+    included.write_text("cells: {}\n", encoding="utf-8")
+
+    dock = RootMetadataDock(main_window)
+    dock.set_root_file(root)
+    received = []
+    dock.working_file_changed.connect(received.append)
+
+    dock.set_working_file_from_tree(included)
+
+    assert received == []
+    assert dock.working_file_combo.currentData() == str(included)
 
 
 def test_no_file_picked_shows_placeholder_and_defaults(main_window):

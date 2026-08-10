@@ -420,7 +420,7 @@ class CellDock(QWidget):
             else _("No file picked (pick one in the Config tree)"))
 
     def set_root_path(self, path: Optional[Path]) -> None:
-        """Wired to ConfigTreeDock's root_file_changed — the Nested cells
+        """Wired to RootMetadataDock's root_changed — the Nested cells
         tab's Cell combo is sourced from the WHOLE include graph (same
         reasoning as RuleDock's spoke.cell combo), not just this dock's own
         target file (a nested cell routinely lives in a different file)."""

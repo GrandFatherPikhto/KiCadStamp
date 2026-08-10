@@ -41,7 +41,7 @@ mirroring load_clone_placement's existing public/private split).
 
 anchor_point IS autocompleted (added 2026-08-06, Denis: "думаю имена
 Points тоже надо делать выпадашкой с именами") — set_root_path(), wired to
-ConfigTreeDock's root_file_changed same as RuleDock's/PlacerDock's own,
+RootMetadataDock's root_changed same as RuleDock's/PlacerDock's own,
 sources the combo from the WHOLE include graph via
 collect_all_point_names(), not just this dock's own target file.
 """
@@ -180,7 +180,7 @@ class ThermalViaArrayDock(QWidget):
             else _("No file picked (pick one in the Config tree)"))
 
     def set_root_path(self, path: Optional[Path]) -> None:
-        """Wired to ConfigTreeDock's root_file_changed — the Point combo is
+        """Wired to RootMetadataDock's root_changed — the Point combo is
         sourced from the WHOLE include graph (a Point routinely lives in a
         different file than the thermal_via_arrays entry referencing it),
         same reasoning/pattern as RuleDock's/PlacerDock's own set_root_path."""

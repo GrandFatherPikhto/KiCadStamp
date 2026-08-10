@@ -46,8 +46,8 @@ own anchor AND has no per-spoke equivalent — spokes anchor to a pad on
 THIS rule's own anchor, never to an arbitrary point) is populated the same
 whole-graph way via collect_all_point_names(). Both need the PROJECT's
 root path, not this dock's own target file (which follows file_selected
-like Placer/ThermalVia) — set_root_path() is wired to ConfigTreeDock's
-root_file_changed, the same second file-dependency Points' own docstring
+like Placer/ThermalVia) — set_root_path() is wired to RootMetadataDock's
+root_changed, the same second file-dependency Points' own docstring
 flagged and deferred; here it's wired up front since the combo was
 explicitly requested.
 
@@ -270,7 +270,7 @@ class RuleDock(QWidget):
             else _("No file picked (pick one in the Config tree)"))
 
     def set_root_path(self, path: Optional[Path]) -> None:
-        """Wired to ConfigTreeDock's root_file_changed — the Cell/Point
+        """Wired to RootMetadataDock's root_changed — the Cell/Point
         combos are sourced from the WHOLE include graph (see module
         docstring), which needs the project's root, not this dock's own
         target file."""

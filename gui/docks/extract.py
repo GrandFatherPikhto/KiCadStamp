@@ -411,7 +411,7 @@ class ExtractDock(QWidget):
         set_combo_items(self.origin_via_net_combo, via_nets)
 
     def set_root_path(self, path: Optional[Path]) -> None:
-        """Wired to ConfigTreeDock's root_file_changed — populates
+        """Wired to RootMetadataDock's root_changed — populates
         target_file_combo/profile_file_combo from every file reachable via
         include: from the project root (same collect_graph_files()
         gui/docks/rename.py's own renaming uses), same pattern as

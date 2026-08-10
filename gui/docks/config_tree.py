@@ -4,13 +4,20 @@ ConfigTreeDock — one tree mirroring the actual include: file graph from a
 single root config file (2026-08-03, GUI tree roadmap Этап 1/2 — see
 techdocs/handoff/handoff_2026_08_03_gui_tree_risks_resolved.md and the
 2026-08-03 config-architecture-brainstorm session). Root = the ONE file
-carrying metadata. Picked via "Open Root file..." (a plain QFileDialog, no
-directory browser), "New Root file..." (Save-mode dialog, creates an empty
-{} file — added 2026-08-03, "А мы можем создавать root-файл?") + a Recent
-dropdown — replaces FilePickerDock entirely
-(removed same day: "Да не хочу я файл-пикер"), which used to offer a
-QFileSystemModel directory browser plus three independent "role" slots
-(Cells/Extractor/Placer) other docks read their target file from.
+carrying metadata — replaces FilePickerDock entirely (removed same day:
+"Да не хочу я файл-пикер"), which used to offer a QFileSystemModel
+directory browser plus three independent "role" slots (Cells/Extractor/
+Placer) other docks read their target file from.
+
+Root OWNERSHIP (Open/New Root file.../Recent dropdown, persisted-recent-
+list, restore-on-startup) moved to RootMetadataDock 2026-08-11 (Denis:
+"'Открыть корневой файл' и 'Новый корневой файл'... тоже на док проект",
+"И 'Недавние' туда же" — see gui/docks/root_metadata.py's module
+docstring for the full reasoning). This dock is now a plain SUBSCRIBER:
+set_root_file() just rebuilds the tree from whatever path it's given,
+root_path is read-only informational, and there is no root_file_changed
+signal here anymore — RootMetadataDock's own root_changed is the source
+every other dock listens to (see gui/dock_hub.py).
 
 Each file node shows its own directly declared entities (grouped by
 section) as leaves, plus its own include: children as nested file nodes,
@@ -94,27 +101,19 @@ from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QDockWidget, QFileDialog, QHBoxLayout,
-                              QInputDialog, QLabel, QMenu, QMessageBox, QPushButton, QTreeWidget,
+from PyQt6.QtWidgets import (QAbstractItemView, QDockWidget, QFileDialog,
+                              QInputDialog, QMenu, QMessageBox, QTreeWidget,
                               QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from kicadstamp.config.includes import IncludeTreeNode, walk_include_tree
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
 
-from .. import settings, yaml_io
+from .. import yaml_io
 from ._common import add_include, disable_include, display_path, non_includable_keys
 from .entity_delete import delete_entry, find_references
 from .entity_export import ExportItem, export_entries
 from .rename import CASCADE_FIELD, collect_graph_files, rename_entry
-
-# Recent root files, most-recent-first, capped at this many entries — same
-# "remember a handful of recently used paths" idea FilePickerDock's
-# last_picked_path had, just for the root file specifically and with more
-# than one remembered (Этап 2 roadmap: "список Recent (не только
-# последний открытый») — потому что на реальной плате несколько
-# независимых root-файлов, между которыми реально переключаются").
-_RECENT_LIMIT = 10
 
 # Display label per recognized section, in the order shown under a file
 # node. Order matches config/includes.py's _LIST_SECTIONS + _DICT_SECTIONS.
@@ -188,16 +187,6 @@ class ConfigTreeDock(QDockWidget):
     # see module docstring for why this replaces the three independent
     # FilePickerDock role signals.
     file_selected = pyqtSignal(object)
-    # Fired only when the ROOT itself changes (Open/New/Recent/restore-on-
-    # startup — set_root_file()'s every caller) — there is exactly ONE root
-    # per project (Denis, 2026-08-05: "root-панель должна читать/хранить/
-    # править настройки текущего проекта, независимо от того, выбран узел
-    # root или нет"), so RootMetadataDock listens to this instead of
-    # file_selected: browsing into an included file must NOT retarget it at
-    # that file's own root-only keys (which may be nonsensical there — see
-    # root_metadata.py's own docstring on non-root files sharing the field
-    # set), it always keeps editing the project's actual root file.
-    root_file_changed = pyqtSignal(object)
 
     def __init__(self, main_window):
         super().__init__(_("Config"), main_window)
@@ -207,23 +196,6 @@ class ConfigTreeDock(QDockWidget):
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(4, 4, 4, 4)
-
-        open_row = QHBoxLayout()
-        open_button = QPushButton(_("Open Root file..."))
-        open_button.clicked.connect(self._on_open_root)
-        open_row.addWidget(open_button)
-        new_button = QPushButton(_("New Root file..."))
-        new_button.clicked.connect(self._on_new_root)
-        open_row.addWidget(new_button)
-        self.recent_combo = QComboBox()
-        self.recent_combo.setPlaceholderText(_("Recent..."))
-        self.recent_combo.activated.connect(self._on_recent_selected)
-        open_row.addWidget(self.recent_combo, 1)
-        layout.addLayout(open_row)
-
-        self.root_label = QLabel(_("No root file open"))
-        self.root_label.setWordWrap(True)
-        layout.addWidget(self.root_label)
 
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
@@ -240,79 +212,24 @@ class ConfigTreeDock(QDockWidget):
 
         self.setWidget(container)
 
-        self._reload_recent_combo()
-        self._restore_last_root()
-
-    # ── Opening a root file (replaces FilePickerDock entirely) ─────────
-
-    def _on_open_root(self) -> None:
-        chosen, _filter = QFileDialog.getOpenFileName(
-            self, _("Open Root file"), str(self._root_path.parent if self._root_path else ""),
-            "YAML files (*.yaml *.yml)")
-        if not chosen:
-            return
-        self.set_root_file(Path(chosen))
-
-    def _on_new_root(self) -> None:
-        """Save-mode dialog (not Open) lets a not-yet-existing filename be
-        typed, same reasoning as _add_included_file's own Save-mode dialog
-        ("если включаем файл, его может реально и не быть") — a brand new
-        root starts out as an empty, perfectly valid config (every Config
-        field is optional/defaulted)."""
-        chosen, _filter = QFileDialog.getSaveFileName(
-            self, _("New Root file"), str(self._root_path.parent if self._root_path else ""),
-            "YAML files (*.yaml *.yml)")
-        if not chosen:
-            return
-        chosen_path = Path(chosen)
-        if not chosen_path.exists():
-            chosen_path.write_text("{}\n", encoding="utf-8")
-        self.set_root_file(chosen_path)
-
-    def _on_recent_selected(self, index: int) -> None:
-        path_str = self.recent_combo.itemData(index)
-        if path_str:
-            self.set_root_file(Path(path_str))
-
-    def _remember_recent(self, path: Path) -> None:
-        recent = [p for p in settings.state.get("recent_root_files", []) if p != str(path)]
-        recent.insert(0, str(path))
-        settings.state.set("recent_root_files", recent[:_RECENT_LIMIT])
-        settings.state.set("last_root_file", str(path))
-        self._reload_recent_combo()
-
-    def _reload_recent_combo(self) -> None:
-        self.recent_combo.blockSignals(True)
-        self.recent_combo.clear()
-        for path_str in settings.state.get("recent_root_files", []):
-            self.recent_combo.addItem(display_path(Path(path_str)), path_str)
-        self.recent_combo.setCurrentIndex(-1)
-        self.recent_combo.blockSignals(False)
-
-    def _restore_last_root(self) -> None:
-        last = settings.state.get("last_root_file")
-        if last and Path(last).is_file():
-            self.set_root_file(Path(last))
-
     # ── Setting/refreshing the root ─────────────────────────────────────
 
     @property
     def root_path(self) -> Optional[Path]:
-        """Current root file, if any — lets a late-connecting listener
-        (DockHub._wire(), see gui/dock_hub.py) pick up a value that was
-        already set by _restore_last_root() during __init__, i.e. BEFORE
-        root_file_changed had any listeners at all."""
+        """Current root file, if any — informational only now (root
+        OWNERSHIP moved to RootMetadataDock 2026-08-11, see module
+        docstring); this dock's own operations (rename/delete/export/Add
+        included file) still need it directly, since they resolve paths
+        relative to the graph root."""
         return self._root_path
 
     def set_root_file(self, path: Optional[Path]) -> None:
+        """Slot — the project's root changed (RootMetadataDock.root_changed,
+        wired in gui/dock_hub.py). Just rebuilds the tree; no longer the
+        SOURCE of this event (used to also persist recent-list state and
+        emit its own root_file_changed before the 2026-08-11 move)."""
         self._root_path = path
-        if path is not None:
-            self.root_label.setText(display_path(path))
-            self._remember_recent(path)
-        else:
-            self.root_label.setText(_("No root file open"))
         self.refresh()
-        self.root_file_changed.emit(path)
 
     def refresh(self) -> None:
         """Public — also called by PlacerDock's saved signal (see

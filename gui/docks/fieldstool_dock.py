@@ -103,7 +103,7 @@ class FieldsToolDock(QDockWidget):
         self.window.set_connection_status(error)
 
     def set_root_path(self, path: Optional[Path]) -> None:
-        """Wired to ConfigTreeDock's root_file_changed, same pattern as
+        """Wired to RootMetadataDock's root_changed, same pattern as
         rules_dock/placer_dock/etc.'s own set_root_path — reads root_sheet
         straight out of the raw YAML (same read RootMetadataDock's own
         _populate() uses) rather than going through the full config.loader

@@ -233,7 +233,7 @@ class MainWindow(QMainWindow):
 
     def set_project_root_sheet(self, path: Optional[Path]) -> None:
         """Public — wired to FieldsToolDock.set_root_path, itself wired to
-        ConfigTreeDock's root_file_changed (see gui/dock_hub.py). path is the
+        RootMetadataDock's root_changed (see gui/dock_hub.py). path is the
         current root config's root_sheet field, already resolved to an
         absolute path, or None if that file has no root_sheet set (an old
         profile that hasn't adopted the field yet, or no project open).
