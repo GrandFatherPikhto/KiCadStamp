@@ -21,31 +21,35 @@ def test_pages_are_the_expected_panel_types(main_window):
     assert dock.stack.count() == 7
 
 
-def test_extract_tab_is_shown_first(main_window):
+def test_project_tab_is_shown_first(main_window):
+    """Project first (2026-08-11, Denis: "сделай док Проект первым. А то
+    он не понятно, где стоит") — the control-tower panel (root ownership +
+    Working file combobox, see gui/docks/root_metadata.py) is also the tab
+    shown by default on startup."""
     dock = DetailDock(main_window)
     assert dock.tab_bar.currentIndex() == 0
-    assert dock.stack.currentWidget() is dock.extract_panel
+    assert dock.stack.currentWidget() is dock.root_panel
 
 
 def test_show_placer_switches_tab_and_stack(main_window):
     dock = DetailDock(main_window)
     dock.show_placer()
-    assert dock.tab_bar.currentIndex() == 1
+    assert dock.tab_bar.currentIndex() == 2
     assert dock.stack.currentWidget() is dock.placer_panel
 
 
 def test_show_root_switches_tab_and_stack(main_window):
     dock = DetailDock(main_window)
     dock.show_root()
-    assert dock.tab_bar.currentIndex() == 2
+    assert dock.tab_bar.currentIndex() == 0
     assert dock.stack.currentWidget() is dock.root_panel
 
 
 def test_show_extract_switches_back(main_window):
     dock = DetailDock(main_window)
-    dock.show_root()
+    dock.show_placer()
     dock.show_extract()
-    assert dock.tab_bar.currentIndex() == 0
+    assert dock.tab_bar.currentIndex() == 1
     assert dock.stack.currentWidget() is dock.extract_panel
 
 
@@ -56,7 +60,7 @@ def test_manually_clicking_a_tab_switches_the_stack(main_window):
     click)."""
     dock = DetailDock(main_window)
     dock.tab_bar.setCurrentIndex(2)
-    assert dock.stack.currentWidget() is dock.root_panel
+    assert dock.stack.currentWidget() is dock.placer_panel
 
 
 def test_show_thermal_via_switches_tab_and_stack(main_window):

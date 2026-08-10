@@ -59,7 +59,7 @@ from .root_metadata import RootMetadataDock
 from .rules import RuleDock
 from .thermal_via import ThermalViaArrayDock
 
-_EXTRACT, _PLACER, _ROOT, _THERMAL_VIA, _POINTS, _RULES, _CELLS = range(7)
+_ROOT, _EXTRACT, _PLACER, _THERMAL_VIA, _POINTS, _RULES, _CELLS = range(7)
 
 
 class DetailDock(QDockWidget):
@@ -71,15 +71,19 @@ class DetailDock(QDockWidget):
         layout.setContentsMargins(4, 4, 4, 4)
 
         self.tab_bar = QTabBar()
+        # Project first (2026-08-11, Denis: "сделай док Проект первым. А то
+        # он не понятно, где стоит") — it's the control tower now (root
+        # ownership + Working file combobox, see gui/docks/root_metadata.py's
+        # module docstring), so it's also the tab shown by default on
+        # startup (QTabBar's own currentIndex defaults to whatever was
+        # added first). Displayed as "Project" (2026-08-05, Denis: "давай не
+        # root, а project") — the underlying panel is still
+        # RootMetadataDock/root_metadata_dock/show_root() (root_panel here
+        # below): "root" remains the correct internal term (it edits the
+        # project's ROOT config file), only the user-facing label changed.
+        self.tab_bar.addTab(_("Project"))
         self.tab_bar.addTab(_("Extract"))
         self.tab_bar.addTab(_("Placer"))
-        # Displayed as "Project" (2026-08-05, Denis: "давай не root, а
-        # project") — the underlying panel is still RootMetadataDock/
-        # root_metadata_dock/show_root() (root_panel here below): "root"
-        # remains the correct internal term (it edits the project's ROOT
-        # config file, same concept ConfigTreeDock's "Open Root file..."
-        # uses), only the user-facing label changed.
-        self.tab_bar.addTab(_("Project"))
         self.tab_bar.addTab(_("Thermal via"))
         self.tab_bar.addTab(_("Points"))
         self.tab_bar.addTab(_("Rules"))
@@ -87,16 +91,16 @@ class DetailDock(QDockWidget):
         layout.addWidget(self.tab_bar)
 
         self.stack = QStackedWidget()
+        self.root_panel = RootMetadataDock(main_window)
         self.extract_panel = ExtractDock(main_window, connection=connection)
         self.placer_panel = PlacerDock(main_window)
-        self.root_panel = RootMetadataDock(main_window)
         self.thermal_via_panel = ThermalViaArrayDock(main_window)
         self.points_panel = PointsDock(main_window, connection=connection)
         self.rules_panel = RuleDock(main_window)
         self.cells_panel = CellDock(main_window)
+        self.stack.addWidget(self.root_panel)
         self.stack.addWidget(self.extract_panel)
         self.stack.addWidget(self.placer_panel)
-        self.stack.addWidget(self.root_panel)
         self.stack.addWidget(self.thermal_via_panel)
         self.stack.addWidget(self.points_panel)
         self.stack.addWidget(self.rules_panel)
