@@ -6,6 +6,8 @@ pynng socket (see KiCadBoardAdapter.close()'s docstring for the native-crash
 motivation: a silent Windows access violation with no Python frame on the
 crashing thread, found live after many reconnects in one long-lived GUI
 session)."""
+import threading
+import time
 from unittest.mock import MagicMock, patch
 
 from gui.connection import BoardConnection
@@ -73,4 +75,28 @@ def test_connect_snapshot_failure_closes_the_adapter_and_drops_the_board():
 
     assert error == "select failed"
     new_board.adapter.close.assert_called_once()
+    assert connection.board is None
+
+
+def test_connect_times_out_instead_of_hanging_forever():
+    """2026-08-11: found live via py-spy — kipy's own pynng dial (inside
+    Board.connect(), block_on_dial=True) can hang forever on a stale socket,
+    with no timeout knob of its own. BoardConnection.connect() must return an
+    error promptly instead of blocking its caller (the single long-lived
+    poll QThread — see gui/worker.py) forever."""
+    connection = BoardConnection(timeout_ms=50)
+
+    def _hangs_forever(timeout_ms):
+        # Simulates kipy's block_on_dial=True never returning.
+        threading.Event().wait()
+
+    with patch("gui.connection.Board.connect", side_effect=_hangs_forever):
+        start = time.monotonic()
+        error = connection.connect()
+        elapsed = time.monotonic() - start
+
+    assert error is not None
+    assert "did not return" in error
+    # Bounded by timeout_ms + grace, nowhere near "forever".
+    assert elapsed < 5.0
     assert connection.board is None

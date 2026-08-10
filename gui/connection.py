@@ -8,12 +8,63 @@ deliberate, retryable action polled from a QTimer, not something assumed to
 succeed once at startup.
 """
 import logging
+import threading
 from typing import List, Optional
 
 from kicadstamp.constants import DEFAULT_TIMEOUT_MS
 from kicadstamp.explore import Board, Selected
 
 logger = logging.getLogger(__name__)
+
+# Grace period added on top of timeout_ms before giving up on a connect
+# attempt — see _connect_with_timeout()'s docstring.
+_CONNECT_TIMEOUT_GRACE_S = 2.0
+
+
+def _connect_with_timeout(timeout_ms: int) -> Board:
+    """Board.connect() wrapped with an EXTERNAL timeout, run on a throwaway
+    daemon thread.
+
+    Found live 2026-08-11 via py-spy: kipy's own KiCadClient._connect()
+    (kipy/client.py) opens its pynng.Req0 socket with `block_on_dial=True` —
+    send_timeout/recv_timeout only bound message round-trips AFTER the dial
+    succeeds, not the dial itself. Against a stale/dead socket (e.g. a
+    previous KiCad instance's leftover pipe) this dial can block forever,
+    with no timeout knob exposed by kipy/pynng to bound it from inside.
+
+    That matters here specifically because the caller of connect() is
+    gui/main_window.py's _run_poll, dispatched onto the app's single
+    long-lived poll QThread (see gui/worker.py's PollWorkerHandle docstring,
+    2026-08-07 GIL/Qt-mutex deadlock fix) — if THAT call blocks forever, the
+    one poll worker thread every future tick depends on is wedged for the
+    rest of the process's life, showing a permanent "Not Connected" even
+    once KiCad is reachable again. Running the attempt on a separate daemon
+    thread and bounding the wait here means the poll worker always regains
+    control; a thread stuck in dial() forever is orphaned (Python can't kill
+    a thread) but harmless — daemon=True lets the process exit without
+    waiting on it, and each retry just risks leaking one more such thread,
+    not re-wedging the poll worker."""
+    result: list = []
+    error: list = []
+
+    def _run():
+        try:
+            result.append(Board.connect(timeout_ms=timeout_ms))
+        except Exception as e:
+            error.append(e)
+
+    thread = threading.Thread(target=_run, daemon=True, name="BoardConnection.connect")
+    thread.start()
+    thread.join(timeout=(timeout_ms / 1000.0) + _CONNECT_TIMEOUT_GRACE_S)
+    if thread.is_alive():
+        raise TimeoutError(
+            f"Board.connect() did not return within {timeout_ms}ms "
+            f"(+{_CONNECT_TIMEOUT_GRACE_S}s grace) — likely a hung kipy dial() "
+            f"on a stale socket"
+        )
+    if error:
+        raise error[0]
+    return result[0]
 
 
 class BoardConnection:
@@ -63,7 +114,10 @@ class BoardConnection:
         try/except at every call site."""
         self.disconnect()  # closes any stale board first — see its docstring
         try:
-            board = Board.connect(timeout_ms=self.timeout_ms)
+            board = _connect_with_timeout(self.timeout_ms)
+        except TimeoutError as e:
+            logger.warning("Connect timed out: %s", e)
+            return str(e)
         except Exception as e:
             logger.debug("Connect failed: %s", e)
             return str(e)
