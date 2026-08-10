@@ -84,15 +84,17 @@ def test_origin_mode_toggles_row_visibility(main_window, tmp_path):
         # isVisibleTo(dock) would also depend on the Origin tab being the
         # CURRENTLY SELECTED tab (2026-08-05: _anchor_row/_point_row moved
         # inside the tabbed Origin page) — checking against the row's own
-        # immediate parent isolates just _on_origin_mode_changed()'s own
+        # immediate parent isolates just AnchorOriginWidget's own
         # setVisible() toggle, independent of which tab happens to be up.
         return row.isVisibleTo(row.parentWidget())
 
+    origin = dock.origin_widget  # 2026-08-11: rows now live on the shared
+    # AnchorOriginWidget (gui/docks/_anchor_origin.py), not RuleDock itself.
     dock.origin_mode_combo.setCurrentIndex(0)
-    assert visible(dock._anchor_row) and not visible(dock._point_row)
+    assert visible(origin._anchor_row) and not visible(origin._point_row)
 
     dock.origin_mode_combo.setCurrentIndex(1)
-    assert visible(dock._point_row) and not visible(dock._anchor_row)
+    assert visible(origin._point_row) and not visible(origin._anchor_row)
 
 
 # ── Spokes table ──────────────────────────────────────────────────────────

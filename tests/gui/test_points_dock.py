@@ -150,21 +150,24 @@ def test_origin_mode_toggles_row_visibility(main_window, tmp_path):
     def visible(row):
         return row.isVisibleTo(dock)
 
+    # 2026-08-11: rows now live on the shared AnchorOriginWidget
+    # (gui/docks/_anchor_origin.py), not PointsDock itself.
+    origin = dock.origin_widget
     dock.origin_mode_combo.setCurrentIndex(0)
-    assert visible(dock._xy_row) and not visible(dock._anchor_row) and not visible(dock._point_row)
-    assert not visible(dock._shift_row)
+    assert visible(origin._xy_row) and not visible(origin._anchor_row) and not visible(origin._point_row)
+    assert not visible(origin._shift_row)
 
     dock.origin_mode_combo.setCurrentIndex(1)
-    assert visible(dock._anchor_row) and not visible(dock._xy_row)
-    assert visible(dock._shift_row)
+    assert visible(origin._anchor_row) and not visible(origin._xy_row)
+    assert visible(origin._shift_row)
 
     dock.origin_mode_combo.setCurrentIndex(2)
-    assert visible(dock._point_row) and not visible(dock._anchor_row)
-    assert visible(dock._shift_row)
+    assert visible(origin._point_row) and not visible(origin._anchor_row)
+    assert visible(origin._shift_row)
 
     dock.origin_mode_combo.setCurrentIndex(3)
-    assert visible(dock._board_origin_row) and not visible(dock._point_row)
-    assert visible(dock._shift_row)
+    assert visible(origin._board_origin_row) and not visible(origin._point_row)
+    assert visible(origin._shift_row)
 
 
 # ── Save ──────────────────────────────────────────────────────────────────

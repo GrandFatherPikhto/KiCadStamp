@@ -62,6 +62,7 @@ from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.i18n import _
 
 from ..worker import start_long_op
+from ._anchor_origin import AnchorOriginWidget
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       WARN_STYLE as _WARN_STYLE, configure_searchable, display_path,
                       set_combo_items, show_message, upsert_list_entry)
@@ -101,34 +102,16 @@ class ThermalViaArrayDock(QWidget):
         form.addRow(_("Name:"), self.name_edit)
         layout.addLayout(form)
 
-        anchor_mode_form = QFormLayout()
-        self.anchor_mode_combo = QComboBox()
-        self.anchor_mode_combo.addItems([_("Anchor (ref/role)"), _("Point")])
-        self.anchor_mode_combo.currentIndexChanged.connect(self._on_anchor_mode_changed)
-        anchor_mode_form.addRow(_("Origin:"), self.anchor_mode_combo)
-        layout.addLayout(anchor_mode_form)
-
-        self._anchor_row = QWidget()
-        anchor_form = QFormLayout(self._anchor_row)
-        anchor_form.setContentsMargins(0, 0, 0, 0)
-        self.anchor_ref_edit = QLineEdit()
-        self.anchor_ref_edit.setPlaceholderText(_("e.g. U3 (refdes — mostly avoided in this project)"))
-        anchor_form.addRow(_("Ref:"), self.anchor_ref_edit)
-        self.anchor_role_edit = QComboBox()
-        configure_searchable(self.anchor_role_edit)
-        anchor_form.addRow(_("Role:"), self.anchor_role_edit)
-        self.anchor_cluster_edit = QComboBox()
-        configure_searchable(self.anchor_cluster_edit)
-        anchor_form.addRow(_("Anchor cluster:"), self.anchor_cluster_edit)
-        layout.addWidget(self._anchor_row)
-
-        self._point_row = QWidget()
-        point_form = QFormLayout(self._point_row)
-        point_form.setContentsMargins(0, 0, 0, 0)
-        self.point_edit = QComboBox()
-        configure_searchable(self.point_edit)
-        point_form.addRow(_("Point:"), self.point_edit)
-        layout.addWidget(self._point_row)
+        self.origin_widget = AnchorOriginWidget(modes=["anchor", "point"], anchor_fields=["cluster"])
+        layout.addWidget(self.origin_widget)
+        # Aliases onto the shared widget's own sub-widgets — kept so
+        # existing tests/call sites that poke fields directly (e.g.
+        # dock.anchor_ref_edit.setText(...)) keep working unchanged.
+        self.anchor_mode_combo = self.origin_widget.origin_mode_combo
+        self.anchor_ref_edit = self.origin_widget.anchor_ref_edit
+        self.anchor_role_edit = self.origin_widget.anchor_role_edit
+        self.anchor_cluster_edit = self.origin_widget.anchor_cluster_edit
+        self.point_edit = self.origin_widget.point_edit
 
         pad_net_form = QFormLayout()
         self.pad_edit = QLineEdit()
@@ -187,7 +170,6 @@ class ThermalViaArrayDock(QWidget):
         layout.addWidget(self.message_label)
 
         layout.addStretch(1)
-        self._on_anchor_mode_changed()
 
     # ── Wiring from the Config tree ─────────────────────────────────────
 
@@ -207,7 +189,7 @@ class ThermalViaArrayDock(QWidget):
 
     def _refresh_point_names(self) -> None:
         names = collect_all_point_names(self._root_path) if self._root_path is not None else []
-        set_combo_items(self.point_edit, names)
+        self.origin_widget.set_point_names(names)
 
     def refresh_known_roles(self, snapshot) -> None:
         """Same "populate from the live board" pattern as PlacerDock's own
@@ -215,19 +197,11 @@ class ThermalViaArrayDock(QWidget):
         ~2s poll cadence."""
         roles = sorted({s.role for s in snapshot if s.role})
         clusters = sorted({s.cluster for s in snapshot if s.cluster})
-        set_combo_items(self.anchor_role_edit, roles)
-        set_combo_items(self.anchor_cluster_edit, clusters)
+        self.origin_widget.set_known_roles(roles, clusters)
 
     def refresh_known_nets(self, board) -> None:
         nets = sorted({n.name for n in board.adapter.get_all_nets() if n.name})
         set_combo_items(self.net_edit, nets)
-
-    # ── Origin UI ─────────────────────────────────────────────────────────
-
-    def _on_anchor_mode_changed(self) -> None:
-        mode = self.anchor_mode_combo.currentIndex()
-        self._anchor_row.setVisible(mode == 0)
-        self._point_row.setVisible(mode == 1)
 
     # ── Message helper ────────────────────────────────────────────────────
 
@@ -268,30 +242,19 @@ class ThermalViaArrayDock(QWidget):
 
         entry: Dict[str, Any] = {"name": name, "pad": pad}
 
-        mode = self.anchor_mode_combo.currentIndex()
-        if mode == 0:
-            ref = self.anchor_ref_edit.text().strip()
-            role = self.anchor_role_edit.currentText().strip()
-            cluster = self.anchor_cluster_edit.currentText().strip()
-            if not ref and not role:
-                self._show_message(_("Anchor: set Ref or Role."), _ERROR_STYLE)
-                return None
-            if ref and role:
-                self._show_message(_("Anchor: Ref and Role are mutually exclusive — set one."),
-                                    _ERROR_STYLE)
-                return None
-            if ref:
-                entry["anchor_ref"] = ref
+        origin_fields, err = self.origin_widget.build()
+        if err:
+            self._show_message(err, _ERROR_STYLE)
+            return None
+        if origin_fields["mode"] == "anchor":
+            if "ref" in origin_fields:
+                entry["anchor_ref"] = origin_fields["ref"]
             else:
-                entry["anchor_role"] = role
-            if cluster:
-                entry["anchor_cluster"] = cluster
+                entry["anchor_role"] = origin_fields["role"]
+            if "cluster" in origin_fields:
+                entry["anchor_cluster"] = origin_fields["cluster"]
         else:  # Point
-            point = self.point_edit.currentText().strip()
-            if not point:
-                self._show_message(_("Point: name is required."), _ERROR_STYLE)
-                return None
-            entry["anchor_point"] = point
+            entry["anchor_point"] = origin_fields["point"]
 
         net = self.net_edit.currentText().strip()
         if net:
@@ -446,12 +409,7 @@ class ThermalViaArrayDock(QWidget):
         straight to YAML, same reasoning as PlacerDock.new_placement()."""
         self._path = path
         self.name_edit.setText("")
-        self.anchor_mode_combo.setCurrentIndex(0)
-        self._on_anchor_mode_changed()
-        self.anchor_ref_edit.setText("")
-        self.anchor_role_edit.setCurrentText("")
-        self.anchor_cluster_edit.setCurrentText("")
-        self.point_edit.setCurrentText("")
+        self.origin_widget.clear()
         self.pad_edit.setText("")
         self.net_edit.setCurrentText("GND")
         self.rows_edit.setText("")
@@ -476,14 +434,12 @@ class ThermalViaArrayDock(QWidget):
         self.net_edit.setCurrentText(str(entry.get("net", "GND")))
 
         if "anchor_point" in entry:
-            self.anchor_mode_combo.setCurrentIndex(1)
-            self.point_edit.setCurrentText(str(entry["anchor_point"]))
+            self.origin_widget.load(mode="point", point=str(entry["anchor_point"]))
         else:
-            self.anchor_mode_combo.setCurrentIndex(0)
-            self.anchor_ref_edit.setText(str(entry.get("anchor_ref", "")))
-            self.anchor_role_edit.setCurrentText(str(entry.get("anchor_role", "")))
-            self.anchor_cluster_edit.setCurrentText(str(entry.get("anchor_cluster", "")))
-        self._on_anchor_mode_changed()
+            self.origin_widget.load(
+                mode="anchor", ref=str(entry.get("anchor_ref", "")),
+                role=str(entry.get("anchor_role", "")),
+                cluster=str(entry.get("anchor_cluster", "")))
 
         self.rows_edit.setText(str(entry.get("rows", 4)))
         self.cols_edit.setText(str(entry.get("cols", 4)))

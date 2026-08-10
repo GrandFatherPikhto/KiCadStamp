@@ -121,6 +121,7 @@ from kicadstamp.placement.planner import PlacementPlanner
 from .. import yaml_io
 from ..ui_utils import busy
 from ..worker import start_long_op
+from ._anchor_origin import AnchorOriginWidget
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       WARN_STYLE as _WARN_STYLE, configure_searchable, display_path,
                       set_combo_items, show_message, upsert_clone_placement)
@@ -371,63 +372,26 @@ class PlacerDock(QWidget):
 
         origin_page = QWidget()
         origin_page_layout = QVBoxLayout(origin_page)
-        origin_form = QFormLayout()
-        self.origin_mode_combo = QComboBox()
-        self.origin_mode_combo.addItems([_("Absolute XY"), _("Anchor (ref/role)"), _("Point")])
-        self.origin_mode_combo.currentIndexChanged.connect(self._on_origin_mode_changed)
-        origin_form.addRow(_("Origin:"), self.origin_mode_combo)
-        origin_page_layout.addLayout(origin_form)
-
-        self._xy_row = QWidget()
-        xy_row = QHBoxLayout(self._xy_row)
-        xy_row.setContentsMargins(0, 0, 0, 0)
-        self.x_edit = QLineEdit()
-        self.x_edit.setPlaceholderText(_("X mm"))
-        self.y_edit = QLineEdit()
-        self.y_edit.setPlaceholderText(_("Y mm"))
-        xy_row.addWidget(QLabel(_("X:")))
-        xy_row.addWidget(self.x_edit)
-        xy_row.addWidget(QLabel(_("Y:")))
-        xy_row.addWidget(self.y_edit)
-        origin_page_layout.addWidget(self._xy_row)
-
-        self._anchor_row = QWidget()
-        anchor_form = QFormLayout(self._anchor_row)
-        anchor_form.setContentsMargins(0, 0, 0, 0)
-        self.anchor_ref_edit = QLineEdit()
-        self.anchor_ref_edit.setPlaceholderText(_("e.g. U3 (refdes — mostly avoided in this project)"))
-        anchor_form.addRow(_("Ref:"), self.anchor_ref_edit)
-        self.anchor_role_edit = QComboBox()
-        configure_searchable(self.anchor_role_edit)
-        anchor_form.addRow(_("Role:"), self.anchor_role_edit)
-        self.anchor_pad_edit = QLineEdit()
-        self.anchor_pad_edit.setPlaceholderText(_("pad (optional)"))
-        anchor_form.addRow(_("Pad:"), self.anchor_pad_edit)
-        self.anchor_cluster_edit = QComboBox()
-        configure_searchable(self.anchor_cluster_edit)
-        anchor_form.addRow(_("Anchor cluster:"), self.anchor_cluster_edit)
-        origin_page_layout.addWidget(self._anchor_row)
-
-        self._point_row = QWidget()
-        point_form = QFormLayout(self._point_row)
-        point_form.setContentsMargins(0, 0, 0, 0)
-        self.point_edit = QComboBox()
-        configure_searchable(self.point_edit)
-        point_form.addRow(_("Point:"), self.point_edit)
-        origin_page_layout.addWidget(self._point_row)
-
-        self._shift_row = QWidget()
-        shift_row = QHBoxLayout(self._shift_row)
-        shift_row.setContentsMargins(0, 0, 0, 0)
-        self.shift_x_edit = QLineEdit()
-        self.shift_x_edit.setPlaceholderText(_("shift X mm (0)"))
-        self.shift_y_edit = QLineEdit()
-        self.shift_y_edit.setPlaceholderText(_("shift Y mm (0)"))
-        shift_row.addWidget(QLabel(_("Shift X:")))
-        shift_row.addWidget(self.shift_x_edit)
-        shift_row.addWidget(QLabel(_("Shift Y:")))
-        shift_row.addWidget(self.shift_y_edit)
-        origin_page_layout.addWidget(self._shift_row)
+        # shift=True here even though ClonePlacement has no separate shift
+        # fields of its own — Anchor/Point mode reuse entry["xy"] itself to
+        # carry the shift (see _build_entry_dict below), a ClonePlacement-
+        # only quirk the shared widget deliberately stays ignorant of (see
+        # gui/docks/_anchor_origin.py's module docstring).
+        self.origin_widget = AnchorOriginWidget(
+            modes=["xy", "anchor", "point"], anchor_fields=["pad", "cluster"], shift=True)
+        origin_page_layout.addWidget(self.origin_widget)
+        # Aliases onto the shared widget's own sub-widgets — kept so
+        # existing tests/call sites that poke fields directly keep working.
+        self.origin_mode_combo = self.origin_widget.origin_mode_combo
+        self.x_edit = self.origin_widget.x_edit
+        self.y_edit = self.origin_widget.y_edit
+        self.anchor_ref_edit = self.origin_widget.anchor_ref_edit
+        self.anchor_role_edit = self.origin_widget.anchor_role_edit
+        self.anchor_pad_edit = self.origin_widget.anchor_pad_edit
+        self.anchor_cluster_edit = self.origin_widget.anchor_cluster_edit
+        self.point_edit = self.origin_widget.point_edit
+        self.shift_x_edit = self.origin_widget.shift_x_edit
+        self.shift_y_edit = self.origin_widget.shift_y_edit
 
         extra_form = QFormLayout()
         self.rotation_edit = QLineEdit()
@@ -455,7 +419,6 @@ class PlacerDock(QWidget):
         self.message_label.setWordWrap(True)
         layout.addWidget(self.message_label)
 
-        self._on_origin_mode_changed()
         self._on_cell_mode_changed()
 
     # ── Cell/Role source toggle ──────────────────────────────────────────
@@ -533,7 +496,7 @@ class PlacerDock(QWidget):
 
     def _refresh_point_names(self) -> None:
         names = collect_all_point_names(self._root_path) if self._root_path is not None else []
-        set_combo_items(self.point_edit, names)
+        self.origin_widget.set_point_names(names)
 
     def set_selected_cell(self, name: str) -> None:
         """Shared entry point for picking a Cell — called both by
@@ -583,8 +546,7 @@ class PlacerDock(QWidget):
         roles = sorted({s.role for s in snapshot if s.role})
         clusters = sorted({s.cluster for s in snapshot if s.cluster})
         set_combo_items(self.cluster_edit, clusters)
-        set_combo_items(self.anchor_role_edit, roles)
-        set_combo_items(self.anchor_cluster_edit, clusters)
+        self.origin_widget.set_known_roles(roles, clusters)
         set_combo_items(self.place_role_edit, roles)
         set_combo_items(self.place_cluster_edit, clusters)
 
@@ -653,15 +615,6 @@ class PlacerDock(QWidget):
             found |= set(_PLACEHOLDER_RE.findall(node))
         return found
 
-    # ── Origin UI ─────────────────────────────────────────────────────────
-
-    def _on_origin_mode_changed(self) -> None:
-        mode = self.origin_mode_combo.currentIndex()
-        self._xy_row.setVisible(mode == 0)
-        self._anchor_row.setVisible(mode == 1)
-        self._point_row.setVisible(mode == 2)
-        self._shift_row.setVisible(mode in (1, 2))
-
     # ── Message helper (same shape as ExtractDock's) ────────────────────────
 
     def _show_message(self, text: str, style: str = "") -> None:
@@ -715,45 +668,29 @@ class PlacerDock(QWidget):
                     return None
                 entry: Dict[str, Any] = {"name": name, "cell": self._selected_cell}
 
-        mode = self.origin_mode_combo.currentIndex()
-        if mode == 0:
-            x = self._parse_float(self.x_edit, "X")
-            y = self._parse_float(self.y_edit, "Y")
-            if x is None or y is None:
-                return None
-            entry["xy"] = [x, y]
+        origin_fields, err = self.origin_widget.build()
+        if err:
+            self._show_message(err, _ERROR_STYLE)
+            return None
+        mode = origin_fields["mode"]
+        if mode == "xy":
+            entry["xy"] = [origin_fields["x"], origin_fields["y"]]
         else:
-            shift_x = self._parse_float(self.shift_x_edit, _("Shift X"), default=0.0)
-            shift_y = self._parse_float(self.shift_y_edit, _("Shift Y"), default=0.0)
-            if shift_x is None or shift_y is None:
-                return None
-            entry["xy"] = [shift_x, shift_y]
-            if mode == 1:
-                ref = self.anchor_ref_edit.text().strip()
-                role = self.anchor_role_edit.currentText().strip()
-                pad = self.anchor_pad_edit.text().strip()
-                anchor_cluster = self.anchor_cluster_edit.currentText().strip()
-                if not ref and not role:
-                    self._show_message(_("Anchor: set Ref or Role."), _ERROR_STYLE)
-                    return None
-                if ref and role:
-                    self._show_message(_("Anchor: Ref and Role are mutually exclusive — set one."),
-                                        _ERROR_STYLE)
-                    return None
-                if ref:
-                    entry["anchor_ref"] = ref
+            # ClonePlacement has no separate shift field — Anchor/Point mode
+            # reuse xy: itself to carry the shift (see _anchor_origin.py's
+            # module docstring on why the shared widget doesn't know this).
+            entry["xy"] = [origin_fields["shift_x"], origin_fields["shift_y"]]
+            if mode == "anchor":
+                if "ref" in origin_fields:
+                    entry["anchor_ref"] = origin_fields["ref"]
                 else:
-                    entry["anchor_role"] = role
-                if pad:
-                    entry["anchor_pad"] = pad
-                if anchor_cluster:
-                    entry["anchor_cluster"] = anchor_cluster
+                    entry["anchor_role"] = origin_fields["role"]
+                if "pad" in origin_fields:
+                    entry["anchor_pad"] = origin_fields["pad"]
+                if "cluster" in origin_fields:
+                    entry["anchor_cluster"] = origin_fields["cluster"]
             else:  # Point
-                point = self.point_edit.currentText().strip()
-                if not point:
-                    self._show_message(_("Point: name is required."), _ERROR_STYLE)
-                    return None
-                entry["anchor_point"] = point
+                entry["anchor_point"] = origin_fields["point"]
 
         rotation = self._parse_float(self.rotation_edit, _("Rotation"), default=0.0)
         if rotation is None:
@@ -987,17 +924,7 @@ class PlacerDock(QWidget):
         self.place_cluster_edit.setCurrentText("")
         self._on_cell_mode_changed()
         self.cluster_edit.setCurrentText("")
-        self.origin_mode_combo.setCurrentIndex(0)
-        self._on_origin_mode_changed()
-        self.x_edit.setText("")
-        self.y_edit.setText("")
-        self.anchor_ref_edit.setText("")
-        self.anchor_role_edit.setCurrentText("")
-        self.anchor_pad_edit.setText("")
-        self.anchor_cluster_edit.setCurrentText("")
-        self.point_edit.setCurrentText("")
-        self.shift_x_edit.setText("")
-        self.shift_y_edit.setText("")
+        self.origin_widget.clear()
         self.rotation_edit.setText("")
         self.layer_combo.setCurrentIndex(0)
         self.mirror_checkbox.setChecked(False)
@@ -1034,23 +961,17 @@ class PlacerDock(QWidget):
 
         xy = entry.get("xy") or [0.0, 0.0]
         if "anchor_point" in entry:
-            self.origin_mode_combo.setCurrentIndex(2)
-            self.point_edit.setCurrentText(str(entry["anchor_point"]))
-            self.shift_x_edit.setText(str(xy[0]))
-            self.shift_y_edit.setText(str(xy[1]))
+            self.origin_widget.load(mode="point", point=str(entry["anchor_point"]),
+                                    shift_x=xy[0], shift_y=xy[1])
         elif "anchor_ref" in entry or "anchor_role" in entry:
-            self.origin_mode_combo.setCurrentIndex(1)
-            self.anchor_ref_edit.setText(str(entry.get("anchor_ref", "")))
-            self.anchor_role_edit.setCurrentText(str(entry.get("anchor_role", "")))
-            self.anchor_pad_edit.setText(str(entry.get("anchor_pad", "")))
-            self.anchor_cluster_edit.setCurrentText(str(entry.get("anchor_cluster", "")))
-            self.shift_x_edit.setText(str(xy[0]))
-            self.shift_y_edit.setText(str(xy[1]))
+            self.origin_widget.load(
+                mode="anchor", ref=str(entry.get("anchor_ref", "")),
+                role=str(entry.get("anchor_role", "")),
+                pad=str(entry.get("anchor_pad", "")),
+                cluster=str(entry.get("anchor_cluster", "")),
+                shift_x=xy[0], shift_y=xy[1])
         else:
-            self.origin_mode_combo.setCurrentIndex(0)
-            self.x_edit.setText(str(xy[0]))
-            self.y_edit.setText(str(xy[1]))
-        self._on_origin_mode_changed()  # setCurrentIndex above is a no-op signal-wise when unchanged
+            self.origin_widget.load(mode="xy", x=xy[0], y=xy[1])
 
         self.rotation_edit.setText(str(entry.get("rotation_deg", 0)))
         self.layer_combo.setCurrentIndex({"F.Cu": 1, "B.Cu": 2}.get(entry.get("layer"), 0))

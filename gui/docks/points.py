@@ -77,8 +77,8 @@ from typing import Any, Dict, Optional, Tuple
 
 from kipy.errors import ApiError
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import (QComboBox, QFormLayout, QHBoxLayout, QLabel,
-                              QLineEdit, QPushButton, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QFormLayout, QHBoxLayout, QLabel, QLineEdit,
+                              QPushButton, QVBoxLayout, QWidget)
 
 from kicadstamp.config import load_point
 from kicadstamp.exceptions import ValidationError
@@ -88,9 +88,9 @@ from kicadstamp.utils.units import MM
 
 from .. import yaml_io
 from ..worker import start_long_op
+from ._anchor_origin import AnchorOriginWidget
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
-                      configure_searchable, display_path, merge_write, set_combo_items,
-                      show_message)
+                      display_path, merge_write, show_message)
 
 logger = logging.getLogger(__name__)
 
@@ -124,78 +124,24 @@ class PointsDock(QWidget):
         name_form.addRow(_("Name:"), self.name_edit)
         layout.addLayout(name_form)
 
-        origin_form = QFormLayout()
-        self.origin_mode_combo = QComboBox()
-        self.origin_mode_combo.addItems(
-            [_("Absolute XY"), _("Anchor (ref/role)"), _("Point"), _("Board origin")])
-        self.origin_mode_combo.currentIndexChanged.connect(self._on_origin_mode_changed)
-        origin_form.addRow(_("Origin:"), self.origin_mode_combo)
-        layout.addLayout(origin_form)
-
-        self._xy_row = QWidget()
-        xy_row = QHBoxLayout(self._xy_row)
-        xy_row.setContentsMargins(0, 0, 0, 0)
-        self.x_edit = QLineEdit()
-        self.x_edit.setPlaceholderText(_("X mm"))
-        self.y_edit = QLineEdit()
-        self.y_edit.setPlaceholderText(_("Y mm"))
-        xy_row.addWidget(QLabel(_("X:")))
-        xy_row.addWidget(self.x_edit)
-        xy_row.addWidget(QLabel(_("Y:")))
-        xy_row.addWidget(self.y_edit)
-        layout.addWidget(self._xy_row)
-
-        self._anchor_row = QWidget()
-        anchor_form = QFormLayout(self._anchor_row)
-        anchor_form.setContentsMargins(0, 0, 0, 0)
-        self.anchor_ref_edit = QLineEdit()
-        self.anchor_ref_edit.setPlaceholderText(_("e.g. U3 (refdes — mostly avoided in this project)"))
-        anchor_form.addRow(_("Ref:"), self.anchor_ref_edit)
-        self.anchor_role_edit = QComboBox()
-        configure_searchable(self.anchor_role_edit)
-        anchor_form.addRow(_("Role:"), self.anchor_role_edit)
-        self.anchor_sheet_edit = QLineEdit()
-        self.anchor_sheet_edit.setPlaceholderText(_("sheet name (narrows an ambiguous Role, optional)"))
-        anchor_form.addRow(_("Sheet:"), self.anchor_sheet_edit)
-        self.anchor_pad_edit = QLineEdit()
-        self.anchor_pad_edit.setPlaceholderText(_("pad (optional)"))
-        anchor_form.addRow(_("Pad:"), self.anchor_pad_edit)
-        self.anchor_cluster_edit = QComboBox()
-        configure_searchable(self.anchor_cluster_edit)
-        anchor_form.addRow(_("Anchor cluster:"), self.anchor_cluster_edit)
-        layout.addWidget(self._anchor_row)
-
-        self._point_row = QWidget()
-        point_form = QFormLayout(self._point_row)
-        point_form.setContentsMargins(0, 0, 0, 0)
-        self.point_edit = QComboBox()
-        configure_searchable(self.point_edit)
-        point_form.addRow(_("Point:"), self.point_edit)
-        layout.addWidget(self._point_row)
-
-        self._board_origin_row = QWidget()
-        board_origin_form = QFormLayout(self._board_origin_row)
-        board_origin_form.setContentsMargins(0, 0, 0, 0)
-        self.board_origin_kind_combo = QComboBox()
-        self.board_origin_kind_combo.addItem(
-            _("Drill/place (drill/position files, optional for Gerbers)"), "drill")
-        self.board_origin_kind_combo.addItem(
-            _("Grid (visual only — Place > Set Grid Origin)"), "grid")
-        board_origin_form.addRow(_("Kind:"), self.board_origin_kind_combo)
-        layout.addWidget(self._board_origin_row)
-
-        self._shift_row = QWidget()
-        shift_row = QHBoxLayout(self._shift_row)
-        shift_row.setContentsMargins(0, 0, 0, 0)
-        self.shift_x_edit = QLineEdit()
-        self.shift_x_edit.setPlaceholderText(_("shift X mm (0)"))
-        self.shift_y_edit = QLineEdit()
-        self.shift_y_edit.setPlaceholderText(_("shift Y mm (0)"))
-        shift_row.addWidget(QLabel(_("Shift X:")))
-        shift_row.addWidget(self.shift_x_edit)
-        shift_row.addWidget(QLabel(_("Shift Y:")))
-        shift_row.addWidget(self.shift_y_edit)
-        layout.addWidget(self._shift_row)
+        self.origin_widget = AnchorOriginWidget(
+            modes=["xy", "anchor", "point", "board_origin"],
+            anchor_fields=["sheet", "pad", "cluster"], shift=True)
+        layout.addWidget(self.origin_widget)
+        # Aliases onto the shared widget's own sub-widgets — kept so
+        # existing tests/call sites that poke fields directly keep working.
+        self.origin_mode_combo = self.origin_widget.origin_mode_combo
+        self.x_edit = self.origin_widget.x_edit
+        self.y_edit = self.origin_widget.y_edit
+        self.anchor_ref_edit = self.origin_widget.anchor_ref_edit
+        self.anchor_role_edit = self.origin_widget.anchor_role_edit
+        self.anchor_sheet_edit = self.origin_widget.anchor_sheet_edit
+        self.anchor_pad_edit = self.origin_widget.anchor_pad_edit
+        self.anchor_cluster_edit = self.origin_widget.anchor_cluster_edit
+        self.point_edit = self.origin_widget.point_edit
+        self.board_origin_kind_combo = self.origin_widget.board_origin_kind_combo
+        self.shift_x_edit = self.origin_widget.shift_x_edit
+        self.shift_y_edit = self.origin_widget.shift_y_edit
 
         button_row = QHBoxLayout()
         self.resolve_button = QPushButton(_("Resolve"))
@@ -211,7 +157,6 @@ class PointsDock(QWidget):
         layout.addWidget(self.message_label)
 
         layout.addStretch(1)
-        self._on_origin_mode_changed()
 
     # ── Wiring from the Config tree ─────────────────────────────────────
 
@@ -228,8 +173,7 @@ class PointsDock(QWidget):
         ~2s poll cadence."""
         roles = sorted({s.role for s in snapshot if s.role})
         clusters = sorted({s.cluster for s in snapshot if s.cluster})
-        set_combo_items(self.anchor_role_edit, roles)
-        set_combo_items(self.anchor_cluster_edit, clusters)
+        self.origin_widget.set_known_roles(roles, clusters)
 
     def _refresh_point_names(self) -> None:
         """Autocomplete for the Point-chain field, from the currently
@@ -239,17 +183,7 @@ class PointsDock(QWidget):
         names = []
         if self._path is not None:
             names = sorted((yaml_io.load_data(self._path).get("points") or {}).keys())
-        set_combo_items(self.point_edit, names)
-
-    # ── Origin UI ─────────────────────────────────────────────────────────
-
-    def _on_origin_mode_changed(self) -> None:
-        mode = self.origin_mode_combo.currentIndex()
-        self._xy_row.setVisible(mode == 0)
-        self._anchor_row.setVisible(mode == 1)
-        self._point_row.setVisible(mode == 2)
-        self._board_origin_row.setVisible(mode == 3)
-        self._shift_row.setVisible(mode != 0)
+        self.origin_widget.set_point_names(names)
 
     # ── Message helper ────────────────────────────────────────────────────
 
@@ -257,36 +191,6 @@ class PointsDock(QWidget):
         show_message(self.message_label, text, style, logger)
 
     # ── Building the Point entry dict (shared by Resolve/Save) ─────────────
-
-    def _parse_float(self, edit: QLineEdit, label: str, default: float) -> Optional[float]:
-        """Optional numeric field — blank text means "use default" (e.g.
-        shift, which defaults to 0.0). None means invalid text — the error
-        is already shown, caller must not overwrite it with a second
-        message."""
-        text = edit.text().strip()
-        if not text:
-            return default
-        try:
-            return float(text)
-        except ValueError:
-            self._show_message(_("{label}: {text!r} is not a number.").format(label=label, text=text),
-                               _ERROR_STYLE)
-            return None
-
-    def _parse_required_float(self, edit: QLineEdit, label: str) -> Optional[float]:
-        """Required numeric field (Absolute XY's X/Y — there is no sensible
-        default for a literal coordinate). None means either blank or
-        invalid; the error is shown here in both cases."""
-        text = edit.text().strip()
-        if not text:
-            self._show_message(_("{label} is required.").format(label=label), _ERROR_STYLE)
-            return None
-        try:
-            return float(text)
-        except ValueError:
-            self._show_message(_("{label}: {text!r} is not a number.").format(label=label, text=text),
-                               _ERROR_STYLE)
-            return None
 
     def _build_entry(self) -> Optional[Tuple[str, Dict[str, Any]]]:
         """Returns (name, data) — data matches _load_point()'s own shape
@@ -299,58 +203,34 @@ class PointsDock(QWidget):
             return None
 
         entry: Dict[str, Any] = {}
-        mode = self.origin_mode_combo.currentIndex()
-        if mode == 0:
-            x = self._parse_required_float(self.x_edit, _("X"))
-            if x is None:
-                return None
-            y = self._parse_required_float(self.y_edit, _("Y"))
-            if y is None:
-                return None
-            entry["xy"] = [x, y]
-        elif mode == 1:
-            ref = self.anchor_ref_edit.text().strip()
-            role = self.anchor_role_edit.currentText().strip()
-            if not ref and not role:
-                self._show_message(_("Anchor: set Ref or Role."), _ERROR_STYLE)
-                return None
-            if ref and role:
-                self._show_message(_("Anchor: Ref and Role are mutually exclusive — set one."),
-                                   _ERROR_STYLE)
-                return None
-            if ref:
-                entry["anchor_ref"] = ref
+        origin_fields, err = self.origin_widget.build()
+        if err:
+            self._show_message(err, _ERROR_STYLE)
+            return None
+        mode = origin_fields["mode"]
+        if mode == "xy":
+            entry["xy"] = [origin_fields["x"], origin_fields["y"]]
+        elif mode == "anchor":
+            if "ref" in origin_fields:
+                entry["anchor_ref"] = origin_fields["ref"]
             else:
-                entry["anchor_role"] = role
-                sheet = self.anchor_sheet_edit.text().strip()
-                if sheet:
-                    entry["anchor_sheet"] = sheet
-            cluster = self.anchor_cluster_edit.currentText().strip()
-            if cluster:
-                entry["anchor_cluster"] = cluster
-            pad = self.anchor_pad_edit.text().strip()
-            if pad:
-                entry["anchor_pad"] = pad
-        elif mode == 2:  # Point
-            point = self.point_edit.currentText().strip()
-            if not point:
-                self._show_message(_("Point: name is required."), _ERROR_STYLE)
-                return None
-            entry["anchor_point"] = point
-        else:  # Board origin
-            entry["anchor_origin"] = self.board_origin_kind_combo.currentData()
+                entry["anchor_role"] = origin_fields["role"]
+                if "sheet" in origin_fields:
+                    entry["anchor_sheet"] = origin_fields["sheet"]
+            if "cluster" in origin_fields:
+                entry["anchor_cluster"] = origin_fields["cluster"]
+            if "pad" in origin_fields:
+                entry["anchor_pad"] = origin_fields["pad"]
+        elif mode == "point":
+            entry["anchor_point"] = origin_fields["point"]
+        else:  # board_origin
+            entry["anchor_origin"] = origin_fields["kind"]
 
-        if mode != 0:
-            shift_x = self._parse_float(self.shift_x_edit, _("Shift X"), default=0.0)
-            if shift_x is None:
-                return None
-            shift_y = self._parse_float(self.shift_y_edit, _("Shift Y"), default=0.0)
-            if shift_y is None:
-                return None
-            if shift_x:
-                entry["shift_x_mm"] = shift_x
-            if shift_y:
-                entry["shift_y_mm"] = shift_y
+        if mode != "xy":
+            if origin_fields["shift_x"]:
+                entry["shift_x_mm"] = origin_fields["shift_x"]
+            if origin_fields["shift_y"]:
+                entry["shift_y_mm"] = origin_fields["shift_y"]
 
         return name, entry
 
@@ -483,19 +363,7 @@ class PointsDock(QWidget):
         new_thermal_via()."""
         self.set_target_file(path)
         self.name_edit.setText("")
-        self.origin_mode_combo.setCurrentIndex(0)
-        self._on_origin_mode_changed()
-        self.x_edit.setText("")
-        self.y_edit.setText("")
-        self.anchor_ref_edit.setText("")
-        self.anchor_role_edit.setCurrentText("")
-        self.anchor_sheet_edit.setText("")
-        self.anchor_pad_edit.setText("")
-        self.anchor_cluster_edit.setCurrentText("")
-        self.point_edit.setCurrentText("")
-        self.board_origin_kind_combo.setCurrentIndex(0)
-        self.shift_x_edit.setText("")
-        self.shift_y_edit.setText("")
+        self.origin_widget.clear()
         self._show_message("")
 
     # ── Loading an already-saved entry back into the form ───────────────────
@@ -513,26 +381,23 @@ class PointsDock(QWidget):
             entry = (yaml_io.load_data(self._path).get("points") or {}).get(name) or {}
         self.name_edit.setText(name)
 
+        shift_x = entry.get("shift_x_mm") or None
+        shift_y = entry.get("shift_y_mm") or None
         if "anchor_point" in entry:
-            self.origin_mode_combo.setCurrentIndex(2)
-            self.point_edit.setCurrentText(str(entry["anchor_point"]))
+            self.origin_widget.load(mode="point", point=str(entry["anchor_point"]),
+                                    shift_x=shift_x, shift_y=shift_y)
         elif "anchor_origin" in entry:
-            self.origin_mode_combo.setCurrentIndex(3)
-            idx = self.board_origin_kind_combo.findData(entry["anchor_origin"])
-            self.board_origin_kind_combo.setCurrentIndex(idx if idx >= 0 else 0)
+            self.origin_widget.load(mode="board_origin", kind=entry["anchor_origin"],
+                                    shift_x=shift_x, shift_y=shift_y)
         elif "xy" in entry:
-            self.origin_mode_combo.setCurrentIndex(0)
             xy = entry["xy"] or [0, 0]
-            self.x_edit.setText(str(xy[0]))
-            self.y_edit.setText(str(xy[1]))
+            self.origin_widget.load(mode="xy", x=xy[0], y=xy[1],
+                                    shift_x=shift_x, shift_y=shift_y)
         else:
-            self.origin_mode_combo.setCurrentIndex(1)
-            self.anchor_ref_edit.setText(str(entry.get("anchor_ref", "")))
-            self.anchor_role_edit.setCurrentText(str(entry.get("anchor_role", "")))
-            self.anchor_sheet_edit.setText(str(entry.get("anchor_sheet", "")))
-            self.anchor_pad_edit.setText(str(entry.get("anchor_pad", "")))
-            self.anchor_cluster_edit.setCurrentText(str(entry.get("anchor_cluster", "")))
-        self._on_origin_mode_changed()
-
-        self.shift_x_edit.setText(str(entry.get("shift_x_mm", "")) if entry.get("shift_x_mm") else "")
-        self.shift_y_edit.setText(str(entry.get("shift_y_mm", "")) if entry.get("shift_y_mm") else "")
+            self.origin_widget.load(
+                mode="anchor", ref=str(entry.get("anchor_ref", "")),
+                role=str(entry.get("anchor_role", "")),
+                sheet=str(entry.get("anchor_sheet", "")),
+                pad=str(entry.get("anchor_pad", "")),
+                cluster=str(entry.get("anchor_cluster", "")),
+                shift_x=shift_x, shift_y=shift_y)
