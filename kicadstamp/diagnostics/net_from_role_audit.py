@@ -468,7 +468,7 @@ def _clones_for_cluster(clone_placements: list[dict], wanted_cluster: str, cell:
     for BOTH the P2V5 and N2V5 instances, matching neither. Matching by
     anchor_cluster TOKENS instead (tried first) also produces false
     positives: 'Pi_Filter_1V2_VCCA_P2V5' and 'LDO_ADJ_P2V5' share the
-    'p2v5' token despite being unrelated clusters (found 2026-08-12 -- the
+    'p2v5' token despite being unrelated clusters (found 2026-08-11 -- the
     PIF fake-run wrongly appeared instead of LDO_ADJ's own, which vanished
     entirely for the same anchor_cluster reason).
 
