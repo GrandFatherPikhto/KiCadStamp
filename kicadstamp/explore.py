@@ -17,8 +17,8 @@ from typing import Any
 from kipy.board_types import FootprintInstance
 
 from .constants import CLUSTER_FIELD_NAME, DEFAULT_TIMEOUT_MS, ROLE_FIELD_NAME
+from .cluster_matching import cluster_prefix_match
 from .kicad.adapter import KiCadBoardAdapter
-from .placement.services.component_pool import cluster_prefix_match
 from .sheet_names import build_sheet_name_map, resolve_sheet_path_names
 
 

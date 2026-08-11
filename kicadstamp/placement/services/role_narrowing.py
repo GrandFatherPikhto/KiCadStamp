@@ -19,7 +19,7 @@ from kipy.geometry import Vector2
 from ...config import ClonePlacement
 from ...net_resolution import resolve_placeholder
 from ...utils.units import MM
-from .component_pool import cluster_prefix_match
+from ...cluster_matching import cluster_prefix_match
 from ...constants import CLUSTER_FIELD_NAME
 from ...sheet_names import resolve_sheet_path_names
 from ...i18n import _

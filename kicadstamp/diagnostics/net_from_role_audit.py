@@ -86,8 +86,8 @@ try:  # live-board mode (--board) needs kipy + the adapter; keep it optional
     from kicadstamp.kicad.adapter import KiCadBoardAdapter  # noqa: E402
     from kicadstamp.utils.units import MM  # noqa: E402
     from kicadstamp.geometry.spoke_layout import local_to_absolute  # noqa: E402
+    from kicadstamp.cluster_matching import cluster_prefix_match  # noqa: E402
     from kicadstamp.geometry.clone_geometry import _mirror_x  # noqa: E402
-    from kicadstamp.placement.services.component_pool import cluster_prefix_match  # noqa: E402
     _LIVE_AVAILABLE = True
 except Exception:  # pragma: no cover - import failure only on odd environments
     _LIVE_AVAILABLE = False

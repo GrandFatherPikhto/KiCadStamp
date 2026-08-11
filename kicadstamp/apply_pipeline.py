@@ -33,7 +33,7 @@ from .placement.dependency_order import resolve_execution_order
 from .placement.services.clone_position_calculator import clone_anchor_id
 from .placement.services.via_planner import thermal_anchor_id
 from .placement.services.manual_position_calculator import rule_anchor_ids
-from .placement.services.component_pool import cluster_prefix_match
+from .cluster_matching import cluster_prefix_match
 from .placement.executor import BatchExecutor
 from .exceptions import PlacerError
 from .validation import run_all_checks

@@ -12,6 +12,7 @@ import re
 import logging
 
 
+from ...cluster_matching import cluster_prefix_match
 from ...kicad.adapter import KiCadBoardAdapter
 from ...exceptions import ValidationError
 from ...constants import ROLE_FIELD_NAME, CLUSTER_FIELD_NAME
@@ -24,21 +25,6 @@ def _natural_sort_key(ref: str):
     """C5 < C10 — not like ordinary string sorting ('C10' < 'C5')."""
     parts = re.split(r'(\d+)', ref)
     return [int(p) if p.isdigit() else p for p in parts]
-
-
-def cluster_prefix_match(candidate_cluster: str, wanted: str) -> bool:
-    """
-    candidate_cluster == wanted, OR candidate_cluster starts with 'wanted/' —
-    segment‑prefix comparison, not substring (so 'Channel_1' does not match
-    'Channel_10'). Flat names without '/' reduce to exact match — hierarchy is
-    optional, works with the same code. Single implementation shared across the
-    whole project — previously duplicated with exact match here and prefix match
-    in clone_role_resolver.py, causing SILENTLY DIFFERENT behaviour of Cluster
-    in two places; now one function, defined here (not in clone_role_resolver.py —
-    that already depends on this module via ROLE_FIELD_NAME, and the reverse
-    dependency would create an import cycle).
-    """
-    return candidate_cluster == wanted or candidate_cluster.startswith(wanted + '/')
 
 
 class ComponentPool:
