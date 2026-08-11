@@ -35,10 +35,30 @@ def _load_template_via(data: dict[str, Any]) -> TemplateVia:
                "this via's net instead of being a top-level field of clone_placement "
                "(net_overrides is a sibling of cell/params, not under via)")]
         ))
+    net_from_role = data.get('net_from_role')
+    net_from_role_pad = data.get('net_from_role_pad')
+    if net is not None and net_from_role is not None:
+        raise ValidationError(format_fatal_error(
+            _("via.net and via.net_from_role together"),
+            [_("mutually exclusive ways to set a via's net: a static net (or "
+               "null for the rule net) vs a live role-derived net (net_from_role) "
+               "– pick exactly one per via. net_from_role is resolved at apply "
+               "time from the placed role's real pad net")]
+        ))
+    if net_from_role_pad is not None and net_from_role is None:
+        raise ValidationError(format_fatal_error(
+            _("via.net_from_role_pad without via.net_from_role"),
+            [_("net_from_role_pad={pad!r} only narrows which pad of the role "
+               "the via's net comes from – it is not a net by itself; write "
+               "net_from_role: <ROLE> (and optionally net_from_role_pad: <N>)")
+             .format(pad=net_from_role_pad)]
+        ))
     return TemplateVia(
         offset_along_mm=data.get('offset_along_mm', 0.0),
         offset_across_mm=data.get('offset_across_mm', 0.0),
         net=net,
+        net_from_role=net_from_role,
+        net_from_role_pad=net_from_role_pad,
         drill_mm=data.get('drill_mm', 0.3),
         diameter_mm=data.get('diameter_mm', 0.6),
     )
@@ -54,6 +74,24 @@ def _load_template_track(data: dict[str, Any]) -> TemplateTrack:
              _("looks like broken YAML – e.g. placeholder like {{NET}} without quotes: "
                "YAML reads it as flow-mapping, not a string; use quotes: net: '{{NET}}'")]
         ))
+    net_from_role = data.get('net_from_role')
+    net_from_role_pad = data.get('net_from_role_pad')
+    if net is not None and net_from_role is not None:
+        raise ValidationError(format_fatal_error(
+            _("track.net and track.net_from_role together"),
+            [_("mutually exclusive ways to set a track's net: a static net (or "
+               "null for the rule net) vs a live role-derived net (net_from_role) "
+               "– pick exactly one per track. net_from_role is resolved at apply "
+               "time from the placed role's real pad net")]
+        ))
+    if net_from_role_pad is not None and net_from_role is None:
+        raise ValidationError(format_fatal_error(
+            _("track.net_from_role_pad without track.net_from_role"),
+            [_("net_from_role_pad={pad!r} only narrows which pad of the role "
+               "the track's net comes from – it is not a net by itself; write "
+               "net_from_role: <ROLE> (and optionally net_from_role_pad: <N>)")
+             .format(pad=net_from_role_pad)]
+        ))
     layer = data.get('layer')
     _check_layer_value(layer, _("on track"))
     return TemplateTrack(
@@ -63,6 +101,8 @@ def _load_template_track(data: dict[str, Any]) -> TemplateTrack:
         end_across_mm=data.get('end_across_mm', 0.0),
         width_mm=data.get('width_mm', 0.25),
         net=net,
+        net_from_role=net_from_role,
+        net_from_role_pad=net_from_role_pad,
         layer=layer,
     )
 

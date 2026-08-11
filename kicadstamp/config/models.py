@@ -87,10 +87,25 @@ class TemplateVia:
     Now both concepts are the same slot — pure cell geometry, independent
     of the live board. There can be any number of lists at both levels
     (spoke.vias and component.vias).
+
+    net_from_role — OPTIONAL live net resolution instead of a static net:
+    the role whose real pad net this via should take, resolved at apply time
+    (see placement/services/net_from_role_resolver.py and
+    net_resolution.resolve_net_from_role). Mutually exclusive with net — both
+    set at once is a load-time fatal; "both None" keeps the existing rule-net
+    convention (spoke_layout) / fatal-on-apply (clone_geometry). Unlike net,
+    this is only meaningful for ClonePlacement (apply has a live role_to_ref;
+    ManualSpoke ignores it — same as net_template on TemplateComponentSlot).
+    net_from_role_pad — OPTIONAL pad number for a multi-net role (LDO VIN/VOUT):
+    the net of THIS pad is taken. Without it the role must carry exactly one
+    non-rule net (lemma 2). Validation of the pad number is live/apply-time
+    only, not at load.
     """
     offset_along_mm: float = 0.0
     offset_across_mm: float = 0.0
     net: str | None = None
+    net_from_role: str | None = None
+    net_from_role_pad: str | None = None
     drill_mm: float = 0.3
     diameter_mm: float = 0.6
 
@@ -143,6 +158,11 @@ class TemplateTrack:
     location) are NOT checked by this tool — deliberate decision (see chat
     discussion): we rely on KiCad DRC after placement, not on our own segment‑
     vs‑segment geometry checker.
+
+    net_from_role / net_from_role_pad — same as TemplateVia.net_from_role /
+    net_from_role_pad: the track's net is taken live from the resolved role's
+    real pad net instead of a static net (see TemplateVia docstring for the
+    mutual-exclusion and live-apply rules).
     """
     start_along_mm: float = 0.0
     start_across_mm: float = 0.0
@@ -150,6 +170,8 @@ class TemplateTrack:
     end_across_mm: float = 0.0
     width_mm: float = 0.25
     net: str | None = None
+    net_from_role: str | None = None
+    net_from_role_pad: str | None = None
     # Layer — same pattern as TemplateComponentSlot.layer: None = inherit from
     # cell layer, when mirroring it is inverted by the same rule.
     layer: str | None = None
