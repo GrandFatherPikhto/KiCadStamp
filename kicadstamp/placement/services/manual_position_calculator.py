@@ -2,13 +2,14 @@
 
 import logging
 
-from kipy.board_types import FootprintInstance, BoardLayer
+from kipy.board_types import BoardLayer
 
 from ...config import Config, Rule
 from ...kicad.adapter import KiCadBoardAdapter
 from ...exceptions import ValidationError, format_fatal_error
 from ...geometry.spoke_layout import apply_spoke_geometry
-from ..commands import PlacedComponentInfo, ViaCommand, TrackCommand, make_registry_key
+from ...registry import make_registry_key
+from ..commands import PlacedComponentInfo, ViaCommand, TrackCommand
 from .clone_role_resolver import resolve_footprint_by_role
 from .component_resolver import ComponentResolver, resolve_anchor_identity
 from ...i18n import _

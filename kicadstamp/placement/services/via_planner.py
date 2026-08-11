@@ -11,7 +11,8 @@ from ...geometry.thermal_grid import compute_thermal_via_grid
 from ...kicad.adapter import KiCadBoardAdapter
 from ...utils.units import MM
 from ...exceptions import GeometryError, ComponentNotFoundError, ValidationError
-from ..commands import ViaCommand, PlacedComponentInfo, make_registry_key
+from ...registry import make_registry_key
+from ..commands import ViaCommand, PlacedComponentInfo
 from .clone_role_resolver import resolve_footprint_by_role
 from .component_resolver import resolve_footprint_by_ref
 from ...i18n import _

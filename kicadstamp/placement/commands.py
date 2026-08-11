@@ -6,8 +6,6 @@ from dataclasses import dataclass
 from kipy.board_types import BoardLayer
 from kipy.geometry import Vector2, Angle
 
-from ..constants import SPOKE_LEVEL_ROLE_PLACEHOLDER
-
 
 @dataclass
 class MoveCommand:
@@ -54,17 +52,3 @@ class PlacedComponentInfo:
     # Layer of THIS component (per-placement side of ClonePlacement).
     # None = inherit the planner's global target_layer.
     layer: BoardLayer | None = None
-
-
-def make_registry_key(anchor_id: str, template_name: str, role: str | None, index: int) -> str:
-    """Build a composite registry key for vias/tracks.
-
-    ``anchor_id`` — e.g. ``"pad:{pad}"`` or ``"thermal:{name}"``.
-    ``template_name`` — the spoke/clone cell name (param kept as
-    ``template_name`` for registry backward compatibility).
-    ``role`` — component role (unique within a cell) or ``None`` for
-    spoke‑level vias/tracks (substituted by :data:`SPOKE_LEVEL_ROLE_PLACEHOLDER`).
-    ``index`` — 0‑based index within the specific list (vias or tracks).
-    """
-    role_part = role if role is not None else SPOKE_LEVEL_ROLE_PLACEHOLDER
-    return f"{anchor_id}|{template_name}|{role_part}|{index}"

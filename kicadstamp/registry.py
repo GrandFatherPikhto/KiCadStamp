@@ -39,9 +39,9 @@ from typing import TypeVar, Generic
 
 from kipy.board_types import BoardLayer
 
-from .placement.commands import ViaCommand, TrackCommand, make_registry_key
+from .placement.commands import ViaCommand, TrackCommand
 from .utils.units import MM
-from .constants import POSITION_TOLERANCE_MM
+from .constants import POSITION_TOLERANCE_MM, SPOKE_LEVEL_ROLE_PLACEHOLDER
 from .i18n import _
 
 logger = logging.getLogger(__name__)
@@ -53,6 +53,25 @@ def _layer_to_str(layer: BoardLayer) -> str:
     """BoardLayer -> 'F.Cu'/'B.Cu' — local copy (don't pull from
     .placement.executor.base to avoid import cycles)."""
     return "B.Cu" if layer == BoardLayer.BL_B_Cu else "F.Cu"
+
+
+def make_registry_key(anchor_id: str, template_name: str, role: str | None, index: int) -> str:
+    """Build a composite registry key for vias/tracks.
+
+    ``anchor_id`` — e.g. ``"pad:{pad}"`` or ``"thermal:{name}"``.
+    ``template_name`` — the spoke/clone cell name (param kept as
+    ``template_name`` for registry backward compatibility).
+    ``role`` — component role (unique within a cell) or ``None`` for
+    spoke‑level vias/tracks (substituted by :data:`SPOKE_LEVEL_ROLE_PLACEHOLDER`).
+    ``index`` — 0‑based index within the specific list (vias or tracks).
+
+    Homed here, not in placement/commands.py: the registry key is the registry's
+    own identity concept, so placement builds it by importing from the registry
+    (single direction placement -> registry) instead of the registry depending
+    on placement to produce its keys.
+    """
+    role_part = role if role is not None else SPOKE_LEVEL_ROLE_PLACEHOLDER
+    return f"{anchor_id}|{template_name}|{role_part}|{index}"
 
 
 
