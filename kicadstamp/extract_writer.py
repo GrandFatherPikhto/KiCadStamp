@@ -7,9 +7,13 @@ thin collection of inputs + worker dispatch + finish handling.
 
 Worker-thread contract (unchanged from ExtractDock._run_extract): board IPC +
 file writes only, never touches a widget. Returns
-{"messages": [...], "annotations": [...]} on success, or {"error": str} for
-the expected failure modes (an unexpected exception is caught by the GUI's
-_LongOpWorker and reported through the failed signal instead).
+{"messages": [...], "annotations": [...], "template_dict": {...}} on success,
+or {"error": str} for the expected failure modes (an unexpected exception is
+caught by the GUI's _LongOpWorker and reported through the failed signal
+instead). template_dict is the raw {name: {vias/components/tracks/layer}}
+extract_fn returned — added so ExtractDock can summarize which via/track
+nets got auto-classified as net_from_role (see its _summarize_net_from_role),
+without re-running the extractor just to inspect the result.
 
 `extract_fn` is injectable (defaulting to the real extractor) so the GUI can
 pass its own module-global through at call time — that is what lets the GUI
@@ -113,4 +117,4 @@ def run_extract_to_file(adapter, *, name: str, params, items, net_template_role,
         except OSError as e:
             messages.append(_("placer file wiring failed: {error}").format(error=e))
 
-    return {"messages": messages, "annotations": annotations}
+    return {"messages": messages, "annotations": annotations, "template_dict": template_dict}

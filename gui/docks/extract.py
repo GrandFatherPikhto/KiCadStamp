@@ -913,9 +913,10 @@ class ExtractDock(QWidget):
         logic moved to core (Phase 2 of the gui god-file decomposition);
         extract_template_from_selection is passed in at call time so tests
         can monkeypatch this module's copy. Returns {"messages": [...],
-        "annotations": [...]} on success, or {"error": str} for the expected
-        failure modes (an unexpected exception is caught by _LongOpWorker and
-        reported through the failed signal instead)."""
+        "annotations": [...], "template_dict": {...}} on success, or
+        {"error": str} for the expected failure modes (an unexpected
+        exception is caught by _LongOpWorker and reported through the failed
+        signal instead)."""
         return run_extract_to_file(
             payload["board"].adapter,
             name=payload["name"],
@@ -931,6 +932,35 @@ class ExtractDock(QWidget):
             placer_path=payload["placer_path"],
             extract_fn=extract_template_from_selection)
 
+    @staticmethod
+    def _summarize_net_from_role(template_dict: Dict[str, Any]) -> Optional[str]:
+        """One-line summary of which extracted via/track nets got written as
+        net_from_role (instead of a literal/parametrised net) — the ONLY
+        surface where this is visible to the user, since
+        extract_template_from_selection()'s auto-suggestion (template_
+        extraction.py's _suggest_net_from_role, plan step 4) otherwise
+        happens silently inside the extractor. template_dict is the raw
+        {name: {vias/components/tracks/...}} the worker got back (see
+        _run_extract's docstring) — its only key is the just-extracted
+        cell's name, so no separate name parameter is needed here. Guards
+        against a non-dict cell value (some older test fakes return a
+        minimal/unrealistic shape, e.g. {"ref": "C1"}, when they only care
+        about proving something unrelated, like adapter forwarding) —
+        nothing to summarize there, not an error."""
+        if not template_dict:
+            return None
+        cell = next(iter(template_dict.values()))
+        if not isinstance(cell, dict):
+            return None
+        items = list(cell.get("vias") or []) + list(cell.get("tracks") or [])
+        roles = [entry["net_from_role"] + (f"/pad:{entry['net_from_role_pad']}"
+                                           if entry.get("net_from_role_pad") else "")
+                 for entry in items if entry.get("net_from_role")]
+        if not roles:
+            return None
+        return _("{count} via/track net(s) auto-classified by role: {roles}").format(
+            count=len(roles), roles=", ".join(roles))
+
     def _finish_extract(self, result: Dict[str, Any]) -> None:
         """UI thread: reflect the worker's result into the message label and
         refresh the existing-lists widgets."""
@@ -939,6 +969,9 @@ class ExtractDock(QWidget):
             return
         messages = result["messages"]
         annotations = result["annotations"]
+        net_from_role_summary = self._summarize_net_from_role(result.get("template_dict") or {})
+        if net_from_role_summary:
+            messages.append(net_from_role_summary)
         if annotations:
             messages.append(_("{count} field(s) could not be determined automatically: {details}")
                              .format(count=len(annotations),

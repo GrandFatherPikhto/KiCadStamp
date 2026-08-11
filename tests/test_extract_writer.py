@@ -77,6 +77,16 @@ def test_writes_cell_and_reports_wrote(tmp_path):
     assert data["cells"]["cell1"]["layer"] == "F.Cu"
 
 
+def test_success_returns_the_raw_template_dict(tmp_path):
+    """Added so the GUI can summarize net_from_role auto-classification
+    (see ExtractDock._summarize_net_from_role) without re-running the
+    extractor just to inspect what it produced."""
+    template = {"vias": [{"net_from_role": "LDO"}], "components": [], "tracks": [], "layer": "F.Cu"}
+    _, result, _ = _run(tmp_path, extract_fn=_CapturingExtract(template=template))
+
+    assert result["template_dict"] == {"cell1": template}
+
+
 def test_overwrite_reports_overwrote(tmp_path):
     target, _, _ = _run(tmp_path)
     target, result, _ = _run(tmp_path)  # same name again

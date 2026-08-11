@@ -468,6 +468,47 @@ def test_placer_wiring_skips_include_for_a_root_shaped_extractor_file(main_windo
     load_config(str(placer_file))  # must not raise, now that extractor.yaml is include:-safe
 
 
+# ── net_from_role auto-classification summary ────────────────────────────
+
+def test_summarize_net_from_role_returns_none_without_any(main_window):
+    dock = ExtractDock(main_window)
+    template_dict = {"cell1": {"vias": [{"net": "GND"}], "tracks": [], "components": [], "layer": "F.Cu"}}
+    assert dock._summarize_net_from_role(template_dict) is None
+
+
+def test_summarize_net_from_role_lists_roles_and_pads(main_window):
+    dock = ExtractDock(main_window)
+    template_dict = {"cell1": {
+        "vias": [{"net_from_role": "C_IN_BULK"}],
+        "tracks": [{"net_from_role": "LDO", "net_from_role_pad": "2"}],
+        "components": [], "layer": "F.Cu",
+    }}
+    summary = dock._summarize_net_from_role(template_dict)
+    assert "2 via/track net(s)" in summary
+    assert "C_IN_BULK" in summary
+    assert "LDO/pad:2" in summary
+
+
+def test_extract_shows_net_from_role_summary_on_success(main_window, tmp_path, monkeypatch):
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    dock = ExtractDock(main_window)
+    dock.set_target_file(cells_file)
+
+    def _fake_extract_with_role(adapter, name, params=None, items=None, annotations=None, **kwargs):
+        return {name: {"vias": [{"net_from_role": "C_IN_BULK"}], "components": [], "tracks": [], "layer": "F.Cu"}}
+
+    monkeypatch.setattr(extract_mod, "extract_template_from_selection", _fake_extract_with_role)
+    main_window.connection.board = FakeBoard()
+
+    dock.name_edit.setText("some_cell")
+    dock._raw_items = [object()]
+    dock._do_extract()
+
+    assert "auto-classified by role" in dock.message_label.text()
+    assert "C_IN_BULK" in dock.message_label.text()
+
+
 def test_on_extract_dispatches_to_worker(main_window, tmp_path, monkeypatch):
     """Phase 5.2 — the Extract button must NOT block the UI thread:
     _on_extract() collects + validates the inputs on the UI thread, then
