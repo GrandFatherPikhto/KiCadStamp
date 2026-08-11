@@ -117,6 +117,7 @@ from kicadstamp.constants import CLUSTER_FIELD_NAME
 from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.i18n import _
 from kicadstamp.placement.planner import PlacementPlanner
+from kicadstamp.placement.services.clone_role_resolver import suggest_role_nets_from_cluster
 
 from .. import yaml_io
 from ..ui_utils import busy
@@ -351,6 +352,20 @@ class PlacerDock(QWidget):
         nets_page_layout.addWidget(QLabel(_("Nets (role -> literal net, priority over the cell's own net_template):")))
         self.nets_table = _KeyValueTableEditor(_("Role"), _("Net"), _("ROLE"), _("net name"))
         nets_page_layout.addWidget(self.nets_table)
+        # Auto-fill from board (2026-08-12, Denis: "если есть проблема, её
+        # можно сразу решить в ручном режиме" — fill what's unambiguous from
+        # the live board, leave the rest as empty rows for manual entry
+        # rather than blocking on it). Uses the Origin tab's Anchor cluster
+        # field as the query key — the SAME clone.anchor_cluster signal
+        # resolve_roles_by_nets's own narrowing (step 3) already relies on,
+        # not a new convention. See suggest_role_nets_from_cluster's own
+        # docstring for exactly what it will and won't fill in.
+        autofill_row = QHBoxLayout()
+        self.autofill_nets_button = QPushButton(_("Auto-fill from board"))
+        self.autofill_nets_button.clicked.connect(self._on_autofill_nets_from_board)
+        autofill_row.addWidget(self.autofill_nets_button)
+        autofill_row.addStretch(1)
+        nets_page_layout.addLayout(autofill_row)
         self._nets_tab_index = self._tabs.addTab(nets_page, _("Nets"))
 
         net_overrides_page = QWidget()
@@ -601,6 +616,92 @@ class PlacerDock(QWidget):
         roles = sorted({c.get("role") for c in cell_data.get("components", []) if c.get("role")})
         self.nets_table.set_key_choices(roles)
         self.refs_table.set_key_choices(roles)
+
+    # ── Nets "Auto-fill from board" ──────────────────────────────────────
+
+    def _on_autofill_nets_from_board(self) -> None:
+        """Auto-fill button handler — same collect(UI thread)/run(worker
+        thread)/finish(UI thread) split as Redraw/Extract, since this needs
+        a live board read (get_footprints/get_footprint_pads) over the
+        shared kipy socket."""
+        self._show_message("")
+        payload = self._collect_autofill_nets_inputs()
+        if payload is None:
+            return
+        self._start_autofill_nets_op(payload)
+
+    def _collect_autofill_nets_inputs(self) -> Optional[Dict[str, Any]]:
+        if not self._selected_cell:
+            self._show_message(_("Pick a Cell first."), _ERROR_STYLE)
+            return None
+        cluster = self.anchor_cluster_edit.currentText().strip() \
+            if self.anchor_cluster_edit is not None else ""
+        if not cluster:
+            self._show_message(
+                _("Set Anchor cluster on the Origin tab first — Auto-fill searches the live "
+                  "board by Role + that Cluster (prefix match), same signal the by-nets "
+                  "resolver's own narrowing already uses."), _ERROR_STYLE)
+            return None
+        cell_data = yaml_io.load_data(self._cells_path).get("cells", {}).get(self._selected_cell, {})
+        roles = sorted({c.get("role") for c in cell_data.get("components", []) if c.get("role")})
+        if not roles:
+            self._show_message(_("Selected cell has no component roles."), _ERROR_STYLE)
+            return None
+        board = self._main_window.connection.board
+        if board is None:
+            self._show_message(_("Not connected."), _ERROR_STYLE)
+            return None
+        return {"adapter": board.adapter, "roles": roles, "cluster": cluster}
+
+    @staticmethod
+    def _run_autofill_nets(payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Worker thread: live board read only, never touches a widget."""
+        suggestions = suggest_role_nets_from_cluster(payload["adapter"], payload["roles"], payload["cluster"])
+        return {"suggestions": suggestions, "roles": payload["roles"]}
+
+    def _finish_autofill_nets(self, result: Dict[str, Any]) -> None:
+        """UI thread: merge suggested role->net pairs into the Nets table
+        (overwriting only the roles the worker actually resolved — a role
+        this run couldn't determine leaves whatever was already in that row
+        untouched) and report what was/wasn't filled."""
+        suggestions = result["suggestions"]
+        roles = result["roles"]
+        if suggestions:
+            data = self.nets_table.to_dict()
+            data.update(suggestions)
+            self.nets_table.load_dict(data)
+
+        missing = sorted(set(roles) - set(suggestions))
+        if not suggestions:
+            self._show_message(
+                _("Nothing auto-filled — no role resolved to exactly one candidate with exactly "
+                  "one non-rule net for this Cluster; fill Nets in manually."), _WARN_STYLE)
+        elif missing:
+            self._show_message(
+                _("Auto-filled {filled}/{total} role(s); left for manual entry: {missing}")
+                .format(filled=len(suggestions), total=len(roles), missing=", ".join(missing)),
+                _WARN_STYLE)
+        else:
+            self._show_message(
+                _("Auto-filled all {count} role(s) from the board.").format(count=len(suggestions)),
+                _SUCCESS_STYLE)
+
+    def _start_autofill_nets_op(self, payload: Dict[str, Any]) -> None:
+        self._active_op = start_long_op(
+            self._main_window.connection, (self.autofill_nets_button,),
+            self._run_autofill_nets, self._finish_autofill_nets, self._on_autofill_nets_failed, payload)
+
+    def _on_autofill_nets_failed(self, message: str) -> None:
+        self._show_message(_("Auto-fill failed: {error}").format(error=message), _ERROR_STYLE)
+
+    def _do_autofill_nets(self) -> None:
+        """Synchronous composition of collect + run + finish — same
+        "for tests" shape as _do_redraw."""
+        payload = self._collect_autofill_nets_inputs()
+        if payload is None:
+            return
+        result = self._run_autofill_nets(payload)
+        self._finish_autofill_nets(result)
 
     @staticmethod
     def _discover_placeholders(node: Any) -> set:

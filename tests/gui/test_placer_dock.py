@@ -10,11 +10,14 @@ pipeline, see test_redraw_preserves_other_placements_for_registry_safety).
 Actually invoking the real pipeline against a live board is left to
 manual verification against KiCad, same as every other dock this session.
 """
+from types import SimpleNamespace
+
 import yaml
 
 import gui.docks.placer as placer_mod
 from gui.docks.placer import PlacerDock
 from kicadstamp.config import Cell, Config, RuntimeContext, TemplateComponentSlot, load_clone_placement
+from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 
 
 def _write_yaml(path, data) -> None:
@@ -846,3 +849,157 @@ def test_refresh_known_nets_feeds_nets_and_net_overrides_value_choices(main_wind
                      for i in range(dock.net_overrides_table.key_edit.count())}
     assert nets_values == {"+3V3", "GND"}
     assert override_keys == {"+3V3", "GND"}
+
+
+# ── Nets "Auto-fill from board" (2026-08-12) ─────────────────────────────
+
+class _FakeAutofillFootprint:
+    def __init__(self, ref, role, cluster, nets):
+        self.reference_field = SimpleNamespace(text=SimpleNamespace(value=ref))
+        self._role = role
+        self._cluster = cluster
+        self._nets = nets
+
+
+class _FakeAutofillAdapter:
+    def __init__(self, footprints):
+        self._footprints = footprints
+
+    def get_footprints(self):
+        return self._footprints
+
+    def get_field_value(self, fp, field_name):
+        if field_name == ROLE_FIELD_NAME:
+            return fp._role
+        if field_name == CLUSTER_FIELD_NAME:
+            return fp._cluster
+        return None
+
+    def get_footprint_pads(self, fp):
+        return [SimpleNamespace(net=SimpleNamespace(name=n)) for n in fp._nets]
+
+
+class _FakeAutofillBoard:
+    def __init__(self, footprints):
+        self.adapter = _FakeAutofillAdapter(footprints)
+
+
+def _make_two_role_cell_and_dock(main_window, tmp_path):
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {"cells": {
+        "pi_filter2": {
+            "components": [
+                {"role": "C_IN_BULK", "offset_along_mm": 0, "offset_across_mm": 0, "angle_deg": 0},
+                {"role": "PI_FB", "offset_along_mm": 1, "offset_across_mm": 1, "angle_deg": 0},
+            ],
+            "vias": [], "tracks": [], "layer": "F.Cu",
+        }
+    }})
+    placer_file = tmp_path / "root2.yaml"
+    _write_yaml(placer_file, {"clone_placements": []})
+    dock = PlacerDock(main_window)
+    dock.set_cells_file(cells_file)
+    dock.set_placer_file(placer_file)
+    dock.set_selected_cell("pi_filter2")
+    return dock, cells_file, placer_file
+
+
+def test_autofill_nets_requires_a_cell(main_window):
+    dock = PlacerDock(main_window)
+    dock._do_autofill_nets()
+    assert "Pick a Cell first" in dock.message_label.text()
+
+
+def test_autofill_nets_requires_anchor_cluster(main_window, tmp_path):
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock._do_autofill_nets()
+    assert "Anchor cluster" in dock.message_label.text()
+
+
+def test_autofill_nets_requires_board_connection(main_window, tmp_path):
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock.anchor_cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
+    main_window.connection.board = None
+
+    dock._do_autofill_nets()
+
+    assert "Not connected" in dock.message_label.text()
+
+
+def test_do_autofill_nets_fills_unambiguous_role(main_window, tmp_path):
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)  # single role "C_IN"
+    dock.anchor_cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
+    main_window.connection.board = _FakeAutofillBoard([
+        _FakeAutofillFootprint("C22", "C_IN", "Out_Pi_Filter_N2V5", ["+1V2", "GND"]),
+    ])
+
+    dock._do_autofill_nets()
+
+    assert dock.nets_table.to_dict() == {"C_IN": "+1V2"}
+    assert "Auto-filled all 1 role(s)" in dock.message_label.text()
+
+
+def test_do_autofill_nets_leaves_ambiguous_role_for_manual_entry(main_window, tmp_path):
+    dock, _, _ = _make_two_role_cell_and_dock(main_window, tmp_path)
+    dock.anchor_cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
+    main_window.connection.board = _FakeAutofillBoard([
+        _FakeAutofillFootprint("C22", "C_IN_BULK", "Out_Pi_Filter_N2V5", ["+1V2"]),
+        # PI_FB bridges two nets -> not reducible to one identifying net.
+        _FakeAutofillFootprint("FB6", "PI_FB", "Out_Pi_Filter_N2V5", ["+1V2", "+1V2_VCCINT"]),
+    ])
+
+    dock._do_autofill_nets()
+
+    assert dock.nets_table.to_dict() == {"C_IN_BULK": "+1V2"}
+    assert "Auto-filled 1/2 role(s)" in dock.message_label.text()
+    assert "PI_FB" in dock.message_label.text()
+
+
+def test_do_autofill_nets_does_not_stomp_a_row_it_could_not_resolve(main_window, tmp_path):
+    """A role Auto-fill can't determine keeps whatever was already typed for
+    it — same "never overwrite an already-filled value" discipline as every
+    other auto-fill in this GUI (ExtractDock's cluster autofill, etc.)."""
+    dock, _, _ = _make_two_role_cell_and_dock(main_window, tmp_path)
+    dock.nets_table.load_dict({"PI_FB": "+1V2_VCCINT"})  # typed by hand earlier
+    dock.anchor_cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
+    main_window.connection.board = _FakeAutofillBoard([
+        _FakeAutofillFootprint("C22", "C_IN_BULK", "Out_Pi_Filter_N2V5", ["+1V2"]),
+        _FakeAutofillFootprint("FB6", "PI_FB", "Out_Pi_Filter_N2V5", ["+1V2", "+1V2_VCCINT"]),
+    ])
+
+    dock._do_autofill_nets()
+
+    assert dock.nets_table.to_dict() == {"C_IN_BULK": "+1V2", "PI_FB": "+1V2_VCCINT"}
+
+
+def test_on_autofill_nets_dispatches_to_worker(main_window, tmp_path, monkeypatch):
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock.anchor_cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
+    main_window.connection.board = _FakeAutofillBoard([])
+
+    captured = {}
+
+    def _fake_start(connection, widgets, fn, on_success, on_error, *args):
+        captured["connection"] = connection
+        captured["widgets"] = widgets
+        captured["fn"] = fn
+        captured["on_success"] = on_success
+        captured["on_error"] = on_error
+        captured["args"] = args
+        return "fake-controller"
+
+    monkeypatch.setattr(placer_mod, "start_long_op", _fake_start)
+
+    dock._on_autofill_nets_from_board()
+
+    assert dock._active_op == "fake-controller"
+    assert captured["connection"] is main_window.connection
+    assert captured["widgets"] == (dock.autofill_nets_button,)
+    assert captured["fn"] == dock._run_autofill_nets
+    assert captured["on_success"] == dock._finish_autofill_nets
+    assert captured["on_error"] == dock._on_autofill_nets_failed
+
+    payload = captured["args"][0]
+    assert payload["roles"] == ["C_IN"]
+    assert payload["cluster"] == "Out_Pi_Filter_N2V5"
+    assert payload["adapter"] is main_window.connection.board.adapter

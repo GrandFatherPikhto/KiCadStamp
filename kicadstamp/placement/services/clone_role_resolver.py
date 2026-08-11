@@ -41,9 +41,10 @@ import logging
 from kipy.board_types import FootprintInstance
 from kipy.geometry import Vector2
 
+from ...cluster_matching import cluster_prefix_match
 from ...config import Cell, ClonePlacement
 from ...exceptions import ValidationError, format_fatal_error
-from ...net_resolution import resolve_net, resolve_placeholder
+from ...net_resolution import RULE_NETS, resolve_net, resolve_placeholder
 from .component_pool import ROLE_FIELD_NAME
 from ...constants import CLUSTER_FIELD_NAME
 from ...i18n import _
@@ -82,6 +83,46 @@ def resolve_by_cluster_tag(adapter, cell: Cell, clone: ClonePlacement) -> dict[s
     logger.info(_("[{name}] cluster {cluster!r} -> {ref}")
                 .format(name=clone.name, cluster=clone.cluster, ref=ref))
     return {slot_role: ref}
+
+
+def suggest_role_nets_from_cluster(adapter, roles, cluster: str,
+                                   rule_nets: set[str] | None = None) -> dict[str, str]:
+    """Best-effort role -> net suggestion for PlacerDock's Nets tab "Auto-fill
+    from board" button (2026-08-12, Denis: "если есть проблема, её можно сразу
+    решить в ручном режиме" — auto-fill what's unambiguous, leave the rest for
+    manual entry rather than blocking on it).
+
+    For each role: live footprints whose Role field matches, narrowed to
+    those whose Cluster field prefix-matches `cluster` (cluster_prefix_match —
+    the SAME signal resolve_roles_by_nets's own step 3 narrowing already uses
+    via clone.anchor_cluster, see that function's docstring). A role is
+    suggested only when this leaves EXACTLY one candidate AND that candidate
+    has EXACTLY one non-rule net on its pads — the same "don't guess" stance
+    as net_from_role's lemma 2. Anything else (0 or 2+ candidates, or 0 or 2+
+    non-rule nets) is simply left out of the returned dict; the caller leaves
+    that role's row for the user to fill by hand, unblocked either way.
+
+    Read-only — never moves/tags/writes anything to the board. This is a GUI
+    convenience, not part of the by-nets resolution ClonePositionCalculator
+    actually runs at apply time (resolve_roles_by_nets above) — it only
+    pre-fills the SAME clone.nets: field a human would otherwise type,
+    verified for real by that resolver exactly as if typed by hand.
+    """
+    rule = set(rule_nets) if rule_nets is not None else set(RULE_NETS)
+    all_fps = adapter.get_footprints()
+    suggestions: dict[str, str] = {}
+    for role in roles:
+        candidates = [fp for fp in all_fps
+                      if adapter.get_field_value(fp, ROLE_FIELD_NAME) == role
+                      and cluster_prefix_match(
+                          adapter.get_field_value(fp, CLUSTER_FIELD_NAME) or '', cluster)]
+        if len(candidates) != 1:
+            continue
+        pads = adapter.get_footprint_pads(candidates[0])
+        non_rule = {p.net.name for p in pads if p.net and p.net.name and p.net.name not in rule}
+        if len(non_rule) == 1:
+            suggestions[role] = next(iter(non_rule))
+    return suggestions
 
 
 def clone_uses_selection_mode(clone: ClonePlacement) -> bool:
