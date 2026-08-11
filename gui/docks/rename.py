@@ -37,7 +37,7 @@ nested cell: reference inside another Cell's own components: for free,
 without needing to special-case that shape here.
 
 Operates on the SAME raw read-merge-write primitives as gui/docks/
-_common.py (_read_data/_write_data) — plain PyYAML round-trip, no comment
+_common.py (read_data/write_data) — plain PyYAML round-trip, no comment
 preservation, consistent with every other write path in this GUI.
 """
 from pathlib import Path
@@ -46,7 +46,7 @@ from typing import List
 from kicadstamp.config.includes import walk_include_tree
 from kicadstamp.i18n import _
 
-from ._common import _read_data, _write_data
+from ._common import read_data, write_data
 
 # Section -> the field name that references one of its entries by name from
 # elsewhere in the graph, or absent if nothing ever does (see module
@@ -91,7 +91,7 @@ def name_exists_in_graph(files: List[Path], section: str, name: str) -> bool:
     would create exactly that must be refused up front, not discovered
     later at the next `apply`/`extract` run."""
     for path in files:
-        if name in (_read_data(path).get(section) or {}):
+        if name in (read_data(path).get(section) or {}):
             return True
     return False
 
@@ -104,7 +104,7 @@ def collect_all_point_names(root_path: Path) -> List[str]:
     same reasoning)."""
     names: set = set()
     for path in collect_graph_files(root_path):
-        names.update((_read_data(path).get("points") or {}).keys())
+        names.update((read_data(path).get("points") or {}).keys())
     return sorted(names)
 
 
@@ -117,7 +117,7 @@ def collect_all_cell_names(root_path: Path) -> List[str]:
     silently collide — same reasoning name_exists_in_graph above relies on."""
     names: set = set()
     for path in collect_graph_files(root_path):
-        names.update((_read_data(path).get("cells") or {}).keys())
+        names.update((read_data(path).get("cells") or {}).keys())
     return sorted(names)
 
 
@@ -128,7 +128,7 @@ def rename_dict_entry(path: Path, section: str, old_name: str, new_name: str) ->
     exists in THIS file's section (name_exists_in_graph above is the
     graph-wide check callers should run first — this is a local backstop,
     not a substitute for it)."""
-    data = _read_data(path)
+    data = read_data(path)
     section_dict = data.get(section) or {}
     if old_name not in section_dict:
         raise OSError(_("{name!r} not found in {section}: of {path}")
@@ -140,7 +140,7 @@ def rename_dict_entry(path: Path, section: str, old_name: str, new_name: str) ->
     # its original position instead of moving it to the end for no reason.
     data[section] = {(new_name if key == old_name else key): value
                      for key, value in section_dict.items()}
-    _write_data(path, data)
+    write_data(path, data)
 
 
 def rename_list_entry(path: Path, section: str, old_name: str, new_name: str) -> None:
@@ -150,7 +150,7 @@ def rename_list_entry(path: Path, section: str, old_name: str, new_name: str) ->
     rules: entry matched only by net:, this is what actually gives it an
     explicit name: for the first time, distinct from its net:."""
     fallback_key = FALLBACK_KEY.get(section)
-    data = _read_data(path)
+    data = read_data(path)
     items = data.get(section) or []
 
     match = None
@@ -174,7 +174,7 @@ def rename_list_entry(path: Path, section: str, old_name: str, new_name: str) ->
                           .format(name=new_name, section=section, path=path))
 
     match["name"] = new_name
-    _write_data(path, data)
+    write_data(path, data)
 
 
 def _rename_field_recursive(node, field_name: str, old_value: str, new_value: str) -> bool:
@@ -203,9 +203,9 @@ def rename_references(files: List[Path], field_name: str, old_value: str, new_va
     returns those paths for a summary message."""
     changed_files = []
     for path in files:
-        data = _read_data(path)
+        data = read_data(path)
         if _rename_field_recursive(data, field_name, old_value, new_value):
-            _write_data(path, data)
+            write_data(path, data)
             changed_files.append(path)
     return changed_files
 

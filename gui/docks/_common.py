@@ -22,7 +22,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QComboBox, QCompleter, QLabel
 
 from kicadstamp.config_writer import (
-    _read_data, _write_data, add_include, add_list_entry, disable_include,
+    read_data, write_data, add_include, add_list_entry, disable_include,
     display_path, merge_write, non_includable_keys, upsert_clone_placement,
     upsert_list_entry)
 from kicadstamp.i18n import _

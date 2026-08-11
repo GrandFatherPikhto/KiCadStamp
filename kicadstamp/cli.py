@@ -13,8 +13,8 @@ from pathlib import Path
 
 
 from kicadstamp.cli_extract import (load_profile, extract_template,
-                                    _EXTRACT_PROFILE_KNOWN_KEYS,
-                                    _CLONE_EXTRACT_PROFILE_KNOWN_KEYS)
+                                    EXTRACT_PROFILE_KNOWN_KEYS,
+                                    CLONE_EXTRACT_PROFILE_KNOWN_KEYS)
 from kicadstamp.constants import DEFAULT_LOG_DIR
 from kicadstamp.exceptions import PlacerError
 from kicadstamp.kicad.adapter import KiCadBoardAdapter
@@ -48,7 +48,7 @@ def cmd_extract(args) -> None:
         if not args.profiles:
             raise PlacerError(_("[error] --profile given without --profiles (profiles file)"))
         prof = load_profile(args.profiles, "extract_profiles", args.profile, root_defaults=["output"],
-                            known_keys=_EXTRACT_PROFILE_KNOWN_KEYS)
+                            known_keys=EXTRACT_PROFILE_KNOWN_KEYS)
         if "output" not in prof:
             raise PlacerError(_("[error] profile {profile!r} missing required field {field!r}")
                               .format(profile=args.profile, field="output"))
@@ -125,7 +125,7 @@ def cmd_clone_extract(args) -> None:
         if not args.profiles:
             raise PlacerError(_("[error] --profile given without --profiles (profiles file)"))
         prof = load_profile(args.profiles, "clone_profiles", args.profile,
-                            known_keys=_CLONE_EXTRACT_PROFILE_KNOWN_KEYS)
+                            known_keys=CLONE_EXTRACT_PROFILE_KNOWN_KEYS)
         for required in ("net", "pcb", "channel", "output"):
             if required not in prof:
                 raise PlacerError(_("[error] profile {profile!r} missing required field {field!r}")

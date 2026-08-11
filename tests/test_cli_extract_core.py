@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 
-from kicadstamp.cli_extract import _EXTRACT_PROFILE_KNOWN_KEYS, extract_template
+from kicadstamp.cli_extract import EXTRACT_PROFILE_KNOWN_KEYS, extract_template
 from kicadstamp.exceptions import PlacerError
 
 
@@ -49,7 +49,7 @@ class TestRuleNets:
     allowlist that would otherwise fatal on a rule_nets: key found live."""
 
     def test_rule_nets_is_a_known_extract_profile_key(self):
-        assert 'rule_nets' in _EXTRACT_PROFILE_KNOWN_KEYS
+        assert 'rule_nets' in EXTRACT_PROFILE_KNOWN_KEYS
 
     def test_rule_nets_forwarded_to_extract_template_from_selection(self, monkeypatch, tmp_path):
         captured = {}

@@ -106,7 +106,7 @@ def test_read_data_os_error_message_names_the_broken_file(tmp_path):
     path.write_text("cells: [1, 2\n  a: 3\n", encoding="utf-8")
 
     with pytest.raises(OSError) as excinfo:
-        common_mod._read_data(path)
+        common_mod.read_data(path)
     assert str(path) in str(excinfo.value)
 
 

@@ -18,7 +18,7 @@ from kicadstamp.apply_pipeline import (
     _split_comma_values, _matches_any_cluster, _compute_all_anchor_ids,
     drop_disabled_rules, drop_inactive_items, apply_only_filter, apply_cluster_filter,
 )
-from kicadstamp.cli_extract import load_profile, _EXTRACT_PROFILE_KNOWN_KEYS, _CLONE_EXTRACT_PROFILE_KNOWN_KEYS
+from kicadstamp.cli_extract import load_profile, EXTRACT_PROFILE_KNOWN_KEYS, CLONE_EXTRACT_PROFILE_KNOWN_KEYS
 from kicadstamp.exceptions import PlacerError, ValidationError
 
 logger = logging.getLogger("test_cli_filters")
@@ -530,7 +530,7 @@ class TestLoadProfileKnownKeys:
             },
         })
         with pytest.raises(ValidationError, match="origin-by-via-net"):
-            load_profile(path, "extract_profiles", "a", known_keys=_EXTRACT_PROFILE_KNOWN_KEYS)
+            load_profile(path, "extract_profiles", "a", known_keys=EXTRACT_PROFILE_KNOWN_KEYS)
 
     def test_suggests_close_match_for_extract_profile(self, tmp_path):
         path = self._write(tmp_path, {
@@ -539,7 +539,7 @@ class TestLoadProfileKnownKeys:
             },
         })
         with pytest.raises(ValidationError, match="origin_by_via_net"):
-            load_profile(path, "extract_profiles", "a", known_keys=_EXTRACT_PROFILE_KNOWN_KEYS)
+            load_profile(path, "extract_profiles", "a", known_keys=EXTRACT_PROFILE_KNOWN_KEYS)
 
     def test_all_known_extract_profile_fields_load_fine(self, tmp_path):
         path = self._write(tmp_path, {
@@ -554,7 +554,7 @@ class TestLoadProfileKnownKeys:
                 },
             },
         })
-        prof = load_profile(path, "extract_profiles", "a", known_keys=_EXTRACT_PROFILE_KNOWN_KEYS)
+        prof = load_profile(path, "extract_profiles", "a", known_keys=EXTRACT_PROFILE_KNOWN_KEYS)
         assert prof["origin_by_via_net"] == "GND"
 
     def test_without_known_keys_typo_is_silently_ignored(self, tmp_path):
@@ -577,7 +577,7 @@ class TestLoadProfileKnownKeys:
             },
         })
         with pytest.raises(ValidationError, match="out-put"):
-            load_profile(path, "clone_profiles", "a", known_keys=_CLONE_EXTRACT_PROFILE_KNOWN_KEYS)
+            load_profile(path, "clone_profiles", "a", known_keys=CLONE_EXTRACT_PROFILE_KNOWN_KEYS)
 
     def test_all_known_clone_profile_fields_load_fine(self, tmp_path):
         path = self._write(tmp_path, {
@@ -586,5 +586,5 @@ class TestLoadProfileKnownKeys:
                       "output": "out.yaml"},
             },
         })
-        prof = load_profile(path, "clone_profiles", "a", known_keys=_CLONE_EXTRACT_PROFILE_KNOWN_KEYS)
+        prof = load_profile(path, "clone_profiles", "a", known_keys=CLONE_EXTRACT_PROFILE_KNOWN_KEYS)
         assert prof["output"] == "out.yaml"

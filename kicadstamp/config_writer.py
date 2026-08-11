@@ -14,7 +14,7 @@ caller turns into an on-screen error message.
 import json
 import logging
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Optional
 
 import yaml
 
@@ -63,6 +63,15 @@ def _write_data(path: Path, data: dict) -> None:
             json.dump(data, f, indent=2, ensure_ascii=False, sort_keys=False)
         else:
             yaml.dump(data, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
+
+
+# Public aliases — these two are consumed across the gui/ package boundary
+# (gui/docks/_common.py re-exports them to every dock), and the documented
+# rule is "gui must not import the private names" (config/__init__.py). The
+# underscore-prefixed originals stay for the internal callers in this file
+# (merge_write/add_list_entry/...); the public name is what crosses packages.
+read_data = _read_data
+write_data = _write_data
 
 
 def merge_write(path: Path, new_data: dict, section: Optional[str] = None) -> bool:

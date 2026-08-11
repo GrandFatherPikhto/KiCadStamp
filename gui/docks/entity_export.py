@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ._common import _read_data, _write_data, merge_write, upsert_list_entry
+from ._common import read_data, write_data, merge_write, upsert_list_entry
 from .rename import DICT_SECTIONS
 
 
@@ -52,7 +52,7 @@ def _resolve(item: ExportItem) -> Optional[Any]:
     points:/extract_profiles:/clone_profiles:), or the already-full payload
     for LIST sections (clone_placements:/thermal_via_arrays:/rules:)."""
     if item.section in DICT_SECTIONS:
-        return (_read_data(item.source_path).get(item.section) or {}).get(item.name)
+        return (read_data(item.source_path).get(item.section) or {}).get(item.name)
     return item.payload
 
 
@@ -72,7 +72,7 @@ def export_entries(target_path: Path, items: List[ExportItem], overwrite: bool) 
                 combined.setdefault(section, {})[name] = entry
             else:
                 combined.setdefault(section, []).append(entry)
-        _write_data(target_path, combined)
+        write_data(target_path, combined)
         return
 
     for section, name, entry in resolved:

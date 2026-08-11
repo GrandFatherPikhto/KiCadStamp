@@ -30,11 +30,18 @@ logger = logging.getLogger(__name__)
 # --profile branch (name/output/params/net_template/net_template_role/
 # origin_by_via_net/origin_by_component_role/origin_by_component_pad) and
 # clone-extract's --profile branch (net/pcb/channel/output).
-_EXTRACT_PROFILE_KNOWN_KEYS = {
+#
+# Public names (no underscore prefix): cli.py and the tests consume these
+# across the module boundary, and the project rule is that private names do
+# not cross package/module boundaries (same cleanup as config_writer's
+# read_data/write_data). The old underscore-prefixed spellings were the
+# original public contract here; they are dropped since only in-repo callers
+# used them and all have been updated.
+EXTRACT_PROFILE_KNOWN_KEYS = {
     'name', 'output', 'params', 'net_template', 'net_template_role', 'rule_nets',
     'origin_by_via_net', 'origin_by_component_role', 'origin_by_component_pad',
 }
-_CLONE_EXTRACT_PROFILE_KNOWN_KEYS = {'net', 'pcb', 'channel', 'output'}
+CLONE_EXTRACT_PROFILE_KNOWN_KEYS = {'net', 'pcb', 'channel', 'output'}
 
 
 def load_profile(profiles_path: str, top_key: str, profile_name: str,
