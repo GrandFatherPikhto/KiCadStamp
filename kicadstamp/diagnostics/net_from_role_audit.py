@@ -66,6 +66,23 @@ import yaml  # noqa: E402
 from kicadstamp.cloner.sexp import child, children, atom, load_file, sval  # noqa: E402
 import sexpdata  # noqa: E402
 
+# The net-from-role DECISION lives in the core resolver
+# (kicadstamp/placement/services/net_from_role_resolver.py) — this diagnostic
+# is a thin wrapper over it, so every live run also tests the production code
+# (see handoff_2026_08_11_net_from_role_audit_validation.md finding #3: a
+# duplicated algorithm drifted from the real one; one implementation only).
+from kicadstamp.exceptions import ValidationError  # noqa: E402
+from kicadstamp.placement.services.net_from_role_resolver import (  # noqa: E402
+    canonical_role,
+    candidates_for,
+    classify_net,
+    dist_to_component,
+    lemma2_candidates,
+    local_points,
+    role_net_sets,
+    slot_by_role,
+)
+
 try:  # live-board mode (--board) needs kipy + the adapter; keep it optional
     from kipy.geometry import Vector2  # noqa: E402
     from kicadstamp.kicad.adapter import KiCadBoardAdapter  # noqa: E402
@@ -250,80 +267,12 @@ def resolve(template: str | None, params: dict) -> str | None:
 # Classification (cluster-scoped)
 # --------------------------------------------------------------------------
 
-# Role-name synonyms across the profile/schematic boundary. The schematic and
-# the hand-written cells sometimes name the same part differently (only the
-# ferrite bead, so far): FB_PI_FLT (cell) vs PI_FB (schematic). Canonicalise
-# both sides to the same token before matching.
-_ROLE_SYNONYMS = {
-    "fb_pi_flt": "pi_fb",
-}
-
-
-def _canonical_role(role: str) -> str:
-    """casefold + synonym-normalise a role name for matching."""
-    key = role.casefold()
-    return _ROLE_SYNONYMS.get(key, key)
-
-
-def _casefold_index(role_nets: dict) -> dict[str, str]:
-    """{canonical role -> actual role in cluster} for a cluster's role->nets map.
-
-    Profile role names may differ from the schematic's in case
-    (C_In_Bulk in the cell vs C_IN_BULK in the .net) or by synonym
-    (FB_PI_FLT vs PI_FB) — canonicalise before matching.
-    """
-    return {_canonical_role(r): r for r in role_nets}
-
-def _role_net_sets(role_nets: dict[str, dict[str, set[str]]], role: str):
-    """(all_nets, {pad: net}) for one role in one cluster."""
-    pads = role_nets.get(role, {})
-    all_nets = set()
-    for ns in pads.values():
-        all_nets |= ns
-    return all_nets, pads
-
-
-def _local_points(kind: str, entry: dict) -> list[tuple[float, float]]:
-    """Local (along, across) points of a via (1) or track (2 endpoints).
-
-    Cell coordinates are rotation-invariant among themselves: distance between
-    two local points does not change under the cell's rotation, so choosing the
-    nearest component by local distance is valid without the absolute transform.
-    """
-    if kind == "via":
-        return [(float(entry.get("offset_along_mm", 0.0)),
-                 float(entry.get("offset_across_mm", 0.0)))]
-    return [
-        (float(entry.get("start_along_mm", 0.0)),
-         float(entry.get("start_across_mm", 0.0))),
-        (float(entry.get("end_along_mm", 0.0)),
-         float(entry.get("end_across_mm", 0.0))),
-    ]
-
-
-def _dist_to_component(points: list[tuple[float, float]], comp: dict) -> float:
-    """Min Euclidean distance (mm) from a via/track's points to a component's
-    local centre. Uses only local cell coordinates (rotation-invariant)."""
-    cx, cy = float(comp.get("offset_along_mm", 0.0)), float(comp.get("offset_across_mm", 0.0))
-    best = float("inf")
-    for px, py in points:
-        d = ((px - cx) ** 2 + (py - cy) ** 2) ** 0.5
-        if d < best:
-            best = d
-    return best
-
-
-def _comp_by_canonical(comps: list[dict], role: str) -> dict:
-    """Find a cell component slot whose role canonicalises to `role`.
-
-    The schematic role (e.g. 'C_IN_BULK') may differ in case from the cell's
-    ('C_In_Bulk') or by synonym ('PI_FB' vs 'FB_PI_FLT') — match canonically.
-    """
-    want = _canonical_role(role)
-    for c in comps:
-        if _canonical_role(str(c.get("role") or "")) == want:
-            return c
-    return {"offset_along_mm": 0.0, "offset_across_mm": 0.0}
+# The classification DECISION (lemma 2 / pad / geometric tiebreak) is delegated
+# to the core resolver — only the cluster-scoping + report live here. These
+# aliases keep the rest of this module's call sites unchanged while making the
+# math a single implementation shared with apply/extract.
+_canonical_role = canonical_role
+_role_net_sets = role_net_sets
 
 
 def classify_cell(cell_name: str, cell: dict, params: dict, cluster: str,
@@ -337,8 +286,6 @@ def classify_cell(cell_name: str, cell: dict, params: dict, cluster: str,
 
     cell_roles = {c.get("role") for c in cell.get("components", []) or []}
     role_nets = cluster_role_nets.get(cluster, {})
-    # Case-insensitive role match (profile may write C_In_Bulk, schematic C_IN_BULK).
-    role_index = _casefold_index(role_nets)
     comps = cell.get("components", []) or []
 
     stats = defaultdict(int)
@@ -353,56 +300,43 @@ def classify_cell(cell_name: str, cell: dict, params: dict, cluster: str,
             cat, note = "unresolved", (
                 f"cluster {cluster!r} absent from netlist graph (no live data)")
         else:
-            candidates = [role_index[_canonical_role(r)] for r in cell_roles
-                          if _canonical_role(r) in role_index
-                          and net in _role_net_sets(role_nets, role_index[_canonical_role(r)])[0]]
-            if not candidates:
-                cat, note = "fallback", f"no role pad on {net!r} (M(n) empty)"
+            # The DECISION (lemma 2 / pad / geometric tiebreak) is delegated to
+            # the core resolver — the diagnostic runs the same algorithm as
+            # apply/extract. The resolver refuses to guess (no silent fallback):
+            # a defect is reported as fallback here, never silently resolved.
+            try:
+                role, pad = classify_net(
+                    role_nets, net, cell_roles, rule_nets,
+                    points=local_points(entry), components=comps,
+                    use_geometry=use_geometry)
+            except ValidationError as exc:
+                cat, note = "fallback", str(exc).splitlines()[0]
             else:
-                # Prefer a role whose non-rule nets == {net} (lemma 2).
-                picked = None
-                lemma2_roles = []
-                for r in sorted(candidates):
-                    all_nets, _ = _role_net_sets(role_nets, r)
-                    non_rule = {n for n in all_nets if n not in rule_nets}
-                    if non_rule == {net}:
-                        lemma2_roles.append(r)
-                if len(lemma2_roles) == 1:
-                    picked = ("lemma2", f"net_from_role: {lemma2_roles[0]} (single non-rule net)")
-                elif len(lemma2_roles) > 1:
-                    # Multiple single-net roles on the same net — geometry
-                    # picks the physically nearest one (|R(n)| > 1, common bus).
-                    if use_geometry:
-                        pts = _local_points(kind, entry)
-                        r = min(lemma2_roles,
-                                key=lambda rr: _dist_to_component(pts, _comp_by_canonical(comps, rr)))
-                        picked = ("lemma2", f"net_from_role: {r} (nearest of {sorted(lemma2_roles)})")
+                if pad is None:
+                    cat = "lemma2"
+                    lemma2_roles = lemma2_candidates(
+                        role_nets, candidates_for(role_nets, net, cell_roles),
+                        rule_nets, net)
+                    if len(lemma2_roles) > 1:
+                        note = (f"net_from_role: {role} "
+                                f"(nearest of {sorted(lemma2_roles)})")
                     else:
-                        r = lemma2_roles[0]
-                        picked = ("lemma2", f"net_from_role: {r} (single non-rule net)")
+                        note = f"net_from_role: {role} (single non-rule net)"
                 else:
-                    # All candidates are multi-net roles -> pad required; pick
-                    # the nearest one by geometry when ambiguous.
-                    if use_geometry and len(candidates) > 1:
-                        pts = _local_points(kind, entry)
-                        r = min(candidates,
-                                key=lambda rr: _dist_to_component(pts, _comp_by_canonical(comps, rr)))
-                    else:
-                        r = sorted(candidates)[0]
-                    all_nets, pads = _role_net_sets(role_nets, r)
-                    pad_txt = sorted(p for p, ns in pads.items() if net in ns)[0]
-                    picked = ("pad", f"net_from_role: {r}, pad: {pad_txt} (multi-net role)")
-                cat, note = picked
+                    cat = "pad"
+                    note = f"net_from_role: {role}, pad: {pad} (multi-net role)"
         stats[cat] += 1
         # Fake-run geometry info for ambiguous |R(n)|>1 cases: candidates with
         # local distances, so the report shows WHERE the via/track would land.
         geo = None
-        if cat in ("lemma2", "pad") and len(candidates) > 1:
-            pts = _local_points(kind, entry)
-            geo = [{"role": r,
-                    "dist_mm": round(_dist_to_component(pts, _comp_by_canonical(comps, r)), 3)}
-                   for r in sorted(candidates, key=lambda rr: _dist_to_component(
-                       pts, _comp_by_canonical(comps, rr)))]
+        if cat in ("lemma2", "pad"):
+            cands = candidates_for(role_nets, net, cell_roles)
+            if len(cands) > 1:
+                pts = local_points(entry)
+                geo = [{"role": r,
+                        "dist_mm": round(dist_to_component(pts, slot_by_role(comps, r) or {}), 3)}
+                       for r in sorted(cands, key=lambda rr: dist_to_component(
+                           pts, slot_by_role(comps, rr) or {}))]
         details.append({
             "kind": kind, "net": net, "category": cat, "note": note,
             "geometry": geo,
