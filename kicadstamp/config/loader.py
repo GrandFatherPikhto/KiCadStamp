@@ -24,6 +24,24 @@ import yaml
 from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
 from ..runtime_context import RuntimeContext
+
+# NOTE (2026-08-11, arch step 6): the `..sheet_names` import below is a
+# DELIBERATE, documented exception to config/loader's "pure YAML-schema
+# description" goal (see runtime_context.py's module docstring for the full
+# rationale). Short version: the YAML schema itself references schematic
+# sheets — anchor_sheet (Rule/ClonePlacement/Point/ThermalViaArrayConfig)
+# narrows anchor_role ambiguity, and resolving that anchor needs the real
+# {uuid: Sheetname} dictionary. That dictionary is runtime-computed data
+# (parsed from *.kicad_sch, NOT part of the YAML schema), so it is threaded
+# via RuntimeContext rather than stored on Config — but it is BUILT here,
+# once, at load, because every downstream consumer (validation,
+# dependency_order, the planners, clone_role_resolver, template_extraction)
+# needs the same map, and building it once alongside the config is the single
+# construction point (no lazy per-consumer rebuilds, no divergence). The cost
+# is bounded: sheet_names.py is a leaf (imports only exceptions/i18n), so
+# config gains no cycle and no heavier dependency (no geometry/placement/
+# adapter). Deliberately NOT refactored out — deferred/rebuild would spread
+# the logic and risk divergence for zero architectural gain.
 from ..sheet_names import build_sheet_name_map
 from ..utils.paths import resolve_config_relative_path
 from .entries import (
@@ -234,6 +252,11 @@ def load_config(path: str) -> tuple[Config, RuntimeContext]:
 
     schematic_dir = data.get('schematic_dir')
     schematic_files = data.get('schematic_files', []) or []
+
+    # Deliberate exception (see the `..sheet_names` import note above): the
+    # sheet-name map must be built HERE, at load time. anchor_sheet in the
+    # config references real schematic sheets, and this is the single
+    # construction point for the runtime map shared by the whole pipeline.
     sheet_names = build_sheet_name_map(path, schematic_dir, schematic_files)
 
     config_dir = Path(path).parent
@@ -256,6 +279,9 @@ def load_config(path: str) -> tuple[Config, RuntimeContext]:
     if root_sheet:
         root_sheet = resolve_config_relative_path(config_dir, root_sheet)
 
+    # sheet_names is runtime-computed data (NOT part of the YAML schema), so
+    # it is threaded via RuntimeContext rather than stored on Config — keeping
+    # Config a pure description of the YAML schema (see runtime_context.py).
     ctx = RuntimeContext(sheet_names=sheet_names)
 
     cfg = Config(
