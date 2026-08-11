@@ -67,12 +67,12 @@ from kicadstamp.cloner.sexp import child, children, atom, load_file, sval  # noq
 import sexpdata  # noqa: E402
 
 # The net-from-role DECISION lives in the core resolver
-# (kicadstamp/placement/services/net_from_role_resolver.py) — this diagnostic
+# (kicadstamp/net_from_role_resolver.py) — this diagnostic
 # is a thin wrapper over it, so every live run also tests the production code
 # (see handoff_2026_08_11_net_from_role_audit_validation.md finding #3: a
 # duplicated algorithm drifted from the real one; one implementation only).
 from kicadstamp.exceptions import ValidationError  # noqa: E402
-from kicadstamp.placement.services.net_from_role_resolver import (  # noqa: E402
+from kicadstamp.net_from_role_resolver import (  # noqa: E402
     candidates_for,
     classify_net,
     dist_to_component,

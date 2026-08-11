@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pytest
 
 from kicadstamp.exceptions import ValidationError
-from kicadstamp.placement.services.net_from_role_resolver import (
+from kicadstamp.net_from_role_resolver import (
     classify_net, local_points,
 )
 

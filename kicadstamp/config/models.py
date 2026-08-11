@@ -90,7 +90,7 @@ class TemplateVia:
 
     net_from_role — OPTIONAL live net resolution instead of a static net:
     the role whose real pad net this via should take, resolved at apply time
-    (see placement/services/net_from_role_resolver.py and
+    (see net_from_role_resolver.py and
     net_resolution.resolve_net_from_role). Mutually exclusive with net — both
     set at once is a load-time fatal; "both None" keeps the existing rule-net
     convention (spoke_layout) / fatal-on-apply (clone_geometry). Unlike net,

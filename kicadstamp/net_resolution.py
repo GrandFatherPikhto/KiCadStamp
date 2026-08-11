@@ -76,7 +76,7 @@ def resolve_net_from_role(role: str, pad: str | None, role_to_ref: dict[str, str
 
     This is the apply-side counterpart of net_from_role on TemplateVia/
     TemplateTrack: the classification (which role/pad a via belongs to) lives
-    in placement/services/net_from_role_resolver.py; here we only translate an
+    in net_from_role_resolver.py; here we only translate an
     already-chosen (role, pad) into the net that role's real footprint carries
     RIGHT NOW on this board instance.
 

@@ -1,4 +1,4 @@
-# kicadstamp/placement/services/net_from_role_resolver.py
+# kicadstamp/net_from_role_resolver.py
 """Pure net-from-role resolution logic (plan step 2).
 
 Ports the algorithm validated live in
@@ -33,12 +33,11 @@ from kicadstamp.exceptions import ValidationError, format_fatal_error
 from kicadstamp.i18n import _
 
 # Rule nets — a via/track on one of these needs no role at all (net: null).
-# Defined in net_resolution.py (a neutral low-level module) and re-exported
-# here: net_from_role_resolver is reachable from net_resolution's caller chain
-# (placement/services -> placement/__init__ -> planner -> clone_geometry ->
-# net_resolution), so defining it here and importing it back into
-# net_resolution would be an import cycle. Configurability is added as a
-# separate step only if a real need appears (plan §3).
+# Homed in net_resolution.py (the neutral low-level net module); imported here
+# directly — this module sits alongside it at the top level, so there is no
+# placement -> net_resolution caller chain to worry about (that chain is why
+# RULE_NETS was originally defined in net_resolution, not here). Configurability
+# is added as a separate step only if a real need appears (plan §3).
 from kicadstamp.net_resolution import RULE_NETS  # noqa: E402
 
 

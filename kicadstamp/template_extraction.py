@@ -46,7 +46,7 @@ from .constants import ROLE_FIELD_NAME
 from .exceptions import ValidationError, format_fatal_error
 from .kicad.adapter import KiCadBoardAdapter
 from .net_resolution import parametrize_net
-from .placement.services.net_from_role_resolver import classify_net
+from .net_from_role_resolver import classify_net
 from .utils.units import MM
 from .i18n import _
 from .template_selection import _find_origin, _filter_tracks_within_selection
