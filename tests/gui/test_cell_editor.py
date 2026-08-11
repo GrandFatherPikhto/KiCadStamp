@@ -8,9 +8,12 @@ validates/writes.
 """
 from types import SimpleNamespace
 
+import pytest
 import yaml
 
 from gui.docks.cell_editor import CellDock
+from kicadstamp.config import load_template_via
+from kicadstamp.exceptions import ValidationError
 
 
 def _write_yaml(path, data) -> None:
@@ -128,6 +131,66 @@ def test_remove_via(main_window, tmp_path):
     assert dock._vias == []
 
 
+def test_via_net_source_toggles_row_visibility(main_window, tmp_path):
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock._tabs.setCurrentWidget(dock.vias_table.parentWidget())  # isVisibleTo needs the active tab
+
+    dock.via_net_source_combo.setCurrentIndex(0)
+    assert dock._via_net_literal_row.isVisibleTo(dock) and not dock._via_net_role_row.isVisibleTo(dock)
+
+    dock.via_net_source_combo.setCurrentIndex(1)
+    assert dock._via_net_role_row.isVisibleTo(dock) and not dock._via_net_literal_row.isVisibleTo(dock)
+
+
+def test_add_via_with_net_from_role(main_window, tmp_path):
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock.comp_role_edit.setCurrentText("C_IN_BULK")
+    dock._on_add_component()
+    dock.via_net_source_combo.setCurrentIndex(1)
+    dock.via_net_from_role_combo.setCurrentText("C_IN_BULK")
+
+    dock._on_add_via()
+
+    assert dock._vias == [{"net_from_role": "C_IN_BULK"}]
+    assert dock.vias_table.item(0, 2).text() == "role:C_IN_BULK"
+
+
+def test_add_via_with_net_from_role_and_pad(main_window, tmp_path):
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock.comp_role_edit.setCurrentText("LDO")
+    dock._on_add_component()
+    dock.via_net_source_combo.setCurrentIndex(1)
+    dock.via_net_from_role_combo.setCurrentText("LDO")
+    dock.via_net_from_role_pad_edit.setText("2")
+
+    dock._on_add_via()
+
+    assert dock._vias == [{"net_from_role": "LDO", "net_from_role_pad": "2"}]
+    assert dock.vias_table.item(0, 2).text() == "role:LDO/pad:2"
+
+
+def test_via_net_from_role_requires_a_role(main_window, tmp_path):
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock.via_net_source_combo.setCurrentIndex(1)
+    assert dock._build_via_dict() is None
+    assert "pick a Role first" in dock.message_label.text()
+
+
+def test_via_net_and_net_from_role_together_is_rejected(main_window, tmp_path):
+    """Mutual exclusion between net: and net_from_role: is enforced by the
+    shared config loader (load_template_via), not duplicated in the GUI —
+    exercised here via a hand-built dict since the form itself only ever
+    writes one or the other (see _build_via_dict)."""
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock.via_net_source_combo.setCurrentIndex(0)
+    dock.via_net_edit.setText("GND")
+    entry = dock._build_via_dict()
+    assert entry == {"net": "GND"}  # sanity: literal mode alone is fine
+
+    with pytest.raises(ValidationError, match="net and via.net_from_role"):
+        load_template_via({"net": "GND", "net_from_role": "C_IN_BULK"})
+
+
 # ── Tracks tab ────────────────────────────────────────────────────────────
 
 def test_add_track_appends_and_selects_the_new_row(main_window, tmp_path):
@@ -152,6 +215,39 @@ def test_remove_track(main_window, tmp_path):
     dock._on_add_track()
     dock._on_remove_track()
     assert dock._tracks == []
+
+
+def test_track_net_source_toggles_row_visibility(main_window, tmp_path):
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock._tabs.setCurrentWidget(dock.tracks_table.parentWidget())  # isVisibleTo needs the active tab
+
+    dock.track_net_source_combo.setCurrentIndex(0)
+    assert (dock._track_net_literal_row.isVisibleTo(dock)
+            and not dock._track_net_role_row.isVisibleTo(dock))
+
+    dock.track_net_source_combo.setCurrentIndex(1)
+    assert (dock._track_net_role_row.isVisibleTo(dock)
+            and not dock._track_net_literal_row.isVisibleTo(dock))
+
+
+def test_add_track_with_net_from_role(main_window, tmp_path):
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock.comp_role_edit.setCurrentText("C_OUT_BULK")
+    dock._on_add_component()
+    dock.track_net_source_combo.setCurrentIndex(1)
+    dock.track_net_from_role_combo.setCurrentText("C_OUT_BULK")
+
+    dock._on_add_track()
+
+    assert dock._tracks == [{"net_from_role": "C_OUT_BULK"}]
+    assert dock.tracks_table.item(0, 5).text() == "role:C_OUT_BULK"
+
+
+def test_track_net_from_role_requires_a_role(main_window, tmp_path):
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock.track_net_source_combo.setCurrentIndex(1)
+    assert dock._build_track_dict() is None
+    assert "pick a Role first" in dock.message_label.text()
 
 
 # ── Nested cells tab ──────────────────────────────────────────────────────
@@ -239,6 +335,20 @@ def test_anchor_role_choices_follow_the_components_list(main_window, tmp_path):
     dock._on_add_component()
     items = [dock.anchor_role_combo.itemText(i) for i in range(dock.anchor_role_combo.count())]
     assert items == ["HEAVY"]
+
+
+def test_via_and_track_net_from_role_choices_follow_the_components_list(main_window, tmp_path):
+    """Same closed-set source as anchor_role_combo (this cell's own current
+    Components list) — see _refresh_role_choices."""
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock.comp_role_edit.setCurrentText("HEAVY")
+    dock._on_add_component()
+    via_items = [dock.via_net_from_role_combo.itemText(i)
+                 for i in range(dock.via_net_from_role_combo.count())]
+    track_items = [dock.track_net_from_role_combo.itemText(i)
+                   for i in range(dock.track_net_from_role_combo.count())]
+    assert via_items == ["HEAVY"]
+    assert track_items == ["HEAVY"]
 
 
 # ── Building/Save ─────────────────────────────────────────────────────────
@@ -406,6 +516,39 @@ def test_load_entry_round_trips_everything(main_window, tmp_path):
     # And it round-trips back out unchanged on Save.
     dock._on_save()
     assert _read_yaml(target)["cells"]["composite"]["anchor_role"] == "A"
+
+
+def test_load_entry_round_trips_net_from_role(main_window, tmp_path):
+    dock, target = _make_dock(main_window, tmp_path, {"cells": {
+        "composite": {
+            "components": [{"role": "LDO", "offset_along_mm": 1.0}],
+            "vias": [{"net_from_role": "LDO", "net_from_role_pad": "2"}],
+            "tracks": [{"end_along_mm": 5.0, "net_from_role": "LDO"}],
+        }
+    }})
+
+    dock.load_entry("composite")
+
+    assert dock._vias == [{"net_from_role": "LDO", "net_from_role_pad": "2"}]
+    assert dock._tracks == [{"end_along_mm": 5.0, "net_from_role": "LDO"}]
+
+    # Selecting each row must reflect the "From role" mode, not "Literal".
+    dock.vias_table.selectRow(0)
+    assert dock.via_net_source_combo.currentIndex() == 1
+    assert dock.via_net_from_role_combo.currentText() == "LDO"
+    assert dock.via_net_from_role_pad_edit.text() == "2"
+
+    dock.tracks_table.selectRow(0)
+    assert dock.track_net_source_combo.currentIndex() == 1
+    assert dock.track_net_from_role_combo.currentText() == "LDO"
+    assert dock.track_net_from_role_pad_edit.text() == ""
+
+    # And it round-trips back out unchanged on Save.
+    dock.name_edit.setText("composite")
+    dock._on_save()
+    saved = _read_yaml(target)["cells"]["composite"]
+    assert saved["vias"] == [{"net_from_role": "LDO", "net_from_role_pad": "2"}]
+    assert saved["tracks"] == [{"end_along_mm": 5.0, "net_from_role": "LDO"}]
 
 
 def test_load_entry_with_anchor_xy(main_window, tmp_path):

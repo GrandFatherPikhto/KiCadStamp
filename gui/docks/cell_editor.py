@@ -33,6 +33,19 @@ original extractor run knew. anchor_role is a searchable combo sourced from
 THIS cell's own current Components list (not the live board) — it must
 name one of them (validated on Save, see config/entries.py's _load_cell).
 
+Net from role (added 2026-08-11) — Vias/Tracks each get a Net source
+choice: Literal (the existing free-typed net:, unchanged) or From role
+(net_from_role/net_from_role_pad — resolved live at apply time from the
+named role's real pad, see kicadstamp/net_from_role_resolver.py and
+net_resolution.resolve_net_from_role). The role combo is a plain closed
+QComboBox sourced from THIS cell's own current Components list (same
+widget/reasoning as anchor_role_combo below — free text is never valid
+here); the pad field stays free text since pad numbers aren't enumerable
+offline (no live board connection while editing a Cell). Mutual exclusion
+between net: and net_from_role: is enforced by the existing config loader
+(_load_template_via/_load_template_track), not duplicated here — the form
+only ever writes one or the other depending on the mode picked.
+
 Deliberate scope cuts for this first pass (Denis, "Го. Прям все три. без
 остановки" — shipped in one sitting, not because these don't matter):
   - TemplateComponentSlot.vias (per-component vias) are NOT editable here —
@@ -90,6 +103,17 @@ def _layer_combo(items) -> QComboBox:
     for text, data in items:
         combo.addItem(text, data)
     return combo
+
+
+def _net_display(entry: Dict[str, Any]) -> str:
+    """Net column text for a via/track row — literal net: as-is, or
+    role:<role>[/pad:<pad>] for net_from_role (same "merge two possible
+    shapes into one column" precedent as the Nested tab's Content column)."""
+    role = entry.get("net_from_role")
+    if role:
+        pad = entry.get("net_from_role_pad")
+        return f"role:{role}/pad:{pad}" if pad else f"role:{role}"
+    return str(entry.get("net", ""))
 
 
 class CellDock(QWidget):
@@ -261,9 +285,34 @@ class CellDock(QWidget):
         self.via_offset_across_edit = QLineEdit()
         self.via_offset_across_edit.setPlaceholderText(_("offset across mm (0)"))
         form.addRow(_("Offset across:"), self.via_offset_across_edit)
+        self.via_net_source_combo = QComboBox()
+        self.via_net_source_combo.addItems([_("Literal"), _("From role")])
+        self.via_net_source_combo.currentIndexChanged.connect(self._on_via_net_source_changed)
+        form.addRow(_("Net source:"), self.via_net_source_combo)
+
+        self._via_net_literal_row = QWidget()
+        via_net_literal_form = QFormLayout(self._via_net_literal_row)
+        via_net_literal_form.setContentsMargins(0, 0, 0, 0)
         self.via_net_edit = QLineEdit()
         self.via_net_edit.setPlaceholderText(_("optional — blank means the rule's own net"))
-        form.addRow(_("Net:"), self.via_net_edit)
+        via_net_literal_form.addRow(_("Net:"), self.via_net_edit)
+        form.addRow(self._via_net_literal_row)
+
+        self._via_net_role_row = QWidget()
+        via_net_role_form = QFormLayout(self._via_net_role_row)
+        via_net_role_form.setContentsMargins(0, 0, 0, 0)
+        # Plain closed QComboBox, not configure_searchable() — same reasoning
+        # as anchor_role_combo: must already be one of this cell's own
+        # components: roles, free text is never valid here (see module
+        # docstring's "Net from role" paragraph).
+        self.via_net_from_role_combo = QComboBox()
+        via_net_role_form.addRow(_("Role:"), self.via_net_from_role_combo)
+        self.via_net_from_role_pad_edit = QLineEdit()
+        self.via_net_from_role_pad_edit.setPlaceholderText(
+            _("optional pad — blank means the role's single non-rule net"))
+        via_net_role_form.addRow(_("Pad:"), self.via_net_from_role_pad_edit)
+        form.addRow(self._via_net_role_row)
+
         self.via_drill_edit = QLineEdit()
         self.via_drill_edit.setPlaceholderText(_("drill mm (0.3)"))
         form.addRow(_("Drill:"), self.via_drill_edit)
@@ -284,6 +333,7 @@ class CellDock(QWidget):
         row.addWidget(self.remove_via_button)
         page_layout.addLayout(row)
 
+        self._on_via_net_source_changed()
         self._tabs.addTab(page, _("Vias"))
 
     def _build_tracks_tab(self) -> None:
@@ -315,9 +365,30 @@ class CellDock(QWidget):
         self.track_width_edit = QLineEdit()
         self.track_width_edit.setPlaceholderText(_("width mm (0.25)"))
         form.addRow(_("Width:"), self.track_width_edit)
+        self.track_net_source_combo = QComboBox()
+        self.track_net_source_combo.addItems([_("Literal"), _("From role")])
+        self.track_net_source_combo.currentIndexChanged.connect(self._on_track_net_source_changed)
+        form.addRow(_("Net source:"), self.track_net_source_combo)
+
+        self._track_net_literal_row = QWidget()
+        track_net_literal_form = QFormLayout(self._track_net_literal_row)
+        track_net_literal_form.setContentsMargins(0, 0, 0, 0)
         self.track_net_edit = QLineEdit()
         self.track_net_edit.setPlaceholderText(_("optional — blank means the rule's own net"))
-        form.addRow(_("Net:"), self.track_net_edit)
+        track_net_literal_form.addRow(_("Net:"), self.track_net_edit)
+        form.addRow(self._track_net_literal_row)
+
+        self._track_net_role_row = QWidget()
+        track_net_role_form = QFormLayout(self._track_net_role_row)
+        track_net_role_form.setContentsMargins(0, 0, 0, 0)
+        self.track_net_from_role_combo = QComboBox()
+        track_net_role_form.addRow(_("Role:"), self.track_net_from_role_combo)
+        self.track_net_from_role_pad_edit = QLineEdit()
+        self.track_net_from_role_pad_edit.setPlaceholderText(
+            _("optional pad — blank means the role's single non-rule net"))
+        track_net_role_form.addRow(_("Pad:"), self.track_net_from_role_pad_edit)
+        form.addRow(self._track_net_role_row)
+
         self.track_layer_combo = _layer_combo(_INHERIT_LAYER_ITEMS)
         form.addRow(_("Layer:"), self.track_layer_combo)
         page_layout.addLayout(form)
@@ -334,6 +405,7 @@ class CellDock(QWidget):
         row.addWidget(self.remove_track_button)
         page_layout.addLayout(row)
 
+        self._on_track_net_source_changed()
         self._tabs.addTab(page, _("Tracks"))
 
     def _build_nested_tab(self) -> None:
@@ -445,8 +517,28 @@ class CellDock(QWidget):
         self._anchor_xy_row.setVisible(mode == 1)
         self._anchor_role_row.setVisible(mode == 2)
 
-    def _refresh_anchor_role_choices(self) -> None:
-        set_combo_items(self.anchor_role_combo, sorted({c["role"] for c in self._components}))
+    def _refresh_role_choices(self) -> None:
+        """Repopulates every combo whose valid values are THIS cell's own
+        current Components list — anchor_role_combo plus the two Vias/Tracks
+        "Net source: From role" role pickers (same closed-set reasoning, see
+        module docstring's "Net from role" paragraph). Renamed from
+        _refresh_anchor_role_choices when the via/track combos were added —
+        still called from the same two places (after the Components table
+        changes, and once from _refresh_all_tables)."""
+        roles = sorted({c["role"] for c in self._components})
+        set_combo_items(self.anchor_role_combo, roles)
+        set_combo_items(self.via_net_from_role_combo, roles)
+        set_combo_items(self.track_net_from_role_combo, roles)
+
+    def _on_via_net_source_changed(self) -> None:
+        from_role = self.via_net_source_combo.currentIndex() == 1
+        self._via_net_literal_row.setVisible(not from_role)
+        self._via_net_role_row.setVisible(from_role)
+
+    def _on_track_net_source_changed(self) -> None:
+        from_role = self.track_net_source_combo.currentIndex() == 1
+        self._track_net_literal_row.setVisible(not from_role)
+        self._track_net_role_row.setVisible(from_role)
 
     def _on_nested_mode_changed(self) -> None:
         mode = self.nested_mode_combo.currentIndex()
@@ -481,7 +573,7 @@ class CellDock(QWidget):
         self._refresh_vias_table()
         self._refresh_tracks_table()
         self._refresh_nested_table()
-        self._refresh_anchor_role_choices()
+        self._refresh_role_choices()
 
     def _refresh_components_table(self) -> None:
         self.components_table.setRowCount(len(self._components))
@@ -496,7 +588,7 @@ class CellDock(QWidget):
             ]
             for col, value in enumerate(values):
                 self.components_table.setItem(row, col, QTableWidgetItem(value))
-        self._refresh_anchor_role_choices()
+        self._refresh_role_choices()
 
     def _refresh_vias_table(self) -> None:
         self.vias_table.setRowCount(len(self._vias))
@@ -504,7 +596,7 @@ class CellDock(QWidget):
             values = [
                 str(v.get("offset_along_mm", "")) if v.get("offset_along_mm") else "",
                 str(v.get("offset_across_mm", "")) if v.get("offset_across_mm") else "",
-                str(v.get("net", "")),
+                _net_display(v),
                 str(v.get("drill_mm", "")),
                 str(v.get("diameter_mm", "")),
             ]
@@ -520,7 +612,7 @@ class CellDock(QWidget):
                 str(t.get("end_along_mm", "")) if t.get("end_along_mm") else "",
                 str(t.get("end_across_mm", "")) if t.get("end_across_mm") else "",
                 str(t.get("width_mm", "")),
-                str(t.get("net", "")),
+                _net_display(t),
                 str(t.get("layer", "")),
             ]
             for col, value in enumerate(values):
@@ -650,14 +742,28 @@ class CellDock(QWidget):
         v = self._vias[self._selected_via]
         self.via_offset_along_edit.setText(str(v.get("offset_along_mm", "")) if v.get("offset_along_mm") else "")
         self.via_offset_across_edit.setText(str(v.get("offset_across_mm", "")) if v.get("offset_across_mm") else "")
-        self.via_net_edit.setText(str(v.get("net", "")))
+        if v.get("net_from_role"):
+            self.via_net_source_combo.setCurrentIndex(1)
+            self.via_net_from_role_combo.setCurrentText(str(v["net_from_role"]))
+            self.via_net_from_role_pad_edit.setText(str(v.get("net_from_role_pad", "")))
+            self.via_net_edit.setText("")
+        else:
+            self.via_net_source_combo.setCurrentIndex(0)
+            self.via_net_edit.setText(str(v.get("net", "")))
+            self.via_net_from_role_combo.setCurrentText("")
+            self.via_net_from_role_pad_edit.setText("")
+        self._on_via_net_source_changed()
         self.via_drill_edit.setText(str(v.get("drill_mm", "")) if v.get("drill_mm") is not None else "")
         self.via_diameter_edit.setText(str(v.get("diameter_mm", "")) if v.get("diameter_mm") is not None else "")
 
     def _clear_via_editor(self) -> None:
         self.via_offset_along_edit.setText("")
         self.via_offset_across_edit.setText("")
+        self.via_net_source_combo.setCurrentIndex(0)
         self.via_net_edit.setText("")
+        self.via_net_from_role_combo.setCurrentText("")
+        self.via_net_from_role_pad_edit.setText("")
+        self._on_via_net_source_changed()
         self.via_drill_edit.setText("")
         self.via_diameter_edit.setText("")
 
@@ -679,9 +785,19 @@ class CellDock(QWidget):
             entry["offset_along_mm"] = offset_along
         if offset_across:
             entry["offset_across_mm"] = offset_across
-        net = self.via_net_edit.text().strip()
-        if net:
-            entry["net"] = net
+        if self.via_net_source_combo.currentIndex() == 1:
+            role = self.via_net_from_role_combo.currentText().strip()
+            if not role:
+                self._show_message(_("Net source: From role — pick a Role first."), _ERROR_STYLE)
+                return None
+            entry["net_from_role"] = role
+            pad = self.via_net_from_role_pad_edit.text().strip()
+            if pad:
+                entry["net_from_role_pad"] = pad
+        else:
+            net = self.via_net_edit.text().strip()
+            if net:
+                entry["net"] = net
         if drill != 0.3:
             entry["drill_mm"] = drill
         if diameter != 0.6:
@@ -739,7 +855,17 @@ class CellDock(QWidget):
         self.track_end_along_edit.setText(str(t.get("end_along_mm", "")) if t.get("end_along_mm") else "")
         self.track_end_across_edit.setText(str(t.get("end_across_mm", "")) if t.get("end_across_mm") else "")
         self.track_width_edit.setText(str(t.get("width_mm", "")) if t.get("width_mm") is not None else "")
-        self.track_net_edit.setText(str(t.get("net", "")))
+        if t.get("net_from_role"):
+            self.track_net_source_combo.setCurrentIndex(1)
+            self.track_net_from_role_combo.setCurrentText(str(t["net_from_role"]))
+            self.track_net_from_role_pad_edit.setText(str(t.get("net_from_role_pad", "")))
+            self.track_net_edit.setText("")
+        else:
+            self.track_net_source_combo.setCurrentIndex(0)
+            self.track_net_edit.setText(str(t.get("net", "")))
+            self.track_net_from_role_combo.setCurrentText("")
+            self.track_net_from_role_pad_edit.setText("")
+        self._on_track_net_source_changed()
         self.track_layer_combo.setCurrentIndex(self._findable(self.track_layer_combo, t.get("layer")))
 
     def _clear_track_editor(self) -> None:
@@ -748,7 +874,11 @@ class CellDock(QWidget):
         self.track_end_along_edit.setText("")
         self.track_end_across_edit.setText("")
         self.track_width_edit.setText("")
+        self.track_net_source_combo.setCurrentIndex(0)
         self.track_net_edit.setText("")
+        self.track_net_from_role_combo.setCurrentText("")
+        self.track_net_from_role_pad_edit.setText("")
+        self._on_track_net_source_changed()
         self.track_layer_combo.setCurrentIndex(0)
 
     def _build_track_dict(self) -> Optional[Dict[str, Any]]:
@@ -778,9 +908,19 @@ class CellDock(QWidget):
             entry["end_across_mm"] = end_across
         if width != 0.25:
             entry["width_mm"] = width
-        net = self.track_net_edit.text().strip()
-        if net:
-            entry["net"] = net
+        if self.track_net_source_combo.currentIndex() == 1:
+            role = self.track_net_from_role_combo.currentText().strip()
+            if not role:
+                self._show_message(_("Net source: From role — pick a Role first."), _ERROR_STYLE)
+                return None
+            entry["net_from_role"] = role
+            pad = self.track_net_from_role_pad_edit.text().strip()
+            if pad:
+                entry["net_from_role_pad"] = pad
+        else:
+            net = self.track_net_edit.text().strip()
+            if net:
+                entry["net"] = net
         layer = self.track_layer_combo.currentData()
         if layer is not None:
             entry["layer"] = layer
