@@ -97,12 +97,14 @@ dataclass — прописывать их явно выше нужно толь�
 **Вариант (a) — стандартная точка входа (`cli_main`):**
 
 Использует каждый скрипт под `boards/*/scripts/*.py` — одно место для шаблонного argparse-кода
-`--apply`/`--dry-run`/`--verbose`, вместо того чтобы каждый скрипт изобретал его заново:
+`--apply`/`--dry-run`/`--verbose`, вместо того чтобы каждый скрипт изобретал его заново. `cli_main`
+живёт в `kicadstamp.author_cli` (вынесен из `kicadstamp.author` 2026-08-11, чтобы модуль author
+оставался чистой библиотекой):
 
 ```python
 # boards/3ch-awg-tia/scripts/my_subsystem.py
 from pathlib import Path
-from kicadstamp.author import cli_main
+from kicadstamp.author_cli import cli_main
 from kicadstamp.config import ClonePlacement
 
 HERE = Path(__file__).resolve().parent

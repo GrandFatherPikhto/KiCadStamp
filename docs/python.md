@@ -97,12 +97,14 @@ dataclass — spelling them out above is only for clarity, not required.
 **Option (a) — the standard entry point (`cli_main`):**
 
 Every script under `boards/*/scripts/*.py` uses this — one place for the `--apply`/`--dry-run`/
-`--verbose` argparse boilerplate, instead of every script reinventing it:
+`--verbose` argparse boilerplate, instead of every script reinventing it. `cli_main` lives in
+`kicadstamp.author_cli` (split out of `kicadstamp.author` 2026-08-11 so the author module stays a
+pure library):
 
 ```python
 # boards/3ch-awg-tia/scripts/my_subsystem.py
 from pathlib import Path
-from kicadstamp.author import cli_main
+from kicadstamp.author_cli import cli_main
 from kicadstamp.config import ClonePlacement
 
 HERE = Path(__file__).resolve().parent

@@ -45,7 +45,8 @@ kicadstamp/
 ├── runtime_context.py                # RuntimeContext (sheet_names)
 ├── sheet_names.py                    # Парсинг UUID листов из .kicad_sch → build_sheet_name_map()
 ├── i18n.py                           # gettext i18n: _() для русских сообщений
-├── author.py                         # Скриптовые хелперы: dump/apply/cli_main
+├── author.py                         # Скриптовые хелперы: dump/apply (чистая библиотека)
+├── author_cli.py                     # cli_main — CLI-точка входа для скриптов плат
 ├── explore.py                        # Запросы к плате только на чтение
 ├── exceptions.py                     # Иерархия исключений
 ├── undo.py                           # Откат операций

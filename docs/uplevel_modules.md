@@ -124,8 +124,8 @@ Sets up gettext for Russian-language user-facing messages. Uses `kicadstamp` tra
 
 ## 8. `author.py` – Scripting Helpers
 
-**Purpose:**  
-Provides helper functions for writing placement scripts (Python code instead of YAML configs). Includes dump functions, `apply_config()` for applying generated configs, and `cli_main()` as a standard entry-point wrapper.
+**Purpose:**
+Provides helper functions for writing placement scripts (Python code instead of YAML configs). Includes dump functions and `apply_config()` for applying generated configs. The standard `--apply`/`--dry-run` CLI entry-point wrapper `cli_main()` was split out into `author_cli.py` (arch refactor 2026-08-11) so this module stays a pure library.
 
 **Main functions:**
 
@@ -135,7 +135,7 @@ Provides helper functions for writing placement scripts (Python code instead of 
 | `dump_rules(rules, path)` | Serialises `Rule` list to YAML, pruning defaults. |
 | `dump_template(template_dict, path)` | Writes a template dictionary as JSON or YAML. |
 | `apply_config(cfg, config_path, *, dry_run, ...)` | Loads config and runs `cmd_apply` programmatically. |
-| `cli_main(build_fn, output_path, ...)` | Standard `if __name__ == "__main__":` body for placement scripts. |
+| `cli_main(build_fn, output_path, ...)` | Standard `if __name__ == "__main__":` body for placement scripts — **now in `author_cli.py`** (split out 2026-08-11). |
 
 ---
 

@@ -45,7 +45,8 @@ kicadstamp/
 ├── runtime_context.py                # RuntimeContext dataclass
 ├── sheet_names.py                    # Sheet UUID → name resolution
 ├── i18n.py                           # gettext internationalisation
-├── author.py                         # Scripting: dump/apply helpers
+├── author.py                         # Scripting: dump/apply helpers (pure library)
+├── author_cli.py                     # cli_main — CLI entry point for board scripts
 ├── explore.py                        # Board query helpers
 ├── config/                           # Configuration package (loader, models, includes)
 │   ├── __init__.py                   # Public exports
