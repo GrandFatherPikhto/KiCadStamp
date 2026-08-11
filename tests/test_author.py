@@ -10,8 +10,9 @@ from unittest.mock import patch
 import yaml
 
 from kicadstamp.config import ClonePlacement, Config, ManualSpoke, Rule, load_config
-from kicadstamp.author import (_prune_defaults, apply_config, cli_main, dump_clone_placements,
+from kicadstamp.author import (_prune_defaults, apply_config, dump_clone_placements,
                                dump_rules, dump_template)
+from kicadstamp.author_cli import cli_main
 from kicadstamp.apply_pipeline import RunOptions
 
 
@@ -166,8 +167,8 @@ class TestCliMain:
 
     def test_without_apply_only_writes_output(self, tmp_path):
         out = tmp_path / "generated.yaml"
-        with patch("kicadstamp.author.load_config") as mock_load_config, \
-             patch("kicadstamp.author.apply_config") as mock_apply_config:
+        with patch("kicadstamp.author_cli.load_config") as mock_load_config, \
+             patch("kicadstamp.author_cli.apply_config") as mock_apply_config:
             cli_main(self._build, str(out), "root.yaml", argv=[])
 
         assert out.exists()
@@ -180,8 +181,8 @@ class TestCliMain:
         anchor_sheet-based clone_placements would fatal with "sheet name dictionary
         is empty" even though sheet_names had been built correctly."""
         out = tmp_path / "generated.yaml"
-        with patch("kicadstamp.author.load_config") as mock_load_config, \
-             patch("kicadstamp.author.apply_config") as mock_apply_config:
+        with patch("kicadstamp.author_cli.load_config") as mock_load_config, \
+             patch("kicadstamp.author_cli.apply_config") as mock_apply_config:
             mock_load_config.return_value = ("cfg-sentinel", "ctx-sentinel")
             cli_main(self._build, str(out), "root.yaml", argv=["--apply", "--dry-run"])
 
@@ -191,8 +192,8 @@ class TestCliMain:
 
     def test_apply_without_dry_run_forwards_dry_run_false(self, tmp_path):
         out = tmp_path / "generated.yaml"
-        with patch("kicadstamp.author.load_config") as mock_load_config, \
-             patch("kicadstamp.author.apply_config") as mock_apply_config:
+        with patch("kicadstamp.author_cli.load_config") as mock_load_config, \
+             patch("kicadstamp.author_cli.apply_config") as mock_apply_config:
             mock_load_config.return_value = ("cfg-sentinel", None)
             cli_main(self._build, str(out), "root.yaml", argv=["--apply"])
 
@@ -200,8 +201,8 @@ class TestCliMain:
 
     def test_creates_missing_parent_directories(self, tmp_path):
         out = tmp_path / "nested" / "dir" / "generated.yaml"
-        with patch("kicadstamp.author.load_config"), \
-             patch("kicadstamp.author.apply_config"):
+        with patch("kicadstamp.author_cli.load_config"), \
+             patch("kicadstamp.author_cli.apply_config"):
             cli_main(self._build, str(out), "root.yaml", argv=[])
 
         assert out.exists()

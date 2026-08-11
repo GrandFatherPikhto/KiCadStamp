@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tests for kicadstamp/cli_common.py — the single owner of CLI exit codes
 (PlacerError→1 / ApiError→1 / Exception→2), shared by kicadstamp_cli.py's
-main() and author.cli_main()."""
+main() and author_cli.cli_main()."""
 import logging
 from pathlib import Path
 

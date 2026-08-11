@@ -6,7 +6,7 @@ instead of the library printing to stdout directly. Covers:
     self.dry_run_report, and prints nothing itself (capsys).
   - ApplyPipeline.run(): returns the report when dry_run=True, None otherwise.
   - run_apply()/cmd_apply(): propagate the report up to the CLI layer.
-  - author.apply_config() returns it; author.cli_main() prints it.
+  - author.apply_config() returns it; author_cli.cli_main() prints it.
   - kicadstamp_cli.main() (_dispatch) prints it for `apply --dry-run`.
 """
 import sys
@@ -20,7 +20,8 @@ from kipy.geometry import Vector2, Angle
 from kipy.board_types import BoardLayer
 
 from kicadstamp.apply_pipeline import ApplyPipeline, RunOptions, cmd_apply, run_apply
-from kicadstamp.author import apply_config, cli_main
+from kicadstamp.author import apply_config
+from kicadstamp.author_cli import cli_main
 from kicadstamp.config import Config
 from kicadstamp.placement.commands import MoveCommand, TrackCommand, ViaCommand
 
@@ -141,8 +142,8 @@ class TestAuthorReportPlumbing:
         def build():
             return []
 
-        with patch("kicadstamp.author.load_config", return_value=("cfg", "ctx")), \
-             patch("kicadstamp.author.apply_config", return_value=["line1", "line2"]) as m:
+        with patch("kicadstamp.author_cli.load_config", return_value=("cfg", "ctx")), \
+             patch("kicadstamp.author_cli.apply_config", return_value=["line1", "line2"]) as m:
             cli_main(build, str(out), "root.yaml", argv=["--apply", "--dry-run"])
         captured = capsys.readouterr()
         assert "line1\nline2" in captured.out

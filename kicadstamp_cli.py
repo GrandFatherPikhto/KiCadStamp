@@ -220,7 +220,7 @@ def main() -> int:
             sys.exit(1)
 
     # Exception → exit-code translation is delegated to cli_common.run_cli —
-    # the single owner of exit codes, shared with author.cli_main().
+    # the single owner of exit codes, shared with author_cli.cli_main().
     return run_cli(_dispatch)
 
 
