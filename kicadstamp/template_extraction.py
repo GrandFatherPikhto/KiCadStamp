@@ -46,12 +46,62 @@ from .constants import ROLE_FIELD_NAME
 from .exceptions import ValidationError, format_fatal_error
 from .kicad.adapter import KiCadBoardAdapter
 from .net_resolution import parametrize_net
+from .placement.services.net_from_role_resolver import classify_net
 from .utils.units import MM
 from .i18n import _
 from .template_selection import _find_origin, _filter_tracks_within_selection
-from .template_extraction_render import render_uncertain_comments
+from .template_extraction_render import render_uncertain_comments  # noqa: F401  (re-export, see module docstring)
 
 logger = logging.getLogger(__name__)
+
+
+def _selection_role_nets(adapter, footprints) -> dict[str, dict[str, set[str]]]:
+    """{role: {pad: {nets}}} for the current selection — each footprint's Role
+    field and its REAL pad nets. Used for net_from_role auto-suggestion during
+    extract (plan step 4): the classifier then decides whether a via/track's
+    net maps unambiguously to one selected role.
+    """
+    role_nets: dict[str, dict[str, set[str]]] = {}
+    for fp in footprints:
+        role = adapter.get_field_value(fp, ROLE_FIELD_NAME)
+        if role is None:
+            continue  # already a fatal problem collected separately
+        pads: dict[str, set[str]] = {}
+        try:
+            fp_pads = list(adapter.get_footprint_pads(fp))
+        except TypeError:
+            # Bare test mocks (and any adapter lacking pad data) expose a
+            # non-iterable here; skip the footprint — it simply contributes no
+            # role->net evidence, and extract falls back to the existing
+            # literal/parametrize path for anything it cannot classify.
+            continue
+        for pad_idx, p in enumerate(fp_pads):
+            if not p.net or not p.net.name:
+                continue
+            pad_num = getattr(p, "number", None)
+            pads.setdefault(str(pad_num if pad_num is not None else pad_idx + 1),
+                            set()).add(p.net.name)
+        role_nets[role] = pads
+    return role_nets
+
+
+def _suggest_net_from_role(role_nets, net, rule_nets, points, components):
+    """Try net_from_role auto-suggestion for a via/track's live net.
+
+    Returns (role, pad_or_None) when the net maps unambiguously to a single
+    selected role (lemma 2, or an explicit pad for a multi-net role, resolved
+    geometrically when |R(n)| > 1); otherwise (None, None) — the caller keeps
+    the existing literal/parametrize behavior exactly.
+    """
+    if not role_nets or net is None:
+        return None, None
+    try:
+        role, pad = classify_net(role_nets, net, set(role_nets), rule_nets,
+                                 points=points, components=components,
+                                 use_geometry=True)
+    except ValidationError:
+        return None, None
+    return role, pad
 
 
 def extract_template_from_selection(
@@ -274,24 +324,48 @@ def extract_template_from_selection(
                              layer=_(", layer={layer}").format(layer=slot.get('layer')) if 'layer' in slot else "",
                              net=_(", net_template={nt}").format(nt=slot.get('net_template')) if 'net_template' in slot else ""))
 
+    # Live role -> {pad: {nets}} of the selection, for net_from_role
+    # auto-suggestion below (plan step 4). Built once, used by both via and
+    # track loops; empty when the selection has no role/net evidence, in which
+    # case extract behaves exactly as before.
+    selection_role_nets = _selection_role_nets(adapter, footprints)
+
     spoke_vias = []
     for v in vias:
         along_mm = round((v.position.x - origin.x) / MM, 4)
         across_mm = round((v.position.y - origin.y) / MM, 4)
         via_net = v.net.name if v.net else None
+        role_net = role_net_pad = None
         if via_net in rule_nets:
             via_net = None
-        elif via_net is not None and net_template_map:
-            via_net = parametrize_net(via_net, net_template_map, params)
-        spoke_vias.append({
+        elif via_net is not None:
+            # Try net_from_role BEFORE net_template_map: a via whose net maps
+            # unambiguously to one selected role is written as net_from_role
+            # (optionally with pad) instead of a literal/parametrised net —
+            # the cell then resolves that net live on ANY cluster it is
+            # applied to. On fallback/ambiguity keep the existing path.
+            role_net, role_net_pad = _suggest_net_from_role(
+                selection_role_nets, via_net, rule_nets,
+                [(along_mm, across_mm)], components)
+            if role_net is not None:
+                via_net = None
+            elif net_template_map:
+                via_net = parametrize_net(via_net, net_template_map, params)
+        entry = {
             "offset_along_mm": along_mm,
             "offset_across_mm": across_mm,
             "net": via_net,
             "drill_mm": round(v.drill_diameter / MM, 4),
             "diameter_mm": round(v.diameter / MM, 4),
-        })
+        }
+        if role_net is not None:
+            entry["net_from_role"] = role_net
+            if role_net_pad is not None:
+                entry["net_from_role_pad"] = role_net_pad
+        spoke_vias.append(entry)
         logger.debug(_("  via: along={along}, across={across}, net={net}")
-                     .format(along=along_mm, across=across_mm, net=via_net))
+                     .format(along=along_mm, across=across_mm,
+                             net=role_net or via_net))
 
     spoke_tracks = []
     for t in tracks:
@@ -300,10 +374,19 @@ def extract_template_from_selection(
         end_along_mm = round((t.end.x - origin.x) / MM, 4)
         end_across_mm = round((t.end.y - origin.y) / MM, 4)
         track_net = t.net.name if t.net else None
+        role_net = role_net_pad = None
         if track_net in rule_nets:
             track_net = None
-        elif track_net is not None and net_template_map:
-            track_net = parametrize_net(track_net, net_template_map, params)
+        elif track_net is not None:
+            # Same net_from_role auto-suggestion as the via loop (plan step 4).
+            role_net, role_net_pad = _suggest_net_from_role(
+                selection_role_nets, track_net, rule_nets,
+                [(start_along_mm, start_across_mm), (end_along_mm, end_across_mm)],
+                components)
+            if role_net is not None:
+                track_net = None
+            elif net_template_map:
+                track_net = parametrize_net(track_net, net_template_map, params)
         entry = {
             "start_along_mm": start_along_mm,
             "start_across_mm": start_across_mm,
@@ -312,12 +395,17 @@ def extract_template_from_selection(
             "width_mm": round(t.width / MM, 4),
             "net": track_net,
         }
+        if role_net is not None:
+            entry["net_from_role"] = role_net
+            if role_net_pad is not None:
+                entry["net_from_role_pad"] = role_net_pad
         if t.layer != tpl_layer:
             entry["layer"] = 'F.Cu' if t.layer == BoardLayer.BL_F_Cu else 'B.Cu'
         spoke_tracks.append(entry)
         logger.debug(_("  track: ({sx},{sy}) -> ({ex},{ey}), net={net}{layer}")
                      .format(sx=start_along_mm, sy=start_across_mm,
-                             ex=end_along_mm, ey=end_across_mm, net=track_net,
+                             ex=end_along_mm, ey=end_across_mm,
+                             net=role_net or track_net,
                              layer=_(", layer={layer}").format(layer=entry['layer']) if 'layer' in entry else ""))
 
     logger.info(_("Extracted cell {name!r}: {comp} components, {vias} spoke‑level vias, {tracks} tracks")

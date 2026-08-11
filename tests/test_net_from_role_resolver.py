@@ -12,7 +12,7 @@ import pytest
 
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.placement.services.net_from_role_resolver import (
-    classify_net, canonical_role, local_points,
+    classify_net, local_points,
 )
 
 

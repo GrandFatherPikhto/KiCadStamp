@@ -94,7 +94,6 @@ except Exception:  # pragma: no cover - import failure only on odd environments
 
 ROLE_FIELD_NAME = "Role"
 CLUSTER_FIELD_NAME = "Cluster"
-RULE_NETS_DEFAULT = {"GND"}
 
 
 # --------------------------------------------------------------------------

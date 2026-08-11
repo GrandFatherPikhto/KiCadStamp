@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pytest
 from unittest.mock import MagicMock
 from kipy.geometry import Vector2, Angle
-from kipy.board_types import FootprintInstance, Via, Group
+from kipy.board_types import FootprintInstance, Via, Track, Group, BoardLayer
 
 from kicadstamp.template_extraction import extract_template_from_selection, render_uncertain_comments
 from kicadstamp.kicad.adapter import KiCadBoardAdapter
@@ -35,9 +35,10 @@ def _make_adapter(footprints, vias=()):
 
     def _pads(fp):
         pads = []
-        for net_name in fp._pad_nets:
+        for i, net_name in enumerate(fp._pad_nets):
             pad = MagicMock()
             pad.net.name = net_name
+            pad.number = str(i + 1)
             pads.append(pad)
         return pads
 
@@ -412,3 +413,116 @@ class TestRenderUncertainComments:
         text = self._dump(data)
         out = render_uncertain_comments(text, "t", [("NOT_PRESENT", "net_template", "hint")])
         assert out == text
+
+
+class TestNetFromRoleAutoSuggest:
+    """net_from_role / net_from_role_pad auto-suggestion on extract (plan step 4):
+    a via/track whose net maps unambiguously to one selected role is written as
+    net_from_role (optionally with net_from_role_pad) instead of a literal or a
+    parametrised net — the cell then resolves that net live on ANY cluster it is
+    applied to. Fallback / ambiguity keeps the existing literal/parametrize path."""
+
+    def test_via_unambiguous_role_writes_net_from_role(self):
+        cap = _make_fp("C1", 0.0, 0.0, 0.0, "C_OUT_BULK", pad_nets=["+3V3", "GND"])
+        via = _make_via(0.0, -2.0, "+3V3")
+        adapter = _make_adapter([cap], [via])
+
+        result = extract_template_from_selection(adapter, "t", rule_nets={"GND"})
+        v = result["t"]["vias"][0]
+        assert v["net"] is None          # no literal — resolved from the role
+        assert v["net_from_role"] == "C_OUT_BULK"
+        assert "net_from_role_pad" not in v  # lemma 2, no pad needed
+
+    def test_via_on_rule_net_keeps_net_null(self):
+        cap = _make_fp("C1", 0.0, 0.0, 0.0, "C_OUT_BULK", pad_nets=["+3V3", "GND"])
+        via = _make_via(0.0, -2.0, "GND")
+        adapter = _make_adapter([cap], [via])
+
+        result = extract_template_from_selection(adapter, "t", rule_nets={"GND"})
+        v = result["t"]["vias"][0]
+        assert v["net"] is None
+        assert "net_from_role" not in v
+
+    def test_via_no_matching_role_keeps_literal(self):
+        cap = _make_fp("C1", 0.0, 0.0, 0.0, "C_OUT_BULK", pad_nets=["+3V3", "GND"])
+        via = _make_via(0.0, -2.0, "+1V8")  # no selected role carries +1V8
+        adapter = _make_adapter([cap], [via])
+
+        result = extract_template_from_selection(adapter, "t", rule_nets={"GND"})
+        v = result["t"]["vias"][0]
+        assert v["net"] == "+1V8"
+        assert "net_from_role" not in v
+
+    def test_via_multi_net_role_writes_net_from_role_with_pad(self):
+        # LDO: VIN/VOUT/GND — a multi-net role; +3V3 alone cannot identify a
+        # single pad-less role, so net_from_role_pad is written explicitly.
+        ldo = _make_fp("U1", 0.0, 0.0, 0.0, "LDO", pad_nets=["+5V", "+3V3", "GND"])
+        via = _make_via(0.0, -2.0, "+3V3")
+        adapter = _make_adapter([ldo], [via])
+
+        result = extract_template_from_selection(adapter, "t", rule_nets={"GND"})
+        v = result["t"]["vias"][0]
+        assert v["net"] is None
+        assert v["net_from_role"] == "LDO"
+        assert v["net_from_role_pad"] == "2"  # the pad carrying +3V3
+
+    def test_geometry_tiebreak_chooses_nearest_role(self):
+        # Two caps share +5V (common bus); the via sits next to C1 — the
+        # geometric tiebreak must attribute it to C1, deterministically.
+        c1 = _make_fp("C1", 0.0, 0.0, 0.0, "C1", pad_nets=["+5V", "GND"])
+        c2 = _make_fp("C2", 10.0, 0.0, 0.0, "C2", pad_nets=["+5V", "GND"])
+        via = _make_via(1.0, 0.0, "+5V")
+        adapter = _make_adapter([c1, c2], [via])
+
+        result = extract_template_from_selection(adapter, "t", rule_nets={"GND"})
+        v = result["t"]["vias"][0]
+        assert v["net"] is None
+        assert v["net_from_role"] == "C1"
+
+    def test_net_from_role_takes_priority_over_net_template_map(self):
+        cap = _make_fp("C1", 0.0, 0.0, 0.0, "C_OUT_BULK", pad_nets=["+3V3", "GND"])
+        via = _make_via(0.0, -2.0, "+3V3")
+        adapter = _make_adapter([cap], [via])
+
+        result = extract_template_from_selection(
+            adapter, "t", params={"PWR_OUT": "+3V3"},
+            net_template_map={"+3V3": "{PWR_OUT}"}, rule_nets={"GND"})
+        v = result["t"]["vias"][0]
+        assert v["net"] is None
+        assert v["net_from_role"] == "C_OUT_BULK"  # not "{PWR_OUT}"
+
+    def test_track_unambiguous_role_writes_net_from_role(self):
+        # Track kept because both ends land inside a selected via's box; its
+        # net maps to the single selected role.
+        cap = _make_fp("C1", 0.0, 0.0, 0.0, "C_OUT_BULK", pad_nets=["+3V3", "GND"])
+        via_start = _make_via(0.0, 0.0, "+3V3")
+        via_end = _make_via(0.0, -2.0, "+3V3")
+        t = MagicMock(spec=Track)
+        t.start = Vector2.from_xy(0, 0)
+        t.end = Vector2.from_xy(0, int(-2.0 * MM))
+        t.net = MagicMock()
+        t.net.name = "+3V3"
+        t.width = int(0.65 * MM)
+        t.layer = BoardLayer.BL_F_Cu
+        adapter = _make_adapter([cap], [via_start, via_end])
+        adapter.get_selected_items.return_value = [cap, via_start, via_end, t]
+
+        def _bboxes(items):
+            out = []
+            for it in items:
+                pos = getattr(it, "position", None)
+                if isinstance(pos, Vector2):
+                    box = MagicMock()
+                    box.pos = Vector2.from_xy(pos.x - int(0.2 * MM), pos.y - int(0.2 * MM))
+                    box.size = Vector2.from_xy(int(0.4 * MM), int(0.4 * MM))
+                    out.append(box)
+                else:
+                    out.append(None)
+            return out
+
+        adapter.get_bounding_boxes.side_effect = _bboxes
+
+        result = extract_template_from_selection(adapter, "t", rule_nets={"GND"})
+        tr = result["t"]["tracks"][0]
+        assert tr["net"] is None
+        assert tr["net_from_role"] == "C_OUT_BULK"
