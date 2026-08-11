@@ -23,6 +23,7 @@ from ...config import Config, ClonePlacement, CellPlacement, Cell, TemplateCompo
 from ...exceptions import ValidationError, format_fatal_error
 from ...kicad.adapter import KiCadBoardAdapter
 from ...geometry.clone_geometry import apply_clone_geometry
+from ...net_resolution import resolve_net_from_role
 from ..commands import PlacedComponentInfo, ViaCommand, TrackCommand, make_registry_key
 from .clone_role_resolver import (
     resolve_roles_by_selection,
@@ -122,6 +123,32 @@ class ClonePositionCalculator:
         # name -> ResolvedPoint, for anchor_point: — see planner.py's
         # PlacementPlanner.resolved_points (owns/shares this dict).
         self.resolved_points = resolved_points if resolved_points is not None else {}
+
+    def _resolve_role_nets(self, cell: Cell, role_to_ref: dict[str, str]) -> dict:
+        """Resolve every net_from_role-bearing via/track net against the live
+        board, BEFORE geometry — the "geometry does not touch the live board"
+        boundary (apply_clone_geometry docstring) is preserved by doing the
+        live read here, outside the geometry layer.
+
+        Returns {(role, pad): net} for each distinct net_from_role in the
+        cell (cell-level vias/tracks and every component slot's vias). Each
+        resolve_net_from_role is fatal if the role/pad cannot be resolved on
+        THIS instance — apply stops, it does not guess.
+        """
+        items: list = list(cell.vias) + list(cell.tracks)
+        for slot in cell.components:
+            items += list(slot.vias)
+
+        resolved: dict = {}
+        for item in items:
+            role = getattr(item, "net_from_role", None)
+            if role is None:
+                continue
+            key = (role, getattr(item, "net_from_role_pad", None))
+            if key in resolved:
+                continue
+            resolved[key] = resolve_net_from_role(role, key[1], role_to_ref, self.adapter)
+        return resolved
 
     def _resolve_anchor(self, clone: ClonePlacement) -> Vector2 | None:
         """
@@ -261,10 +288,16 @@ class ClonePositionCalculator:
                                                      sheet_names=self.sheet_names)
 
         # Cell is assumed to be front; back = mirror (see apply_clone_geometry).
+        # Resolve net_from_role-bearing via/track nets NOW (role_to_ref is
+        # ready, and the live read belongs here, outside the geometry layer),
+        # then hand the pre-resolved map to geometry so it stays free of any
+        # live-board access.
+        resolved_role_nets = self._resolve_role_nets(cell, role_to_ref)
         layout = apply_clone_geometry(placement, cell, role_to_ref,
                                       anchor_position=anchor_position,
                                       mirror=mirror,
-                                      parent_rotation_deg=parent_rotation_deg)
+                                      parent_rotation_deg=parent_rotation_deg,
+                                      resolved_role_nets=resolved_role_nets)
         logger.info(_("  [{name}] cell {tpl!r} on {layer}{mirror_suffix}")
                     .format(name=placement.name, tpl=cell.name, layer=cell.layer,
                             mirror_suffix=_(" -> mirrored as a whole") if mirror else _(" -> as written")))

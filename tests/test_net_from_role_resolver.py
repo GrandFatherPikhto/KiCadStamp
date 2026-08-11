@@ -39,12 +39,29 @@ class TestLemma2:
         assert role is None
         assert pad is None
 
-    def test_case_and_synonym_tolerant(self):
-        # Cell writes FB_PI_FLT, the graph knows PI_FB — same canonical role.
+    def test_case_tolerant(self):
+        # Cell writes C_In_Bulk, the graph knows C_IN_BULK — casefold matches.
+        role_nets = {"C_IN_BULK": {"1": {"+3V3"}, "2": {"GND"}}}
+        role, pad = classify_net(role_nets, "+3V3", {"C_In_Bulk"})
+        assert role == "C_IN_BULK"
+
+    def test_caller_normalised_synonym_matches(self):
+        # Synonyms (cell FB_PI_FLT vs schematic PI_FB) are a config/caller
+        # concern, NOT baked into the core: the caller folds BOTH sides through
+        # its own synonym map into one namespace, then the core matches exactly.
+        synonyms = {"fb_pi_flt": "pi_fb"}
+
+        def canon(r: str) -> str:
+            key = r.casefold()
+            return synonyms.get(key, key)
+
         role_nets = {"PI_FB": {"1": {"+3V3"}, "2": {"GND"}}}
-        role, pad = classify_net(role_nets, "+3V3", {"FB_PI_FLT"})
-        assert role == "PI_FB"
-        assert canonical_role("FB_PI_FLT") == canonical_role("PI_FB")
+        local = {canon("PI_FB"): role_nets["PI_FB"]}
+        role, pad = classify_net(local, "+3V3", {canon("FB_PI_FLT")})
+        # The core returns the key the caller keyed its role_nets by — the
+        # caller's normalised name ("pi_fb"), which it can map back for display.
+        assert role == "pi_fb"
+        assert pad is None
 
 
 # --------------------------------------------------------------------------

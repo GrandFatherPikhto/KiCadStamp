@@ -33,25 +33,24 @@ from kicadstamp.exceptions import ValidationError, format_fatal_error
 from kicadstamp.i18n import _
 
 # Rule nets — a via/track on one of these needs no role at all (net: null).
-# Default matches the diagnostic's RULE_NETS_DEFAULT; configurability is
-# added as a separate step only if a real need appears (plan §3).
-RULE_NETS: set[str] = {"GND"}
-
-# Role-name synonyms across the profile/schematic boundary. The schematic and
-# the hand-written cells sometimes name the same part differently (only the
-# ferrite bead, so far): FB_PI_FLT (cell) vs PI_FB (schematic). Canonicalise
-# both sides to the same token before matching — the same bug class as
-# validation-handoff finding #3: a synonym "works" only if it is applied at
-# the point of matching, not just somewhere in the codebase.
-_ROLE_SYNONYMS = {
-    "fb_pi_flt": "pi_fb",
-}
+# Defined in net_resolution.py (a neutral low-level module) and re-exported
+# here: net_from_role_resolver is reachable from net_resolution's caller chain
+# (placement/services -> placement/__init__ -> planner -> clone_geometry ->
+# net_resolution), so defining it here and importing it back into
+# net_resolution would be an import cycle. Configurability is added as a
+# separate step only if a real need appears (plan §3).
+from kicadstamp.net_resolution import RULE_NETS  # noqa: E402
 
 
 def canonical_role(role: str) -> str:
-    """casefold + synonym-normalise a role name for matching."""
-    key = role.casefold()
-    return _ROLE_SYNONYMS.get(key, key)
+    """Casefold a role name for matching.
+
+    Deliberately NO board/schematic-specific synonyms here (e.g. a cell's
+    FB_PI_FLT vs the schematic's PI_FB): this is a general core module, and a
+    per-board name-mapping is a config concern, not code. Callers that need
+    synonyms normalise both sides of their input to a single namespace BEFORE
+    calling the resolver (see the diagnostic's local _canonical_role)."""
+    return role.casefold()
 
 
 def _casefold_index(role_nets: dict) -> dict[str, str]:

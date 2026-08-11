@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from kipy.geometry import Vector2
-from kicadstamp.config import ClonePlacement, Cell, TemplateVia, TemplateComponentSlot
+from kicadstamp.config import ClonePlacement, Cell, TemplateVia, TemplateTrack, TemplateComponentSlot
 from kicadstamp.geometry.clone_geometry import apply_clone_geometry
 from kicadstamp.exceptions import ValidationError
 
@@ -189,3 +189,70 @@ class TestApplyCloneGeometry:
 
         assert dist_mm == pytest.approx(1.0)  # было 5mm, стало 1mm после сдвига anchor'а на 4mm
         assert dist_mm < 2.0  # типичный клиренс для мелкого SMD — уже коллизия
+
+
+class TestNetFromRoleInGeometry:
+    """net_from_role / net_from_role_pad on via/track (plan step 3): the net
+    comes from the pre-resolved role-net map, never from the live board here."""
+
+    def test_via_takes_net_from_resolved_role_nets(self):
+        tpl = Cell(name="r", vias=[
+            TemplateVia(offset_along_mm=0.0, offset_across_mm=0.0,
+                        net_from_role="CAP_IN")])
+        clone = ClonePlacement(name="x", cell="r", xy=(0.0, 0.0))
+        layout = apply_clone_geometry(
+            clone, tpl, {"CAP_IN": "C10"},
+            resolved_role_nets={("CAP_IN", None): "+3V3"})
+        assert layout.vias[0].net == "+3V3"
+
+    def test_via_with_pad(self):
+        tpl = Cell(name="r", vias=[
+            TemplateVia(offset_along_mm=0.0, offset_across_mm=0.0,
+                        net_from_role="LDO", net_from_role_pad="2")])
+        clone = ClonePlacement(name="x", cell="r", xy=(0.0, 0.0))
+        layout = apply_clone_geometry(
+            clone, tpl, {"LDO": "U1"},
+            resolved_role_nets={("LDO", "2"): "+3V3"})
+        assert layout.vias[0].net == "+3V3"
+
+    def test_track_takes_net_from_resolved_role_nets(self):
+        tpl = Cell(name="r", tracks=[
+            TemplateTrack(start_along_mm=0.0, start_across_mm=0.0,
+                          end_along_mm=1.0, end_across_mm=1.0,
+                          net_from_role="CAP_OUT")])
+        clone = ClonePlacement(name="x", cell="r", xy=(0.0, 0.0))
+        layout = apply_clone_geometry(
+            clone, tpl, {"CAP_OUT": "C11"},
+            resolved_role_nets={("CAP_OUT", None): "+3V3"})
+        assert layout.tracks[0].net == "+3V3"
+
+    def test_component_slot_via_takes_net_from_role(self):
+        tpl = Cell(name="r", components=[
+            TemplateComponentSlot(role="CAP_OUT", vias=[
+                TemplateVia(offset_along_mm=0.0, offset_across_mm=0.0,
+                            net_from_role="CAP_OUT")])])
+        clone = ClonePlacement(name="x", cell="r", xy=(0.0, 0.0))
+        layout = apply_clone_geometry(
+            clone, tpl, {"CAP_OUT": "C11"},
+            resolved_role_nets={("CAP_OUT", None): "+1V2"})
+        assert layout.components[0].vias[0].net == "+1V2"
+
+    def test_missing_resolved_key_is_fatal(self):
+        """Internal consistency: calculator resolves every net_from_role BEFORE
+        geometry, so a missing key means the hook wasn't wired — fatal, not a
+        silent empty-net fallback."""
+        tpl = Cell(name="r", vias=[
+            TemplateVia(offset_along_mm=0.0, offset_across_mm=0.0,
+                        net_from_role="CAP_IN")])
+        clone = ClonePlacement(name="x", cell="r", xy=(0.0, 0.0))
+        with pytest.raises(ValidationError, match="not resolved"):
+            apply_clone_geometry(clone, tpl, {"CAP_IN": "C10"},
+                                 resolved_role_nets={})
+
+    def test_net_from_role_without_resolved_map_is_fatal(self):
+        tpl = Cell(name="r", vias=[
+            TemplateVia(offset_along_mm=0.0, offset_across_mm=0.0,
+                        net_from_role="CAP_IN")])
+        clone = ClonePlacement(name="x", cell="r", xy=(0.0, 0.0))
+        with pytest.raises(ValidationError, match="not resolved"):
+            apply_clone_geometry(clone, tpl, {"CAP_IN": "C10"})

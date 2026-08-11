@@ -73,14 +73,12 @@ import sexpdata  # noqa: E402
 # duplicated algorithm drifted from the real one; one implementation only).
 from kicadstamp.exceptions import ValidationError  # noqa: E402
 from kicadstamp.placement.services.net_from_role_resolver import (  # noqa: E402
-    canonical_role,
     candidates_for,
     classify_net,
     dist_to_component,
     lemma2_candidates,
     local_points,
     role_net_sets,
-    slot_by_role,
 )
 
 try:  # live-board mode (--board) needs kipy + the adapter; keep it optional
@@ -268,11 +266,35 @@ def resolve(template: str | None, params: dict) -> str | None:
 # --------------------------------------------------------------------------
 
 # The classification DECISION (lemma 2 / pad / geometric tiebreak) is delegated
-# to the core resolver — only the cluster-scoping + report live here. These
-# aliases keep the rest of this module's call sites unchanged while making the
-# math a single implementation shared with apply/extract.
-_canonical_role = canonical_role
+# to the core resolver — only the cluster-scoping + report live here, keeping
+# the math a single implementation shared with apply/extract.
+
+# Board/schematic role-name synonyms (cell FB_PI_FLT vs schematic PI_FB) are
+# deliberately NOT in the core resolver — that is a general module, and a
+# per-board name mapping is a config concern, not code (Denis, 2026-08-11).
+# This diagnostic is the offline per-project tool, so the mapping lives here as
+# a local, explicit constant and is folded into the inputs BEFORE delegating:
+# the synonym participates in the DECISION, not just the display
+# (validation-handoff finding #3).
+_ROLE_SYNONYMS = {"fb_pi_flt": "pi_fb"}
+
+
+def _canonical_role(role: str) -> str:
+    key = role.casefold()
+    return _ROLE_SYNONYMS.get(key, key)
+
+
 _role_net_sets = role_net_sets
+
+
+def _slot_by_local_role(comps, role_local):
+    """Component slot whose LOCAL-canonical role matches `role_local` (a
+    normalised candidate coming back from the resolver) — synonym-aware, unlike
+    the core's casefold-only slot_by_role. Returns None if no slot matches."""
+    for c in comps:
+        if _canonical_role(str(c.get("role") or "")) == role_local:
+            return c
+    return None
 
 
 def classify_cell(cell_name: str, cell: dict, params: dict, cluster: str,
@@ -288,6 +310,18 @@ def classify_cell(cell_name: str, cell: dict, params: dict, cluster: str,
     role_nets = cluster_role_nets.get(cluster, {})
     comps = cell.get("components", []) or []
 
+    # Normalise BOTH sides (netlist roles and the cell's roles) into the local
+    # canonical namespace (casefold + this board's synonyms) before delegating:
+    # the core resolver is deliberately synonym-free, so the mapping must be
+    # folded into the inputs for the DECISION to honour it. `_display` maps a
+    # normalised role back to the netlist's actual name for the report.
+    local_role_nets = {
+        _canonical_role(r): {p: set(ns) for p, ns in pads.items()}
+        for r, pads in role_nets.items()
+    }
+    local_cell_roles = {_canonical_role(r) for r in cell_roles if r}
+    _display = {_canonical_role(r): r for r in role_nets}
+
     stats = defaultdict(int)
     details = []
     for kind, net_tpl, entry in items:
@@ -296,7 +330,7 @@ def classify_cell(cell_name: str, cell: dict, params: dict, cluster: str,
             cat, note = "rule", "net: null (rule net)"
         elif net in rule_nets:
             cat, note = "rule", f"net {net!r} is a rule net -> net: null"
-        elif not role_nets:
+        elif not local_role_nets:
             cat, note = "unresolved", (
                 f"cluster {cluster!r} absent from netlist graph (no live data)")
         else:
@@ -305,18 +339,25 @@ def classify_cell(cell_name: str, cell: dict, params: dict, cluster: str,
             # apply/extract. The resolver refuses to guess (no silent fallback):
             # a defect is reported as fallback here, never silently resolved.
             try:
-                role, pad = classify_net(
-                    role_nets, net, cell_roles, rule_nets,
+                role_local, pad = classify_net(
+                    local_role_nets, net, local_cell_roles, rule_nets,
                     points=local_points(entry), components=comps,
                     use_geometry=use_geometry)
             except ValidationError as exc:
-                cat, note = "fallback", str(exc).splitlines()[0]
+                # format_fatal_error() always leads with an empty line
+                # (exceptions.py:48) -- [0] is blank for every fatal error
+                # project-wide; the actual "FATAL ERROR: ..." title is [2].
+                lines = str(exc).splitlines()
+                cat, note = "fallback", lines[2].strip() if len(lines) > 2 else str(exc)
             else:
+                role = _display.get(role_local, role_local)
                 if pad is None:
                     cat = "lemma2"
-                    lemma2_roles = lemma2_candidates(
-                        role_nets, candidates_for(role_nets, net, cell_roles),
-                        rule_nets, net)
+                    lemma2_roles = [
+                        _display.get(r, r) for r in lemma2_candidates(
+                            local_role_nets,
+                            candidates_for(local_role_nets, net, local_cell_roles),
+                            rule_nets, net)]
                     if len(lemma2_roles) > 1:
                         note = (f"net_from_role: {role} "
                                 f"(nearest of {sorted(lemma2_roles)})")
@@ -330,13 +371,22 @@ def classify_cell(cell_name: str, cell: dict, params: dict, cluster: str,
         # local distances, so the report shows WHERE the via/track would land.
         geo = None
         if cat in ("lemma2", "pad"):
-            cands = candidates_for(role_nets, net, cell_roles)
-            if len(cands) > 1:
+            cands_local = candidates_for(local_role_nets, net, local_cell_roles)
+            if len(cands_local) > 1:
+                # _slot_by_local_role expects the LOCAL-canonical form (it
+                # compares against components' own canonicalised role) --
+                # feeding it a _display-mapped name (mixed case, e.g.
+                # 'C_IN_BULK') silently fails to match a cell-authored
+                # 'C_In_Bulk' slot and falls back to a phantom (0,0) origin
+                # (found 2026-08-11 reviewing this rewrite: every candidate
+                # showed the same bogus distance). Sort/measure in local
+                # form, map to _display only for the printed "role" field.
                 pts = local_points(entry)
-                geo = [{"role": r,
-                        "dist_mm": round(dist_to_component(pts, slot_by_role(comps, r) or {}), 3)}
-                       for r in sorted(cands, key=lambda rr: dist_to_component(
-                           pts, slot_by_role(comps, rr) or {}))]
+                ranked = sorted(cands_local, key=lambda rr: dist_to_component(
+                    pts, _slot_by_local_role(comps, rr) or {}))
+                geo = [{"role": _display.get(r, r),
+                        "dist_mm": round(dist_to_component(pts, _slot_by_local_role(comps, r) or {}), 3)}
+                       for r in ranked]
         details.append({
             "kind": kind, "net": net, "category": cat, "note": note,
             "geometry": geo,

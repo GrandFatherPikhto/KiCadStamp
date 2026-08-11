@@ -11,37 +11,65 @@ for ClonePlacement (TemplatePlacer), unlike spoke_layout.py:
     via.net=None is FATAL here — there is no sensible default to fall back to,
     unlike in spoke_layout.py.
 """
-from dataclasses import dataclass, field
-
-from kipy.geometry import Vector2, Angle
+from kipy.geometry import Vector2
 
 from ..config import ClonePlacement, Cell, TemplateVia, TemplateTrack
 from ..exceptions import ValidationError, format_fatal_error
 from ..net_resolution import resolve_net
-from ..utils.units import MM
 from .spoke_layout import (
     local_to_absolute, rotate_local_offset, ResolvedVia, ResolvedTrack, ComponentLayout, SpokeLayout,
 )
 from ..i18n import _
 
 
-def _resolve_clone_via(origin: Vector2, via: TemplateVia, rotation_deg: float,
-                       clone: ClonePlacement, mirror: bool = False) -> ResolvedVia:
-    if via.net is None:
+def _net_from_resolved(role: str, pad: str | None, resolved_role_nets: dict,
+                       kind: str, clone: ClonePlacement, where: str) -> str:
+    """Net for a net_from_role-bearing via/track from the pre-resolved dict.
+
+    The calculator resolves every net_from_role BEFORE geometry (the
+    "geometry does not touch the live board" boundary), so a missing key here
+    is an internal-consistency failure, not a data problem — report it as such
+    rather than silently defaulting.
+    """
+    try:
+        return resolved_role_nets[(role, pad)]
+    except KeyError:
         raise ValidationError(format_fatal_error(
-            _("via without net in cell {cell!r} ({name!r})").format(
-                cell=clone.cell, name=clone.name),
-            [_("via at (along={along}, across={across}) has no net — "
-               "ClonePlacement has no default rule net (unlike ManualSpoke), "
-               "so every via in a cloned cell must have a net explicitly set")
-             .format(along=via.offset_along_mm, across=via.offset_across_mm)]
+            _("{kind} with net_from_role not resolved in cell {cell!r} ({name!r})")
+            .format(kind=kind, cell=clone.cell, name=clone.name),
+            [_("{where} has net_from_role={role!r}{pad_txt}, but it was not "
+               "resolved before geometry — internal consistency: the calculator "
+               "must resolve every net_from_role prior to apply_clone_geometry")
+             .format(where=where, role=role,
+                     pad_txt=f", pad={pad}" if pad is not None else "")]
         ))
+
+
+def _resolve_clone_via(origin: Vector2, via: TemplateVia, rotation_deg: float,
+                       clone: ClonePlacement, mirror: bool = False,
+                       resolved_role_nets: dict | None = None) -> ResolvedVia:
+    if via.net_from_role is not None:
+        net = _net_from_resolved(via.net_from_role, via.net_from_role_pad,
+                                 resolved_role_nets or {}, "via", clone,
+                                 _("via at (along={along}, across={across})").format(
+                                     along=via.offset_along_mm, across=via.offset_across_mm))
+    else:
+        if via.net is None:
+            raise ValidationError(format_fatal_error(
+                _("via without net in cell {cell!r} ({name!r})").format(
+                    cell=clone.cell, name=clone.name),
+                [_("via at (along={along}, across={across}) has no net — "
+                   "ClonePlacement has no default rule net (unlike ManualSpoke), "
+                   "so every via in a cloned cell must have a net explicitly set")
+                 .format(along=via.offset_along_mm, across=via.offset_across_mm)]
+            ))
+        net = resolve_net(via.net, clone.params, clone.net_overrides)
     pos = local_to_absolute(origin, via.offset_along_mm, via.offset_across_mm, rotation_deg)
     if mirror:
         pos = _mirror_x(origin, pos)
     return ResolvedVia(
         position=pos,
-        net=resolve_net(via.net, clone.params, clone.net_overrides),
+        net=net,
         drill_mm=via.drill_mm,
         diameter_mm=via.diameter_mm,
     )
@@ -49,16 +77,26 @@ def _resolve_clone_via(origin: Vector2, via: TemplateVia, rotation_deg: float,
 
 def _resolve_clone_track(origin: Vector2, track: TemplateTrack, rotation_deg: float,
                          clone: ClonePlacement, tpl_layer: str,
-                         mirror: bool = False) -> ResolvedTrack:
-    if track.net is None:
-        raise ValidationError(format_fatal_error(
-            _("track without net in cell {cell!r} ({name!r})").format(
-                cell=clone.cell, name=clone.name),
-            [_("track (along={s_along},{s_across} -> {e_along},{e_across}) has no net — "
-               "every track in a cloned cell must have a net, just like vias")
-             .format(s_along=track.start_along_mm, s_across=track.start_across_mm,
-                     e_along=track.end_along_mm, e_across=track.end_across_mm)]
-        ))
+                         mirror: bool = False,
+                         resolved_role_nets: dict | None = None) -> ResolvedTrack:
+    if track.net_from_role is not None:
+        net = _net_from_resolved(track.net_from_role, track.net_from_role_pad,
+                                 resolved_role_nets or {}, "track", clone,
+                                 _("track (along={s_along},{s_across} -> "
+                                   "{e_along},{e_across})").format(
+                                     s_along=track.start_along_mm, s_across=track.start_across_mm,
+                                     e_along=track.end_along_mm, e_across=track.end_across_mm))
+    else:
+        if track.net is None:
+            raise ValidationError(format_fatal_error(
+                _("track without net in cell {cell!r} ({name!r})").format(
+                    cell=clone.cell, name=clone.name),
+                [_("track (along={s_along},{s_across} -> {e_along},{e_across}) has no net — "
+                   "every track in a cloned cell must have a net, just like vias")
+                 .format(s_along=track.start_along_mm, s_across=track.start_across_mm,
+                         e_along=track.end_along_mm, e_across=track.end_across_mm)]
+            ))
+        net = resolve_net(track.net, clone.params, clone.net_overrides)
     start = local_to_absolute(origin, track.start_along_mm, track.start_across_mm, rotation_deg)
     end = local_to_absolute(origin, track.end_along_mm, track.end_across_mm, rotation_deg)
     layer = track.layer or tpl_layer
@@ -70,7 +108,7 @@ def _resolve_clone_track(origin: Vector2, track: TemplateTrack, rotation_deg: fl
         start=start,
         end=end,
         width_mm=track.width_mm,
-        net=resolve_net(track.net, clone.params, clone.net_overrides),
+        net=net,
         layer=layer,
     )
 
@@ -87,6 +125,7 @@ def apply_clone_geometry(
     anchor_position: Vector2 | None = None,
     mirror: bool = False,
     parent_rotation_deg: float = 0.0,
+    resolved_role_nets: dict | None = None,
 ) -> SpokeLayout:
     """
     Computes absolute positions of everything in the cell for a specific
@@ -128,9 +167,10 @@ def apply_clone_geometry(
         return (180.0 - phi) % 360.0 if mirror else phi
 
     layout = SpokeLayout(origin=origin)
-    layout.vias = [_resolve_clone_via(origin, v, rotation_deg, clone, mirror) for v in cell.vias]
-    layout.tracks = [_resolve_clone_track(origin, t, rotation_deg, clone, cell.layer, mirror)
-                     for t in cell.tracks]
+    layout.vias = [_resolve_clone_via(origin, v, rotation_deg, clone, mirror,
+                                      resolved_role_nets) for v in cell.vias]
+    layout.tracks = [_resolve_clone_track(origin, t, rotation_deg, clone, cell.layer, mirror,
+                                          resolved_role_nets) for t in cell.tracks]
 
     for slot in cell.components:
         ref = role_to_ref.get(slot.role)
@@ -141,7 +181,8 @@ def apply_clone_geometry(
             role=slot.role,
             position=place(slot.offset_along_mm, slot.offset_across_mm),
             angle_deg=comp_angle(slot.angle_deg),
-            vias=[_resolve_clone_via(origin, v, rotation_deg, clone, mirror) for v in slot.vias],
+            vias=[_resolve_clone_via(origin, v, rotation_deg, clone, mirror,
+                                     resolved_role_nets) for v in slot.vias],
             slot_layer=slot.layer,
         ))
 
