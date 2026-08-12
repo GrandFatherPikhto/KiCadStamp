@@ -35,6 +35,7 @@ from kipy.geometry import Vector2, Angle
 from ...config import CoordinatePlacement, coordinate_placement_effective_name
 from ...constants import ROLE_FIELD_NAME, CLUSTER_FIELD_NAME
 from ...geometry.spoke_layout import local_to_absolute
+from ...i18n import _
 from ...utils.units import MM
 from ..commands import MoveCommand
 from .clone_role_resolver import resolve_unique_footprint_by_fields
