@@ -1,5 +1,10 @@
 # tests/gui/test_extract_dock.py
+from unittest.mock import MagicMock
+
+import json
+
 import yaml
+from kipy.board_types import FootprintInstance, Track, Via
 from PyQt6.QtCore import Qt
 
 import gui.docks.extract as extract_mod
@@ -25,6 +30,38 @@ def _write_yaml(path, data) -> None:
 
 def _fake_extract(adapter, name, params=None, items=None, annotations=None, **kwargs):
     return {name: {"vias": [], "components": [], "tracks": [], "layer": "F.Cu"}}
+
+
+def _fake_fp(ref):
+    """A MagicMock(spec=FootprintInstance) so isinstance() checks (both in
+    this dock's own _filtered_selection() and in kicadstamp code) treat it
+    as a real footprint — same pattern used throughout tests/*.py for the
+    same reason (see e.g. tests/test_clone_ignore_selection.py)."""
+    fp = MagicMock(spec=FootprintInstance)
+    fp.reference_field.text.value = ref
+    return fp
+
+
+def _fake_via(net_name, uuid="via-uuid-unregistered"):
+    via = MagicMock(spec=Via)
+    via.net.name = net_name
+    via.id.value = uuid
+    return via
+
+
+def _fake_track(net_name="GND", uuid="track-uuid-unregistered"):
+    track = MagicMock(spec=Track)
+    track.net.name = net_name
+    track.id.value = uuid
+    return track
+
+
+def _write_registry(path, entries) -> None:
+    """entries: {key: {"uuid": ..., ...}} — same shape RegistryEntry/
+    TrackRegistryEntry serialize to (see kicadstamp/registry.py's
+    save_registry/save_track_registry) — only 'uuid' matters for these
+    tests, the rest is filler to keep the dataclass happy on load."""
+    path.write_text(json.dumps(entries), encoding="utf-8")
 
 
 # ── Net aliases as a real QTableWidget (2026-08-06, Denis: "у нас в
@@ -651,3 +688,312 @@ def test_clicking_profile_re_checks_its_rule_nets(main_window, tmp_path):
 
     assert dock._rule_net_checkboxes["+3V3_VCCIO"].isChecked() is True
     assert dock._rule_net_checkboxes["GND"].isChecked() is False
+
+
+# ── Cluster filter (2026-08-12, Denis: an area-select around new components
+# placed close to an already-placed Rule/Pi-filter sweeps up the neighbours'
+# components too) ────────────────────────────────────────────────────────
+
+def test_cluster_filter_hidden_for_a_single_cluster_selection(main_window, tmp_path):
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    dock = ExtractDock(main_window)
+    dock.set_target_file(cells_file)
+    main_window.show()  # isVisible() needs the whole ancestor chain shown
+
+    dock.set_board_selection([_fake_fp("R18")],
+                              [FakeSelected("R18", "R_SERIES", "FPGA_PERIPH", {})])
+
+    assert dock.cluster_filter_checkbox.isVisible() is False
+    assert dock.cluster_filter_combo.isVisible() is False
+
+
+def test_cluster_filter_shown_and_defaults_to_majority_cluster(main_window, tmp_path):
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    dock = ExtractDock(main_window)
+    dock.set_target_file(cells_file)
+    main_window.show()  # isVisible() needs the whole ancestor chain shown
+
+    dock.set_board_selection(
+        [_fake_fp("R18"), _fake_fp("R19"), _fake_fp("C5")],
+        [
+            FakeSelected("R18", "R_SERIES", "FPGA_PERIPH", {}),
+            FakeSelected("R19", "R_SERIES", "FPGA_PERIPH", {}),
+            FakeSelected("C5", "C_IN_BULK", "PIF_P5V", {}),
+        ])
+
+    assert dock.cluster_filter_checkbox.isVisible() is True
+    assert dock.cluster_filter_combo.isVisible() is True
+    assert dock.cluster_filter_combo.currentData() == "FPGA_PERIPH"
+
+
+def test_cluster_filter_excludes_other_cluster_footprints_but_keeps_vias(main_window, tmp_path):
+    """The concrete case reported live: R18-R23/R25-R32 tagged
+    Cluster=FPGA_PERIPH selected alongside a neighbouring Pi-filter's
+    components (Cluster=PIF_P5V) — checking the filter should drop the
+    Pi-filter's footprint from the extract payload, but leave a selected via
+    alone (no Cluster field to filter it by, see module docstring)."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    dock = ExtractDock(main_window)
+    dock.set_target_file(cells_file)
+    dock.name_edit.setText("fpga_periph")
+    main_window.connection.board = FakeBoard()
+
+    fp_r18, fp_r19, fp_c5 = _fake_fp("R18"), _fake_fp("R19"), _fake_fp("C5")
+    via = _fake_via("GND")
+    dock.set_board_selection(
+        [fp_r18, fp_r19, fp_c5, via],
+        [
+            FakeSelected("R18", "R_SERIES", "FPGA_PERIPH", {}),
+            FakeSelected("R19", "R_SERIES", "FPGA_PERIPH", {}),
+            FakeSelected("C5", "C_IN_BULK", "PIF_P5V", {}),
+        ])
+    dock.cluster_filter_checkbox.setChecked(True)  # combo already defaults to FPGA_PERIPH
+
+    payload = dock._collect_extract_inputs()
+
+    assert set(payload["raw_items"]) == {fp_r18, fp_r19, via}
+
+
+def test_cluster_filter_unchecked_keeps_full_selection(main_window, tmp_path):
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    dock = ExtractDock(main_window)
+    dock.set_target_file(cells_file)
+    dock.name_edit.setText("fpga_periph")
+    main_window.connection.board = FakeBoard()
+
+    fp_r18, fp_c5 = _fake_fp("R18"), _fake_fp("C5")
+    dock.set_board_selection(
+        [fp_r18, fp_c5],
+        [
+            FakeSelected("R18", "R_SERIES", "FPGA_PERIPH", {}),
+            FakeSelected("C5", "C_IN_BULK", "PIF_P5V", {}),
+        ])
+    # cluster_filter_checkbox left unchecked (default)
+
+    payload = dock._collect_extract_inputs()
+
+    assert set(payload["raw_items"]) == {fp_r18, fp_c5}
+
+
+def test_cluster_filter_updates_selection_label_and_warning(main_window, tmp_path):
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    dock = ExtractDock(main_window)
+    dock.set_target_file(cells_file)
+
+    dock.set_board_selection(
+        [_fake_fp("R18"), _fake_fp("R19"), _fake_fp("C5")],
+        [
+            FakeSelected("R18", "R_SERIES", "FPGA_PERIPH", {}),
+            FakeSelected("R19", "R_SERIES", "FPGA_PERIPH", {}),
+            FakeSelected("C5", "C_IN_BULK", "PIF_P5V", {}),
+        ])
+    assert dock.selection_label.text() == "3 component(s) selected"
+    assert "multiple Clusters" in dock.cluster_warning_label.text()
+    assert "filtered" not in dock.cluster_warning_label.text()
+
+    dock.cluster_filter_checkbox.setChecked(True)
+
+    assert dock.selection_label.text() == "2 component(s) selected"
+    assert "keeping 2 of 3" in dock.cluster_warning_label.text()
+
+
+def test_cluster_filter_resets_when_selection_no_longer_spans_clusters(main_window, tmp_path):
+    """A stale filter must not silently keep applying once the live
+    selection no longer spans multiple Clusters (e.g. the user deselected
+    down to just their own components) — the checkbox/combo hide AND the
+    checkbox unchecks, so a later re-selection starts from a clean state."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    dock = ExtractDock(main_window)
+    dock.set_target_file(cells_file)
+    main_window.show()  # isVisible() needs the whole ancestor chain shown
+
+    dock.set_board_selection(
+        [_fake_fp("R18"), _fake_fp("C5")],
+        [
+            FakeSelected("R18", "R_SERIES", "FPGA_PERIPH", {}),
+            FakeSelected("C5", "C_IN_BULK", "PIF_P5V", {}),
+        ])
+    dock.cluster_filter_checkbox.setChecked(True)
+
+    dock.set_board_selection([_fake_fp("R18")],
+                              [FakeSelected("R18", "R_SERIES", "FPGA_PERIPH", {})])
+
+    assert dock.cluster_filter_checkbox.isChecked() is False
+    assert dock.cluster_filter_checkbox.isVisible() is False
+
+
+# ── Cluster filter's Via/Track half — registry.json UUID check
+# (2026-08-12, second pass: Denis rejected net-name matching, since a
+# shared net like GND can't tell two Clusters' vias apart; UUID identity
+# against the Placer file's registry.json can) ─────────────────────────────
+
+def test_registry_filter_excludes_via_already_in_placer_registry(main_window, tmp_path):
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    placer_file = tmp_path / "placer.yaml"
+    _write_yaml(placer_file, {"clone_placements": []})
+    _write_registry(tmp_path / "placer.registry.json", {
+        "pad:1|pif_p5v|C_IN_BULK|0": {
+            "uuid": "via-uuid-foreign", "x_mm": 0, "y_mm": 0,
+            "net": "GND", "drill_mm": 0.3, "diameter_mm": 0.6,
+        },
+    })
+
+    dock = ExtractDock(main_window)
+    dock.set_target_file(cells_file)
+    dock.set_placer_file(placer_file)
+    dock.name_edit.setText("fpga_periph")
+    main_window.connection.board = FakeBoard()
+
+    fp_r18 = _fake_fp("R18")
+    foreign_via = _fake_via("GND", uuid="via-uuid-foreign")
+    own_via = _fake_via("GND", uuid="via-uuid-mine")
+    dock.set_board_selection(
+        [fp_r18, _fake_fp("C5"), foreign_via, own_via],
+        [
+            FakeSelected("R18", "R_SERIES", "FPGA_PERIPH", {}),
+            FakeSelected("C5", "C_IN_BULK", "PIF_P5V", {}),
+        ])
+    dock.cluster_filter_checkbox.setChecked(True)
+
+    payload = dock._collect_extract_inputs()
+
+    assert set(payload["raw_items"]) == {fp_r18, own_via}
+
+
+def test_registry_filter_excludes_track_already_in_placer_registry(main_window, tmp_path):
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    placer_file = tmp_path / "placer.yaml"
+    _write_yaml(placer_file, {"clone_placements": []})
+    _write_registry(tmp_path / "placer.tracks.registry.json", {
+        "pad:1|pif_p5v|C_IN_BULK|0": {
+            "uuid": "track-uuid-foreign", "start_x_mm": 0, "start_y_mm": 0,
+            "end_x_mm": 1, "end_y_mm": 1, "width_mm": 0.25, "net": "GND", "layer": "F.Cu",
+        },
+    })
+
+    dock = ExtractDock(main_window)
+    dock.set_target_file(cells_file)
+    dock.set_placer_file(placer_file)
+    dock.name_edit.setText("fpga_periph")
+    main_window.connection.board = FakeBoard()
+
+    fp_r18 = _fake_fp("R18")
+    foreign_track = _fake_track(uuid="track-uuid-foreign")
+    own_track = _fake_track(uuid="track-uuid-mine")
+    dock.set_board_selection(
+        [fp_r18, _fake_fp("C5"), foreign_track, own_track],
+        [
+            FakeSelected("R18", "R_SERIES", "FPGA_PERIPH", {}),
+            FakeSelected("C5", "C_IN_BULK", "PIF_P5V", {}),
+        ])
+    dock.cluster_filter_checkbox.setChecked(True)
+
+    payload = dock._collect_extract_inputs()
+
+    assert set(payload["raw_items"]) == {fp_r18, own_track}
+
+
+def test_registry_filter_is_a_noop_without_a_placer_file(main_window, tmp_path):
+    """No Placer file assigned -> nothing to check the registry against —
+    Via/Track pass through untouched, only footprint-by-Cluster filtering
+    applies (documented behaviour, not a bug)."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    dock = ExtractDock(main_window)
+    dock.set_target_file(cells_file)
+    dock.name_edit.setText("fpga_periph")
+    main_window.connection.board = FakeBoard()
+
+    fp_r18 = _fake_fp("R18")
+    via = _fake_via("GND", uuid="via-uuid-whatever")
+    dock.set_board_selection(
+        [fp_r18, _fake_fp("C5"), via],
+        [
+            FakeSelected("R18", "R_SERIES", "FPGA_PERIPH", {}),
+            FakeSelected("C5", "C_IN_BULK", "PIF_P5V", {}),
+        ])
+    dock.cluster_filter_checkbox.setChecked(True)
+
+    payload = dock._collect_extract_inputs()
+
+    assert set(payload["raw_items"]) == {fp_r18, via}
+
+
+def test_registry_uuids_cached_until_placer_file_changes(main_window, tmp_path, monkeypatch):
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    placer_file = tmp_path / "placer.yaml"
+    _write_yaml(placer_file, {"clone_placements": []})
+    _write_registry(tmp_path / "placer.registry.json", {})
+
+    dock = ExtractDock(main_window)
+    dock.set_target_file(cells_file)
+    dock.set_placer_file(placer_file)
+
+    import kicadstamp.registry as registry_mod
+    calls = []
+    original = registry_mod.load_registry
+
+    def _counting_load_registry(path):
+        calls.append(path)
+        return original(path)
+
+    monkeypatch.setattr(registry_mod, "load_registry", _counting_load_registry)
+
+    dock.set_board_selection([_fake_fp("R18"), _fake_fp("C5")], [
+        FakeSelected("R18", "R_SERIES", "FPGA_PERIPH", {}),
+        FakeSelected("C5", "C_IN_BULK", "PIF_P5V", {}),
+    ])
+    dock.cluster_filter_checkbox.setChecked(True)
+    dock._registry_uuids()
+    dock._registry_uuids()
+
+    assert len(calls) == 1  # second call served from cache, not re-read from disk
+
+    other_placer = tmp_path / "other_placer.yaml"
+    _write_yaml(other_placer, {"clone_placements": []})
+    _write_registry(tmp_path / "other_placer.registry.json", {})
+    dock.set_placer_file(other_placer)
+    dock._registry_uuids()
+
+    assert len(calls) == 2  # cache invalidated by the Placer file changing
+
+
+def test_registry_filter_survives_a_missing_registry_file(main_window, tmp_path):
+    """A Placer file that was never `apply`'d yet has no registry.json at
+    all — must be treated as "nothing registered" (empty sets), not an
+    error, so a first-ever extraction on a brand new Placer file still
+    works with the Cluster filter checked."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    placer_file = tmp_path / "placer.yaml"
+    _write_yaml(placer_file, {"clone_placements": []})
+    # deliberately no placer.registry.json / placer.tracks.registry.json
+
+    dock = ExtractDock(main_window)
+    dock.set_target_file(cells_file)
+    dock.set_placer_file(placer_file)
+    dock.name_edit.setText("fpga_periph")
+    main_window.connection.board = FakeBoard()
+
+    fp_r18 = _fake_fp("R18")
+    via = _fake_via("GND", uuid="via-uuid-whatever")
+    dock.set_board_selection(
+        [fp_r18, _fake_fp("C5"), via],
+        [
+            FakeSelected("R18", "R_SERIES", "FPGA_PERIPH", {}),
+            FakeSelected("C5", "C_IN_BULK", "PIF_P5V", {}),
+        ])
+    dock.cluster_filter_checkbox.setChecked(True)
+
+    payload = dock._collect_extract_inputs()
+
+    assert set(payload["raw_items"]) == {fp_r18, via}

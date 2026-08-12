@@ -110,19 +110,47 @@ the cell name at extraction time, see _on_extract()). Requested live
 time extraction has no existing key to match yet, but the Cluster name is
 already right there, so Cell name is never left blank purely because
 nothing's been extracted from it before.
+
+Cluster filter (2026-08-12): an area-select in KiCad is purely geometric —
+if new, not-yet-extracted components (Denis's real case: resistors tagged
+Cluster=FPGA_PERIPH, placed close to the FPGA on purpose) sit right next to
+an already-placed Rule/Pi-filter cluster, the selection sweeps up both. See
+cluster_filter_checkbox's own comment in __init__ and _filtered_selection()
+for the mechanics — every selection-derived read in this dock (label,
+warning, net aliases, Origin choices, cluster auto-fill, the extract payload
+itself) goes through _filtered_selection() so the filter is never
+half-applied.
+
+One checkbox does both halves of "extract strictly this Cluster" — talked
+through live with Denis, who explicitly rejected a second toggle/an
+"exclude these other Clusters" list as unneeded complexity once the target
+Cluster is picked explicitly: (1) footprints of any OTHER Cluster are
+dropped (as above); (2) any selected Via/Track whose live UUID is already
+recorded in the Placer file's registry.json/tracks.registry.json — i.e. it
+was created by an EARLIER apply run for some OTHER already-existing
+clone_placement/Rule — is dropped too (_registry_uuids()). Net-name
+matching was considered and rejected first: a shared net (GND, present in
+both Clusters) can't be told apart that way, whereas the registry's UUID
+is an exact, unambiguous "this belongs to placement X" fact. Silently a
+no-op without a Placer file assigned (nothing to check the registry
+against) — footprint filtering alone still applies.
 """
 import logging
 import re
+from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from kipy.board_types import Via
+import yaml
+from kipy.board_types import FootprintInstance, Track, Via
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFormLayout,
                               QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
                               QListWidget, QPushButton, QTableWidget, QTableWidgetItem,
                               QTabWidget, QVBoxLayout, QWidget)
 
+from kicadstamp.config import load_config
+from kicadstamp.exceptions import ValidationError
 from kicadstamp.explore import Selected
 from kicadstamp.extract_writer import run_extract_to_file
 from kicadstamp.i18n import _
@@ -175,6 +203,12 @@ class ExtractDock(QWidget):
         self._rule_net_checkboxes: Dict[str, QCheckBox] = {}
         self._net_template_role_edits: Dict[str, QComboBox] = {}
         self._last_autofill_key: Optional[Tuple[frozenset, Optional[Path], Optional[Path]]] = None
+        # (via_uuids, track_uuids) already in the Placer file's registry —
+        # see _registry_uuids()'s own docstring for why this is cached
+        # instead of re-reading the Placer file's whole include: graph on
+        # every ~400ms selection-watch tick. Reset (to None, meaning "stale,
+        # recompute on next need") only by set_placer_file().
+        self._registry_uuids_cache: Optional[Tuple[set, set]] = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -187,6 +221,42 @@ class ExtractDock(QWidget):
         self.cluster_warning_label.setWordWrap(True)
         self.cluster_warning_label.setStyleSheet(_WARN_STYLE)
         layout.addWidget(self.cluster_warning_label)
+
+        # Cluster filter (2026-08-12, Denis: a box-select around new
+        # components placed close to an existing structure — e.g. resistors
+        # tagged Cluster=FPGA_PERIPH sitting right next to an already-placed
+        # Rule/Pi-filter cluster — sweeps up the neighbours' components too.
+        # Only shown once _update_cluster_filter_choices() finds 2+ distinct
+        # Clusters in the raw selection (same trigger as cluster_warning_label
+        # above); picking one and checking the box restricts extraction to
+        # that Cluster: footprints of any other Cluster are excluded (as
+        # before), AND — 2026-08-12, second pass, see module docstring's
+        # "One checkbox does both halves" note — any Via/Track whose UUID is
+        # already recorded in the Placer file's registry.json (i.e. it
+        # belongs to some OTHER already-existing clone_placement/Rule) is
+        # excluded too, via _registry_uuids(). Tracks that only touched an
+        # excluded component/via are then ALSO dropped for free by the
+        # existing _filter_tracks_within_selection (its ends no longer match
+        # anything in the reduced selection).
+        cluster_filter_row = QHBoxLayout()
+        self.cluster_filter_checkbox = QCheckBox(_("Keep only one Cluster:"))
+        self.cluster_filter_checkbox.setToolTip(
+            _("Selection spans multiple Clusters (e.g. it swept up nearby "
+              "Rules/other cells too) — check this and pick a Cluster on the "
+              "right to extract only ITS components. Tracks that only "
+              "touched an excluded component are dropped automatically. "
+              "Vias/tracks already recorded in the Placer file's registry "
+              "(i.e. belonging to some OTHER already-existing placement) are "
+              "excluded too — requires a Placer file to be picked; without "
+              "one, only the Cluster/footprint part of the filter applies."))
+        self.cluster_filter_checkbox.toggled.connect(self._on_cluster_filter_changed)
+        cluster_filter_row.addWidget(self.cluster_filter_checkbox)
+        self.cluster_filter_combo = QComboBox()
+        self.cluster_filter_combo.currentIndexChanged.connect(self._on_cluster_filter_changed)
+        cluster_filter_row.addWidget(self.cluster_filter_combo, 1)
+        layout.addLayout(cluster_filter_row)
+        self.cluster_filter_checkbox.setVisible(False)
+        self.cluster_filter_combo.setVisible(False)
 
         form = QFormLayout()
         self.name_edit = QLineEdit()
@@ -385,12 +455,150 @@ class ExtractDock(QWidget):
         the tree/bulk-edit docks use."""
         self._raw_items = raw_items
         self._selected_footprints = selected_footprints
+        self._update_cluster_filter_choices()
+        self._refresh_derived_selection_state()
+
+    def _refresh_derived_selection_state(self) -> None:
+        """Everything downstream of "what's selected" — shared between a
+        fresh selection tick (set_board_selection) and the Cluster filter
+        checkbox/combo changing on an otherwise-unchanged selection."""
         self._update_selection_label()
         self._update_cluster_warning()
         self._rebuild_net_aliases()
         self._update_origin_choices()
         self._autofill_from_cluster()
         self._update_button_state()
+
+    def _on_cluster_filter_changed(self, *_args: Any) -> None:
+        self._refresh_derived_selection_state()
+
+    def _update_cluster_filter_choices(self) -> None:
+        """Populates cluster_filter_combo from the Clusters actually present
+        in the RAW selection (never the already-filtered one — the whole
+        point is to keep every option choosable even while one is applied).
+        Hidden whenever there's nothing to filter (0 or 1 distinct Cluster),
+        which also resets an active filter rather than leaving a stale one
+        silently in effect on a selection that no longer spans Clusters."""
+        clusters = sorted({s.cluster for s in self._selected_footprints if s.cluster})
+        multi = len(clusters) > 1
+        self.cluster_filter_checkbox.setVisible(multi)
+        self.cluster_filter_combo.setVisible(multi)
+        if not multi:
+            self.cluster_filter_checkbox.setChecked(False)
+            self.cluster_filter_combo.clear()
+            return
+        previous = self.cluster_filter_combo.currentData()
+        self.cluster_filter_combo.blockSignals(True)
+        self.cluster_filter_combo.clear()
+        for cluster in clusters:
+            self.cluster_filter_combo.addItem(cluster, cluster)
+        if previous in clusters:
+            self.cluster_filter_combo.setCurrentIndex(clusters.index(previous))
+        else:
+            # Default to the Cluster with the most components in the
+            # selection — usually "mine", since the neighbours swept in by
+            # an area-select are typically a smaller fraction of it.
+            counts = Counter(s.cluster for s in self._selected_footprints if s.cluster)
+            majority = counts.most_common(1)[0][0]
+            self.cluster_filter_combo.setCurrentIndex(clusters.index(majority))
+        self.cluster_filter_combo.blockSignals(False)
+
+    def _cluster_filter_target(self) -> Optional[str]:
+        if not self.cluster_filter_checkbox.isChecked():
+            return None
+        return self.cluster_filter_combo.currentData()
+
+    def _registry_uuids(self) -> Tuple[set, set]:
+        """(via_uuids, track_uuids) already recorded in the Placer file's
+        registry.json/tracks.registry.json — i.e. Via/Track objects some
+        EARLIER `apply` run of THIS Placer file already created for an
+        existing clone_placement/Rule (see registry.py's own module
+        docstring: registry.json is an index key->live-board-UUID, written
+        by record_created() as each item is actually created on the board).
+        A raw Via/Track's own `.id.value` matching one of these UUIDs is an
+        exact fact ("this belongs to placement X already"), unlike net-name
+        matching (rejected live 2026-08-12 — a shared net like GND can't be
+        told apart between two Clusters that way).
+
+        Cached per Placer path (invalidated only by set_placer_file(), see
+        its own docstring) rather than reloaded on every ~400ms
+        selection-watch tick — load_config() walks the whole include: graph,
+        too heavy to repeat that often; every other dock that reads a config
+        file this way (Rules/ThermalVia/Placer previews) only does so on an
+        explicit user action too, never on a fast timer, so a staleness
+        window bounded by "until the Placer file combo/browse changes" is
+        consistent with the rest of the app, not a new risk.
+
+        Empty sets — no Via/Track excluded by this half of the filter — when
+        there's no Placer file assigned (nothing to check against) or it
+        can't be read (reported via the log, never fatal: footprint
+        filtering by Cluster still applies on its own)."""
+        if self._placer_path is None:
+            return set(), set()
+        if self._registry_uuids_cache is not None:
+            return self._registry_uuids_cache
+        # Local import — kicadstamp.registry's own top-level `from
+        # .placement.commands import ...` transitively runs the WHOLE
+        # kicadstamp.placement package's __init__ chain (BatchExecutor etc.),
+        # part of which imports back `from ...registry import
+        # make_registry_key` — a real circular dependency that only bites
+        # when kicadstamp.registry is the FIRST thing to touch it in a given
+        # process. Every other current importer of kicadstamp.registry
+        # (apply_pipeline.py etc.) happens to already have kicadstamp.placement
+        # loaded by the time it gets there; this GUI dock is loaded much
+        # earlier (gui.main_window -> dock_hub -> detail_panel -> extract),
+        # before anything else in that chain has touched kicadstamp.placement
+        # at all — a module-level import here hit "partially initialized
+        # module" on startup. Deferring to call time (well after the app's
+        # other docks, e.g. PlacerDock, have already imported
+        # kicadstamp.placement for real) avoids it without having to
+        # restructure registry.py itself.
+        from kicadstamp.registry import (load_registry, load_track_registry,
+                                         registry_path_for_config, track_registry_path_for_config)
+        via_uuids: set = set()
+        track_uuids: set = set()
+        if self._placer_path.exists():
+            try:
+                cfg, _ctx = load_config(str(self._placer_path))
+                registry_path = cfg.registry_path or registry_path_for_config(str(self._placer_path))
+                track_registry_path = (cfg.track_registry_path
+                                       or track_registry_path_for_config(str(self._placer_path)))
+                via_uuids = {entry.uuid for entry in load_registry(registry_path).values()}
+                track_uuids = {entry.uuid for entry in load_track_registry(track_registry_path).values()}
+            except (ValidationError, OSError, yaml.YAMLError) as e:
+                logger.warning(_("Cluster filter: failed to read the Placer file's registry "
+                                 "({placer}): {type}: {error} — Via/Track exclusion by registry "
+                                 "skipped, footprint filtering by Cluster still applies")
+                               .format(placer=self._placer_path, type=type(e).__name__, error=e))
+        self._registry_uuids_cache = (via_uuids, track_uuids)
+        return self._registry_uuids_cache
+
+    def _filtered_selection(self) -> Tuple[List[Any], List[Selected]]:
+        """(raw_items, selected_footprints) narrowed to the Cluster filter's
+        target, if one is active — otherwise the untouched full selection.
+        Excludes the matching FootprintInstance from raw_items by ref, and
+        any Via/Track already known to belong to another existing placement
+        by registry UUID (see _registry_uuids())."""
+        target = self._cluster_filter_target()
+        if target is None:
+            return self._raw_items, self._selected_footprints
+        footprints = [s for s in self._selected_footprints if s.cluster == target]
+        kept_refs = {s.ref for s in footprints}
+        via_uuids, track_uuids = self._registry_uuids()
+        raw_items = []
+        for item in self._raw_items:
+            if isinstance(item, FootprintInstance):
+                if item.reference_field.text.value in kept_refs:
+                    raw_items.append(item)
+            elif isinstance(item, Via):
+                if str(item.id.value) not in via_uuids:
+                    raw_items.append(item)
+            elif isinstance(item, Track):
+                if str(item.id.value) not in track_uuids:
+                    raw_items.append(item)
+            else:
+                raw_items.append(item)
+        return raw_items, footprints
 
     def _on_origin_mode_changed(self) -> None:
         mode = self.origin_mode_combo.currentIndex()
@@ -403,10 +611,11 @@ class ExtractDock(QWidget):
         makes no sense (extract_template_from_selection fatals on it
         anyway: 'role not found in selection' / 'no such via in selection'),
         so there's no point offering it."""
-        roles = sorted({s.role for s in self._selected_footprints if s.role})
+        raw_items, footprints = self._filtered_selection()
+        roles = sorted({s.role for s in footprints if s.role})
         set_combo_items(self.origin_role_combo, roles)
 
-        via_nets = sorted({item.net.name for item in self._raw_items
+        via_nets = sorted({item.net.name for item in raw_items
                             if isinstance(item, Via) and item.net and item.net.name})
         set_combo_items(self.origin_via_net_combo, via_nets)
 
@@ -497,8 +706,11 @@ class ExtractDock(QWidget):
         same without one, it just skips the include: wiring described in
         the module docstring. Not a dropdown (unlike Cell/Profile above) —
         kept scoped to ConfigTreeDock's click, see the 2026-08-06 request
-        this followed."""
+        this followed. Also invalidates _registry_uuids_cache — a different
+        Placer file means a different registry.json to check the Cluster
+        filter's Via/Track exclusion against (see its own docstring)."""
         self._placer_path = path
+        self._registry_uuids_cache = None
         self.placer_target_label.setText(
             _("Placer file: {path}").format(path=path) if path is not None
             else _("No placer file picked (pick one in the Config tree, optional)"))
@@ -551,7 +763,8 @@ class ExtractDock(QWidget):
         heuristic, not a guarantee — same empty-field-only rule as the
         name fields, so a bad guess is just as easy to overtype as a
         blank field would have been."""
-        clusters = frozenset(s.cluster for s in self._selected_footprints if s.cluster)
+        _raw_items, footprints = self._filtered_selection()
+        clusters = frozenset(s.cluster for s in footprints if s.cluster)
         key = (clusters, self._target_path, self._profile_path)
         if key == self._last_autofill_key:
             return
@@ -734,8 +947,12 @@ class ExtractDock(QWidget):
         if not self._raw_items:
             self.selection_label.setText(_("Nothing selected"))
             return
-        fp_count = len(self._selected_footprints)
-        other_count = len(self._raw_items) - fp_count
+        raw_items, footprints = self._filtered_selection()
+        if not raw_items:
+            self.selection_label.setText(_("Nothing left after the Cluster filter (see above)"))
+            return
+        fp_count = len(footprints)
+        other_count = len(raw_items) - fp_count
         if other_count:
             self.selection_label.setText(
                 _("{fp} component(s), {other} via/track(s) selected")
@@ -747,8 +964,13 @@ class ExtractDock(QWidget):
         clusters = {s.cluster for s in self._selected_footprints}
         if len(clusters) > 1:
             shown = ", ".join(repr(c) for c in sorted(clusters, key=lambda c: c or ""))
-            self.cluster_warning_label.setText(
-                _("Selection spans multiple Clusters: {clusters}").format(clusters=shown))
+            text = _("Selection spans multiple Clusters: {clusters}").format(clusters=shown)
+            target = self._cluster_filter_target()
+            if target is not None:
+                kept = sum(1 for s in self._selected_footprints if s.cluster == target)
+                text += " " + _("(filtered to {cluster!r}: keeping {kept} of {total} component(s))").format(
+                    cluster=target, kept=kept, total=len(self._selected_footprints))
+            self.cluster_warning_label.setText(text)
         else:
             self.cluster_warning_label.setText("")
 
@@ -758,7 +980,8 @@ class ExtractDock(QWidget):
         still present — the selection-watch tick fires every ~400ms, so
         without this, in-progress typing would be wiped just like the
         tree/bulk-edit docks had to guard against."""
-        nets = sorted({net for s in self._selected_footprints for net in s.nets.values()})
+        _raw_items, footprints = self._filtered_selection()
+        nets = sorted({net for s in footprints for net in s.nets.values()})
         previous_alias = {net: edit.text() for net, edit in self._net_alias_edits.items()}
         previous_rule_net = {net: cb.isChecked() for net, cb in self._rule_net_checkboxes.items()}
         if set(nets) == set(previous_alias):
@@ -803,7 +1026,8 @@ class ExtractDock(QWidget):
         edit.setDisabled(checked)
 
     def _update_button_state(self) -> None:
-        self.extract_button.setEnabled(bool(self._raw_items) and self._target_path is not None)
+        raw_items, _footprints = self._filtered_selection()
+        self.extract_button.setEnabled(bool(raw_items) and self._target_path is not None)
 
     def _show_message(self, text: str, style: str = "") -> None:
         """Sets the inline status label AND mirrors it into the Log dock
@@ -833,7 +1057,8 @@ class ExtractDock(QWidget):
         if not name:
             self._show_message(_("Cell name is required."), _ERROR_STYLE)
             return None
-        if not self._raw_items or self._target_path is None:
+        raw_items, _footprints = self._filtered_selection()
+        if not raw_items or self._target_path is None:
             return None
         save_profile = self.save_profile_checkbox.isChecked()
         if save_profile and self._profile_path is None:
@@ -893,7 +1118,7 @@ class ExtractDock(QWidget):
 
         return {
             "name": name,
-            "raw_items": self._raw_items,
+            "raw_items": raw_items,
             "target_path": self._target_path,
             "save_profile": save_profile,
             "profile_key": self.profile_key_edit.text().strip() or name,
