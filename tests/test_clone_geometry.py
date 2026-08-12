@@ -7,7 +7,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pytest
 from kipy.geometry import Vector2
 from kicadstamp.config import ClonePlacement, Cell, TemplateVia, TemplateTrack, TemplateComponentSlot
-from kicadstamp.geometry.clone_geometry import apply_clone_geometry
+from kicadstamp.geometry.clone_geometry import apply_clone_geometry, clone_shift_mm
+from kicadstamp.geometry.spoke_layout import local_to_absolute, rotate_local_offset
 from kicadstamp.exceptions import ValidationError
 
 MM = 1_000_000
@@ -33,6 +34,51 @@ class TestApplyCloneGeometry:
         layout = apply_clone_geometry(clone, _pi_filter_template(), {"CAP_IN": "C10", "CAP_OUT": "C11"})
         assert layout.origin.x == int(50.0 * MM)
         assert layout.origin.y == int(50.0 * MM)
+
+    def test_polar_mode_origin_matches_local_to_absolute(self):
+        """Polar radius/angle define the shift via the same local_to_absolute
+        primitive as CoordinatePlacement — "radius along X, rotated by angle"."""
+        clone = ClonePlacement(name="f1", cell="pi_filter", xy=(0.0, 0.0),
+                               radius_mm=5.0, angle_deg=37.0)
+        layout = apply_clone_geometry(clone, _pi_filter_template(), {"CAP_IN": "C10", "CAP_OUT": "C11"})
+        expected = local_to_absolute(Vector2.from_xy(0, 0), 5.0, 0.0, 37.0)
+        assert layout.origin.x == expected.x
+        assert layout.origin.y == expected.y
+
+    def test_polar_mode_no_anchor_is_absolute_position(self):
+        """No anchor + polar = absolute point at radius/angle from board origin."""
+        clone = ClonePlacement(name="f1", cell="pi_filter", xy=(0.0, 0.0),
+                               radius_mm=4.0, angle_deg=90.0)
+        layout = apply_clone_geometry(clone, _pi_filter_template(), {"CAP_IN": "C10", "CAP_OUT": "C11"})
+        expected = local_to_absolute(Vector2.from_xy(0, 0), 4.0, 0.0, 90.0)
+        assert layout.origin.x == expected.x
+        assert layout.origin.y == expected.y
+
+    def test_polar_angle_does_not_become_component_rotation(self):
+        """Unlike CoordinatePlacement, polar angle_deg must NOT leak into
+        rotation_deg — it only positions the origin."""
+        clone = ClonePlacement(name="f1", cell="pi_filter", xy=(0.0, 0.0),
+                               radius_mm=3.0, angle_deg=120.0, rotation_deg=0.0)
+        layout = apply_clone_geometry(clone, _pi_filter_template(), {"CAP_IN": "C10", "CAP_OUT": "C11"})
+        cap_out = next(c for c in layout.components if c.role == "CAP_OUT")
+        assert cap_out.angle_deg == 180.0  # slot angle + rotation_deg (0), NOT + angle_deg
+
+    def test_polar_mode_with_nonzero_parent_rotation_nested_cell(self):
+        """THE risky case (plan "КЛЮЧЕВОЕ различие"): a polar shift inside a
+        rotated parent frame must rotate by angle_deg + parent_rotation_deg —
+        exactly like xy does — or nested Cells silently misplace."""
+        anchor = Vector2.from_xy(int(100.0 * MM), int(200.0 * MM))
+        clone = ClonePlacement(name="f1", cell="pi_filter", xy=(0.0, 0.0),
+                               radius_mm=5.0, angle_deg=30.0)
+        layout = apply_clone_geometry(
+            clone, _pi_filter_template(), {"CAP_IN": "C10", "CAP_OUT": "C11"},
+            anchor_position=anchor, parent_rotation_deg=90.0)
+        expected_shift = rotate_local_offset(5.0, 0.0, 30.0 + 90.0)
+        assert layout.origin.x == anchor.x + expected_shift.x
+        assert layout.origin.y == anchor.y + expected_shift.y
+        # cell contents rotate by parent + own rotation
+        cap_out = next(c for c in layout.components if c.role == "CAP_OUT")
+        assert cap_out.angle_deg == 180.0 + 90.0
 
     def test_roles_mapped_and_angle_includes_rotation(self):
         clone = ClonePlacement(name="filter1", cell="pi_filter", xy=(50.0, 50.0),
@@ -189,6 +235,21 @@ class TestApplyCloneGeometry:
 
         assert dist_mm == pytest.approx(1.0)  # было 5mm, стало 1mm после сдвига anchor'а на 4mm
         assert dist_mm < 2.0  # типичный клиренс для мелкого SMD — уже коллизия
+
+
+def test_clone_shift_mm_polar_equals_cartesian():
+    """clone_shift_mm converts a polar offset to its Cartesian equivalent —
+    the single identity used by the registry / duplicate-anchor check."""
+    polar = ClonePlacement(name="f", cell="t", xy=(0.0, 0.0), radius_mm=5.0, angle_deg=0.0)
+    cart = ClonePlacement(name="f", cell="t", xy=(5.0, 0.0))
+    assert clone_shift_mm(polar) == (5.0, 0.0)
+    assert clone_shift_mm(cart) == (5.0, 0.0)
+
+    polar90 = ClonePlacement(name="f", cell="t", xy=(0.0, 0.0), radius_mm=5.0, angle_deg=90.0)
+    expected = rotate_local_offset(5.0, 0.0, 90.0)
+    ox, oy = clone_shift_mm(polar90)
+    assert abs(ox - expected.x / MM) < 1e-6
+    assert abs(oy - expected.y / MM) < 1e-6
 
 
 class TestNetFromRoleInGeometry:

@@ -16,6 +16,7 @@ from kipy.geometry import Vector2
 from ..config import ClonePlacement, Cell, TemplateVia, TemplateTrack
 from ..exceptions import ValidationError, format_fatal_error
 from ..net_resolution import resolve_net
+from ..utils.units import MM
 from .spoke_layout import (
     local_to_absolute, rotate_local_offset, ResolvedVia, ResolvedTrack, ComponentLayout, SpokeLayout,
 )
@@ -118,6 +119,24 @@ def _mirror_x(origin: Vector2, p: Vector2) -> Vector2:
     return Vector2.from_xy(2 * origin.x - p.x, p.y)
 
 
+def clone_shift_mm(clone) -> tuple[float, float]:
+    """(x, y) mm of a clone placement's offset in its OWN (unrotated) frame —
+    the single source of truth for registry identity / duplicate-anchor keys
+    (clone_anchor_id in clone_position_calculator.py and
+    check_no_duplicate_clone_anchors in validation.py). Cartesian xy is used
+    directly; polar (radius_mm/angle_deg) is converted via the SAME
+    rotate_local_offset(radius, 0, angle) primitive apply_clone_geometry uses
+    at parent_rotation_deg=0 — so a polar clone's offset can never be misread
+    as the loader's default (0, 0), and two polar clones on the same anchor
+    with different radii do not collapse to one registry identity. Works for
+    CellPlacement too (no polar fields -> its xy, unchanged)."""
+    radius_mm = getattr(clone, "radius_mm", None)
+    if radius_mm is not None:
+        v = rotate_local_offset(radius_mm, 0.0, getattr(clone, "angle_deg", 0.0))
+        return (v.x / MM, v.y / MM)
+    return (clone.xy[0], clone.xy[1])
+
+
 def apply_clone_geometry(
     clone: ClonePlacement,
     cell: Cell,
@@ -150,8 +169,25 @@ def apply_clone_geometry(
     parent's own world-space origin), and the cell's own contents rotate by
     the SUM of parent_rotation_deg + clone.rotation_deg, not clone.rotation_deg
     alone. See ClonePositionCalculator's recursive resolver for the caller.
+
+    The polar mode (radius_mm/angle_deg, an optional alternative to xy — see
+    config/models.py) goes through the SAME parent_rotation_deg composition:
+    shift = rotate_local_offset(radius_mm, 0.0, angle_deg + parent_rotation_deg).
+    This is what keeps nested Cells (Phase 4 recursion) correct with a polar
+    shift — skipping the + parent_rotation_deg here would silently misplace
+    them, exactly the failure the plan's "КЛЮЧЕВОЕ различие" warns about.
     """
-    shift = rotate_local_offset(clone.xy[0], clone.xy[1], parent_rotation_deg)
+    # getattr for the polar fields: apply_clone_geometry is ALSO called with a
+    # nested CellPlacement (Phase 4 recursion — see clone_position_calculator.py),
+    # which has xy/rotation_deg but no radius_mm/angle_deg. A nested placement
+    # never carries polar offsets, so it must fall through to the Cartesian
+    # path unchanged.
+    radius_mm = getattr(clone, "radius_mm", None)
+    if radius_mm is not None:
+        shift = rotate_local_offset(radius_mm, 0.0,
+                                    getattr(clone, "angle_deg", 0.0) + parent_rotation_deg)
+    else:
+        shift = rotate_local_offset(clone.xy[0], clone.xy[1], parent_rotation_deg)
     if anchor_position is not None:
         origin = Vector2.from_xy(anchor_position.x + shift.x, anchor_position.y + shift.y)
     else:

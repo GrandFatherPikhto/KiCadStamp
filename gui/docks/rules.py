@@ -98,7 +98,8 @@ from .rename import collect_all_cell_names, collect_all_point_names
 
 logger = logging.getLogger(__name__)
 
-_COLUMNS = ["Pad", "Cell", "Shift X", "Shift Y", "Rotation", "Cluster", "Retired", "Skip"]
+_COLUMNS = ["Pad", "Cell", "Mode", "Shift X", "Shift Y", "Radius", "Angle",
+            "Rotation", "Cluster", "Retired", "Skip"]
 
 
 def _rule_identity(entry: Dict[str, Any]) -> Any:
@@ -184,6 +185,15 @@ class RuleDock(QWidget):
         self.spoke_cluster_combo = QComboBox()
         configure_searchable(self.spoke_cluster_combo)
         spoke_form.addRow(_("Cluster:"), self.spoke_cluster_combo)
+        # Position mode — Cartesian shift (default) vs Polar radius+angle,
+        # the same two mutually-exclusive modes ManualSpoke itself has (see
+        # config/models.py). The combo only toggles WHICH fields the editor
+        # writes; the loader's own "both set / neither fully set is fatal"
+        # rule still applies on Save/Redraw.
+        self.spoke_mode_combo = QComboBox()
+        self.spoke_mode_combo.addItems([_("Cartesian"), _("Polar")])
+        self.spoke_mode_combo.currentIndexChanged.connect(self._update_spoke_mode)
+        spoke_form.addRow(_("Mode:"), self.spoke_mode_combo)
         spoke_page_layout.addLayout(spoke_form)
 
         spoke_shift_row = QHBoxLayout()
@@ -196,6 +206,18 @@ class RuleDock(QWidget):
         spoke_shift_row.addWidget(QLabel(_("Shift Y:")))
         spoke_shift_row.addWidget(self.spoke_shift_y_edit)
         spoke_page_layout.addLayout(spoke_shift_row)
+
+        spoke_polar_row = QHBoxLayout()
+        self.spoke_radius_edit = QLineEdit()
+        self.spoke_radius_edit.setPlaceholderText(_("radius mm"))
+        self.spoke_angle_edit = QLineEdit()
+        self.spoke_angle_edit.setPlaceholderText(_("angle deg"))
+        spoke_polar_row.addWidget(QLabel(_("Radius:")))
+        spoke_polar_row.addWidget(self.spoke_radius_edit)
+        spoke_polar_row.addWidget(QLabel(_("Angle:")))
+        spoke_polar_row.addWidget(self.spoke_angle_edit)
+        spoke_page_layout.addLayout(spoke_polar_row)
+        self._update_spoke_mode()
 
         spoke_extra_form = QFormLayout()
         self.spoke_rotation_edit = QLineEdit()
@@ -319,11 +341,15 @@ class RuleDock(QWidget):
     def _refresh_table(self) -> None:
         self.spokes_table.setRowCount(len(self._spokes))
         for row, spoke in enumerate(self._spokes):
+            is_polar = spoke.get("radius_mm") is not None
             values = [
                 str(spoke.get("pad", "")),
                 str(spoke.get("cell", "")),
-                str(spoke.get("shift_x_mm", "")) if spoke.get("shift_x_mm") else "",
-                str(spoke.get("shift_y_mm", "")) if spoke.get("shift_y_mm") else "",
+                _("Polar") if is_polar else _("Cartesian"),
+                str(spoke.get("shift_x_mm", "")) if not is_polar and spoke.get("shift_x_mm") else "",
+                str(spoke.get("shift_y_mm", "")) if not is_polar and spoke.get("shift_y_mm") else "",
+                str(spoke.get("radius_mm", "")) if is_polar and spoke.get("radius_mm") else "",
+                str(spoke.get("angle_deg", "")) if is_polar and spoke.get("angle_deg") else "",
                 str(spoke.get("rotation_deg", "")) if spoke.get("rotation_deg") else "",
                 str(spoke.get("cluster", "")),
                 _("yes") if spoke.get("retired") else "",
@@ -331,6 +357,17 @@ class RuleDock(QWidget):
             ]
             for col, value in enumerate(values):
                 self.spokes_table.setItem(row, col, QTableWidgetItem(value))
+
+    def _update_spoke_mode(self) -> None:
+        """Same Cartesian/Polar field-toggle as coordinate_placer's
+        _update_row_mode() — Shift fields only in Cartesian, Radius/Angle
+        only in Polar. Disabled (not hidden) keeps the editor layout stable,
+        matching every other dock's convention."""
+        is_polar = self.spoke_mode_combo.currentIndex() == 1
+        for w in (self.spoke_shift_x_edit, self.spoke_shift_y_edit):
+            w.setEnabled(not is_polar)
+        for w in (self.spoke_radius_edit, self.spoke_angle_edit):
+            w.setEnabled(is_polar)
 
     def _on_table_selection_changed(self) -> None:
         rows = self.spokes_table.selectionModel().selectedRows()
@@ -343,8 +380,16 @@ class RuleDock(QWidget):
     def _load_spoke_into_editor(self, spoke: Dict[str, Any]) -> None:
         self.spoke_pad_edit.setText(str(spoke.get("pad", "")))
         self.spoke_cell_combo.setCurrentText(str(spoke.get("cell", "")))
-        self.spoke_shift_x_edit.setText(str(spoke.get("shift_x_mm", "")) if spoke.get("shift_x_mm") else "")
-        self.spoke_shift_y_edit.setText(str(spoke.get("shift_y_mm", "")) if spoke.get("shift_y_mm") else "")
+        is_polar = spoke.get("radius_mm") is not None
+        self.spoke_mode_combo.setCurrentIndex(1 if is_polar else 0)
+        self.spoke_shift_x_edit.setText(
+            str(spoke.get("shift_x_mm", "")) if not is_polar and spoke.get("shift_x_mm") else "")
+        self.spoke_shift_y_edit.setText(
+            str(spoke.get("shift_y_mm", "")) if not is_polar and spoke.get("shift_y_mm") else "")
+        self.spoke_radius_edit.setText(
+            str(spoke.get("radius_mm", "")) if is_polar and spoke.get("radius_mm") else "")
+        self.spoke_angle_edit.setText(
+            str(spoke.get("angle_deg", "")) if is_polar and spoke.get("angle_deg") else "")
         self.spoke_rotation_edit.setText(str(spoke.get("rotation_deg", "")) if spoke.get("rotation_deg") else "")
         self.spoke_cluster_combo.setCurrentText(str(spoke.get("cluster", "")))
         self.spoke_retired_checkbox.setChecked(bool(spoke.get("retired", False)))
@@ -353,8 +398,11 @@ class RuleDock(QWidget):
     def _clear_spoke_editor(self) -> None:
         self.spoke_pad_edit.setText("")
         self.spoke_cell_combo.setCurrentText("")
+        self.spoke_mode_combo.setCurrentIndex(0)
         self.spoke_shift_x_edit.setText("")
         self.spoke_shift_y_edit.setText("")
+        self.spoke_radius_edit.setText("")
+        self.spoke_angle_edit.setText("")
         self.spoke_rotation_edit.setText("")
         self.spoke_cluster_combo.setCurrentText("")
         self.spoke_retired_checkbox.setChecked(False)
@@ -371,16 +419,27 @@ class RuleDock(QWidget):
             return None
 
         entry: Dict[str, Any] = {"pad": pad, "cell": cell}
-        shift_x = self._parse_float(self.spoke_shift_x_edit, _("Shift X"), default=0.0)
-        if shift_x is None:
-            return None
-        if shift_x:
-            entry["shift_x_mm"] = shift_x
-        shift_y = self._parse_float(self.spoke_shift_y_edit, _("Shift Y"), default=0.0)
-        if shift_y is None:
-            return None
-        if shift_y:
-            entry["shift_y_mm"] = shift_y
+        if self.spoke_mode_combo.currentIndex() == 1:
+            # Polar — radius/angle BOTH required (same rule as the loader).
+            radius = self._parse_float(self.spoke_radius_edit, _("Radius"), default=None)
+            angle = self._parse_float(self.spoke_angle_edit, _("Angle"), default=None)
+            if radius is None or angle is None:
+                if not self.spoke_radius_edit.text().strip() or not self.spoke_angle_edit.text().strip():
+                    self._show_message(_("Polar mode needs both Radius and Angle."), _ERROR_STYLE)
+                return None
+            entry["radius_mm"] = radius
+            entry["angle_deg"] = angle
+        else:
+            shift_x = self._parse_float(self.spoke_shift_x_edit, _("Shift X"), default=0.0)
+            if shift_x is None:
+                return None
+            if shift_x:
+                entry["shift_x_mm"] = shift_x
+            shift_y = self._parse_float(self.spoke_shift_y_edit, _("Shift Y"), default=0.0)
+            if shift_y is None:
+                return None
+            if shift_y:
+                entry["shift_y_mm"] = shift_y
         rotation = self._parse_float(self.spoke_rotation_edit, _("Rotation"), default=0.0)
         if rotation is None:
             return None

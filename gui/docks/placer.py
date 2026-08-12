@@ -393,7 +393,8 @@ class PlacerDock(QWidget):
         # only quirk the shared widget deliberately stays ignorant of (see
         # gui/docks/_anchor_origin.py's module docstring).
         self.origin_widget = AnchorOriginWidget(
-            modes=["xy", "anchor", "point"], anchor_fields=["pad", "cluster"], shift=True)
+            modes=["xy", "anchor", "point"], anchor_fields=["pad", "cluster"],
+            shift=True, polar=True)
         origin_page_layout.addWidget(self.origin_widget)
         # Aliases onto the shared widget's own sub-widgets — kept so
         # existing tests/call sites that poke fields directly keep working.
@@ -775,7 +776,13 @@ class PlacerDock(QWidget):
             return None
         mode = origin_fields["mode"]
         if mode == "xy":
-            entry["xy"] = [origin_fields["x"], origin_fields["y"]]
+            if "radius" in origin_fields:
+                # Polar mode (optional alternative to xy — see ClonePlacement's
+                # docstring): the origin is radius at angle, both required.
+                entry["radius_mm"] = origin_fields["radius"]
+                entry["angle_deg"] = origin_fields["angle"]
+            else:
+                entry["xy"] = [origin_fields["x"], origin_fields["y"]]
         else:
             # ClonePlacement has no separate shift field — Anchor/Point mode
             # reuse xy: itself to carry the shift (see _anchor_origin.py's
@@ -1061,6 +1068,7 @@ class PlacerDock(QWidget):
         self._on_cell_mode_changed()  # setCurrentIndex above is a no-op signal-wise when unchanged
 
         xy = entry.get("xy") or [0.0, 0.0]
+        radius = entry.get("radius_mm")
         if "anchor_point" in entry:
             self.origin_widget.load(mode="point", point=str(entry["anchor_point"]),
                                     shift_x=xy[0], shift_y=xy[1])
@@ -1071,6 +1079,11 @@ class PlacerDock(QWidget):
                 pad=str(entry.get("anchor_pad", "")),
                 cluster=str(entry.get("anchor_cluster", "")),
                 shift_x=xy[0], shift_y=xy[1])
+        elif radius is not None:
+            # Polar offset (optional alternative to xy) — reload the XY row
+            # in Polar mode with radius/angle (see ClonePlacement's docstring).
+            self.origin_widget.load(mode="xy", polar=True, radius=radius,
+                                    angle=entry.get("angle_deg"))
         else:
             self.origin_widget.load(mode="xy", x=xy[0], y=xy[1])
 

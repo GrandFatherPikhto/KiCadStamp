@@ -17,9 +17,11 @@ from .models import (
     ManualSpoke,
     Rule,
     ClonePlacement,
+    CoordinatePlacement,
     Config,
     rule_effective_name,
     thermal_via_array_effective_name,
+    coordinate_placement_effective_name,
 )
 from .points import Point
 from ..runtime_context import RuntimeContext
@@ -35,6 +37,7 @@ from .loader import (
     _load_rule,
     _load_clone_placement,
     _load_thermal_via_array,
+    _load_coordinate_placement,
     _check_layer_value,
 )
 
@@ -52,6 +55,7 @@ load_cell_placement = _load_cell_placement
 # a single entry (Phase 4.2 — gui/ must not import the private names).
 load_clone_placement = _load_clone_placement
 load_thermal_via_array = _load_thermal_via_array
+load_coordinate_placement = _load_coordinate_placement
 # load_point takes (name, data) — points: is a dict section (keyed by name),
 # unlike the list-of-dicts thermal_via_arrays/clone_placements above, whose
 # own dict already carries its name inline (see _load_point's signature).
@@ -74,6 +78,7 @@ __all__ = [
     "ManualSpoke",
     "Rule",
     "ClonePlacement",
+    "CoordinatePlacement",
     "Config",
     "RuntimeContext",
     "load_config",
@@ -84,9 +89,11 @@ __all__ = [
     "load_cell_placement",
     "load_clone_placement",
     "load_thermal_via_array",
+    "load_coordinate_placement",
     "load_point",
     "load_rule",
     "load_manual_spoke",
     "rule_effective_name",
     "thermal_via_array_effective_name",
+    "coordinate_placement_effective_name",
 ]

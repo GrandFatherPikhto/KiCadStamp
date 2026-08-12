@@ -19,7 +19,7 @@ from ..exceptions import ValidationError, format_fatal_error, check_unknown_keys
 from ..i18n import _
 from .models import (
     ThermalViaArrayConfig, TemplateVia, TemplateComponentSlot, TemplateTrack,
-    Cell, CellPlacement, ManualSpoke, Rule, ClonePlacement,
+    Cell, CellPlacement, ManualSpoke, Rule, ClonePlacement, CoordinatePlacement,
 )
 from .points import Point
 
@@ -431,6 +431,7 @@ def _point_is_footprint_eligible(points: dict[str, Point], name: str, _visited=N
 
 _MANUAL_SPOKE_KNOWN_KEYS = {
     'pad', 'cell', 'shift_x_mm', 'shift_y_mm', 'rotation_deg',
+    'radius_mm', 'angle_deg',
     'retired', 'cluster', 'skip',
 }
 
@@ -439,12 +440,38 @@ def _load_manual_spoke(data: dict[str, Any], rule_label: str) -> ManualSpoke:
     check_unknown_keys(data, _MANUAL_SPOKE_KNOWN_KEYS,
                        _("unknown fields in spoke (pad {pad!r}) of rule (net {net!r})")
                        .format(pad=data.get('pad', '?'), net=rule_label))
+
+    # Position — EXACTLY ONE of two mutually exclusive modes (see ManualSpoke's
+    # docstring): Cartesian shift (shift_x_mm/shift_y_mm, the default) OR polar
+    # (radius_mm/angle_deg). Fatal if BOTH are given, or if only ONE of the
+    # polar pair is — same pattern as Cartesian/Polar in
+    # _load_coordinate_placement().
+    has_shift = data.get('shift_x_mm') is not None or data.get('shift_y_mm') is not None
+    has_polar = data.get('radius_mm') is not None or data.get('angle_deg') is not None
+    if has_shift and has_polar:
+        raise ValidationError(format_fatal_error(
+            _("spoke (pad {pad!r}) of rule (net {net!r}) has both Cartesian (shift_x_mm/shift_y_mm) "
+              "and polar (radius_mm/angle_deg) fields")
+            .format(pad=data.get('pad', '?'), net=rule_label),
+            [_("these are mutually exclusive position modes — pick exactly one")]
+        ))
+    if has_polar:
+        missing = [k for k in ('radius_mm', 'angle_deg') if data.get(k) is None]
+        if missing:
+            raise ValidationError(format_fatal_error(
+                _("spoke (pad {pad!r}) of rule (net {net!r}): polar mode needs BOTH radius_mm "
+                  "and angle_deg").format(pad=data.get('pad', '?'), net=rule_label),
+                [_("missing: {missing}").format(missing=missing)]
+            ))
+
     return ManualSpoke(
         pad=data['pad'],
         cell=data['cell'],
         shift_x_mm=data.get('shift_x_mm', 0.0),
         shift_y_mm=data.get('shift_y_mm', 0.0),
         rotation_deg=data.get('rotation_deg', 0.0),
+        radius_mm=data.get('radius_mm'),
+        angle_deg=data.get('angle_deg'),
         retired=data.get('retired', False),
         cluster=data.get('cluster'),
         skip=data.get('skip', False),
@@ -519,6 +546,7 @@ _CLONE_PLACEMENT_KNOWN_KEYS = {
     'nets', 'params', 'net_overrides', 'retired', 'skip', 'ignore_selection',
     'anchor_ref', 'anchor_pad', 'anchor_role', 'anchor_sheet', 'anchor_cluster',
     'anchor_point', 'layer', 'mirror', 'refs', 'by_selection',
+    'radius_mm', 'angle_deg',
     'side',  # deprecated – recognised separately to give a migration message
     'origin_x_mm', 'origin_y_mm',  # deprecated – recognised to give a migration message
 }
@@ -608,11 +636,16 @@ def _load_clone_placement(data: dict[str, Any]) -> ClonePlacement:
         ))
 
     has_anchor = anchor_ref is not None or anchor_role is not None or anchor_point is not None
+    # Polar offset (radius_mm/angle_deg) is an OPTIONAL alternative to xy —
+    # confirmed with Denis 2026-08-12: xy keeps its implicit (0,0) default and
+    # stays valid; fatal ONLY when BOTH are set; polar means BOTH radius/angle.
+    has_polar = data.get('radius_mm') is not None or data.get('angle_deg') is not None
 
-    if not has_anchor and 'xy' not in data:
+    if not has_anchor and 'xy' not in data and not has_polar:
         raise ValidationError(format_fatal_error(
             _("no anchor and no absolute coordinates in clone_placement {name!r}").format(name=name),
             [_("either set xy: [x, y] (absolute point on board), "
+               "or radius_mm/angle_deg (polar absolute position), "
                "or anchor_ref/anchor_role (+ optionally anchor_pad), or anchor_point, "
                "for anchor‑based placement")]
         ))
@@ -642,6 +675,26 @@ def _load_clone_placement(data: dict[str, Any]) -> ClonePlacement:
     else:
         xy = (0.0, 0.0)
 
+    if has_polar and 'xy' in data:
+        raise ValidationError(format_fatal_error(
+            _("clone_placement {name!r} has both xy and radius_mm/angle_deg").format(name=name),
+            [_("xy is a Cartesian offset, radius_mm/angle_deg the polar alternative — "
+               "pick exactly one way to describe the shift")]
+        ))
+    if has_polar:
+        missing = [k for k in ('radius_mm', 'angle_deg') if data.get(k) is None]
+        if missing:
+            raise ValidationError(format_fatal_error(
+                _("clone_placement {name!r}: polar mode needs BOTH radius_mm and angle_deg")
+                .format(name=name),
+                [_("missing: {missing}").format(missing=missing)]
+            ))
+        radius_mm = float(data['radius_mm'])
+        angle_deg = float(data['angle_deg'])
+    else:
+        radius_mm = None
+        angle_deg = None
+
     by_selection = bool(data.get('by_selection', False))
     nets = data.get('nets', {}) or {}
     if by_selection and nets:
@@ -661,6 +714,8 @@ def _load_clone_placement(data: dict[str, Any]) -> ClonePlacement:
         role=role,
         cluster=cluster,
         xy=xy,
+        radius_mm=radius_mm,
+        angle_deg=angle_deg,
         rotation_deg=data.get('rotation_deg', 0.0),
         nets=nets,
         params=data.get('params', {}) or {},
@@ -729,4 +784,115 @@ def _load_thermal_via_array(tva_data: dict[str, Any]) -> ThermalViaArrayConfig:
         diameter_mm=tva_data.get('diameter_mm', 0.5),
         name=tva_data.get('name'),
         skip=tva_data.get('skip', False),
+    )
+
+
+_COORDINATE_PLACEMENT_KNOWN_KEYS = {
+    'cluster', 'role', 'name', 'x_mm', 'y_mm', 'center_x_mm', 'center_y_mm',
+    'radius_mm', 'angle_deg', 'rotation_deg', 'anchor', 'anchor_pad',
+    'retired', 'skip',
+}
+
+
+def _load_coordinate_placement(data: dict[str, Any]) -> CoordinatePlacement:
+    """One coordinate_placements: entry — the "dumb placer" (see
+    CoordinatePlacement's own docstring in config/models.py). Public as
+    load_coordinate_placement (config/__init__.py) so the GUI's
+    CoordinatePlacerDock can validate one row before writing the whole
+    table, the same way load_clone_placement/load_thermal_via_array already
+    let their GUI docks validate a single entry before a full-file write."""
+    label = data.get('name') or f"{data.get('cluster')}/{data.get('role')}"
+
+    cluster = data.get('cluster')
+    role = data.get('role')
+    if not cluster or not role:
+        raise ValidationError(format_fatal_error(
+            _("coordinate_placements entry {label!r} missing cluster/role").format(label=label),
+            [_("both cluster: <CLUSTER> and role: <ROLE> are required — Role must already be "
+               "unique within that Cluster instance for this to resolve to exactly one component")]
+        ))
+
+    check_unknown_keys(data, _COORDINATE_PLACEMENT_KNOWN_KEYS,
+                       _("unknown fields in coordinate_placements entry {label!r}").format(label=label))
+
+    has_cartesian = data.get('x_mm') is not None or data.get('y_mm') is not None
+    has_polar = any(data.get(k) is not None for k in
+                    ('center_x_mm', 'center_y_mm', 'radius_mm', 'angle_deg'))
+    if has_cartesian and has_polar:
+        raise ValidationError(format_fatal_error(
+            _("coordinate_placements entry {label!r} has both Cartesian (x_mm/y_mm) and polar "
+              "(center_x_mm/center_y_mm/radius_mm/angle_deg) fields").format(label=label),
+            [_("these are mutually exclusive position modes — pick exactly one")]
+        ))
+    if has_cartesian:
+        if data.get('x_mm') is None or data.get('y_mm') is None:
+            raise ValidationError(format_fatal_error(
+                _("coordinate_placements entry {label!r}: Cartesian mode needs BOTH x_mm and y_mm")
+                .format(label=label),
+                [_("got x_mm={x!r}, y_mm={y!r}").format(x=data.get('x_mm'), y=data.get('y_mm'))]
+            ))
+        rotation_deg_raw = data.get('rotation_deg')
+        if rotation_deg_raw is None:
+            raise ValidationError(format_fatal_error(
+                _("coordinate_placements entry {label!r}: Cartesian mode needs an explicit "
+                  "rotation_deg").format(label=label),
+                [_("there is no polar angle to fall back on in Cartesian mode — set "
+                   "rotation_deg: 0 explicitly if no rotation is wanted")]
+            ))
+        x_mm, y_mm = float(data['x_mm']), float(data['y_mm'])
+        center_x_mm = center_y_mm = radius_mm = angle_deg = None
+        rotation_deg = float(rotation_deg_raw)
+    elif has_polar:
+        missing = [k for k in ('center_x_mm', 'center_y_mm', 'radius_mm', 'angle_deg')
+                  if data.get(k) is None]
+        if missing:
+            raise ValidationError(format_fatal_error(
+                _("coordinate_placements entry {label!r}: polar mode needs all four of "
+                  "center_x_mm/center_y_mm/radius_mm/angle_deg").format(label=label),
+                [_("missing: {missing}").format(missing=missing)]
+            ))
+        x_mm = y_mm = None
+        center_x_mm, center_y_mm = float(data['center_x_mm']), float(data['center_y_mm'])
+        radius_mm, angle_deg = float(data['radius_mm']), float(data['angle_deg'])
+        rotation_deg = float(data['rotation_deg']) if data.get('rotation_deg') is not None else None
+    else:
+        raise ValidationError(format_fatal_error(
+            _("coordinate_placements entry {label!r} has no position").format(label=label),
+            [_("set either x_mm/y_mm (Cartesian) or center_x_mm/center_y_mm/radius_mm/angle_deg "
+               "(polar)")]
+        ))
+
+    anchor = data.get('anchor', 'center')
+    if anchor not in ('center', 'pad'):
+        raise ValidationError(format_fatal_error(
+            _("coordinate_placements entry {label!r}: anchor must be 'center' or 'pad', got {anchor!r}")
+            .format(label=label, anchor=anchor),
+            []
+        ))
+    anchor_pad = data.get('anchor_pad')
+    if anchor == 'pad' and anchor_pad is None:
+        raise ValidationError(format_fatal_error(
+            _("coordinate_placements entry {label!r}: anchor: pad needs anchor_pad").format(label=label),
+            [_("set anchor_pad: <pad number> — which pad of THIS component should land on the "
+               "target point")]
+        ))
+    if anchor == 'center' and anchor_pad is not None:
+        raise ValidationError(format_fatal_error(
+            _("coordinate_placements entry {label!r}: anchor_pad set but anchor is 'center'")
+            .format(label=label),
+            [_("anchor_pad only has meaning with anchor: pad — either add that, or remove anchor_pad")]
+        ))
+
+    return CoordinatePlacement(
+        cluster=cluster,
+        role=role,
+        name=data.get('name'),
+        x_mm=x_mm, y_mm=y_mm,
+        center_x_mm=center_x_mm, center_y_mm=center_y_mm,
+        radius_mm=radius_mm, angle_deg=angle_deg,
+        rotation_deg=rotation_deg,
+        anchor=anchor,
+        anchor_pad=str(anchor_pad) if anchor_pad is not None else None,
+        retired=data.get('retired', False),
+        skip=data.get('skip', False),
     )

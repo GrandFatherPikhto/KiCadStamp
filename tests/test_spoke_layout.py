@@ -18,7 +18,9 @@ from kipy.geometry import Vector2
 from kicadstamp.config import (
     ManualSpoke, Cell, TemplateVia, TemplateComponentSlot, TemplateTrack
 )
-from kicadstamp.geometry.spoke_layout import apply_spoke_geometry, rotate_local_offset
+from kicadstamp.geometry.spoke_layout import (
+    apply_spoke_geometry, rotate_local_offset, local_to_absolute,
+)
 
 MM = 1_000_000
 
@@ -183,6 +185,59 @@ class TestApplySpokeGeometry:
         assert len(layout.components) == 3
         refs = {c.ref for c in layout.components}
         assert refs == {"Y1", "C15", "C16"}
+
+    def test_polar_mode_origin_matches_local_to_absolute(self):
+        """Polar radius/angle must define the spoke origin via the SAME
+        local_to_absolute primitive as CoordinatePlacement — "radius along X,
+        rotated by angle_deg" around the pad centre."""
+        pad_pos = Vector2.from_xy(50 * MM, 50 * MM)
+        spoke = ManualSpoke(pad="1", cell="t", radius_mm=5.0, angle_deg=37.0)
+        layout = apply_spoke_geometry(pad_pos, spoke, self._template(), rule_net="GND",
+                                      role_to_ref={"HEAVY": "C5", "LIGHT": "C30"})
+        expected = local_to_absolute(pad_pos, 5.0, 0.0, 37.0)
+        assert layout.origin.x == expected.x
+        assert layout.origin.y == expected.y
+
+    def test_polar_90_degrees_places_spoke_at_radius(self):
+        """Concrete geometric case: radius 5 at angle 90 must land the spoke
+        origin at pad + rotate((5,0), 90), and cell contents follow from it."""
+        pad_pos = Vector2.from_xy(0, 0)
+        spoke = ManualSpoke(pad="1", cell="t", radius_mm=5.0, angle_deg=90.0)
+        layout = apply_spoke_geometry(pad_pos, spoke, self._template(), rule_net="GND",
+                                      role_to_ref={"HEAVY": "C5", "LIGHT": "C30"})
+        ox, oy = _real_rotate(5.0, 0.0, 90.0)
+        assert abs(layout.origin.x / MM - ox) < 1e-3
+        assert abs(layout.origin.y / MM - oy) < 1e-3
+        heavy = next(c for c in layout.components if c.role == "HEAVY")
+        hx, hy = _real_rotate(1.0, -1.0, 0.0)
+        assert abs(heavy.position.x / MM - (ox + hx)) < 1e-3
+        assert abs(heavy.position.y / MM - (oy + hy)) < 1e-3
+
+    def test_polar_angle_does_not_become_component_rotation(self):
+        """Unlike CoordinatePlacement, a spoke's polar angle_deg must NOT leak
+        into rotation_deg — it only positions the origin; the cell keeps its
+        own rotation_deg (default 0 here, so slot angles pass through)."""
+        pad_pos = Vector2.from_xy(0, 0)
+        spoke = ManualSpoke(pad="1", cell="t", radius_mm=3.0, angle_deg=120.0, rotation_deg=0.0)
+        layout = apply_spoke_geometry(pad_pos, spoke, self._template(), rule_net="GND",
+                                      role_to_ref={"HEAVY": "C5", "LIGHT": "C30"})
+        heavy = next(c for c in layout.components if c.role == "HEAVY")
+        light = next(c for c in layout.components if c.role == "LIGHT")
+        assert heavy.angle_deg == 90.0
+        assert light.angle_deg == 270.0
+
+    def test_polar_mode_combines_with_rotation_deg(self):
+        """radius/angle positions the origin; rotation_deg still rotates the
+        cell contents as before — the two compose, they don't interfere."""
+        pad_pos = Vector2.from_xy(50 * MM, 50 * MM)
+        spoke = ManualSpoke(pad="1", cell="t", radius_mm=4.0, angle_deg=30.0, rotation_deg=90.0)
+        layout = apply_spoke_geometry(pad_pos, spoke, self._template(), rule_net="GND",
+                                      role_to_ref={"HEAVY": "C5", "LIGHT": "C30"})
+        ox, oy = _real_rotate(4.0, 0.0, 30.0)
+        assert abs(layout.origin.x / MM - (50.0 + ox)) < 1e-3
+        assert abs(layout.origin.y / MM - (50.0 + oy)) < 1e-3
+        heavy = next(c for c in layout.components if c.role == "HEAVY")
+        assert heavy.angle_deg == 90.0 + 90.0
 
 
 class TestSpokeLevelTracks:

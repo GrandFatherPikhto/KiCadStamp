@@ -12,7 +12,6 @@ continues to work exactly as before.
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..i18n import _
 from .points import Point
 
 
@@ -71,6 +70,76 @@ def thermal_via_array_effective_name(tva: "ThermalViaArrayConfig") -> str | None
     guarantees it is set for any thermal_via_array that actually came from YAML;
     None only for manually constructed in tests."""
     return tva.name
+
+
+@dataclass
+class CoordinatePlacement:
+    """The "dumb placer" (Denis, 2026-08-12): moves an EXISTING footprint —
+    matched by Cluster+Role, Role already unique within one Cluster instance
+    by the project's own established Role/Cluster convention (see
+    docs/architecture on Role vs Cluster) — to an explicit board position and
+    rotation. No template, no offsets, no via/track creation: unlike
+    ClonePlacement/Rule, this never touches registry.py (which only tracks
+    via/track UUIDs between runs) — a move is idempotent by construction,
+    the same way Rule/ClonePlacement's own component moves already are
+    (apply_pipeline.py's Phase 1 move loop has no registry reconciliation
+    either, it just re-applies the target position every run).
+
+    Position — EXACTLY ONE of two mutually exclusive modes (fatal at load if
+    both or neither are fully specified, see config/entries.py):
+      - Cartesian: x_mm/y_mm — absolute board position for the anchor point
+        (see `anchor` below). rotation_deg is then REQUIRED (no implicit
+        angle to fall back on).
+      - Polar: center_x_mm/center_y_mm/radius_mm/angle_deg — position is
+        center + radius at angle_deg (board coordinates, KiCad's native Y-
+        down convention, same as everywhere else in this codebase).
+        angle_deg ALSO becomes rotation_deg by default (spoke-style: the
+        component points outward from the centre) — set rotation_deg
+        explicitly too to override just the component's own orientation
+        without changing where the angle places it.
+
+    anchor — 'center' (default) or 'pad': whether the resolved target point
+    (Cartesian or polar) lands on the footprint's own origin, or on ONE
+    SPECIFIC PAD of the SAME footprint being moved (anchor_pad required iff
+    anchor == 'pad', fatal if anchor_pad is set without anchor == 'pad').
+    This is self-referential — unlike ClonePlacement's anchor_pad (a
+    DIFFERENT, stationary anchor component the new component is placed
+    relative to), here the footprint being moved IS its own anchor; see
+    coordinate_position_calculator.py's resolve_self_pad_anchor() for the
+    geometry (no reusable helper existed for this self-referential case).
+
+    retired/skip — same convention as Rule/ClonePlacement/
+    ThermalViaArrayConfig (retired: true = "does not exist this run",
+    always wins over --only/--cluster; skip: true = "skip just this run").
+    Neither has any registry-pruning effect here (there is no registry
+    involvement at all for this type) — purely a run/don't-run switch.
+    """
+    cluster: str
+    role: str
+    name: str | None = None
+    x_mm: float | None = None
+    y_mm: float | None = None
+    center_x_mm: float | None = None
+    center_y_mm: float | None = None
+    radius_mm: float | None = None
+    angle_deg: float | None = None
+    rotation_deg: float | None = None
+    anchor: str = 'center'
+    anchor_pad: str | None = None
+    retired: bool = False
+    skip: bool = False
+
+
+def coordinate_placement_effective_name(cp: "CoordinatePlacement") -> str:
+    """Single point for reading the name for --only/--cluster and for
+    duplicate-name detection at load. Unlike Rule/ThermalViaArrayConfig
+    (name required in YAML, fatal if missing), a CoordinatePlacement's name
+    is OPTIONAL and defaults to f"{cluster}/{role}" — Role is already
+    unique within a Cluster by convention, so that pair is already a good,
+    low-typing-cost identity for a "dumb", high-volume, table-entered list
+    (Denis, 2026-08-12: minimizing typing for bulk table entry was an
+    explicit goal)."""
+    return cp.name or f"{cp.cluster}/{cp.role}"
 
 
 @dataclass
@@ -256,11 +325,31 @@ class Cell:
 @dataclass
 class ManualSpoke:
     """
-    A specific spoke on a specific FPGA pad. shift_x_mm/shift_y_mm and
-    rotation_deg are ALWAYS in KiCad board coordinates (not local), tuned
-    visually for the specific board. Order: first shift (shift_x, shift_y) from
-    the pad centre to the spoke origin, then rotation of the resulting origin
-    (and all cell contents) by rotation_deg.
+    A specific spoke on a specific FPGA pad. Position — EXACTLY ONE of two
+    mutually exclusive modes, with the same field names as CoordinatePlacement
+    for consistency across the project. Fatal at load if BOTH are set, or if
+    the polar pair is only half-filled (one of radius_mm/angle_deg without the
+    other — see config/entries.py); the absence of both is simply the default
+    Cartesian zero shift:
+
+      - Cartesian (default): shift_x_mm/shift_y_mm — a plain translation from
+        the pad centre to the spoke origin, WITHOUT rotation (raw shift, no
+        parent_rotation — spokes have no parent frame).
+      - Polar: radius_mm/angle_deg — the spoke origin is the pad centre plus
+        "radius_mm along the X axis, rotated by angle_deg", i.e.
+        origin = local_to_absolute(pad_position, radius_mm, 0.0, angle_deg),
+        the exact same primitive/convention as CoordinatePlacement's polar
+        mode and every cell's own along/across offsets — so angle_deg's
+        rotation direction is guaranteed consistent with rotation_deg's
+        meaning everywhere else.
+
+    rotation_deg (both modes) is ALWAYS in KiCad board coordinates (not local),
+    tuned visually for the specific board. Order: first shift (shift_x/shift_y
+    or radius/angle) from the pad centre to the spoke origin, then rotation of
+    the resulting origin (and all cell contents) by rotation_deg. Unlike
+    CoordinatePlacement, polar angle_deg does NOT become rotation_deg — it only
+    positions the origin; the component/cell orientation is a separate, already
+    existing rotation_deg concern.
 
     IMPORTANT: no component refs here anymore — concrete components are
     automatically selected from the pool (see placement/services/component_pool.py)
@@ -276,6 +365,8 @@ class ManualSpoke:
     shift_x_mm: float = 0.0
     shift_y_mm: float = 0.0
     rotation_deg: float = 0.0
+    radius_mm: float | None = None
+    angle_deg: float | None = None
     retired: bool = False
     cluster: str | None = None
     skip: bool = False
@@ -344,6 +435,18 @@ class ClonePlacement:
         rotation_deg rotates only the cell contents.
       - no anchor set: xy is an ABSOLUTE point on the board (required).
 
+    Offset — EITHER Cartesian xy (the default) OR polar radius_mm/angle_deg
+    (an OPTIONAL alternative, both required together; fatal if BOTH xy and
+    radius_mm/angle_deg are set — see config/entries.py). Same field names as
+    CoordinatePlacement for consistency. Polar describes the shift vector as
+    "radius_mm along the X axis, rotated by angle_deg" — and, crucially for
+    nested Cells (Phase 4 recursion), it passes through the SAME
+    parent_rotation_deg composition as xy does, i.e.
+    shift = rotate_local_offset(radius_mm, 0.0, angle_deg + parent_rotation_deg)
+    (see clone_geometry.py). Like xy, polar angle_deg does NOT become
+    rotation_deg — it only positions the origin; the cell's own orientation
+    stays under rotation_deg.
+
     Role→ref mapping — EITHER via the current selection on the board (for rare,
     one‑off sections like a single MCU), OR via explicit nets
     (params/nets/net_overrides — for repeated sections like PI‑filters or DAC
@@ -386,6 +489,8 @@ class ClonePlacement:
     """
     name: str
     xy: tuple[float, float]
+    radius_mm: float | None = None
+    angle_deg: float | None = None
     rotation_deg: float = 0.0
     cell: str | None = None
     role: str | None = None
@@ -457,6 +562,7 @@ class Config:
     thermal_via_arrays: list[ThermalViaArrayConfig] = field(default_factory=list)
     rules: list[Rule] = field(default_factory=list)
     clone_placements: list[ClonePlacement] = field(default_factory=list)
+    coordinate_placements: list[CoordinatePlacement] = field(default_factory=list)
     place_components: bool = True
     skip_existing_components: bool = False
     # Free‑space search parameters — currently used only for thermal vias

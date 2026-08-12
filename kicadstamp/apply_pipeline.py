@@ -25,7 +25,8 @@ import dataclasses
 import difflib
 import logging
 
-from .config import load_config, rule_effective_name, thermal_via_array_effective_name
+from .config import (load_config, rule_effective_name, thermal_via_array_effective_name,
+                    coordinate_placement_effective_name)
 from .runtime_context import RuntimeContext
 from .kicad.adapter import KiCadBoardAdapter
 from .placement.planner import PlacementPlanner
@@ -33,6 +34,7 @@ from .placement.dependency_order import resolve_execution_order
 from .placement.services.clone_position_calculator import clone_anchor_id
 from .placement.services.via_planner import thermal_anchor_id
 from .placement.services.manual_position_calculator import rule_anchor_ids
+from .placement.services.coordinate_position_calculator import build_coordinate_moves
 from .cluster_matching import cluster_prefix_match
 from .placement.executor import BatchExecutor
 from .exceptions import PlacerError
@@ -126,9 +128,24 @@ def drop_inactive_items(cfg, _logger=None) -> "Config":
                    .format(name=thermal_via_array_effective_name(tva)))
             continue
         kept_tvas.append(tva)
+
+    # coordinate_placements has no registry involvement at all (see its own
+    # docstring in config/models.py), so — unlike rules/clone_placements/
+    # thermal_via_arrays above — retired and skip have the SAME practical
+    # effect here: just don't run it this time, nothing to protect in a
+    # registry that doesn't exist for this type.
+    kept_coords = []
+    for cp in cfg.coordinate_placements:
+        if cp.retired or cp.skip:
+            l.info(_("coordinate_placements {name!r}: retired/skip=true, skipped this run")
+                   .format(name=coordinate_placement_effective_name(cp)))
+            continue
+        kept_coords.append(cp)
+
     return dataclasses.replace(cfg, rules=narrowed_rules,
                                clone_placements=kept_clones,
-                               thermal_via_arrays=kept_tvas)
+                               thermal_via_arrays=kept_tvas,
+                               coordinate_placements=kept_coords)
 
 
 def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
@@ -146,16 +163,20 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
     matched_clones = [c for c in cfg.clone_placements if c.name in requested]
     matched_tvas = [t for t in cfg.thermal_via_arrays
                     if not t.retired and thermal_via_array_effective_name(t) in requested]
+    matched_coords = [cp for cp in cfg.coordinate_placements
+                      if coordinate_placement_effective_name(cp) in requested]
 
     found_names = ({rule_effective_name(r) for r in matched_rules}
                    | {c.name for c in matched_clones}
-                   | {thermal_via_array_effective_name(t) for t in matched_tvas})
+                   | {thermal_via_array_effective_name(t) for t in matched_tvas}
+                   | {coordinate_placement_effective_name(cp) for cp in matched_coords})
     missing = requested - found_names
     if missing:
         all_names = sorted(
             {rule_effective_name(r) for r in cfg.rules}
             | {c.name for c in cfg.clone_placements}
             | {thermal_via_array_effective_name(t) for t in cfg.thermal_via_arrays if not t.retired}
+            | {coordinate_placement_effective_name(cp) for cp in cfg.coordinate_placements}
         )
         lines = []
         for name in sorted(missing):
@@ -163,20 +184,23 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
             hint = (_(" (maybe you meant {suggestion!r}?)").format(suggestion=suggestion[0])
                     if suggestion else "")
             lines.append(_("  {name!r} — not found among rules, clone_placements, "
-                           "or thermal_via_arrays{hint}")
+                           "thermal_via_arrays, or coordinate_placements{hint}")
                          .format(name=name, hint=hint))
         raise PlacerError(_("[error] --only: names not found:\n{lines}\nAvailable: {all}")
                           .format(lines="\n".join(lines), all=all_names))
 
     l.info(_("--only {requested}: rules={rules}, clone_placements={clones}, "
-              "thermal_via_arrays={thermal} (everything else is ignored in this run)")
+              "thermal_via_arrays={thermal}, coordinate_placements={coords} "
+              "(everything else is ignored in this run)")
             .format(requested=sorted(requested),
                     rules=[rule_effective_name(r) for r in matched_rules],
                     clones=[c.name for c in matched_clones],
-                    thermal=[thermal_via_array_effective_name(t) for t in matched_tvas]))
+                    thermal=[thermal_via_array_effective_name(t) for t in matched_tvas],
+                    coords=[coordinate_placement_effective_name(cp) for cp in matched_coords]))
     return dataclasses.replace(cfg, rules=matched_rules,
                                clone_placements=matched_clones,
-                               thermal_via_arrays=matched_tvas)
+                               thermal_via_arrays=matched_tvas,
+                               coordinate_placements=matched_coords)
 
 
 def apply_cluster_filter(cfg, cluster_paths: list[str], _logger=None) -> "Config":
@@ -193,6 +217,12 @@ def apply_cluster_filter(cfg, cluster_paths: list[str], _logger=None) -> "Config
                       if _matches_any_cluster(c.anchor_cluster, cluster_paths)]
     matched_tvas = [t for t in cfg.thermal_via_arrays
                     if not t.retired and _matches_any_cluster(t.anchor_cluster, cluster_paths)]
+    # cp.cluster is the physical-instance field itself here (not an
+    # "anchor_cluster narrowing" field like the others above — this type has
+    # no separate anchor concept, see CoordinatePlacement's own docstring),
+    # but the SAME prefix-match convention still applies to it.
+    matched_coords = [cp for cp in cfg.coordinate_placements
+                      if _matches_any_cluster(cp.cluster, cluster_paths)]
 
     narrowed_rules = []
     for r in cfg.rules:
@@ -203,19 +233,23 @@ def apply_cluster_filter(cfg, cluster_paths: list[str], _logger=None) -> "Config
             l.debug(_("Rule {name!r}: no spokes match --cluster {paths}, rule dropped")
                      .format(name=rule_effective_name(r), paths=cluster_paths))
 
-    if not narrowed_rules and not matched_clones and not matched_tvas:
+    if not narrowed_rules and not matched_clones and not matched_tvas and not matched_coords:
         raise PlacerError(_("[error] --cluster {paths}: matched nothing among rules' spokes, "
-                            "clone_placements, or thermal_via_arrays").format(paths=cluster_paths))
+                            "clone_placements, thermal_via_arrays, or coordinate_placements")
+                          .format(paths=cluster_paths))
 
     l.info(_("--cluster {paths}: rules={rules} (spokes narrowed), "
-              "clone_placements={clones}, thermal_via_arrays={thermal}")
+              "clone_placements={clones}, thermal_via_arrays={thermal}, "
+              "coordinate_placements={coords}")
             .format(paths=cluster_paths,
                     rules=[rule_effective_name(r) for r in narrowed_rules],
                     clones=[c.name for c in matched_clones],
-                    thermal=[thermal_via_array_effective_name(t) for t in matched_tvas]))
+                    thermal=[thermal_via_array_effective_name(t) for t in matched_tvas],
+                    coords=[coordinate_placement_effective_name(cp) for cp in matched_coords]))
     return dataclasses.replace(cfg, rules=narrowed_rules,
                                clone_placements=matched_clones,
-                               thermal_via_arrays=matched_tvas)
+                               thermal_via_arrays=matched_tvas,
+                               coordinate_placements=matched_coords)
 
 
 # ── Compute helper ────────────────────────────────────────────────────────────
@@ -339,12 +373,20 @@ class ApplyPipeline:
         ``self.dry_run_report`` so library callers can grab the report
         without going through stdout at all.
         """
+        coordinate_moves = (build_coordinate_moves(self.adapter, self.cfg.coordinate_placements)
+                           if self.cfg.coordinate_placements else [])
         moves = self.planner.plan_items(self.items)
         vias = self.planner.plan_vias()
         tracks = self.planner.plan_tracks()
         lines: list[str] = []
         lines.append("\n=== DRY RUN ===")
         lines.append(_("Order: {order}").format(order=" -> ".join(it.label for it in self.items)))
+        if coordinate_moves:
+            lines.append(_("Coordinate placements (Phase 0, before the order above):"))
+            for m in coordinate_moves:
+                lines.append(_("  {ref}: ({x:.3f}, {y:.3f}) mm, angle={angle:.1f}°")
+                             .format(ref=m.ref, x=m.position.x / 1e6, y=m.position.y / 1e6,
+                                     angle=m.angle.degrees))
         lines.append(_("Moves:"))
         for m in moves:
             lines.append(_("  {ref}: ({x:.3f}, {y:.3f}) mm, angle={angle:.1f}°")
@@ -383,6 +425,30 @@ class ApplyPipeline:
             self.adapter,
             self.cfg.track_registry_path or track_registry_path_for_config(self.config_path),
         )
+
+        # --- Phase 0: coordinate_placements ("dumb placer") — self-
+        # contained absolute-position moves, no dependency on anything else
+        # in this run (each one resolves its OWN existing footprint by
+        # Cluster+Role, see coordinate_position_calculator.py), so it never
+        # needs dependency_order.py's producer/consumer graph. Runs BEFORE
+        # Phase 1 so a Rule/ClonePlacement anchor that happens to coincide
+        # with a coordinate-placed component sees its FINAL position, not a
+        # stale pre-move one. No registry involvement (see
+        # CoordinatePlacement's own docstring) — always applied
+        # unconditionally, same idempotency model Phase 1's own moves below
+        # already use.
+        if self.cfg.coordinate_placements:
+            coordinate_moves = build_coordinate_moves(self.adapter, self.cfg.coordinate_placements)
+            logger.info(_("Coordinate placements: {count} moves").format(count=len(coordinate_moves)))
+            coordinate_failed = executor.execute_moves(
+                coordinate_moves,
+                check_collisions=not self.no_collision_check,
+                collision_margin_mm=self.collision_margin,
+            )
+            if coordinate_failed:
+                logger.warning(_("Failed to move (coordinate_placements): {refs}")
+                               .format(refs=sorted(set(coordinate_failed))))
+            self.adapter.refresh_board()
 
         # --- Phase 1: moves, one dependency-order item at a time ---
         self.planner.begin_planning()

@@ -113,6 +113,45 @@ def test_build_entry_dict_absolute_xy_round_trips_through_loader(main_window, tm
     assert cp.xy == (10.5, -3.2)
 
 
+def test_build_entry_dict_polar_xy_writes_radius_angle(main_window, tmp_path):
+    """Polar mode (optional alternative to xy) must write radius_mm/angle_deg
+    instead of xy, and still validate against the real backend loader."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock.cluster_edit.setCurrentText("Channel_2_PI_Filter")
+    ow = dock.origin_widget
+    ow._polar_combo.setCurrentIndex(1)  # Polar
+    ow.radius_edit.setText("5.0")
+    ow.angle_edit.setText("37")
+
+    entry = dock._build_entry_dict()
+    assert entry == {
+        "name": "Channel_2_PI_Filter", "cell": "pi_filter",
+        "radius_mm": 5.0, "angle_deg": 37.0,
+    }
+    cp = load_clone_placement(entry)
+    assert cp.radius_mm == 5.0
+    assert cp.angle_deg == 37.0
+    assert cp.xy == (0.0, 0.0)  # default preserved (optional alternative)
+
+
+def test_polar_mode_toggle_enables_only_active_xy_fields(main_window, tmp_path):
+    """Same Cartesian/Polar field-toggle as the other docks — X/Y only in
+    Cartesian, Radius/Angle only in Polar."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    ow = dock.origin_widget
+    # default Cartesian
+    assert ow.x_edit.isEnabled() is True
+    assert ow.y_edit.isEnabled() is True
+    assert ow.radius_edit.isEnabled() is False
+    assert ow.angle_edit.isEnabled() is False
+
+    ow._polar_combo.setCurrentIndex(1)
+    assert ow.x_edit.isEnabled() is False
+    assert ow.y_edit.isEnabled() is False
+    assert ow.radius_edit.isEnabled() is True
+    assert ow.angle_edit.isEnabled() is True
+
+
 def test_anchor_ref_and_role_together_is_blocked(main_window, tmp_path):
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
     dock.cluster_edit.setCurrentText("X")
@@ -513,6 +552,25 @@ def test_load_placement_round_trips_absolute_xy(main_window, tmp_path):
     assert dock.y_edit.text() == "-3.2"
     assert dock._param_edits["PWR_IN"].currentText() == "+3V3_CH2"
     assert dock._param_edits["PWR_OUT"].currentText() == "+3V3_CH2_DIRTY"
+
+
+def test_load_placement_round_trips_polar_xy(main_window, tmp_path):
+    """A saved polar clone_placement (radius_mm/angle_deg) must reload into
+    the XY row in Polar mode and round-trip back through _build_entry_dict
+    without loss."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    entry = {"name": "polar", "cell": "pi_filter",
+             "radius_mm": 5.0, "angle_deg": 37.0}
+
+    dock.load_placement(entry)
+
+    ow = dock.origin_widget
+    assert dock.origin_mode_combo.currentIndex() == 0
+    assert ow._polar_combo.currentIndex() == 1
+    assert ow.radius_edit.text() == "5.0"
+    assert ow.angle_edit.text() == "37.0"
+    # Round-trips back through _build_entry_dict without loss.
+    assert dock._build_entry_dict() == entry
 
 
 def test_load_placement_round_trips_anchor_mode(main_window, tmp_path):

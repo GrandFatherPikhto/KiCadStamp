@@ -220,6 +220,65 @@ def test_move_spoke_at_boundary_is_a_noop(main_window, tmp_path):
     assert dock._selected_index == 0
 
 
+def test_add_polar_spoke_writes_radius_and_angle(main_window, tmp_path):
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock.net_edit.setCurrentText("+3V3")
+    dock.spoke_pad_edit.setText("17")
+    dock.spoke_cell_combo.setCurrentText("cap_pair")
+    dock.spoke_mode_combo.setCurrentIndex(1)  # Polar
+    dock.spoke_radius_edit.setText("5.0")
+    dock.spoke_angle_edit.setText("37")
+
+    dock._on_add_spoke()
+
+    assert dock._spokes == [{"pad": "17", "cell": "cap_pair",
+                             "radius_mm": 5.0, "angle_deg": 37.0}]
+    assert dock.spokes_table.item(0, 2).text() == "Polar"
+    assert dock.spokes_table.item(0, 5).text() == "5.0"
+    assert dock.spokes_table.item(0, 6).text() == "37.0"
+
+
+def test_polar_mode_requires_both_radius_and_angle(main_window, tmp_path):
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock.spoke_pad_edit.setText("17")
+    dock.spoke_cell_combo.setCurrentText("cap_pair")
+    dock.spoke_mode_combo.setCurrentIndex(1)
+    dock.spoke_radius_edit.setText("5.0")
+
+    assert dock._build_spoke_dict() is None
+    assert "both Radius and Angle" in dock.message_label.text()
+
+
+def test_selecting_a_polar_row_loads_mode_into_editor(main_window, tmp_path):
+    dock, _ = _make_dock(main_window, tmp_path, {"rules": [{
+        "net": "+3V3", "anchor_role": "FPGA",
+        "spokes": [{"pad": "17", "cell": "cap_pair", "radius_mm": 5.0, "angle_deg": 37.0}],
+    }]})
+    dock.load_entry(_read_yaml(dock._path)["rules"][0])
+
+    dock.spokes_table.selectRow(0)
+
+    assert dock.spoke_mode_combo.currentIndex() == 1
+    assert dock.spoke_radius_edit.text() == "5.0"
+    assert dock.spoke_angle_edit.text() == "37.0"
+    assert dock.spoke_shift_x_edit.isEnabled() is False
+
+
+def test_mode_toggle_enables_only_the_active_fields(main_window, tmp_path):
+    dock, _ = _make_dock(main_window, tmp_path)
+    # default Cartesian: shift enabled, polar disabled
+    assert dock.spoke_shift_x_edit.isEnabled() is True
+    assert dock.spoke_shift_y_edit.isEnabled() is True
+    assert dock.spoke_radius_edit.isEnabled() is False
+    assert dock.spoke_angle_edit.isEnabled() is False
+
+    dock.spoke_mode_combo.setCurrentIndex(1)
+    assert dock.spoke_shift_x_edit.isEnabled() is False
+    assert dock.spoke_shift_y_edit.isEnabled() is False
+    assert dock.spoke_radius_edit.isEnabled() is True
+    assert dock.spoke_angle_edit.isEnabled() is True
+
+
 # ── Save ──────────────────────────────────────────────────────────────────
 
 def test_save_writes_list_section_and_preserves_other_keys(main_window, tmp_path):

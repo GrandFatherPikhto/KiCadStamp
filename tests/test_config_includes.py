@@ -74,6 +74,63 @@ thermal_via_arrays:
     assert names == {"from_root", "from_sub"}
 
 
+def test_include_merges_coordinate_placements(tmp_path):
+    (tmp_path / "sub.yaml").write_text("""
+coordinate_placements:
+  - cluster: FPGA_PERIPH
+    role: R18
+    x_mm: 1.0
+    y_mm: 2.0
+    rotation_deg: 0.0
+""", encoding="utf-8")
+
+    root = tmp_path / "root.yaml"
+    root.write_text("""
+include:
+  - sub.yaml
+coordinate_placements:
+  - cluster: FPGA_PERIPH
+    role: R19
+    x_mm: 3.0
+    y_mm: 4.0
+    rotation_deg: 0.0
+""", encoding="utf-8")
+
+    cfg, _ = load_config(str(root))
+    roles = {cp.role for cp in cfg.coordinate_placements}
+    assert roles == {"R18", "R19"}
+
+
+def test_duplicate_coordinate_placement_name_across_includes_is_fatal(tmp_path):
+    """Two entries deriving the SAME default name (cluster/role) from
+    different files must collide fatally, same as an explicit duplicate
+    name would — the default-name path isn't a free pass around the
+    uniqueness requirement."""
+    (tmp_path / "sub.yaml").write_text("""
+coordinate_placements:
+  - cluster: FPGA_PERIPH
+    role: R18
+    x_mm: 1.0
+    y_mm: 2.0
+    rotation_deg: 0.0
+""", encoding="utf-8")
+
+    root = tmp_path / "root.yaml"
+    root.write_text("""
+include:
+  - sub.yaml
+coordinate_placements:
+  - cluster: FPGA_PERIPH
+    role: R18
+    x_mm: 3.0
+    y_mm: 4.0
+    rotation_deg: 0.0
+""", encoding="utf-8")
+
+    with pytest.raises(ValidationError, match="duplicate name"):
+        load_config(str(root))
+
+
 def test_duplicate_thermal_via_array_name_across_includes_is_fatal(tmp_path):
     (tmp_path / "sub.yaml").write_text("""
 thermal_via_arrays:
