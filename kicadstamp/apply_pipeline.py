@@ -36,7 +36,7 @@ from .placement.services.manual_position_calculator import rule_anchor_ids
 from .cluster_matching import cluster_prefix_match
 from .placement.executor import BatchExecutor
 from .exceptions import PlacerError
-from .validation import run_all_checks
+from .validation import run_all_checks, check_config_structure
 from .registry import (PlacementRegistry, registry_path_for_config,
                        TrackRegistry, track_registry_path_for_config)
 from .i18n import _
@@ -289,6 +289,14 @@ class ApplyPipeline:
             self.sheet_names = self.ctx.sheet_names if self.ctx else {}
 
     def _filter_config(self) -> None:
+        # Structural checks (duplicate clone identity, cell‑definition cycles,
+        # etc.) run on the FULL config, before --only/--cluster narrow it —
+        # a duplicate involving a clone_placement outside this run's --only
+        # selection is still a real config defect and must not go unreported
+        # just because this particular run doesn't touch it (see
+        # check_config_structure's docstring).
+        check_config_structure(self.cfg, sheet_names=self.sheet_names)
+
         # Filters return a DERIVED Config and never mutate the caller's object
         # (see the filter docstrings) — self.cfg is replaced with each filter's
         # result, so a preloaded cfg (e.g. the GUI's shared object) is never the

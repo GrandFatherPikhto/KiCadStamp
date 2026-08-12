@@ -442,15 +442,40 @@ def check_single_selection_based_clone(cfg: Config) -> None:
     logger.debug(_("Single selection‑based clone check passed"))
 
 
-def run_all_checks(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None) -> None:
-    """Runs all checks in order — from cheap to more comprehensive."""
+def check_config_structure(cfg: Config, sheet_names=None) -> None:
+    """The subset of pre‑validation that needs only the config, not a live
+    board — pulled out of run_all_checks so ApplyPipeline can run it on the
+    FULL config, before --only/--cluster narrow cfg.clone_placements down to
+    the requested subset (see apply_pipeline.ApplyPipeline._filter_config).
+
+    Why this matters: check_no_duplicate_clone_anchors compares clone_placements
+    PAIRWISE — a duplicate identity between clone A (requested via --only) and
+    clone B (not requested) is a real config defect (the registry would still
+    confuse their vias/tracks whenever B is eventually applied too) regardless
+    of which one this particular run happens to touch. Running these checks
+    only on the --only-filtered cfg (the previous behaviour) made B invisible
+    to the check whenever a run requested only A — found 2026-08-12, a
+    genuine copy‑paste duplicate went unreported because the GUI run
+    requested a single clone_placement by name.
+    """
     _sn = sheet_names or {}
-    logger.info(_("Running pre‑validation checks..."))
     check_clone_cells_exist(cfg)
     check_no_cell_definition_cycles(cfg)
     check_no_duplicate_clone_anchors(cfg)
     check_anchor_sheet_configured(cfg, sheet_names=_sn)
     check_single_selection_based_clone(cfg)
+
+
+def run_all_checks(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None) -> None:
+    """Runs all checks in order — from cheap to more comprehensive.
+
+    Re‑runs check_config_structure on cfg (typically already --only/--cluster
+    filtered by the caller) — cheap and idempotent, and keeps this the single
+    entry point that fully validates a config on its own for callers that
+    don't go through ApplyPipeline (tests, direct scripted use)."""
+    _sn = sheet_names or {}
+    logger.info(_("Running pre‑validation checks..."))
+    check_config_structure(cfg, sheet_names=_sn)
     check_cells_and_pads_exist(adapter, cfg, sheet_names=_sn)
     check_role_pool_sufficiency(adapter, cfg)
     check_clone_nets_exist_on_board(adapter, cfg)
