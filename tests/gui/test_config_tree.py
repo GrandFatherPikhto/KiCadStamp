@@ -420,6 +420,42 @@ def test_thermal_via_leaf_click_emits_thermal_via_picked(main_window, tmp_path):
     assert picked == [{"name": "fpga_thermal", "pad": "1"}]
 
 
+def test_coordinate_placement_empty_cluster_role_has_no_fallback_display_name():
+    """2026-08-12, Group 2 fix: the display-name fallback checked key
+    PRESENCE ("cluster" in e and "role" in e), so `cluster: null` rendered as
+    a literal "None/ROLE". Non-empty values are required now."""
+    entries = list(ConfigTreeDock._entries([
+        {"name": "named"},
+        {"cluster": None, "role": "ROLE"},
+        {"cluster": "X", "role": None},
+        {"cluster": "X", "role": "R1"},
+    ]))
+    assert [name for name, _ in entries] == ["X/R1", "named"]
+
+
+def test_coordinate_placements_leaf_click_without_file_context_does_not_emit_none(
+        main_window, tmp_path):
+    """2026-08-12, Group 2 fix: a coordinate_placements leaf whose file context
+    can't be resolved used to emit coordinate_placements_picked(None) — dock_hub
+    wires that straight to CoordinatePlacerDock.load_from_file's path.exists(),
+    which crashed the GUI process inside a Qt slot (None.exists())."""
+    root = tmp_path / "root.yaml"
+    root.write_text(
+        "coordinate_placements:\n  - cluster: X\n    role: R1\n", encoding="utf-8")
+
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    picked = []
+    dock.coordinate_placements_picked.connect(picked.append)
+    leaf = _find(dock.tree.topLevelItem(0), "Coordinate placements").child(0)
+    # Simulate the bug trigger: the leaf has no resolvable file context.
+    dock._file_context_for_item = lambda item: None
+    dock._on_clicked(leaf, 0)
+
+    assert picked == []  # must NOT emit None
+
+
 def test_add_point_emits_request_instead_of_writing_directly(main_window, tmp_path):
     root = tmp_path / "root.yaml"
     root.write_text("points: {}\n", encoding="utf-8")

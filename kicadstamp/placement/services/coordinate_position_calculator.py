@@ -86,7 +86,18 @@ def resolve_target_position(cp: CoordinatePlacement) -> tuple[Vector2, float]:
     0, angle) — i.e. "a purely along-axis offset, rotated by angle_deg" —
     the exact same primitive/convention as every cell's own along/across
     offsets, so angle_deg's rotation direction is guaranteed consistent
-    with rotation_deg's meaning everywhere else."""
+    with rotation_deg's meaning everywhere else.
+
+    Defensive (2026-08-12, Group 2 item 12): the "x_mm set => Cartesian,
+    else polar" invariant is enforced by the LOADER, not the dataclass —
+    directly-constructed objects (tests) with a half-filled polar mode
+    (radius_mm set, angle_deg None) would otherwise silently use angle_deg's
+    None as if it were 0.0, or crash on a bare TypeError. Fail loudly
+    instead."""
+    assert (cp.x_mm is not None) != (cp.center_x_mm is not None), (
+        f"CoordinatePlacement {coordinate_placement_effective_name(cp)!r}: "
+        "exactly one of x_mm/y_mm (Cartesian) or center_x_mm/center_y_mm "
+        "(polar) must be set — this should have been caught at load time")
     if cp.x_mm is not None:
         target = Vector2.from_xy(int(cp.x_mm * MM), int(cp.y_mm * MM))
         rotation_deg = cp.rotation_deg

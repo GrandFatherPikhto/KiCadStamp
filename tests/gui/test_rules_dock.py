@@ -264,6 +264,48 @@ def test_selecting_a_polar_row_loads_mode_into_editor(main_window, tmp_path):
     assert dock.spoke_shift_x_edit.isEnabled() is False
 
 
+def test_polar_zero_values_render_and_round_trip(main_window, tmp_path):
+    """2026-08-12, Group 2 fix: truthiness checks (spoke.get("radius_mm"))
+    made a legitimate 0.0 render as an EMPTY field and reload as None, so a
+    save was rejected ("Polar mode needs both Radius and Angle") even though
+    the source data was valid."""
+    dock, _ = _make_dock(main_window, tmp_path, {"rules": [{
+        "net": "+3V3", "anchor_role": "FPGA",
+        "spokes": [{"pad": "17", "cell": "cap_pair", "radius_mm": 0.0, "angle_deg": 0.0}],
+    }]})
+    dock.load_entry(_read_yaml(dock._path)["rules"][0])
+
+    dock.spokes_table.selectRow(0)
+
+    assert dock.spoke_radius_edit.text() == "0.0"
+    assert dock.spoke_angle_edit.text() == "0.0"
+    assert dock.spokes_table.item(0, 5).text() == "0.0"  # radius column, not blank
+    assert dock.spokes_table.item(0, 6).text() == "0.0"  # angle column, not blank
+
+    rebuilt = dock._build_spoke_dict()
+    assert rebuilt["radius_mm"] == 0.0
+    assert rebuilt["angle_deg"] == 0.0
+
+
+def test_invalid_angle_error_is_not_clobbered_by_needs_both(main_window, tmp_path):
+    """2026-08-12, Group 2 fix: when Radius is empty AND Angle is unparsable
+    (e.g. "12,5"), the overloaded-None parse used to overwrite Angle's exact
+    "not a number" error with the generic "Polar mode needs both Radius and
+    Angle" — hiding the real problem. The (ok, value) parse reports the field
+    error and stops before the generic check."""
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock.spoke_pad_edit.setText("17")
+    dock.spoke_cell_combo.setCurrentText("cap_pair")
+    dock.spoke_mode_combo.setCurrentIndex(1)  # Polar
+    dock.spoke_angle_edit.setText("12,5")     # invalid number, Radius left blank
+
+    entry = dock._build_spoke_dict()
+
+    assert entry is None
+    assert "not a number" in dock.message_label.text()
+    assert "needs both" not in dock.message_label.text()
+
+
 def test_mode_toggle_enables_only_the_active_fields(main_window, tmp_path):
     dock, _ = _make_dock(main_window, tmp_path)
     # default Cartesian: shift enabled, polar disabled

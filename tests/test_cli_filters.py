@@ -292,6 +292,18 @@ class TestApplyOnlyFilter:
         cfg = apply_only_filter(cfg, ["my_row"], logger)
         assert len(cfg.coordinate_placements) == 1
 
+    def test_only_does_not_match_retired_coordinate_placement(self):
+        """Retired coordinate_placements must not be selectable by --only —
+        matches the thermal_via_arrays `not t.retired` guard (2026-08-12,
+        Group 2 fix: the coordinate block skipped the guard, so a direct
+        apply_only_filter call could resurrect a retired row)."""
+        cfg = _cfg(coordinate_placements=[
+            CoordinatePlacement(cluster="X", role="R1", name="dead",
+                                x_mm=0.0, y_mm=0.0, rotation_deg=0.0, retired=True),
+        ])
+        with pytest.raises(PlacerError):
+            apply_only_filter(cfg, ["dead"], logger)
+
 
 class TestApplyClusterFilter:
     def test_no_cluster_paths_is_noop(self):
@@ -390,6 +402,16 @@ class TestApplyClusterFilter:
         ])
         cfg = apply_cluster_filter(cfg, ["Channel_0"], logger)
         assert len(cfg.coordinate_placements) == 1
+
+    def test_cluster_does_not_match_retired_coordinate_placement(self):
+        """Same `not retired` guard as thermal_via_arrays in the cluster
+        filter (2026-08-12, Group 2 fix)."""
+        cfg = _cfg(coordinate_placements=[
+            CoordinatePlacement(cluster="Channel_0", role="R1",
+                                x_mm=0.0, y_mm=0.0, rotation_deg=0.0, retired=True),
+        ])
+        with pytest.raises(PlacerError):
+            apply_cluster_filter(cfg, ["Channel_0"], logger)
 
     def test_only_and_cluster_compose_as_and(self):
         cfg = _cfg(rules=[

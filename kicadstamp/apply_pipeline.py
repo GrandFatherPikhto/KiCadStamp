@@ -164,7 +164,8 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
     matched_tvas = [t for t in cfg.thermal_via_arrays
                     if not t.retired and thermal_via_array_effective_name(t) in requested]
     matched_coords = [cp for cp in cfg.coordinate_placements
-                      if coordinate_placement_effective_name(cp) in requested]
+                      if not cp.retired
+                      and coordinate_placement_effective_name(cp) in requested]
 
     found_names = ({rule_effective_name(r) for r in matched_rules}
                    | {c.name for c in matched_clones}
@@ -176,7 +177,8 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
             {rule_effective_name(r) for r in cfg.rules}
             | {c.name for c in cfg.clone_placements}
             | {thermal_via_array_effective_name(t) for t in cfg.thermal_via_arrays if not t.retired}
-            | {coordinate_placement_effective_name(cp) for cp in cfg.coordinate_placements}
+            | {coordinate_placement_effective_name(cp) for cp in cfg.coordinate_placements
+               if not cp.retired}
         )
         lines = []
         for name in sorted(missing):
@@ -223,7 +225,7 @@ def apply_cluster_filter(cfg, cluster_paths: list[str], _logger=None) -> "Config
     # same as it selects a Rule/ClonePlacement by its own anchor_cluster) —
     # the SAME prefix-match convention still applies to it.
     matched_coords = [cp for cp in cfg.coordinate_placements
-                      if _matches_any_cluster(cp.cluster, cluster_paths)]
+                      if not cp.retired and _matches_any_cluster(cp.cluster, cluster_paths)]
 
     narrowed_rules = []
     for r in cfg.rules:
@@ -378,6 +380,13 @@ class ApplyPipeline:
                                 self.adapter, self.cfg.coordinate_placements,
                                 points=self.cfg.points, sheet_names=self.sheet_names)
                            if self.cfg.coordinate_placements else [])
+        # NOTE (2026-08-12, Group 2 review): a dry run does NOT apply Phase 0 —
+        # build_coordinate_moves only COMPUTES MoveCommands, nothing moves on
+        # the board — so Phase 1 below necessarily resolves Rule/ClonePlacement
+        # anchors from their CURRENT positions, not the post-Phase-0 ones a real
+        # apply would use (refresh_board() here would be a pure no-op, the board
+        # is unchanged). The divergence is honest and documented in the report
+        # below, same as the existing "planned from the CURRENT board" note.
         moves = self.planner.plan_items(self.items)
         vias = self.planner.plan_vias()
         tracks = self.planner.plan_tracks()
@@ -390,6 +399,10 @@ class ApplyPipeline:
                 lines.append(_("  {ref}: ({x:.3f}, {y:.3f}) mm, angle={angle:.1f}°")
                              .format(ref=m.ref, x=m.position.x / 1e6, y=m.position.y / 1e6,
                                      angle=m.angle.degrees))
+            lines.append(_("(Phase 0 moves are NOT applied in a dry run — the "
+                           "Rule/ClonePlacement moves below are still planned from "
+                           "their CURRENT positions, not from the post-Phase-0 board "
+                           "a real apply would produce)"))
         lines.append(_("Moves:"))
         for m in moves:
             lines.append(_("  {ref}: ({x:.3f}, {y:.3f}) mm, angle={angle:.1f}°")

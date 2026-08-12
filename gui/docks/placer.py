@@ -705,10 +705,17 @@ class PlacerDock(QWidget):
             else:
                 entry["xy"] = [origin_fields["x"], origin_fields["y"]]
         else:
-            # ClonePlacement has no separate shift field — Anchor/Point mode
-            # reuse xy: itself to carry the shift (see _anchor_origin.py's
-            # module docstring on why the shared widget doesn't know this).
-            entry["xy"] = [origin_fields["shift_x"], origin_fields["shift_y"]]
+            if "radius" in origin_fields:
+                # Polar OFFSET in Anchor/Point mode (2026-08-12, Group 2 fix) —
+                # written as radius_mm/angle_deg, not xy (xy would be the
+                # Cartesian shift).
+                entry["radius_mm"] = origin_fields["radius"]
+                entry["angle_deg"] = origin_fields["angle"]
+            else:
+                # ClonePlacement has no separate shift field — Anchor/Point mode
+                # reuse xy: itself to carry the shift (see _anchor_origin.py's
+                # module docstring on why the shared widget doesn't know this).
+                entry["xy"] = [origin_fields["shift_x"], origin_fields["shift_y"]]
             if mode == "anchor":
                 if "ref" in origin_fields:
                     entry["anchor_ref"] = origin_fields["ref"]
@@ -985,15 +992,35 @@ class PlacerDock(QWidget):
         xy = entry.get("xy") or [0.0, 0.0]
         radius = entry.get("radius_mm")
         if "anchor_point" in entry:
-            self.origin_widget.load(mode="point", point=str(entry["anchor_point"]),
-                                    shift_x=xy[0], shift_y=xy[1])
+            if radius is not None:
+                # Anchor + polar offset (2026-08-12, Group 2 fix — this used
+                # to fall into the Cartesian-anchor branch, silently dropping
+                # the polar offset on the next Save). point= is REQUIRED here
+                # too (AnchorOriginWidget.load defaults it to "" and
+                # unconditionally clears the combo — forgetting it would wipe
+                # the anchor_point back out of the form on the next Save, the
+                # same data-loss class of bug).
+                self.origin_widget.load(mode="point", point=str(entry["anchor_point"]),
+                                        polar=True, radius=radius,
+                                        angle=entry.get("angle_deg"))
+            else:
+                self.origin_widget.load(mode="point", point=str(entry["anchor_point"]),
+                                        shift_x=xy[0], shift_y=xy[1])
         elif "anchor_ref" in entry or "anchor_role" in entry:
-            self.origin_widget.load(
-                mode="anchor", ref=str(entry.get("anchor_ref", "")),
-                role=str(entry.get("anchor_role", "")),
-                pad=str(entry.get("anchor_pad", "")),
-                cluster=str(entry.get("anchor_cluster", "")),
-                shift_x=xy[0], shift_y=xy[1])
+            if radius is not None:
+                self.origin_widget.load(
+                    mode="anchor", ref=str(entry.get("anchor_ref", "")),
+                    role=str(entry.get("anchor_role", "")),
+                    pad=str(entry.get("anchor_pad", "")),
+                    cluster=str(entry.get("anchor_cluster", "")),
+                    polar=True, radius=radius, angle=entry.get("angle_deg"))
+            else:
+                self.origin_widget.load(
+                    mode="anchor", ref=str(entry.get("anchor_ref", "")),
+                    role=str(entry.get("anchor_role", "")),
+                    pad=str(entry.get("anchor_pad", "")),
+                    cluster=str(entry.get("anchor_cluster", "")),
+                    shift_x=xy[0], shift_y=xy[1])
         elif radius is not None:
             # Polar offset (optional alternative to xy) — reload the XY row
             # in Polar mode with radius/angle (see ClonePlacement's docstring).

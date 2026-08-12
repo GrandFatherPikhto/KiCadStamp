@@ -331,15 +331,17 @@ class RuleDock(QWidget):
         self.spokes_table.setRowCount(len(self._spokes))
         for row, spoke in enumerate(self._spokes):
             is_polar = spoke.get("radius_mm") is not None
+            # `is not None`, not truthiness — a legitimate 0.0 would render as
+            # an empty field (2026-08-12, Group 2 fix).
             values = [
                 str(spoke.get("pad", "")),
                 str(spoke.get("cell", "")),
                 _("Polar") if is_polar else _("Cartesian"),
-                str(spoke.get("shift_x_mm", "")) if not is_polar and spoke.get("shift_x_mm") else "",
-                str(spoke.get("shift_y_mm", "")) if not is_polar and spoke.get("shift_y_mm") else "",
-                str(spoke.get("radius_mm", "")) if is_polar and spoke.get("radius_mm") else "",
-                str(spoke.get("angle_deg", "")) if is_polar and spoke.get("angle_deg") else "",
-                str(spoke.get("rotation_deg", "")) if spoke.get("rotation_deg") else "",
+                str(spoke.get("shift_x_mm", "")) if not is_polar and spoke.get("shift_x_mm") is not None else "",
+                str(spoke.get("shift_y_mm", "")) if not is_polar and spoke.get("shift_y_mm") is not None else "",
+                str(spoke.get("radius_mm", "")) if is_polar and spoke.get("radius_mm") is not None else "",
+                str(spoke.get("angle_deg", "")) if is_polar and spoke.get("angle_deg") is not None else "",
+                str(spoke.get("rotation_deg", "")) if spoke.get("rotation_deg") is not None else "",
                 str(spoke.get("cluster", "")),
                 _("yes") if spoke.get("retired") else "",
                 _("yes") if spoke.get("skip") else "",
@@ -372,15 +374,18 @@ class RuleDock(QWidget):
         self.spoke_cell_combo.setCurrentText(str(spoke.get("cell", "")))
         is_polar = spoke.get("radius_mm") is not None
         self.spoke_mode_combo.setCurrentIndex(1 if is_polar else 0)
+        # `is not None`, not truthiness — a legitimate 0.0 would render as an
+        # empty field (2026-08-12, Group 2 fix).
         self.spoke_shift_x_edit.setText(
-            str(spoke.get("shift_x_mm", "")) if not is_polar and spoke.get("shift_x_mm") else "")
+            str(spoke.get("shift_x_mm", "")) if not is_polar and spoke.get("shift_x_mm") is not None else "")
         self.spoke_shift_y_edit.setText(
-            str(spoke.get("shift_y_mm", "")) if not is_polar and spoke.get("shift_y_mm") else "")
+            str(spoke.get("shift_y_mm", "")) if not is_polar and spoke.get("shift_y_mm") is not None else "")
         self.spoke_radius_edit.setText(
-            str(spoke.get("radius_mm", "")) if is_polar and spoke.get("radius_mm") else "")
+            str(spoke.get("radius_mm", "")) if is_polar and spoke.get("radius_mm") is not None else "")
         self.spoke_angle_edit.setText(
-            str(spoke.get("angle_deg", "")) if is_polar and spoke.get("angle_deg") else "")
-        self.spoke_rotation_edit.setText(str(spoke.get("rotation_deg", "")) if spoke.get("rotation_deg") else "")
+            str(spoke.get("angle_deg", "")) if is_polar and spoke.get("angle_deg") is not None else "")
+        self.spoke_rotation_edit.setText(
+            str(spoke.get("rotation_deg", "")) if spoke.get("rotation_deg") is not None else "")
         self.spoke_cluster_combo.setCurrentText(str(spoke.get("cluster", "")))
         self.spoke_retired_checkbox.setChecked(bool(spoke.get("retired", False)))
         self.spoke_skip_checkbox.setChecked(bool(spoke.get("skip", False)))

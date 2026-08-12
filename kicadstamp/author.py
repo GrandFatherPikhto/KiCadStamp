@@ -55,6 +55,13 @@ def _prune_defaults(obj: Any) -> Any:
             default = _default_for(f)
             if default is not _MISSING and value == default:
                 continue
+            # ClonePlacement polar offset (2026-08-12, Group 2 fix): when
+            # radius_mm/angle_deg are set, xy is the meaningless (0.0, 0.0)
+            # placeholder — writing it would make a reload of the dumped YAML
+            # fatal ("clone_placement has both xy and radius_mm/angle_deg").
+            if (isinstance(obj, ClonePlacement) and f.name == "xy"
+                    and (obj.radius_mm is not None or obj.angle_deg is not None)):
+                continue
             if dataclasses.is_dataclass(value):
                 result[f.name] = _prune_defaults(value)
             elif isinstance(value, list):

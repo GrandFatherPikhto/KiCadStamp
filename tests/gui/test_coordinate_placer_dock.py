@@ -151,6 +151,45 @@ def test_delete_selected_removes_the_row(main_window, tmp_path):
     assert dock.table.cellWidget(0, coordinate_placer_mod._COL_ROLE).currentText() == "R2"
 
 
+def test_mode_toggle_after_row_deletion_targets_the_right_row(main_window, tmp_path):
+    """2026-08-12, Group 2 fix: the Mode/Anchor handlers captured the row index
+    at _add_row() time — deleting a row above shifted the survivors, so toggling
+    Mode on a survivor either crashed (stale index out of range) or silently
+    changed the WRONG row. The index is now resolved from the widget at signal
+    time."""
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock._add_row({"cluster": "X", "role": "R1", "x_mm": 0.0, "y_mm": 0.0, "rotation_deg": 0.0})
+    dock._add_row({"cluster": "X", "role": "R2", "x_mm": 0.0, "y_mm": 0.0, "rotation_deg": 0.0})
+
+    dock.table.selectRow(0)
+    dock._on_delete_selected()
+
+    # Row 0 now holds what was R2. Switching its Mode must toggle ROW 0's
+    # fields (not an out-of-range row 1, and not row 0 of the old indexing).
+    dock.table.cellWidget(0, coordinate_placer_mod._COL_MODE).setCurrentIndex(1)  # Polar
+    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_X).isEnabled() is False
+    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_CENTER_X).isEnabled() is True
+
+
+def test_collect_place_inputs_excludes_retired_and_skip_rows_from_only_names(main_window, tmp_path, monkeypatch):
+    """2026-08-12, Group 2 fix: retired/skip rows used to be included in the
+    --only names — drop_inactive_items dropped them before apply_only_filter,
+    which then couldn't find the name and failed "Place all" wholesale."""
+    import gui.docks.coordinate_placer as m
+
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock._add_row({"cluster": "X", "role": "R1", "x_mm": 0.0, "y_mm": 0.0,
+                   "rotation_deg": 0.0, "retired": True})
+    dock._add_row({"cluster": "X", "role": "R2", "x_mm": 0.0, "y_mm": 0.0,
+                   "rotation_deg": 0.0})
+
+    monkeypatch.setattr(m, "load_config", lambda path: (Config(), RuntimeContext()))
+    payload = dock._collect_place_inputs()
+
+    assert payload is not None
+    assert payload["names"] == ["X/R2"]
+
+
 def test_delete_with_no_selection_shows_error(main_window, tmp_path):
     dock, _ = _make_dock(main_window, tmp_path)
     dock._add_row({"cluster": "X", "role": "R1", "x_mm": 0.0, "y_mm": 0.0, "rotation_deg": 0.0})

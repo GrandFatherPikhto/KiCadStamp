@@ -15,7 +15,7 @@ import logging
 import difflib
 
 
-from .config import Config
+from .config import Config, coordinate_placement_effective_name
 from .geometry.clone_geometry import clone_shift_mm
 from .kicad.adapter import KiCadBoardAdapter
 from .exceptions import ValidationError, format_fatal_error
@@ -25,6 +25,7 @@ from .placement.services.clone_role_resolver import (
     clone_uses_selection_mode,
     resolve_footprint_by_role,
 )
+from .placement.services.coordinate_position_calculator import resolve_footprint_by_cluster_role
 from .i18n import _
 
 logger = logging.getLogger(__name__)
@@ -473,6 +474,45 @@ def check_config_structure(cfg: Config, sheet_names=None) -> None:
     check_anchor_sheet_configured(cfg, sheet_names=_sn)
 
 
+def _fatal_title_line(e: ValidationError) -> str:
+    """The 'FATAL ERROR: <title>' line of a formatted ValidationError, without
+    the '=' box/borders — so one check's error can be embedded as a clean
+    problem line inside another's consolidated fatal (2026-08-12, Group 2)."""
+    text = str(e)
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("FATAL ERROR:"):
+            return stripped[len("FATAL ERROR:"):].strip()
+    return text
+
+
+def check_coordinate_placements_exist(adapter: KiCadBoardAdapter, cfg: Config) -> None:
+    """Pre-flight existence check for coordinate_placements (2026-08-12,
+    Group 2 fix): each non-retired entry's Cluster+Role must resolve to EXACTLY
+    ONE live footprint. Previously coordinate_placements validated lazily,
+    INSIDE build_coordinate_moves (called from deep inside _dry_run/_execute),
+    so a missing/ambiguous match surfaced mid-execution instead of the standard
+    "Placement stopped, board not modified" pre-flight error every other
+    placement kind gets. Like every other check in this module, ALL problems
+    are COLLECTED and raised as ONE consolidated fatal (not one error per
+    run — see this module's docstring)."""
+    problems = []
+    for cp in cfg.coordinate_placements:
+        if cp.retired:
+            continue
+        label = coordinate_placement_effective_name(cp)
+        try:
+            resolve_footprint_by_cluster_role(adapter, cp.cluster, cp.role, label)
+        except ValidationError as e:
+            problems.append(_("coordinate_placements {label!r}: {msg}")
+                            .format(label=label, msg=_fatal_title_line(e)))
+    if problems:
+        raise ValidationError(format_fatal_error(
+            _("coordinate_placements cannot resolve their target component(s)"),
+            problems
+        ))
+
+
 def run_all_checks(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None) -> None:
     """Runs all checks in order — from cheap to more comprehensive.
 
@@ -490,4 +530,5 @@ def run_all_checks(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None) ->
     check_cells_and_pads_exist(adapter, cfg, sheet_names=_sn)
     check_role_pool_sufficiency(adapter, cfg)
     check_clone_nets_exist_on_board(adapter, cfg)
+    check_coordinate_placements_exist(adapter, cfg)
     logger.info(_("All pre‑validation checks passed"))

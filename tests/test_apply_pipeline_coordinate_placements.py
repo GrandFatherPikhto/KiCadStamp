@@ -128,6 +128,10 @@ def test_dry_run_report_includes_coordinate_placements(monkeypatch):
 
     assert "Coordinate placements" in text
     assert "  R18: (10.000, 20.000) mm, angle=90.0°" in text
+    # 2026-08-12, Group 2 review: a dry run does NOT apply Phase 0 (nothing
+    # moves on the board), so the report must HONESTLY say Phase 1 is planned
+    # from current positions — not pretend a refresh_board() fixed it.
+    assert "Phase 0 moves are NOT applied in a dry run" in text
 
 
 def test_dry_run_report_omits_coordinate_placements_section_when_empty():

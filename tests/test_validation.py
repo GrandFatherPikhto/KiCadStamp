@@ -350,3 +350,43 @@ class TestSingleSelectionBasedClone:
                            nets={"X": "GND"}),
         ])
         check_single_selection_based_clone(cfg)
+
+
+def test_check_coordinate_placements_exist_resolves_each_entry():
+    """2026-08-12, Group 2 fix: coordinate_placements were validated lazily
+    INSIDE build_coordinate_moves (mid-execution) — this pre-flight check must
+    fail a missing/ambiguous Cluster+Role match up front, same "existence
+    checked before planning" contract as every other placement kind."""
+    from kicadstamp.config import CoordinatePlacement
+    from kicadstamp.validation import check_coordinate_placements_exist
+
+    cfg = Config(coordinate_placements=[
+        CoordinatePlacement(cluster="FPGA_PERIPH", role="R18",
+                            x_mm=0.0, y_mm=0.0, rotation_deg=0.0),
+    ])
+    fp = MagicMock()
+    fp.reference_field.text.value = "R18"
+    adapter = MagicMock()
+    adapter.get_footprints.return_value = [fp]
+    adapter.get_field_value.side_effect = lambda _fp, field: {
+        "Role": "R18", "Cluster": "FPGA_PERIPH"}.get(field)
+
+    check_coordinate_placements_exist(adapter, cfg)  # unique match — no raise
+
+    # Missing matches must be a pre-flight fatal, not a mid-execution surprise —
+    # and ALL problems are reported in ONE consolidated fatal (the module's
+    # stated convention), not one error per run.
+    adapter.get_footprints.return_value = []
+    cfg.coordinate_placements.append(
+        CoordinatePlacement(cluster="Y", role="R2", x_mm=0.0, y_mm=0.0, rotation_deg=0.0))
+    with pytest.raises(ValidationError) as exc_info:
+        check_coordinate_placements_exist(adapter, cfg)
+    text = str(exc_info.value)
+    assert "cannot resolve their target component(s)" in text
+    assert "FPGA_PERIPH/R18" in text and "Y/R2" in text
+    assert text.count("no component tagged") == 2  # both problems, one fatal
+
+    # Retired entries are skipped (drop_inactive_items handles them).
+    cfg.coordinate_placements[0].retired = True
+    cfg.coordinate_placements[1].retired = True
+    check_coordinate_placements_exist(adapter, cfg)  # no raise despite no match

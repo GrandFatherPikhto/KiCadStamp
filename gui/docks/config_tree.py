@@ -328,9 +328,12 @@ class ConfigTreeDock(QDockWidget):
         for e in raw:
             if not isinstance(e, dict):
                 continue
+            # Non-empty check, not key-presence — `cluster: null` (or empty
+            # strings) must fall through to "no display name", not render as a
+            # literal "None/ROLE" (2026-08-12, Group 2 fix).
             display_name = (e.get("name") or e.get("net")
-                            or (f"{e['cluster']}/{e['role']}"
-                                if "cluster" in e and "role" in e else None))
+                            or (f"{e.get('cluster')}/{e.get('role')}"
+                                if e.get("cluster") and e.get("role") else None))
             if display_name:
                 named.append((display_name, e))
         for display_name, entry in sorted(named, key=lambda pair: pair[0]):
@@ -349,7 +352,12 @@ class ConfigTreeDock(QDockWidget):
         if data[0] == "category":
             _kind, section, file_path = data
             if section == "coordinate_placements":
-                self.coordinate_placements_picked.emit(file_path)
+                # Guard against a path-less category node — dock_hub wires this
+                # straight to CoordinatePlacerDock.load_from_file whose first
+                # line is path.exists(); None.exists() would crash the GUI
+                # process inside a Qt slot (2026-08-12, Group 2 fix).
+                if file_path is not None:
+                    self.coordinate_placements_picked.emit(file_path)
             return
         if data[0] != "leaf":
             return
@@ -366,7 +374,11 @@ class ConfigTreeDock(QDockWidget):
             # No per-row form to load — a leaf click means the same thing
             # as clicking the category itself (see coordinate_placements_
             # picked's own comment): open the whole table for this file.
-            self.coordinate_placements_picked.emit(file_ctx[0] if file_ctx else None)
+            # Guarded: file_ctx is None when the leaf has no file node — must
+            # not emit None (dock_hub -> load_from_file -> None.exists() would
+            # crash the Qt process, 2026-08-12, Group 2 fix).
+            if file_ctx is not None:
+                self.coordinate_placements_picked.emit(file_ctx[0])
         elif section == "points":
             self.points_picked.emit(ref)
         elif section == "rules":

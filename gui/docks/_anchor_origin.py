@@ -221,7 +221,12 @@ class AnchorOriginWidget(QWidget):
         if "board_origin" in self._modes:
             self._board_origin_row.setVisible(mode == "board_origin")
         if self._polar and self._polar_row is not None:
-            self._polar_row.setVisible(mode == "xy")
+            # The Cartesian/Polar switch applies to the OFFSET — in xy mode it
+            # toggles the literal x/y vs radius/angle; in anchor/point mode it
+            # toggles the SHIFT vs a polar offset (ClonePlacement's anchor can
+            # carry a polar offset — was silently dropped by load_placement
+            # before, 2026-08-12 Group 2 fix).
+            self._polar_row.setVisible(mode == "xy" or mode in ("anchor", "point"))
         if self._shift:
             self._shift_row.setVisible(mode != "xy")
         self.modeChanged.emit()
@@ -338,14 +343,26 @@ class AnchorOriginWidget(QWidget):
             fields["kind"] = self.board_origin_kind_combo.currentData()
 
         if self._shift:
-            shift_x, err = self._parse_optional_float(self.shift_x_edit, _("Shift X"), default=0.0)
-            if err:
-                return None, err
-            shift_y, err = self._parse_optional_float(self.shift_y_edit, _("Shift Y"), default=0.0)
-            if err:
-                return None, err
-            fields["shift_x"] = shift_x
-            fields["shift_y"] = shift_y
+            if self._polar and self._polar_combo is not None and self._polar_combo.currentIndex() == 1:
+                # Polar OFFSET (anchor/point mode) — radius/angle instead of
+                # shift (2026-08-12, Group 2 fix).
+                radius, err = self._parse_required_float(self.radius_edit, _("Radius"))
+                if err:
+                    return None, err
+                angle, err = self._parse_required_float(self.angle_edit, _("Angle"))
+                if err:
+                    return None, err
+                fields["radius"] = radius
+                fields["angle"] = angle
+            else:
+                shift_x, err = self._parse_optional_float(self.shift_x_edit, _("Shift X"), default=0.0)
+                if err:
+                    return None, err
+                shift_y, err = self._parse_optional_float(self.shift_y_edit, _("Shift Y"), default=0.0)
+                if err:
+                    return None, err
+                fields["shift_x"] = shift_x
+                fields["shift_y"] = shift_y
 
         return fields, None
 

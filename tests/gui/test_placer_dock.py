@@ -181,6 +181,52 @@ def test_anchor_role_with_pad_and_shift(main_window, tmp_path):
     assert cp.anchor_pad == "1"
 
 
+def test_load_placement_anchor_with_polar_offset_round_trips(main_window, tmp_path):
+    """2026-08-12, Group 2 fix: a ClonePlacement with BOTH an anchor and a
+    polar offset (a valid, documented combo) used to load into the Cartesian-
+    anchor branch — radius_mm/angle_deg silently disappeared from the form and
+    were lost FOREVER on the next Save. Now the polar offset loads and
+    round-trips through _build_entry_dict as radius_mm/angle_deg, not xy."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    entry = {
+        "name": "X", "cell": "pi_filter", "anchor_role": "FPGA",
+        "radius_mm": 5.0, "angle_deg": 37.0,
+    }
+
+    dock.load_placement(entry)
+
+    assert dock.origin_widget.radius_edit.text() == "5.0"
+    assert dock.origin_widget.angle_edit.text() == "37.0"
+    rebuilt = dock._build_entry_dict()
+    assert rebuilt["anchor_role"] == "FPGA"
+    assert rebuilt["radius_mm"] == 5.0
+    assert rebuilt["angle_deg"] == 37.0
+    assert "xy" not in rebuilt
+
+
+def test_load_placement_anchor_point_with_polar_offset_round_trips(main_window, tmp_path):
+    """2026-08-12, Group 2 review: the anchor_point + polar-offset branch of
+    load_placement forgot point= — AnchorOriginWidget.load defaults it to ""
+    and unconditionally clears the combo, so a saved anchor_point+polar entry
+    would lose its anchor on the next Save (same data-loss class as the
+    anchor_role bug just fixed)."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    entry = {
+        "name": "X", "cell": "pi_filter", "anchor_point": "origin_point",
+        "radius_mm": 5.0, "angle_deg": 37.0,
+    }
+
+    dock.load_placement(entry)
+
+    assert dock.origin_widget.point_edit.currentText() == "origin_point"
+    assert dock.origin_widget.radius_edit.text() == "5.0"
+    rebuilt = dock._build_entry_dict()
+    assert rebuilt["anchor_point"] == "origin_point"
+    assert rebuilt["radius_mm"] == 5.0
+    assert rebuilt["angle_deg"] == 37.0
+    assert "xy" not in rebuilt
+
+
 def test_point_mode_requires_a_name(main_window, tmp_path):
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
     dock.cluster_edit.setCurrentText("X")

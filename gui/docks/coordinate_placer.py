@@ -158,7 +158,10 @@ class CoordinatePlacerDock(QWidget):
         "entry" to click into, the category itself opens the table."""
         self.set_target_file(path)
         self.table.setRowCount(0)
-        if not path.exists():
+        # Guard against a None path (config_tree no longer emits it, but a
+        # direct/dock_hub call must not crash the Qt process on None.exists(),
+        # 2026-08-12 Group 2 fix).
+        if path is None or not path.exists():
             self._show_message("")
             return
         try:
@@ -269,11 +272,30 @@ class CoordinatePlacerDock(QWidget):
 
         # Fields irrelevant to the current Mode/Anchor stay VISIBLE but
         # disabled (not hidden) — predictable column positions in a wide
-        # table beat a layout that reflows per row.
-        mode_combo.currentIndexChanged.connect(lambda _i, r=row: self._update_row_mode(r))
-        anchor_combo.currentIndexChanged.connect(lambda _i, r=row: self._update_row_anchor(r))
+        # table beat a layout that reflows per row. The row index is resolved
+        # FROM THE WIDGET at signal time (not captured in the closure) —
+        # _on_delete_selected shifts surviving rows, so a captured index would
+        # go stale and toggle the WRONG row (2026-08-12, Group 2 fix).
+        mode_combo.currentIndexChanged.connect(
+            lambda _i, w=mode_combo: self._update_row_mode_by_widget(w))
+        anchor_combo.currentIndexChanged.connect(
+            lambda _i, w=anchor_combo: self._update_row_anchor_by_widget(w))
         self._update_row_mode(row)
         self._update_row_anchor(row)
+
+    def _update_row_mode_by_widget(self, widget) -> None:
+        """Finds the row whose Mode combo is `widget` and toggles it — the
+        row-safe replacement for a captured index (see _add_row's comment)."""
+        for r in range(self.table.rowCount()):
+            if self.table.cellWidget(r, _COL_MODE) is widget:
+                self._update_row_mode(r)
+                return
+
+    def _update_row_anchor_by_widget(self, widget) -> None:
+        for r in range(self.table.rowCount()):
+            if self.table.cellWidget(r, _COL_ANCHOR) is widget:
+                self._update_row_anchor(r)
+                return
 
     def _update_row_mode(self, row: int) -> None:
         mode = self.table.cellWidget(row, _COL_MODE).currentIndex()
@@ -512,7 +534,12 @@ class CoordinatePlacerDock(QWidget):
             return None
 
         placements = [load_coordinate_placement(e) for e in entries]
-        names = [coordinate_placement_effective_name(cp) for cp in placements]
+        # Retired/skip rows stay in cfg (drop_inactive_items drops them before
+        # --only sees them), but must NOT be in the --only names — otherwise
+        # apply_only_filter can't find the name (the row was already dropped)
+        # and "Place all" fails wholesale (2026-08-12, Group 2 fix).
+        names = [coordinate_placement_effective_name(cp) for cp in placements
+                 if not cp.retired and not cp.skip]
         cfg.coordinate_placements = [
             cp for cp in cfg.coordinate_placements
             if coordinate_placement_effective_name(cp) not in names

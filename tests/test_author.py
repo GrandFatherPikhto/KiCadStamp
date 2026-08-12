@@ -99,6 +99,24 @@ class TestDumpRoundTrip:
         assert "rotation_deg" not in text
         assert "retired" not in text
 
+    def test_polar_clone_placement_omits_xy_and_round_trips(self, tmp_path):
+        """2026-08-12, Group 2 fix: _prune_defaults used to ALWAYS write xy
+        (it has no dataclass default), so a dumped polar clone
+        (radius_mm/angle_deg) reloaded fatally with "has both xy and
+        radius_mm/angle_deg" — the round-trip that used to work was broken
+        for any script-generated polar clone."""
+        clones = [ClonePlacement(name="polar", cell="t", xy=(0.0, 0.0),
+                                 radius_mm=5.0, angle_deg=37.0)]
+        out = tmp_path / "polar.yaml"
+        dump_clone_placements(clones, str(out))
+        text = out.read_text(encoding="utf-8")
+        assert "xy" not in text
+
+        cfg, _ = load_config(str(out))
+        cp = cfg.clone_placements[0]
+        assert cp.radius_mm == 5.0 and cp.angle_deg == 37.0
+        assert cp.xy == (0.0, 0.0)  # loader default, not a dumped field
+
 
 class TestApplyConfig:
     def test_builds_runoptions_with_every_field_run_apply_reads(self):
