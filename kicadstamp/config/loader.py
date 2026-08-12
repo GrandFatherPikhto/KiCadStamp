@@ -49,6 +49,7 @@ from .entries import (
     _load_cell,
     _load_cell_placement,
     _load_clone_placement,
+    _load_coordinate_placement,
     _load_manual_spoke,
     _load_point,
     _load_rule,
@@ -60,7 +61,8 @@ from .entries import (
 )
 from .includes import resolve_includes
 from .models import (
-    ThermalViaArrayConfig, Config, rule_effective_name,
+    ThermalViaArrayConfig, CoordinatePlacement, Config, rule_effective_name,
+    coordinate_placement_effective_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -119,6 +121,26 @@ def load_config(path: str) -> tuple[Config, RuntimeContext]:
             _("duplicate name(s) in thermal_via_arrays: {names}").format(names=dup_tva_names),
             [_("every thermal_via_arrays entry needs a unique name: — --only cannot tell "
                "same-named entries apart otherwise")]
+        ))
+
+    coordinate_placements: list[CoordinatePlacement] = [
+        _load_coordinate_placement(cp_data) for cp_data in data.get('coordinate_placements', [])
+    ]
+
+    # Same duplicate-name collision check as thermal_via_arrays above — the
+    # name here is USUALLY derived (cluster/role), not explicit, but --only
+    # still needs it to be unique across the whole list.
+    seen_cp_names: dict[str, int] = {}
+    for cp in coordinate_placements:
+        effective = coordinate_placement_effective_name(cp)
+        seen_cp_names[effective] = seen_cp_names.get(effective, 0) + 1
+    dup_cp_names = sorted(name for name, count in seen_cp_names.items() if count > 1)
+    if dup_cp_names:
+        raise ValidationError(format_fatal_error(
+            _("duplicate name(s) in coordinate_placements: {names}").format(names=dup_cp_names),
+            [_("every coordinate_placements entry needs a unique name (explicit, or the "
+               "default cluster/role pair) — --only cannot tell same-named entries apart "
+               "otherwise")]
         ))
 
     cells_data = dict(data.get('cells', {}) or {})
@@ -291,6 +313,7 @@ def load_config(path: str) -> tuple[Config, RuntimeContext]:
         thermal_via_arrays=thermal_vias,
         rules=rules,
         clone_placements=clone_placements,
+        coordinate_placements=coordinate_placements,
         place_components=data.get('place_components', True),
         skip_existing_components=data.get('skip_existing_components', False),
         via_keepout_clearance_mm=data.get('via_keepout_clearance_mm', 0.2),

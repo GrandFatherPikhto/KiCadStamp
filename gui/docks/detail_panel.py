@@ -52,6 +52,7 @@ from PyQt6.QtWidgets import (QDockWidget, QStackedWidget, QTabBar, QVBoxLayout, 
 from kicadstamp.i18n import _
 
 from .cell_editor import CellDock
+from .coordinate_placer import CoordinatePlacerDock
 from .extract import ExtractDock
 from .placer import PlacerDock
 from .points import PointsDock
@@ -59,7 +60,7 @@ from .root_metadata import RootMetadataDock
 from .rules import RuleDock
 from .thermal_via import ThermalViaArrayDock
 
-_ROOT, _EXTRACT, _PLACER, _THERMAL_VIA, _POINTS, _RULES, _CELLS = range(7)
+_ROOT, _EXTRACT, _PLACER, _THERMAL_VIA, _COORDINATE, _POINTS, _RULES, _CELLS = range(8)
 
 
 class DetailDock(QDockWidget):
@@ -85,6 +86,7 @@ class DetailDock(QDockWidget):
         self.tab_bar.addTab(_("Extract"))
         self.tab_bar.addTab(_("Placer"))
         self.tab_bar.addTab(_("Thermal via"))
+        self.tab_bar.addTab(_("Coordinate placer"))
         self.tab_bar.addTab(_("Points"))
         self.tab_bar.addTab(_("Rules"))
         self.tab_bar.addTab(_("Cells"))
@@ -95,6 +97,7 @@ class DetailDock(QDockWidget):
         self.extract_panel = ExtractDock(main_window, connection=connection)
         self.placer_panel = PlacerDock(main_window)
         self.thermal_via_panel = ThermalViaArrayDock(main_window)
+        self.coordinate_panel = CoordinatePlacerDock(main_window)
         self.points_panel = PointsDock(main_window, connection=connection)
         self.rules_panel = RuleDock(main_window)
         self.cells_panel = CellDock(main_window)
@@ -102,6 +105,7 @@ class DetailDock(QDockWidget):
         self.stack.addWidget(self.extract_panel)
         self.stack.addWidget(self.placer_panel)
         self.stack.addWidget(self.thermal_via_panel)
+        self.stack.addWidget(self.coordinate_panel)
         self.stack.addWidget(self.points_panel)
         self.stack.addWidget(self.rules_panel)
         self.stack.addWidget(self.cells_panel)
@@ -120,6 +124,7 @@ class DetailDock(QDockWidget):
         _PLACER: _("Placer"),
         _ROOT: _("Project"),
         _THERMAL_VIA: _("Thermal via"),
+        _COORDINATE: _("Coordinate placer"),
         _POINTS: _("Points"),
         _RULES: _("Rules"),
         _CELLS: _("Cells"),
@@ -130,9 +135,11 @@ class DetailDock(QDockWidget):
         read fresh from that page's own name field — no page-agnostic
         concept of "current entity" exists, each dock owns its own name/net
         widget (see each module's __init__), so this just knows where to
-        look for each one. Extract/Project have no single current entity
-        (Extract browses profiles, Project edits a whole file) — empty
-        string for both, title falls back to just the page label."""
+        look for each one. Extract/Project/Coordinate placer have no
+        single current entity (Extract browses profiles, Project edits a
+        whole file, Coordinate placer edits a whole TABLE of rows at
+        once) — empty string for all three, title falls back to just the
+        page label."""
         index = self.tab_bar.currentIndex()
         if index == _PLACER:
             return self.placer_panel.cluster_edit.currentText().strip()
@@ -172,6 +179,9 @@ class DetailDock(QDockWidget):
 
     def show_thermal_via(self) -> None:
         self._show(_THERMAL_VIA)
+
+    def show_coordinate_placer(self) -> None:
+        self._show(_COORDINATE)
 
     def show_points(self) -> None:
         self._show(_POINTS)

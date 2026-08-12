@@ -163,6 +163,21 @@ def upsert_list_entry(path: Path, section: str, entry: Dict[str, Any], key: str 
     return overwritten
 
 
+def set_list_section(path: Path, section: str, entries: list) -> None:
+    """Replaces the WHOLE list section in `path` with `entries` — unlike
+    upsert_list_entry() (identity-matched single-entry replace/append),
+    this is for a dock whose editing unit is the ENTIRE list at once (e.g.
+    CoordinatePlacerDock's table, 2026-08-12: every row of
+    coordinate_placements: is edited together in one table, unlike
+    thermal_via_arrays:/rules:/clone_placements:, which are browsed and
+    edited one entry at a time via ConfigTreeDock). Every other top-level
+    key in the file (cells:, include:, ...) is left untouched, same
+    contract as merge_write()/upsert_list_entry() above."""
+    existing = _read_data(path)
+    existing[section] = entries
+    _write_data(path, existing)
+
+
 def upsert_clone_placement(path: Path, entry: Dict[str, Any]) -> bool:
     """clone_placements:-specific name kept for the existing call sites/
     tests — see upsert_list_entry, the general form this now delegates to."""

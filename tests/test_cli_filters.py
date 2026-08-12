@@ -13,7 +13,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 import yaml
-from kicadstamp.config import Config, Rule, ManualSpoke, ClonePlacement, ThermalViaArrayConfig
+from kicadstamp.config import (Config, Rule, ManualSpoke, ClonePlacement, ThermalViaArrayConfig,
+                              CoordinatePlacement)
 from kicadstamp.apply_pipeline import (
     _split_comma_values, _matches_any_cluster, _compute_all_anchor_ids,
     drop_disabled_rules, drop_inactive_items, apply_only_filter, apply_cluster_filter,
@@ -24,9 +25,10 @@ from kicadstamp.exceptions import PlacerError, ValidationError
 logger = logging.getLogger("test_cli_filters")
 
 
-def _cfg(rules=None, clone_placements=None, thermal_via_arrays=None):
+def _cfg(rules=None, clone_placements=None, thermal_via_arrays=None, coordinate_placements=None):
     return Config(rules=rules or [], clone_placements=clone_placements or [],
-                  thermal_via_arrays=thermal_via_arrays or [])
+                  thermal_via_arrays=thermal_via_arrays or [],
+                  coordinate_placements=coordinate_placements or [])
 
 
 class TestSplitCommaValues:
@@ -189,6 +191,33 @@ class TestDropInactiveItems:
         assert len(cfg.thermal_via_arrays) == 1
         assert cfg.thermal_via_arrays[0].retired is False
 
+    def test_skipped_coordinate_placement_dropped_for_this_run(self):
+        cfg = _cfg(coordinate_placements=[
+            CoordinatePlacement(cluster="X", role="R1", x_mm=0.0, y_mm=0.0, rotation_deg=0.0, skip=True),
+        ])
+        cfg = drop_inactive_items(cfg, logger)
+        assert cfg.coordinate_placements == []
+
+    def test_retired_coordinate_placement_dropped_for_this_run(self):
+        """Unlike Rule (retired handled by drop_disabled_rules, a separate
+        step run BEFORE this one), CoordinatePlacement has no registry to
+        protect — retired and skip both just mean "not this run", handled
+        together right here (see drop_inactive_items' own comment)."""
+        cfg = _cfg(coordinate_placements=[
+            CoordinatePlacement(cluster="X", role="R1", x_mm=0.0, y_mm=0.0, rotation_deg=0.0,
+                                retired=True),
+        ])
+        cfg = drop_inactive_items(cfg, logger)
+        assert cfg.coordinate_placements == []
+
+    def test_one_of_several_coordinate_placements_skipped_others_kept(self):
+        cfg = _cfg(coordinate_placements=[
+            CoordinatePlacement(cluster="X", role="R1", x_mm=0.0, y_mm=0.0, rotation_deg=0.0, skip=True),
+            CoordinatePlacement(cluster="X", role="R2", x_mm=1.0, y_mm=1.0, rotation_deg=0.0),
+        ])
+        cfg = drop_inactive_items(cfg, logger)
+        assert [cp.role for cp in cfg.coordinate_placements] == ["R2"]
+
     def test_skip_true_does_not_affect_known_anchor_ids_computation_order(self):
         """drop_inactive_items only mutates cfg — it must NOT be confused with
         drop_disabled_rules: a rule with retired=False, skip=True still
@@ -246,6 +275,22 @@ class TestApplyOnlyFilter:
         cfg = _cfg(rules=[Rule(net="GND", spokes=[], anchor_role="FPGA")])
         with pytest.raises(PlacerError):
             apply_only_filter(cfg, ["typo_name"], logger)
+
+    def test_matches_coordinate_placement_by_default_name(self):
+        cfg = _cfg(coordinate_placements=[
+            CoordinatePlacement(cluster="FPGA_PERIPH", role="R18", x_mm=0.0, y_mm=0.0, rotation_deg=0.0),
+            CoordinatePlacement(cluster="FPGA_PERIPH", role="R19", x_mm=0.0, y_mm=0.0, rotation_deg=0.0),
+        ])
+        cfg = apply_only_filter(cfg, ["FPGA_PERIPH/R18"], logger)
+        assert [cp.role for cp in cfg.coordinate_placements] == ["R18"]
+
+    def test_matches_coordinate_placement_by_explicit_name(self):
+        cfg = _cfg(coordinate_placements=[
+            CoordinatePlacement(cluster="X", role="R1", name="my_row",
+                                x_mm=0.0, y_mm=0.0, rotation_deg=0.0),
+        ])
+        cfg = apply_only_filter(cfg, ["my_row"], logger)
+        assert len(cfg.coordinate_placements) == 1
 
 
 class TestApplyClusterFilter:
@@ -330,6 +375,22 @@ class TestApplyClusterFilter:
         with pytest.raises(PlacerError):
             apply_cluster_filter(cfg, ["Channel_9"], logger)
 
+    def test_coordinate_placement_narrowed_by_its_own_cluster_field(self):
+        cfg = _cfg(coordinate_placements=[
+            CoordinatePlacement(cluster="Channel_0", role="R1", x_mm=0.0, y_mm=0.0, rotation_deg=0.0),
+            CoordinatePlacement(cluster="Channel_1", role="R2", x_mm=0.0, y_mm=0.0, rotation_deg=0.0),
+        ])
+        cfg = apply_cluster_filter(cfg, ["Channel_0"], logger)
+        assert [cp.role for cp in cfg.coordinate_placements] == ["R1"]
+
+    def test_coordinate_placement_cluster_match_is_prefix_not_exact(self):
+        cfg = _cfg(coordinate_placements=[
+            CoordinatePlacement(cluster="Channel_0/Sub", role="R1",
+                                x_mm=0.0, y_mm=0.0, rotation_deg=0.0),
+        ])
+        cfg = apply_cluster_filter(cfg, ["Channel_0"], logger)
+        assert len(cfg.coordinate_placements) == 1
+
     def test_only_and_cluster_compose_as_and(self):
         cfg = _cfg(rules=[
             Rule(net="GND", spokes=[
@@ -378,6 +439,12 @@ class TestFiltersDeriveNewConfig:
                 ThermalViaArrayConfig(anchor_role="AD9707", pad="7",
                                       name="ad9707_ch2_thermal", anchor_cluster="Channel_2"),
             ],
+            coordinate_placements=[
+                CoordinatePlacement(cluster="Channel_0", role="R1",
+                                    x_mm=0.0, y_mm=0.0, rotation_deg=0.0),
+                CoordinatePlacement(cluster="Channel_1", role="R2",
+                                    x_mm=0.0, y_mm=0.0, rotation_deg=0.0),
+            ],
         )
 
     def test_dropping_filters_always_return_a_new_config_object(self):
@@ -403,6 +470,7 @@ class TestFiltersDeriveNewConfig:
         original_rules = list(cfg.rules)
         original_clones = list(cfg.clone_placements)
         original_tvas = list(cfg.thermal_via_arrays)
+        original_coords = list(cfg.coordinate_placements)
 
         derived = drop_disabled_rules(cfg)
         derived = drop_inactive_items(derived)
@@ -415,6 +483,7 @@ class TestFiltersDeriveNewConfig:
         assert cfg.rules == original_rules
         assert cfg.clone_placements == original_clones
         assert cfg.thermal_via_arrays == original_tvas
+        assert cfg.coordinate_placements == original_coords
         assert len(cfg.rules) == 2
         assert len(cfg.rules[0].spokes) == 2
 

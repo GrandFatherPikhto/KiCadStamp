@@ -121,6 +121,7 @@ _SECTION_LABELS = {
     "rules": _("Rules"),
     "clone_placements": _("Clone placements"),
     "thermal_via_arrays": _("Thermal via arrays"),
+    "coordinate_placements": _("Coordinate placements"),
     "cells": _("Cells"),
     "points": _("Points"),
     "extract_profiles": _("Extract profiles"),
@@ -166,6 +167,17 @@ class ConfigTreeDock(QDockWidget):
     # ThermalViaArrayDock listens via its new_thermal_via() entry point,
     # same reasoning as add_placer_requested above.
     add_thermal_via_requested = pyqtSignal(object)
+    # Fired when the Coordinate placements CATEGORY itself is clicked (not
+    # a leaf — 2026-08-12, CoordinatePlacerDock edits the WHOLE list at
+    # once as a table, unlike thermal_via_arrays/rules/clone_placements'
+    # one-entry-per-leaf editing) — payload is the owning file's path.
+    # Clicking an individual leaf inside the section fires the same
+    # signal (same file, same whole-table load) — there is no per-row
+    # click target, the category IS the entry point. add_coordinate_
+    # placement_requested (context menu) opens the same table for a file
+    # that doesn't have the section yet.
+    coordinate_placements_picked = pyqtSignal(object)
+    add_coordinate_placement_requested = pyqtSignal(object)
     # Fired when a Points leaf is clicked (2026-08-05) — points: is a DICT
     # section (see _entries()), so the payload is just the name, unlike
     # placement_picked/thermal_via_picked's full-dict payload; PointsDock's
@@ -257,6 +269,14 @@ class ConfigTreeDock(QDockWidget):
             if not raw:
                 continue
             section_item = QTreeWidgetItem(file_item, [label])
+            if section == "coordinate_placements":
+                # The category itself is the click target (see
+                # coordinate_placements_picked's own comment) — a "kind"
+                # distinct from "leaf"/"file" so _on_clicked can tell it
+                # apart from a category click on any OTHER section (those
+                # have no UserRole data at all and are inert).
+                section_item.setData(0, Qt.ItemDataRole.UserRole,
+                                     ("category", section, node.path))
             for name, payload in self._entries(raw):
                 leaf = QTreeWidgetItem(section_item, [name])
                 # Always set, not just for _CLICKABLE_SECTIONS — the
@@ -292,12 +312,14 @@ class ConfigTreeDock(QDockWidget):
         """Yields (display name, click payload), sorted by name. Dict
         sections (cells/extract_profiles/...) are keyed by name — the
         payload is the name itself. List sections (rules/clone_placements/
-        thermal_via_arrays) carry their own name field — the payload is
-        the whole entry, needed by placement_picked (load_placement wants
-        the full dict, not just the name). rules: entries may omit name:
-        entirely (same "name or net" fallback as config/models.py's
-        rule_effective_name() — name is only needed to give a rule a more
-        readable label than its net, not a requirement)."""
+        thermal_via_arrays/coordinate_placements) carry their own name
+        field — the payload is the whole entry, needed by placement_picked
+        (load_placement wants the full dict, not just the name). rules:
+        entries may omit name: entirely (same "name or net" fallback as
+        config/models.py's rule_effective_name()); coordinate_placements:
+        entries may likewise omit name: (defaults to cluster/role, see
+        coordinate_placement_effective_name()) — same fallback shape,
+        cluster+role instead of net."""
         if isinstance(raw, dict):
             for name in sorted(raw.keys()):
                 yield name, name
@@ -306,7 +328,9 @@ class ConfigTreeDock(QDockWidget):
         for e in raw:
             if not isinstance(e, dict):
                 continue
-            display_name = e.get("name") or e.get("net")
+            display_name = (e.get("name") or e.get("net")
+                            or (f"{e['cluster']}/{e['role']}"
+                                if "cluster" in e and "role" in e else None))
             if display_name:
                 named.append((display_name, e))
         for display_name, entry in sorted(named, key=lambda pair: pair[0]):
@@ -320,8 +344,15 @@ class ConfigTreeDock(QDockWidget):
             self.file_selected.emit(file_ctx[0])
 
         data = item.data(0, Qt.ItemDataRole.UserRole)
-        if data is None or data[0] != "leaf":
-            return  # clicked a file/category header, not a leaf
+        if data is None:
+            return  # clicked a file/category header with no click target
+        if data[0] == "category":
+            _kind, section, file_path = data
+            if section == "coordinate_placements":
+                self.coordinate_placements_picked.emit(file_path)
+            return
+        if data[0] != "leaf":
+            return
         _kind, section, ref = data
         if section == "cells":
             self.cell_picked.emit(ref)
@@ -331,6 +362,11 @@ class ConfigTreeDock(QDockWidget):
             self.profile_picked.emit(ref)
         elif section == "thermal_via_arrays":
             self.thermal_via_picked.emit(ref)
+        elif section == "coordinate_placements":
+            # No per-row form to load — a leaf click means the same thing
+            # as clicking the category itself (see coordinate_placements_
+            # picked's own comment): open the whole table for this file.
+            self.coordinate_placements_picked.emit(file_ctx[0] if file_ctx else None)
         elif section == "points":
             self.points_picked.emit(ref)
         elif section == "rules":
@@ -392,6 +428,8 @@ class ConfigTreeDock(QDockWidget):
             lambda: self.add_cell_requested.emit(file_path))
         menu.addAction(_("Add thermal via pad...")).triggered.connect(
             lambda: self.add_thermal_via_requested.emit(file_path))
+        menu.addAction(_("Open coordinate placements...")).triggered.connect(
+            lambda: self.add_coordinate_placement_requested.emit(file_path))
         menu.addAction(_("Add placer...")).triggered.connect(
             lambda: self.add_placer_requested.emit(file_path))
         menu.addAction(_("Add point...")).triggered.connect(
