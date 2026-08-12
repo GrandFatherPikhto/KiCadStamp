@@ -179,7 +179,7 @@ def check_clone_cells_exist(cfg: Config) -> None:
     """
     problems = []
     for clone in cfg.clone_placements:
-        if clone.retired or clone.cell is None:
+        if clone.retired:
             continue
         if clone.cell not in cfg.cells:
             problems.append(_("clone_placement {name!r}: cell {cell!r} not found in cells")
@@ -258,12 +258,10 @@ def check_no_duplicate_clone_anchors(cfg: Config) -> None:
          physical anchor AND the same offset, the registry will confuse their
          vias/tracks. This is almost certainly a copy‑paste typo (forgot to
          change anchor_pad or xy in the second block),
-         not intentional. "Content" is cell OR role — two different roles
-         on the same anchor are NOT duplicates (different components at the
-         same point is normal), so we use what is actually set, not
-         clone.cell (which is None for role‑based placements, and two
-         different roles would collapse into one key if we only used
-         cell). xy is included (found 2026-07-27)
+         not intentional. "Content" is the (mandatory) cell — a role:/cluster:
+         single‑component variant used to exist too but was migrated 1:1 to
+         coordinate_placements on 2026‑08‑12 (Group 0), so this is now always
+         clone.cell. xy is included (found 2026-07-27)
          because it's legitimate for two clones to share an anchor and differ
          only by this offset (e.g. a positive/negative filter pair mirrored
          off the same connector pad) — without it in the key, that legitimate
@@ -292,7 +290,7 @@ def check_no_duplicate_clone_anchors(cfg: Config) -> None:
                             .format(name=clone.name))
         seen_names[clone.name] = True
 
-        content_id = clone.cell if clone.cell is not None else _("role:{role}").format(role=clone.role)
+        content_id = clone.cell
         ox, oy = clone_shift_mm(clone)
         origin = (round(ox, 4), round(oy, 4))
 

@@ -33,14 +33,14 @@ import logging
 from dataclasses import dataclass
 
 
-from ..config import Config, Rule, ClonePlacement, Cell, TemplateComponentSlot, Point
+from ..config import Config, Rule, ClonePlacement, Point
 from ..kicad.adapter import KiCadBoardAdapter
 from ..exceptions import ValidationError, format_fatal_error
 from .services.manual_position_calculator import resolve_rule_anchor_ref
 from .services.clone_position_calculator import resolve_clone_anchor_ref
 from .services.point_resolver import resolve_point_anchor_ref
 from .services.clone_role_resolver import (resolve_roles_by_selection, resolve_roles_by_nets,
-                                           resolve_by_cluster_tag, clone_uses_selection_mode)
+                                           clone_uses_selection_mode)
 from .services.component_pool import ComponentPool
 from ..i18n import _
 
@@ -120,50 +120,27 @@ def _resolve_clone_produces(adapter: KiCadBoardAdapter, cfg: Config, clone: Clon
     resolving the anchor position, applying clone geometry, or creating
     ViaCommand/TrackCommand objects.
 
-    Role resolvers are called directly (resolve_by_cluster_tag,
-    resolve_roles_by_selection, or resolve_roles_by_nets) — they are
-    standalone functions. The anchor_position parameter (used only for
-    last-resort physical proximity tie-breaking) is omitted here; the known
-    limitation documented in this module's docstring covers that case.
+    Role resolvers are called directly (resolve_roles_by_selection or
+    resolve_roles_by_nets — the former cluster: mode is gone, see below) —
+    they are standalone functions. The anchor_position parameter (used only
+    for last-resort physical proximity tie-breaking) is omitted here; the
+    known limitation documented in this module's docstring covers that case.
     """
-    # Synthesise or look up cell (same logic as ClonePositionCalculator's
-    # _resolve_content) — FIXED (found live 2026-08-06, Denis: Conn_PM5V):
-    # this used to only know cell:/role:, missing cluster: entirely (added
-    # later than this function was written) — a cluster: placement has
-    # clone.role=None, so the old else-branch built a synthetic slot with
-    # role=None, then resolve_roles_by_selection (clone.cluster is never
-    # checked here) failed with the confusing "role None is in cell but not
-    # found anywhere on board" instead of ever reaching resolve_by_cluster_tag.
-    if clone.cell is not None:
-        cell = cfg.cells.get(clone.cell)
-        if cell is None:
-            logger.warning(
-                _("{name}: cell {cell!r} not found in cells, skipping")
-                .format(name=clone.name, cell=clone.cell)
-            )
-            return set()
-    elif clone.cluster is not None:
-        cell = Cell(
-            name=f"__cluster__{clone.cluster}",
-            components=[TemplateComponentSlot(
-                role=f"__cluster__{clone.cluster}", offset_along_mm=0.0, offset_across_mm=0.0, angle_deg=0.0,
-            )],
+    # Look up the cell — cell: is MANDATORY on ClonePlacement since 2026-08-12
+    # (Group 0 consolidation: the role:/cluster: single-component modes migrated
+    # 1:1 to coordinate_placements' anchor-relative mode, so there is no more
+    # synthetic-cell branch here, same as ClonePositionCalculator._resolve_content).
+    cell = cfg.cells.get(clone.cell)
+    if cell is None:
+        logger.warning(
+            _("{name}: cell {cell!r} not found in cells, skipping")
+            .format(name=clone.name, cell=clone.cell)
         )
-    else:
-        # role: instead of cell — single-component placement without
-        # a separate cell file.
-        cell = Cell(
-            name=f"__role__{clone.role}",
-            components=[TemplateComponentSlot(
-                role=clone.role, offset_along_mm=0.0, offset_across_mm=0.0, angle_deg=0.0,
-            )],
-        )
+        return set()
 
     # clone.ignore_selection must apply here too — same as in the real pass
     with adapter.temporarily_ignore_selection(clone.ignore_selection):
-        if clone.cluster is not None:
-            role_to_ref = resolve_by_cluster_tag(adapter, cell, clone)
-        elif clone_uses_selection_mode(clone):
+        if clone_uses_selection_mode(clone):
             role_to_ref = resolve_roles_by_selection(
                 adapter, cell, clone,
                 anchor_position=None,

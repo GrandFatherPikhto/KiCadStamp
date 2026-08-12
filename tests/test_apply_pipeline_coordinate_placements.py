@@ -49,7 +49,7 @@ def test_coordinate_placements_are_moved_before_phase1(monkeypatch):
                             angle=Angle.from_degrees(0.0), layer=BoardLayer.BL_F_Cu)
     call_order = []
 
-    def fake_build_coordinate_moves(adapter, coordinate_placements):
+    def fake_build_coordinate_moves(adapter, coordinate_placements, points=None, sheet_names=None):
         assert coordinate_placements == [cp]
         call_order.append("build_coordinate_moves")
         return [fake_move]
@@ -121,7 +121,7 @@ def test_dry_run_report_includes_coordinate_placements(monkeypatch):
     fake_move = MoveCommand(ref="R18", position=Vector2.from_xy(int(10 * MM), int(20 * MM)),
                             angle=Angle.from_degrees(90.0), layer=BoardLayer.BL_F_Cu)
     monkeypatch.setattr("kicadstamp.apply_pipeline.build_coordinate_moves",
-                        lambda adapter, coordinate_placements: [fake_move])
+                        lambda adapter, coordinate_placements, points=None, sheet_names=None: [fake_move])
 
     report = pipeline._dry_run()
     text = "\n".join(report)

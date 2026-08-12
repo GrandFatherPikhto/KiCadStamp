@@ -7,8 +7,9 @@ adapter.temporarily_ignore_selection — not just that the context manager
 itself works in isolation (see TestTemporarilyIgnoreSelection in
 test_kicad.py). Reproduces the live bug this was built for: a stray,
 unrelated component (J1, Role=CONN_PM5V) selected in the PCB editor made an
-otherwise-unique-by-role clone_placement (role: FPGA) fatal, even though
-FPGA itself resolves fine without any selection at all.
+otherwise-unique-by-role cell-mode clone_placement (cell: fpga_tpl, single
+role FPGA, by-selection) fatal, even though FPGA itself resolves fine
+without any selection at all.
 
 Uses a real KiCadBoardAdapter (via __new__, bypassing __init__'s live kipy.KiCad
 connection) so get_selected_items()/get_footprints() run their REAL
@@ -23,7 +24,7 @@ import pytest
 from unittest.mock import MagicMock
 from kipy.board_types import FootprintInstance
 
-from kicadstamp.config import Config, ClonePlacement
+from kicadstamp.config import Config, ClonePlacement, Cell, TemplateComponentSlot
 from kicadstamp.kicad.adapter import KiCadBoardAdapter
 from kicadstamp.placement.services.clone_position_calculator import ClonePositionCalculator
 from kicadstamp.exceptions import ValidationError
@@ -55,13 +56,19 @@ def _adapter_with_stray_selection():
 
 
 def _cfg():
-    return Config(cells={})
+    # A one-component cell, resolved by selection (no nets/params) — the
+    # cell-mode equivalent of the old role:-mode synthetic cell (removed
+    # 2026-08-12, Group 0: role:/cluster: migrated to coordinate_placements).
+    return Config(cells={
+        "fpga_tpl": Cell(name="fpga_tpl",
+                         components=[TemplateComponentSlot(role="FPGA")]),
+    })
 
 
 class TestCloneIgnoreSelectionWiring:
     def test_stray_selection_fatals_without_ignore_selection(self):
         adapter = _adapter_with_stray_selection()
-        clone = ClonePlacement(name="fpga", role="FPGA", xy=(0.0, 0.0))
+        clone = ClonePlacement(name="fpga", cell="fpga_tpl", xy=(0.0, 0.0))
         calc = ClonePositionCalculator(adapter, _cfg())
 
         with pytest.raises(ValidationError, match="CONN_PM5V"):
@@ -69,7 +76,7 @@ class TestCloneIgnoreSelectionWiring:
 
     def test_ignore_selection_true_resolves_despite_stray_selection(self):
         adapter = _adapter_with_stray_selection()
-        clone = ClonePlacement(name="fpga", role="FPGA", xy=(0.0, 0.0),
+        clone = ClonePlacement(name="fpga", cell="fpga_tpl", xy=(0.0, 0.0),
                                ignore_selection=True)
         calc = ClonePositionCalculator(adapter, _cfg())
 
@@ -82,7 +89,7 @@ class TestCloneIgnoreSelectionWiring:
         the same apply — confirms temporarily_ignore_selection's restore
         actually fires around compute_raw_positions, not just in isolation."""
         adapter = _adapter_with_stray_selection()
-        clone = ClonePlacement(name="fpga", role="FPGA", xy=(0.0, 0.0),
+        clone = ClonePlacement(name="fpga", cell="fpga_tpl", xy=(0.0, 0.0),
                                ignore_selection=True)
         calc = ClonePositionCalculator(adapter, _cfg())
 

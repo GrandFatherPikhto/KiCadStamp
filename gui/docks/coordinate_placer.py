@@ -74,12 +74,16 @@ logger = logging.getLogger(__name__)
 
 (_COL_CLUSTER, _COL_ROLE, _COL_NAME, _COL_MODE, _COL_X, _COL_Y,
  _COL_CENTER_X, _COL_CENTER_Y, _COL_RADIUS, _COL_ANGLE, _COL_ROTATION,
- _COL_ANCHOR, _COL_PAD, _COL_RETIRED, _COL_SKIP) = range(15)
+ _COL_ANCHOR, _COL_PAD, _COL_ANCHOR_REF, _COL_ANCHOR_ROLE,
+ _COL_ANCHOR_SHEET, _COL_ANCHOR_CLUSTER, _COL_ANCHOR_POINT,
+ _COL_RETIRED, _COL_SKIP) = range(20)
 
 _HEADERS = [
     _("Cluster"), _("Role"), _("Name"), _("Mode"), _("X mm"), _("Y mm"),
     _("Center X mm"), _("Center Y mm"), _("Radius mm"), _("Angle °"), _("Rotation °"),
-    _("Anchor"), _("Pad"), _("Retired"), _("Skip"),
+    _("Anchor"), _("Pad"), _("Anchor ref"), _("Anchor role"),
+    _("Anchor sheet"), _("Anchor cluster"), _("Anchor point"),
+    _("Retired"), _("Skip"),
 ]
 
 
@@ -176,6 +180,10 @@ class CoordinatePlacerDock(QWidget):
         for row in range(self.table.rowCount()):
             set_combo_items(self.table.cellWidget(row, _COL_CLUSTER), self._known_clusters)
             set_combo_items(self.table.cellWidget(row, _COL_ROLE), self._known_roles)
+            # Anchor-relative columns (2026-08-12, Group 0) — same known-value
+            # combos as the moved component's own Cluster/Role columns.
+            set_combo_items(self.table.cellWidget(row, _COL_ANCHOR_ROLE), self._known_roles)
+            set_combo_items(self.table.cellWidget(row, _COL_ANCHOR_CLUSTER), self._known_clusters)
 
     # ── Message helper ────────────────────────────────────────────────────
 
@@ -210,8 +218,11 @@ class CoordinatePlacerDock(QWidget):
         self.table.setCellWidget(row, _COL_NAME, name_edit)
 
         mode_combo = QComboBox()
-        mode_combo.addItems([_("Cartesian"), _("Polar")])
-        mode_combo.setCurrentIndex(1 if entry.get("center_x_mm") is not None else 0)
+        mode_combo.addItems([_("Cartesian"), _("Polar"), _("Anchor")])
+        if any(entry.get(k) for k in ("anchor_ref", "anchor_role", "anchor_point")):
+            mode_combo.setCurrentIndex(2)
+        else:
+            mode_combo.setCurrentIndex(1 if entry.get("center_x_mm") is not None else 0)
         self.table.setCellWidget(row, _COL_MODE, mode_combo)
 
         self.table.setCellWidget(row, _COL_X, QLineEdit(self._fmt(entry.get("x_mm"))))
@@ -231,6 +242,24 @@ class CoordinatePlacerDock(QWidget):
 
         self.table.setCellWidget(row, _COL_PAD, QLineEdit(str(entry.get("anchor_pad") or "")))
 
+        # Anchor-relative columns (2026-08-12, Group 0): enabled only in
+        # Anchor mode. In that mode the Pad column above means the ANCHOR
+        # component's pad (same semantics as Rule/ClonePlacement), and the
+        # self-referential "Anchor" (Center/Pad) column is disabled.
+        self.table.setCellWidget(row, _COL_ANCHOR_REF, QLineEdit(str(entry.get("anchor_ref") or "")))
+        anchor_role_combo = QComboBox()
+        configure_searchable(anchor_role_combo)
+        set_combo_items(anchor_role_combo, self._known_roles)
+        anchor_role_combo.setCurrentText(str(entry.get("anchor_role") or ""))
+        self.table.setCellWidget(row, _COL_ANCHOR_ROLE, anchor_role_combo)
+        self.table.setCellWidget(row, _COL_ANCHOR_SHEET, QLineEdit(str(entry.get("anchor_sheet") or "")))
+        anchor_cluster_combo = QComboBox()
+        configure_searchable(anchor_cluster_combo)
+        set_combo_items(anchor_cluster_combo, self._known_clusters)
+        anchor_cluster_combo.setCurrentText(str(entry.get("anchor_cluster") or ""))
+        self.table.setCellWidget(row, _COL_ANCHOR_CLUSTER, anchor_cluster_combo)
+        self.table.setCellWidget(row, _COL_ANCHOR_POINT, QLineEdit(str(entry.get("anchor_point") or "")))
+
         retired_checkbox = QCheckBox()
         retired_checkbox.setChecked(bool(entry.get("retired", False)))
         self.table.setCellWidget(row, _COL_RETIRED, retired_checkbox)
@@ -247,13 +276,25 @@ class CoordinatePlacerDock(QWidget):
         self._update_row_anchor(row)
 
     def _update_row_mode(self, row: int) -> None:
-        is_polar = self.table.cellWidget(row, _COL_MODE).currentIndex() == 1
+        mode = self.table.cellWidget(row, _COL_MODE).currentIndex()
+        is_polar = mode == 1
+        is_anchor = mode == 2
+        # Cartesian (X/Y) vs polar (center/radius/angle): X/Y are the OFFSET in
+        # anchor mode too; the polar fields are absolute-only.
         set_mode_pair_enabled(
             is_polar,
             (self.table.cellWidget(row, _COL_X), self.table.cellWidget(row, _COL_Y)),
             (self.table.cellWidget(row, _COL_CENTER_X), self.table.cellWidget(row, _COL_CENTER_Y),
              self.table.cellWidget(row, _COL_RADIUS), self.table.cellWidget(row, _COL_ANGLE)),
         )
+        # Self-referential anchor (Center/Pad) is meaningless in anchor mode;
+        # there the Pad column means the ANCHOR component's pad and the anchor
+        # identity columns (ref/role/sheet/cluster/point) are used instead.
+        self.table.cellWidget(row, _COL_ANCHOR).setEnabled(not is_anchor)
+        self.table.cellWidget(row, _COL_PAD).setEnabled(True)
+        for col in (_COL_ANCHOR_REF, _COL_ANCHOR_ROLE, _COL_ANCHOR_SHEET,
+                    _COL_ANCHOR_CLUSTER, _COL_ANCHOR_POINT):
+            self.table.cellWidget(row, col).setEnabled(is_anchor)
 
     def _update_row_anchor(self, row: int) -> None:
         is_pad = self.table.cellWidget(row, _COL_ANCHOR).currentIndex() == 1
@@ -292,23 +333,52 @@ class CoordinatePlacerDock(QWidget):
         if name:
             entry["name"] = name
 
-        is_polar = self.table.cellWidget(row, _COL_MODE).currentIndex() == 1
-        cols = ((_COL_CENTER_X, "center_x_mm"), (_COL_CENTER_Y, "center_y_mm"),
-                (_COL_RADIUS, "radius_mm"), (_COL_ANGLE, "angle_deg"),
-                (_COL_ROTATION, "rotation_deg")) if is_polar else (
-                (_COL_X, "x_mm"), (_COL_Y, "y_mm"), (_COL_ROTATION, "rotation_deg"))
-        for col, key in cols:
-            ok, value = self._row_float(row, col)
-            if not ok:
-                return None
-            if value is not None:
-                entry[key] = value
-
-        if self.table.cellWidget(row, _COL_ANCHOR).currentIndex() == 1:
-            entry["anchor"] = "pad"
+        mode = self.table.cellWidget(row, _COL_MODE).currentIndex()
+        if mode == 2:
+            # ANCHOR-RELATIVE: X/Y are the OFFSET from the anchor (or its
+            # anchor_pad); Pad is the ANCHOR component's pad.
+            cols = ((_COL_X, "x_mm"), (_COL_Y, "y_mm"), (_COL_ROTATION, "rotation_deg"))
+            for col, key in cols:
+                ok, value = self._row_float(row, col)
+                if not ok:
+                    return None
+                if value is not None:
+                    entry[key] = value
+            ref = self.table.cellWidget(row, _COL_ANCHOR_REF).text().strip()
+            anchor_role = self.table.cellWidget(row, _COL_ANCHOR_ROLE).currentText().strip()
+            sheet = self.table.cellWidget(row, _COL_ANCHOR_SHEET).text().strip()
+            anchor_cluster = self.table.cellWidget(row, _COL_ANCHOR_CLUSTER).currentText().strip()
+            point = self.table.cellWidget(row, _COL_ANCHOR_POINT).text().strip()
+            if ref:
+                entry["anchor_ref"] = ref
+            if anchor_role:
+                entry["anchor_role"] = anchor_role
+            if sheet:
+                entry["anchor_sheet"] = sheet
+            if anchor_cluster:
+                entry["anchor_cluster"] = anchor_cluster
+            if point:
+                entry["anchor_point"] = point
             pad = self.table.cellWidget(row, _COL_PAD).text().strip()
             if pad:
                 entry["anchor_pad"] = pad
+        else:
+            is_polar = mode == 1
+            cols = ((_COL_CENTER_X, "center_x_mm"), (_COL_CENTER_Y, "center_y_mm"),
+                    (_COL_RADIUS, "radius_mm"), (_COL_ANGLE, "angle_deg"),
+                    (_COL_ROTATION, "rotation_deg")) if is_polar else (
+                    (_COL_X, "x_mm"), (_COL_Y, "y_mm"), (_COL_ROTATION, "rotation_deg"))
+            for col, key in cols:
+                ok, value = self._row_float(row, col)
+                if not ok:
+                    return None
+                if value is not None:
+                    entry[key] = value
+            if self.table.cellWidget(row, _COL_ANCHOR).currentIndex() == 1:
+                entry["anchor"] = "pad"
+                pad = self.table.cellWidget(row, _COL_PAD).text().strip()
+                if pad:
+                    entry["anchor_pad"] = pad
 
         if self.table.cellWidget(row, _COL_RETIRED).isChecked():
             entry["retired"] = True
@@ -323,16 +393,34 @@ class CoordinatePlacerDock(QWidget):
         d: Dict[str, Any] = {"cluster": cp.cluster, "role": cp.role}
         if cp.name:
             d["name"] = cp.name
-        if cp.x_mm is not None:
+        if any(v is not None for v in (cp.anchor_ref, cp.anchor_role, cp.anchor_point)):
+            # ANCHOR-RELATIVE: x_mm/y_mm (or radius_mm/angle_deg) are the offset.
             d["x_mm"], d["y_mm"] = cp.x_mm, cp.y_mm
+            if cp.radius_mm is not None:
+                d["radius_mm"], d["angle_deg"] = cp.radius_mm, cp.angle_deg
+            if cp.anchor_ref:
+                d["anchor_ref"] = cp.anchor_ref
+            if cp.anchor_role:
+                d["anchor_role"] = cp.anchor_role
+            if cp.anchor_sheet:
+                d["anchor_sheet"] = cp.anchor_sheet
+            if cp.anchor_cluster:
+                d["anchor_cluster"] = cp.anchor_cluster
+            if cp.anchor_point:
+                d["anchor_point"] = cp.anchor_point
+            if cp.anchor_pad:
+                d["anchor_pad"] = cp.anchor_pad
         else:
-            d["center_x_mm"], d["center_y_mm"] = cp.center_x_mm, cp.center_y_mm
-            d["radius_mm"], d["angle_deg"] = cp.radius_mm, cp.angle_deg
+            if cp.x_mm is not None:
+                d["x_mm"], d["y_mm"] = cp.x_mm, cp.y_mm
+            else:
+                d["center_x_mm"], d["center_y_mm"] = cp.center_x_mm, cp.center_y_mm
+                d["radius_mm"], d["angle_deg"] = cp.radius_mm, cp.angle_deg
+            if cp.anchor == "pad":
+                d["anchor"] = "pad"
+                d["anchor_pad"] = cp.anchor_pad
         if cp.rotation_deg is not None:
             d["rotation_deg"] = cp.rotation_deg
-        if cp.anchor == "pad":
-            d["anchor"] = "pad"
-            d["anchor_pad"] = cp.anchor_pad
         if cp.retired:
             d["retired"] = True
         if cp.skip:

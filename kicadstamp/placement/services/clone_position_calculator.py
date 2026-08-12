@@ -29,7 +29,6 @@ from ..commands import PlacedComponentInfo, ViaCommand, TrackCommand
 from .clone_role_resolver import (
     resolve_roles_by_selection,
     resolve_roles_by_nets,
-    resolve_by_cluster_tag,
     clone_uses_selection_mode,
     resolve_anchor_by_role,
 )
@@ -188,19 +187,18 @@ class ClonePositionCalculator:
         return position
 
     def _resolve_content(self, cell_ref: str | None, role_ref: str | None,
-                         cluster_ref: str | None, label: str) -> tuple[Cell | None, str]:
-        """Shared by top-level ClonePlacement (cell_ref/role_ref/cluster_ref
-        all live) and nested CellPlacement (cluster_ref always None — cluster:
-        is top-level-only for now, see ClonePlacement's own docstring): cell:
-        looks up cfg.cells; role:/cluster: both synthesise a temporary
-        one-component Cell on the fly (cheap, no caching needed — see
-        discussion: a separate cell file just for one role/cluster with no
-        via/track is cumbersome). cluster:'s synthetic slot's role is a
-        placeholder key (f"__cluster__{cluster_ref}"), never matched against
-        a live Role field — resolve_by_cluster_tag finds the ref by Cluster
-        instead, see _resolve_one_level's dispatch. Returns (None, label) if
-        a cell: reference doesn't exist (caller logs and skips — same
-        behaviour as before this was factored out)."""
+                         label: str) -> tuple[Cell | None, str]:
+        """Resolve a placement's content to a Cell. Top-level ClonePlacement
+        (2026-08-12, Group 0 consolidation: cell: is now mandatory — the
+        role:/cluster: single-component modes migrated to coordinate_placements'
+        anchor-relative mode) always comes with cell_ref set, so this is a
+        plain cfg.cells lookup; only a nested CellPlacement may still use
+        role: (a one-component recipe inside a cell), which synthesises a
+        temporary one-component Cell on the fly (cheap, no caching needed —
+        a separate cell file just for one role with no via/track would be
+        cumbersome). Returns (None, label) if a cell: reference doesn't exist
+        (caller logs and skips — same behaviour as before this was factored
+        out)."""
         if cell_ref is not None:
             cell = self.cfg.cells.get(cell_ref)
             if cell is None:
@@ -208,15 +206,6 @@ class ClonePositionCalculator:
                                .format(name=label, cell=cell_ref))
                 return None, cell_ref
             return cell, cell_ref
-        if cluster_ref is not None:
-            cell = Cell(
-                name=f"__cluster__{cluster_ref}",
-                components=[TemplateComponentSlot(
-                    role=f"__cluster__{cluster_ref}",
-                    offset_along_mm=0.0, offset_across_mm=0.0, angle_deg=0.0,
-                )],
-            )
-            return cell, cell.name
         cell = Cell(
             name=f"__role__{role_ref}",
             components=[TemplateComponentSlot(
@@ -272,15 +261,12 @@ class ClonePositionCalculator:
         # such field at all (closed boundary, no selection mode either —
         # see below) — always False for it, a plain no-op here.
         with self.adapter.temporarily_ignore_selection(getattr(placement, "ignore_selection", False)):
-            # cluster: mode only exists for a top-level ClonePlacement, checked
-            # first — an exact Cluster-tag match, no selection/nets involved
-            # at all. Selection mode otherwise only exists for a top-level
-            # ClonePlacement too — a nested CellPlacement is a reusable,
-            # closed-boundary recipe with no live GUI interaction concept,
-            # always resolved by nets.
-            if isinstance(placement, ClonePlacement) and placement.cluster is not None:
-                role_to_ref = resolve_by_cluster_tag(self.adapter, cell, placement)
-            elif isinstance(placement, ClonePlacement) and clone_uses_selection_mode(placement):
+            # Selection mode only exists for a top-level ClonePlacement (the
+            # old cluster: branch — an exact Cluster-tag match — was migrated
+            # to coordinate_placements on 2026-08-12, Group 0); a nested
+            # CellPlacement is a reusable, closed-boundary recipe with no live
+            # GUI interaction concept, always resolved by nets.
+            if isinstance(placement, ClonePlacement) and clone_uses_selection_mode(placement):
                 role_to_ref = resolve_roles_by_selection(self.adapter, cell, placement,
                                                           anchor_position=anchor_position,
                                                           sheet_names=self.sheet_names)
@@ -364,7 +350,7 @@ class ClonePositionCalculator:
         world_rotation_deg = parent_rotation_deg + placement.rotation_deg
         for nested in cell.clone_placements:
             nested_cell, nested_cell_name = self._resolve_content(
-                nested.cell, nested.role, None, f"{placement.name}/{nested.name}")
+                nested.cell, nested.role, f"{placement.name}/{nested.name}")
             if nested_cell is None:
                 continue
             nc, nv, nt = self._resolve_one_level(
@@ -391,7 +377,7 @@ class ClonePositionCalculator:
             if clone.retired:
                 continue
 
-            cell, cell_name = self._resolve_content(clone.cell, clone.role, clone.cluster, clone.name)
+            cell, cell_name = self._resolve_content(clone.cell, None, clone.name)
             if cell is None:
                 continue
 

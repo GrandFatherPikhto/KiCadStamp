@@ -12,7 +12,7 @@ from kicadstamp.config import Cell, TemplateComponentSlot, ClonePlacement
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.placement.services.clone_role_resolver import (
     resolve_roles_by_selection, resolve_roles_by_nets, resolve_anchor_by_role,
-    resolve_by_cluster_tag, suggest_role_nets_from_cluster,
+    suggest_role_nets_from_cluster,
 )
 from kicadstamp.exceptions import ValidationError
 
@@ -464,63 +464,6 @@ class TestResolveAnchorByRole:
                                anchor_role="AD_DAC", anchor_sheet="Channel_0")
         result = resolve_anchor_by_role(adapter, clone, sheet_names)
         assert result.reference_field.text.value == "IC2"
-
-
-class TestResolveByClusterTag:
-    """cluster: (2026-08-06) — a direct, unconditional Cluster PCB field
-    match, no selection/nets/narrowing cascade at all (Denis: "ОДНУ деталь
-    надо размещать просто по кластеру. Роль там не при делах")."""
-
-    def _cell(self, cluster="CH2_BYPASS"):
-        return Cell(name=f"__cluster__{cluster}",
-                    components=[TemplateComponentSlot(role=f"__cluster__{cluster}")])
-
-    def _clone(self, cluster="CH2_BYPASS", name="one_cap"):
-        return ClonePlacement(name=name, cluster=cluster, xy=(0.0, 0.0))
-
-    def test_unique_match_resolves(self):
-        adapter = MagicMock()
-        adapter.get_footprints.return_value = [
-            _make_fp("C10", role="C_BYPASS", cluster="CH2_BYPASS"),
-            _make_fp("C11", role="C_BYPASS", cluster="CH3_BYPASS"),
-        ]
-        adapter.get_field_value.side_effect = _role_or_cluster
-
-        result = resolve_by_cluster_tag(adapter, self._cell(), self._clone())
-
-        assert result == {"__cluster__CH2_BYPASS": "C10"}
-
-    def test_no_match_raises(self):
-        adapter = MagicMock()
-        adapter.get_footprints.return_value = [_make_fp("C10", cluster="CH3_BYPASS")]
-        adapter.get_field_value.side_effect = _role_or_cluster
-
-        with pytest.raises(ValidationError, match="no component tagged Cluster='CH2_BYPASS'"):
-            resolve_by_cluster_tag(adapter, self._cell(), self._clone())
-
-    def test_untagged_components_are_not_false_matches(self):
-        """A footprint with no Cluster field at all (get_field_value ->
-        None) must never match cluster=None-ish comparisons by accident —
-        clone.cluster is always a real string here (loader-validated), so
-        this only guards against a stray None == None coincidence."""
-        adapter = MagicMock()
-        adapter.get_footprints.return_value = [_make_fp("C10", cluster=None)]
-        adapter.get_field_value.side_effect = _role_or_cluster
-
-        with pytest.raises(ValidationError, match="no component tagged"):
-            resolve_by_cluster_tag(adapter, self._cell(), self._clone())
-
-    def test_multiple_matches_raises_with_both_refs(self):
-        adapter = MagicMock()
-        adapter.get_footprints.return_value = [
-            _make_fp("C10", cluster="CH2_BYPASS"),
-            _make_fp("C99", cluster="CH2_BYPASS"),
-        ]
-        adapter.get_field_value.side_effect = _role_or_cluster
-
-        with pytest.raises(ValidationError, match="expected exactly one") as exc_info:
-            resolve_by_cluster_tag(adapter, self._cell(), self._clone())
-        assert "C10" in str(exc_info.value) and "C99" in str(exc_info.value)
 
 
 class TestSuggestRoleNetsFromCluster:

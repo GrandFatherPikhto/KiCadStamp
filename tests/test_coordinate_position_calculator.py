@@ -14,7 +14,7 @@ import pytest
 from kipy.board_types import FootprintInstance
 from kipy.geometry import Vector2
 
-from kicadstamp.config import CoordinatePlacement
+from kicadstamp.config import CoordinatePlacement, Point
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.geometry.spoke_layout import local_to_absolute
 from kicadstamp.placement.services.coordinate_position_calculator import (
@@ -253,3 +253,90 @@ def test_build_coordinate_moves_uses_effective_name_in_errors():
 
     with pytest.raises(ValidationError, match="FPGA_PERIPH/R_SERIES"):
         build_coordinate_moves(adapter, [cp])
+
+
+# ── Anchor-relative mode (2026-08-12, Group 0 consolidation) ────────────────
+
+def _moved_fp():
+    fp = _make_fp("R18", role="R_SERIES", cluster="FPGA_PERIPH")
+    fp.position = Vector2.from_xy(0, 0)
+    fp.orientation.degrees = 0.0
+    fp.layer = "F.Cu"
+    return fp
+
+
+def test_build_coordinate_moves_anchor_point_cartesian_offset():
+    """anchor_point (resolved standalone via resolve_point_chain, since Phase
+    0 runs before the planner's resolved_points) + Cartesian offset — the
+    migrated root-placement shape."""
+    fp = _moved_fp()
+    adapter = MagicMock()
+    adapter.get_footprints.return_value = [fp]
+    adapter.get_field_value.side_effect = _role_or_cluster
+    adapter.get_board_origin.return_value = Vector2.from_xy(int(30.0 * MM), int(40.0 * MM))
+    points = {"Origin": Point(name="Origin", anchor_origin="grid")}
+
+    cp = CoordinatePlacement(cluster="FPGA_PERIPH", role="R_SERIES",
+                             anchor_point="Origin", x_mm=10.0, y_mm=-70.0)
+
+    moves = build_coordinate_moves(adapter, [cp], points=points, sheet_names={})
+
+    assert len(moves) == 1
+    move = moves[0]
+    assert move.ref == "R18"
+    assert move.position.x == int(30.0 * MM) + int(10.0 * MM)
+    assert move.position.y == int(40.0 * MM) + int(-70.0 * MM)
+    assert move.angle.degrees == 0.0
+
+
+def test_build_coordinate_moves_anchor_ref_pad_offset():
+    """anchor_ref + anchor_pad: the offset is measured from the ANCHOR
+    component's pad (Rule/ClonePlacement semantics) — reused
+    resolve_footprint_by_ref + resolve_anchor_pad_position."""
+    moved = _moved_fp()
+    anchor_fp = _make_fp("IC1", role="FPGA", cluster="FPGA")
+    anchor_fp.position = Vector2.from_xy(int(5.0 * MM), int(5.0 * MM))
+    anchor_fp.orientation.degrees = 0.0
+    pad = MagicMock()
+    pad.position = Vector2.from_xy(int(7.0 * MM), int(9.0 * MM))
+    adapter = MagicMock()
+    adapter.get_footprints.return_value = [moved]
+    adapter.get_field_value.side_effect = _role_or_cluster
+    adapter.get_footprint.return_value = anchor_fp
+    adapter.get_pad_by_number.return_value = pad
+
+    cp = CoordinatePlacement(cluster="FPGA_PERIPH", role="R_SERIES",
+                             anchor_ref="IC1", anchor_pad="A17",
+                             x_mm=2.0, y_mm=3.0)
+
+    moves = build_coordinate_moves(adapter, [cp])
+
+    assert len(moves) == 1
+    move = moves[0]
+    # target = anchor pad position + offset
+    assert move.position.x == int(7.0 * MM) + int(2.0 * MM)
+    assert move.position.y == int(9.0 * MM) + int(3.0 * MM)
+    assert move.angle.degrees == 0.0
+
+
+def test_build_coordinate_moves_anchor_polar_offset_rotation_defaults_to_angle():
+    """Polar offset in anchor mode: target = anchor + (radius at angle), and
+    angle_deg becomes rotation by default (spoke-style, same as the
+    fixed-centre polar mode)."""
+    fp = _moved_fp()
+    adapter = MagicMock()
+    adapter.get_footprints.return_value = [fp]
+    adapter.get_field_value.side_effect = _role_or_cluster
+    adapter.get_board_origin.return_value = Vector2.from_xy(0, 0)
+    points = {"Origin": Point(name="Origin", anchor_origin="grid")}
+
+    cp = CoordinatePlacement(cluster="FPGA_PERIPH", role="R_SERIES",
+                             anchor_point="Origin", radius_mm=5.0, angle_deg=37.0)
+
+    moves = build_coordinate_moves(adapter, [cp], points=points, sheet_names={})
+
+    assert len(moves) == 1
+    assert moves[0].angle.degrees == 37.0
+    expected = local_to_absolute(Vector2.from_xy(0, 0), 5.0, 0.0, 37.0)
+    assert moves[0].position.x == expected.x
+    assert moves[0].position.y == expected.y

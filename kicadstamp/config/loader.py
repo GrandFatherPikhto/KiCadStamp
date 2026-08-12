@@ -278,6 +278,13 @@ def load_config(path: str) -> tuple[Config, RuntimeContext]:
     for cp in clone_placements:
         _check_anchor_point(_("clone_placement {name!r}").format(name=cp.name), cp.anchor_point,
                             needs_footprint=False)
+    for ccp in coordinate_placements:
+        # Anchor-relative CoordinatePlacement (2026-08-12, Group 0): only ever
+        # needs a coordinate (like ClonePlacement), not a footprint — a
+        # shifted or xy-literal Point works fine.
+        _check_anchor_point(_("coordinate_placements entry {name!r}")
+                            .format(name=coordinate_placement_effective_name(ccp)),
+                            ccp.anchor_point, needs_footprint=False)
     for tva in thermal_vias:
         _check_anchor_point(_("thermal_via_arrays entry {name!r}").format(name=tva.name),
                             tva.anchor_point, needs_footprint=True)

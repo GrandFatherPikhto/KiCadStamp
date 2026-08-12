@@ -75,21 +75,17 @@ def _cfg(clones=None, points=None):
     )
 
 
-def test_cluster_mode_clone_resolves_via_cluster_tag_not_role():
-    """Regression (found live 2026-08-06, Denis: Conn_PM5V). A cluster:
-    placement has clone.role=None (content is picked by an existing
-    Cluster tag, not a Role) — _resolve_clone_produces used to only know
-    cell:/role:, never checking clone.cluster at all, so it always built a
-    synthetic slot with role=None and then failed in resolve_roles_by_
-    selection with "role None is in cell but not found anywhere on board"
-    instead of ever reaching resolve_by_cluster_tag. _adapter_for's
-    get_field_value mock doesn't distinguish Role from Cluster — role=
-    here stands in for whichever field resolve_by_cluster_tag actually
-    reads (CLUSTER_FIELD_NAME)."""
-    tagged = _make_fp("J1", role="Conn_PM5V")
+def test_cell_mode_clone_produces_cell_roles():
+    """A plain cell:-mode clone (the ONLY mode since 2026-08-12, Group 0
+    consolidation — the cluster:/role: single-component modes migrated 1:1 to
+    coordinate_placements' anchor-relative mode) resolves its cell's roles as
+    its produced refs — the cluster-tag path it used to test was removed with
+    that mode."""
+    tagged = _make_fp("J1", role="PRODUCED_ROLE", nets=["NET_A"])
     other = _make_fp("J2", role="SOMETHING_ELSE")
 
-    clone = ClonePlacement(name="Conn_PM5V", cluster="Conn_PM5V", xy=(0.0, 0.0))
+    clone = ClonePlacement(name="Conn_PM5V", cell="producer_tpl",
+                           xy=(0.0, 0.0), nets={"PRODUCED_ROLE": "NET_A"})
     cfg = _cfg([clone])
 
     adapter = _adapter_for([tagged, other])

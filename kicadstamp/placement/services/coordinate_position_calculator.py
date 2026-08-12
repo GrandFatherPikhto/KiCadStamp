@@ -38,8 +38,9 @@ from ...geometry.spoke_layout import local_to_absolute
 from ...i18n import _
 from ...utils.units import MM
 from ..commands import MoveCommand
-from .clone_role_resolver import resolve_unique_footprint_by_fields
-from .component_resolver import resolve_anchor_pad_position
+from .clone_role_resolver import resolve_footprint_by_role, resolve_unique_footprint_by_fields
+from .component_resolver import resolve_anchor_pad_position, resolve_footprint_by_ref
+from .point_resolver import resolve_point_chain
 
 logger = logging.getLogger(__name__)
 
@@ -122,17 +123,82 @@ def resolve_self_pad_anchor(adapter, fp: FootprintInstance, pad_number: str,
     return Vector2.from_xy(target.x - new_offset.x, target.y - new_offset.y)
 
 
-def build_coordinate_moves(adapter, coordinate_placements: list[CoordinatePlacement]) -> list[MoveCommand]:
+def _has_external_anchor(cp: CoordinatePlacement) -> bool:
+    """True when cp is in the ANCHOR-RELATIVE mode (2026-08-12, Group 0
+    consolidation): one of anchor_ref/anchor_role/anchor_point identifies a
+    DIFFERENT, stationary component/point, and x_mm/y_mm or radius_mm/angle_deg
+    are an OFFSET from it. Distinct from the self-referential `anchor == 'pad'`
+    (which only ever coexists with the absolute modes)."""
+    return (cp.anchor_ref is not None or cp.anchor_role is not None
+            or cp.anchor_point is not None)
+
+
+def _resolve_external_anchor(adapter, cp: CoordinatePlacement, points, sheet_names,
+                             label: str) -> Vector2:
+    """Absolute position of cp's OTHER-component anchor — anchor_ref/anchor_role
+    (+ anchor_sheet/anchor_cluster, narrowed exactly like ClonePlacement/Rule's
+    anchors via the shared resolve_footprint_by_ref / resolve_footprint_by_role)
+    or anchor_point (resolved standalone via resolve_point_chain, since
+    coordinate_placements run in Phase 0, before the planner populates its own
+    resolved_points). anchor_pad narrows to one pad of the resolved anchor
+    footprint (resolve_anchor_pad_position — the same helper ClonePlacement's
+    _resolve_anchor uses). Returns the anchor point in native units."""
+    if cp.anchor_point is not None:
+        resolved = resolve_point_chain(adapter, points, cp.anchor_point, sheet_names)
+        return resolved.position
+    if cp.anchor_ref is not None:
+        fp = resolve_footprint_by_ref(adapter, cp.anchor_ref, label)
+    else:
+        fp = resolve_footprint_by_role(adapter, cp.anchor_role, cp.anchor_sheet,
+                                       cp.anchor_cluster, sheet_names, label)
+    if cp.anchor_pad is None:
+        return fp.position
+    return resolve_anchor_pad_position(adapter, fp, cp.anchor_pad, label)
+
+
+def _anchor_offset_mm(cp: CoordinatePlacement) -> tuple[float, float]:
+    """(offset_x_mm, offset_y_mm) of the anchor-relative offset: the literal
+    x_mm/y_mm in Cartesian mode, or local_to_absolute(0, radius, 0, angle) —
+    "radius along the X axis, rotated by angle_deg", the same primitive as
+    every cell's along/across offsets — in polar mode."""
+    if cp.radius_mm is not None:
+        offset = local_to_absolute(_ORIGIN, cp.radius_mm, 0.0, cp.angle_deg)
+        return offset.x / MM, offset.y / MM
+    return cp.x_mm or 0.0, cp.y_mm or 0.0
+
+
+def build_coordinate_moves(adapter, coordinate_placements: list[CoordinatePlacement],
+                           points=None, sheet_names=None) -> list[MoveCommand]:
     """The whole module in one call — CoordinatePlacement entries in,
     MoveCommands out, ready for MoveExecutor.execute_moves() (no new
-    executor needed, see apply_pipeline.py's Phase 0 integration)."""
+    executor needed, see apply_pipeline.py's Phase 0 integration).
+
+    Anchor-relative entries (anchor_ref/anchor_role/anchor_point) additionally
+    need: points — cfg.points ({name: Point}), to resolve an anchor_point
+    reference standalone (Phase 0 runs before the planner populates its
+    resolved_points); sheet_names — {uuid: name}, for anchor_role narrowing.
+    Both optional — the absolute modes never touch them."""
     moves = []
     for cp in coordinate_placements:
         label = coordinate_placement_effective_name(cp)
         fp = resolve_footprint_by_cluster_role(adapter, cp.cluster, cp.role, label)
-        target, rotation_deg = resolve_target_position(cp)
-        origin = (resolve_self_pad_anchor(adapter, fp, cp.anchor_pad, target, rotation_deg, label)
-                  if cp.anchor == 'pad' else target)
+        if _has_external_anchor(cp):
+            # ANCHOR-RELATIVE: target = anchor position (+ its anchor_pad) + offset.
+            anchor_pos = _resolve_external_anchor(adapter, cp, points or {},
+                                                  sheet_names or {}, label)
+            dx_mm, dy_mm = _anchor_offset_mm(cp)
+            target = Vector2.from_xy(anchor_pos.x + int(dx_mm * MM),
+                                     anchor_pos.y + int(dy_mm * MM))
+            # Default rotation: angle_deg in polar-offset mode (spoke-style,
+            # same as the fixed-centre polar), 0.0 in Cartesian-offset mode —
+            # resolved here, loader stores the raw value (or None).
+            rotation_deg = (cp.rotation_deg if cp.rotation_deg is not None
+                            else (cp.angle_deg if cp.radius_mm is not None else 0.0))
+            origin = target
+        else:
+            target, rotation_deg = resolve_target_position(cp)
+            origin = (resolve_self_pad_anchor(adapter, fp, cp.anchor_pad, target, rotation_deg, label)
+                      if cp.anchor == 'pad' else target)
         moves.append(MoveCommand(
             ref=fp.reference_field.text.value,
             position=origin,

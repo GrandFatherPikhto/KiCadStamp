@@ -177,3 +177,123 @@ def test_retired_and_skip_round_trip():
          "retired": True, "skip": True})
     assert cp.retired is True
     assert cp.skip is True
+
+
+# ── Anchor-relative mode (2026-08-12, Group 0 consolidation) ────────────────
+
+def test_anchor_point_cartesian_offset_loads():
+    """anchor_point + x_mm/y_mm — the migrated root placements (all
+    `anchor_point: Origin` + xy, 1:1 from ClonePlacement's cluster: mode):
+    x_mm/y_mm become the OFFSET from the point, rotation_deg stays raw
+    (default 0.0 resolved by the calculator)."""
+    import kicadstamp.config as config
+
+    cp = config.load_coordinate_placement({
+        "cluster": "Conn_pm5v", "role": "Conn_pm5v",
+        "anchor_point": "Origin", "x_mm": 10.0, "y_mm": -70.0, "rotation_deg": 270.0,
+    })
+    assert cp.anchor_point == "Origin"
+    assert cp.x_mm == 10.0 and cp.y_mm == -70.0
+    assert cp.rotation_deg == 270.0
+    assert cp.center_x_mm is None and cp.center_y_mm is None
+    assert cp.anchor_ref is None and cp.anchor_role is None
+
+
+def test_anchor_point_without_offset_defaults_zero():
+    import kicadstamp.config as config
+
+    cp = config.load_coordinate_placement({
+        "cluster": "X", "role": "R1", "anchor_point": "Origin",
+    })
+    assert cp.x_mm == 0.0 and cp.y_mm == 0.0
+    assert cp.rotation_deg is None
+
+
+def test_anchor_ref_polar_offset_rotation_defaults_to_angle():
+    import kicadstamp.config as config
+
+    cp = config.load_coordinate_placement({
+        "cluster": "X", "role": "R1",
+        "anchor_ref": "IC1", "radius_mm": 5.0, "angle_deg": 37.0,
+    })
+    assert cp.anchor_ref == "IC1"
+    assert cp.radius_mm == 5.0 and cp.angle_deg == 37.0
+    assert cp.rotation_deg is None  # defaults to angle_deg in the calculator
+    assert cp.center_x_mm is None and cp.center_y_mm is None
+
+
+def test_anchor_pad_names_the_anchor_components_pad():
+    """In anchor-relative mode anchor_pad is the ANCHOR component's pad
+    (Rule/ClonePlacement semantics — the offset is measured from it), not the
+    self-referential one."""
+    import kicadstamp.config as config
+
+    cp = config.load_coordinate_placement({
+        "cluster": "X", "role": "R1",
+        "anchor_role": "FPGA", "anchor_pad": "A17", "x_mm": 2.0, "y_mm": 0.0,
+    })
+    assert cp.anchor_role == "FPGA"
+    assert cp.anchor_pad == "A17"
+
+
+def test_anchor_together_with_center_is_fatal():
+    import kicadstamp.config as config
+
+    with pytest.raises(ValidationError, match="anchor together with center"):
+        config.load_coordinate_placement({
+            "cluster": "X", "role": "R1", "anchor_ref": "IC1",
+            "center_x_mm": 0.0, "center_y_mm": 0.0, "radius_mm": 5.0, "angle_deg": 45.0,
+        })
+
+
+def test_anchor_with_self_referential_pad_is_fatal():
+    import kicadstamp.config as config
+
+    with pytest.raises(ValidationError, match="anchor: pad"):
+        config.load_coordinate_placement({
+            "cluster": "X", "role": "R1", "anchor_ref": "IC1",
+            "x_mm": 1.0, "y_mm": 2.0, "anchor": "pad",
+        })
+
+
+def test_anchor_ref_and_anchor_role_together_is_fatal():
+    import kicadstamp.config as config
+
+    with pytest.raises(ValidationError, match="anchor_ref and anchor_role together"):
+        config.load_coordinate_placement({
+            "cluster": "X", "role": "R1",
+            "anchor_ref": "IC1", "anchor_role": "FPGA", "x_mm": 0.0, "y_mm": 0.0,
+        })
+
+
+def test_anchor_sheet_without_anchor_role_is_fatal():
+    import kicadstamp.config as config
+
+    with pytest.raises(ValidationError, match="anchor_sheet without anchor_role"):
+        config.load_coordinate_placement({
+            "cluster": "X", "role": "R1",
+            "anchor_sheet": "Channel_0", "x_mm": 0.0, "y_mm": 0.0,
+        })
+
+
+def test_anchor_point_together_with_anchor_pad_is_fatal():
+    import kicadstamp.config as config
+
+    with pytest.raises(ValidationError, match="anchor_point together with anchor_pad"):
+        config.load_coordinate_placement({
+            "cluster": "X", "role": "R1",
+            "anchor_point": "Origin", "anchor_pad": "1", "x_mm": 0.0, "y_mm": 0.0,
+        })
+
+
+def test_anchor_pad_without_anchor_in_absolute_mode_is_fatal():
+    """With no anchor_ref/anchor_role/anchor_point the entry is in an ABSOLUTE
+    mode, where anchor_pad means the SELF-referential pad — which requires
+    anchor: pad, so a bare anchor_pad is rejected."""
+    import kicadstamp.config as config
+
+    with pytest.raises(ValidationError, match="anchor_pad set but anchor is 'center'"):
+        config.load_coordinate_placement({
+            "cluster": "X", "role": "R1", "anchor_pad": "1",
+            "x_mm": 0.0, "y_mm": 0.0, "rotation_deg": 0.0,
+        })

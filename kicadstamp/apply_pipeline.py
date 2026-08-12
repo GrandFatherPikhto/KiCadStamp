@@ -217,10 +217,11 @@ def apply_cluster_filter(cfg, cluster_paths: list[str], _logger=None) -> "Config
                       if _matches_any_cluster(c.anchor_cluster, cluster_paths)]
     matched_tvas = [t for t in cfg.thermal_via_arrays
                     if not t.retired and _matches_any_cluster(t.anchor_cluster, cluster_paths)]
-    # cp.cluster is the physical-instance field itself here (not an
-    # "anchor_cluster narrowing" field like the others above — this type has
-    # no separate anchor concept, see CoordinatePlacement's own docstring),
-    # but the SAME prefix-match convention still applies to it.
+    # cp.cluster is the moved component's own physical-instance field here
+    # (CoordinatePlacement's anchor-relative mode also has an anchor_cluster
+    # narrowing field, but --cluster selects by the instance being acted on,
+    # same as it selects a Rule/ClonePlacement by its own anchor_cluster) —
+    # the SAME prefix-match convention still applies to it.
     matched_coords = [cp for cp in cfg.coordinate_placements
                       if _matches_any_cluster(cp.cluster, cluster_paths)]
 
@@ -373,7 +374,9 @@ class ApplyPipeline:
         ``self.dry_run_report`` so library callers can grab the report
         without going through stdout at all.
         """
-        coordinate_moves = (build_coordinate_moves(self.adapter, self.cfg.coordinate_placements)
+        coordinate_moves = (build_coordinate_moves(
+                                self.adapter, self.cfg.coordinate_placements,
+                                points=self.cfg.points, sheet_names=self.sheet_names)
                            if self.cfg.coordinate_placements else [])
         moves = self.planner.plan_items(self.items)
         vias = self.planner.plan_vias()
@@ -438,7 +441,9 @@ class ApplyPipeline:
         # unconditionally, same idempotency model Phase 1's own moves below
         # already use.
         if self.cfg.coordinate_placements:
-            coordinate_moves = build_coordinate_moves(self.adapter, self.cfg.coordinate_placements)
+            coordinate_moves = build_coordinate_moves(
+                self.adapter, self.cfg.coordinate_placements,
+                points=self.cfg.points, sheet_names=self.sheet_names)
             logger.info(_("Coordinate placements: {count} moves").format(count=len(coordinate_moves)))
             coordinate_failed = executor.execute_moves(
                 coordinate_moves,

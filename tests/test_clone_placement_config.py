@@ -414,8 +414,12 @@ clone_placements:
         load_config(str(config_file))
 
 
-def test_role_without_cell(tmp_path):
-    """Single-component placement using 'role' field instead of cell."""
+def test_cell_is_required_role_rejected(tmp_path):
+    """cell: is MANDATORY since 2026-08-12 (Group 0 consolidation) — the
+    role:/cluster: single-component modes migrated 1:1 to coordinate_placements'
+    anchor-relative mode. A role:-only clone_placement is rejected up front:
+    role: is no longer a known ClonePlacement key (fatal "unknown fields",
+    with a 'did you mean anchor_role?' hint)."""
     yaml_content = """
 cells:
   t:
@@ -427,96 +431,25 @@ clone_placements:
 """
     config_file = tmp_path / "role_only.yaml"
     config_file.write_text(yaml_content, encoding="utf-8")
-    cfg, _ = load_config(str(config_file))
-    cp = cfg.clone_placements[0]
-    assert cp.role == "LED"
-    assert cp.cell is None
-    assert cp.xy == (10.0, 20.0)
-
-
-def test_cluster_without_cell_or_role(tmp_path):
-    """Single-component placement identified by an existing Cluster tag
-    (2026-08-06) instead of cell or role."""
-    yaml_content = """
-clone_placements:
-  - name: single_cluster
-    cluster: CH2_BYPASS
-    xy: [10.0, 20.0]
-"""
-    config_file = tmp_path / "cluster_only.yaml"
-    config_file.write_text(yaml_content, encoding="utf-8")
-    cfg, _ = load_config(str(config_file))
-    cp = cfg.clone_placements[0]
-    assert cp.cluster == "CH2_BYPASS"
-    assert cp.cell is None
-    assert cp.role is None
-
-
-def test_cell_and_cluster_together_raises(tmp_path):
-    yaml_content = """
-cells:
-  t:
-    components: []
-clone_placements:
-  - name: both
-    cell: t
-    cluster: CH2_BYPASS
-    xy: [0, 0]
-"""
-    config_file = tmp_path / "cell_cluster.yaml"
-    config_file.write_text(yaml_content, encoding="utf-8")
-    with pytest.raises(ValidationError, match="cell.*role.*cluster|cell/role/cluster"):
+    with pytest.raises(ValidationError, match="unknown fields"):
         load_config(str(config_file))
 
 
-def test_role_and_cluster_together_raises(tmp_path):
+def test_missing_cell_raises(tmp_path):
     yaml_content = """
 clone_placements:
-  - name: both
-    role: LED
-    cluster: CH2_BYPASS
+  - name: no_content
     xy: [0, 0]
 """
-    config_file = tmp_path / "role_cluster.yaml"
+    config_file = tmp_path / "no_content.yaml"
     config_file.write_text(yaml_content, encoding="utf-8")
-    with pytest.raises(ValidationError, match="cell.*role.*cluster|cell/role/cluster"):
+    with pytest.raises(ValidationError, match="without cell"):
         load_config(str(config_file))
 
 
-def test_cluster_with_nets_raises(tmp_path):
-    """cluster: is an exact, unconditional field match — nets/params/
-    by_selection (role-resolution mode selectors) have no meaning on top
-    of it."""
-    yaml_content = """
-clone_placements:
-  - name: single_cluster
-    cluster: CH2_BYPASS
-    xy: [0, 0]
-    nets:
-      SOME_ROLE: "+3V3"
-"""
-    config_file = tmp_path / "cluster_nets.yaml"
-    config_file.write_text(yaml_content, encoding="utf-8")
-    with pytest.raises(ValidationError, match="cluster together with nets"):
-        load_config(str(config_file))
-
-
-def test_cluster_with_by_selection_raises(tmp_path):
-    yaml_content = """
-clone_placements:
-  - name: single_cluster
-    cluster: CH2_BYPASS
-    xy: [0, 0]
-    by_selection: true
-"""
-    config_file = tmp_path / "cluster_by_selection.yaml"
-    config_file.write_text(yaml_content, encoding="utf-8")
-    with pytest.raises(ValidationError, match="cluster together with nets"):
-        load_config(str(config_file))
-
-
-def test_cell_and_role_together_raises(tmp_path):
-    """cell and role are mutually exclusive."""
+def test_role_field_is_rejected(tmp_path):
+    """role: is no longer a ClonePlacement key (2026-08-12, Group 0) — the
+    single-component mode it belonged to moved to coordinate_placements."""
     yaml_content = """
 cells:
   t:
@@ -526,20 +459,24 @@ clone_placements:
     cell: t
     role: LED
 """
-    config_file = tmp_path / "both_content.yaml"
+    config_file = tmp_path / "role_field.yaml"
     config_file.write_text(yaml_content, encoding="utf-8")
-    with pytest.raises(ValidationError, match="cell.*role"):
+    with pytest.raises(ValidationError, match="unknown fields"):
         load_config(str(config_file))
 
 
-def test_neither_cell_nor_role_raises(tmp_path):
-    """At least one of cell/role/cluster is required."""
+def test_cluster_field_is_rejected(tmp_path):
     yaml_content = """
+cells:
+  t:
+    components: []
 clone_placements:
-  - name: no_content
+  - name: both
+    cell: t
+    cluster: CH2_BYPASS
     xy: [0, 0]
 """
-    config_file = tmp_path / "no_content.yaml"
+    config_file = tmp_path / "cluster_field.yaml"
     config_file.write_text(yaml_content, encoding="utf-8")
-    with pytest.raises(ValidationError, match="neither cell, role, nor cluster"):
+    with pytest.raises(ValidationError, match="unknown fields"):
         load_config(str(config_file))

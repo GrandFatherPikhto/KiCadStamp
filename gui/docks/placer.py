@@ -89,14 +89,10 @@ _configure_searchable() — plain literal text is still accepted (editable
 combo, NoInsert policy), this is a picker, not a whitelist: "сети стоит
 сделать выпадашками (комбобоксами с поиском)" (2026-08-02).
 
-Source: Cell / Role / Cluster (added 2026-08-06, closing a real workflow
-complaint — Denis: "путь потрясающе длинный: создать экстрактор, извлечь
-шаблон, сделать cell и только потом, placement") — see
-_on_cell_mode_changed's own docstring for the backend mechanisms this
-surfaces (ClonePlacement.role/cluster, both already existed in the backend
-but had no GUI path) and why Cluster exists as a THIRD option rather than
-Role alone (same-day pushback, Denis: "Условие уникальности у нас касается
-кластера, а не роли").
+Source: Cell (the role:/cluster: single-component modes were migrated 1:1 to
+CoordinatePlacement's anchor-relative mode on 2026-08-12, Group 0
+consolidation — see CoordinatePlacement's docstring; ClonePlacement is pure
+template cloning again, cell: is mandatory).
 """
 import logging
 import re
@@ -269,8 +265,10 @@ class PlacerDock(QWidget):
         source_page_layout = QVBoxLayout(source_page)
         source_form = QFormLayout()
         self.cell_mode_combo = QComboBox()
-        self.cell_mode_combo.addItems([_("Cell"), _("Role (single component, no cell)"),
-                                       _("Cluster (existing tag, single component)")])
+        # Single "Cell" item since 2026-08-12 (Group 0 consolidation: the
+        # role:/cluster: modes migrated to coordinate_placements, so this is
+        # the only remaining source).
+        self.cell_mode_combo.addItems([_("Cell")])
         self.cell_mode_combo.currentIndexChanged.connect(self._on_cell_mode_changed)
         source_form.addRow(_("Source:"), self.cell_mode_combo)
         source_page_layout.addLayout(source_form)
@@ -294,27 +292,6 @@ class PlacerDock(QWidget):
         self.cell_combo.currentTextChanged.connect(self.set_selected_cell)
         cell_form.addRow(_("Cell:"), self.cell_combo)
         source_page_layout.addWidget(self._cell_row)
-
-        self._role_only_row = QWidget()
-        role_only_form = QFormLayout(self._role_only_row)
-        role_only_form.setContentsMargins(0, 0, 0, 0)
-        self.place_role_edit = QComboBox()
-        configure_searchable(self.place_role_edit)
-        role_only_form.addRow(_("Role:"), self.place_role_edit)
-        source_page_layout.addWidget(self._role_only_row)
-
-        self._cluster_only_row = QWidget()
-        cluster_only_form = QFormLayout(self._cluster_only_row)
-        cluster_only_form.setContentsMargins(0, 0, 0, 0)
-        self.place_cluster_edit = QComboBox()
-        configure_searchable(self.place_cluster_edit)
-        # Deliberately NOT labelled "Cluster:" — that label is already taken
-        # by self.cluster_edit below (the placement's own NAME, which is
-        # what a successful Redraw tags components Cluster=<name> WITH —
-        # see module docstring's Cluster-tagging note). This field is the
-        # opposite direction: an ALREADY-EXISTING Cluster tag to search FOR.
-        cluster_only_form.addRow(_("Existing Cluster:"), self.place_cluster_edit)
-        source_page_layout.addWidget(self._cluster_only_row)
 
         self._name_row = QWidget()
         form = QFormLayout(self._name_row)
@@ -437,54 +414,22 @@ class PlacerDock(QWidget):
 
         self._on_cell_mode_changed()
 
-    # ── Cell/Role source toggle ──────────────────────────────────────────
+    # ── Cell source toggle ──────────────────────────────────────────────
 
     def _on_cell_mode_changed(self) -> None:
-        """Cell (default) vs Role vs Cluster (2026-08-06). Role: Denis, "мы
-        не можем как-то упростить процедуру размещения отдельных компонент?
-        ...путь потрясающе длинный: создать экстрактор, извлечь шаблон,
-        сделать cell и только потом, placement" — ClonePlacement.role
-        already existed in the backend (config/models.py: "for a
-        ONE-COMPONENT placement without a single via/track — creating a
-        separate cell file just for one role is cumbersome",
-        ClonePositionCalculator synthesises a temporary Cell on the fly,
-        cells: is never touched), this toggle is just its first GUI
-        surface. Cluster: same day, Denis pushed back on Role specifically
-        — "Условие уникальности у нас касается кластера, а не роли...
-        ОДНУ деталь надо размещать просто по кластеру. Роль там не при
-        делах" — Role is a CATEGORY (many components legitimately share
-        one), Cluster is meant to stay unique per instance, so Cluster mode
-        resolves by an exact, unconditional Cluster-tag match instead
-        (resolve_by_cluster_tag) — no selection/nets ambiguity to narrow at
-        all. Params never apply to Role or Cluster mode (a synthetic
-        one-component cell has no via/track net fields to template in the
-        first place), so the whole Params section hides for either.
-
-        The top "Cluster:" name row (self._name_row/self.cluster_edit) also
-        hides in Cluster mode (found live 2026-08-06, Denis: "Зачем нам два
-        поля Existing Cluster и Cluster?") — _build_entry_dict() reuses the
-        picked Existing-Cluster value as the placement's own name too in
-        that mode, so there is nothing left for this row to ask for.
-
-        Nets/Net overrides/Refs (2026-08-06, own tabs as of the same day —
-        see their addTab() calls above) hide for the same reason Params
-        does: resolve_roles_by_selection (the default resolution unless
-        nets:/params: are ALSO set — see clone_uses_selection_mode) never
-        reads clone.refs at all, only resolve_roles_by_nets's step 0 does —
-        setting Refs without also setting Nets/Params in Role/Cluster mode
-        would silently do nothing, so hiding all three tabs together avoids
-        that trap. setTabVisible(), not setVisible() on their page widgets —
-        each now IS a whole tab page on its own, so hiding just the content
-        would leave an empty, confusingly-clickable tab behind instead of
-        removing it from the tab bar entirely."""
-        mode = self.cell_mode_combo.currentIndex()
-        self._cell_row.setVisible(mode == 0)
-        self._role_only_row.setVisible(mode == 1)
-        self._cluster_only_row.setVisible(mode == 2)
-        self._name_row.setVisible(mode != 2)
-        self._tabs.setTabVisible(self._nets_tab_index, mode == 0)
-        self._tabs.setTabVisible(self._net_overrides_tab_index, mode == 0)
-        self._tabs.setTabVisible(self._refs_tab_index, mode == 0)
+        """Cell-source visibility toggle. Since 2026-08-12 (Group 0
+        consolidation) ClonePlacement is pure template cloning — cell: is
+        mandatory, the role:/cluster: single-component modes migrated 1:1 to
+        CoordinatePlacement's anchor-relative mode — so this combo has a
+        single "Cell" item and the Cell row, name row and the
+        Params/Nets/Overrides/Refs tabs are always visible. Kept as a method
+        because the combo signal and new_placement/load_placement still call
+        it."""
+        self._cell_row.setVisible(True)
+        self._name_row.setVisible(True)
+        self._tabs.setTabVisible(self._nets_tab_index, True)
+        self._tabs.setTabVisible(self._net_overrides_tab_index, True)
+        self._tabs.setTabVisible(self._refs_tab_index, True)
 
     # ── Wiring from the Config tree / Components tree ─────────────────────
 
@@ -563,8 +508,6 @@ class PlacerDock(QWidget):
         clusters = sorted({s.cluster for s in snapshot if s.cluster})
         set_combo_items(self.cluster_edit, clusters)
         self.origin_widget.set_known_roles(roles, clusters)
-        set_combo_items(self.place_role_edit, roles)
-        set_combo_items(self.place_cluster_edit, clusters)
 
     def refresh_known_nets(self, board) -> None:
         """Populates the Params comboboxes (placeholder -> literal net) with
@@ -735,40 +678,18 @@ class PlacerDock(QWidget):
             return None
 
     def _build_entry_dict(self) -> Optional[Dict[str, Any]]:
-        source_mode = self.cell_mode_combo.currentIndex()
-        is_role_mode = source_mode == 1
-        is_cluster_mode = source_mode == 2
-
-        if is_cluster_mode:
-            # No separate name field here (2026-08-06, found live — Denis:
-            # "Зачем нам два поля Existing Cluster и Cluster?") — Cluster is
-            # meant to already be unique per instance, and it's the exact
-            # value Redraw re-tags the component with afterwards anyway,
-            # so a second, independently-typed name risks silently
-            # retagging the component to something else. self._name_row
-            # (self.cluster_edit) is hidden in this mode — see
-            # _on_cell_mode_changed.
-            cluster = self.place_cluster_edit.currentText().strip()
-            if not cluster:
-                self._show_message(_("Pick an existing Cluster first."), _ERROR_STYLE)
-                return None
-            entry: Dict[str, Any] = {"name": cluster, "cluster": cluster}
-        else:
-            name = self.cluster_edit.currentText().strip()
-            if not name:
-                self._show_message(_("Cluster name is required."), _ERROR_STYLE)
-                return None
-            if is_role_mode:
-                role = self.place_role_edit.currentText().strip()
-                if not role:
-                    self._show_message(_("Pick a Role first."), _ERROR_STYLE)
-                    return None
-                entry: Dict[str, Any] = {"name": name, "role": role}
-            else:
-                if not self._selected_cell:
-                    self._show_message(_("Pick a Cell first."), _ERROR_STYLE)
-                    return None
-                entry: Dict[str, Any] = {"name": name, "cell": self._selected_cell}
+        # cell: is MANDATORY on ClonePlacement since 2026-08-12 (Group 0
+        # consolidation — the role:/cluster: single-component modes migrated
+        # 1:1 to coordinate_placements' anchor-relative mode), so this is the
+        # plain cell path: name (cluster_edit) + selected cell.
+        name = self.cluster_edit.currentText().strip()
+        if not name:
+            self._show_message(_("Cluster name is required."), _ERROR_STYLE)
+            return None
+        if not self._selected_cell:
+            self._show_message(_("Pick a Cell first."), _ERROR_STYLE)
+            return None
+        entry: Dict[str, Any] = {"name": name, "cell": self._selected_cell}
 
         origin_fields, err = self.origin_widget.build()
         if err:
@@ -815,20 +736,19 @@ class PlacerDock(QWidget):
         if self.mirror_checkbox.isChecked():
             entry["mirror"] = True
 
-        if not (is_role_mode or is_cluster_mode):
-            params = {name: edit.currentText().strip() for name, edit in self._param_edits.items()
-                      if edit.currentText().strip()}
-            if params:
-                entry["params"] = params
-            nets = self.nets_table.to_dict()
-            if nets:
-                entry["nets"] = nets
-            net_overrides = self.net_overrides_table.to_dict()
-            if net_overrides:
-                entry["net_overrides"] = net_overrides
-            refs = self.refs_table.to_dict()
-            if refs:
-                entry["refs"] = refs
+        params = {name: edit.currentText().strip() for name, edit in self._param_edits.items()
+                  if edit.currentText().strip()}
+        if params:
+            entry["params"] = params
+        nets = self.nets_table.to_dict()
+        if nets:
+            entry["nets"] = nets
+        net_overrides = self.net_overrides_table.to_dict()
+        if net_overrides:
+            entry["net_overrides"] = net_overrides
+        refs = self.refs_table.to_dict()
+        if refs:
+            entry["refs"] = refs
 
         return entry
 
@@ -1028,8 +948,6 @@ class PlacerDock(QWidget):
         self._selected_cell = None
         self.cell_combo.setCurrentIndex(-1)
         self.cell_mode_combo.setCurrentIndex(0)
-        self.place_role_edit.setCurrentText("")
-        self.place_cluster_edit.setCurrentText("")
         self._on_cell_mode_changed()
         self.cluster_edit.setCurrentText("")
         self.origin_widget.clear()
@@ -1055,16 +973,13 @@ class PlacerDock(QWidget):
         экстракторов")."""
         self._show_message("")
         self.cluster_edit.setCurrentText(str(entry.get("name", "")))
-        if "role" in entry:
-            self.cell_mode_combo.setCurrentIndex(1)
-            self.place_role_edit.setCurrentText(str(entry["role"]))
-        elif "cluster" in entry:
-            self.cell_mode_combo.setCurrentIndex(2)
-            self.place_cluster_edit.setCurrentText(str(entry["cluster"]))
-        else:
-            self.cell_mode_combo.setCurrentIndex(0)
-            if "cell" in entry:
-                self.set_selected_cell(entry["cell"])
+        # cell: is mandatory on ClonePlacement since 2026-08-12 (Group 0
+        # consolidation — the role:/cluster: modes migrated to
+        # coordinate_placements' anchor-relative mode), so the Source combo is
+        # always Cell mode.
+        self.cell_mode_combo.setCurrentIndex(0)
+        if "cell" in entry:
+            self.set_selected_cell(entry["cell"])
         self._on_cell_mode_changed()  # setCurrentIndex above is a no-op signal-wise when unchanged
 
         xy = entry.get("xy") or [0.0, 0.0]

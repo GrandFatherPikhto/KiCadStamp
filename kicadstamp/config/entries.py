@@ -589,7 +589,7 @@ _THERMAL_VIA_ARRAY_KNOWN_KEYS = {
 
 
 _CLONE_PLACEMENT_KNOWN_KEYS = {
-    'name', 'cell', 'role', 'cluster', 'xy', 'rotation_deg',
+    'name', 'cell', 'xy', 'rotation_deg',
     'nets', 'params', 'net_overrides', 'retired', 'skip', 'ignore_selection',
     'anchor_ref', 'anchor_pad', 'anchor_role', 'anchor_sheet', 'anchor_cluster',
     'anchor_point', 'layer', 'mirror', 'refs', 'by_selection',
@@ -620,30 +620,13 @@ def _load_clone_placement(data: dict[str, Any]) -> ClonePlacement:
     anchor_point = data.get('anchor_point')
 
     cell = data.get('cell')
-    role = data.get('role')
-    cluster = data.get('cluster')
-    _content_count = sum(x is not None for x in (cell, role, cluster))
-    if _content_count > 1:
+    if not cell:
         raise ValidationError(format_fatal_error(
-            _("more than one of cell/role/cluster set in clone_placement {name!r}").format(name=name),
-            [_("these are mutually exclusive ways to define the content: a ready-made cell "
-               "(cell), a single-component placement by Role field (role), or a "
-               "single-component placement by an existing Cluster field (cluster) — "
-               "pick exactly one")]
-        ))
-    if _content_count == 0:
-        raise ValidationError(format_fatal_error(
-            _("neither cell, role, nor cluster set in clone_placement {name!r}").format(name=name),
-            [_("need cell: <name from cells:> (ready-made cell), role: <ROLE> (single component "
-               "found by its Role field), or cluster: <CLUSTER> (single component found by an "
-               "already-assigned Cluster field)")]
-        ))
-    if cluster is not None and (data.get('nets') or data.get('params') or data.get('by_selection')):
-        raise ValidationError(format_fatal_error(
-            _("cluster together with nets/params/by_selection in clone_placement {name!r}").format(name=name),
-            [_("cluster: finds its single target by an exact, already-unique Cluster field match — "
-               "nets/params/by_selection (selection-vs-nets role resolution) have no meaning here, "
-               "remove them")]
+            _("clone_placement {name!r} without cell").format(name=name),
+            [_("cell: <name from cells:> is REQUIRED — the role:/cluster: single-component "
+               "modes were migrated to coordinate_placements: (anchor-relative mode) on "
+               "2026-08-12; use coordinate_placements: for a single-component placement, "
+               "or give this clone_placement a real cell:")]
         ))
 
     if anchor_ref is not None and anchor_role is not None:
@@ -758,8 +741,6 @@ def _load_clone_placement(data: dict[str, Any]) -> ClonePlacement:
     return ClonePlacement(
         name=name,
         cell=cell,
-        role=role,
-        cluster=cluster,
         xy=xy,
         radius_mm=radius_mm,
         angle_deg=angle_deg,
@@ -837,6 +818,7 @@ def _load_thermal_via_array(tva_data: dict[str, Any]) -> ThermalViaArrayConfig:
 _COORDINATE_PLACEMENT_KNOWN_KEYS = {
     'cluster', 'role', 'name', 'x_mm', 'y_mm', 'center_x_mm', 'center_y_mm',
     'radius_mm', 'angle_deg', 'rotation_deg', 'anchor', 'anchor_pad',
+    'anchor_ref', 'anchor_role', 'anchor_sheet', 'anchor_cluster', 'anchor_point',
     'retired', 'skip',
 }
 
@@ -847,7 +829,17 @@ def _load_coordinate_placement(data: dict[str, Any]) -> CoordinatePlacement:
     load_coordinate_placement (config/__init__.py) so the GUI's
     CoordinatePlacerDock can validate one row before writing the whole
     table, the same way load_clone_placement/load_thermal_via_array already
-    let their GUI docks validate a single entry before a full-file write."""
+    let their GUI docks validate a single entry before a full-file write.
+
+    Three mutually exclusive position modes (see CoordinatePlacement's
+    docstring): Cartesian-absolute, polar-around-fixed-centre, and — added
+    2026-08-12 (Group 0 consolidation, migrated 1:1 from ClonePlacement's
+    role:/cluster: variant) — anchor-relative. The shared
+    _load_mutually_exclusive_position handles each mode-pair; the
+    anchor-vs-absolute split is a small gate here because the anchor mode
+    REUSES x_mm/y_mm/radius_mm/angle_deg as its OFFSET (mirroring
+    ClonePlacement's "absolute without anchor, offset with anchor" duality),
+    so the three modes cannot be expressed as one disjoint field-set."""
     label = data.get('name') or f"{data.get('cluster')}/{data.get('role')}"
 
     cluster = data.get('cluster')
@@ -862,56 +854,155 @@ def _load_coordinate_placement(data: dict[str, Any]) -> CoordinatePlacement:
     check_unknown_keys(data, _COORDINATE_PLACEMENT_KNOWN_KEYS,
                        _("unknown fields in coordinate_placements entry {label!r}").format(label=label))
 
-    mode = _load_mutually_exclusive_position(
-        data,
-        [("Cartesian", ("x_mm", "y_mm"), True),
-         ("polar", ("center_x_mm", "center_y_mm", "radius_mm", "angle_deg"), True)],
-        _("coordinate_placements entry {label!r}").format(label=label),
-    )
-    if mode == "Cartesian":
-        rotation_deg_raw = data.get('rotation_deg')
-        if rotation_deg_raw is None:
-            raise ValidationError(format_fatal_error(
-                _("coordinate_placements entry {label!r}: Cartesian mode needs an explicit "
-                  "rotation_deg").format(label=label),
-                [_("there is no polar angle to fall back on in Cartesian mode — set "
-                   "rotation_deg: 0 explicitly if no rotation is wanted")]
-            ))
-        x_mm, y_mm = float(data['x_mm']), float(data['y_mm'])
-        center_x_mm = center_y_mm = radius_mm = angle_deg = None
-        rotation_deg = float(rotation_deg_raw)
-    elif mode == "polar":
-        x_mm = y_mm = None
-        center_x_mm, center_y_mm = float(data['center_x_mm']), float(data['center_y_mm'])
-        radius_mm, angle_deg = float(data['radius_mm']), float(data['angle_deg'])
-        rotation_deg = float(data['rotation_deg']) if data.get('rotation_deg') is not None else None
-    else:
+    # ── Anchor-relative vs absolute ─────────────────────────────────────────
+    anchor_ref = data.get('anchor_ref')
+    anchor_role = data.get('anchor_role')
+    anchor_sheet = data.get('anchor_sheet')
+    anchor_cluster = data.get('anchor_cluster')
+    anchor_point = data.get('anchor_point')
+
+    # Anchor-identity cross-validation — UNCONDITIONAL (same as ClonePlacement):
+    # a stray anchor_sheet/anchor_ref/anchor_role/anchor_pad combination is a
+    # config error regardless of which position mode is used.
+    if anchor_ref is not None and anchor_role is not None:
         raise ValidationError(format_fatal_error(
-            _("coordinate_placements entry {label!r} has no position").format(label=label),
-            [_("set either x_mm/y_mm (Cartesian) or center_x_mm/center_y_mm/radius_mm/angle_deg "
-               "(polar)")]
+            _("coordinate_placements entry {label!r}: anchor_ref and anchor_role together")
+            .format(label=label),
+            [_("these are mutually exclusive ways to define the anchor — either by refdes "
+               "(anchor_ref) or by Role field (anchor_role), not both")]
+        ))
+    if anchor_sheet is not None and anchor_role is None:
+        raise ValidationError(format_fatal_error(
+            _("coordinate_placements entry {label!r}: anchor_sheet without anchor_role")
+            .format(label=label),
+            [_("anchor_sheet={sheet!r} is set but anchor_role is missing — anchor_sheet "
+               "only narrows ambiguity of anchor_role, it is not an anchor itself")
+             .format(sheet=anchor_sheet)]
+        ))
+    if anchor_point is not None and (anchor_ref is not None or anchor_role is not None):
+        raise ValidationError(format_fatal_error(
+            _("coordinate_placements entry {label!r}: anchor_point together with "
+              "anchor_ref/anchor_role").format(label=label),
+            [_("anchor_point={point!r} names a points: entry that already carries its own "
+               "anchor — mutually exclusive with anchor_ref/anchor_role").format(point=anchor_point)]
+        ))
+    if anchor_point is not None and data.get('anchor_pad') is not None:
+        raise ValidationError(format_fatal_error(
+            _("coordinate_placements entry {label!r}: anchor_point together with anchor_pad")
+            .format(label=label),
+            [_("anchor_point already resolves to a full position — anchor_pad has no "
+               "meaning on top of it; set anchor_pad on the points: entry itself instead")]
         ))
 
-    anchor = data.get('anchor', 'center')
-    if anchor not in ('center', 'pad'):
-        raise ValidationError(format_fatal_error(
-            _("coordinate_placements entry {label!r}: anchor must be 'center' or 'pad', got {anchor!r}")
-            .format(label=label, anchor=anchor),
-            []
-        ))
-    anchor_pad = data.get('anchor_pad')
-    if anchor == 'pad' and anchor_pad is None:
-        raise ValidationError(format_fatal_error(
-            _("coordinate_placements entry {label!r}: anchor: pad needs anchor_pad").format(label=label),
-            [_("set anchor_pad: <pad number> — which pad of THIS component should land on the "
-               "target point")]
-        ))
-    if anchor == 'center' and anchor_pad is not None:
-        raise ValidationError(format_fatal_error(
-            _("coordinate_placements entry {label!r}: anchor_pad set but anchor is 'center'")
-            .format(label=label),
-            [_("anchor_pad only has meaning with anchor: pad — either add that, or remove anchor_pad")]
-        ))
+    has_anchor = any(v is not None for v in (anchor_ref, anchor_role, anchor_point))
+
+    if has_anchor:
+        # ANCHOR-RELATIVE: x_mm/y_mm (Cartesian) or radius_mm/angle_deg (polar)
+        # become the OFFSET from the anchor component (or its anchor_pad).
+        if any(data.get(k) is not None for k in ('center_x_mm', 'center_y_mm')):
+            raise ValidationError(format_fatal_error(
+                _("coordinate_placements entry {label!r}: anchor together with "
+                  "center_x_mm/center_y_mm").format(label=label),
+                [_("center_x_mm/center_y_mm only make sense for the fixed-centre polar "
+                   "ABSOLUTE mode — with an anchor, radius_mm/angle_deg are already the "
+                   "polar offset from that anchor")]
+            ))
+        if data.get('anchor') == 'pad':
+            raise ValidationError(format_fatal_error(
+                _("coordinate_placements entry {label!r}: anchor: pad together with "
+                  "anchor_ref/anchor_role/anchor_point").format(label=label),
+                [_("anchor: pad means 'this component's own pad lands on the target' — "
+                   "meaningless in anchor-relative mode, where the target already IS "
+                   "anchor + offset; drop anchor: pad, and use anchor_pad only for the "
+                   "ANCHOR component's pad")]
+            ))
+
+        # Offset — Cartesian x_mm/y_mm XOR polar radius_mm/angle_deg. Both are
+        # optional as a whole (no offset = exactly on the anchor, like
+        # ClonePlacement's anchor-with-no-xy); a half-polar is still fatal.
+        offset_mode = _load_mutually_exclusive_position(
+            data,
+            [("Cartesian", ("x_mm", "y_mm"), False),
+             ("polar", ("radius_mm", "angle_deg"), True)],
+            _("coordinate_placements entry {label!r} (anchor offset)").format(label=label),
+        )
+        # rotation_deg stays raw (None when not given) — the calculator
+        # resolves the default (angle_deg in polar-offset, 0.0 in Cartesian-
+        # offset), the same loader-store/calculator-resolve split as the
+        # absolute polar mode.
+        if offset_mode == "polar":
+            x_mm = y_mm = None
+            center_x_mm = center_y_mm = None
+            radius_mm = float(data['radius_mm'])
+            angle_deg = float(data['angle_deg'])
+            rotation_deg = float(data['rotation_deg']) if data.get('rotation_deg') is not None else None
+        else:
+            x_mm = float(data['x_mm']) if data.get('x_mm') is not None else 0.0
+            y_mm = float(data['y_mm']) if data.get('y_mm') is not None else 0.0
+            center_x_mm = center_y_mm = radius_mm = angle_deg = None
+            rotation_deg = float(data['rotation_deg']) if data.get('rotation_deg') is not None else None
+
+        # The self-referential `anchor` concept has no meaning here (target IS
+        # "anchor + offset"); anchor_pad instead names the ANCHOR component's pad.
+        # (anchor_pad-without-a-footprint-anchor can't happen here: reaching this
+        # branch means ref/role/point is set, and point+pad was already rejected
+        # unconditionally above — so pad here always has a footprint anchor.)
+        anchor = 'center'
+        anchor_pad = data.get('anchor_pad')
+    else:
+        # ABSOLUTE modes — Cartesian x_mm/y_mm XOR fixed-centre polar.
+        mode = _load_mutually_exclusive_position(
+            data,
+            [("Cartesian", ("x_mm", "y_mm"), True),
+             ("polar", ("center_x_mm", "center_y_mm", "radius_mm", "angle_deg"), True)],
+            _("coordinate_placements entry {label!r}").format(label=label),
+        )
+        if mode == "Cartesian":
+            rotation_deg_raw = data.get('rotation_deg')
+            if rotation_deg_raw is None:
+                raise ValidationError(format_fatal_error(
+                    _("coordinate_placements entry {label!r}: Cartesian mode needs an explicit "
+                      "rotation_deg").format(label=label),
+                    [_("there is no polar angle to fall back on in Cartesian mode — set "
+                       "rotation_deg: 0 explicitly if no rotation is wanted")]
+                ))
+            x_mm, y_mm = float(data['x_mm']), float(data['y_mm'])
+            center_x_mm = center_y_mm = radius_mm = angle_deg = None
+            rotation_deg = float(rotation_deg_raw)
+        elif mode == "polar":
+            x_mm = y_mm = None
+            center_x_mm, center_y_mm = float(data['center_x_mm']), float(data['center_y_mm'])
+            radius_mm, angle_deg = float(data['radius_mm']), float(data['angle_deg'])
+            # Stored raw (None if not given) — angle_deg becomes rotation by
+            # default only in the calculator (resolve_target_position).
+            rotation_deg = float(data['rotation_deg']) if data.get('rotation_deg') is not None else None
+        else:
+            raise ValidationError(format_fatal_error(
+                _("coordinate_placements entry {label!r} has no position").format(label=label),
+                [_("set either x_mm/y_mm (Cartesian), center_x_mm/center_y_mm/radius_mm/angle_deg "
+                   "(polar), or anchor_ref/anchor_role/anchor_point (anchor-relative)")]
+            ))
+
+        anchor = data.get('anchor', 'center')
+        if anchor not in ('center', 'pad'):
+            raise ValidationError(format_fatal_error(
+                _("coordinate_placements entry {label!r}: anchor must be 'center' or 'pad', got {anchor!r}")
+                .format(label=label, anchor=anchor),
+                []
+            ))
+        anchor_pad = data.get('anchor_pad')
+        if anchor == 'pad' and anchor_pad is None:
+            raise ValidationError(format_fatal_error(
+                _("coordinate_placements entry {label!r}: anchor: pad needs anchor_pad").format(label=label),
+                [_("set anchor_pad: <pad number> — which pad of THIS component should land on the "
+                   "target point")]
+            ))
+        if anchor == 'center' and anchor_pad is not None:
+            raise ValidationError(format_fatal_error(
+                _("coordinate_placements entry {label!r}: anchor_pad set but anchor is 'center'")
+                .format(label=label),
+                [_("anchor_pad only has meaning with anchor: pad — either add that, or remove anchor_pad")]
+            ))
 
     return CoordinatePlacement(
         cluster=cluster,
@@ -923,6 +1014,9 @@ def _load_coordinate_placement(data: dict[str, Any]) -> CoordinatePlacement:
         rotation_deg=rotation_deg,
         anchor=anchor,
         anchor_pad=str(anchor_pad) if anchor_pad is not None else None,
+        anchor_ref=anchor_ref, anchor_role=anchor_role,
+        anchor_sheet=anchor_sheet, anchor_cluster=anchor_cluster,
+        anchor_point=anchor_point,
         retired=data.get('retired', False),
         skip=data.get('skip', False),
     )

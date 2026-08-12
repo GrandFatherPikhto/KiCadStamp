@@ -167,49 +167,6 @@ class TestNestedRoleMode:
         assert placed[0].dest.y == int(4.0 * MM)
 
 
-class TestClusterModeTopLevel:
-    """ClonePlacement.cluster (2026-08-06) — end-to-end through
-    ClonePositionCalculator: no cells:, no Role match, just an exact
-    Cluster-tag lookup finding the ONE component to move."""
-
-    def test_single_component_moved_by_cluster_tag(self):
-        top = ClonePlacement(name="one_cap", cluster="CH2_BYPASS", xy=(3.0, 4.0))
-        cfg = Config(layer="F.Cu", clone_placements=[top])
-        c1 = _make_fp("C10", cluster="CH2_BYPASS")
-        c2 = _make_fp("C11", cluster="OTHER")  # decoy — must not be picked
-        adapter = _adapter_for([c1, c2])
-        calc = ClonePositionCalculator(adapter, cfg)
-
-        placed, vias, tracks = calc.compute_raw_positions([top])
-
-        assert len(placed) == 1
-        assert placed[0].ref == "C10"
-        assert placed[0].dest.x == int(3.0 * MM)
-        assert placed[0].dest.y == int(4.0 * MM)
-        assert vias == [] and tracks == []
-
-    def test_no_cluster_match_is_fatal(self):
-        top = ClonePlacement(name="one_cap", cluster="CH2_BYPASS", xy=(0.0, 0.0))
-        cfg = Config(layer="F.Cu", clone_placements=[top])
-        adapter = _adapter_for([_make_fp("C10", cluster="OTHER")])
-        calc = ClonePositionCalculator(adapter, cfg)
-
-        with pytest.raises(ValidationError, match="no component tagged"):
-            calc.compute_raw_positions([top])
-
-    def test_ambiguous_cluster_match_is_fatal(self):
-        top = ClonePlacement(name="one_cap", cluster="CH2_BYPASS", xy=(0.0, 0.0))
-        cfg = Config(layer="F.Cu", clone_placements=[top])
-        adapter = _adapter_for([
-            _make_fp("C10", cluster="CH2_BYPASS"),
-            _make_fp("C99", cluster="CH2_BYPASS"),
-        ])
-        calc = ClonePositionCalculator(adapter, cfg)
-
-        with pytest.raises(ValidationError, match="expected exactly one"):
-            calc.compute_raw_positions([top])
-
-
 class TestMirrorOfCompositeCellIsRejected:
     def test_mirror_on_composite_cell_raises(self):
         leaf = Cell(name="leaf", components=[

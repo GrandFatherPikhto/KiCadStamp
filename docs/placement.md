@@ -4,15 +4,42 @@
 
 The `placement/` directory contains the core logic for placing components, creating vias, and routing tracks. It orchestrates all stages of the process:
 
-1. **Planning** – calculates target positions for components, vias, and tracks based on spoke templates for two types of placements:
+1. **Planning** – calculates target positions for components, vias, and tracks based on spoke templates for three types of placements:
    - **`ManualSpoke`** (`rules`) – binds to pads of the target IC, with automatic refdes selection via a role pool (`ComponentPool`). **Tracks are not supported** in this mode.
-   - **`ClonePlacement`** (cloned sections) – reuses a template at multiple board locations, resolving roles either by selection or by explicit nets (`CloneRoleResolver`). Supports **tracks** as part of the template.
+   - **`ClonePlacement`** (cloned sections) – reuses a template (`cell:`, mandatory) at multiple board locations, resolving roles either by selection or by explicit nets (`CloneRoleResolver`). Supports **tracks** as part of the template.
+   - **`CoordinatePlacement`** (`coordinate_placements`) – moves one EXISTING footprint (found by an exact Cluster+Role match) to an absolute position or relative to another component's anchor. No template, no via/track, no registry — see the dedicated section below.
 2. **Execution** – applies moves, creates vias, and creates tracks on the board via the KiCad adapter, split into **three phases** (moves first, then vias, then tracks), with a mandatory board reload between phases.
 3. **Logging and undo** – saves operation information as JSON for the `undo` command (including tracks).
 4. **Collision checking** – simplified overlap checking for components (optional); track collisions are **not checked** (rely on KiCad DRC).
 5. **Idempotency** – skips already‑existing vias, tracks, and components already in place (via `skip_existing_components` and the placement registries for vias and tracks).
 
 All services use the `kicad/adapter.py` adapter, the `geometry/` utilities, and the `config/` configuration package.
+
+## CoordinatePlacement (the "dumb placer")
+
+`coordinate_placements:` moves an existing footprint — identified by an exact
+Cluster+Role match (Role must already be unique within one Cluster instance) —
+to a target position/rotation. No template, no offsets list, no via/track, and
+no registry involvement: a move is idempotent by construction. Three mutually
+exclusive position modes (see `kicadstamp/config/models.py`'s
+`CoordinatePlacement` docstring for the full field semantics):
+
+- **Cartesian (absolute)** – `x_mm`/`y_mm` + a REQUIRED `rotation_deg`.
+- **Polar (absolute, around a fixed centre)** – `center_x_mm`/`center_y_mm`/
+  `radius_mm`/`angle_deg`; `angle_deg` becomes `rotation_deg` by default.
+- **Anchor-relative** (added 2026-08-12, Group 0 consolidation — migrated 1:1
+  from ClonePlacement's former `role:`/`cluster:` single-component modes, which
+  are gone): `anchor_ref`/`anchor_role` (+ `anchor_sheet`/`anchor_cluster`) or
+  `anchor_point` identify a DIFFERENT, stationary component/point, and
+  `x_mm`/`y_mm` (Cartesian) or `radius_mm`/`angle_deg` (polar) become the
+  OFFSET from that anchor — or from its `anchor_pad`. This is how you place a
+  resistor "relative to a specific pad of the FPGA": `anchor_role: FPGA,
+  anchor_pad: A17, radius_mm: ..., angle_deg: ...`.
+
+`anchor` (`'center'`/`'pad'`, self-referential, absolute modes only) and
+`anchor_pad` (self pad in absolute modes, the ANCHOR component's pad in
+anchor-relative mode — same semantics as Rule/ClonePlacement) are documented in
+the `CoordinatePlacement` docstring.
 
 ---
 

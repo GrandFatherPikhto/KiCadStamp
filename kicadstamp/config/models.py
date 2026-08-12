@@ -85,28 +85,44 @@ class CoordinatePlacement:
     (apply_pipeline.py's Phase 1 move loop has no registry reconciliation
     either, it just re-applies the target position every run).
 
-    Position — EXACTLY ONE of two mutually exclusive modes (fatal at load if
-    both or neither are fully specified, see config/entries.py):
-      - Cartesian: x_mm/y_mm — absolute board position for the anchor point
-        (see `anchor` below). rotation_deg is then REQUIRED (no implicit
-        angle to fall back on).
-      - Polar: center_x_mm/center_y_mm/radius_mm/angle_deg — position is
-        center + radius at angle_deg (board coordinates, KiCad's native Y-
-        down convention, same as everywhere else in this codebase).
-        angle_deg ALSO becomes rotation_deg by default (spoke-style: the
-        component points outward from the centre) — set rotation_deg
-        explicitly too to override just the component's own orientation
-        without changing where the angle places it.
+    Position — EXACTLY ONE of THREE mutually exclusive modes (fatal at load
+    if more than one applies or none is fully specified, see config/entries.py):
+      - Cartesian (absolute): x_mm/y_mm — absolute board position for the
+        anchor point (see `anchor` below). rotation_deg is then REQUIRED
+        (no implicit angle to fall back on).
+      - Polar (absolute, around a fixed centre): center_x_mm/center_y_mm/
+        radius_mm/angle_deg — position is center + radius at angle_deg
+        (board coordinates, KiCad's native Y-down convention, same as
+        everywhere else in this codebase). angle_deg ALSO becomes
+        rotation_deg by default (spoke-style: the component points outward
+        from the centre) — set rotation_deg explicitly too to override just
+        the component's own orientation without changing where the angle
+        places it.
+      - Anchor-relative (2026-08-12, Group 0 consolidation — the mode that
+        used to live in ClonePlacement's role:/cluster: variant, migrated
+        1:1 here): one of anchor_ref/anchor_role(+anchor_sheet/anchor_cluster)
+        or anchor_point identifies a DIFFERENT, stationary component/point,
+        and x_mm/y_mm (Cartesian offset) OR radius_mm/angle_deg (polar
+        offset) become the OFFSET from that anchor (or from its anchor_pad)
+        instead of an absolute position — mirroring ClonePlacement's own
+        "absolute without anchor, flat offset with anchor" xy duality.
+        rotation_deg defaults to angle_deg in polar-offset mode (spoke-style,
+        same as the fixed-centre polar) and to 0.0 in Cartesian-offset mode.
+        This is the answer to Denis's original question — placing a resistor
+        "relative to a specific pad of the FPGA".
 
-    anchor — 'center' (default) or 'pad': whether the resolved target point
-    (Cartesian or polar) lands on the footprint's own origin, or on ONE
-    SPECIFIC PAD of the SAME footprint being moved (anchor_pad required iff
-    anchor == 'pad', fatal if anchor_pad is set without anchor == 'pad').
-    This is self-referential — unlike ClonePlacement's anchor_pad (a
-    DIFFERENT, stationary anchor component the new component is placed
-    relative to), here the footprint being moved IS its own anchor; see
-    coordinate_position_calculator.py's resolve_self_pad_anchor() for the
-    geometry (no reusable helper existed for this self-referential case).
+    anchor / anchor_pad — 'center' (default) or 'pad': in the ABSOLUTE modes,
+    whether the resolved target point lands on the footprint's own origin, or
+    on ONE SPECIFIC PAD of the SAME footprint being moved (anchor_pad required
+    iff anchor == 'pad', fatal if anchor_pad is set without anchor == 'pad').
+    Self-referential — see coordinate_position_calculator.py's
+    resolve_self_pad_anchor() for the geometry. In the ANCHOR-RELATIVE mode
+    this self-referential concept has no meaning (the target is literally
+    "anchor + offset", nothing to land on) — `anchor: pad` is fatal there —
+    and anchor_pad instead takes the ClonePlacement/Rule meaning: the pad OF
+    THE ANCHOR component the offset is measured from (same field name, same
+    semantics as Rule/ClonePlacement, per the Group 0 plan; the two meanings
+    never coexist because the modes are mutually exclusive).
 
     retired/skip — same convention as Rule/ClonePlacement/
     ThermalViaArrayConfig (retired: true = "does not exist this run",
@@ -126,6 +142,15 @@ class CoordinatePlacement:
     rotation_deg: float | None = None
     anchor: str = 'center'
     anchor_pad: str | None = None
+    # OTHER-component anchor (anchor-relative mode): anchor_ref/anchor_role
+    # (+ anchor_sheet/anchor_cluster narrowing) or anchor_point. Mutually
+    # exclusive with the fixed-centre polar fields (center_x_mm/center_y_mm)
+    # and with the self-referential anchor: pad — see the docstring above.
+    anchor_ref: str | None = None
+    anchor_role: str | None = None
+    anchor_sheet: str | None = None
+    anchor_cluster: str | None = None
+    anchor_point: str | None = None
     retired: bool = False
     skip: bool = False
 
@@ -447,32 +472,17 @@ class ClonePlacement:
     rotation_deg — it only positions the origin; the cell's own orientation
     stays under rotation_deg.
 
+    cell — REQUIRED (2026-08-12, Group 0 consolidation): a reference to a Cell
+    from cfg.cells. The role:/cluster: single-component modes that used to live
+    here were migrated 1:1 to CoordinatePlacement's anchor-relative mode (see
+    CoordinatePlacement's docstring) — ClonePlacement is once again pure
+    template cloning, cell: is mandatory, no cell-OR-role-OR-cluster branch.
+
     Role→ref mapping — EITHER via the current selection on the board (for rare,
     one‑off sections like a single MCU), OR via explicit nets
     (params/nets/net_overrides — for repeated sections like PI‑filters or DAC
     channels). Presence of params OR nets means "by nets" mode; absence means
     "by selection".
-
-    cell OR role OR cluster (mutually exclusive, exactly one required):
-      - cell: reference to a Cell from cfg.cells.
-      - role: for a ONE‑COMPONENT placement without a single via/track —
-        creating a separate cell file just for one role is cumbersome.
-        ClonePositionCalculator synthesises a temporary Cell "on the fly"
-        (one component with that role at (0,0), angle 0) — cells: in YAML
-        is not touched. Resolution matches the live Role field — Role is a
-        CATEGORY, not unique (many components routinely share one), so
-        ambiguity is resolved by selection/anchor_cluster narrowing, same
-        cascade as a real cell's role slots (see clone_role_resolver.py).
-      - cluster: for a ONE‑COMPONENT placement identified by an EXISTING
-        Cluster PCB field instead of Role (2026-08-06, Denis: "ОДНУ деталь
-        надо размещать просто по кластеру. Роль там не при делах") — Cluster
-        is meant to be assigned once and stay unique per instance (unlike
-        Role), typically hand-tagged beforehand via RoleClusterTreeDock/
-        fieldstool. No selection/nets/narrowing cascade: an exact Cluster
-        match is either unique (used directly) or a tagging mistake, fatal
-        either way (see resolve_by_cluster_tag in clone_role_resolver.py).
-        nets/params/by_selection have no meaning here — fatal if set
-        alongside cluster.
 
     skip — see ThermalViaArrayConfig.skip for the retired-vs-skip distinction.
 
@@ -489,12 +499,10 @@ class ClonePlacement:
     """
     name: str
     xy: tuple[float, float]
+    cell: str
     radius_mm: float | None = None
     angle_deg: float | None = None
     rotation_deg: float = 0.0
-    cell: str | None = None
-    role: str | None = None
-    cluster: str | None = None
     nets: dict[str, str] = field(default_factory=dict)      # role -> net (literal)
     params: dict[str, Any] = field(default_factory=dict)    # for {placeholder} in net cells
     net_overrides: dict[str, str] = field(default_factory=dict)  # final override of resolved name

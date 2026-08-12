@@ -83,6 +83,62 @@ def test_add_row_from_entry_populates_polar_and_pad_fields(main_window, tmp_path
     assert dock.table.cellWidget(0, coordinate_placer_mod._COL_PAD).text() == "2"
 
 
+# ── Anchor-relative mode (2026-08-12, Group 0) ──────────────────────────────
+
+def test_switching_to_anchor_mode_toggles_anchor_columns(main_window, tmp_path):
+    """Anchor mode enables the anchor identity columns, uses the Pad column
+    as the ANCHOR component's pad, and disables the self-referential
+    "Anchor" (Center/Pad) column."""
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock._add_row()
+
+    dock.table.cellWidget(0, coordinate_placer_mod._COL_MODE).setCurrentIndex(2)  # Anchor
+
+    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_ANCHOR).isEnabled() is False
+    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_ANCHOR_REF).isEnabled() is True
+    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_ANCHOR_ROLE).isEnabled() is True
+    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_ANCHOR_POINT).isEnabled() is True
+    # X/Y are the OFFSET in anchor mode; the absolute polar fields stay off.
+    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_X).isEnabled() is True
+    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_CENTER_X).isEnabled() is False
+
+
+def test_add_row_from_anchor_entry_sets_anchor_mode(main_window, tmp_path):
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock._add_row({
+        "cluster": "X", "role": "R1", "x_mm": 10.0, "y_mm": -70.0,
+        "anchor_point": "Origin", "rotation_deg": 270.0,
+    })
+
+    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_MODE).currentIndex() == 2
+    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_ANCHOR_POINT).text() == "Origin"
+    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_X).text() == "10.0"
+
+
+def test_build_entries_anchor_mode_round_trips_through_loader(main_window, tmp_path):
+    """An anchor-relative row (Mode=Anchor, X/Y offset, anchor_role + pad)
+    must build a dict that the real backend loader accepts."""
+    from kicadstamp.config import load_coordinate_placement
+
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock._add_row()
+    dock.table.cellWidget(0, coordinate_placer_mod._COL_MODE).setCurrentIndex(2)  # Anchor
+    dock.table.cellWidget(0, coordinate_placer_mod._COL_CLUSTER).setCurrentText("FPGA_PERIPH")
+    dock.table.cellWidget(0, coordinate_placer_mod._COL_ROLE).setCurrentText("R18")
+    dock.table.cellWidget(0, coordinate_placer_mod._COL_X).setText("2.0")
+    dock.table.cellWidget(0, coordinate_placer_mod._COL_Y).setText("3.0")
+    dock.table.cellWidget(0, coordinate_placer_mod._COL_ANCHOR_ROLE).setCurrentText("FPGA")
+    # In anchor mode the Pad column means the ANCHOR component's pad.
+    dock.table.cellWidget(0, coordinate_placer_mod._COL_PAD).setText("A17")
+
+    entries = dock._build_entries()
+    assert entries is not None and len(entries) == 1
+    cp = load_coordinate_placement(entries[0])  # must validate against the real loader
+    assert cp.anchor_role == "FPGA"
+    assert cp.anchor_pad == "A17"
+    assert cp.x_mm == 2.0 and cp.y_mm == 3.0
+
+
 def test_delete_selected_removes_the_row(main_window, tmp_path):
     dock, _ = _make_dock(main_window, tmp_path)
     dock._add_row({"cluster": "X", "role": "R1", "x_mm": 0.0, "y_mm": 0.0, "rotation_deg": 0.0})
