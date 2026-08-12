@@ -16,6 +16,7 @@ import difflib
 
 
 from .config import Config
+from .geometry.clone_geometry import clone_shift_mm
 from .kicad.adapter import KiCadBoardAdapter
 from .exceptions import ValidationError, format_fatal_error
 from .net_resolution import resolve_net
@@ -292,7 +293,8 @@ def check_no_duplicate_clone_anchors(cfg: Config) -> None:
         seen_names[clone.name] = True
 
         content_id = clone.cell if clone.cell is not None else _("role:{role}").format(role=clone.role)
-        origin = (round(clone.xy[0], 4), round(clone.xy[1], 4))
+        ox, oy = clone_shift_mm(clone)
+        origin = (round(ox, 4), round(oy, 4))
 
         if clone.anchor_point is not None:
             key = (content_id, clone.anchor_point, origin)

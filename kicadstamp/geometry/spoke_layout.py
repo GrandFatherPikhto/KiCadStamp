@@ -123,10 +123,21 @@ def apply_spoke_geometry(
     role_to_ref is already resolved EXTERNALLY (see component_pool.py) — this
     function does not decide which ref to assign to which role, only geometry.
     """
-    origin = Vector2.from_xy(
-        pad_position.x + int(spoke.shift_x_mm * MM),
-        pad_position.y + int(spoke.shift_y_mm * MM),
-    )
+    if spoke.radius_mm is not None:
+        # Polar mode (config/entries.py guarantees radius_mm AND angle_deg are
+        # both set together): origin = pad centre + "radius_mm along the X axis,
+        # rotated by angle_deg" — the SAME local_to_absolute primitive every
+        # other subsystem uses (see CoordinatePlacement's polar mode), and,
+        # like the Cartesian shift, a plain translation from the pad with NO
+        # parent_rotation (spokes have no parent frame).
+        origin = local_to_absolute(pad_position, spoke.radius_mm, 0.0, spoke.angle_deg)
+    else:
+        # Cartesian shift (default): a raw translation from the pad centre,
+        # without rotation (see module docstring, order of application).
+        origin = Vector2.from_xy(
+            pad_position.x + int(spoke.shift_x_mm * MM),
+            pad_position.y + int(spoke.shift_y_mm * MM),
+        )
 
     layout = SpokeLayout(origin=origin)
 

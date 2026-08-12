@@ -12,7 +12,6 @@ continues to work exactly as before.
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..i18n import _
 from .points import Point
 
 
@@ -326,11 +325,31 @@ class Cell:
 @dataclass
 class ManualSpoke:
     """
-    A specific spoke on a specific FPGA pad. shift_x_mm/shift_y_mm and
-    rotation_deg are ALWAYS in KiCad board coordinates (not local), tuned
-    visually for the specific board. Order: first shift (shift_x, shift_y) from
-    the pad centre to the spoke origin, then rotation of the resulting origin
-    (and all cell contents) by rotation_deg.
+    A specific spoke on a specific FPGA pad. Position — EXACTLY ONE of two
+    mutually exclusive modes, with the same field names as CoordinatePlacement
+    for consistency across the project. Fatal at load if BOTH are set, or if
+    the polar pair is only half-filled (one of radius_mm/angle_deg without the
+    other — see config/entries.py); the absence of both is simply the default
+    Cartesian zero shift:
+
+      - Cartesian (default): shift_x_mm/shift_y_mm — a plain translation from
+        the pad centre to the spoke origin, WITHOUT rotation (raw shift, no
+        parent_rotation — spokes have no parent frame).
+      - Polar: radius_mm/angle_deg — the spoke origin is the pad centre plus
+        "radius_mm along the X axis, rotated by angle_deg", i.e.
+        origin = local_to_absolute(pad_position, radius_mm, 0.0, angle_deg),
+        the exact same primitive/convention as CoordinatePlacement's polar
+        mode and every cell's own along/across offsets — so angle_deg's
+        rotation direction is guaranteed consistent with rotation_deg's
+        meaning everywhere else.
+
+    rotation_deg (both modes) is ALWAYS in KiCad board coordinates (not local),
+    tuned visually for the specific board. Order: first shift (shift_x/shift_y
+    or radius/angle) from the pad centre to the spoke origin, then rotation of
+    the resulting origin (and all cell contents) by rotation_deg. Unlike
+    CoordinatePlacement, polar angle_deg does NOT become rotation_deg — it only
+    positions the origin; the component/cell orientation is a separate, already
+    existing rotation_deg concern.
 
     IMPORTANT: no component refs here anymore — concrete components are
     automatically selected from the pool (see placement/services/component_pool.py)
@@ -346,6 +365,8 @@ class ManualSpoke:
     shift_x_mm: float = 0.0
     shift_y_mm: float = 0.0
     rotation_deg: float = 0.0
+    radius_mm: float | None = None
+    angle_deg: float | None = None
     retired: bool = False
     cluster: str | None = None
     skip: bool = False
@@ -414,6 +435,18 @@ class ClonePlacement:
         rotation_deg rotates only the cell contents.
       - no anchor set: xy is an ABSOLUTE point on the board (required).
 
+    Offset — EITHER Cartesian xy (the default) OR polar radius_mm/angle_deg
+    (an OPTIONAL alternative, both required together; fatal if BOTH xy and
+    radius_mm/angle_deg are set — see config/entries.py). Same field names as
+    CoordinatePlacement for consistency. Polar describes the shift vector as
+    "radius_mm along the X axis, rotated by angle_deg" — and, crucially for
+    nested Cells (Phase 4 recursion), it passes through the SAME
+    parent_rotation_deg composition as xy does, i.e.
+    shift = rotate_local_offset(radius_mm, 0.0, angle_deg + parent_rotation_deg)
+    (see clone_geometry.py). Like xy, polar angle_deg does NOT become
+    rotation_deg — it only positions the origin; the cell's own orientation
+    stays under rotation_deg.
+
     Role→ref mapping — EITHER via the current selection on the board (for rare,
     one‑off sections like a single MCU), OR via explicit nets
     (params/nets/net_overrides — for repeated sections like PI‑filters or DAC
@@ -456,6 +489,8 @@ class ClonePlacement:
     """
     name: str
     xy: tuple[float, float]
+    radius_mm: float | None = None
+    angle_deg: float | None = None
     rotation_deg: float = 0.0
     cell: str | None = None
     role: str | None = None

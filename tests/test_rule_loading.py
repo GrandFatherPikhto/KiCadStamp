@@ -77,3 +77,32 @@ def test_unknown_key_is_fatal():
 def test_spokes_default_to_empty_list_when_omitted():
     rule = load_rule({"net": "+3V3", "anchor_role": "FPGA"})
     assert rule.spokes == []
+
+
+def test_polar_spoke_fields_load():
+    rule = load_rule({
+        "net": "+3V3", "anchor_role": "FPGA",
+        "spokes": [{"pad": "17", "cell": "cap_pair", "radius_mm": 5.0, "angle_deg": 37.0}],
+    })
+    spoke = rule.spokes[0]
+    assert spoke.radius_mm == 5.0
+    assert spoke.angle_deg == 37.0
+    assert spoke.shift_x_mm == 0.0
+    assert spoke.shift_y_mm == 0.0
+
+
+def test_spoke_shift_and_polar_together_is_fatal():
+    with pytest.raises(ValidationError, match="mutually exclusive"):
+        load_rule({
+            "net": "+3V3", "anchor_role": "FPGA",
+            "spokes": [{"pad": "17", "cell": "t", "shift_x_mm": 1.0,
+                        "radius_mm": 5.0, "angle_deg": 0.0}],
+        })
+
+
+def test_spoke_partial_polar_is_fatal():
+    with pytest.raises(ValidationError, match="polar mode needs BOTH"):
+        load_rule({
+            "net": "+3V3", "anchor_role": "FPGA",
+            "spokes": [{"pad": "17", "cell": "t", "radius_mm": 5.0}],
+        })

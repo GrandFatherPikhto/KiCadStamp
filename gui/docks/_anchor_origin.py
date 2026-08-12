@@ -71,11 +71,12 @@ class AnchorOriginWidget(QWidget):
     modeChanged = pyqtSignal()
 
     def __init__(self, modes: Sequence[str], anchor_fields: Sequence[str] = (),
-                shift: bool = False, parent: Optional[QWidget] = None):
+                shift: bool = False, polar: bool = False, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._modes: List[str] = list(modes)
         self._anchor_fields = set(anchor_fields)
         self._shift = shift
+        self._polar = polar
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -89,6 +90,10 @@ class AnchorOriginWidget(QWidget):
 
         self.x_edit: Optional[QLineEdit] = None
         self.y_edit: Optional[QLineEdit] = None
+        self.radius_edit: Optional[QLineEdit] = None
+        self.angle_edit: Optional[QLineEdit] = None
+        self._polar_combo: Optional[QComboBox] = None
+        self._polar_row: Optional[QWidget] = None
         if "xy" in self._modes:
             self._xy_row = QWidget()
             xy_row = QHBoxLayout(self._xy_row)
@@ -102,6 +107,31 @@ class AnchorOriginWidget(QWidget):
             xy_row.addWidget(QLabel(_("Y:")))
             xy_row.addWidget(self.y_edit)
             layout.addWidget(self._xy_row)
+
+            # Optional Cartesian/Polar switch for the XY row — same pattern
+            # as coordinate_placer's _update_row_mode(): enabled-only (not
+            # hidden), so the row keeps a stable layout. Only consumers that
+            # opt in via polar=True (PlacerDock/ClonePlacement) get this; the
+            # other three docks' xy shape is unchanged.
+            if self._polar:
+                self._polar_row = QWidget()
+                polar_row = QHBoxLayout(self._polar_row)
+                polar_row.setContentsMargins(0, 0, 0, 0)
+                self._polar_combo = QComboBox()
+                self._polar_combo.addItems([_("Cartesian"), _("Polar")])
+                self._polar_combo.currentIndexChanged.connect(self._update_polar_mode)
+                polar_row.addWidget(QLabel(_("Mode:")))
+                polar_row.addWidget(self._polar_combo)
+                polar_row.addWidget(QLabel(_("Radius:")))
+                self.radius_edit = QLineEdit()
+                self.radius_edit.setPlaceholderText(_("radius mm"))
+                polar_row.addWidget(self.radius_edit)
+                polar_row.addWidget(QLabel(_("Angle:")))
+                self.angle_edit = QLineEdit()
+                self.angle_edit.setPlaceholderText(_("angle deg"))
+                polar_row.addWidget(self.angle_edit)
+                layout.addWidget(self._polar_row)
+                self._update_polar_mode()
 
         self.anchor_ref_edit: Optional[QLineEdit] = None
         self.anchor_role_edit: Optional[QComboBox] = None
@@ -189,9 +219,25 @@ class AnchorOriginWidget(QWidget):
             self._point_row.setVisible(mode == "point")
         if "board_origin" in self._modes:
             self._board_origin_row.setVisible(mode == "board_origin")
+        if self._polar and self._polar_row is not None:
+            self._polar_row.setVisible(mode == "xy")
         if self._shift:
             self._shift_row.setVisible(mode != "xy")
         self.modeChanged.emit()
+
+    def _update_polar_mode(self) -> None:
+        """Same Cartesian/Polar field-toggle as coordinate_placer's
+        _update_row_mode(): X/Y enabled only in Cartesian, Radius/Angle only
+        in Polar. Disabled (not hidden) keeps the row layout stable."""
+        if not self._polar or self._polar_combo is None:
+            return
+        is_polar = self._polar_combo.currentIndex() == 1
+        for w in (self.x_edit, self.y_edit):
+            if w is not None:
+                w.setEnabled(not is_polar)
+        for w in (self.radius_edit, self.angle_edit):
+            if w is not None:
+                w.setEnabled(is_polar)
 
     # ── Populating combos from the live board / other files ───────────────
 
@@ -244,6 +290,16 @@ class AnchorOriginWidget(QWidget):
         fields: Dict[str, Any] = {"mode": mode}
 
         if mode == "xy":
+            if self._polar and self._polar_combo is not None and self._polar_combo.currentIndex() == 1:
+                radius, err = self._parse_required_float(self.radius_edit, _("Radius"))
+                if err:
+                    return None, err
+                angle, err = self._parse_required_float(self.angle_edit, _("Angle"))
+                if err:
+                    return None, err
+                fields["radius"] = radius
+                fields["angle"] = angle
+                return fields, None
             x, err = self._parse_required_float(self.x_edit, _("X"))
             if err:
                 return None, err
@@ -302,13 +358,20 @@ class AnchorOriginWidget(QWidget):
     def load(self, *, mode: Optional[str] = None, ref: str = "", role: str = "", sheet: str = "",
              pad: str = "", cluster: str = "", point: str = "", x: Optional[float] = None,
              y: Optional[float] = None, kind: Optional[str] = None, shift_x: Optional[float] = None,
-             shift_y: Optional[float] = None) -> None:
+             shift_y: Optional[float] = None, polar: Optional[bool] = None,
+             radius: Optional[float] = None, angle: Optional[float] = None) -> None:
         """Sets the mode combo + every present field; blank/default for
         anything not passed — used both for "load an already-saved entry"
         (caller extracts its own YAML keys, passes them through by generic
         name) and for new_xxx()'s "reset to blank" (called with no kwargs
         beyond mode)."""
         self.origin_mode_combo.setCurrentIndex(self._modes.index(mode) if mode in self._modes else 0)
+        if self._polar_combo is not None:
+            self._polar_combo.setCurrentIndex(1 if (polar or radius is not None) else 0)
+        if self.radius_edit is not None:
+            self.radius_edit.setText(str(radius) if radius is not None else "")
+        if self.angle_edit is not None:
+            self.angle_edit.setText(str(angle) if angle is not None else "")
         if self.x_edit is not None:
             self.x_edit.setText(str(x) if x is not None else "")
         if self.y_edit is not None:

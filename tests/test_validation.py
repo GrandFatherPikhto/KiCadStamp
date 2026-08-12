@@ -263,6 +263,35 @@ class TestNoDuplicateCloneAnchors:
         cfg = _cfg(rules=[], clone_placements=clones)
         check_no_duplicate_clone_anchors(cfg)
 
+    def test_same_anchor_different_polar_radius_is_not_a_duplicate(self):
+        """Polar clones (radius_mm/angle_deg) on the same anchor with
+        different radii are distinct — their xy is the loader default (0,0),
+        so this check must use the polar offset, not xy, to match
+        clone_anchor_id's identity."""
+        clones = [
+            ClonePlacement(name="a", cell="t", xy=(0, 0),
+                           radius_mm=5.0, angle_deg=0.0,
+                           anchor_role="CONN_PM5V", anchor_pad="1"),
+            ClonePlacement(name="b", cell="t", xy=(0, 0),
+                           radius_mm=7.0, angle_deg=0.0,
+                           anchor_role="CONN_PM5V", anchor_pad="1"),
+        ]
+        cfg = _cfg(rules=[], clone_placements=clones)
+        check_no_duplicate_clone_anchors(cfg)
+
+    def test_same_anchor_same_polar_radius_raises(self):
+        clones = [
+            ClonePlacement(name="a", cell="t", xy=(0, 0),
+                           radius_mm=5.0, angle_deg=0.0,
+                           anchor_role="CONN_PM5V", anchor_pad="1"),
+            ClonePlacement(name="b", cell="t", xy=(0, 0),
+                           radius_mm=5.0, angle_deg=0.0,
+                           anchor_role="CONN_PM5V", anchor_pad="1"),
+        ]
+        cfg = _cfg(rules=[], clone_placements=clones)
+        with pytest.raises(ValidationError, match="b.*a"):
+            check_no_duplicate_clone_anchors(cfg)
+
 
 class TestCloneNetsExistOnBoard:
     def _make_net_mock(self, name):

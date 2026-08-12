@@ -75,3 +75,23 @@ class TestCloneAnchorId:
         a = clone_anchor_id(_clone(name="Conn_PM5V", anchor_point="Origin", xy=(4.0, -110.0)))
         b = clone_anchor_id(_clone(name="Conn_PM5V_renamed", anchor_point="Origin", xy=(4.0, -110.0)))
         assert a == b
+
+    def test_polar_offset_distinguishes_anchored_clones(self):
+        """A polar clone's offset must be reflected in its registry identity —
+        two clones on the same anchor with different radii must NOT collapse
+        to the same id (their xy is the loader default (0,0))."""
+        a = clone_anchor_id(_clone(anchor_role="CONN_PM5V", anchor_pad="1",
+                                   radius_mm=5.0, angle_deg=0.0))
+        b = clone_anchor_id(_clone(anchor_role="CONN_PM5V", anchor_pad="1",
+                                   radius_mm=7.0, angle_deg=0.0))
+        assert a != b
+
+    def test_polar_offset_equivalent_to_cartesian_xy(self):
+        """radius=5/angle=0 is the same offset as xy=(5,0) — must produce the
+        same identity, so a config switched between the two representations
+        does not lose its registry vias/tracks."""
+        a = clone_anchor_id(_clone(anchor_role="CONN_PM5V", anchor_pad="1",
+                                   radius_mm=5.0, angle_deg=0.0))
+        b = clone_anchor_id(_clone(anchor_role="CONN_PM5V", anchor_pad="1",
+                                   xy=(5.0, 0.0)))
+        assert a == b

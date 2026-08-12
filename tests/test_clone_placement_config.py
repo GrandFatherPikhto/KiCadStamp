@@ -117,6 +117,60 @@ def test_no_clone_placements_gives_empty_list(tmp_path):
     assert cfg.clone_placements == []
 
 
+def test_polar_clone_placement_loads(tmp_path):
+    yaml_content = """
+cells:
+  t:
+    components: []
+clone_placements:
+  - name: polar
+    cell: t
+    radius_mm: 5.0
+    angle_deg: 37.0
+"""
+    config_file = tmp_path / "polar.yaml"
+    config_file.write_text(yaml_content, encoding="utf-8")
+    cfg, _ = load_config(str(config_file))
+    cp = cfg.clone_placements[0]
+    assert cp.radius_mm == 5.0
+    assert cp.angle_deg == 37.0
+    assert cp.xy == (0.0, 0.0)  # default preserved (optional alternative)
+
+
+def test_clone_placement_xy_and_polar_together_is_fatal(tmp_path):
+    yaml_content = """
+cells:
+  t:
+    components: []
+clone_placements:
+  - name: both
+    cell: t
+    xy: [1.0, 2.0]
+    radius_mm: 5.0
+    angle_deg: 0.0
+"""
+    config_file = tmp_path / "both.yaml"
+    config_file.write_text(yaml_content, encoding="utf-8")
+    with pytest.raises(ValidationError, match="both xy and radius_mm/angle_deg"):
+        load_config(str(config_file))
+
+
+def test_clone_placement_partial_polar_is_fatal(tmp_path):
+    yaml_content = """
+cells:
+  t:
+    components: []
+clone_placements:
+  - name: partial
+    cell: t
+    radius_mm: 5.0
+"""
+    config_file = tmp_path / "partial.yaml"
+    config_file.write_text(yaml_content, encoding="utf-8")
+    with pytest.raises(ValidationError, match="polar mode needs BOTH"):
+        load_config(str(config_file))
+
+
 # ---------- New tests for ClonePlacement fields ----------
 def test_anchor_ref_without_origin(tmp_path):
     """Anchor mode: anchor_ref set, origin_x/y become optional shift."""

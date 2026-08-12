@@ -22,7 +22,7 @@ from kipy.board_types import BoardLayer
 from ...config import Config, ClonePlacement, CellPlacement, Cell, TemplateComponentSlot
 from ...exceptions import ValidationError, format_fatal_error
 from ...kicad.adapter import KiCadBoardAdapter
-from ...geometry.clone_geometry import apply_clone_geometry
+from ...geometry.clone_geometry import apply_clone_geometry, clone_shift_mm
 from ...net_resolution import resolve_net_from_role
 from ...registry import make_registry_key
 from ..commands import PlacedComponentInfo, ViaCommand, TrackCommand
@@ -105,13 +105,14 @@ def clone_anchor_id(clone: ClonePlacement) -> str:
     vs C12 the anchor resolves to. Without it in the key, they too would
     collapse to one registry identity.
     """
+    ox, oy = clone_shift_mm(clone)
     if clone.anchor_point is not None:
-        return f"point:{clone.anchor_point}:{clone.xy[0]:.4f}:{clone.xy[1]:.4f}"
+        return f"point:{clone.anchor_point}:{ox:.4f}:{oy:.4f}"
     if clone.anchor_ref is not None:
-        return f"anchor:{clone.anchor_ref}:{clone.anchor_pad or ''}:{clone.xy[0]:.4f}:{clone.xy[1]:.4f}"
+        return f"anchor:{clone.anchor_ref}:{clone.anchor_pad or ''}:{ox:.4f}:{oy:.4f}"
     if clone.anchor_role is not None:
         return (f"role:{clone.anchor_role}:{clone.anchor_sheet or ''}:{clone.anchor_cluster or ''}"
-                f":{clone.anchor_pad or ''}:{clone.xy[0]:.4f}:{clone.xy[1]:.4f}")
+                f":{clone.anchor_pad or ''}:{ox:.4f}:{oy:.4f}")
     return f"name:{clone.name}"
 
 
