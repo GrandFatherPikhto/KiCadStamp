@@ -443,10 +443,10 @@ def check_single_selection_based_clone(cfg: Config) -> None:
 
 
 def check_config_structure(cfg: Config, sheet_names=None) -> None:
-    """The subset of pre‑validation that needs only the config, not a live
-    board — pulled out of run_all_checks so ApplyPipeline can run it on the
-    FULL config, before --only/--cluster narrow cfg.clone_placements down to
-    the requested subset (see apply_pipeline.ApplyPipeline._filter_config).
+    """The subset of pre‑validation that is about the config's own DEFINITIONS
+    (identity, cycles) — pulled out of run_all_checks so ApplyPipeline can run
+    it on the FULL config, before --only/--cluster narrow cfg.clone_placements
+    down to the requested subset (see apply_pipeline.ApplyPipeline._filter_config).
 
     Why this matters: check_no_duplicate_clone_anchors compares clone_placements
     PAIRWISE — a duplicate identity between clone A (requested via --only) and
@@ -457,13 +457,20 @@ def check_config_structure(cfg: Config, sheet_names=None) -> None:
     to the check whenever a run requested only A — found 2026-08-12, a
     genuine copy‑paste duplicate went unreported because the GUI run
     requested a single clone_placement by name.
+
+    Deliberately EXCLUDES check_single_selection_based_clone: that check is
+    about THIS RUN's selection‑mode clones, not the config's definitions —
+    --only NAME is its own documented fix ("run apply separately for each
+    using --only NAME"), which only works if the check runs AFTER --only
+    narrows cfg. Running it here, pre‑filter, would defeat that fix and
+    fatal on two selection‑based clones that were never meant to run
+    together (found 2026-08-12, immediately after this function shipped).
     """
     _sn = sheet_names or {}
     check_clone_cells_exist(cfg)
     check_no_cell_definition_cycles(cfg)
     check_no_duplicate_clone_anchors(cfg)
     check_anchor_sheet_configured(cfg, sheet_names=_sn)
-    check_single_selection_based_clone(cfg)
 
 
 def run_all_checks(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None) -> None:
@@ -472,10 +479,14 @@ def run_all_checks(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None) ->
     Re‑runs check_config_structure on cfg (typically already --only/--cluster
     filtered by the caller) — cheap and idempotent, and keeps this the single
     entry point that fully validates a config on its own for callers that
-    don't go through ApplyPipeline (tests, direct scripted use)."""
+    don't go through ApplyPipeline (tests, direct scripted use).
+    check_single_selection_based_clone runs only here, on the (possibly
+    filtered) cfg passed in — see check_config_structure's docstring for why
+    it must not run on the unfiltered config."""
     _sn = sheet_names or {}
     logger.info(_("Running pre‑validation checks..."))
     check_config_structure(cfg, sheet_names=_sn)
+    check_single_selection_based_clone(cfg)
     check_cells_and_pads_exist(adapter, cfg, sheet_names=_sn)
     check_role_pool_sufficiency(adapter, cfg)
     check_clone_nets_exist_on_board(adapter, cfg)

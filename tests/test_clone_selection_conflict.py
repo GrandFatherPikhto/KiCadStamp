@@ -9,7 +9,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from kicadstamp.config import Config, ClonePlacement, Cell
-from kicadstamp.validation import check_single_selection_based_clone, check_clone_cells_exist
+from kicadstamp.validation import (
+    check_single_selection_based_clone, check_clone_cells_exist, check_config_structure,
+)
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.placement.services.clone_role_resolver import clone_uses_selection_mode
 
@@ -109,6 +111,23 @@ class TestCheckSingleSelectionBasedClone:
         # two with by_selection => fatal
         with pytest.raises(ValidationError):
             check_single_selection_based_clone(cfg2)
+
+
+class TestCheckConfigStructureExcludesSelectionMode:
+    """Regression, 2026-08-12: check_config_structure() runs on the FULL config,
+    before --only narrows cfg.clone_placements (see apply_pipeline._filter_config).
+    If it included check_single_selection_based_clone, two selection-based clones
+    that were only ever meant to run one-at-a-time via --only NAME would fatal on
+    EVERY run, regardless of --only — defeating --only's own documented purpose.
+    """
+    def test_two_selection_based_clones_do_not_fail_config_structure(self):
+        cfg = _cfg([
+            ClonePlacement(name="a", cell="t", xy=(0, 0)),
+            ClonePlacement(name="b", cell="t", xy=(0, 0)),
+        ])
+        check_config_structure(cfg)  # must not raise
+        with pytest.raises(ValidationError):
+            check_single_selection_based_clone(cfg)  # still caught, just not here
 
 
 class TestCheckCloneCellsExist:
