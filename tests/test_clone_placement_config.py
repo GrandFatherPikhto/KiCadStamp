@@ -151,7 +151,10 @@ clone_placements:
 """
     config_file = tmp_path / "both.yaml"
     config_file.write_text(yaml_content, encoding="utf-8")
-    with pytest.raises(ValidationError, match="both xy and radius_mm/angle_deg"):
+    # Message text consolidated 2026-08-12 (Group 3): the both-modes fatal
+    # now comes from the shared _load_mutually_exclusive_position, which
+    # renders "both xy and polar (radius_mm/angle_deg) — mutually exclusive".
+    with pytest.raises(ValidationError, match="mutually exclusive"):
         load_config(str(config_file))
 
 

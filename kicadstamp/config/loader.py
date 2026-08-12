@@ -68,6 +68,28 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 
+def _check_duplicate_names(items, name_fn, section_label: str, hint: str) -> None:
+    """Fatal on two entries resolving to the same name — shared duplicate-name
+    collision check (the thermal_via_arrays and coordinate_placements blocks
+    were structurally identical copies; 2026-08-12, Group 3 consolidation).
+    `name_fn` extracts the compared name from one item (may be a derived
+    effective name, e.g. coordinate_placement_effective_name); `section_label`
+    names the YAML section in the error message; `hint` explains why names
+    must be unique within the list (--only cannot tell same-named entries
+    apart)."""
+    seen: dict[str, int] = {}
+    for item in items:
+        name = name_fn(item)
+        seen[name] = seen.get(name, 0) + 1
+    dup_names = sorted(name for name, count in seen.items() if count > 1)
+    if dup_names:
+        raise ValidationError(format_fatal_error(
+            _("duplicate name(s) in {section}: {names}").format(
+                section=section_label, names=dup_names),
+            [hint]
+        ))
+
+
 def load_config(path: str) -> tuple[Config, RuntimeContext]:
     logger.info(_("Loading configuration from {path}").format(path=path))
     with open(path, 'r', encoding='utf-8') as f:
@@ -110,18 +132,13 @@ def load_config(path: str) -> tuple[Config, RuntimeContext]:
     # Fatal on collision: two entries with the same name would silently
     # collide under --only, same reasoning/shape as the rules' --only
     # collision check just below where this used to live (see the rules
-    # loop) — unlike rules, name here is always explicit (required above),
-    # so this is a plain duplicate check, no derived-name fallback involved.
-    seen_tva_names: dict[str, int] = {}
-    for tva in thermal_vias:
-        seen_tva_names[tva.name] = seen_tva_names.get(tva.name, 0) + 1
-    dup_tva_names = sorted(name for name, count in seen_tva_names.items() if count > 1)
-    if dup_tva_names:
-        raise ValidationError(format_fatal_error(
-            _("duplicate name(s) in thermal_via_arrays: {names}").format(names=dup_tva_names),
-            [_("every thermal_via_arrays entry needs a unique name: — --only cannot tell "
-               "same-named entries apart otherwise")]
-        ))
+    # loop) — shared duplicate-name validator, see _check_duplicate_names.
+    # Unlike rules, name here is always explicit (required above), so this is
+    # a plain duplicate check, no derived-name fallback involved.
+    _check_duplicate_names(
+        thermal_vias, lambda tva: tva.name, "thermal_via_arrays",
+        _("every thermal_via_arrays entry needs a unique name: — --only cannot tell "
+          "same-named entries apart otherwise"))
 
     coordinate_placements: list[CoordinatePlacement] = [
         _load_coordinate_placement(cp_data) for cp_data in data.get('coordinate_placements', [])
@@ -130,18 +147,11 @@ def load_config(path: str) -> tuple[Config, RuntimeContext]:
     # Same duplicate-name collision check as thermal_via_arrays above — the
     # name here is USUALLY derived (cluster/role), not explicit, but --only
     # still needs it to be unique across the whole list.
-    seen_cp_names: dict[str, int] = {}
-    for cp in coordinate_placements:
-        effective = coordinate_placement_effective_name(cp)
-        seen_cp_names[effective] = seen_cp_names.get(effective, 0) + 1
-    dup_cp_names = sorted(name for name, count in seen_cp_names.items() if count > 1)
-    if dup_cp_names:
-        raise ValidationError(format_fatal_error(
-            _("duplicate name(s) in coordinate_placements: {names}").format(names=dup_cp_names),
-            [_("every coordinate_placements entry needs a unique name (explicit, or the "
-               "default cluster/role pair) — --only cannot tell same-named entries apart "
-               "otherwise")]
-        ))
+    _check_duplicate_names(
+        coordinate_placements, coordinate_placement_effective_name, "coordinate_placements",
+        _("every coordinate_placements entry needs a unique name (explicit, or the "
+          "default cluster/role pair) — --only cannot tell same-named entries apart "
+          "otherwise"))
 
     cells_data = dict(data.get('cells', {}) or {})
 

@@ -429,6 +429,64 @@ def _point_is_footprint_eligible(points: dict[str, Point], name: str, _visited=N
     return point.anchor_ref is not None or point.anchor_role is not None
 
 
+def _load_mutually_exclusive_position(data: dict[str, Any], mode_specs, label: str) -> str | None:
+    """Shared "exactly one position mode" validator — the "fatal if both /
+    fatal if half-populated" branches were manually copied in
+    _load_manual_spoke / _load_clone_placement / _load_coordinate_placement;
+    this is the single copy (2026-08-12, Group 3 consolidation).
+
+    mode_specs: iterable of (mode_name, fields, all_required) where
+    mode_name is the human-readable mode label used in error messages (e.g.
+    "Cartesian"/"polar") and `fields` the YAML field names that make up the
+    mode. A mode is ACTIVE when any of its fields is present in data (not
+    None). all_required=True makes a mode fatal when only PART of its fields
+    are set (e.g. radius_mm without angle_deg); False allows a partial mode
+    (e.g. shift_x_mm alone, the rest defaulting to 0).
+
+    Returns the single active mode's name, or None if none is set. Fatal
+    when two+ modes are active at once, or when an all_required mode is only
+    partially populated — messages name the concrete conflicting/missing
+    fields."""
+    active: list[str] = []
+    incomplete: list[tuple[str, tuple, list[str]]] = []
+    for mode_name, fields, all_required in mode_specs:
+        present = [f for f in fields if data.get(f) is not None]
+        if not present:
+            continue
+        active.append(mode_name)
+        if all_required and len(present) != len(fields):
+            missing = [f for f in fields if data.get(f) is None]
+            incomplete.append((mode_name, tuple(fields), missing))
+
+    if len(active) > 1:
+        def _render(name: str, fields) -> str:
+            return fields[0] if len(fields) == 1 else f"{name} ({'/'.join(fields)})"
+        modes = " and ".join(
+            _render(name, fields) for name, fields, _ in mode_specs if name in active)
+        raise ValidationError(format_fatal_error(
+            _("{label} has both {modes} — mutually exclusive position modes")
+            .format(label=label, modes=modes),
+            [_("these are mutually exclusive position modes — pick exactly one")]
+        ))
+    if incomplete:
+        mode_name, fields, missing = incomplete[0]
+        # The title names the mode's FULL field set (same as the original
+        # per-caller messages did): "BOTH a and b" for 2-field modes,
+        # "all of: a, b, ..." otherwise. The hint lists only what's actually
+        # missing.
+        if len(fields) == 2:
+            title = _("{label}: {mode} mode needs BOTH {a} and {b}").format(
+                label=label, mode=mode_name, a=fields[0], b=fields[1])
+        else:
+            title = _("{label}: {mode} mode needs all of: {fields}").format(
+                label=label, mode=mode_name, fields=", ".join(fields))
+        raise ValidationError(format_fatal_error(
+            title,
+            [_("missing: {missing}").format(missing=", ".join(missing))]
+        ))
+    return active[0] if active else None
+
+
 _MANUAL_SPOKE_KNOWN_KEYS = {
     'pad', 'cell', 'shift_x_mm', 'shift_y_mm', 'rotation_deg',
     'radius_mm', 'angle_deg',
@@ -444,25 +502,14 @@ def _load_manual_spoke(data: dict[str, Any], rule_label: str) -> ManualSpoke:
     # Position — EXACTLY ONE of two mutually exclusive modes (see ManualSpoke's
     # docstring): Cartesian shift (shift_x_mm/shift_y_mm, the default) OR polar
     # (radius_mm/angle_deg). Fatal if BOTH are given, or if only ONE of the
-    # polar pair is — same pattern as Cartesian/Polar in
-    # _load_coordinate_placement().
-    has_shift = data.get('shift_x_mm') is not None or data.get('shift_y_mm') is not None
-    has_polar = data.get('radius_mm') is not None or data.get('angle_deg') is not None
-    if has_shift and has_polar:
-        raise ValidationError(format_fatal_error(
-            _("spoke (pad {pad!r}) of rule (net {net!r}) has both Cartesian (shift_x_mm/shift_y_mm) "
-              "and polar (radius_mm/angle_deg) fields")
-            .format(pad=data.get('pad', '?'), net=rule_label),
-            [_("these are mutually exclusive position modes — pick exactly one")]
-        ))
-    if has_polar:
-        missing = [k for k in ('radius_mm', 'angle_deg') if data.get(k) is None]
-        if missing:
-            raise ValidationError(format_fatal_error(
-                _("spoke (pad {pad!r}) of rule (net {net!r}): polar mode needs BOTH radius_mm "
-                  "and angle_deg").format(pad=data.get('pad', '?'), net=rule_label),
-                [_("missing: {missing}").format(missing=missing)]
-            ))
+    # polar pair is — shared validator, see _load_mutually_exclusive_position.
+    _load_mutually_exclusive_position(
+        data,
+        [("Cartesian", ("shift_x_mm", "shift_y_mm"), False),
+         ("polar", ("radius_mm", "angle_deg"), True)],
+        _("spoke (pad {pad!r}) of rule (net {net!r})")
+        .format(pad=data.get('pad', '?'), net=rule_label),
+    )
 
     return ManualSpoke(
         pad=data['pad'],
@@ -636,10 +683,22 @@ def _load_clone_placement(data: dict[str, Any]) -> ClonePlacement:
         ))
 
     has_anchor = anchor_ref is not None or anchor_role is not None or anchor_point is not None
-    # Polar offset (radius_mm/angle_deg) is an OPTIONAL alternative to xy —
-    # confirmed with Denis 2026-08-12: xy keeps its implicit (0,0) default and
-    # stays valid; fatal ONLY when BOTH are set; polar means BOTH radius/angle.
-    has_polar = data.get('radius_mm') is not None or data.get('angle_deg') is not None
+    # Position — EXACTLY ONE of two mutually exclusive modes, via the shared
+    # _load_mutually_exclusive_position: xy (Cartesian) OR polar
+    # radius_mm/angle_deg. xy keeps its implicit (0,0) default and stays
+    # valid; fatal only when BOTH are set, or when only ONE polar field is
+    # (confirmed with Denis 2026-08-12). The both/half fatals live in the
+    # shared validator — this block only adds the anchor-less "no absolute
+    # position at all" check. Note: xy-activation is by VALUE (is not None),
+    # so a degenerate `xy: null` no longer counts as a second active mode
+    # next to polar (previously `'xy' in data` fatalled on that too).
+    mode = _load_mutually_exclusive_position(
+        data,
+        [("xy", ("xy",), False),
+         ("polar", ("radius_mm", "angle_deg"), True)],
+        _("clone_placement {name!r}").format(name=name),
+    )
+    has_polar = mode == "polar"
 
     if not has_anchor and 'xy' not in data and not has_polar:
         raise ValidationError(format_fatal_error(
@@ -675,20 +734,8 @@ def _load_clone_placement(data: dict[str, Any]) -> ClonePlacement:
     else:
         xy = (0.0, 0.0)
 
-    if has_polar and 'xy' in data:
-        raise ValidationError(format_fatal_error(
-            _("clone_placement {name!r} has both xy and radius_mm/angle_deg").format(name=name),
-            [_("xy is a Cartesian offset, radius_mm/angle_deg the polar alternative — "
-               "pick exactly one way to describe the shift")]
-        ))
+    # has_polar guarantees BOTH radius_mm and angle_deg (shared validator).
     if has_polar:
-        missing = [k for k in ('radius_mm', 'angle_deg') if data.get(k) is None]
-        if missing:
-            raise ValidationError(format_fatal_error(
-                _("clone_placement {name!r}: polar mode needs BOTH radius_mm and angle_deg")
-                .format(name=name),
-                [_("missing: {missing}").format(missing=missing)]
-            ))
         radius_mm = float(data['radius_mm'])
         angle_deg = float(data['angle_deg'])
     else:
@@ -815,22 +862,13 @@ def _load_coordinate_placement(data: dict[str, Any]) -> CoordinatePlacement:
     check_unknown_keys(data, _COORDINATE_PLACEMENT_KNOWN_KEYS,
                        _("unknown fields in coordinate_placements entry {label!r}").format(label=label))
 
-    has_cartesian = data.get('x_mm') is not None or data.get('y_mm') is not None
-    has_polar = any(data.get(k) is not None for k in
-                    ('center_x_mm', 'center_y_mm', 'radius_mm', 'angle_deg'))
-    if has_cartesian and has_polar:
-        raise ValidationError(format_fatal_error(
-            _("coordinate_placements entry {label!r} has both Cartesian (x_mm/y_mm) and polar "
-              "(center_x_mm/center_y_mm/radius_mm/angle_deg) fields").format(label=label),
-            [_("these are mutually exclusive position modes — pick exactly one")]
-        ))
-    if has_cartesian:
-        if data.get('x_mm') is None or data.get('y_mm') is None:
-            raise ValidationError(format_fatal_error(
-                _("coordinate_placements entry {label!r}: Cartesian mode needs BOTH x_mm and y_mm")
-                .format(label=label),
-                [_("got x_mm={x!r}, y_mm={y!r}").format(x=data.get('x_mm'), y=data.get('y_mm'))]
-            ))
+    mode = _load_mutually_exclusive_position(
+        data,
+        [("Cartesian", ("x_mm", "y_mm"), True),
+         ("polar", ("center_x_mm", "center_y_mm", "radius_mm", "angle_deg"), True)],
+        _("coordinate_placements entry {label!r}").format(label=label),
+    )
+    if mode == "Cartesian":
         rotation_deg_raw = data.get('rotation_deg')
         if rotation_deg_raw is None:
             raise ValidationError(format_fatal_error(
@@ -842,15 +880,7 @@ def _load_coordinate_placement(data: dict[str, Any]) -> CoordinatePlacement:
         x_mm, y_mm = float(data['x_mm']), float(data['y_mm'])
         center_x_mm = center_y_mm = radius_mm = angle_deg = None
         rotation_deg = float(rotation_deg_raw)
-    elif has_polar:
-        missing = [k for k in ('center_x_mm', 'center_y_mm', 'radius_mm', 'angle_deg')
-                  if data.get(k) is None]
-        if missing:
-            raise ValidationError(format_fatal_error(
-                _("coordinate_placements entry {label!r}: polar mode needs all four of "
-                  "center_x_mm/center_y_mm/radius_mm/angle_deg").format(label=label),
-                [_("missing: {missing}").format(missing=missing)]
-            ))
+    elif mode == "polar":
         x_mm = y_mm = None
         center_x_mm, center_y_mm = float(data['center_x_mm']), float(data['center_y_mm'])
         radius_mm, angle_deg = float(data['radius_mm']), float(data['angle_deg'])

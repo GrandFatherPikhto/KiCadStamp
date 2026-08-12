@@ -92,8 +92,8 @@ from kicadstamp.i18n import _
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
-                      configure_searchable, display_path, set_combo_items, show_message,
-                      upsert_list_entry)
+                      configure_searchable, display_path, parse_float_field, set_combo_items,
+                      set_mode_pair_enabled, show_message, upsert_list_entry)
 from .rename import collect_all_cell_names, collect_all_point_names
 
 logger = logging.getLogger(__name__)
@@ -325,17 +325,6 @@ class RuleDock(QWidget):
     def _show_message(self, text: str, style: str = "") -> None:
         show_message(self.message_label, text, style, logger)
 
-    def _parse_float(self, edit: QLineEdit, label: str, default: float) -> Optional[float]:
-        text = edit.text().strip()
-        if not text:
-            return default
-        try:
-            return float(text)
-        except ValueError:
-            self._show_message(_("{label}: {text!r} is not a number.").format(label=label, text=text),
-                               _ERROR_STYLE)
-            return None
-
     # ── Spokes table ──────────────────────────────────────────────────────
 
     def _refresh_table(self) -> None:
@@ -362,12 +351,13 @@ class RuleDock(QWidget):
         """Same Cartesian/Polar field-toggle as coordinate_placer's
         _update_row_mode() — Shift fields only in Cartesian, Radius/Angle
         only in Polar. Disabled (not hidden) keeps the editor layout stable,
-        matching every other dock's convention."""
-        is_polar = self.spoke_mode_combo.currentIndex() == 1
-        for w in (self.spoke_shift_x_edit, self.spoke_shift_y_edit):
-            w.setEnabled(not is_polar)
-        for w in (self.spoke_radius_edit, self.spoke_angle_edit):
-            w.setEnabled(is_polar)
+        matching every other dock's convention — shared set_mode_pair_enabled
+        (gui/docks/_common.py)."""
+        set_mode_pair_enabled(
+            self.spoke_mode_combo.currentIndex() == 1,
+            (self.spoke_shift_x_edit, self.spoke_shift_y_edit),
+            (self.spoke_radius_edit, self.spoke_angle_edit),
+        )
 
     def _on_table_selection_changed(self) -> None:
         rows = self.spokes_table.selectionModel().selectedRows()
@@ -421,28 +411,49 @@ class RuleDock(QWidget):
         entry: Dict[str, Any] = {"pad": pad, "cell": cell}
         if self.spoke_mode_combo.currentIndex() == 1:
             # Polar — radius/angle BOTH required (same rule as the loader).
-            radius = self._parse_float(self.spoke_radius_edit, _("Radius"), default=None)
-            angle = self._parse_float(self.spoke_angle_edit, _("Angle"), default=None)
+            # Shared (ok, value) parse (parse_float_field): a "not a number"
+            # error is reported and returned immediately, so the exact field
+            # error is never clobbered by the generic "needs both" message
+            # below — only genuinely-empty fields fall through to it (this
+            # fixes the old overloaded-None behaviour, plan Group 2 item 5).
+            ok, radius = parse_float_field(self.spoke_radius_edit)
+            if not ok:
+                self._show_message(_("Radius: {text!r} is not a number.")
+                                   .format(text=self.spoke_radius_edit.text().strip()), _ERROR_STYLE)
+                return None
+            ok, angle = parse_float_field(self.spoke_angle_edit)
+            if not ok:
+                self._show_message(_("Angle: {text!r} is not a number.")
+                                   .format(text=self.spoke_angle_edit.text().strip()), _ERROR_STYLE)
+                return None
             if radius is None or angle is None:
-                if not self.spoke_radius_edit.text().strip() or not self.spoke_angle_edit.text().strip():
-                    self._show_message(_("Polar mode needs both Radius and Angle."), _ERROR_STYLE)
+                self._show_message(_("Polar mode needs both Radius and Angle."), _ERROR_STYLE)
                 return None
             entry["radius_mm"] = radius
             entry["angle_deg"] = angle
         else:
-            shift_x = self._parse_float(self.spoke_shift_x_edit, _("Shift X"), default=0.0)
-            if shift_x is None:
+            ok, shift_x = parse_float_field(self.spoke_shift_x_edit)
+            if not ok:
+                self._show_message(_("Shift X: {text!r} is not a number.")
+                                   .format(text=self.spoke_shift_x_edit.text().strip()), _ERROR_STYLE)
                 return None
+            ok, shift_y = parse_float_field(self.spoke_shift_y_edit)
+            if not ok:
+                self._show_message(_("Shift Y: {text!r} is not a number.")
+                                   .format(text=self.spoke_shift_y_edit.text().strip()), _ERROR_STYLE)
+                return None
+            shift_x = 0.0 if shift_x is None else shift_x
+            shift_y = 0.0 if shift_y is None else shift_y
             if shift_x:
                 entry["shift_x_mm"] = shift_x
-            shift_y = self._parse_float(self.spoke_shift_y_edit, _("Shift Y"), default=0.0)
-            if shift_y is None:
-                return None
             if shift_y:
                 entry["shift_y_mm"] = shift_y
-        rotation = self._parse_float(self.spoke_rotation_edit, _("Rotation"), default=0.0)
-        if rotation is None:
+        ok, rotation = parse_float_field(self.spoke_rotation_edit)
+        if not ok:
+            self._show_message(_("Rotation: {text!r} is not a number.")
+                               .format(text=self.spoke_rotation_edit.text().strip()), _ERROR_STYLE)
             return None
+        rotation = 0.0 if rotation is None else rotation
         if rotation:
             entry["rotation_deg"] = rotation
         cluster = self.spoke_cluster_combo.currentText().strip()

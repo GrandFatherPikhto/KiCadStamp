@@ -76,7 +76,10 @@ def test_cartesian_needs_explicit_rotation_deg():
 def test_polar_needs_all_four_fields():
     import kicadstamp.config as config
 
-    with pytest.raises(ValidationError, match="polar mode needs all four"):
+    # Message text consolidated 2026-08-12 (Group 3): the half-populated
+    # polar fatal now comes from the shared _load_mutually_exclusive_position
+    # ("polar mode needs all of: center_x_mm, ...").
+    with pytest.raises(ValidationError, match="polar mode needs all of"):
         config.load_coordinate_placement(
             {"cluster": "X", "role": "R1", "center_x_mm": 0.0, "center_y_mm": 0.0, "radius_mm": 5.0})
 

@@ -53,6 +53,45 @@ from .role_narrowing import _narrow_ambiguous_candidates, _narrow_by_sheet_clust
 logger = logging.getLogger(__name__)
 
 
+def resolve_unique_footprint_by_fields(adapter, field_matches: dict, label: str) -> FootprintInstance:
+    """Shared "find the ONE footprint whose custom fields match, fatal if
+    none or if several" helper — the exact-match filter plus none/ambiguous
+    fatals of resolve_by_cluster_tag (below) and resolve_footprint_by_cluster_role
+    (coordinate_position_calculator.py) were near-identical copies
+    (2026-08-12, Group 3 consolidation); this is the single copy, and Group
+    0's anchor-relative CoordinatePlacement will reuse it too.
+
+    field_matches: {FIELD_NAME: value} — a footprint matches when EVERY
+    field equals its value (EXACT equality, no prefix narrowing: ambiguity
+    here is a tagging mistake, not something to resolve — see
+    resolve_by_cluster_tag's docstring). label is the caller's error-message
+    label (clone.name / coordinate effective name).
+
+    Returns the single matching footprint, or raises a fatal ValidationError
+    naming the field/value(s) — no match at all, or more than one match
+    (with the refs of all of them, so the tagging mistake is easy to fix)."""
+    matches = [fp for fp in adapter.get_footprints()
+              if all(adapter.get_field_value(fp, field) == value
+                     for field, value in field_matches.items())]
+    if not matches:
+        tag_desc = ", ".join(f"{field}={value!r}" for field, value in field_matches.items())
+        raise ValidationError(format_fatal_error(
+            _("{label}: no component tagged {tag_desc}").format(label=label, tag_desc=tag_desc),
+            [_("tag the target component's {fields} fields first (RoleClusterTreeDock or "
+               "fieldstool), or check for a typo").format(fields="/".join(field_matches))]
+        ))
+    if len(matches) > 1:
+        refs = sorted(fp.reference_field.text.value for fp in matches)
+        tag_desc = ", ".join(f"{field}={value!r}" for field, value in field_matches.items())
+        raise ValidationError(format_fatal_error(
+            _("{label}: {count} components tagged {tag_desc}, expected exactly one")
+            .format(label=label, count=len(matches), tag_desc=tag_desc),
+            [_("{fields} is meant to be unique per instance — fix the tagging: {refs}")
+             .format(fields="/".join(field_matches), refs=refs)]
+        ))
+    return matches[0]
+
+
 def resolve_by_cluster_tag(adapter, cell: Cell, clone: ClonePlacement) -> dict[str, str]:
     """Mapping by an EXISTING Cluster PCB field — see module docstring, §3.
     `cell` is the synthetic one-component Cell ClonePositionCalculator
@@ -60,26 +99,12 @@ def resolve_by_cluster_tag(adapter, cell: Cell, clone: ClonePlacement) -> dict[s
     placeholder key, not a real Role value — see _resolve_content); this
     returns {that placeholder: matched ref}, the same shape resolve_roles_by_
     selection/by_nets return, so apply_clone_geometry doesn't need to know
-    which of the three modes produced it."""
-    matches = [fp for fp in adapter.get_footprints()
-              if adapter.get_field_value(fp, CLUSTER_FIELD_NAME) == clone.cluster]
-    if not matches:
-        raise ValidationError(format_fatal_error(
-            _("{name}: no component tagged {field}={cluster!r}")
-            .format(name=clone.name, field=CLUSTER_FIELD_NAME, cluster=clone.cluster),
-            [_("tag the target component's {field} field first (RoleClusterTreeDock or "
-               "fieldstool), or check for a typo").format(field=CLUSTER_FIELD_NAME)]
-        ))
-    if len(matches) > 1:
-        refs = sorted(fp.reference_field.text.value for fp in matches)
-        raise ValidationError(format_fatal_error(
-            _("{name}: {count} components tagged {field}={cluster!r}, expected exactly one")
-            .format(name=clone.name, count=len(matches), field=CLUSTER_FIELD_NAME, cluster=clone.cluster),
-            [_("{field} is meant to be unique per instance — fix the tagging: {refs}")
-             .format(field=CLUSTER_FIELD_NAME, refs=refs)]
-        ))
+    which of the three modes produced it. The exact-match filter + fatals
+    are the shared resolve_unique_footprint_by_fields."""
+    fp = resolve_unique_footprint_by_fields(
+        adapter, {CLUSTER_FIELD_NAME: clone.cluster}, clone.name)
     slot_role = cell.components[0].role
-    ref = matches[0].reference_field.text.value
+    ref = fp.reference_field.text.value
     logger.info(_("[{name}] cluster {cluster!r} -> {ref}")
                 .format(name=clone.name, cluster=clone.cluster, ref=ref))
     return {slot_role: ref}

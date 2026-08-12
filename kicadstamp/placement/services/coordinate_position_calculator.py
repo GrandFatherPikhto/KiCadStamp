@@ -34,11 +34,10 @@ from kipy.geometry import Vector2, Angle
 
 from ...config import CoordinatePlacement, coordinate_placement_effective_name
 from ...constants import ROLE_FIELD_NAME, CLUSTER_FIELD_NAME
-from ...exceptions import ValidationError, format_fatal_error
 from ...geometry.spoke_layout import local_to_absolute
-from ...i18n import _
 from ...utils.units import MM
 from ..commands import MoveCommand
+from .clone_role_resolver import resolve_unique_footprint_by_fields
 from .component_resolver import resolve_anchor_pad_position
 
 logger = logging.getLogger(__name__)
@@ -71,30 +70,10 @@ def resolve_footprint_by_cluster_role(adapter, cluster: str, role: str, label: s
     already-uniquely-tagged instance, which is what both this and
     resolve_by_cluster_tag actually do. Role is ALSO exact-matched (it
     already is everywhere in the project — see project's Role/Cluster
-    architecture notes)."""
-    matches = [fp for fp in adapter.get_footprints()
-              if adapter.get_field_value(fp, ROLE_FIELD_NAME) == role
-              and adapter.get_field_value(fp, CLUSTER_FIELD_NAME) == cluster]
-    if not matches:
-        raise ValidationError(format_fatal_error(
-            _("{label}: no component tagged {role_field}={role!r} and {cluster_field}={cluster!r}")
-            .format(label=label, role_field=ROLE_FIELD_NAME, role=role,
-                    cluster_field=CLUSTER_FIELD_NAME, cluster=cluster),
-            [_("tag the target component's {role_field}/{cluster_field} fields first "
-               "(RoleClusterTreeDock/fieldstool), or check for a typo")
-             .format(role_field=ROLE_FIELD_NAME, cluster_field=CLUSTER_FIELD_NAME)]
-        ))
-    if len(matches) > 1:
-        refs = sorted(fp.reference_field.text.value for fp in matches)
-        raise ValidationError(format_fatal_error(
-            _("{label}: {count} components tagged {role_field}={role!r}/{cluster_field}={cluster!r}, "
-              "expected exactly one")
-            .format(label=label, count=len(matches), role_field=ROLE_FIELD_NAME, role=role,
-                    cluster_field=CLUSTER_FIELD_NAME, cluster=cluster),
-            [_("Role is meant to be unique within one Cluster instance — fix the tagging: {refs}")
-             .format(refs=refs)]
-        ))
-    return matches[0]
+    architecture notes). Thin wrapper over the shared
+    resolve_unique_footprint_by_fields (clone_role_resolver.py, 2026-08-12)."""
+    return resolve_unique_footprint_by_fields(
+        adapter, {ROLE_FIELD_NAME: role, CLUSTER_FIELD_NAME: cluster}, label)
 
 
 def resolve_target_position(cp: CoordinatePlacement) -> tuple[Vector2, float]:

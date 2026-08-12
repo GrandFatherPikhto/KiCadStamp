@@ -67,8 +67,8 @@ from kicadstamp.i18n import _
 
 from ..worker import start_long_op
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
-                      configure_searchable, display_path, set_combo_items,
-                      set_list_section, show_message)
+                      configure_searchable, display_path, parse_float_field, set_combo_items,
+                      set_list_section, set_mode_pair_enabled, show_message)
 
 logger = logging.getLogger(__name__)
 
@@ -248,10 +248,12 @@ class CoordinatePlacerDock(QWidget):
 
     def _update_row_mode(self, row: int) -> None:
         is_polar = self.table.cellWidget(row, _COL_MODE).currentIndex() == 1
-        self.table.cellWidget(row, _COL_X).setEnabled(not is_polar)
-        self.table.cellWidget(row, _COL_Y).setEnabled(not is_polar)
-        for col in (_COL_CENTER_X, _COL_CENTER_Y, _COL_RADIUS, _COL_ANGLE):
-            self.table.cellWidget(row, col).setEnabled(is_polar)
+        set_mode_pair_enabled(
+            is_polar,
+            (self.table.cellWidget(row, _COL_X), self.table.cellWidget(row, _COL_Y)),
+            (self.table.cellWidget(row, _COL_CENTER_X), self.table.cellWidget(row, _COL_CENTER_Y),
+             self.table.cellWidget(row, _COL_RADIUS), self.table.cellWidget(row, _COL_ANGLE)),
+        )
 
     def _update_row_anchor(self, row: int) -> None:
         is_pad = self.table.cellWidget(row, _COL_ANCHOR).currentIndex() == 1
@@ -268,21 +270,19 @@ class CoordinatePlacerDock(QWidget):
     # ── Row <-> dict conversion ──────────────────────────────────────────
 
     def _row_float(self, row: int, col: int) -> Tuple[bool, Optional[float]]:
-        """(ok, value) — empty text is a valid "not set" (None), letting
-        load_coordinate_placement()'s own validation produce the real
-        "which field is missing" error; only genuinely unparsable text
-        (not a number at all) is caught here, since that has no equivalent
-        YAML-side error to reuse."""
-        text = self.table.cellWidget(row, col).text().strip()
-        if not text:
-            return True, None
-        try:
-            return True, float(text)
-        except ValueError:
+        """(ok, value) — same shared parse as every other dock
+        (parse_float_field in gui/docks/_common.py): empty text is a valid
+        "not set" (None), letting load_coordinate_placement()'s own
+        validation produce the real "which field is missing" error; only
+        genuinely unparsable text (not a number at all) is caught here,
+        since that has no equivalent YAML-side error to reuse."""
+        widget = self.table.cellWidget(row, col)
+        ok, value = parse_float_field(widget)
+        if not ok:
             self._show_message(
                 _("Row {row}, {column}: {text!r} is not a number.")
-                .format(row=row + 1, column=_HEADERS[col], text=text), _ERROR_STYLE)
-            return False, None
+                .format(row=row + 1, column=_HEADERS[col], text=widget.text().strip()), _ERROR_STYLE)
+        return ok, value
 
     def _row_to_entry(self, row: int) -> Optional[Dict[str, Any]]:
         cluster = self.table.cellWidget(row, _COL_CLUSTER).currentText().strip()

@@ -39,7 +39,8 @@ from PyQt6.QtWidgets import (QComboBox, QFormLayout, QHBoxLayout, QLabel,
 
 from kicadstamp.i18n import _
 
-from ._common import configure_searchable, set_combo_items
+from ._common import (configure_searchable, parse_float_field, set_combo_items,
+                      set_mode_pair_enabled)
 
 logger = logging.getLogger(__name__)
 
@@ -228,16 +229,15 @@ class AnchorOriginWidget(QWidget):
     def _update_polar_mode(self) -> None:
         """Same Cartesian/Polar field-toggle as coordinate_placer's
         _update_row_mode(): X/Y enabled only in Cartesian, Radius/Angle only
-        in Polar. Disabled (not hidden) keeps the row layout stable."""
+        in Polar. Disabled (not hidden) keeps the row layout stable —
+        shared set_mode_pair_enabled (gui/docks/_common.py)."""
         if not self._polar or self._polar_combo is None:
             return
-        is_polar = self._polar_combo.currentIndex() == 1
-        for w in (self.x_edit, self.y_edit):
-            if w is not None:
-                w.setEnabled(not is_polar)
-        for w in (self.radius_edit, self.angle_edit):
-            if w is not None:
-                w.setEnabled(is_polar)
+        set_mode_pair_enabled(
+            self._polar_combo.currentIndex() == 1,
+            (self.x_edit, self.y_edit),
+            (self.radius_edit, self.angle_edit),
+        )
 
     # ── Populating combos from the live board / other files ───────────────
 
@@ -259,23 +259,19 @@ class AnchorOriginWidget(QWidget):
 
     @staticmethod
     def _parse_required_float(edit: QLineEdit, label: str) -> Tuple[Optional[float], Optional[str]]:
-        text = edit.text().strip()
-        if not text:
+        ok, value = parse_float_field(edit)
+        if not ok:
+            return None, _("{label}: {text!r} is not a number.").format(label=label, text=edit.text().strip())
+        if value is None:
             return None, _("{label} is required.").format(label=label)
-        try:
-            return float(text), None
-        except ValueError:
-            return None, _("{label}: {text!r} is not a number.").format(label=label, text=text)
+        return value, None
 
     @staticmethod
     def _parse_optional_float(edit: QLineEdit, label: str, default: float) -> Tuple[Optional[float], Optional[str]]:
-        text = edit.text().strip()
-        if not text:
-            return default, None
-        try:
-            return float(text), None
-        except ValueError:
-            return None, _("{label}: {text!r} is not a number.").format(label=label, text=text)
+        ok, value = parse_float_field(edit)
+        if not ok:
+            return None, _("{label}: {text!r} is not a number.").format(label=label, text=edit.text().strip())
+        return default if value is None else value, None
 
     # ── Build: validate the current form, return a generic field dict ─────
 

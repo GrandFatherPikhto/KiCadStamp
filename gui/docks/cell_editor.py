@@ -83,8 +83,8 @@ from kicadstamp.i18n import _
 
 from .. import yaml_io
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
-                      configure_searchable, display_path, merge_write, set_combo_items,
-                      show_message)
+                      configure_searchable, display_path, merge_write, parse_float_field,
+                      set_combo_items, show_message)
 from .rename import collect_all_cell_names
 
 logger = logging.getLogger(__name__)
@@ -551,15 +551,16 @@ class CellDock(QWidget):
         show_message(self.message_label, text, style, logger)
 
     def _parse_float(self, edit: QLineEdit, label: str, default: Optional[float]) -> Optional[float]:
-        text = edit.text().strip()
-        if not text:
-            return default
-        try:
-            return float(text)
-        except ValueError:
-            self._show_message(_("{label}: {text!r} is not a number.").format(label=label, text=text),
+        """(ok, value) parse via the shared parse_float_field
+        (gui/docks/_common.py), mapped back to the overloaded-None convention
+        this dock's many callers expect (None == an error was already
+        shown)."""
+        ok, value = parse_float_field(edit)
+        if not ok:
+            self._show_message(_("{label}: {text!r} is not a number.").format(label=label, text=edit.text().strip()),
                                _ERROR_STYLE)
             return None
+        return default if value is None else value
 
     @staticmethod
     def _findable(combo: QComboBox, value) -> int:
