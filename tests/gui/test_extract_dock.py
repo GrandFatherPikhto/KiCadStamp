@@ -569,6 +569,50 @@ def test_net_template_role_blocks_extraction_until_resolved(main_window, tmp_pat
     assert "n2v5_adj_pi_filter" in saved["cells"]
 
 
+def test_net_template_role_pick_seeds_params_for_classified_net(main_window, tmp_path, monkeypatch):
+    """Regression for the from-scratch bridging dead-end (found by review on
+    commit 9866869): a bridging role's nets classify (lemma2/pad) so their
+    Alias edits are disabled and params for them can never be typed by hand —
+    without a seeded param net_template_map stays empty and the extractor
+    fatals with "...not in net_template_map" on ANY combo pick. The pick is the
+    explicit opt-in, so it must seed the matching param (name = role, e.g.
+    {PI_FILTER_FB}) — this is separate from the no-override rule for ordinary
+    lemma2/pad nets, whose Alias edits stay disabled."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    main_window.connection.board = _classification_board(monkeypatch, {
+        "C_IN_BULK": {"1": {"-2V5"}, "2": {"GND"}},
+        "C_IN_BYPASS": {"1": {"-2V5_DIRTY"}, "2": {"GND"}},
+        "PI_FILTER_FB": {"1": {"-2V5"}, "2": {"-2V5_DIRTY"}},
+    })
+    monkeypatch.setattr(extract_mod, "extract_template_from_selection", _fake_extract)
+    dock = ExtractDock(main_window)
+    dock.set_target_file(cells_file)
+
+    dock.set_board_selection(
+        [_fake_fp("FB6")],
+        [FakeSelected("FB6", "PI_FILTER_FB", "X", {"1": "-2V5", "2": "-2V5_DIRTY"}, fp=object())])
+    assert "PI_FILTER_FB" in dock._net_template_role_edits
+    # Both rails classify -> Alias edits disabled: params can't be typed by hand.
+    assert dock._net_alias_edits["-2V5"].isEnabled() is False
+    assert dock._net_alias_edits["-2V5_DIRTY"].isEnabled() is False
+
+    dock._net_template_role_edits["PI_FILTER_FB"].setCurrentText("-2V5")
+    dock.name_edit.setText("bridging_cell")
+    dock._raw_items = [object()]
+
+    payload = dock._collect_extract_inputs()
+    assert payload["net_template_role"] == {"PI_FILTER_FB": "-2V5"}
+    # The pick seeds params (name = role) so net_template_map can actually
+    # contain the literal at extract time.
+    assert payload["params"]["PI_FILTER_FB"] == "-2V5"
+
+    # And the full extract path succeeds (no blocking, no fatal).
+    dock._do_extract()
+    saved = yaml.safe_load(cells_file.read_text())
+    assert "bridging_cell" in saved["cells"]
+
+
 def test_placer_gets_include_entries_deduped(main_window, tmp_path, monkeypatch):
     templates_dir = tmp_path / "templates"
     templates_dir.mkdir()

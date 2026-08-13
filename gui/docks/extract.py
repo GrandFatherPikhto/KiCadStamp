@@ -1282,6 +1282,17 @@ class ExtractDock(QWidget):
                     _ERROR_STYLE)
                 return None
             net_template_role[role] = literal
+            # Seed the matching param (name = role, e.g. {PI_FILTER_FB}) so the
+            # picked literal is actually resolvable as a net_template. A
+            # bridging role's nets classify (lemma2/pad) -> their Alias edits
+            # are disabled, so params for them can never be typed by hand, and
+            # without this seed net_template_map stays empty and the extractor
+            # fatals with "...not in net_template_map" — the from-scratch
+            # bridging dead-end found by review on commit 9866869. The combo
+            # pick IS the explicit opt-in (net_template_role is separate from
+            # the no-override rule for ordinary lemma2/pad nets); setdefault so
+            # an existing alias param with the same name is never clobbered.
+            params.setdefault(role, literal)
 
         return {
             "name": name,
