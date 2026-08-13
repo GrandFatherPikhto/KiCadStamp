@@ -1279,6 +1279,33 @@ msgstr "Файл шаблонов:"
 msgid "pick a file (or browse it in the Config tree)"
 msgstr "выберите файл (или найдите его в дереве Config)"
 
+# File picker combos (plan 2026-08-13 tree_to_combo_file_pickers) — one
+# label per dock, each replacing the old plain "No file picked..." label.
+# (Cell file: already exists above, shared with ExtractDock.)
+#: gui/docks/placer.py:824
+msgid "Cells file:"
+msgstr "Файл шаблонов:"
+
+#: gui/docks/placer.py:831 gui/docks/extract.py:472
+msgid "Placer file:"
+msgstr "Файл расстановки:"
+
+#: gui/docks/extract.py:470
+msgid "Placer file (optional):"
+msgstr "Файл расстановки (необязательно):"
+
+#: gui/docks/thermal_via.py:97
+msgid "Thermal via file:"
+msgstr "Файл термо-via:"
+
+#: gui/docks/rules.py:134
+msgid "Rule file:"
+msgstr "Файл правил:"
+
+#: gui/docks/points.py:120
+msgid "Points file:"
+msgstr "Файл точек:"
+
 #: gui/docks/extract.py:241
 
 msgid "Bounding box (default)"

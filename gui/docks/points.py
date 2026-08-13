@@ -77,7 +77,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from kipy.errors import ApiError
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import (QFormLayout, QHBoxLayout, QLabel, QLineEdit,
+from PyQt6.QtWidgets import (QComboBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
                               QPushButton, QVBoxLayout, QWidget)
 
 from kicadstamp.config import load_point
@@ -90,7 +90,8 @@ from .. import yaml_io
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
-                      display_path, merge_write, show_message)
+                      display_path, merge_write, refresh_file_combo_choices,
+                      set_file_combo_selection, show_message)
 
 logger = logging.getLogger(__name__)
 
@@ -110,13 +111,24 @@ class PointsDock(QWidget):
         self._connection = connection if connection is not None else main_window.connection
         self._active_op: Optional[Any] = None
         self._path: Optional[Path] = None
+        self._root_path: Optional[Path] = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
 
-        self.target_label = QLabel(_("No file picked (pick one in the Config tree)"))
-        self.target_label.setWordWrap(True)
-        layout.addWidget(self.target_label)
+        # Target file as a dropdown (2026-08-13, plan
+        # tree_to_combo_file_pickers) — was a plain label + ConfigTreeDock
+        # click only; same "a tree click yanks the user into a different
+        # panel" pain every other file picker already fixed with a combo.
+        # set_target_file() stays the shared entry point (tree click and
+        # combo both feed it), so the tree keeps working unchanged.
+        target_file_row = QHBoxLayout()
+        target_file_row.addWidget(QLabel(_("Points file:")))
+        self.target_file_combo = QComboBox()
+        self.target_file_combo.setPlaceholderText(_("pick a file (or browse it in the Config tree)"))
+        self.target_file_combo.currentIndexChanged.connect(self._on_target_file_combo_changed)
+        target_file_row.addWidget(self.target_file_combo, 1)
+        layout.addLayout(target_file_row)
 
         name_form = QFormLayout()
         self.name_edit = QLineEdit()
@@ -158,10 +170,24 @@ class PointsDock(QWidget):
 
     def set_target_file(self, path: Optional[Path]) -> None:
         self._path = path
-        self.target_label.setText(
-            display_path(path) if path is not None
-            else _("No file picked (pick one in the Config tree)"))
+        set_file_combo_selection(self.target_file_combo, path)
         self._refresh_point_names()
+
+    def _on_target_file_combo_changed(self, index: int) -> None:
+        path = self.target_file_combo.itemData(index)
+        if path is not None:
+            self.set_target_file(path)
+
+    def set_root_path(self, path: Optional[Path]) -> None:
+        """Wired to RootMetadataDock's root_changed (2026-08-13, plan
+        tree_to_combo_file_pickers — the ONLY dock that had no
+        set_root_path at all before): populates target_file_combo from
+        every file reachable via include: from the project root, same
+        refresh_file_combo_choices() pattern as every other dock's
+        set_root_path. Points' own point-chain autocomplete (_refresh_point_
+        names) stays scoped to this dock's own target file, unchanged."""
+        self._root_path = path
+        refresh_file_combo_choices((self.target_file_combo,), path, (self._path,))
 
     def refresh_known_roles(self, snapshot) -> None:
         """Same "populate from the live board" pattern as PlacerDock's own

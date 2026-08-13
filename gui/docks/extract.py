@@ -173,8 +173,8 @@ from kicadstamp.template_extraction import (
 from .. import yaml_io
 from ..worker import start_long_op
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
-                      WARN_STYLE as _WARN_STYLE, display_path, set_combo_items, show_message)
-from .rename import collect_graph_files
+                      WARN_STYLE as _WARN_STYLE, refresh_file_combo_choices,
+                      set_combo_items, set_file_combo_selection, show_message)
 
 logger = logging.getLogger(__name__)
 
@@ -465,9 +465,20 @@ class ExtractDock(QWidget):
         profile_file_row.addWidget(self.profile_file_combo, 1)
         layout.addLayout(profile_file_row)
 
-        self.placer_target_label = QLabel(_("No placer file picked (pick one in the Config tree, optional)"))
-        self.placer_target_label.setWordWrap(True)
-        layout.addWidget(self.placer_target_label)
+        # Placer file as a dropdown too (2026-08-13, plan
+        # tree_to_combo_file_pickers): it used to be a plain label + a
+        # ConfigTreeDock click only — same "a click anywhere in the tree
+        # yanks the user into a different panel" pain every other file
+        # picker here already fixed with a combo. set_placer_file() stays
+        # the shared entry point (tree click and combo both feed it), so
+        # the tree keeps working unchanged.
+        placer_file_row = QHBoxLayout()
+        placer_file_row.addWidget(QLabel(_("Placer file (optional):")))
+        self.placer_file_combo = QComboBox()
+        self.placer_file_combo.setPlaceholderText(_("pick a file (or browse it in the Config tree)"))
+        self.placer_file_combo.currentIndexChanged.connect(self._on_placer_file_combo_changed)
+        placer_file_row.addWidget(self.placer_file_combo, 1)
+        layout.addLayout(placer_file_row)
 
         self.extract_button = QPushButton(_("Extract to file"))
         self.extract_button.setEnabled(False)
@@ -654,48 +665,19 @@ class ExtractDock(QWidget):
 
     def set_root_path(self, path: Optional[Path]) -> None:
         """Wired to RootMetadataDock's root_changed — populates
-        target_file_combo/profile_file_combo from every file reachable via
-        include: from the project root (same collect_graph_files()
-        gui/docks/rename.py's own renaming uses), same pattern as
-        RulesDock/PlacerDock/CellDock's own set_root_path (2026-08-06,
-        closing the "Cell/Profile file also as a dropdown" gap — see
-        target_file_combo's own comment)."""
+        target_file_combo/profile_file_combo/placer_file_combo from every
+        file reachable via include: from the project root (same
+        collect_graph_files() gui/docks/rename.py's own renaming uses),
+        same pattern as RulesDock/PlacerDock/CellDock's own set_root_path
+        (2026-08-06, closing the "Cell/Profile file also as a dropdown"
+        gap — see target_file_combo's own comment). Uses the shared
+        refresh_file_combo_choices() helper (2026-08-13, plan
+        tree_to_combo_file_pickers) instead of this dock's own private
+        _refresh_file_choices copy."""
         self._root_path = path
-        self._refresh_file_choices()
-
-    def _refresh_file_choices(self) -> None:
-        files = collect_graph_files(self._root_path) if self._root_path is not None else []
-        items = sorted(((display_path(p), p) for p in files), key=lambda t: t[0])
-        for combo in (self.target_file_combo, self.profile_file_combo):
-            combo.blockSignals(True)
-            combo.clear()
-            for text, path in items:
-                combo.addItem(text, path)
-            combo.blockSignals(False)
-        self._set_file_combo_selection(self.target_file_combo, self._target_path)
-        self._set_file_combo_selection(self.profile_file_combo, self._profile_path)
-
-    @staticmethod
-    def _set_file_combo_selection(combo: QComboBox, path: Optional[Path]) -> None:
-        """Reflects `path` into `combo`'s current selection without
-        re-firing currentIndexChanged (blockSignals) — used both after a
-        full repopulate (_refresh_file_choices) and whenever
-        set_target_file/set_profile_file is called directly (e.g. from
-        ConfigTreeDock's click, or before the root/include graph is even
-        known yet). Adds `path` as an extra item if the combo's current
-        list doesn't have it (root not set yet, or a file outside the
-        include graph) — same "still show/select it anyway" fallback
-        PlacerDock's cell_combo uses for the same reason."""
-        combo.blockSignals(True)
-        if path is None:
-            combo.setCurrentIndex(-1)
-        else:
-            idx = combo.findData(path)
-            if idx < 0:
-                combo.addItem(display_path(path), path)
-                idx = combo.count() - 1
-            combo.setCurrentIndex(idx)
-        combo.blockSignals(False)
+        refresh_file_combo_choices(
+            (self.target_file_combo, self.profile_file_combo, self.placer_file_combo),
+            path, (self._target_path, self._profile_path, self._placer_path))
 
     def _on_target_file_combo_changed(self, index: int) -> None:
         path = self.target_file_combo.itemData(index)
@@ -707,6 +689,11 @@ class ExtractDock(QWidget):
         if path is not None:
             self.set_profile_file(path)
 
+    def _on_placer_file_combo_changed(self, index: int) -> None:
+        path = self.placer_file_combo.itemData(index)
+        if path is not None:
+            self.set_placer_file(path)
+
     def set_target_file(self, path: Optional[Path]) -> None:
         """Shared entry point for picking the Cell output file — called both
         by ConfigTreeDock's file_selected signal (2026-08-03 — replaced
@@ -716,7 +703,7 @@ class ExtractDock(QWidget):
         sync, same shared-setter pattern as PlacerDock's
         set_selected_cell()."""
         self._target_path = path
-        self._set_file_combo_selection(self.target_file_combo, path)
+        set_file_combo_selection(self.target_file_combo, path)
         self._refresh_existing_lists()
         self._update_button_state()
 
@@ -729,24 +716,24 @@ class ExtractDock(QWidget):
         (2026-08-06 — genuinely un-couples them again, see
         target_file_combo's own comment for why)."""
         self._profile_path = path
-        self._set_file_combo_selection(self.profile_file_combo, path)
+        set_file_combo_selection(self.profile_file_combo, path)
         self._refresh_existing_lists()
 
     def set_placer_file(self, path: Optional[Path]) -> None:
-        """Called whenever the Config tree's current file changes (wired to
-        ConfigTreeDock's file_selected signal, 2026-08-03 — replaced
-        FilePickerDock's Placer-role slot). Optional — extraction works the
+        """Shared entry point for picking the Placer file — called both by
+        ConfigTreeDock's file_selected signal (2026-08-03 — replaced
+        FilePickerDock's Placer-role slot) AND by placer_file_combo's own
+        selection (2026-08-13, plan tree_to_combo_file_pickers — was a
+        plain label before, kept scoped to the tree's click). Either path
+        keeps the other in sync, same shared-setter pattern as
+        set_target_file/set_profile_file. Optional — extraction works the
         same without one, it just skips the include: wiring described in
-        the module docstring. Not a dropdown (unlike Cell/Profile above) —
-        kept scoped to ConfigTreeDock's click, see the 2026-08-06 request
-        this followed. Also invalidates _registry_uuids_cache — a different
-        Placer file means a different registry.json to check the Cluster
-        filter's Via/Track exclusion against (see its own docstring)."""
+        the module docstring. Also invalidates _registry_uuids_cache — a
+        different Placer file means a different registry.json to check the
+        Cluster filter's Via/Track exclusion against (see its own docstring)."""
         self._placer_path = path
         self._registry_uuids_cache = None
-        self.placer_target_label.setText(
-            _("Placer file: {path}").format(path=path) if path is not None
-            else _("No placer file picked (pick one in the Config tree, optional)"))
+        set_file_combo_selection(self.placer_file_combo, path)
 
     @staticmethod
     def _slugify(text: str) -> str:

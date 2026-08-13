@@ -18,7 +18,8 @@ Two groups live here:
   to the Log dock, and the style constants double as the log-level selectors.
 """
 import logging
-from typing import List, Optional, Tuple
+from pathlib import Path
+from typing import List, Optional, Sequence, Tuple
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QComboBox, QCompleter, QLineEdit
@@ -135,3 +136,70 @@ def show_message(text: str, style: str = "",
         record_log.warning(text)
     else:
         record_log.info(text)
+
+
+def set_file_combo_selection(combo: QComboBox, path: Optional[Path]) -> None:
+    """Reflects `path` into `combo`'s current selection without re-firing
+    currentIndexChanged (blockSignals) — the CHEAP half of the file-combo
+    pair, used both after a full repopulate (refresh_file_combo_choices)
+    and whenever a dock's set_target_file/set_cells_file/set_placer_file is
+    called directly (e.g. from ConfigTreeDock's click, or before the root/
+    include graph is even known yet). Adds `path` as an extra item if the
+    combo's current list doesn't have it (root not set yet, or a file
+    outside the include graph) — same "still show/select it anyway"
+    fallback PlacerDock's cell_combo/set_selected_cell already relies on.
+
+    Consolidated 2026-08-13 from ExtractDock's private copy (see plan
+    tree_to_combo_file_pickers) — every dock's file combo now shares ONE
+    implementation instead of six near-identical _set_file_combo_selection
+    methods.
+
+    Matching is a manual itemData()==path loop, NOT combo.findData(path):
+    findData compares through Qt's QVariant machinery, which does not run
+    pathlib.Path's Python __eq__ (verified 2026-08-13, diag_combo_finddata_
+    path.py: itemData == root is True in Python, findData(root) is -1) — so
+    findData would re-add an already-listed path as a duplicate instead of
+    selecting it."""
+    combo.blockSignals(True)
+    if path is None:
+        combo.setCurrentIndex(-1)
+    else:
+        idx = -1
+        for i in range(combo.count()):
+            if combo.itemData(i) == path:
+                idx = i
+                break
+        if idx < 0:
+            combo.addItem(display_path(path), path)
+            idx = combo.count() - 1
+        combo.setCurrentIndex(idx)
+    combo.blockSignals(False)
+
+
+def refresh_file_combo_choices(combos: Sequence[QComboBox], root_path: Optional[Path],
+                               current_paths: Sequence[Optional[Path]]) -> None:
+    """Repopulates every combo in `combos` from every file reachable via
+    include: from `root_path` (collect_graph_files — walks the whole graph
+    on disk), then reflects each dock's current path back into its own combo
+    via set_file_combo_selection. `current_paths` is aligned with `combos`.
+
+    This is the EXPENSIVE half of the file-combo pair (it actually goes to
+    disk and parses the entire include graph): call it ONLY from a dock's
+    set_root_path(), never from a per-click set_target_file/set_placer_file
+    — those fire on EVERY ConfigTreeDock click, and doing this on each one
+    would re-parse the whole graph in every dock for no reason (see plan
+    tree_to_combo_file_pickers, step 1). `collect_graph_files` is imported
+    lazily to keep this module free of a circular import — rename.py imports
+    _common at module level, so a top-level `from .rename import
+    collect_graph_files` here would break whichever of the two loaded first."""
+    from .rename import collect_graph_files
+    files = collect_graph_files(root_path) if root_path is not None else []
+    items = sorted(((display_path(p), p) for p in files), key=lambda t: t[0])
+    for combo in combos:
+        combo.blockSignals(True)
+        combo.clear()
+        for text, path in items:
+            combo.addItem(text, path)
+        combo.blockSignals(False)
+    for combo, path in zip(combos, current_paths):
+        set_file_combo_selection(combo, path)

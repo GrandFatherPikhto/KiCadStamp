@@ -92,7 +92,8 @@ from kicadstamp.i18n import _
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
-                      configure_searchable, display_path, parse_float_field, set_combo_items,
+                      configure_searchable, display_path, parse_float_field,
+                      refresh_file_combo_choices, set_combo_items, set_file_combo_selection,
                       set_mode_pair_enabled, show_message, upsert_list_entry)
 from .rename import collect_all_cell_names, collect_all_point_names
 
@@ -129,9 +130,19 @@ class RuleDock(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
 
-        self.target_label = QLabel(_("No file picked (pick one in the Config tree)"))
-        self.target_label.setWordWrap(True)
-        layout.addWidget(self.target_label)
+        # Target file as a dropdown (2026-08-13, plan
+        # tree_to_combo_file_pickers) — was a plain label + ConfigTreeDock
+        # click only; same "a tree click yanks the user into a different
+        # panel" pain every other file picker already fixed with a combo.
+        # set_target_file() stays the shared entry point (tree click and
+        # combo both feed it), so the tree keeps working unchanged.
+        target_file_row = QHBoxLayout()
+        target_file_row.addWidget(QLabel(_("Rule file:")))
+        self.target_file_combo = QComboBox()
+        self.target_file_combo.setPlaceholderText(_("pick a file (or browse it in the Config tree)"))
+        self.target_file_combo.currentIndexChanged.connect(self._on_target_file_combo_changed)
+        target_file_row.addWidget(self.target_file_combo, 1)
+        layout.addLayout(target_file_row)
 
         # Tabbed (2026-08-05) — see module docstring for why Net/Origin/
         # Spoke split this way and why the table+buttons below stay outside
@@ -283,9 +294,12 @@ class RuleDock(QWidget):
 
     def set_target_file(self, path: Optional[Path]) -> None:
         self._path = path
-        self.target_label.setText(
-            display_path(path) if path is not None
-            else _("No file picked (pick one in the Config tree)"))
+        set_file_combo_selection(self.target_file_combo, path)
+
+    def _on_target_file_combo_changed(self, index: int) -> None:
+        path = self.target_file_combo.itemData(index)
+        if path is not None:
+            self.set_target_file(path)
 
     def set_root_path(self, path: Optional[Path]) -> None:
         """Wired to RootMetadataDock's root_changed — the Cell/Point
@@ -293,6 +307,7 @@ class RuleDock(QWidget):
         docstring), which needs the project's root, not this dock's own
         target file."""
         self._root_path = path
+        refresh_file_combo_choices((self.target_file_combo,), path, (self._path,))
         self._refresh_cell_names()
         self._refresh_point_names()
 

@@ -132,7 +132,8 @@ from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       WARN_STYLE as _WARN_STYLE, configure_searchable, display_path,
-                      parse_float_field, set_combo_items, set_mode_pair_enabled,
+                      parse_float_field, refresh_file_combo_choices, set_combo_items,
+                      set_file_combo_selection, set_mode_pair_enabled,
                       show_message, upsert_clone_placement, upsert_list_entry)
 from .rename import collect_all_point_names, entry_effective_name
 
@@ -817,6 +818,33 @@ class PlacerDock(QWidget):
         origin_page_layout.addStretch(1)
         self._origin_tab_index = self._tabs.addTab(origin_page, _("Origin"))
 
+        # Cells/Placer file pickers as dropdowns (2026-08-13, plan
+        # tree_to_combo_file_pickers) — same "which file" context for the
+        # WHOLE dock (not one tab), same zone OUTSIDE self._tabs where the
+        # buttons live ("act on the whole placement, not one tab" — the
+        # same principle ExtractDock already uses for its own file combos),
+        # same closed-set non-editable combo pattern as ExtractDock's
+        # target_file_combo/profile_file_combo. Not to be confused with
+        # cell_combo above (Source tab) — that picks a Cell WITHIN a file;
+        # these pick the files themselves. Both stay shared entry points:
+        # ConfigTreeDock's click and the combo both feed the same
+        # set_cells_file()/set_placer_file().
+        cells_file_row = QHBoxLayout()
+        cells_file_row.addWidget(QLabel(_("Cells file:")))
+        self.cells_file_combo = QComboBox()
+        self.cells_file_combo.setPlaceholderText(_("pick a file (or browse it in the Config tree)"))
+        self.cells_file_combo.currentIndexChanged.connect(self._on_cells_file_combo_changed)
+        cells_file_row.addWidget(self.cells_file_combo, 1)
+        layout.addLayout(cells_file_row)
+
+        placer_file_row = QHBoxLayout()
+        placer_file_row.addWidget(QLabel(_("Placer file:")))
+        self.placer_file_combo = QComboBox()
+        self.placer_file_combo.setPlaceholderText(_("pick a file (or browse it in the Config tree)"))
+        self.placer_file_combo.currentIndexChanged.connect(self._on_placer_file_combo_changed)
+        placer_file_row.addWidget(self.placer_file_combo, 1)
+        layout.addLayout(placer_file_row)
+
         button_row = QHBoxLayout()
         self.redraw_button = QPushButton(_("Redraw"))
         self.redraw_button.clicked.connect(self._on_redraw)
@@ -860,7 +888,18 @@ class PlacerDock(QWidget):
 
     def set_cells_file(self, path: Optional[Path]) -> None:
         self._cells_path = path
+        set_file_combo_selection(self.cells_file_combo, path)
         self._refresh_cell_choices()
+
+    def _on_cells_file_combo_changed(self, index: int) -> None:
+        path = self.cells_file_combo.itemData(index)
+        if path is not None:
+            self.set_cells_file(path)
+
+    def _on_placer_file_combo_changed(self, index: int) -> None:
+        path = self.placer_file_combo.itemData(index)
+        if path is not None:
+            self.set_placer_file(path)
 
     def _refresh_cell_choices(self) -> None:
         cells = yaml_io.load_data(self._cells_path).get("cells", {}) if self._cells_path else {}
@@ -868,6 +907,7 @@ class PlacerDock(QWidget):
 
     def set_placer_file(self, path: Optional[Path]) -> None:
         self._placer_path = path
+        set_file_combo_selection(self.placer_file_combo, path)
 
     def set_target_file(self, path: Optional[Path]) -> None:
         """Alias for set_placer_file (2026-08-12, Group 1): after the old
@@ -887,6 +927,9 @@ class PlacerDock(QWidget):
         module docstring had deliberately deferred until now (2026-08-06,
         Denis: "думаю имена Points тоже надо делать выпадашкой с именами")."""
         self._root_path = path
+        refresh_file_combo_choices(
+            (self.cells_file_combo, self.placer_file_combo),
+            path, (self._cells_path, self._placer_path))
         self._refresh_point_names()
 
     def _refresh_point_names(self) -> None:

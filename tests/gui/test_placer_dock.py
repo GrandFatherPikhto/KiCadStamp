@@ -88,6 +88,88 @@ def test_cell_combo_is_a_closed_picker_not_a_free_text_field(main_window, tmp_pa
     assert not dock.cell_combo.isEditable()
 
 
+# ── Cells/Placer file combos (2026-08-13, plan tree_to_combo_file_pickers) ─
+
+def _combo_index_for_filename(combo, filename):
+    for i in range(combo.count()):
+        if combo.itemData(i).name == filename:
+            return i
+    return -1
+
+
+def test_set_root_path_populates_both_file_combos(main_window, tmp_path):
+    (tmp_path / "sub.yaml").write_text("cells: {}\n", encoding="utf-8")
+    root = tmp_path / "root.yaml"
+    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
+    dock = PlacerDock(main_window)
+
+    dock.set_root_path(root)
+
+    cells_names = {dock.cells_file_combo.itemData(i).name for i in range(dock.cells_file_combo.count())}
+    placer_names = {dock.placer_file_combo.itemData(i).name for i in range(dock.placer_file_combo.count())}
+    assert cells_names == {"root.yaml", "sub.yaml"}
+    assert placer_names == {"root.yaml", "sub.yaml"}
+
+
+def test_picking_the_cells_file_combo_calls_set_cells_file(main_window, tmp_path):
+    (tmp_path / "sub.yaml").write_text("cells: {}\n", encoding="utf-8")
+    root = tmp_path / "root.yaml"
+    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
+    dock = PlacerDock(main_window)
+    dock.set_root_path(root)
+
+    dock.cells_file_combo.setCurrentIndex(
+        _combo_index_for_filename(dock.cells_file_combo, "sub.yaml"))
+
+    assert dock._cells_path is not None
+    assert dock._cells_path.name == "sub.yaml"
+
+
+def test_picking_the_placer_file_combo_calls_set_placer_file(main_window, tmp_path):
+    (tmp_path / "sub.yaml").write_text("cells: {}\n", encoding="utf-8")
+    root = tmp_path / "root.yaml"
+    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
+    dock = PlacerDock(main_window)
+    dock.set_root_path(root)
+
+    dock.placer_file_combo.setCurrentIndex(
+        _combo_index_for_filename(dock.placer_file_combo, "sub.yaml"))
+
+    assert dock._placer_path is not None
+    assert dock._placer_path.name == "sub.yaml"
+
+
+def test_set_cells_file_reflects_into_the_combo_even_before_root_is_known(main_window, tmp_path):
+    """ConfigTreeDock's own file_selected click must keep working exactly
+    as before — even before set_root_path() (or for a file outside the
+    include graph) the path is still selected as an extra combo item."""
+    cells_file = tmp_path / "cells.yaml"
+    cells_file.write_text("cells: {}\n", encoding="utf-8")
+    dock = PlacerDock(main_window)
+
+    dock.set_cells_file(cells_file)
+
+    assert dock.cells_file_combo.currentData() == cells_file
+    assert dock._cells_path == cells_file
+
+
+def test_set_placer_file_reflects_into_the_combo_even_before_root_is_known(main_window, tmp_path):
+    placer_file = tmp_path / "root.yaml"
+    placer_file.write_text("clone_placements: []\n", encoding="utf-8")
+    dock = PlacerDock(main_window)
+
+    dock.set_placer_file(placer_file)
+
+    assert dock.placer_file_combo.currentData() == placer_file
+    assert dock._placer_path == placer_file
+
+
+def test_file_combos_are_closed_pickers_not_free_text_fields(main_window):
+    dock = PlacerDock(main_window)
+    assert not dock.cells_file_combo.isEditable()
+    assert not dock.placer_file_combo.isEditable()
+
+
 def test_new_placement_clears_the_cell_combo_selection(main_window, tmp_path):
     dock, _, placer_file = _make_cell_and_dock(main_window, tmp_path)
     dock.new_placement(placer_file)

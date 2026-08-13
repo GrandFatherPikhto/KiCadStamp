@@ -16,7 +16,8 @@ import yaml
 from gui.docks._common import (ERROR_STYLE, SUCCESS_STYLE, WARN_STYLE,
                                add_include, add_list_entry, configure_searchable,
                                disable_include, display_path, merge_write,
-                               non_includable_keys, set_combo_items, show_message,
+                               non_includable_keys, refresh_file_combo_choices,
+                               set_combo_items, set_file_combo_selection, show_message,
                                upsert_clone_placement, upsert_list_entry)
 import gui.docks._common as common_mod
 
@@ -362,3 +363,94 @@ def test_show_message_logs_by_style(caplog):
         before = len(caplog.records)
         show_message("", "", dock_logger)  # empty text -> no log record
         assert len(caplog.records) == before
+
+
+# ── file-combo helpers (plan 2026-08-13 tree_to_combo_file_pickers) ──────
+
+def test_set_file_combo_selection_adds_a_path_not_in_the_list(qapp, tmp_path):
+    """The cheap half's fallback: a file outside the include graph (root
+    not set yet, or not reachable via include:) must still be selected and
+    shown as an extra item, never silently dropped."""
+    from PyQt6.QtWidgets import QComboBox
+    combo = QComboBox()
+    combo.addItem("something else", Path("somewhere.yaml"))
+    outside = tmp_path / "outside.yaml"
+
+    set_file_combo_selection(combo, outside)
+
+    assert combo.currentData() == outside
+    assert combo.count() == 2
+
+
+def test_set_file_combo_selection_selects_an_existing_item_without_duplicating(qapp, tmp_path):
+    """Regression for a REAL latent bug found 2026-08-13 (diagnostics/
+    diag_combo_finddata_path.py): QComboBox.findData() does NOT match a
+    pathlib.Path stored as itemData (Qt's QVariant comparison never runs
+    Path.__eq__ — itemData == root is True in Python, findData(root) is
+    -1), so the old ExtractDock helper re-added an already-listed path as a
+    duplicate. The shared helper must match by Python == instead."""
+    from PyQt6.QtWidgets import QComboBox
+    combo = QComboBox()
+    combo.addItem("root.yaml", tmp_path / "root.yaml")
+    combo.addItem("sub.yaml", tmp_path / "sub.yaml")
+
+    set_file_combo_selection(combo, tmp_path / "root.yaml")
+
+    assert combo.currentIndex() == 0
+    assert combo.count() == 2  # matched, NOT duplicated
+    assert combo.currentData() == tmp_path / "root.yaml"
+
+
+def test_set_file_combo_selection_none_clears_the_selection(qapp):
+    from PyQt6.QtWidgets import QComboBox
+    combo = QComboBox()
+    combo.addItem("a", Path("a.yaml"))
+    combo.setCurrentIndex(0)
+
+    set_file_combo_selection(combo, None)
+
+    assert combo.currentIndex() == -1
+
+
+def test_set_file_combo_selection_blocks_current_index_changed(qapp, tmp_path):
+    """Regression guard — a tree click calls set_*_file -> this helper; if
+    it re-fired currentIndexChanged, the dock's own combo handler would call
+    the setter again (harmless but noisy), and during set_root_path's
+    repopulate it would re-enter per-item."""
+    from PyQt6.QtWidgets import QComboBox
+    combo = QComboBox()
+    combo.addItem("a", Path("a.yaml"))  # first item added BEFORE the connect
+    fired = []
+    combo.currentIndexChanged.connect(fired.append)
+
+    set_file_combo_selection(combo, tmp_path / "x.yaml")
+
+    assert fired == []
+
+
+def test_refresh_file_combo_choices_populates_and_preserves_current(qapp, tmp_path):
+    """The expensive half: repopulates from the WHOLE include graph and
+    then reflects each dock's current path back — without adding a
+    duplicate of an already-listed path (findData match, not blind add)."""
+    from PyQt6.QtWidgets import QComboBox
+    (tmp_path / "sub.yaml").write_text("cells: {}\n", encoding="utf-8")
+    root = tmp_path / "root.yaml"
+    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
+    combo = QComboBox()
+
+    refresh_file_combo_choices((combo,), root, (root,))
+
+    names = {combo.itemData(i).name for i in range(combo.count())}
+    assert names == {"root.yaml", "sub.yaml"}
+    assert combo.count() == 2  # no duplicate of the already-listed root
+    assert combo.currentData() == root
+
+
+def test_refresh_file_combo_choices_none_root_leaves_combos_empty(qapp, tmp_path):
+    from PyQt6.QtWidgets import QComboBox
+    combo = QComboBox()
+    combo.addItem("stale", Path("stale.yaml"))
+
+    refresh_file_combo_choices((combo,), None, (None,))
+
+    assert combo.count() == 0

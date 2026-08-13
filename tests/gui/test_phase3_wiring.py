@@ -620,6 +620,30 @@ def test_dock_hub_wires_root_changed_to_rules_dock(main_window, tmp_path):
         _teardown_hub(hub)
 
 
+def test_dock_hub_wires_root_changed_to_points_dock(main_window, tmp_path):
+    """PointsDock gained set_root_path (2026-08-13, plan
+    tree_to_combo_file_pickers — the only dock that had none) — root_changed
+    must reach it like every other dock, and its new target-file combo must
+    list the whole include graph."""
+    sub_file = tmp_path / "sub.yaml"
+    sub_file.write_text("points: {}\n", encoding="utf-8")
+    root_file = tmp_path / "root.yaml"
+    root_file.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
+
+    hub = DockHub(main_window, connection=main_window.connection, verbose=False)
+    try:
+        assert hub.points_dock._root_path is None
+
+        hub.root_metadata_dock.root_changed.emit(root_file)
+
+        assert hub.points_dock._root_path == root_file
+        data_names = {hub.points_dock.target_file_combo.itemData(i).name
+                      for i in range(hub.points_dock.target_file_combo.count())}
+        assert data_names == {"root.yaml", "sub.yaml"}
+    finally:
+        _teardown_hub(hub)
+
+
 def test_dock_hub_attaches_a_file_handler_from_the_root_configs_log_file(main_window, tmp_path):
     """2026-08-06, found live — Denis had log_file: already set in his
     root.yaml, assumed (reasonably) it already covered GUI runs too, but

@@ -291,6 +291,53 @@ def test_file_combos_are_closed_pickers_not_free_text_fields(main_window):
     assert not dock.profile_file_combo.isEditable()
 
 
+# ── Placer file combo (2026-08-13, plan tree_to_combo_file_pickers) ──────
+
+def test_set_root_path_populates_placer_file_combo(tmp_path, main_window):
+    (tmp_path / "sub.yaml").write_text("cells: {}\n", encoding="utf-8")
+    root = tmp_path / "root.yaml"
+    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
+    dock = ExtractDock(main_window)
+
+    dock.set_root_path(root)
+
+    placer_names = {dock.placer_file_combo.itemData(i).name for i in range(dock.placer_file_combo.count())}
+    assert placer_names == {"root.yaml", "sub.yaml"}
+
+
+def test_picking_the_placer_combo_calls_set_placer_file(tmp_path, main_window):
+    (tmp_path / "sub.yaml").write_text("cells: {}\n", encoding="utf-8")
+    root = tmp_path / "root.yaml"
+    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
+    dock = ExtractDock(main_window)
+    dock.set_root_path(root)
+
+    dock.placer_file_combo.setCurrentIndex(_combo_index_for_filename(dock.placer_file_combo, "sub.yaml"))
+
+    assert dock._placer_path is not None
+    assert dock._placer_path.name == "sub.yaml"
+
+
+def test_set_placer_file_reflects_into_the_combo_even_before_root_is_known(tmp_path, main_window):
+    """ConfigTreeDock's own file_selected click must keep working exactly
+    as before for the Placer role too — even before set_root_path() (or for
+    a file outside the include graph) the path is still selected as an
+    extra combo item."""
+    placer_file = tmp_path / "placer.yaml"
+    placer_file.write_text("clone_placements: []\n", encoding="utf-8")
+    dock = ExtractDock(main_window)
+
+    dock.set_placer_file(placer_file)
+
+    assert dock.placer_file_combo.currentData() == placer_file
+    assert dock._placer_path == placer_file
+
+
+def test_placer_file_combo_is_a_closed_picker_not_free_text(main_window):
+    dock = ExtractDock(main_window)
+    assert not dock.placer_file_combo.isEditable()
+
+
 def test_profile_key_field_has_an_explanatory_tooltip(main_window, tmp_path):
     """Denis, live 2026-08-06: "я постоянно забываю" what Profile key even
     is — a hover reminder beats asking again next time."""

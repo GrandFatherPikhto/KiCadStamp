@@ -170,6 +170,11 @@ class DockHub:
         self.root_metadata_dock.root_changed.connect(self.placer_dock.set_root_path)
         self.root_metadata_dock.root_changed.connect(self.thermal_via_dock.set_root_path)
         self.root_metadata_dock.root_changed.connect(self.cells_dock.set_root_path)
+        # PointsDock's own target-file combo (added 2026-08-13, plan
+        # tree_to_combo_file_pickers — the only dock that had no
+        # set_root_path at all before) needs the same whole include graph,
+        # same root_changed source as the four above.
+        self.root_metadata_dock.root_changed.connect(self.points_dock.set_root_path)
         # Extract's own Cell file/Profile file combos (added 2026-08-06,
         # Denis: "имя файла, куда пишем extract и cell... тоже, выпадашками"
         # — un-couples them from always following the same file_selected
@@ -202,6 +207,7 @@ class DockHub:
         self.placer_dock.set_root_path(self.root_metadata_dock.root_path)
         self.thermal_via_dock.set_root_path(self.root_metadata_dock.root_path)
         self.cells_dock.set_root_path(self.root_metadata_dock.root_path)
+        self.points_dock.set_root_path(self.root_metadata_dock.root_path)
         self.extract_dock.set_root_path(self.root_metadata_dock.root_path)
         self.fieldstool_dock.set_root_path(self.root_metadata_dock.root_path)
         self._on_root_file_changed_for_logging(self.root_metadata_dock.root_path)

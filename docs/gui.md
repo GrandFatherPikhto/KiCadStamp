@@ -138,6 +138,14 @@ Right-click a file node for **Add cell.../Add point.../Add rule.../Add placer...
 pad.../Add included file...**, plus **Remove this file** (soft-disables its `include:` entry,
 doesn't delete the file) when it's not the root.
 
+Clicking any node also switches the Detail dock to that node's own panel (Rule → Rules, file →
+Project, ...) — which made the tree a confusing way to pick a file for a DIFFERENT dock. Since
+2026-08-13 every entity dock has its OWN file dropdown beside its fields (Cell file/Profile file/
+Placer file in Extract, Cells file/Placer file in Placer, plus Rule file/Thermal via file/Points
+file/Cell file in the others) — closed-set combos populated from the whole `include:` graph, so the
+target file can be picked without touching the tree. Both remain shared entry points: a tree click
+and a combo pick feed the exact same setter, and either one keeps the other in sync.
+
 ## Detail dock
 
 Extract/Placer/Project/Thermal via/Points/Rules/Cells below all live as tabs inside one shared
@@ -173,6 +181,10 @@ tab is hidden outright (not just its content) until it actually applies.
   entry points a Config-tree click still calls, so that path is unchanged; these combos are a
   second, independent way to set either one, genuinely un-coupling them if you want a Cell and its
   Extract profile to live in different files.
+- **Placer file** — a third dropdown in the same row style (2026-08-13), for the optional Placer
+  root config Extract wires `include:` into after a successful extract (see below). Was a plain
+  label before — `set_placer_file()` is the same shared setter the Config-tree click still calls,
+  now also fed by the combo.
 - **Cell name** — defaults to the current selection's Cluster, slugified (`PWR/DAC0` →
   `pwr_dac0`), if nothing's been extracted from this Cluster before; if an existing Cells/
   Extractor key already matches, that wins instead. Never overwrites something you've typed.
@@ -222,6 +234,12 @@ pairing itself was explicitly liked as-is; Net overrides and Refs are rarer and 
 instead of competing for the same vertical space). Redraw/Save and the message label stay outside
 the tabs — they act on the whole placement, not one tab.
 
+- **Cells file** / **Placer file** — two file dropdowns above the tabs (2026-08-13, same
+  outside-the-tabs zone as the buttons — "which file" is context for the whole placement, not one
+  tab), populated from the whole `include:` graph. Same shared-setter pattern as everywhere else:
+  the Config tree's click and the combo both feed `set_cells_file()`/`set_placer_file()`, each keeps
+  the other in sync. Not to be confused with the **Cell** combo inside Source — that picks a Cell
+  WITHIN a file; these pick the files themselves.
 - **Source** — **Cell** (default), **Role**, or **Cluster** (all added 2026-08-06, Denis: "путь
   потрясающе длинный: создать экстрактор, извлечь шаблон, сделать cell и только потом, placement") —
   Role/Cluster both skip Extract/Cell entirely for a genuine single-component placement; neither

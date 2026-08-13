@@ -442,3 +442,85 @@ def test_resolve_excludes_an_unrelated_broken_other_point(main_window, tmp_path,
 
     assert "broken" not in captured["points"]
     assert "good" in captured["points"]
+
+
+# ── Target-file combo + set_root_path (2026-08-13, plan
+# tree_to_combo_file_pickers — PointsDock was the ONLY dock without a
+# set_root_path; it gained both together) ─────────────────────────────────
+
+def _combo_index_for_filename(combo, filename):
+    for i in range(combo.count()):
+        if combo.itemData(i).name == filename:
+            return i
+    return -1
+
+
+def test_set_root_path_populates_target_file_combo(main_window, tmp_path):
+    (tmp_path / "sub.yaml").write_text("points: {}\n", encoding="utf-8")
+    root = tmp_path / "root.yaml"
+    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
+    dock = PointsDock(main_window)
+
+    dock.set_root_path(root)
+
+    assert dock._root_path == root
+    names = {dock.target_file_combo.itemData(i).name for i in range(dock.target_file_combo.count())}
+    assert names == {"root.yaml", "sub.yaml"}
+
+
+def test_set_root_path_none_clears_the_target_file_combo(main_window):
+    dock = PointsDock(main_window)
+    dock.set_root_path(None)
+    assert dock.target_file_combo.count() == 0
+
+
+def test_picking_target_file_combo_calls_set_target_file(main_window, tmp_path):
+    (tmp_path / "sub.yaml").write_text("points: {}\n", encoding="utf-8")
+    root = tmp_path / "root.yaml"
+    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
+    dock = PointsDock(main_window)
+    dock.set_root_path(root)
+
+    dock.target_file_combo.setCurrentIndex(
+        _combo_index_for_filename(dock.target_file_combo, "sub.yaml"))
+
+    assert dock._path is not None
+    assert dock._path.name == "sub.yaml"
+
+
+def test_set_target_file_reflects_into_the_combo_even_before_root_is_known(main_window, tmp_path):
+    """ConfigTreeDock's own file_selected click must keep working exactly
+    as before — even before set_root_path() (or for a file outside the
+    include graph) the path is still selected as an extra combo item."""
+    target = tmp_path / "points.yaml"
+    _write_yaml(target, {"points": {}})
+    dock = PointsDock(main_window)
+
+    dock.set_target_file(target)
+
+    assert dock.target_file_combo.currentData() == target
+    assert dock._path == target
+
+
+def test_set_root_path_does_not_clobber_point_name_autocomplete(main_window, tmp_path):
+    """The point-chain autocomplete stays scoped to the dock's OWN target
+    file (unchanged behaviour), while the target-file combo comes from the
+    whole include graph — two independent sources, set_root_path must not
+    touch the former."""
+    dock, target = _make_dock(main_window, tmp_path, {"points": {"a": {"xy": [0, 0]}}})
+    sub = tmp_path / "sub.yaml"
+    _write_yaml(sub, {"points": {"b": {"xy": [1, 1]}}})
+    root = tmp_path / "root.yaml"
+    _write_yaml(root, {"points": {}, "include": ["sub.yaml"]})
+
+    dock.set_root_path(root)
+
+    # combo lists whole graph; autocomplete still only the targeted file
+    combo_names = {dock.target_file_combo.itemData(i).name for i in range(dock.target_file_combo.count())}
+    assert combo_names == {"root.yaml", "sub.yaml"}
+    assert [dock.point_edit.itemText(i) for i in range(dock.point_edit.count())] == ["a"]
+
+
+def test_target_file_combo_is_a_closed_picker_not_free_text(main_window):
+    dock = PointsDock(main_window)
+    assert not dock.target_file_combo.isEditable()

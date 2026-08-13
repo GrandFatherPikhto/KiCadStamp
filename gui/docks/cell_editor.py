@@ -84,7 +84,8 @@ from kicadstamp.i18n import _
 from .. import yaml_io
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       configure_searchable, display_path, merge_write, parse_float_field,
-                      set_combo_items, show_message)
+                      refresh_file_combo_choices, set_combo_items,
+                      set_file_combo_selection, show_message)
 from .rename import collect_all_cell_names
 
 logger = logging.getLogger(__name__)
@@ -143,9 +144,19 @@ class CellDock(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
 
-        self.target_label = QLabel(_("No file picked (pick one in the Config tree)"))
-        self.target_label.setWordWrap(True)
-        layout.addWidget(self.target_label)
+        # Target file as a dropdown (2026-08-13, plan
+        # tree_to_combo_file_pickers) — was a plain label + ConfigTreeDock
+        # click only; same "a tree click yanks the user into a different
+        # panel" pain every other file picker already fixed with a combo.
+        # set_target_file() stays the shared entry point (tree click and
+        # combo both feed it), so the tree keeps working unchanged.
+        target_file_row = QHBoxLayout()
+        target_file_row.addWidget(QLabel(_("Cell file:")))
+        self.target_file_combo = QComboBox()
+        self.target_file_combo.setPlaceholderText(_("pick a file (or browse it in the Config tree)"))
+        self.target_file_combo.currentIndexChanged.connect(self._on_target_file_combo_changed)
+        target_file_row.addWidget(self.target_file_combo, 1)
+        layout.addLayout(target_file_row)
 
         head_form = QFormLayout()
         self.name_edit = QLineEdit()
@@ -483,9 +494,12 @@ class CellDock(QWidget):
 
     def set_target_file(self, path: Optional[Path]) -> None:
         self._path = path
-        self.target_label.setText(
-            display_path(path) if path is not None
-            else _("No file picked (pick one in the Config tree)"))
+        set_file_combo_selection(self.target_file_combo, path)
+
+    def _on_target_file_combo_changed(self, index: int) -> None:
+        path = self.target_file_combo.itemData(index)
+        if path is not None:
+            self.set_target_file(path)
 
     def set_root_path(self, path: Optional[Path]) -> None:
         """Wired to RootMetadataDock's root_changed — the Nested cells
@@ -493,6 +507,7 @@ class CellDock(QWidget):
         reasoning as RuleDock's spoke.cell combo), not just this dock's own
         target file (a nested cell routinely lives in a different file)."""
         self._root_path = path
+        refresh_file_combo_choices((self.target_file_combo,), path, (self._path,))
         names = collect_all_cell_names(path) if path is not None else []
         set_combo_items(self.nested_cell_combo, names)
 

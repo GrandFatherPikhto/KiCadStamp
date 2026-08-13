@@ -64,8 +64,9 @@ from kicadstamp.i18n import _
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
-                      configure_searchable, display_path,
-                      set_combo_items, show_message, upsert_list_entry)
+                      configure_searchable, display_path, refresh_file_combo_choices,
+                      set_combo_items, set_file_combo_selection, show_message,
+                      upsert_list_entry)
 from .rename import collect_all_point_names
 
 logger = logging.getLogger(__name__)
@@ -92,9 +93,19 @@ class ThermalViaArrayDock(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
 
-        self.target_label = QLabel(_("No file picked (pick one in the Config tree)"))
-        self.target_label.setWordWrap(True)
-        layout.addWidget(self.target_label)
+        # Target file as a dropdown (2026-08-13, plan
+        # tree_to_combo_file_pickers) — was a plain label + ConfigTreeDock
+        # click only; same "a tree click yanks the user into a different
+        # panel" pain every other file picker already fixed with a combo.
+        # set_target_file() stays the shared entry point (tree click and
+        # combo both feed it), so the tree keeps working unchanged.
+        target_file_row = QHBoxLayout()
+        target_file_row.addWidget(QLabel(_("Thermal via file:")))
+        self.target_file_combo = QComboBox()
+        self.target_file_combo.setPlaceholderText(_("pick a file (or browse it in the Config tree)"))
+        self.target_file_combo.currentIndexChanged.connect(self._on_target_file_combo_changed)
+        target_file_row.addWidget(self.target_file_combo, 1)
+        layout.addLayout(target_file_row)
 
         form = QFormLayout()
         self.name_edit = QLineEdit()
@@ -171,9 +182,12 @@ class ThermalViaArrayDock(QWidget):
 
     def set_target_file(self, path: Optional[Path]) -> None:
         self._path = path
-        self.target_label.setText(
-            display_path(path) if path is not None
-            else _("No file picked (pick one in the Config tree)"))
+        set_file_combo_selection(self.target_file_combo, path)
+
+    def _on_target_file_combo_changed(self, index: int) -> None:
+        path = self.target_file_combo.itemData(index)
+        if path is not None:
+            self.set_target_file(path)
 
     def set_root_path(self, path: Optional[Path]) -> None:
         """Wired to RootMetadataDock's root_changed — the Point combo is
@@ -181,6 +195,7 @@ class ThermalViaArrayDock(QWidget):
         different file than the thermal_via_arrays entry referencing it),
         same reasoning/pattern as RuleDock's/PlacerDock's own set_root_path."""
         self._root_path = path
+        refresh_file_combo_choices((self.target_file_combo,), path, (self._path,))
         self._refresh_point_names()
 
     def _refresh_point_names(self) -> None:
