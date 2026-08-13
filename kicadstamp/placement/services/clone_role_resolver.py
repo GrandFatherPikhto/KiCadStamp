@@ -49,6 +49,34 @@ from .role_narrowing import _narrow_ambiguous_candidates, _narrow_by_sheet_clust
 logger = logging.getLogger(__name__)
 
 
+def match_unique_footprint_by_fields(matches, field_matches: dict, label: str) -> FootprintInstance:
+    """Given the ALREADY-COMPUTED list of footprints whose custom fields all
+    equal field_matches (the same dict that produced them), return the single
+    one or raise the fatal none/ambiguous ValidationError. Split out of
+    resolve_unique_footprint_by_fields (2026-08-12, Group 4) so a caller
+    that has already grouped the board's footprints ONCE — e.g.
+    build_coordinate_moves' prebuilt (Role, Cluster) index — reuses the
+    exact same error messages without a second adapter.get_footprints()
+    scan per lookup."""
+    if not matches:
+        tag_desc = ", ".join(f"{field}={value!r}" for field, value in field_matches.items())
+        raise ValidationError(format_fatal_error(
+            _("{label}: no component tagged {tag_desc}").format(label=label, tag_desc=tag_desc),
+            [_("tag the target component's {fields} fields first (RoleClusterTreeDock or "
+               "fieldstool), or check for a typo").format(fields="/".join(field_matches))]
+        ))
+    if len(matches) > 1:
+        refs = sorted(fp.reference_field.text.value for fp in matches)
+        tag_desc = ", ".join(f"{field}={value!r}" for field, value in field_matches.items())
+        raise ValidationError(format_fatal_error(
+            _("{label}: {count} components tagged {tag_desc}, expected exactly one")
+            .format(label=label, count=len(matches), tag_desc=tag_desc),
+            [_("{fields} is meant to be unique per instance — fix the tagging: {refs}")
+             .format(fields="/".join(field_matches), refs=refs)]
+        ))
+    return matches[0]
+
+
 def resolve_unique_footprint_by_fields(adapter, field_matches: dict, label: str) -> FootprintInstance:
     """Shared "find the ONE footprint whose custom fields match, fatal if
     none or if several" helper — the exact-match filter plus none/ambiguous
@@ -69,23 +97,7 @@ def resolve_unique_footprint_by_fields(adapter, field_matches: dict, label: str)
     matches = [fp for fp in adapter.get_footprints()
               if all(adapter.get_field_value(fp, field) == value
                      for field, value in field_matches.items())]
-    if not matches:
-        tag_desc = ", ".join(f"{field}={value!r}" for field, value in field_matches.items())
-        raise ValidationError(format_fatal_error(
-            _("{label}: no component tagged {tag_desc}").format(label=label, tag_desc=tag_desc),
-            [_("tag the target component's {fields} fields first (RoleClusterTreeDock or "
-               "fieldstool), or check for a typo").format(fields="/".join(field_matches))]
-        ))
-    if len(matches) > 1:
-        refs = sorted(fp.reference_field.text.value for fp in matches)
-        tag_desc = ", ".join(f"{field}={value!r}" for field, value in field_matches.items())
-        raise ValidationError(format_fatal_error(
-            _("{label}: {count} components tagged {tag_desc}, expected exactly one")
-            .format(label=label, count=len(matches), tag_desc=tag_desc),
-            [_("{fields} is meant to be unique per instance — fix the tagging: {refs}")
-             .format(fields="/".join(field_matches), refs=refs)]
-        ))
-    return matches[0]
+    return match_unique_footprint_by_fields(matches, field_matches, label)
 
 
 def suggest_role_nets_from_cluster(adapter, roles, cluster: str,

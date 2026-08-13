@@ -7,6 +7,7 @@ do on their own. ApplyPipeline/load_config are monkeypatched with fakes
 that only check what CoordinatePlacerDock PASSES them.
 """
 import yaml
+from types import SimpleNamespace
 
 import gui.docks.coordinate_placer as coordinate_placer_mod
 from gui.docks.coordinate_placer import CoordinatePlacerDock
@@ -131,8 +132,10 @@ def test_build_entries_anchor_mode_round_trips_through_loader(main_window, tmp_p
     # In anchor mode the Pad column means the ANCHOR component's pad.
     dock.table.cellWidget(0, coordinate_placer_mod._COL_PAD).setText("A17")
 
-    entries = dock._build_entries()
-    assert entries is not None and len(entries) == 1
+    result = dock._build_entries()
+    assert result is not None
+    entries, _placements = result
+    assert len(entries) == 1
     cp = load_coordinate_placement(entries[0])  # must validate against the real loader
     assert cp.anchor_role == "FPGA"
     assert cp.anchor_pad == "A17"
@@ -264,9 +267,10 @@ def test_build_entries_returns_all_rows_when_valid(main_window, tmp_path):
     dock._add_row()
     _fill_cartesian_row(dock, 1, role="R19")
 
-    entries = dock._build_entries()
+    result = dock._build_entries()
 
-    assert entries is not None
+    assert result is not None
+    entries, _placements = result
     assert [e["role"] for e in entries] == ["R18", "R19"]
 
 
@@ -428,3 +432,36 @@ def test_on_place_replaces_only_this_tables_own_rows_by_name(main_window, tmp_pa
 
     roles = sorted(cp.role for cp in payload["cfg"].coordinate_placements)
     assert roles == ["R18", "R99"]
+
+
+# ── refresh_known_roles — set-compare cache (2026-08-12, Group 4) ───────────
+
+def test_refresh_known_roles_skips_repopulation_when_unchanged(main_window, tmp_path, monkeypatch):
+    """G4.4 (2026-08-12): refresh_known_roles runs on the ~2s poll tick, so it
+    must NOT repopulate every combo when the snapshot's Role/Cluster sets
+    haven't changed — same set-compare guard as extract.py's
+    _rebuild_net_aliases. A changed set DOES repopulate again."""
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock._add_row()
+    calls = []
+    monkeypatch.setattr(coordinate_placer_mod, "set_combo_items",
+                        lambda combo, items: calls.append(list(items)))
+
+    snapshot = [
+        SimpleNamespace(role="R_SERIES", cluster="FPGA_PERIPH"),
+        SimpleNamespace(role="R_SERIES", cluster="FPGA_PERIPH"),  # dedupes to the same set
+    ]
+    dock.refresh_known_roles(snapshot)
+    first_count = len(calls)
+    assert first_count == 4  # Cluster, Role, AnchorRole, AnchorCluster
+
+    # Identical sets again — must be a no-op.
+    dock.refresh_known_roles(snapshot)
+    assert len(calls) == first_count
+
+    # A brand-new role appears — repopulates again.
+    dock.refresh_known_roles([
+        SimpleNamespace(role="R_SERIES", cluster="FPGA_PERIPH"),
+        SimpleNamespace(role="R_TERM", cluster="FPGA_PERIPH"),
+    ])
+    assert len(calls) == first_count + 4

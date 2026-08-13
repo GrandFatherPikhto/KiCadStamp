@@ -255,6 +255,54 @@ def test_build_coordinate_moves_uses_effective_name_in_errors():
         build_coordinate_moves(adapter, [cp])
 
 
+# ── G4.3 — the (Role, Cluster) index (2026-08-12, Group 4) ──────────────────
+
+def test_build_coordinate_moves_scans_footprints_once():
+    """G4.3 (2026-08-12): the prebuilt (Role, Cluster) index must scan the
+    board exactly ONCE no matter how many coordinate placements reference it —
+    the pre-refactor code called adapter.get_footprints() per entry (O(entries
+    × board size))."""
+    fps = [_make_fp("R18", role="R_SERIES", cluster="FPGA_PERIPH"),
+           _make_fp("C7", role="C_SERIES", cluster="FPGA_PERIPH")]
+    for fp in fps:
+        fp.position = Vector2.from_xy(0, 0)
+        fp.orientation.degrees = 0.0
+        fp.layer = "F.Cu"
+    adapter = MagicMock()
+    adapter.get_footprints.return_value = fps
+    adapter.get_field_value.side_effect = _role_or_cluster
+
+    placements = [
+        CoordinatePlacement(cluster="FPGA_PERIPH", role="R_SERIES", x_mm=1.0, y_mm=2.0,
+                            rotation_deg=0.0),
+        CoordinatePlacement(cluster="FPGA_PERIPH", role="C_SERIES", x_mm=3.0, y_mm=4.0,
+                            rotation_deg=0.0),
+    ]
+
+    moves = build_coordinate_moves(adapter, placements)
+
+    assert len(moves) == 2
+    assert adapter.get_footprints.call_count == 1
+
+
+def test_build_coordinate_moves_ambiguous_cluster_role_raises():
+    """G4.3 (2026-08-12): the index-based lookup keeps the same fatal-on-
+    ambiguity behaviour (and message) as the per-entry
+    resolve_footprint_by_cluster_role."""
+    adapter = MagicMock()
+    adapter.get_footprints.return_value = [
+        _make_fp("R18", role="R_SERIES", cluster="FPGA_PERIPH"),
+        _make_fp("R20", role="R_SERIES", cluster="FPGA_PERIPH"),
+    ]
+    adapter.get_field_value.side_effect = _role_or_cluster
+
+    cp = CoordinatePlacement(cluster="FPGA_PERIPH", role="R_SERIES", x_mm=1.0, y_mm=2.0,
+                             rotation_deg=0.0)
+
+    with pytest.raises(ValidationError, match="expected exactly one"):
+        build_coordinate_moves(adapter, [cp])
+
+
 # ── Anchor-relative mode (2026-08-12, Group 0 consolidation) ────────────────
 
 def _moved_fp():

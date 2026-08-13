@@ -38,7 +38,8 @@ from ...geometry.spoke_layout import local_to_absolute
 from ...i18n import _
 from ...utils.units import MM
 from ..commands import MoveCommand
-from .clone_role_resolver import resolve_footprint_by_role, resolve_unique_footprint_by_fields
+from .clone_role_resolver import (match_unique_footprint_by_fields, resolve_footprint_by_role,
+                                  resolve_unique_footprint_by_fields)
 from .component_resolver import resolve_anchor_pad_position, resolve_footprint_by_ref
 from .point_resolver import resolve_point_chain
 
@@ -178,6 +179,22 @@ def _anchor_offset_mm(cp: CoordinatePlacement) -> tuple[float, float]:
     return cp.x_mm or 0.0, cp.y_mm or 0.0
 
 
+def _build_footprint_index(adapter) -> dict[tuple[str, str], list[FootprintInstance]]:
+    """Group EVERY footprint by its (Role, Cluster) custom-field pair in one
+    adapter.get_footprints() scan (2026-08-12, Group 4): build_coordinate_moves
+    used to call resolve_footprint_by_cluster_role per entry, and each call
+    re-scanned the whole board (O(entries × board size)). The index keeps the
+    exact-match semantics — the key is the EXACT (role, cluster) pair, not
+    prefix-matched (same convention as resolve_footprint_by_cluster_role's
+    own docstring)."""
+    index: dict[tuple[str, str], list[FootprintInstance]] = {}
+    for fp in adapter.get_footprints():
+        key = (adapter.get_field_value(fp, ROLE_FIELD_NAME),
+               adapter.get_field_value(fp, CLUSTER_FIELD_NAME))
+        index.setdefault(key, []).append(fp)
+    return index
+
+
 def build_coordinate_moves(adapter, coordinate_placements: list[CoordinatePlacement],
                            points=None, sheet_names=None) -> list[MoveCommand]:
     """The whole module in one call — CoordinatePlacement entries in,
@@ -190,9 +207,15 @@ def build_coordinate_moves(adapter, coordinate_placements: list[CoordinatePlacem
     resolved_points); sheet_names — {uuid: name}, for anchor_role narrowing.
     Both optional — the absolute modes never touch them."""
     moves = []
+    # One board scan into a (Role, Cluster) index, then O(1) lookups per entry
+    # (2026-08-12, Group 4) — same exact-match + fatal-if-not-unique messages
+    # as resolve_footprint_by_cluster_role, via the shared match helper.
+    index = _build_footprint_index(adapter)
     for cp in coordinate_placements:
         label = coordinate_placement_effective_name(cp)
-        fp = resolve_footprint_by_cluster_role(adapter, cp.cluster, cp.role, label)
+        field_matches = {ROLE_FIELD_NAME: cp.role, CLUSTER_FIELD_NAME: cp.cluster}
+        fp = match_unique_footprint_by_fields(index.get((cp.role, cp.cluster), []),
+                                              field_matches, label)
         if _has_external_anchor(cp):
             # ANCHOR-RELATIVE: target = anchor position (+ its anchor_pad) + offset.
             anchor_pos = _resolve_external_anchor(adapter, cp, points or {},

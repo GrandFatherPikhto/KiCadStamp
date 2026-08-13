@@ -105,6 +105,10 @@ class CoordinatePlacerDock(QWidget):
         self._path: Optional[Path] = None
         self._known_roles: List[str] = []
         self._known_clusters: List[str] = []
+        # G4.4 (2026-08-12): last-tick known-value SETS — refresh_known_roles
+        # skips the whole repopulation loop when neither has changed.
+        self._known_roles_cache: set = set()
+        self._known_clusters_cache: set = set()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -177,9 +181,23 @@ class CoordinatePlacerDock(QWidget):
         """Same "populate from the live board" pattern as every other
         dock's own refresh_known_roles — called by DockHub.push_snapshot at
         the same ~2s poll cadence. Every EXISTING row's combos are
-        refreshed too, not just newly-added ones."""
-        self._known_roles = sorted({s.role for s in snapshot if s.role})
-        self._known_clusters = sorted({s.cluster for s in snapshot if s.cluster})
+        refreshed too, not just newly-added ones.
+
+        G4.4 (2026-08-12): the poll tick fires every ~2s and a live snapshot
+        almost never changes between ticks — repopulating every combo of
+        every row on every tick is pure churn (and, on a large table,
+        visible flicker). Compare the computed known-value SETS against the
+        previous tick and skip the whole repopulation loop when nothing
+        changed — the same set-compare guard as extract.py's
+        _rebuild_net_aliases."""
+        roles = {s.role for s in snapshot if s.role}
+        clusters = {s.cluster for s in snapshot if s.cluster}
+        if roles == self._known_roles_cache and clusters == self._known_clusters_cache:
+            return
+        self._known_roles_cache = roles
+        self._known_clusters_cache = clusters
+        self._known_roles = sorted(roles)
+        self._known_clusters = sorted(clusters)
         for row in range(self.table.rowCount()):
             set_combo_items(self.table.cellWidget(row, _COL_CLUSTER), self._known_clusters)
             set_combo_items(self.table.cellWidget(row, _COL_ROLE), self._known_roles)
@@ -449,12 +467,16 @@ class CoordinatePlacerDock(QWidget):
             d["skip"] = True
         return d
 
-    def _build_entries(self) -> Optional[List[Dict[str, Any]]]:
+    def _build_entries(self) -> Optional[Tuple[List[Dict[str, Any]], List[CoordinatePlacement]]]:
         """Every row, read + validated through load_coordinate_placement()
         (the SAME validator the CLI/YAML path uses — no separate GUI
         validation logic to keep in sync) plus a table-wide duplicate-name
         check. None + an on-screen error (naming the offending row) on the
-        first problem found — used by both Save and Place."""
+        first problem found — used by both Save and Place. Returns
+        (entries, placements) — the already-validated CoordinatePlacements,
+        so Place doesn't re-validate every row a second time (2026-08-12,
+        Group 4: _collect_place_inputs used to call load_coordinate_placement
+        again per row)."""
         entries: List[Dict[str, Any]] = []
         placements: List[CoordinatePlacement] = []
         for row in range(self.table.rowCount()):
@@ -480,7 +502,7 @@ class CoordinatePlacerDock(QWidget):
                   "(explicit, or the default cluster/role pair).").format(names=dupes),
                 _ERROR_STYLE)
             return None
-        return entries
+        return entries, placements
 
     # ── Save ──────────────────────────────────────────────────────────────
 
@@ -488,9 +510,10 @@ class CoordinatePlacerDock(QWidget):
         if self._path is None:
             self._show_message(_("Pick a file in the Config tree first."), _ERROR_STYLE)
             return
-        entries = self._build_entries()
-        if entries is None:
+        result = self._build_entries()
+        if result is None:
             return
+        entries, _placements = result
         try:
             set_list_section(self._path, "coordinate_placements", entries)
         except OSError as e:
@@ -517,9 +540,10 @@ class CoordinatePlacerDock(QWidget):
         if self._path is None:
             self._show_message(_("Pick a file in the Config tree first."), _ERROR_STYLE)
             return None
-        entries = self._build_entries()
-        if entries is None:
+        result = self._build_entries()
+        if result is None:
             return None
+        entries, placements = result
         if not entries:
             self._show_message(_("Nothing to place — the table is empty."), _ERROR_STYLE)
             return None
@@ -533,7 +557,7 @@ class CoordinatePlacerDock(QWidget):
             self._show_message(_("Failed to load file: {error}").format(error=e), _ERROR_STYLE)
             return None
 
-        placements = [load_coordinate_placement(e) for e in entries]
+        # placements already validated by _build_entries (2026-08-12, Group 4).
         # Retired/skip rows stay in cfg (drop_inactive_items drops them before
         # --only sees them), but must NOT be in the --only names — otherwise
         # apply_only_filter can't find the name (the row was already dropped)

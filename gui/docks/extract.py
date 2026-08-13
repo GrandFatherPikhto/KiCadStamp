@@ -462,12 +462,17 @@ class ExtractDock(QWidget):
         """Everything downstream of "what's selected" — shared between a
         fresh selection tick (set_board_selection) and the Cluster filter
         checkbox/combo changing on an otherwise-unchanged selection."""
-        self._update_selection_label()
+        # 2026-08-12, Group 4: every consumer below used to call
+        # _filtered_selection() itself — 5 redundant recomputations of the
+        # same (possibly registry-filtering) scan per ~400ms selection-watch
+        # tick. Compute it ONCE here and share the result.
+        filtered = self._filtered_selection()
+        self._update_selection_label(filtered)
         self._update_cluster_warning()
-        self._rebuild_net_aliases()
-        self._update_origin_choices()
-        self._autofill_from_cluster()
-        self._update_button_state()
+        self._rebuild_net_aliases(filtered)
+        self._update_origin_choices(filtered)
+        self._autofill_from_cluster(filtered)
+        self._update_button_state(filtered)
 
     def _on_cluster_filter_changed(self, *_args: Any) -> None:
         self._refresh_derived_selection_state()
@@ -605,13 +610,16 @@ class ExtractDock(QWidget):
         self._origin_role_row.setVisible(mode == 1)
         self._origin_via_row.setVisible(mode == 2)
 
-    def _update_origin_choices(self) -> None:
+    def _update_origin_choices(self, filtered_selection=None) -> None:
         """Populates the Role/Via-net combos from what's actually in the
         current selection — picking an origin from outside the selection
         makes no sense (extract_template_from_selection fatals on it
         anyway: 'role not found in selection' / 'no such via in selection'),
-        so there's no point offering it."""
-        raw_items, footprints = self._filtered_selection()
+        so there's no point offering it. filtered_selection — precomputed
+        (raw_items, footprints) passed by _refresh_derived_selection_state
+        (2026-08-12, Group 4); computed here when None (direct callers)."""
+        raw_items, footprints = (filtered_selection if filtered_selection is not None
+                                 else self._filtered_selection())
         roles = sorted({s.role for s in footprints if s.role})
         set_combo_items(self.origin_role_combo, roles)
 
@@ -738,7 +746,7 @@ class ExtractDock(QWidget):
         if items:
             list_widget.setCurrentItem(items[0])
 
-    def _autofill_from_cluster(self) -> None:
+    def _autofill_from_cluster(self, filtered_selection=None) -> None:
         """If the selection is a single Cluster and a slugified form of it
         (or its last '/'-segment) matches an existing Cells/Extractor key,
         fill that key into Cell name / Profile key — but only into a field
@@ -763,7 +771,8 @@ class ExtractDock(QWidget):
         heuristic, not a guarantee — same empty-field-only rule as the
         name fields, so a bad guess is just as easy to overtype as a
         blank field would have been."""
-        _raw_items, footprints = self._filtered_selection()
+        _raw_items, footprints = (filtered_selection if filtered_selection is not None
+                                  else self._filtered_selection())
         clusters = frozenset(s.cluster for s in footprints if s.cluster)
         key = (clusters, self._target_path, self._profile_path)
         if key == self._last_autofill_key:
@@ -943,11 +952,12 @@ class ExtractDock(QWidget):
 
         self._tabs.setTabVisible(self._role_net_tab_index, bool(ambiguous))
 
-    def _update_selection_label(self) -> None:
+    def _update_selection_label(self, filtered_selection=None) -> None:
         if not self._raw_items:
             self.selection_label.setText(_("Nothing selected"))
             return
-        raw_items, footprints = self._filtered_selection()
+        raw_items, footprints = (filtered_selection if filtered_selection is not None
+                                 else self._filtered_selection())
         if not raw_items:
             self.selection_label.setText(_("Nothing left after the Cluster filter (see above)"))
             return
@@ -974,13 +984,15 @@ class ExtractDock(QWidget):
         else:
             self.cluster_warning_label.setText("")
 
-    def _rebuild_net_aliases(self) -> None:
+    def _rebuild_net_aliases(self, filtered_selection=None) -> None:
         """One row per distinct net found on the selected components' pads.
         Preserves whatever the user already typed/checked for a net that's
         still present — the selection-watch tick fires every ~400ms, so
         without this, in-progress typing would be wiped just like the
-        tree/bulk-edit docks had to guard against."""
-        _raw_items, footprints = self._filtered_selection()
+        tree/bulk-edit docks had to guard against. filtered_selection —
+        precomputed by _refresh_derived_selection_state (2026-08-12, Group 4)."""
+        _raw_items, footprints = (filtered_selection if filtered_selection is not None
+                                  else self._filtered_selection())
         nets = sorted({net for s in footprints for net in s.nets.values()})
         previous_alias = {net: edit.text() for net, edit in self._net_alias_edits.items()}
         previous_rule_net = {net: cb.isChecked() for net, cb in self._rule_net_checkboxes.items()}
@@ -1025,8 +1037,9 @@ class ExtractDock(QWidget):
             edit.setText("")
         edit.setDisabled(checked)
 
-    def _update_button_state(self) -> None:
-        raw_items, _footprints = self._filtered_selection()
+    def _update_button_state(self, filtered_selection=None) -> None:
+        raw_items, _footprints = (filtered_selection if filtered_selection is not None
+                                  else self._filtered_selection())
         self.extract_button.setEnabled(bool(raw_items) and self._target_path is not None)
 
     def _show_message(self, text: str, style: str = "") -> None:
