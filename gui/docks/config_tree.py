@@ -59,13 +59,17 @@ needed since extracting into a file already positioned in the tree means
 it's already reachable from root, no separate include: wiring step
 required in the common case).
 
-Right-click context menu (2026-08-03): the SAME set of file-level actions
-(Add cell/thermal via pad/placer/included file, Remove this file) is
-offered no matter which specific item under a file you right-click — the
-file/category/leaf distinction only matters for left-click routing above,
-not for these actions, which always operate on "the nearest file
-ancestor" (Denis: "Если выбран файл или его десцендант..." — the
-descendant doesn't change WHICH file the action targets).
+Right-click context menu (2026-08-03): file-level actions always operate on
+"the nearest file ancestor" (Denis: "Если выбран файл или его десцендант..."
+— the descendant doesn't change WHICH file the action targets). Since
+2026-08-13 (plan context_menu_by_section) the "Add ..." block is ALSO
+section-aware: right-clicking a leaf or category shows only that section's
+own Add action (cells -> Add cell, extract_profiles -> Add extract profile,
+...), clone_profiles shows none (read-only, no GUI edit form), and a file
+header (or a read-only nested cell node) shows ALL of them — Denis's
+explicit decision, otherwise a fresh file with no sections yet couldn't
+create its first entity. Remove this file still appears only for non-root
+files.
 
 Rename (2026-08-04, Denis: "А мы можем добавить конекстное меню в конфиг
 чтобы переименовать плэейсменты, целлы, профили извлечения и т.д.?") —
@@ -126,6 +130,25 @@ _SECTION_LABELS = {
     "points": _("Points"),
     "extract_profiles": _("Extract profiles"),
     "clone_profiles": _("Clone profiles"),
+}
+
+# Section -> (menu label, signal name) for the context menu's "Add ..."
+# block (2026-08-13, plan context_menu_by_section): right-clicking a leaf or
+# category of a section shows ONLY that section's own Add action. Order here
+# is the order the actions appear when ALL of them are shown (file header).
+# extract_profiles is in the list (its "Add extract profile..." opens the
+# Extract form pre-armed for profile saving, see ExtractDock.prepare_new_
+# profile); clone_profiles is deliberately ABSENT — it has no GUI edit form
+# (same deliberate scope limit as the module docstring's read-only note), so
+# a right-click on it shows no Add action at all.
+_ADD_ACTION_BY_SECTION = {
+    "cells": (_("Add cell..."), "add_cell_requested"),
+    "thermal_via_arrays": (_("Add thermal via pad..."), "add_thermal_via_requested"),
+    "coordinate_placements": (_("Add coordinate placement..."), "add_coordinate_placement_requested"),
+    "clone_placements": (_("Add placer..."), "add_placer_requested"),
+    "points": (_("Add point..."), "add_point_requested"),
+    "rules": (_("Add rule..."), "add_rule_requested"),
+    "extract_profiles": (_("Add extract profile..."), "add_extract_profile_requested"),
 }
 
 
@@ -193,6 +216,12 @@ class ConfigTreeDock(QDockWidget):
     # add_thermal_via_requested — opens the form blank.
     rule_picked = pyqtSignal(object)
     add_rule_requested = pyqtSignal(object)
+    # Fired by the context menu's "Add extract profile..." (2026-08-13, plan
+    # context_menu_by_section) — unlike the other five Add-actions it does NOT
+    # open a blank form ready to Save (an extract profile's params come from a
+    # REAL board selection, see ExtractDock.prepare_new_profile): it points
+    # ExtractDock at the file and pre-checks "Also save as extract_profile".
+    add_extract_profile_requested = pyqtSignal(object)
     # Fired on EVERY click in the tree (file header, category, or leaf) —
     # see module docstring for why this replaces the three independent
     # FilePickerDock role signals.
@@ -267,6 +296,13 @@ class ConfigTreeDock(QDockWidget):
             if not raw:
                 continue
             section_item = QTreeWidgetItem(file_item, [label])
+            # Tag the category with its section (2026-08-13, plan
+            # context_menu_by_section) so the context menu can show only that
+            # section's "Add ..." action — category headers used to carry NO
+            # UserRole data at all (the old "if data[0] == 'category'" branch
+            # in _on_clicked was unreachable); left-click stays a no-op either
+            # way (the plan deliberately doesn't touch _on_clicked).
+            section_item.setData(0, Qt.ItemDataRole.UserRole, ("category", section))
             for name, payload in self._entries(raw, section):
                 leaf = QTreeWidgetItem(section_item, [name])
                 # Always set, not just for _CLICKABLE_SECTIONS — the
@@ -363,6 +399,25 @@ class ConfigTreeDock(QDockWidget):
 
     # ── Context menu (right-click anywhere under a file) ────────────────
 
+    @staticmethod
+    def _add_section_for_item(item) -> Optional[str]:
+        """The section a right-clicked item's "Add ..." menu block is
+        filtered to (2026-08-13, plan context_menu_by_section):
+        - a leaf -> its own section (data ("leaf", section, payload));
+        - a category header -> its section (tagged ("category", section) in
+          _build_file_item);
+        - anything else (file header, or a read-only nested cell child with
+          no UserRole data at all, see _add_nested_cell_children) -> None,
+          meaning "section unknown" -> the caller shows ALL the Add actions
+          (Denis's explicit decision: a fresh file with no sections yet must
+          still be able to create its first entity)."""
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if data is None:
+            return None
+        if data[0] in ("leaf", "category"):
+            return data[1]
+        return None
+
     def _file_context_for_item(self, item) -> Optional[tuple]:
         """Walks up from `item` (inclusive) to the nearest file node —
         every action below operates on that file regardless of whether the
@@ -413,18 +468,28 @@ class ConfigTreeDock(QDockWidget):
                 lambda: self._on_export(selected_leaves))
             menu.addSeparator()
 
-        menu.addAction(_("Add cell...")).triggered.connect(
-            lambda: self.add_cell_requested.emit(file_path))
-        menu.addAction(_("Add thermal via pad...")).triggered.connect(
-            lambda: self.add_thermal_via_requested.emit(file_path))
-        menu.addAction(_("Add coordinate placement...")).triggered.connect(
-            lambda: self.add_coordinate_placement_requested.emit(file_path))
-        menu.addAction(_("Add placer...")).triggered.connect(
-            lambda: self.add_placer_requested.emit(file_path))
-        menu.addAction(_("Add point...")).triggered.connect(
-            lambda: self.add_point_requested.emit(file_path))
-        menu.addAction(_("Add rule...")).triggered.connect(
-            lambda: self.add_rule_requested.emit(file_path))
+        # "Add ..." block — since 2026-08-13 (plan context_menu_by_section)
+        # filtered by the section of whatever was right-clicked, three
+        # distinct outcomes (not collapsed into "known vs unknown", or
+        # clone_profiles would wrongly get all seven):
+        #   * known section with an Add action -> that ONE action;
+        #   * known section with none (clone_profiles, read-only) -> nothing;
+        #   * unknown (file header, read-only nested cell node) -> ALL of
+        #     them (Denis's decision — how else to create the FIRST entity
+        #     in a file that has no sections yet).
+        section = self._add_section_for_item(item)
+        if section is None:
+            add_sections = list(_ADD_ACTION_BY_SECTION)
+        elif section in _ADD_ACTION_BY_SECTION:
+            add_sections = [section]
+        else:
+            add_sections = []
+        for add_section in add_sections:
+            label, signal_name = _ADD_ACTION_BY_SECTION[add_section]
+            signal = getattr(self, signal_name)
+            menu.addAction(label).triggered.connect(lambda sig=signal: sig.emit(file_path))
+        # "Add included file..." is about the FILE, not a section, so it stays
+        # unconditional — it's relevant in every context.
         menu.addAction(_("Add included file...")).triggered.connect(
             lambda: self._add_included_file(file_path))
         if parent_path is not None:

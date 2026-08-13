@@ -135,8 +135,15 @@ Right-click any entry for:
   or overwrite the whole file.
 
 Right-click a file node for **Add cell.../Add point.../Add rule.../Add placer.../Add thermal via
-pad.../Add included file...**, plus **Remove this file** (soft-disables its `include:` entry,
-doesn't delete the file) when it's not the root.
+pad.../Add extract profile.../Add included file...**, plus **Remove this file** (soft-disables its
+`include:` entry, doesn't delete the file) when it's not the root. Since 2026-08-13 the "Add ..."
+block is **section-aware**: right-clicking a category or a leaf shows only THAT section's own Add
+action (cells → Add cell, extract_profiles → Add extract profile, ...); Clone profiles shows none
+(read-only, no GUI edit form); a file header still shows all of them (Denis's decision — otherwise a
+fresh file with no sections yet couldn't create its first entity). "Add extract profile..." isn't a
+blank form like the other Add-actions (an extract profile's params come from a real board selection)
+— it points the Extract dock at the file, pre-checks "Also save as extract_profile" and focuses the
+profile-key field, so the profile is saved as a side effect of the next real Extract.
 
 Clicking any node also switches the Detail dock to that node's own panel (Rule → Rules, file →
 Project, ...) — which made the tree a confusing way to pick a file for a DIFFERENT dock. Since

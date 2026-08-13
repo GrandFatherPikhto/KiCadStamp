@@ -323,6 +323,24 @@ def test_add_rule_requested_opens_blank_rules_form_and_shows_tab(real_main_windo
     assert real_main_window._dock_hub.detail_dock.stack.currentWidget() is real_main_window.rules_dock
 
 
+def test_add_extract_profile_requested_arms_extract_and_shows_tab(real_main_window, tmp_path):
+    """ConfigTreeDock's "Add extract profile..." context-menu action (2026-08-13,
+    plan context_menu_by_section) -> ExtractDock.prepare_new_profile — NOT a
+    blank form like the other Add-actions (a profile's params come from a real
+    board selection), it pre-arms the Extract flow for a profile save."""
+    profiles_file = tmp_path / "profiles.yaml"
+    _write(profiles_file)
+    real_main_window.extract_dock.save_profile_checkbox.setChecked(False)
+    real_main_window.extract_dock.profile_key_edit.setText("stale")
+
+    real_main_window.config_tree_dock.add_extract_profile_requested.emit(profiles_file)
+
+    assert real_main_window.extract_dock.save_profile_checkbox.isChecked()
+    assert real_main_window.extract_dock.profile_key_edit.text() == ""
+    assert real_main_window.extract_dock._profile_path == profiles_file
+    assert real_main_window._dock_hub.detail_dock.stack.currentWidget() is real_main_window.extract_dock
+
+
 def test_file_selected_alone_shows_root_page(real_main_window, tmp_path):
     """A plain file/category click (file_selected fires with no matching
     leaf signal) falls back to the Root page — Denis's chosen auto-switch

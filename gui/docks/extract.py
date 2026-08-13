@@ -735,6 +735,33 @@ class ExtractDock(QWidget):
         self._registry_uuids_cache = None
         set_file_combo_selection(self.placer_file_combo, path)
 
+    def prepare_new_profile(self, file_path: Path) -> None:
+        """ConfigTreeDock's "Add extract profile..." delegate (2026-08-13,
+        plan context_menu_by_section). Deliberately NOT a blank form ready
+        to Save like the other five Add-actions: an extract_profiles: entry's
+        params/net_template_role/rule_nets physically come from a REAL board
+        selection at extraction time (see module docstring), so there is
+        nothing meaningful a user could type into an empty form. Instead this
+        prepares the existing Extract flow for a profile save:
+        - points this dock at `file_path` (set_profile_file, which also keeps
+          profile_file_combo in sync);
+        - pre-checks "Also save as extract_profile" and clears the profile-key
+          field (defaults to the Cell name at extraction time), focusing it;
+        - leaves cells_list / the picked Cell untouched — the profile key is
+          independent of what's selected for extraction.
+        The visible cue is the checked checkbox + focused empty key field (and
+        that field's existing tooltip); the hint message goes only to the Log
+        dock (show_message — no inline label since 2026-08-13, deliberately
+        not reintroducing one for this single hint)."""
+        self.set_profile_file(file_path)
+        self.save_profile_checkbox.setChecked(True)
+        self.profile_key_edit.clear()
+        self.profile_key_edit.setFocus()
+        self._show_message(
+            _("Select footprints/vias/tracks on the board, type a profile key above, then "
+              "Extract — the profile is saved as a side effect of a real extraction."),
+            _WARN_STYLE)
+
     @staticmethod
     def _slugify(text: str) -> str:
         return re.sub(r"[^0-9a-zA-Z]+", "_", text.strip().lower()).strip("_")

@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+import pytest
 import yaml
 from PyQt6.QtWidgets import QMessageBox
 
@@ -22,6 +23,35 @@ cells:
         offset_along_mm: 0.0
         offset_across_mm: 0.0
         angle_deg: 0.0
+"""
+
+# A root with EVERY recognized section present (one leaf each) — used by the
+# context-menu filtering tests (2026-08-13, plan context_menu_by_section) so
+# every category/leaf exists in the same tree.
+ALL_SECTIONS_YAML = """
+cells:
+  my_cell:
+    components: []
+extract_profiles:
+  my_profile:
+    params: {}
+clone_profiles:
+  my_clone:
+    params: {}
+thermal_via_arrays:
+  - name: my_tva
+clone_placements:
+  - name: my_placement
+    cell: my_cell
+coordinate_placements:
+  - name: my_coord
+    cluster: CHAN
+    role: R
+points:
+  my_point:
+    xy: [1.0, 2.0]
+rules:
+  - net: +3V3
 """
 
 
@@ -310,7 +340,10 @@ def test_rename_action_present_for_a_leaf_absent_for_a_category(main_window, tmp
     leaf = cells_category.child(0)
 
     assert leaf.data(0, config_tree_mod.Qt.ItemDataRole.UserRole)[0] == "leaf"
-    assert cells_category.data(0, config_tree_mod.Qt.ItemDataRole.UserRole) is None
+    # Category headers were untagged (None) before 2026-08-13 — the context
+    # menu now needs their section (plan context_menu_by_section), so they
+    # carry ("category", section).
+    assert cells_category.data(0, config_tree_mod.Qt.ItemDataRole.UserRole) == ("category", "cells")
 
 
 def test_rename_cell_updates_the_dict_key_and_refreshes_the_tree(main_window, tmp_path, monkeypatch):
@@ -638,6 +671,174 @@ def test_context_menu_has_no_remove_action_for_root(main_window, tmp_path, monke
 
     assert "Remove this file" not in captured["labels"]
     assert "Add cell..." in captured["labels"]
+
+
+# ── "Add ..." filtered by section (2026-08-13, plan context_menu_by_section) ─
+
+def _context_menu_labels(dock, item, monkeypatch):
+    """Runs _on_context_menu for `item` and returns the added action labels —
+    QMenu.exec is no-oped so the menu is never actually shown. Call it ONCE
+    per test (or within one addAction-capture session): calling it twice in a
+    row re-patches addAction and the second call's captured "original" is the
+    first patch, cross-contaminating the two captured lists."""
+    monkeypatch.setattr(config_tree_mod.QMenu, "exec", lambda self, *a, **k: None)
+    captured = []
+    original_add_action = config_tree_mod.QMenu.addAction
+    monkeypatch.setattr(config_tree_mod.QMenu, "addAction",
+                        lambda self, text, *a, **k: (captured.append(text),
+                                                     original_add_action(self, text, *a, **k))[1])
+    dock._on_context_menu(dock.tree.visualItemRect(item).center())
+    return captured
+
+
+def _add_labels(labels):
+    """The context menu's "Add ..." block (incl. the unconditional "Add
+    included file...") — Rename/Delete/Edit/Export never start with 'Add '."""
+    return [label for label in labels if label.startswith("Add ")]
+
+
+@pytest.mark.parametrize("category_label, expected_add", [
+    ("Cells", "Add cell..."),
+    ("Thermal via arrays", "Add thermal via pad..."),
+    ("Coordinate placements", "Add coordinate placement..."),
+    ("Clone placements", "Add placer..."),
+    ("Points", "Add point..."),
+    ("Rules", "Add rule..."),
+])
+def test_category_context_menu_shows_only_its_own_add_action(
+        main_window, tmp_path, monkeypatch, category_label, expected_add):
+    root = tmp_path / "root.yaml"
+    root.write_text(ALL_SECTIONS_YAML, encoding="utf-8")
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    category = _find(dock.tree.topLevelItem(0), category_label)
+    labels = _context_menu_labels(dock, category, monkeypatch)
+
+    assert _add_labels(labels) == [expected_add, "Add included file..."]
+
+
+@pytest.mark.parametrize("category_label, expected_add", [
+    ("Cells", "Add cell..."),
+    ("Thermal via arrays", "Add thermal via pad..."),
+    ("Coordinate placements", "Add coordinate placement..."),
+    ("Clone placements", "Add placer..."),
+    ("Points", "Add point..."),
+    ("Rules", "Add rule..."),
+])
+def test_leaf_context_menu_shows_only_its_sections_add_action(
+        main_window, tmp_path, monkeypatch, category_label, expected_add):
+    root = tmp_path / "root.yaml"
+    root.write_text(ALL_SECTIONS_YAML, encoding="utf-8")
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    leaf = _find(dock.tree.topLevelItem(0), category_label).child(0)
+    labels = _context_menu_labels(dock, leaf, monkeypatch)
+
+    assert _add_labels(labels) == [expected_add, "Add included file..."]
+
+
+def test_extract_profiles_category_and_leaf_show_add_extract_profile_only(
+        main_window, tmp_path, monkeypatch):
+    """The new action (2026-08-13): an Extract profiles category/leaf shows
+    ONLY "Add extract profile..." from the Add block — the other five are
+    section-specific and must not leak in. Both menus are built inside ONE
+    addAction-capture session (re-patching between two calls would make the
+    second capture's "original" the first patch — see _context_menu_labels'
+    caller note)."""
+    root = tmp_path / "root.yaml"
+    root.write_text(ALL_SECTIONS_YAML, encoding="utf-8")
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    monkeypatch.setattr(config_tree_mod.QMenu, "exec", lambda self, *a, **k: None)
+    captured = []
+    original_add_action = config_tree_mod.QMenu.addAction
+    monkeypatch.setattr(config_tree_mod.QMenu, "addAction",
+                        lambda self, text, *a, **k: (captured.append(text),
+                                                     original_add_action(self, text, *a, **k))[1])
+
+    category = _find(dock.tree.topLevelItem(0), "Extract profiles")
+    dock._on_context_menu(dock.tree.visualItemRect(category).center())
+    dock._on_context_menu(dock.tree.visualItemRect(category.child(0)).center())
+
+    add_labels = _add_labels(captured)
+    assert add_labels.count("Add extract profile...") == 2  # one per menu
+    assert add_labels.count("Add included file...") == 2
+    assert len(add_labels) == 4
+    assert "Add cell..." not in captured
+    assert "Add rule..." not in captured
+
+
+def test_clone_profiles_category_has_no_add_actions(main_window, tmp_path, monkeypatch):
+    """clone_profiles is read-only (no GUI edit form, deliberate scope limit)
+    — its category must show NO Add action at all, not even the wrong ones."""
+    root = tmp_path / "root.yaml"
+    root.write_text(ALL_SECTIONS_YAML, encoding="utf-8")
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    category = _find(dock.tree.topLevelItem(0), "Clone profiles")
+    labels = _context_menu_labels(dock, category, monkeypatch)
+
+    assert _add_labels(labels) == ["Add included file..."]
+
+
+def test_file_header_context_menu_shows_all_seven_add_actions(
+        main_window, tmp_path, monkeypatch):
+    """Denis's explicit decision: a file header (incl. the root) must still
+    offer ALL the Add actions — otherwise a fresh file with no sections yet
+    couldn't create its first entity."""
+    root = tmp_path / "root.yaml"
+    root.write_text(ALL_SECTIONS_YAML, encoding="utf-8")
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    labels = _context_menu_labels(dock, dock.tree.topLevelItem(0), monkeypatch)
+
+    for label in ("Add cell...", "Add thermal via pad...", "Add coordinate placement...",
+                  "Add placer...", "Add point...", "Add rule...", "Add extract profile..."):
+        assert label in labels
+
+
+def test_nested_cell_child_context_menu_shows_all_add_actions(
+        main_window, tmp_path, monkeypatch):
+    """Read-only nested cell children carry no UserRole data at all — their
+    section is unknown, so the Add block falls back to ALL actions (same as
+    a file header)."""
+    root = tmp_path / "root.yaml"
+    root.write_text("""cells:
+  composite:
+    clone_placements:
+      - name: inner_cell
+        cell: leaf
+""", encoding="utf-8")
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    composite = _find(_find(dock.tree.topLevelItem(0), "Cells"), "composite")
+    nested = composite.child(0)
+    labels = _context_menu_labels(dock, nested, monkeypatch)
+
+    assert "Add cell..." in labels
+    assert "Add rule..." in labels
+
+
+def test_add_section_for_item_leaf_category_and_file_header(main_window, tmp_path):
+    """The helper driving the filtering: leaf -> its section, category -> its
+    section (tagged 2026-08-13), file header -> None (all Add actions)."""
+    root = tmp_path / "root.yaml"
+    root.write_text(ALL_SECTIONS_YAML, encoding="utf-8")
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+    root_item = dock.tree.topLevelItem(0)
+
+    cells_category = _find(root_item, "Cells")
+    assert dock._add_section_for_item(cells_category.child(0)) == "cells"
+    assert dock._add_section_for_item(cells_category) == "cells"
+    assert dock._add_section_for_item(_find(root_item, "Clone profiles")) == "clone_profiles"
+    assert dock._add_section_for_item(root_item) is None  # file header
 
 
 # ── Delete (2026-08-05) ───────────────────────────────────────────────────

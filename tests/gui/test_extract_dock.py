@@ -338,6 +338,56 @@ def test_placer_file_combo_is_a_closed_picker_not_free_text(main_window):
     assert not dock.placer_file_combo.isEditable()
 
 
+# ── prepare_new_profile (2026-08-13, plan context_menu_by_section) ────────
+
+def test_prepare_new_profile_arms_the_extract_flow(main_window, tmp_path):
+    """ConfigTreeDock's "Add extract profile..." delegate — not a blank form
+    (an extract_profiles: entry's params come from a real board selection):
+    it points the dock at the profile file, pre-checks the save checkbox,
+    clears + focuses the profile-key field."""
+    cells_file = tmp_path / "cells.yaml"
+    cells_file.write_text("cells: {}\n", encoding="utf-8")
+    profile_file = tmp_path / "profiles.yaml"
+    profile_file.write_text("extract_profiles: {}\n", encoding="utf-8")
+    dock = ExtractDock(main_window)
+    dock.set_target_file(cells_file)
+    dock.save_profile_checkbox.setChecked(False)
+    dock.profile_key_edit.setText("stale")
+
+    dock.prepare_new_profile(profile_file)
+
+    assert dock.save_profile_checkbox.isChecked()
+    assert dock.profile_key_edit.text() == ""
+    # hasFocus() is False in offscreen (the window is never shown/activated)
+    # — focusWidget() reflects the window's set focus widget instead.
+    assert dock.focusWidget() is dock.profile_key_edit
+    assert dock._profile_path == profile_file
+    assert dock.profile_file_combo.currentData() == profile_file  # combo kept in sync
+
+
+def test_prepare_new_profile_does_not_disturb_the_cells_context(main_window, tmp_path):
+    """The profile key is independent of what's selected for extraction —
+    prepare_new_profile must not change the target Cell file or the existing
+    cells list content (set_profile_file's list refresh re-adds the SAME
+    cells from the unchanged _target_path)."""
+    cells_file = tmp_path / "cells.yaml"
+    cells_file.write_text("cells:\n  alpha:\n    components: []\n", encoding="utf-8")
+    profile_file = tmp_path / "profiles.yaml"
+    profile_file.write_text("extract_profiles: {}\n", encoding="utf-8")
+    dock = ExtractDock(main_window)
+    dock.set_target_file(cells_file)
+
+    before_items = [dock.cells_list.item(i).text() for i in range(dock.cells_list.count())]
+    before_target = dock._target_path
+
+    dock.prepare_new_profile(profile_file)
+
+    after_items = [dock.cells_list.item(i).text() for i in range(dock.cells_list.count())]
+    assert after_items == before_items == ["alpha"]
+    assert dock._target_path == before_target
+    assert dock.profile_key_edit.text() == ""
+
+
 def test_profile_key_field_has_an_explanatory_tooltip(main_window, tmp_path):
     """Denis, live 2026-08-06: "я постоянно забываю" what Profile key even
     is — a hover reminder beats asking again next time."""

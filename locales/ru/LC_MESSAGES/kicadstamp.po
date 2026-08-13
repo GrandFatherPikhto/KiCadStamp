@@ -1098,6 +1098,16 @@ msgstr "Добавить правило..."
 msgid "Add included file..."
 msgstr "Добавить включаемый файл..."
 
+# Added 2026-08-13 — was a pre-existing missing translation from the
+# 2026-08-12 coordinate_placements work (same menu block as the others).
+#: gui/docks/config_tree.py:486
+msgid "Add coordinate placement..."
+msgstr "Добавить координатное размещение..."
+
+#: gui/docks/config_tree.py:489
+msgid "Add extract profile..."
+msgstr "Добавить профиль извлечения..."
+
 #: gui/docks/config_tree.py:488
 #, python-brace-format
 msgid "Remove this file"
@@ -1406,6 +1416,12 @@ msgstr "Ключ профиля:"
 #, python-brace-format
 msgid "Profile file:"
 msgstr "Файл профиля:"
+
+# 2026-08-13 — "Add extract profile..." hint, goes only to the Log dock
+# (no inline label since 2026-08-13, deliberately not reintroduced for this).
+#: gui/docks/extract.py:747
+msgid "Select footprints/vias/tracks on the board, type a profile key above, then Extract — the profile is saved as a side effect of a real extraction."
+msgstr "Выделите футпринты/via/дорожки на плате, введите выше ключ профиля и нажмите Extract — профиль сохранится как побочный результат реального извлечения."
 
 #: gui/docks/extract.py:369 gui/docks/extract.py:504
 msgid "No placer file picked (pick one in the Config tree, optional)"

@@ -1035,6 +1035,14 @@ msgstr ""
 msgid "Add included file..."
 msgstr ""
 
+#: gui/docks/config_tree.py:486
+msgid "Add coordinate placement..."
+msgstr ""
+
+#: gui/docks/config_tree.py:489
+msgid "Add extract profile..."
+msgstr ""
+
 #: gui/docks/config_tree.py:488
 msgid "Remove this file"
 msgstr ""
@@ -1325,6 +1333,10 @@ msgstr ""
 
 #: gui/docks/extract.py:362
 msgid "Profile file:"
+msgstr ""
+
+#: gui/docks/extract.py:747
+msgid "Select footprints/vias/tracks on the board, type a profile key above, then Extract — the profile is saved as a side effect of a real extraction."
 msgstr ""
 
 #: gui/docks/extract.py:369 gui/docks/extract.py:504

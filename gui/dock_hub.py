@@ -280,6 +280,11 @@ class DockHub:
         self.config_tree_dock.add_point_requested.connect(self._start_new_point)
         self.config_tree_dock.add_rule_requested.connect(self._start_new_rule)
         self.config_tree_dock.add_cell_requested.connect(self._start_new_cell)
+        # "Add extract profile..." (2026-08-13, plan context_menu_by_section)
+        # — NOT a blank form like the other Add-actions: it prepares the
+        # Extract flow for a profile save (see ExtractDock.prepare_new_profile).
+        self.config_tree_dock.add_extract_profile_requested.connect(
+            self._start_new_extract_profile)
 
         # fieldstool tab -> Components tree: an explicit Rescan/Apply there
         # refreshes this tree's schematic view (see FieldsToolDock).
@@ -373,6 +378,14 @@ class DockHub:
         _start_new_placement above, for CellDock."""
         self.cells_dock.new_cell(file_path)
         self.detail_dock.show_cells()
+
+    def _start_new_extract_profile(self, file_path) -> None:
+        """ConfigTreeDock's add_extract_profile_requested delegate — same
+        reasoning as _start_new_placement above, for ExtractDock's profile
+        preparation (see extract.py's prepare_new_profile — deliberately not
+        a blank form like the other Add-actions)."""
+        self.extract_dock.prepare_new_profile(file_path)
+        self.detail_dock.show_extract()
 
     def _edit_cell(self, name, file_path) -> None:
         """ConfigTreeDock's cell_edit_requested delegate — right-click
