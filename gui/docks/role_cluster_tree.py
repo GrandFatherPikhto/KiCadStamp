@@ -430,8 +430,18 @@ class RoleClusterTreeDock(QDockWidget):
             self._auto_expand_pending = False
 
     @staticmethod
-    def _leaf_item(r: _Row) -> QStandardItem:
-        text = r.ref + (" ⚠" if r.divergent else "")  # warn on multi-unit divergence (schematic mode)
+    def _leaf_item(r: _Row, show_role: bool = False) -> QStandardItem:
+        # Role shown next to the ref ONLY in Cluster grouping (2026-08-13,
+        # plan components_tree_show_role, Denis: "в дереве Components
+        # дописывать кроме Рефа — роль (если есть)"): in Role grouping the
+        # role is already the parent group, repeating it per leaf would be
+        # noise without new information. Only when non-empty (a row without a
+        # role stays just `ref`, no empty parens). Warning icon stays the
+        # string's suffix.
+        text = r.ref
+        if show_role and r.role:
+            text += f" ({r.role})"
+        text += " ⚠" if r.divergent else ""  # warn on multi-unit divergence (schematic mode)
         item = QStandardItem(text)
         item.setEditable(False)
         item.setData(r.ref, _REF_ROLE)
@@ -452,7 +462,9 @@ class RoleClusterTreeDock(QDockWidget):
             group_item.setData(None, _REF_ROLE)
             group_item.setData(name, _GROUP_VALUE_ROLE)
             for r in sorted(members, key=lambda r: r.ref):
-                leaf = self._leaf_item(r)
+                # Role grouping — the role is the parent group already, don't
+                # repeat it per leaf.
+                leaf = self._leaf_item(r, show_role=False)
                 self._ref_to_item[r.ref] = leaf
                 group_item.appendRow(leaf)
             root.appendRow(group_item)
@@ -475,7 +487,9 @@ class RoleClusterTreeDock(QDockWidget):
                 node.setData("/".join(path), _GROUP_VALUE_ROLE)
                 parent.appendRow(node)
                 nodes[path] = node
-            leaf = self._leaf_item(r)
+            # Cluster grouping — the role isn't visible anywhere else in this
+            # mode, so it goes next to the ref.
+            leaf = self._leaf_item(r, show_role=True)
             self._ref_to_item[r.ref] = leaf
             nodes[segments].appendRow(leaf)
 

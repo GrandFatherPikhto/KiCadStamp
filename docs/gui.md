@@ -49,7 +49,10 @@ Two data sources, one tree, toggled by the **Not yet applied** checkbox:
   the segment-prefix matching used throughout the config system). Click a leaf (one component) or a
   group (everything under it) to select it **on the real board**; the reverse also works — selecting
   something in KiCad's own PCB editor highlights it here. Clicking a **Cluster group node** (only in
-  Cluster grouping, only a group — not a leaf) also fills the Placer dock's Cluster field.
+  Cluster grouping, only a group — not a leaf) also fills the Placer dock's Cluster field. Since
+  2026-08-13 a leaf in **Cluster** grouping shows its role next to the ref — `C1 (C_IN)` (Denis:
+  "в дереве Components дописывать кроме Рефа — роль (если есть)"): the role isn't visible anywhere
+  else in that mode, while in **Role** grouping it's already the parent group, so it isn't repeated.
 - **Checked — not yet applied (schematic).** Same tree, same grouping/filter UI, but the data comes
   from the [fieldstool tab](#fieldstool-tab)'s own already-parsed `.kicad_sch` component list — and,
   since 2026-08-03, only the refs that currently have an actual Role/Cluster discrepancy between the

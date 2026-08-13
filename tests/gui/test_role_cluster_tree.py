@@ -193,9 +193,44 @@ def test_leaf_click_and_role_mode_do_not_fire_cluster_picked_signal(main_window)
     # Cluster grouping, but a LEAF (component) click, not a group.
     dock.group_by.setCurrentIndex(1)
     model = dock.tree.model()
-    leaf = _find_item(model, "C1")
+    leaf = _find_item(model, "C1 (C_IN)")  # role now shown next to the ref (2026-08-13)
     dock._on_clicked(model.indexFromItem(leaf))
     assert picked == []
+
+
+# ── Role shown next to ref in Cluster grouping (2026-08-13, plan
+# components_tree_show_role) ─────────────────────────────────────────────
+
+def test_cluster_grouping_leaf_text_includes_the_role(main_window):
+    dock = RoleClusterTreeDock(main_window)
+    dock.group_by.setCurrentIndex(1)  # Cluster grouping
+    dock.set_footprints([FakeSelected("C1", "C_IN", "Channel_1/PI_FILTER")])
+
+    model = dock.tree.model()
+    # exact-text lookup: the leaf is now "C1 (C_IN)", not a bare "C1"
+    assert _find_item(model, "C1 (C_IN)") is not None
+    assert _find_item(model, "C1") is None
+
+
+def test_role_grouping_leaf_text_does_not_repeat_the_role(main_window):
+    """Role grouping already shows the role as the parent group — repeating it
+    per leaf would be noise (the plan's "не дублировать то, что уже видно")."""
+    dock = RoleClusterTreeDock(main_window)
+    dock.set_footprints([FakeSelected("C1", "C_IN", "Channel_1/PI_FILTER")])  # Role grouping (default)
+
+    model = dock.tree.model()
+    assert _find_item(model, "C1") is not None
+    assert _find_item(model, "C1 (C_IN)") is None
+
+
+def test_leaf_without_a_role_stays_bare_ref_in_both_groupings(main_window):
+    dock = RoleClusterTreeDock(main_window)
+    dock.set_footprints([FakeSelected("C1", None, "Channel_1/PI_FILTER")])
+    assert _find_item(dock.tree.model(), "C1") is not None
+
+    dock.group_by.setCurrentIndex(1)  # Cluster grouping
+    assert _find_item(dock.tree.model(), "C1") is not None
+    assert _find_item(dock.tree.model(), "C1 ()") is None  # no empty parens
 
 
 # ── Schematic ("Not yet applied") mode — needs a real fieldstool_dock to
