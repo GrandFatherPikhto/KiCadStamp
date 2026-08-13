@@ -130,6 +130,20 @@ For cloned templates, net names go through a three‑step resolution:
 
 During extraction, the reverse operation (`--net-template`) is available, turning literals into patterns.
 
+The **alias‑free path is the primary one**: a via/track whose net maps
+unambiguously to one selected Role is written as `net_from_role` (optionally with
+`net_from_role_pad`) at extract time and resolved **live** at apply time from that
+Role's real pad — `net_from_role`/`net_from_role_pad` are tried BEFORE
+`net_template_map`/manual aliases, so a net that already classifies by Role needs
+no alias at all. The GUI surfaces this: ExtractDock shows an "Auto-role" column
+per net (nets that resolve by Role get a disabled Alias field), and PlacerDock
+auto-fills a placement's `nets:` from the live board for the chosen Cluster
+(only blank roles are ever filled) and hides the Params section when the Cell has
+no `{placeholder}` anywhere. Manual entry (aliases/`params:`) remains only for
+genuinely ambiguous (fallback) nets. The legacy
+`net_template_role`/`params:`+`net:'{PLACEHOLDER}'` path is kept for backward
+compatibility, but is no longer the recommended way for new cells.
+
 ---
 
 ## Configuration File Format (YAML)

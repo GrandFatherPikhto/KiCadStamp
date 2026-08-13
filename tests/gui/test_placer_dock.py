@@ -940,3 +940,114 @@ def test_on_autofill_nets_dispatches_to_worker(main_window, tmp_path, monkeypatc
     assert payload["roles"] == ["C_IN"]
     assert payload["cluster"] == "Out_Pi_Filter_N2V5"
     assert payload["adapter"] is main_window.connection.board.adapter
+
+
+# ── Auto-fill safety + auto-trigger (2026-08-13, plan
+# placer_autofill_default_and_docs) ─────────────────────────────────────
+
+def test_do_autofill_nets_does_not_overwrite_a_prefilled_role(main_window, tmp_path):
+    """Plan p.1: Auto-fill fills ONLY blank roles — a role the user already
+    typed a value for is never overwritten, even when the worker suggests a
+    different net for it (the auto-trigger re-fires on every Cell+Cluster
+    commit, so an overwrite here would silently clobber manual edits on each
+    re-fire; the manual button gets the same, strictly safer behaviour)."""
+    dock, _, _ = _make_two_role_cell_and_dock(main_window, tmp_path)
+    dock.nets_table.load_dict({"C_IN_BULK": "+1V2_VCCINT"})  # typed by hand
+    dock.anchor_cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
+    main_window.connection.board = _FakeAutofillBoard([
+        _FakeAutofillFootprint("C22", "C_IN_BULK", "Out_Pi_Filter_N2V5", ["+1V2"]),
+        _FakeAutofillFootprint("FB6", "PI_FB", "Out_Pi_Filter_N2V5", ["+1V2", "+1V2_VCCINT"]),
+    ])
+
+    dock._do_autofill_nets()
+
+    # C_IN_BULK keeps the manual value; PI_FB stays blank (unresolvable) and
+    # is reported as left for manual entry.
+    assert dock.nets_table.to_dict() == {"C_IN_BULK": "+1V2_VCCINT"}
+    assert "PI_FB" in dock.message_label.text()
+
+
+def test_auto_trigger_fires_on_commit_not_typing(main_window, tmp_path, monkeypatch):
+    """Plan p.2: the auto-trigger fires on COMMIT signals — set_selected_cell
+    with a ready cluster, combo activated, line-edit editingFinished — and
+    NEVER on per-keystroke text change (which would flood the kipy socket
+    with live board reads mid-typing)."""
+    dock, _, _ = _make_two_role_cell_and_dock(main_window, tmp_path)
+    main_window.connection.board = _FakeAutofillBoard([
+        _FakeAutofillFootprint("C22", "C_IN_BULK", "Out_Pi_Filter_N2V5", ["+1V2"]),
+        _FakeAutofillFootprint("FB6", "PI_FB", "Out_Pi_Filter_N2V5", ["+1V2", "+1V2_VCCINT"]),
+    ])
+    calls = []
+    monkeypatch.setattr(dock, "_start_autofill_nets_op", lambda payload: calls.append(payload))
+
+    line_edit = dock.anchor_cluster_edit.lineEdit()
+    # Typing (per-keystroke text change) must NOT fire.
+    line_edit.setText("Out_Pi")
+    line_edit.textChanged.emit("Out_Pi")
+    assert calls == []
+
+    # Commit the cluster via editingFinished (Enter/focus-out) -> fires once.
+    dock.anchor_cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
+    line_edit.editingFinished.emit()
+    assert len(calls) == 1
+
+    # Picking the cluster from the dropdown (activated) fires too.
+    dock.anchor_cluster_edit.activated.emit(0)
+    assert len(calls) == 2
+
+    # Picking a Cell with a ready cluster fires as well.
+    dock.set_selected_cell("pi_filter2")
+    assert len(calls) == 3
+
+
+def test_auto_trigger_no_ops_without_cell_or_cluster(main_window, tmp_path, monkeypatch):
+    """Plan p.2: the auto-trigger is a silent no-op until BOTH halves of the
+    pair are ready — not an error, just nothing to fill yet."""
+    dock, _, _ = _make_two_role_cell_and_dock(main_window, tmp_path)
+    main_window.connection.board = _FakeAutofillBoard([
+        _FakeAutofillFootprint("C22", "C_IN_BULK", "Out_Pi_Filter_N2V5", ["+1V2"]),
+    ])
+    calls = []
+    monkeypatch.setattr(dock, "_start_autofill_nets_op", lambda payload: calls.append(payload))
+
+    dock._maybe_autofill_nets()  # cell set (fixture), but no cluster yet
+    assert calls == []
+
+    dock.anchor_cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
+    dock.new_placement(dock._placer_path)  # clears the cell
+    dock._maybe_autofill_nets()  # cluster set, but no cell now
+    assert calls == []
+    assert dock.message_label.text() == ""  # silent, no error text
+
+
+def test_params_section_hidden_for_cell_without_placeholders(main_window, tmp_path):
+    """Plan p.4: the Params section is hidden when the Cell has no
+    {placeholder} anywhere."""
+    dock, _, _ = _make_two_role_cell_and_dock(main_window, tmp_path)  # no placeholders
+    assert dock._params_label.isHidden() is True
+    assert dock._params_container.isHidden() is True
+
+
+def test_params_section_visible_for_cell_with_placeholders(main_window, tmp_path):
+    """Plan p.4: the Params section is shown (and populated) when the Cell
+    has {placeholder}s."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)  # {PWR_IN}, {PWR_OUT}
+    assert dock._params_label.isHidden() is False
+    assert dock._params_container.isHidden() is False
+    assert sorted(dock._param_edits.keys()) == ["PWR_IN", "PWR_OUT"]
+
+
+def test_load_placement_clears_stale_anchor_cluster(main_window, tmp_path):
+    """Plan p.3: opening record B after record A must not leave A's Anchor
+    cluster in the field — a stale value would feed the auto-fill trigger
+    with the WRONG cluster before B's own nets load. The race is closed at
+    the source: Origin is cleared at the start of load_placement()."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+
+    dock.load_placement({"name": "A", "cell": "pi_filter", "xy": [1.0, 1.0],
+                         "anchor_role": "SOME_ROLE", "anchor_cluster": "Channel_X"})
+    assert dock.anchor_cluster_edit.currentText() == "Channel_X"
+
+    # Record B: same cell, plain absolute xy (no anchor) — must NOT inherit X.
+    dock.load_placement({"name": "B", "cell": "pi_filter", "xy": [2.0, 2.0]})
+    assert dock.anchor_cluster_edit.currentText() == ""

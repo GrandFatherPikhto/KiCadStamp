@@ -1602,6 +1602,43 @@ msgstr ""
 msgid "literal net for {{{name}}}"
 msgstr ""
 
+#: gui/docks/placer.py:1036
+msgid ""
+"Set Anchor cluster on the Origin tab first — Auto-fill searches the live "
+"board by Role + that Cluster (prefix match), same signal the by-nets "
+"resolver's own narrowing already uses."
+msgstr ""
+
+#: gui/docks/placer.py:1045
+msgid "Selected cell has no component roles."
+msgstr ""
+
+#: gui/docks/placer.py:1071
+#, python-brace-format
+msgid "Auto-fill failed: {error}"
+msgstr ""
+
+#: gui/docks/placer.py:1090
+msgid ""
+"Nothing auto-filled — no role resolved to exactly one candidate with "
+"exactly one non-rule net for this Cluster; fill Nets in manually."
+msgstr ""
+
+#: gui/docks/placer.py:1095
+#, python-brace-format
+msgid "Auto-filled {filled}/{total} role(s); left for manual entry: {missing}"
+msgstr ""
+
+#: gui/docks/placer.py:1099
+#, python-brace-format
+msgid "All roles already have a net — nothing to auto-fill."
+msgstr ""
+
+#: gui/docks/placer.py:1104
+#, python-brace-format
+msgid "Auto-filled all {count} role(s) from the board."
+msgstr ""
+
 #: gui/docks/placer.py:698
 msgid "Pick an existing Cluster first."
 msgstr ""

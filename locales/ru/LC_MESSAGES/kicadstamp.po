@@ -1697,6 +1697,49 @@ msgstr "Перерисовать"
 msgid "literal net for {{{name}}}"
 msgstr "буквальная цепь для {{{name}}}"
 
+#: gui/docks/placer.py:1036
+msgid ""
+"Set Anchor cluster on the Origin tab first — Auto-fill searches the live "
+"board by Role + that Cluster (prefix match), same signal the by-nets "
+"resolver's own narrowing already uses."
+msgstr ""
+"Сначала задайте Anchor cluster на вкладке Origin — Auto-fill ищет на живой "
+"плате по Role + этому Cluster (сопоставление по префиксу), тот же сигнал, "
+"что использует сужение by-nets резолвера."
+
+#: gui/docks/placer.py:1045
+msgid "Selected cell has no component roles."
+msgstr "В выбранном шаблоне нет ролей компонентов."
+
+#: gui/docks/placer.py:1071
+#, python-brace-format
+msgid "Auto-fill failed: {error}"
+msgstr "Автозаполнение не удалось: {error}"
+
+#: gui/docks/placer.py:1090
+msgid ""
+"Nothing auto-filled — no role resolved to exactly one candidate with "
+"exactly one non-rule net for this Cluster; fill Nets in manually."
+msgstr ""
+"Ничего не автозаполнено — ни одна роль не разрешилась ровно в одного "
+"кандидата с ровно одной не-rule цепью для этого Cluster; заполните Nets "
+"вручную."
+
+#: gui/docks/placer.py:1095
+#, python-brace-format
+msgid "Auto-filled {filled}/{total} role(s); left for manual entry: {missing}"
+msgstr "Автозаполнено ролей: {filled}/{total}; осталось ввести вручную: {missing}"
+
+#: gui/docks/placer.py:1099
+#, python-brace-format
+msgid "All roles already have a net — nothing to auto-fill."
+msgstr "У всех ролей уже есть цепь — автозаполнять нечего."
+
+#: gui/docks/placer.py:1104
+#, python-brace-format
+msgid "Auto-filled all {count} role(s) from the board."
+msgstr "Автозаполнены все роли: {count} — с платы."
+
 #: gui/docks/placer.py:698
 msgid "Pick an existing Cluster first."
 msgstr "Сначала выберите существующий Cluster."

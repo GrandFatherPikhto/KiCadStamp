@@ -529,6 +529,12 @@ class _CoordinatePlacementForm(QWidget):
     # ── Load: reverse of build(), populate the widgets from a saved entry ──
 
     def load(self, entry: Dict[str, Any]) -> None:
+        # Reset the whole form first (same as new_coordinate_placement ->
+        # clear()) so the anchor widget never keeps the previous record's
+        # cluster/role when this one has no anchor (plan 2026-08-13, p.3 —
+        # the stale value would otherwise feed the auto-fill trigger with a
+        # WRONG cluster before this record's own nets load).
+        self.clear()
         self.cluster_combo.setCurrentText(str(entry.get("cluster", "")))
         self.role_combo.setCurrentText(str(entry.get("role", "")))
         self.name_edit.setText(str(entry.get("name") or ""))
@@ -629,6 +635,10 @@ class PlacerDock(QWidget):
         self._root_path: Optional[Path] = None
         self._selected_cell: Optional[str] = None
         self._param_edits: Dict[str, QComboBox] = {}
+        # Full-success auto-fill is silent for the AUTO-trigger (plan
+        # 2026-08-13, p.2) so the status line isn't spammed on every
+        # Cell/Cluster pick; the manual button always shows the verbose text.
+        self._autofill_quiet_success = False
         self._known_nets: List[str] = []
         # G4.4 cache (2026-08-12, carried over from the merged-in coordinate
         # dock): last-tick known-value SETS — refresh_known_roles skips the
@@ -784,6 +794,15 @@ class PlacerDock(QWidget):
         self.point_edit = self.origin_widget.point_edit
         self.shift_x_edit = self.origin_widget.shift_x_edit
         self.shift_y_edit = self.origin_widget.shift_y_edit
+        if self.anchor_cluster_edit is not None:
+            # Auto-fill on cluster COMMIT (plan 2026-08-13, p.2): activated =
+            # a pick from the dropdown list, editingFinished = commit of typed
+            # text (Enter / focus loss). Deliberately NOT
+            # currentTextChanged/editTextChanged — those fire on every
+            # keystroke and would flood the kipy socket with live board reads
+            # while the user is still typing.
+            self.anchor_cluster_edit.activated.connect(self._maybe_autofill_nets)
+            self.anchor_cluster_edit.lineEdit().editingFinished.connect(self._maybe_autofill_nets)
 
         extra_form = QFormLayout()
         self.rotation_edit = QLineEdit()
@@ -909,6 +928,9 @@ class PlacerDock(QWidget):
         self.cell_combo.blockSignals(False)
         self._rebuild_param_rows()
         self._rebuild_cell_role_choices()
+        # Auto-fill when the pair is complete (plan 2026-08-13, p.2): picking
+        # a Cell while an Anchor cluster is already set is a commit event.
+        self._maybe_autofill_nets()
 
     def set_cluster_name(self, name: str) -> None:
         """Called by RoleClusterTreeDock's cluster_picked signal when a
@@ -987,6 +1009,13 @@ class PlacerDock(QWidget):
             self._params_layout.addWidget(edit, row, 1)
             self._param_edits[name] = edit
 
+        # Hide the whole Params section when the Cell has no {placeholder}
+        # anywhere (plan 2026-08-13, p.4) — _discover_placeholders already
+        # walks the ENTIRE cell_data recursively, deliberately broader than
+        # "net/net_template only", since a placeholder can live in any string.
+        self._params_label.setVisible(bool(placeholders))
+        self._params_container.setVisible(bool(placeholders))
+
     def _rebuild_cell_role_choices(self) -> None:
         """Nets/Refs' own Role key choices — scoped to the PICKED CELL's own
         components: roles, not every role on the live board (found live
@@ -1004,37 +1033,68 @@ class PlacerDock(QWidget):
 
     # ── Nets "Auto-fill from board" ──────────────────────────────────────
 
-    def _on_autofill_nets_from_board(self) -> None:
+    def _on_autofill_nets_from_board(self, quiet: bool = False) -> None:
         """Auto-fill button handler — same collect(UI thread)/run(worker
         thread)/finish(UI thread) split as Redraw/Extract, since this needs
         a live board read (get_footprints/get_footprint_pads) over the
-        shared kipy socket."""
+        shared kipy socket. quiet=True (the auto-trigger, plan 2026-08-13
+        p.2) suppresses the full-success status message; the manual button
+        keeps the verbose one."""
+        self._autofill_quiet_success = quiet
         self._show_message("")
-        payload = self._collect_autofill_nets_inputs()
+        payload = self._collect_autofill_nets_inputs(quiet=quiet)
         if payload is None:
             return
         self._start_autofill_nets_op(payload)
 
-    def _collect_autofill_nets_inputs(self) -> Optional[Dict[str, Any]]:
+    def _maybe_autofill_nets(self) -> None:
+        """Auto-trigger (plan 2026-08-13, p.2): once BOTH a Cell is selected
+        and the Anchor cluster is non-empty, run the same auto-fill pipeline
+        as the button — silently on full success (no status spam on every
+        Cell/Cluster pick). A silent no-op whenever either half isn't ready:
+        that is not an error, the user simply hasn't completed the pair yet.
+        p.1 (fill only blank roles) makes repeated firings safe — old manual
+        values of other roles are never touched."""
         if not self._selected_cell:
-            self._show_message(_("Pick a Cell first."), _ERROR_STYLE)
+            return
+        if self.anchor_cluster_edit is None \
+                or not self.anchor_cluster_edit.currentText().strip():
+            return
+        self._autofill_quiet_success = True
+        payload = self._collect_autofill_nets_inputs(quiet=True)
+        if payload is None:
+            return
+        self._start_autofill_nets_op(payload)
+
+    def _collect_autofill_nets_inputs(self, quiet: bool = False) -> Optional[Dict[str, Any]]:
+        """Collect + validate the auto-fill inputs. quiet=True suppresses the
+        "not ready yet" error texts — used by the auto-trigger, where a
+        missing Cell/Cluster/board/roles is a normal transient state, not a
+        user-facing error (showing it on every pick would spam the status
+        line)."""
+        if not self._selected_cell:
+            if not quiet:
+                self._show_message(_("Pick a Cell first."), _ERROR_STYLE)
             return None
         cluster = self.anchor_cluster_edit.currentText().strip() \
             if self.anchor_cluster_edit is not None else ""
         if not cluster:
-            self._show_message(
-                _("Set Anchor cluster on the Origin tab first — Auto-fill searches the live "
-                  "board by Role + that Cluster (prefix match), same signal the by-nets "
-                  "resolver's own narrowing already uses."), _ERROR_STYLE)
+            if not quiet:
+                self._show_message(
+                    _("Set Anchor cluster on the Origin tab first — Auto-fill searches the live "
+                      "board by Role + that Cluster (prefix match), same signal the by-nets "
+                      "resolver's own narrowing already uses."), _ERROR_STYLE)
             return None
         cell_data = yaml_io.load_data(self._cells_path).get("cells", {}).get(self._selected_cell, {})
         roles = sorted({c.get("role") for c in cell_data.get("components", []) if c.get("role")})
         if not roles:
-            self._show_message(_("Selected cell has no component roles."), _ERROR_STYLE)
+            if not quiet:
+                self._show_message(_("Selected cell has no component roles."), _ERROR_STYLE)
             return None
         board = self._main_window.connection.board
         if board is None:
-            self._show_message(_("Not connected."), _ERROR_STYLE)
+            if not quiet:
+                self._show_message(_("Not connected."), _ERROR_STYLE)
             return None
         return {"adapter": board.adapter, "roles": roles, "cluster": cluster}
 
@@ -1045,18 +1105,30 @@ class PlacerDock(QWidget):
         return {"suggestions": suggestions, "roles": payload["roles"]}
 
     def _finish_autofill_nets(self, result: Dict[str, Any]) -> None:
-        """UI thread: merge suggested role->net pairs into the Nets table
-        (overwriting only the roles the worker actually resolved — a role
-        this run couldn't determine leaves whatever was already in that row
-        untouched) and report what was/wasn't filled."""
+        """UI thread: merge suggested role->net pairs into the Nets table,
+        filling ONLY the roles that are currently blank — a role the user
+        already typed a value for is never overwritten (plan 2026-08-13,
+        p.1): the auto-trigger re-fires on every Cell+Cluster commit, so an
+        overwrite here would silently clobber manual edits on each re-fire;
+        the manual button gets the same, strictly safer behaviour for free.
+        Also reports what was/wasn't filled; the auto-trigger's full success
+        is silent (see _autofill_quiet_success)."""
         suggestions = result["suggestions"]
         roles = result["roles"]
-        if suggestions:
-            data = self.nets_table.to_dict()
-            data.update(suggestions)
+        quiet = self._autofill_quiet_success
+        data = self.nets_table.to_dict()
+        filled = {role: net for role, net in suggestions.items()
+                  if not data.get(role, "").strip()}
+        if filled:
+            data.update(filled)
             self.nets_table.load_dict(data)
 
-        missing = sorted(set(roles) - set(suggestions))
+        # A role still blank AND not resolved by this run is genuinely left
+        # for manual entry; a role the user already filled is neither "filled"
+        # nor "missing" and is simply not mentioned.
+        missing = sorted(role for role in roles
+                         if role not in suggestions and not data.get(role, "").strip())
+
         if not suggestions:
             self._show_message(
                 _("Nothing auto-filled — no role resolved to exactly one candidate with exactly "
@@ -1064,11 +1136,18 @@ class PlacerDock(QWidget):
         elif missing:
             self._show_message(
                 _("Auto-filled {filled}/{total} role(s); left for manual entry: {missing}")
-                .format(filled=len(suggestions), total=len(roles), missing=", ".join(missing)),
+                .format(filled=len(filled), total=len(roles), missing=", ".join(missing)),
                 _WARN_STYLE)
+        elif not filled:
+            # Every role already had a value — nothing this run needed to fill.
+            if not quiet:
+                self._show_message(
+                    _("All roles already have a net — nothing to auto-fill."), _SUCCESS_STYLE)
+        elif quiet:
+            pass  # full success from the auto-trigger: don't spam the status line
         else:
             self._show_message(
-                _("Auto-filled all {count} role(s) from the board.").format(count=len(suggestions)),
+                _("Auto-filled all {count} role(s) from the board.").format(count=len(filled)),
                 _SUCCESS_STYLE)
 
     def _start_autofill_nets_op(self, payload: Dict[str, Any]) -> None:
@@ -1081,7 +1160,9 @@ class PlacerDock(QWidget):
 
     def _do_autofill_nets(self) -> None:
         """Synchronous composition of collect + run + finish — same
-        "for tests" shape as _do_redraw."""
+        "for tests" shape as _do_redraw (manual-button semantics: verbose
+        success message)."""
+        self._autofill_quiet_success = False
         payload = self._collect_autofill_nets_inputs()
         if payload is None:
             return
@@ -1535,6 +1616,12 @@ class PlacerDock(QWidget):
         cell:). A clone_placement loads the cell-based field set, a
         coordinate_placement (no cell:) the _CoordinatePlacementForm."""
         self._show_message("")
+        # Reset the clone Origin before anything else (plan 2026-08-13, p.3):
+        # on the moment set_selected_cell() runs below, anchor_cluster must be
+        # empty (or already THIS record's), never the previous record's value —
+        # otherwise the new auto-fill trigger could fire on a stale cluster
+        # before this record's own nets load. Same call new_placement() uses.
+        self.origin_widget.clear()
         if "cell" not in entry:
             # Coordinate placement — single component, no cell:.
             self.cell_mode_combo.setCurrentIndex(1)  # -> Single component (signal toggles tabs)
