@@ -118,3 +118,24 @@ def test_export_skips_a_dict_entry_that_no_longer_exists_in_the_source(tmp_path)
     export_entries(target, [item], overwrite=False)
 
     assert _load(target) in ({}, None)
+
+
+def test_export_merge_does_not_collapse_two_nameless_coordinate_placements(tmp_path):
+    """2026-08-13 review, bug 3: coordinate_placements entries fall back to
+    cluster/role as identity when name: is absent — exporting two different
+    nameless records into one file must keep BOTH, not collapse them into one
+    (the old rules-only key_fn left the identity None for every nameless
+    entry, so the second merge-write replaced the first)."""
+    target = tmp_path / "out.yaml"
+    target.write_text("{}\n", encoding="utf-8")
+    items = [
+        ExportItem(source_path=tmp_path / "a.yaml", section="coordinate_placements",
+                   name="X/R1", payload={"cluster": "X", "role": "R1", "x_mm": 1.0, "y_mm": 2.0}),
+        ExportItem(source_path=tmp_path / "a.yaml", section="coordinate_placements",
+                   name="X/R2", payload={"cluster": "X", "role": "R2", "x_mm": 3.0, "y_mm": 4.0}),
+    ]
+
+    export_entries(target, items, overwrite=False)
+
+    entries = _load(target)["coordinate_placements"]
+    assert [e["role"] for e in entries] == ["R1", "R2"]

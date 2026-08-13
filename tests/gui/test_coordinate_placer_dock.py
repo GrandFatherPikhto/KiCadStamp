@@ -347,3 +347,51 @@ def test_current_entity_name_in_coordinate_mode(main_window, tmp_path):
 
     form.name_edit.setText("my_cap")
     assert dock.current_entity_name == "my_cap"
+
+
+# ── 2026-08-13 review fixes ───────────────────────────────────────────────
+
+def test_anchor_pad_round_trips_without_data_loss(main_window, tmp_path):
+    """Review bug 2: the merged form must preserve the SELF-REFERENTIAL anchor
+    (anchor: pad + anchor_pad — "centre of the moved footprint vs one of its
+    pads") in the ABSOLUTE modes. The old table's Anchor/Pad columns had no
+    replacement, so a loaded record with anchor: pad silently lost the field
+    on re-save."""
+    dock, _ = _make_dock(main_window, tmp_path)
+    entry = {"cluster": "X", "role": "R1", "x_mm": 10.0, "y_mm": 20.0,
+             "rotation_deg": 0.0, "anchor": "pad", "anchor_pad": "2"}
+    dock.load_placement(entry)
+    form = dock.coordinate_form
+    assert form.mode_combo.currentIndex() == 0  # Cartesian
+    assert form.anchor_combo.currentIndex() == 1  # Pad
+    assert form.pad_edit.text() == "2"
+
+    rebuilt = dock._build_entry_dict()
+    cp = load_coordinate_placement(rebuilt)
+    assert cp.anchor == "pad"
+    assert cp.anchor_pad == "2"
+
+
+def test_do_save_survives_a_broken_legacy_entry_in_the_same_file(main_window, tmp_path):
+    """Review bug 1: _do_save_coordinate used to recompute each existing
+    entry's identity through load_coordinate_placement() inside the upsert
+    key_fn — a single broken/legacy entry in the file raised a
+    ValidationError there and killed the save of an unrelated record. The
+    identity is now read from the raw dict (entry_effective_name), so a
+    broken neighbour can't crash the save."""
+    target_file = tmp_path / "root.yaml"
+    # A legacy entry the real loader would REJECT (partial polar: center_x_mm
+    # set without the rest) but whose raw effective name is still readable.
+    _write_yaml(target_file, {"coordinate_placements": [
+        {"cluster": "OLD", "role": "R_LEGACY", "center_x_mm": 0.0},
+    ]})
+    dock = PlacerDock(main_window)
+    dock.set_target_file(target_file)
+    form = _new_coordinate(dock, target_file)
+    _fill_cartesian(form, role="R18")
+
+    dock._do_save()
+
+    data = yaml.safe_load(target_file.read_text(encoding="utf-8"))
+    roles = sorted(e.get("role") for e in data["coordinate_placements"])
+    assert roles == ["R18", "R_LEGACY"]

@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ._common import read_data, write_data, merge_write, upsert_list_entry
-from .rename import DICT_SECTIONS
+from .rename import DICT_SECTIONS, entry_effective_name
 
 
 @dataclass
@@ -41,10 +41,6 @@ class ExportItem:
     section: str
     name: str
     payload: Any  # the full dict already, for LIST sections; unused for DICT sections
-
-
-def _rule_key(entry: Dict[str, Any]) -> Any:
-    return entry.get("name") or entry.get("net")
 
 
 def _resolve(item: ExportItem) -> Optional[Any]:
@@ -79,5 +75,11 @@ def export_entries(target_path: Path, items: List[ExportItem], overwrite: bool) 
         if section in DICT_SECTIONS:
             merge_write(target_path, {section: {name: entry}}, section=section)
         else:
-            key_fn = _rule_key if section == "rules" else None
-            upsert_list_entry(target_path, section, entry, key_fn=key_fn)
+            # Match by the section's effective name (rules: name-or-net,
+            # coordinate_placements: name-or-cluster/role, the rest name-only)
+            # via rename.py's single formula — otherwise two different
+            # nameless entries (e.g. coordinate_placements with no name:)
+            # would both carry identity None and silently collapse one over
+            # the other on merge (2026-08-13 review, bug 3).
+            upsert_list_entry(target_path, section, entry,
+                              key_fn=lambda e: entry_effective_name(section, e))

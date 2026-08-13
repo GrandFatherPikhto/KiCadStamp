@@ -423,13 +423,15 @@ def test_thermal_via_leaf_click_emits_thermal_via_picked(main_window, tmp_path):
 def test_coordinate_placement_empty_cluster_role_has_no_fallback_display_name():
     """2026-08-12, Group 2 fix: the display-name fallback checked key
     PRESENCE ("cluster" in e and "role" in e), so `cluster: null` rendered as
-    a literal "None/ROLE". Non-empty values are required now."""
+    a literal "None/ROLE". Non-empty values are required now — the same rule
+    rename.py's entry_effective_name() enforces, which _entries now routes
+    through (2026-08-13 review, bug 4: one formula, not an inline copy)."""
     entries = list(ConfigTreeDock._entries([
         {"name": "named"},
         {"cluster": None, "role": "ROLE"},
         {"cluster": "X", "role": None},
         {"cluster": "X", "role": "R1"},
-    ]))
+    ], "coordinate_placements"))
     assert [name for name, _ in entries] == ["X/R1", "named"]
 
 

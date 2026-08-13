@@ -23,6 +23,7 @@ dos2unix.exe
 build/
 dist/
 downloads/
+diagnostics/**
 eggs/
 lib/
 lib64/

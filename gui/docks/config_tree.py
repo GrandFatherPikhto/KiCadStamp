@@ -113,7 +113,7 @@ from .. import yaml_io
 from ._common import add_include, disable_include, display_path, non_includable_keys
 from .entity_delete import delete_entry, find_references
 from .entity_export import ExportItem, export_entries
-from .rename import CASCADE_FIELD, collect_graph_files, rename_entry
+from .rename import CASCADE_FIELD, collect_graph_files, entry_effective_name, rename_entry
 
 # Display label per recognized section, in the order shown under a file
 # node. Order matches config/includes.py's _LIST_SECTIONS + _DICT_SECTIONS.
@@ -267,7 +267,7 @@ class ConfigTreeDock(QDockWidget):
             if not raw:
                 continue
             section_item = QTreeWidgetItem(file_item, [label])
-            for name, payload in self._entries(raw):
+            for name, payload in self._entries(raw, section):
                 leaf = QTreeWidgetItem(section_item, [name])
                 # Always set, not just for _CLICKABLE_SECTIONS — the
                 # context menu's Rename action (2026-08-04) needs to
@@ -298,18 +298,22 @@ class ConfigTreeDock(QDockWidget):
             QTreeWidgetItem(leaf, [f"{nested.get('name', '?')} ({content})"])
 
     @staticmethod
-    def _entries(raw):
+    def _entries(raw, section):
         """Yields (display name, click payload), sorted by name. Dict
         sections (cells/extract_profiles/...) are keyed by name — the
         payload is the name itself. List sections (rules/clone_placements/
         thermal_via_arrays/coordinate_placements) carry their own name
         field — the payload is the whole entry, needed by placement_picked
-        (load_placement wants the full dict, not just the name). rules:
-        entries may omit name: entirely (same "name or net" fallback as
-        config/models.py's rule_effective_name()); coordinate_placements:
-        entries may likewise omit name: (defaults to cluster/role, see
-        coordinate_placement_effective_name()) — same fallback shape,
-        cluster+role instead of net."""
+        (load_placement wants the full dict, not just the name). The display
+        name comes from rename.py's shared entry_effective_name(section, e):
+        rules: entries may omit name: (falling back to net:), coordinate_
+        placements: may likewise omit name: (falling back to cluster/role) —
+        ONE formula, not a per-section inline copy (2026-08-13 review, bug 4).
+
+        Non-empty check, not key-presence — `cluster: null` (or empty
+        strings) must fall through to "no display name", not render as a
+        literal "None/ROLE" (2026-08-12, Group 2 fix) — entry_effective_name's
+        cluster/role fallback is built on the same non-empty condition."""
         if isinstance(raw, dict):
             for name in sorted(raw.keys()):
                 yield name, name
@@ -318,12 +322,7 @@ class ConfigTreeDock(QDockWidget):
         for e in raw:
             if not isinstance(e, dict):
                 continue
-            # Non-empty check, not key-presence — `cluster: null` (or empty
-            # strings) must fall through to "no display name", not render as a
-            # literal "None/ROLE" (2026-08-12, Group 2 fix).
-            display_name = (e.get("name") or e.get("net")
-                            or (f"{e.get('cluster')}/{e.get('role')}"
-                                if e.get("cluster") and e.get("role") else None))
+            display_name = entry_effective_name(section, e)
             if display_name:
                 named.append((display_name, e))
         for display_name, entry in sorted(named, key=lambda pair: pair[0]):
