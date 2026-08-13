@@ -826,10 +826,11 @@ _COORDINATE_PLACEMENT_KNOWN_KEYS = {
 def _load_coordinate_placement(data: dict[str, Any]) -> CoordinatePlacement:
     """One coordinate_placements: entry — the "dumb placer" (see
     CoordinatePlacement's own docstring in config/models.py). Public as
-    load_coordinate_placement (config/__init__.py) so the GUI's
-    CoordinatePlacerDock can validate one row before writing the whole
-    table, the same way load_clone_placement/load_thermal_via_array already
-    let their GUI docks validate a single entry before a full-file write.
+    load_coordinate_placement (config/__init__.py) so the GUI's merged
+    PlacerDock coordinate mode can validate a single entry before a
+    one-entry save/place, the same way load_clone_placement/
+    load_thermal_via_array already let their GUI docks validate a single
+    entry before writing.
 
     Three mutually exclusive position modes (see CoordinatePlacement's
     docstring): Cartesian-absolute, polar-around-fixed-centre, and — added

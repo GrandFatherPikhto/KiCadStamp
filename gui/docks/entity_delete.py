@@ -44,7 +44,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from ._common import read_data, write_data
-from .rename import CASCADE_FIELD, DICT_SECTIONS, FALLBACK_KEY, collect_graph_files
+from .rename import CASCADE_FIELD, DICT_SECTIONS, collect_graph_files, entry_effective_name
 
 
 def backup_file(path: Path) -> Path:
@@ -61,8 +61,12 @@ def backup_file(path: Path) -> Path:
 
 
 def _entry_identity(section: str, entry: Dict[str, Any]) -> Any:
-    fallback_key = FALLBACK_KEY.get(section)
-    return entry.get("name") or (entry.get(fallback_key) if fallback_key else None)
+    """The identity used to match a list-section entry for removal — `name`,
+    falling back per-section (rules: net, coordinate_placements: cluster/role)
+    via rename.py's shared entry_effective_name (2026-08-12, Group 1:
+    coordinate_placements became a normal named-records section, so a nameless
+    entry must be deletable by its cluster/role display name too)."""
+    return entry_effective_name(section, entry)
 
 
 def _remove_entry(path: Path, section: str, name: str) -> bool:

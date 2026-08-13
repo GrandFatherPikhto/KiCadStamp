@@ -130,6 +130,23 @@ def test_delete_entry_removes_a_list_section_entry_by_net_fallback(tmp_path):
     assert nets == ["GND"]
 
 
+def test_delete_entry_removes_a_nameless_coordinate_placement_by_effective_name(tmp_path):
+    """2026-08-12, Group 1: coordinate_placements is a normal named-records
+    section — a nameless entry is matched in the tree by its cluster/role
+    display name, and delete must recognize that same identity, exactly like
+    rules:' net: fallback."""
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "coordinate_placements:\n"
+        "  - cluster: X\n    role: R1\n"
+        "  - cluster: X\n    role: R2\n", encoding="utf-8")
+
+    delete_entry(None, path, "coordinate_placements", "X/R1", cascade=False)
+
+    roles = [e["role"] for e in _load(path)["coordinate_placements"]]
+    assert roles == ["R2"]
+
+
 def test_delete_entry_without_cascade_leaves_references_dangling(tmp_path):
     path = tmp_path / "config.yaml"
     path.write_text(

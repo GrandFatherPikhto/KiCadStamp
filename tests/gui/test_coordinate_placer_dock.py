@@ -1,17 +1,21 @@
 # tests/gui/test_coordinate_placer_dock.py
 """
-CoordinatePlacerDock tests are deliberately headless AND board-mutation-free
-— same reasoning as tests/gui/test_thermal_via_dock.py: _on_place()'s real
-job is moving real footprints on a live board, which these tests must never
-do on their own. ApplyPipeline/load_config are monkeypatched with fakes
-that only check what CoordinatePlacerDock PASSES them.
+Coordinate mode tests for the MERGED PlacerDock (2026-08-12, Group 1): the
+old CoordinatePlacerDock whole-list table was removed and its single-entry
+form (_CoordinatePlacementForm) merged into PlacerDock, switched via the
+Source combo's "Single component" item / load_placement()'s no-cell branch.
+
+Tests are deliberately headless AND board-mutation-free — _on_redraw()'s
+real job is moving real footprints on a live board, which these tests must
+never do on their own. ApplyPipeline/load_config are monkeypatched with
+fakes that only check what PlacerDock PASSES them. Save, on the other hand,
+is a pure file write and is exercised against real temp YAML.
 """
 import yaml
-from types import SimpleNamespace
 
-import gui.docks.coordinate_placer as coordinate_placer_mod
-from gui.docks.coordinate_placer import CoordinatePlacerDock
-from kicadstamp.config import Config, RuntimeContext
+import gui.docks.placer as placer_mod
+from gui.docks.placer import PlacerDock
+from kicadstamp.config import Config, RuntimeContext, load_coordinate_placement
 
 
 def _write_yaml(path, data) -> None:
@@ -21,447 +25,325 @@ def _write_yaml(path, data) -> None:
 def _make_dock(main_window, tmp_path):
     target_file = tmp_path / "root.yaml"
     _write_yaml(target_file, {"coordinate_placements": []})
-    dock = CoordinatePlacerDock(main_window)
+    dock = PlacerDock(main_window)
     dock.set_target_file(target_file)
     return dock, target_file
 
 
-def _fill_cartesian_row(dock, row, cluster="FPGA_PERIPH", role="R18",
-                        x=10.0, y=20.0, rotation=0.0):
-    dock.table.cellWidget(row, coordinate_placer_mod._COL_CLUSTER).setCurrentText(cluster)
-    dock.table.cellWidget(row, coordinate_placer_mod._COL_ROLE).setCurrentText(role)
-    dock.table.cellWidget(row, coordinate_placer_mod._COL_X).setText(str(x))
-    dock.table.cellWidget(row, coordinate_placer_mod._COL_Y).setText(str(y))
-    dock.table.cellWidget(row, coordinate_placer_mod._COL_ROTATION).setText(str(rotation))
+def _new_coordinate(dock, path):
+    """Switches the merged dock into coordinate mode and returns the form."""
+    dock.new_coordinate_placement(path)
+    return dock.coordinate_form
 
 
-# ── Row widgets / mode & anchor toggling ────────────────────────────────────
+def _fill_cartesian(form, cluster="FPGA_PERIPH", role="R18",
+                    x=10.0, y=20.0, rotation=0.0):
+    form.cluster_combo.setCurrentText(cluster)
+    form.role_combo.setCurrentText(role)
+    form.mode_combo.setCurrentIndex(0)  # Cartesian
+    form.x_edit.setText(str(x))
+    form.y_edit.setText(str(y))
+    form.rotation_edit.setText(str(rotation))
 
-def test_add_row_defaults_to_cartesian_and_center(main_window, tmp_path):
+
+# ── Source-mode switching / form loading ──────────────────────────────────
+
+def test_new_coordinate_placement_switches_mode_and_targets(main_window, tmp_path):
+    dock, target_file = _make_dock(main_window, tmp_path)
+    dock.new_coordinate_placement(target_file)
+
+    assert dock.cell_mode_combo.currentIndex() == 1  # Single component
+    assert dock._tabs.isTabVisible(dock._coordinate_tab_index) is True
+    assert dock._tabs.isTabVisible(dock._origin_tab_index) is False
+    # A fresh form is blank.
+    assert dock.coordinate_form.cluster_combo.currentText() == ""
+    assert dock.coordinate_form.role_combo.currentText() == ""
+
+
+def test_load_placement_without_cell_switches_to_coordinate_mode(main_window, tmp_path):
+    """A coordinate_placements leaf carries no cell: — load_placement() must
+    detect that and load the entry into the coordinate form (2026-08-12,
+    Group 1), exactly as a cell-bearing clone_placement loads the clone
+    form."""
     dock, _ = _make_dock(main_window, tmp_path)
-    dock._add_row()
+    entry = {"cluster": "FPGA_PERIPH", "role": "R18", "x_mm": 10.0, "y_mm": 20.0,
+             "rotation_deg": 45.0, "anchor_point": "Origin"}
 
-    assert dock.table.rowCount() == 1
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_MODE).currentIndex() == 0
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_ANCHOR).currentIndex() == 0
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_X).isEnabled() is True
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_CENTER_X).isEnabled() is False
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_PAD).isEnabled() is False
+    dock.load_placement(entry)
+
+    assert dock.cell_mode_combo.currentIndex() == 1
+    form = dock.coordinate_form
+    assert form.cluster_combo.currentText() == "FPGA_PERIPH"
+    assert form.role_combo.currentText() == "R18"
+    assert form.mode_combo.currentIndex() == 2  # anchor (anchor_point set)
+    assert form.rotation_edit.text() == "45.0"
+    # The anchor identity lives in the shared AnchorOriginWidget; the OFFSET
+    # in the form's own Cartesian/Polar offset row.
+    assert form._anchor_widget.point_edit.currentText() == "Origin"
+    assert form._offset_combo.currentIndex() == 0  # Cartesian offset
+    assert form._offset_x_edit.text() == "10.0"
+    assert form._offset_y_edit.text() == "20.0"
 
 
-def test_switching_to_polar_mode_toggles_enabled_cells(main_window, tmp_path):
+def test_load_placement_cartesian_polar_and_anchor_round_trip(main_window, tmp_path):
+    """The form's three position modes each load back into the SAME dict
+    shape build() produces — the reverse of _build_entry_dict, so an
+    already-saved entry never silently changes mode on re-save."""
     dock, _ = _make_dock(main_window, tmp_path)
-    dock._add_row()
 
-    dock.table.cellWidget(0, coordinate_placer_mod._COL_MODE).setCurrentIndex(1)  # Polar
+    cartesian = {"cluster": "X", "role": "R1", "x_mm": 1.0, "y_mm": 2.0, "rotation_deg": 0.0}
+    dock.load_placement(cartesian)
+    form = dock.coordinate_form
+    assert form.mode_combo.currentIndex() == 0
+    entry, err = form.build()
+    assert err is None and entry == {
+        "cluster": "X", "role": "R1", "x_mm": 1.0, "y_mm": 2.0, "rotation_deg": 0.0}
 
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_X).isEnabled() is False
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_Y).isEnabled() is False
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_CENTER_X).isEnabled() is True
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_RADIUS).isEnabled() is True
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_ANGLE).isEnabled() is True
+    polar = {"cluster": "X", "role": "R2", "center_x_mm": 0.0, "center_y_mm": 0.0,
+             "radius_mm": 5.0, "angle_deg": 37.0}
+    dock.load_placement(polar)
+    assert form.mode_combo.currentIndex() == 1
+    entry, err = form.build()
+    assert err is None and entry["center_x_mm"] == 0.0 and entry["radius_mm"] == 5.0
+    assert entry["angle_deg"] == 37.0
 
-
-def test_switching_to_pad_anchor_enables_pad_cell(main_window, tmp_path):
-    dock, _ = _make_dock(main_window, tmp_path)
-    dock._add_row()
-
-    dock.table.cellWidget(0, coordinate_placer_mod._COL_ANCHOR).setCurrentIndex(1)  # Pad
-
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_PAD).isEnabled() is True
-
-
-def test_add_row_from_entry_populates_polar_and_pad_fields(main_window, tmp_path):
-    dock, _ = _make_dock(main_window, tmp_path)
-    dock._add_row({
-        "cluster": "X", "role": "R1", "center_x_mm": 1.0, "center_y_mm": 2.0,
-        "radius_mm": 3.0, "angle_deg": 45.0, "anchor": "pad", "anchor_pad": "2",
-    })
-
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_MODE).currentIndex() == 1
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_ANCHOR).currentIndex() == 1
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_CENTER_X).text() == "1.0"
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_PAD).text() == "2"
+    anchor = {"cluster": "X", "role": "R3", "anchor_role": "FPGA", "anchor_pad": "A17",
+              "x_mm": 2.0, "y_mm": 3.0}
+    dock.load_placement(anchor)
+    assert form.mode_combo.currentIndex() == 2
+    entry, err = form.build()
+    assert err is None
+    assert entry["anchor_role"] == "FPGA"
+    assert entry["anchor_pad"] == "A17"
+    assert entry["x_mm"] == 2.0 and entry["y_mm"] == 3.0
 
 
-# ── Anchor-relative mode (2026-08-12, Group 0) ──────────────────────────────
+# ── Mode visibility ───────────────────────────────────────────────────────
 
-def test_switching_to_anchor_mode_toggles_anchor_columns(main_window, tmp_path):
-    """Anchor mode enables the anchor identity columns, uses the Pad column
-    as the ANCHOR component's pad, and disables the self-referential
-    "Anchor" (Center/Pad) column."""
-    dock, _ = _make_dock(main_window, tmp_path)
-    dock._add_row()
+def test_coordinate_mode_toggles_visible_field_groups(main_window, tmp_path):
+    dock, target_file = _make_dock(main_window, tmp_path)
+    form = _new_coordinate(dock, target_file)
 
-    dock.table.cellWidget(0, coordinate_placer_mod._COL_MODE).setCurrentIndex(2)  # Anchor
+    def cart_visible():
+        return form._cartesian_row.isVisibleTo(form._cartesian_row.parentWidget())
+    def polar_visible():
+        return form._polar_row.isVisibleTo(form._polar_row.parentWidget())
+    def anchor_visible():
+        return form._anchor_widget.isVisibleTo(form._anchor_widget.parentWidget())
 
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_ANCHOR).isEnabled() is False
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_ANCHOR_REF).isEnabled() is True
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_ANCHOR_ROLE).isEnabled() is True
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_ANCHOR_POINT).isEnabled() is True
-    # X/Y are the OFFSET in anchor mode; the absolute polar fields stay off.
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_X).isEnabled() is True
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_CENTER_X).isEnabled() is False
-
-
-def test_add_row_from_anchor_entry_sets_anchor_mode(main_window, tmp_path):
-    dock, _ = _make_dock(main_window, tmp_path)
-    dock._add_row({
-        "cluster": "X", "role": "R1", "x_mm": 10.0, "y_mm": -70.0,
-        "anchor_point": "Origin", "rotation_deg": 270.0,
-    })
-
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_MODE).currentIndex() == 2
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_ANCHOR_POINT).text() == "Origin"
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_X).text() == "10.0"
+    form.mode_combo.setCurrentIndex(0)
+    assert cart_visible() and not polar_visible() and not anchor_visible()
+    form.mode_combo.setCurrentIndex(1)
+    assert polar_visible() and not cart_visible() and not anchor_visible()
+    form.mode_combo.setCurrentIndex(2)
+    assert anchor_visible() and not cart_visible() and not polar_visible()
 
 
-def test_build_entries_anchor_mode_round_trips_through_loader(main_window, tmp_path):
-    """An anchor-relative row (Mode=Anchor, X/Y offset, anchor_role + pad)
-    must build a dict that the real backend loader accepts."""
-    from kicadstamp.config import load_coordinate_placement
+# ── Building the dict through the real loader ─────────────────────────────
 
-    dock, _ = _make_dock(main_window, tmp_path)
-    dock._add_row()
-    dock.table.cellWidget(0, coordinate_placer_mod._COL_MODE).setCurrentIndex(2)  # Anchor
-    dock.table.cellWidget(0, coordinate_placer_mod._COL_CLUSTER).setCurrentText("FPGA_PERIPH")
-    dock.table.cellWidget(0, coordinate_placer_mod._COL_ROLE).setCurrentText("R18")
-    dock.table.cellWidget(0, coordinate_placer_mod._COL_X).setText("2.0")
-    dock.table.cellWidget(0, coordinate_placer_mod._COL_Y).setText("3.0")
-    dock.table.cellWidget(0, coordinate_placer_mod._COL_ANCHOR_ROLE).setCurrentText("FPGA")
-    # In anchor mode the Pad column means the ANCHOR component's pad.
-    dock.table.cellWidget(0, coordinate_placer_mod._COL_PAD).setText("A17")
+def test_build_entry_dict_coordinate_cartesian_round_trips(main_window, tmp_path):
+    dock, target_file = _make_dock(main_window, tmp_path)
+    form = _new_coordinate(dock, target_file)
+    _fill_cartesian(form)
 
-    result = dock._build_entries()
-    assert result is not None
-    entries, _placements = result
-    assert len(entries) == 1
-    cp = load_coordinate_placement(entries[0])  # must validate against the real loader
+    entry = dock._build_entry_dict()
+
+    cp = load_coordinate_placement(entry)  # must validate against the real loader
+    assert cp.cluster == "FPGA_PERIPH"
+    assert cp.role == "R18"
+    assert cp.x_mm == 10.0 and cp.y_mm == 20.0
+    assert cp.rotation_deg == 0.0
+
+
+def test_build_entry_dict_coordinate_polar_round_trips(main_window, tmp_path):
+    dock, target_file = _make_dock(main_window, tmp_path)
+    form = _new_coordinate(dock, target_file)
+    form.cluster_combo.setCurrentText("FPGA_PERIPH")
+    form.role_combo.setCurrentText("R19")
+    form.mode_combo.setCurrentIndex(1)  # Polar (around centre)
+    form.center_x_edit.setText("0.0")
+    form.center_y_edit.setText("0.0")
+    form.radius_edit.setText("5.0")
+    form.angle_edit.setText("37.0")
+
+    entry = dock._build_entry_dict()
+    cp = load_coordinate_placement(entry)
+    assert cp.center_x_mm == 0.0 and cp.radius_mm == 5.0 and cp.angle_deg == 37.0
+
+
+def test_build_entry_dict_coordinate_anchor_round_trips(main_window, tmp_path):
+    dock, target_file = _make_dock(main_window, tmp_path)
+    form = _new_coordinate(dock, target_file)
+    form.cluster_combo.setCurrentText("FPGA_PERIPH")
+    form.role_combo.setCurrentText("R20")
+    form.mode_combo.setCurrentIndex(2)  # Anchor
+    form._anchor_widget.origin_mode_combo.setCurrentIndex(0)  # anchor (ref/role)
+    form._anchor_widget.anchor_role_edit.setCurrentText("FPGA")
+    form._anchor_widget.anchor_pad_edit.setText("A17")
+    form._offset_combo.setCurrentIndex(0)  # Cartesian offset
+    form._offset_x_edit.setText("2.0")
+    form._offset_y_edit.setText("3.0")
+
+    entry = dock._build_entry_dict()
+    cp = load_coordinate_placement(entry)
     assert cp.anchor_role == "FPGA"
     assert cp.anchor_pad == "A17"
     assert cp.x_mm == 2.0 and cp.y_mm == 3.0
 
 
-def test_delete_selected_removes_the_row(main_window, tmp_path):
+def test_build_entry_dict_coordinate_anchor_polar_offset_round_trips(main_window, tmp_path):
+    """Anchor-relative POLAR offset (radius/angle instead of x/y) — the
+    Group 2 data-loss class: load() must pass point= back through the shared
+    AnchorOriginWidget (which otherwise defaults it to "" and clears the
+    combo), and build() must write radius_mm/angle_deg, so the anchor is
+    never dropped on re-save."""
     dock, _ = _make_dock(main_window, tmp_path)
-    dock._add_row({"cluster": "X", "role": "R1", "x_mm": 0.0, "y_mm": 0.0, "rotation_deg": 0.0})
-    dock._add_row({"cluster": "X", "role": "R2", "x_mm": 0.0, "y_mm": 0.0, "rotation_deg": 0.0})
-    dock.table.selectRow(0)
+    entry = {"cluster": "X", "role": "R21", "anchor_point": "Origin",
+             "radius_mm": 5.0, "angle_deg": 37.0}
+    dock.load_placement(entry)
+    form = dock.coordinate_form
+    assert form.mode_combo.currentIndex() == 2
+    assert form._anchor_widget.point_edit.currentText() == "Origin"
 
-    dock._on_delete_selected()
-
-    assert dock.table.rowCount() == 1
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_ROLE).currentText() == "R2"
-
-
-def test_mode_toggle_after_row_deletion_targets_the_right_row(main_window, tmp_path):
-    """2026-08-12, Group 2 fix: the Mode/Anchor handlers captured the row index
-    at _add_row() time — deleting a row above shifted the survivors, so toggling
-    Mode on a survivor either crashed (stale index out of range) or silently
-    changed the WRONG row. The index is now resolved from the widget at signal
-    time."""
-    dock, _ = _make_dock(main_window, tmp_path)
-    dock._add_row({"cluster": "X", "role": "R1", "x_mm": 0.0, "y_mm": 0.0, "rotation_deg": 0.0})
-    dock._add_row({"cluster": "X", "role": "R2", "x_mm": 0.0, "y_mm": 0.0, "rotation_deg": 0.0})
-
-    dock.table.selectRow(0)
-    dock._on_delete_selected()
-
-    # Row 0 now holds what was R2. Switching its Mode must toggle ROW 0's
-    # fields (not an out-of-range row 1, and not row 0 of the old indexing).
-    dock.table.cellWidget(0, coordinate_placer_mod._COL_MODE).setCurrentIndex(1)  # Polar
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_X).isEnabled() is False
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_CENTER_X).isEnabled() is True
+    rebuilt = dock._build_entry_dict()
+    cp = load_coordinate_placement(rebuilt)
+    assert cp.anchor_point == "Origin"
+    assert cp.radius_mm == 5.0 and cp.angle_deg == 37.0
 
 
-def test_collect_place_inputs_excludes_retired_and_skip_rows_from_only_names(main_window, tmp_path, monkeypatch):
-    """2026-08-12, Group 2 fix: retired/skip rows used to be included in the
-    --only names — drop_inactive_items dropped them before apply_only_filter,
-    which then couldn't find the name and failed "Place all" wholesale."""
-    import gui.docks.coordinate_placer as m
+def test_build_entry_dict_coordinate_bad_number_reports_error(main_window, tmp_path):
+    dock, target_file = _make_dock(main_window, tmp_path)
+    form = _new_coordinate(dock, target_file)
+    _fill_cartesian(form)
+    form.x_edit.setText("abc")
 
-    dock, _ = _make_dock(main_window, tmp_path)
-    dock._add_row({"cluster": "X", "role": "R1", "x_mm": 0.0, "y_mm": 0.0,
-                   "rotation_deg": 0.0, "retired": True})
-    dock._add_row({"cluster": "X", "role": "R2", "x_mm": 0.0, "y_mm": 0.0,
-                   "rotation_deg": 0.0})
-
-    monkeypatch.setattr(m, "load_config", lambda path: (Config(), RuntimeContext()))
-    payload = dock._collect_place_inputs()
-
-    assert payload is not None
-    assert payload["names"] == ["X/R2"]
-
-
-def test_delete_with_no_selection_shows_error(main_window, tmp_path):
-    dock, _ = _make_dock(main_window, tmp_path)
-    dock._add_row({"cluster": "X", "role": "R1", "x_mm": 0.0, "y_mm": 0.0, "rotation_deg": 0.0})
-
-    dock._on_delete_selected()
-
-    assert dock.table.rowCount() == 1
-    assert "Select a row" in dock.message_label.text()
-
-
-# ── Row <-> entry round trip / validation ───────────────────────────────────
-
-def test_row_to_entry_cartesian(main_window, tmp_path):
-    dock, _ = _make_dock(main_window, tmp_path)
-    dock._add_row()
-    _fill_cartesian_row(dock, 0)
-
-    entry = dock._row_to_entry(0)
-
-    assert entry == {"cluster": "FPGA_PERIPH", "role": "R18", "x_mm": 10.0, "y_mm": 20.0,
-                     "rotation_deg": 0.0}
-
-
-def test_row_with_non_numeric_field_reports_row_and_column(main_window, tmp_path):
-    dock, _ = _make_dock(main_window, tmp_path)
-    dock._add_row()
-    _fill_cartesian_row(dock, 0)
-    dock.table.cellWidget(0, coordinate_placer_mod._COL_X).setText("abc")
-
-    entry = dock._row_to_entry(0)
+    entry = dock._build_entry_dict()
 
     assert entry is None
-    assert "Row 1" in dock.message_label.text()
-    assert "'abc'" in dock.message_label.text()
-
-
-def test_build_entries_surfaces_loader_validation_error_with_row_number(main_window, tmp_path, caplog):
-    dock, _ = _make_dock(main_window, tmp_path)
-    dock._add_row()
-    # Missing role -> load_coordinate_placement fatals with "missing cluster/role"
-    dock.table.cellWidget(0, coordinate_placer_mod._COL_CLUSTER).setCurrentText("X")
-
-    entries = dock._build_entries()
-
-    assert entries is None
-    # The label shows only the first line (see show_message's own
-    # docstring — full multi-line FATAL ERROR blocks go to the Log dock,
-    # not the inline label), so the row number is checked against the
-    # label, the detailed validation text against the mirrored log record.
-    assert "Row 1" in dock.message_label.text()
-    assert "missing cluster/role" in caplog.text
-
-
-def test_build_entries_detects_duplicate_default_names(main_window, tmp_path):
-    dock, _ = _make_dock(main_window, tmp_path)
-    dock._add_row()
-    _fill_cartesian_row(dock, 0, role="R18")
-    dock._add_row()
-    _fill_cartesian_row(dock, 1, role="R18")  # same cluster/role -> same default name
-
-    entries = dock._build_entries()
-
-    assert entries is None
-    assert "Duplicate name" in dock.message_label.text()
-    assert "FPGA_PERIPH/R18" in dock.message_label.text()
-
-
-def test_build_entries_returns_all_rows_when_valid(main_window, tmp_path):
-    dock, _ = _make_dock(main_window, tmp_path)
-    dock._add_row()
-    _fill_cartesian_row(dock, 0, role="R18")
-    dock._add_row()
-    _fill_cartesian_row(dock, 1, role="R19")
-
-    result = dock._build_entries()
-
-    assert result is not None
-    entries, _placements = result
-    assert [e["role"] for e in entries] == ["R18", "R19"]
+    assert "not a number" in dock.message_label.text()
 
 
 # ── Save ──────────────────────────────────────────────────────────────────
 
-def test_save_writes_whole_table_via_set_list_section(main_window, tmp_path, monkeypatch):
+def test_do_save_writes_coordinate_placements_section(main_window, tmp_path):
     dock, target_file = _make_dock(main_window, tmp_path)
-    dock._add_row()
-    _fill_cartesian_row(dock, 0)
+    form = _new_coordinate(dock, target_file)
+    _fill_cartesian(form, role="R18")
 
-    captured = {}
-    monkeypatch.setattr(coordinate_placer_mod, "set_list_section",
-                        lambda path, section, entries: captured.update(
-                            path=path, section=section, entries=entries))
+    dock._do_save()
 
-    saved_signal = []
-    dock.saved.connect(lambda: saved_signal.append(1))
+    data = yaml.safe_load(target_file.read_text(encoding="utf-8"))
+    entries = data["coordinate_placements"]
+    assert len(entries) == 1
+    cp = load_coordinate_placement(entries[0])
+    assert cp.role == "R18" and cp.x_mm == 10.0 and cp.y_mm == 20.0
+    assert "Wrote" in dock.message_label.text()
 
-    dock._on_save()
 
-    assert captured["path"] == target_file
-    assert captured["section"] == "coordinate_placements"
-    assert captured["entries"] == [
-        {"cluster": "FPGA_PERIPH", "role": "R18", "x_mm": 10.0, "y_mm": 20.0, "rotation_deg": 0.0}
-    ]
-    assert saved_signal == [1]
-    assert "Wrote 1" in dock.message_label.text()
+def test_do_save_overwrites_by_effective_name_not_duplicate(main_window, tmp_path):
+    """Save twice — the second one must REPLACE the first by effective name
+    (cluster/role), never append a duplicate (2026-08-12, Group 1: the
+    coordinate_placements section is a named-records section like
+    clone_placements/rules)."""
+    dock, target_file = _make_dock(main_window, tmp_path)
+    form = _new_coordinate(dock, target_file)
+    _fill_cartesian(form, role="R18")
+
+    dock._do_save()
+    # Same effective name (FPGA_PERIPH/R18) but a new position.
+    form.x_edit.setText("99.0")
+    dock._do_save()
+
+    data = yaml.safe_load(target_file.read_text(encoding="utf-8"))
+    assert len(data["coordinate_placements"]) == 1
+    assert data["coordinate_placements"][0]["x_mm"] == 99.0
+    assert "Overwrote" in dock.message_label.text()
 
 
 def test_save_without_target_file_shows_error(main_window, tmp_path):
-    dock = CoordinatePlacerDock(main_window)
-    dock._add_row()
-    _fill_cartesian_row(dock, 0)
+    dock = PlacerDock(main_window)
+    dock.new_coordinate_placement(tmp_path / "root.yaml")
+    dock._placer_path = None  # simulate a dock that never got a target file
 
-    dock._on_save()
+    dock._do_save()
 
-    assert "Pick a file" in dock.message_label.text()
-
-
-def test_save_does_not_write_when_a_row_is_invalid(main_window, tmp_path, monkeypatch):
-    dock, _ = _make_dock(main_window, tmp_path)
-    dock._add_row()  # blank row -> invalid (no cluster/role)
-
-    called = []
-    monkeypatch.setattr(coordinate_placer_mod, "set_list_section",
-                        lambda *a, **kw: called.append(1))
-
-    dock._on_save()
-
-    assert called == []
+    assert "Pick a Placer file" in dock.message_label.text()
 
 
-# ── load_from_file ───────────────────────────────────────────────────────
+# ── Redraw/Place (coordinate mode) ────────────────────────────────────────
 
-def test_load_from_file_populates_rows(main_window, tmp_path):
-    target_file = tmp_path / "root.yaml"
-    _write_yaml(target_file, {"coordinate_placements": [
-        {"cluster": "FPGA_PERIPH", "role": "R18", "x_mm": 1.0, "y_mm": 2.0, "rotation_deg": 0.0},
-        {"cluster": "FPGA_PERIPH", "role": "R19", "center_x_mm": 0.0, "center_y_mm": 0.0,
-         "radius_mm": 5.0, "angle_deg": 30.0},
-    ]})
-    dock = CoordinatePlacerDock(main_window)
-
-    dock.load_from_file(target_file)
-
-    assert dock.table.rowCount() == 2
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_ROLE).currentText() == "R18"
-    assert dock.table.cellWidget(0, coordinate_placer_mod._COL_MODE).currentIndex() == 0
-    assert dock.table.cellWidget(1, coordinate_placer_mod._COL_ROLE).currentText() == "R19"
-    assert dock.table.cellWidget(1, coordinate_placer_mod._COL_MODE).currentIndex() == 1
+def _fake_cfg_and_ctx():
+    return Config(), RuntimeContext()
 
 
-def test_load_from_file_with_missing_file_leaves_table_empty(main_window, tmp_path):
-    dock = CoordinatePlacerDock(main_window)
-    missing = tmp_path / "does_not_exist.yaml"
-
-    dock.load_from_file(missing)
-
-    assert dock.table.rowCount() == 0
-    assert dock._path == missing
-
-
-def test_load_from_file_clears_previous_rows(main_window, tmp_path):
-    target_file = tmp_path / "root.yaml"
-    _write_yaml(target_file, {"coordinate_placements": [
-        {"cluster": "X", "role": "R1", "x_mm": 0.0, "y_mm": 0.0, "rotation_deg": 0.0},
-    ]})
-    dock = CoordinatePlacerDock(main_window)
-    dock._add_row()  # a stray manually-added row before loading
-    dock._add_row()
-
-    dock.load_from_file(target_file)
-
-    assert dock.table.rowCount() == 1
-
-
-# ── Place (async dispatch) ──────────────────────────────────────────────────
-
-def test_on_place_dispatches_to_worker(main_window, tmp_path, monkeypatch):
-    """The Place button must NOT block the UI thread: _on_place() collects
-    + validates inputs on the UI thread (including loading the target
-    config), then hands the plain-data payload to start_long_op."""
+def test_collect_redraw_inputs_coordinate_payload(main_window, tmp_path, monkeypatch):
     dock, target_file = _make_dock(main_window, tmp_path)
-    dock._add_row()
-    _fill_cartesian_row(dock, 0)
+    form = _new_coordinate(dock, target_file)
+    _fill_cartesian(form, role="R18")
 
-    fake_cfg = Config()
-    fake_ctx = RuntimeContext()
-    monkeypatch.setattr(coordinate_placer_mod, "load_config", lambda path: (fake_cfg, fake_ctx))
+    fake_cfg, fake_ctx = _fake_cfg_and_ctx()
+    monkeypatch.setattr(placer_mod, "load_config", lambda path: (fake_cfg, fake_ctx))
 
-    captured = {}
+    payload = dock._collect_redraw_inputs()
 
-    def _fake_start(connection, widgets, fn, on_success, on_error, *args):
-        captured["connection"] = connection
-        captured["widgets"] = widgets
-        captured["args"] = args
-        return "fake-controller"
-
-    monkeypatch.setattr(coordinate_placer_mod, "start_long_op", _fake_start)
-
-    dock._on_place()
-
-    assert dock._active_op == "fake-controller"
-    assert captured["connection"] is main_window.connection
-    assert captured["widgets"] == (dock.save_button, dock.place_button)
-    payload = captured["args"][0]
-    assert payload["path"] == target_file
-    assert payload["cfg"] is fake_cfg
-    assert payload["ctx"] is fake_ctx
-    assert payload["names"] == ["FPGA_PERIPH/R18"]
-    assert len(fake_cfg.coordinate_placements) == 1
-    assert fake_cfg.coordinate_placements[0].role == "R18"
+    assert payload is not None
+    assert payload["coordinate"] is True
+    assert payload["name"] == "FPGA_PERIPH/R18"
+    assert payload["placer_path"] == target_file
+    # The form's entry replaced-by-name the in-memory cfg's coordinate_placements.
+    assert [cp.role for cp in fake_cfg.coordinate_placements] == ["R18"]
 
 
-def test_on_place_with_empty_table_shows_error(main_window, tmp_path):
-    dock, _ = _make_dock(main_window, tmp_path)
-
-    dock._on_place()
-
-    assert "Nothing to place" in dock.message_label.text()
-
-
-def test_on_place_replaces_only_this_tables_own_rows_by_name(main_window, tmp_path, monkeypatch):
-    """Rows already in the file under names NOT present in this table's
-    current content must survive untouched — replace-by-name-set, same
-    spirit as ThermalViaArrayDock's own Redraw comment."""
+def test_collect_redraw_inputs_coordinate_retired_blocked(main_window, tmp_path):
     dock, target_file = _make_dock(main_window, tmp_path)
-    dock._add_row()
-    _fill_cartesian_row(dock, 0, role="R18")
+    form = _new_coordinate(dock, target_file)
+    _fill_cartesian(form)
+    form.retired_checkbox.setChecked(True)
 
-    from kicadstamp.config import CoordinatePlacement
-    fake_cfg = Config(coordinate_placements=[
-        CoordinatePlacement(cluster="OTHER", role="R99", x_mm=0.0, y_mm=0.0, rotation_deg=0.0),
-    ])
-    fake_ctx = RuntimeContext()
-    monkeypatch.setattr(coordinate_placer_mod, "load_config", lambda path: (fake_cfg, fake_ctx))
+    payload = dock._collect_redraw_inputs()
 
-    payload = dock._collect_place_inputs()
-
-    roles = sorted(cp.role for cp in payload["cfg"].coordinate_placements)
-    assert roles == ["R18", "R99"]
+    assert payload is None
+    assert "retired" in dock.message_label.text().lower()
 
 
-# ── refresh_known_roles — set-compare cache (2026-08-12, Group 4) ───────────
+def test_run_redraw_coordinate_skips_cluster_tagging(main_window, tmp_path, monkeypatch):
+    """Coordinate mode's Redraw places but does NOT tag Cluster — the moved
+    component is identified by its own Cluster/Role (2026-08-12, Group 1)."""
+    class _FakePipeline:
+        def __init__(self, **kwargs):
+            self.items = []
 
-def test_refresh_known_roles_skips_repopulation_when_unchanged(main_window, tmp_path, monkeypatch):
-    """G4.4 (2026-08-12): refresh_known_roles runs on the ~2s poll tick, so it
-    must NOT repopulate every combo when the snapshot's Role/Cluster sets
-    haven't changed — same set-compare guard as extract.py's
-    _rebuild_net_aliases. A changed set DOES repopulate again."""
+        def run(self):
+            pass
+
+    monkeypatch.setattr(placer_mod, "ApplyPipeline", _FakePipeline)
     dock, _ = _make_dock(main_window, tmp_path)
-    dock._add_row()
-    calls = []
-    monkeypatch.setattr(coordinate_placer_mod, "set_combo_items",
-                        lambda combo, items: calls.append(list(items)))
 
-    snapshot = [
-        SimpleNamespace(role="R_SERIES", cluster="FPGA_PERIPH"),
-        SimpleNamespace(role="R_SERIES", cluster="FPGA_PERIPH"),  # dedupes to the same set
-    ]
-    dock.refresh_known_roles(snapshot)
-    first_count = len(calls)
-    assert first_count == 4  # Cluster, Role, AnchorRole, AnchorCluster
+    result = dock._run_redraw({"placer_path": tmp_path / "root.yaml",
+                               "cfg": Config(), "ctx": RuntimeContext(),
+                               "name": "FPGA_PERIPH/R18", "coordinate": True})
 
-    # Identical sets again — must be a no-op.
-    dock.refresh_known_roles(snapshot)
-    assert len(calls) == first_count
+    assert result == {"name": "FPGA_PERIPH/R18", "tagged": None}
 
-    # A brand-new role appears — repopulates again.
-    dock.refresh_known_roles([
-        SimpleNamespace(role="R_SERIES", cluster="FPGA_PERIPH"),
-        SimpleNamespace(role="R_TERM", cluster="FPGA_PERIPH"),
-    ])
-    assert len(calls) == first_count + 4
+
+def test_finish_redraw_coordinate_reports_simple_success(main_window, tmp_path):
+    dock, _ = _make_dock(main_window, tmp_path)
+
+    dock._finish_redraw({"name": "FPGA_PERIPH/R18", "tagged": None})
+
+    assert "Placed" in dock.message_label.text()
+    assert "tagged" not in dock.message_label.text()
+
+
+# ── DetailDock title helper ───────────────────────────────────────────────
+
+def test_current_entity_name_in_coordinate_mode(main_window, tmp_path):
+    dock, target_file = _make_dock(main_window, tmp_path)
+    form = _new_coordinate(dock, target_file)
+    form.cluster_combo.setCurrentText("FPGA_PERIPH")
+    form.role_combo.setCurrentText("R18")
+
+    assert dock.current_entity_name == "FPGA_PERIPH"
+
+    form.name_edit.setText("my_cap")
+    assert dock.current_entity_name == "my_cap"

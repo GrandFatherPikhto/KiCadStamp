@@ -92,7 +92,6 @@ class DockHub:
         self.placer_dock = self.detail_dock.placer_panel
         self.root_metadata_dock = self.detail_dock.root_panel
         self.thermal_via_dock = self.detail_dock.thermal_via_panel
-        self.coordinate_dock = self.detail_dock.coordinate_panel
         self.points_dock = self.detail_dock.points_panel
         self.rules_dock = self.detail_dock.rules_panel
         self.cells_dock = self.detail_dock.cells_panel
@@ -132,7 +131,7 @@ class DockHub:
         self.config_tree_dock.file_selected.connect(self.placer_dock.set_cells_file)
         self.config_tree_dock.file_selected.connect(self.placer_dock.set_placer_file)
         self.config_tree_dock.file_selected.connect(self.thermal_via_dock.set_target_file)
-        self.config_tree_dock.file_selected.connect(self.coordinate_dock.set_target_file)
+        self.config_tree_dock.file_selected.connect(self.placer_dock.set_target_file)
         self.config_tree_dock.file_selected.connect(self.points_dock.set_target_file)
         self.config_tree_dock.file_selected.connect(self.rules_dock.set_target_file)
         self.config_tree_dock.file_selected.connect(self.cells_dock.set_target_file)
@@ -152,7 +151,7 @@ class DockHub:
         self.root_metadata_dock.working_file_changed.connect(self.placer_dock.set_cells_file)
         self.root_metadata_dock.working_file_changed.connect(self.placer_dock.set_placer_file)
         self.root_metadata_dock.working_file_changed.connect(self.thermal_via_dock.set_target_file)
-        self.root_metadata_dock.working_file_changed.connect(self.coordinate_dock.set_target_file)
+        self.root_metadata_dock.working_file_changed.connect(self.placer_dock.set_target_file)
         self.root_metadata_dock.working_file_changed.connect(self.points_dock.set_target_file)
         self.root_metadata_dock.working_file_changed.connect(self.rules_dock.set_target_file)
         self.root_metadata_dock.working_file_changed.connect(self.cells_dock.set_target_file)
@@ -228,11 +227,12 @@ class DockHub:
         self.config_tree_dock.profile_picked.connect(self.detail_dock.show_extract)
         self.config_tree_dock.thermal_via_picked.connect(self.thermal_via_dock.load_entry)
         self.config_tree_dock.thermal_via_picked.connect(self.detail_dock.show_thermal_via)
-        # Coordinate placements: the CATEGORY (or any leaf within it) is
-        # the click target, not a per-entry leaf — load_from_file() loads
-        # the WHOLE list into the table (see config_tree.py's
+        # Coordinate placements (2026-08-12, Group 1): a normal named-records
+        # section now — a leaf click carries the full entry dict, loaded into
+        # the merged PlacerDock's coordinate mode, exactly like clone_placements
+        # -> placement_picked -> load_placement (see config_tree.py's
         # coordinate_placements_picked docstring).
-        self.config_tree_dock.coordinate_placements_picked.connect(self.coordinate_dock.load_from_file)
+        self.config_tree_dock.coordinate_placements_picked.connect(self.placer_dock.load_placement)
         self.config_tree_dock.coordinate_placements_picked.connect(self.detail_dock.show_coordinate_placer)
         self.config_tree_dock.points_picked.connect(self.points_dock.load_entry)
         self.config_tree_dock.points_picked.connect(self.detail_dock.show_points)
@@ -253,7 +253,6 @@ class DockHub:
         # reassigning Files.
         self.placer_dock.saved.connect(self.config_tree_dock.refresh)
         self.thermal_via_dock.saved.connect(self.config_tree_dock.refresh)
-        self.coordinate_dock.saved.connect(self.config_tree_dock.refresh)
         self.extract_dock.saved.connect(self.config_tree_dock.refresh)
         self.points_dock.saved.connect(self.config_tree_dock.refresh)
         self.rules_dock.saved.connect(self.config_tree_dock.refresh)
@@ -265,12 +264,11 @@ class DockHub:
         # open_fieldstool() below).
         self.config_tree_dock.add_placer_requested.connect(self._start_new_placement)
         self.config_tree_dock.add_thermal_via_requested.connect(self._start_new_thermal_via)
-        # "Open coordinate placements..." — same action as clicking the
-        # category (load_from_file already handles a file with no
-        # coordinate_placements: section yet, empty table), just reachable
-        # from a file that doesn't show the category at all.
+        # "Add coordinate placement..." (2026-08-12, Group 1) — opens the
+        # merged PlacerDock's coordinate form blank for the target file, the
+        # same "Add placer..." shape (new_placement) the clone source uses.
         self.config_tree_dock.add_coordinate_placement_requested.connect(
-            self.coordinate_dock.load_from_file)
+            self.placer_dock.new_coordinate_placement)
         self.config_tree_dock.add_coordinate_placement_requested.connect(
             self.detail_dock.show_coordinate_placer)
         self.config_tree_dock.add_point_requested.connect(self._start_new_point)
@@ -292,7 +290,6 @@ class DockHub:
         self.placer_dock.refresh_known_nets(board)
         self.thermal_via_dock.refresh_known_roles(snapshot)
         self.thermal_via_dock.refresh_known_nets(board)
-        self.coordinate_dock.refresh_known_roles(snapshot)
         self.points_dock.refresh_known_roles(snapshot)
         self.rules_dock.refresh_known_roles(snapshot)
         self.rules_dock.refresh_known_nets(board)

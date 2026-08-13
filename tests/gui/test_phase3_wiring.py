@@ -756,8 +756,9 @@ def test_dock_hub_delegates_route_to_the_right_docks(real_main_window, monkeypat
                         lambda s: pushed.setdefault("thermal_roles", []).append(s))
     monkeypatch.setattr(hub.thermal_via_dock, "refresh_known_nets",
                         lambda b: pushed.setdefault("thermal_nets", []).append(b))
-    monkeypatch.setattr(hub.coordinate_dock, "refresh_known_roles",
-                        lambda s: pushed.setdefault("coordinate_roles", []).append(s))
+    # No separate coordinate_dock since 2026-08-12 (Group 1) — coordinate
+    # mode lives inside the merged placer_dock, whose refresh_known_roles is
+    # already captured above as pushed["roles"].
     monkeypatch.setattr(hub.points_dock, "refresh_known_roles",
                         lambda s: pushed.setdefault("points_roles", []).append(s))
     monkeypatch.setattr(hub.rules_dock, "refresh_known_roles",
@@ -774,7 +775,6 @@ def test_dock_hub_delegates_route_to_the_right_docks(real_main_window, monkeypat
     assert pushed["nets"] == [board]
     assert pushed["thermal_roles"] == [snapshot]
     assert pushed["thermal_nets"] == [board]
-    assert pushed["coordinate_roles"] == [snapshot]
     assert pushed["points_roles"] == [snapshot]
     assert pushed["rules_roles"] == [snapshot]
     assert pushed["rules_nets"] == [board]

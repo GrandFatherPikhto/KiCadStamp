@@ -63,6 +63,36 @@ LIST_SECTIONS = ("clone_placements", "thermal_via_arrays", "rules")
 FALLBACK_KEY = {"rules": "net"}
 
 
+def _coordinate_placement_effective_name(entry: dict) -> str | None:
+    """coordinate_placements: name is optional, defaulting to cluster/role
+    (config/models.py's coordinate_placement_effective_name()) — so a
+    nameless entry is matched in the tree by that composed display name,
+    same "effective name" convention as rules:' net: fallback."""
+    return entry.get("name") or (
+        f"{entry.get('cluster')}/{entry.get('role')}"
+        if entry.get("cluster") and entry.get("role") else None)
+
+
+# Sections whose effective name is a COMPOSED fallback (not a single field) —
+# callable(entry) -> identity, alongside FALLBACK_KEY's single-field fallbacks.
+EFFECTIVE_NAME_FN = {"coordinate_placements": _coordinate_placement_effective_name}
+
+
+def entry_effective_name(section: str, entry: dict):
+    """The identity used to match/rename/delete a list-section entry in the
+    tree — `name`, falling back per-section (rules: net, coordinate_placements:
+    cluster/role), the same convention config/models.py's effective-name
+    functions document. Public: gui/docks/entity_delete.py's _entry_identity
+    uses it too (2026-08-12, Group 1: coordinate_placements became a normal
+    named-records section, so its composed fallback must be recognized there
+    as well)."""
+    fn = EFFECTIVE_NAME_FN.get(section)
+    if fn is not None:
+        return fn(entry)
+    fallback_key = FALLBACK_KEY.get(section)
+    return entry.get("name") or (entry.get(fallback_key) if fallback_key else None)
+
+
 def collect_graph_files(root_path: Path) -> List[Path]:
     """Every physical file reachable from root_path via include:, deduped by
     resolved path — walk_include_tree() itself does NOT dedupe a diamond
@@ -144,12 +174,13 @@ def rename_dict_entry(path: Path, section: str, old_name: str, new_name: str) ->
 
 
 def rename_list_entry(path: Path, section: str, old_name: str, new_name: str) -> None:
-    """clone_placements:/thermal_via_arrays:/rules: — list of dicts, entry
-    matched by its effective name (name:, or net: for a nameless rules:
-    entry — see FALLBACK_KEY), then name: is set/created on it. For a
-    rules: entry matched only by net:, this is what actually gives it an
-    explicit name: for the first time, distinct from its net:."""
-    fallback_key = FALLBACK_KEY.get(section)
+    """clone_placements:/thermal_via_arrays:/rules:/coordinate_placements: —
+    list of dicts, entry matched by its effective name (name:, or the
+    section's fallback — net: for a nameless rules:, cluster/role for a
+    nameless coordinate_placements: — see entry_effective_name), then name:
+    is set/created on it. For a rules:/coordinate_placements: entry matched
+    only by its fallback, this is what actually gives it an explicit name:
+    for the first time, distinct from its fallback."""
     data = read_data(path)
     items = data.get(section) or []
 
@@ -157,8 +188,7 @@ def rename_list_entry(path: Path, section: str, old_name: str, new_name: str) ->
     for entry in items:
         if not isinstance(entry, dict):
             continue
-        effective = entry.get("name") or (entry.get(fallback_key) if fallback_key else None)
-        if effective == old_name:
+        if entry_effective_name(section, entry) == old_name:
             match = entry
             break
     if match is None:
@@ -168,8 +198,7 @@ def rename_list_entry(path: Path, section: str, old_name: str, new_name: str) ->
     for entry in items:
         if entry is match or not isinstance(entry, dict):
             continue
-        effective = entry.get("name") or (entry.get(fallback_key) if fallback_key else None)
-        if effective == new_name:
+        if entry_effective_name(section, entry) == new_name:
             raise OSError(_("{name!r} already exists in {section}: of {path}")
                           .format(name=new_name, section=section, path=path))
 

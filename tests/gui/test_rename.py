@@ -153,6 +153,26 @@ def test_rename_list_entry_gives_a_nameless_rule_an_explicit_name(tmp_path):
     assert data["rules"][0]["net"] == "+3V3"  # net: itself is never touched
 
 
+def test_rename_list_entry_gives_a_nameless_coordinate_placement_an_explicit_name(tmp_path):
+    """coordinate_placements: entries may have no name: at all, falling back
+    to cluster/role as their effective display name (config/models.py's
+    coordinate_placement_effective_name()) — renaming one by that display
+    name is what GIVES it an explicit name: for the first time (2026-08-12,
+    Group 1: coordinate_placements is a normal named-records section now,
+    addressable in the tree exactly like rules:' net: fallback)."""
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "coordinate_placements:\n  - cluster: FPGA_PERIPH\n    role: R18\n"
+        "    x_mm: 10.0\n    y_mm: 20.0\n", encoding="utf-8")
+
+    rename_list_entry(path, "coordinate_placements", "FPGA_PERIPH/R18", "my_cap")
+
+    data = _load(path)
+    assert data["coordinate_placements"][0]["name"] == "my_cap"
+    assert data["coordinate_placements"][0]["cluster"] == "FPGA_PERIPH"  # identity fields untouched
+    assert data["coordinate_placements"][0]["role"] == "R18"
+
+
 def test_rename_list_entry_raises_on_collision(tmp_path):
     path = tmp_path / "config.yaml"
     path.write_text(

@@ -370,12 +370,13 @@ def test_redraw_preserves_other_placements_for_registry_safety(main_window, tmp_
 
 # ── Cell source (2026-08-12, Group 0: role:/cluster: migrated to coordinate_placements) ──
 
-def test_cell_is_the_only_source_mode_and_stays_visible(main_window, tmp_path):
+def test_cell_source_mode_stays_visible_and_is_the_default(main_window, tmp_path):
     """ClonePlacement is pure template cloning again (2026-08-12, Group 0
-    consolidation): the Source combo has a single Cell item, and the cell row
-    / name row / Params/Nets/Overrides/Refs tabs are always visible (the old
-    role:/cluster: source modes moved to coordinate_placements' anchor-
-    relative mode)."""
+    consolidation) and the merged dock defaults to it (2026-08-12, Group 1:
+    the Source combo now also offers "Single component" = CoordinatePlacement,
+    but Cell is index 0 / the default): the cell row / name row /
+    Params/Nets/Overrides/Refs/Origin tabs are visible, the coordinate
+    form's tab is hidden."""
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
 
     def visible(w):
@@ -386,7 +387,7 @@ def test_cell_is_the_only_source_mode_and_stays_visible(main_window, tmp_path):
         # RuleDock's own tests already use for the same reason).
         return w.isVisibleTo(w.parentWidget())
 
-    assert dock.cell_mode_combo.count() == 1
+    assert dock.cell_mode_combo.count() == 2  # Cell + Single component
     assert dock.cell_mode_combo.currentIndex() == 0
     assert visible(dock._cell_row)
     assert visible(dock._name_row)
@@ -394,6 +395,8 @@ def test_cell_is_the_only_source_mode_and_stays_visible(main_window, tmp_path):
     assert dock._tabs.isTabVisible(dock._nets_tab_index)
     assert dock._tabs.isTabVisible(dock._net_overrides_tab_index)
     assert dock._tabs.isTabVisible(dock._refs_tab_index)
+    assert dock._tabs.isTabVisible(dock._origin_tab_index)
+    assert not dock._tabs.isTabVisible(dock._coordinate_tab_index)
 
 
 def test_load_placement_round_trips_absolute_xy(main_window, tmp_path):
@@ -536,6 +539,35 @@ def test_refresh_known_roles_populates_from_snapshot(main_window):
     assert roles == ["ROLE_A"]
     assert clusters == ["C1", "C2"]
     assert cluster_field_items == ["C1", "C2"]
+
+
+def test_refresh_known_roles_skips_repopulation_when_unchanged(main_window, monkeypatch):
+    """G4.4 (2026-08-12): refresh_known_roles runs on the ~2s poll tick, so
+    it must NOT repopulate the combos when the snapshot's Role/Cluster sets
+    haven't changed — same set-compare guard as extract.py's
+    _rebuild_net_aliases, carried over from the merged-in coordinate dock."""
+    class _Row:
+        def __init__(self, role, cluster):
+            self.role = role
+            self.cluster = cluster
+
+    dock = PlacerDock(main_window)
+    calls = []
+    monkeypatch.setattr(placer_mod, "set_combo_items",
+                        lambda combo, items: calls.append(list(items)))
+
+    snapshot = [_Row("R_SERIES", "FPGA_PERIPH"), _Row("R_SERIES", "FPGA_PERIPH")]
+    dock.refresh_known_roles(snapshot)
+    first_count = len(calls)
+    assert first_count > 0
+
+    # Identical sets again — must be a no-op.
+    dock.refresh_known_roles(snapshot)
+    assert len(calls) == first_count
+
+    # A brand-new role appears — repopulates again.
+    dock.refresh_known_roles([_Row("R_SERIES", "FPGA_PERIPH"), _Row("R_TERM", "FPGA_PERIPH")])
+    assert len(calls) > first_count
 
 
 def test_cluster_edit_is_a_searchable_dropdown_that_still_accepts_free_text(main_window):

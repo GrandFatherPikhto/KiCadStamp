@@ -433,12 +433,13 @@ def test_coordinate_placement_empty_cluster_role_has_no_fallback_display_name():
     assert [name for name, _ in entries] == ["X/R1", "named"]
 
 
-def test_coordinate_placements_leaf_click_without_file_context_does_not_emit_none(
-        main_window, tmp_path):
-    """2026-08-12, Group 2 fix: a coordinate_placements leaf whose file context
-    can't be resolved used to emit coordinate_placements_picked(None) — dock_hub
-    wires that straight to CoordinatePlacerDock.load_from_file's path.exists(),
-    which crashed the GUI process inside a Qt slot (None.exists())."""
+def test_coordinate_placements_leaf_click_emits_the_entry_dict(main_window, tmp_path):
+    """2026-08-12, Group 1: coordinate_placements became a normal
+    named-records section — a leaf click carries the FULL entry dict (like
+    placement_picked), loaded into the merged PlacerDock's coordinate mode.
+    This replaces the Group 2 shape where a leaf emitted the file path (and
+    a path-less leaf could emit None, crashing load_from_file's
+    None.exists() — the crash this new payload is immune to by design)."""
     root = tmp_path / "root.yaml"
     root.write_text(
         "coordinate_placements:\n  - cluster: X\n    role: R1\n", encoding="utf-8")
@@ -449,11 +450,9 @@ def test_coordinate_placements_leaf_click_without_file_context_does_not_emit_non
     picked = []
     dock.coordinate_placements_picked.connect(picked.append)
     leaf = _find(dock.tree.topLevelItem(0), "Coordinate placements").child(0)
-    # Simulate the bug trigger: the leaf has no resolvable file context.
-    dock._file_context_for_item = lambda item: None
     dock._on_clicked(leaf, 0)
 
-    assert picked == []  # must NOT emit None
+    assert picked == [{"cluster": "X", "role": "R1"}]
 
 
 def test_add_point_emits_request_instead_of_writing_directly(main_window, tmp_path):

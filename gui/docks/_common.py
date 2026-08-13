@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import QComboBox, QCompleter, QLabel, QLineEdit
 from kicadstamp.config_writer import (
     read_data, write_data, add_include, add_list_entry, disable_include,
     display_path, merge_write, non_includable_keys, upsert_clone_placement,
-    upsert_list_entry, set_list_section)
+    upsert_list_entry)
 from kicadstamp.i18n import _
 
 logger = logging.getLogger(__name__)

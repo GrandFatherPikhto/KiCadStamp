@@ -1,6 +1,5 @@
 # tests/gui/test_detail_panel.py
 from gui.docks.cell_editor import CellDock
-from gui.docks.coordinate_placer import CoordinatePlacerDock
 from gui.docks.detail_panel import DetailDock
 from gui.docks.extract import ExtractDock
 from gui.docks.placer import PlacerDock
@@ -16,11 +15,12 @@ def test_pages_are_the_expected_panel_types(main_window):
     assert isinstance(dock.placer_panel, PlacerDock)
     assert isinstance(dock.root_panel, RootMetadataDock)
     assert isinstance(dock.thermal_via_panel, ThermalViaArrayDock)
-    assert isinstance(dock.coordinate_panel, CoordinatePlacerDock)
     assert isinstance(dock.points_panel, PointsDock)
     assert isinstance(dock.rules_panel, RuleDock)
     assert isinstance(dock.cells_panel, CellDock)
-    assert dock.stack.count() == 8
+    # Coordinate placements merged into PlacerDock (2026-08-12, Group 1) —
+    # no separate Coordinate panel/tab anymore.
+    assert dock.stack.count() == 7
 
 
 def test_project_tab_is_shown_first(main_window):
@@ -72,31 +72,34 @@ def test_show_thermal_via_switches_tab_and_stack(main_window):
     assert dock.stack.currentWidget() is dock.thermal_via_panel
 
 
-def test_show_coordinate_placer_switches_tab_and_stack(main_window):
+def test_show_coordinate_placer_switches_to_the_placer_tab(main_window):
+    """2026-08-12, Group 1: the coordinate mode merged into PlacerDock, so
+    show_coordinate_placer() is an alias for show_placer() — there is no
+    separate Coordinate placer tab anymore."""
     dock = DetailDock(main_window)
     dock.show_coordinate_placer()
-    assert dock.tab_bar.currentIndex() == 4
-    assert dock.stack.currentWidget() is dock.coordinate_panel
+    assert dock.tab_bar.currentIndex() == 2
+    assert dock.stack.currentWidget() is dock.placer_panel
 
 
 def test_show_points_switches_tab_and_stack(main_window):
     dock = DetailDock(main_window)
     dock.show_points()
-    assert dock.tab_bar.currentIndex() == 5
+    assert dock.tab_bar.currentIndex() == 4
     assert dock.stack.currentWidget() is dock.points_panel
 
 
 def test_show_rules_switches_tab_and_stack(main_window):
     dock = DetailDock(main_window)
     dock.show_rules()
-    assert dock.tab_bar.currentIndex() == 6
+    assert dock.tab_bar.currentIndex() == 5
     assert dock.stack.currentWidget() is dock.rules_panel
 
 
 def test_show_cells_switches_tab_and_stack(main_window):
     dock = DetailDock(main_window)
     dock.show_cells()
-    assert dock.tab_bar.currentIndex() == 7
+    assert dock.tab_bar.currentIndex() == 6
     assert dock.stack.currentWidget() is dock.cells_panel
 
 
@@ -158,5 +161,5 @@ def test_title_updates_when_loading_a_different_entity_on_the_same_tab(main_wind
 def test_manual_tab_click_also_updates_the_title(main_window):
     dock = DetailDock(main_window)
     dock.rules_panel.name_edit.setText("my_rule")
-    dock.tab_bar.setCurrentIndex(6)  # Rules
+    dock.tab_bar.setCurrentIndex(5)  # Rules
     assert dock.windowTitle() == "Detail — Rules: my_rule"

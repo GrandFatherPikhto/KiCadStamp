@@ -167,15 +167,13 @@ class ConfigTreeDock(QDockWidget):
     # ThermalViaArrayDock listens via its new_thermal_via() entry point,
     # same reasoning as add_placer_requested above.
     add_thermal_via_requested = pyqtSignal(object)
-    # Fired when the Coordinate placements CATEGORY itself is clicked (not
-    # a leaf — 2026-08-12, CoordinatePlacerDock edits the WHOLE list at
-    # once as a table, unlike thermal_via_arrays/rules/clone_placements'
-    # one-entry-per-leaf editing) — payload is the owning file's path.
-    # Clicking an individual leaf inside the section fires the same
-    # signal (same file, same whole-table load) — there is no per-row
-    # click target, the category IS the entry point. add_coordinate_
-    # placement_requested (context menu) opens the same table for a file
-    # that doesn't have the section yet.
+    # Fired when a Coordinate placement leaf is clicked (2026-08-12, Group 1:
+    # coordinate_placements became a normal named-records section — the same
+    # leaf-per-record shape as clone_placements/rules, one-entry-per-leaf
+    # form editing instead of the old whole-list table) — payload is the full
+    # entry dict (like placement_picked), loaded into the merged PlacerDock's
+    # coordinate mode. add_coordinate_placement_requested (context menu)
+    # opens a blank coordinate form for a file.
     coordinate_placements_picked = pyqtSignal(object)
     add_coordinate_placement_requested = pyqtSignal(object)
     # Fired when a Points leaf is clicked (2026-08-05) — points: is a DICT
@@ -269,14 +267,6 @@ class ConfigTreeDock(QDockWidget):
             if not raw:
                 continue
             section_item = QTreeWidgetItem(file_item, [label])
-            if section == "coordinate_placements":
-                # The category itself is the click target (see
-                # coordinate_placements_picked's own comment) — a "kind"
-                # distinct from "leaf"/"file" so _on_clicked can tell it
-                # apart from a category click on any OTHER section (those
-                # have no UserRole data at all and are inert).
-                section_item.setData(0, Qt.ItemDataRole.UserRole,
-                                     ("category", section, node.path))
             for name, payload in self._entries(raw):
                 leaf = QTreeWidgetItem(section_item, [name])
                 # Always set, not just for _CLICKABLE_SECTIONS — the
@@ -350,15 +340,7 @@ class ConfigTreeDock(QDockWidget):
         if data is None:
             return  # clicked a file/category header with no click target
         if data[0] == "category":
-            _kind, section, file_path = data
-            if section == "coordinate_placements":
-                # Guard against a path-less category node — dock_hub wires this
-                # straight to CoordinatePlacerDock.load_from_file whose first
-                # line is path.exists(); None.exists() would crash the GUI
-                # process inside a Qt slot (2026-08-12, Group 2 fix).
-                if file_path is not None:
-                    self.coordinate_placements_picked.emit(file_path)
-            return
+            return  # clicked a section header with no click target
         if data[0] != "leaf":
             return
         _kind, section, ref = data
@@ -371,14 +353,10 @@ class ConfigTreeDock(QDockWidget):
         elif section == "thermal_via_arrays":
             self.thermal_via_picked.emit(ref)
         elif section == "coordinate_placements":
-            # No per-row form to load — a leaf click means the same thing
-            # as clicking the category itself (see coordinate_placements_
-            # picked's own comment): open the whole table for this file.
-            # Guarded: file_ctx is None when the leaf has no file node — must
-            # not emit None (dock_hub -> load_from_file -> None.exists() would
-            # crash the Qt process, 2026-08-12, Group 2 fix).
-            if file_ctx is not None:
-                self.coordinate_placements_picked.emit(file_ctx[0])
+            # A normal leaf now (2026-08-12, Group 1) — the payload is the
+            # full entry dict, loaded into the merged PlacerDock's coordinate
+            # mode, exactly like clone_placements/placement_picked.
+            self.coordinate_placements_picked.emit(ref)
         elif section == "points":
             self.points_picked.emit(ref)
         elif section == "rules":
@@ -440,7 +418,7 @@ class ConfigTreeDock(QDockWidget):
             lambda: self.add_cell_requested.emit(file_path))
         menu.addAction(_("Add thermal via pad...")).triggered.connect(
             lambda: self.add_thermal_via_requested.emit(file_path))
-        menu.addAction(_("Open coordinate placements...")).triggered.connect(
+        menu.addAction(_("Add coordinate placement...")).triggered.connect(
             lambda: self.add_coordinate_placement_requested.emit(file_path))
         menu.addAction(_("Add placer...")).triggered.connect(
             lambda: self.add_placer_requested.emit(file_path))

@@ -93,11 +93,21 @@ Source: Cell (the role:/cluster: single-component modes were migrated 1:1 to
 CoordinatePlacement's anchor-relative mode on 2026-08-12, Group 0
 consolidation — see CoordinatePlacement's docstring; ClonePlacement is pure
 template cloning again, cell: is mandatory).
+
+Merged with CoordinatePlacerDock 2026-08-12 (Group 1): this is now the ONE
+placement dock. The Source combo offers "Cell" (ClonePlacement, template
+cloning) and "Single component" (CoordinatePlacement, no cell:, matched by
+Cluster+Role) — _on_cell_mode_changed() switches which field set the form
+shows, load_placement()/new_placement()/new_coordinate_placement() pick the
+mode from the entry's cell: presence. coordinate_placements: is a normal
+named-records tree section now (one leaf per entry, like clone_placements),
+and Save/Redraw write/run through the same upsert/ApplyPipeline flow as the
+clone source, matched by effective name.
 """
 import logging
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import yaml
 from kipy.errors import ApiError
@@ -108,7 +118,8 @@ from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox,
                               QTabWidget, QVBoxLayout, QWidget)
 
 from kicadstamp.apply_pipeline import ApplyPipeline
-from kicadstamp.config import Config, RuntimeContext, load_clone_placement, load_config
+from kicadstamp.config import (Config, RuntimeContext, coordinate_placement_effective_name,
+                               load_clone_placement, load_config, load_coordinate_placement)
 from kicadstamp.constants import CLUSTER_FIELD_NAME
 from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.i18n import _
@@ -121,7 +132,8 @@ from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       WARN_STYLE as _WARN_STYLE, configure_searchable, display_path,
-                      set_combo_items, show_message, upsert_clone_placement)
+                      parse_float_field, set_combo_items, set_mode_pair_enabled,
+                      show_message, upsert_clone_placement, upsert_list_entry)
 from .rename import collect_all_point_names
 
 logger = logging.getLogger(__name__)
@@ -226,6 +238,330 @@ class _KeyValueTableEditor(QWidget):
         set_combo_items(self.value_edit, items)
 
 
+class _CoordinatePlacementForm(QWidget):
+    """Single CoordinatePlacement editor — the merged PlacerDock's
+    coordinate mode (2026-08-12, Group 1): replaces the old
+    CoordinatePlacerDock whole-list table with a one-entry-per-leaf form,
+    the same "tree leaf = form" convention every other placement dock
+    follows. Position modes mirror CoordinatePlacement's THREE modes
+    (Cartesian-absolute / polar-around-centre / anchor-relative), reusing
+    the shared set_mode_pair_enabled / parse_float_field helpers and the
+    shared AnchorOriginWidget for the anchor IDENTITY fields (ref/role/
+    sheet/pad/cluster/point). The anchor OFFSET is the form's own
+    Cartesian/Polar-toggled row — the shared widget only builds its
+    offset/polar rows when "xy" is among its modes, which an anchor-only
+    block deliberately isn't.
+
+    build() returns a plain dict (field-level parsing + anchor-block
+    validation only); the dock validates it through load_coordinate_placement()
+    — the same validator the CLI/YAML path uses — exactly like clone mode's
+    _build_entry_dict does for load_clone_placement()."""
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self._known_roles: List[str] = []
+        self._known_clusters: List[str] = []
+
+        form = QFormLayout(self)
+        form.setContentsMargins(0, 0, 0, 0)
+
+        self.cluster_combo = QComboBox()
+        configure_searchable(self.cluster_combo)
+        form.addRow(_("Cluster:"), self.cluster_combo)
+        self.role_combo = QComboBox()
+        configure_searchable(self.role_combo)
+        form.addRow(_("Role:"), self.role_combo)
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText(_("cluster/role"))
+        form.addRow(_("Name:"), self.name_edit)
+
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItems([_("Cartesian"), _("Polar (around centre)"), _("Anchor")])
+        self.mode_combo.currentIndexChanged.connect(self._update_mode)
+        form.addRow(_("Mode:"), self.mode_combo)
+
+        self._cartesian_row = QWidget()
+        cartesian_form = QFormLayout(self._cartesian_row)
+        cartesian_form.setContentsMargins(0, 0, 0, 0)
+        self.x_edit = QLineEdit()
+        self.x_edit.setPlaceholderText(_("X mm"))
+        self.y_edit = QLineEdit()
+        self.y_edit.setPlaceholderText(_("Y mm"))
+        cartesian_form.addRow(_("X mm:"), self.x_edit)
+        cartesian_form.addRow(_("Y mm:"), self.y_edit)
+        form.addRow(self._cartesian_row)
+
+        self._polar_row = QWidget()
+        polar_form = QFormLayout(self._polar_row)
+        polar_form.setContentsMargins(0, 0, 0, 0)
+        self.center_x_edit = QLineEdit()
+        self.center_y_edit = QLineEdit()
+        self.radius_edit = QLineEdit()
+        self.angle_edit = QLineEdit()
+        polar_form.addRow(_("Center X mm:"), self.center_x_edit)
+        polar_form.addRow(_("Center Y mm:"), self.center_y_edit)
+        polar_form.addRow(_("Radius mm:"), self.radius_edit)
+        polar_form.addRow(_("Angle °:"), self.angle_edit)
+        form.addRow(self._polar_row)
+
+        # Anchor-relative block — the shared AnchorOriginWidget provides ONLY
+        # the anchor identity fields (ref/role/sheet/pad/cluster/point); the
+        # OFFSET is the form's own row below (the shared widget builds its
+        # offset/polar rows only when "xy" is among its modes, which an
+        # anchor-only block deliberately isn't).
+        self._anchor_widget = AnchorOriginWidget(
+            modes=["anchor", "point"], anchor_fields=["sheet", "pad", "cluster"],
+            shift=False, polar=False)
+        form.addRow(self._anchor_widget)
+
+        # Anchor OFFSET — Cartesian (X/Y) or polar (Radius/Angle), mutually
+        # exclusive, same set_mode_pair_enabled toggle as every other
+        # position mode here.
+        self._anchor_offset_row = QWidget()
+        offset_form = QFormLayout(self._anchor_offset_row)
+        offset_form.setContentsMargins(0, 0, 0, 0)
+        self._offset_combo = QComboBox()
+        self._offset_combo.addItems([_("Cartesian"), _("Polar")])
+        self._offset_combo.currentIndexChanged.connect(self._update_offset_mode)
+        offset_form.addRow(_("Offset:"), self._offset_combo)
+        xy_row = QHBoxLayout()
+        self._offset_x_edit = QLineEdit()
+        self._offset_x_edit.setPlaceholderText(_("X mm"))
+        self._offset_y_edit = QLineEdit()
+        self._offset_y_edit.setPlaceholderText(_("Y mm"))
+        xy_row.addWidget(QLabel(_("X mm:")))
+        xy_row.addWidget(self._offset_x_edit)
+        xy_row.addWidget(QLabel(_("Y mm:")))
+        xy_row.addWidget(self._offset_y_edit)
+        offset_form.addRow(xy_row)
+        ra_row = QHBoxLayout()
+        self._offset_radius_edit = QLineEdit()
+        self._offset_radius_edit.setPlaceholderText(_("radius mm"))
+        self._offset_angle_edit = QLineEdit()
+        self._offset_angle_edit.setPlaceholderText(_("angle deg"))
+        ra_row.addWidget(QLabel(_("Radius mm:")))
+        ra_row.addWidget(self._offset_radius_edit)
+        ra_row.addWidget(QLabel(_("Angle °:")))
+        ra_row.addWidget(self._offset_angle_edit)
+        offset_form.addRow(ra_row)
+        form.addRow(self._anchor_offset_row)
+        self._update_offset_mode()
+
+        self.rotation_edit = QLineEdit()
+        self.rotation_edit.setPlaceholderText(_("= angle (polar) or 0"))
+        form.addRow(_("Rotation °:"), self.rotation_edit)
+
+        self.retired_checkbox = QCheckBox(_("Retired"))
+        form.addRow(self.retired_checkbox)
+        self.skip_checkbox = QCheckBox(_("Skip"))
+        form.addRow(self.skip_checkbox)
+
+        self._update_mode()
+
+    # ── Mode visibility ──────────────────────────────────────────────────
+
+    def _update_mode(self) -> None:
+        mode = self.mode_combo.currentIndex()
+        self._cartesian_row.setVisible(mode == 0)
+        self._polar_row.setVisible(mode == 1)
+        self._anchor_widget.setVisible(mode == 2)
+        self._anchor_offset_row.setVisible(mode == 2)
+
+    def _update_offset_mode(self) -> None:
+        """Same Cartesian/Polar field-toggle as every other position mode
+        here — X/Y enabled only in Cartesian, Radius/Angle only in Polar
+        (disabled, not hidden, so the row keeps a stable layout)."""
+        set_mode_pair_enabled(
+            self._offset_combo.currentIndex() == 1,
+            (self._offset_x_edit, self._offset_y_edit),
+            (self._offset_radius_edit, self._offset_angle_edit))
+
+    # ── Live-board / project wiring ──────────────────────────────────────
+
+    def set_known_roles(self, roles: Sequence[str], clusters: Sequence[str]) -> None:
+        self._known_roles = list(roles)
+        self._known_clusters = list(clusters)
+        set_combo_items(self.cluster_combo, clusters)
+        set_combo_items(self.role_combo, roles)
+        self._anchor_widget.set_known_roles(roles, clusters)
+
+    def set_point_names(self, names: Sequence[str]) -> None:
+        self._anchor_widget.set_point_names(names)
+
+    # ── Float parsing (same shared helper as every other dock) ───────────
+
+    @staticmethod
+    def _parse_float(edit: QLineEdit, label: str) -> Tuple[Optional[float], Optional[str]]:
+        ok, value = parse_float_field(edit)
+        if not ok:
+            return None, _("{label}: {text!r} is not a number.").format(
+                label=label, text=edit.text().strip())
+        return value, None
+
+    # ── Build: read the form into a CoordinatePlacement-shaped dict ──────
+
+    def build(self) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        """(entry dict, error) — error is None on success. Mode-specific
+        fields are written with their exact YAML key names (x_mm/y_mm/
+        center_x_mm/.../anchor_ref/...), the same keys the table dock's
+        _row_to_entry wrote."""
+        cluster = self.cluster_combo.currentText().strip()
+        role = self.role_combo.currentText().strip()
+        entry: Dict[str, Any] = {"cluster": cluster, "role": role}
+        name = self.name_edit.text().strip()
+        if name:
+            entry["name"] = name
+
+        rotation, err = self._parse_float(self.rotation_edit, _("Rotation"))
+        if err:
+            return None, err
+        if rotation is not None:
+            entry["rotation_deg"] = rotation
+
+        mode = self.mode_combo.currentIndex()
+        if mode == 2:
+            # ANCHOR-RELATIVE: the anchor identity from the shared widget,
+            # plus the offset row (Cartesian x_mm/y_mm or polar radius_mm/
+            # angle_deg) as the OFFSET from the anchor (or its anchor_pad).
+            fields, err = self._anchor_widget.build()
+            if err:
+                return None, err
+            if self._offset_combo.currentIndex() == 1:
+                radius, err = self._parse_float(self._offset_radius_edit, _("Radius"))
+                if err:
+                    return None, err
+                angle, err = self._parse_float(self._offset_angle_edit, _("Angle"))
+                if err:
+                    return None, err
+                if radius is not None or angle is not None:
+                    if radius is None or angle is None:
+                        return None, _("Polar offset needs BOTH Radius and Angle.")
+                    entry["radius_mm"] = radius
+                    entry["angle_deg"] = angle
+            else:
+                x, err = self._parse_float(self._offset_x_edit, _("Offset X"))
+                if err:
+                    return None, err
+                y, err = self._parse_float(self._offset_y_edit, _("Offset Y"))
+                if err:
+                    return None, err
+                if x is not None or y is not None:
+                    entry["x_mm"] = x or 0.0
+                    entry["y_mm"] = y or 0.0
+            if "ref" in fields:
+                entry["anchor_ref"] = fields["ref"]
+            if "role" in fields:
+                entry["anchor_role"] = fields["role"]
+            if "sheet" in fields:
+                entry["anchor_sheet"] = fields["sheet"]
+            if "pad" in fields:
+                entry["anchor_pad"] = fields["pad"]
+            if "cluster" in fields:
+                entry["anchor_cluster"] = fields["cluster"]
+            if "point" in fields:
+                entry["anchor_point"] = fields["point"]
+        elif mode == 1:
+            # POLAR-ABSOLUTE (around a fixed centre).
+            for edit, key, label in (
+                    (self.center_x_edit, "center_x_mm", _("Center X")),
+                    (self.center_y_edit, "center_y_mm", _("Center Y")),
+                    (self.radius_edit, "radius_mm", _("Radius")),
+                    (self.angle_edit, "angle_deg", _("Angle"))):
+                value, err = self._parse_float(edit, label)
+                if err:
+                    return None, err
+                entry[key] = value
+        else:
+            # CARTESIAN-ABSOLUTE.
+            x, err = self._parse_float(self.x_edit, _("X mm"))
+            if err:
+                return None, err
+            y, err = self._parse_float(self.y_edit, _("Y mm"))
+            if err:
+                return None, err
+            entry["x_mm"] = x
+            entry["y_mm"] = y
+
+        if self.retired_checkbox.isChecked():
+            entry["retired"] = True
+        if self.skip_checkbox.isChecked():
+            entry["skip"] = True
+        return entry, None
+
+    # ── Load: reverse of build(), populate the widgets from a saved entry ──
+
+    def load(self, entry: Dict[str, Any]) -> None:
+        self.cluster_combo.setCurrentText(str(entry.get("cluster", "")))
+        self.role_combo.setCurrentText(str(entry.get("role", "")))
+        self.name_edit.setText(str(entry.get("name") or ""))
+        rotation = entry.get("rotation_deg")
+        self.rotation_edit.setText("" if rotation is None else str(rotation))
+        self.retired_checkbox.setChecked(bool(entry.get("retired", False)))
+        self.skip_checkbox.setChecked(bool(entry.get("skip", False)))
+
+        if any(entry.get(k) for k in ("anchor_ref", "anchor_role", "anchor_point")):
+            self.mode_combo.setCurrentIndex(2)
+            # point= is passed explicitly — AnchorOriginWidget.load defaults
+            # it to "" and unconditionally clears the combo, which would wipe
+            # the anchor back out on the next Save (the same data-loss class
+            # of bug as placer.py's own Group 2 fix).
+            self._anchor_widget.load(
+                mode="point" if entry.get("anchor_point") else "anchor",
+                point=str(entry.get("anchor_point") or ""),
+                ref=str(entry.get("anchor_ref") or ""),
+                role=str(entry.get("anchor_role") or ""),
+                sheet=str(entry.get("anchor_sheet") or ""),
+                pad=str(entry.get("anchor_pad") or ""),
+                cluster=str(entry.get("anchor_cluster") or ""))
+            # Offset row: polar (radius/angle) or Cartesian (x/y).
+            if entry.get("radius_mm") is not None:
+                self._offset_combo.setCurrentIndex(1)
+                self._offset_radius_edit.setText(str(entry["radius_mm"]))
+                self._offset_angle_edit.setText(
+                    "" if entry.get("angle_deg") is None else str(entry["angle_deg"]))
+            else:
+                self._offset_combo.setCurrentIndex(0)
+                self._offset_x_edit.setText(
+                    "" if entry.get("x_mm") is None else str(entry["x_mm"]))
+                self._offset_y_edit.setText(
+                    "" if entry.get("y_mm") is None else str(entry["y_mm"]))
+        elif entry.get("center_x_mm") is not None:
+            self.mode_combo.setCurrentIndex(1)
+            for edit, key in ((self.center_x_edit, "center_x_mm"),
+                              (self.center_y_edit, "center_y_mm"),
+                              (self.radius_edit, "radius_mm"),
+                              (self.angle_edit, "angle_deg")):
+                value = entry.get(key)
+                edit.setText("" if value is None else str(value))
+        else:
+            self.mode_combo.setCurrentIndex(0)
+            self.x_edit.setText("" if entry.get("x_mm") is None else str(entry["x_mm"]))
+            self.y_edit.setText("" if entry.get("y_mm") is None else str(entry["y_mm"]))
+        self._update_mode()
+
+    def clear(self) -> None:
+        self.cluster_combo.setCurrentText("")
+        self.role_combo.setCurrentText("")
+        self.name_edit.setText("")
+        self.rotation_edit.setText("")
+        self.x_edit.setText("")
+        self.y_edit.setText("")
+        self.center_x_edit.setText("")
+        self.center_y_edit.setText("")
+        self.radius_edit.setText("")
+        self.angle_edit.setText("")
+        self._offset_combo.setCurrentIndex(0)
+        self._offset_x_edit.setText("")
+        self._offset_y_edit.setText("")
+        self._offset_radius_edit.setText("")
+        self._offset_angle_edit.setText("")
+        self.mode_combo.setCurrentIndex(0)
+        self._anchor_widget.clear()
+        self.retired_checkbox.setChecked(False)
+        self.skip_checkbox.setChecked(False)
+        self._update_mode()
+
+
 class PlacerDock(QWidget):
     """A page inside DetailDock's stack (gui/docks/detail_panel.py) — used
     to be its own QDockWidget, merged 2026-08-03 (see ExtractDock's module
@@ -249,6 +585,12 @@ class PlacerDock(QWidget):
         self._selected_cell: Optional[str] = None
         self._param_edits: Dict[str, QComboBox] = {}
         self._known_nets: List[str] = []
+        # G4.4 cache (2026-08-12, carried over from the merged-in coordinate
+        # dock): last-tick known-value SETS — refresh_known_roles skips the
+        # whole repopulation loop when neither has changed (the ~2s poll tick
+        # almost never sees a change).
+        self._known_roles_cache: set = set()
+        self._known_clusters_cache: set = set()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -265,10 +607,11 @@ class PlacerDock(QWidget):
         source_page_layout = QVBoxLayout(source_page)
         source_form = QFormLayout()
         self.cell_mode_combo = QComboBox()
-        # Single "Cell" item since 2026-08-12 (Group 0 consolidation: the
-        # role:/cluster: modes migrated to coordinate_placements, so this is
-        # the only remaining source).
-        self.cell_mode_combo.addItems([_("Cell")])
+        # Two sources since 2026-08-12 (Group 1 consolidation): "Cell" =
+        # ClonePlacement (template cloning, cell: required), "Single
+        # component" = CoordinatePlacement (no cell:, Cluster+Role match).
+        # _on_cell_mode_changed switches which form field set is shown.
+        self.cell_mode_combo.addItems([_("Cell"), _("Single component")])
         self.cell_mode_combo.currentIndexChanged.connect(self._on_cell_mode_changed)
         source_form.addRow(_("Source:"), self.cell_mode_combo)
         source_page_layout.addLayout(source_form)
@@ -362,6 +705,17 @@ class PlacerDock(QWidget):
         refs_page_layout.addWidget(self.refs_table)
         self._refs_tab_index = self._tabs.addTab(refs_page, _("Refs"))
 
+        # Coordinate mode's form (2026-08-12, Group 1): one tab hosting the
+        # single-entry _CoordinatePlacementForm — shown only when the Source
+        # combo is on "Single component", hidden for Cell/clone mode (see
+        # _on_cell_mode_changed).
+        coordinate_page = QWidget()
+        coordinate_page_layout = QVBoxLayout(coordinate_page)
+        self.coordinate_form = _CoordinatePlacementForm()
+        coordinate_page_layout.addWidget(self.coordinate_form)
+        coordinate_page_layout.addStretch(1)
+        self._coordinate_tab_index = self._tabs.addTab(coordinate_page, _("Coordinate"))
+
         origin_page = QWidget()
         origin_page_layout = QVBoxLayout(origin_page)
         # shift=True here even though ClonePlacement has no separate shift
@@ -397,7 +751,7 @@ class PlacerDock(QWidget):
         self.mirror_checkbox = QCheckBox(_("Mirror"))
         origin_page_layout.addWidget(self.mirror_checkbox)
         origin_page_layout.addStretch(1)
-        self._tabs.addTab(origin_page, _("Origin"))
+        self._origin_tab_index = self._tabs.addTab(origin_page, _("Origin"))
 
         button_row = QHBoxLayout()
         self.redraw_button = QPushButton(_("Redraw"))
@@ -417,19 +771,23 @@ class PlacerDock(QWidget):
     # ── Cell source toggle ──────────────────────────────────────────────
 
     def _on_cell_mode_changed(self) -> None:
-        """Cell-source visibility toggle. Since 2026-08-12 (Group 0
-        consolidation) ClonePlacement is pure template cloning — cell: is
-        mandatory, the role:/cluster: single-component modes migrated 1:1 to
-        CoordinatePlacement's anchor-relative mode — so this combo has a
-        single "Cell" item and the Cell row, name row and the
-        Params/Nets/Overrides/Refs tabs are always visible. Kept as a method
-        because the combo signal and new_placement/load_placement still call
-        it."""
-        self._cell_row.setVisible(True)
-        self._name_row.setVisible(True)
-        self._tabs.setTabVisible(self._nets_tab_index, True)
-        self._tabs.setTabVisible(self._net_overrides_tab_index, True)
-        self._tabs.setTabVisible(self._refs_tab_index, True)
+        """Source-mode toggle (2026-08-12, Group 1): the merged dock edits
+        BOTH ClonePlacement (cell:, template cloning) and CoordinatePlacement
+        (single component, no cell:) — the form's field set adapts to which
+        one the loaded/new entry is. Cell mode shows the clone field set
+        (cell picker + name + Params/Nets/Overrides/Refs/Origin tabs);
+        Single-component mode shows the _CoordinatePlacementForm's
+        Cluster/Role/position block instead. Kept as a method because the
+        combo signal and new_placement/new_coordinate_placement/
+        load_placement still call it."""
+        is_coordinate = self.cell_mode_combo.currentIndex() == 1
+        self._cell_row.setVisible(not is_coordinate)
+        self._name_row.setVisible(not is_coordinate)
+        self._tabs.setTabVisible(self._nets_tab_index, not is_coordinate)
+        self._tabs.setTabVisible(self._net_overrides_tab_index, not is_coordinate)
+        self._tabs.setTabVisible(self._refs_tab_index, not is_coordinate)
+        self._tabs.setTabVisible(self._origin_tab_index, not is_coordinate)
+        self._tabs.setTabVisible(self._coordinate_tab_index, is_coordinate)
 
     # ── Wiring from the Config tree / Components tree ─────────────────────
 
@@ -443,6 +801,15 @@ class PlacerDock(QWidget):
 
     def set_placer_file(self, path: Optional[Path]) -> None:
         self._placer_path = path
+
+    def set_target_file(self, path: Optional[Path]) -> None:
+        """Alias for set_placer_file (2026-08-12, Group 1): after the old
+        CoordinatePlacerDock was merged in, the ONE dock has a single target
+        file — whatever file is currently browsed in the Config tree — used
+        for both clone_placements: and coordinate_placements: writes. Kept as
+        a distinct name so the config-tree file_selected wiring reads the
+        same for both sources."""
+        self.set_placer_file(path)
 
     def set_root_path(self, path: Optional[Path]) -> None:
         """Wired to RootMetadataDock's root_changed — the Point combo is
@@ -458,6 +825,7 @@ class PlacerDock(QWidget):
     def _refresh_point_names(self) -> None:
         names = collect_all_point_names(self._root_path) if self._root_path is not None else []
         self.origin_widget.set_point_names(names)
+        self.coordinate_form.set_point_names(names)
 
     def set_selected_cell(self, name: str) -> None:
         """Shared entry point for picking a Cell — called both by
@@ -474,6 +842,12 @@ class PlacerDock(QWidget):
         matches, so this is a no-op — either way, no double rebuild."""
         if not name:
             return
+        if self.cell_mode_combo.currentIndex() != 0:
+            # Picking a Cell is a clone-placement intent (2026-08-12, Group
+            # 1) — switch the Source combo back to Cell mode so the picked
+            # cell is actually visible in the form.
+            self.cell_mode_combo.setCurrentIndex(0)
+            self._on_cell_mode_changed()
         self._selected_cell = name
         self._refresh_cell_choices()
         self.cell_combo.blockSignals(True)
@@ -503,11 +877,26 @@ class PlacerDock(QWidget):
         list barely changes tick to tick). `snapshot` is the cached
         BoardConnection.snapshot the caller already built — this used to
         call board.select() itself, a second full snapshot build per
-        refresh (1.2 in techdocs/handoff/)."""
-        roles = sorted({s.role for s in snapshot if s.role})
-        clusters = sorted({s.cluster for s in snapshot if s.cluster})
+        refresh (1.2 in techdocs/handoff/).
+
+        G4.4 (2026-08-12): compare the computed known-value SETS against the
+        previous tick and skip the whole repopulation loop when nothing
+        changed — same set-compare guard as extract.py's _rebuild_net_aliases
+        (carried over from the merged-in coordinate dock, which had its own
+        copy of the same guard on its per-row combos)."""
+        roles = {s.role for s in snapshot if s.role}
+        clusters = {s.cluster for s in snapshot if s.cluster}
+        if roles == self._known_roles_cache and clusters == self._known_clusters_cache:
+            return
+        self._known_roles_cache = roles
+        self._known_clusters_cache = clusters
+        roles = sorted(roles)
+        clusters = sorted(clusters)
         set_combo_items(self.cluster_edit, clusters)
         self.origin_widget.set_known_roles(roles, clusters)
+        # Coordinate mode (2026-08-12, Group 1): the form's Cluster/Role and
+        # anchor Role/Cluster combos share the same live-board values.
+        self.coordinate_form.set_known_roles(roles, clusters)
 
     def refresh_known_nets(self, board) -> None:
         """Populates the Params comboboxes (placeholder -> literal net) with
@@ -678,6 +1067,14 @@ class PlacerDock(QWidget):
             return None
 
     def _build_entry_dict(self) -> Optional[Dict[str, Any]]:
+        # Source-mode branch (2026-08-12, Group 1): Single component =
+        # CoordinatePlacement form, Cell = the clone path below.
+        if self.cell_mode_combo.currentIndex() == 1:
+            entry, err = self.coordinate_form.build()
+            if err:
+                self._show_message(err, _ERROR_STYLE)
+                return None
+            return entry
         # cell: is MANDATORY on ClonePlacement since 2026-08-12 (Group 0
         # consolidation — the role:/cluster: single-component modes migrated
         # 1:1 to coordinate_placements' anchor-relative mode), so this is the
@@ -786,6 +1183,10 @@ class PlacerDock(QWidget):
         if self._placer_path is None:
             self._show_message(_("Pick a Placer file in Files first."), _ERROR_STYLE)
             return None
+        # Coordinate mode (2026-08-12, Group 1): the entry has no cell:, place
+        # it through its own coordinate-specific collection path.
+        if self.cell_mode_combo.currentIndex() == 1:
+            return self._collect_coordinate_place_inputs(entry)
         # Role mode needs no cells.yaml at all — ClonePositionCalculator
         # synthesises its one-component Cell on the fly (see
         # _on_cell_mode_changed's docstring), cells: is never read.
@@ -827,6 +1228,48 @@ class PlacerDock(QWidget):
             "name": clone_placement.name,
         }
 
+    def _collect_coordinate_place_inputs(self, entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Coordinate mode's Redraw/Place collection — the same shape as the
+        clone path but for ONE CoordinatePlacement: validate through
+        load_coordinate_placement(), load the real target file, replace-by-
+        name this entry, and let ApplyPipeline place only=[its effective
+        name]. No cluster tagging — the component is already identified by
+        its own Cluster/Role, this type only moves it."""
+        try:
+            cp = load_coordinate_placement(entry)
+        except ValidationError as e:
+            self._show_message(str(e), _ERROR_STYLE)
+            return None
+        name = coordinate_placement_effective_name(cp)
+        if cp.retired or cp.skip:
+            # drop_inactive_items would drop the entry before --only sees it,
+            # so apply_only_filter can't find the name — block the whole
+            # place instead of letting it fail deep in the pipeline.
+            self._show_message(
+                _("{name!r} is retired/skipped — uncheck Retired/Skip to place it.")
+                .format(name=name), _ERROR_STYLE)
+            return None
+
+        try:
+            if self._placer_path.exists():
+                cfg, ctx = load_config(str(self._placer_path))
+            else:
+                cfg, ctx = Config(), RuntimeContext()
+        except (ValidationError, OSError, yaml.YAMLError) as e:
+            self._show_message(_("Failed to load Placer file: {error}").format(error=e), _ERROR_STYLE)
+            return None
+
+        # Replace-by-name: previewing an already-saved entry's edits must
+        # not create a second copy alongside the saved one.
+        cfg.coordinate_placements = [
+            c for c in cfg.coordinate_placements
+            if coordinate_placement_effective_name(c) != name
+        ]
+        cfg.coordinate_placements.append(cp)
+
+        return {"placer_path": self._placer_path, "cfg": cfg, "ctx": ctx,
+                "name": name, "coordinate": True}
+
     def _run_redraw(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Worker thread: ApplyPipeline run + cluster tagging — never touches
         a widget. Returns {"name": ..., "tagged": ...} on success,
@@ -843,6 +1286,11 @@ class PlacerDock(QWidget):
             logger.exception("Placer redraw failed")
             return {"error": _("Placement failed: {error}").format(error=e)}
 
+        if payload.get("coordinate"):
+            # Coordinate mode: nothing to tag — the moved component is
+            # identified by its own Cluster/Role fields, already set.
+            return {"name": payload["name"], "tagged": None}
+
         try:
             tagged = self._tag_cluster(pipeline, payload["cfg"], payload["ctx"], payload["name"])
         except Exception as e:
@@ -858,6 +1306,10 @@ class PlacerDock(QWidget):
             return
         if result.get("warn"):
             self._show_message(result["warn"], _WARN_STYLE)
+            return
+        if result.get("tagged") is None:
+            # Coordinate mode — no cluster tagging happened.
+            self._show_message(_("Placed {name!r}.").format(name=result["name"]), _SUCCESS_STYLE)
             return
         self._show_message(
             _("Placed {name!r} ({count} component(s) tagged Cluster={name!r}).")
@@ -923,6 +1375,9 @@ class PlacerDock(QWidget):
         if self._placer_path is None:
             self._show_message(_("Pick a Placer file in Files first."), _ERROR_STYLE)
             return
+        if self.cell_mode_combo.currentIndex() == 1:
+            self._do_save_coordinate(entry)
+            return
         try:
             load_clone_placement(entry)  # validate before writing anything
         except ValidationError as e:
@@ -939,6 +1394,34 @@ class PlacerDock(QWidget):
             _("{action} {name!r} in {path}").format(
                 action=_("Overwrote") if overwritten else _("Wrote"),
                 name=entry["name"], path=display_path(self._placer_path)),
+            _SUCCESS_STYLE)
+        self.saved.emit()
+
+    def _do_save_coordinate(self, entry: Dict[str, Any]) -> None:
+        """Coordinate mode's save (2026-08-12, Group 1): the same
+        validate-then-upsert flow as the clone path, but into
+        coordinate_placements: matched by EFFECTIVE name — the identity the
+        tree/--only/duplicate-detection all use — so an entry whose default
+        cluster/role name changes on re-save still replaces the same record
+        the leaf click loaded."""
+        try:
+            cp = load_coordinate_placement(entry)  # validate before writing anything
+        except ValidationError as e:
+            self._show_message(str(e), _ERROR_STYLE)
+            return
+        name = coordinate_placement_effective_name(cp)
+        try:
+            overwritten = upsert_list_entry(
+                self._placer_path, "coordinate_placements", entry,
+                key_fn=lambda e: coordinate_placement_effective_name(
+                    load_coordinate_placement(e)))
+        except OSError as e:
+            self._show_message(_("Write failed: {error}").format(error=e), _ERROR_STYLE)
+            return
+        self._show_message(
+            _("{action} {name!r} in {path}").format(
+                action=_("Overwrote") if overwritten else _("Wrote"),
+                name=name, path=display_path(self._placer_path)),
             _SUCCESS_STYLE)
         self.saved.emit()
 
@@ -968,25 +1451,40 @@ class PlacerDock(QWidget):
         self.refs_table.load_dict({})
         self._show_message("")
 
+    def new_coordinate_placement(self, placer_path: Path) -> None:
+        """Resets the form to a blank COORDINATE placement and targets
+        placer_path (2026-08-12, Group 1) — ConfigTreeDock's "Add
+        coordinate placement..." context-menu action opens the coordinate
+        form empty, same validated-Save path as new_placement's clone
+        counterpart (_do_save_coordinate -> load_coordinate_placement)."""
+        self._placer_path = placer_path
+        self.cell_mode_combo.setCurrentIndex(1)  # -> Single component (signal toggles tabs)
+        self._on_cell_mode_changed()
+        self.coordinate_form.clear()
+        self._show_message("")
+
     # ── Loading an already-saved placement back into the form ──────────────
 
     def load_placement(self, entry: Dict[str, Any]) -> None:
-        """Reverse of _build_entry_dict() — called by ConfigTreeDock's Clone
-        placements category (via its placement_picked signal) when the
-        user clicks an already-saved
-        clone_placement in the new "Placements" tab, so it can be edited
-        and Redrawn/re-Saved instead of only ever building placements from
-        scratch (2026-08-02: "таб пласеров... там где дерево компонент и
-        экстракторов")."""
+        """Reverse of _build_entry_dict() — called by ConfigTreeDock when a
+        Clone placement OR Coordinate placement leaf is clicked (2026-08-12,
+        Group 1: both route here, the form adapts to whether the entry has
+        cell:). A clone_placement loads the cell-based field set, a
+        coordinate_placement (no cell:) the _CoordinatePlacementForm."""
         self._show_message("")
+        if "cell" not in entry:
+            # Coordinate placement — single component, no cell:.
+            self.cell_mode_combo.setCurrentIndex(1)  # -> Single component (signal toggles tabs)
+            self._on_cell_mode_changed()
+            self.coordinate_form.load(entry)
+            return
         self.cluster_edit.setCurrentText(str(entry.get("name", "")))
         # cell: is mandatory on ClonePlacement since 2026-08-12 (Group 0
         # consolidation — the role:/cluster: modes migrated to
-        # coordinate_placements' anchor-relative mode), so the Source combo is
-        # always Cell mode.
+        # coordinate_placements' anchor-relative mode), so a cell-bearing
+        # entry is always Cell mode.
         self.cell_mode_combo.setCurrentIndex(0)
-        if "cell" in entry:
-            self.set_selected_cell(entry["cell"])
+        self.set_selected_cell(entry["cell"])
         self._on_cell_mode_changed()  # setCurrentIndex above is a no-op signal-wise when unchanged
 
         xy = entry.get("xy") or [0.0, 0.0]
@@ -1051,3 +1549,13 @@ class PlacerDock(QWidget):
         gui/docks/_common.upsert_clone_placement (kept as a thin wrapper
         because the GUI tests call dock._upsert_clone_placement directly)."""
         return upsert_clone_placement(path, entry)
+
+    @property
+    def current_entity_name(self) -> str:
+        """Best-effort "what's loaded in the form right now", for
+        DetailDock's window title — the clone name in Cell mode, the
+        coordinate effective name in Single-component mode."""
+        if self.cell_mode_combo.currentIndex() == 1:
+            return self.coordinate_form.name_edit.text().strip() \
+                or self.coordinate_form.cluster_combo.currentText().strip()
+        return self.cluster_edit.currentText().strip()
