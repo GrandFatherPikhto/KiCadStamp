@@ -474,7 +474,6 @@ class ExtractDock(QWidget):
         self.extract_button.clicked.connect(self._on_extract)
         layout.addWidget(self.extract_button)
 
-
     def set_board_selection(self, raw_items: List[Any], selected_footprints: List[Selected]) -> None:
         """Called every selection-watch tick — see module docstring for why
         this needs the raw mixed list, not just the Selected-footprint one

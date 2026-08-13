@@ -165,7 +165,6 @@ class ThermalViaArrayDock(QWidget):
         button_row.addWidget(self.save_button)
         layout.addLayout(button_row)
 
-
         layout.addStretch(1)
 
     # ── Wiring from the Config tree ─────────────────────────────────────

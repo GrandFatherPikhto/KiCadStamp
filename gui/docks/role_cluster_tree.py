@@ -192,7 +192,6 @@ class RoleClusterTreeDock(QDockWidget):
         self.tree.clicked.connect(self._on_clicked)
         layout.addWidget(self.tree)
 
-
         self.setWidget(container)
 
     def restore_mode_from_settings(self) -> None:

@@ -277,7 +277,6 @@ class RuleDock(QWidget):
         button_row.addWidget(self.save_button)
         layout.addLayout(button_row)
 
-
         self._refresh_table()
 
     # ── Wiring from the Config tree ─────────────────────────────────────

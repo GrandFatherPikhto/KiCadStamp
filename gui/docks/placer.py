@@ -826,7 +826,6 @@ class PlacerDock(QWidget):
         button_row.addWidget(self.save_button)
         layout.addLayout(button_row)
 
-
         self._on_cell_mode_changed()
 
     # ── Cell source toggle ──────────────────────────────────────────────

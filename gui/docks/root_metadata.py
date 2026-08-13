@@ -297,7 +297,6 @@ class RootMetadataDock(QWidget):
         self.save_button.clicked.connect(self._on_save)
         layout.addWidget(self.save_button)
 
-
         # Working file (2026-08-11) — deliberately separated (own label,
         # own row, below Save) from the Root toolbar above — see module
         # docstring on why these two must stay visually and semantically

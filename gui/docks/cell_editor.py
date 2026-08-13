@@ -209,7 +209,6 @@ class CellDock(QWidget):
         button_row.addWidget(self.save_button)
         layout.addLayout(button_row)
 
-
         self._on_anchor_mode_changed()
         self._refresh_all_tables()
 
