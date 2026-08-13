@@ -473,12 +473,67 @@ def test_cell_source_mode_stays_visible_and_is_the_default(main_window, tmp_path
     assert dock.cell_mode_combo.currentIndex() == 0
     assert visible(dock._cell_row)
     assert visible(dock._name_row)
+    assert not visible(dock._coordinate_identity_row)  # Single-component identity (2026-08-13)
     assert visible(dock._params_container)
     assert dock._tabs.isTabVisible(dock._nets_tab_index)
     assert dock._tabs.isTabVisible(dock._net_overrides_tab_index)
     assert dock._tabs.isTabVisible(dock._refs_tab_index)
     assert dock._tabs.isTabVisible(dock._origin_tab_index)
     assert not dock._tabs.isTabVisible(dock._coordinate_tab_index)
+
+
+def test_single_component_source_mode_shows_the_identity_row_and_coordinate_tab(main_window, tmp_path):
+    """2026-08-13, plan coordinate_identity_on_source_tab (Denis: "Cluster,
+    Role, Name надо на первый таб перенести"): in Single-component mode the
+    Cluster/Role/Name identity fields live on the SOURCE tab
+    (_coordinate_identity_row), the Cell-mode rows are hidden, and the
+    Coordinate tab (positioning only) is shown. Switching back reverses it."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+
+    def visible(w):
+        return w.isVisibleTo(w.parentWidget())
+
+    dock.cell_mode_combo.setCurrentIndex(1)  # Single component
+
+    assert dock.cell_mode_combo.currentIndex() == 1
+    assert not visible(dock._cell_row)
+    assert not visible(dock._name_row)
+    assert visible(dock._coordinate_identity_row)
+    assert dock._tabs.isTabVisible(dock._coordinate_tab_index)
+    assert not dock._tabs.isTabVisible(dock._nets_tab_index)
+    assert not dock._tabs.isTabVisible(dock._origin_tab_index)
+
+    dock.cell_mode_combo.setCurrentIndex(0)  # back to Cell
+    assert visible(dock._cell_row)
+    assert visible(dock._name_row)
+    assert not visible(dock._coordinate_identity_row)
+    assert not dock._tabs.isTabVisible(dock._coordinate_tab_index)
+
+
+def test_single_component_identity_fields_round_trip_after_the_layout_move(main_window, tmp_path):
+    """The Cluster/Role/Name widgets moved to the Source tab, but build()/load()
+    still reach them through coordinate_form.<attr> — a full build->load
+    round-trip through the PlacerDock keeps them (regression for the move)."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock.new_coordinate_placement(dock._placer_path)
+    form = dock.coordinate_form
+    form.cluster_combo.setCurrentText("FPGA_PERIPH")
+    form.role_combo.setCurrentText("R18")
+    form.name_edit.setText("my_cap")
+    form.mode_combo.setCurrentIndex(0)  # Cartesian
+    form.x_edit.setText("10.0")
+    form.y_edit.setText("20.0")
+
+    entry = dock._build_entry_dict()
+
+    assert entry["cluster"] == "FPGA_PERIPH"
+    assert entry["role"] == "R18"
+    assert entry["name"] == "my_cap"
+
+    dock.load_placement(entry)
+    assert form.cluster_combo.currentText() == "FPGA_PERIPH"
+    assert form.role_combo.currentText() == "R18"
+    assert form.name_edit.text() == "my_cap"
 
 
 def test_load_placement_round_trips_absolute_xy(main_window, tmp_path):

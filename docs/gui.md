@@ -280,6 +280,12 @@ the tabs — they act on the whole placement, not one tab.
 - **Cluster** — the placement's name (also what gets clicked from the Components tree, see above).
   Hidden in Cluster *source* mode (see above) — the picked Existing Cluster value is reused as the
   name instead, nothing left to ask for here.
+- **Single component** (Source combo — a `coordinate_placements:` entry, no `cell:`) — its
+  **Cluster**/**Role**/**Name** identity fields live here on the Source tab (since 2026-08-13, Denis:
+  "Cluster, Role, Name надо на первый таб перенести" — they used to be on the Coordinate tab, mixed
+  with the positioning fields, which was confusing to find). The **Coordinate** tab then keeps only
+  "where to put it" (Mode/X Y/Anchor/...). The "Cluster:" label intentionally matches the Cell-mode
+  name row above — a different field, never visible at the same time.
 - **Nets / Net overrides / Refs tabs** — all three tabs are hidden entirely (removed from the tab
   bar via `setTabVisible`, not just their contents blanked) in Role/Cluster mode (a synthetic
   one-component cell has no via/track net fields to template in the first place, and Role/Cluster's

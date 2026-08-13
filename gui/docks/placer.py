@@ -266,15 +266,20 @@ class _CoordinatePlacementForm(QWidget):
         form = QFormLayout(self)
         form.setContentsMargins(0, 0, 0, 0)
 
+        # Cluster/Role/Name identify WHICH record is being edited — they are
+        # no longer laid out here (2026-08-13, plan
+        # coordinate_identity_on_source_tab): PlacerDock places them on the
+        # Source tab, same as the Cell-mode identity fields, so the Coordinate
+        # tab keeps only "where to put it". The widgets are still created as
+        # this form's own attributes — every reader/writer below (build/load/
+        # clear/set_known_roles, and the dock's current_entity_name) reaches
+        # them by attribute, physical layout doesn't matter to them.
         self.cluster_combo = QComboBox()
         configure_searchable(self.cluster_combo)
-        form.addRow(_("Cluster:"), self.cluster_combo)
         self.role_combo = QComboBox()
         configure_searchable(self.role_combo)
-        form.addRow(_("Role:"), self.role_combo)
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText(_("cluster/role"))
-        form.addRow(_("Name:"), self.name_edit)
 
         self.mode_combo = QComboBox()
         self.mode_combo.addItems([_("Cartesian"), _("Polar (around centre)"), _("Anchor")])
@@ -655,6 +660,13 @@ class PlacerDock(QWidget):
         self._tabs = QTabWidget()
         layout.addWidget(self._tabs, 1)
 
+        # Coordinate mode's identity fields (Cluster/Role/Name) are laid out
+        # on the SOURCE tab (see _coordinate_identity_row below), so the form
+        # must exist before the Source page is built — only its positioning
+        # half is added to the Coordinate tab later (2026-08-13, plan
+        # coordinate_identity_on_source_tab).
+        self.coordinate_form = _CoordinatePlacementForm()
+
         source_page = QWidget()
         source_page_layout = QVBoxLayout(source_page)
         source_form = QFormLayout()
@@ -696,6 +708,23 @@ class PlacerDock(QWidget):
         self.cluster_edit.lineEdit().setPlaceholderText(_("Cluster / clone_placement name"))
         form.addRow(_("Cluster:"), self.cluster_edit)
         source_page_layout.addWidget(self._name_row)
+
+        # Single-component (CoordinatePlacement) identity row on the SOURCE
+        # tab (2026-08-13, plan coordinate_identity_on_source_tab, Denis:
+        # "Cluster, Role, Name надо на первый таб перенести" — they used to
+        # live on the Coordinate tab, mixed with the positioning fields,
+        # which was confusing). These are the _CoordinatePlacementForm's own
+        # widgets, just laid out here instead of inside the form — everything
+        # that reads/writes them goes through coordinate_form.<attr> and is
+        # unaffected. The "Cluster:" label intentionally matches _name_row
+        # above (Cell mode) — two different fields, never visible together.
+        self._coordinate_identity_row = QWidget()
+        coordinate_identity_form = QFormLayout(self._coordinate_identity_row)
+        coordinate_identity_form.setContentsMargins(0, 0, 0, 0)
+        coordinate_identity_form.addRow(_("Cluster:"), self.coordinate_form.cluster_combo)
+        coordinate_identity_form.addRow(_("Role:"), self.coordinate_form.role_combo)
+        coordinate_identity_form.addRow(_("Name:"), self.coordinate_form.name_edit)
+        source_page_layout.addWidget(self._coordinate_identity_row)
         source_page_layout.addStretch(1)
         self._tabs.addTab(source_page, _("Source"))
 
@@ -763,7 +792,9 @@ class PlacerDock(QWidget):
         # _on_cell_mode_changed).
         coordinate_page = QWidget()
         coordinate_page_layout = QVBoxLayout(coordinate_page)
-        self.coordinate_form = _CoordinatePlacementForm()
+        # self.coordinate_form was created before the Source tab was built
+        # (its identity fields live there); only its positioning half is
+        # added to this page.
         coordinate_page_layout.addWidget(self.coordinate_form)
         coordinate_page_layout.addStretch(1)
         self._coordinate_tab_index = self._tabs.addTab(coordinate_page, _("Coordinate"))
@@ -874,6 +905,7 @@ class PlacerDock(QWidget):
         is_coordinate = self.is_coordinate
         self._cell_row.setVisible(not is_coordinate)
         self._name_row.setVisible(not is_coordinate)
+        self._coordinate_identity_row.setVisible(is_coordinate)
         self._tabs.setTabVisible(self._nets_tab_index, not is_coordinate)
         self._tabs.setTabVisible(self._net_overrides_tab_index, not is_coordinate)
         self._tabs.setTabVisible(self._refs_tab_index, not is_coordinate)
