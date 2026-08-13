@@ -47,7 +47,7 @@ def test_build_entry_dict_anchor_ref_mode(main_window, tmp_path):
     assert tva.anchor_ref == "U3"
 
 
-def test_anchor_ref_and_role_together_is_blocked(main_window, tmp_path):
+def test_anchor_ref_and_role_together_is_blocked(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     dock.name_edit.setText("X")
     dock.pad_edit.setText("1")
@@ -55,51 +55,51 @@ def test_anchor_ref_and_role_together_is_blocked(main_window, tmp_path):
     dock.anchor_role_edit.setCurrentText("SOME_ROLE")
 
     assert dock._build_entry_dict() is None
-    assert "mutually exclusive" in dock.message_label.text()
+    assert any("mutually exclusive" in r.message for r in caplog.records)
 
 
-def test_neither_ref_nor_role_is_blocked(main_window, tmp_path):
+def test_neither_ref_nor_role_is_blocked(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     dock.name_edit.setText("X")
     dock.pad_edit.setText("1")
 
     assert dock._build_entry_dict() is None
-    assert "Ref or Role" in dock.message_label.text()
+    assert any("Ref or Role" in r.message for r in caplog.records)
 
 
-def test_point_mode_requires_a_name(main_window, tmp_path):
+def test_point_mode_requires_a_name(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     dock.name_edit.setText("X")
     dock.pad_edit.setText("1")
     dock.anchor_mode_combo.setCurrentIndex(1)
 
     assert dock._build_entry_dict() is None
-    assert "name is required" in dock.message_label.text()
+    assert any("name is required" in r.message for r in caplog.records)
 
     dock.point_edit.setCurrentText("origin_point")
     entry = dock._build_entry_dict()
     assert entry["anchor_point"] == "origin_point"
 
 
-def test_name_is_required(main_window, tmp_path):
+def test_name_is_required(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     dock.pad_edit.setText("1")
     dock.anchor_ref_edit.setText("U3")
 
     assert dock._build_entry_dict() is None
-    assert "Name is required" in dock.message_label.text()
+    assert any("Name is required" in r.message for r in caplog.records)
 
 
-def test_pad_is_required(main_window, tmp_path):
+def test_pad_is_required(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     dock.name_edit.setText("X")
     dock.anchor_ref_edit.setText("U3")
 
     assert dock._build_entry_dict() is None
-    assert "Pad is required" in dock.message_label.text()
+    assert any("Pad is required" in r.message for r in caplog.records)
 
 
-def test_geometry_field_rejects_non_numeric_input(main_window, tmp_path):
+def test_geometry_field_rejects_non_numeric_input(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     dock.name_edit.setText("X")
     dock.pad_edit.setText("1")
@@ -107,10 +107,10 @@ def test_geometry_field_rejects_non_numeric_input(main_window, tmp_path):
     dock.margin_edit.setText("not-a-number")
 
     assert dock._build_entry_dict() is None
-    assert "not a number" in dock.message_label.text()
+    assert any("not a number" in r.message for r in caplog.records)
 
 
-def test_save_upserts_by_name_without_duplicating(main_window, tmp_path):
+def test_save_upserts_by_name_without_duplicating(main_window, tmp_path, caplog):
     dock, target_file = _make_dock(main_window, tmp_path)
     dock.name_edit.setText("fpga_thermal")
     dock.pad_edit.setText("1")
@@ -119,12 +119,12 @@ def test_save_upserts_by_name_without_duplicating(main_window, tmp_path):
     dock._on_save()
     saved = yaml.safe_load(target_file.read_text())
     assert len(saved["thermal_via_arrays"]) == 1
-    assert "Wrote" in dock.message_label.text()
+    assert any("Wrote" in r.message for r in caplog.records)
 
     dock._on_save()  # same name again -> overwrite, not duplicate
     saved2 = yaml.safe_load(target_file.read_text())
     assert len(saved2["thermal_via_arrays"]) == 1
-    assert "Overwrote" in dock.message_label.text()
+    assert any("Overwrote" in r.message for r in caplog.records)
 
 
 def test_save_preserves_other_keys_in_the_file(main_window, tmp_path):
@@ -239,7 +239,7 @@ def test_refresh_known_nets_populates_net_combo(main_window, tmp_path):
     assert items == ["+3V3", "GND"]
 
 
-def test_redraw_preserves_other_entries_for_registry_safety(main_window, tmp_path, monkeypatch):
+def test_redraw_preserves_other_entries_for_registry_safety(main_window, tmp_path, monkeypatch, caplog):
     """The single most important correctness property here — same as
     PlacerDock's own test of this shape: Redraw must load the REAL config
     (with every other already-saved thermal_via_arrays entry intact) and
@@ -275,7 +275,7 @@ def test_redraw_preserves_other_entries_for_registry_safety(main_window, tmp_pat
     names = [t.name for t in used_cfg.thermal_via_arrays]
     assert "OTHER_TVA" in names  # not dropped -> registry-protected
     assert names.count("fpga_thermal") == 1  # replaced, not duplicated
-    assert "Placed" in dock.message_label.text()
+    assert any("Placed" in r.message for r in caplog.records)
 
 
 def test_on_redraw_dispatches_to_worker(main_window, tmp_path, monkeypatch):

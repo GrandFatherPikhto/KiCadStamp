@@ -82,6 +82,16 @@ def isolated_settings(tmp_path, monkeypatch):
                         tmp_path / "fieldstool_gui_state.json")
 
 
+@pytest.fixture(autouse=True)
+def _capture_dock_logs(caplog):
+    """Dock status messages live ONLY in the Log dock since 2026-08-13 (the
+    inline message_label was removed from every dock), so dock tests assert on
+    caplog instead of the old dock.message_label.text(). Captured at INFO by
+    default — success/warning messages (the common case) sit below caplog's
+    WARNING default and would otherwise be silently missed."""
+    caplog.set_level(logging.INFO)
+
+
 class _FakeConnection:
     def __init__(self):
         self.board = None

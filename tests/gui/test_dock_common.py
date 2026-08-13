@@ -346,33 +346,19 @@ def test_configure_searchable_does_not_silently_rewrite_a_differently_cased_valu
     assert combo.currentText() == "C_Out_Bulk"
 
 
-def test_show_message_sets_label_and_logs_by_style(qapp, caplog):
-    from PyQt6.QtWidgets import QLabel
-    label = QLabel()
+def test_show_message_logs_by_style(caplog):
+    """show_message() no longer touches any label (2026-08-13 — the inline
+    message_label was removed from every dock, see
+    plan_2026_08_13_remove_dock_message_label.md); it only routes the message
+    to the Log dock at the level matching `style`."""
     dock_logger = logging.getLogger("gui.docks.test_dock_common")
     with caplog.at_level(logging.DEBUG, logger="gui.docks.test_dock_common"):
-        show_message(label, "boom", ERROR_STYLE, dock_logger)
-        assert label.text() == "boom"
-        assert label.styleSheet() == ERROR_STYLE
+        show_message("boom", ERROR_STYLE, dock_logger)
         assert caplog.records[-1].levelname == "ERROR"
-        show_message(label, "careful", WARN_STYLE, dock_logger)
+        show_message("careful", WARN_STYLE, dock_logger)
         assert caplog.records[-1].levelname == "WARNING"
-        show_message(label, "done", SUCCESS_STYLE, dock_logger)
+        show_message("done", SUCCESS_STYLE, dock_logger)
         assert caplog.records[-1].levelname == "INFO"
-        show_message(label, "", "", dock_logger)  # clears the label, no log record
-        assert label.text() == ""
-
-
-def test_show_message_truncates_a_multiline_block_to_its_first_line(qapp, caplog):
-    from PyQt6.QtWidgets import QLabel
-    label = QLabel()
-    dock_logger = logging.getLogger("gui.docks.test_dock_common")
-    block = "\n" + "=" * 70 + "\n  FATAL ERROR: net mismatch\n" + "=" * 70 + "\n"
-    with caplog.at_level(logging.DEBUG, logger="gui.docks.test_dock_common"):
-        show_message(label, block, ERROR_STYLE, dock_logger)
-        # Label shows only the first non-blank line, with a pointer to the
-        # Log dock — not the whole "=" * 70-bordered box (2026-08-04: that
-        # was blowing the dock tall enough to not fit on screen).
-        assert label.text() == "FATAL ERROR: net mismatch (see Log for details)"
-        assert label.toolTip() == block  # full text still one hover away
-        assert caplog.records[-1].message == block  # Log dock still gets it in full
+        before = len(caplog.records)
+        show_message("", "", dock_logger)  # empty text -> no log record
+        assert len(caplog.records) == before

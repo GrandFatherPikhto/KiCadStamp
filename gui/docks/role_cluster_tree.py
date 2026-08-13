@@ -59,7 +59,7 @@ from typing import Any, Callable, Dict, List, Optional
 from PyQt6.QtCore import QItemSelectionModel, Qt, pyqtSignal
 from PyQt6.QtGui import QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDockWidget, QHBoxLayout,
-                              QLabel, QLineEdit, QMessageBox, QPushButton,
+                              QLineEdit, QMessageBox, QPushButton,
                               QTreeView, QVBoxLayout, QWidget)
 
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
@@ -192,9 +192,6 @@ class RoleClusterTreeDock(QDockWidget):
         self.tree.clicked.connect(self._on_clicked)
         layout.addWidget(self.tree)
 
-        self.message_label = QLabel("")
-        self.message_label.setWordWrap(True)
-        layout.addWidget(self.message_label)
 
         self.setWidget(container)
 
@@ -536,7 +533,10 @@ class RoleClusterTreeDock(QDockWidget):
     # ── Delete selected / Clear all (2026-08-03, live mode only) ─────────
 
     def _show_message(self, text: str, style: str = "") -> None:
-        show_message(self.message_label, text, style, logger)
+        """Mirror into the Log dock at the level matching `style` — the docks
+        no longer have an inline message_label (2026-08-13), the Log dock is
+        the single destination."""
+        show_message(text, style, logger)
 
     def _selected_tree_refs(self) -> List[str]:
         """Every refdes reachable from the tree's CURRENT selection — a

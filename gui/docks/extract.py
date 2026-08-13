@@ -474,9 +474,6 @@ class ExtractDock(QWidget):
         self.extract_button.clicked.connect(self._on_extract)
         layout.addWidget(self.extract_button)
 
-        self.message_label = QLabel("")
-        self.message_label.setWordWrap(True)
-        layout.addWidget(self.message_label)
 
     def set_board_selection(self, raw_items: List[Any], selected_footprints: List[Selected]) -> None:
         """Called every selection-watch tick — see module docstring for why
@@ -1197,12 +1194,10 @@ class ExtractDock(QWidget):
         self.extract_button.setEnabled(bool(raw_items) and self._target_path is not None)
 
     def _show_message(self, text: str, style: str = "") -> None:
-        """Sets the inline status label AND mirrors it into the Log dock
-        (see gui/docks/log_panel.py) at the matching level, so error/
-        warning messages survive after the label itself gets overwritten
-        by the next action — requested live 2026-08-01 ("для списка
-        ошибок сделать внизу отдельное окошко")."""
-        show_message(self.message_label, text, style, logger)
+        """Mirror into the Log dock at the level matching `style` — the docks
+        no longer have an inline message_label (2026-08-13), the Log dock is
+        the single destination."""
+        show_message(text, style, logger)
 
     def _on_extract(self) -> None:
         """Extract button handler — form collection (validation + widget

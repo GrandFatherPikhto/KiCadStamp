@@ -47,14 +47,14 @@ def test_build_entry_xy_mode(main_window, tmp_path):
     assert entry == {"xy": [10.5, -2.0]}
 
 
-def test_xy_mode_requires_both_x_and_y(main_window, tmp_path):
+def test_xy_mode_requires_both_x_and_y(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     dock.name_edit.setText("origin")
     dock.origin_mode_combo.setCurrentIndex(0)
     dock.x_edit.setText("10.5")
 
     assert dock._build_entry() is None
-    assert "Y is required" in dock.message_label.text()
+    assert any("Y is required" in r.message for r in caplog.records)
 
 
 def test_build_entry_anchor_mode_with_sheet_pad_cluster(main_window, tmp_path):
@@ -78,7 +78,7 @@ def test_build_entry_anchor_mode_with_sheet_pad_cluster(main_window, tmp_path):
     }
 
 
-def test_anchor_ref_and_role_together_is_blocked(main_window, tmp_path):
+def test_anchor_ref_and_role_together_is_blocked(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     dock.name_edit.setText("p1")
     dock.origin_mode_combo.setCurrentIndex(1)
@@ -86,7 +86,7 @@ def test_anchor_ref_and_role_together_is_blocked(main_window, tmp_path):
     dock.anchor_role_edit.setCurrentText("FPGA")
 
     assert dock._build_entry() is None
-    assert "mutually exclusive" in dock.message_label.text()
+    assert any("mutually exclusive" in r.message for r in caplog.records)
 
 
 def test_sheet_without_role_is_rejected_by_the_backend_validator(main_window, tmp_path):
@@ -99,13 +99,13 @@ def test_sheet_without_role_is_rejected_by_the_backend_validator(main_window, tm
         load_point("p1", {"anchor_ref": "U3", "anchor_sheet": "Channel_1"})
 
 
-def test_point_mode_requires_a_name(main_window, tmp_path):
+def test_point_mode_requires_a_name(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     dock.name_edit.setText("child")
     dock.origin_mode_combo.setCurrentIndex(2)
 
     assert dock._build_entry() is None
-    assert "Point: name is required" in dock.message_label.text()
+    assert any("Point: name is required" in r.message for r in caplog.records)
 
 
 def test_build_entry_board_origin_mode(main_window, tmp_path):
@@ -128,14 +128,14 @@ def test_board_origin_mode_defaults_to_drill(main_window, tmp_path):
     assert entry == {"anchor_origin": "drill"}
 
 
-def test_name_is_required(main_window, tmp_path):
+def test_name_is_required(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     dock.origin_mode_combo.setCurrentIndex(0)
     dock.x_edit.setText("1")
     dock.y_edit.setText("2")
 
     assert dock._build_entry() is None
-    assert "Name is required" in dock.message_label.text()
+    assert any("Name is required" in r.message for r in caplog.records)
 
 
 # ── Origin mode row visibility ───────────────────────────────────────────
@@ -172,7 +172,7 @@ def test_origin_mode_toggles_row_visibility(main_window, tmp_path):
 
 # ── Save ──────────────────────────────────────────────────────────────────
 
-def test_save_writes_dict_section_and_preserves_other_keys(main_window, tmp_path):
+def test_save_writes_dict_section_and_preserves_other_keys(main_window, tmp_path, caplog):
     dock, target = _make_dock(main_window, tmp_path, {"cells": {"c1": {"components": []}}})
     dock.name_edit.setText("origin")
     dock.origin_mode_combo.setCurrentIndex(0)
@@ -184,10 +184,10 @@ def test_save_writes_dict_section_and_preserves_other_keys(main_window, tmp_path
     data = _read_yaml(target)
     assert data["points"] == {"origin": {"xy": [1.0, 2.0]}}
     assert data["cells"] == {"c1": {"components": []}}
-    assert "Wrote" in dock.message_label.text()
+    assert any("Wrote" in r.message for r in caplog.records)
 
 
-def test_save_overwrites_an_existing_point_by_name(main_window, tmp_path):
+def test_save_overwrites_an_existing_point_by_name(main_window, tmp_path, caplog):
     dock, target = _make_dock(main_window, tmp_path, {"points": {"origin": {"xy": [0, 0]}}})
     dock.name_edit.setText("origin")
     dock.origin_mode_combo.setCurrentIndex(0)
@@ -197,10 +197,10 @@ def test_save_overwrites_an_existing_point_by_name(main_window, tmp_path):
     dock._on_save()
 
     assert _read_yaml(target)["points"] == {"origin": {"xy": [5.0, 6.0]}}
-    assert "Overwrote" in dock.message_label.text()
+    assert any("Overwrote" in r.message for r in caplog.records)
 
 
-def test_save_without_a_file_picked_shows_error(main_window):
+def test_save_without_a_file_picked_shows_error(main_window, caplog):
     dock = PointsDock(main_window)
     dock.name_edit.setText("origin")
     dock.origin_mode_combo.setCurrentIndex(0)
@@ -208,7 +208,7 @@ def test_save_without_a_file_picked_shows_error(main_window):
     dock.y_edit.setText("2.0")
 
     dock._on_save()
-    assert "Pick a file" in dock.message_label.text()
+    assert any("Pick a file" in r.message for r in caplog.records)
 
 
 def test_save_refreshes_point_name_autocomplete(main_window, tmp_path):
@@ -329,7 +329,7 @@ def _connect_board(dock):
     return adapter
 
 
-def test_resolve_without_connection_shows_error(main_window, tmp_path):
+def test_resolve_without_connection_shows_error(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     dock.name_edit.setText("origin")
     dock.origin_mode_combo.setCurrentIndex(0)
@@ -338,10 +338,10 @@ def test_resolve_without_connection_shows_error(main_window, tmp_path):
 
     dock._do_resolve()
 
-    assert "Not connected" in dock.message_label.text()
+    assert any("Not connected" in r.message for r in caplog.records)
 
 
-def test_resolve_with_invalid_form_does_not_touch_the_resolver(main_window, tmp_path, monkeypatch):
+def test_resolve_with_invalid_form_does_not_touch_the_resolver(main_window, tmp_path, monkeypatch, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     _connect_board(dock)
     called = []
@@ -353,10 +353,10 @@ def test_resolve_with_invalid_form_does_not_touch_the_resolver(main_window, tmp_
     dock._do_resolve()
 
     assert called == []
-    assert "Name is required" in dock.message_label.text()
+    assert any("Name is required" in r.message for r in caplog.records)
 
 
-def test_resolve_shows_position_and_selects_the_footprint(main_window, tmp_path, monkeypatch):
+def test_resolve_shows_position_and_selects_the_footprint(main_window, tmp_path, monkeypatch, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     adapter = _connect_board(dock)
     fp = object()
@@ -376,7 +376,7 @@ def test_resolve_shows_position_and_selects_the_footprint(main_window, tmp_path,
 
     dock._do_resolve()
 
-    assert "X=1.000mm Y=2.000mm" in dock.message_label.text()
+    assert any("X=1.000mm Y=2.000mm" in r.message for r in caplog.records)
     assert captured["name"] == "p1"
     assert isinstance(captured["points"]["p1"], Point)
     # select_items is called inside _run_resolve itself (worker thread),
@@ -385,7 +385,7 @@ def test_resolve_shows_position_and_selects_the_footprint(main_window, tmp_path,
     assert adapter.selected == [fp]
 
 
-def test_resolve_shows_no_footprint_suffix_when_shift_applied(main_window, tmp_path, monkeypatch):
+def test_resolve_shows_no_footprint_suffix_when_shift_applied(main_window, tmp_path, monkeypatch, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     _connect_board(dock)
     resolved = SimpleNamespace(position=SimpleNamespace(x=0, y=0), footprint=None)
@@ -397,10 +397,10 @@ def test_resolve_shows_no_footprint_suffix_when_shift_applied(main_window, tmp_p
 
     dock._do_resolve()
 
-    assert "no footprint to highlight" in dock.message_label.text()
+    assert any("no footprint to highlight" in r.message for r in caplog.records)
 
 
-def test_resolve_failure_shows_message(main_window, tmp_path, monkeypatch):
+def test_resolve_failure_shows_message(main_window, tmp_path, monkeypatch, caplog):
     from kicadstamp.exceptions import ValidationError
 
     def raise_it(*a, **k):
@@ -415,7 +415,7 @@ def test_resolve_failure_shows_message(main_window, tmp_path, monkeypatch):
 
     dock._do_resolve()
 
-    assert "Resolve failed" in dock.message_label.text()
+    assert any("Resolve failed" in r.message for r in caplog.records)
 
 
 def test_resolve_excludes_an_unrelated_broken_other_point(main_window, tmp_path, monkeypatch):

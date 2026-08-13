@@ -64,7 +64,7 @@ from kicadstamp.i18n import _
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
-                      WARN_STYLE as _WARN_STYLE, configure_searchable, display_path,
+                      configure_searchable, display_path,
                       set_combo_items, show_message, upsert_list_entry)
 from .rename import collect_all_point_names
 
@@ -165,9 +165,6 @@ class ThermalViaArrayDock(QWidget):
         button_row.addWidget(self.save_button)
         layout.addLayout(button_row)
 
-        self.message_label = QLabel("")
-        self.message_label.setWordWrap(True)
-        layout.addWidget(self.message_label)
 
         layout.addStretch(1)
 
@@ -206,7 +203,10 @@ class ThermalViaArrayDock(QWidget):
     # ── Message helper ────────────────────────────────────────────────────
 
     def _show_message(self, text: str, style: str = "") -> None:
-        show_message(self.message_label, text, style, logger)
+        """Mirror into the Log dock at the level matching `style` — the docks
+        no longer have an inline message_label (2026-08-13), the Log dock is
+        the single destination."""
+        show_message(text, style, logger)
 
     # ── Building the thermal_via_arrays entry dict (shared by Redraw/Save) ──
 

@@ -57,16 +57,16 @@ def test_build_rule_dict_point_mode(main_window, tmp_path):
     assert entry == {"net": "+3V3", "spokes": [], "anchor_point": "fpga_center"}
 
 
-def test_net_is_required(main_window, tmp_path):
+def test_net_is_required(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     dock.origin_mode_combo.setCurrentIndex(1)
     dock.point_edit.setCurrentText("p1")
 
     assert dock._build_rule_dict() is None
-    assert "Net is required" in dock.message_label.text()
+    assert any("Net is required" in r.message for r in caplog.records)
 
 
-def test_anchor_ref_and_role_together_is_blocked(main_window, tmp_path):
+def test_anchor_ref_and_role_together_is_blocked(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     dock.net_edit.setCurrentText("+3V3")
     dock.origin_mode_combo.setCurrentIndex(0)
@@ -74,7 +74,7 @@ def test_anchor_ref_and_role_together_is_blocked(main_window, tmp_path):
     dock.anchor_role_edit.setCurrentText("FPGA")
 
     assert dock._build_rule_dict() is None
-    assert "mutually exclusive" in dock.message_label.text()
+    assert any("mutually exclusive" in r.message for r in caplog.records)
 
 
 def test_origin_mode_toggles_row_visibility(main_window, tmp_path):
@@ -116,20 +116,20 @@ def test_add_spoke_appends_and_selects_the_new_row(main_window, tmp_path):
     assert dock.spokes_table.item(0, 1).text() == "cap_pair"
 
 
-def test_spoke_pad_is_required(main_window, tmp_path):
+def test_spoke_pad_is_required(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     dock.spoke_cell_combo.setCurrentText("cap_pair")
 
     assert dock._build_spoke_dict() is None
-    assert "Pad is required" in dock.message_label.text()
+    assert any("Pad is required" in r.message for r in caplog.records)
 
 
-def test_spoke_cell_is_required(main_window, tmp_path):
+def test_spoke_cell_is_required(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     dock.spoke_pad_edit.setText("17")
 
     assert dock._build_spoke_dict() is None
-    assert "Cell is required" in dock.message_label.text()
+    assert any("Cell is required" in r.message for r in caplog.records)
 
 
 def test_selecting_a_row_loads_it_into_the_editor(main_window, tmp_path):
@@ -162,7 +162,7 @@ def test_update_selected_spoke_replaces_in_place(main_window, tmp_path):
     assert dock.spokes_table.item(0, 0).text() == "26"
 
 
-def test_update_without_a_selection_shows_error(main_window, tmp_path):
+def test_update_without_a_selection_shows_error(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     dock.spoke_pad_edit.setText("17")
     dock.spoke_cell_combo.setCurrentText("cap_pair")
@@ -170,7 +170,7 @@ def test_update_without_a_selection_shows_error(main_window, tmp_path):
     dock._on_update_spoke()
 
     assert dock._spokes == []
-    assert "Pick a spoke row first" in dock.message_label.text()
+    assert any("Pick a spoke row first" in r.message for r in caplog.records)
 
 
 def test_remove_selected_spoke(main_window, tmp_path):
@@ -238,7 +238,7 @@ def test_add_polar_spoke_writes_radius_and_angle(main_window, tmp_path):
     assert dock.spokes_table.item(0, 6).text() == "37.0"
 
 
-def test_polar_mode_requires_both_radius_and_angle(main_window, tmp_path):
+def test_polar_mode_requires_both_radius_and_angle(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     dock.spoke_pad_edit.setText("17")
     dock.spoke_cell_combo.setCurrentText("cap_pair")
@@ -246,7 +246,7 @@ def test_polar_mode_requires_both_radius_and_angle(main_window, tmp_path):
     dock.spoke_radius_edit.setText("5.0")
 
     assert dock._build_spoke_dict() is None
-    assert "both Radius and Angle" in dock.message_label.text()
+    assert any("both Radius and Angle" in r.message for r in caplog.records)
 
 
 def test_selecting_a_polar_row_loads_mode_into_editor(main_window, tmp_path):
@@ -287,7 +287,7 @@ def test_polar_zero_values_render_and_round_trip(main_window, tmp_path):
     assert rebuilt["angle_deg"] == 0.0
 
 
-def test_invalid_angle_error_is_not_clobbered_by_needs_both(main_window, tmp_path):
+def test_invalid_angle_error_is_not_clobbered_by_needs_both(main_window, tmp_path, caplog):
     """2026-08-12, Group 2 fix: when Radius is empty AND Angle is unparsable
     (e.g. "12,5"), the overloaded-None parse used to overwrite Angle's exact
     "not a number" error with the generic "Polar mode needs both Radius and
@@ -302,8 +302,8 @@ def test_invalid_angle_error_is_not_clobbered_by_needs_both(main_window, tmp_pat
     entry = dock._build_spoke_dict()
 
     assert entry is None
-    assert "not a number" in dock.message_label.text()
-    assert "needs both" not in dock.message_label.text()
+    assert any("not a number" in r.message for r in caplog.records)
+    assert not any("needs both" in r.message for r in caplog.records)
 
 
 def test_mode_toggle_enables_only_the_active_fields(main_window, tmp_path):
@@ -323,7 +323,7 @@ def test_mode_toggle_enables_only_the_active_fields(main_window, tmp_path):
 
 # ── Save ──────────────────────────────────────────────────────────────────
 
-def test_save_writes_list_section_and_preserves_other_keys(main_window, tmp_path):
+def test_save_writes_list_section_and_preserves_other_keys(main_window, tmp_path, caplog):
     dock, target = _make_dock(main_window, tmp_path, {"cells": {"c1": {"components": []}}})
     dock.net_edit.setCurrentText("+3V3")
     dock.origin_mode_combo.setCurrentIndex(0)
@@ -339,10 +339,10 @@ def test_save_writes_list_section_and_preserves_other_keys(main_window, tmp_path
         "net": "+3V3", "anchor_role": "FPGA", "spokes": [{"pad": "17", "cell": "cap_pair"}],
     }]
     assert data["cells"] == {"c1": {"components": []}}
-    assert "Wrote" in dock.message_label.text()
+    assert any("Wrote" in r.message for r in caplog.records)
 
 
-def test_save_overwrites_by_name_or_net(main_window, tmp_path):
+def test_save_overwrites_by_name_or_net(main_window, tmp_path, caplog):
     dock, target = _make_dock(main_window, tmp_path, {"rules": [
         {"net": "+3V3", "anchor_role": "FPGA_OLD", "spokes": []},
     ]})
@@ -355,10 +355,10 @@ def test_save_overwrites_by_name_or_net(main_window, tmp_path):
     data = _read_yaml(target)
     assert len(data["rules"]) == 1
     assert data["rules"][0]["anchor_role"] == "FPGA_NEW"
-    assert "Overwrote" in dock.message_label.text()
+    assert any("Overwrote" in r.message for r in caplog.records)
 
 
-def test_save_rejects_a_rule_without_any_anchor(main_window, tmp_path):
+def test_save_rejects_a_rule_without_any_anchor(main_window, tmp_path, caplog):
     dock, target = _make_dock(main_window, tmp_path)
     dock.net_edit.setCurrentText("+3V3")
     # No anchor set on either mode's fields — _build_rule_dict() itself
@@ -367,17 +367,17 @@ def test_save_rejects_a_rule_without_any_anchor(main_window, tmp_path):
     dock._on_save()
 
     assert _read_yaml(target) == {"rules": []}
-    assert "Anchor: set Ref or Role" in dock.message_label.text()
+    assert any("Anchor: set Ref or Role" in r.message for r in caplog.records)
 
 
-def test_save_without_a_file_picked_shows_error(main_window):
+def test_save_without_a_file_picked_shows_error(main_window, caplog):
     dock = RuleDock(main_window)
     dock.net_edit.setCurrentText("+3V3")
     dock.origin_mode_combo.setCurrentIndex(0)
     dock.anchor_role_edit.setCurrentText("FPGA")
 
     dock._on_save()
-    assert "Pick a file" in dock.message_label.text()
+    assert any("Pick a file" in r.message for r in caplog.records)
 
 
 # ── new_rule / load_entry ─────────────────────────────────────────────────
@@ -481,7 +481,7 @@ def test_refresh_known_nets_populates_net_combo(main_window, tmp_path):
 
 # ── Redraw ────────────────────────────────────────────────────────────────
 
-def test_redraw_rule_preserves_other_entries_for_registry_safety(main_window, tmp_path, monkeypatch):
+def test_redraw_rule_preserves_other_entries_for_registry_safety(main_window, tmp_path, monkeypatch, caplog):
     """Same correctness property as ThermalViaArrayDock's own equivalent
     test — Redraw must load the REAL config (with every other already-saved
     rule intact) and only narrow EXECUTION via only=, never build a config
@@ -523,10 +523,10 @@ def test_redraw_rule_preserves_other_entries_for_registry_safety(main_window, tm
     assert nets.count("+3V3") == 1  # replaced, not duplicated
     target_rule = next(r for r in used_cfg.rules if r.net == "+3V3")
     assert all(not s.skip for s in target_rule.spokes)  # whole-rule Redraw: nothing forced skip
-    assert "Placed" in dock.message_label.text()
+    assert any("Placed" in r.message for r in caplog.records)
 
 
-def test_redraw_rule_resolves_cells_via_project_root_not_rule_file(main_window, tmp_path, monkeypatch):
+def test_redraw_rule_resolves_cells_via_project_root_not_rule_file(main_window, tmp_path, monkeypatch, caplog):
     """Regression (found live 2026-08-06): a spoke's cell definition
     routinely lives in a different included file than the rule referencing
     it (module docstring) — the rule file (self._path) itself carries no
@@ -567,7 +567,7 @@ def test_redraw_rule_resolves_cells_via_project_root_not_rule_file(main_window, 
 
     assert pipeline_calls[-1]["config_path"] == str(root_file)
     assert "cap_pair" in pipeline_calls[-1]["cfg"].cells
-    assert "Placed" in dock.message_label.text()
+    assert any("Placed" in r.message for r in caplog.records)
 
 
 def test_redraw_spoke_isolates_only_the_selected_spoke(main_window, tmp_path, monkeypatch):
@@ -612,7 +612,7 @@ def test_redraw_spoke_isolates_only_the_selected_spoke(main_window, tmp_path, mo
     assert dock._spokes == [{"pad": "17", "cell": "cap_pair"}, {"pad": "26", "cell": "cap_pair"}]
 
 
-def test_redraw_spoke_without_a_selection_shows_error(main_window, tmp_path):
+def test_redraw_spoke_without_a_selection_shows_error(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     dock.net_edit.setCurrentText("+3V3")
     dock.origin_mode_combo.setCurrentIndex(0)
@@ -620,7 +620,7 @@ def test_redraw_spoke_without_a_selection_shows_error(main_window, tmp_path):
 
     dock._on_redraw_spoke()
 
-    assert "Pick a spoke row first" in dock.message_label.text()
+    assert any("Pick a spoke row first" in r.message for r in caplog.records)
 
 
 def test_on_redraw_rule_dispatches_to_worker(main_window, tmp_path, monkeypatch):

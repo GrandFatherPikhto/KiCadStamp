@@ -334,7 +334,7 @@ def test_refresh_schematic_view_noop_in_live_mode_rebuilds_in_schematic_mode(rea
 
 # ── Delete selected / Clear all (2026-08-03) ─────────────────────────────
 
-def test_delete_selected_clears_role_and_cluster_on_selected_leaf(main_window, monkeypatch):
+def test_delete_selected_clears_role_and_cluster_on_selected_leaf(main_window, monkeypatch, caplog):
     monkeypatch.setattr(role_cluster_tree_mod, "start_long_op", _run_sync)
     board = FakeBoard()
     main_window.connection.board = board
@@ -349,7 +349,7 @@ def test_delete_selected_clears_role_and_cluster_on_selected_leaf(main_window, m
     assert len(board.adapter.calls) == 1
     updates, _description = board.adapter.calls[0]
     assert set(updates) == {(c1.fp, "Role", ""), (c1.fp, "Cluster", "")}
-    assert "Cleared Role/Cluster on 1 component" in dock.message_label.text()
+    assert any("Cleared Role/Cluster on 1 component" in r.message for r in caplog.records)
 
 
 def test_delete_selected_on_a_group_clears_every_member(main_window, monkeypatch):
@@ -372,7 +372,7 @@ def test_delete_selected_on_a_group_clears_every_member(main_window, monkeypatch
     assert touched_fps == {c1.fp, c2.fp}  # other cluster's member untouched
 
 
-def test_delete_selected_with_nothing_selected_shows_message(main_window):
+def test_delete_selected_with_nothing_selected_shows_message(main_window, caplog):
     board = FakeBoard()
     main_window.connection.board = board
     dock = RoleClusterTreeDock(main_window, connection=main_window.connection)
@@ -381,10 +381,10 @@ def test_delete_selected_with_nothing_selected_shows_message(main_window):
     dock._on_delete_selected()
 
     assert board.adapter.calls == []
-    assert "Nothing selected" in dock.message_label.text()
+    assert any("Nothing selected" in r.message for r in caplog.records)
 
 
-def test_delete_selected_not_connected_shows_message(main_window):
+def test_delete_selected_not_connected_shows_message(main_window, caplog):
     dock = RoleClusterTreeDock(main_window, connection=main_window.connection)
     dock.set_footprints([FakeSelected("C1", "C_IN", "Channel_1")])
     leaf = _find_item(dock.tree.model(), "C1")
@@ -392,7 +392,7 @@ def test_delete_selected_not_connected_shows_message(main_window):
 
     dock._on_delete_selected()  # main_window.connection.board is None by default
 
-    assert "Not connected" in dock.message_label.text()
+    assert any("Not connected" in r.message for r in caplog.records)
 
 
 def test_clear_all_declined_writes_nothing(main_window, monkeypatch):
@@ -408,7 +408,7 @@ def test_clear_all_declined_writes_nothing(main_window, monkeypatch):
     assert board.adapter.calls == []
 
 
-def test_clear_all_confirmed_writes_every_footprint(main_window, monkeypatch):
+def test_clear_all_confirmed_writes_every_footprint(main_window, monkeypatch, caplog):
     monkeypatch.setattr(role_cluster_tree_mod, "start_long_op", _run_sync)
     board = FakeBoard()
     main_window.connection.board = board
@@ -423,11 +423,11 @@ def test_clear_all_confirmed_writes_every_footprint(main_window, monkeypatch):
     updates, _description = board.adapter.calls[0]
     touched_fps = {fp for fp, _field, _value in updates}
     assert touched_fps == {c1.fp, c2.fp}
-    assert "Cleared Role/Cluster on all 2 component" in dock.message_label.text()
+    assert any("Cleared Role/Cluster on all 2 component" in r.message for r in caplog.records)
 
 
 def test_clear_all_skips_footprint_missing_a_field_instead_of_rolling_back_the_batch(
-        main_window, monkeypatch):
+        main_window, monkeypatch, caplog):
     """Regression: found live on a real 287-component board — one footprint
     (FB15) had no Cluster field at all, and set_field_values_bulk wraps the
     whole batch in ONE commit, so that single footprint rolled back the
@@ -455,8 +455,8 @@ def test_clear_all_skips_footprint_missing_a_field_instead_of_rolling_back_the_b
     updates, _description = board.adapter.calls[0]
     touched_fps = {fp for fp, _field, _value in updates}
     assert touched_fps == {ok_fp}
-    assert "Cleared Role/Cluster on all 1 component" in dock.message_label.text()
-    assert "Skipped 1 without Role/Cluster field: FB15" in dock.message_label.text()
+    assert any("Cleared Role/Cluster on all 1 component" in r.message for r in caplog.records)
+    assert any("Skipped 1 without Role/Cluster field: FB15" in r.message for r in caplog.records)
 
 
 def test_clear_all_success_fires_on_board_written_callback(main_window, monkeypatch):
@@ -480,7 +480,7 @@ def test_clear_all_success_fires_on_board_written_callback(main_window, monkeypa
     assert calls == [1]
 
 
-def test_clear_all_with_nothing_on_board_shows_message(main_window, monkeypatch):
+def test_clear_all_with_nothing_on_board_shows_message(main_window, monkeypatch, caplog):
     board = FakeBoard()
     main_window.connection.board = board
     dock = RoleClusterTreeDock(main_window, connection=main_window.connection)
@@ -492,7 +492,7 @@ def test_clear_all_with_nothing_on_board_shows_message(main_window, monkeypatch)
 
     assert board.adapter.calls == []
     assert not called  # never even asked — nothing to clear
-    assert "Nothing to clear" in dock.message_label.text()
+    assert any("Nothing to clear" in r.message for r in caplog.records)
 
 
 def test_buttons_disabled_in_schematic_mode(main_window):
@@ -509,7 +509,7 @@ def test_buttons_disabled_in_schematic_mode(main_window):
     assert dock.clear_all_button.isEnabled()
 
 
-def test_clear_op_surfaces_validation_error_from_adapter(main_window):
+def test_clear_op_surfaces_validation_error_from_adapter(main_window, caplog):
     class _FailingAdapter:
         def has_field(self, fp, field_name):
             return True
@@ -527,7 +527,7 @@ def test_clear_op_surfaces_validation_error_from_adapter(main_window):
 
     dock._do_clear([c1.fp], "Cleared {count}")
 
-    assert "boom" in dock.message_label.text()
+    assert any("boom" in r.message for r in caplog.records)
 
 
 def test_on_delete_selected_dispatches_to_worker(main_window, monkeypatch):

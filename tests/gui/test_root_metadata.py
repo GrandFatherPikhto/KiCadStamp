@@ -285,7 +285,7 @@ def test_missing_keys_show_config_defaults(main_window, tmp_path):
     assert dock._int_edits["via_search_n_directions"].text() == "8"
 
 
-def test_save_with_nothing_changed_and_nothing_present_writes_nothing(main_window, tmp_path):
+def test_save_with_nothing_changed_and_nothing_present_writes_nothing(main_window, tmp_path, caplog):
     path = tmp_path / "root.yaml"
     _write_yaml(path, {"cells": {"c1": {"components": []}}})
     dock = RootMetadataDock(main_window)
@@ -293,10 +293,10 @@ def test_save_with_nothing_changed_and_nothing_present_writes_nothing(main_windo
     dock._on_save()
 
     assert _read_yaml(path) == {"cells": {"c1": {"components": []}}}
-    assert "default" in dock.message_label.text()
+    assert any("default" in r.message for r in caplog.records)
 
 
-def test_save_writes_only_changed_field_and_preserves_other_keys(main_window, tmp_path):
+def test_save_writes_only_changed_field_and_preserves_other_keys(main_window, tmp_path, caplog):
     path = tmp_path / "root.yaml"
     _write_yaml(path, {"cells": {"c1": {"components": []}}})
     dock = RootMetadataDock(main_window)
@@ -308,7 +308,7 @@ def test_save_writes_only_changed_field_and_preserves_other_keys(main_window, tm
     data = _read_yaml(path)
     assert data["schematic_dir"] == "../../schematics"
     assert data["cells"] == {"c1": {"components": []}}
-    assert "Saved" in dock.message_label.text()
+    assert any("Saved" in r.message for r in caplog.records)
 
 
 def test_save_writes_already_present_key_back_even_at_default(main_window, tmp_path):
@@ -323,7 +323,7 @@ def test_save_writes_already_present_key_back_even_at_default(main_window, tmp_p
     assert _read_yaml(path)["via_search_n_directions"] == 8
 
 
-def test_save_rejects_non_numeric_float_field(main_window, tmp_path):
+def test_save_rejects_non_numeric_float_field(main_window, tmp_path, caplog):
     path = tmp_path / "root.yaml"
     _write_yaml(path, {})
     dock = RootMetadataDock(main_window)
@@ -333,10 +333,10 @@ def test_save_rejects_non_numeric_float_field(main_window, tmp_path):
     dock._on_save()
 
     assert _read_yaml(path) == {}
-    assert "not a number" in dock.message_label.text()
+    assert any("not a number" in r.message for r in caplog.records)
 
 
-def test_save_rejects_non_integer_int_field(main_window, tmp_path):
+def test_save_rejects_non_integer_int_field(main_window, tmp_path, caplog):
     path = tmp_path / "root.yaml"
     _write_yaml(path, {})
     dock = RootMetadataDock(main_window)
@@ -346,13 +346,13 @@ def test_save_rejects_non_integer_int_field(main_window, tmp_path):
     dock._on_save()
 
     assert _read_yaml(path) == {}
-    assert "not an integer" in dock.message_label.text()
+    assert any("not an integer" in r.message for r in caplog.records)
 
 
-def test_save_without_a_file_picked_shows_error(main_window):
+def test_save_without_a_file_picked_shows_error(main_window, caplog):
     dock = RootMetadataDock(main_window)
     dock._on_save()
-    assert "Open or create a project" in dock.message_label.text()
+    assert any("Open or create a project" in r.message for r in caplog.records)
 
 
 def test_schematic_files_round_trips_as_a_list(main_window, tmp_path):
@@ -449,7 +449,7 @@ def test_add_schematic_file_does_not_duplicate(main_window, tmp_path, monkeypatc
     assert dock.schematic_files_list.count() == 1
 
 
-def test_browse_without_a_file_picked_shows_error(main_window):
+def test_browse_without_a_file_picked_shows_error(main_window, caplog):
     dock = RootMetadataDock(main_window)
     dock._browse_dir(dock._text_edits["schematic_dir"], "Schematic dir")
-    assert "Open or create a project" in dock.message_label.text()
+    assert any("Open or create a project" in r.message for r in caplog.records)

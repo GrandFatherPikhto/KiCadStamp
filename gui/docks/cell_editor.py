@@ -209,9 +209,6 @@ class CellDock(QWidget):
         button_row.addWidget(self.save_button)
         layout.addLayout(button_row)
 
-        self.message_label = QLabel("")
-        self.message_label.setWordWrap(True)
-        layout.addWidget(self.message_label)
 
         self._on_anchor_mode_changed()
         self._refresh_all_tables()
@@ -548,7 +545,10 @@ class CellDock(QWidget):
     # ── Message/parsing helpers ──────────────────────────────────────────
 
     def _show_message(self, text: str, style: str = "") -> None:
-        show_message(self.message_label, text, style, logger)
+        """Mirror into the Log dock at the level matching `style` — the docks
+        no longer have an inline message_label (2026-08-13), the Log dock is
+        the single destination."""
+        show_message(text, style, logger)
 
     def _parse_float(self, edit: QLineEdit, label: str, default: Optional[float]) -> Optional[float]:
         """(ok, value) parse via the shared parse_float_field

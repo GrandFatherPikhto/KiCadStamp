@@ -538,7 +538,7 @@ def test_role_net_tab_appears_from_classification_without_any_alias(main_window,
     assert all(not e.text().strip() for e in dock._net_alias_edits.values())
 
 
-def test_net_template_role_blocks_extraction_until_resolved(main_window, tmp_path, monkeypatch):
+def test_net_template_role_blocks_extraction_until_resolved(main_window, tmp_path, monkeypatch, caplog):
     cells_file = tmp_path / "cells.yaml"
     _write_yaml(cells_file, {})
     main_window.connection.board = _classification_board(monkeypatch, {
@@ -558,7 +558,7 @@ def test_net_template_role_blocks_extraction_until_resolved(main_window, tmp_pat
     dock.name_edit.setText("n2v5_adj_pi_filter")
     dock._raw_items = [object()]
     dock._on_extract()
-    assert "PI_FILTER_FB" in dock.message_label.text()
+    assert any("PI_FILTER_FB" in r.message for r in caplog.records)
     assert yaml.safe_load(cells_file.read_text()) in (None, {})
 
     dock._net_template_role_edits["PI_FILTER_FB"].setCurrentText("-2V5")
@@ -653,7 +653,7 @@ def test_placer_gets_include_entries_deduped(main_window, tmp_path, monkeypatch)
     assert placer_data2["include"] == ["templates/test.yaml", "extracts.yaml"]
 
 
-def test_placer_wiring_skips_include_for_a_root_shaped_extractor_file(main_window, tmp_path, monkeypatch):
+def test_placer_wiring_skips_include_for_a_root_shaped_extractor_file(main_window, tmp_path, monkeypatch, caplog):
     """Reproduces the real failure found live 2026-08-01: an Extractor
     file that's ALSO a full root config (registry_path/schematic_dir/...,
     e.g. because it predates being assigned this role, or is reused as a
@@ -683,7 +683,7 @@ def test_placer_wiring_skips_include_for_a_root_shaped_extractor_file(main_windo
     dock._raw_items = [object()]
     dock._do_extract()
 
-    assert "root-config-only" in dock.message_label.text()
+    assert any("root-config-only" in r.message for r in caplog.records)
     placer_data = yaml.safe_load(placer_file.read_text())
     # cells_file:/cell_files: were folded into include: 2026-08-02 — the
     # Cells file is still wired via include:, only the root-shaped Extractor
@@ -723,7 +723,7 @@ def test_summarize_net_from_role_lists_roles_and_pads(main_window):
     assert "LDO/pad:2" in summary
 
 
-def test_extract_shows_net_from_role_summary_on_success(main_window, tmp_path, monkeypatch):
+def test_extract_shows_net_from_role_summary_on_success(main_window, tmp_path, monkeypatch, caplog):
     cells_file = tmp_path / "cells.yaml"
     _write_yaml(cells_file, {})
     dock = ExtractDock(main_window)
@@ -739,8 +739,8 @@ def test_extract_shows_net_from_role_summary_on_success(main_window, tmp_path, m
     dock._raw_items = [object()]
     dock._do_extract()
 
-    assert "auto-classified by role" in dock.message_label.text()
-    assert "C_IN_BULK" in dock.message_label.text()
+    assert any("auto-classified by role" in r.message for r in caplog.records)
+    assert any("C_IN_BULK" in r.message for r in caplog.records)
 
 
 def test_on_extract_dispatches_to_worker(main_window, tmp_path, monkeypatch):

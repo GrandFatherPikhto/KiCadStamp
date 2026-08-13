@@ -517,10 +517,6 @@ msgstr ""
 msgid "Connected — {count} components"
 msgstr ""
 
-#: gui/docks/_common.py:117
-msgid " (see Log for details)"
-msgstr ""
-
 #: gui/docks/cell_editor.py:80
 msgid "(inherit cell layer)"
 msgstr ""

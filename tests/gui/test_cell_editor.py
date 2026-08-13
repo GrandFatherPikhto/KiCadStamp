@@ -51,10 +51,10 @@ def test_add_component_appends_and_selects_the_new_row(main_window, tmp_path):
     assert dock.components_table.item(0, 0).text() == "HEAVY"
 
 
-def test_component_role_is_required(main_window, tmp_path):
+def test_component_role_is_required(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     assert dock._build_component_dict() is None
-    assert "Role is required" in dock.message_label.text()
+    assert any("Role is required" in r.message for r in caplog.records)
 
 
 def test_duplicate_component_role_is_rejected_on_add(main_window, tmp_path):
@@ -95,10 +95,10 @@ def test_remove_component(main_window, tmp_path):
     assert dock._selected_component is None
 
 
-def test_remove_component_without_selection_shows_error(main_window, tmp_path):
+def test_remove_component_without_selection_shows_error(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     dock._on_remove_component()
-    assert "Pick a component row first" in dock.message_label.text()
+    assert any("Pick a component row first" in r.message for r in caplog.records)
 
 
 # ── Vias tab ──────────────────────────────────────────────────────────────
@@ -169,11 +169,11 @@ def test_add_via_with_net_from_role_and_pad(main_window, tmp_path):
     assert dock.vias_table.item(0, 2).text() == "role:LDO/pad:2"
 
 
-def test_via_net_from_role_requires_a_role(main_window, tmp_path):
+def test_via_net_from_role_requires_a_role(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     dock.via_net_source_combo.setCurrentIndex(1)
     assert dock._build_via_dict() is None
-    assert "pick a Role first" in dock.message_label.text()
+    assert any("pick a Role first" in r.message for r in caplog.records)
 
 
 def test_via_net_and_net_from_role_together_is_rejected(main_window, tmp_path):
@@ -243,11 +243,11 @@ def test_add_track_with_net_from_role(main_window, tmp_path):
     assert dock.tracks_table.item(0, 5).text() == "role:C_OUT_BULK"
 
 
-def test_track_net_from_role_requires_a_role(main_window, tmp_path):
+def test_track_net_from_role_requires_a_role(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     dock.track_net_source_combo.setCurrentIndex(1)
     assert dock._build_track_dict() is None
-    assert "pick a Role first" in dock.message_label.text()
+    assert any("pick a Role first" in r.message for r in caplog.records)
 
 
 # ── Nested cells tab ──────────────────────────────────────────────────────
@@ -282,27 +282,27 @@ def test_add_nested_role_mode(main_window, tmp_path):
     assert dock.nested_table.item(0, 1).text() == "role:SOME_ROLE"
 
 
-def test_nested_name_is_required(main_window, tmp_path):
+def test_nested_name_is_required(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     dock.nested_cell_combo.setCurrentText("leaf")
     assert dock._build_nested_dict() is None
-    assert "name is required" in dock.message_label.text()
+    assert any("name is required" in r.message for r in caplog.records)
 
 
-def test_nested_cell_mode_requires_a_cell(main_window, tmp_path):
+def test_nested_cell_mode_requires_a_cell(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     dock.nested_name_edit.setText("inner")
     dock.nested_mode_combo.setCurrentIndex(0)
     assert dock._build_nested_dict() is None
-    assert "Pick a Cell first" in dock.message_label.text()
+    assert any("Pick a Cell first" in r.message for r in caplog.records)
 
 
-def test_nested_role_mode_requires_a_role(main_window, tmp_path):
+def test_nested_role_mode_requires_a_role(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     dock.nested_name_edit.setText("inner")
     dock.nested_mode_combo.setCurrentIndex(1)
     assert dock._build_nested_dict() is None
-    assert "Pick a Role first" in dock.message_label.text()
+    assert any("Pick a Role first" in r.message for r in caplog.records)
 
 
 def test_remove_nested(main_window, tmp_path):
@@ -402,13 +402,13 @@ def test_anchor_role_combo_is_a_closed_picker_not_a_free_text_field(main_window,
     assert dock.anchor_role_combo.currentText() != "NOT_A_COMPONENT"
 
 
-def test_name_is_required(main_window, tmp_path):
+def test_name_is_required(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     assert dock._build_cell_dict() is None
-    assert "Name is required" in dock.message_label.text()
+    assert any("Name is required" in r.message for r in caplog.records)
 
 
-def test_save_rejects_duplicate_component_roles(main_window, tmp_path):
+def test_save_rejects_duplicate_component_roles(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     dock.name_edit.setText("t")
     dock.comp_role_edit.setCurrentText("HEAVY")
@@ -417,10 +417,10 @@ def test_save_rejects_duplicate_component_roles(main_window, tmp_path):
     dock._on_add_component()
 
     assert dock._build_cell_dict() is None
-    assert "appears twice" in dock.message_label.text()
+    assert any("appears twice" in r.message for r in caplog.records)
 
 
-def test_save_writes_dict_section_and_preserves_other_keys(main_window, tmp_path):
+def test_save_writes_dict_section_and_preserves_other_keys(main_window, tmp_path, caplog):
     dock, target = _make_dock(main_window, tmp_path, {"points": {"origin": {"xy": [0, 0]}}})
     dock.name_edit.setText("t")
     dock.comp_role_edit.setCurrentText("A")
@@ -432,10 +432,10 @@ def test_save_writes_dict_section_and_preserves_other_keys(main_window, tmp_path
     assert data["cells"] == {"t": {"layer": "F.Cu", "components": [{"role": "A"}],
                                    "vias": [], "tracks": [], "clone_placements": []}}
     assert data["points"] == {"origin": {"xy": [0, 0]}}
-    assert "Wrote" in dock.message_label.text()
+    assert any("Wrote" in r.message for r in caplog.records)
 
 
-def test_save_overwrites_an_existing_cell_by_name(main_window, tmp_path):
+def test_save_overwrites_an_existing_cell_by_name(main_window, tmp_path, caplog):
     dock, target = _make_dock(main_window, tmp_path, {"cells": {"t": {"components": []}}})
     dock.name_edit.setText("t")
     dock.comp_role_edit.setCurrentText("A")
@@ -444,17 +444,17 @@ def test_save_overwrites_an_existing_cell_by_name(main_window, tmp_path):
     dock._on_save()
 
     assert _read_yaml(target)["cells"]["t"]["components"] == [{"role": "A"}]
-    assert "Overwrote" in dock.message_label.text()
+    assert any("Overwrote" in r.message for r in caplog.records)
 
 
-def test_save_without_a_file_picked_shows_error(main_window):
+def test_save_without_a_file_picked_shows_error(main_window, caplog):
     dock = CellDock(main_window)
     dock.name_edit.setText("t")
     dock.comp_role_edit.setCurrentText("A")
     dock._on_add_component()
 
     dock._on_save()
-    assert "Pick a file" in dock.message_label.text()
+    assert any("Pick a file" in r.message for r in caplog.records)
 
 
 def test_save_emits_saved_signal(main_window, tmp_path):

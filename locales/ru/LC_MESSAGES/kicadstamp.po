@@ -558,10 +558,6 @@ msgstr "Выход"
 msgid "Connected — {count} components"
 msgstr "Подключено — компонентов: {count}"
 
-#: gui/docks/_common.py:117
-msgid " (see Log for details)"
-msgstr " (подробности в журнале)"
-
 #: gui/docks/cell_editor.py:80
 #, python-brace-format
 msgid "(inherit cell layer)"

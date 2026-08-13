@@ -10,13 +10,18 @@ gap: things like extract_template_from_selection()'s "N nets from
 (or nowhere, if the GUI wasn't launched from one), invisible in the GUI
 itself.
 
-Requested live 2026-08-01: dock message_labels are fine for a one-line
+Requested live 2026-08-01: dock message_labels were fine for a one-line
 status next to the button that produced it, but the user wanted a plain
 scrollable panel for everything else — "редактировать нельзя, копировать
 и искать -- можно" (can't edit, but can copy and search). A read-only
 QPlainTextEdit already behaves exactly like that (selection/copy work,
 typing doesn't); the Find row adds the "искать" half explicitly, since
 QPlainTextEdit has no built-in find UI of its own.
+
+Since 2026-08-13 the inline message_label is gone from EVERY dock entirely
+(Denis: "Нам вообще на плашке не надо выводов лога. Пусть всё валится в
+окошко лога") — the docks' show_message() now only routes to THIS panel,
+which is the single place a dock's status message ends up.
 
 setup_logging() (kicadstamp/logging_setup.py) already sets the ROOT
 logger's level to DEBUG unconditionally and relies on each individual

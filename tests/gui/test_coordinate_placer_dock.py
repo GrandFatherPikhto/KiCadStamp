@@ -211,7 +211,7 @@ def test_build_entry_dict_coordinate_anchor_polar_offset_round_trips(main_window
     assert cp.radius_mm == 5.0 and cp.angle_deg == 37.0
 
 
-def test_build_entry_dict_coordinate_bad_number_reports_error(main_window, tmp_path):
+def test_build_entry_dict_coordinate_bad_number_reports_error(main_window, tmp_path, caplog):
     dock, target_file = _make_dock(main_window, tmp_path)
     form = _new_coordinate(dock, target_file)
     _fill_cartesian(form)
@@ -220,12 +220,12 @@ def test_build_entry_dict_coordinate_bad_number_reports_error(main_window, tmp_p
     entry = dock._build_entry_dict()
 
     assert entry is None
-    assert "not a number" in dock.message_label.text()
+    assert any("not a number" in r.message for r in caplog.records)
 
 
 # ── Save ──────────────────────────────────────────────────────────────────
 
-def test_do_save_writes_coordinate_placements_section(main_window, tmp_path):
+def test_do_save_writes_coordinate_placements_section(main_window, tmp_path, caplog):
     dock, target_file = _make_dock(main_window, tmp_path)
     form = _new_coordinate(dock, target_file)
     _fill_cartesian(form, role="R18")
@@ -237,10 +237,10 @@ def test_do_save_writes_coordinate_placements_section(main_window, tmp_path):
     assert len(entries) == 1
     cp = load_coordinate_placement(entries[0])
     assert cp.role == "R18" and cp.x_mm == 10.0 and cp.y_mm == 20.0
-    assert "Wrote" in dock.message_label.text()
+    assert any("Wrote" in r.message for r in caplog.records)
 
 
-def test_do_save_overwrites_by_effective_name_not_duplicate(main_window, tmp_path):
+def test_do_save_overwrites_by_effective_name_not_duplicate(main_window, tmp_path, caplog):
     """Save twice — the second one must REPLACE the first by effective name
     (cluster/role), never append a duplicate (2026-08-12, Group 1: the
     coordinate_placements section is a named-records section like
@@ -257,17 +257,17 @@ def test_do_save_overwrites_by_effective_name_not_duplicate(main_window, tmp_pat
     data = yaml.safe_load(target_file.read_text(encoding="utf-8"))
     assert len(data["coordinate_placements"]) == 1
     assert data["coordinate_placements"][0]["x_mm"] == 99.0
-    assert "Overwrote" in dock.message_label.text()
+    assert any("Overwrote" in r.message for r in caplog.records)
 
 
-def test_save_without_target_file_shows_error(main_window, tmp_path):
+def test_save_without_target_file_shows_error(main_window, tmp_path, caplog):
     dock = PlacerDock(main_window)
     dock.new_coordinate_placement(tmp_path / "root.yaml")
     dock._placer_path = None  # simulate a dock that never got a target file
 
     dock._do_save()
 
-    assert "Pick a Placer file" in dock.message_label.text()
+    assert any("Pick a Placer file" in r.message for r in caplog.records)
 
 
 # ── Redraw/Place (coordinate mode) ────────────────────────────────────────
@@ -294,7 +294,7 @@ def test_collect_redraw_inputs_coordinate_payload(main_window, tmp_path, monkeyp
     assert [cp.role for cp in fake_cfg.coordinate_placements] == ["R18"]
 
 
-def test_collect_redraw_inputs_coordinate_retired_blocked(main_window, tmp_path):
+def test_collect_redraw_inputs_coordinate_retired_blocked(main_window, tmp_path, caplog):
     dock, target_file = _make_dock(main_window, tmp_path)
     form = _new_coordinate(dock, target_file)
     _fill_cartesian(form)
@@ -303,7 +303,7 @@ def test_collect_redraw_inputs_coordinate_retired_blocked(main_window, tmp_path)
     payload = dock._collect_redraw_inputs()
 
     assert payload is None
-    assert "retired" in dock.message_label.text().lower()
+    assert any("retired" in r.message.lower() for r in caplog.records)
 
 
 def test_run_redraw_coordinate_skips_cluster_tagging(main_window, tmp_path, monkeypatch):
@@ -326,13 +326,13 @@ def test_run_redraw_coordinate_skips_cluster_tagging(main_window, tmp_path, monk
     assert result == {"name": "FPGA_PERIPH/R18", "tagged": None}
 
 
-def test_finish_redraw_coordinate_reports_simple_success(main_window, tmp_path):
+def test_finish_redraw_coordinate_reports_simple_success(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
 
     dock._finish_redraw({"name": "FPGA_PERIPH/R18", "tagged": None})
 
-    assert "Placed" in dock.message_label.text()
-    assert "tagged" not in dock.message_label.text()
+    assert any("Placed" in r.message for r in caplog.records)
+    assert not any("tagged" in r.message for r in caplog.records)
 
 
 # ── DetailDock title helper ───────────────────────────────────────────────

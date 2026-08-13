@@ -152,7 +152,7 @@ def test_polar_mode_toggle_enables_only_active_xy_fields(main_window, tmp_path):
     assert ow.angle_edit.isEnabled() is True
 
 
-def test_anchor_ref_and_role_together_is_blocked(main_window, tmp_path):
+def test_anchor_ref_and_role_together_is_blocked(main_window, tmp_path, caplog):
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
     dock.cluster_edit.setCurrentText("X")
     dock.origin_mode_combo.setCurrentIndex(1)
@@ -160,7 +160,7 @@ def test_anchor_ref_and_role_together_is_blocked(main_window, tmp_path):
     dock.anchor_role_edit.setCurrentText("SOME_ROLE")
 
     assert dock._build_entry_dict() is None
-    assert "mutually exclusive" in dock.message_label.text()
+    assert any("mutually exclusive" in r.message for r in caplog.records)
 
 
 def test_anchor_role_with_pad_and_shift(main_window, tmp_path):
@@ -227,13 +227,13 @@ def test_load_placement_anchor_point_with_polar_offset_round_trips(main_window, 
     assert "xy" not in rebuilt
 
 
-def test_point_mode_requires_a_name(main_window, tmp_path):
+def test_point_mode_requires_a_name(main_window, tmp_path, caplog):
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
     dock.cluster_edit.setCurrentText("X")
     dock.origin_mode_combo.setCurrentIndex(2)
 
     assert dock._build_entry_dict() is None
-    assert "name is required" in dock.message_label.text()
+    assert any("name is required" in r.message for r in caplog.records)
 
     dock.point_edit.setCurrentText("origin_point")
     entry = dock._build_entry_dict()
@@ -264,7 +264,7 @@ def test_save_upserts_by_name_without_duplicating(main_window, tmp_path):
         "Channel_2_PI_Filter", "Channel_3_PI_Filter"]
 
 
-def test_redraw_requires_cell_reachable_via_placer_config(main_window, tmp_path, monkeypatch):
+def test_redraw_requires_cell_reachable_via_placer_config(main_window, tmp_path, monkeypatch, caplog):
     """The Cell must actually be loadable FROM the Placer file's own
     include: wiring (load_config's cfg.cells) — picking a cell name in
     the list alone isn't enough if include: was never pointed at it."""
@@ -277,10 +277,10 @@ def test_redraw_requires_cell_reachable_via_placer_config(main_window, tmp_path,
                          lambda path: (Config(), RuntimeContext()))  # cells: empty -> cell unreachable
 
     dock._on_redraw()
-    assert "include" in dock.message_label.text()
+    assert any("include" in r.message for r in caplog.records)
 
 
-def test_redraw_preserves_other_placements_for_registry_safety(main_window, tmp_path, monkeypatch):
+def test_redraw_preserves_other_placements_for_registry_safety(main_window, tmp_path, monkeypatch, caplog):
     """The single most important correctness property here: Redraw must
     load the REAL config (with every other already-saved clone_placement
     intact) and only narrow EXECUTION via only=, never build a config that
@@ -364,8 +364,8 @@ def test_redraw_preserves_other_placements_for_registry_safety(main_window, tmp_
     names = [c.name for c in used_cfg.clone_placements]
     assert "OTHER_PLACEMENT" in names  # not dropped -> registry-protected
     assert names.count("Channel_2_PI_Filter") == 1  # replaced, not duplicated
-    assert "Placed" in dock.message_label.text()
-    assert "1 component(s) tagged Cluster" in dock.message_label.text()
+    assert any("Placed" in r.message for r in caplog.records)
+    assert any("1 component(s) tagged Cluster" in r.message for r in caplog.records)
 
 
 # ── Cell source (2026-08-12, Group 0: role:/cluster: migrated to coordinate_placements) ──
@@ -841,29 +841,29 @@ def _make_two_role_cell_and_dock(main_window, tmp_path):
     return dock, cells_file, placer_file
 
 
-def test_autofill_nets_requires_a_cell(main_window):
+def test_autofill_nets_requires_a_cell(main_window, caplog):
     dock = PlacerDock(main_window)
     dock._do_autofill_nets()
-    assert "Pick a Cell first" in dock.message_label.text()
+    assert any("Pick a Cell first" in r.message for r in caplog.records)
 
 
-def test_autofill_nets_requires_anchor_cluster(main_window, tmp_path):
+def test_autofill_nets_requires_anchor_cluster(main_window, tmp_path, caplog):
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
     dock._do_autofill_nets()
-    assert "Anchor cluster" in dock.message_label.text()
+    assert any("Anchor cluster" in r.message for r in caplog.records)
 
 
-def test_autofill_nets_requires_board_connection(main_window, tmp_path):
+def test_autofill_nets_requires_board_connection(main_window, tmp_path, caplog):
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
     dock.anchor_cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
     main_window.connection.board = None
 
     dock._do_autofill_nets()
 
-    assert "Not connected" in dock.message_label.text()
+    assert any("Not connected" in r.message for r in caplog.records)
 
 
-def test_do_autofill_nets_fills_unambiguous_role(main_window, tmp_path):
+def test_do_autofill_nets_fills_unambiguous_role(main_window, tmp_path, caplog):
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)  # single role "C_IN"
     dock.anchor_cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
     main_window.connection.board = _FakeAutofillBoard([
@@ -873,10 +873,10 @@ def test_do_autofill_nets_fills_unambiguous_role(main_window, tmp_path):
     dock._do_autofill_nets()
 
     assert dock.nets_table.to_dict() == {"C_IN": "+1V2"}
-    assert "Auto-filled all 1 role(s)" in dock.message_label.text()
+    assert any("Auto-filled all 1 role(s)" in r.message for r in caplog.records)
 
 
-def test_do_autofill_nets_leaves_ambiguous_role_for_manual_entry(main_window, tmp_path):
+def test_do_autofill_nets_leaves_ambiguous_role_for_manual_entry(main_window, tmp_path, caplog):
     dock, _, _ = _make_two_role_cell_and_dock(main_window, tmp_path)
     dock.anchor_cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
     main_window.connection.board = _FakeAutofillBoard([
@@ -888,8 +888,8 @@ def test_do_autofill_nets_leaves_ambiguous_role_for_manual_entry(main_window, tm
     dock._do_autofill_nets()
 
     assert dock.nets_table.to_dict() == {"C_IN_BULK": "+1V2"}
-    assert "Auto-filled 1/2 role(s)" in dock.message_label.text()
-    assert "PI_FB" in dock.message_label.text()
+    assert any("Auto-filled 1/2 role(s)" in r.message for r in caplog.records)
+    assert any("PI_FB" in r.message for r in caplog.records)
 
 
 def test_do_autofill_nets_does_not_stomp_a_row_it_could_not_resolve(main_window, tmp_path):
@@ -945,7 +945,7 @@ def test_on_autofill_nets_dispatches_to_worker(main_window, tmp_path, monkeypatc
 # ── Auto-fill safety + auto-trigger (2026-08-13, plan
 # placer_autofill_default_and_docs) ─────────────────────────────────────
 
-def test_do_autofill_nets_does_not_overwrite_a_prefilled_role(main_window, tmp_path):
+def test_do_autofill_nets_does_not_overwrite_a_prefilled_role(main_window, tmp_path, caplog):
     """Plan p.1: Auto-fill fills ONLY blank roles — a role the user already
     typed a value for is never overwritten, even when the worker suggests a
     different net for it (the auto-trigger re-fires on every Cell+Cluster
@@ -964,7 +964,7 @@ def test_do_autofill_nets_does_not_overwrite_a_prefilled_role(main_window, tmp_p
     # C_IN_BULK keeps the manual value; PI_FB stays blank (unresolvable) and
     # is reported as left for manual entry.
     assert dock.nets_table.to_dict() == {"C_IN_BULK": "+1V2_VCCINT"}
-    assert "PI_FB" in dock.message_label.text()
+    assert any("PI_FB" in r.message for r in caplog.records)
 
 
 def test_auto_trigger_fires_on_commit_not_typing(main_window, tmp_path, monkeypatch):
@@ -1000,7 +1000,7 @@ def test_auto_trigger_fires_on_commit_not_typing(main_window, tmp_path, monkeypa
     assert len(calls) == 3
 
 
-def test_auto_trigger_no_ops_without_cell_or_cluster(main_window, tmp_path, monkeypatch):
+def test_auto_trigger_no_ops_without_cell_or_cluster(main_window, tmp_path, monkeypatch, caplog):
     """Plan p.2: the auto-trigger is a silent no-op until BOTH halves of the
     pair are ready — not an error, just nothing to fill yet."""
     dock, _, _ = _make_two_role_cell_and_dock(main_window, tmp_path)
@@ -1010,6 +1010,7 @@ def test_auto_trigger_no_ops_without_cell_or_cluster(main_window, tmp_path, monk
     calls = []
     monkeypatch.setattr(dock, "_start_autofill_nets_op", lambda payload: calls.append(payload))
 
+    before = len(caplog.records)
     dock._maybe_autofill_nets()  # cell set (fixture), but no cluster yet
     assert calls == []
 
@@ -1017,7 +1018,7 @@ def test_auto_trigger_no_ops_without_cell_or_cluster(main_window, tmp_path, monk
     dock.new_placement(dock._placer_path)  # clears the cell
     dock._maybe_autofill_nets()  # cluster set, but no cell now
     assert calls == []
-    assert dock.message_label.text() == ""  # silent, no error text
+    assert len(caplog.records) == before  # silent no-op: nothing logged
 
 
 def test_params_section_hidden_for_cell_without_placeholders(main_window, tmp_path):

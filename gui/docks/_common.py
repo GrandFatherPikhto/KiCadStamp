@@ -12,20 +12,21 @@ Two groups live here:
   (the docks below and tests/gui/test_dock_common.py) keeps working unchanged.
 
 * Qt widget helpers (set_combo_items / configure_searchable / show_message)
-  plus the message-label style constants — genuinely GUI-only, still defined
-  here: one definition instead of each dock declaring its own copy.
+  plus the message style constants — genuinely GUI-only, still defined here:
+  one definition instead of each dock declaring its own copy. Since 2026-08-13
+  the inline message_label is gone from every dock — show_message only routes
+  to the Log dock, and the style constants double as the log-level selectors.
 """
 import logging
 from typing import List, Optional, Tuple
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QComboBox, QCompleter, QLabel, QLineEdit
+from PyQt6.QtWidgets import QComboBox, QCompleter, QLineEdit
 
 from kicadstamp.config_writer import (
     read_data, write_data, add_include, add_list_entry, disable_include,
     display_path, merge_write, non_includable_keys, upsert_clone_placement,
     upsert_list_entry)
-from kicadstamp.i18n import _
 
 logger = logging.getLogger(__name__)
 
@@ -114,45 +115,17 @@ def parse_float_field(edit: QLineEdit) -> Tuple[bool, Optional[float]]:
         return False, None
 
 
-# Chars a pure "=====" / "-----" separator/border line is made of — skipped
-# when picking the label's one-line preview (kicadstamp.exceptions' FATAL
-# ERROR box opens with a "=" * 70 border, which isn't a useful preview on
-# its own).
-_SEPARATOR_CHARS = set("=-*_~")
-
-
-def _first_meaningful_line(text: str) -> str:
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped and set(stripped) - _SEPARATOR_CHARS:
-            return stripped
-    return ""
-
-
-def show_message(label: QLabel, text: str, style: str = "",
+def show_message(text: str, style: str = "",
                  log: Optional[logging.Logger] = None) -> None:
-    """Sets an inline status label AND mirrors the FULL message into the
-    Log dock (see gui/docks/log_panel.py) at the matching level, so error/
-    warning messages survive after the label itself gets overwritten by
-    the next action — requested live 2026-08-01 ("для списка ошибок
-    сделать внизу отдельное окошко"). `style` is one of
-    ERROR_STYLE/WARN_STYLE/SUCCESS_STYLE ('' -> plain info); the
-    caller's logger is passed through so log records keep the source
-    dock's own logger name.
-
-    The label itself only ever shows one line (2026-08-04: some backend
-    errors, e.g. kicadstamp.exceptions' FATAL ERROR box, are a multi-line
-    "=" * 70-bordered block — dumping that whole thing into a word-wrapped
-    label was blowing the dock up so tall the tab no longer fit on screen).
-    Anything past the first non-blank line is truncated, with the full
-    text still one hover away via the tooltip and, as before, in the Log
-    dock in full."""
-    label.setStyleSheet(style)
-    preview = _first_meaningful_line(text)
-    if preview != text.strip():
-        preview += _(" (see Log for details)")
-    label.setText(preview)
-    label.setToolTip(text)
+    """Mirrors a message into the Log dock (see gui/docks/log_panel.py) at
+    the level matching `style` — since 2026-08-13 the docks have NO inline
+    message_label at all (Denis: "Нам вообще на плашке не надо выводов
+    лога. Пусть всё валится в окошко лога"), so the Log dock is the single
+    place every dock status ends up. Requested live 2026-08-01 ("для
+    списка ошибок сделать внизу отдельное окошко"); `style` is one of
+    ERROR_STYLE/WARN_STYLE/SUCCESS_STYLE ('' -> plain info); the caller's
+    logger is passed through so log records keep the source dock's own
+    logger name."""
     if not text:
         return
     record_log = log if log is not None else logger

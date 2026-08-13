@@ -297,14 +297,11 @@ class RootMetadataDock(QWidget):
         self.save_button.clicked.connect(self._on_save)
         layout.addWidget(self.save_button)
 
-        self.message_label = QLabel("")
-        self.message_label.setWordWrap(True)
-        layout.addWidget(self.message_label)
 
         # Working file (2026-08-11) — deliberately separated (own label,
-        # own row, below Save/message_label) from the Root toolbar above —
-        # see module docstring on why these two must stay visually and
-        # semantically distinct.
+        # own row, below Save) from the Root toolbar above — see module
+        # docstring on why these two must stay visually and semantically
+        # distinct.
         layout.addWidget(QLabel(
             _("Working file (Points/Rules/Placer/Thermal via/Cells write here):")))
         self.working_file_combo = QComboBox()
@@ -511,7 +508,10 @@ class RootMetadataDock(QWidget):
     # ── Save ──────────────────────────────────────────────────────────────
 
     def _show_message(self, text: str, style: str = "") -> None:
-        show_message(self.message_label, text, style, logger)
+        """Mirror into the Log dock at the level matching `style` — the docks
+        no longer have an inline message_label (2026-08-13), the Log dock is
+        the single destination."""
+        show_message(text, style, logger)
 
     def _on_save(self) -> None:
         if self._path is None:
