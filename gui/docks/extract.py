@@ -76,20 +76,22 @@ just leave the cell sitting in a file nothing points at yet. Skipped when
 Cells/Extractor already IS the Placer file (self-reference is pointless —
 the file already effectively "has itself").
 
-Net template role (a component whose pads touch TWO aliased nets — a
-ferrite bead/inductor bridging two rails, e.g. a pi-filter's feedback
-element): extract_template_from_selection() can't auto-decide which of
-the two aliased nets becomes that role's net_template (see
-template_extraction.py, "N nets from --net-template on pads"), so it's
-left EMPTY there unless net_template_role={role: literal} says which one
-— a mechanism that already existed backend/CLI-side (--net-template-role)
-but had no GUI surface until now. The "Net template role:" section only
-ever shows a role once 2+ of ITS pads' nets have a non-empty alias typed
-next to them (checked live: this project's own board has exactly this
-shape — a PI_FILTER_FB ferrite bead with '-2V5' on one pad and
-'-2V5_DIRTY' on the other, both meant to be templated) — reactive to
-alias typing, not a fixed list. Extraction is blocked until every such
-row has a pick; there is no safe default to guess.
+Net template role (a component whose pads touch TWO nets — a ferrite
+bead/inductor bridging two rails, e.g. a pi-filter's feedback element):
+extract_template_from_selection() can't auto-decide which of the two nets
+becomes that role's net_template (see template_extraction.py, "N nets
+from --net-template on pads"), so it's left EMPTY there unless
+net_template_role={role: literal} says which one — a mechanism that
+already existed backend/CLI-side (--net-template-role) but had no GUI
+surface until now. The "Net template role:" section shows a role once 2+
+of ITS pads' DISTINCT nets THEMSELVES classify by role (lemma2/pad, see
+_classify_selection_nets) — driven by the preview classification, NOT by
+alias typing (2026-08-13, plan net_alias_optional_gui step 5: a
+classified net's Alias edit is disabled, so the old "2+ aliases typed"
+trigger could no longer fire at all). Checked live on this project's own
+board: a PI_FILTER_FB ferrite bead with '-2V5' on one pad and
+'-2V5_DIRTY' on the other, both resolving by role. Extraction is blocked
+until every such row has a pick; there is no safe default to guess.
 
 The "Existing cells:"/"Existing profiles:" lists read straight from
 whatever those two files currently contain (top-level keys / the
@@ -154,7 +156,19 @@ from kicadstamp.exceptions import ValidationError
 from kicadstamp.explore import Selected
 from kicadstamp.extract_writer import run_extract_to_file
 from kicadstamp.i18n import _
-from kicadstamp.template_extraction import extract_template_from_selection
+from kicadstamp.net_resolution import RULE_NETS
+from kicadstamp.template_extraction import (
+    extract_template_from_selection,
+    # Private helpers, imported by alias: the preview classification in this
+    # dock (see _classify_selection_nets) reuses the extractor's own role->net
+    # machinery verbatim instead of reimplementing classify_net in the GUI
+    # (plan 2026-08-13, steps 1-2). Direct private cross-module imports have
+    # precedents in the project (e.g. tests/test_author.py's _prune_defaults);
+    # keeping the core module's names untouched avoids touching the extract
+    # path for what is a GUI-only change.
+    _selection_role_nets as selection_role_nets,
+    _suggest_net_from_role as suggest_net_from_role,
+)
 
 from .. import yaml_io
 from ..worker import start_long_op
@@ -201,6 +215,11 @@ class ExtractDock(QWidget):
         self._placer_path: Optional[Path] = None
         self._net_alias_edits: Dict[str, QLineEdit] = {}
         self._rule_net_checkboxes: Dict[str, QCheckBox] = {}
+        # net -> (category, role) preview classification of the current
+        # selection's distinct nets (see _classify_selection_nets) — computed
+        # every selection-watch tick, drives both the Auto-role column and the
+        # net-template-role ambiguity trigger (plan 2026-08-13).
+        self._net_auto_roles: Dict[str, Tuple[str, Optional[str]]] = {}
         self._net_template_role_edits: Dict[str, QComboBox] = {}
         self._last_autofill_key: Optional[Tuple[frozenset, Optional[Path], Optional[Path]]] = None
         # (via_uuids, track_uuids) already in the Placer file's registry —
@@ -353,12 +372,22 @@ class ExtractDock(QWidget):
         # via setCellWidget — the table just replaces the grid as the
         # layout mechanism, the data flow (_net_alias_edits/
         # _rule_net_checkboxes keyed by net) is unchanged.
-        self.nets_table = QTableWidget(0, 3)
-        self.nets_table.setHorizontalHeaderLabels([_("Net"), _("Alias"), _("Rule net (null)")])
+        #
+        # 4th column "Auto-role" (2026-08-13, plan net_alias_optional_gui):
+        # read-only per-net preview of what the extractor's net_from_role
+        # auto-suggestion would do with this net ("role: <ROLE>" for a net
+        # that already resolves by role — lemma2 or pad — empty for a
+        # fallback net that genuinely needs an alias/literal). Lets the
+        # table stop looking like every net needs a typed alias, and the
+        # Alias edit of an auto-role net is disabled (see _rebuild_net_aliases).
+        self.nets_table = QTableWidget(0, 4)
+        self.nets_table.setHorizontalHeaderLabels(
+            [_("Net"), _("Alias"), _("Rule net (null)"), _("Auto-role")])
         self.nets_table.verticalHeader().setVisible(False)
         self.nets_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.nets_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.nets_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.nets_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         # NoEditTriggers, not because nothing here is editable (Alias/Rule
         # net ARE, via their own cell widgets) but because the Net column
         # itself is a plain read-only QTableWidgetItem — this only stops Qt
@@ -913,22 +942,32 @@ class ExtractDock(QWidget):
         self.profile_key_edit.setText(profile_key)
         self._apply_profile_entry(profile_key)
 
-    def _update_net_template_role_rows(self) -> None:
-        """A role needs an explicit net_template_role pick exactly when 2+
-        of ITS pads' nets currently have a non-empty alias next to them
-        (see module docstring) — recomputed live as alias text changes
-        (connected to each net-alias edit's textChanged), not just on
-        selection changes, since typing an alias is exactly what turns a
-        previously-unambiguous role into an ambiguous one."""
+    def _update_net_template_role_rows(self, footprints=None) -> None:
+        """A role needs an explicit net_template_role pick exactly when 2+ of
+        ITS pads' DISTINCT nets themselves classify by role (lemma2/pad, see
+        _classify_selection_nets) — driven by the preview classification, NOT
+        by typed aliases (plan 2026-08-13, step 5). Since a classified net's
+        Alias edit is disabled, the old "2+ manually aliased nets on its pads"
+        trigger could no longer fire at all, so the ambiguity test moved onto
+        the classification itself. Careful distinction (the plan's only
+        non-trivial point): a role whose nets do NOT classify at all (all
+        fallback) is NOT ambiguous — there is nothing to pick.
+
+        footprints — the (possibly Cluster-filtered) selection, the same list
+        _rebuild_net_aliases just classified; falls back to the unfiltered
+        _selected_footprints for direct callers."""
+        if footprints is None:
+            footprints = self._selected_footprints
         ambiguous: Dict[str, List[str]] = {}
-        for s in self._selected_footprints:
+        for s in footprints:
             if not s.role:
                 continue
             distinct_nets = set(s.nets.values())
-            aliased = sorted(n for n in distinct_nets
-                              if self._net_alias_edits.get(n) and self._net_alias_edits[n].text().strip())
-            if len(aliased) >= 2:
-                ambiguous[s.role] = aliased
+            classifying = sorted(
+                n for n in distinct_nets
+                if self._net_auto_roles.get(n) and self._net_auto_roles[n][0] != "fallback")
+            if len(classifying) >= 2:
+                ambiguous[s.role] = classifying
 
         if set(ambiguous) == set(self._net_template_role_edits):
             return
@@ -984,19 +1023,117 @@ class ExtractDock(QWidget):
         else:
             self.cluster_warning_label.setText("")
 
+    def _classify_selection_nets(self, footprints) -> Dict[str, Tuple[str, Optional[str]]]:
+        """net -> (category, role) preview classification of the selection's
+        distinct nets (plan 2026-08-13, step 2) — the same 3 buckets the
+        extractor's net_from_role auto-suggestion produces per via/track:
+          - ("lemma2", role)  — net is the only non-rule net of exactly one
+            selected role (unambiguous; no pad needed);
+          - ("pad", role)     — a role sits on this net but cannot be pinned
+            down without geometry (a multi-net role, or a rail shared by
+            several roles); a specific via/track would pick one by geometry,
+            so the exact role can change per item, but SOME role exists;
+          - ("fallback", None) — no selected role covers the net (the only
+            real alias/literal candidate), or it is an intrinsic rule net
+            (GND) that needs no role at all.
+        No geometry: the preview is per-net, there is no specific via/track
+        point yet, so the geometric tie-break (points/components) is not fed
+        in — classify_net already accepts points=None. Rule nets are handled
+        OUTSIDE classify_net: the user's "Rule net" checkbox set is a
+        separate explicit opt-in mechanism (plan step 4) and the intrinsic
+        RULE_NETS ("GND") always read fallback — a rule net is not "owned" by
+        any role and must not count as a classifying net, or every rail+GND
+        cap role would look like a "2+ classifying nets" bridging component
+        (plan step 5's trap). classify_net is called with EMPTY rule_nets so
+        a rail shared by several single-net roles still reads "pad": it DOES
+        resolve by role at extract time (via geometry), so its alias must be
+        disabled like any other auto-classified net."""
+        board = self._connection.board
+        if board is None:
+            return {}
+        raw_fps = [s.fp for s in footprints if getattr(s, "fp", None) is not None]
+        if not raw_fps:
+            return {}
+        role_nets = selection_role_nets(board.adapter, raw_fps)
+        if not role_nets:
+            return {}
+        nets = sorted({net for s in footprints for net in s.nets.values()})
+        out: Dict[str, Tuple[str, Optional[str]]] = {}
+        for net in nets:
+            if net in RULE_NETS:
+                # Intrinsic rule net (GND) — needs no role, not "owned" by any
+                # role, not a classifying net; alias stays active (the "Rule
+                # net (null)" checkbox is the way to null it).
+                out[net] = ("fallback", None)
+                continue
+            role, pad = suggest_net_from_role(role_nets, net, set(), None, None)
+            if role is None:
+                out[net] = ("fallback", None)
+            elif pad is None:
+                out[net] = ("lemma2", role)
+            else:
+                out[net] = ("pad", role)
+        return out
+
+    def _refresh_auto_role_cells(self) -> None:
+        """Update the read-only Auto-role column text and the Alias edit
+        disabled/tooltip state for the CURRENT rows, in place (no rebuild) —
+        used when the net set is unchanged between selection-watch ticks but
+        the role evidence may have changed (e.g. the user moved the selection
+        to different components that happen to carry the same net names)."""
+        for row in range(self.nets_table.rowCount()):
+            net_item = self.nets_table.item(row, 0)
+            if net_item is None:
+                continue
+            net = net_item.text()
+            category, role = self._net_auto_roles.get(net, ("fallback", None))
+            role_item = self.nets_table.item(row, 3)
+            if role_item is not None:
+                role_item.setText(
+                    _("role: {role}").format(role=role) if category != "fallback" else "")
+            edit = self._net_alias_edits.get(net)
+            if edit is not None:
+                if category != "fallback":
+                    edit.setToolTip(
+                        _("This net already resolves via Role {role!r} — a typed "
+                          "alias here would be ignored at apply time").format(role=role))
+                checkbox = self._rule_net_checkboxes.get(net)
+                checked = checkbox is not None and checkbox.isChecked()
+                edit.setDisabled(checked or category != "fallback")
+
     def _rebuild_net_aliases(self, filtered_selection=None) -> None:
         """One row per distinct net found on the selected components' pads.
         Preserves whatever the user already typed/checked for a net that's
         still present — the selection-watch tick fires every ~400ms, so
         without this, in-progress typing would be wiped just like the
         tree/bulk-edit docks had to guard against. filtered_selection —
-        precomputed by _refresh_derived_selection_state (2026-08-12, Group 4)."""
+        precomputed by _refresh_derived_selection_state (2026-08-12, Group 4).
+
+        Each row also carries a read-only "Auto-role" cell (plan 2026-08-13):
+        which selected role the extractor's net_from_role auto-suggestion
+        would resolve this net to (lemma2/pad) vs. no role at all (fallback —
+        the only nets where a typed alias still means something). The Alias
+        edit of a lemma2/pad net is disabled with an explanatory tooltip: the
+        core resolves net_from_role BEFORE net_template_map, so a typed alias
+        there would be silently ignored (no-override decision, plan §"Решение
+        по спорному пункту")."""
         _raw_items, footprints = (filtered_selection if filtered_selection is not None
                                   else self._filtered_selection())
         nets = sorted({net for s in footprints for net in s.nets.values()})
         previous_alias = {net: edit.text() for net, edit in self._net_alias_edits.items()}
         previous_rule_net = {net: cb.isChecked() for net, cb in self._rule_net_checkboxes.items()}
+        # Preview classification FIRST — drives both the Auto-role column and
+        # the net-template-role ambiguity trigger. Recomputed even when the
+        # net set is unchanged: the role evidence (selection composition) can
+        # change on its own while the net names stay the same.
+        self._net_auto_roles = self._classify_selection_nets(footprints)
         if set(nets) == set(previous_alias):
+            # Same nets as last tick — the user's in-progress alias typing
+            # must survive (no table rebuild), but the classification-driven
+            # cells still refresh in place: the role evidence (selection
+            # composition) can change even when the net names do not.
+            self._refresh_auto_role_cells()
+            self._update_net_template_role_rows(footprints)
             return
 
         self.nets_table.setRowCount(0)  # also deletes every row's cell widgets
@@ -1009,10 +1146,24 @@ class ExtractDock(QWidget):
             net_item.setFlags(Qt.ItemFlag.ItemIsEnabled)  # read-only, not editable/selectable
             self.nets_table.setItem(row, 0, net_item)
 
+            category, role = self._net_auto_roles.get(net, ("fallback", None))
+            role_item = QTableWidgetItem(
+                _("role: {role}").format(role=role) if category != "fallback" else "")
+            role_item.setFlags(Qt.ItemFlag.ItemIsEnabled)  # read-only, not editable/selectable
+            self.nets_table.setItem(row, 3, role_item)
+
             edit = QLineEdit()
             edit.setPlaceholderText(_("alias, e.g. PWR_IN"))
             edit.setText(previous_alias.get(net, ""))
-            edit.textChanged.connect(self._update_net_template_role_rows)
+            if category != "fallback":
+                # The core resolves this net by role regardless of anything
+                # typed here (net_from_role runs before net_template_map) — a
+                # live-looking field that accepts input with no effect would
+                # be an interface lie, so it is disabled instead (plan
+                # 2026-08-13, "no override").
+                edit.setToolTip(
+                    _("This net already resolves via Role {role!r} — a typed "
+                      "alias here would be ignored at apply time").format(role=role))
             self.nets_table.setCellWidget(row, 1, edit)
             self._net_alias_edits[net] = edit
 
@@ -1022,20 +1173,23 @@ class ExtractDock(QWidget):
                   "ManualSpoke-placed cell inherits the enclosing Rule's own net for it, so the "
                   "cell can be reused across Rules on different nets."))
             checkbox.setChecked(previous_rule_net.get(net, False))
-            checkbox.toggled.connect(lambda checked, e=edit: self._on_rule_net_toggled(e, checked))
+            checkbox.toggled.connect(lambda checked, e=edit, n=net: self._on_rule_net_toggled(e, checked, n))
             self.nets_table.setCellWidget(row, 2, checkbox)
             self._rule_net_checkboxes[net] = checkbox
-            self._on_rule_net_toggled(edit, checkbox.isChecked())
-        self._update_net_template_role_rows()
+            self._on_rule_net_toggled(edit, checkbox.isChecked(), net)
+        self._update_net_template_role_rows(footprints)
 
-    @staticmethod
-    def _on_rule_net_toggled(edit: QLineEdit, checked: bool) -> None:
-        """Rule net and alias are mutually exclusive for one net (see module
-        docstring) — checking the box clears+disables the alias edit rather
-        than just leaving a stale, now-ignored alias typed next to it."""
+    def _on_rule_net_toggled(self, edit: QLineEdit, checked: bool,
+                             net: Optional[str] = None) -> None:
+        """Rule net and classification are independent reasons to disable the
+        alias edit of one net (both make a typed alias meaningless): checking
+        the box clears+disables as before, and a lemma2/pad net stays disabled
+        even when the box is later unchecked (see _rebuild_net_aliases)."""
         if checked:
             edit.setText("")
-        edit.setDisabled(checked)
+        classified = (net is not None
+                      and self._net_auto_roles.get(net, ("fallback", None))[0] != "fallback")
+        edit.setDisabled(checked or classified)
 
     def _update_button_state(self, filtered_selection=None) -> None:
         raw_items, _footprints = (filtered_selection if filtered_selection is not None
@@ -1123,8 +1277,8 @@ class ExtractDock(QWidget):
             literal = combo.currentText().strip()
             if not literal:
                 self._show_message(
-                    _("Net template role: role {role!r} bridges 2+ aliased nets — pick which one "
-                      "is the template.").format(role=role),
+                    _("Net template role: role {role!r} bridges 2+ nets that auto-classify by "
+                      "role — pick which one is the template.").format(role=role),
                     _ERROR_STYLE)
                 return None
             net_template_role[role] = literal
@@ -1176,7 +1330,7 @@ class ExtractDock(QWidget):
         net_from_role (instead of a literal/parametrised net) — the ONLY
         surface where this is visible to the user, since
         extract_template_from_selection()'s auto-suggestion (template_
-        extraction.py's _suggest_net_from_role, plan step 4) otherwise
+        extraction.py's suggest_net_from_role, plan step 4) otherwise
         happens silently inside the extractor. template_dict is the raw
         {name: {vias/components/tracks/...}} the worker got back (see
         _run_extract's docstring) — its only key is the just-extracted

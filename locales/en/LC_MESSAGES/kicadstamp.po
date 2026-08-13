@@ -1248,6 +1248,10 @@ msgstr ""
 msgid "Rule net (null)"
 msgstr ""
 
+#: gui/docks/extract.py:385
+msgid "Auto-role"
+msgstr ""
+
 #: gui/docks/extract.py:298
 msgid "Net aliases"
 msgstr ""
@@ -1332,6 +1336,18 @@ msgstr ""
 msgid "alias, e.g. PWR_IN"
 msgstr ""
 
+#: gui/docks/extract.py:1093 gui/docks/extract.py:1151
+#, python-brace-format
+msgid "role: {role}"
+msgstr ""
+
+#: gui/docks/extract.py:1098 gui/docks/extract.py:1165
+#, python-brace-format
+msgid ""
+"This net already resolves via Role {role!r} — a typed alias here would be"
+" ignored at apply time"
+msgstr ""
+
 #: gui/docks/extract.py:786
 msgid ""
 "Write this via/track net as null instead of a literal — at apply time a "
@@ -1367,11 +1383,11 @@ msgstr ""
 msgid "Origin: pick a via net."
 msgstr ""
 
-#: gui/docks/extract.py:888
+#: gui/docks/extract.py:1280
 #, python-brace-format
 msgid ""
-"Net template role: role {role!r} bridges 2+ aliased nets — pick which one"
-" is the template."
+"Net template role: role {role!r} bridges 2+ nets that auto-classify by "
+"role — pick which one is the template."
 msgstr ""
 
 #: gui/docks/extract.py:943

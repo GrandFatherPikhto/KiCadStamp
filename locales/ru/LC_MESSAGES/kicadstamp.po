@@ -1325,6 +1325,10 @@ msgstr "Псевдоним"
 msgid "Rule net (null)"
 msgstr "Цепь правила (null)"
 
+#: gui/docks/extract.py:385
+msgid "Auto-role"
+msgstr "Авто-роль"
+
 #: gui/docks/extract.py:298
 
 msgid "Net aliases"
@@ -1413,6 +1417,18 @@ msgstr "Выделение охватывает несколько класте�
 msgid "alias, e.g. PWR_IN"
 msgstr "псевдоним, например, PWR_IN"
 
+#: gui/docks/extract.py:1093 gui/docks/extract.py:1151
+#, python-brace-format
+msgid "role: {role}"
+msgstr "роль: {role}"
+
+#: gui/docks/extract.py:1098 gui/docks/extract.py:1165
+#, python-brace-format
+msgid ""
+"This net already resolves via Role {role!r} — a typed alias here would be"
+" ignored at apply time"
+msgstr "Эта цепь уже резолвится через роль {role!r} — введённый здесь алиас будет проигнорирован при применении"
+
 #: gui/docks/extract.py:786
 msgid ""
 "Write this via/track net as null instead of a literal — at apply time a "
@@ -1449,12 +1465,12 @@ msgstr "Начало: выберите роль компонента."
 msgid "Origin: pick a via net."
 msgstr "Начало: выберите цепь via."
 
-#: gui/docks/extract.py:888
+#: gui/docks/extract.py:1280
 #, python-brace-format
 msgid ""
-"Net template role: role {role!r} bridges 2+ aliased nets — pick which one"
-" is the template."
-msgstr "Роль шаблона цепи: роль {role!r} связывает 2+ алиасированные цепи — укажите, какая является шаблоном."
+"Net template role: role {role!r} bridges 2+ nets that auto-classify by "
+"role — pick which one is the template."
+msgstr "Роль шаблона цепи: роль {role!r} связывает 2+ цепи, автоматически классифицируемые по роли, — укажите, какая из них является шаблоном."
 
 #: gui/docks/extract.py:943
 #, python-brace-format

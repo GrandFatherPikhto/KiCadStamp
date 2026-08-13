@@ -12,8 +12,13 @@ from gui.docks.extract import ExtractDock
 
 
 class FakeSelected:
-    def __init__(self, ref, role, cluster, nets):
+    def __init__(self, ref, role, cluster, nets, fp=None):
         self.ref, self.role, self.cluster, self.nets = ref, role, cluster, nets
+        # Raw FootprintInstance escape hatch (see kicadstamp/explore.py's
+        # Selected) — only needed by the Auto-role classification preview
+        # (_classify_selection_nets builds role_nets from Selected.fp); tests
+        # that don't care leave it None and every net reads fallback.
+        self.fp = fp
 
 
 class FakeAdapter:
@@ -107,6 +112,100 @@ def test_net_aliases_table_alias_and_checkbox_are_cell_widgets(main_window, tmp_
     row = next(r for r in range(dock.nets_table.rowCount()) if dock.nets_table.item(r, 0).text() == "+3V3")
     assert dock.nets_table.cellWidget(row, 1) is dock._net_alias_edits["+3V3"]
     assert dock.nets_table.cellWidget(row, 2) is dock._rule_net_checkboxes["+3V3"]
+
+
+# ── Auto-role column: which nets already resolve by role (2026-08-13, plan
+# net_alias_optional_gui — aliases stop looking mandatory) ──────────────
+
+def _classification_board(monkeypatch, role_nets):
+    """Injects a FakeBoard + monkeypatched selection_role_nets so the dock's
+    _classify_selection_nets has real role->net evidence to classify against.
+    The classification itself (suggest_net_from_role -> classify_net) is the
+    REAL core code — only the role_nets SOURCE is faked, keeping these tests
+    honest about lemma2/pad/fallback semantics."""
+    monkeypatch.setattr(extract_mod, "selection_role_nets", lambda adapter, fps: role_nets)
+    return FakeBoard()
+
+
+def test_auto_role_column_is_the_fourth_readonly_column(main_window):
+    dock = ExtractDock(main_window)
+    assert [dock.nets_table.horizontalHeaderItem(i).text()
+            for i in range(dock.nets_table.columnCount())] == [
+        "Net", "Alias", "Rule net (null)", "Auto-role"]
+
+
+def test_auto_role_shows_lemma2_role_and_disables_alias(main_window, tmp_path, monkeypatch):
+    """Plan test (a): a net that unambiguously resolves by role (lemma 2 — the
+    role's only non-rule net) gets a filled Auto-role cell and a disabled Alias
+    edit with an explanatory tooltip (no-override decision)."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    main_window.connection.board = _classification_board(monkeypatch, {
+        "R_SERIES": {"1": {"FPGA_SIG"}, "2": {"FPGA_SIG"}},
+    })
+    dock = ExtractDock(main_window)
+    dock.set_target_file(cells_file)
+
+    dock.set_board_selection(
+        [_fake_fp("R1")],
+        [FakeSelected("R1", "R_SERIES", "X", {"1": "FPGA_SIG", "2": "FPGA_SIG"}, fp=object())])
+
+    row = next(r for r in range(dock.nets_table.rowCount())
+               if dock.nets_table.item(r, 0).text() == "FPGA_SIG")
+    assert dock.nets_table.item(row, 3).text() == "role: R_SERIES"
+    assert dock._net_alias_edits["FPGA_SIG"].isEnabled() is False
+    assert "R_SERIES" in dock._net_alias_edits["FPGA_SIG"].toolTip()
+
+
+def test_auto_role_stays_empty_and_alias_active_for_fallback(main_window, tmp_path, monkeypatch):
+    """Plan test (b): a net no selected role covers (fallback) keeps an empty
+    Auto-role cell and an active Alias edit — exactly the pre-change behaviour,
+    since fallback nets are the only ones where an alias still means something."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    main_window.connection.board = _classification_board(monkeypatch, {
+        "C_IN": {"1": {"+3V3"}, "2": {"GND"}},
+    })
+    dock = ExtractDock(main_window)
+    dock.set_target_file(cells_file)
+
+    # "+1V8" is not on any role's pad -> fallback.
+    dock.set_board_selection(
+        [_fake_fp("C1")],
+        [FakeSelected("C1", "C_IN", "X", {"1": "+1V8"}, fp=object())])
+
+    row = next(r for r in range(dock.nets_table.rowCount())
+               if dock.nets_table.item(r, 0).text() == "+1V8")
+    assert dock.nets_table.item(row, 3).text() == ""
+    assert dock._net_alias_edits["+1V8"].isEnabled() is True
+
+
+def test_auto_role_gnd_is_fallback_not_pretend_owned(main_window, tmp_path, monkeypatch):
+    """GND is an intrinsic rule net (RULE_NETS) — it must NOT read as "owned
+    by a role". Without that, every rail+GND cap role would look like a "2+
+    classifying nets" bridging component (plan step 5's trap)."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    main_window.connection.board = _classification_board(monkeypatch, {
+        "C_IN_BULK": {"1": {"+3V3"}, "2": {"GND"}},
+    })
+    dock = ExtractDock(main_window)
+    dock.set_target_file(cells_file)
+
+    dock.set_board_selection(
+        [_fake_fp("C1")],
+        [FakeSelected("C1", "C_IN_BULK", "X", {"1": "+3V3", "2": "GND"}, fp=object())])
+
+    gnd_row = next(r for r in range(dock.nets_table.rowCount())
+                   if dock.nets_table.item(r, 0).text() == "GND")
+    assert dock.nets_table.item(gnd_row, 3).text() == ""
+    assert dock._net_alias_edits["GND"].isEnabled() is True
+
+    # +3V3 sits on a multi-net role -> "pad" (some role exists), alias disabled.
+    v33_row = next(r for r in range(dock.nets_table.rowCount())
+                   if dock.nets_table.item(r, 0).text() == "+3V3")
+    assert dock.nets_table.item(v33_row, 3).text() == "role: C_IN_BULK"
+    assert dock._net_alias_edits["+3V3"].isEnabled() is False
 
 
 # ── Cell/Profile file pickers as independent combos (2026-08-06, Denis:
@@ -233,12 +332,14 @@ def test_existing_cell_key_beats_raw_cluster_slug(main_window, tmp_path):
     assert dock.name_edit.text() == "existing_manual_name"
 
 
-def test_clicking_profile_pulls_aliases_role_and_origin(main_window, tmp_path):
+def test_clicking_profile_pulls_aliases_role_and_origin(main_window, tmp_path, monkeypatch):
     """Reproduces this project's own real data shape (profile key !=
     cell name, Cluster name that doesn't slugify to match either one) —
     found live 2026-08-01 that this is exactly why the cluster auto-match
     path never fires on the real board, and clicking is the path that
-    actually matters."""
+    actually matters. Role evidence is faked so FB6's two rails (-2V5 /
+    -2V5_DIRTY) classify by role and the Net template role tab appears —
+    now classification-driven, not alias-typing-driven (plan step 5)."""
     cells_dir = tmp_path / "templates"
     cells_dir.mkdir()
     cells_file = cells_dir / "test.yaml"
@@ -257,15 +358,22 @@ def test_clicking_profile_pulls_aliases_role_and_origin(main_window, tmp_path):
         }
     })
 
+    main_window.connection.board = _classification_board(monkeypatch, {
+        "C_OUT_BULK": {"1": {"-2V5"}, "2": {"GND"}},
+        "C_OUT_BYPASS": {"1": {"-2V5"}, "2": {"GND"}},
+        "C_IN_BYPASS": {"1": {"-2V5_DIRTY"}, "2": {"GND"}},
+        "PI_FILTER_FB": {"1": {"-2V5"}, "2": {"-2V5_DIRTY"}},
+    })
+
     dock = ExtractDock(main_window)
     dock.set_target_file(cells_file)
     dock.set_profile_file(extractor_file)
 
     sel = [
-        FakeSelected("C22", "C_OUT_BULK", "Out_Pi_Filter_N2V5", {"1": "-2V5", "2": "GND"}),
-        FakeSelected("C26", "C_OUT_BYPASS", "Out_Pi_Filter_N2V5", {"1": "-2V5", "2": "GND"}),
-        FakeSelected("C19", "C_IN_BYPASS", "Out_Pi_Filter_N2V5", {"1": "-2V5_DIRTY", "2": "GND"}),
-        FakeSelected("FB6", "PI_FILTER_FB", "Out_Pi_Filter_N2V5", {"1": "-2V5", "2": "-2V5_DIRTY"}),
+        FakeSelected("C22", "C_OUT_BULK", "Out_Pi_Filter_N2V5", {"1": "-2V5", "2": "GND"}, fp=object()),
+        FakeSelected("C26", "C_OUT_BYPASS", "Out_Pi_Filter_N2V5", {"1": "-2V5", "2": "GND"}, fp=object()),
+        FakeSelected("C19", "C_IN_BYPASS", "Out_Pi_Filter_N2V5", {"1": "-2V5_DIRTY", "2": "GND"}, fp=object()),
+        FakeSelected("FB6", "PI_FILTER_FB", "Out_Pi_Filter_N2V5", {"1": "-2V5", "2": "-2V5_DIRTY"}, fp=object()),
     ]
     dock.set_board_selection([], sel)
 
@@ -368,39 +476,84 @@ def test_tabs_have_the_expected_labels(main_window, tmp_path):
         "Origin", "Net aliases", "Net template role", "Existing"]
 
 
-def test_net_template_role_tab_hidden_until_ambiguous(main_window, tmp_path):
-    """The tab (not just the section widget) is what gets shown/hidden now
-    — setTabVisible() replaced the old setVisible() on the section itself
-    (see _update_net_template_role_rows). A role only becomes ambiguous
-    once 2+ of its pads' nets have a non-empty alias (see that method's
-    docstring), not merely by selecting a bridging component."""
+def test_net_template_role_tab_hidden_until_classification_sees_two_nets(main_window, tmp_path, monkeypatch):
+    """The tab (not just the section widget) is what gets shown/hidden now —
+    setTabVisible() replaced the old setVisible() on the section itself.
+    Ambiguity is CLASSIFICATION-driven (plan step 5): a role only becomes
+    ambiguous once 2+ of its pads' distinct nets themselves classify by role
+    (lemma2/pad). A bridging-shaped component whose nets are all fallback
+    (no role evidence) stays hidden — and typing aliases no longer triggers
+    it at all, since a classified net's Alias edit is disabled anyway."""
     cells_file = tmp_path / "cells.yaml"
     _write_yaml(cells_file, {})
     dock = ExtractDock(main_window)
     dock.set_target_file(cells_file)
     assert dock._tabs.isTabVisible(dock._role_net_tab_index) is False
 
+    # No board/classification -> every net fallback -> nothing ambiguous,
+    # even for a bridging-shaped component; typing aliases changes nothing.
     dock.set_board_selection([], [FakeSelected("FB6", "PI_FILTER_FB", "X", {"1": "-2V5", "2": "-2V5_DIRTY"})])
-    assert dock._tabs.isTabVisible(dock._role_net_tab_index) is False  # no aliases typed yet
-
+    assert dock._tabs.isTabVisible(dock._role_net_tab_index) is False
     dock._net_alias_edits["-2V5"].setText("PWR_IN")
     dock._net_alias_edits["-2V5_DIRTY"].setText("PWR_OUT")
+    assert dock._tabs.isTabVisible(dock._role_net_tab_index) is False  # aliases no longer trigger
+
+    # Same shape, now with role evidence -> ambiguous with ZERO typed aliases.
+    main_window.connection.board = _classification_board(monkeypatch, {
+        "C_IN_BULK": {"1": {"-2V5"}, "2": {"GND"}},
+        "C_IN_BYPASS": {"1": {"-2V5_DIRTY"}, "2": {"GND"}},
+        "PI_FILTER_FB": {"1": {"-2V5"}, "2": {"-2V5_DIRTY"}},
+    })
+    dock.set_board_selection(
+        [_fake_fp("FB6")],
+        [FakeSelected("FB6", "PI_FILTER_FB", "X", {"1": "-2V5", "2": "-2V5_DIRTY"}, fp=object())])
     assert dock._tabs.isTabVisible(dock._role_net_tab_index) is True
+    assert "PI_FILTER_FB" in dock._net_template_role_edits
+    assert dock._net_template_role_edits["PI_FILTER_FB"].currentText() == ""
+
+
+def test_role_net_tab_appears_from_classification_without_any_alias(main_window, tmp_path, monkeypatch):
+    """Plan test (c) — the step-5 regression: two different nets of one role
+    (on different pads) that themselves classify make the Net template role
+    tab appear WITHOUT a single manually typed alias."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    main_window.connection.board = _classification_board(monkeypatch, {
+        "C_IN_BULK": {"1": {"-2V5"}, "2": {"GND"}},
+        "C_IN_BYPASS": {"1": {"-2V5_DIRTY"}, "2": {"GND"}},
+        "PI_FILTER_FB": {"1": {"-2V5"}, "2": {"-2V5_DIRTY"}},
+    })
+    dock = ExtractDock(main_window)
+    dock.set_target_file(cells_file)
+    assert dock._tabs.isTabVisible(dock._role_net_tab_index) is False
+
+    dock.set_board_selection(
+        [_fake_fp("FB6")],
+        [FakeSelected("FB6", "PI_FILTER_FB", "X", {"1": "-2V5", "2": "-2V5_DIRTY"}, fp=object())])
+
+    assert dock._tabs.isTabVisible(dock._role_net_tab_index) is True
+    assert set(dock._net_template_role_edits) == {"PI_FILTER_FB"}
+    assert dock._net_template_role_edits["PI_FILTER_FB"].currentText() == ""
+    # No alias was typed anywhere — the tab is driven purely by classification.
+    assert all(not e.text().strip() for e in dock._net_alias_edits.values())
 
 
 def test_net_template_role_blocks_extraction_until_resolved(main_window, tmp_path, monkeypatch):
     cells_file = tmp_path / "cells.yaml"
     _write_yaml(cells_file, {})
+    main_window.connection.board = _classification_board(monkeypatch, {
+        "C_IN_BULK": {"1": {"-2V5"}, "2": {"GND"}},
+        "C_IN_BYPASS": {"1": {"-2V5_DIRTY"}, "2": {"GND"}},
+        "PI_FILTER_FB": {"1": {"-2V5"}, "2": {"-2V5_DIRTY"}},
+    })
+    monkeypatch.setattr(extract_mod, "extract_template_from_selection", _fake_extract)
     dock = ExtractDock(main_window)
     dock.set_target_file(cells_file)
 
-    dock.set_board_selection([], [FakeSelected("FB6", "PI_FILTER_FB", "X", {"1": "-2V5", "2": "-2V5_DIRTY"})])
-    dock._net_alias_edits["-2V5"].setText("PWR_IN")
-    dock._net_alias_edits["-2V5_DIRTY"].setText("PWR_OUT")
+    dock.set_board_selection(
+        [_fake_fp("FB6")],
+        [FakeSelected("FB6", "PI_FILTER_FB", "X", {"1": "-2V5", "2": "-2V5_DIRTY"}, fp=object())])
     assert "PI_FILTER_FB" in dock._net_template_role_edits
-
-    monkeypatch.setattr(extract_mod, "extract_template_from_selection", _fake_extract)
-    main_window.connection.board = FakeBoard()
 
     dock.name_edit.setText("n2v5_adj_pi_filter")
     dock._raw_items = [object()]
