@@ -383,9 +383,14 @@ class DockHub:
         """ConfigTreeDock's add_extract_profile_requested delegate — same
         reasoning as _start_new_placement above, for ExtractDock's profile
         preparation (see extract.py's prepare_new_profile — deliberately not
-        a blank form like the other Add-actions)."""
-        self.extract_dock.prepare_new_profile(file_path)
+        a blank form like the other Add-actions). The Extract page is shown
+        BEFORE preparing (bug 1, 2026-08-13): prepare_new_profile ends with
+        profile_key_edit.setFocus(), and a setFocus on a page that isn't yet
+        the current one in the QStackedWidget doesn't stick — the checkbox
+        would still turn on, but the intended visible signal (focus in the
+        profile-key field) would be silently lost."""
         self.detail_dock.show_extract()
+        self.extract_dock.prepare_new_profile(file_path)
 
     def _edit_cell(self, name, file_path) -> None:
         """ConfigTreeDock's cell_edit_requested delegate — right-click

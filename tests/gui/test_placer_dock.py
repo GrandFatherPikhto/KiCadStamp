@@ -974,6 +974,36 @@ def test_do_autofill_nets_leaves_ambiguous_role_for_manual_entry(main_window, tm
     assert any("PI_FB" in r.message for r in caplog.records)
 
 
+def test_finish_autofill_nets_silence_comes_from_the_result_not_a_field(main_window, tmp_path, caplog):
+    """Bug 2 (handoff_2026_08_13_focus_and_autorole_bugs): quiet travels
+    through the payload/result, NOT a shared dock field — a second auto-fill
+    started while the first is still running can no longer overwrite the
+    first's silence flag. The manual button (quiet=False) shows the full
+    success line; the auto-trigger (quiet=True) stays silent on full success,
+    read from THIS run's own result."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)  # cell has role C_IN
+
+    dock._finish_autofill_nets({"suggestions": {"C_IN": "+3V3"}, "roles": ["C_IN"], "quiet": False})
+    assert any("Auto-filled all 1 role(s)" in r.message for r in caplog.records)
+
+    caplog.clear()
+    dock._finish_autofill_nets({"suggestions": {"C_IN": "+3V3"}, "roles": ["C_IN"], "quiet": True})
+    assert not any("Auto-filled all 1 role(s)" in r.message for r in caplog.records)
+
+
+def test_collect_autofill_nets_inputs_carries_quiet_in_the_payload(main_window, tmp_path):
+    """The quiet flag starts its payload->result trip in _collect_autofill_nets_
+    inputs — without it the worker can't echo it back (bug 2 regression guard)."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock.anchor_cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
+    main_window.connection.board = _FakeNetBoard([_FakeNet("+3V3")])
+
+    payload = dock._collect_autofill_nets_inputs(quiet=True)
+
+    assert payload is not None
+    assert payload["quiet"] is True
+
+
 def test_do_autofill_nets_does_not_stomp_a_row_it_could_not_resolve(main_window, tmp_path):
     """A role Auto-fill can't determine keeps whatever was already typed for
     it — same "never overwrite an already-filled value" discipline as every

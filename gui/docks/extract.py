@@ -973,9 +973,17 @@ class ExtractDock(QWidget):
             if not s.role:
                 continue
             distinct_nets = set(s.nets.values())
+            # Bug 3 (2026-08-13): a net marked "Rule net" is excluded — at
+            # extraction it becomes net: null (template_extraction.py:
+            # `if via_net in rule_nets: via_net = None` before
+            # _suggest_net_from_role), so it takes NO part in the role
+            # classification and must not make the role look ambiguous (or
+            # the user would be forced into a net_template_role pick that
+            # isn't actually needed, seeding a junk params entry).
             classifying = sorted(
                 n for n in distinct_nets
-                if self._net_auto_roles.get(n) and self._net_auto_roles[n][0] != "fallback")
+                if self._net_auto_roles.get(n) and self._net_auto_roles[n][0] != "fallback"
+                and not self._is_rule_net_checked(n))
             if len(classifying) >= 2:
                 ambiguous[s.role] = classifying
 
@@ -1085,6 +1093,15 @@ class ExtractDock(QWidget):
                 out[net] = ("pad", role)
         return out
 
+    def _is_rule_net_checked(self, net: str) -> bool:
+        """Whether the net's "Rule net (null)" checkbox is currently checked —
+        the one composite predicate shared by every place deciding whether a
+        net still counts "by role": the net-template-role ambiguity trigger
+        (bug 3), the Auto-role column/tooltip (bug 5) and the Alias edit's
+        disabled state (pre-existing, 2026-08-05)."""
+        checkbox = self._rule_net_checkboxes.get(net)
+        return checkbox is not None and checkbox.isChecked()
+
     def _refresh_auto_role_cells(self) -> None:
         """Update the read-only Auto-role column text and the Alias edit
         disabled/tooltip state for the CURRENT rows, in place (no rebuild) —
@@ -1097,19 +1114,30 @@ class ExtractDock(QWidget):
                 continue
             net = net_item.text()
             category, role = self._net_auto_roles.get(net, ("fallback", None))
+            rule_checked = self._is_rule_net_checked(net)
+            # Bug 5 (2026-08-13): a net counts "by role" only when it
+            # classifies AND isn't marked Rule net — with the checkbox set,
+            # extraction writes net: null and the role has nothing to do with
+            # it, so the Auto-role column and tooltip must not claim
+            # otherwise (the Alias edit was already correctly disabled).
+            by_role = category != "fallback" and not rule_checked
             role_item = self.nets_table.item(row, 3)
             if role_item is not None:
                 role_item.setText(
-                    _("role: {role}").format(role=role) if category != "fallback" else "")
+                    _("role: {role}").format(role=role) if by_role else "")
             edit = self._net_alias_edits.get(net)
             if edit is not None:
-                if category != "fallback":
+                if by_role:
                     edit.setToolTip(
                         _("This net already resolves via Role {role!r} — a typed "
                           "alias here would be ignored at apply time").format(role=role))
-                checkbox = self._rule_net_checkboxes.get(net)
-                checked = checkbox is not None and checkbox.isChecked()
-                edit.setDisabled(checked or category != "fallback")
+                else:
+                    # Bug 4 (2026-08-13): a net that goes back to fallback (or
+                    # gets Rule net checked) must LOSE the stale by-role
+                    # tooltip — the field is enabled again, so the old "your
+                    # input will be ignored" tip was a lie.
+                    edit.setToolTip("")
+                edit.setDisabled(rule_checked or category != "fallback")
 
     def _rebuild_net_aliases(self, filtered_selection=None) -> None:
         """One row per distinct net found on the selected components' pads.

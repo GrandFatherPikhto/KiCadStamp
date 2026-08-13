@@ -636,10 +636,6 @@ class PlacerDock(QWidget):
         self._root_path: Optional[Path] = None
         self._selected_cell: Optional[str] = None
         self._param_edits: Dict[str, QComboBox] = {}
-        # Full-success auto-fill is silent for the AUTO-trigger (plan
-        # 2026-08-13, p.2) so the status line isn't spammed on every
-        # Cell/Cluster pick; the manual button always shows the verbose text.
-        self._autofill_quiet_success = False
         self._known_nets: List[str] = []
         # G4.4 cache (2026-08-12, carried over from the merged-in coordinate
         # dock): last-tick known-value SETS — refresh_known_roles skips the
@@ -1078,8 +1074,10 @@ class PlacerDock(QWidget):
         a live board read (get_footprints/get_footprint_pads) over the
         shared kipy socket. quiet=True (the auto-trigger, plan 2026-08-13
         p.2) suppresses the full-success status message; the manual button
-        keeps the verbose one."""
-        self._autofill_quiet_success = quiet
+        keeps the verbose one. `quiet` is carried through the payload/result
+        (see _collect_autofill_nets_inputs) — NOT a shared dock field (bug 2,
+        2026-08-13), so two overlapping runs can't clobber each other's
+        flag."""
         self._show_message("")
         payload = self._collect_autofill_nets_inputs(quiet=quiet)
         if payload is None:
@@ -1099,7 +1097,6 @@ class PlacerDock(QWidget):
         if self.anchor_cluster_edit is None \
                 or not self.anchor_cluster_edit.currentText().strip():
             return
-        self._autofill_quiet_success = True
         payload = self._collect_autofill_nets_inputs(quiet=True)
         if payload is None:
             return
@@ -1135,13 +1132,16 @@ class PlacerDock(QWidget):
             if not quiet:
                 self._show_message(_("Not connected."), _ERROR_STYLE)
             return None
-        return {"adapter": board.adapter, "roles": roles, "cluster": cluster}
+        # `quiet` rides along in the payload (and is echoed back in the
+        # worker's result) instead of a shared dock field — bug 2, 2026-08-13.
+        return {"adapter": board.adapter, "roles": roles, "cluster": cluster,
+                "quiet": quiet}
 
     @staticmethod
     def _run_autofill_nets(payload: Dict[str, Any]) -> Dict[str, Any]:
         """Worker thread: live board read only, never touches a widget."""
         suggestions = suggest_role_nets_from_cluster(payload["adapter"], payload["roles"], payload["cluster"])
-        return {"suggestions": suggestions, "roles": payload["roles"]}
+        return {"suggestions": suggestions, "roles": payload["roles"], "quiet": payload["quiet"]}
 
     def _finish_autofill_nets(self, result: Dict[str, Any]) -> None:
         """UI thread: merge suggested role->net pairs into the Nets table,
@@ -1151,10 +1151,12 @@ class PlacerDock(QWidget):
         overwrite here would silently clobber manual edits on each re-fire;
         the manual button gets the same, strictly safer behaviour for free.
         Also reports what was/wasn't filled; the auto-trigger's full success
-        is silent (see _autofill_quiet_success)."""
+        is silent. `quiet` is read from the RESULT dict (bug 2, 2026-08-13),
+        not a shared dock field — a second auto-fill started while this one
+        was still running can no longer flip this run's silence."""
         suggestions = result["suggestions"]
         roles = result["roles"]
-        quiet = self._autofill_quiet_success
+        quiet = result["quiet"]
         data = self.nets_table.to_dict()
         filled = {role: net for role, net in suggestions.items()
                   if not data.get(role, "").strip()}
@@ -1201,7 +1203,6 @@ class PlacerDock(QWidget):
         """Synchronous composition of collect + run + finish — same
         "for tests" shape as _do_redraw (manual-button semantics: verbose
         success message)."""
-        self._autofill_quiet_success = False
         payload = self._collect_autofill_nets_inputs()
         if payload is None:
             return

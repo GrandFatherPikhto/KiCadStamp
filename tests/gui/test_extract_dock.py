@@ -208,6 +208,93 @@ def test_auto_role_gnd_is_fallback_not_pretend_owned(main_window, tmp_path, monk
     assert dock._net_alias_edits["+3V3"].isEnabled() is False
 
 
+# ── 2026-08-13 bug fixes: Rule net vs classification, stale tooltip ───────
+
+def test_rule_net_checked_net_does_not_make_the_role_ambiguous(main_window, tmp_path, monkeypatch):
+    """Bug 3 (handoff_2026_08_13_focus_and_autorole_bugs): a net marked
+    "Rule net" is excluded from the net-template-role ambiguity trigger — at
+    extraction it becomes net: null and takes NO part in the role
+    classification (template_extraction.py zeroes rule_nets before
+    _suggest_net_from_role), so it must not force a net_template_role pick
+    (which would seed a junk params entry)."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    main_window.connection.board = _classification_board(monkeypatch, {
+        "PI_FILTER_FB": {"1": {"-2V5"}, "2": {"-2V5_DIRTY"}},
+    })
+    dock = ExtractDock(main_window)
+    dock.set_target_file(cells_file)
+    dock.set_board_selection(
+        [_fake_fp("FB6")],
+        [FakeSelected("FB6", "PI_FILTER_FB", "X", {"1": "-2V5", "2": "-2V5_DIRTY"}, fp=object())])
+
+    # Both nets classify by role -> ambiguous without any Rule net.
+    assert dock._tabs.isTabVisible(dock._role_net_tab_index) is True
+    assert "PI_FILTER_FB" in dock._net_template_role_edits
+
+    # Check "Rule net" on one of them -> it no longer counts -> not ambiguous.
+    dock._rule_net_checkboxes["-2V5"].setChecked(True)
+    dock._update_net_template_role_rows()
+
+    assert dock._tabs.isTabVisible(dock._role_net_tab_index) is False
+    assert "PI_FILTER_FB" not in dock._net_template_role_edits
+
+
+def test_refresh_auto_role_cells_clears_a_stale_by_role_tooltip(main_window, tmp_path, monkeypatch):
+    """Bug 4: when a net drops out of "classifies by role" back to fallback
+    (same net NAMES, different role evidence), the Alias field is re-enabled
+    AND its stale by-role tooltip is cleared — the old "your input will be
+    ignored" tip must not keep lying on a now-live field."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    main_window.connection.board = _classification_board(monkeypatch, {
+        "R_SERIES": {"1": {"FPGA_SIG"}, "2": {"FPGA_SIG"}},
+    })
+    dock = ExtractDock(main_window)
+    dock.set_target_file(cells_file)
+    dock.set_board_selection(
+        [_fake_fp("R1")],
+        [FakeSelected("R1", "R_SERIES", "X", {"1": "FPGA_SIG", "2": "FPGA_SIG"}, fp=object())])
+
+    edit = dock._net_alias_edits["FPGA_SIG"]
+    assert edit.toolTip() != ""  # by-role tooltip set while classified
+
+    dock._net_auto_roles["FPGA_SIG"] = ("fallback", None)  # same net, no role evidence now
+    dock._refresh_auto_role_cells()
+
+    assert edit.toolTip() == ""
+    assert edit.isEnabled() is True
+
+
+def test_refresh_auto_role_cells_ignores_a_rule_net_checked_net(main_window, tmp_path, monkeypatch):
+    """Bug 5: a net marked "Rule net" must NOT show "role: X" in the
+    Auto-role column nor the by-role tooltip — extraction writes net: null
+    for it, the role has nothing to do with it (the Alias edit was already
+    correctly disabled; the column/tooltip just misled about the CAUSE)."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    main_window.connection.board = _classification_board(monkeypatch, {
+        "R_SERIES": {"1": {"FPGA_SIG"}, "2": {"FPGA_SIG"}},
+    })
+    dock = ExtractDock(main_window)
+    dock.set_target_file(cells_file)
+    dock.set_board_selection(
+        [_fake_fp("R1")],
+        [FakeSelected("R1", "R_SERIES", "X", {"1": "FPGA_SIG", "2": "FPGA_SIG"}, fp=object())])
+
+    row = next(r for r in range(dock.nets_table.rowCount())
+               if dock.nets_table.item(r, 0).text() == "FPGA_SIG")
+    assert dock.nets_table.item(row, 3).text() == "role: R_SERIES"
+
+    dock._rule_net_checkboxes["FPGA_SIG"].setChecked(True)
+    dock._refresh_auto_role_cells()  # deterministic under test
+
+    assert dock.nets_table.item(row, 3).text() == ""
+    assert dock._net_alias_edits["FPGA_SIG"].toolTip() == ""
+    # still disabled — now for the Rule-net reason, not the role
+    assert dock._net_alias_edits["FPGA_SIG"].isEnabled() is False
+
+
 # ── Cell/Profile file pickers as independent combos (2026-08-06, Denis:
 # "имя файла, куда пишем extract и cell... тоже, выпадашками" — un-couples
 # them from always following the same ConfigTreeDock click) ─────────────

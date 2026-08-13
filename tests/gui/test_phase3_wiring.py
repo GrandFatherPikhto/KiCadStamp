@@ -341,6 +341,28 @@ def test_add_extract_profile_requested_arms_extract_and_shows_tab(real_main_wind
     assert real_main_window._dock_hub.detail_dock.stack.currentWidget() is real_main_window.extract_dock
 
 
+def test_add_extract_profile_requested_shows_extract_before_preparing(main_window, tmp_path):
+    """Bug 1 (handoff_2026_08_13_focus_and_autorole_bugs): prepare_new_profile
+    ends with profile_key_edit.setFocus(), and a setFocus on a page that isn't
+    yet the current one in the QStackedWidget doesn't stick (Qt) — the visible
+    focus signal would be silently lost even though the checkbox still turns
+    on. The Extract page must be shown BEFORE the dock is prepared."""
+    hub = DockHub(main_window, connection=main_window.connection, verbose=False)
+    try:
+        calls = []
+        original_show = hub.detail_dock.show_extract
+        hub.detail_dock.show_extract = lambda: (calls.append("show"), original_show())[1]
+        hub.extract_dock.prepare_new_profile = lambda p: calls.append("prepare")
+
+        profiles_file = tmp_path / "profiles.yaml"
+        _write(profiles_file)
+        hub._start_new_extract_profile(profiles_file)
+
+        assert calls == ["show", "prepare"]
+    finally:
+        _teardown_hub(hub)
+
+
 def test_file_selected_alone_shows_root_page(real_main_window, tmp_path):
     """A plain file/category click (file_selected fires with no matching
     leaf signal) falls back to the Root page — Denis's chosen auto-switch
