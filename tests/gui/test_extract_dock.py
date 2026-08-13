@@ -295,6 +295,67 @@ def test_refresh_auto_role_cells_ignores_a_rule_net_checked_net(main_window, tmp
     assert dock._net_alias_edits["FPGA_SIG"].isEnabled() is False
 
 
+# ── Tail of bug 5 (handoff_2026_08_13_autorole_rule_net_tail): the same
+# "by role only when not Rule net" predicate in the other two paths ────────
+
+def test_rule_net_click_immediately_clears_the_auto_role_visuals(main_window, tmp_path, monkeypatch):
+    """Tail case (a): the Rule-net checkbox handler must refresh the Auto-role
+    column/tooltip SYNCHRONOUSLY on the click — not wait ~400ms for the next
+    _refresh_auto_role_cells tick (the Alias edit was already cleared/disabled
+    instantly, but the column kept claiming "role: X" in the meantime)."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    main_window.connection.board = _classification_board(monkeypatch, {
+        "R_SERIES": {"1": {"FPGA_SIG"}, "2": {"FPGA_SIG"}},
+    })
+    dock = ExtractDock(main_window)
+    dock.set_target_file(cells_file)
+    dock.set_board_selection(
+        [_fake_fp("R1")],
+        [FakeSelected("R1", "R_SERIES", "X", {"1": "FPGA_SIG", "2": "FPGA_SIG"}, fp=object())])
+
+    row = next(r for r in range(dock.nets_table.rowCount())
+               if dock.nets_table.item(r, 0).text() == "FPGA_SIG")
+    assert dock.nets_table.item(row, 3).text() == "role: R_SERIES"
+
+    # Click the checkbox — NO _refresh_auto_role_cells() tick in between.
+    dock._rule_net_checkboxes["FPGA_SIG"].setChecked(True)
+
+    assert dock.nets_table.item(row, 3).text() == ""
+    assert dock._net_alias_edits["FPGA_SIG"].toolTip() == ""
+
+
+def test_rebuilt_table_row_respects_a_restored_rule_net_checkbox(main_window, tmp_path, monkeypatch):
+    """Tail case (b): a full net-table rebuild (net-name set changed) with a
+    previously-checked Rule net for the same net name must bring the fresh row
+    in ALREADY showing no "role: X" and no by-role tooltip — not rebuild it
+    from the raw classification and wait for the next tick to correct it."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    main_window.connection.board = _classification_board(monkeypatch, {
+        "R_SERIES": {"1": {"FPGA_SIG"}, "2": {"FPGA_SIG"}},
+    })
+    dock = ExtractDock(main_window)
+    dock.set_target_file(cells_file)
+    # First selection: FPGA_SIG classified by role; mark it Rule net.
+    dock.set_board_selection(
+        [_fake_fp("R1")],
+        [FakeSelected("R1", "R_SERIES", "X", {"1": "FPGA_SIG", "2": "FPGA_SIG"}, fp=object())])
+    dock._rule_net_checkboxes["FPGA_SIG"].setChecked(True)
+
+    # Different net set (GND appears) -> full rebuild, not the inline path.
+    dock.set_board_selection(
+        [_fake_fp("R2")],
+        [FakeSelected("R2", "R_SERIES", "X", {"1": "FPGA_SIG", "2": "GND"}, fp=object())])
+
+    row = next(r for r in range(dock.nets_table.rowCount())
+               if dock.nets_table.item(r, 0).text() == "FPGA_SIG")
+    # checkbox restored checked, so the fresh row is already role-free
+    assert dock._rule_net_checkboxes["FPGA_SIG"].isChecked() is True
+    assert dock.nets_table.item(row, 3).text() == ""
+    assert dock._net_alias_edits["FPGA_SIG"].toolTip() == ""
+
+
 # ── Cell/Profile file pickers as independent combos (2026-08-06, Denis:
 # "имя файла, куда пишем extract и cell... тоже, выпадашками" — un-couples
 # them from always following the same ConfigTreeDock click) ─────────────
