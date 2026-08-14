@@ -522,13 +522,15 @@ class ClonePlacement:
     anchor_sheet: str | None = None
     # Cluster — second custom field (see constants.CLUSTER_FIELD_NAME),
     # physical instance/cluster, independent of anchor_ref/anchor_role.
-    # Used in TWO places: (1) narrowing search for anchor_role (like anchor_sheet,
-    # but via a different field), (2) narrowing ambiguous roles INSIDE the
-    # cell in resolve_roles_by_nets (replacing the dead _sheet_key step —
-    # typical case: 4 identical C_IN_BULK on one sheet, but no sheet separator
-    # because they share a common power rail). Comparison is by PREFIX segments
-    # ('Channel_1' matches both 'Channel_1' and 'Channel_1/1V2_PLL_PI_FILTER'),
-    # not by exact equality — hierarchy and flat names work with the same code.
+    # Used in ONE place: narrowing the search for anchor_role only (like
+    # anchor_sheet, but via a different field — see resolve_footprint_by_role
+    # in clone_role_resolver.py). Cluster-based narrowing of roles INSIDE the
+    # cell instead uses this placement's own `name` (see role_narrowing.py::
+    # _narrow_ambiguous_candidates) — split 2026-08-14, the two were conflated
+    # into this one field before (Денис: печатать Cluster дважды было лишним).
+    # Comparison is by PREFIX segments ('Channel_1' matches both 'Channel_1'
+    # and 'Channel_1/1V2_PLL_PI_FILTER'), not by exact equality — hierarchy
+    # and flat names work with the same code.
     anchor_cluster: str | None = None
     # Alternative to anchor_ref/anchor_role — name of a points: entry (see
     # config/points.py). Mutually exclusive with anchor_ref/anchor_role

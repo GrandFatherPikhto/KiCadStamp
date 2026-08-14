@@ -984,15 +984,17 @@ def test_autofill_nets_requires_a_cell(main_window, caplog):
     assert any("Pick a Cell first" in r.message for r in caplog.records)
 
 
-def test_autofill_nets_requires_anchor_cluster(main_window, tmp_path, caplog):
+def test_autofill_nets_requires_placement_cluster(main_window, tmp_path, caplog):
+    """Split 2026-08-14: the Auto-fill query key is now the Source tab's
+    Cluster field (clone.name), not the Origin tab's Anchor cluster."""
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
     dock._do_autofill_nets()
-    assert any("Anchor cluster" in r.message for r in caplog.records)
+    assert any("Set Cluster on the Source tab first" in r.message for r in caplog.records)
 
 
 def test_autofill_nets_requires_board_connection(main_window, tmp_path, caplog):
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
-    dock.anchor_cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
+    dock.cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
     main_window.connection.board = None
 
     dock._do_autofill_nets()
@@ -1002,7 +1004,7 @@ def test_autofill_nets_requires_board_connection(main_window, tmp_path, caplog):
 
 def test_do_autofill_nets_fills_unambiguous_role(main_window, tmp_path, caplog):
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)  # single role "C_IN"
-    dock.anchor_cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
+    dock.cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
     main_window.connection.board = _FakeAutofillBoard([
         _FakeAutofillFootprint("C22", "C_IN", "Out_Pi_Filter_N2V5", ["+1V2", "GND"]),
     ])
@@ -1015,7 +1017,7 @@ def test_do_autofill_nets_fills_unambiguous_role(main_window, tmp_path, caplog):
 
 def test_do_autofill_nets_leaves_ambiguous_role_for_manual_entry(main_window, tmp_path, caplog):
     dock, _, _ = _make_two_role_cell_and_dock(main_window, tmp_path)
-    dock.anchor_cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
+    dock.cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
     main_window.connection.board = _FakeAutofillBoard([
         _FakeAutofillFootprint("C22", "C_IN_BULK", "Out_Pi_Filter_N2V5", ["+1V2"]),
         # PI_FB bridges two nets -> not reducible to one identifying net.
@@ -1050,7 +1052,7 @@ def test_collect_autofill_nets_inputs_carries_quiet_in_the_payload(main_window, 
     """The quiet flag starts its payload->result trip in _collect_autofill_nets_
     inputs — without it the worker can't echo it back (bug 2 regression guard)."""
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
-    dock.anchor_cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
+    dock.cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
     main_window.connection.board = _FakeNetBoard([_FakeNet("+3V3")])
 
     payload = dock._collect_autofill_nets_inputs(quiet=True)
@@ -1065,7 +1067,7 @@ def test_do_autofill_nets_does_not_stomp_a_row_it_could_not_resolve(main_window,
     other auto-fill in this GUI (ExtractDock's cluster autofill, etc.)."""
     dock, _, _ = _make_two_role_cell_and_dock(main_window, tmp_path)
     dock.nets_table.load_dict({"PI_FB": "+1V2_VCCINT"})  # typed by hand earlier
-    dock.anchor_cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
+    dock.cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
     main_window.connection.board = _FakeAutofillBoard([
         _FakeAutofillFootprint("C22", "C_IN_BULK", "Out_Pi_Filter_N2V5", ["+1V2"]),
         _FakeAutofillFootprint("FB6", "PI_FB", "Out_Pi_Filter_N2V5", ["+1V2", "+1V2_VCCINT"]),
@@ -1078,7 +1080,7 @@ def test_do_autofill_nets_does_not_stomp_a_row_it_could_not_resolve(main_window,
 
 def test_on_autofill_nets_dispatches_to_worker(main_window, tmp_path, monkeypatch):
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
-    dock.anchor_cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
+    dock.cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
     main_window.connection.board = _FakeAutofillBoard([])
 
     captured = {}
@@ -1120,7 +1122,7 @@ def test_do_autofill_nets_does_not_overwrite_a_prefilled_role(main_window, tmp_p
     re-fire; the manual button gets the same, strictly safer behaviour)."""
     dock, _, _ = _make_two_role_cell_and_dock(main_window, tmp_path)
     dock.nets_table.load_dict({"C_IN_BULK": "+1V2_VCCINT"})  # typed by hand
-    dock.anchor_cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
+    dock.cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
     main_window.connection.board = _FakeAutofillBoard([
         _FakeAutofillFootprint("C22", "C_IN_BULK", "Out_Pi_Filter_N2V5", ["+1V2"]),
         _FakeAutofillFootprint("FB6", "PI_FB", "Out_Pi_Filter_N2V5", ["+1V2", "+1V2_VCCINT"]),
@@ -1147,19 +1149,19 @@ def test_auto_trigger_fires_on_commit_not_typing(main_window, tmp_path, monkeypa
     calls = []
     monkeypatch.setattr(dock, "_start_autofill_nets_op", lambda payload: calls.append(payload))
 
-    line_edit = dock.anchor_cluster_edit.lineEdit()
+    line_edit = dock.cluster_edit.lineEdit()
     # Typing (per-keystroke text change) must NOT fire.
     line_edit.setText("Out_Pi")
     line_edit.textChanged.emit("Out_Pi")
     assert calls == []
 
     # Commit the cluster via editingFinished (Enter/focus-out) -> fires once.
-    dock.anchor_cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
+    dock.cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
     line_edit.editingFinished.emit()
     assert len(calls) == 1
 
     # Picking the cluster from the dropdown (activated) fires too.
-    dock.anchor_cluster_edit.activated.emit(0)
+    dock.cluster_edit.activated.emit(0)
     assert len(calls) == 2
 
     # Picking a Cell with a ready cluster fires as well.
@@ -1181,11 +1183,33 @@ def test_auto_trigger_no_ops_without_cell_or_cluster(main_window, tmp_path, monk
     dock._maybe_autofill_nets()  # cell set (fixture), but no cluster yet
     assert calls == []
 
-    dock.anchor_cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
+    dock.cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
     dock.new_placement(dock._placer_path)  # clears the cell
     dock._maybe_autofill_nets()  # cluster set, but no cell now
     assert calls == []
     assert len(caplog.records) == before  # silent no-op: nothing logged
+
+
+def test_auto_trigger_ignores_anchor_cluster_edit(main_window, tmp_path, monkeypatch):
+    """Split 2026-08-14: the auto-trigger now fires on the Source tab's
+    Cluster field only — committing the Origin tab's Anchor cluster
+    (anchor_cluster_edit) must NOT trigger role auto-fill anymore, even when
+    the rest of the pair (cell + Cluster) is ready."""
+    dock, _, _ = _make_two_role_cell_and_dock(main_window, tmp_path)
+    main_window.connection.board = _FakeAutofillBoard([])
+    calls = []
+    monkeypatch.setattr(dock, "_start_autofill_nets_op", lambda payload: calls.append(payload))
+
+    dock.cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")  # pair is otherwise ready
+
+    dock.anchor_cluster_edit.setCurrentText("Some_Anchor_Cluster")
+    dock.anchor_cluster_edit.activated.emit(0)
+    dock.anchor_cluster_edit.lineEdit().editingFinished.emit()
+    assert calls == []
+
+    # Sanity: the same commit on cluster_edit DOES fire.
+    dock.cluster_edit.activated.emit(0)
+    assert len(calls) == 1
 
 
 def test_params_section_hidden_for_cell_without_placeholders(main_window, tmp_path):

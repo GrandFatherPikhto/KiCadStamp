@@ -1736,13 +1736,13 @@ msgstr "Перерисовать"
 msgid "literal net for {{{name}}}"
 msgstr "буквальная цепь для {{{name}}}"
 
-#: gui/docks/placer.py:1036
+#: gui/docks/placer.py:1160
 msgid ""
-"Set Anchor cluster on the Origin tab first — Auto-fill searches the live "
+"Set Cluster on the Source tab first — Auto-fill searches the live "
 "board by Role + that Cluster (prefix match), same signal the by-nets "
 "resolver's own narrowing already uses."
 msgstr ""
-"Сначала задайте Anchor cluster на вкладке Origin — Auto-fill ищет на живой "
+"Сначала задайте Cluster на вкладке Source — Auto-fill ищет на живой "
 "плате по Role + этому Cluster (сопоставление по префиксу), тот же сигнал, "
 "что использует сужение by-nets резолвера."
 
@@ -5848,13 +5848,14 @@ msgstr ""
 "[{name}] роль {role!r} -> {ref} (уникальна на всей плате, выделение не "
 "нужно)"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:177
+#: kicadstamp/placement/services/clone_role_resolver.py:235
 #, python-brace-format
 msgid ""
 "role {role!r} is in cell, not found in selection, and ambiguous on board "
-"({count} candidates: {refs}){note} — set anchor_cluster, OR select the "
-"desired instance on the board before running"
-msgstr "роль {role!r} есть в шаблоне, не найдена в выделении и неоднозначна на плате ({count} кандидатов: {refs}){note} — задайте anchor_cluster, ИЛИ выделите нужный экземпляр на плате перед запуском"
+"({count} candidates: {refs}){note} — check this placement's own Cluster "
+"(name) is tagged correctly on the board, and/or set anchor_sheet, OR "
+"select the desired instance on the board before running"
+msgstr "роль {role!r} есть в шаблоне, не найдена в выделении и неоднозначна на плате ({count} кандидатов: {refs}){note} — проверьте, что собственный Cluster (name) этого размещения корректно помечен на плате, и/или задайте anchor_sheet, ИЛИ выделите нужный экземпляр на плате перед запуском"
 
 #: kicadstamp/placement/services/clone_role_resolver.py:184
 #, python-brace-format
@@ -5913,33 +5914,34 @@ msgstr ""
 msgid "anchor_sheet {sheet!r}"
 msgstr "anchor_sheet {sheet!r}"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:325
+#: kicadstamp/placement/services/clone_role_resolver.py:396
 #, python-brace-format
-msgid "anchor_cluster {cluster!r}"
-msgstr "anchor_cluster {cluster!r}"
+msgid "this placement's Cluster {cluster!r}"
+msgstr "собственный Cluster этого размещения {cluster!r}"
 
 #: kicadstamp/placement/services/clone_role_resolver.py:327
 #, python-brace-format
 msgid " (already narrowed by {narrowed_by}, but not enough)"
 msgstr " (уже сужено по {narrowed_by}, но недостаточно)"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:329
+#: kicadstamp/placement/services/clone_role_resolver.py:400
 
 msgid ""
-" (neither anchor_sheet nor Cluster set — if these components are "
-"physically different instances, one of them would narrow to one)"
-msgstr " (не заданы ни anchor_sheet, ни Cluster — если эти компоненты физически разные экземпляры, один из них сузился бы до одного)"
+" (neither anchor_sheet nor this placement's Cluster set — if these "
+"components are physically different instances, one of them would narrow "
+"to one)"
+msgstr " (не заданы ни anchor_sheet, ни собственный Cluster этого размещения — если эти компоненты физически разные экземпляры, один из них сузился бы до одного)"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:332
+#: kicadstamp/placement/services/clone_role_resolver.py:403
 #, python-brace-format
 msgid ""
 "role {role!r}: ambiguity — {count} components on net "
-"{net!r}{cluster_hint}{note}: {refs}. Solutions: set anchor_sheet and/or "
-"anchor_cluster (if assigned in the schematic), OR select the desired "
-"instance on the board before running, OR split roles by net names in the "
-"schematic (e.g. DAC_PI_3V3_C1 vs DAC_PI_AVDD_C1), OR use explicit refs: "
-"{{ {role}: {first_ref} }}"
-msgstr "роль {role!r}: неоднозначность — компонентов на цепи {net!r}: {count}{cluster_hint}{note}: {refs}. Решения: задайте anchor_sheet и/или anchor_cluster (если назначены в схеме), ИЛИ выделите нужный экземпляр на плате перед запуском, ИЛИ разделите роли по именам цепей в схеме (например, DAC_PI_3V3_C1 против DAC_PI_AVDD_C1), ИЛИ используйте явные refs: {{ {role}: {first_ref} }}"
+"{net!r}{cluster_hint}{note}: {refs}. Solutions: check this placement's own "
+"Cluster (name) is tagged correctly on the board, and/or set anchor_sheet, "
+"OR select the desired instance on the board before running, OR split roles "
+"by net names in the schematic (e.g. DAC_PI_3V3_C1 vs DAC_PI_AVDD_C1), OR "
+"use explicit refs: {{ {role}: {first_ref} }}"
+msgstr "роль {role!r}: неоднозначность — компонентов на цепи {net!r}: {count}{cluster_hint}{note}: {refs}. Решения: проверьте, что собственный Cluster (name) этого размещения корректно помечен на плате, и/или задайте anchor_sheet, ИЛИ выделите нужный экземпляр на плате перед запуском, ИЛИ разделите роли по именам цепей в схеме (например, DAC_PI_3V3_C1 против DAC_PI_AVDD_C1), ИЛИ используйте явные refs: {{ {role}: {first_ref} }}"
 
 #: kicadstamp/placement/services/clone_role_resolver.py:343
 #, python-brace-format

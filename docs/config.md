@@ -267,8 +267,9 @@ clone_placements:
   role inside the cell resolves against a real net, via `nets:` (literal `role: net`) and/or
   `params:` (fills `{placeholder}`s in the cell's own `net_template:` fields, same substitution as
   via/track `net:`). Ambiguous candidates (2+ matching the resolved net) are narrowed by
-  `anchor_sheet` → `Cluster` → current board selection → physical proximity to the anchor → a fatal
-  error, in that order — see `clone_role_resolver.py`'s docstrings for the exact cascade.
+  `anchor_sheet` → the placement's own `Cluster` (its `name:` — NOT `anchor_cluster`, which narrows
+  only the anchor, see "Anchored" above) → current board selection → physical proximity to the anchor
+  → a fatal error, in that order — see `clone_role_resolver.py`'s docstrings for the exact cascade.
 - **By selection** (rare, one-off sections — a single MCU), when `params`/`nets` are absent (or
   `by_selection: true` explicitly, if `params` is present only for via/track net resolution and would
   otherwise be misread as "by nets" mode): roles resolve against whatever's currently selected on the

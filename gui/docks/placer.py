@@ -708,6 +708,15 @@ class PlacerDock(QWidget):
         self.cluster_edit.lineEdit().setPlaceholderText(_("Cluster / clone_placement name"))
         form.addRow(_("Cluster:"), self.cluster_edit)
         source_page_layout.addWidget(self._name_row)
+        # Auto-fill on the PLACEMENT's Cluster COMMIT (plan 2026-08-13, p.2;
+        # re-tied to cluster_edit 2026-08-14, split anchor_cluster: the
+        # auto-fill query key is clone.name, not anchor_cluster): activated =
+        # a pick from the dropdown list, editingFinished = commit of typed
+        # text (Enter / focus loss). Deliberately NOT currentTextChanged/
+        # editTextChanged — those fire on every keystroke and would flood the
+        # kipy socket with live board reads while the user is still typing.
+        self.cluster_edit.activated.connect(self._maybe_autofill_nets)
+        self.cluster_edit.lineEdit().editingFinished.connect(self._maybe_autofill_nets)
 
         # Single-component (CoordinatePlacement) identity row on the SOURCE
         # tab (2026-08-13, plan coordinate_identity_on_source_tab, Denis:
@@ -756,11 +765,14 @@ class PlacerDock(QWidget):
         # Auto-fill from board (2026-08-12, Denis: "если есть проблема, её
         # можно сразу решить в ручном режиме" — fill what's unambiguous from
         # the live board, leave the rest as empty rows for manual entry
-        # rather than blocking on it). Uses the Origin tab's Anchor cluster
-        # field as the query key — the SAME clone.anchor_cluster signal
-        # resolve_roles_by_nets's own narrowing (step 3) already relies on,
-        # not a new convention. See suggest_role_nets_from_cluster's own
-        # docstring for exactly what it will and won't fill in.
+        # rather than blocking on it). Uses the Source tab's Cluster field
+        # (cluster_edit, which writes clone.name) as the query key — the SAME
+        # clone.name signal resolve_roles_by_nets's own narrowing (step 3)
+        # already relies on, not a new convention (re-tied 2026-08-14, split
+        # anchor_cluster: it was wrongly reading the Origin tab's Anchor
+        # cluster before, the field that narrows only the anchor). See
+        # suggest_role_nets_from_cluster's own docstring for exactly what it
+        # will and won't fill in.
         autofill_row = QHBoxLayout()
         self.autofill_nets_button = QPushButton(_("Auto-fill from board"))
         self.autofill_nets_button.clicked.connect(self._on_autofill_nets_from_board)
@@ -822,15 +834,11 @@ class PlacerDock(QWidget):
         self.point_edit = self.origin_widget.point_edit
         self.shift_x_edit = self.origin_widget.shift_x_edit
         self.shift_y_edit = self.origin_widget.shift_y_edit
-        if self.anchor_cluster_edit is not None:
-            # Auto-fill on cluster COMMIT (plan 2026-08-13, p.2): activated =
-            # a pick from the dropdown list, editingFinished = commit of typed
-            # text (Enter / focus loss). Deliberately NOT
-            # currentTextChanged/editTextChanged — those fire on every
-            # keystroke and would flood the kipy socket with live board reads
-            # while the user is still typing.
-            self.anchor_cluster_edit.activated.connect(self._maybe_autofill_nets)
-            self.anchor_cluster_edit.lineEdit().editingFinished.connect(self._maybe_autofill_nets)
+        # NOTE: the auto-fill auto-trigger used to be wired here on
+        # anchor_cluster_edit (Origin tab); since the 2026-08-14 split it is
+        # tied to cluster_edit (Source tab) instead — see the wiring right
+        # after cluster_edit's creation above. anchor_cluster_edit narrows
+        # only the anchor now, so it must NOT trigger role auto-fill.
 
         extra_form = QFormLayout()
         self.rotation_edit = QLineEdit()
@@ -1117,17 +1125,18 @@ class PlacerDock(QWidget):
         self._start_autofill_nets_op(payload)
 
     def _maybe_autofill_nets(self) -> None:
-        """Auto-trigger (plan 2026-08-13, p.2): once BOTH a Cell is selected
-        and the Anchor cluster is non-empty, run the same auto-fill pipeline
-        as the button — silently on full success (no status spam on every
-        Cell/Cluster pick). A silent no-op whenever either half isn't ready:
-        that is not an error, the user simply hasn't completed the pair yet.
-        p.1 (fill only blank roles) makes repeated firings safe — old manual
-        values of other roles are never touched."""
+        """Auto-trigger (plan 2026-08-13, p.2; re-tied to cluster_edit
+        2026-08-14, split anchor_cluster): once BOTH a Cell is selected and
+        the placement's Cluster (Source tab, cluster_edit -> clone.name) is
+        non-empty, run the same auto-fill pipeline as the button — silently
+        on full success (no status spam on every Cell/Cluster pick). A silent
+        no-op whenever either half isn't ready: that is not an error, the
+        user simply hasn't completed the pair yet. p.1 (fill only blank
+        roles) makes repeated firings safe — old manual values of other roles
+        are never touched."""
         if not self._selected_cell:
             return
-        if self.anchor_cluster_edit is None \
-                or not self.anchor_cluster_edit.currentText().strip():
+        if not self.cluster_edit.currentText().strip():
             return
         payload = self._collect_autofill_nets_inputs(quiet=True)
         if payload is None:
@@ -1144,12 +1153,11 @@ class PlacerDock(QWidget):
             if not quiet:
                 self._show_message(_("Pick a Cell first."), _ERROR_STYLE)
             return None
-        cluster = self.anchor_cluster_edit.currentText().strip() \
-            if self.anchor_cluster_edit is not None else ""
+        cluster = self.cluster_edit.currentText().strip()
         if not cluster:
             if not quiet:
                 self._show_message(
-                    _("Set Anchor cluster on the Origin tab first — Auto-fill searches the live "
+                    _("Set Cluster on the Source tab first — Auto-fill searches the live "
                       "board by Role + that Cluster (prefix match), same signal the by-nets "
                       "resolver's own narrowing already uses."), _ERROR_STYLE)
             return None

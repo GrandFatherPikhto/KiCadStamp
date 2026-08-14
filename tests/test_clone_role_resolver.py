@@ -95,6 +95,26 @@ class TestResolveRolesBySelection:
         with pytest.raises(ValidationError, match="XTAL"):
             resolve_roles_by_selection(adapter, self._template(), self._clone())
 
+    def test_ambiguous_role_narrowed_by_placement_name(self):
+        """Split 2026-08-14: in by-selection mode too, an ambiguous role NOT
+        in the selection is narrowed by the placement's OWN Cluster (`name`,
+        not `anchor_cluster`) — same shared _narrow_ambiguous_candidates as
+        the by-nets path."""
+        tpl = self._template()  # XTAL / LOAD_CAP_1 / LOAD_CAP_2
+        fps = [
+            _make_fp("Y3", "XTAL", cluster="Out_Cluster"),
+            _make_fp("Y4", "XTAL", cluster="Other_Cluster"),
+        ]
+        adapter = MagicMock()
+        adapter.get_selected_items.return_value = [_make_fp("C20", "LOAD_CAP_1"),
+                                                   _make_fp("C21", "LOAD_CAP_2")]
+        adapter.get_field_value.side_effect = _role_or_cluster
+        adapter.get_footprints.return_value = fps + adapter.get_selected_items.return_value
+
+        clone = ClonePlacement(name="Out_Cluster", cell="crystal", xy=(0, 0))
+        result = resolve_roles_by_selection(adapter, tpl, clone)
+        assert result == {"XTAL": "Y3", "LOAD_CAP_1": "C20", "LOAD_CAP_2": "C21"}
+
 
 class TestResolveRolesByNets:
     def _pi_filter_template(self):
@@ -192,6 +212,53 @@ class TestResolveRolesByNets:
 
         result = resolve_roles_by_nets(adapter, tpl, nested)
         assert result == {"X": "A"}
+
+    def test_internal_role_narrowing_uses_placement_name(self):
+        """Split 2026-08-14: ambiguous roles INSIDE the cell are narrowed by
+        the placement's OWN Cluster — by convention clone.name (the GUI's
+        "Cluster:" field on the Source tab), NOT by anchor_cluster (which
+        narrows only the external anchor). A ClonePlacement with
+        name="Out_Cluster" and NO anchor_cluster at all must still narrow two
+        same-role/same-net candidates that differ by their board Cluster field
+        — the live PI_FB/FB10/FB4 case, now via name."""
+        tpl = Cell(name="t", components=[TemplateComponentSlot(role="PI_FB")])
+        fps = [
+            _make_fp("FB10", "PI_FB", ["NET1"], cluster="Out_Cluster"),
+            _make_fp("FB4", "PI_FB", ["NET1"], cluster="Other_Cluster"),
+        ]
+        adapter = MagicMock()
+        adapter.get_footprints.return_value = fps
+        adapter.get_field_value.side_effect = _role_or_cluster
+        adapter.get_footprint_pads.side_effect = _get_pads
+        adapter.get_selected_items.return_value = []
+
+        clone = ClonePlacement(name="Out_Cluster", cell="t", xy=(0, 0),
+                               nets={"PI_FB": "NET1"})
+        assert clone.anchor_cluster is None  # narrowing must NOT depend on it
+        result = resolve_roles_by_nets(adapter, tpl, clone)
+        assert result == {"PI_FB": "FB10"}
+
+    def test_anchor_cluster_does_not_narrow_internal_roles(self):
+        """Split regression: anchor_cluster is set to a DIFFERENT value than
+        name — internal-role narrowing must still follow name; anchor_cluster
+        must have no effect on it (it narrows only the anchor, see
+        resolve_footprint_by_role)."""
+        tpl = Cell(name="t", components=[TemplateComponentSlot(role="PI_FB")])
+        fps = [
+            _make_fp("FB10", "PI_FB", ["NET1"], cluster="Out_Cluster"),
+            _make_fp("FB4", "PI_FB", ["NET1"], cluster="Other_Cluster"),
+        ]
+        adapter = MagicMock()
+        adapter.get_footprints.return_value = fps
+        adapter.get_field_value.side_effect = _role_or_cluster
+        adapter.get_footprint_pads.side_effect = _get_pads
+        adapter.get_selected_items.return_value = []
+
+        clone = ClonePlacement(name="Out_Cluster", cell="t", xy=(0, 0),
+                               nets={"PI_FB": "NET1"},
+                               anchor_cluster="Unrelated_Anchor_Cluster")
+        result = resolve_roles_by_nets(adapter, tpl, clone)
+        assert result == {"PI_FB": "FB10"}
 
     def test_role_without_any_net_source_raises(self):
         tpl = Cell(name="t2", components=[TemplateComponentSlot(role="NO_NET_ROLE")])
@@ -385,9 +452,12 @@ class TestResolveRolesByNetsAnchorSheet:
         msg = str(exc_info.value)
         assert "C10" in msg and "C11" in msg and "C20" not in msg
 
-    def test_no_anchor_sheet_or_cluster_falls_back_to_old_hint(self):
-        """Regression: neither anchor_sheet nor anchor_cluster set — hint text
-        must still make sense (updated wording, not just 'Cluster not set')."""
+    def test_no_anchor_sheet_mentions_placement_cluster_hint(self):
+        """Regression (split 2026-08-14): no anchor_sheet set — the hint must
+        now name the placement's OWN Cluster (`name` — required and non-empty
+        for ClonePlacement/CellPlacement, see config/entries.py, so the old
+        "neither anchor_sheet nor Cluster set" branch is unreachable) instead
+        of the old anchor_cluster wording."""
         fps = [
             _make_fp("A", "CAP_IN", ["+3V3"]),
             _make_fp("B", "CAP_IN", ["+3V3"]),
@@ -400,10 +470,10 @@ class TestResolveRolesByNetsAnchorSheet:
 
         clone = ClonePlacement(name="c1", cell="pi_filter", xy=(0, 0),
                                nets={"CAP_IN": "+3V3"})
-        with pytest.raises(ValidationError, match="anchor_sheet") as exc_info:
+        with pytest.raises(ValidationError, match="CAP_IN") as exc_info:
             resolve_roles_by_nets(adapter, self._template(), clone)
         msg = str(exc_info.value)
-        assert "neither anchor_sheet nor Cluster set" in msg or "не задан" in msg
+        assert "this placement's Cluster 'c1'" in msg or "собственного Cluster 'c1'" in msg
 
 
 def _make_anchor_fp(ref, role, sheet_uuid):

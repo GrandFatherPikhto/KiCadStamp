@@ -110,7 +110,8 @@ def suggest_role_nets_from_cluster(adapter, roles, cluster: str,
     For each role: live footprints whose Role field matches, narrowed to
     those whose Cluster field prefix-matches `cluster` (cluster_prefix_match —
     the SAME signal resolve_roles_by_nets's own step 3 narrowing already uses
-    via clone.anchor_cluster, see that function's docstring). A role is
+    via the placement's own `name` (clone.name), see that function's
+    docstring). A role is
     suggested only when this leaves EXACTLY one candidate AND that candidate
     has EXACTLY one non-rule net on its pads — the same "don't guess" stance
     as net_from_role's lemma 2. Anything else (0 or 2+ candidates, or 0 or 2+
@@ -169,7 +170,8 @@ def resolve_roles_by_selection(adapter, cell: Cell, clone: ClonePlacement,
       2. role is NOT in selection, but it is unique on the WHOLE board -> resolve
          directly, no selection needed.
       3. role is NOT in selection and is ambiguous on the board -> same narrowing
-         cascade as in resolve_roles_by_nets: anchor_sheet -> Cluster -> selection
+         cascade as in resolve_roles_by_nets: anchor_sheet -> the placement's own
+         Cluster (`name`, not `anchor_cluster` — 2026-08-14 split) -> selection
          (again, in case the selection contains some of these candidates without
          the role itself... rare but harmless) -> physical proximity to anchor ->
          FATAL with the exact list if still ambiguous.
@@ -231,8 +233,9 @@ def resolve_roles_by_selection(adapter, cell: Cell, clone: ClonePlacement,
             else:
                 refs = sorted(fp.reference_field.text.value for fp in narrowed)
                 problems.append(_("role {role!r} is in cell, not found in selection, and ambiguous on board "
-                                  "({count} candidates: {refs}){note} — set anchor_cluster, OR select the "
-                                  "desired instance on the board before running")
+                                  "({count} candidates: {refs}){note} — check this placement's own Cluster "
+                                  "(name) is tagged correctly on the board, and/or set anchor_sheet, OR select "
+                                  "the desired instance on the board before running")
                                 .format(role=role, count=len(narrowed), refs=refs, note=note))
 
     if problems:
@@ -266,14 +269,20 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement,
          instance under its own Channel_N sheet, this is the only signal that
          survives — same reasoning, and same _fp_on_sheet, as anchor_sheet
          already uses for resolving the anchor itself (resolve_footprint_by_role).
-      3. if several candidates AND clone.anchor_cluster is set — narrow to
-         candidates whose Cluster field matches by prefix segments
-         (see cluster_prefix_match). This is the main path for the typical case
-         "N identical roles on one sheet because the net is common power, not
-         per‑channel". Independent of step 2 — a reused hierarchical sheet
-         shares custom fields (Cluster included) across every instance, so
-         Cluster alone can't disambiguate THOSE cases; anchor_sheet (step 2)
-         is what's needed there instead.
+      3. if several candidates AND the placement's OWN Cluster (clone.name —
+         the GUI's "Cluster:" field on the Source tab writes straight into
+         name, see gui/docks/placer.py) matches — narrow to candidates whose
+         Cluster field matches by prefix segments (see cluster_prefix_match).
+         This is the main path for the typical case "N identical roles on one
+         sheet because the net is common power, not per‑channel". Independent
+         of step 2 — a reused hierarchical sheet shares custom fields (Cluster
+         included) across every instance, so Cluster alone can't disambiguate
+         THOSE cases; anchor_sheet (step 2) is what's needed there instead.
+         Split 2026-08-14: the Cluster read here is clone.name, NOT
+         clone.anchor_cluster — that field narrows only the EXTERNAL anchor
+         (resolve_footprint_by_role); the two were conflated into one field
+         before (Denis: "Мы печатаем два раза кластер размещаемого целла.
+         Зачем?!").
       4. still several — narrow to intersection with the CURRENT selection on
          the board, if non‑empty and narrows something.
       5. still several and anchor_position is set — narrow by physical proximity
@@ -283,8 +292,9 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement,
          survives re‑annotation.
       6. still several — FATAL: candidates are indistinguishable by all
          available means. Suggest either splitting roles by names in the
-         schematic, setting anchor_sheet/anchor_cluster, selecting the desired
-         instance, or (last resort) explicit refs.
+         schematic, checking this placement's own Cluster (name) tagging,
+         setting anchor_sheet, selecting the desired instance, or (last
+         resort) explicit refs.
     """
     sheet_names = sheet_names or {}
     selected_items = adapter.get_selected_items()
@@ -374,21 +384,27 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement,
         else:
             refs = sorted(fp.reference_field.text.value for fp in narrowed)
             anchor_sheet = getattr(clone, "anchor_sheet", None)
-            anchor_cluster = getattr(clone, "anchor_cluster", None)
-            if anchor_sheet or anchor_cluster:
+            # The narrowing for INTERNAL roles always tries the placement's OWN
+            # Cluster (clone.name — required and non-empty, see entries.py), so
+            # `placement_cluster` is effectively always set here; the else
+            # branch is a defensive fallback only (name missing/empty on a
+            # non-config object, e.g. a directly-constructed test double).
+            placement_cluster = getattr(clone, "name", None)
+            if anchor_sheet or placement_cluster:
                 narrowed_by = ", ".join(
                     (_("anchor_sheet {sheet!r}").format(sheet=anchor_sheet) if anchor_sheet else "",
-                     _("anchor_cluster {cluster!r}").format(cluster=anchor_cluster) if anchor_cluster else "")
+                     _("this placement's Cluster {cluster!r}").format(cluster=placement_cluster) if placement_cluster else "")
                 ).strip(", ")
                 cluster_hint = _(" (already narrowed by {narrowed_by}, but not enough)").format(narrowed_by=narrowed_by)
             else:
-                cluster_hint = _(" (neither anchor_sheet nor Cluster set — if these components are "
+                cluster_hint = _(" (neither anchor_sheet nor this placement's Cluster set — if these components are "
                                  "physically different instances, one of them would narrow to one)")
             problems.append(
                 _("role {role!r}: ambiguity — {count} components on net {net!r}{cluster_hint}{note}: {refs}. "
-                  "Solutions: set anchor_sheet and/or anchor_cluster (if assigned in the schematic), OR select "
-                  "the desired instance on the board before running, OR split roles by net names in the "
-                  "schematic (e.g. DAC_PI_3V3_C1 vs DAC_PI_AVDD_C1), OR use explicit refs: {{ {role}: {first_ref} }}")
+                  "Solutions: check this placement's own Cluster (name) is tagged correctly on the board, "
+                  "and/or set anchor_sheet, OR select the desired instance on the board before running, "
+                  "OR split roles by net names in the schematic (e.g. DAC_PI_3V3_C1 vs DAC_PI_AVDD_C1), "
+                  "OR use explicit refs: {{ {role}: {first_ref} }}")
                 .format(role=role, count=len(narrowed), net=expected_net,
                         cluster_hint=cluster_hint, note=note, refs=refs,
                         first_ref=refs[0])

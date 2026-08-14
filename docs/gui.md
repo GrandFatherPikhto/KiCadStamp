@@ -259,8 +259,9 @@ the tabs — they act on the whole placement, not one tab.
   the right path.
   - *Role* — pick a Role directly (same autocompleted combo as Anchor's own Role field below). Role
     is a CATEGORY, not unique — many components routinely share one — so if it's ambiguous on the
-    board, Redraw resolves it the same way a real cell's role slots do (selection, then
-    anchor_cluster narrowing), or fails loud listing every candidate.
+    board, Redraw resolves it the same way a real cell's role slots do (selection, then the
+    placement's own Cluster — its `name` — narrowing; since 2026-08-14 `anchor_cluster` narrows
+    only the anchor), or fails loud listing every candidate.
   - *Cluster* — same idea, but finds its target by an ALREADY-ASSIGNED Cluster PCB field instead
     (tag it first via the Components tree's Role/Cluster editing or fieldstool) — same-day pushback
     on Role alone, Denis: "Условие уникальности у нас касается кластера, а не роли... ОДНУ деталь
