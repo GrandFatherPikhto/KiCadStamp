@@ -487,7 +487,11 @@ class ConfigTreeDock(QDockWidget):
         for add_section in add_sections:
             label, signal_name = _ADD_ACTION_BY_SECTION[add_section]
             signal = getattr(self, signal_name)
-            menu.addAction(label).triggered.connect(lambda sig=signal: sig.emit(file_path))
+            # QAction.triggered emits a positional `bool checked`; the leading
+            # parameter swallows it so `sig` keeps its default (2026-08-14
+            # crash fix: 'bool' object has no attribute 'emit').
+            menu.addAction(label).triggered.connect(
+                lambda checked=False, sig=signal: sig.emit(file_path))
         # "Add included file..." is about the FILE, not a section, so it stays
         # unconditional — it's relevant in every context.
         menu.addAction(_("Add included file...")).triggered.connect(

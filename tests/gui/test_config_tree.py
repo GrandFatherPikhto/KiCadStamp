@@ -691,6 +691,25 @@ def _context_menu_labels(dock, item, monkeypatch):
     return captured
 
 
+def _context_menu_actions(dock, item, monkeypatch):
+    """Like _context_menu_labels but also captures the real QAction so a
+    test can .trigger() it — the 2026-08-14 "Add ..." crash regression test
+    (the label-only helpers never call .trigger(), so the lambda capture bug
+    slipped through)."""
+    monkeypatch.setattr(config_tree_mod.QMenu, "exec", lambda self, *a, **k: None)
+    captured = []
+    original_add_action = config_tree_mod.QMenu.addAction
+
+    def _record(self, text, *a, **k):
+        action = original_add_action(self, text, *a, **k)
+        captured.append((text, action))
+        return action
+
+    monkeypatch.setattr(config_tree_mod.QMenu, "addAction", _record)
+    dock._on_context_menu(dock.tree.visualItemRect(item).center())
+    return captured
+
+
 def _add_labels(labels):
     """The context menu's "Add ..." block (incl. the unconditional "Add
     included file...") — Rename/Delete/Edit/Export never start with 'Add '."""
@@ -839,6 +858,28 @@ def test_add_section_for_item_leaf_category_and_file_header(main_window, tmp_pat
     assert dock._add_section_for_item(cells_category) == "cells"
     assert dock._add_section_for_item(_find(root_item, "Clone profiles")) == "clone_profiles"
     assert dock._add_section_for_item(root_item) is None  # file header
+
+
+def test_add_action_trigger_emits_request_not_checked(main_window, tmp_path, monkeypatch):
+    """2026-08-14 crash regression: QAction.triggered emits a positional
+    `bool checked`, and PyQt fed it into the old `lambda sig=signal: ...`
+    (overwriting the default) -> AttributeError: 'bool' object has no
+    attribute 'emit' on every "Add ..." click. The lambda now leads with
+    `checked=False`; triggering the real action must fire add_cell_requested
+    with the resolved file path."""
+    root = tmp_path / "root.yaml"
+    root.write_text(ALL_SECTIONS_YAML, encoding="utf-8")
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    requested = []
+    dock.add_cell_requested.connect(requested.append)
+
+    cells_category = _find(dock.tree.topLevelItem(0), "Cells")
+    actions = dict(_context_menu_actions(dock, cells_category, monkeypatch))
+    actions["Add cell..."].trigger()
+
+    assert requested == [root.resolve()]
 
 
 # ── Delete (2026-08-05) ───────────────────────────────────────────────────
