@@ -751,6 +751,55 @@ def test_dock_hub_has_no_file_handler_when_root_config_has_no_log_file(main_wind
         _teardown_hub(hub)
 
 
+def test_dock_hub_file_handler_attaches_to_the_queue_listener_when_one_is_running(
+        qapp, main_window, monkeypatch, tmp_path):
+    """The queue-based logging rework (2026-08-15,
+    plan_2026_08_15_queue_based_logging.md): when setup_logging() has
+    started a QueueListener, DockHub's root-config log_file: FileHandler
+    must attach to THAT listener (its single thread formats/writes
+    records) instead of directly to the root logger — otherwise this
+    handler would stay on the synchronous path and keep the whole
+    "logging blocks the calling thread" bug class open. With no listener
+    configured (the normal GUI-test environment) DockHub falls back to the
+    old direct root attachment — that path is covered by the three tests
+    above."""
+    import queue as queue_module
+    from logging.handlers import QueueListener
+
+    from gui import dock_hub as dock_hub_mod
+
+    root_file = tmp_path / "root.yaml"
+    root_file.write_text("log_file: logs/run.log\n", encoding="utf-8")
+
+    root = logging.getLogger()
+    original_level = root.level
+
+    # A real, started listener, constructed by hand (setup_logging() itself
+    # is never called in GUI tests — see plan). DockHub's log_file: handler
+    # is then attached to it via the monkeypatched get_log_listener().
+    some_handler = logging.StreamHandler()
+    listener = QueueListener(queue_module.Queue(), some_handler)
+    listener.start()
+    monkeypatch.setattr(dock_hub_mod, "get_log_listener", lambda: listener)
+
+    hub = None
+    try:
+        root.setLevel(logging.DEBUG)
+        hub = DockHub(main_window, connection=main_window.connection, verbose=False)
+
+        hub.root_metadata_dock.root_changed.emit(root_file)
+
+        # the handler went to the listener, NOT to the root logger
+        assert hub._log_file_handler is not None
+        assert hub._log_file_handler in listener.handlers
+        assert hub._log_file_handler not in root.handlers
+    finally:
+        if hub is not None:
+            _teardown_hub(hub)
+        listener.stop()
+        root.setLevel(original_level)
+
+
 def test_dock_hub_injects_connection_into_connection_docks(main_window):
     """The connection passed to DockHub reaches the three docks that consume
     it (RoleClusterTreeDock, ExtractDock, and — Phase 5.1 — the embedded

@@ -28,6 +28,7 @@ from typing import Optional
 from PyQt6.QtCore import Qt
 
 from kicadstamp.cli_common import peek_log_file
+from kicadstamp.logging_setup import get_log_listener
 
 from .docks.config_tree import ConfigTreeDock
 from .docks.detail_panel import DetailDock
@@ -401,19 +402,61 @@ class DockHub:
         self.cells_dock.load_entry(name)
         self.detail_dock.show_cells()
 
+    def _attach_log_file_handler(self, handler) -> None:
+        """Attach the root-config log_file: FileHandler either to the live
+        QueueListener (when setup_logging() has started one) or directly to
+        the ROOT logger when no listener exists (unit tests, no
+        setup_logging call) — idempotent across both paths, so
+        _on_root_file_changed_for_logging() can call it on every re-peek.
+        Since 2026-08-15 (queue-based logging rework, see
+        techdocs/handoff/plan_2026_08_15_queue_based_logging.md) the
+        handler's formatting/writing runs on the listener's single thread,
+        so logging can never block the calling thread on a handler lock."""
+        if handler is None:
+            return
+        listener = get_log_listener()
+        if listener is not None:
+            if handler not in listener.handlers:
+                listener.handlers = listener.handlers + (handler,)
+        else:
+            root = logging.getLogger()
+            if handler not in root.handlers:
+                root.addHandler(handler)
+
+    def _detach_log_file_handler(self, handler) -> None:
+        """Detach the root-config log_file: FileHandler from BOTH the ROOT
+        logger and the live QueueListener (whichever path it was attached
+        through) — idempotent, so _on_root_file_changed_for_logging() (swap
+        on root-file change) and teardown fixtures can call it freely."""
+        if handler is None:
+            return
+        root = logging.getLogger()
+        if handler in root.handlers:
+            root.removeHandler(handler)
+        listener = get_log_listener()
+        if listener is not None and handler in listener.handlers:
+            listener.handlers = tuple(
+                h for h in listener.handlers if h is not handler)
+
     def _on_root_file_changed_for_logging(self, path) -> None:
-        """Attaches a root-logger FileHandler using the CURRENT root
-        config's own log_file: (Config.log_file) — see this method's own
-        connect() above for why. Re-peeked fresh on every root-file change
-        (never cached), matching kicadstamp_cli.py's own per-invocation
-        freshness — same cli_common.peek_log_file() helper, so a typo/
-        missing log_file: is handled exactly the same way the CLI already
-        handles it (a logged warning, never a raise). DEBUG level
-        regardless of the GUI's own console/LogDock verbosity, same as the
-        CLI's file handler (kicadstamp/logging_setup.py)."""
-        root_logger = logging.getLogger()
+        """Attaches a FileHandler using the CURRENT root config's own
+        log_file: (Config.log_file) — see this method's own connect() above
+        for why. Since 2026-08-15 (queue-based logging rework, see
+        techdocs/handoff/plan_2026_08_15_queue_based_logging.md) the
+        handler is attached to the live QueueListener (get_log_listener)
+        whenever one exists — its single listener thread formats/writes
+        records, so logging can never block the calling thread on a handler
+        lock — falling back to a direct root-logger attachment when no
+        listener is configured (unit tests, no setup_logging call).
+        Re-peeked fresh on every root-file change (never cached), matching
+        kicadstamp_cli.py's own per-invocation freshness — same
+        cli_common.peek_log_file() helper, so a typo/missing log_file: is
+        handled exactly the same way the CLI already handles it (a logged
+        warning, never a raise). DEBUG level regardless of the GUI's own
+        console/LogDock verbosity, same as the CLI's file handler
+        (kicadstamp/logging_setup.py)."""
         if self._log_file_handler is not None:
-            root_logger.removeHandler(self._log_file_handler)
+            self._detach_log_file_handler(self._log_file_handler)
             self._log_file_handler = None
         if path is None:
             return
@@ -428,5 +471,5 @@ class DockHub:
             return
         handler.setLevel(logging.DEBUG)
         handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
-        root_logger.addHandler(handler)
+        self._attach_log_file_handler(handler)
         self._log_file_handler = handler

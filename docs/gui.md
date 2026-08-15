@@ -491,6 +491,11 @@ already used, previously CLI-only (found live 2026-08-06: a `log_file:` already 
 project's root.yaml was silently never honored by the GUI). Re-attached fresh on every root-file
 change (Open/New/Recent), so it always points at the CURRENTLY open project.
 
+Since 2026-08-15 that root-config `log_file:` handler is attached the same queue-aware way as the
+panel's own handler above — to the live `QueueListener` when one is running, so its writing also
+happens on the listener's single thread and can never block the GUI thread on a handler lock; with
+no listener configured it attaches directly to the root logger, as before.
+
 ## Tray icon
 
 The **Tray icon** status-bar checkbox creates an OS tray icon (a small programmatic icon, not a
