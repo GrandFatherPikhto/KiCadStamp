@@ -55,7 +55,9 @@ def main():
     parser.add_argument("--verbose", action="store_true", help=_("Verbose output"))
     args = parser.parse_args()
 
-    setup_logging(verbose=args.verbose)
+    # setup_logging() now returns the started QueueListener; stop it when the
+    # app quits so its thread doesn't leak and buffered records are flushed.
+    listener = setup_logging(verbose=args.verbose)
 
     app = QApplication(sys.argv)
 
@@ -82,6 +84,12 @@ def main():
         # itself, nothing left to do here.
         sys.exit(0)
     app.aboutToQuit.connect(guard.release)
+    # Same lifecycle contract as PollWorkerHandle ("created in MainWindow.__init__,
+    # stopped on QApplication.aboutToQuit", see
+    # techdocs/handoff/plan_2026_08_15_queue_based_logging.md) — listener.stop()
+    # drains the remaining queue and joins the thread, safe to call exactly once.
+    if listener is not None:
+        app.aboutToQuit.connect(listener.stop)
 
     window = MainWindow(timeout_ms=args.timeout_ms, verbose=args.verbose)
     guard.activation_requested.connect(window.bring_to_front)

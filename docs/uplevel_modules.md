@@ -68,14 +68,23 @@ Contains `cmd_extract()` — the implementation of the `extract` command, extrac
 
 ## 4. `logging_setup.py` – Logging Configuration
 
-**Purpose:**  
+**Purpose:**
 Contains `setup_logging()` — configures logging level (INFO/DEBUG), console and/or file output. Extracted from the monolithic CLI to be reusable by scripts and tests.
 
-**Main function:**
+Since 2026-08-15 the root logger carries only a cheap `QueueHandler`; all real
+formatting/writing runs on ONE dedicated `QueueListener` thread (see
+`techdocs/handoff/plan_2026_08_15_queue_based_logging.md`). A thread that logs only does a
+`queue.put()` — it can never block on a handler lock held by a peer stuck inside `emit()`
+(e.g. a hung `pynng` `close()` in a GC finalizer, which previously froze the whole GUI).
+`setup_logging()` returns the started listener and the CALLER must stop it (GUI:
+`QApplication.aboutToQuit`; CLI: `finally`).
+
+**Main functions:**
 
 | Function | Description |
 |----------|-------------|
-| `setup_logging(verbose, log_file)` | Configures logging: level, console handler, optional file handler. |
+| `setup_logging(verbose, log_file)` | Configures logging: level, console handler, optional file handler; returns the started `QueueListener`. |
+| `get_log_listener()` | The `QueueListener` started by the last `setup_logging()` call, or `None` (e.g. unit tests) — lets dynamic consumers like `LogDock` attach their handlers to the listener. |
 
 ---
 

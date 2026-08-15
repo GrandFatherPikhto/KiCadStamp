@@ -205,7 +205,7 @@ def main() -> int:
     if log_file is None and args.command == "apply":
         log_file = peek_log_file(args.config)
 
-    setup_logging(verbose=getattr(args, "verbose", False), log_file=log_file)
+    listener = setup_logging(verbose=getattr(args, "verbose", False), log_file=log_file)
 
     def _dispatch() -> None:
         if args.command == "apply":
@@ -224,7 +224,13 @@ def main() -> int:
 
     # Exception → exit-code translation is delegated to cli_common.run_cli —
     # the single owner of exit codes, shared with author_cli.cli_main().
-    return run_cli(_dispatch)
+    # The QueueListener's thread must be stopped on EVERY exit path (normal
+    # return AND exceptions) so buffered records aren't lost at the end of a
+    # run — see techdocs/handoff/plan_2026_08_15_queue_based_logging.md.
+    try:
+        return run_cli(_dispatch)
+    finally:
+        listener.stop()
 
 
 if __name__ == "__main__":

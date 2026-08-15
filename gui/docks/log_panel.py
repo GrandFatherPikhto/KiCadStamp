@@ -30,6 +30,15 @@ StreamHandler) — the Verbose checkbox here follows the same pattern:
 toggles THIS handler's level between INFO/DEBUG, never the root logger's,
 so it can't accidentally silence or unmute the console/file handlers
 kicadstamp_gui.py already set up.
+
+Since 2026-08-15 (queue-based logging rework, see
+techdocs/handoff/plan_2026_08_15_queue_based_logging.md) the dock's handler
+is attached to the live QueueListener (get_log_listener) whenever one
+exists — its single listener thread formats/writes records, so logging can
+never block the calling thread on a handler lock — falling back to a direct
+root-logger attachment when no listener is configured (unit tests, no
+setup_logging call). Either way the Qt signal below still marshals the
+resulting line onto the UI thread.
 """
 import html
 import logging
@@ -40,6 +49,7 @@ from PyQt6.QtWidgets import (QCheckBox, QDockWidget, QHBoxLayout, QLineEdit,
                               QPlainTextEdit, QPushButton, QVBoxLayout, QWidget)
 
 from kicadstamp.i18n import _
+from kicadstamp.logging_setup import get_log_listener
 
 _LEVEL_COLOR = {
     logging.DEBUG: "#888888",
@@ -128,7 +138,7 @@ class LogDock(QDockWidget):
         self._handler.setFormatter(logging.Formatter(
             "%(asctime)s %(levelname)s %(name)s: %(message)s", "%H:%M:%S"))
         self._handler.setLevel(logging.DEBUG if verbose else logging.INFO)
-        logging.getLogger().addHandler(self._handler)
+        self._attach_handler()
         self.verbose_checkbox.setChecked(verbose)
         # Phase 4.3 — the handler lives on the ROOT logger, so a window torn
         # down without an explicit close (tests, crash, re-parenting) would
@@ -136,13 +146,42 @@ class LogDock(QDockWidget):
         # closeEvent, and let teardown fixtures call remove_handler() too.
         self.destroyed.connect(lambda *_: self.remove_handler())
 
-    def remove_handler(self) -> None:
-        """Detach this dock's handler from the ROOT logger (idempotent —
+    def _attach_handler(self) -> None:
+        """Attach this dock's handler either to the live QueueListener (when
+        setup_logging() has started one) or directly to the ROOT logger when
+        no listener exists (unit tests, no setup_logging call) — idempotent
+        across both paths, so __init__/showEvent can call it freely."""
+        if self._handler is None:
+            return
+        listener = get_log_listener()
+        if listener is not None:
+            if self._handler not in listener.handlers:
+                listener.handlers = listener.handlers + (self._handler,)
+        else:
+            root = logging.getLogger()
+            if self._handler not in root.handlers:
+                root.addHandler(self._handler)
+
+    def _detach_handler(self) -> None:
+        """Detach this dock's handler from BOTH the ROOT logger and the live
+        QueueListener (whichever path it was attached through) — idempotent,
         safe to call from closeEvent, from the destroyed signal and from
-        teardown fixtures). Phase 4.3."""
+        teardown fixtures. Phase 4.3."""
+        if self._handler is None:
+            return
         root = logging.getLogger()
-        if self._handler is not None and self._handler in root.handlers:
+        if self._handler in root.handlers:
             root.removeHandler(self._handler)
+        listener = get_log_listener()
+        if listener is not None and self._handler in listener.handlers:
+            listener.handlers = tuple(
+                h for h in listener.handlers if h is not self._handler)
+
+    def remove_handler(self) -> None:
+        """Detach this dock's handler (idempotent — safe to call from
+        closeEvent, from the destroyed signal and from teardown fixtures).
+        Phase 4.3."""
+        self._detach_handler()
 
     def closeEvent(self, event) -> None:
         # A closed dock is hidden, not destroyed — detach now so a window
@@ -154,9 +193,7 @@ class LogDock(QDockWidget):
         # Re-attach on (re)show: remove_handler() is about teardown hygiene,
         # not about permanently silencing a dock the user merely closed and
         # re-opened from the View menu.
-        root = logging.getLogger()
-        if self._handler is not None and self._handler not in root.handlers:
-            root.addHandler(self._handler)
+        self._attach_handler()
         super().showEvent(event)
 
     def _on_verbose_toggled(self, checked: bool) -> None:

@@ -58,7 +58,11 @@ def cli_main(build_fn: Callable[[], list[ClonePlacement]], output_path: str,
     # narrowing cascade, exactly what you need to see when a role fails to
     # resolve — is silently dropped instead of printed.
     from kicadstamp.logging_setup import setup_logging
-    setup_logging(verbose=args.verbose)
+    # setup_logging() now returns the started QueueListener; the caller owns
+    # stopping it (see techdocs/handoff/plan_2026_08_15_queue_based_logging.md),
+    # otherwise the daemon thread leaks and the buffered tail of logs is lost
+    # at process exit.
+    listener = setup_logging(verbose=args.verbose)
 
     # Exception → exit-code translation is delegated to cli_common.run_cli
     # (the single owner of exit codes, shared with kicadstamp_cli.py). Without
@@ -82,6 +86,11 @@ def cli_main(build_fn: Callable[[], list[ClonePlacement]], output_path: str,
             if report:
                 print("\n".join(report))
 
-    _code = run_cli(_run)
+    try:
+        _code = run_cli(_run)
+    finally:
+        # Flush remaining records and join the listener thread on EVERY exit
+        # path (normal return AND SystemExit) — same contract as the CLI.
+        listener.stop()
     if _code:
         sys.exit(_code)

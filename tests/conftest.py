@@ -22,8 +22,42 @@ calls setup_i18n() again explicitly inside each test to exercise ru/en/
 other locales on demand — this module-level default only decides what the
 FIRST, implicit import sees.
 """
+import logging
+import logging.handlers
 import os
+
+import pytest
 
 os.environ.pop("LANGUAGE", None)
 os.environ["LC_ALL"] = "en_US.UTF-8"
 os.environ["LANG"] = "en_US.UTF-8"
+
+
+@pytest.fixture(autouse=True)
+def _reset_logging_after_test():
+    """The queue-based logging rework (2026-08-15, see
+    techdocs/handoff/plan_2026_08_15_queue_based_logging.md) made
+    setup_logging() replace the ROOT logger's handlers with a QueueHandler
+    and start a daemon QueueListener thread kept in a module-global. Tests
+    that run a CLI/author entry point (kicadstamp_cli.main(),
+    author_cli.cli_main()) therefore leak that thread and leave
+    _log_listener set — which would silently switch LogDock's handler onto
+    the listener path in later GUI tests (they expect get_log_listener() ==
+    None and direct root attachment, see tests/gui/test_log_panel.py).
+    Teardown here stops any leaked listener and resets the root logger so no
+    test can contaminate another."""
+    yield
+    import kicadstamp.logging_setup as logging_setup
+
+    listener = logging_setup._log_listener
+    if listener is not None and listener._thread is not None:
+        # _thread is None once stop() has already been called (a test that
+        # stopped its own listener) — QueueListener.stop() is NOT idempotent.
+        listener.stop()
+    logging_setup._log_listener = None
+
+    root = logging.getLogger()
+    for handler in list(root.handlers):
+        if isinstance(handler, logging.handlers.QueueHandler):
+            root.removeHandler(handler)
+    root.setLevel(logging.WARNING)

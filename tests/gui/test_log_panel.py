@@ -147,3 +147,66 @@ def test_close_removes_handler_and_reshow_readds(real_main_window):
     # teardown of real_main_window also calls remove_handler() — idempotent
     dock.remove_handler()
     assert dock._handler not in root.handlers
+
+
+def test_handler_attaches_to_queue_listener_when_one_is_running(qapp, main_window, monkeypatch):
+    """The queue-based logging rework (2026-08-15, plan_2026_08_15_queue_based_logging.md):
+    when setup_logging() has started a QueueListener, LogDock's handler must
+    attach to THAT listener (its single thread formats/writes records) instead
+    of directly to the root logger — otherwise the Qt handler would stay on
+    the synchronous path and keep the whole "logging blocks the calling
+    thread" bug class open. With no listener configured (the normal GUI-test
+    environment) LogDock falls back to the old direct root attachment — that
+    path is covered by every other test in this file."""
+    import queue as queue_module
+    from logging.handlers import QueueListener
+
+    from gui.docks import log_panel as log_panel_mod
+    from gui.docks.log_panel import LogDock
+
+    root = logging.getLogger()
+    original_level = root.level
+
+    # A real, started listener, constructed by hand (setup_logging() itself
+    # is never called in GUI tests — see plan). LogDock's handler is then
+    # attached to it via the monkeypatched get_log_listener().
+    some_handler = logging.StreamHandler()
+    listener = QueueListener(queue_module.Queue(), some_handler)
+    listener.start()
+    monkeypatch.setattr(log_panel_mod, "get_log_listener", lambda: listener)
+
+    dock = None
+    try:
+        root.setLevel(logging.DEBUG)
+        dock = LogDock(main_window, verbose=False)
+
+        # the handler went to the listener, NOT to the root logger
+        assert dock._handler in listener.handlers
+        assert dock._handler not in root.handlers
+
+        # a record pushed onto the real queue is formatted/written by the
+        # listener thread and reaches the panel via the dock's Qt signal
+        # (queued onto the UI thread — same path the background-thread test
+        # above exercises)
+        record = logging.LogRecord(
+            name="kicadstamp.gui_test.listener_path",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=1,
+            msg="via the queue listener",
+            args=None,
+            exc_info=None,
+        )
+        listener.queue.put(record)
+        _pump(qapp, lambda: "via the queue listener" in dock.text.toPlainText())
+
+        # remove_handler() detaches from the listener and is idempotent
+        dock.remove_handler()
+        assert dock._handler not in listener.handlers
+        assert dock._handler not in root.handlers
+        dock.remove_handler()
+    finally:
+        if dock is not None:
+            dock.remove_handler()
+        listener.stop()
+        root.setLevel(original_level)
