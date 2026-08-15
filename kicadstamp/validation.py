@@ -486,7 +486,8 @@ def _fatal_title_line(e: ValidationError) -> str:
     return text
 
 
-def check_coordinate_placements_exist(adapter: KiCadBoardAdapter, cfg: Config) -> None:
+def check_coordinate_placements_exist(adapter: KiCadBoardAdapter, cfg: Config,
+                                      sheet_names: dict[str, str] | None = None) -> None:
     """Pre-flight existence check for coordinate_placements (2026-08-12,
     Group 2 fix): each non-retired entry's Cluster+Role must resolve to EXACTLY
     ONE live footprint. Previously coordinate_placements validated lazily,
@@ -502,7 +503,8 @@ def check_coordinate_placements_exist(adapter: KiCadBoardAdapter, cfg: Config) -
             continue
         label = coordinate_placement_effective_name(cp)
         try:
-            resolve_footprint_by_cluster_role(adapter, cp.cluster, cp.role, label)
+            resolve_footprint_by_cluster_role(adapter, cp.cluster, cp.role, label,
+                                              sheet=cp.sheet, sheet_names=sheet_names)
         except ValidationError as e:
             problems.append(_("coordinate_placements {label!r}: {msg}")
                             .format(label=label, msg=_fatal_title_line(e)))
@@ -530,5 +532,5 @@ def run_all_checks(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None) ->
     check_cells_and_pads_exist(adapter, cfg, sheet_names=_sn)
     check_role_pool_sufficiency(adapter, cfg)
     check_clone_nets_exist_on_board(adapter, cfg)
-    check_coordinate_placements_exist(adapter, cfg)
+    check_coordinate_placements_exist(adapter, cfg, sheet_names=_sn)
     logger.info(_("All pre‑validation checks passed"))

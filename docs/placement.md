@@ -36,6 +36,15 @@ exclusive position modes (see `kicadstamp/config/models.py`'s
   resistor "relative to a specific pad of the FPGA": `anchor_role: FPGA,
   anchor_pad: A17, radius_mm: ..., angle_deg: ...`.
 
+`sheet` — OPTIONAL (2026-08-15), narrows Cluster+Role to ONE physical instance
+when the same sheet is cloned/reused (e.g. one PI-filter section instantiated
+per channel) and Cluster alone is identical across copies — a reused
+hierarchical sheet clones IDENTICAL custom fields onto every instance (Denis,
+live: AD_DAC/IC2 exists identically on every channel's cloned sheet). Distinct
+from `anchor_sheet` in the anchor-relative mode above — that one narrows the
+OTHER, anchor component, not this placement's own identity. Same (Sheet,
+Cluster, Role) convention as the rest of the project.
+
 `anchor` (`'center'`/`'pad'`, self-referential, absolute modes only) and
 `anchor_pad` (self pad in absolute modes, the ANCHOR component's pad in
 anchor-relative mode — same semantics as Rule/ClonePlacement) are documented in

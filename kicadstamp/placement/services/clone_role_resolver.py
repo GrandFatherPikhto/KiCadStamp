@@ -170,10 +170,11 @@ def resolve_roles_by_selection(adapter, cell: Cell, clone: ClonePlacement,
       2. role is NOT in selection, but it is unique on the WHOLE board -> resolve
          directly, no selection needed.
       3. role is NOT in selection and is ambiguous on the board -> same narrowing
-         cascade as in resolve_roles_by_nets: anchor_sheet -> the placement's own
-         Cluster (`name`, not `anchor_cluster` — 2026-08-14 split) -> selection
-         (again, in case the selection contains some of these candidates without
-         the role itself... rare but harmless) -> physical proximity to anchor ->
+         cascade as in resolve_roles_by_nets: the placement's OWN sheet (`sheet`,
+         not `anchor_sheet` — 2026-08-15 split) -> the placement's own Cluster
+         (`name`, not `anchor_cluster` — 2026-08-14 split) -> selection (again,
+         in case the selection contains some of these candidates without the
+         role itself... rare but harmless) -> physical proximity to anchor ->
          FATAL with the exact list if still ambiguous.
     """
     sheet_names = sheet_names or {}
@@ -260,15 +261,18 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement,
       0. clone.refs[role] — explicit override, bypassing search entirely. Breaks
          on re‑annotation (refdes is not stable) — last resort, not the main path.
       1. candidates = Role field matches AND sits on the expected net.
-      2. if several candidates AND clone.anchor_sheet is set — narrow to
-         candidates whose human‑readable hierarchical path (via sheet_names,
-         see _fp_on_sheet) contains this sheet segment. Added 2026-07-28: a
-         GLOBAL net (e.g. +3V3 shared by every PI‑filter on the whole board,
-         not per‑channel like DAC_OUT_P) leaves candidates=every instance of
-         the role board‑wide, and if the schematic groups each channel's
-         instance under its own Channel_N sheet, this is the only signal that
-         survives — same reasoning, and same _fp_on_sheet, as anchor_sheet
-         already uses for resolving the anchor itself (resolve_footprint_by_role).
+      2. if several candidates AND the placement's OWN sheet (clone.sheet) is
+         set — narrow to candidates whose human‑readable hierarchical path
+         (via sheet_names, see _fp_on_sheet) contains this sheet segment. Added
+         2026-07-28 for anchor_sheet: a GLOBAL net (e.g. +3V3 shared by every
+         PI‑filter on the whole board, not per‑channel like DAC_OUT_P) leaves
+         candidates=every instance of the role board‑wide, and if the schematic
+         groups each channel's instance under its own Channel_N sheet, this is
+         the only signal that survives. Split 2026-08-15: internal narrowing now
+         reads clone.sheet (the placement's own identity), NOT anchor_sheet —
+         which narrows only the EXTERNAL anchor (resolve_footprint_by_role), the
+         same 08-14 anchor_cluster-style conflation resolved for the Sheet
+         dimension.
       3. if several candidates AND the placement's OWN Cluster (clone.name —
          the GUI's "Cluster:" field on the Source tab writes straight into
          name, see gui/docks/placer.py) matches — narrow to candidates whose
@@ -293,8 +297,8 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement,
       6. still several — FATAL: candidates are indistinguishable by all
          available means. Suggest either splitting roles by names in the
          schematic, checking this placement's own Cluster (name) tagging,
-         setting anchor_sheet, selecting the desired instance, or (last
-         resort) explicit refs.
+         setting this placement's sheet, selecting the desired instance, or
+         (last resort) explicit refs.
     """
     sheet_names = sheet_names or {}
     selected_items = adapter.get_selected_items()
@@ -383,26 +387,26 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement,
             role_to_ref[role] = narrowed[0].reference_field.text.value
         else:
             refs = sorted(fp.reference_field.text.value for fp in narrowed)
-            anchor_sheet = getattr(clone, "anchor_sheet", None)
             # The narrowing for INTERNAL roles always tries the placement's OWN
             # Cluster (clone.name — required and non-empty, see entries.py), so
             # `placement_cluster` is effectively always set here; the else
             # branch is a defensive fallback only (name missing/empty on a
             # non-config object, e.g. a directly-constructed test double).
+            placement_sheet = getattr(clone, "sheet", None)
             placement_cluster = getattr(clone, "name", None)
-            if anchor_sheet or placement_cluster:
+            if placement_sheet or placement_cluster:
                 narrowed_by = ", ".join(
-                    (_("anchor_sheet {sheet!r}").format(sheet=anchor_sheet) if anchor_sheet else "",
+                    (_("this placement's sheet {sheet!r}").format(sheet=placement_sheet) if placement_sheet else "",
                      _("this placement's Cluster {cluster!r}").format(cluster=placement_cluster) if placement_cluster else "")
                 ).strip(", ")
                 cluster_hint = _(" (already narrowed by {narrowed_by}, but not enough)").format(narrowed_by=narrowed_by)
             else:
-                cluster_hint = _(" (neither anchor_sheet nor this placement's Cluster set — if these components are "
+                cluster_hint = _(" (neither this placement's sheet nor its Cluster set — if these components are "
                                  "physically different instances, one of them would narrow to one)")
             problems.append(
                 _("role {role!r}: ambiguity — {count} components on net {net!r}{cluster_hint}{note}: {refs}. "
                   "Solutions: check this placement's own Cluster (name) is tagged correctly on the board, "
-                  "and/or set anchor_sheet, OR select the desired instance on the board before running, "
+                  "and/or set this placement's sheet, OR select the desired instance on the board before running, "
                   "OR split roles by net names in the schematic (e.g. DAC_PI_3V3_C1 vs DAC_PI_AVDD_C1), "
                   "OR use explicit refs: {{ {role}: {first_ref} }}")
                 .format(role=role, count=len(narrowed), net=expected_net,

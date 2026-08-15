@@ -593,6 +593,7 @@ _CLONE_PLACEMENT_KNOWN_KEYS = {
     'nets', 'params', 'net_overrides', 'retired', 'skip', 'ignore_selection',
     'anchor_ref', 'anchor_pad', 'anchor_role', 'anchor_sheet', 'anchor_cluster',
     'anchor_point', 'layer', 'mirror', 'refs', 'by_selection',
+    'sheet',
     'radius_mm', 'angle_deg',
     'side',  # deprecated – recognised separately to give a migration message
     'origin_x_mm', 'origin_y_mm',  # deprecated – recognised to give a migration message
@@ -618,6 +619,12 @@ def _load_clone_placement(data: dict[str, Any]) -> ClonePlacement:
     anchor_sheet = data.get('anchor_sheet')
     anchor_cluster = data.get('anchor_cluster')
     anchor_point = data.get('anchor_point')
+    # Own-identity sheet (split 2026-08-15 from anchor_sheet — see
+    # ClonePlacement's field comment in models.py): narrows ambiguous roles
+    # INSIDE the cell, unlike anchor_sheet which narrows only the external
+    # anchor. Deliberately NOT resolved through resolve_placeholder (own
+    # identity, not a templated external field).
+    sheet = data.get('sheet')
 
     cell = data.get('cell')
     if not cell:
@@ -757,6 +764,7 @@ def _load_clone_placement(data: dict[str, Any]) -> ClonePlacement:
         anchor_sheet=anchor_sheet,
         anchor_cluster=anchor_cluster,
         anchor_point=anchor_point,
+        sheet=sheet,
         layer=layer,
         mirror=bool(data.get('mirror', False)),
         refs=data.get('refs', {}) or {},
@@ -816,7 +824,7 @@ def _load_thermal_via_array(tva_data: dict[str, Any]) -> ThermalViaArrayConfig:
 
 
 _COORDINATE_PLACEMENT_KNOWN_KEYS = {
-    'cluster', 'role', 'name', 'x_mm', 'y_mm', 'center_x_mm', 'center_y_mm',
+    'cluster', 'role', 'name', 'sheet', 'x_mm', 'y_mm', 'center_x_mm', 'center_y_mm',
     'radius_mm', 'angle_deg', 'rotation_deg', 'anchor', 'anchor_pad',
     'anchor_ref', 'anchor_role', 'anchor_sheet', 'anchor_cluster', 'anchor_point',
     'retired', 'skip',
@@ -845,6 +853,12 @@ def _load_coordinate_placement(data: dict[str, Any]) -> CoordinatePlacement:
 
     cluster = data.get('cluster')
     role = data.get('role')
+    # Own-identity sheet (2026-08-15): OPTIONAL narrowing of Cluster+Role to
+    # one physical instance when the same sheet is cloned/reused and Cluster
+    # alone is identical across copies (Denis, live: AD_DAC/IC2). Distinct
+    # from anchor_sheet below — that one narrows the OTHER, anchor component
+    # in anchor-relative mode, not this placement's own identity.
+    sheet = data.get('sheet')
     if not cluster or not role:
         raise ValidationError(format_fatal_error(
             _("coordinate_placements entry {label!r} missing cluster/role").format(label=label),
@@ -1008,6 +1022,7 @@ def _load_coordinate_placement(data: dict[str, Any]) -> CoordinatePlacement:
     return CoordinatePlacement(
         cluster=cluster,
         role=role,
+        sheet=sheet,
         name=data.get('name'),
         x_mm=x_mm, y_mm=y_mm,
         center_x_mm=center_x_mm, center_y_mm=center_y_mm,

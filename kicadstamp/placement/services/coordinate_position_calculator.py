@@ -38,10 +38,10 @@ from ...geometry.spoke_layout import local_to_absolute
 from ...i18n import _
 from ...utils.units import MM
 from ..commands import MoveCommand
-from .clone_role_resolver import (match_unique_footprint_by_fields, resolve_footprint_by_role,
-                                  resolve_unique_footprint_by_fields)
+from .clone_role_resolver import match_unique_footprint_by_fields, resolve_footprint_by_role
 from .component_resolver import resolve_anchor_pad_position, resolve_footprint_by_ref
 from .point_resolver import resolve_point_chain
+from .role_narrowing import narrow_candidates_by_sheet
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,9 @@ def _rotate_native(vec: Vector2, angle_deg: float) -> Vector2:
     return vec.rotate(Angle.from_degrees(angle_deg), _ORIGIN)
 
 
-def resolve_footprint_by_cluster_role(adapter, cluster: str, role: str, label: str) -> FootprintInstance:
+def resolve_footprint_by_cluster_role(adapter, cluster: str, role: str, label: str,
+                                      sheet: str | None = None,
+                                      sheet_names: dict[str, str] | None = None) -> FootprintInstance:
     """Exact-match lookup — same convention as ClonePlacement's cluster:
     mode (resolve_by_cluster_tag in clone_role_resolver.py, 2026-08-06:
     "Cluster is meant to be unique per instance... a direct, unconditional
@@ -73,10 +75,28 @@ def resolve_footprint_by_cluster_role(adapter, cluster: str, role: str, label: s
     already-uniquely-tagged instance, which is what both this and
     resolve_by_cluster_tag actually do. Role is ALSO exact-matched (it
     already is everywhere in the project — see project's Role/Cluster
-    architecture notes). Thin wrapper over the shared
-    resolve_unique_footprint_by_fields (clone_role_resolver.py, 2026-08-12)."""
-    return resolve_unique_footprint_by_fields(
-        adapter, {ROLE_FIELD_NAME: role, CLUSTER_FIELD_NAME: cluster}, label)
+    architecture notes). Shares the exact-match filter + fatal-if-not-unique
+    logic with resolve_unique_footprint_by_fields (clone_role_resolver.py,
+    2026-08-12) via match_unique_footprint_by_fields — with the sheet
+    narrowing below inserted between the filter and the final uniqueness
+    check.
+
+    sheet/sheet_names (2026-08-15) — OPTIONAL additional narrowing to ONE
+    physical instance when the same sheet is cloned/reused and Cluster alone
+    is identical across copies (Denis, live: AD_DAC/IC2 exists identically
+    on every channel's cloned sheet — see CoordinatePlacement's own sheet:
+    field in models.py): the exact Role+Cluster matches are narrowed via
+    narrow_candidates_by_sheet (role_narrowing.py) BEFORE the final
+    fatal-if-not-unique check. Sheet only narrows if it actually reduces
+    the set, and a sheet matching nothing leaves the (possibly ambiguous)
+    list intact for the usual fatal message — it never silently drops a
+    candidate."""
+    field_matches = {ROLE_FIELD_NAME: role, CLUSTER_FIELD_NAME: cluster}
+    matches = [fp for fp in adapter.get_footprints()
+               if all(adapter.get_field_value(fp, field) == value
+                      for field, value in field_matches.items())]
+    matches = narrow_candidates_by_sheet(matches, sheet, sheet_names or {})
+    return match_unique_footprint_by_fields(matches, field_matches, label)
 
 
 def resolve_target_position(cp: CoordinatePlacement) -> tuple[Vector2, float]:
@@ -214,8 +234,14 @@ def build_coordinate_moves(adapter, coordinate_placements: list[CoordinatePlacem
     for cp in coordinate_placements:
         label = coordinate_placement_effective_name(cp)
         field_matches = {ROLE_FIELD_NAME: cp.role, CLUSTER_FIELD_NAME: cp.cluster}
-        fp = match_unique_footprint_by_fields(index.get((cp.role, cp.cluster), []),
-                                              field_matches, label)
+        candidates = index.get((cp.role, cp.cluster), [])
+        # Own-identity sheet (2026-08-15): OPTIONAL narrowing to one physical
+        # instance of a reused/cloned sheet where Cluster alone is identical
+        # across copies — same convention as resolve_footprint_by_cluster_role.
+        # sheet_names is ALREADY a parameter of this function (used for
+        # anchor-relative narrowing below) — reused here, no new parameter.
+        candidates = narrow_candidates_by_sheet(candidates, cp.sheet, sheet_names or {})
+        fp = match_unique_footprint_by_fields(candidates, field_matches, label)
         if _has_external_anchor(cp):
             # ANCHOR-RELATIVE: target = anchor position (+ its anchor_pad) + offset.
             anchor_pos = _resolve_external_anchor(adapter, cp, points or {},

@@ -278,13 +278,19 @@ the tabs — they act on the whole placement, not one tab.
   paths go through the same method, so either one keeps the other in sync. Added 2026-08-06 (Denis,
   live: "в пласере давай сделаем имя целла по выпадающему комбо-боксу... не удобно" — going to the
   Config tree for every single pick was the friction). Hidden in Role/Cluster mode.
+- **Sheet** (added 2026-08-15) — the placement's OWN sheet, OPTIONAL: narrows ambiguous
+  Cluster+Role inside the cell when this cell is cloned across reused sheets. Ordered ABOVE
+  "Cluster:" — the same (Sheet, Cluster, Role) convention as Single-component mode below.
 - **Cluster** — the placement's name (also what gets clicked from the Components tree, see above).
   Hidden in Cluster *source* mode (see above) — the picked Existing Cluster value is reused as the
   name instead, nothing left to ask for here.
 - **Single component** (Source combo — a `coordinate_placements:` entry, no `cell:`) — its
-  **Cluster**/**Role**/**Name** identity fields live here on the Source tab (since 2026-08-13, Denis:
-  "Cluster, Role, Name надо на первый таб перенести" — they used to be on the Coordinate tab, mixed
-  with the positioning fields, which was confusing to find). The **Coordinate** tab then keeps only
+  **Sheet**/**Cluster**/**Role**/**Name** identity fields live here on the Source tab (since
+  2026-08-13, Denis: "Cluster, Role, Name надо на первый таб перенести" — they used to be on the
+  Coordinate tab, mixed with the positioning fields, which was confusing to find). **Sheet** (added
+  2026-08-15) is OPTIONAL — narrows Cluster+Role to one physical instance when the same sheet is
+  cloned/reused and Cluster alone is identical across copies (distinct from the Anchor widget's
+  `anchor_sheet`, which narrows the OTHER, anchor component). The **Coordinate** tab then keeps only
   "where to put it" (Mode/X Y/Anchor/...). The "Cluster:" label intentionally matches the Cell-mode
   name row above — a different field, never visible at the same time.
 - **Nets / Net overrides / Refs tabs** — all three tabs are hidden entirely (removed from the tab

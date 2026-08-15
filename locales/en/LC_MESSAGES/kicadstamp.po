@@ -1759,6 +1759,14 @@ msgstr ""
 msgid "sheet name (narrows an ambiguous Role, optional)"
 msgstr ""
 
+#: gui/docks/placer.py:289
+msgid "sheet name (only if Cluster+Role is ambiguous across cloned sheets, optional)"
+msgstr ""
+
+#: gui/docks/placer.py:723
+msgid "sheet name (narrows ambiguous Cluster+Role when this cell is cloned across reused sheets, optional)"
+msgstr ""
+
 #: gui/docks/points.py:159 gui/docks/rules.py:179
 msgid "Sheet:"
 msgstr ""
@@ -5548,9 +5556,9 @@ msgid ""
 "params/net name or the schematic connection)"
 msgstr ""
 
-#: kicadstamp/placement/services/clone_role_resolver.py:324
+#: kicadstamp/placement/services/clone_role_resolver.py:398
 #, python-brace-format
-msgid "anchor_sheet {sheet!r}"
+msgid "this placement's sheet {sheet!r}"
 msgstr ""
 
 #: kicadstamp/placement/services/clone_role_resolver.py:396
@@ -5563,22 +5571,22 @@ msgstr ""
 msgid " (already narrowed by {narrowed_by}, but not enough)"
 msgstr ""
 
-#: kicadstamp/placement/services/clone_role_resolver.py:400
+#: kicadstamp/placement/services/clone_role_resolver.py:402
 msgid ""
-" (neither anchor_sheet nor this placement's Cluster set — if these "
+" (neither this placement's sheet nor its Cluster set — if these "
 "components are physically different instances, one of them would narrow "
 "to one)"
 msgstr ""
 
-#: kicadstamp/placement/services/clone_role_resolver.py:403
+#: kicadstamp/placement/services/clone_role_resolver.py:405
 #, python-brace-format
 msgid ""
 "role {role!r}: ambiguity — {count} components on net "
 "{net!r}{cluster_hint}{note}: {refs}. Solutions: check this placement's own "
-"Cluster (name) is tagged correctly on the board, and/or set anchor_sheet, "
-"OR select the desired instance on the board before running, OR split roles "
-"by net names in the schematic (e.g. DAC_PI_3V3_C1 vs DAC_PI_AVDD_C1), OR "
-"use explicit refs: {{ {role}: {first_ref} }}"
+"Cluster (name) is tagged correctly on the board, and/or set this "
+"placement's sheet, OR select the desired instance on the board before "
+"running, OR split roles by net names in the schematic (e.g. DAC_PI_3V3_C1 "
+"vs DAC_PI_AVDD_C1), OR use explicit refs: {{ {role}: {first_ref} }}"
 msgstr ""
 
 #: kicadstamp/placement/services/clone_role_resolver.py:343

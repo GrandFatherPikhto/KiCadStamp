@@ -280,6 +280,14 @@ class _CoordinatePlacementForm(QWidget):
         configure_searchable(self.role_combo)
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText(_("cluster/role"))
+        # Own-identity sheet (2026-08-15): OPTIONAL narrowing of Cluster+Role
+        # to one physical instance when the same sheet is cloned/reused and
+        # Cluster alone is identical across copies (Denis, live: AD_DAC/IC2).
+        # Distinct from the Anchor widget's anchor_sheet — that one narrows
+        # the OTHER, anchor component in anchor-relative mode.
+        self.sheet_edit = QLineEdit()
+        self.sheet_edit.setPlaceholderText(
+            _("sheet name (only if Cluster+Role is ambiguous across cloned sheets, optional)"))
 
         self.mode_combo = QComboBox()
         self.mode_combo.addItems([_("Cartesian"), _("Polar (around centre)"), _("Anchor")])
@@ -443,6 +451,9 @@ class _CoordinatePlacementForm(QWidget):
         name = self.name_edit.text().strip()
         if name:
             entry["name"] = name
+        sheet = self.sheet_edit.text().strip()
+        if sheet:
+            entry["sheet"] = sheet
 
         rotation, err = self._parse_float(self.rotation_edit, _("Rotation"))
         if err:
@@ -544,6 +555,7 @@ class _CoordinatePlacementForm(QWidget):
         self.cluster_combo.setCurrentText(str(entry.get("cluster", "")))
         self.role_combo.setCurrentText(str(entry.get("role", "")))
         self.name_edit.setText(str(entry.get("name") or ""))
+        self.sheet_edit.setText(str(entry.get("sheet") or ""))
         rotation = entry.get("rotation_deg")
         self.rotation_edit.setText("" if rotation is None else str(rotation))
         self.retired_checkbox.setChecked(bool(entry.get("retired", False)))
@@ -598,6 +610,7 @@ class _CoordinatePlacementForm(QWidget):
         self.cluster_combo.setCurrentText("")
         self.role_combo.setCurrentText("")
         self.name_edit.setText("")
+        self.sheet_edit.setText("")
         self.rotation_edit.setText("")
         self.x_edit.setText("")
         self.y_edit.setText("")
@@ -703,6 +716,14 @@ class PlacerDock(QWidget):
         self._name_row = QWidget()
         form = QFormLayout(self._name_row)
         form.setContentsMargins(0, 0, 0, 0)
+        # Own-identity sheet (2026-08-15, Cell mode): narrows ambiguous
+        # Cluster+Role when this cell is cloned across reused sheets — optional,
+        # same (Sheet, Cluster, Role) order as the Single-component row above.
+        self.sheet_edit = QLineEdit()
+        self.sheet_edit.setPlaceholderText(
+            _("sheet name (narrows ambiguous Cluster+Role when this cell is "
+              "cloned across reused sheets, optional)"))
+        form.addRow(_("Sheet:"), self.sheet_edit)
         self.cluster_edit = QComboBox()
         configure_searchable(self.cluster_edit)
         self.cluster_edit.lineEdit().setPlaceholderText(_("Cluster / clone_placement name"))
@@ -730,6 +751,7 @@ class PlacerDock(QWidget):
         self._coordinate_identity_row = QWidget()
         coordinate_identity_form = QFormLayout(self._coordinate_identity_row)
         coordinate_identity_form.setContentsMargins(0, 0, 0, 0)
+        coordinate_identity_form.addRow(_("Sheet:"), self.coordinate_form.sheet_edit)
         coordinate_identity_form.addRow(_("Cluster:"), self.coordinate_form.cluster_combo)
         coordinate_identity_form.addRow(_("Role:"), self.coordinate_form.role_combo)
         coordinate_identity_form.addRow(_("Name:"), self.coordinate_form.name_edit)
@@ -1303,6 +1325,11 @@ class PlacerDock(QWidget):
             self._show_message(_("Pick a Cell first."), _ERROR_STYLE)
             return None
         entry: Dict[str, Any] = {"name": name, "cell": self._selected_cell}
+        # Own-identity sheet (2026-08-15, Cell mode) — only written when
+        # non-empty, same pattern as name above.
+        sheet = self.sheet_edit.text().strip()
+        if sheet:
+            entry["sheet"] = sheet
 
         origin_fields, err = self.origin_widget.build()
         if err:
@@ -1667,6 +1694,7 @@ class PlacerDock(QWidget):
         self.cell_mode_combo.setCurrentIndex(0)
         self._on_cell_mode_changed()
         self.cluster_edit.setCurrentText("")
+        self.sheet_edit.setText("")
         self.origin_widget.clear()
         self.rotation_edit.setText("")
         self.layer_combo.setCurrentIndex(0)
@@ -1712,6 +1740,7 @@ class PlacerDock(QWidget):
             self.coordinate_form.load(entry)
             return
         self.cluster_edit.setCurrentText(str(entry.get("name", "")))
+        self.sheet_edit.setText(str(entry.get("sheet") or ""))
         # cell: is mandatory on ClonePlacement since 2026-08-12 (Group 0
         # consolidation — the role:/cluster: modes migrated to
         # coordinate_placements' anchor-relative mode), so a cell-bearing

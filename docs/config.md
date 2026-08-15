@@ -267,9 +267,10 @@ clone_placements:
   role inside the cell resolves against a real net, via `nets:` (literal `role: net`) and/or
   `params:` (fills `{placeholder}`s in the cell's own `net_template:` fields, same substitution as
   via/track `net:`). Ambiguous candidates (2+ matching the resolved net) are narrowed by
-  `anchor_sheet` → the placement's own `Cluster` (its `name:` — NOT `anchor_cluster`, which narrows
-  only the anchor, see "Anchored" above) → current board selection → physical proximity to the anchor
-  → a fatal error, in that order — see `clone_role_resolver.py`'s docstrings for the exact cascade.
+  the placement's own `sheet` → its own `Cluster` (the placement's `name:` — NOT `anchor_sheet`/`anchor_cluster`,
+  which narrow only the anchor, see "Anchored" above) → current board selection → physical proximity
+  to the anchor → a fatal error, in that order — see `clone_role_resolver.py`'s docstrings for the
+  exact cascade.
 - **By selection** (rare, one-off sections — a single MCU), when `params`/`nets` are absent (or
   `by_selection: true` explicitly, if `params` is present only for via/track net resolution and would
   otherwise be misread as "by nets" mode): roles resolve against whatever's currently selected on the
@@ -285,6 +286,7 @@ clone_placements:
 | Field | Meaning |
 |---|---|
 | `name` | Required — registry identity fallback, `--only` target, shows up in every diagnostic message. |
+| `sheet` | Optional. Own-identity sheet — narrows ambiguous Cluster+Role INSIDE the cell when this cell is cloned across reused sheets (a reused hierarchical sheet clones IDENTICAL custom fields onto every instance, so only the sheet can tell two physical copies apart — e.g. one PI-filter section per channel). NOT `anchor_sheet` — that narrows only the external anchor search (see `anchor_role` above). Split 2026-08-15 from `anchor_sheet`, completing the 2026-08-14 `anchor_cluster` split — same (Sheet, Cluster, Role) convention. |
 | `xy` | Required. See the anchored/absolute modes above and the `xy:` note. |
 | `cell` **or** `role` **or** `cluster` | Exactly one. `cell:` references `cells:` (inline or `include:`d). `role:`/`cluster:` both synthesise a temporary one-component cell on the fly (for a placement not worth a whole cell file) — `role:` matches the live Role field (a category, ambiguity gets narrowed), `cluster:` matches an already-assigned Cluster field directly (meant to already be unique, no narrowing). |
 | `rotation_deg` | Default `0.0`. Rotates the cell's contents (anchored mode) or the whole thing (absolute mode). |

@@ -260,6 +260,56 @@ class TestResolveRolesByNets:
         result = resolve_roles_by_nets(adapter, tpl, clone)
         assert result == {"PI_FB": "FB10"}
 
+    def test_internal_role_narrowing_uses_placement_sheet(self):
+        """Split 2026-08-15: ambiguous roles INSIDE the cell are narrowed by
+        the placement's OWN sheet (clone.sheet), NOT by anchor_sheet (which
+        narrows only the external anchor). A reused hierarchical sheet clones
+        IDENTICAL Cluster/Role fields onto every instance (Denis, live:
+        AD_DAC/IC2 exists identically on every channel's cloned sheet) — only
+        the sheet can tell two physical copies apart."""
+        tpl = Cell(name="t", components=[TemplateComponentSlot(role="PI_FB")])
+        fps = [
+            _make_fp_with_sheet("FB10", "PI_FB", ["NET1"], "sheet-uuid-0"),
+            _make_fp_with_sheet("FB4", "PI_FB", ["NET1"], "sheet-uuid-1"),
+        ]
+        adapter = MagicMock()
+        adapter.get_footprints.return_value = fps
+        adapter.get_field_value.side_effect = _role_or_cluster
+        adapter.get_footprint_pads.side_effect = _get_pads
+        adapter.get_selected_items.return_value = []
+
+        clone = ClonePlacement(name="c", cell="t", xy=(0, 0),
+                               nets={"PI_FB": "NET1"}, sheet="Channel_0")
+        assert clone.anchor_sheet is None  # narrowing must NOT depend on it
+        result = resolve_roles_by_nets(
+            adapter, tpl, clone,
+            sheet_names={"sheet-uuid-0": "Channel_0", "sheet-uuid-1": "Channel_1"})
+        assert result == {"PI_FB": "FB10"}
+
+    def test_anchor_sheet_does_not_narrow_internal_roles(self):
+        """Split regression (same class as the 08-14 anchor_cluster one):
+        anchor_sheet is set to a DIFFERENT value than sheet — internal-role
+        narrowing must still follow sheet; anchor_sheet must have no effect on
+        it (it narrows only the external anchor, see resolve_footprint_by_role)."""
+        tpl = Cell(name="t", components=[TemplateComponentSlot(role="PI_FB")])
+        fps = [
+            _make_fp_with_sheet("FB10", "PI_FB", ["NET1"], "sheet-uuid-0"),
+            _make_fp_with_sheet("FB4", "PI_FB", ["NET1"], "sheet-uuid-1"),
+        ]
+        adapter = MagicMock()
+        adapter.get_footprints.return_value = fps
+        adapter.get_field_value.side_effect = _role_or_cluster
+        adapter.get_footprint_pads.side_effect = _get_pads
+        adapter.get_selected_items.return_value = []
+
+        clone = ClonePlacement(name="c", cell="t", xy=(0, 0),
+                               nets={"PI_FB": "NET1"}, sheet="Channel_0",
+                               anchor_sheet="Unrelated_Sheet_99")
+        result = resolve_roles_by_nets(
+            adapter, tpl, clone,
+            sheet_names={"sheet-uuid-0": "Channel_0", "sheet-uuid-1": "Channel_1"})
+        assert result == {"PI_FB": "FB10"}
+
     def test_role_without_any_net_source_raises(self):
         tpl = Cell(name="t2", components=[TemplateComponentSlot(role="NO_NET_ROLE")])
         clone = ClonePlacement(name="x", cell="t2", xy=(0, 0))
@@ -381,14 +431,16 @@ def _make_fp_with_sheet(ref, role, nets, sheet_uuid):
     return fp
 
 
-class TestResolveRolesByNetsAnchorSheet:
-    """anchor_sheet narrowing for ambiguous TEMPLATE roles (added 2026-07-28):
-    a GLOBAL net (e.g. +3V3, shared by every instance of a role board‑wide,
-    unlike a per‑channel hierarchical net) leaves candidates=all instances,
-    and Cluster can't help when the schematic reuses one physical section per
-    channel via a hierarchical sheet (Cluster is then shared across every
-    instance too) — anchor_sheet is the only signal left, same mechanism
-    already used for anchor resolution itself (see TestResolveAnchorByRole)."""
+class TestResolveRolesByNetsPlacementSheet:
+    """The placement's OWN sheet narrowing for ambiguous TEMPLATE roles (added
+    2026-07-28 as anchor_sheet; split 2026-08-15 into the placement's own
+    `sheet` field — anchor_sheet now narrows only the EXTERNAL anchor, see
+    TestResolveAnchorByRole): a GLOBAL net (e.g. +3V3, shared by every
+    instance of a role board‑wide, unlike a per‑channel hierarchical net)
+    leaves candidates=all instances, and Cluster can't help when the
+    schematic reuses one physical section per channel via a hierarchical
+    sheet (Cluster is then shared across every instance too) — the
+    placement's own sheet is the only signal left."""
 
     def _template(self):
         return Cell(name="pi_filter", components=[TemplateComponentSlot(role="CAP_IN")])
@@ -407,11 +459,18 @@ class TestResolveRolesByNetsAnchorSheet:
         sheet_names = {"sheet-uuid-0": "Channel_0", "sheet-uuid-1": "Channel_1", "sheet-uuid-2": "Channel_2"}
 
         clone = ClonePlacement(name="c1", cell="pi_filter", xy=(0, 0),
-                               nets={"CAP_IN": "+3V3"}, anchor_sheet="Channel_1")
+                               nets={"CAP_IN": "+3V3"}, sheet="Channel_1")
+        assert clone.anchor_sheet is None  # narrowing must NOT depend on it
         result = resolve_roles_by_nets(adapter, self._template(), clone, sheet_names=sheet_names)
         assert result == {"CAP_IN": "C20"}
 
-    def test_anchor_sheet_placeholder_substituted_from_params(self):
+    def test_own_sheet_used_literally_not_resolved_from_params(self):
+        """Split 2026-08-15: internal-role narrowing reads the placement's OWN
+        sheet LITERALLY — `sheet` is an "own identity" field, NOT run through
+        resolve_placeholder (only the EXTERNAL anchor_sheet keeps that
+        treatment, see TestResolveAnchorByRole). A {placeholder} in sheet must
+        NOT be substituted: the literal string matches no sheet, so the
+        ambiguity is reported rather than silently narrowing."""
         fps = [
             _make_fp_with_sheet("C10", "CAP_IN", ["+3V3"], "sheet-uuid-0"),
             _make_fp_with_sheet("C20", "CAP_IN", ["+3V3"], "sheet-uuid-1"),
@@ -424,15 +483,15 @@ class TestResolveRolesByNetsAnchorSheet:
         sheet_names = {"sheet-uuid-0": "Channel_0", "sheet-uuid-1": "Channel_1"}
 
         clone = ClonePlacement(name="c1", cell="pi_filter", xy=(0, 0),
-                               nets={"CAP_IN": "+3V3"}, anchor_sheet="Channel_{channel}",
+                               nets={"CAP_IN": "+3V3"}, sheet="Channel_{channel}",
                                params={"channel": 1})
-        result = resolve_roles_by_nets(adapter, self._template(), clone, sheet_names=sheet_names)
-        assert result == {"CAP_IN": "C20"}
+        with pytest.raises(ValidationError, match="CAP_IN"):
+            resolve_roles_by_nets(adapter, self._template(), clone, sheet_names=sheet_names)
 
-    def test_insufficient_narrowing_raises_mentioning_anchor_sheet(self):
-        """Two candidates share the same sheet — anchor_sheet narrows 3 -> 2,
-        not enough; the fatal message must say so instead of the old
-        Cluster-only wording."""
+    def test_insufficient_narrowing_raises_mentioning_placement_sheet(self):
+        """Two candidates share the same sheet — this placement's sheet narrows
+        3 -> 2, not enough; the fatal message must say so (naming the sheet
+        value) instead of the old Cluster-only wording."""
         fps = [
             _make_fp_with_sheet("C10", "CAP_IN", ["+3V3"], "sheet-uuid-0"),
             _make_fp_with_sheet("C11", "CAP_IN", ["+3V3"], "sheet-uuid-0"),
@@ -446,18 +505,18 @@ class TestResolveRolesByNetsAnchorSheet:
         sheet_names = {"sheet-uuid-0": "Channel_0", "sheet-uuid-1": "Channel_1"}
 
         clone = ClonePlacement(name="c1", cell="pi_filter", xy=(0, 0),
-                               nets={"CAP_IN": "+3V3"}, anchor_sheet="Channel_0")
-        with pytest.raises(ValidationError, match="anchor_sheet") as exc_info:
+                               nets={"CAP_IN": "+3V3"}, sheet="Channel_0")
+        with pytest.raises(ValidationError, match="Channel_0") as exc_info:
             resolve_roles_by_nets(adapter, self._template(), clone, sheet_names=sheet_names)
         msg = str(exc_info.value)
         assert "C10" in msg and "C11" in msg and "C20" not in msg
 
-    def test_no_anchor_sheet_mentions_placement_cluster_hint(self):
-        """Regression (split 2026-08-14): no anchor_sheet set — the hint must
-        now name the placement's OWN Cluster (`name` — required and non-empty
-        for ClonePlacement/CellPlacement, see config/entries.py, so the old
-        "neither anchor_sheet nor Cluster set" branch is unreachable) instead
-        of the old anchor_cluster wording."""
+    def test_no_sheet_mentions_placement_cluster_hint(self):
+        """Regression (splits 2026-08-14/08-15): no placement sheet set — the
+        hint must name the placement's OWN Cluster (`name` — required and
+        non-empty for ClonePlacement/CellPlacement, see config/entries.py, so
+        the "neither sheet nor Cluster set" branch is unreachable) instead of
+        the old anchor_cluster/anchor_sheet wording."""
         fps = [
             _make_fp("A", "CAP_IN", ["+3V3"]),
             _make_fp("B", "CAP_IN", ["+3V3"]),

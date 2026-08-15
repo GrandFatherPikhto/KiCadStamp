@@ -195,6 +195,38 @@ def test_build_entry_dict_absolute_xy_round_trips_through_loader(main_window, tm
     assert cp.xy == (10.5, -3.2)
 
 
+def test_cell_mode_sheet_field_round_trips(main_window, tmp_path):
+    """2026-08-15: the own sheet: field on the Cell mode's Source tab —
+    build()/load() round-trip through PlacerDock keeps it, and new_placement()
+    (the Cell-mode clear path) wipes it."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock.cluster_edit.setCurrentText("Channel_2_PI_Filter")
+    dock.x_edit.setText("0")
+    dock.y_edit.setText("0")
+    dock.sheet_edit.setText("Channel_2")
+
+    entry = dock._build_entry_dict()
+    assert entry["sheet"] == "Channel_2"
+
+    dock.load_placement(entry)
+    assert dock.sheet_edit.text() == "Channel_2"
+
+    dock.new_placement(dock._placer_path)
+    assert dock.sheet_edit.text() == ""
+
+
+def test_cell_mode_sheet_field_not_written_when_empty(main_window, tmp_path):
+    """Same 'only write if non-empty' pattern as name — an empty Sheet field
+    must not inject a stray sheet: key into the saved Cell-mode entry."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock.cluster_edit.setCurrentText("Channel_2_PI_Filter")
+    dock.x_edit.setText("0")
+    dock.y_edit.setText("0")
+
+    entry = dock._build_entry_dict()
+    assert "sheet" not in entry
+
+
 def test_build_entry_dict_polar_xy_writes_radius_angle(main_window, tmp_path):
     """Polar mode (optional alternative to xy) must write radius_mm/angle_deg
     instead of xy, and still validate against the real backend loader."""
@@ -534,6 +566,40 @@ def test_single_component_identity_fields_round_trip_after_the_layout_move(main_
     assert form.cluster_combo.currentText() == "FPGA_PERIPH"
     assert form.role_combo.currentText() == "R18"
     assert form.name_edit.text() == "my_cap"
+
+
+def test_coordinate_sheet_field_round_trips(main_window, tmp_path):
+    """2026-08-15: the own sheet: field on the Single-component form's
+    identity row (Source tab, ordered before Cluster) — build()/load()/clear()
+    round-trip, same as cluster/role/name."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock.new_coordinate_placement(dock._placer_path)
+    form = dock.coordinate_form
+    form.cluster_combo.setCurrentText("AD_DAC")
+    form.role_combo.setCurrentText("AD_DAC")
+    form.sheet_edit.setText("Channel_0")
+
+    entry = dock._build_entry_dict()
+    assert entry["sheet"] == "Channel_0"
+
+    dock.load_placement(entry)
+    assert form.sheet_edit.text() == "Channel_0"
+
+    form.clear()
+    assert form.sheet_edit.text() == ""
+
+
+def test_coordinate_sheet_field_not_written_when_empty(main_window, tmp_path):
+    """Same 'only write if non-empty' pattern as name — an empty Sheet field
+    must not inject a stray sheet: key into the saved Single-component entry."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock.new_coordinate_placement(dock._placer_path)
+    form = dock.coordinate_form
+    form.cluster_combo.setCurrentText("AD_DAC")
+    form.role_combo.setCurrentText("AD_DAC")
+
+    entry = dock._build_entry_dict()
+    assert "sheet" not in entry
 
 
 def test_load_placement_round_trips_absolute_xy(main_window, tmp_path):

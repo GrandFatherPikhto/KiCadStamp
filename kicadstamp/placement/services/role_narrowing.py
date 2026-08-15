@@ -7,7 +7,7 @@ handoff_2026_08_05_architecture_fixes_roadmap.md).
 
 This is the ONE narrowing logic used by all three resolution paths in
 clone_role_resolver.py (by-nets, by-selection, and anchor-by-role):
-anchor_sheet -> Cluster -> current selection -> (optionally, in
+sheet -> Cluster -> current selection -> (optionally, in
 _narrow_ambiguous_candidates) physical proximity to the anchor. Each step
 only narrows if it reduces the set — it never chooses for the user.
 
@@ -22,6 +22,15 @@ clone_role_resolver.py). The two were conflated into one field before
 split per his own (Sheet, Cluster, Role) addressing convention, already
 correctly separate for Rule/ManualSpoke (rule.anchor_cluster vs
 spoke.cluster — see manual_position_calculator.py).
+
+The "Sheet" step got the same split (2026-08-15, the second half of the
+08-14 one): the by-nets/by-selection paths narrow roles INSIDE the cell
+by the PLACEMENT'S OWN `sheet` field — NOT by `anchor_sheet`, which
+narrows only the EXTERNAL anchor (resolve_footprint_by_role). Same
+(Sheet, Cluster, Role) addressing convention, this time completing it
+for the internal-role cascade. The shared narrow_candidates_by_sheet()
+helper below serves BOTH this internal path and CoordinatePlacement's own
+sheet: identity (see coordinate_position_calculator.py).
 """
 import logging
 import math
@@ -29,7 +38,6 @@ import math
 from kipy.geometry import Vector2
 
 from ...config import ClonePlacement
-from ...net_resolution import resolve_placeholder
 from ...utils.units import MM
 from ...cluster_matching import cluster_prefix_match
 from ...constants import CLUSTER_FIELD_NAME
@@ -51,6 +59,22 @@ def _fp_on_sheet(fp, anchor_sheet: str, sheet_names: dict[str, str]) -> bool:
     """
     names = resolve_sheet_path_names(fp, sheet_names)
     return anchor_sheet in names
+
+
+def narrow_candidates_by_sheet(candidates, sheet: str | None,
+                               sheet_names: dict[str, str]) -> list:
+    """Narrow `candidates` to those whose resolved sheet-instance path
+    contains `sheet` — but ONLY if that actually reduces the set (never
+    chooses for the user, same convention as every other step in
+    _narrow_by_sheet_cluster_selection). `sheet` is optional in every
+    caller — this is a no-op when it's None/empty or candidates already
+    has 0-1 entries."""
+    if not sheet or len(candidates) <= 1:
+        return candidates
+    narrowed = [fp for fp in candidates if _fp_on_sheet(fp, sheet, sheet_names)]
+    if narrowed and len(narrowed) < len(candidates):
+        return narrowed
+    return candidates
 
 
 def _narrow_by_sheet_cluster_selection(
@@ -76,8 +100,8 @@ def _narrow_by_sheet_cluster_selection(
     narrowed = list(candidates)
 
     if anchor_sheet and len(narrowed) > 1:
-        by_sheet = [fp for fp in narrowed if _fp_on_sheet(fp, anchor_sheet, sheet_names)]
-        if by_sheet and len(by_sheet) < len(narrowed):
+        by_sheet = narrow_candidates_by_sheet(narrowed, anchor_sheet, sheet_names)
+        if len(by_sheet) < len(narrowed):
             logger.info(_("[{label}] role {role_str!r}: {count} candidates narrowed to {narrowed} by anchor_sheet {sheet!r}")
                         .format(label=label, role_str=role_str, count=len(narrowed),
                                 narrowed=len(by_sheet), sheet=anchor_sheet))
@@ -109,34 +133,36 @@ def _narrow_ambiguous_candidates(candidates, clone: ClonePlacement, adapter, sel
                                  anchor_position: Vector2 | None, clone_name: str, role: str,
                                  sheet_names: dict[str, str]):
     """
-    Common narrowing cascade for ambiguous candidates: anchor_sheet -> the
-    placement's OWN Cluster (`name`, not `anchor_cluster` — see module
-    docstring for the 2026-08-14 split) -> current selection -> physical
-    proximity to anchor. Used both in resolve_roles_by_nets (after
-    net‑based matching) and in
+    Common narrowing cascade for ambiguous candidates: the placement's OWN
+    sheet (`sheet`, not `anchor_sheet` — see module docstring for the
+    2026-08-15 split) -> the placement's OWN Cluster (`name`, not
+    `anchor_cluster` — see module docstring for the 2026-08-14 split) ->
+    current selection -> physical proximity to anchor. Used both in
+    resolve_roles_by_nets (after net‑based matching) and in
     resolve_roles_by_selection (when a role is not found in the selection but
     is ambiguous on the whole board) — one narrowing logic, not two copies.
     Returns (narrowed list, note for error message — empty string if narrowed
     to one).
 
-    anchor_sheet narrowing (added 2026-07-28, found via dac_pi_filter on a
-    global net like +3V3 shared by every PI‑filter on the board — Cluster
-    alone can't help when the schematic reuses ONE physical section per
-    channel via a hierarchical sheet, since custom fields like Cluster are
-    shared across every instance of a reused sheet, the same limitation
-    anchor_sheet was already built to work around for anchor resolution
-    itself — see resolve_footprint_by_role below, whose cascade order
-    (sheet, then cluster) this mirrors) goes FIRST, before Cluster: sheet
+    The sheet step was added for anchor_sheet on 2026-07-28 (found via
+    dac_pi_filter on a global net like +3V3 shared by every PI‑filter on the
+    board — Cluster alone can't help when the schematic reuses ONE physical
+    section per channel via a hierarchical sheet, since custom fields like
+    Cluster are shared across every instance of a reused sheet). Split
+    2026-08-15: internal-role narrowing now uses the placement's OWN `sheet`
+    (the same (Sheet, Cluster, Role) convention as Cluster via name), while
+    `anchor_sheet` narrows only the EXTERNAL anchor search
+    (resolve_footprint_by_role) — the second half of the 2026-08-14
+    anchor_cluster split. The sheet step goes FIRST, before Cluster: sheet
     membership is the more structural signal here (survives even when
     Cluster isn't set at all on these particular components).
     """
     # getattr, not direct attribute access: this function also serves
     # CellPlacement (nested, closed-boundary references inside a composite
-    # Cell — see config/models.py), which has no anchor_sheet/anchor_cluster
-    # concept at all — always None for it, real values for ClonePlacement.
+    # Cell — see config/models.py), which has no anchor_sheet/anchor_cluster/
+    # sheet concept at all — always None for it, real values for ClonePlacement.
     # `name` is required (and non-empty) on BOTH ClonePlacement and
     # CellPlacement (see config/entries.py), so reading it here is safe.
-    anchor_sheet = getattr(clone, "anchor_sheet", None)
     # Internal-role narrowing uses the PLACEMENT'S OWN Cluster — by convention
     # `name` already carries it (GUI's "Cluster:" field on Source tab writes
     # straight into name, see placer.py). NOT anchor_cluster: that field narrows
@@ -147,13 +173,21 @@ def _narrow_ambiguous_candidates(candidates, clone: ClonePlacement, adapter, sel
     # Rule/ManualSpoke (rule.anchor_cluster vs spoke.cluster — see
     # manual_position_calculator.py).
     placement_cluster = getattr(clone, "name", None)
-    resolved_anchor_sheet = None
-    if anchor_sheet:
-        resolved_anchor_sheet = resolve_placeholder(anchor_sheet, clone.params, what="anchor_sheet")
+    # Internal-role narrowing ALSO uses the placement's OWN sheet — the
+    # 2026-08-15 second half of the 08-14 anchor_cluster split, the (Sheet,
+    # Cluster, Role) convention completed for the internal-role cascade. NOT
+    # anchor_sheet: that field narrows only the EXTERNAL anchor
+    # (resolve_footprint_by_role), the same conflation anchor_sheet had before
+    # (the code even referenced the same dac_pi_filter bug that motivated
+    # anchor_sheet's own external-anchor narrowing). Deliberately NOT passed
+    # through resolve_placeholder — this is an "own identity" field, not an
+    # "external, templated" field (anchor_sheet keeps that treatment in
+    # resolve_anchor_by_role / resolve_footprint_by_role).
+    placement_sheet = getattr(clone, "sheet", None)
 
     narrowed = _narrow_by_sheet_cluster_selection(
         candidates, adapter, selected_refs,
-        resolved_anchor_sheet, placement_cluster,
+        placement_sheet, placement_cluster,
         sheet_names, clone_name, role,
     )
 

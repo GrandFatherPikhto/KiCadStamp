@@ -40,6 +40,15 @@ def _role_or_cluster(fp, field_name):
     return None
 
 
+def _make_fp_with_sheet(ref, role=None, cluster=None, sheet_uuid=None):
+    """Like _make_fp, but also carries sheet_path — resolve_sheet_path_names
+    reads fp.sheet_path.path[:-1] (last entry is the component's own uuid,
+    excluded) — see kicadstamp/sheet_names.py."""
+    fp = _make_fp(ref, role=role, cluster=cluster)
+    fp.sheet_path.path = [MagicMock(value=sheet_uuid), MagicMock(value=f"{ref}-own-uuid")]
+    return fp
+
+
 # ── resolve_footprint_by_cluster_role — exact Cluster+Role match ───────────
 
 def test_unique_match_resolves():
@@ -86,6 +95,43 @@ def test_cluster_match_is_exact_not_prefix():
 
     with pytest.raises(ValidationError, match="no component tagged"):
         resolve_footprint_by_cluster_role(adapter, "FPGA_PERIPH", "R_SERIES", "label")
+
+
+def test_resolve_footprint_by_cluster_role_narrows_by_sheet():
+    """2026-08-15: own sheet: field — two AD_DAC instances with IDENTICAL
+    Cluster+Role on DIFFERENT sheets (a reused hierarchical sheet clones
+    custom fields onto every instance — Denis, live: AD_DAC/IC2); sheet
+    narrows to exactly one before the fatal-if-not-unique check."""
+    adapter = MagicMock()
+    adapter.get_footprints.return_value = [
+        _make_fp_with_sheet("IC2", role="AD_DAC", cluster="AD_DAC", sheet_uuid="sheet-0"),
+        _make_fp_with_sheet("IC3", role="AD_DAC", cluster="AD_DAC", sheet_uuid="sheet-1"),
+    ]
+    adapter.get_field_value.side_effect = _role_or_cluster
+
+    fp = resolve_footprint_by_cluster_role(
+        adapter, "AD_DAC", "AD_DAC", "label",
+        sheet="Channel_0", sheet_names={"sheet-0": "Channel_0", "sheet-1": "Channel_1"})
+
+    assert fp.reference_field.text.value == "IC2"
+
+
+def test_resolve_footprint_by_cluster_role_sheet_no_match_keeps_ambiguous_fatal():
+    """narrow_candidates_by_sheet's "only narrow if it reduces AND finds
+    something" guarantee: a sheet that matches NO candidate leaves the original
+    (ambiguous) list intact, so the usual fatal names ALL candidates — it never
+    silently drops part of them."""
+    adapter = MagicMock()
+    adapter.get_footprints.return_value = [
+        _make_fp_with_sheet("IC2", role="AD_DAC", cluster="AD_DAC", sheet_uuid="sheet-0"),
+        _make_fp_with_sheet("IC3", role="AD_DAC", cluster="AD_DAC", sheet_uuid="sheet-1"),
+    ]
+    adapter.get_field_value.side_effect = _role_or_cluster
+
+    with pytest.raises(ValidationError, match="IC2.*IC3|IC3.*IC2"):
+        resolve_footprint_by_cluster_role(
+            adapter, "AD_DAC", "AD_DAC", "label",
+            sheet="NoSuchSheet", sheet_names={"sheet-0": "Channel_0", "sheet-1": "Channel_1"})
 
 
 # ── resolve_target_position — Cartesian / polar ─────────────────────────────
@@ -301,6 +347,30 @@ def test_build_coordinate_moves_ambiguous_cluster_role_raises():
 
     with pytest.raises(ValidationError, match="expected exactly one"):
         build_coordinate_moves(adapter, [cp])
+
+
+def test_build_coordinate_moves_narrows_by_sheet():
+    """2026-08-15: same sheet narrowing through the FULL apply path — the
+    prebuilt (Role, Cluster) index + narrow_candidates_by_sheet before
+    match_unique_footprint_by_fields."""
+    fps = [
+        _make_fp_with_sheet("IC2", role="AD_DAC", cluster="AD_DAC", sheet_uuid="sheet-0"),
+        _make_fp_with_sheet("IC3", role="AD_DAC", cluster="AD_DAC", sheet_uuid="sheet-1"),
+    ]
+    for fp in fps:
+        fp.position = Vector2.from_xy(0, 0)
+        fp.orientation.degrees = 0.0
+        fp.layer = "F.Cu"
+    adapter = MagicMock()
+    adapter.get_footprints.return_value = fps
+    adapter.get_field_value.side_effect = _role_or_cluster
+
+    cp = CoordinatePlacement(cluster="AD_DAC", role="AD_DAC", x_mm=1.0, y_mm=2.0,
+                             rotation_deg=0.0, sheet="Channel_0")
+    moves = build_coordinate_moves(
+        adapter, [cp], sheet_names={"sheet-0": "Channel_0", "sheet-1": "Channel_1"})
+
+    assert [m.ref for m in moves] == ["IC2"]
 
 
 # ── Anchor-relative mode (2026-08-12, Group 0 consolidation) ────────────────

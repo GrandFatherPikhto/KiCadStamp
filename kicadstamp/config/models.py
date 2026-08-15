@@ -85,6 +85,14 @@ class CoordinatePlacement:
     (apply_pipeline.py's Phase 1 move loop has no registry reconciliation
     either, it just re-applies the target position every run).
 
+    sheet — OPTIONAL, narrows Cluster+Role to one physical instance when the
+    same sheet is cloned/reused (e.g. one PI-filter section instantiated per
+    channel) and Cluster alone is identical across copies. Distinct from
+    `anchor_sheet` (narrows the OTHER, anchor component in anchor-relative
+    mode) — the same (Sheet, Cluster, Role) addressing convention as the rest
+    of the project, this time completing it for CoordinatePlacement's own
+    identity.
+
     Position — EXACTLY ONE of THREE mutually exclusive modes (fatal at load
     if more than one applies or none is fully specified, see config/entries.py):
       - Cartesian (absolute): x_mm/y_mm — absolute board position for the
@@ -132,6 +140,7 @@ class CoordinatePlacement:
     """
     cluster: str
     role: str
+    sheet: str | None = None
     name: str | None = None
     x_mm: float | None = None
     y_mm: float | None = None
@@ -532,6 +541,18 @@ class ClonePlacement:
     # and 'Channel_1/1V2_PLL_PI_FILTER'), not by exact equality — hierarchy
     # and flat names work with the same code.
     anchor_cluster: str | None = None
+    # Own-identity sheet — split 2026-08-15 from anchor_sheet (the second
+    # half of the 08-14 anchor_cluster split, mirroring exactly what name is
+    # for Cluster): this field narrows roles INSIDE the cell
+    # (role_narrowing.py::_narrow_ambiguous_candidates), while `anchor_sheet`
+    # narrows ONLY the external anchor search (resolve_footprint_by_role).
+    # Same (Sheet, Cluster, Role) addressing convention as the rest of the
+    # project, this time completing it — a reused hierarchical sheet clones
+    # IDENTICAL Cluster/Role fields onto every instance, so only the sheet
+    # can tell two physical copies apart (Denis, live: AD_DAC/IC2 exists
+    # identically on every channel's cloned sheet). Optional — only needed
+    # when Cluster+Role alone is ambiguous.
+    sheet: str | None = None
     # Alternative to anchor_ref/anchor_role — name of a points: entry (see
     # config/points.py). Mutually exclusive with anchor_ref/anchor_role
     # (fatal if combined — see config/loader.py). Unlike Rule/
