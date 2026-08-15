@@ -26,7 +26,7 @@ import difflib
 import logging
 
 from .config import (load_config, rule_effective_name, thermal_via_array_effective_name,
-                    coordinate_placement_effective_name)
+                    coordinate_placement_effective_name, clone_placement_effective_name)
 from .runtime_context import RuntimeContext
 from .kicad.adapter import KiCadBoardAdapter
 from .placement.planner import PlacementPlanner
@@ -160,7 +160,8 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
         return cfg
     requested = set(only_names)
     matched_rules = [r for r in cfg.rules if rule_effective_name(r) in requested]
-    matched_clones = [c for c in cfg.clone_placements if c.name in requested]
+    matched_clones = [c for c in cfg.clone_placements
+                      if clone_placement_effective_name(c) in requested]
     matched_tvas = [t for t in cfg.thermal_via_arrays
                     if not t.retired and thermal_via_array_effective_name(t) in requested]
     matched_coords = [cp for cp in cfg.coordinate_placements
@@ -168,14 +169,14 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
                       and coordinate_placement_effective_name(cp) in requested]
 
     found_names = ({rule_effective_name(r) for r in matched_rules}
-                   | {c.name for c in matched_clones}
+                   | {clone_placement_effective_name(c) for c in matched_clones}
                    | {thermal_via_array_effective_name(t) for t in matched_tvas}
                    | {coordinate_placement_effective_name(cp) for cp in matched_coords})
     missing = requested - found_names
     if missing:
         all_names = sorted(
             {rule_effective_name(r) for r in cfg.rules}
-            | {c.name for c in cfg.clone_placements}
+            | {clone_placement_effective_name(c) for c in cfg.clone_placements}
             | {thermal_via_array_effective_name(t) for t in cfg.thermal_via_arrays if not t.retired}
             | {coordinate_placement_effective_name(cp) for cp in cfg.coordinate_placements
                if not cp.retired}
@@ -196,7 +197,7 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
               "(everything else is ignored in this run)")
             .format(requested=sorted(requested),
                     rules=[rule_effective_name(r) for r in matched_rules],
-                    clones=[c.name for c in matched_clones],
+                    clones=[clone_placement_effective_name(c) for c in matched_clones],
                     thermal=[thermal_via_array_effective_name(t) for t in matched_tvas],
                     coords=[coordinate_placement_effective_name(cp) for cp in matched_coords]))
     return dataclasses.replace(cfg, rules=matched_rules,

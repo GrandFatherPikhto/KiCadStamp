@@ -1500,3 +1500,92 @@ def test_auto_fill_itself_commits_the_dirty_flag(main_window, tmp_path):
     assert dock._cluster_identity_dirty is True
     dock.set_cluster_name("ДругоеИмя")
     assert dock.cluster_edit.currentText() == "PIF_AVDD"
+
+
+# ── Placer name (save/--only identity) vs. Cluster (2026-08-15, plan
+# clone_placement_placer_name_split) ──────────────────────────────────────
+# The Cell-mode Cluster field (ClonePlacement.name) is BOTH the tag written
+# onto the board AND, historically, the identity upsert_list_entry matched
+# on — so editing Cluster on an already-saved entry appended a duplicate.
+# The new optional Placer name field (ClonePlacement.placer_name) carries the
+# save/--only identity separately; it auto-fills from Cluster ONLY while
+# creating a brand new placement (_placer_name_dirty, same pattern as the
+# Cluster tree-click fix above) and is reset only by new_placement().
+
+def test_placer_name_autofills_from_cluster_on_new_placement(main_window, tmp_path):
+    """Creating a placement: committing a Cluster value fills Placer name
+    from it (the original convenience, applied to the new identity field)."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock.new_placement(dock._placer_path)
+    dock.cluster_edit.setCurrentText("PIF_AVDD")
+    dock.cluster_edit.lineEdit().editingFinished.emit()  # Cluster commit
+    assert dock.placer_name_edit.text() == "PIF_AVDD"
+
+
+def test_placer_name_does_not_autofill_after_direct_edit(main_window, tmp_path):
+    """Once the user types Placer name by hand, Cluster edits must not
+    overwrite it."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock.new_placement(dock._placer_path)
+    dock.placer_name_edit.setText("MY_OWN_NAME")
+    dock.placer_name_edit.editingFinished.emit()  # user commit -> dirty
+    dock.cluster_edit.setCurrentText("PIF_AVDD")
+    dock.cluster_edit.lineEdit().editingFinished.emit()
+    assert dock.placer_name_edit.text() == "MY_OWN_NAME"
+
+
+def test_placer_name_does_not_autofill_while_editing_loaded_entry(main_window, tmp_path):
+    """KEY Denis scenario: load a saved entry, then edit Cluster several
+    times — Placer name must NOT follow, so the next save no longer spawns a
+    duplicate."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock.load_placement({"name": "PIF_AVDD", "placer_name": "CH0_PIF_AVDD",
+                         "cell": "pi_filter", "xy": [1.0, 1.0]})
+    assert dock.placer_name_edit.text() == "CH0_PIF_AVDD"
+    dock.cluster_edit.setCurrentText("PIF_AVDD2")
+    dock.cluster_edit.lineEdit().editingFinished.emit()
+    assert dock.placer_name_edit.text() == "CH0_PIF_AVDD"
+    dock.cluster_edit.setCurrentText("PIF_AVDD3")
+    dock.cluster_edit.lineEdit().editingFinished.emit()
+    assert dock.placer_name_edit.text() == "CH0_PIF_AVDD"
+
+
+def test_build_entry_dict_omits_placer_name_when_equal_to_cluster(main_window, tmp_path):
+    """Same "don't write a redundant field" principle as sheet: Placer name
+    that still equals Cluster is left out of the saved entry."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    # Load a full entry so the Origin widget has a position _build_entry_dict
+    # can read back (same setup as the existing round-trip tests).
+    dock.load_placement({"name": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]})
+    dock.cluster_edit.setCurrentText("PIF_AVDD")
+    dock.placer_name_edit.setText("PIF_AVDD")
+    entry = dock._build_entry_dict()
+    assert entry["name"] == "PIF_AVDD"
+    assert "placer_name" not in entry
+
+
+def test_build_entry_dict_includes_placer_name_when_different(main_window, tmp_path):
+    """Placer name that differs from Cluster is written — that is the whole
+    point of the split."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock.load_placement({"name": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]})
+    dock.cluster_edit.setCurrentText("PIF_AVDD")
+    dock.placer_name_edit.setText("CH0_PIF_AVDD")
+    entry = dock._build_entry_dict()
+    assert entry["name"] == "PIF_AVDD"
+    assert entry["placer_name"] == "CH0_PIF_AVDD"
+
+
+def test_new_placement_resets_placer_name_dirty_flag(main_window, tmp_path):
+    """A fresh form wants auto-fill again: load (dirty) -> new_placement ->
+    Cluster commit fills Placer name."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock.load_placement({"name": "PIF_AVDD", "placer_name": "CH0_PIF_AVDD",
+                         "cell": "pi_filter", "xy": [1.0, 1.0]})
+    assert dock._placer_name_dirty is True
+    dock.new_placement(dock._placer_path)
+    assert dock._placer_name_dirty is False
+    assert dock.placer_name_edit.text() == ""
+    dock.cluster_edit.setCurrentText("X")
+    dock.cluster_edit.lineEdit().editingFinished.emit()
+    assert dock.placer_name_edit.text() == "X"

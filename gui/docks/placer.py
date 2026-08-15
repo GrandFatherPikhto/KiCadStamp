@@ -121,8 +121,9 @@ from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox,
                               QTabWidget, QVBoxLayout, QWidget)
 
 from kicadstamp.apply_pipeline import ApplyPipeline
-from kicadstamp.config import (Config, RuntimeContext, coordinate_placement_effective_name,
-                               load_clone_placement, load_config, load_coordinate_placement)
+from kicadstamp.config import (Config, RuntimeContext, clone_placement_effective_name,
+                               coordinate_placement_effective_name, load_clone_placement,
+                               load_config, load_coordinate_placement)
 from kicadstamp.constants import CLUSTER_FIELD_NAME
 from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.i18n import _
@@ -685,6 +686,13 @@ class PlacerDock(QWidget):
         # (new_placement) — auto-fill is exactly what a BLANK form wants
         # (2026-08-15, plan cluster_field_autofill_not_hard_overwrite).
         self._cluster_identity_dirty: bool = False
+        # Placer name (save/--only identity, separate from Cluster since
+        # 2026-08-15) — True once the user has taken ownership (typed it
+        # directly, or loaded an already-saved entry). Auto-fill-from-Cluster
+        # only applies while this is False — i.e. only while CREATING a new
+        # placement (Денис: "автозаполнение только при создании пласера.
+        # Дальше уже не надо").
+        self._placer_name_dirty: bool = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -753,6 +761,10 @@ class PlacerDock(QWidget):
         configure_searchable(self.cluster_edit)
         self.cluster_edit.lineEdit().setPlaceholderText(_("Cluster / clone_placement name"))
         form.addRow(_("Cluster:"), self.cluster_edit)
+        self.placer_name_edit = QLineEdit()
+        self.placer_name_edit.setPlaceholderText(
+            _("same as Cluster unless changed (identity for Save/--only)"))
+        form.addRow(_("Placer name:"), self.placer_name_edit)
         source_page_layout.addWidget(self._name_row)
         # Auto-fill on the PLACEMENT's Cluster COMMIT (plan 2026-08-13, p.2;
         # re-tied to cluster_edit 2026-08-14, split anchor_cluster: the
@@ -770,6 +782,16 @@ class PlacerDock(QWidget):
         # textChanged/editTextChanged (those fire on every keystroke).
         self.cluster_edit.activated.connect(self._mark_cluster_identity_dirty)
         self.cluster_edit.lineEdit().editingFinished.connect(self._mark_cluster_identity_dirty)
+        # Placer name auto-fill from Cluster — ONLY while creating a brand new
+        # placement (2026-08-15, plan clone_placement_placer_name_split; Денис:
+        # "автозаполнение только при создании пласера. Дальше уже не надо").
+        # Same commit signals as _maybe_autofill_nets; the _placer_name_dirty
+        # flag (set on load/direct edit, reset only by new_placement) keeps
+        # this from dragging Placer name along while editing an already-loaded
+        # entry's Cluster.
+        self.cluster_edit.activated.connect(self._maybe_autofill_placer_name)
+        self.cluster_edit.lineEdit().editingFinished.connect(self._maybe_autofill_placer_name)
+        self.placer_name_edit.editingFinished.connect(self._mark_placer_name_dirty)
 
         # Single-component (CoordinatePlacement) identity row on the SOURCE
         # tab (2026-08-13, plan coordinate_identity_on_source_tab, Denis:
@@ -1107,6 +1129,22 @@ class PlacerDock(QWidget):
         cluster_field_autofill_not_hard_overwrite)."""
         self._cluster_identity_dirty = True
 
+    def _maybe_autofill_placer_name(self) -> None:
+        """Fills the Placer name (save/--only identity) from Cluster while
+        CREATING a brand new placement (2026-08-15, plan
+        clone_placement_placer_name_split) — once the user owns Placer name
+        (typed it, or loaded an already-saved entry), editing Cluster must
+        not drag it along."""
+        if self._placer_name_dirty:
+            return
+        self.placer_name_edit.setText(self.cluster_edit.currentText().strip())
+
+    def _mark_placer_name_dirty(self) -> None:
+        """Marks the Placer name field "owned" by the user (typed directly or
+        loaded) — Cluster auto-fill no longer applies (2026-08-15, plan
+        clone_placement_placer_name_split)."""
+        self._placer_name_dirty = True
+
     def refresh_known_roles(self, snapshot) -> None:
         """Populates the Cluster/anchor Role/anchor Cluster combos with
         distinct values already used on the board — "если выбираем по
@@ -1395,6 +1433,14 @@ class PlacerDock(QWidget):
             self._show_message(_("Pick a Cell first."), _ERROR_STYLE)
             return None
         entry: Dict[str, Any] = {"name": name, "cell": self._selected_cell}
+        # Placer name (save/--only identity, split 2026-08-15 from Cluster) —
+        # only written when it actually differs from Cluster (same "don't
+        # write a redundant field" principle as sheet below); when absent the
+        # loader/upsert fall back to `name`, so existing configs stay
+        # untouched.
+        placer_name = self.placer_name_edit.text().strip()
+        if placer_name and placer_name != name:
+            entry["placer_name"] = placer_name
         # Own-identity sheet (2026-08-15, Cell mode) — only written when
         # non-empty, same pattern as name above.
         sheet = self.sheet_edit.currentText().strip()
@@ -1565,15 +1611,25 @@ class PlacerDock(QWidget):
             return None
 
         # Replace-by-name: previewing an already-saved placement's edits
-        # must not create a second copy alongside the saved one.
-        cfg.clone_placements = [c for c in cfg.clone_placements if c.name != clone_placement.name]
+        # must not create a second copy alongside the saved one — match on the
+        # effective save/--only identity (placer_name if set, else Cluster),
+        # not raw .name (2026-08-15, plan clone_placement_placer_name_split).
+        new_identity = clone_placement_effective_name(clone_placement)
+        cfg.clone_placements = [
+            c for c in cfg.clone_placements
+            if clone_placement_effective_name(c) != new_identity
+        ]
         cfg.clone_placements.append(clone_placement)
 
         return {
             "placer_path": self._placer_path,
             "cfg": cfg,
             "ctx": ctx,
+            # Cluster tag written onto the board by _tag_cluster — raw .name,
+            # NOT the placer_name identity (the two are split since 2026-08-15).
             "name": clone_placement.name,
+            # save/--only identity for ApplyPipeline's own only= filter.
+            "only_name": new_identity,
         }
 
     def _collect_coordinate_place_inputs(self, entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -1619,9 +1675,13 @@ class PlacerDock(QWidget):
         a widget. Returns {"name": ..., "tagged": ...} on success,
         {"error": str} for placement failure, or {"warn": str} when the
         placement itself succeeded but tagging didn't."""
+        # only= must match the save/--only identity: the clone path carries it
+        # as payload["only_name"] (Cluster tag lives separately in
+        # payload["name"]); the coordinate path already puts its effective name
+        # directly in payload["name"], so fall back to that.
         pipeline = ApplyPipeline(config_path=str(payload["placer_path"]),
                                  preloaded_cfg=payload["cfg"], preloaded_ctx=payload["ctx"],
-                                 only=[payload["name"]], dry_run=False)
+                                 only=[payload.get("only_name", payload["name"])], dry_run=False)
         try:
             pipeline.run()
         except (PlacerError, ValidationError, ApiError) as e:
@@ -1793,6 +1853,10 @@ class PlacerDock(QWidget):
         # cluster_field_autofill_not_hard_overwrite) — reset the "user-owned"
         # flag so the next tree-click auto-fill works again.
         self._cluster_identity_dirty = False
+        # Placer name: same "blank form wants auto-fill" reset as Cluster
+        # (2026-08-15, plan clone_placement_placer_name_split).
+        self.placer_name_edit.setText("")
+        self._placer_name_dirty = False
         self.sheet_edit.setCurrentText("")
         self.origin_widget.clear()
         self.rotation_edit.setText("")
@@ -1843,6 +1907,11 @@ class PlacerDock(QWidget):
         # cluster_field_autofill_not_hard_overwrite) — a stray tree click must
         # not pull the form off an already-saved record.
         self._cluster_identity_dirty = True
+        # A loaded entry owns its Placer name identity too — editing Cluster
+        # on it must not drag Placer name along (2026-08-15, plan
+        # clone_placement_placer_name_split).
+        self.placer_name_edit.setText(str(entry.get("placer_name") or ""))
+        self._placer_name_dirty = True
         self.sheet_edit.setCurrentText(str(entry.get("sheet") or ""))
         # cell: is mandatory on ClonePlacement since 2026-08-12 (Group 0
         # consolidation — the role:/cluster: modes migrated to

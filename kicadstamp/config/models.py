@@ -553,6 +553,18 @@ class ClonePlacement:
     # identically on every channel's cloned sheet). Optional — only needed
     # when Cluster+Role alone is ambiguous.
     sheet: str | None = None
+    # Save/--only identity — split 2026-08-15 from `name`. `name` stays the
+    # Cluster TAG (written onto the board's components, read by
+    # role_narrowing.py for internal role narrowing) — placer_name is a
+    # SEPARATE, purely config-bookkeeping identity: upsert_clone_placement's
+    # key_fn and PlacerDock's Redraw replace-by-name filter both match on
+    # this instead of raw `name` now, so renaming/re-tagging Cluster on an
+    # already-saved entry no longer creates a duplicate config entry (Денис,
+    # live: renaming Cluster back and forth on PIF_AVDD/CH0_PIF_AVDD kept
+    # spawning a second entry, because `name` WAS both the tag and the save
+    # key). Optional — None means "same as name", the fallback every
+    # existing clone_placement (none of which set this) keeps using.
+    placer_name: str | None = None
     # Alternative to anchor_ref/anchor_role — name of a points: entry (see
     # config/points.py). Mutually exclusive with anchor_ref/anchor_role
     # (fatal if combined — see config/loader.py). Unlike Rule/
@@ -580,6 +592,14 @@ class ClonePlacement:
     # resolved by selection. by_selection: true + non‑empty nets is fatal at load
     # (contradiction: nets has no meaning in selection mode).
     by_selection: bool = False
+
+
+def clone_placement_effective_name(clone: "ClonePlacement") -> str:
+    """Single point for reading the SAVE/--only identity of a
+    ClonePlacement — placer_name if set, else name (the Cluster tag).
+    See ClonePlacement.placer_name's own comment for why these two were
+    split 2026-08-15."""
+    return clone.placer_name or clone.name
 
 
 @dataclass

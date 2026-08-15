@@ -15,7 +15,7 @@ import logging
 import difflib
 
 
-from .config import Config, coordinate_placement_effective_name
+from .config import Config, clone_placement_effective_name, coordinate_placement_effective_name
 from .geometry.clone_geometry import clone_shift_mm
 from .kicad.adapter import KiCadBoardAdapter
 from .exceptions import ValidationError, format_fatal_error
@@ -280,6 +280,7 @@ def check_no_duplicate_clone_anchors(cfg: Config) -> None:
     """
     problems = []
     seen_names = {}
+    seen_effective_names = {}
     seen_point_anchors = {}
     seen_ref_anchors = {}
     seen_role_anchors = {}
@@ -290,6 +291,20 @@ def check_no_duplicate_clone_anchors(cfg: Config) -> None:
             problems.append(_("name {name!r} appears twice in clone_placements — names must be unique")
                             .format(name=clone.name))
         seen_names[clone.name] = True
+
+        # Effective SAVE/--only identity must be unique too (2026-08-15,
+        # plan clone_placement_placer_name_split): with placer_name split from
+        # `name`, two entries CAN have different Cluster tags and the SAME
+        # explicit placer_name — which would make --only/upsert unable to tell
+        # them apart. The `name` check above still guards the physical Cluster
+        # tags; this one guards the config-bookkeeping identity.
+        effective = clone_placement_effective_name(clone)
+        if effective in seen_effective_names:
+            problems.append(
+                _("Placer name {name!r} appears twice in clone_placements — "
+                  "used by {users}; placer_name/name identities must be unique")
+                .format(name=effective, users=", ".join(sorted(seen_effective_names[effective] + [clone.name]))))
+        seen_effective_names.setdefault(effective, []).append(clone.name)
 
         content_id = clone.cell
         ox, oy = clone_shift_mm(clone)

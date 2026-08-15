@@ -22,6 +22,7 @@ from .models import (
     rule_effective_name,
     thermal_via_array_effective_name,
     coordinate_placement_effective_name,
+    clone_placement_effective_name,
 )
 from .points import Point
 from ..runtime_context import RuntimeContext
@@ -96,4 +97,5 @@ __all__ = [
     "rule_effective_name",
     "thermal_via_array_effective_name",
     "coordinate_placement_effective_name",
+    "clone_placement_effective_name",
 ]

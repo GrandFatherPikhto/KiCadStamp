@@ -593,7 +593,7 @@ _CLONE_PLACEMENT_KNOWN_KEYS = {
     'nets', 'params', 'net_overrides', 'retired', 'skip', 'ignore_selection',
     'anchor_ref', 'anchor_pad', 'anchor_role', 'anchor_sheet', 'anchor_cluster',
     'anchor_point', 'layer', 'mirror', 'refs', 'by_selection',
-    'sheet',
+    'sheet', 'placer_name',
     'radius_mm', 'angle_deg',
     'side',  # deprecated – recognised separately to give a migration message
     'origin_x_mm', 'origin_y_mm',  # deprecated – recognised to give a migration message
@@ -625,6 +625,7 @@ def _load_clone_placement(data: dict[str, Any]) -> ClonePlacement:
     # anchor. Deliberately NOT resolved through resolve_placeholder (own
     # identity, not a templated external field).
     sheet = data.get('sheet')
+    placer_name = data.get('placer_name')
 
     cell = data.get('cell')
     if not cell:
@@ -765,6 +766,7 @@ def _load_clone_placement(data: dict[str, Any]) -> ClonePlacement:
         anchor_cluster=anchor_cluster,
         anchor_point=anchor_point,
         sheet=sheet,
+        placer_name=placer_name,
         layer=layer,
         mirror=bool(data.get('mirror', False)),
         refs=data.get('refs', {}) or {},

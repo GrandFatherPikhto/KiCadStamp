@@ -314,9 +314,17 @@ the tabs — they act on the whole placement, not one tab.
   don't restrict" pattern as Cluster/Role/Nets (2026-08-15, see
   plan_2026_08_15_sheet_combo_everywhere.md). Ordered ABOVE "Cluster:" — the same (Sheet, Cluster,
   Role) convention as Single-component mode below.
-- **Cluster** — the placement's name (also what gets clicked from the Components tree, see above).
-  Hidden in Cluster *source* mode (see above) — the picked Existing Cluster value is reused as the
-  name instead, nothing left to ask for here.
+- **Cluster** — the placement's Cluster TAG (the `name:` key written onto the board's components;
+  also what gets clicked from the Components tree, see above). Since 2026-08-15 it is no longer the
+  save identity — that moved to **Placer name** below. Hidden in Cluster *source* mode (see above) —
+  the picked Existing Cluster value is reused as the name instead, nothing left to ask for here.
+- **Placer name** (added 2026-08-15) — the placement's SAVE/`--only` identity (the optional
+  `placer_name:` key in `clone_placements:`), separate from the Cluster tag: this is what
+  `upsert_clone_placement` matches on to "replace this saved entry" vs "append a new one", and what
+  `--only` addresses. Auto-fills from Cluster ONLY while creating a brand new placement; once the
+  entry is saved it stays fixed, so editing Cluster on an already-saved placement no longer spawns a
+  duplicate. Only needed when you want to be able to re-tag Cluster on a saved entry — leave it
+  equal to Cluster and it is omitted from the file entirely.
 - **Single component** (Source combo — a `coordinate_placements:` entry, no `cell:`) — its
   **Sheet**/**Cluster**/**Role**/**Name** identity fields live here on the Source tab (since
   2026-08-13, Denis: "Cluster, Role, Name надо на первый таб перенести" — they used to be on the
