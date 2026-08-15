@@ -1436,3 +1436,67 @@ def test_load_target_config_root_path_none_leaves_empty_sheet_names(main_window,
     assert loaded is not None
     _, ctx = loaded
     assert ctx.sheet_names == {}
+
+
+# ── Cluster/Name auto-fill vs. hard overwrite (2026-08-15, plan
+# cluster_field_autofill_not_hard_overwrite) ──────────────────────────────
+# The Cell-mode Cluster field doubles as ClonePlacement.name — the identity
+# key upsert_list_entry() matches on. Clicking a Cluster group node in the
+# live Components tree (RoleClusterTreeDock.cluster_picked ->
+# set_cluster_name) used to overwrite it UNCONDITIONALLY, so a stray tree
+# click while editing/renaming a loaded placement silently swapped its
+# identity back and the next save appended a duplicate. set_cluster_name()
+# now only fills a genuinely BLANK field; a _cluster_identity_dirty flag
+# marks the field "owned" by the user (typed/picked, or loaded from a saved
+# entry) and is reset only by new_placement().
+
+def test_set_cluster_name_fills_blank_field(main_window, tmp_path):
+    """Regression for the original 2026-08-01 convenience: clicking a Cluster
+    group node auto-fills a BLANK Placer form."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock.new_placement(dock._placer_path)
+    dock.set_cluster_name("PIF_AVDD")
+    assert dock.cluster_edit.currentText() == "PIF_AVDD"
+
+
+def test_set_cluster_name_does_not_overwrite_after_manual_edit(main_window, tmp_path):
+    """2026-08-15 fix: once the user typed/picked a Cluster by hand, a stray
+    tree click must not silently swap the placement's identity back."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock.new_placement(dock._placer_path)
+    dock.cluster_edit.setCurrentText("CH0_PIF_AVDD")
+    dock.cluster_edit.lineEdit().editingFinished.emit()  # user commit -> dirty
+    dock.set_cluster_name("PIF_AVDD")
+    assert dock.cluster_edit.currentText() == "CH0_PIF_AVDD"
+
+
+def test_set_cluster_name_does_not_overwrite_loaded_entry(main_window, tmp_path):
+    """2026-08-15 fix: an already-saved entry owns its identity — the tree
+    click auto-fill must not pull the form off the loaded record."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock.load_placement({"name": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]})
+    dock.set_cluster_name("ДругоеИмя")
+    assert dock.cluster_edit.currentText() == "PIF_AVDD"
+
+
+def test_new_placement_resets_dirty_flag_so_autofill_works_again(main_window, tmp_path):
+    """2026-08-15 fix: the dirty flag is reset ONLY when the form goes back to
+    blank (new_placement) — so a fresh placement gets the auto-fill again."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock.load_placement({"name": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]})
+    assert dock._cluster_identity_dirty is True
+    dock.new_placement(dock._placer_path)
+    assert dock._cluster_identity_dirty is False
+    dock.set_cluster_name("X")
+    assert dock.cluster_edit.currentText() == "X"
+
+
+def test_auto_fill_itself_commits_the_dirty_flag(main_window, tmp_path):
+    """2026-08-15 fix detail: a second tree click on a DIFFERENT Cluster must
+    not immediately overwrite the first auto-filled value."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock.new_placement(dock._placer_path)
+    dock.set_cluster_name("PIF_AVDD")
+    assert dock._cluster_identity_dirty is True
+    dock.set_cluster_name("ДругоеИмя")
+    assert dock.cluster_edit.currentText() == "PIF_AVDD"

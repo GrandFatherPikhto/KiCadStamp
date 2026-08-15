@@ -678,6 +678,13 @@ class PlacerDock(QWidget):
         # almost never sees a change).
         self._known_roles_cache: set = set()
         self._known_clusters_cache: set = set()
+        # Cluster/Name identity field (Cell mode) — True once it holds a value
+        # the user is responsible for (typed/picked by hand, OR loaded from an
+        # already-saved entry). set_cluster_name() (tree-click auto-fill) must
+        # not clobber it once true; reset only when the form goes back to blank
+        # (new_placement) — auto-fill is exactly what a BLANK form wants
+        # (2026-08-15, plan cluster_field_autofill_not_hard_overwrite).
+        self._cluster_identity_dirty: bool = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -756,6 +763,13 @@ class PlacerDock(QWidget):
         # kipy socket with live board reads while the user is still typing.
         self.cluster_edit.activated.connect(self._maybe_autofill_nets)
         self.cluster_edit.lineEdit().editingFinished.connect(self._maybe_autofill_nets)
+        # Mark the Cluster/Name field "user-owned" on the same commit signals
+        # (2026-08-15, plan cluster_field_autofill_not_hard_overwrite) — once
+        # the user has typed/picked a value, the tree-click auto-fill must not
+        # clobber it. Same signal choice as _maybe_autofill_nets: NOT
+        # textChanged/editTextChanged (those fire on every keystroke).
+        self.cluster_edit.activated.connect(self._mark_cluster_identity_dirty)
+        self.cluster_edit.lineEdit().editingFinished.connect(self._mark_cluster_identity_dirty)
 
         # Single-component (CoordinatePlacement) identity row on the SOURCE
         # tab (2026-08-13, plan coordinate_identity_on_source_tab, Denis:
@@ -1067,8 +1081,31 @@ class PlacerDock(QWidget):
         Cluster group node is clicked there — requested alongside the
         Cell-list
         move (2026-08-01: "раз уж у нас есть список Cluster то при выборе
-        кластера надо сразу автоматически заполнять поле кластер")."""
+        кластера надо сразу автоматически заполнять поле кластер").
+
+        Only fires on a genuinely BLANK field (2026-08-15, plan
+        cluster_field_autofill_not_hard_overwrite): once the field holds a
+        value the user is responsible for — typed/picked by hand, or loaded
+        from an already-saved entry — a stray tree click must not silently
+        swap the placement's identity out from under an in-progress edit
+        (this field doubles as ClonePlacement.name, the upsert identity key
+        AND the Cluster tag written onto the board — clobbering it here
+        reproduces the exact "duplicate entry" trap a real rename needs the
+        Config tree's own Rename action for, see rename_entry() in
+        rename.py)."""
+        if self._cluster_identity_dirty:
+            return
         self.cluster_edit.setCurrentText(name)
+        # The auto-fill firing is itself a user-intent commit — a second click
+        # on a DIFFERENT Cluster must not immediately overwrite it.
+        self._cluster_identity_dirty = True
+
+    def _mark_cluster_identity_dirty(self) -> None:
+        """Marks the Cell-mode Cluster/Name field "owned" by the user — once
+        it holds a typed/picked value, set_cluster_name()'s tree-click
+        auto-fill must not clobber it (2026-08-15, plan
+        cluster_field_autofill_not_hard_overwrite)."""
+        self._cluster_identity_dirty = True
 
     def refresh_known_roles(self, snapshot) -> None:
         """Populates the Cluster/anchor Role/anchor Cluster combos with
@@ -1752,6 +1789,10 @@ class PlacerDock(QWidget):
         self.cell_mode_combo.setCurrentIndex(0)
         self._on_cell_mode_changed()
         self.cluster_edit.setCurrentText("")
+        # Auto-fill is exactly what a BLANK form wants (2026-08-15, plan
+        # cluster_field_autofill_not_hard_overwrite) — reset the "user-owned"
+        # flag so the next tree-click auto-fill works again.
+        self._cluster_identity_dirty = False
         self.sheet_edit.setCurrentText("")
         self.origin_widget.clear()
         self.rotation_edit.setText("")
@@ -1798,6 +1839,10 @@ class PlacerDock(QWidget):
             self.coordinate_form.load(entry)
             return
         self.cluster_edit.setCurrentText(str(entry.get("name", "")))
+        # A loaded entry owns its identity (2026-08-15, plan
+        # cluster_field_autofill_not_hard_overwrite) — a stray tree click must
+        # not pull the form off an already-saved record.
+        self._cluster_identity_dirty = True
         self.sheet_edit.setCurrentText(str(entry.get("sheet") or ""))
         # cell: is mandatory on ClonePlacement since 2026-08-12 (Group 0
         # consolidation — the role:/cluster: modes migrated to
