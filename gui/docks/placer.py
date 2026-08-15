@@ -1455,11 +1455,34 @@ class PlacerDock(QWidget):
         (Config, RuntimeContext) when the file doesn't exist yet — shared by
         the clone and coordinate redraw paths (2026-08-13 cleanup: the same
         try/except used to be duplicated in both). Shows the error and
-        returns None on a broken file."""
+        returns None on a broken file.
+
+        sheet_names fallback (2026-08-15,
+        plan_2026_08_15_redraw_sheet_names_from_root.md): schematic_dir:
+        conventionally lives only on the project's ROOT config, which
+        INCLUDES leaf files like components.yaml — resolve_includes() only
+        merges DOWNWARD from the given starting path, so loading straight
+        from a leaf Placer file (as this always has) can silently produce
+        an empty ctx.sheet_names even though the project's root resolves it
+        fine. If the leaf's own resolution came up empty and a different
+        root is known, fall back to the root's sheet_names — this only
+        fires when the leaf genuinely has none of its own, so a leaf that
+        legitimately declares its own schematic_dir: keeps behaving exactly
+        as before."""
         try:
             if self._placer_path.exists():
-                return load_config(str(self._placer_path))
-            return Config(), RuntimeContext()
+                cfg, ctx = load_config(str(self._placer_path))
+            else:
+                cfg, ctx = Config(), RuntimeContext()
+            if (not ctx.sheet_names and self._root_path is not None
+                    and self._root_path != self._placer_path):
+                try:
+                    _, root_ctx = load_config(str(self._root_path))
+                    ctx.sheet_names = root_ctx.sheet_names
+                except (ValidationError, OSError, yaml.YAMLError):
+                    pass  # keep the leaf's own (empty) sheet_names — don't fail
+                          # Redraw over a fallback that didn't pan out
+            return cfg, ctx
         except (ValidationError, OSError, yaml.YAMLError) as e:
             self._show_message(_("Failed to load Placer file: {error}").format(error=e), _ERROR_STYLE)
             return None

@@ -1354,3 +1354,85 @@ def test_load_placement_clears_stale_anchor_cluster(main_window, tmp_path):
     # Record B: same cell, plain absolute xy (no anchor) — must NOT inherit X.
     dock.load_placement({"name": "B", "cell": "pi_filter", "xy": [2.0, 2.0]})
     assert dock.anchor_cluster_edit.currentText() == ""
+
+
+# ── _load_target_config sheet_names root fallback (2026-08-15,
+# plan_2026_08_15_redraw_sheet_names_from_root.md) ───────────────────────
+
+def _write_schematic_dir(tmp_path, dirname, sheet_names):
+    """Write a minimal *.kicad_sch file so load_config()/build_sheet_name_map
+    resolves real sheet names — same shape as test_rename.py's own
+    test_collect_all_sheet_names_reads_schematic_dir (sexpdata-parseable,
+    line formatting is irrelevant)."""
+    sch = tmp_path / dirname
+    sch.mkdir()
+    sheets = "".join(
+        f'  (sheet (uuid "{uuid}") (property "Sheetname" "{name}"))\n'
+        for uuid, name in sheet_names.items()
+    )
+    (sch / "root.kicad_sch").write_text(f"(kicad_sch\n{sheets})\n", encoding="utf-8")
+
+
+def test_load_target_config_falls_back_to_root_sheet_names_when_leaf_has_none(main_window, tmp_path):
+    """The bug (found live 2026-08-15 on profiles/3ch-awg-tia/): the Placer
+    had components.yaml open, schematic_dir: lives only on the project ROOT
+    (3ch-awg-tia.yaml) which INCLUDES components.yaml — resolve_includes()
+    merges downward only, so loading the leaf directly resolves an EMPTY
+    sheet_names even though the root resolves real names, making Sheet
+    narrowing a silent no-op at Redraw. _load_target_config() must fall back
+    to the root's sheet_names when the leaf's own came up empty."""
+    _write_schematic_dir(tmp_path, "sch",
+                         {"11111111-1111-1111-1111-111111111111": "Channel_0"})
+    root = tmp_path / "3ch-awg-tia.yaml"
+    root.write_text("schematic_dir: sch\ninclude:\n  - components.yaml\n", encoding="utf-8")
+    leaf = tmp_path / "components.yaml"
+    leaf.write_text("clone_placements: []\n", encoding="utf-8")
+
+    dock = PlacerDock(main_window)
+    dock._root_path = root
+    dock._placer_path = leaf
+
+    loaded = dock._load_target_config()
+    assert loaded is not None
+    _, ctx = loaded
+    assert ctx.sheet_names == {"11111111-1111-1111-1111-111111111111": "Channel_0"}
+
+
+def test_load_target_config_keeps_leafs_own_sheet_names_when_present(main_window, tmp_path):
+    """Regression guard: the root fallback must only fire when the leaf
+    genuinely has no sheet_names of its own — a leaf that resolves its own
+    (declares its own schematic_dir:) keeps them, never overwritten by the
+    root's (a leaf that is itself the root is the same case)."""
+    _write_schematic_dir(tmp_path, "sch_leaf",
+                         {"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa": "Channel_0"})
+    _write_schematic_dir(tmp_path, "sch_root",
+                         {"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb": "Root Sheet"})
+    root = tmp_path / "root.yaml"
+    root.write_text("schematic_dir: sch_root\n", encoding="utf-8")
+    leaf = tmp_path / "leaf.yaml"
+    leaf.write_text("schematic_dir: sch_leaf\n", encoding="utf-8")
+
+    dock = PlacerDock(main_window)
+    dock._root_path = root
+    dock._placer_path = leaf
+
+    loaded = dock._load_target_config()
+    assert loaded is not None
+    _, ctx = loaded
+    assert ctx.sheet_names == {"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa": "Channel_0"}
+
+
+def test_load_target_config_root_path_none_leaves_empty_sheet_names(main_window, tmp_path):
+    """Old behavior preserved: with no root path known at all, a leaf with
+    no schematic_dir keeps an empty sheet_names — no exception, no
+    fallback."""
+    leaf = tmp_path / "leaf.yaml"
+    leaf.write_text("clone_placements: []\n", encoding="utf-8")
+
+    dock = PlacerDock(main_window)
+    dock._placer_path = leaf  # _root_path stays None
+
+    loaded = dock._load_target_config()
+    assert loaded is not None
+    _, ctx = loaded
+    assert ctx.sheet_names == {}
