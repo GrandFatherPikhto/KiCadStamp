@@ -63,9 +63,12 @@ as a minor/deprioritized option now that it exists, not worth the same
 treatment.
 
 Scope NOT covered by this first version (kept out deliberately, not by
-oversight): anchor_sheet narrowing, refs: explicit role->ref override,
-by_selection mode. All still reachable by hand-editing the saved YAML; add
-UI for them if they turn out to be needed often.
+oversight): refs: explicit role->ref override, by_selection mode. All
+still reachable by hand-editing the saved YAML; add UI for them if they
+turn out to be needed often. anchor_sheet narrowing WAS in this deferred
+list until 2026-08-15 — closed by making every Sheet field a searchable
+combo sourced from the project's schematic files (see
+plan_2026_08_15_sheet_combo_everywhere.md).
 
 anchor_point IS autocompleted (closed 2026-08-06, Denis: "думаю имена
 Points тоже надо делать выпадашкой с именами") — set_root_path(), wired to
@@ -135,7 +138,7 @@ from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STY
                       parse_float_field, refresh_file_combo_choices, set_combo_items,
                       set_file_combo_selection, set_mode_pair_enabled,
                       show_message, upsert_clone_placement, upsert_list_entry)
-from .rename import collect_all_point_names, entry_effective_name
+from .rename import collect_all_point_names, collect_all_sheet_names, entry_effective_name
 
 logger = logging.getLogger(__name__)
 
@@ -285,8 +288,9 @@ class _CoordinatePlacementForm(QWidget):
         # Cluster alone is identical across copies (Denis, live: AD_DAC/IC2).
         # Distinct from the Anchor widget's anchor_sheet — that one narrows
         # the OTHER, anchor component in anchor-relative mode.
-        self.sheet_edit = QLineEdit()
-        self.sheet_edit.setPlaceholderText(
+        self.sheet_edit = QComboBox()
+        configure_searchable(self.sheet_edit)
+        self.sheet_edit.lineEdit().setPlaceholderText(
             _("sheet name (only if Cluster+Role is ambiguous across cloned sheets, optional)"))
 
         self.mode_combo = QComboBox()
@@ -428,6 +432,19 @@ class _CoordinatePlacementForm(QWidget):
     def set_point_names(self, names: Sequence[str]) -> None:
         self._anchor_widget.set_point_names(names)
 
+    def set_known_sheets(self, sheets: Sequence[str]) -> None:
+        """Same "populate, don't restrict" pattern as set_known_roles —
+        sheet names come from the project's schematic files
+        (RuntimeContext.sheet_names, built in config/loader.py via
+        schematic_dir/schematic_files), refreshed on root-file change (see
+        collect_all_sheet_names, gui/docks/rename.py). Fed into BOTH the
+        form's own sheet identity (self.sheet_edit) and the anchor widget's
+        external-anchor sheet (self._anchor_widget) — the same split
+        set_known_roles already makes (own Cluster/Role vs Anchor
+        Cluster/Role)."""
+        set_combo_items(self.sheet_edit, list(sheets))
+        self._anchor_widget.set_known_sheets(sheets)
+
     # ── Float parsing (same shared helper as every other dock) ───────────
 
     @staticmethod
@@ -451,7 +468,7 @@ class _CoordinatePlacementForm(QWidget):
         name = self.name_edit.text().strip()
         if name:
             entry["name"] = name
-        sheet = self.sheet_edit.text().strip()
+        sheet = self.sheet_edit.currentText().strip()
         if sheet:
             entry["sheet"] = sheet
 
@@ -555,7 +572,7 @@ class _CoordinatePlacementForm(QWidget):
         self.cluster_combo.setCurrentText(str(entry.get("cluster", "")))
         self.role_combo.setCurrentText(str(entry.get("role", "")))
         self.name_edit.setText(str(entry.get("name") or ""))
-        self.sheet_edit.setText(str(entry.get("sheet") or ""))
+        self.sheet_edit.setCurrentText(str(entry.get("sheet") or ""))
         rotation = entry.get("rotation_deg")
         self.rotation_edit.setText("" if rotation is None else str(rotation))
         self.retired_checkbox.setChecked(bool(entry.get("retired", False)))
@@ -610,7 +627,7 @@ class _CoordinatePlacementForm(QWidget):
         self.cluster_combo.setCurrentText("")
         self.role_combo.setCurrentText("")
         self.name_edit.setText("")
-        self.sheet_edit.setText("")
+        self.sheet_edit.setCurrentText("")
         self.rotation_edit.setText("")
         self.x_edit.setText("")
         self.y_edit.setText("")
@@ -719,8 +736,9 @@ class PlacerDock(QWidget):
         # Own-identity sheet (2026-08-15, Cell mode): narrows ambiguous
         # Cluster+Role when this cell is cloned across reused sheets — optional,
         # same (Sheet, Cluster, Role) order as the Single-component row above.
-        self.sheet_edit = QLineEdit()
-        self.sheet_edit.setPlaceholderText(
+        self.sheet_edit = QComboBox()
+        configure_searchable(self.sheet_edit)
+        self.sheet_edit.lineEdit().setPlaceholderText(
             _("sheet name (narrows ambiguous Cluster+Role when this cell is "
               "cloned across reused sheets, optional)"))
         form.addRow(_("Sheet:"), self.sheet_edit)
@@ -841,7 +859,7 @@ class PlacerDock(QWidget):
         # only quirk the shared widget deliberately stays ignorant of (see
         # gui/docks/_anchor_origin.py's module docstring).
         self.origin_widget = AnchorOriginWidget(
-            modes=["xy", "anchor", "point"], anchor_fields=["pad", "cluster"],
+            modes=["xy", "anchor", "point"], anchor_fields=["sheet", "pad", "cluster"],
             shift=True, polar=True)
         origin_page_layout.addWidget(self.origin_widget)
         # Aliases onto the shared widget's own sub-widgets — kept so
@@ -851,6 +869,7 @@ class PlacerDock(QWidget):
         self.y_edit = self.origin_widget.y_edit
         self.anchor_ref_edit = self.origin_widget.anchor_ref_edit
         self.anchor_role_edit = self.origin_widget.anchor_role_edit
+        self.anchor_sheet_edit = self.origin_widget.anchor_sheet_edit
         self.anchor_pad_edit = self.origin_widget.anchor_pad_edit
         self.anchor_cluster_edit = self.origin_widget.anchor_cluster_edit
         self.point_edit = self.origin_widget.point_edit
@@ -989,11 +1008,25 @@ class PlacerDock(QWidget):
             (self.cells_file_combo, self.placer_file_combo),
             path, (self._cells_path, self._placer_path))
         self._refresh_point_names()
+        self._refresh_sheet_names()
 
     def _refresh_point_names(self) -> None:
         names = collect_all_point_names(self._root_path) if self._root_path is not None else []
         self.origin_widget.set_point_names(names)
         self.coordinate_form.set_point_names(names)
+
+    def _refresh_sheet_names(self) -> None:
+        """Sheet-name autocomplete for every Sheet field in this dock —
+        origin_widget (ClonePlacement's external anchor), coordinate_form
+        (Single-component mode's own sheet AND its anchor widget) and the
+        Cell mode's own sheet_edit — from the project's schematic files
+        (RuntimeContext.sheet_names), refreshed on root-file change like the
+        Point names, NOT the ~2s board poll (see collect_all_sheet_names,
+        gui/docks/rename.py)."""
+        names = collect_all_sheet_names(self._root_path) if self._root_path is not None else []
+        self.origin_widget.set_known_sheets(names)
+        self.coordinate_form.set_known_sheets(names)
+        set_combo_items(self.sheet_edit, names)
 
     def set_selected_cell(self, name: str) -> None:
         """Shared entry point for picking a Cell — called both by
@@ -1327,7 +1360,7 @@ class PlacerDock(QWidget):
         entry: Dict[str, Any] = {"name": name, "cell": self._selected_cell}
         # Own-identity sheet (2026-08-15, Cell mode) — only written when
         # non-empty, same pattern as name above.
-        sheet = self.sheet_edit.text().strip()
+        sheet = self.sheet_edit.currentText().strip()
         if sheet:
             entry["sheet"] = sheet
 
@@ -1361,6 +1394,8 @@ class PlacerDock(QWidget):
                     entry["anchor_ref"] = origin_fields["ref"]
                 else:
                     entry["anchor_role"] = origin_fields["role"]
+                if "sheet" in origin_fields:
+                    entry["anchor_sheet"] = origin_fields["sheet"]
                 if "pad" in origin_fields:
                     entry["anchor_pad"] = origin_fields["pad"]
                 if "cluster" in origin_fields:
@@ -1694,7 +1729,7 @@ class PlacerDock(QWidget):
         self.cell_mode_combo.setCurrentIndex(0)
         self._on_cell_mode_changed()
         self.cluster_edit.setCurrentText("")
-        self.sheet_edit.setText("")
+        self.sheet_edit.setCurrentText("")
         self.origin_widget.clear()
         self.rotation_edit.setText("")
         self.layer_combo.setCurrentIndex(0)
@@ -1740,7 +1775,7 @@ class PlacerDock(QWidget):
             self.coordinate_form.load(entry)
             return
         self.cluster_edit.setCurrentText(str(entry.get("name", "")))
-        self.sheet_edit.setText(str(entry.get("sheet") or ""))
+        self.sheet_edit.setCurrentText(str(entry.get("sheet") or ""))
         # cell: is mandatory on ClonePlacement since 2026-08-12 (Group 0
         # consolidation — the role:/cluster: modes migrated to
         # coordinate_placements' anchor-relative mode), so a cell-bearing
@@ -1771,6 +1806,7 @@ class PlacerDock(QWidget):
                 self.origin_widget.load(
                     mode="anchor", ref=str(entry.get("anchor_ref", "")),
                     role=str(entry.get("anchor_role", "")),
+                    sheet=str(entry.get("anchor_sheet", "")),
                     pad=str(entry.get("anchor_pad", "")),
                     cluster=str(entry.get("anchor_cluster", "")),
                     polar=True, radius=radius, angle=entry.get("angle_deg"))
@@ -1778,6 +1814,7 @@ class PlacerDock(QWidget):
                 self.origin_widget.load(
                     mode="anchor", ref=str(entry.get("anchor_ref", "")),
                     role=str(entry.get("anchor_role", "")),
+                    sheet=str(entry.get("anchor_sheet", "")),
                     pad=str(entry.get("anchor_pad", "")),
                     cluster=str(entry.get("anchor_cluster", "")),
                     shift_x=xy[0], shift_y=xy[1])

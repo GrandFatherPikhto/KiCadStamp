@@ -279,8 +279,12 @@ the tabs — they act on the whole placement, not one tab.
   live: "в пласере давай сделаем имя целла по выпадающему комбо-боксу... не удобно" — going to the
   Config tree for every single pick was the friction). Hidden in Role/Cluster mode.
 - **Sheet** (added 2026-08-15) — the placement's OWN sheet, OPTIONAL: narrows ambiguous
-  Cluster+Role inside the cell when this cell is cloned across reused sheets. Ordered ABOVE
-  "Cluster:" — the same (Sheet, Cluster, Role) convention as Single-component mode below.
+  Cluster+Role inside the cell when this cell is cloned across reused sheets. A searchable combo
+  autocompleted from the project's schematic files (`schematic_dir`/`schematic_files`, via
+  `RuntimeContext.sheet_names`) on root change — a picker, not a whitelist, the same "populate,
+  don't restrict" pattern as Cluster/Role/Nets (2026-08-15, see
+  plan_2026_08_15_sheet_combo_everywhere.md). Ordered ABOVE "Cluster:" — the same (Sheet, Cluster,
+  Role) convention as Single-component mode below.
 - **Cluster** — the placement's name (also what gets clicked from the Components tree, see above).
   Hidden in Cluster *source* mode (see above) — the picked Existing Cluster value is reused as the
   name instead, nothing left to ask for here.
@@ -290,7 +294,9 @@ the tabs — they act on the whole placement, not one tab.
   Coordinate tab, mixed with the positioning fields, which was confusing to find). **Sheet** (added
   2026-08-15) is OPTIONAL — narrows Cluster+Role to one physical instance when the same sheet is
   cloned/reused and Cluster alone is identical across copies (distinct from the Anchor widget's
-  `anchor_sheet`, which narrows the OTHER, anchor component). The **Coordinate** tab then keeps only
+  `anchor_sheet`, which narrows the OTHER, anchor component). Both Sheet fields are searchable combos
+  autocompleted from the project's schematic files on root change — a picker, not a whitelist (see
+  plan_2026_08_15_sheet_combo_everywhere.md). The **Coordinate** tab then keeps only
   "where to put it" (Mode/X Y/Anchor/...). The "Cluster:" label intentionally matches the Cell-mode
   name row above — a different field, never visible at the same time.
 - **Nets / Net overrides / Refs tabs** — all three tabs are hidden entirely (removed from the tab
@@ -319,11 +325,12 @@ the tabs — they act on the whole placement, not one tab.
 - **Origin**:
   - *Absolute XY* — a literal board position.
   - *Anchor (ref/role)* — position relative to an existing component: Ref **or** Role (mutually
-    exclusive), optional Pad, optional Anchor cluster (narrows which same-Role component is meant,
-    when there's more than one). Role and Anchor cluster are pick-from-list combo boxes,
-    autocompleted from the live board; Ref is plain free text (this project prefers Role over
-    refdes — Role survives re-annotation, refdes doesn't — Ref exists mainly for the rare case it's
-    actually needed).
+    exclusive), optional Sheet, optional Pad, optional Anchor cluster (narrows which same-Role
+    component is meant, when there's more than one). Role and Anchor cluster are pick-from-list
+    combo boxes, autocompleted from the live board; Sheet is a searchable combo autocompleted from
+    the project's schematic files (a picker, not a whitelist); Ref is plain free text (this project
+    prefers Role over refdes — Role survives re-annotation, refdes doesn't — Ref exists mainly for
+    the rare case it's actually needed).
   - *Point* — position relative to a named `points:` entry, autocompleted from the whole project
     (every `points:` key reachable via `include:`, not just this file's own).
   - Anchor/Point modes also take a flat XY **shift**.
@@ -340,8 +347,11 @@ the tabs — they act on the whole placement, not one tab.
   itself — look, adjust, Redraw again, and only Save once you're happy with the result. KiCad's own
   undo covers "moved something to the wrong place" — there's no separate movement log here.
 
-Not covered by the GUI yet (still reachable by hand-editing the saved YAML): `anchor_sheet`
-narrowing, `by_selection` mode.
+Not covered by the GUI yet (still reachable by hand-editing the saved YAML): `by_selection` mode.
+`anchor_sheet` narrowing WAS in this deferred list — closed 2026-08-15: every Sheet field is now a
+searchable combo sourced from the project's schematic files (see
+plan_2026_08_15_sheet_combo_everywhere.md), including ClonePlacement's Origin tab and
+ThermalViaArrayConfig's anchor (both had the field in the model, only the form never reached it).
 
 ## Project
 
@@ -369,7 +379,8 @@ point at by name. Added 2026-08-05 after noticing how closely Point's own shape 
 Placer's Origin widget.
 
 - **Origin** — **Absolute XY** / **Anchor (ref/role)**, now including a **Sheet** field (Denis:
-  "нужен anchor_sheet в этой панели") alongside Ref/Role/Pad/Anchor cluster / **Point** (chain to
+  "нужен anchor_sheet в этой панели") — a searchable combo autocompleted from the project's
+  schematic files, not a whitelist — alongside Ref/Role/Pad/Anchor cluster / **Point** (chain to
   another point by name — this field IS autocompleted, from the current file's own `points:` keys,
   closing the "points:-name autocomplete" gap the Placer section above still has for its own Point
   field) / **Board origin** (added 2026-08-06, Denis: "точка 0,0 -- это левый верхний угол листа,
@@ -396,9 +407,10 @@ Placer's Origin widget.
 ## Rules
 
 Edits a `rules:` entry (see [docs/config.md](config.md) on Rule/ManualSpoke) — one shared anchor
-(no `xy` mode here, unlike Points/Placer — only **Anchor (ref/role, + Sheet/Cluster)** or **Point**)
-plus an ORDERED list of spokes, each placing a Cell at a specific pad of that anchor with its own
-hand-tuned shift/rotation. Added 2026-08-05 after Denis connected `fpga_spokes.yaml`/
+(no `xy` mode here, unlike Points/Placer — only **Anchor (ref/role, + Sheet/Cluster)** or **Point**;
+Sheet here is the same searchable combo autocompleted from the project's schematic files, not a
+whitelist) plus an ORDERED list of spokes, each placing a Cell at a specific pad of that anchor
+with its own hand-tuned shift/rotation. Added 2026-08-05 after Denis connected `fpga_spokes.yaml`/
 `fpga_cap_pair_spoke.yaml` to a real project and hit the long-standing "Rules has no edit form" gap.
 
 **Net**/**Origin**/**Spoke** live in a tab widget (2026-08-05, same "a stacked `QVBoxLayout`'s

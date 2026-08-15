@@ -37,7 +37,7 @@ def test_build_rule_dict_anchor_role_with_sheet_and_cluster(main_window, tmp_pat
     dock.net_edit.setCurrentText("+3V3")
     dock.origin_mode_combo.setCurrentIndex(0)
     dock.anchor_role_edit.setCurrentText("FPGA")
-    dock.anchor_sheet_edit.setText("Channel_1")
+    dock.anchor_sheet_edit.setCurrentText("Channel_1")
     dock.anchor_cluster_edit.setCurrentText("PWR_BANK")
 
     entry = dock._build_rule_dict()
@@ -45,6 +45,19 @@ def test_build_rule_dict_anchor_role_with_sheet_and_cluster(main_window, tmp_pat
         "net": "+3V3", "spokes": [],
         "anchor_role": "FPGA", "anchor_sheet": "Channel_1", "anchor_cluster": "PWR_BANK",
     }
+
+
+def test_refresh_sheet_names_populates_anchor_sheet_combo(main_window, tmp_path, monkeypatch):
+    """2026-08-15 (plan step 3): the rule's own anchor Sheet field is
+    autocompleted from the project's schematic files on root change (not
+    the ~2s board poll)."""
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock._root_path = tmp_path / "root.yaml"
+    monkeypatch.setattr(rules_mod, "collect_all_sheet_names",
+                        lambda root: ["Channel_0", "Channel_1"])
+    dock._refresh_sheet_names()
+    assert [dock.anchor_sheet_edit.itemText(i) for i in range(dock.anchor_sheet_edit.count())] \
+        == ["Channel_0", "Channel_1"]
 
 
 def test_build_rule_dict_point_mode(main_window, tmp_path):
@@ -410,7 +423,7 @@ def test_load_entry_anchor_role_mode(main_window, tmp_path):
     assert dock.name_edit.text() == "fpga_3v3"
     assert dock.origin_mode_combo.currentIndex() == 0
     assert dock.anchor_role_edit.currentText() == "FPGA"
-    assert dock.anchor_sheet_edit.text() == "Channel_1"
+    assert dock.anchor_sheet_edit.currentText() == "Channel_1"
     assert dock.anchor_cluster_edit.currentText() == "PWR_BANK"
     assert dock.retired_checkbox.isChecked() is True
     assert dock.skip_checkbox.isChecked() is True

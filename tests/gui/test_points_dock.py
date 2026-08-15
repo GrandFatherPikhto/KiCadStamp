@@ -62,7 +62,7 @@ def test_build_entry_anchor_mode_with_sheet_pad_cluster(main_window, tmp_path):
     dock.name_edit.setText("p1")
     dock.origin_mode_combo.setCurrentIndex(1)
     dock.anchor_role_edit.setCurrentText("FPGA")
-    dock.anchor_sheet_edit.setText("Channel_1")
+    dock.anchor_sheet_edit.setCurrentText("Channel_1")
     dock.anchor_pad_edit.setText("2")
     dock.anchor_cluster_edit.setCurrentText("PI_FILTER")
     dock.shift_x_edit.setText("1.5")
@@ -76,6 +76,19 @@ def test_build_entry_anchor_mode_with_sheet_pad_cluster(main_window, tmp_path):
         "anchor_pad": "2",
         "shift_x_mm": 1.5,
     }
+
+
+def test_refresh_sheet_names_populates_anchor_sheet_combo(main_window, tmp_path, monkeypatch):
+    """2026-08-15 (plan step 3): the point's own anchor Sheet field is
+    autocompleted from the project's schematic files on root change —
+    closes the module docstring's long-flagged "NOT yet a combo" note."""
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock._root_path = tmp_path / "root.yaml"
+    monkeypatch.setattr(points_mod, "collect_all_sheet_names",
+                        lambda root: ["Channel_0", "Channel_1"])
+    dock._refresh_sheet_names()
+    assert [dock.anchor_sheet_edit.itemText(i) for i in range(dock.anchor_sheet_edit.count())] \
+        == ["Channel_0", "Channel_1"]
 
 
 def test_anchor_ref_and_role_together_is_blocked(main_window, tmp_path, caplog):
@@ -260,7 +273,7 @@ def test_load_entry_anchor_mode(main_window, tmp_path):
 
     assert dock.origin_mode_combo.currentIndex() == 1
     assert dock.anchor_role_edit.currentText() == "FPGA"
-    assert dock.anchor_sheet_edit.text() == "Channel_1"
+    assert dock.anchor_sheet_edit.currentText() == "Channel_1"
     assert dock.anchor_cluster_edit.currentText() == "PI_FILTER"
     assert dock.anchor_pad_edit.text() == "2"
     assert dock.shift_y_edit.text() == "1.5"

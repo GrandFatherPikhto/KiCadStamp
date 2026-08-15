@@ -203,16 +203,16 @@ def test_cell_mode_sheet_field_round_trips(main_window, tmp_path):
     dock.cluster_edit.setCurrentText("Channel_2_PI_Filter")
     dock.x_edit.setText("0")
     dock.y_edit.setText("0")
-    dock.sheet_edit.setText("Channel_2")
+    dock.sheet_edit.setCurrentText("Channel_2")
 
     entry = dock._build_entry_dict()
     assert entry["sheet"] == "Channel_2"
 
     dock.load_placement(entry)
-    assert dock.sheet_edit.text() == "Channel_2"
+    assert dock.sheet_edit.currentText() == "Channel_2"
 
     dock.new_placement(dock._placer_path)
-    assert dock.sheet_edit.text() == ""
+    assert dock.sheet_edit.currentText() == ""
 
 
 def test_cell_mode_sheet_field_not_written_when_empty(main_window, tmp_path):
@@ -225,6 +225,51 @@ def test_cell_mode_sheet_field_not_written_when_empty(main_window, tmp_path):
 
     entry = dock._build_entry_dict()
     assert "sheet" not in entry
+
+
+def test_refresh_sheet_names_populates_every_sheet_combo(main_window, tmp_path, monkeypatch):
+    """2026-08-15 (plan step 3): _refresh_sheet_names — fed by
+    collect_all_sheet_names (mocked here) — reaches all four Sheet widgets:
+    origin_widget (ClonePlacement's external anchor), coordinate_form's own
+    sheet AND its anchor widget, and the Cell-mode sheet_edit. Source is the
+    project's schematic files (RuntimeContext.sheet_names), not the ~2s
+    board poll Cluster/Role ride."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock._root_path = tmp_path / "root.yaml"
+    monkeypatch.setattr(placer_mod, "collect_all_sheet_names",
+                        lambda root: ["Channel_0", "Channel_1"])
+    dock._refresh_sheet_names()
+
+    def items(combo):
+        return [combo.itemText(i) for i in range(combo.count())]
+
+    assert items(dock.origin_widget.anchor_sheet_edit) == ["Channel_0", "Channel_1"]
+    assert items(dock.coordinate_form.sheet_edit) == ["Channel_0", "Channel_1"]
+    assert items(dock.coordinate_form._anchor_widget.anchor_sheet_edit) == ["Channel_0", "Channel_1"]
+    assert items(dock.sheet_edit) == ["Channel_0", "Channel_1"]
+
+
+def test_clone_origin_anchor_sheet_round_trips(main_window, tmp_path):
+    """2026-08-15 (plan step 4): ClonePlacement's external anchor Origin tab
+    has had a Sheet field since this plan — _build_entry_dict writes
+    anchor_sheet (the model/loader always supported it, only the form never
+    reached it), load_placement() reads it back into the combo."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock.cluster_edit.setCurrentText("Channel_2_PI_Filter")
+    dock.origin_mode_combo.setCurrentIndex(1)  # anchor (ref/role)
+    dock.anchor_role_edit.setCurrentText("FPGA")
+    dock.anchor_sheet_edit.setCurrentText("Channel_2")
+    dock.anchor_pad_edit.setText("1")
+    dock.x_edit.setText("1.0")
+    dock.y_edit.setText("2.0")
+
+    entry = dock._build_entry_dict()
+    assert entry["anchor_role"] == "FPGA"
+    assert entry["anchor_sheet"] == "Channel_2"
+    assert entry["anchor_pad"] == "1"
+
+    dock.load_placement(entry)
+    assert dock.anchor_sheet_edit.currentText() == "Channel_2"
 
 
 def test_build_entry_dict_polar_xy_writes_radius_angle(main_window, tmp_path):
@@ -577,16 +622,16 @@ def test_coordinate_sheet_field_round_trips(main_window, tmp_path):
     form = dock.coordinate_form
     form.cluster_combo.setCurrentText("AD_DAC")
     form.role_combo.setCurrentText("AD_DAC")
-    form.sheet_edit.setText("Channel_0")
+    form.sheet_edit.setCurrentText("Channel_0")
 
     entry = dock._build_entry_dict()
     assert entry["sheet"] == "Channel_0"
 
     dock.load_placement(entry)
-    assert form.sheet_edit.text() == "Channel_0"
+    assert form.sheet_edit.currentText() == "Channel_0"
 
     form.clear()
-    assert form.sheet_edit.text() == ""
+    assert form.sheet_edit.currentText() == ""
 
 
 def test_coordinate_sheet_field_not_written_when_empty(main_window, tmp_path):

@@ -40,10 +40,13 @@ Operates on the SAME raw read-merge-write primitives as gui/docks/
 _common.py (read_data/write_data) — plain PyYAML round-trip, no comment
 preservation, consistent with every other write path in this GUI.
 """
+import yaml
 from pathlib import Path
 from typing import List
 
+from kicadstamp.config import load_config
 from kicadstamp.config.includes import walk_include_tree
+from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
 
 from ._common import read_data, write_data
@@ -149,6 +152,25 @@ def collect_all_cell_names(root_path: Path) -> List[str]:
     for path in collect_graph_files(root_path):
         names.update((read_data(path).get("cells") or {}).keys())
     return sorted(names)
+
+
+def collect_all_sheet_names(root_path: Path) -> List[str]:
+    """Distinct human-readable sheet-instance names reachable from
+    root_path's schematic_dir/schematic_files (RuntimeContext.sheet_names,
+    built in config/loader.py's load_config, see kicadstamp/sheet_names.py)
+    — the SAME live-proven mechanism PlacerDock's own Redraw already uses
+    (_load_target_config), just for combo autocomplete instead of
+    resolution. Empty list on any load failure (broken root config) — the
+    Sheet fields stay free-text-editable either way, this is autocomplete,
+    not validation. NOTE: deliberately NOT a walk of the include: graph
+    (unlike collect_all_cell_names/collect_all_point_names) — Sheet is not
+    a YAML dictionary section, it is a parse result of the project's
+    *.kicad_sch files, normally declared only in the root config itself."""
+    try:
+        _, ctx = load_config(str(root_path))
+    except (ValidationError, OSError, yaml.YAMLError):
+        return []
+    return sorted(set(ctx.sheet_names.values()))
 
 
 def rename_dict_entry(path: Path, section: str, old_name: str, new_name: str) -> None:

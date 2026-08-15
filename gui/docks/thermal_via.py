@@ -20,9 +20,12 @@ Anchor is Ref/Role (+ optional Cluster) or a named Point — no "Absolute XY"
 mode: a thermal via array's origin always comes from a real pad
 (compute_thermal_via_grid() needs the live footprint's actual pad shape,
 see kicadstamp/placement/services/via_planner.py), never an arbitrary
-coordinate. anchor_sheet is left out of this first version, same
-deliberate scope limit PlacerDock's own docstring already documents for
-anchor_ref/role narrowing — reachable by hand-editing the saved YAML.
+coordinate. anchor_sheet is now covered too (closed 2026-08-15, plan
+plan_2026_08_15_sheet_combo_everywhere.md) — same "field exists in the
+model, GUI never reached it" gap as ClonePlacement's Origin tab, fixed the
+same way: the sheet combo + entry["anchor_sheet"]/load(sheet=...) wiring
+were already in place for every other dock, only the form never surfaced
+the field. Searchable combo, not a whitelist.
 
 Redraw follows PlacerDock's own reasoning exactly: loads the REAL target
 file's full config (load_config), replaces-by-name in
@@ -67,7 +70,7 @@ from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STY
                       configure_searchable, display_path, refresh_file_combo_choices,
                       set_combo_items, set_file_combo_selection, show_message,
                       upsert_list_entry)
-from .rename import collect_all_point_names
+from .rename import collect_all_point_names, collect_all_sheet_names
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +116,7 @@ class ThermalViaArrayDock(QWidget):
         form.addRow(_("Name:"), self.name_edit)
         layout.addLayout(form)
 
-        self.origin_widget = AnchorOriginWidget(modes=["anchor", "point"], anchor_fields=["cluster"])
+        self.origin_widget = AnchorOriginWidget(modes=["anchor", "point"], anchor_fields=["sheet", "cluster"])
         layout.addWidget(self.origin_widget)
         # Aliases onto the shared widget's own sub-widgets — kept so
         # existing tests/call sites that poke fields directly (e.g.
@@ -121,6 +124,7 @@ class ThermalViaArrayDock(QWidget):
         self.anchor_mode_combo = self.origin_widget.origin_mode_combo
         self.anchor_ref_edit = self.origin_widget.anchor_ref_edit
         self.anchor_role_edit = self.origin_widget.anchor_role_edit
+        self.anchor_sheet_edit = self.origin_widget.anchor_sheet_edit
         self.anchor_cluster_edit = self.origin_widget.anchor_cluster_edit
         self.point_edit = self.origin_widget.point_edit
 
@@ -197,10 +201,19 @@ class ThermalViaArrayDock(QWidget):
         self._root_path = path
         refresh_file_combo_choices((self.target_file_combo,), path, (self._path,))
         self._refresh_point_names()
+        self._refresh_sheet_names()
 
     def _refresh_point_names(self) -> None:
         names = collect_all_point_names(self._root_path) if self._root_path is not None else []
         self.origin_widget.set_point_names(names)
+
+    def _refresh_sheet_names(self) -> None:
+        """Sheet-name autocomplete for the array's own anchor Sheet field —
+        from the project's schematic files (RuntimeContext.sheet_names),
+        refreshed on root-file change like the Point names (see
+        collect_all_sheet_names, gui/docks/rename.py)."""
+        names = collect_all_sheet_names(self._root_path) if self._root_path is not None else []
+        self.origin_widget.set_known_sheets(names)
 
     def refresh_known_roles(self, snapshot) -> None:
         """Same "populate from the live board" pattern as PlacerDock's own
@@ -265,6 +278,8 @@ class ThermalViaArrayDock(QWidget):
                 entry["anchor_ref"] = origin_fields["ref"]
             else:
                 entry["anchor_role"] = origin_fields["role"]
+            if "sheet" in origin_fields:
+                entry["anchor_sheet"] = origin_fields["sheet"]
             if "cluster" in origin_fields:
                 entry["anchor_cluster"] = origin_fields["cluster"]
         else:  # Point
@@ -453,6 +468,7 @@ class ThermalViaArrayDock(QWidget):
             self.origin_widget.load(
                 mode="anchor", ref=str(entry.get("anchor_ref", "")),
                 role=str(entry.get("anchor_role", "")),
+                sheet=str(entry.get("anchor_sheet", "")),
                 cluster=str(entry.get("anchor_cluster", "")))
 
         self.rows_edit.setText(str(entry.get("rows", 4)))

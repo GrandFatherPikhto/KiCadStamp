@@ -166,6 +166,35 @@ def test_load_entry_round_trips_anchor_ref(main_window, tmp_path):
     assert dock._build_entry_dict() == entry
 
 
+def test_load_entry_round_trips_anchor_sheet(main_window, tmp_path):
+    """2026-08-15 (plan step 5): ThermalViaArrayConfig.anchor_sheet has
+    always been in the model/loader, only the form never surfaced it —
+    build() now writes anchor_sheet, load_entry() reads it back."""
+    dock, _ = _make_dock(main_window, tmp_path)
+    entry = {"name": "fpga_thermal", "pad": "1", "anchor_role": "FPGA",
+             "anchor_sheet": "Channel_2", "net": "GND"}
+
+    dock.load_entry(entry)
+
+    assert dock.anchor_sheet_edit.currentText() == "Channel_2"
+    built = dock._build_entry_dict()
+    assert built["anchor_role"] == "FPGA"
+    assert built["anchor_sheet"] == "Channel_2"
+
+
+def test_refresh_sheet_names_populates_anchor_sheet_combo(main_window, tmp_path, monkeypatch):
+    """2026-08-15 (plan step 3): the array's own anchor Sheet field is
+    autocompleted from the project's schematic files on root change (not
+    the ~2s board poll)."""
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock._root_path = tmp_path / "root.yaml"
+    monkeypatch.setattr(thermal_via_mod, "collect_all_sheet_names",
+                        lambda root: ["Channel_0", "Channel_1"])
+    dock._refresh_sheet_names()
+    assert [dock.anchor_sheet_edit.itemText(i) for i in range(dock.anchor_sheet_edit.count())] \
+        == ["Channel_0", "Channel_1"]
+
+
 def test_load_entry_round_trips_point_mode(main_window, tmp_path):
     dock, _ = _make_dock(main_window, tmp_path)
     entry = {"name": "X", "pad": "1", "anchor_point": "origin_point"}

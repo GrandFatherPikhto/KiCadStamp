@@ -136,7 +136,7 @@ class AnchorOriginWidget(QWidget):
 
         self.anchor_ref_edit: Optional[QLineEdit] = None
         self.anchor_role_edit: Optional[QComboBox] = None
-        self.anchor_sheet_edit: Optional[QLineEdit] = None
+        self.anchor_sheet_edit: Optional[QComboBox] = None
         self.anchor_pad_edit: Optional[QLineEdit] = None
         self.anchor_cluster_edit: Optional[QComboBox] = None
         if "anchor" in self._modes:
@@ -151,8 +151,15 @@ class AnchorOriginWidget(QWidget):
             configure_searchable(self.anchor_role_edit)
             anchor_form.addRow(_("Role:"), self.anchor_role_edit)
             if "sheet" in self._anchor_fields:
-                self.anchor_sheet_edit = QLineEdit()
-                self.anchor_sheet_edit.setPlaceholderText(
+                # Searchable combo (2026-08-15, plan
+                # plan_2026_08_15_sheet_combo_everywhere.md) — same
+                # "populate, don't restrict" picker pattern as
+                # anchor_role_edit/anchor_cluster_edit, but sourced from the
+                # project's schematic files (set_known_sheets), NOT the live
+                # board — Sheet names live in .kicad_sch, not on the board.
+                self.anchor_sheet_edit = QComboBox()
+                configure_searchable(self.anchor_sheet_edit)
+                self.anchor_sheet_edit.lineEdit().setPlaceholderText(
                     _("sheet name (narrows an ambiguous Role, optional)"))
                 anchor_form.addRow(_("Sheet:"), self.anchor_sheet_edit)
             if "pad" in self._anchor_fields:
@@ -260,6 +267,16 @@ class AnchorOriginWidget(QWidget):
         if self.point_edit is not None:
             set_combo_items(self.point_edit, list(names))
 
+    def set_known_sheets(self, sheets: Sequence[str]) -> None:
+        """Same "populate, don't restrict" pattern as set_known_roles — sheet
+        names come from the project's schematic files (RuntimeContext.
+        sheet_names, built in config/loader.py via schematic_dir/
+        schematic_files), refreshed on root-file change, not the ~2s board
+        poll Cluster/Role ride (see collect_all_sheet_names,
+        gui/docks/rename.py)."""
+        if self.anchor_sheet_edit is not None:
+            set_combo_items(self.anchor_sheet_edit, list(sheets))
+
     # ── Numeric parsing (moved in from each caller's own copy) ────────────
 
     @staticmethod
@@ -323,7 +340,7 @@ class AnchorOriginWidget(QWidget):
             else:
                 fields["role"] = role
                 if self.anchor_sheet_edit is not None:
-                    sheet = self.anchor_sheet_edit.text().strip()
+                    sheet = self.anchor_sheet_edit.currentText().strip()
                     if sheet:
                         fields["sheet"] = sheet
             if self.anchor_pad_edit is not None:
@@ -394,7 +411,7 @@ class AnchorOriginWidget(QWidget):
         if self.anchor_role_edit is not None:
             self.anchor_role_edit.setCurrentText(role)
         if self.anchor_sheet_edit is not None:
-            self.anchor_sheet_edit.setText(sheet)
+            self.anchor_sheet_edit.setCurrentText(sheet)
         if self.anchor_pad_edit is not None:
             self.anchor_pad_edit.setText(pad)
         if self.anchor_cluster_edit is not None:

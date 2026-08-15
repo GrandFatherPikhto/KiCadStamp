@@ -95,7 +95,7 @@ from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STY
                       configure_searchable, display_path, parse_float_field,
                       refresh_file_combo_choices, set_combo_items, set_file_combo_selection,
                       set_mode_pair_enabled, show_message, upsert_list_entry)
-from .rename import collect_all_cell_names, collect_all_point_names
+from .rename import collect_all_cell_names, collect_all_point_names, collect_all_sheet_names
 
 logger = logging.getLogger(__name__)
 
@@ -310,6 +310,7 @@ class RuleDock(QWidget):
         refresh_file_combo_choices((self.target_file_combo,), path, (self._path,))
         self._refresh_cell_names()
         self._refresh_point_names()
+        self._refresh_sheet_names()
 
     def _refresh_cell_names(self) -> None:
         names = collect_all_cell_names(self._root_path) if self._root_path is not None else []
@@ -318,6 +319,14 @@ class RuleDock(QWidget):
     def _refresh_point_names(self) -> None:
         names = collect_all_point_names(self._root_path) if self._root_path is not None else []
         self.origin_widget.set_point_names(names)
+
+    def _refresh_sheet_names(self) -> None:
+        """Sheet-name autocomplete for the rule's own anchor Sheet field —
+        from the project's schematic files (RuntimeContext.sheet_names),
+        refreshed on root-file change like the Cell/Point names (see
+        collect_all_sheet_names, gui/docks/rename.py)."""
+        names = collect_all_sheet_names(self._root_path) if self._root_path is not None else []
+        self.origin_widget.set_known_sheets(names)
 
     def refresh_known_roles(self, snapshot) -> None:
         """Same "populate from the live board" pattern as PlacerDock's own

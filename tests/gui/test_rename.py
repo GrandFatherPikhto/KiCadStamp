@@ -5,9 +5,9 @@ gui/docks/rename.py's module docstring for the cross-reference audit this
 is built against)."""
 import yaml
 
-from gui.docks.rename import (collect_all_cell_names, collect_all_point_names, collect_graph_files,
-                              name_exists_in_graph, rename_dict_entry, rename_entry,
-                              rename_list_entry, rename_references)
+from gui.docks.rename import (collect_all_cell_names, collect_all_point_names, collect_all_sheet_names,
+                              collect_graph_files, name_exists_in_graph, rename_dict_entry,
+                              rename_entry, rename_list_entry, rename_references)
 
 
 def _load(path):
@@ -83,6 +83,66 @@ def test_collect_all_point_names_unions_across_the_whole_graph(tmp_path):
         "points:\n  root_point: {xy: [2, 2]}\ninclude:\n  - sub.yaml\n", encoding="utf-8")
 
     assert collect_all_point_names(root) == ["a_point", "b_point", "root_point"]
+
+
+# ── collect_all_sheet_names ──────────────────────────────────────────────
+
+def test_collect_all_sheet_names_reads_schematic_dir(tmp_path):
+    """The Sheet-autocomplete list comes from the project's *.kicad_sch
+    files (RuntimeContext.sheet_names, built inside config/loader.py's
+    load_config), NOT a YAML section — a real root with schematic_dir
+    pointing at a directory of .kicad_sch files."""
+    sch = tmp_path / "sch"
+    sch.mkdir()
+    (sch / "root.kicad_sch").write_text(
+        '(kicad_sch\n'
+        '  (sheet\n'
+        '    (uuid "11111111-1111-1111-1111-111111111111")\n'
+        '    (property "Sheetname" "Channel_0"))\n'
+        '  (sheet\n'
+        '    (uuid "22222222-2222-2222-2222-222222222222")\n'
+        '    (property "Sheetname" "DAC Sheet"))\n'
+        ')\n',
+        encoding="utf-8")
+    root = tmp_path / "root.yaml"
+    root.write_text("schematic_dir: sch\n", encoding="utf-8")
+
+    assert collect_all_sheet_names(root) == ["Channel_0", "DAC Sheet"]
+
+
+def test_collect_all_sheet_names_dedupes_and_sorts(tmp_path):
+    """Two sheet instances sharing one name must collapse to one list
+    entry, sorted alphabetically (set() dedupe before sorted)."""
+    sch = tmp_path / "sch"
+    sch.mkdir()
+    (sch / "root.kicad_sch").write_text(
+        '(kicad_sch\n'
+        '  (sheet (uuid "a") (property "Sheetname" "Channel_1"))\n'
+        '  (sheet (uuid "b") (property "Sheetname" "Channel_1"))\n'
+        '  (sheet (uuid "c") (property "Sheetname" "Channel_0"))\n'
+        ')\n',
+        encoding="utf-8")
+    root = tmp_path / "root.yaml"
+    root.write_text("schematic_dir: sch\n", encoding="utf-8")
+
+    assert collect_all_sheet_names(root) == ["Channel_0", "Channel_1"]
+
+
+def test_collect_all_sheet_names_empty_when_no_schematic_dir(tmp_path):
+    root = tmp_path / "root.yaml"
+    root.write_text("rules: []\n", encoding="utf-8")
+
+    assert collect_all_sheet_names(root) == []
+
+
+def test_collect_all_sheet_names_empty_on_broken_root(tmp_path):
+    """A broken root config must yield an empty list, never raise — the
+    Sheet fields stay free-text-editable either way, this is autocomplete,
+    not validation."""
+    root = tmp_path / "root.yaml"
+    root.write_text("not: [valid yaml\n", encoding="utf-8")
+
+    assert collect_all_sheet_names(root) == []
 
 
 # ── rename_dict_entry ─────────────────────────────────────────────────────

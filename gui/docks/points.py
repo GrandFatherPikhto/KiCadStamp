@@ -30,14 +30,16 @@ field (see anchor_sheet below) — extracting a shared Origin widget once
 this shape is validated is a natural follow-up, not done in this pass.
 
 anchor_sheet (Denis, 2026-08-05: "да, нужен anchor_sheet в этой панели") is
-a plain QLineEdit here, same as anchor_ref — NOT yet a combo autocompleted
-from kicadstamp.sheet_names.build_sheet_name_map(), because that map needs
-the PROJECT's schematic_dir/schematic_files (RootMetadataDock/"Project"
-tab's own fields — root_metadata.py), a second file dependency distinct
-from "which file do points: get written to" (this dock's own
-set_target_file, fed by file_selected same as Placer/ThermalVia). Left as
-free text for this first pass rather than wiring a second cross-dock file
-dependency before the core shape is validated.
+a searchable combo autocompleted from the project's schematic files
+(kicadstamp.sheet_names.build_sheet_name_map(), built inside config/
+loader.py's load_config — see collect_all_sheet_names, gui/docks/rename.py)
+— NOT a whitelist, same "populate, don't restrict" picker as anchor_role.
+Closed 2026-08-15 (the earlier deferral was real: the map DOES need the
+PROJECT's schematic_dir/schematic_files, a second file dependency distinct
+from "which file do points: get written to" — this dock's own
+set_target_file; wired now via set_root_path(), the same root_changed
+trigger Point-chain autocomplete already uses — see
+plan_2026_08_15_sheet_combo_everywhere.md).
 
 Point-chain (`anchor_point`) IS autocompleted, though — from the currently
 targeted file's own points: keys (self-contained, no cross-dock
@@ -92,6 +94,7 @@ from ._anchor_origin import AnchorOriginWidget
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       display_path, merge_write, refresh_file_combo_choices,
                       set_file_combo_selection, show_message)
+from .rename import collect_all_sheet_names
 
 logger = logging.getLogger(__name__)
 
@@ -188,6 +191,7 @@ class PointsDock(QWidget):
         names) stays scoped to this dock's own target file, unchanged."""
         self._root_path = path
         refresh_file_combo_choices((self.target_file_combo,), path, (self._path,))
+        self._refresh_sheet_names()
 
     def refresh_known_roles(self, snapshot) -> None:
         """Same "populate from the live board" pattern as PlacerDock's own
@@ -206,6 +210,15 @@ class PointsDock(QWidget):
         if self._path is not None:
             names = sorted((yaml_io.load_data(self._path).get("points") or {}).keys())
         self.origin_widget.set_point_names(names)
+
+    def _refresh_sheet_names(self) -> None:
+        """Sheet-name autocomplete for the point's own anchor Sheet field —
+        from the project's schematic files (RuntimeContext.sheet_names),
+        refreshed on root-file change (set_root_path), the same trigger the
+        Point-chain autocomplete uses (see collect_all_sheet_names,
+        gui/docks/rename.py)."""
+        names = collect_all_sheet_names(self._root_path) if self._root_path is not None else []
+        self.origin_widget.set_known_sheets(names)
 
     # ── Message helper ────────────────────────────────────────────────────
 
