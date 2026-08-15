@@ -158,15 +158,44 @@ and a combo pick feed the exact same setter, and either one keeps the other in s
 
 ## Detail dock
 
-Extract/Placer/Project/Thermal via/Points/Rules/Cells below all live as tabs inside one shared
-**Detail** dock, not as separate docks — switching is both automatic (a Config-tree click routes to
-the matching tab) and manual (click the tab bar directly). Every automatic switch also raises Detail
-to the front of its own tabified group (it shares screen space with fieldstool) and updates its
-window title to name the page and, where there's a single obvious current entity, its name too — e.g.
-"Detail — Cells: composite", or just "Detail — Extract" for pages with no single current entity
-(added 2026-08-06, found live — Denis: "неплохо бы подсвечивать, какой док сейчас активен. А то
-вообще, не видно, кто и что" — a plain tree click used to switch the tab silently if Detail wasn't
-already the visible group).
+Extract/Placer/Project/Thermal via/Points/Rules/Cells/Settings below all live as tabs inside one
+shared **Detail** dock, not as separate docks — switching is both automatic (a Config-tree click
+routes to the matching tab) and manual (click the tab bar directly). Every automatic switch also
+raises Detail to the front of its own tabified group (it shares screen space with fieldstool) and
+updates its window title to name the page and, where there's a single obvious current entity, its
+name too — e.g. "Detail — Cells: composite", or just "Detail — Extract" for pages with no single
+current entity (added 2026-08-06, found live — Denis: "неплохо бы подсвечивать, какой док сейчас
+активен. А то вообще, не видно, кто и что" — a plain tree click used to switch the tab silently if
+Detail wasn't already the visible group).
+
+## Settings
+
+**Settings** (the last Detail-dock tab, 2026-08-15, plan `configurator_panel`) hosts pure GUI/app
+settings for THIS MACHINE — a GUI facade over [`gui/settings.py`](gui/settings.py)'s
+`gui_state.json`, deliberately NOT project config. The "Project" tab (RootMetadataDock) edits the
+project YAML in the version-controlled project file; this tab never touches it. Everything here is
+local per-machine state (the same storage `last_root_file`/`window_geometry`/`tree_group_by` already
+use), this tab just adds GUI editing on top of a few more keys.
+
+- **Always on top** / **Tray icon** — the two checkboxes that used to sit directly in the status
+  bar moved here (2026-08-15); the actual window-flag / tray-icon LOGIC is unchanged in
+  `MainWindow` (`_set_always_on_top`/`_set_tray_enabled`) — the checkboxes just re-emit their
+  toggles and `DockHub` wires them back. The status bar is now the status label plus the
+  Reconnect/Open fieldstool/KiCad processes... buttons only.
+- **Highlight color** — one highlight scheme applied to ALL THREE highlight places: the Detail
+  dock's active tab, the Config tree's selected item, and the Components tree's selected item.
+  **System palette** uses the OS theme's `palette(highlight)`; **Custom** (via **Pick color...**)
+  uses a literal color. Stored as `highlight_mode` (`"system"`/`"custom"`) + `highlight_color`
+  (hex) in `gui_state.json`, applied at startup and re-applied live on change. Before this, both
+  trees were bare native-styled `QTreeView`s whose selection was barely visible on Windows (the
+  same "еле видно" bug found during this discussion).
+- **KiCad connection timeout** — the ONE user-facing timeout (`DEFAULT_TIMEOUT_MS`,
+  `kicadstamp/constants.py`), editable in milliseconds. Written straight into
+  `connection.timeout_ms`, which `BoardConnection` reads on every connect, so it takes effect on
+  the NEXT connection without disturbing an open one. The internal protective timings
+  (`_CONNECT_TIMEOUT_GRACE_S`, pynng-safety's `_CLOSE_TIMEOUT_S`, the single-instance ping) are
+  deliberately NOT exposed — one of them literally just closed a live GUI freeze (see
+  `handoff_2026_08_15_pynng_close_timeout.md`).
 
 ## Extract
 

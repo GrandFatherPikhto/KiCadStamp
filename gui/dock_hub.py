@@ -96,6 +96,12 @@ class DockHub:
         self.points_dock = self.detail_dock.points_panel
         self.rules_dock = self.detail_dock.rules_panel
         self.cells_dock = self.detail_dock.cells_panel
+        # Settings tab (ConfiguratorDock, 2026-08-15, plan
+        # configurator_panel) — GUI/app settings for this machine, NOT
+        # project config (see gui/docks/configurator.py's module docstring).
+        # MainWindow reads its checkboxes back through this alias (see
+        # _restore_window_state/_persist_settings/closeEvent there).
+        self.configurator_dock = self.detail_dock.configurator_panel
 
         # ── bottom: Pending changes, Log ────────────────────────────────────
         main_window.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.pending_dock)
@@ -290,6 +296,34 @@ class DockHub:
         # fieldstool tab -> Components tree: an explicit Rescan/Apply there
         # refreshes this tree's schematic view (see FieldsToolDock).
         self.fieldstool_dock.components_changed.connect(self.tree_dock.refresh_schematic_view)
+
+        # Settings tab (ConfiguratorDock, 2026-08-15, plan
+        # configurator_panel): the always-on-top/tray checkboxes MOVED here
+        # from the status bar (gui/main_window.py) — the actual window-flag /
+        # tray-icon logic stays in MainWindow, this re-wires the toggles back
+        # onto it. getattr-guarded like request_refresh above: DockHub is
+        # also built against a plain QMainWindow in tests, which has no
+        # _set_always_on_top/_set_tray_enabled.
+        set_always_on_top = getattr(self.main_window, "_set_always_on_top", None)
+        if set_always_on_top is not None:
+            self.configurator_dock.always_on_top_toggled.connect(set_always_on_top)
+        set_tray_enabled = getattr(self.main_window, "_set_tray_enabled", None)
+        if set_tray_enabled is not None:
+            self.configurator_dock.tray_enabled_toggled.connect(set_tray_enabled)
+        # Highlight scheme — re-apply to all three target widgets the moment
+        # the Settings tab changes it (mode radio or custom color). All three
+        # also applied it once at construction, so this is purely the live
+        # half.
+        self.configurator_dock.highlight_changed.connect(self._apply_highlight)
+
+    def _apply_highlight(self) -> None:
+        """Re-apply the highlight stylesheet to the three highlight
+        consumers — DetailDock's active tab, ConfigTreeDock's and
+        RoleClusterTreeDock's selected tree item — after a change in the
+        Settings tab (see gui/docks/configurator.py)."""
+        self.detail_dock.apply_highlight()
+        self.config_tree_dock.apply_highlight()
+        self.tree_dock.apply_highlight()
 
     # ── delegates MainWindow's poll/timer logic drives ────────────────────
 

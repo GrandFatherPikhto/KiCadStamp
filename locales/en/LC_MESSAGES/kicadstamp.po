@@ -1191,6 +1191,40 @@ msgstr ""
 msgid "Thermal via"
 msgstr ""
 
+#: gui/docks/detail_panel.py:98 gui/docks/detail_panel.py:140
+# 2026-08-15, plan configurator_panel — the Settings tab hosts pure GUI/app
+# settings for this machine (see gui/docks/configurator.py), NOT project config.
+msgid "Settings"
+msgstr ""
+
+#: gui/docks/configurator.py:87
+msgid "Window"
+msgstr ""
+
+#: gui/docks/configurator.py:98
+msgid "Highlight color"
+msgstr ""
+
+#: gui/docks/configurator.py:100
+msgid "System palette"
+msgstr ""
+
+#: gui/docks/configurator.py:101
+msgid "Custom"
+msgstr ""
+
+#: gui/docks/configurator.py:115
+msgid "Pick color..."
+msgstr ""
+
+#: gui/docks/configurator.py:133
+msgid "KiCad connection"
+msgstr ""
+
+#: gui/docks/configurator.py:178
+msgid "Pick highlight color"
+msgstr ""
+
 #: gui/docks/detail_panel.py:149
 msgid "Detail — {label}: {name}"
 msgstr ""

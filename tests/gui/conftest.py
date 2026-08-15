@@ -28,6 +28,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from PyQt6.QtWidgets import QApplication, QMainWindow
 
+from kicadstamp.constants import DEFAULT_TIMEOUT_MS
+
 from gui import fieldstool_window as fieldstool_window_mod
 from gui import settings
 from gui.docks.log_panel import LogDock
@@ -100,6 +102,11 @@ class _FakeConnection:
         # fieldstool's _push_selection_to_board check it, so the fake needs
         # the same attribute the real BoardConnection exposes.
         self.long_op_active = False
+        # Same shape as BoardConnection.timeout_ms — the Settings tab's
+        # ConfiguratorDock writes its spinbox value straight into
+        # connection.timeout_ms (2026-08-15, plan configurator_panel), so
+        # the fake needs the attribute too.
+        self.timeout_ms = DEFAULT_TIMEOUT_MS
 
     def disconnect(self) -> None:
         """Mirrors the real BoardConnection.disconnect() (2026-08-04) at the

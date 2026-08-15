@@ -51,7 +51,9 @@ from PyQt6.QtWidgets import (QDockWidget, QStackedWidget, QTabBar, QVBoxLayout, 
 
 from kicadstamp.i18n import _
 
+from ._common import highlight_stylesheet_for
 from .cell_editor import CellDock
+from .configurator import ConfiguratorDock
 from .extract import ExtractDock
 from .placer import PlacerDock
 from .points import PointsDock
@@ -59,7 +61,7 @@ from .root_metadata import RootMetadataDock
 from .rules import RuleDock
 from .thermal_via import ThermalViaArrayDock
 
-_ROOT, _EXTRACT, _PLACER, _THERMAL_VIA, _POINTS, _RULES, _CELLS = range(7)
+_ROOT, _EXTRACT, _PLACER, _THERMAL_VIA, _POINTS, _RULES, _CELLS, _SETTINGS = range(8)
 
 
 class DetailDock(QDockWidget):
@@ -88,6 +90,12 @@ class DetailDock(QDockWidget):
         self.tab_bar.addTab(_("Points"))
         self.tab_bar.addTab(_("Rules"))
         self.tab_bar.addTab(_("Cells"))
+        # Settings (2026-08-15, plan configurator_panel) — GUI/app settings
+        # for this machine (always-on-top, tray, highlight color, connection
+        # timeout), deliberately NOT project config — see
+        # gui/docks/configurator.py's module docstring for the "what this is
+        # NOT" section. Added LAST so every existing tab's index is unchanged.
+        self.tab_bar.addTab(_("Settings"))
         layout.addWidget(self.tab_bar)
 
         self.stack = QStackedWidget()
@@ -98,6 +106,7 @@ class DetailDock(QDockWidget):
         self.points_panel = PointsDock(main_window, connection=connection)
         self.rules_panel = RuleDock(main_window)
         self.cells_panel = CellDock(main_window)
+        self.configurator_panel = ConfiguratorDock(main_window, connection=connection)
         self.stack.addWidget(self.root_panel)
         self.stack.addWidget(self.extract_panel)
         self.stack.addWidget(self.placer_panel)
@@ -105,6 +114,7 @@ class DetailDock(QDockWidget):
         self.stack.addWidget(self.points_panel)
         self.stack.addWidget(self.rules_panel)
         self.stack.addWidget(self.cells_panel)
+        self.stack.addWidget(self.configurator_panel)
         layout.addWidget(self.stack)
 
         self.tab_bar.currentChanged.connect(self.stack.setCurrentIndex)
@@ -112,6 +122,10 @@ class DetailDock(QDockWidget):
 
         self.setWidget(container)
         self._update_title()
+        # Highlight scheme at startup (reads settings.state) — the Settings
+        # tab's highlight_changed drives this live afterwards (see
+        # gui/dock_hub.py).
+        self.apply_highlight()
 
     # ── Page labels / current entity name (for the window title) ─────────
 
@@ -123,6 +137,7 @@ class DetailDock(QDockWidget):
         _POINTS: _("Points"),
         _RULES: _("Rules"),
         _CELLS: _("Cells"),
+        _SETTINGS: _("Settings"),
     }
 
     def _current_entity_name(self) -> str:
@@ -154,6 +169,14 @@ class DetailDock(QDockWidget):
         self.setWindowTitle(
             _("Detail — {label}: {name}").format(label=label, name=name) if name
             else _("Detail — {label}").format(label=label))
+
+    def apply_highlight(self) -> None:
+        """Re-apply the highlight stylesheet to the active tab of this
+        dock's QTabBar — one of the three highlight consumers (see
+        gui/docks/configurator.py). Called at construction (reads the
+        current settings.state) and by DockHub whenever the Settings tab's
+        highlight_changed fires."""
+        self.tab_bar.setStyleSheet(highlight_stylesheet_for("QTabBar::tab:selected"))
 
     # ── Switching (always raises/shows itself — see module docstring) ────
 
@@ -189,3 +212,9 @@ class DetailDock(QDockWidget):
 
     def show_cells(self) -> None:
         self._show(_CELLS)
+
+    def show_settings(self) -> None:
+        """Same pattern as the other show_X() pages — the Settings tab
+        (ConfiguratorDock) is reachable by clicking the tab bar directly; a
+        programmatic entry point keeps it consistent with every other page."""
+        self._show(_SETTINGS)

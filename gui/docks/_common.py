@@ -29,6 +29,8 @@ from kicadstamp.config_writer import (
     display_path, merge_write, non_includable_keys, upsert_clone_placement,
     upsert_list_entry)
 
+from .. import settings
+
 logger = logging.getLogger(__name__)
 
 # Message-label styles — one definition shared by every dock's status
@@ -203,3 +205,35 @@ def refresh_file_combo_choices(combos: Sequence[QComboBox], root_path: Optional[
         combo.blockSignals(False)
     for combo, path in zip(combos, current_paths):
         set_file_combo_selection(combo, path)
+
+
+# --- Highlight (active tab / selected tree item) color -------------------
+
+# Custom-mode fallback (and the initial value shown in the Settings tab)
+# when gui_state.json has no highlight_color yet.
+DEFAULT_HIGHLIGHT_COLOR = "#3daee9"
+
+
+def highlight_stylesheet_for(selector: str) -> str:
+    """Build a QSS rule for `selector` that highlights the active/selected
+    widget using either the system palette's highlight color or the user's
+    custom color — per the GUI settings' highlight_mode/highlight_color keys
+    (edited in the Settings tab, see gui/docks/configurator.py).
+
+    The three consumers (DetailDock's QTabBar active tab,
+    ConfigTreeDock's QTreeWidget and RoleClusterTreeDock's QTreeView
+    selected item — all callers pass their own QSS selector, written
+    against the base class: QTreeView::item:selected for both trees) all
+    call this instead of each copy-pasting a QSS string, so a change to the
+    highlight scheme lands in ONE place.
+
+    Text color stays palette(highlighted-text) in both modes — deliberately
+    not inventing a custom contrast rule from scratch (see
+    techdocs/handoff/plan_2026_08_15_configurator_panel.md)."""
+    mode = settings.state.get("highlight_mode", "system")
+    if mode == "custom":
+        color = settings.state.get("highlight_color", DEFAULT_HIGHLIGHT_COLOR)
+        return (f"{selector} {{ background: {color}; "
+                "color: palette(highlighted-text); }")
+    return (f"{selector} {{ background: palette(highlight); "
+            "color: palette(highlighted-text); }")

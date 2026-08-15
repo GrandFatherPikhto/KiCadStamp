@@ -69,7 +69,8 @@ from kicadstamp.i18n import _
 
 from .. import settings
 from ..worker import start_long_op
-from ._common import ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE, show_message
+from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
+                      highlight_stylesheet_for, show_message)
 
 logger = logging.getLogger(__name__)
 
@@ -191,8 +192,22 @@ class RoleClusterTreeDock(QDockWidget):
         self.tree.setHeaderHidden(True)
         self.tree.clicked.connect(self._on_clicked)
         layout.addWidget(self.tree)
+        # Highlight for the selected item (2026-08-15, plan
+        # configurator_panel) — a bare QTreeView had near-invisible
+        # selection on Windows (found during the same discussion that added
+        # the Config tree's identical fix); applied at startup and
+        # re-applied live by DockHub when the Settings tab's highlight
+        # changes.
+        self.tree.setStyleSheet(highlight_stylesheet_for("QTreeView::item:selected"))
 
         self.setWidget(container)
+
+    def apply_highlight(self) -> None:
+        """Re-apply the highlight stylesheet to this tree's selected item —
+        one of the three highlight consumers (see gui/docks/configurator.py).
+        Called at construction (reads the current settings.state) and by
+        DockHub whenever the Settings tab's highlight_changed fires."""
+        self.tree.setStyleSheet(highlight_stylesheet_for("QTreeView::item:selected"))
 
     def restore_mode_from_settings(self) -> None:
         """Call once, from gui/main_window.py, only after self._main_window's

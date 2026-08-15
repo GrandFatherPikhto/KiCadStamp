@@ -1,5 +1,6 @@
 # tests/gui/test_detail_panel.py
 from gui.docks.cell_editor import CellDock
+from gui.docks.configurator import ConfiguratorDock
 from gui.docks.detail_panel import DetailDock
 from gui.docks.extract import ExtractDock
 from gui.docks.placer import PlacerDock
@@ -18,9 +19,11 @@ def test_pages_are_the_expected_panel_types(main_window):
     assert isinstance(dock.points_panel, PointsDock)
     assert isinstance(dock.rules_panel, RuleDock)
     assert isinstance(dock.cells_panel, CellDock)
+    assert isinstance(dock.configurator_panel, ConfiguratorDock)
     # Coordinate placements merged into PlacerDock (2026-08-12, Group 1) —
-    # no separate Coordinate panel/tab anymore.
-    assert dock.stack.count() == 7
+    # no separate Coordinate panel/tab anymore. Settings is the 8th tab
+    # (2026-08-15, plan configurator_panel).
+    assert dock.stack.count() == 8
 
 
 def test_project_tab_is_shown_first(main_window):
@@ -163,3 +166,19 @@ def test_manual_tab_click_also_updates_the_title(main_window):
     dock.rules_panel.name_edit.setText("my_rule")
     dock.tab_bar.setCurrentIndex(5)  # Rules
     assert dock.windowTitle() == "Detail — Rules: my_rule"
+
+
+def test_show_settings_switches_tab_and_stack(main_window):
+    """Settings is the 8th tab (2026-08-15, plan configurator_panel) — its
+    show_X() page-switch follows the same pattern as every other page."""
+    dock = DetailDock(main_window)
+    dock.show_settings()
+    assert dock.tab_bar.currentIndex() == 7
+    assert dock.stack.currentWidget() is dock.configurator_panel
+
+
+def test_tab_bar_has_highlight_stylesheet(main_window):
+    """Smoke test for the highlight scheme (plan configurator_panel) — the
+    Detail dock's active-tab highlight is applied at construction."""
+    dock = DetailDock(main_window)
+    assert "selected" in dock.tab_bar.styleSheet()

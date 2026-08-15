@@ -76,8 +76,8 @@ from typing import Optional
 
 from kipy.board_types import FootprintInstance
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtWidgets import (QApplication, QCheckBox, QLabel, QMainWindow,
-                              QMenu, QPushButton, QSystemTrayIcon)
+from PyQt6.QtWidgets import (QApplication, QLabel, QMainWindow, QMenu,
+                              QPushButton, QSystemTrayIcon)
 
 from kicadstamp.explore import selection_signature
 from kicadstamp.i18n import _
@@ -109,13 +109,14 @@ class MainWindow(QMainWindow):
         self.action_button.clicked.connect(lambda: self._poll(manual=True))
         self.statusBar().addWidget(self.status_label, 1)
 
-        self.always_on_top_checkbox = QCheckBox(_("Always on top"))
-        self.always_on_top_checkbox.toggled.connect(self._set_always_on_top)
-        self.statusBar().addPermanentWidget(self.always_on_top_checkbox)
-
-        self.tray_checkbox = QCheckBox(_("Tray icon"))
-        self.tray_checkbox.toggled.connect(self._set_tray_enabled)
-        self.statusBar().addPermanentWidget(self.tray_checkbox)
+        # Always on top / Tray icon checkboxes moved to the Settings tab
+        # (ConfiguratorDock) 2026-08-15 — see gui/docks/configurator.py. The
+        # actual window-flag/tray-icon LOGIC stays here (_set_always_on_top/
+        # _set_tray_enabled); only the UI moved. DockHub wires the
+        # configurator's always_on_top_toggled/tray_enabled_toggled signals
+        # back onto these two methods (see gui/dock_hub.py), and
+        # _restore_window_state/_persist_settings read the checkboxes through
+        # self._dock_hub.configurator_dock below.
 
         self.open_fieldstool_button = QPushButton(_("Open fieldstool"))
         self.open_fieldstool_button.clicked.connect(self.open_fieldstool)
@@ -234,17 +235,27 @@ class MainWindow(QMainWindow):
         geometry = settings.state.get("window_geometry")
         if geometry and all(k in geometry for k in ("x", "y", "width", "height")):
             self.setGeometry(geometry["x"], geometry["y"], geometry["width"], geometry["height"])
+        # The checkboxes now live in the Settings tab (ConfiguratorDock,
+        # moved here 2026-08-15) — setChecked triggers its
+        # always_on_top_toggled/tray_enabled_toggled signals, which DockHub
+        # wires to _set_always_on_top/_set_tray_enabled (gui/dock_hub.py).
+        # DockHub is constructed before this method runs (line ~137 vs
+        # here), so configurator_dock is guaranteed to exist.
         if settings.state.get("always_on_top"):
-            self.always_on_top_checkbox.setChecked(True)  # triggers _set_always_on_top via its signal
+            self._dock_hub.configurator_dock.always_on_top_checkbox.setChecked(True)
         if settings.state.get("tray_enabled"):
-            self.tray_checkbox.setChecked(True)  # triggers _set_tray_enabled via its signal
+            self._dock_hub.configurator_dock.tray_checkbox.setChecked(True)
 
     def _persist_settings(self) -> None:
         rect = self.geometry()
         settings.state.set("window_geometry", {"x": rect.x(), "y": rect.y(),
                                                "width": rect.width(), "height": rect.height()})
-        settings.state.set("always_on_top", self.always_on_top_checkbox.isChecked())
-        settings.state.set("tray_enabled", self.tray_checkbox.isChecked())
+        # Checkboxes moved to the Settings tab 2026-08-15 — read their
+        # state back through the ConfiguratorDock (see gui/docks/
+        # configurator.py).
+        configurator = self._dock_hub.configurator_dock
+        settings.state.set("always_on_top", configurator.always_on_top_checkbox.isChecked())
+        settings.state.set("tray_enabled", configurator.tray_checkbox.isChecked())
 
     def closeEvent(self, event) -> None:
         """While the tray icon is enabled, the title-bar X hides instead of
@@ -252,7 +263,7 @@ class MainWindow(QMainWindow):
         _toggle_visibility). Real quit only happens here when tray is off
         (today's original behavior, unchanged) or via the tray menu's Quit
         action, which bypasses this entirely (see _quit)."""
-        if self.tray_checkbox.isChecked():
+        if self._dock_hub.configurator_dock.tray_checkbox.isChecked():
             event.ignore()
             self.hide()
             return

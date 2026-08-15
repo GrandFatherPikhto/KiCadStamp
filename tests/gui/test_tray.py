@@ -2,6 +2,11 @@
 """
 Tray checkbox lifecycle, closeEvent hide-vs-real-close branching, and the
 tray menu's Quit handler.
+
+The tray checkbox moved to the Settings tab's ConfiguratorDock 2026-08-15
+(plan configurator_panel) — it is no longer a MainWindow attribute, so these
+tests reach it through the real window's DockHub alias:
+    real_main_window._dock_hub.configurator_dock.tray_checkbox
 """
 from unittest.mock import Mock
 
@@ -10,21 +15,25 @@ from PyQt6.QtWidgets import QSystemTrayIcon
 from gui import settings
 
 
+def _tray_checkbox(window):
+    return window._dock_hub.configurator_dock.tray_checkbox
+
+
 def test_checkbox_creates_tray_icon(real_main_window):
     assert real_main_window._tray_icon is None
-    real_main_window.tray_checkbox.setChecked(True)
+    _tray_checkbox(real_main_window).setChecked(True)
     assert isinstance(real_main_window._tray_icon, QSystemTrayIcon)
 
 
 def test_unchecking_removes_tray_icon(real_main_window):
-    real_main_window.tray_checkbox.setChecked(True)
-    real_main_window.tray_checkbox.setChecked(False)
+    _tray_checkbox(real_main_window).setChecked(True)
+    _tray_checkbox(real_main_window).setChecked(False)
     assert real_main_window._tray_icon is None
 
 
 def test_tray_enabled_persists_round_trip(real_main_window):
-    real_main_window.tray_checkbox.setChecked(True)
-    real_main_window.tray_checkbox.setChecked(False)  # off again, so close() takes the real-close path
+    _tray_checkbox(real_main_window).setChecked(True)
+    _tray_checkbox(real_main_window).setChecked(False)  # off again, so close() takes the real-close path
     real_main_window.close()
     assert settings.load()["tray_enabled"] is False
 
@@ -32,7 +41,7 @@ def test_tray_enabled_persists_round_trip(real_main_window):
 def test_close_hides_instead_of_quitting_when_tray_checked(real_main_window, monkeypatch):
     persist = Mock()
     monkeypatch.setattr(real_main_window, "_persist_settings", persist)
-    real_main_window.tray_checkbox.setChecked(True)
+    _tray_checkbox(real_main_window).setChecked(True)
 
     real_main_window.close()
 

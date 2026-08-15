@@ -114,7 +114,8 @@ from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
 
 from .. import yaml_io
-from ._common import add_include, disable_include, display_path, non_includable_keys
+from ._common import (add_include, disable_include, display_path,
+                      highlight_stylesheet_for, non_includable_keys)
 from .entity_delete import delete_entry, find_references
 from .entity_export import ExportItem, export_entries
 from .rename import CASCADE_FIELD, collect_graph_files, entry_effective_name, rename_entry
@@ -238,6 +239,14 @@ class ConfigTreeDock(QDockWidget):
 
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
+        # Highlight for the selected item (2026-08-15, plan
+        # configurator_panel) — a bare QTreeWidget with no stylesheet had
+        # near-invisible selection on Windows, same as the Components tree;
+        # applied at startup and re-applied live by DockHub when the
+        # Settings tab's highlight changes. Selector is written against the
+        # base class (QTreeView), since QSS selectors for a QTreeWidget
+        # subclass match by its base class name.
+        self.tree.setStyleSheet(highlight_stylesheet_for("QTreeView::item:selected"))
         # Multi-select (2026-08-05) — only Export needs several leaves
         # selected at once (Denis: "экспортировать сущность (выделенные
         # сущности)"); Delete stays one entry at a time (see _on_delete),
@@ -250,6 +259,13 @@ class ConfigTreeDock(QDockWidget):
         layout.addWidget(self.tree)
 
         self.setWidget(container)
+
+    def apply_highlight(self) -> None:
+        """Re-apply the highlight stylesheet to this tree's selected item —
+        one of the three highlight consumers (see gui/docks/configurator.py).
+        Called at construction (reads the current settings.state) and by
+        DockHub whenever the Settings tab's highlight_changed fires."""
+        self.tree.setStyleSheet(highlight_stylesheet_for("QTreeView::item:selected"))
 
     # ── Setting/refreshing the root ─────────────────────────────────────
 
