@@ -139,6 +139,7 @@ from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STY
                       parse_float_field, refresh_file_combo_choices, set_combo_items,
                       set_file_combo_selection, set_mode_pair_enabled,
                       show_message, upsert_clone_placement, upsert_list_entry)
+from .entity_delete import delete_entry
 from .rename import collect_all_point_names, collect_all_sheet_names, entry_effective_name
 
 logger = logging.getLogger(__name__)
@@ -693,6 +694,15 @@ class PlacerDock(QWidget):
         # placement (Денис: "автозаполнение только при создании пласера.
         # Дальше уже не надо").
         self._placer_name_dirty: bool = False
+        # Effective identity (placer_name or name) of whichever clone_placement
+        # is currently loaded in the form — None for a brand new (unsaved)
+        # entry. _do_save() compares this against the about-to-be-saved entry's
+        # own identity: if they differ, the user renamed via Cluster or Placer
+        # name field directly (not via the Config tree's Rename) — the OLD
+        # entry must be removed first, or upsert (which only ever matches by
+        # the CURRENT identity) appends a duplicate instead of replacing it
+        # (2026-08-15, plan placer_form_save_renames_not_duplicates).
+        self._loaded_clone_identity: Optional[str] = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -1788,6 +1798,21 @@ class PlacerDock(QWidget):
             self._show_message(str(e), _ERROR_STYLE)
             return
 
+        # Renamed via Cluster or Placer name directly in the form (not the
+        # Config tree's Rename) — upsert alone would append a duplicate under
+        # the new identity, leaving the old one behind. Remove the old entry
+        # first (same mechanism ConfigTreeDock's own Delete uses), then upsert
+        # the new one (2026-08-15, plan placer_form_save_renames_not_duplicates).
+        new_identity = entry.get("placer_name") or entry.get("name")
+        if (self._loaded_clone_identity is not None
+                and self._loaded_clone_identity != new_identity):
+            try:
+                delete_entry(None, self._placer_path, "clone_placements",
+                             self._loaded_clone_identity, cascade=False)
+            except OSError:
+                pass  # already gone (e.g. saved twice in a row) — nothing to clean up
+            self._loaded_clone_identity = new_identity
+
         try:
             overwritten = self._upsert_clone_placement(self._placer_path, entry)
         except OSError as e:
@@ -1797,7 +1822,7 @@ class PlacerDock(QWidget):
         self._show_message(
             _("{action} {name!r} in {path}").format(
                 action=_("Overwrote") if overwritten else _("Wrote"),
-                name=entry["name"], path=display_path(self._placer_path)),
+                name=new_identity, path=display_path(self._placer_path)),
             _SUCCESS_STYLE)
         self.saved.emit()
 
@@ -1857,6 +1882,10 @@ class PlacerDock(QWidget):
         # (2026-08-15, plan clone_placement_placer_name_split).
         self.placer_name_edit.setText("")
         self._placer_name_dirty = False
+        # A brand new (unsaved) placement has no prior identity — _do_save()
+        # must just append, not try to remove an old entry
+        # (2026-08-15, plan placer_form_save_renames_not_duplicates).
+        self._loaded_clone_identity = None
         self.sheet_edit.setCurrentText("")
         self.origin_widget.clear()
         self.rotation_edit.setText("")
@@ -1912,6 +1941,11 @@ class PlacerDock(QWidget):
         # clone_placement_placer_name_split).
         self.placer_name_edit.setText(str(entry.get("placer_name") or ""))
         self._placer_name_dirty = True
+        # Remember what identity this form loaded — _do_save() removes the old
+        # entry when the about-to-be-saved identity differs (rename via the
+        # form's own fields), instead of letting upsert append a duplicate
+        # (2026-08-15, plan placer_form_save_renames_not_duplicates).
+        self._loaded_clone_identity = entry.get("placer_name") or entry.get("name")
         self.sheet_edit.setCurrentText(str(entry.get("sheet") or ""))
         # cell: is mandatory on ClonePlacement since 2026-08-12 (Group 0
         # consolidation — the role:/cluster: modes migrated to

@@ -1589,3 +1589,103 @@ def test_new_placement_resets_placer_name_dirty_flag(main_window, tmp_path):
     dock.cluster_edit.setCurrentText("X")
     dock.cluster_edit.lineEdit().editingFinished.emit()
     assert dock.placer_name_edit.text() == "X"
+
+
+# ── Save from the form itself must rename, not duplicate (2026-08-15, plan
+# placer_form_save_renames_not_duplicates) ───────────────────────────────
+# _do_save() used to upsert by the CURRENT (edited) identity only — upsert has
+# no memory of what the form loaded, so renaming Cluster/Placer name in the
+# form and hitting Save always appended a duplicate. A _loaded_clone_identity
+# attribute now remembers the loaded identity; when the identity being saved
+# differs, the OLD entry is removed first (delete_entry, same mechanism as the
+# Config tree's Delete).
+
+def test_save_after_renaming_placer_name_removes_old_entry(main_window, tmp_path):
+    """KEY Denis scenario: load an entry, rename Placer name in the form, Save
+    — the OLD entry must be gone, exactly one with the new identity remains,
+    and Cluster stays untouched."""
+    dock, _, placer_file = _make_cell_and_dock(main_window, tmp_path)
+    _write_yaml(placer_file, {"clone_placements": [
+        {"name": "PIF_AVDD", "placer_name": "CH0_PIF_AVDD", "cell": "pi_filter",
+         "xy": [1.0, 1.0]},
+    ]})
+    dock.load_placement({"name": "PIF_AVDD", "placer_name": "CH0_PIF_AVDD",
+                         "cell": "pi_filter", "xy": [1.0, 1.0]})
+    dock.placer_name_edit.setText("CH1_PIF_AVDD")
+    dock._do_save()
+
+    entries = yaml.safe_load(placer_file.read_text(encoding="utf-8"))["clone_placements"]
+    assert len(entries) == 1
+    assert entries[0]["placer_name"] == "CH1_PIF_AVDD"
+    assert entries[0]["name"] == "PIF_AVDD"  # Cluster tag untouched
+
+
+def test_save_after_renaming_cluster_without_placer_name_removes_old_entry(main_window, tmp_path):
+    """Same fix applies to plain Cluster renames (no placer_name): identity is
+    the raw name, so changing Cluster in the form and saving must replace, not
+    duplicate."""
+    dock, _, placer_file = _make_cell_and_dock(main_window, tmp_path)
+    _write_yaml(placer_file, {"clone_placements": [
+        {"name": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]},
+    ]})
+    dock.load_placement({"name": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]})
+    dock.cluster_edit.setCurrentText("CH0_PIF_AVDD")
+    dock._do_save()
+
+    entries = yaml.safe_load(placer_file.read_text(encoding="utf-8"))["clone_placements"]
+    assert len(entries) == 1
+    assert entries[0]["name"] == "CH0_PIF_AVDD"
+
+
+def test_save_without_identity_change_still_replaces_in_place(main_window, tmp_path):
+    """Regression guard: loading without changing the identity (or changing
+    something else entirely) must keep the old replace-in-place upsert — no
+    spurious delete cycles."""
+    dock, _, placer_file = _make_cell_and_dock(main_window, tmp_path)
+    _write_yaml(placer_file, {"clone_placements": [
+        {"name": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]},
+    ]})
+    dock.load_placement({"name": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]})
+    dock._do_save()
+    dock._do_save()
+
+    assert len(yaml.safe_load(placer_file.read_text(encoding="utf-8"))["clone_placements"]) == 1
+
+
+def test_save_new_placement_does_not_trigger_delete(main_window, tmp_path, monkeypatch):
+    """new_placement() has no prior identity — Save must just append; the
+    old-entry-removal path must not run at all."""
+    dock, _, placer_file = _make_cell_and_dock(main_window, tmp_path)
+    dock.new_placement(dock._placer_path)
+    calls = []
+    monkeypatch.setattr(placer_mod, "delete_entry",
+                        lambda *a, **k: calls.append((a, k)) or {"backups": []})
+    dock.cluster_edit.setCurrentText("PIF_AVDD")
+    dock.placer_name_edit.setText("PIF_AVDD")
+    dock.set_selected_cell("pi_filter")
+    dock.origin_widget.load(mode="xy", x=1.0, y=1.0)
+    dock._do_save()
+
+    assert calls == []
+    entries = yaml.safe_load(placer_file.read_text(encoding="utf-8"))["clone_placements"]
+    assert len(entries) == 1
+    assert entries[0]["name"] == "PIF_AVDD"
+
+
+def test_save_twice_in_a_row_after_rename_does_not_error(main_window, tmp_path):
+    """Renaming then saving AGAIN without changes must not try to delete the
+    already-removed old entry (identity now matches, delete path not entered)."""
+    dock, _, placer_file = _make_cell_and_dock(main_window, tmp_path)
+    _write_yaml(placer_file, {"clone_placements": [
+        {"name": "PIF_AVDD", "placer_name": "CH0_PIF_AVDD", "cell": "pi_filter",
+         "xy": [1.0, 1.0]},
+    ]})
+    dock.load_placement({"name": "PIF_AVDD", "placer_name": "CH0_PIF_AVDD",
+                         "cell": "pi_filter", "xy": [1.0, 1.0]})
+    dock.placer_name_edit.setText("CH1_PIF_AVDD")
+    dock._do_save()  # renames: removes CH0, writes CH1
+    dock._do_save()  # no change: identity matches, no delete, replaces in place
+
+    entries = yaml.safe_load(placer_file.read_text(encoding="utf-8"))["clone_placements"]
+    assert len(entries) == 1
+    assert entries[0]["placer_name"] == "CH1_PIF_AVDD"
