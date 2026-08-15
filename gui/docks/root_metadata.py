@@ -381,13 +381,19 @@ class RootMetadataDock(QWidget):
         if path is not None:
             self._remember_recent(path)
         self.set_target_file(path)
-        self._refresh_working_file_choices()
+        self.refresh_working_file_choices()
         self.root_changed.emit(path)
 
     # ── Working file (2026-08-11, separate from Root — see module
     # docstring) ─────────────────────────────────────────────────────────
 
-    def _refresh_working_file_choices(self) -> None:
+    def refresh_working_file_choices(self) -> None:
+        """Repopulate the "Working file" combobox's choices from the current
+        include: graph (collect_graph_files). Public since 2026-08-15 (plan
+        graph_changed_broadcast) so DockHub can call it as the seventh target
+        of the graph-changed broadcast — the same graph-derived choices class
+        as every entity dock's file combo, and just as stale until this runs.
+        Cheap to call repeatedly via the mtime file cache."""
         self.working_file_combo.blockSignals(True)
         self.working_file_combo.clear()
         if self._path is not None:
@@ -402,7 +408,7 @@ class RootMetadataDock(QWidget):
         tree already drives every entity dock's target file directly (see
         dock_hub.py); this combobox is a second, direct entry point for the
         exact same thing, not a relay in front of the tree."""
-        self._refresh_working_file_choices()
+        self.refresh_working_file_choices()
         if path is None:
             return
         idx = self.working_file_combo.findData(str(path))

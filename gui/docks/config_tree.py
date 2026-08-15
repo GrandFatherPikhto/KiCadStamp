@@ -227,6 +227,16 @@ class ConfigTreeDock(QDockWidget):
     # see module docstring for why this replaces the three independent
     # FilePickerDock role signals.
     file_selected = pyqtSignal(object)
+    # Fired AFTER a ConfigTreeDock action actually changed the include:
+    # graph's file set or an entry's name (_on_rename/_on_delete/
+    # _add_included_file/_remove_file) — DockHub listens to refresh every
+    # dock's graph-derived combo choices (file/name lists), which would
+    # otherwise go stale until the root is reassigned (2026-08-15, plan
+    # graph_changed_broadcast). Deliberately NOT emitted from the initial
+    # refresh() (that's first population, not a change) or from _on_export()
+    # (copies content without wiring it into include: — the graph only
+    # changes once the file is added via _add_included_file separately).
+    graph_changed = pyqtSignal()
 
     def __init__(self, main_window):
         super().__init__(_("Config"), main_window)
@@ -538,6 +548,7 @@ class ConfigTreeDock(QDockWidget):
             return
 
         self.refresh()
+        self.graph_changed.emit()
         message = _("Renamed {old!r} to {new!r} — {count} file(s) updated: {files}").format(
             old=old_name, new=new_name, count=len(changed),
             files=", ".join(display_path(p) for p in changed))
@@ -588,6 +599,7 @@ class ConfigTreeDock(QDockWidget):
 
         report = delete_entry(self._root_path, file_path, section, name, cascade=cascade)
         self.refresh()
+        self.graph_changed.emit()
 
         message = _("Deleted {name!r}. Backed up: {backups}.").format(
             name=name, backups=", ".join(display_path(p) for p in report["backups"]))
@@ -682,6 +694,7 @@ class ConfigTreeDock(QDockWidget):
         rel = Path(os.path.relpath(chosen_path, file_path.parent)).as_posix()
         add_include(file_path, rel)
         self.refresh()
+        self.graph_changed.emit()
 
     def _remove_file(self, file_path: Path, parent_path: Path) -> None:
         reply = QMessageBox.question(
@@ -693,3 +706,4 @@ class ConfigTreeDock(QDockWidget):
             return
         disable_include(parent_path, file_path)
         self.refresh()
+        self.graph_changed.emit()

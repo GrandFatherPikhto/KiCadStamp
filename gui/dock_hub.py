@@ -263,13 +263,26 @@ class DockHub:
         # Placer/Thermal via/Extract/Points/Rules -> Config tree: a
         # successful Save refreshes the whole tree (walk_include_tree() is
         # re-run) so a brand new (or renamed) entry shows up without
-        # reassigning Files.
+        # reassigning Files. The SAME six signals ALSO feed
+        # _refresh_graph_dependent_choices (2026-08-15, plan
+        # graph_changed_broadcast): an entity dock's Save can introduce a
+        # brand-new NAME directly (e.g. CellDock's "Add cell..." + Save),
+        # bypassing the tree entirely, and every OTHER dock's name-derived
+        # combo (RulesDock.spoke_cell_combo, the point-name combos in
+        # ThermalViaArrayDock/RulesDock/PlacerDock, ...) must hear about it
+        # — the tree refresh above only updates the TREE's own display.
         self.placer_dock.saved.connect(self.config_tree_dock.refresh)
         self.thermal_via_dock.saved.connect(self.config_tree_dock.refresh)
         self.extract_dock.saved.connect(self.config_tree_dock.refresh)
         self.points_dock.saved.connect(self.config_tree_dock.refresh)
         self.rules_dock.saved.connect(self.config_tree_dock.refresh)
         self.cells_dock.saved.connect(self.config_tree_dock.refresh)
+        self.placer_dock.saved.connect(self._refresh_graph_dependent_choices)
+        self.thermal_via_dock.saved.connect(self._refresh_graph_dependent_choices)
+        self.extract_dock.saved.connect(self._refresh_graph_dependent_choices)
+        self.points_dock.saved.connect(self._refresh_graph_dependent_choices)
+        self.rules_dock.saved.connect(self._refresh_graph_dependent_choices)
+        self.cells_dock.saved.connect(self._refresh_graph_dependent_choices)
         # Config tree's "Add placer.../Add thermal via pad.../Add point.../
         # Add rule..." context-menu actions -> Placer/Thermal via/Points/
         # Rules: open the form blank, targeting the file the action was
@@ -292,6 +305,15 @@ class DockHub:
         # Extract flow for a profile save (see ExtractDock.prepare_new_profile).
         self.config_tree_dock.add_extract_profile_requested.connect(
             self._start_new_extract_profile)
+        # Config tree's own graph-mutating actions (_on_rename/_on_delete/
+        # _add_included_file/_remove_file) -> every dock's graph-derived
+        # combos, same handler the six entity-dock `saved` signals above
+        # feed (2026-08-15, plan graph_changed_broadcast): a file added or
+        # removed, or a cell:/point: name renamed or deleted, must be
+        # visible everywhere immediately, not only after the root is
+        # reassigned. NOT wired to the tree's initial refresh (first
+        # population, not a change) or to _on_export (no graph change).
+        self.config_tree_dock.graph_changed.connect(self._refresh_graph_dependent_choices)
 
         # fieldstool tab -> Components tree: an explicit Rescan/Apply there
         # refreshes this tree's schematic view (see FieldsToolDock).
@@ -426,6 +448,37 @@ class DockHub:
         profile-key field) would be silently lost."""
         self.detail_dock.show_extract()
         self.extract_dock.prepare_new_profile(file_path)
+
+    def _refresh_graph_dependent_choices(self) -> None:
+        """The include: graph's shape or an entry's name changed — either
+        via ConfigTreeDock's own actions (add/remove a file, rename/delete a
+        cell/point/...) or via one of the six entity docks' own Save
+        creating/renaming an entry directly (e.g. CellDock's "Add cell..." +
+        Save — a brand new cell name that RulesDock.spoke_cell_combo, sourced
+        from collect_all_cell_names(), would otherwise not see until the
+        root is reassigned; symmetrically for PointsDock's Save and every
+        point-name combo in ThermalViaArrayDock/RulesDock/PlacerDock). Every
+        dock with a graph-derived combobox must re-fetch its choices, the
+        same way it already does on a root-file change (set_root_path is
+        safe to call again: it only refreshes combo CHOICES, preserving the
+        current selection via refresh_file_combo_choices' current_paths
+        argument — it does not touch whatever entity is currently loaded in
+        the dock's form, see gui/docks/_common.py's refresh_file_combo_choices
+        docstring). Cheap to call repeatedly since 2026-08-15's mtime file
+        cache (plan_2026_08_15_config_read_cache_startup.md) — this handler
+        does NOT need its own caching, it just needs to fire at the right
+        moments, which it previously didn't (found live — Denis: adding a
+        Placer to a brand-new file required the file to already be visible
+        from wherever the new file was created, the tree's own action never
+        told any other dock)."""
+        root_path = self.root_metadata_dock.root_path
+        self.rules_dock.set_root_path(root_path)
+        self.placer_dock.set_root_path(root_path)
+        self.thermal_via_dock.set_root_path(root_path)
+        self.cells_dock.set_root_path(root_path)
+        self.points_dock.set_root_path(root_path)
+        self.extract_dock.set_root_path(root_path)
+        self.root_metadata_dock.refresh_working_file_choices()
 
     def _edit_cell(self, name, file_path) -> None:
         """ConfigTreeDock's cell_edit_requested delegate — right-click

@@ -156,6 +156,12 @@ file/Cell file in the others) — closed-set combos populated from the whole `in
 target file can be picked without touching the tree. Both remain shared entry points: a tree click
 and a combo pick feed the exact same setter, and either one keeps the other in sync.
 
+Since 2026-08-15 every dock's file/name combos stay live: a file added/removed via the tree's
+"Add included file..."/"Remove this file", an entry renamed/deleted there, OR a brand-new entity
+created by an entity dock's own Save (e.g. CellDock's "Add cell..." + Save) is immediately visible
+in every other dock's combo — no root reassignment, no GUI restart (a `graph_changed` broadcast,
+see plan_2026_08_15_graph_changed_broadcast.md).
+
 ## Detail dock
 
 Extract/Placer/Project/Thermal via/Points/Rules/Cells/Settings below all live as tabs inside one

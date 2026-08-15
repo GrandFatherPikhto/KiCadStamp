@@ -14,6 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import gui.docks.config_tree as config_tree_mod
 from gui.schema_model import SchematicComponent
 from kicadstamp.explore import Selected
 
@@ -916,3 +917,128 @@ def test_dock_hub_delegates_route_to_the_right_docks(real_main_window, monkeypat
     hub.open_fieldstool()
     assert shown == [True]
     assert raised == [True]
+
+
+# ── graph_changed broadcast (2026-08-15, plan graph_changed_broadcast) ─────
+
+def _seed_last_root(root: Path) -> None:
+    """Point the per-test-isolated gui_state.json (see tests/gui/conftest.py's
+    isolated_settings) at `root` so RootMetadataDock._restore_last_root()
+    picks the project up during DockHub construction."""
+    data = settings.load()
+    data["last_root_file"] = str(root)
+    settings.save(data)
+
+
+def _spy_graph_refresh_targets(hub, monkeypatch):
+    """Install call-recording spies on every target of DockHub's
+    _refresh_graph_dependent_choices (the six entity docks' set_root_path plus
+    root_metadata_dock.refresh_working_file_choices) — AFTER DockHub is built
+    (construction itself calls set_root_path during _wire; the spies must only
+    see post-construction calls). Returns {name: [recorded_arg, ...]}."""
+    calls = {}
+    for name in ("rules_dock", "placer_dock", "thermal_via_dock", "cells_dock",
+                 "points_dock", "extract_dock"):
+        recorded = []
+        monkeypatch.setattr(getattr(hub, name), "set_root_path",
+                            lambda path, r=recorded: r.append(path))
+        calls[name] = recorded
+    recorded_root = []
+    monkeypatch.setattr(hub.root_metadata_dock, "refresh_working_file_choices",
+                        lambda: recorded_root.append(True))
+    calls["root_metadata_dock"] = recorded_root
+    return calls
+
+
+def test_graph_changed_refreshes_every_dock_with_a_file_combo(main_window, monkeypatch):
+    """ConfigTreeDock's graph_changed must re-fetch every dock's graph-derived
+    combo choices — the same handler the six entity-dock saved signals feed —
+    i.e. set_root_path on all six entity docks plus
+    root_metadata_dock.refresh_working_file_choices, each exactly once per
+    emit."""
+    hub = DockHub(main_window, connection=main_window.connection, verbose=False)
+    try:
+        targets = _spy_graph_refresh_targets(hub, monkeypatch)
+        hub.config_tree_dock.graph_changed.emit()
+        for name, calls in targets.items():
+            assert len(calls) == 1, f"{name} not refreshed exactly once: {calls}"
+    finally:
+        _teardown_hub(hub)
+
+
+def test_dock_saved_also_refreshes_graph_dependent_choices(main_window, monkeypatch):
+    """Second trigger found at plan review: an entity dock's own Save can
+    introduce a brand-new NAME directly (e.g. CellDock's "Add cell..." +
+    Save), bypassing the tree entirely — so each of the six docks' saved
+    signal must ALSO fire the graph-dependent refresh, in addition to its
+    existing `saved -> config_tree_dock.refresh` wiring (the tree keeps
+    updating its own display; the broadcast updates everyone else)."""
+    hub = DockHub(main_window, connection=main_window.connection, verbose=False)
+    try:
+        targets = _spy_graph_refresh_targets(hub, monkeypatch)
+        for dock_name in ("placer_dock", "thermal_via_dock", "extract_dock",
+                          "points_dock", "rules_dock", "cells_dock"):
+            getattr(hub, dock_name).saved.emit()
+        for name, calls in targets.items():
+            assert len(calls) == 6, f"{name} not refreshed once per dock Save: {calls}"
+    finally:
+        _teardown_hub(hub)
+
+
+def test_add_included_file_new_file_appears_in_placer_combo(main_window, tmp_path, monkeypatch):
+    """The live complaint the plan fixes (Denis: "добавляю пласер, новый файл,
+    а его только из дерева можно добавить"): adding a brand-new file via the
+    Config tree must make it visible in every other dock's file combo
+    IMMEDIATELY — no root reassignment, no GUI restart. Before the fix,
+    placer_dock.cells_file_combo stayed stale until the root was switched
+    away and back. This exercises the REAL DockHub + real ConfigTreeDock
+    action (QFileDialog mocked, same as test_config_tree.py's own tests for
+    this method) — no mocked load_config or faked config."""
+    root = tmp_path / "root.yaml"
+    root.write_text("cells: {}\nrules: []\n", encoding="utf-8")
+    _seed_last_root(root)
+    new_file = tmp_path / "power.yaml"
+
+    hub = DockHub(main_window, connection=main_window.connection, verbose=False)
+    try:
+        def combo_has(combo, path):
+            return any(Path(combo.itemData(i)).resolve() == path.resolve()
+                       for i in range(combo.count()))
+        assert not combo_has(hub.placer_dock.cells_file_combo, new_file)
+
+        monkeypatch.setattr(config_tree_mod.QFileDialog, "getSaveFileName",
+                            staticmethod(lambda *a, **k: (str(new_file), "")))
+        hub.config_tree_dock._add_included_file(root)
+
+        assert new_file.exists()
+        assert combo_has(hub.placer_dock.cells_file_combo, new_file)
+    finally:
+        _teardown_hub(hub)
+
+
+def test_new_cell_save_visible_in_rules_spoke_cell_combo(main_window, tmp_path):
+    """The review-found counterpart: a Cell created DIRECTLY in CellDock (via
+    new_cell + a real Save, bypassing the tree — the tree never learns about
+    it from its own actions) must show up in RulesDock.spoke_cell_combo (the
+    whole-graph cell-name combo) immediately. Before the fix it only appeared
+    after switching the root away and back (same failure class as Denis's
+    complaint, different trigger — the entity dock's Save, not a tree action)."""
+    root = tmp_path / "root.yaml"
+    root.write_text("cells: {}\nrules: []\n", encoding="utf-8")
+    _seed_last_root(root)
+
+    hub = DockHub(main_window, connection=main_window.connection, verbose=False)
+    try:
+        def combo_texts(combo):
+            return [combo.itemText(i) for i in range(combo.count())]
+        assert "brand_new_cell" not in combo_texts(hub.rules_dock.spoke_cell_combo)
+
+        hub.cells_dock.new_cell(root)
+        hub.cells_dock.name_edit.setText("brand_new_cell")
+        hub.cells_dock.comp_role_edit.setCurrentText("A")
+        hub.cells_dock._on_add_component()
+        hub.cells_dock._on_save()
+
+        assert "brand_new_cell" in combo_texts(hub.rules_dock.spoke_cell_combo)
+    finally:
+        _teardown_hub(hub)

@@ -1148,3 +1148,107 @@ def test_clone_placement_leaf_shows_placer_name_when_set(main_window, tmp_path):
     texts = [category.child(i).text(0) for i in range(category.childCount())]
     assert "CH0_PIF_AVDD" in texts
     assert "plain" in texts
+
+
+# ── graph_changed broadcast (2026-08-15, plan graph_changed_broadcast) ────
+
+def test_rename_emits_graph_changed_once(main_window, tmp_path, monkeypatch):
+    """A successful rename changes an entry's NAME in the graph — every other
+    dock's graph-derived name combos must hear about it (via DockHub's
+    broadcast), so graph_changed fires exactly once here."""
+    root = tmp_path / "root.yaml"
+    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    emitted = []
+    dock.graph_changed.connect(lambda: emitted.append(True))
+    monkeypatch.setattr(config_tree_mod.QInputDialog, "getText",
+                        staticmethod(lambda *a, **k: ("renamed_cell", True)))
+    monkeypatch.setattr(config_tree_mod.QMessageBox, "information",
+                        staticmethod(lambda *a, **k: None))
+
+    dock._on_rename(root, "cells", "one_role")
+
+    assert emitted == [True]
+
+
+def test_delete_emits_graph_changed_once(main_window, tmp_path, monkeypatch):
+    root = tmp_path / "root.yaml"
+    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    emitted = []
+    dock.graph_changed.connect(lambda: emitted.append(True))
+    monkeypatch.setattr(config_tree_mod.QMessageBox, "question",
+                        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
+    monkeypatch.setattr(config_tree_mod.QMessageBox, "information",
+                        staticmethod(lambda *a, **k: None))
+
+    dock._on_delete(root, "cells", "one_role")
+
+    assert emitted == [True]
+
+
+def test_add_included_file_emits_graph_changed_once(main_window, tmp_path, monkeypatch):
+    """The exact Denis complaint (plan graph_changed_broadcast): adding a
+    brand-new file to the graph must tell every OTHER dock's file combo,
+    not just refresh this tree's own display."""
+    root = tmp_path / "root.yaml"
+    root.write_text("cells: {}\n", encoding="utf-8")
+    new_file = tmp_path / "power.yaml"
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    emitted = []
+    dock.graph_changed.connect(lambda: emitted.append(True))
+    monkeypatch.setattr(config_tree_mod.QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (str(new_file), "")))
+
+    dock._add_included_file(root)
+
+    assert emitted == [True]
+
+
+def test_remove_file_emits_graph_changed_once(main_window, tmp_path, monkeypatch):
+    (tmp_path / "sub.yaml").write_text(MINIMAL_CELL, encoding="utf-8")
+    root = tmp_path / "root.yaml"
+    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    emitted = []
+    dock.graph_changed.connect(lambda: emitted.append(True))
+    monkeypatch.setattr(config_tree_mod.QMessageBox, "question",
+                        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
+
+    dock._remove_file(tmp_path / "sub.yaml", root)
+
+    assert emitted == [True]
+
+
+def test_export_does_not_emit_graph_changed(main_window, tmp_path, monkeypatch):
+    """Export copies content to a separate file WITHOUT wiring it into
+    include: (Denis: "Перенос пока не делаем") — the graph's shape does not
+    change, so graph_changed must NOT fire (a second, separate
+    _add_included_file() is what eventually changes the graph)."""
+    root = tmp_path / "root.yaml"
+    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    target = tmp_path / "out.yaml"
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    leaf = _find(dock.tree.topLevelItem(0), "Cells").child(0)
+    leaf.setSelected(True)
+
+    emitted = []
+    dock.graph_changed.connect(lambda: emitted.append(True))
+    monkeypatch.setattr(config_tree_mod.QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (str(target), "")))
+    monkeypatch.setattr(config_tree_mod.QMessageBox, "information",
+                        staticmethod(lambda *a, **k: None))
+
+    dock._on_export(dock._selected_export_items())
+
+    assert emitted == []
