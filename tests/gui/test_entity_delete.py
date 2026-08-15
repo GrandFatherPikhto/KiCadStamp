@@ -249,3 +249,27 @@ def test_collect_graph_files_still_used_the_same_way_delete_entry_expects(tmp_pa
     root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
 
     assert {p.name for p in collect_graph_files(root)} == {"root.yaml", "sub.yaml"}
+
+
+def test_delete_entry_removes_clone_placement_by_placer_name(tmp_path):
+    """Delete goes through the same entry_effective_name as the tree shows —
+    a clone_placement with placer_name must be removed by that identity, not
+    by its raw Cluster tag (2026-08-15, plan
+    config_tree_rename_placer_name_aware)."""
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "clone_placements:\n"
+        "  - name: PIF_AVDD\n    placer_name: CH0_PIF_AVDD\n    cell: ldo\n",
+        encoding="utf-8")
+
+    # Matched by placer_name -> removed.
+    delete_entry(None, path, "clone_placements", "CH0_PIF_AVDD", cascade=False)
+    assert _load(path)["clone_placements"] == []
+
+    # Matched by raw Cluster tag -> NOT found (identity is placer_name now).
+    path.write_text(
+        "clone_placements:\n"
+        "  - name: PIF_AVDD\n    placer_name: CH0_PIF_AVDD\n    cell: ldo\n",
+        encoding="utf-8")
+    delete_entry(None, path, "clone_placements", "PIF_AVDD", cascade=False)
+    assert len(_load(path)["clone_placements"]) == 1

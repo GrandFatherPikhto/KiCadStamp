@@ -76,9 +76,30 @@ def _coordinate_placement_effective_name(entry: dict) -> str | None:
         if entry.get("cluster") and entry.get("role") else None)
 
 
+def _clone_placement_effective_name(entry: dict) -> str | None:
+    """clone_placements: placer_name if set, else name (the Cluster tag) —
+    same split as config/models.py's clone_placement_effective_name(),
+    2026-08-15. Without this, the tree/Rename/Delete would show and match
+    by the physical Cluster tag instead of the save/--only identity the
+    user actually manages."""
+    return entry.get("placer_name") or entry.get("name")
+
+
 # Sections whose effective name is a COMPOSED fallback (not a single field) —
 # callable(entry) -> identity, alongside FALLBACK_KEY's single-field fallbacks.
-EFFECTIVE_NAME_FN = {"coordinate_placements": _coordinate_placement_effective_name}
+EFFECTIVE_NAME_FN = {
+    "coordinate_placements": _coordinate_placement_effective_name,
+    "clone_placements": _clone_placement_effective_name,
+}
+
+
+# clone_placements: which field Rename actually writes — placer_name once an
+# entry already has one (2026-08-15 split: Cluster is a physical board tag,
+# only the save/--only identity is what Rename is for), else name (pre-split
+# entries, single field, unchanged).
+RENAME_TARGET_FIELD = {
+    "clone_placements": lambda entry: "placer_name" if entry.get("placer_name") else "name",
+}
 
 
 def entry_effective_name(section: str, entry: dict):
@@ -199,10 +220,12 @@ def rename_list_entry(path: Path, section: str, old_name: str, new_name: str) ->
     """clone_placements:/thermal_via_arrays:/rules:/coordinate_placements: —
     list of dicts, entry matched by its effective name (name:, or the
     section's fallback — net: for a nameless rules:, cluster/role for a
-    nameless coordinate_placements: — see entry_effective_name), then name:
-    is set/created on it. For a rules:/coordinate_placements: entry matched
-    only by its fallback, this is what actually gives it an explicit name:
-    for the first time, distinct from its fallback."""
+    nameless coordinate_placements: — see entry_effective_name), then the
+    section's RENAME_TARGET_FIELD is set/created on it (name: normally;
+    placer_name for a clone_placement that already has one — 2026-08-15
+    split, Cluster stays a physical tag). For a rules:/coordinate_placements:
+    entry matched only by its fallback, this is what actually gives it an
+    explicit name: for the first time, distinct from its fallback."""
     data = read_data(path)
     items = data.get(section) or []
 
@@ -224,7 +247,8 @@ def rename_list_entry(path: Path, section: str, old_name: str, new_name: str) ->
             raise OSError(_("{name!r} already exists in {section}: of {path}")
                           .format(name=new_name, section=section, path=path))
 
-    match["name"] = new_name
+    target_field = RENAME_TARGET_FIELD.get(section, lambda e: "name")(match)
+    match[target_field] = new_name
     write_data(path, data)
 
 

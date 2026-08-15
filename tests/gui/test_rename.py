@@ -6,8 +6,8 @@ is built against)."""
 import yaml
 
 from gui.docks.rename import (collect_all_cell_names, collect_all_point_names, collect_all_sheet_names,
-                              collect_graph_files, name_exists_in_graph, rename_dict_entry,
-                              rename_entry, rename_list_entry, rename_references)
+                              collect_graph_files, entry_effective_name, name_exists_in_graph,
+                              rename_dict_entry, rename_entry, rename_list_entry, rename_references)
 
 
 def _load(path):
@@ -332,3 +332,65 @@ def test_rename_entry_refuses_a_graph_wide_collision_before_writing_anything(tmp
     # Nothing written — the collision is in a DIFFERENT file than the entry
     # itself, so this only fails if the graph-wide check ran before any write.
     assert _load(root)["cells"] == {"old_cell": {}}
+
+
+# ── placer_name-aware identity for clone_placements (2026-08-15, plan
+# config_tree_rename_placer_name_aware) — same split as config/models.py's
+# clone_placement_effective_name(): display/match/rename must use placer_name
+# (the save/--only identity), not the raw Cluster tag `name`. ─────────────
+
+def test_entry_effective_name_uses_placer_name_for_clone_placements():
+    """clone_placements identity is placer_name when set, else name (the
+    Cluster tag) — the tree/Rename/Delete must show/match the save/--only
+    identity, not the physical tag."""
+    assert entry_effective_name("clone_placements",
+                                {"name": "PIF_AVDD", "placer_name": "CH0_PIF_AVDD"}) == "CH0_PIF_AVDD"
+    assert entry_effective_name("clone_placements", {"name": "PIF_AVDD"}) == "PIF_AVDD"
+
+
+def test_rename_list_entry_finds_entry_by_placer_name(tmp_path):
+    """Rename must locate a clone_placement by its placer_name (the identity
+    the tree shows) — and write the new value to placer_name, leaving the
+    Cluster tag untouched."""
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "clone_placements:\n"
+        "  - name: PIF_AVDD\n    placer_name: CH0_PIF_AVDD\n    cell: ldo\n",
+        encoding="utf-8")
+
+    rename_list_entry(path, "clone_placements", "CH0_PIF_AVDD", "CH1_PIF_AVDD")
+
+    data = _load(path)["clone_placements"][0]
+    assert data["placer_name"] == "CH1_PIF_AVDD"
+    assert data["name"] == "PIF_AVDD"  # Cluster tag untouched
+
+
+def test_rename_list_entry_writes_name_when_no_placer_name_yet(tmp_path):
+    """Regression guard: an entry that never diverged still renames its
+    single `name` field, exactly as before the split."""
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "clone_placements:\n  - name: spoke_1\n    cell: ldo\n", encoding="utf-8")
+
+    rename_list_entry(path, "clone_placements", "spoke_1", "spoke_1_renamed")
+
+    data = _load(path)["clone_placements"][0]
+    assert data["name"] == "spoke_1_renamed"
+    assert "placer_name" not in data
+
+
+def test_rename_list_entry_collision_checks_by_placer_name(tmp_path):
+    """The new_name collision check must also use the effective identity —
+    renaming to a placer_name another entry already has must be refused."""
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "clone_placements:\n"
+        "  - name: A\n    placer_name: CH0_PIF_AVDD\n    cell: ldo\n"
+        "  - name: B\n    placer_name: CH1_PIF_AVDD\n    cell: ldo\n",
+        encoding="utf-8")
+
+    try:
+        rename_list_entry(path, "clone_placements", "CH0_PIF_AVDD", "CH1_PIF_AVDD")
+        assert False, "expected OSError"
+    except OSError:
+        pass
