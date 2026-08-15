@@ -40,23 +40,46 @@ def _connect_with_timeout(timeout_ms: int) -> Board:
     rest of the process's life, showing a permanent "Not Connected" even
     once KiCad is reachable again. Running the attempt on a separate daemon
     thread and bounding the wait here means the poll worker always regains
-    control; a thread stuck in dial() forever is orphaned (Python can't kill
-    a thread) but harmless — daemon=True lets the process exit without
-    waiting on it, and each retry just risks leaking one more such thread,
-    not re-wedging the poll worker."""
+    control.
+
+    Two failure outcomes, both deliberately non-fatal to the caller:
+    - a thread stuck in dial() forever is orphaned (Python can't kill a
+      thread) but harmless — daemon=True lets the process exit without
+      waiting on it, and each retry just risks leaking one more such thread,
+      not re-wedging the poll worker;
+    - a dial() that SUCCEEDS after the external timeout already fired (late
+      success) leaves the built Board — with its fresh kipy.KiCad/pynng.Req0
+      inside — with no caller to ever pick it up; that path is closed
+      explicitly here (see the gave_up branch in _run), not left for the GC
+      to finalize the socket at some unpredictable later point (found live
+      2026-08-15, and the exact scenario kicadstamp/kicad/pynng_safety.py's
+      bounded close() exists to survive)."""
     result: list = []
     error: list = []
+    gave_up = threading.Event()
 
     def _run():
         try:
-            result.append(Board.connect(timeout_ms=timeout_ms))
+            board = Board.connect(timeout_ms=timeout_ms)
         except Exception as e:
             error.append(e)
+            return
+        if gave_up.is_set():
+            # The caller already timed out and moved on — nobody will ever
+            # pick this Board up. Close it now instead of leaving an open
+            # kipy/pynng socket for the GC to find later (found live
+            # 2026-08-15 — the exact scenario kicadstamp/kicad/
+            # pynng_safety.py's bounded close() exists to survive, but
+            # better not to rely on that as the only guard).
+            board.adapter.close()
+            return
+        result.append(board)
 
     thread = threading.Thread(target=_run, daemon=True, name="BoardConnection.connect")
     thread.start()
     thread.join(timeout=(timeout_ms / 1000.0) + _CONNECT_TIMEOUT_GRACE_S)
     if thread.is_alive():
+        gave_up.set()
         raise TimeoutError(
             f"Board.connect() did not return within {timeout_ms}ms "
             f"(+{_CONNECT_TIMEOUT_GRACE_S}s grace) — likely a hung kipy dial() "

@@ -16,6 +16,12 @@ from ..utils.units import MM
 from ..constants import DEFAULT_TIMEOUT_MS
 from ..i18n import _
 
+# Patches pynng.nng.Socket.close with an external timeout on import (see its
+# docstring) — must run before any kipy/pynng socket is created, so this is
+# the single chokepoint every entry point (GUI, CLI, author_cli, tests) goes
+# through just by importing this module.
+from . import pynng_safety  # noqa: F401
+
 logger = logging.getLogger(__name__)
 
 
