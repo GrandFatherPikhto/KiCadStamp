@@ -210,3 +210,45 @@ def test_handler_attaches_to_queue_listener_when_one_is_running(qapp, main_windo
             dock.remove_handler()
         listener.stop()
         root.setLevel(original_level)
+
+
+def test_autoscroll_enabled_by_default(log_dock):
+    """The Auto-scroll checkbox starts checked, so the Log dock behaves like
+    continuous auto-scroll out of the box (2026-08-15,
+    plan_2026_08_15_log_dock_autoscroll.md)."""
+    assert log_dock.autoscroll_checkbox.isChecked()
+
+
+def test_append_line_scrolls_to_bottom_when_autoscroll_enabled(log_dock):
+    """While Auto-scroll is checked, append_line() force-scrolls the vertical
+    scrollbar to its maximum — new lines are always visible without dragging
+    the scrollbar (found live: once the user scrolled up to read history, Qt
+    stops pulling the view down on append, which read as "the log just
+    doesn't scroll"). The viewport is shrunk first so the scrollbar genuinely
+    has a non-empty range to test against in the offscreen test env."""
+    log_dock.autoscroll_checkbox.setChecked(True)
+    log_dock.text.resize(400, 100)
+    for i in range(50):
+        log_dock.append_line(f"line {i}", logging.INFO)
+
+    scrollbar = log_dock.text.verticalScrollBar()
+    assert scrollbar.maximum() > 0
+    assert scrollbar.value() == scrollbar.maximum()
+
+
+def test_append_line_does_not_scroll_when_autoscroll_disabled(log_dock):
+    """Unchecked, the panel restores Qt's plain "don't yank the reader"
+    behavior — appending a line must NOT pull the view back to the bottom if
+    the user scrolled up to read history; the scrollbar stays where the user
+    left it."""
+    log_dock.autoscroll_checkbox.setChecked(False)
+    log_dock.text.resize(400, 100)
+    for i in range(50):
+        log_dock.append_line(f"line {i}", logging.INFO)
+
+    scrollbar = log_dock.text.verticalScrollBar()
+    assert scrollbar.maximum() > 0
+
+    scrollbar.setValue(0)
+    log_dock.append_line("one more line", logging.INFO)
+    assert scrollbar.value() == 0

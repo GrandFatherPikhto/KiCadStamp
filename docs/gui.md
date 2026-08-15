@@ -523,7 +523,12 @@ A read-only, copyable, searchable panel fed by a `logging.Handler` attached to t
 logger — every `logger.info`/`warning` anywhere in the backend shows up here, not just things this
 GUI writes itself. **Verbose** toggles this panel's own level between INFO and DEBUG (the
 console/file logging `kicadstamp_gui.py` was launched with, if any, is untouched). **Find** /
-**Prev** / **Next** search the accumulated text; **Clear** empties it.
+**Prev** / **Next** search the accumulated text; **Clear** empties it. **Auto-scroll** (checked by
+default, 2026-08-15) force-scrolls the panel to the bottom after every new line while it's on —
+Qt's own `QPlainTextEdit` only auto-scrolls when the view was already at the bottom before
+appending, so scrolling up to read history used to make the log look stuck during a live error.
+Uncheck it to get that plain Qt behavior back (the panel stops yanking the view down while you
+read).
 
 Since 2026-08-15 the panel's `logging.Handler` is attached to the live `QueueListener` started by
 `setup_logging()` (queue-based logging, see `techdocs/handoff/plan_2026_08_15_queue_based_logging.md`)

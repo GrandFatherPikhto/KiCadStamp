@@ -107,6 +107,15 @@ class LogDock(QDockWidget):
         self.verbose_checkbox = QCheckBox(_("Verbose"))
         self.verbose_checkbox.toggled.connect(self._on_verbose_toggled)
         top_row.addWidget(self.verbose_checkbox)
+        # Auto-scroll (2026-08-15, plan_2026_08_15_log_dock_autoscroll.md):
+        # QPlainTextEdit only auto-scrolls when the view was already at the
+        # bottom before appending — once the user scrolls up to read history,
+        # new lines no longer pull the view down. Checked by default: the
+        # panel behaves like continuous auto-scroll; unchecking restores
+        # Qt's plain "don't yank the reader" behavior.
+        self.autoscroll_checkbox = QCheckBox(_("Auto-scroll"))
+        self.autoscroll_checkbox.setChecked(True)
+        top_row.addWidget(self.autoscroll_checkbox)
         top_row.addStretch(1)
         clear_button = QPushButton(_("Clear"))
         clear_button.clicked.connect(lambda: self.text.clear())
@@ -227,3 +236,11 @@ class LogDock(QDockWidget):
             )
         else:
             self.text.appendPlainText(message)
+        # Auto-scroll (2026-08-15, plan_2026_08_15_log_dock_autoscroll.md):
+        # force the view to the bottom on every line while the checkbox is
+        # checked. Deliberately scrollbar.setValue(maximum()), NOT
+        # moveCursor(QTextCursor.End) — the latter also moves the text cursor
+        # (affects selection/search), the scrollbar only touches scrolling.
+        if self.autoscroll_checkbox.isChecked():
+            scrollbar = self.text.verticalScrollBar()
+            scrollbar.setValue(scrollbar.maximum())

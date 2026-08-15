@@ -1564,6 +1564,11 @@ msgstr "Журнал"
 msgid "Verbose"
 msgstr "Подробно"
 
+#: gui/docks/log_panel.py:98
+
+msgid "Auto-scroll"
+msgstr "Автопрокрутка"
+
 #: gui/docks/log_panel.py:96
 
 msgid "Clear"

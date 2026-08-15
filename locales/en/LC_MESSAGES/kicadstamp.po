@@ -1476,6 +1476,10 @@ msgstr ""
 msgid "Verbose"
 msgstr ""
 
+#: gui/docks/log_panel.py:98
+msgid "Auto-scroll"
+msgstr ""
+
 #: gui/docks/log_panel.py:96
 msgid "Clear"
 msgstr ""
