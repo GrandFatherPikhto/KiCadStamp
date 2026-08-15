@@ -19,11 +19,11 @@ this module's namespace — and therefore kicadstamp/config/__init__.py's
 import difflib
 import logging
 from pathlib import Path
-import yaml
 
 from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
 from ..runtime_context import RuntimeContext
+from ..utils.file_cache import cached_file_read
 
 # NOTE (2026-08-11, arch step 6): the `..sheet_names` import below is a
 # DELIBERATE, documented exception to config/loader's "pure YAML-schema
@@ -59,7 +59,7 @@ from .entries import (
     _load_thermal_via_array,
     _point_is_footprint_eligible,
 )
-from .includes import resolve_includes
+from .includes import _load_yaml_file, resolve_includes
 from .models import (
     ThermalViaArrayConfig, CoordinatePlacement, Config, rule_effective_name,
     coordinate_placement_effective_name,
@@ -92,8 +92,7 @@ def _check_duplicate_names(items, name_fn, section_label: str, hint: str) -> Non
 
 def load_config(path: str) -> tuple[Config, RuntimeContext]:
     logger.info(_("Loading configuration from {path}").format(path=path))
-    with open(path, 'r', encoding='utf-8') as f:
-        data = yaml.safe_load(f) or {}
+    data = cached_file_read(Path(path), _load_yaml_file)
     data = resolve_includes(path, data)
 
     if 'target_ref' in data:

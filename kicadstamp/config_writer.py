@@ -19,6 +19,7 @@ from typing import Any, Callable, Dict, Optional
 import yaml
 
 from kicadstamp.i18n import _
+from kicadstamp.utils.file_cache import cached_file_read, invalidate_path
 
 logger = logging.getLogger(__name__)
 
@@ -44,25 +45,48 @@ def _read_data(path: Path) -> dict:
     promise) missed it, and the raw exception propagated uncaught out of a
     Qt slot, which PyQt6 aborts the whole process on by default. Found
     live: Placer's Save crashed the entire GUI over one stray character in
-    an unrelated part of the target YAML file."""
+    an unrelated part of the target YAML file.
+
+    The read+parse itself goes through cached_file_read (2026-08-15, see
+    kicadstamp/utils/file_cache.py) so the docks' repeated read-merge-write
+    cycles on the same file — and the collectors that read every graph file
+    once per dock — parse it from disk ONCE, not once per call. Contract is
+    UNCHANGED: {} for a missing file, OSError — never ValidationError — on
+    a malformed file, YAML/JSON by extension. Missing-file is handled here,
+    before the cache, so a file that doesn't exist yet is never cached as
+    "absent forever" and appears on the next call once it's created."""
     if not path.exists():
         return {}
-    with open(path, "r", encoding="utf-8") as f:
-        try:
-            return (json.load(f) if path.suffix.lower() == ".json" else yaml.safe_load(f)) or {}
-        except (json.JSONDecodeError, yaml.YAMLError) as e:
-            raise OSError(_("{path} is not valid {kind}: {error}").format(
-                path=path, kind="JSON" if path.suffix.lower() == ".json" else "YAML", error=e)) from e
+
+    def _uncached_read(p: Path) -> dict:
+        with open(p, "r", encoding="utf-8") as f:
+            try:
+                return (json.load(f) if p.suffix.lower() == ".json"
+                        else yaml.safe_load(f)) or {}
+            except (json.JSONDecodeError, yaml.YAMLError) as e:
+                raise OSError(_("{path} is not valid {kind}: {error}").format(
+                    path=path, kind="JSON" if p.suffix.lower() == ".json" else "YAML",
+                    error=e)) from e
+
+    return cached_file_read(path, _uncached_read)
 
 
 def _write_data(path: Path, data: dict) -> None:
     """Write merged content back in the same format (YAML/JSON by file
-    extension) it was read in."""
+    extension) it was read in. Every GUI dock write path
+    (merge_write/add_list_entry/upsert_*/_remove_entry) funnels through
+    this ONE physical-write chokepoint, which is why invalidate_path()
+    lives here and nowhere else: mtime alone can't tell two writes to the
+    same file microseconds apart apart on a coarse-timer filesystem (the
+    delete-then-upsert shape of PlacerDock._do_save), so the cache is
+    explicitly dropped for this path right after the write — see
+    kicadstamp/utils/file_cache.py's invalidate_path() docstring."""
     with open(path, "w", encoding="utf-8") as f:
         if path.suffix.lower() == ".json":
             json.dump(data, f, indent=2, ensure_ascii=False, sort_keys=False)
         else:
             yaml.dump(data, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
+    invalidate_path(path)
 
 
 # Public aliases — these two are consumed across the gui/ package boundary

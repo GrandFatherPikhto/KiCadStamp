@@ -16,7 +16,6 @@ not needed at all if anchor_sheet is not used in the config.
 """
 import glob
 import logging
-import os
 from pathlib import Path
 
 
@@ -24,6 +23,7 @@ import sexpdata
 
 from .exceptions import ValidationError, format_fatal_error
 from .i18n import _
+from .utils.file_cache import cached_file_read
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +34,13 @@ def _children(node, tag: str) -> list[list]:
     return [n for n in node[1:] if isinstance(n, list) and n and str(n[0]) == tag]
 
 
-def _parse_sheet_uuids(path: str) -> dict[str, str]:
-    """{uuid: Sheetname} from all (sheet ...) blocks of ONE .kicad_sch file."""
+def _parse_sheet_uuids_uncached(path: str) -> dict[str, str]:
+    """{uuid: Sheetname} from all (sheet ...) blocks of ONE .kicad_sch file.
+    The uncached core of _parse_sheet_uuids (2026-08-15, see
+    kicadstamp/utils/file_cache.py) — the public name is now a thin
+    cached_file_read wrapper so the same .kicad_sch is sexpdata-parsed once
+    per mtime, not once per dock that calls load_config() for its
+    ctx.sheet_names."""
     result = {}
     try:
         with open(path, encoding='utf-8') as f:
@@ -55,6 +60,14 @@ def _parse_sheet_uuids(path: str) -> dict[str, str]:
         if uuid_val and name:
             result[uuid_val] = name
     return result
+
+
+def _parse_sheet_uuids(path: str) -> dict[str, str]:
+    """{uuid: Sheetname} from all (sheet ...) blocks of ONE .kicad_sch file —
+    memoized via cached_file_read (keyed by resolved path + mtime_ns), so a
+    project's schematic sheets are parsed once per startup no matter how many
+    docks each trigger a load_config() to read ctx.sheet_names."""
+    return cached_file_read(Path(path), _parse_sheet_uuids_uncached)
 
 
 def build_sheet_name_map(config_path: str, schematic_dir: str | None,

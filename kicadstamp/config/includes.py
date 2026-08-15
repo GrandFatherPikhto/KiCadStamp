@@ -30,6 +30,7 @@ import yaml
 
 from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
+from ..utils.file_cache import cached_file_read
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,16 @@ _LIST_SECTIONS = ('rules', 'clone_placements', 'thermal_via_arrays', 'coordinate
 # files — these are meant to be genuinely separate subsystem files, so a
 # repeated key is far more likely a mistake than an intentional override.
 _DICT_SECTIONS = ('cells', 'points', 'extract_profiles', 'clone_profiles')
+
+
+def _load_yaml_file(path: Path) -> dict:
+    """open(path) + yaml.safe_load(f) or {} — the raw YAML read shared by
+    _resolve/_walk below and load_config() in loader.py (which reuses this
+    exact loader so all three share ONE cache entry per file, not three
+    independent ones). Always a dict, never None (a YAML file whose content
+    is empty/scalar-null becomes {}) — cached_file_read requires that."""
+    with open(path, 'r', encoding='utf-8') as f:
+        return yaml.safe_load(f) or {}
 
 
 def _parse_include_entry(entry: Any, source_path: str) -> tuple[str, bool]:
@@ -164,8 +175,7 @@ def _resolve(path: str, data: dict[str, Any], ancestors: set[Path], resolved: se
             continue
         resolved.add(include_path)
 
-        with open(include_path, 'r', encoding='utf-8') as f:
-            include_data = yaml.safe_load(f) or {}
+        include_data = cached_file_read(include_path, _load_yaml_file)
         include_merged = _resolve(str(include_path), include_data, ancestors | {include_path},
                                   resolved, is_root=False)
 
@@ -220,8 +230,7 @@ class IncludeTreeNode:
 
 
 def _walk(path: str, ancestors: set[Path]) -> IncludeTreeNode:
-    with open(path, 'r', encoding='utf-8') as f:
-        data = yaml.safe_load(f) or {}
+    data = cached_file_read(Path(path), _load_yaml_file)
     if not isinstance(data, dict):
         raise ValidationError(format_fatal_error(
             _("{file!r}: top level must be a YAML mapping, got {type}").format(

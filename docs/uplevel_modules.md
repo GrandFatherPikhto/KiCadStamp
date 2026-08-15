@@ -350,6 +350,22 @@ Holds global constants used across various modules.
 
 ---
 
+## 18. `utils/file_cache.py` – Single-File Read Cache
+
+**Purpose:**
+Memoizes a single file's `open()+parse` by `(resolved path, mtime_ns)` — a changed mtime (typically an external hand-edit) is a cache miss on its own, and every raw reader shares one cache entry per file. Kills the GUI's startup redundancy: one `MainWindow()` construction used to re-parse the same `include:` graph of YAML files ~13× and the same `.kicad_sch` files 4× each (profiled: 15.0s → ~1.1s construction, `yaml.safe_load` 113 → ~8 calls on the real project — see `techdocs/handoff/plan_2026_08_15_config_read_cache_startup.md`).
+
+**Main functions:**
+
+| Function | Description |
+|----------|-------------|
+| `cached_file_read(path, loader)` | Returns a deep copy of `loader(path)`, keyed by `(resolved path, mtime_ns)`; never caches a missing file (loader handles it directly). |
+| `invalidate_path(path)` | Drops every cached generation of `path` — must be called by writers right after the physical write (mtime alone can't distinguish two writes landing in the same timer tick). |
+
+**Used in:** `config/includes.py`, `config/loader.py`, `config_writer.py` (read + the single write chokepoint), `sheet_names.py`.
+
+---
+
 ## Module Interconnections
 
 ```mermaid
