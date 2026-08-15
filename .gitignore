@@ -105,3 +105,5 @@ zip_project.yaml
 # Temporary extraction file regenerated (and deleted) by tools/update_i18n.py
 # on every run — never a source of truth, shouldn't be tracked.
 messages.pot
+gdb/**
+*.tar.xz
