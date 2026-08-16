@@ -349,6 +349,83 @@ class PlacementRegistry(BaseRegistry[RegistryEntry]):
         )
 
 
+# ── Track matching and positional pre-check ──────────────────────────────────
+
+
+def _points_close(a_x_mm: float, a_y_mm: float, b_x_mm: float, b_y_mm: float) -> bool:
+    """Two points match within POSITION_TOLERANCE_MM (0.01 mm), in mm."""
+    return (
+        abs(a_x_mm - b_x_mm) <= _POSITION_TOLERANCE_MM
+        and abs(a_y_mm - b_y_mm) <= _POSITION_TOLERANCE_MM
+    )
+
+
+def track_matches(live_track, cmd: TrackCommand) -> bool:
+    """Shared bidirectional predicate: does the live board track match the
+    planned TrackCommand? A segment is UNORIENTED — both start↔start/end↔end
+    AND start↔end/end↔start count as the same geometry. Also compares net
+    (full hierarchical name as a string), width, and layer (via _layer_to_str).
+
+    Used by BOTH the UUID-path reconcile (TrackRegistry._live_matches) and the
+    positional pre-check (filter_existing_tracks) — one predicate, so the two
+    can never disagree (plan_2026_08_16_position_based_copper_idempotency.md).
+    The bidirectional match also fixes a latent reversal bug: a live track that
+    got flipped (start↔end) between runs no longer looks like a position change
+    (see plan_2026_08_16_position_based_copper_idempotency.md, Task 1.2)."""
+    live_start_x_mm, live_start_y_mm = live_track.start.x / MM, live_track.start.y / MM
+    live_end_x_mm, live_end_y_mm = live_track.end.x / MM, live_track.end.y / MM
+    start_x_mm, start_y_mm = cmd.start.x / MM, cmd.start.y / MM
+    end_x_mm, end_y_mm = cmd.end.x / MM, cmd.end.y / MM
+
+    same_orientation = (
+        _points_close(live_start_x_mm, live_start_y_mm, start_x_mm, start_y_mm)
+        and _points_close(live_end_x_mm, live_end_y_mm, end_x_mm, end_y_mm)
+    )
+    swapped_orientation = (
+        _points_close(live_start_x_mm, live_start_y_mm, end_x_mm, end_y_mm)
+        and _points_close(live_end_x_mm, live_end_y_mm, start_x_mm, start_y_mm)
+    )
+    if not (same_orientation or swapped_orientation):
+        return False
+
+    live_net = live_track.net.name if live_track.net else None
+    if live_net != cmd.net_name:
+        return False
+    if abs(live_track.width / MM - cmd.width_mm) >= 1e-6:
+        return False
+    if _layer_to_str(live_track.layer) != _layer_to_str(cmd.layer):
+        return False
+    return True
+
+
+def filter_existing_tracks(to_create: list[TrackCommand], live_tracks) -> list[TrackCommand]:
+    """Positional pre-check of tracks — unregistered-copper idempotency
+    (analog of ViaPlanner._via_already_exists, but applied STRICTLY AFTER
+    registry.reconcile(), on its to_create list: a pre-reconcile skip would
+    drop the key from seen_keys and make prune delete the REGISTERED tool
+    track, see plan_2026_08_16_position_based_copper_idempotency.md).
+
+    Skips any command whose geometry+net+width+layer already exists among the
+    live tracks (manually drawn, created by another mechanism, or a previous
+    run's channel-copy). SKIP-ONLY: never removes and never adopts foreign
+    copper into the registry. Returns the filtered list, logs a skip counter."""
+    if not to_create:
+        return to_create
+    kept: list[TrackCommand] = []
+    skipped = 0
+    for cmd in to_create:
+        if any(track_matches(live, cmd) for live in live_tracks):
+            skipped += 1
+            logger.debug(_("  track for {owner}: already exists, skipped (positional pre-check)")
+                         .format(owner=cmd.owner_ref))
+            continue
+        kept.append(cmd)
+    if skipped:
+        logger.info(_("Skipped {count} tracks already present on the board (positional pre-check)")
+                    .format(count=skipped))
+    return kept
+
+
 # ── Track registry ────────────────────────────────────────────────────────────
 
 class TrackRegistry(BaseRegistry[TrackRegistryEntry]):
@@ -369,21 +446,13 @@ class TrackRegistry(BaseRegistry[TrackRegistryEntry]):
         return self.adapter.get_tracks()
 
     def _live_matches(self, live_track, track: TrackCommand) -> bool:
-        """Checks PLANNED track against REAL track on the board (not against JSON entry)."""
-        start_x_mm, start_y_mm = track.start.x / MM, track.start.y / MM
-        end_x_mm, end_y_mm = track.end.x / MM, track.end.y / MM
-        live_start_x_mm, live_start_y_mm = live_track.start.x / MM, live_track.start.y / MM
-        live_end_x_mm, live_end_y_mm = live_track.end.x / MM, live_track.end.y / MM
-        live_net = live_track.net.name if live_track.net else None
-        return (
-            abs(live_start_x_mm - start_x_mm) <= _POSITION_TOLERANCE_MM
-            and abs(live_start_y_mm - start_y_mm) <= _POSITION_TOLERANCE_MM
-            and abs(live_end_x_mm - end_x_mm) <= _POSITION_TOLERANCE_MM
-            and abs(live_end_y_mm - end_y_mm) <= _POSITION_TOLERANCE_MM
-            and live_net == track.net_name
-            and abs(live_track.width / MM - track.width_mm) < 1e-6
-            and _layer_to_str(live_track.layer) == _layer_to_str(track.layer)
-        )
+        """Checks PLANNED track against REAL track on the board (not against JSON
+        entry). Delegates to the shared bidirectional track_matches() predicate —
+        behavior-preserving except for the latent reversal fix: a live track that
+        got flipped (start↔end) between runs no longer triggers "position changed
+        -> delete+recreate" (see plan_2026_08_16_position_based_copper_idempotency.md,
+        Task 1.2)."""
+        return track_matches(live_track, track)
 
     def _build_entry(self, track: TrackCommand, uuid: str) -> TrackRegistryEntry:
         return TrackRegistryEntry(

@@ -40,7 +40,8 @@ from .placement.executor import BatchExecutor
 from .exceptions import PlacerError
 from .validation import run_all_checks, check_config_structure
 from .registry import (PlacementRegistry, registry_path_for_config,
-                       TrackRegistry, track_registry_path_for_config)
+                       TrackRegistry, track_registry_path_for_config,
+                       filter_existing_tracks)
 from .i18n import _
 
 logger = logging.getLogger(__name__)
@@ -511,6 +512,15 @@ class ApplyPipeline:
         all_tracks = self.planner.plan_tracks()
         tracks_to_create = track_registry.reconcile(all_tracks,
                                                      known_anchor_ids=self.all_anchor_ids)
+        if self.cfg.skip_existing_components:
+            # Positional pre-check of tracks — unregistered-copper idempotency
+            # (analog of the via pre-check). STRICTLY AFTER reconcile(), on its
+            # to_create list: a pre-reconcile skip would drop the key from
+            # seen_keys and make prune delete the REGISTERED tool track (see
+            # plan_2026_08_16_position_based_copper_idempotency.md). Skip-only —
+            # never removes/adopts foreign copper.
+            tracks_to_create = filter_existing_tracks(
+                tracks_to_create, self.adapter.get_tracks())
         logger.info(_("Planned tracks: {total}, actually to create (registry filtered already "
                        "correctly placed): {to_create}")
                     .format(total=len(all_tracks), to_create=len(tracks_to_create)))

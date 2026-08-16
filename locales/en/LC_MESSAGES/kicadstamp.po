@@ -5929,6 +5929,16 @@ msgstr ""
 msgid "Skipped {count} spoke/component vias already present on the board"
 msgstr ""
 
+#: kicadstamp/registry.py:419
+#, python-brace-format
+msgid "  track for {owner}: already exists, skipped (positional pre-check)"
+msgstr ""
+
+#: kicadstamp/registry.py:424
+#, python-brace-format
+msgid "Skipped {count} tracks already present on the board (positional pre-check)"
+msgstr ""
+
 #: kicadstamp/placement/services/via_planner.py:136
 msgid "No thermal_via_arrays entries — thermal planning skipped"
 msgstr ""

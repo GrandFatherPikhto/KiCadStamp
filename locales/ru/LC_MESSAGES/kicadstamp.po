@@ -6333,6 +6333,16 @@ msgstr "  via для {owner}: уже существует, пропущено"
 msgid "Skipped {count} spoke/component vias already present on the board"
 msgstr "Пропущено {count} via спиц/компонентов, уже присутствующих на плате"
 
+#: kicadstamp/registry.py:419
+#, python-brace-format
+msgid "  track for {owner}: already exists, skipped (positional pre-check)"
+msgstr "  дорожка для {owner}: уже существует, пропущено (позиционная проверка)"
+
+#: kicadstamp/registry.py:424
+#, python-brace-format
+msgid "Skipped {count} tracks already present on the board (positional pre-check)"
+msgstr "Пропущено {count} дорожек, уже присутствующих на плате (позиционная проверка)"
+
 #: kicadstamp/placement/services/via_planner.py:136
 
 msgid "No thermal_via_arrays entries — thermal planning skipped"
