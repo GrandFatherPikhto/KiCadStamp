@@ -93,7 +93,8 @@ logger = logging.getLogger(__name__)
 _LAYER_ITEMS = [("F.Cu", "F.Cu"), ("B.Cu", "B.Cu")]
 _INHERIT_LAYER_ITEMS = [(_("(inherit cell layer)"), None), ("F.Cu", "F.Cu"), ("B.Cu", "B.Cu")]
 
-_COMPONENT_COLUMNS = ["Role", "Offset along", "Offset across", "Angle", "Layer", "Net template"]
+_COMPONENT_COLUMNS = ["Role", "Offset along", "Offset across", "Angle", "Layer",
+                     "Net template", "Net template pad"]
 _VIA_COLUMNS = ["Offset along", "Offset across", "Net", "Drill", "Diameter"]
 _TRACK_COLUMNS = ["Start along", "Start across", "End along", "End across", "Width", "Net", "Layer"]
 _NESTED_COLUMNS = ["Name", "Content", "X", "Y", "Rotation", "Mirror", "Layer"]
@@ -256,6 +257,9 @@ class CellDock(QWidget):
         self.comp_net_template_edit = QLineEdit()
         self.comp_net_template_edit.setPlaceholderText(_("optional — TemplatePlacer role matching"))
         form.addRow(_("Net template:"), self.comp_net_template_edit)
+        self.comp_net_template_pad_edit = QLineEdit()
+        self.comp_net_template_pad_edit.setPlaceholderText(_("pad (optional)"))
+        form.addRow(_("Net template pad:"), self.comp_net_template_pad_edit)
         page_layout.addLayout(form)
 
         row = QHBoxLayout()
@@ -600,6 +604,7 @@ class CellDock(QWidget):
                 str(c.get("angle_deg", "")) if c.get("angle_deg") else "",
                 str(c.get("layer", "")),
                 str(c.get("net_template", "")),
+                str(c.get("net_template_pad", "")),
             ]
             for col, value in enumerate(values):
                 self.components_table.setItem(row, col, QTableWidgetItem(value))
@@ -665,6 +670,7 @@ class CellDock(QWidget):
         self.comp_angle_edit.setText(str(c.get("angle_deg", "")) if c.get("angle_deg") else "")
         self.comp_layer_combo.setCurrentIndex(self._findable(self.comp_layer_combo, c.get("layer")))
         self.comp_net_template_edit.setText(str(c.get("net_template", "")))
+        self.comp_net_template_pad_edit.setText(str(c.get("net_template_pad", "")))
 
     def _clear_component_editor(self) -> None:
         self.comp_role_edit.setCurrentText("")
@@ -673,6 +679,7 @@ class CellDock(QWidget):
         self.comp_angle_edit.setText("")
         self.comp_layer_combo.setCurrentIndex(0)
         self.comp_net_template_edit.setText("")
+        self.comp_net_template_pad_edit.setText("")
 
     def _build_component_dict(self) -> Optional[Dict[str, Any]]:
         role = self.comp_role_edit.currentText().strip()
@@ -701,6 +708,17 @@ class CellDock(QWidget):
         net_template = self.comp_net_template_edit.text().strip()
         if net_template:
             entry["net_template"] = net_template
+        net_template_pad = self.comp_net_template_pad_edit.text().strip()
+        if net_template_pad:
+            # Mirror of the loader's fatal (entries.py's
+            # _load_template_component_slot): a pad is only a pointer into a
+            # net_template's candidate, never a net by itself — catching it
+            # here keeps the form from assembling an entry the loader would
+            # reject on the next load, instead of only failing later.
+            if not net_template:
+                self._show_message(_("Net template pad requires a net template."), _ERROR_STYLE)
+                return None
+            entry["net_template_pad"] = net_template_pad
         # Per-component vias are not editable in this dock (see module
         # docstring) — preserve whatever the selected row already had.
         if self._selected_component is not None:

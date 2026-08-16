@@ -764,6 +764,21 @@ def test_rebuilt_param_rows_use_cached_known_nets(main_window, tmp_path):
     assert [combo.itemText(i) for i in range(combo.count())] == ["+3V3", "GND"]
 
 
+def test_refresh_known_nets_preserves_per_role_narrowing(main_window, tmp_path):
+    """2026-08-16 (net_template_pad): refresh_known_nets (the ~2s poll) resets
+    the Nets value combobox to the full board net list, then immediately
+    re-applies the per-role narrowing for the row being edited — so the poll
+    can't silently undo the narrowing while the user is picking a net."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)  # cell role "C_IN"
+    dock._candidate_nets_narrowing = {"C_IN": ["+1V2"]}
+    dock.nets_table.key_edit.setCurrentText("C_IN")
+
+    dock.refresh_known_nets(_FakeNetBoard([_FakeNet("+1V2"), _FakeNet("GND"), _FakeNet("+5V")]))
+
+    narrowed = [dock.nets_table.value_edit.itemText(i) for i in range(dock.nets_table.value_edit.count())]
+    assert narrowed == ["+1V2"]
+
+
 def test_refresh_known_roles_populates_from_snapshot(main_window):
     """1.2 — refresh_known_roles() takes the already-built snapshot (the
     cached BoardConnection.snapshot) instead of calling board.select()
@@ -1061,7 +1076,13 @@ class _FakeAutofillAdapter:
         return None
 
     def get_footprint_pads(self, fp):
-        return [SimpleNamespace(net=SimpleNamespace(name=n)) for n in fp._nets]
+        # Pads get sequential numbers 1..N (2026-08-16, net_template_pad) so
+        # get_pad_by_number can resolve a role's net_template_pad.
+        return [SimpleNamespace(net=SimpleNamespace(name=n), number=str(i + 1))
+                for i, n in enumerate(fp._nets)]
+
+    def get_pad_by_number(self, fp, pad_number):
+        return next((p for p in self.get_footprint_pads(fp) if p.number == str(pad_number)), None)
 
 
 class _FakeAutofillBoard:
@@ -1189,6 +1210,80 @@ def test_do_autofill_nets_does_not_stomp_a_row_it_could_not_resolve(main_window,
     assert dock.nets_table.to_dict() == {"C_IN_BULK": "+1V2", "PI_FB": "+1V2_VCCINT"}
 
 
+def test_do_autofill_nets_fills_multi_pad_role_with_net_template_pad(main_window, tmp_path, caplog):
+    """THE fix (2026-08-16, net_template_pad): a multi-pad role whose cell
+    carries net_template_pad now fills deterministically (that specific pad's
+    net is read directly), instead of the old "exactly one non-rule net"
+    skip — this is the 7/13 -> 13/13 difference reproduced on the GUI path."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {"cells": {
+        "ldo_cell": {
+            "components": [
+                {"role": "LDO_ADJ", "net_template": "NET_{p}", "net_template_pad": "3"},
+            ],
+            "vias": [], "tracks": [], "layer": "F.Cu",
+        }
+    }})
+    placer_file = tmp_path / "root.yaml"
+    _write_yaml(placer_file, {"clone_placements": []})
+    dock = PlacerDock(main_window)
+    dock.set_cells_file(cells_file)
+    dock.set_placer_file(placer_file)
+    dock.set_selected_cell("ldo_cell")
+    dock.cluster_edit.setCurrentText("LDO_ADJ_P2V5")
+    main_window.connection.board = _FakeAutofillBoard([
+        _FakeAutofillFootprint("U2", "LDO_ADJ", "LDO_ADJ_P2V5", ["+2V5_ADJ", "+2V5_DIRTY", "+5V"]),
+    ])
+
+    dock._do_autofill_nets()
+
+    # pad 3 of U2 -> "+5V", filled without any "exactly one net" requirement.
+    assert dock.nets_table.to_dict() == {"LDO_ADJ": "+5V"}
+    assert any("Auto-filled all 1 role(s)" in r.message for r in caplog.records)
+
+
+def test_run_autofill_nets_carries_candidate_nets_narrowing(main_window, tmp_path):
+    """2026-08-16 (net_template_pad): the auto-fill worker also computes the
+    per-role candidate-net narrowing (for the Net-combobox) in the SAME live
+    run — no extra socket round-trip; _finish_autofill_nets caches it."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)  # cell role "C_IN"
+    dock.cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
+    main_window.connection.board = _FakeAutofillBoard([
+        _FakeAutofillFootprint("C22", "C_IN", "Out_Pi_Filter_N2V5", ["+1V2", "GND"]),
+    ])
+    payload = dock._collect_autofill_nets_inputs()
+    assert payload is not None
+
+    result = dock._run_autofill_nets(payload)
+
+    assert result["suggestions"] == {"C_IN": "+1V2"}
+    assert result["narrowed"] == {"C_IN": ["+1V2"]}  # GND is a rule net, filtered
+    dock._finish_autofill_nets(result)
+    assert dock._candidate_nets_narrowing == {"C_IN": ["+1V2"]}
+
+
+def test_nets_key_changed_narrows_value_choices(main_window, tmp_path):
+    """2026-08-16 (net_template_pad): picking a role row in the Nets table
+    narrows the Net combobox to that role's real candidate nets (cached from
+    the last auto-fill worker result); a role with no narrowing explicitly
+    falls back to the full board net list."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock._known_nets = ["+1V2", "GND", "+5V"]
+    dock._candidate_nets_narrowing = {"C_IN": ["+1V2"]}
+    dock.nets_table.set_value_choices(dock._known_nets)
+
+    dock.nets_table.key_edit.setCurrentText("C_IN")
+    dock._on_nets_key_changed("C_IN")
+    narrowed = [dock.nets_table.value_edit.itemText(i) for i in range(dock.nets_table.value_edit.count())]
+    assert narrowed == ["+1V2"]
+
+    # No narrowing for this role -> full board list, not the stale narrowed set.
+    dock.nets_table.key_edit.setCurrentText("OTHER_ROLE")
+    dock._on_nets_key_changed("OTHER_ROLE")
+    fallback = [dock.nets_table.value_edit.itemText(i) for i in range(dock.nets_table.value_edit.count())]
+    assert fallback == ["+1V2", "GND", "+5V"]
+
+
 def test_on_autofill_nets_dispatches_to_worker(main_window, tmp_path, monkeypatch):
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
     dock.cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
@@ -1217,7 +1312,7 @@ def test_on_autofill_nets_dispatches_to_worker(main_window, tmp_path, monkeypatc
     assert captured["on_error"] == dock._on_autofill_nets_failed
 
     payload = captured["args"][0]
-    assert payload["roles"] == ["C_IN"]
+    assert payload["role_pads"] == {"C_IN": None}
     assert payload["cluster"] == "Out_Pi_Filter_N2V5"
     assert payload["adapter"] is main_window.connection.board.adapter
 

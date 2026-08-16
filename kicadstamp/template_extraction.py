@@ -281,8 +281,8 @@ def extract_template_from_selection(
 
         if role in net_template_role:
             literal = net_template_role[role]
-            fp_nets = sorted({p.net.name for p in adapter.get_footprint_pads(fp)
-                              if p.net and p.net.name})
+            fp_pads = adapter.get_footprint_pads(fp)
+            fp_nets = sorted({p.net.name for p in fp_pads if p.net and p.net.name})
             if literal not in fp_nets:
                 raise ValidationError(format_fatal_error(
                     _("--net-template-role for role {role!r} asks for net {literal!r}, "
@@ -300,12 +300,18 @@ def extract_template_from_selection(
                      .format(literal=literal)]
                 ))
             slot["net_template"] = parametrize_net(literal, net_template_map, params)
+            pad_num = next((p.number for p in fp_pads if p.net and p.net.name == literal), None)
+            if pad_num is not None:
+                slot["net_template_pad"] = str(pad_num)
         elif net_template_map:
-            fp_nets = sorted({p.net.name for p in adapter.get_footprint_pads(fp)
-                              if p.net and p.net.name})
+            fp_pads = adapter.get_footprint_pads(fp)
+            fp_nets = sorted({p.net.name for p in fp_pads if p.net and p.net.name})
             mapped = [n for n in fp_nets if n in net_template_map]
             if len(mapped) == 1:
                 slot["net_template"] = parametrize_net(mapped[0], net_template_map, params)
+                pad_num = next((p.number for p in fp_pads if p.net and p.net.name == mapped[0]), None)
+                if pad_num is not None:
+                    slot["net_template_pad"] = str(pad_num)
             elif len(mapped) > 1:
                 hint = _("could not determine automatically — {count} matching nets on pads "
                          "({nets}) — fill in manually or use --net-template-role {role}=<net>") \

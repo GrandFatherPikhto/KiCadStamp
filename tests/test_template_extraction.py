@@ -205,6 +205,9 @@ class TestNetTemplateAutoDetect:
         )
         comp = result["t"]["components"][0]
         assert comp["net_template"] == "{PWR_IN}"
+        # 2026-08-16 (net_template_pad): the successful auto-detect path also
+        # records WHICH pad carried the resolved net (pad 1 -> +5V_DIRTY here).
+        assert comp["net_template_pad"] == "1"
 
     def test_two_matching_nets_leaves_net_template_unset_with_warning(self, caplog):
         fb = _make_fp("FB1", 0, 0, 0, "PI_FILTER_FB", pad_nets=["+5V_DIRTY", "+5V"])
@@ -216,6 +219,9 @@ class TestNetTemplateAutoDetect:
         )
         comp = result["t"]["components"][0]
         assert "net_template" not in comp
+        # A genuinely ambiguous net_template (2+ matching nets) is NOT resolved
+        # by a pad number — no net_template_pad may appear there (2026-08-16).
+        assert "net_template_pad" not in comp
         # Message text is translated (see kicadstamp/i18n.py) — match either
         # locale the project ships (en/ru), not just the raw English msgid.
         assert "nets from --net-template" in caplog.text or "цепей из --net-template" in caplog.text
@@ -267,6 +273,9 @@ class TestNetTemplateRole:
         )
         comp = result["t"]["components"][0]
         assert comp["net_template"] == "{PWR_IN}"
+        # 2026-08-16 (net_template_pad): the explicit --net-template-role path
+        # also records which pad carried the literal (+5V_DIRTY is pad 1 here).
+        assert comp["net_template_pad"] == "1"
 
     def test_fatal_if_requested_net_not_on_pads(self):
         fb = _make_fp("FB1", 0, 0, 0, "PI_FILTER_FB", pad_nets=["+5V_DIRTY", "+5V"])
@@ -304,7 +313,9 @@ class TestNetTemplateRole:
         )
         by_role = {c["role"]: c for c in result["t"]["components"]}
         assert by_role["C_IN_BULK"]["net_template"] == "{PWR_IN}"
+        assert by_role["C_IN_BULK"]["net_template_pad"] == "1"  # auto-detect: pad 1
         assert by_role["PI_FILTER_FB"]["net_template"] == "{PWR_IN}"
+        assert by_role["PI_FILTER_FB"]["net_template_pad"] == "1"  # explicit role
 
 
 class TestRuleNets:

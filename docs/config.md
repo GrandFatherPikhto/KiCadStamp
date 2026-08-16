@@ -96,6 +96,7 @@ cells:
         offset_across_mm: 0.0
         angle_deg: 0.0
         net_template: '{PWR_OUT}' # for ClonePlacement's by-nets role matching only
+        net_template_pad: '1'     # optional: which pad of the resolved candidate carries that net
     tracks:
       - start_along_mm: -5.04
         start_across_mm: -2.28
@@ -117,6 +118,14 @@ cells:
   when it differs from the cell's own layer — e.g. a bottom-side component in an otherwise top-side
   cell), and `net_template:` (used only by `clone_placements:`'s by-nets role matching — see below;
   `rules:`/ManualSpoke ignores it entirely, matching roles purely by `(rule.net, Role)`).
+  Optional `net_template_pad:` (2026-08-16) — only meaningful together with `net_template:`: which
+  pad of the resolved candidate carries that role's net, for roles whose real component has MORE
+  than one non-rule net (a regulator/diode/inductor — LDO VIN/VOUT, etc.). Without it, the Placer's
+  "Auto-fill from board" requires the candidate to have exactly one non-rule net total and skips
+  multi-pad roles; with it, that one specific pad is read directly, deterministically. It does NOT
+  affect the by-nets resolver at apply time (that one already searches by an already-known expected
+  net — pad count doesn't matter there), and it is fatal to load if set without `net_template:`
+  (mirrors via/track's `net_from_role_pad`-without-`net_from_role` check).
 - `tracks:` — straight segments only (no arcs); a polyline is just several consecutive `tracks:`
   entries sharing an endpoint. Collisions with existing copper are **not** checked by this tool —
   KiCad's own DRC is the source of truth for that, by design (see [docs/geometry.md](geometry.md)).

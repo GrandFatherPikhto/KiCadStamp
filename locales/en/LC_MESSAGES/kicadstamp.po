@@ -630,6 +630,27 @@ msgstr ""
 msgid "Net template:"
 msgstr ""
 
+#: gui/docks/cell_editor.py:262
+msgid "Net template pad:"
+msgstr ""
+
+#: gui/docks/cell_editor.py:719
+msgid "Net template pad requires a net template."
+msgstr ""
+
+#: kicadstamp/config/entries.py:143
+#, python-brace-format
+msgid "net_template_pad without net_template in slot {role!r}"
+msgstr ""
+
+#: kicadstamp/config/entries.py:144
+#, python-brace-format
+msgid ""
+"net_template_pad={pad!r} only narrows which pad of the role's candidate the "
+"net comes from — it is not a net by itself; write net_template: '<pattern>' "
+"too"
+msgstr ""
+
 #: gui/docks/cell_editor.py:231 gui/docks/cell_editor.py:276
 #: gui/docks/cell_editor.py:326 gui/docks/cell_editor.py:400
 msgid "Add"

@@ -136,13 +136,23 @@ def _load_template_component_slot(data: dict[str, Any]) -> TemplateComponentSlot
         ))
     layer = data.get('layer')
     _check_layer_value(layer, _("on slot {role!r}").format(role=data.get('role')))
+    net_template = data.get('net_template')
+    net_template_pad = data.get('net_template_pad')
+    if net_template_pad is not None and net_template is None:
+        raise ValidationError(format_fatal_error(
+            _("net_template_pad without net_template in slot {role!r}").format(role=data.get('role')),
+            [_("net_template_pad={pad!r} only narrows which pad of the role's "
+               "candidate the net comes from — it is not a net by itself; "
+               "write net_template: '<pattern>' too").format(pad=net_template_pad)]
+        ))
     return TemplateComponentSlot(
         role=data['role'],
         offset_along_mm=data.get('offset_along_mm', 0.0),
         offset_across_mm=data.get('offset_across_mm', 0.0),
         angle_deg=data.get('angle_deg', 0.0),
         vias=[_load_template_via(v) for v in data.get('vias', [])],
-        net_template=data.get('net_template'),
+        net_template=net_template,
+        net_template_pad=net_template_pad,
         layer=layer,
     )
 

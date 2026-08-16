@@ -230,6 +230,16 @@ class TemplateComponentSlot:
     syntax as TemplateVia.net (see net_resolution.py). Not used at all for
     ManualSpoke/component_pool.py — there the role is looked up by (rule.net, Role)
     without any field here.
+
+    net_template_pad — OPTIONAL, only meaningful together with net_template:
+    which pad of the resolved candidate carries the role's net, for roles
+    whose real component has MORE than one non-rule net (a multi-pin part —
+    regulator/diode/inductor/etc). Without it, the "by nets" resolver
+    (resolve_roles_by_nets) is unaffected (it already searches by an
+    ALREADY-KNOWN expected net, pad count doesn't matter there) — this field
+    only helps suggest_role_nets_from_cluster (GUI auto-fill BEFORE nets:/
+    params: exist) pick the right pad deterministically instead of requiring
+    "exactly one non-rule net total" on the candidate.
     """
     role: str
     offset_along_mm: float = 0.0
@@ -237,6 +247,7 @@ class TemplateComponentSlot:
     angle_deg: float = 0.0
     vias: list[TemplateVia] = field(default_factory=list)
     net_template: str | None = None
+    net_template_pad: str | None = None
     # Layer of the slot — FACT, absolute: 'F.Cu' | 'B.Cu'. None = inherit from
     # cell layer. Written by extract only for components that deviate from
     # the cell layer.

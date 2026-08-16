@@ -100,23 +100,50 @@ def resolve_unique_footprint_by_fields(adapter, field_matches: dict, label: str)
     return match_unique_footprint_by_fields(matches, field_matches, label)
 
 
-def suggest_role_nets_from_cluster(adapter, roles, cluster: str,
+def resolve_single_role_candidate(all_fps, adapter, role: str, cluster: str):
+    """The one real footprint whose Role==role and Cluster prefix-matches
+    `cluster` — None if 0 or 2+ (ambiguous/absent, nothing to narrow to).
+    `all_fps` is the caller's own adapter.get_footprints() snapshot — never
+    fetched here, so callers iterating many roles pay for ONE live read,
+    not one per role (this is exactly the shape suggest_role_nets_from_cluster
+    already had inline; only pulled out, not changed)."""
+    candidates = [fp for fp in all_fps
+                  if adapter.get_field_value(fp, ROLE_FIELD_NAME) == role
+                  and cluster_prefix_match(
+                      adapter.get_field_value(fp, CLUSTER_FIELD_NAME) or '', cluster)]
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def candidate_nets(adapter, fp, rule_nets: set[str] | None = None) -> list[str]:
+    """Sorted non-rule nets on a resolved candidate's pads."""
+    rule = set(rule_nets) if rule_nets is not None else set(RULE_NETS)
+    pads = adapter.get_footprint_pads(fp)
+    return sorted({p.net.name for p in pads if p.net and p.net.name and p.net.name not in rule})
+
+
+def suggest_role_nets_from_cluster(adapter, role_pads: dict[str, str | None], cluster: str,
                                    rule_nets: set[str] | None = None) -> dict[str, str]:
     """Best-effort role -> net suggestion for PlacerDock's Nets tab "Auto-fill
     from board" button (2026-08-12, Denis: "если есть проблема, её можно сразу
     решить в ручном режиме" — auto-fill what's unambiguous, leave the rest for
     manual entry rather than blocking on it).
 
-    For each role: live footprints whose Role field matches, narrowed to
-    those whose Cluster field prefix-matches `cluster` (cluster_prefix_match —
+    role_pads: {role: net_template_pad_or_None} — SIGNATURE CHANGE from the
+    old `roles: list[str]` (2026-08-16, net_template_pad): callers now pass
+    each role's cell-level net_template_pad (None if the cell has no
+    net_template_pad for that role — old behaviour: require exactly one
+    non-rule net on the candidate).
+
+    For each role: resolve_single_role_candidate (the Cluster+Role narrowing —
     the SAME signal resolve_roles_by_nets's own step 3 narrowing already uses
     via the placement's own `name` (clone.name), see that function's
-    docstring). A role is
-    suggested only when this leaves EXACTLY one candidate AND that candidate
-    has EXACTLY one non-rule net on its pads — the same "don't guess" stance
-    as net_from_role's lemma 2. Anything else (0 or 2+ candidates, or 0 or 2+
-    non-rule nets) is simply left out of the returned dict; the caller leaves
-    that role's row for the user to fill by hand, unblocked either way.
+    docstring). If found AND net_template_pad is set for this role: read THAT
+    SPECIFIC pad's net directly, no "exactly one" requirement — mechanical,
+    deterministic (2026-08-16 addition). If found and no net_template_pad:
+    fall back to the ORIGINAL lemma-2 rule — suggest only when the candidate
+    has EXACTLY one non-rule net on its pads. 0 or 2+ candidates, or an
+    unset/missing pad: role is simply left out of the returned dict
+    (unblocked, same as before — the caller leaves that row for manual entry).
 
     Read-only — never moves/tags/writes anything to the board. This is a GUI
     convenience, not part of the by-nets resolution ClonePositionCalculator
@@ -124,21 +151,40 @@ def suggest_role_nets_from_cluster(adapter, roles, cluster: str,
     pre-fills the SAME clone.nets: field a human would otherwise type,
     verified for real by that resolver exactly as if typed by hand.
     """
-    rule = set(rule_nets) if rule_nets is not None else set(RULE_NETS)
     all_fps = adapter.get_footprints()
     suggestions: dict[str, str] = {}
-    for role in roles:
-        candidates = [fp for fp in all_fps
-                      if adapter.get_field_value(fp, ROLE_FIELD_NAME) == role
-                      and cluster_prefix_match(
-                          adapter.get_field_value(fp, CLUSTER_FIELD_NAME) or '', cluster)]
-        if len(candidates) != 1:
+    for role, pad in role_pads.items():
+        fp = resolve_single_role_candidate(all_fps, adapter, role, cluster)
+        if fp is None:
             continue
-        pads = adapter.get_footprint_pads(candidates[0])
-        non_rule = {p.net.name for p in pads if p.net and p.net.name and p.net.name not in rule}
+        if pad is not None:
+            p = adapter.get_pad_by_number(fp, str(pad))
+            if p is not None and p.net and p.net.name:
+                suggestions[role] = p.net.name
+            continue
+        non_rule = candidate_nets(adapter, fp, rule_nets)
         if len(non_rule) == 1:
-            suggestions[role] = next(iter(non_rule))
+            suggestions[role] = non_rule[0]
     return suggestions
+
+
+def candidate_nets_by_role(adapter, roles: list[str], cluster: str,
+                           rule_nets: set[str] | None = None) -> dict[str, list[str]]:
+    """NEW (2026-08-16) — for GUI Net-combobox narrowing, NOT auto-fill.
+    {role: [net, ...]} for every role with exactly one Cluster+Role
+    candidate, REGARDLESS of net count (1, 2, 3...) — unlike
+    suggest_role_nets_from_cluster, does not require exactly one. A role
+    missing from the result had 0 or 2+ ref candidates (nothing to narrow —
+    caller falls back to the full board net list). Empty list value = a
+    candidate was found but has zero non-rule nets (unusual — surface as-is,
+    don't hide it as 'nothing to narrow')."""
+    all_fps = adapter.get_footprints()
+    result: dict[str, list[str]] = {}
+    for role in roles:
+        fp = resolve_single_role_candidate(all_fps, adapter, role, cluster)
+        if fp is not None:
+            result[role] = candidate_nets(adapter, fp, rule_nets)
+    return result
 
 
 def clone_uses_selection_mode(clone: ClonePlacement) -> bool:

@@ -675,6 +675,29 @@ msgstr "необязательно — сопоставление роли Templ
 msgid "Net template:"
 msgstr "Шаблон цепи:"
 
+#: gui/docks/cell_editor.py:262
+msgid "Net template pad:"
+msgstr "Пад шаблона цепи:"
+
+#: gui/docks/cell_editor.py:719
+msgid "Net template pad requires a net template."
+msgstr "Пад шаблона цепи требует сеть (net template)."
+
+#: kicadstamp/config/entries.py:143
+#, python-brace-format
+msgid "net_template_pad without net_template in slot {role!r}"
+msgstr "net_template_pad без net_template в слоте {role!r}"
+
+#: kicadstamp/config/entries.py:144
+#, python-brace-format
+msgid ""
+"net_template_pad={pad!r} only narrows which pad of the role's candidate the "
+"net comes from — it is not a net by itself; write net_template: '<pattern>' "
+"too"
+msgstr ""
+"net_template_pad={pad!r} лишь уточняет, на каком паде кандидата роли лежит "
+"цепь — сам по себе это не цепь; укажите также net_template: '<pattern>'"
+
 #: gui/docks/cell_editor.py:231 gui/docks/cell_editor.py:276
 #: gui/docks/cell_editor.py:326 gui/docks/cell_editor.py:400
 msgid "Add"

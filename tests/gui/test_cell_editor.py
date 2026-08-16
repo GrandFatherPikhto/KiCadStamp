@@ -57,6 +57,36 @@ def test_component_role_is_required(main_window, tmp_path, caplog):
     assert any("Role is required" in r.message for r in caplog.records)
 
 
+def test_add_component_with_net_template_pad(main_window, tmp_path):
+    """2026-08-16 (net_template_pad): the component form accepts a pad number
+    next to net_template and writes both into the built entry."""
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock.comp_role_edit.setCurrentText("LDO_ADJ")
+    dock.comp_net_template_edit.setText("NET_{p}")
+    dock.comp_net_template_pad_edit.setText("3")
+
+    dock._on_add_component()
+
+    assert dock._components == [
+        {"role": "LDO_ADJ", "net_template": "NET_{p}", "net_template_pad": "3"}
+    ]
+    assert dock.components_table.item(0, 6).text() == "3"  # Net template pad column
+
+
+def test_component_net_template_pad_requires_net_template(main_window, tmp_path, caplog):
+    """Mirror of the loader's fatal (2026-08-16, net_template_pad): the form
+    must reject a pad without a net_template BEFORE assembling an entry the
+    loader would reject on the next load — same error surface as the loader,
+    just caught at edit time."""
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock.comp_role_edit.setCurrentText("LDO_ADJ")
+    dock.comp_net_template_pad_edit.setText("3")
+
+    assert dock._build_component_dict() is None
+    assert any("Net template pad requires a net template" in r.message for r in caplog.records)
+    assert dock._components == []
+
+
 def test_duplicate_component_role_is_rejected_on_add(main_window, tmp_path):
     """The per-slot validator (load_template_component_slot) doesn't check
     uniqueness by itself (that's a whole-cell check, see _load_cell) — this
@@ -549,6 +579,34 @@ def test_load_entry_round_trips_net_from_role(main_window, tmp_path):
     saved = _read_yaml(target)["cells"]["composite"]
     assert saved["vias"] == [{"net_from_role": "LDO", "net_from_role_pad": "2"}]
     assert saved["tracks"] == [{"end_along_mm": 5.0, "net_from_role": "LDO"}]
+
+
+def test_load_entry_round_trips_net_template_pad(main_window, tmp_path):
+    """2026-08-16 (net_template_pad): the component's pad field loads into the
+    editor, shows in the table, and round-trips back out on Save alongside its
+    net_template."""
+    dock, target = _make_dock(main_window, tmp_path, {"cells": {
+        "composite": {
+            "components": [{"role": "LDO_ADJ", "net_template": "NET_{p}",
+                            "net_template_pad": "3"}],
+        }
+    }})
+
+    dock.load_entry("composite")
+
+    assert dock._components == [{"role": "LDO_ADJ", "net_template": "NET_{p}",
+                                 "net_template_pad": "3"}]
+    dock.components_table.selectRow(0)
+    assert dock.comp_net_template_edit.text() == "NET_{p}"
+    assert dock.comp_net_template_pad_edit.text() == "3"
+    assert dock.components_table.item(0, 6).text() == "3"  # Net template pad column
+
+    # And it round-trips back out unchanged on Save.
+    dock.name_edit.setText("composite")
+    dock._on_save()
+    saved = _read_yaml(target)["cells"]["composite"]
+    assert saved["components"] == [{"role": "LDO_ADJ", "net_template": "NET_{p}",
+                                    "net_template_pad": "3"}]
 
 
 def test_load_entry_with_anchor_xy(main_window, tmp_path):

@@ -12,6 +12,7 @@ from kicadstamp.config import Cell, TemplateComponentSlot, ClonePlacement
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.placement.services.clone_role_resolver import (
     resolve_roles_by_selection, resolve_roles_by_nets, resolve_anchor_by_role,
+    candidate_nets_by_role, resolve_single_role_candidate,
     suggest_role_nets_from_cluster,
 )
 from kicadstamp.exceptions import ValidationError
@@ -38,12 +39,20 @@ def _role_or_cluster(fp, field_name):
 
 
 def _get_pads(fp):
+    """Pads get sequential numbers 1..N (2026-08-16, net_template_pad): the
+    new pad-aware tests address pads by number — a candidate with nets
+    [a, b, c] has pad '1' -> a, pad '2' -> b, pad '3' -> c."""
     pads = []
-    for n in fp._nets:
+    for i, n in enumerate(fp._nets, start=1):
         p = MagicMock()
+        p.number = str(i)
         p.net.name = n
         pads.append(p)
     return pads
+
+
+def _get_pad_by_number(fp, num):
+    return next((p for p in _get_pads(fp) if p.number == str(num)), None)
 
 
 class TestResolveRolesBySelection:
@@ -595,111 +604,232 @@ class TestResolveAnchorByRole:
         assert result.reference_field.text.value == "IC2"
 
 
+class TestResolveSingleRoleCandidate:
+    """2026-08-16 (net_template_pad): the Cluster+Role narrowing, previously
+    inline in suggest_role_nets_from_cluster, pulled out as a reusable piece —
+    exactly one candidate, or None (0 or 2+)."""
+
+    def _adapter(self, fps):
+        adapter = MagicMock()
+        adapter.get_footprints.return_value = fps
+        adapter.get_field_value.side_effect = _role_or_cluster
+        return adapter
+
+    def test_single_candidate_resolves(self):
+        adapter = self._adapter([
+            _make_fp("C22", role="C_IN_BULK", cluster="Out_Pi_Filter_N2V5"),
+        ])
+        fp = resolve_single_role_candidate(adapter.get_footprints(), adapter,
+                                           "C_IN_BULK", "Out_Pi_Filter_N2V5")
+        assert fp.reference_field.text.value == "C22"
+
+    def test_no_candidate_returns_none(self):
+        adapter = self._adapter([
+            _make_fp("C22", role="C_IN_BULK", cluster="Some_Other_Cluster"),
+        ])
+        assert resolve_single_role_candidate(adapter.get_footprints(), adapter,
+                                             "C_IN_BULK", "Out_Pi_Filter_N2V5") is None
+
+    def test_two_candidates_return_none(self):
+        adapter = self._adapter([
+            _make_fp("C22", role="C_IN_BULK", cluster="Out_Pi_Filter_N2V5"),
+            _make_fp("C23", role="C_IN_BULK", cluster="Out_Pi_Filter_N2V5"),
+        ])
+        assert resolve_single_role_candidate(adapter.get_footprints(), adapter,
+                                             "C_IN_BULK", "Out_Pi_Filter_N2V5") is None
+
+
 class TestSuggestRoleNetsFromCluster:
     """PlacerDock's Nets-tab "Auto-fill from board" button (2026-08-12) —
     read-only, never raises: unresolvable roles are simply absent from the
-    returned dict, left for the user to fill by hand."""
+    returned dict, left for the user to fill by hand. SIGNATURE (2026-08-16,
+    net_template_pad): `roles: list[str]` became `role_pads: dict[str, str|
+    None]` — each role's cell-level net_template_pad (None if absent)."""
 
-    def test_unique_candidate_with_one_non_rule_net_is_suggested(self):
+    def _adapter(self, fps):
         adapter = MagicMock()
-        adapter.get_footprints.return_value = [
-            _make_fp("C22", role="C_IN_BULK", cluster="Out_Pi_Filter_N2V5", nets=["+1V2", "GND"]),
-        ]
+        adapter.get_footprints.return_value = fps
         adapter.get_field_value.side_effect = _role_or_cluster
         adapter.get_footprint_pads.side_effect = _get_pads
+        adapter.get_pad_by_number.side_effect = _get_pad_by_number
+        return adapter
 
-        result = suggest_role_nets_from_cluster(adapter, ["C_IN_BULK"], "Out_Pi_Filter_N2V5")
+    def test_unique_candidate_with_one_non_rule_net_is_suggested(self):
+        adapter = self._adapter([
+            _make_fp("C22", role="C_IN_BULK", cluster="Out_Pi_Filter_N2V5", nets=["+1V2", "GND"]),
+        ])
+
+        result = suggest_role_nets_from_cluster(adapter, {"C_IN_BULK": None}, "Out_Pi_Filter_N2V5")
 
         assert result == {"C_IN_BULK": "+1V2"}
 
     def test_cluster_prefix_match_narrows_like_the_real_resolver(self):
         """Same cluster_prefix_match signal resolve_roles_by_nets's own step
         3 narrowing uses — a sub-segment tag still matches the parent."""
-        adapter = MagicMock()
-        adapter.get_footprints.return_value = [
+        adapter = self._adapter([
             _make_fp("C22", role="C_IN_BULK", cluster="Out_Pi_Filter_N2V5/sub", nets=["+1V2"]),
-        ]
-        adapter.get_field_value.side_effect = _role_or_cluster
-        adapter.get_footprint_pads.side_effect = _get_pads
+        ])
 
-        result = suggest_role_nets_from_cluster(adapter, ["C_IN_BULK"], "Out_Pi_Filter_N2V5")
+        result = suggest_role_nets_from_cluster(adapter, {"C_IN_BULK": None}, "Out_Pi_Filter_N2V5")
 
         assert result == {"C_IN_BULK": "+1V2"}
 
     def test_role_absent_from_result_when_no_candidate(self):
-        adapter = MagicMock()
-        adapter.get_footprints.return_value = [
+        adapter = self._adapter([
             _make_fp("C22", role="C_IN_BULK", cluster="Some_Other_Cluster", nets=["+1V2"]),
-        ]
-        adapter.get_field_value.side_effect = _role_or_cluster
-        adapter.get_footprint_pads.side_effect = _get_pads
+        ])
 
-        result = suggest_role_nets_from_cluster(adapter, ["C_IN_BULK"], "Out_Pi_Filter_N2V5")
+        result = suggest_role_nets_from_cluster(adapter, {"C_IN_BULK": None}, "Out_Pi_Filter_N2V5")
 
         assert result == {}
 
     def test_role_absent_from_result_when_ambiguous(self):
-        adapter = MagicMock()
-        adapter.get_footprints.return_value = [
+        adapter = self._adapter([
             _make_fp("C22", role="C_IN_BULK", cluster="Out_Pi_Filter_N2V5", nets=["+1V2"]),
             _make_fp("C23", role="C_IN_BULK", cluster="Out_Pi_Filter_N2V5", nets=["+1V2"]),
-        ]
-        adapter.get_field_value.side_effect = _role_or_cluster
-        adapter.get_footprint_pads.side_effect = _get_pads
+        ])
 
-        result = suggest_role_nets_from_cluster(adapter, ["C_IN_BULK"], "Out_Pi_Filter_N2V5")
+        result = suggest_role_nets_from_cluster(adapter, {"C_IN_BULK": None}, "Out_Pi_Filter_N2V5")
 
         assert result == {}
 
     def test_role_absent_from_result_when_candidate_has_multiple_non_rule_nets(self):
-        """A bridging component (e.g. PI_FB) can't be reduced to one
-        identifying net — same "don't guess" stance as net_from_role's
-        lemma 2 ambiguity."""
-        adapter = MagicMock()
-        adapter.get_footprints.return_value = [
+        """A bridging component (e.g. PI_FB) without net_template_pad can't be
+        reduced to one identifying net — same "don't guess" stance as
+        net_from_role's lemma 2 ambiguity (unchanged regression)."""
+        adapter = self._adapter([
             _make_fp("FB6", role="PI_FB", cluster="Out_Pi_Filter_N2V5", nets=["+1V2", "+1V2_VCCINT"]),
-        ]
-        adapter.get_field_value.side_effect = _role_or_cluster
-        adapter.get_footprint_pads.side_effect = _get_pads
+        ])
 
-        result = suggest_role_nets_from_cluster(adapter, ["PI_FB"], "Out_Pi_Filter_N2V5")
+        result = suggest_role_nets_from_cluster(adapter, {"PI_FB": None}, "Out_Pi_Filter_N2V5")
 
         assert result == {}
 
     def test_role_absent_from_result_when_only_net_is_a_rule_net(self):
-        adapter = MagicMock()
-        adapter.get_footprints.return_value = [
+        adapter = self._adapter([
             _make_fp("C22", role="C_IN_BULK", cluster="Out_Pi_Filter_N2V5", nets=["GND"]),
-        ]
-        adapter.get_field_value.side_effect = _role_or_cluster
-        adapter.get_footprint_pads.side_effect = _get_pads
+        ])
 
-        result = suggest_role_nets_from_cluster(adapter, ["C_IN_BULK"], "Out_Pi_Filter_N2V5")
+        result = suggest_role_nets_from_cluster(adapter, {"C_IN_BULK": None}, "Out_Pi_Filter_N2V5")
 
         assert result == {}
 
     def test_custom_rule_nets_respected(self):
-        adapter = MagicMock()
-        adapter.get_footprints.return_value = [
+        adapter = self._adapter([
             _make_fp("C22", role="C_IN_BULK", cluster="Out_Pi_Filter_N2V5", nets=["+1V2", "+5V"]),
-        ]
-        adapter.get_field_value.side_effect = _role_or_cluster
-        adapter.get_footprint_pads.side_effect = _get_pads
+        ])
 
-        result = suggest_role_nets_from_cluster(adapter, ["C_IN_BULK"], "Out_Pi_Filter_N2V5",
+        result = suggest_role_nets_from_cluster(adapter, {"C_IN_BULK": None}, "Out_Pi_Filter_N2V5",
                                                  rule_nets={"+5V"})
 
         assert result == {"C_IN_BULK": "+1V2"}
 
     def test_multiple_roles_mixed_success_and_failure(self):
-        adapter = MagicMock()
-        adapter.get_footprints.return_value = [
+        adapter = self._adapter([
             _make_fp("C22", role="C_IN_BULK", cluster="Out_Pi_Filter_N2V5", nets=["+1V2"]),
             _make_fp("FB6", role="PI_FB", cluster="Out_Pi_Filter_N2V5", nets=["+1V2", "+1V2_VCCINT"]),
-        ]
-        adapter.get_field_value.side_effect = _role_or_cluster
-        adapter.get_footprint_pads.side_effect = _get_pads
+        ])
 
-        result = suggest_role_nets_from_cluster(adapter, ["C_IN_BULK", "PI_FB"], "Out_Pi_Filter_N2V5")
+        result = suggest_role_nets_from_cluster(adapter, {"C_IN_BULK": None, "PI_FB": None},
+                                                "Out_Pi_Filter_N2V5")
 
         assert result == {"C_IN_BULK": "+1V2"}
+
+    def test_multi_pad_role_with_net_template_pad_reads_that_pad_directly(self):
+        """THE fix (2026-08-16, net_template_pad): a regulator/diode/inductor
+        candidate carries several real nets on different pads — with the role's
+        net_template_pad set, the SPECIFIC pad's net is read directly, no
+        "exactly one net" requirement. This is the 7/13 -> 13/13 difference."""
+        adapter = self._adapter([
+            _make_fp("U2", role="LDO_ADJ", cluster="LDO_ADJ_P2V5",
+                     nets=["+2V5_ADJ", "+2V5_DIRTY", "+5V"]),
+        ])
+
+        result = suggest_role_nets_from_cluster(adapter, {"LDO_ADJ": "3"}, "LDO_ADJ_P2V5")
+
+        assert result == {"LDO_ADJ": "+5V"}
+
+    def test_net_template_pad_for_other_pad_number(self):
+        """Pad numbers are just strings — pad '1' -> the first net."""
+        adapter = self._adapter([
+            _make_fp("U2", role="LDO_ADJ", cluster="LDO_ADJ_P2V5",
+                     nets=["+2V5_ADJ", "+2V5_DIRTY", "+5V"]),
+        ])
+
+        result = suggest_role_nets_from_cluster(adapter, {"LDO_ADJ": "1"}, "LDO_ADJ_P2V5")
+
+        assert result == {"LDO_ADJ": "+2V5_ADJ"}
+
+    def test_net_template_pad_with_missing_pad_leaves_role_out(self):
+        """An unset/missing pad on the resolved candidate is simply left out
+        (unblocked, same as before) — never guessed."""
+        adapter = self._adapter([
+            _make_fp("U2", role="LDO_ADJ", cluster="LDO_ADJ_P2V5",
+                     nets=["+2V5_ADJ", "+2V5_DIRTY", "+5V"]),
+        ])
+
+        result = suggest_role_nets_from_cluster(adapter, {"LDO_ADJ": "9"}, "LDO_ADJ_P2V5")
+
+        assert result == {}
+
+
+class TestCandidateNetsByRole:
+    """2026-08-16 (net_template_pad) — for GUI Net-combobox narrowing, NOT
+    auto-fill: {role: [nets]} for every role with exactly one Cluster+Role
+    candidate, regardless of net count."""
+
+    def _adapter(self, fps):
+        adapter = MagicMock()
+        adapter.get_footprints.return_value = fps
+        adapter.get_field_value.side_effect = _role_or_cluster
+        adapter.get_footprint_pads.side_effect = _get_pads
+        return adapter
+
+    def test_single_candidate_with_multiple_nets_returns_all(self):
+        adapter = self._adapter([
+            _make_fp("U2", role="LDO_ADJ", cluster="LDO_ADJ_P2V5",
+                     nets=["+2V5_ADJ", "+2V5_DIRTY", "+5V"]),
+        ])
+
+        result = candidate_nets_by_role(adapter, ["LDO_ADJ"], "LDO_ADJ_P2V5")
+
+        assert result == {"LDO_ADJ": ["+2V5_ADJ", "+2V5_DIRTY", "+5V"]}
+
+    def test_rule_nets_filtered_out(self):
+        adapter = self._adapter([
+            _make_fp("C22", role="C_IN_BULK", cluster="Out_Pi_Filter_N2V5", nets=["+1V2", "GND"]),
+        ])
+
+        result = candidate_nets_by_role(adapter, ["C_IN_BULK"], "Out_Pi_Filter_N2V5")
+
+        assert result == {"C_IN_BULK": ["+1V2"]}
+
+    def test_no_candidate_leaves_role_out(self):
+        adapter = self._adapter([
+            _make_fp("C22", role="C_IN_BULK", cluster="Some_Other_Cluster", nets=["+1V2"]),
+        ])
+
+        result = candidate_nets_by_role(adapter, ["C_IN_BULK"], "Out_Pi_Filter_N2V5")
+
+        assert result == {}
+
+    def test_two_candidates_leaves_role_out(self):
+        adapter = self._adapter([
+            _make_fp("C22", role="C_IN_BULK", cluster="Out_Pi_Filter_N2V5", nets=["+1V2"]),
+            _make_fp("C23", role="C_IN_BULK", cluster="Out_Pi_Filter_N2V5", nets=["+1V2"]),
+        ])
+
+        result = candidate_nets_by_role(adapter, ["C_IN_BULK"], "Out_Pi_Filter_N2V5")
+
+        assert result == {}
+
+    def test_zero_non_rule_nets_surfaces_empty_list(self):
+        """A candidate with only rule nets is unusual but must NOT be hidden as
+        'nothing to narrow' — the empty list value is surfaced as-is."""
+        adapter = self._adapter([
+            _make_fp("C22", role="C_IN_BULK", cluster="Out_Pi_Filter_N2V5", nets=["GND"]),
+        ])
+
+        result = candidate_nets_by_role(adapter, ["C_IN_BULK"], "Out_Pi_Filter_N2V5")
+
+        assert result == {"C_IN_BULK": []}

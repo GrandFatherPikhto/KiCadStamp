@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 
-from kicadstamp.config import load_config, TemplateVia, TemplateTrack
+from kicadstamp.config import load_config, TemplateVia, TemplateTrack, TemplateComponentSlot
 from kicadstamp.exceptions import ValidationError
 
 MINIMAL = "layer: B.Cu\nrules: []\n"
@@ -29,6 +29,15 @@ cells:
   c:
     vias:
       - {via_body}
+"""
+
+
+def _slot_cell_yaml(slot_body: str) -> str:
+    return MINIMAL + f"""
+cells:
+  c:
+    components:
+      - {slot_body}
 """
 
 
@@ -118,6 +127,44 @@ class TestTrackNetFromRole:
             "start_along_mm: 0.0\n        end_along_mm: 1.0\n        "
             "net_from_role_pad: '2'"), encoding="utf-8")
         with pytest.raises(ValidationError, match="without track.net_from_role"):
+            load_config(str(p))
+
+
+class TestTemplateComponentSlotNetTemplatePad:
+    """net_template_pad on TemplateComponentSlot (plan 2026-08-16,
+    net_template_pad): mirrors TemplateVia/TemplateTrack's net_from_role_pad —
+    OPTIONAL, only meaningful together with net_template, fatal if set without
+    it (loader's _load_template_component_slot, same dependency shape as the
+    track loader's net_from_role_pad-without-net_from_role check)."""
+
+    def test_net_template_pad_default_is_none(self):
+        slot = TemplateComponentSlot(role="LDO_ADJ")
+        assert slot.net_template is None
+        assert slot.net_template_pad is None
+
+    def test_net_template_with_pad_loads(self, tmp_path):
+        p = tmp_path / "t.yaml"
+        p.write_text(_slot_cell_yaml(
+            "role: LDO_ADJ\n        net_template: 'NET_{p}'\n        net_template_pad: '3'"),
+            encoding="utf-8")
+        cfg, _ = load_config(str(p))
+        slot = cfg.cells["c"].components[0]
+        assert isinstance(slot, TemplateComponentSlot)
+        assert slot.net_template == "NET_{p}"
+        assert slot.net_template_pad == "3"
+
+    def test_net_template_without_pad_loads(self, tmp_path):
+        p = tmp_path / "t.yaml"
+        p.write_text(_slot_cell_yaml(
+            "role: LDO_ADJ\n        net_template: 'NET_{p}'"), encoding="utf-8")
+        cfg, _ = load_config(str(p))
+        assert cfg.cells["c"].components[0].net_template_pad is None
+
+    def test_net_template_pad_without_net_template_is_fatal(self, tmp_path):
+        p = tmp_path / "t.yaml"
+        p.write_text(_slot_cell_yaml(
+            "role: LDO_ADJ\n        net_template_pad: '3'"), encoding="utf-8")
+        with pytest.raises(ValidationError, match="without net_template in slot"):
             load_config(str(p))
 
     def test_net_null_still_loads(self, tmp_path):

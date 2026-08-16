@@ -128,7 +128,10 @@ from kicadstamp.constants import CLUSTER_FIELD_NAME
 from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.i18n import _
 from kicadstamp.placement.planner import PlacementPlanner
-from kicadstamp.placement.services.clone_role_resolver import suggest_role_nets_from_cluster
+from kicadstamp.placement.services.clone_role_resolver import (
+    candidate_nets_by_role,
+    suggest_role_nets_from_cluster,
+)
 
 from .. import yaml_io
 from ..ui_utils import busy
@@ -242,6 +245,14 @@ class _KeyValueTableEditor(QWidget):
 
     def set_value_choices(self, items: List[str]) -> None:
         set_combo_items(self.value_edit, items)
+
+    def set_value_choices_for_key(self, key: str, items: List[str]) -> None:
+        """Narrow value_edit's choices to `items` while key_edit currently
+        shows `key` — falls back to the full/default set otherwise. Caller
+        (PlacerDock) wires this to key_edit's own signal; the widget itself
+        stays a dumb dict editor, no board/candidate knowledge here."""
+        if self.key_edit.currentText().strip() == key:
+            set_combo_items(self.value_edit, items)
 
 
 class _CoordinatePlacementForm(QWidget):
@@ -674,6 +685,10 @@ class PlacerDock(QWidget):
         self._selected_cell: Optional[str] = None
         self._param_edits: Dict[str, QComboBox] = {}
         self._known_nets: List[str] = []
+        # 2026-08-16 (net_template_pad): role -> narrowed Net-combobox choices,
+        # cached from the last auto-fill worker run (never read on the UI
+        # thread); {} until the first run / after a Cell change.
+        self._candidate_nets_narrowing: Dict[str, List[str]] = {}
         # G4.4 cache (2026-08-12, carried over from the merged-in coordinate
         # dock): last-tick known-value SETS — refresh_known_roles skips the
         # whole repopulation loop when neither has changed (the ~2s poll tick
@@ -848,6 +863,12 @@ class PlacerDock(QWidget):
         nets_page_layout.addWidget(QLabel(_("Nets (role -> literal net, priority over the cell's own net_template):")))
         self.nets_table = _KeyValueTableEditor(_("Role"), _("Net"), _("ROLE"), _("net name"))
         nets_page_layout.addWidget(self.nets_table)
+        # Net-combobox narrowing (2026-08-16, net_template_pad): while the
+        # user edits a role's row, offer only that role's real candidate nets
+        # (cached from the last auto-fill worker run — see
+        # _on_nets_key_changed) instead of every net on the board. The role is
+        # the row's key, so the match is unambiguous.
+        self.nets_table.key_edit.currentTextChanged.connect(self._on_nets_key_changed)
         # Auto-fill from board (2026-08-12, Denis: "если есть проблема, её
         # можно сразу решить в ручном режиме" — fill what's unambiguous from
         # the live board, leave the rest as empty rows for manual entry
@@ -1096,6 +1117,10 @@ class PlacerDock(QWidget):
             self.cell_mode_combo.setCurrentIndex(0)
             self._on_cell_mode_changed()
         self._selected_cell = name
+        # 2026-08-16 (net_template_pad): a different Cell means different
+        # roles — a stale per-role narrowing from the previous cell must not
+        # survive into the new one (the next auto-fill run rebuilds it).
+        self._candidate_nets_narrowing = {}
         self._refresh_cell_choices()
         self.cell_combo.blockSignals(True)
         if self.cell_combo.findText(name) < 0:
@@ -1199,6 +1224,12 @@ class PlacerDock(QWidget):
         for combo in self._param_edits.values():
             set_combo_items(combo, self._known_nets)
         self.nets_table.set_value_choices(self._known_nets)
+        # 2026-08-16 (net_template_pad): set_value_choices just reset the row's
+        # value combobox to the FULL board list — re-apply the per-role
+        # narrowing for the row currently being edited, so the ~2s poll can't
+        # silently undo it (the row's key hasn't changed, so this is a no-op
+        # unless a narrowing exists for that key).
+        self._on_nets_key_changed(self.nets_table.key_edit.currentText().strip())
         self.net_overrides_table.set_key_choices(self._known_nets)
         self.net_overrides_table.set_value_choices(self._known_nets)
 
@@ -1302,8 +1333,14 @@ class PlacerDock(QWidget):
                       "resolver's own narrowing already uses."), _ERROR_STYLE)
             return None
         cell_data = yaml_io.load_data(self._cells_path).get("cells", {}).get(self._selected_cell, {})
-        roles = sorted({c.get("role") for c in cell_data.get("components", []) if c.get("role")})
-        if not roles:
+        # 2026-08-16 (net_template_pad): carry each role's cell-level
+        # net_template_pad (None if absent) — suggest_role_nets_from_cluster
+        # now reads the resolved candidate's SPECIFIC pad when set, so a
+        # multi-pad role (regulator/diode/inductor) fills deterministically
+        # instead of being skipped for "more than one non-rule net".
+        role_pads = {c["role"]: c.get("net_template_pad")
+                     for c in cell_data.get("components", []) if c.get("role")}
+        if not role_pads:
             if not quiet:
                 self._show_message(_("Selected cell has no component roles."), _ERROR_STYLE)
             return None
@@ -1314,14 +1351,23 @@ class PlacerDock(QWidget):
             return None
         # `quiet` rides along in the payload (and is echoed back in the
         # worker's result) instead of a shared dock field — bug 2, 2026-08-13.
-        return {"adapter": board.adapter, "roles": roles, "cluster": cluster,
+        return {"adapter": board.adapter, "role_pads": role_pads, "cluster": cluster,
                 "quiet": quiet}
 
     @staticmethod
     def _run_autofill_nets(payload: Dict[str, Any]) -> Dict[str, Any]:
         """Worker thread: live board read only, never touches a widget."""
-        suggestions = suggest_role_nets_from_cluster(payload["adapter"], payload["roles"], payload["cluster"])
-        return {"suggestions": suggestions, "roles": payload["roles"], "quiet": payload["quiet"]}
+        adapter = payload["adapter"]
+        role_pads = payload["role_pads"]
+        cluster = payload["cluster"]
+        suggestions = suggest_role_nets_from_cluster(adapter, role_pads, cluster)
+        # 2026-08-16 (net_template_pad): also fetch the per-role candidate
+        # nets for the Net-combobox narrowing, in the SAME live-board worker
+        # run (auto-fill already fires on every Cell/Cluster commit — exactly
+        # when narrowing should refresh; no extra socket round-trip).
+        narrowed = candidate_nets_by_role(adapter, list(role_pads), cluster)
+        return {"suggestions": suggestions, "roles": list(role_pads),
+                "narrowed": narrowed, "quiet": payload["quiet"]}
 
     def _finish_autofill_nets(self, result: Dict[str, Any]) -> None:
         """UI thread: merge suggested role->net pairs into the Nets table,
@@ -1337,6 +1383,11 @@ class PlacerDock(QWidget):
         suggestions = result["suggestions"]
         roles = result["roles"]
         quiet = result["quiet"]
+        # 2026-08-16 (net_template_pad): store the per-role candidate-net
+        # narrowing the worker already computed for the Net-combobox — a
+        # different Cell/Cluster re-runs this, so the cache tracks the user's
+        # current selection.
+        self._candidate_nets_narrowing = result.get("narrowed", {})
         data = self.nets_table.to_dict()
         filled = {role: net for role, net in suggestions.items()
                   if not data.get(role, "").strip()}
@@ -1370,6 +1421,17 @@ class PlacerDock(QWidget):
             self._show_message(
                 _("Auto-filled all {count} role(s) from the board.").format(count=len(filled)),
                 _SUCCESS_STYLE)
+
+    def _on_nets_key_changed(self, key: str) -> None:
+        """Net-combobox narrowing (2026-08-16, net_template_pad): when the
+        user switches the Nets row's Role key, offer only that role's real
+        candidate nets (cached from the last auto-fill worker run — never a
+        live board read in the UI thread) instead of every net on the board.
+        A role with no narrowing (0/2+ candidates) explicitly falls back to
+        the full board net list rather than leaving the previous, now-wrong,
+        narrowed set in place."""
+        items = self._candidate_nets_narrowing.get(key, self._known_nets)
+        self.nets_table.set_value_choices_for_key(key, items)
 
     def _start_autofill_nets_op(self, payload: Dict[str, Any]) -> None:
         self._active_op = start_long_op(
