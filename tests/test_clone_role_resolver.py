@@ -431,11 +431,14 @@ class TestResolveRolesByNets:
         assert result == {"X": "B"}  # Must pick B despite ambiguity
 
 
-def _make_fp_with_sheet(ref, role, nets, sheet_uuid):
+def _make_fp_with_sheet(ref, role, nets, sheet_uuid, cluster=None):
     """Like _make_fp, but also carries sheet_path (see _make_anchor_fp) — for
     testing anchor_sheet narrowing of TEMPLATE roles (resolve_roles_by_nets),
-    as opposed to anchor resolution (resolve_anchor_by_role)."""
-    fp = _make_fp(ref, role, nets)
+    as opposed to anchor resolution (resolve_anchor_by_role). cluster: optional
+    (2026-08-16, Auto-fill Sheet narrowing tests) — combined with sheet_path so
+    resolve_single_role_candidate can be exercised on same-Role/same-Cluster
+    candidates spread across reused hierarchical sheets."""
+    fp = _make_fp(ref, role, nets, cluster)
     fp.sheet_path.path = [MagicMock(value=sheet_uuid), MagicMock(value=f"{ref}-own-uuid")]
     return fp
 
@@ -638,6 +641,48 @@ class TestResolveSingleRoleCandidate:
         assert resolve_single_role_candidate(adapter.get_footprints(), adapter,
                                              "C_IN_BULK", "Out_Pi_Filter_N2V5") is None
 
+    def test_sheet_narrows_ambiguous_cluster_role_to_one(self):
+        """2026-08-16 (Auto-fill Sheet narrowing): the live DAC_BUF repro —
+        three AD_DAC+DAC_BUF candidates across three reused sheets (IC2/IC3/IC4),
+        narrowed by the placement's own Sheet to exactly the right one."""
+        adapter = self._adapter([
+            _make_fp_with_sheet("IC2", "AD_DAC", [], "sheet-uuid-0", cluster="DAC_BUF"),
+            _make_fp_with_sheet("IC3", "AD_DAC", [], "sheet-uuid-1", cluster="DAC_BUF"),
+            _make_fp_with_sheet("IC4", "AD_DAC", [], "sheet-uuid-2", cluster="DAC_BUF"),
+        ])
+        sheet_names = {"sheet-uuid-0": "Channel_0", "sheet-uuid-1": "Channel_1", "sheet-uuid-2": "Channel_2"}
+        fp = resolve_single_role_candidate(adapter.get_footprints(), adapter,
+                                           "AD_DAC", "DAC_BUF", sheet="Channel_0", sheet_names=sheet_names)
+        assert fp.reference_field.text.value == "IC2"
+
+    def test_sheet_none_stays_ambiguous(self):
+        """Regression guard: no sheet passed — the same Cluster+Role ambiguity
+        returns None exactly as before (nothing to narrow to)."""
+        adapter = self._adapter([
+            _make_fp_with_sheet("IC2", "AD_DAC", [], "sheet-uuid-0", cluster="DAC_BUF"),
+            _make_fp_with_sheet("IC3", "AD_DAC", [], "sheet-uuid-1", cluster="DAC_BUF"),
+            _make_fp_with_sheet("IC4", "AD_DAC", [], "sheet-uuid-2", cluster="DAC_BUF"),
+        ])
+        assert resolve_single_role_candidate(adapter.get_footprints(), adapter,
+                                             "AD_DAC", "DAC_BUF") is None
+
+    def test_sheet_names_that_resolve_nothing_stay_ambiguous(self):
+        """A sheet_names map that can't resolve these footprints' UUID chain
+        (empty dict, or an unknown sheet name) must NOT produce a wrong guess —
+        same ambiguous None as today."""
+        adapter = self._adapter([
+            _make_fp_with_sheet("IC2", "AD_DAC", [], "sheet-uuid-0", cluster="DAC_BUF"),
+            _make_fp_with_sheet("IC3", "AD_DAC", [], "sheet-uuid-1", cluster="DAC_BUF"),
+            _make_fp_with_sheet("IC4", "AD_DAC", [], "sheet-uuid-2", cluster="DAC_BUF"),
+        ])
+        # empty dict -> nothing resolves, still ambiguous
+        assert resolve_single_role_candidate(adapter.get_footprints(), adapter,
+                                             "AD_DAC", "DAC_BUF", sheet="Channel_0", sheet_names={}) is None
+        # unknown sheet name in an otherwise-resolvable map -> still ambiguous
+        sheet_names = {"sheet-uuid-0": "Channel_0", "sheet-uuid-1": "Channel_1", "sheet-uuid-2": "Channel_2"}
+        assert resolve_single_role_candidate(adapter.get_footprints(), adapter,
+                                             "AD_DAC", "DAC_BUF", sheet="Bogus", sheet_names=sheet_names) is None
+
 
 class TestSuggestRoleNetsFromCluster:
     """PlacerDock's Nets-tab "Auto-fill from board" button (2026-08-12) —
@@ -814,6 +859,59 @@ class TestSuggestRoleNetsFromCluster:
 
         assert result == {}
 
+    def test_sheet_narrows_ambiguous_same_cluster_role(self):
+        """2026-08-16 (Auto-fill Sheet narrowing): the live DAC_BUF repro — three
+        AD_DAC+DAC_BUF instances across three reused sheets are ambiguous by
+        Cluster+Role alone; the placement's own Sheet resolves to exactly one,
+        so the net IS suggested instead of the full-board fallback."""
+        adapter = self._adapter([
+            _make_fp_with_sheet("IC2", "AD_DAC", ["DAC_OUT_P"], "sheet-uuid-0", cluster="DAC_BUF"),
+            _make_fp_with_sheet("IC3", "AD_DAC", ["DAC_OUT_P"], "sheet-uuid-1", cluster="DAC_BUF"),
+            _make_fp_with_sheet("IC4", "AD_DAC", ["DAC_OUT_P"], "sheet-uuid-2", cluster="DAC_BUF"),
+        ])
+        sheet_names = {"sheet-uuid-0": "Channel_0", "sheet-uuid-1": "Channel_1", "sheet-uuid-2": "Channel_2"}
+
+        result = suggest_role_nets_from_cluster(adapter, {"AD_DAC": (None, None)}, "DAC_BUF",
+                                                sheet="Channel_0", sheet_names=sheet_names)
+
+        assert result == {"AD_DAC": "DAC_OUT_P"}
+
+    def test_ambiguous_without_sheet_stays_out(self):
+        """Regression guard: no sheet passed — the same 3-way Cluster+Role
+        ambiguity leaves the role out of the suggestions (identical to today's
+        behavior, never a guess)."""
+        adapter = self._adapter([
+            _make_fp_with_sheet("IC2", "AD_DAC", ["DAC_OUT_P"], "sheet-uuid-0", cluster="DAC_BUF"),
+            _make_fp_with_sheet("IC3", "AD_DAC", ["DAC_OUT_P"], "sheet-uuid-1", cluster="DAC_BUF"),
+            _make_fp_with_sheet("IC4", "AD_DAC", ["DAC_OUT_P"], "sheet-uuid-2", cluster="DAC_BUF"),
+        ])
+
+        result = suggest_role_nets_from_cluster(adapter, {"AD_DAC": (None, None)}, "DAC_BUF")
+
+        assert result == {}
+
+    def test_same_as_role_sibling_narrowed_by_sheet(self):
+        """2026-08-16 (Auto-fill Sheet narrowing): the net_template_same_as_role
+        sibling lookup ALSO narrows by the placement's sheet — a reused-sheet
+        sibling is just as ambiguous by Cluster+Role alone (three R_FB_BOT
+        instances board-wide), so it must be resolved on the SAME sheet as the
+        main role or the sibling lookup stays blind."""
+        adapter = self._adapter([
+            _make_fp_with_sheet("R10", "R_FB_TOP", ["+2V5_ADJ", "-2V5_DIRTY"], "sheet-uuid-0", cluster="DAC_BUF"),
+            _make_fp_with_sheet("R11", "R_FB_BOT", ["+2V5_ADJ", "GND"], "sheet-uuid-0", cluster="DAC_BUF"),
+            _make_fp_with_sheet("R20", "R_FB_TOP", ["+2V5_ADJ", "-2V5_DIRTY"], "sheet-uuid-1", cluster="DAC_BUF"),
+            _make_fp_with_sheet("R21", "R_FB_BOT", ["+2V5_ADJ", "GND"], "sheet-uuid-1", cluster="DAC_BUF"),
+            _make_fp_with_sheet("R30", "R_FB_TOP", ["+2V5_ADJ", "-2V5_DIRTY"], "sheet-uuid-2", cluster="DAC_BUF"),
+            _make_fp_with_sheet("R31", "R_FB_BOT", ["+2V5_ADJ", "GND"], "sheet-uuid-2", cluster="DAC_BUF"),
+        ])
+        sheet_names = {"sheet-uuid-0": "Channel_0", "sheet-uuid-1": "Channel_1", "sheet-uuid-2": "Channel_2"}
+
+        result = suggest_role_nets_from_cluster(adapter, {"R_FB_TOP": (None, "R_FB_BOT")}, "DAC_BUF",
+                                                sheet="Channel_0", sheet_names=sheet_names)
+
+        # R11 (Channel_0 sibling) is lemma-2-safe on "+2V5_ADJ" -> R_FB_TOP shares it.
+        assert result == {"R_FB_TOP": "+2V5_ADJ"}
+
 
 class TestCandidateNetsByRole:
     """2026-08-16 (net_template_pad) — for GUI Net-combobox narrowing, NOT
@@ -875,3 +973,34 @@ class TestCandidateNetsByRole:
         result = candidate_nets_by_role(adapter, ["C_IN_BULK"], "Out_Pi_Filter_N2V5")
 
         assert result == {"C_IN_BULK": []}
+
+    def test_sheet_narrows_ambiguous_cluster_role(self):
+        """2026-08-16 (Auto-fill Sheet narrowing): 3 same-Role/same-Cluster
+        candidates on 3 reused sheets narrowed by the placement's Sheet — the
+        Net-combobox gets the right instance's nets instead of falling back to
+        the full board list."""
+        adapter = self._adapter([
+            _make_fp_with_sheet("IC2", "AD_DAC", ["DAC_OUT_P"], "sheet-uuid-0", cluster="DAC_BUF"),
+            _make_fp_with_sheet("IC3", "AD_DAC", ["DAC_OUT_P"], "sheet-uuid-1", cluster="DAC_BUF"),
+            _make_fp_with_sheet("IC4", "AD_DAC", ["DAC_OUT_P"], "sheet-uuid-2", cluster="DAC_BUF"),
+        ])
+        sheet_names = {"sheet-uuid-0": "Channel_0", "sheet-uuid-1": "Channel_1", "sheet-uuid-2": "Channel_2"}
+
+        result = candidate_nets_by_role(adapter, ["AD_DAC"], "DAC_BUF",
+                                        sheet="Channel_0", sheet_names=sheet_names)
+
+        assert result == {"AD_DAC": ["DAC_OUT_P"]}
+
+    def test_no_sheet_leaves_role_out(self):
+        """Regression guard: no sheet passed — the 3-way Cluster+Role ambiguity
+        leaves the role out of the narrowing map (full board list fallback),
+        exactly as before."""
+        adapter = self._adapter([
+            _make_fp_with_sheet("IC2", "AD_DAC", ["DAC_OUT_P"], "sheet-uuid-0", cluster="DAC_BUF"),
+            _make_fp_with_sheet("IC3", "AD_DAC", ["DAC_OUT_P"], "sheet-uuid-1", cluster="DAC_BUF"),
+            _make_fp_with_sheet("IC4", "AD_DAC", ["DAC_OUT_P"], "sheet-uuid-2", cluster="DAC_BUF"),
+        ])
+
+        result = candidate_nets_by_role(adapter, ["AD_DAC"], "DAC_BUF")
+
+        assert result == {}

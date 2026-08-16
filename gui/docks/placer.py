@@ -1387,10 +1387,28 @@ class PlacerDock(QWidget):
             if not quiet:
                 self._show_message(_("Not connected."), _ERROR_STYLE)
             return None
+        # 2026-08-16 evening (Auto-fill Sheet narrowing): carry the placement's
+        # OWN Sheet (sheet_edit -> clone.sheet, NOT anchor_sheet — the same
+        # field _narrow_ambiguous_candidates reads at apply time) and the
+        # project's sheet_names so the worker's role resolution can narrow a
+        # Cluster+Role ambiguity across REUSED hierarchical sheets (DAC_BUF
+        # live repro: AD_DAC+DAC_BUF -> IC2/IC3/IC4 board-wide, only Sheet
+        # separates them). sheet_names comes from _load_target_config() — the
+        # SAME leaf-has-none/fall-back-to-root helper the redraw path uses
+        # (plan_2026_08_15_redraw_sheet_names_from_root.md), not duplicated.
+        # Best-effort: no placer file picked (_placer_path None) or a broken
+        # one (silent load -> None) means an empty dict — Auto-fill then
+        # behaves exactly as before (no Sheet narrowing, never a crash/spam).
+        sheet = self.sheet_edit.currentText().strip() or None
+        sheet_names: Dict[str, str] = {}
+        if self._placer_path is not None:
+            loaded = self._load_target_config(silent=quiet)
+            if loaded is not None:
+                sheet_names = loaded[1].sheet_names or {}
         # `quiet` rides along in the payload (and is echoed back in the
         # worker's result) instead of a shared dock field — bug 2, 2026-08-13.
         return {"adapter": board.adapter, "role_hints": role_hints, "cluster": cluster,
-                "quiet": quiet}
+                "sheet": sheet, "sheet_names": sheet_names, "quiet": quiet}
 
     @staticmethod
     def _run_autofill_nets(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -1398,12 +1416,19 @@ class PlacerDock(QWidget):
         adapter = payload["adapter"]
         role_hints = payload["role_hints"]
         cluster = payload["cluster"]
-        suggestions = suggest_role_nets_from_cluster(adapter, role_hints, cluster)
+        # 2026-08-16 evening (Auto-fill Sheet narrowing): thread the
+        # placement's own Sheet + project sheet_names into BOTH resolvers so
+        # a reused-sheet Cluster+Role ambiguity (DAC_BUF) actually narrows.
+        sheet = payload.get("sheet")
+        sheet_names = payload.get("sheet_names")
+        suggestions = suggest_role_nets_from_cluster(adapter, role_hints, cluster,
+                                                     sheet=sheet, sheet_names=sheet_names)
         # 2026-08-16 (net_template_pad): also fetch the per-role candidate
         # nets for the Net-combobox narrowing, in the SAME live-board worker
         # run (auto-fill already fires on every Cell/Cluster commit — exactly
         # when narrowing should refresh; no extra socket round-trip).
-        narrowed = candidate_nets_by_role(adapter, list(role_hints), cluster)
+        narrowed = candidate_nets_by_role(adapter, list(role_hints), cluster,
+                                          sheet=sheet, sheet_names=sheet_names)
         return {"suggestions": suggestions, "roles": list(role_hints),
                 "narrowed": narrowed, "quiet": payload["quiet"]}
 
@@ -1665,12 +1690,16 @@ class PlacerDock(QWidget):
             return
         self._start_redraw_op(payload)
 
-    def _load_target_config(self) -> Optional[tuple]:
+    def _load_target_config(self, silent: bool = False) -> Optional[tuple]:
         """load_config() the dock's target file, or an empty
         (Config, RuntimeContext) when the file doesn't exist yet — shared by
         the clone and coordinate redraw paths (2026-08-13 cleanup: the same
         try/except used to be duplicated in both). Shows the error and
-        returns None on a broken file.
+        returns None on a broken file. `silent=True` (2026-08-16, Auto-fill
+        Sheet narrowing) suppresses that error message — the auto-fill path
+        treats a broken placer file as an empty sheet_names best-effort, not
+        a user-facing error (the quiet auto-trigger must not spam on every
+        Cell/Cluster pick).
 
         sheet_names fallback (2026-08-15,
         plan_2026_08_15_redraw_sheet_names_from_root.md): schematic_dir:
@@ -1699,7 +1728,8 @@ class PlacerDock(QWidget):
                           # Redraw over a fallback that didn't pan out
             return cfg, ctx
         except (ValidationError, OSError, yaml.YAMLError) as e:
-            self._show_message(_("Failed to load Placer file: {error}").format(error=e), _ERROR_STYLE)
+            if not silent:
+                self._show_message(_("Failed to load Placer file: {error}").format(error=e), _ERROR_STYLE)
             return None
 
     def _collect_redraw_inputs(self) -> Optional[Dict[str, Any]]:

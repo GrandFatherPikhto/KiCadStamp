@@ -1090,11 +1090,18 @@ def test_refresh_known_nets_feeds_nets_and_net_overrides_value_choices(main_wind
 # ── Nets "Auto-fill from board" (2026-08-12) ─────────────────────────────
 
 class _FakeAutofillFootprint:
-    def __init__(self, ref, role, cluster, nets):
+    def __init__(self, ref, role, cluster, nets, sheet_uuid=None):
         self.reference_field = SimpleNamespace(text=SimpleNamespace(value=ref))
         self._role = role
         self._cluster = cluster
         self._nets = nets
+        # resolve_sheet_path_names reads fp.sheet_path.path[:-1] (last entry is
+        # the component's own uuid, excluded) — see kicadstamp/sheet_names.py.
+        # sheet_uuid (2026-08-16, Auto-fill Sheet narrowing tests): set it to
+        # exercise narrow_candidates_by_sheet on a reused-sheet ambiguity.
+        if sheet_uuid is not None:
+            self.sheet_path = SimpleNamespace(
+                path=[SimpleNamespace(value=sheet_uuid), SimpleNamespace(value=f"{ref}-own-uuid")])
 
 
 class _FakeAutofillAdapter:
@@ -1227,6 +1234,101 @@ def test_collect_autofill_nets_inputs_carries_quiet_in_the_payload(main_window, 
 
     assert payload is not None
     assert payload["quiet"] is True
+
+
+def test_collect_autofill_nets_inputs_carries_sheet_and_sheet_names(main_window, tmp_path, monkeypatch):
+    """2026-08-16 (Auto-fill Sheet narrowing): the auto-fill payload carries
+    the placement's OWN Sheet (sheet_edit -> clone.sheet, NOT anchor_sheet) and
+    the project's sheet_names from _load_target_config() — so the worker can
+    narrow a reused-sheet Cluster+Role ambiguity the same way the apply-time
+    resolvers do. The fixture's real root.yaml has no schematic_dir (real load
+    resolves empty sheet_names) — mock the load to return a ctx WITH the map so
+    the payload really carries it; the real leaf/root fallback itself is already
+    covered by test_load_target_config_falls_back_to_root_sheet_names_*."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock.cluster_edit.setCurrentText("DAC_BUF")
+    dock.sheet_edit.setCurrentText("Channel_0")
+    main_window.connection.board = _FakeAutofillBoard([])
+    ctx = RuntimeContext(sheet_names={"sheet-uuid-0": "Channel_0"})
+    monkeypatch.setattr(dock, "_load_target_config", lambda silent=False: (Config(), ctx))
+
+    payload = dock._collect_autofill_nets_inputs()
+
+    assert payload is not None
+    assert payload["sheet"] == "Channel_0"
+    assert payload["sheet_names"] == {"sheet-uuid-0": "Channel_0"}
+
+
+def test_collect_autofill_nets_inputs_no_placer_file_stays_empty(main_window, tmp_path):
+    """2026-08-16 (Auto-fill Sheet narrowing) regression: _placer_path None
+    (no Placer file picked yet) must NOT crash _load_target_config
+    (_placer_path.exists() on None would AttributeError) — sheet_names stays
+    empty and Auto-fill behaves exactly as before."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock.cluster_edit.setCurrentText("DAC_BUF")
+    dock.sheet_edit.setCurrentText("Channel_0")
+    main_window.connection.board = _FakeAutofillBoard([])
+    dock._placer_path = None
+
+    payload = dock._collect_autofill_nets_inputs()
+
+    assert payload is not None
+    assert payload["sheet"] == "Channel_0"
+    assert payload["sheet_names"] == {}
+
+
+def test_collect_autofill_nets_inputs_broken_placer_file_silent_fallback(main_window, tmp_path, caplog):
+    """2026-08-16 (Auto-fill Sheet narrowing): a broken Placer file must not
+    crash or spam the quiet auto-trigger — silent load -> None -> empty
+    sheet_names, Auto-fill falls back to no-Sheet-narrowing (as before)."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock.cluster_edit.setCurrentText("DAC_BUF")
+    main_window.connection.board = _FakeAutofillBoard([])
+    # Break the placer file so load_config() raises.
+    dock._placer_path.write_text("not: [valid: yaml: {", encoding="utf-8")
+
+    payload = dock._collect_autofill_nets_inputs(quiet=True)
+
+    assert payload is not None
+    assert payload["sheet_names"] == {}
+    assert not any("Failed to load Placer file" in r.message for r in caplog.records)
+
+
+def test_do_autofill_nets_narrows_by_sheet_on_reused_sheets(main_window, tmp_path, monkeypatch):
+    """2026-08-16 (Auto-fill Sheet narrowing) — THE live DAC_BUF repro: one
+    hierarchical sheet pair reused three times means three AD_DAC+DAC_BUF
+    candidates board-wide (identical Cluster/Role, written on the sheet FILE,
+    not per instance). With the placement's Sheet set, Auto-fill narrows to the
+    right instance and fills instead of falling back to the full board list."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {"cells": {
+        "dac_buf": {
+            "components": [{"role": "AD_DAC", "offset_along_mm": 0, "offset_across_mm": 0,
+                            "angle_deg": 0, "net_template": "{AD_DAC_OUT}"}],
+            "vias": [], "tracks": [], "layer": "F.Cu",
+        }
+    }})
+    placer_file = tmp_path / "root.yaml"
+    _write_yaml(placer_file, {"clone_placements": []})
+    dock = PlacerDock(main_window)
+    dock.set_cells_file(cells_file)
+    dock.set_placer_file(placer_file)
+    dock.set_selected_cell("dac_buf")
+    dock.cluster_edit.setCurrentText("DAC_BUF")
+    dock.sheet_edit.setCurrentText("Channel_0")
+    main_window.connection.board = _FakeAutofillBoard([
+        _FakeAutofillFootprint("IC2", "AD_DAC", "DAC_BUF", ["DAC_OUT_P"], sheet_uuid="sheet-uuid-0"),
+        _FakeAutofillFootprint("IC3", "AD_DAC", "DAC_BUF", ["DAC_OUT_P"], sheet_uuid="sheet-uuid-1"),
+        _FakeAutofillFootprint("IC4", "AD_DAC", "DAC_BUF", ["DAC_OUT_P"], sheet_uuid="sheet-uuid-2"),
+    ])
+    ctx = RuntimeContext(sheet_names={"sheet-uuid-0": "Channel_0",
+                                      "sheet-uuid-1": "Channel_1",
+                                      "sheet-uuid-2": "Channel_2"})
+    monkeypatch.setattr(dock, "_load_target_config", lambda silent=False: (Config(), ctx))
+
+    dock._do_autofill_nets()
+
+    assert dock.nets_table.to_dict() == {"AD_DAC": "DAC_OUT_P"}
 
 
 def test_do_autofill_nets_does_not_stomp_a_row_it_could_not_resolve(main_window, tmp_path):

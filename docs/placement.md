@@ -234,7 +234,7 @@ A façade combining all execution phases and managing logging.
 #### `services/clone_role_resolver.py`
 Resolves roles for `ClonePlacement`. Supports two modes:
 - **by selection** – reads roles from selected components. Only one such clone can be processed per run (due to KiCad's single‑selection limitation).
-- **by nets** – finds components by expected net (with placeholders). In case of ambiguity, uses cascading narrowing: explicit `refs` → selection → sheet hierarchy → **physical proximity to the anchor** (if the distance gap is sufficient, the closest candidate is chosen). This allows distinguishing electrically identical filters on a common rail.
+- **by nets** – finds components by expected net (with placeholders). In case of ambiguity, uses cascading narrowing: explicit `refs` → selection → sheet hierarchy → **physical proximity to the anchor** (if the distance gap is sufficient, the closest candidate is chosen). This allows distinguishing electrically identical filters on a common rail. The GUI's Auto-fill/Nets/Params narrowing (PlacerDock) uses the same `sheet` dimension for its live-board candidate search since 2026-08-16.
 
 Functions:
 - `clone_uses_selection_mode(clone)` – determines the mode (considers `by_selection`, `nets`, `params`).

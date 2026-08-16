@@ -359,6 +359,18 @@ the tabs — they act on the whole placement, not one tab.
       actually one of the cell's own components, see `resolve_roles_by_nets` in
       [docs/config.md](config.md); found live 2026-08-06 that a board-wide list was misleadingly
       broad, fixed same day).
+    - **Auto-fill from board** — the "Auto-fill from board" button (and its silent auto-trigger on
+      every Cell/Cluster pick, plan 2026-08-13) resolves each role on the LIVE board by Cluster
+      prefix plus the cell's `net_template_pad`/`net_template_same_as_role` hints (see
+      [docs/config.md](config.md)), pre-fills the blank Nets rows, and in the same worker run
+      computes the per-role candidate-net narrowing for the Nets role-key combobox AND the Params
+      comboboxes. Since 2026-08-16 it ALSO narrows by THIS placement's own **Sheet** (`sheet_edit`,
+      i.e. `clone.sheet`) — the same (Sheet, Cluster, Role) convention the apply-time resolvers use —
+      so a cell reused across hierarchical sheets (the live DAC_BUF repro: three `AD_DAC`+`DAC_BUF`
+      instances, identical Cluster/Role written on the sheet FILE) narrows to the right instance
+      instead of falling back to the full board net list. Empty/unknown `sheet_names` (no Placer file
+      picked, or `schematic_dir` unresolved) is a silent no-op — the same full-list fallback as
+      before, never a wrong guess.
   - **Net overrides tab** (added 2026-08-06) — resolved net → final override name, applied AFTER
     Params/net_template substitution (see `resolve_net` in [docs/config.md](config.md)). Both columns
     autocomplete from the live board's actual net names.

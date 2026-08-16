@@ -44,7 +44,11 @@ from ...net_resolution import RULE_NETS, resolve_net, resolve_placeholder
 from .component_pool import ROLE_FIELD_NAME
 from ...constants import CLUSTER_FIELD_NAME
 from ...i18n import _
-from .role_narrowing import _narrow_ambiguous_candidates, _narrow_by_sheet_cluster_selection
+from .role_narrowing import (
+    _narrow_ambiguous_candidates,
+    _narrow_by_sheet_cluster_selection,
+    narrow_candidates_by_sheet,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -100,17 +104,30 @@ def resolve_unique_footprint_by_fields(adapter, field_matches: dict, label: str)
     return match_unique_footprint_by_fields(matches, field_matches, label)
 
 
-def resolve_single_role_candidate(all_fps, adapter, role: str, cluster: str):
+def resolve_single_role_candidate(all_fps, adapter, role: str, cluster: str,
+                                  sheet: str | None = None,
+                                  sheet_names: dict[str, str] | None = None):
     """The one real footprint whose Role==role and Cluster prefix-matches
     `cluster` — None if 0 or 2+ (ambiguous/absent, nothing to narrow to).
     `all_fps` is the caller's own adapter.get_footprints() snapshot — never
     fetched here, so callers iterating many roles pay for ONE live read,
     not one per role (this is exactly the shape suggest_role_nets_from_cluster
-    already had inline; only pulled out, not changed)."""
+    already had inline; only pulled out, not changed).
+
+    sheet/sheet_names (2026-08-16, Auto-fill Sheet narrowing): when Cluster+
+    Role alone is ambiguous (2+ candidates) and a Sheet is provided, narrow
+    via the SAME narrow_candidates_by_sheet the apply-time resolvers use —
+    scoped by the placement's OWN sheet (clone.sheet), the (Sheet, Cluster,
+    Role) addressing convention completed for the GUI auto-fill path. Only
+    narrows if it actually reduces the set AND stays non-empty — a sheet that
+    resolves nothing (empty/unknown sheet_names) keeps the original,
+    still-ambiguous set, never a wrong guess."""
     candidates = [fp for fp in all_fps
                   if adapter.get_field_value(fp, ROLE_FIELD_NAME) == role
                   and cluster_prefix_match(
                       adapter.get_field_value(fp, CLUSTER_FIELD_NAME) or '', cluster)]
+    if sheet and sheet_names and len(candidates) > 1:
+        candidates = narrow_candidates_by_sheet(candidates, sheet, sheet_names)
     return candidates[0] if len(candidates) == 1 else None
 
 
@@ -122,7 +139,9 @@ def candidate_nets(adapter, fp, rule_nets: set[str] | None = None) -> list[str]:
 
 
 def suggest_role_nets_from_cluster(adapter, role_hints: dict[str, tuple[str | None, str | None]],
-                                   cluster: str, rule_nets: set[str] | None = None) -> dict[str, str]:
+                                   cluster: str, rule_nets: set[str] | None = None,
+                                   sheet: str | None = None,
+                                   sheet_names: dict[str, str] | None = None) -> dict[str, str]:
     """Best-effort role -> net suggestion for PlacerDock's Nets tab "Auto-fill
     from board" button (2026-08-12, Denis: "если есть проблема, её можно сразу
     решить в ручном режиме" — auto-fill what's unambiguous, leave the rest for
@@ -153,6 +172,14 @@ def suggest_role_nets_from_cluster(adapter, role_hints: dict[str, tuple[str | No
     left out of the returned dict (unblocked, same as before — the caller
     leaves that row for manual entry).
 
+    sheet/sheet_names (2026-08-16, Auto-fill Sheet narrowing): threaded into
+    EVERY resolve_single_role_candidate call — the main role AND the
+    net_template_same_as_role sibling lookup, which can hit the same
+    Cluster+Role ambiguity on a reused hierarchical sheet (DAC_BUF live repro:
+    AD_DAC+DAC_BUF -> IC2/IC3/IC4 board-wide, only the placement's own Sheet
+    separates them). Passed through unchanged, see
+    resolve_single_role_candidate for the exact narrowing contract.
+
     Read-only — never moves/tags/writes anything to the board. This is a GUI
     convenience, not part of the by-nets resolution ClonePositionCalculator
     actually runs at apply time (resolve_roles_by_nets above) — it only
@@ -162,11 +189,12 @@ def suggest_role_nets_from_cluster(adapter, role_hints: dict[str, tuple[str | No
     all_fps = adapter.get_footprints()
     suggestions: dict[str, str] = {}
     for role, (pad, same_as_role) in role_hints.items():
-        fp = resolve_single_role_candidate(all_fps, adapter, role, cluster)
+        fp = resolve_single_role_candidate(all_fps, adapter, role, cluster, sheet, sheet_names)
         if fp is None:
             continue
         if same_as_role is not None:
-            sibling_fp = resolve_single_role_candidate(all_fps, adapter, same_as_role, cluster)
+            sibling_fp = resolve_single_role_candidate(
+                all_fps, adapter, same_as_role, cluster, sheet, sheet_names)
             if sibling_fp is not None:
                 sibling_nets = candidate_nets(adapter, sibling_fp, rule_nets)
                 if len(sibling_nets) == 1:
@@ -184,7 +212,9 @@ def suggest_role_nets_from_cluster(adapter, role_hints: dict[str, tuple[str | No
 
 
 def candidate_nets_by_role(adapter, roles: list[str], cluster: str,
-                           rule_nets: set[str] | None = None) -> dict[str, list[str]]:
+                           rule_nets: set[str] | None = None,
+                           sheet: str | None = None,
+                           sheet_names: dict[str, str] | None = None) -> dict[str, list[str]]:
     """NEW (2026-08-16) — for GUI Net-combobox narrowing, NOT auto-fill.
     {role: [net, ...]} for every role with exactly one Cluster+Role
     candidate, REGARDLESS of net count (1, 2, 3...) — unlike
@@ -196,7 +226,7 @@ def candidate_nets_by_role(adapter, roles: list[str], cluster: str,
     all_fps = adapter.get_footprints()
     result: dict[str, list[str]] = {}
     for role in roles:
-        fp = resolve_single_role_candidate(all_fps, adapter, role, cluster)
+        fp = resolve_single_role_candidate(all_fps, adapter, role, cluster, sheet, sheet_names)
         if fp is not None:
             result[role] = candidate_nets(adapter, fp, rule_nets)
     return result
