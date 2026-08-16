@@ -689,6 +689,17 @@ class PlacerDock(QWidget):
         # cached from the last auto-fill worker run (never read on the UI
         # thread); {} until the first run / after a Cell change.
         self._candidate_nets_narrowing: Dict[str, List[str]] = {}
+        # 2026-08-16 evening: same idea, for the Params tab. A placeholder
+        # {KEY} is narrowable when the cell's components: contain at least
+        # one role whose net_template is EXACTLY '{KEY}' (nothing else in
+        # the string) — that role's own already-narrowed/resolved net IS the
+        # placeholder's real value. _param_placeholder_roles is the static
+        # (no board needed) key -> [role, ...] mapping, rebuilt whenever
+        # cell_data is read; _param_narrowing is the resulting key -> [net,
+        # ...] choices, rebuilt in _finish_autofill_nets from the SAME
+        # worker run as the Nets narrowing (no extra socket round-trip).
+        self._param_placeholder_roles: Dict[str, List[str]] = {}
+        self._param_narrowing: Dict[str, List[str]] = {}
         # G4.4 cache (2026-08-12, carried over from the merged-in coordinate
         # dock): last-tick known-value SETS — refresh_known_roles skips the
         # whole repopulation loop when neither has changed (the ~2s poll tick
@@ -1121,6 +1132,11 @@ class PlacerDock(QWidget):
         # roles — a stale per-role narrowing from the previous cell must not
         # survive into the new one (the next auto-fill run rebuilds it).
         self._candidate_nets_narrowing = {}
+        # 2026-08-16 evening: same reasoning for the Params tab narrowing —
+        # a stale placeholder->role mapping (or its resolved nets) from the
+        # previous Cell is actively wrong for the new one, not just unhelpful.
+        self._param_placeholder_roles = {}
+        self._param_narrowing = {}
         self._refresh_cell_choices()
         self.cell_combo.blockSignals(True)
         if self.cell_combo.findText(name) < 0:
@@ -1221,8 +1237,13 @@ class PlacerDock(QWidget):
         don't have to wait for the next poll tick to be populated. Nets/Net
         overrides' own value combos (2026-08-06) share the same list."""
         self._known_nets = sorted({n.name for n in board.adapter.get_all_nets() if n.name})
-        for combo in self._param_edits.values():
-            set_combo_items(combo, self._known_nets)
+        # 2026-08-16 evening: re-apply any existing per-placeholder narrowing
+        # instead of unconditionally resetting to the full board list — same
+        # "poll can't silently undo it" reasoning as the Nets tab's own fix
+        # below (a placeholder with no narrowing yet still falls back to
+        # self._known_nets, unaffected).
+        for name, combo in self._param_edits.items():
+            set_combo_items(combo, self._param_narrowing.get(name, self._known_nets))
         self.nets_table.set_value_choices(self._known_nets)
         # 2026-08-16 (net_template_pad): set_value_choices just reset the row's
         # value combobox to the FULL board list — re-apply the per-role
@@ -1250,7 +1271,7 @@ class PlacerDock(QWidget):
             edit = QComboBox()
             configure_searchable(edit)
             edit.lineEdit().setPlaceholderText(_("literal net for {{{name}}}").format(name=name))
-            edit.addItems(self._known_nets)
+            edit.addItems(self._param_narrowing.get(name, self._known_nets))
             edit.setCurrentText(previous.get(name, ""))
             self._params_layout.addWidget(edit, row, 1)
             self._param_edits[name] = edit
@@ -1345,6 +1366,22 @@ class PlacerDock(QWidget):
             if not quiet:
                 self._show_message(_("Selected cell has no component roles."), _ERROR_STYLE)
             return None
+        # 2026-08-16 evening (Params narrowing): a placeholder {KEY} is only
+        # narrowable through a role whose net_template IS EXACTLY '{KEY}' —
+        # nothing else in the string (a compound template like
+        # '/{SHEET}/DAC/+3V3_AVDD' can't be reverse-mapped to a single net a
+        # role's pads actually carry, so KEY stays unnarrowed for those).
+        # Static cell data, no board needed — stored on self directly rather
+        # than round-tripped through the worker payload/result.
+        self._param_placeholder_roles = {}
+        for c in cell_data.get("components", []):
+            role = c.get("role")
+            nt = c.get("net_template")
+            if not role or not nt:
+                continue
+            m = _PLACEHOLDER_RE.fullmatch(nt)
+            if m:
+                self._param_placeholder_roles.setdefault(m.group(1), []).append(role)
         board = self._main_window.connection.board
         if board is None:
             if not quiet:
@@ -1389,6 +1426,28 @@ class PlacerDock(QWidget):
         # different Cell/Cluster re-runs this, so the cache tracks the user's
         # current selection.
         self._candidate_nets_narrowing = result.get("narrowed", {})
+        # 2026-08-16 evening: derive the Params tab's narrowing from the SAME
+        # per-role data — for placeholder KEY, prefer a matching role's
+        # confident suggestion (single value: fully narrowed) and fall back
+        # to the union of its narrowed-but-ambiguous candidates. Several
+        # roles can map to the same KEY (they're on the same physical net by
+        # construction, e.g. R_FB_TOP/D_PROT_ADJ/LDO_ADJ all '{D_PROT_ADJ}')
+        # — the first confident one wins, order doesn't matter since they
+        # must agree.
+        narrowed = result.get("narrowed", {})
+        self._param_narrowing = {}
+        for key, roles_for_key in self._param_placeholder_roles.items():
+            values: List[str] = []
+            for role in roles_for_key:
+                if role in suggestions:
+                    values = [suggestions[role]]
+                    break
+                values.extend(narrowed.get(role, []))
+            if values:
+                seen: set = set()
+                self._param_narrowing[key] = [v for v in values if not (v in seen or seen.add(v))]
+        for name, combo in self._param_edits.items():
+            set_combo_items(combo, self._param_narrowing.get(name, self._known_nets))
         data = self.nets_table.to_dict()
         filled = {role: net for role, net in suggestions.items()
                   if not data.get(role, "").strip()}

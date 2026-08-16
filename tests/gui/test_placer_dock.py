@@ -1298,6 +1298,78 @@ def test_run_autofill_nets_carries_candidate_nets_narrowing(main_window, tmp_pat
     assert dock._candidate_nets_narrowing == {"C_IN": ["+1V2"]}
 
 
+def test_finish_autofill_nets_narrows_params_combo(main_window, tmp_path):
+    """2026-08-16 evening: the SAME auto-fill run also narrows the Params
+    tab. Cell "pi_filter" has one role, C_IN, whose net_template is EXACTLY
+    "{PWR_IN}" — that role's own resolved net (+1V2, GND filtered as a rule
+    net) becomes PWR_IN's narrowed choice instead of the full board list."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)  # role "C_IN", param "PWR_IN"
+    dock._known_nets = ["+1V2", "GND", "+5V"]
+    dock.cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
+    main_window.connection.board = _FakeAutofillBoard([
+        _FakeAutofillFootprint("C22", "C_IN", "Out_Pi_Filter_N2V5", ["+1V2", "GND"]),
+    ])
+    payload = dock._collect_autofill_nets_inputs()
+    assert payload is not None
+    assert dock._param_placeholder_roles == {"PWR_IN": ["C_IN"]}
+
+    result = dock._run_autofill_nets(payload)
+    dock._finish_autofill_nets(result)
+
+    assert dock._param_narrowing == {"PWR_IN": ["+1V2"]}
+    combo = dock._param_edits["PWR_IN"]
+    assert [combo.itemText(i) for i in range(combo.count())] == ["+1V2"]
+
+
+def test_param_placeholder_not_exactly_one_role_stays_unnarrowed(main_window, tmp_path):
+    """A placeholder used inside a COMPOUND net_template (e.g. a hierarchical
+    net path with a literal prefix/suffix around it) can't be reverse-mapped
+    to a single pad's net — no role's net_template equals the placeholder
+    alone, so it's simply absent from _param_placeholder_roles and the combo
+    keeps the full board list, same graceful degradation as everywhere else
+    in this mechanism."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {"cells": {
+        "sheet_cell": {
+            "components": [
+                {"role": "AD_DAC", "offset_along_mm": 0, "offset_across_mm": 0,
+                 "angle_deg": 0, "net_template": "/{SHEET}/DAC/+3V3_AVDD"},
+            ],
+            "vias": [], "tracks": [], "layer": "F.Cu",
+        }
+    }})
+    placer_file = tmp_path / "root.yaml"
+    _write_yaml(placer_file, {"clone_placements": []})
+    dock = PlacerDock(main_window)
+    dock.set_cells_file(cells_file)
+    dock.set_placer_file(placer_file)
+    dock.set_selected_cell("sheet_cell")
+    dock._known_nets = ["+1V2", "GND"]
+    dock._rebuild_param_rows()  # re-populate now that _known_nets is set
+    dock.cluster_edit.setCurrentText("Channel_0")
+    main_window.connection.board = _FakeAutofillBoard([])
+
+    payload = dock._collect_autofill_nets_inputs()
+    assert payload is not None
+    assert dock._param_placeholder_roles == {}
+
+    combo = dock._param_edits["SHEET"]
+    assert [combo.itemText(i) for i in range(combo.count())] == ["+1V2", "GND"]
+
+
+def test_refresh_known_nets_preserves_param_narrowing(main_window, tmp_path):
+    """2026-08-16 evening: same "poll can't silently undo it" fix as the Nets
+    tab's own (test_refresh_known_nets_preserves_per_role_narrowing) — for
+    the Params comboboxes."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)  # param "PWR_IN"
+    dock._param_narrowing = {"PWR_IN": ["+1V2"]}
+
+    dock.refresh_known_nets(_FakeNetBoard([_FakeNet("+1V2"), _FakeNet("GND"), _FakeNet("+5V")]))
+
+    combo = dock._param_edits["PWR_IN"]
+    assert [combo.itemText(i) for i in range(combo.count())] == ["+1V2"]
+
+
 def test_nets_key_changed_narrows_value_choices(main_window, tmp_path):
     """2026-08-16 (net_template_pad): picking a role row in the Nets table
     narrows the Net combobox to that role's real candidate nets (cached from
