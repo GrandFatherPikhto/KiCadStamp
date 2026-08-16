@@ -50,6 +50,11 @@ Cluster, Role) convention as the rest of the project.
 anchor-relative mode — same semantics as Rule/ClonePlacement) are documented in
 the `CoordinatePlacement` docstring.
 
+When the same set of CoordinatePlacement/ClonePlacement entries must be
+declared once and instantiated once per reused sheet (Channel_0/1/2), use the
+`sheet_templates:` config section instead of copy-pasting the entries — see
+[docs/config.md](config.md).
+
 ---
 
 ## Structure

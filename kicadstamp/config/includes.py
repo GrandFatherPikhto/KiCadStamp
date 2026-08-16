@@ -43,7 +43,10 @@ _LIST_SECTIONS = ('rules', 'clone_placements', 'thermal_via_arrays', 'coordinate
 # Dict sections: merged key-by-key, fatal on a key defined in two different
 # files — these are meant to be genuinely separate subsystem files, so a
 # repeated key is far more likely a mistake than an intentional override.
-_DICT_SECTIONS = ('cells', 'points', 'extract_profiles', 'clone_profiles')
+# sheet_templates: (2026-08-16, plan_2026_08_16_sheet_templates.md) joins the
+# same merge mechanism — a shared sheet_templates: block can live in its own
+# subsystem file like any other dict section.
+_DICT_SECTIONS = ('cells', 'points', 'extract_profiles', 'clone_profiles', 'sheet_templates')
 
 
 def _load_yaml_file(path: Path) -> dict:

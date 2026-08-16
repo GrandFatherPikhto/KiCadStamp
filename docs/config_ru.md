@@ -311,6 +311,71 @@ clone_placements:
 
 ---
 
+## `sheet_templates:` — объявить группу один раз, инстанцировать по листам
+
+`Channel_0/1/2` — три инстанса одного и того же переиспользуемого листа (DAC + OpAmp):
+Cluster/Role-метки ОДИНАКОВЫ на всех инстансах (fieldstool тегирует файл листа, а не конкретный
+инстанс), различает их только `sheet:`/`anchor_sheet:`. Вместо копипасты одних и тех же записей
+`clone_placements:`/`coordinate_placements:` N раз — N независимых списков, которые молча
+рассинхронизируются при любом изменении Channel_0 — объявляем один раз и даём `load_config()`
+размножить по листам:
+
+```yaml
+sheet_templates:
+  channel:
+    sheets: [Channel_0, Channel_1, Channel_2]
+    coordinate_placements:
+    - cluster: OP_AMP
+      role: OP_AMP
+      # name: генерируется автоматически на лист (см. «Идентичность» ниже)
+      sheet: self
+      x_mm: 9.0
+      y_mm: 0.0
+      rotation_deg: 270.0
+      anchor_role: AD_DAC
+      anchor_sheet: self
+    clone_placements:
+    - name: PIF_AVDD          # Cluster-тег — expansion его НЕ трогает никогда
+      cell: dac_pi_filter
+      sheet: self
+      xy: [2.0, 1.0]
+      rotation_deg: 90.0
+      anchor_role: AD_DAC
+      anchor_pad: '18'
+      anchor_cluster: AD_DAC
+      anchor_sheet: self
+      params:
+        FB_PI_FLT: /$SHEET/DAC/+3V3_AVDD
+```
+
+Expansion выполняется внутри `load_config()`, сразу после разрешения `include:` и до любого
+поэлементного загрузчика — к моменту, когда `_load_clone_placement`/`_load_coordinate_placement`
+и проверки дубликатов имён видят данные, сгенерированные записи неотличимы от написанных руками.
+
+**Зарезервированные подстановки, ТОЛЬКО внутри блоков `sheet_templates:` (нигде больше в схеме):**
+- `sheet: self` / `anchor_sheet: self` → буквальное имя генерируемого листа (`Channel_0`/`Channel_1`/...).
+  Намеренно НЕ автозаполняется пропущенный `anchor_sheet:` — запись `anchor_role: FPGA` не должна
+  получать `anchor_sheet:`, которого не просила (FPGA — единственный, не-листовой инстанс);
+  подставляется только явный `self`, отсутствующее поле остаётся отсутствующим.
+- `$SHEET` внутри строковых значений (`params:`/`nets:`/`net_overrides:`) → та же подстановка,
+  для иерархических путей сетей вида `/$SHEET/DAC/+3V3_AVDD`.
+
+**Идентичность** (`placer_name:` у `clone_placements`, `name:` у `coordinate_placements` — НЕ
+собственный `name:` у `clone_placements`, это Cluster-тег, его expansion не трогает никогда),
+разводится по `len(sheets)`:
+- `len(sheets) == 1` → identity берётся БУКВАЛЬНО из шаблона (или штатный дефолт,
+  `{cluster}/{role}` для coordinate_placements) БЕЗ какого-либо префикса — именно это делает
+  одно-листовую регрессию байт-в-байт нулевой.
+- `len(sheets) >= 2` → identity генерируется ВСЕГДА как `{sheet}_{base}` (base — явно заданное
+  значение, или тот же дефолт), ПЕРЕЗАПИСЫВАЯ то, что написано в шаблоне — уникальность на лист
+  гарантируется структурно, поскольку проверка дубликатов имён смотрит на effective name, а тот
+  `sheet` не учитывает.
+
+`sheet_templates:` — dict-секция, поэтому мержится через `include:` так же, как `cells:`/`points:`
+(фатал на дублирующееся имя шаблона в разных файлах — см. `include:` ниже).
+
+---
+
 ## `thermal_via_arrays:` — термо-via-сетки
 
 ```yaml

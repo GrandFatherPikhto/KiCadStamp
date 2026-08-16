@@ -52,6 +52,11 @@
 «относительно якоря» — та же семантика, что у Rule/ClonePlacement) описаны в
 докстринге `CoordinatePlacement`.
 
+Когда один и тот же набор записей CoordinatePlacement/ClonePlacement нужно
+объявить один раз и размножить по переиспользуемым листам (Channel_0/1/2),
+используйте секцию `sheet_templates:` вместо копипасты записей — см.
+[docs/config_ru.md](config_ru.md).
+
 ---
 
 ## Структура

@@ -307,6 +307,72 @@ by explicit `layer:`+`mirror:`).
 
 ---
 
+## `sheet_templates:` — declaring a group once, instantiating per sheet
+
+`Channel_0/1/2` are three instances of the same reused hierarchical sheet pair — the Cluster/Role
+tags are IDENTICAL across instances (fieldstool tags the shared sheet FILE, not a specific
+instance), only `sheet:`/`anchor_sheet:` tells two physical copies apart. Instead of copy-pasting
+the same `clone_placements:`/`coordinate_placements:` entries N times — N independent lists that
+silently drift the moment Channel_0's design changes again — declare them once and let
+`load_config()` expand them once per sheet:
+
+```yaml
+sheet_templates:
+  channel:
+    sheets: [Channel_0, Channel_1, Channel_2]
+    coordinate_placements:
+    - cluster: OP_AMP
+      role: OP_AMP
+      # name: is auto-generated per sheet for multi-sheet templates (see Identity below)
+      sheet: self
+      x_mm: 9.0
+      y_mm: 0.0
+      rotation_deg: 270.0
+      anchor_role: AD_DAC
+      anchor_sheet: self
+    clone_placements:
+    - name: PIF_AVDD          # Cluster tag — never touched by expansion
+      cell: dac_pi_filter
+      sheet: self
+      xy: [2.0, 1.0]
+      rotation_deg: 90.0
+      anchor_role: AD_DAC
+      anchor_pad: '18'
+      anchor_cluster: AD_DAC
+      anchor_sheet: self
+      params:
+        FB_PI_FLT: /$SHEET/DAC/+3V3_AVDD
+```
+
+Expansion runs inside `load_config()`, right after `include:` resolution and before any per-entry
+loader — by the time `_load_clone_placement`/`_load_coordinate_placement` and the duplicate-name
+checks see the data, generated entries are indistinguishable from hand-written ones (downstream
+loaders never need to know this mechanism exists).
+
+**Reserved tokens, ONLY inside `sheet_templates:` blocks (nowhere else in the schema):**
+- `sheet: self` / `anchor_sheet: self` → the literal generated sheet name (`Channel_0`/`Channel_1`/...).
+  Deliberately NOT auto-filling every omitted `anchor_sheet:` — an `anchor_role: FPGA` entry must
+  NOT gain an `anchor_sheet:` it never asked for (FPGA is a single, non-sheet-scoped instance); only
+  an explicit `self` is substituted, an absent field stays absent.
+- `$SHEET` inside string values (`params:`/`nets:`/`net_overrides:`) → the same substitution, for
+  hierarchical net paths like `/$SHEET/DAC/+3V3_AVDD`.
+
+**Identity** (`placer_name:` for `clone_placements`, `name:` for `coordinate_placements` — NOT
+`clone_placements'` own `name:`, which is the Cluster tag and is never touched), split by
+`len(sheets)`:
+- `len(sheets) == 1` → identity is taken LITERALLY from the template (or the usual default,
+  `{cluster}/{role}` for coordinate_placements) with NO prefix — this is what lets a single-sheet
+  regression stay byte-identical.
+- `len(sheets) >= 2` → identity is ALWAYS generated as `{sheet}_{base}` (base = the explicitly-set
+  value, or the same default), OVERWRITING the template's own — per-sheet uniqueness is
+  structurally guaranteed, since the duplicate-name check keys off the effective name which does
+  NOT incorporate `sheet`.
+
+`sheet_templates:` is a dict section, so it merges through `include:` exactly like `cells:`/`points:`
+(fatal on a duplicate template name across files — see `include:` below).
+
+---
+
 ## `thermal_via_arrays:` — thermal via grids
 
 ```yaml

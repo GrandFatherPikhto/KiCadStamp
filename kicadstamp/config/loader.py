@@ -60,6 +60,7 @@ from .entries import (
     _point_is_footprint_eligible,
 )
 from .includes import _load_yaml_file, resolve_includes
+from .sheet_templates import expand_sheet_templates
 from .models import (
     ThermalViaArrayConfig, CoordinatePlacement, Config, rule_effective_name,
     coordinate_placement_effective_name,
@@ -94,6 +95,12 @@ def load_config(path: str) -> tuple[Config, RuntimeContext]:
     logger.info(_("Loading configuration from {path}").format(path=path))
     data = cached_file_read(Path(path), _load_yaml_file)
     data = resolve_includes(path, data)
+    # sheet_templates: expansion (2026-08-16) — must run after include
+    # resolution (a template can live in an included subsystem file) and
+    # BEFORE any per-entry loader/duplicate-name check, so template-generated
+    # entries are indistinguishable from hand-written ones (see
+    # kicadstamp/config/sheet_templates.py).
+    data = expand_sheet_templates(data)
 
     if 'target_ref' in data:
         raise ValidationError(format_fatal_error(
