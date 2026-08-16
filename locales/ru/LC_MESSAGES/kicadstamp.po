@@ -3147,6 +3147,28 @@ msgstr ""
 "{missing} не совпадает ни с чем ещё в выделении — похоже, уходит за "
 "пределы намеченного участка, пропущен"
 
+#: kicadstamp/template_selection.py:159
+#, python-brace-format
+msgid ""
+"  track ({sx:.3f},{sy:.3f}) -> ({ex:.3f},{ey:.3f}) mm, net={net}: "
+"not connected to any kept footprint's pad or via — "
+"belongs to excluded material, skipped"
+msgstr ""
+"  трек ({sx:.3f},{sy:.3f}) -> ({ex:.3f},{ey:.3f}) мм, цепь={net}: "
+"не соединён ни с одним падом удержанного компонента и ни с одной via — "
+"относится к исключённому материалу, пропущен"
+
+#: kicadstamp/template_selection.py:166
+#, python-brace-format
+msgid ""
+"  via at ({x:.3f},{y:.3f}) mm, net={net}: "
+"not connected to any kept footprint's pad — "
+"belongs to excluded material, skipped"
+msgstr ""
+"  via в ({x:.3f},{y:.3f}) мм, цепь={net}: "
+"не соединена ни с одним падом удержанного компонента — "
+"относится к исключённому материалу, пропущена"
+
 #: kicadstamp/template_selection.py:140
 #, python-brace-format
 msgid "--origin-by-via-net {net!r} not found in selection"

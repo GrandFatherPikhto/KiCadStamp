@@ -287,7 +287,7 @@ Implements the `extract` command logic: from the current selection in the KiCad 
 
 | Function | Description |
 |----------|-------------|
-| `extract_template_from_selection(adapter, name, params, net_template_map, ...)` | Main function. Reads selection, filters tracks, checks roles, computes origin, builds output dictionary. |
+| `extract_template_from_selection(adapter, name, params, net_template_map, ...)` | Main function. Reads selection, filters tracks/vias by connected-components closure (kept only if their component reaches a KEPT footprint's pad), checks roles, computes origin, builds output dictionary. |
 | `render_uncertain_comments(yaml_text, name)` | Adds YAML comments marking uncertain geometry values. |
 
 **Used in:** `cli_extract.py` (`extract` command).

@@ -152,7 +152,7 @@ pytest tests/integration_tests/ -v -s -m integration
 | `test_registry_pruning_granularity.py` | Registry pruning precision: correct identification of obsolete vs. current vias/tracks. |
 | `test_registry_rule_protection.py` | Registry rule protection via `known_anchor_ids`: vias/tracks of non‑`--only` clones are not pruned. |
 | `test_spoke_layout.py` | Local‑to‑global coordinate transformation for spoke templates (`spoke_layout`), including spoke‑level and component‑level vias, arbitrary number of roles. |
-| `test_template_extraction.py` | Template extraction from selection: role checks, uniqueness, origin computation, track filtering, net parametrisation (`--net-template`), origin selection by via/role. |
+| `test_template_extraction.py` | Template extraction from selection: role checks, uniqueness, origin computation, track/via filtering (connected-components closure rooted at kept footprints' pads), net parametrisation (`--net-template`), origin selection by via/role. |
 | `test_cell_files.py` | Deprecated `cells_file`/`cell_files`/`templates_file`/`template_files` keys are all fatal at load with a rename hint (folded into `include:` 2026-08-02 — see `test_config_includes.py` for the current mechanism). |
 | `test_two_phase_execution.py` | Two‑phase execution (moves → refresh → vias) with mocks – ensures that vias are planned after moves and have the correct `registry_key`. |
 | `test_undo_layer.py` | Saving and restoring the component layer in undo (`original_layer` in JSON log). |

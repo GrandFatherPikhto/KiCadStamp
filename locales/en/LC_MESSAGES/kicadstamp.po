@@ -2942,6 +2942,22 @@ msgid ""
 "extends beyond the intended area, skipped"
 msgstr ""
 
+#: kicadstamp/template_selection.py:159
+#, python-brace-format
+msgid ""
+"  track ({sx:.3f},{sy:.3f}) -> ({ex:.3f},{ey:.3f}) mm, net={net}: "
+"not connected to any kept footprint's pad or via — "
+"belongs to excluded material, skipped"
+msgstr ""
+
+#: kicadstamp/template_selection.py:166
+#, python-brace-format
+msgid ""
+"  via at ({x:.3f},{y:.3f}) mm, net={net}: "
+"not connected to any kept footprint's pad — "
+"belongs to excluded material, skipped"
+msgstr ""
+
 #: kicadstamp/template_selection.py:140
 #, python-brace-format
 msgid "--origin-by-via-net {net!r} not found in selection"

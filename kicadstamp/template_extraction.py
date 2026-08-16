@@ -18,14 +18,16 @@ Algorithm:
      to; all extracted vias always go into the spoke‑level vias list (not inside
      a specific component slot). The user can manually move vias into
      components[i].vias in the resulting YAML if needed.
-  5. Each SELECTED track is included ONLY IF BOTH its ends match (within
-     POSITION_TOLERANCE_MM) something else in the selection — a pad of a
-     selected component, a selected via, or the end of another selected track
-     (for butt‑joints without a via). A track whose end goes "nowhere" (e.g.,
-     a long track to +3V3 sticking out of the intended area) is skipped with
-     a warning, rather than included as‑is: KiCad can select such a track
-     entirely, even if it physically extends far beyond what we actually wanted
-     to copy.
+  5. Each SELECTED track/via is included ONLY IF its connected component
+     (via coincident endpoints, track‑to‑track joints, or touching a via)
+     reaches at least one REAL anchor — a pad of a KEPT footprint (see
+     template_selection.py's _filter_tracks_and_vias_within_selection, a
+     connected‑components closure). A track/via whose component only ever
+     touches OTHER excluded material (e.g., a track‑to‑track chain belonging
+     to a cluster whose footprints were dropped by "Keep only one Cluster")
+     is skipped as a whole component with a warning. When the selection has
+     no usable kept‑pad geometry (via‑only extraction / mocks), the
+     historical both‑ends‑match rule is preserved as a fallback.
 
 Roles (Role field) MUST be unique within the selection — fatal error at
 extraction time, not only during later cell loading.
@@ -49,7 +51,7 @@ from .net_resolution import parametrize_net
 from .net_from_role_resolver import classify_net
 from .utils.units import MM
 from .i18n import _
-from .template_selection import _find_origin, _filter_tracks_within_selection
+from .template_selection import _find_origin, _filter_tracks_and_vias_within_selection
 from .template_extraction_render import render_uncertain_comments  # noqa: F401  (re-export, see module docstring)
 
 logger = logging.getLogger(__name__)
@@ -209,8 +211,11 @@ def extract_template_from_selection(
         logger.warning(_("{count} selected objects — not footprint, via, or track, "
                          "ignored (cell only supports these)").format(count=len(ignored)))
 
-    tracks = _filter_tracks_within_selection(tracks_selected, footprints, vias, adapter) \
-        if tracks_selected else []
+    if tracks_selected or vias:
+        tracks, vias = _filter_tracks_and_vias_within_selection(
+            tracks_selected, vias, footprints, adapter)
+    else:
+        tracks, vias = [], []
     if len(tracks) < len(tracks_selected):
         logger.info(_("Tracks in selection: {total}, taken into cell: {kept} "
                       "(the rest extend beyond the selection, see warning above)")

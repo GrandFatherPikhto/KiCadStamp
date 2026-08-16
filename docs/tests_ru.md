@@ -152,7 +152,7 @@ pytest tests/integration_tests/ -v -s -m integration
 | `test_registry_pruning_granularity.py` | Точность pruning реестра: корректное определение устаревших vs. актуальных via/треков. |
 | `test_registry_rule_protection.py` | Защиту реестра через `known_anchor_ids`: via/треки клонов не из `--only` не удаляются. |
 | `test_spoke_layout.py` | Геометрическое преобразование локальных координат шаблона в глобальные (`spoke_layout`), включая via уровня спицы и компонента, произвольное количество ролей. |
-| `test_template_extraction.py` | Извлечение шаблона из выделения: проверка ролей, уникальности, вычисление origin, фильтрация треков, параметризация цепей (`--net-template`), выбор origin по via/роли. |
+| `test_template_extraction.py` | Извлечение шаблона из выделения: проверка ролей, уникальности, вычисление origin, фильтрация треков/via (замыкание связных компонент, укоренённое на падах КЕПТ-футпринтов), параметризация цепей (`--net-template`), выбор origin по via/роли. |
 | `test_cell_files.py` | Устаревшие ключи `cells_file`/`cell_files`/`templates_file`/`template_files` — все фатальны при загрузке с подсказкой на переименование (слиты в `include:` 2026-08-02 — см. `test_config_includes.py` про актуальный механизм). |
 | `test_two_phase_execution.py` | Двухфазное выполнение (moves → refresh → vias) на моках – гарантирует, что via планируются после перемещений и имеют корректный `registry_key`. |
 | `test_undo_layer.py` | Сохранение и восстановление слоя компонента при undo (`original_layer` в JSON-логе). |

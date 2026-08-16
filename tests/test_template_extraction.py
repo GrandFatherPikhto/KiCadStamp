@@ -548,3 +548,179 @@ class TestNetFromRoleAutoSuggest:
         tr = result["t"]["tracks"][0]
         assert tr["net"] is None
         assert tr["net_from_role"] == "C_OUT_BULK"
+
+
+def _make_fp_with_pads(ref, x_mm, y_mm, angle_deg, role, pads):
+    """Like _make_fp, but with REAL pad geometry (position + size) so the
+    connected-components closure sees actual pad boxes to anchor at.
+    pads: list of (net_name, px_mm, py_mm, size_mm)."""
+    fp = MagicMock(spec=FootprintInstance)
+    fp.reference_field.text.value = ref
+    fp.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
+    fp.orientation = Angle.from_degrees(angle_deg)
+    fp._role = role
+    fp._pads = []
+    for i, (net, px, py, size) in enumerate(pads):
+        pad = MagicMock()
+        pad.net.name = net
+        pad.number = str(i + 1)
+        pad.position = Vector2.from_xy(int(px * MM), int(py * MM))
+        pad._box_size = int(size * MM)
+        fp._pads.append(pad)
+    return fp
+
+
+def _make_track(x1_mm, y1_mm, x2_mm, y2_mm, net_name):
+    t = MagicMock(spec=Track)
+    t.start = Vector2.from_xy(int(x1_mm * MM), int(y1_mm * MM))
+    t.end = Vector2.from_xy(int(x2_mm * MM), int(y2_mm * MM))
+    t.net = MagicMock()
+    t.net.name = net_name
+    t.width = int(0.65 * MM)
+    t.layer = BoardLayer.BL_F_Cu
+    return t
+
+
+def _make_closure_adapter(footprints, vias=(), tracks=()):
+    """Adapter whose get_bounding_boxes returns REAL boxes for pads/vias —
+    this is what makes the closure path (not the fallback) run: footprints
+    are routed through _make_fp_with_pads (real pad positions/sizes)."""
+    adapter = MagicMock()
+    adapter.get_selected_items.return_value = list(footprints) + list(vias) + list(tracks)
+    adapter.get_field_value.side_effect = lambda fp, name: fp._role
+
+    def _pads(fp):
+        return list(getattr(fp, "_pads", []))
+
+    adapter.get_footprint_pads.side_effect = _pads
+
+    def _bboxes(items):
+        out = []
+        for it in items:
+            pos = getattr(it, "position", None)
+            if isinstance(pos, Vector2):
+                size = getattr(it, "_box_size", int(0.4 * MM))
+                half = size // 2
+                box = MagicMock()
+                box.pos = Vector2.from_xy(pos.x - half, pos.y - half)
+                box.size = Vector2.from_xy(size, size)
+                out.append(box)
+            else:
+                out.append(None)
+        return out
+
+    adapter.get_bounding_boxes.side_effect = _bboxes
+    return adapter
+
+
+class TestTrackViaClusterClosure:
+    """The Cluster filter must propagate to via/track connectivity, not just
+    footprints (plan_2026_08_16_extract_cluster_closure.md): a track/via is
+    kept ONLY if its connected component reaches a REAL anchor — a pad of a
+    KEPT footprint. A track-to-track island that only ever touches excluded
+    material is dropped as a WHOLE component (closes the old "two tracks
+    mutually validate each other at a shared endpoint on an EXCLUDED pad"
+    loophole), and vias — previously passed through completely unfiltered —
+    go through the same closure.
+
+    These tests exercise the closure path: footprints are built with REAL
+    pad boxes (_make_fp_with_pads / _make_closure_adapter). The both-ends-
+    match regression (no real pad boxes) stays covered by the pre-existing
+    tests above through the fallback branch.
+    """
+
+    def test_track_between_two_kept_pads_kept(self):
+        """Regression: a genuine both-ends-matched track between two KEPT
+        footprints' pads survives unchanged."""
+        fp1 = _make_fp_with_pads("U1", 0, 0, 0, "A", [("GND", 0, 0, 0.6)])
+        fp2 = _make_fp_with_pads("U2", 10, 0, 0, "B", [("GND", 10, 0, 0.6)])
+        t = _make_track(0, 0, 10, 0, "GND")
+        adapter = _make_closure_adapter([fp1, fp2], [], [t])
+
+        result = extract_template_from_selection(adapter, "t")
+
+        # Kept (closure-wise); the net is auto-suggested from role A (GND is
+        # A's only pad net) — net_from_role, not the closure, owns the net.
+        assert len(result["t"]["tracks"]) == 1
+
+    def test_two_tracks_share_coincident_endpoint_not_anchored_both_dropped(self, caplog):
+        """The exact dac_buf repro, minimized: two tracks share a coincident
+        endpoint that is NOT a pad of any KEPT footprint and NOT a via. The
+        old non-transitive check let each track "rescue" the other at that
+        shared point; the closure drops the whole unanchored island."""
+        u6 = _make_fp_with_pads("U6", 0, 0, 0, "OP_AMP", [("GND", 0, 0, 0.6)])
+        t1 = _make_track(5, 5, 10, 10, "/Channel_0/OpAmp/PROT_OUT_P")
+        t2 = _make_track(10, 10, 15, 15, "/Channel_0/OpAmp/PROT_OUT_P")
+        adapter = _make_closure_adapter([u6], [], [t1, t2])
+
+        with caplog.at_level("WARNING"):
+            result = extract_template_from_selection(adapter, "t")
+
+        assert result["t"]["tracks"] == []
+        assert "/Channel_0/OpAmp/PROT_OUT_P" in caplog.text
+
+    def test_legit_multihop_chain_pad_track_via_track_pad_survives(self):
+        """A legitimate 3+ hop chain (pad -> track -> via -> track -> pad, all
+        real anchors present) survives fully — the closure must not over-prune
+        genuine multi-hop routing."""
+        fp1 = _make_fp_with_pads("U1", 0, 0, 0, "A", [("GND", 0, 0, 0.6)])
+        fp2 = _make_fp_with_pads("U2", 10, 0, 0, "B", [("GND", 10, 0, 0.6)])
+        via = _make_via(5, 0, "GND")
+        t1 = _make_track(0, 0, 5, 0, "GND")
+        t2 = _make_track(5, 0, 10, 0, "GND")
+        adapter = _make_closure_adapter([fp1, fp2], [via], [t1, t2])
+
+        result = extract_template_from_selection(adapter, "t")
+
+        assert len(result["t"]["tracks"]) == 2
+        assert len(result["t"]["vias"]) == 1
+
+    def test_via_directly_on_kept_pad_kept(self):
+        """A via with no connecting track, sitting directly on a KEPT pad —
+        kept (single-hop anchor case, no regression for the common case)."""
+        fp = _make_fp_with_pads("U1", 0, 0, 0, "A", [("GND", 0, 0, 0.6)])
+        via = _make_via(0, 0, "GND")
+        adapter = _make_closure_adapter([fp], [via], [])
+
+        result = extract_template_from_selection(adapter, "t")
+
+        assert len(result["t"]["vias"]) == 1
+
+    def test_isolated_via_not_on_any_pad_dropped(self, caplog):
+        """A via with no connecting track, NOT on any kept pad, isolated —
+        dropped (the vias-were-completely-unfiltered-before gap, closed)."""
+        fp = _make_fp_with_pads("U1", 0, 0, 0, "A", [("GND", 0, 0, 0.6)])
+        via = _make_via(50, 50, "GND")
+        adapter = _make_closure_adapter([fp], [via], [])
+
+        with caplog.at_level("WARNING"):
+            result = extract_template_from_selection(adapter, "t")
+
+        assert result["t"]["vias"] == []
+        assert "not connected to any kept footprint's pad" in caplog.text
+
+    def test_end_to_end_live_repro_tracks_vias_of_excluded_footprints_absent(self, caplog):
+        """End-to-end mirror of the live dac_buf repro: footprints limited to
+        the KEPT cluster (as if "Keep only one Cluster" already applied), but
+        items still contain tracks/vias whose true endpoints belong to
+        EXCLUDED footprints not in footprints at all — they must be absent
+        from tracks:/vias: with a warning logged, not a literal net silently
+        written."""
+        u6 = _make_fp_with_pads("U6", 0, 0, 0, "OP_AMP", [("GND", 0, 0, 0.6)])
+        # D13's pad position — an EXCLUDED footprint (PES_D cluster) that is
+        # NOT in footprints at all; the protection track's true endpoint sits
+        # here.
+        t_prot = _make_track(5, 5, 10, 10, "/Channel_0/OpAmp/PROT_OUT_P")
+        v_prot = _make_via(7, 7, "/Channel_0/OpAmp/PA_EN_PROT")
+        # Legitimate power-rail track genuinely connecting to U6's kept pad.
+        t_legit = _make_track(0, 0, 10, 0, "+3V3")
+        adapter = _make_closure_adapter([u6], [v_prot], [t_prot, t_legit])
+
+        with caplog.at_level("WARNING"):
+            result = extract_template_from_selection(adapter, "t")
+
+        nets = [tr["net"] for tr in result["t"]["tracks"]]
+        assert nets == ["+3V3"]
+        assert result["t"]["vias"] == []
+        assert "/Channel_0/OpAmp/PROT_OUT_P" in caplog.text
+        assert "/Channel_0/OpAmp/PA_EN_PROT" in caplog.text
