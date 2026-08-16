@@ -13,7 +13,9 @@ logger = logging.getLogger(__name__)
 class OperationLogger:
     def __init__(self, log_dir: str = DEFAULT_LOG_DIR):
         self.log_dir = Path(log_dir)
-        self.log_dir.mkdir(exist_ok=True)
+        # parents=True: the log dir may be nested (e.g. profiles/power/logs/operational)
+        # and its intermediate directories may not exist yet.
+        self.log_dir.mkdir(parents=True, exist_ok=True)
 
     def write_operation_log(self, move_log: list[dict], via_log: list[dict],
                             track_log: list[dict] | None = None) -> Path | None:
@@ -21,7 +23,7 @@ class OperationLogger:
         if not move_log and not via_log and not track_log:
             return None
         try:
-            self.log_dir.mkdir(exist_ok=True)
+            self.log_dir.mkdir(parents=True, exist_ok=True)
             log_data = {
                 'timestamp': datetime.now().isoformat(),
                 'moves': move_log,

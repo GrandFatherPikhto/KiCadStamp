@@ -21,6 +21,7 @@ from kipy.board_types import BoardLayer
 
 from kicadstamp.config import Config, load_config
 from kicadstamp.placement.executor import BatchExecutor
+from kicadstamp.placement.executor.operation_logger import OperationLogger
 from kicadstamp.placement.commands import MoveCommand
 
 MM = 1_000_000
@@ -44,6 +45,29 @@ class TestLoadConfigResolvesOperationLogDir:
         assert cfg.operation_log_dir == str(tmp_path / "logs")
 
 
+class TestOperationLoggerCreatesNestedDir:
+    """Regression: OperationLogger must create the whole nested path (parents=True),
+    not just the leaf dir — otherwise profiles/<profile>/logs/operational fails
+    with FileNotFoundError when profiles/<profile>/logs does not exist yet."""
+
+    def test_nested_log_dir_is_created_recursively(self, tmp_path):
+        nested = tmp_path / "profiles" / "power" / "logs" / "operational"
+        logger = OperationLogger(str(nested))
+        assert nested.is_dir()
+
+    def test_write_operation_log_creates_nested_dir(self, tmp_path):
+        nested = tmp_path / "profiles" / "power" / "logs" / "operational"
+        logger = OperationLogger(str(nested))
+        written = logger.write_operation_log(
+            [{"ref": "J1", "x": 72.5, "y": 61.0, "angle": 270.0}],
+            [],
+            [],
+        )
+        assert written is not None
+        assert written.parent == nested
+        assert written.is_file()
+
+
 class TestBatchExecutorUsesConfigOperationLogDir:
     """Writing side of П.7: BatchExecutor must route operation logs to
     config.operation_log_dir when set — regardless of the process CWD."""
@@ -64,6 +88,29 @@ class TestBatchExecutorUsesConfigOperationLogDir:
         adapter._board = MagicMock()
         adapter.commit_with_retry.return_value = True
         return adapter
+
+    def test_writes_to_nested_config_bound_dir(self, tmp_path):
+        """Same as the CWD test but with a deeply nested, not-yet-existing
+        operation_log_dir — the FileNotFoundError regression from
+        profiles/power/logs/operational."""
+        bound = tmp_path / "a" / "b" / "c" / "logs" / "operational"
+        cfg = Config(
+            layer='B.Cu',
+            cells={},
+            rules=[],
+            clone_placements=[],
+            operation_log_dir=str(bound),
+        )
+        adapter = self._adapter(self._fp("C39"))
+        executor = BatchExecutor(adapter, cfg, batch_size=10)
+
+        move = MoveCommand(ref="C39", position=Vector2.from_xy(int(51 * MM), int(51 * MM)),
+                          angle=Angle.from_degrees(180.0), layer=BoardLayer.BL_B_Cu)
+
+        executor.execute_moves([move], check_collisions=False)
+        executor.execute_tracks([])
+        bound_files = list(bound.glob("operation_*.json"))
+        assert len(bound_files) == 1
 
     def test_writes_to_config_bound_dir_not_cwd(self, tmp_path):
         bound = tmp_path / "config_logs"
