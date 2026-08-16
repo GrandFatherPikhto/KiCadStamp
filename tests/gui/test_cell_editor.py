@@ -770,6 +770,34 @@ def test_target_file_combo_is_a_closed_picker_not_free_text(main_window):
     assert not dock.target_file_combo.isEditable()
 
 
+def test_set_root_path_drops_old_project_file_not_in_new_graph(main_window, tmp_path):
+    """2026-08-16 evening — Denis's own symptom was specifically "the
+    components file stayed old" in this dock's neighborhood: switching
+    root_path to a project whose graph doesn't include the dock's currently
+    targeted file must reset _path to None, not keep the old file via
+    set_file_combo_selection's extra-item fallback."""
+    project_a = tmp_path / "project_a"
+    project_a.mkdir()
+    target_a = project_a / "cells.yaml"
+    _write_yaml(target_a, {"cells": {}})
+    root_a = project_a / "root.yaml"
+    _write_yaml(root_a, {"cells": {}, "include": ["cells.yaml"]})
+    dock = CellDock(main_window)
+    dock.set_target_file(target_a)
+    dock.set_root_path(root_a)
+    assert dock._path == target_a
+
+    project_b = tmp_path / "project_b"
+    project_b.mkdir()
+    root_b = project_b / "root.yaml"
+    _write_yaml(root_b, {"cells": {}})
+
+    dock.set_root_path(root_b)
+
+    assert dock._path is None
+    assert dock.target_file_combo.currentData() is None
+
+
 def test_refresh_known_roles_populates_role_combos(main_window, tmp_path):
     dock, _ = _make_dock(main_window, tmp_path)
     snapshot = [SimpleNamespace(role="HEAVY"), SimpleNamespace(role="LIGHT"), SimpleNamespace(role="")]

@@ -519,7 +519,7 @@ class CellDock(QWidget):
         reasoning as RuleDock's spoke.cell combo), not just this dock's own
         target file (a nested cell routinely lives in a different file)."""
         self._root_path = path
-        refresh_file_combo_choices((self.target_file_combo,), path, (self._path,))
+        (self._path,) = refresh_file_combo_choices((self.target_file_combo,), path, (self._path,))
         names = collect_all_cell_names(path) if path is not None else []
         set_combo_items(self.nested_cell_combo, names)
 

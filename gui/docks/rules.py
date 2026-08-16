@@ -307,7 +307,7 @@ class RuleDock(QWidget):
         docstring), which needs the project's root, not this dock's own
         target file."""
         self._root_path = path
-        refresh_file_combo_choices((self.target_file_combo,), path, (self._path,))
+        (self._path,) = refresh_file_combo_choices((self.target_file_combo,), path, (self._path,))
         self._refresh_cell_names()
         self._refresh_point_names()
         self._refresh_sheet_names()

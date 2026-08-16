@@ -1082,7 +1082,7 @@ class PlacerDock(QWidget):
         module docstring had deliberately deferred until now (2026-08-06,
         Denis: "думаю имена Points тоже надо делать выпадашкой с именами")."""
         self._root_path = path
-        refresh_file_combo_choices(
+        self._cells_path, self._placer_path = refresh_file_combo_choices(
             (self.cells_file_combo, self.placer_file_combo),
             path, (self._cells_path, self._placer_path))
         self._refresh_point_names()

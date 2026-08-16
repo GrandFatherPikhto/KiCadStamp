@@ -170,6 +170,42 @@ def test_file_combos_are_closed_pickers_not_free_text_fields(main_window):
     assert not dock.placer_file_combo.isEditable()
 
 
+def test_set_root_path_drops_old_project_file_not_in_new_graph(main_window, tmp_path):
+    """2026-08-16 evening (Denis live): PlacerDock kept showing/reading the
+    OLD project's components file after switching root_path to a project
+    whose graph doesn't include it. set_root_path must reset _cells_path/
+    _placer_path (and thus the Cell choices) to "nothing picked" for any
+    file no longer reachable from the new root — not keep it via
+    set_file_combo_selection's "add as an extra item" fallback."""
+    project_a = tmp_path / "project_a"
+    project_a.mkdir()
+    cells_a = project_a / "cells.yaml"
+    _write_yaml(cells_a, {"cells": {
+        "pi_filter": {"components": [], "vias": [], "tracks": [], "layer": "F.Cu"}}})
+    root_a = project_a / "root.yaml"
+    _write_yaml(root_a, {"include": ["cells.yaml"]})
+    dock = PlacerDock(main_window)
+    dock.set_root_path(root_a)
+    dock.set_cells_file(cells_a)
+    assert dock._cells_path == cells_a
+    assert dock.cell_combo.count() == 1  # "pi_filter" loaded before the switch
+
+    # Project B: a completely separate graph that does NOT include project A.
+    project_b = tmp_path / "project_b"
+    project_b.mkdir()
+    root_b = project_b / "root.yaml"
+    _write_yaml(root_b, {"clone_placements": []})
+
+    dock.set_root_path(root_b)
+
+    assert dock._cells_path is None
+    assert dock._placer_path is None
+    # Re-reading with the reset _cells_path yields NO cells — the old
+    # project's components must not keep showing up.
+    dock._refresh_cell_choices()
+    assert dock.cell_combo.count() == 0
+
+
 def test_new_placement_clears_the_cell_combo_selection(main_window, tmp_path):
     dock, _, placer_file = _make_cell_and_dock(main_window, tmp_path)
     dock.new_placement(placer_file)

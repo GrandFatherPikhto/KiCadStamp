@@ -537,3 +537,31 @@ def test_set_root_path_does_not_clobber_point_name_autocomplete(main_window, tmp
 def test_target_file_combo_is_a_closed_picker_not_free_text(main_window):
     dock = PointsDock(main_window)
     assert not dock.target_file_combo.isEditable()
+
+
+def test_set_root_path_drops_old_project_file_not_in_new_graph(main_window, tmp_path):
+    """2026-08-16 evening — same regression as PlacerDock/CellDock, proving
+    the fix generalizes through the shared refresh_file_combo_choices helper
+    (this dock is one of the single-_path set_root_path call sites): a file
+    not in the NEW root's graph must be dropped, not kept via the helper's
+    extra-item fallback."""
+    project_a = tmp_path / "project_a"
+    project_a.mkdir()
+    target_a = project_a / "points.yaml"
+    _write_yaml(target_a, {"points": {}})
+    root_a = project_a / "root.yaml"
+    _write_yaml(root_a, {"points": {}, "include": ["points.yaml"]})
+    dock = PointsDock(main_window)
+    dock.set_target_file(target_a)
+    dock.set_root_path(root_a)
+    assert dock._path == target_a
+
+    project_b = tmp_path / "project_b"
+    project_b.mkdir()
+    root_b = project_b / "root.yaml"
+    _write_yaml(root_b, {"points": {}})
+
+    dock.set_root_path(root_b)
+
+    assert dock._path is None
+    assert dock.target_file_combo.currentData() is None

@@ -675,7 +675,7 @@ class ExtractDock(QWidget):
         tree_to_combo_file_pickers) instead of this dock's own private
         _refresh_file_choices copy."""
         self._root_path = path
-        refresh_file_combo_choices(
+        self._target_path, self._profile_path, self._placer_path = refresh_file_combo_choices(
             (self.target_file_combo, self.profile_file_combo, self.placer_file_combo),
             path, (self._target_path, self._profile_path, self._placer_path))
 

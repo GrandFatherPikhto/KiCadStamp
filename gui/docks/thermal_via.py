@@ -199,7 +199,7 @@ class ThermalViaArrayDock(QWidget):
         different file than the thermal_via_arrays entry referencing it),
         same reasoning/pattern as RuleDock's/PlacerDock's own set_root_path."""
         self._root_path = path
-        refresh_file_combo_choices((self.target_file_combo,), path, (self._path,))
+        (self._path,) = refresh_file_combo_choices((self.target_file_combo,), path, (self._path,))
         self._refresh_point_names()
         self._refresh_sheet_names()
 

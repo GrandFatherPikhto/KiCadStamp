@@ -190,7 +190,7 @@ class PointsDock(QWidget):
         set_root_path. Points' own point-chain autocomplete (_refresh_point_
         names) stays scoped to this dock's own target file, unchanged."""
         self._root_path = path
-        refresh_file_combo_choices((self.target_file_combo,), path, (self._path,))
+        (self._path,) = refresh_file_combo_choices((self.target_file_combo,), path, (self._path,))
         self._refresh_sheet_names()
 
     def refresh_known_roles(self, snapshot) -> None:

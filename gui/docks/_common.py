@@ -179,7 +179,7 @@ def set_file_combo_selection(combo: QComboBox, path: Optional[Path]) -> None:
 
 
 def refresh_file_combo_choices(combos: Sequence[QComboBox], root_path: Optional[Path],
-                               current_paths: Sequence[Optional[Path]]) -> None:
+                               current_paths: Sequence[Optional[Path]]) -> List[Optional[Path]]:
     """Repopulates every combo in `combos` from every file reachable via
     include: from `root_path` (collect_graph_files — walks the whole graph
     on disk), then reflects each dock's current path back into its own combo
@@ -193,9 +193,26 @@ def refresh_file_combo_choices(combos: Sequence[QComboBox], root_path: Optional[
     tree_to_combo_file_pickers, step 1). `collect_graph_files` is imported
     lazily to keep this module free of a circular import — rename.py imports
     _common at module level, so a top-level `from .rename import
-    collect_graph_files` here would break whichever of the two loaded first."""
+    collect_graph_files` here would break whichever of the two loaded first.
+
+    Returns the CORRECTED current path for each combo, aligned with
+    `current_paths`: unchanged if it's still reachable from `root_path`'s
+    include graph, else None (2026-08-16 evening — a dock's remembered file
+    from the PREVIOUS root must not silently keep being read as if it still
+    belonged to the new project; found live — PlacerDock kept reading the
+    old project's components file after switching root_path entirely). This
+    is exactly where the old behavior went wrong: it reflected the
+    PRE-switch path back through set_file_combo_selection, whose "add as an
+    extra item even if outside the graph" fallback (meant for direct
+    ConfigTreeDock clicks) silently re-added and re-selected the now-stale
+    file without ever telling the dock's own path attribute that the
+    project changed. Callers MUST assign the return value back onto their
+    own path attribute(s) — this function only owns the combo widgets,
+    never a dock's own state.
+    """
     from .rename import collect_graph_files
     files = collect_graph_files(root_path) if root_path is not None else []
+    file_set = set(files)
     items = sorted(((display_path(p), p) for p in files), key=lambda t: t[0])
     for combo in combos:
         combo.blockSignals(True)
@@ -203,8 +220,10 @@ def refresh_file_combo_choices(combos: Sequence[QComboBox], root_path: Optional[
         for text, path in items:
             combo.addItem(text, path)
         combo.blockSignals(False)
-    for combo, path in zip(combos, current_paths):
+    corrected = [p if (p is not None and p in file_set) else None for p in current_paths]
+    for combo, path in zip(combos, corrected):
         set_file_combo_selection(combo, path)
+    return corrected
 
 
 # --- Highlight (active tab / selected tree item) color -------------------

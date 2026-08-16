@@ -454,3 +454,31 @@ def test_refresh_file_combo_choices_none_root_leaves_combos_empty(qapp, tmp_path
     refresh_file_combo_choices((combo,), None, (None,))
 
     assert combo.count() == 0
+
+
+def test_refresh_file_combo_choices_drops_path_outside_new_graph(qapp, tmp_path):
+    """2026-08-16 evening (Denis live): switching the open root project must
+    drop a dock's selected file when it's not in the NEW project's graph.
+    refresh_file_combo_choices used to reflect the pre-switch path back via
+    set_file_combo_selection, whose "add as an extra item even if outside
+    the graph" fallback silently re-added and re-selected the OLD project's
+    file — and the dock's own path attribute was never told the project
+    changed (PlacerDock kept reading the old project's components file).
+    Now the helper validates each current path against the new root's file
+    set and returns None for anything no longer reachable."""
+    from PyQt6.QtWidgets import QComboBox
+    (tmp_path / "sub.yaml").write_text("cells: {}\n", encoding="utf-8")
+    root = tmp_path / "root.yaml"
+    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
+    # A file in a SIBLING directory of the root — not reachable via any
+    # include: under root.yaml, exactly Denis's "old project's file".
+    stale = tmp_path / "other_project" / "components.yaml"
+    stale.parent.mkdir()
+    stale.write_text("cells: {}\n", encoding="utf-8")
+    combo = QComboBox()
+
+    corrected = refresh_file_combo_choices((combo,), root, (stale,))
+
+    assert corrected == [None]
+    assert combo.count() == 2  # only the graph's own files — no phantom item
+    assert combo.currentData() is None
