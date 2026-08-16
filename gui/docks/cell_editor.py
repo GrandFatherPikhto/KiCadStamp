@@ -94,7 +94,7 @@ _LAYER_ITEMS = [("F.Cu", "F.Cu"), ("B.Cu", "B.Cu")]
 _INHERIT_LAYER_ITEMS = [(_("(inherit cell layer)"), None), ("F.Cu", "F.Cu"), ("B.Cu", "B.Cu")]
 
 _COMPONENT_COLUMNS = ["Role", "Offset along", "Offset across", "Angle", "Layer",
-                     "Net template", "Net template pad"]
+                     "Net template", "Net template pad", "Same net as role"]
 _VIA_COLUMNS = ["Offset along", "Offset across", "Net", "Drill", "Diameter"]
 _TRACK_COLUMNS = ["Start along", "Start across", "End along", "End across", "Width", "Net", "Layer"]
 _NESTED_COLUMNS = ["Name", "Content", "X", "Y", "Rotation", "Mirror", "Layer"]
@@ -260,6 +260,14 @@ class CellDock(QWidget):
         self.comp_net_template_pad_edit = QLineEdit()
         self.comp_net_template_pad_edit.setPlaceholderText(_("pad (optional)"))
         form.addRow(_("Net template pad:"), self.comp_net_template_pad_edit)
+        # 2026-08-16 (net_template_same_as_role): a CLOSED combo of THIS cell's
+        # own roles (same widget kind/reasoning as anchor_role_combo /
+        # via_net_from_role_combo — free text is never valid here, and _load_cell
+        # fatals if the reference names a role that doesn't exist in this cell).
+        # Names the OTHER role whose net this one shares — the cross-instance-
+        # safe alternative to a pad number for electrically symmetric 2-pin R/C.
+        self.comp_net_template_same_as_role_combo = QComboBox()
+        form.addRow(_("Same net as role:"), self.comp_net_template_same_as_role_combo)
         page_layout.addLayout(form)
 
         row = QHBoxLayout()
@@ -544,6 +552,13 @@ class CellDock(QWidget):
         set_combo_items(self.anchor_role_combo, roles)
         set_combo_items(self.via_net_from_role_combo, roles)
         set_combo_items(self.track_net_from_role_combo, roles)
+        # A leading "" placeholder keeps "no reference" a valid state: a closed
+        # QComboBox auto-selects the first added item, so without it the first
+        # role added to the cell would silently become this field's value (and
+        # _build_component_dict would reject it as a same-net reference without
+        # a net_template). "" round-trips through set_combo_items's
+        # preserve-current-text logic, so an existing value survives refreshes.
+        set_combo_items(self.comp_net_template_same_as_role_combo, [""] + roles)
 
     def _on_via_net_source_changed(self) -> None:
         from_role = self.via_net_source_combo.currentIndex() == 1
@@ -605,6 +620,7 @@ class CellDock(QWidget):
                 str(c.get("layer", "")),
                 str(c.get("net_template", "")),
                 str(c.get("net_template_pad", "")),
+                str(c.get("net_template_same_as_role", "")),
             ]
             for col, value in enumerate(values):
                 self.components_table.setItem(row, col, QTableWidgetItem(value))
@@ -671,6 +687,7 @@ class CellDock(QWidget):
         self.comp_layer_combo.setCurrentIndex(self._findable(self.comp_layer_combo, c.get("layer")))
         self.comp_net_template_edit.setText(str(c.get("net_template", "")))
         self.comp_net_template_pad_edit.setText(str(c.get("net_template_pad", "")))
+        self.comp_net_template_same_as_role_combo.setCurrentText(str(c.get("net_template_same_as_role", "")))
 
     def _clear_component_editor(self) -> None:
         self.comp_role_edit.setCurrentText("")
@@ -680,6 +697,7 @@ class CellDock(QWidget):
         self.comp_layer_combo.setCurrentIndex(0)
         self.comp_net_template_edit.setText("")
         self.comp_net_template_pad_edit.setText("")
+        self.comp_net_template_same_as_role_combo.setCurrentText("")
 
     def _build_component_dict(self) -> Optional[Dict[str, Any]]:
         role = self.comp_role_edit.currentText().strip()
@@ -719,6 +737,19 @@ class CellDock(QWidget):
                 self._show_message(_("Net template pad requires a net template."), _ERROR_STYLE)
                 return None
             entry["net_template_pad"] = net_template_pad
+        same_as_role = self.comp_net_template_same_as_role_combo.currentText().strip()
+        if same_as_role:
+            # Mirror of the loader's fatals (net_template_same_as_role
+            # requires net_template; mutually exclusive with net_template_pad)
+            # — caught here in the form, before the loader would on the next
+            # load.
+            if not net_template:
+                self._show_message(_("Same net as role requires a net template."), _ERROR_STYLE)
+                return None
+            if net_template_pad:
+                self._show_message(_("Pick one: a fixed pad number or a same-net role reference, not both."), _ERROR_STYLE)
+                return None
+            entry["net_template_same_as_role"] = same_as_role
         # Per-component vias are not editable in this dock (see module
         # docstring) — preserve whatever the selected row already had.
         if self._selected_component is not None:

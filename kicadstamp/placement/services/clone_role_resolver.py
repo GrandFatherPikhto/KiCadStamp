@@ -121,29 +121,37 @@ def candidate_nets(adapter, fp, rule_nets: set[str] | None = None) -> list[str]:
     return sorted({p.net.name for p in pads if p.net and p.net.name and p.net.name not in rule})
 
 
-def suggest_role_nets_from_cluster(adapter, role_pads: dict[str, str | None], cluster: str,
-                                   rule_nets: set[str] | None = None) -> dict[str, str]:
+def suggest_role_nets_from_cluster(adapter, role_hints: dict[str, tuple[str | None, str | None]],
+                                   cluster: str, rule_nets: set[str] | None = None) -> dict[str, str]:
     """Best-effort role -> net suggestion for PlacerDock's Nets tab "Auto-fill
     from board" button (2026-08-12, Denis: "если есть проблема, её можно сразу
     решить в ручном режиме" — auto-fill what's unambiguous, leave the rest for
     manual entry rather than blocking on it).
 
-    role_pads: {role: net_template_pad_or_None} — SIGNATURE CHANGE from the
-    old `roles: list[str]` (2026-08-16, net_template_pad): callers now pass
-    each role's cell-level net_template_pad (None if the cell has no
-    net_template_pad for that role — old behaviour: require exactly one
-    non-rule net on the candidate).
+    role_hints: {role: (net_template_pad, net_template_same_as_role)} — exactly
+    one of the pair is non-None, or both None (see the loader's
+    mutual-exclusion fatal). SIGNATURE CHANGE (2026-08-16 afternoon,
+    net_template_same_as_role) from role_pads: dict[str, str | None], which
+    was itself the morning's change from roles: list[str].
 
-    For each role: resolve_single_role_candidate (the Cluster+Role narrowing —
-    the SAME signal resolve_roles_by_nets's own step 3 narrowing already uses
-    via the placement's own `name` (clone.name), see that function's
-    docstring). If found AND net_template_pad is set for this role: read THAT
-    SPECIFIC pad's net directly, no "exactly one" requirement — mechanical,
-    deterministic (2026-08-16 addition). If found and no net_template_pad:
-    fall back to the ORIGINAL lemma-2 rule — suggest only when the candidate
-    has EXACTLY one non-rule net on its pads. 0 or 2+ candidates, or an
-    unset/missing pad: role is simply left out of the returned dict
-    (unblocked, same as before — the caller leaves that row for manual entry).
+    Per-role dispatch, in priority order:
+      - net_template_same_as_role set: resolve the NAMED sibling role on the
+        SAME target cluster (resolve_single_role_candidate) and, if found,
+        RE-VERIFY it is still lemma-2-safe on the CURRENT live board (exactly
+        one non-rule net — not trusted blindly from extraction time, the
+        board may have changed since) before using its net. Sibling absent or
+        no longer lemma-2-safe: role is simply left out (never a stale/wrong
+        guess).
+      - else net_template_pad set: read THAT SPECIFIC pad's net directly, no
+        "exactly one" requirement — mechanical, deterministic (2026-08-16
+        morning addition; pad numbers are only reliable cross-instance for
+        fixed-pinout parts — ICs/diodes/polarized caps, see
+        net_template_same_as_role in TemplateComponentSlot's docstring).
+      - else: ORIGINAL lemma-2 rule — suggest only when the candidate has
+        EXACTLY one non-rule net on its pads.
+    Roles with 0 or 2+ candidates for the relevant resolution step are simply
+    left out of the returned dict (unblocked, same as before — the caller
+    leaves that row for manual entry).
 
     Read-only — never moves/tags/writes anything to the board. This is a GUI
     convenience, not part of the by-nets resolution ClonePositionCalculator
@@ -153,9 +161,16 @@ def suggest_role_nets_from_cluster(adapter, role_pads: dict[str, str | None], cl
     """
     all_fps = adapter.get_footprints()
     suggestions: dict[str, str] = {}
-    for role, pad in role_pads.items():
+    for role, (pad, same_as_role) in role_hints.items():
         fp = resolve_single_role_candidate(all_fps, adapter, role, cluster)
         if fp is None:
+            continue
+        if same_as_role is not None:
+            sibling_fp = resolve_single_role_candidate(all_fps, adapter, same_as_role, cluster)
+            if sibling_fp is not None:
+                sibling_nets = candidate_nets(adapter, sibling_fp, rule_nets)
+                if len(sibling_nets) == 1:
+                    suggestions[role] = sibling_nets[0]
             continue
         if pad is not None:
             p = adapter.get_pad_by_number(fp, str(pad))

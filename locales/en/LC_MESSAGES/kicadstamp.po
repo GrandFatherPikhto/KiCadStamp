@@ -651,6 +651,56 @@ msgid ""
 "too"
 msgstr ""
 
+#: gui/docks/cell_editor.py:270
+msgid "Same net as role:"
+msgstr ""
+
+#: gui/docks/cell_editor.py:747
+msgid "Same net as role requires a net template."
+msgstr ""
+
+#: gui/docks/cell_editor.py:750
+msgid "Pick one: a fixed pad number or a same-net role reference, not both."
+msgstr ""
+
+#: kicadstamp/config/entries.py:151
+#, python-brace-format
+msgid "net_template_same_as_role without net_template in slot {role!r}"
+msgstr ""
+
+#: kicadstamp/config/entries.py:152
+#, python-brace-format
+msgid ""
+"net_template_same_as_role={ref!r} only narrows which OTHER role's net this one "
+"shares — it is not a net by itself; write net_template: '<pattern>' too"
+msgstr ""
+
+#: kicadstamp/config/entries.py:158
+#, python-brace-format
+msgid "both net_template_pad and net_template_same_as_role in slot {role!r}"
+msgstr ""
+
+#: kicadstamp/config/entries.py:160
+#, python-brace-format
+msgid ""
+"mutually exclusive — pick ONE mechanism per role: a fixed pad number "
+"(net_template_pad, safe only for fixed-pinout parts: ICs/diodes/polarized "
+"caps) or a same-net role reference (net_template_same_as_role, safe for "
+"symmetric 2-pin R/C)"
+msgstr ""
+
+#: kicadstamp/config/entries.py:201
+#, python-brace-format
+msgid "net_template_same_as_role={ref!r} in slot {role!r} is not a role of cell {name!r}"
+msgstr ""
+
+#: kicadstamp/config/entries.py:203
+#, python-brace-format
+msgid ""
+"net_template_same_as_role must reference ANOTHER role of THIS cell (cell roles: "
+"{roles}) — it names whose net this role shares, so it must exist here"
+msgstr ""
+
 #: gui/docks/cell_editor.py:231 gui/docks/cell_editor.py:276
 #: gui/docks/cell_editor.py:326 gui/docks/cell_editor.py:400
 msgid "Add"

@@ -1333,14 +1333,15 @@ class PlacerDock(QWidget):
                       "resolver's own narrowing already uses."), _ERROR_STYLE)
             return None
         cell_data = yaml_io.load_data(self._cells_path).get("cells", {}).get(self._selected_cell, {})
-        # 2026-08-16 (net_template_pad): carry each role's cell-level
-        # net_template_pad (None if absent) — suggest_role_nets_from_cluster
-        # now reads the resolved candidate's SPECIFIC pad when set, so a
-        # multi-pad role (regulator/diode/inductor) fills deterministically
-        # instead of being skipped for "more than one non-rule net".
-        role_pads = {c["role"]: c.get("net_template_pad")
-                     for c in cell_data.get("components", []) if c.get("role")}
-        if not role_pads:
+        # 2026-08-16 (net_template_pad + afternoon net_template_same_as_role):
+        # carry each role's cell-level (net_template_pad, net_template_same_as_role)
+        # pair (both None if absent — loader's mutual-exclusion fatal guarantees
+        # at most one is set) — suggest_role_nets_from_cluster dispatches on the
+        # pair: same-as-role is resolved live against the sibling, pad reads the
+        # resolved candidate's SPECIFIC pad, neither falls back to lemma 2.
+        role_hints = {c["role"]: (c.get("net_template_pad"), c.get("net_template_same_as_role"))
+                      for c in cell_data.get("components", []) if c.get("role")}
+        if not role_hints:
             if not quiet:
                 self._show_message(_("Selected cell has no component roles."), _ERROR_STYLE)
             return None
@@ -1351,22 +1352,22 @@ class PlacerDock(QWidget):
             return None
         # `quiet` rides along in the payload (and is echoed back in the
         # worker's result) instead of a shared dock field — bug 2, 2026-08-13.
-        return {"adapter": board.adapter, "role_pads": role_pads, "cluster": cluster,
+        return {"adapter": board.adapter, "role_hints": role_hints, "cluster": cluster,
                 "quiet": quiet}
 
     @staticmethod
     def _run_autofill_nets(payload: Dict[str, Any]) -> Dict[str, Any]:
         """Worker thread: live board read only, never touches a widget."""
         adapter = payload["adapter"]
-        role_pads = payload["role_pads"]
+        role_hints = payload["role_hints"]
         cluster = payload["cluster"]
-        suggestions = suggest_role_nets_from_cluster(adapter, role_pads, cluster)
+        suggestions = suggest_role_nets_from_cluster(adapter, role_hints, cluster)
         # 2026-08-16 (net_template_pad): also fetch the per-role candidate
         # nets for the Net-combobox narrowing, in the SAME live-board worker
         # run (auto-fill already fires on every Cell/Cluster commit — exactly
         # when narrowing should refresh; no extra socket round-trip).
-        narrowed = candidate_nets_by_role(adapter, list(role_pads), cluster)
-        return {"suggestions": suggestions, "roles": list(role_pads),
+        narrowed = candidate_nets_by_role(adapter, list(role_hints), cluster)
+        return {"suggestions": suggestions, "roles": list(role_hints),
                 "narrowed": narrowed, "quiet": payload["quiet"]}
 
     def _finish_autofill_nets(self, result: Dict[str, Any]) -> None:

@@ -167,6 +167,72 @@ class TestTemplateComponentSlotNetTemplatePad:
         with pytest.raises(ValidationError, match="without net_template in slot"):
             load_config(str(p))
 
+    def test_net_template_same_as_role_default_is_none(self):
+        slot = TemplateComponentSlot(role="R_FB_TOP")
+        assert slot.net_template_same_as_role is None
+
+    def test_net_template_with_same_as_role_loads(self, tmp_path):
+        """Round-trip: net_template_same_as_role names ANOTHER role of the SAME
+        cell — needs both slots present, and must survive the loader."""
+        p = tmp_path / "t.yaml"
+        p.write_text(MINIMAL + """
+cells:
+  c:
+    components:
+      - role: R_FB_BOT
+        net_template: 'NET_{p}'
+      - role: R_FB_TOP
+        net_template: 'NET_{p}'
+        net_template_same_as_role: R_FB_BOT
+""", encoding="utf-8")
+        cfg, _ = load_config(str(p))
+        by_role = {s.role: s for s in cfg.cells["c"].components}
+        assert by_role["R_FB_TOP"].net_template_same_as_role == "R_FB_BOT"
+        assert by_role["R_FB_BOT"].net_template_same_as_role is None
+
+    def test_net_template_same_as_role_without_net_template_is_fatal(self, tmp_path):
+        p = tmp_path / "t.yaml"
+        p.write_text(MINIMAL + """
+cells:
+  c:
+    components:
+      - role: R_FB_BOT
+        net_template: 'NET_{p}'
+      - role: R_FB_TOP
+        net_template_same_as_role: R_FB_BOT
+""", encoding="utf-8")
+        with pytest.raises(ValidationError, match="without net_template in slot"):
+            load_config(str(p))
+
+    def test_both_pad_and_same_as_role_is_fatal(self, tmp_path):
+        p = tmp_path / "t.yaml"
+        p.write_text(MINIMAL + """
+cells:
+  c:
+    components:
+      - role: R_FB_TOP
+        net_template: 'NET_{p}'
+        net_template_pad: '2'
+        net_template_same_as_role: R_FB_BOT
+""", encoding="utf-8")
+        with pytest.raises(ValidationError, match="both net_template_pad and net_template_same_as_role"):
+            load_config(str(p))
+
+    def test_same_as_role_naming_missing_role_is_fatal(self, tmp_path):
+        """Cell-wide cross-reference check in _load_cell: the referenced role
+        must exist in THIS cell."""
+        p = tmp_path / "t.yaml"
+        p.write_text(MINIMAL + """
+cells:
+  c:
+    components:
+      - role: R_FB_TOP
+        net_template: 'NET_{p}'
+        net_template_same_as_role: NOT_HERE
+""", encoding="utf-8")
+        with pytest.raises(ValidationError, match="is not a role of cell"):
+            load_config(str(p))
+
     def test_net_null_still_loads(self, tmp_path):
         p = tmp_path / "t.yaml"
         p.write_text(_track_cell_yaml(

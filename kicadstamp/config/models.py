@@ -240,6 +240,26 @@ class TemplateComponentSlot:
     only helps suggest_role_nets_from_cluster (GUI auto-fill BEFORE nets:/
     params: exist) pick the right pad deterministically instead of requiring
     "exactly one non-rule net total" on the candidate.
+
+    net_template_same_as_role — OPTIONAL, ALTERNATIVE to net_template_pad, same
+    purpose (disambiguate a multi-net candidate for suggest_role_nets_from_cluster),
+    different mechanism: names ANOTHER role in this SAME cell whose own resolved
+    net (safely, via lemma 2 — that role must have exactly one non-rule net) is
+    electrically IDENTICAL to this role's identifying net. Prefer this over
+    net_template_pad whenever possible — a PAD NUMBER is only a reliable
+    cross-instance identifier for components with a fixed physical pinout (ICs,
+    diodes, polarized caps); for electrically symmetric 2-pin parts (plain R/C)
+    which pad ends up "1" vs "2" is an arbitrary ROUTING choice, independently
+    made per instance — found live 2026-08-16 (R_FB_TOP's identifying net sat on
+    pad 2 in one routed instance, pad 1 in another, despite IDENTICAL component
+    position/orientation — verified geometrically, not a rotation/mirror
+    artifact). Electrical topology (which nets are the same node) is exactly what
+    IS guaranteed to survive between clone instances; pad numbering is not.
+    Mutually exclusive with net_template_pad (fatal to set both — pick one
+    mechanism per role). Like net_template_pad, only meaningful together with
+    net_template, and does NOT affect resolve_roles_by_nets (apply-time by-nets
+    resolution already works purely by net VALUE, immune to this whole class of
+    problem — see plan_2026_08_16_net_template_pad.md's own scope note).
     """
     role: str
     offset_along_mm: float = 0.0
@@ -248,6 +268,7 @@ class TemplateComponentSlot:
     vias: list[TemplateVia] = field(default_factory=list)
     net_template: str | None = None
     net_template_pad: str | None = None
+    net_template_same_as_role: str | None = None
     # Layer of the slot — FACT, absolute: 'F.Cu' | 'B.Cu'. None = inherit from
     # cell layer. Written by extract only for components that deviate from
     # the cell layer.

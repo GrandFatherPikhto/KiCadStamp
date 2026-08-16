@@ -205,9 +205,13 @@ class TestNetTemplateAutoDetect:
         )
         comp = result["t"]["components"][0]
         assert comp["net_template"] == "{PWR_IN}"
-        # 2026-08-16 (net_template_pad): the successful auto-detect path also
-        # records WHICH pad carried the resolved net (pad 1 -> +5V_DIRTY here).
-        assert comp["net_template_pad"] == "1"
+        # 2026-08-16 (net_template_same_as_role): a lemma-2-safe role (exactly
+        # one non-rule net) needs NO disambiguation — it must write NEITHER
+        # net_template_pad NOR net_template_same_as_role. This is the
+        # C_ADJ_BULK/R_FB_BOT bug fix (an unneeded pad number used to be
+        # recorded here, which then silently broke on another instance).
+        assert "net_template_pad" not in comp
+        assert "net_template_same_as_role" not in comp
 
     def test_two_matching_nets_leaves_net_template_unset_with_warning(self, caplog):
         fb = _make_fp("FB1", 0, 0, 0, "PI_FILTER_FB", pad_nets=["+5V_DIRTY", "+5V"])
@@ -312,10 +316,17 @@ class TestNetTemplateRole:
             net_template_role={"PI_FILTER_FB": "+5V_DIRTY"},
         )
         by_role = {c["role"]: c for c in result["t"]["components"]}
+        # C_IN_BULK: lemma-2-safe (auto-detect) -> records only net_template,
+        # NEITHER pad NOR same-as-role (2026-08-16 fix).
         assert by_role["C_IN_BULK"]["net_template"] == "{PWR_IN}"
-        assert by_role["C_IN_BULK"]["net_template_pad"] == "1"  # auto-detect: pad 1
+        assert "net_template_pad" not in by_role["C_IN_BULK"]
+        assert "net_template_same_as_role" not in by_role["C_IN_BULK"]
+        # PI_FILTER_FB: explicit --net-template-role, and C_IN_BULK was already
+        # classified as lemma-2-safe on the SAME net THIS pass -> reference it
+        # (net_template_same_as_role) instead of a pad number (2026-08-16).
         assert by_role["PI_FILTER_FB"]["net_template"] == "{PWR_IN}"
-        assert by_role["PI_FILTER_FB"]["net_template_pad"] == "1"  # explicit role
+        assert by_role["PI_FILTER_FB"]["net_template_same_as_role"] == "C_IN_BULK"
+        assert "net_template_pad" not in by_role["PI_FILTER_FB"]
 
 
 class TestRuleNets:

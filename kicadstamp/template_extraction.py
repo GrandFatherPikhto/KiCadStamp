@@ -265,6 +265,15 @@ def extract_template_from_selection(
                     .format(back=back_count, front=len(footprints)-back_count, layer=tpl_layer_str))
     logger.info(_("Cell layer: {layer}").format(layer=tpl_layer_str))
 
+    # Roles already classified as lemma-2-safe THIS PASS (role -> its one
+    # non-rule net) — populated as the loop below processes each slot, so a
+    # LATER slot in the selection can reference an EARLIER one. Order in the
+    # selection is arbitrary (kipy doesn't guarantee it), so a role whose
+    # ONLY safe sibling appears LATER in iteration order won't find it on
+    # this pass — acceptable: falls through to net_template_pad or the
+    # existing "fill in manually" warning, same graceful degradation as
+    # today, never worse.
+    lemma2_role_nets: dict[str, str] = {}
     components = []
     for fp in footprints:
         role = adapter.get_field_value(fp, ROLE_FIELD_NAME)
@@ -300,18 +309,31 @@ def extract_template_from_selection(
                      .format(literal=literal)]
                 ))
             slot["net_template"] = parametrize_net(literal, net_template_map, params)
-            pad_num = next((p.number for p in fp_pads if p.net and p.net.name == literal), None)
-            if pad_num is not None:
-                slot["net_template_pad"] = str(pad_num)
+            # Prefer a same-net lemma-2-safe sibling ALREADY classified this
+            # pass (net_template_same_as_role — cross-instance-safe, pad-number
+            # independent); fall back to the pad number (today's mechanism,
+            # safe only for fixed-pinout parts) when no sibling is available.
+            same_as = next((r for r, n in lemma2_role_nets.items() if n == literal), None)
+            if same_as is not None:
+                slot["net_template_same_as_role"] = same_as
+            else:
+                pad_num = next((p.number for p in fp_pads if p.net and p.net.name == literal), None)
+                if pad_num is not None:
+                    slot["net_template_pad"] = str(pad_num)
         elif net_template_map:
             fp_pads = adapter.get_footprint_pads(fp)
             fp_nets = sorted({p.net.name for p in fp_pads if p.net and p.net.name})
             mapped = [n for n in fp_nets if n in net_template_map]
             if len(mapped) == 1:
                 slot["net_template"] = parametrize_net(mapped[0], net_template_map, params)
-                pad_num = next((p.number for p in fp_pads if p.net and p.net.name == mapped[0]), None)
-                if pad_num is not None:
-                    slot["net_template_pad"] = str(pad_num)
+                # lemma-2-safe role — record for LATER same-net siblings, do
+                # NOT record net_template_pad/net_template_same_as_role for
+                # ITSELF: a role with exactly one non-rule net needs neither
+                # (2026-08-16 fix — previously always wrote net_template_pad
+                # here even when redundant AND, worse, unsafe: C_ADJ_BULK/
+                # R_FB_BOT both hit exactly this branch and got a pad number
+                # they never needed, which then broke on a different instance).
+                lemma2_role_nets[role] = mapped[0]
             elif len(mapped) > 1:
                 hint = _("could not determine automatically — {count} matching nets on pads "
                          "({nets}) — fill in manually or use --net-template-role {role}=<net>") \

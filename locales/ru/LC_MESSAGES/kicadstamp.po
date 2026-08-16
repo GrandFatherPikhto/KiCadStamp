@@ -698,6 +698,66 @@ msgstr ""
 "net_template_pad={pad!r} лишь уточняет, на каком паде кандидата роли лежит "
 "цепь — сам по себе это не цепь; укажите также net_template: '<pattern>'"
 
+#: gui/docks/cell_editor.py:270
+msgid "Same net as role:"
+msgstr "Та же цепь, что у роли:"
+
+#: gui/docks/cell_editor.py:747
+msgid "Same net as role requires a net template."
+msgstr "«Та же цепь, что у роли» требует сеть (net template)."
+
+#: gui/docks/cell_editor.py:750
+msgid "Pick one: a fixed pad number or a same-net role reference, not both."
+msgstr "Выберите одно: фиксированный номер пада или ссылку на роль с той же цепью, не оба."
+
+#: kicadstamp/config/entries.py:151
+#, python-brace-format
+msgid "net_template_same_as_role without net_template in slot {role!r}"
+msgstr "net_template_same_as_role без net_template в слоте {role!r}"
+
+#: kicadstamp/config/entries.py:152
+#, python-brace-format
+msgid ""
+"net_template_same_as_role={ref!r} only narrows which OTHER role's net this one "
+"shares — it is not a net by itself; write net_template: '<pattern>' too"
+msgstr ""
+"net_template_same_as_role={ref!r} лишь указывает, чью ДРУГУЮ роль этой ячейки "
+"данная роль повторяет по цепи — сам по себе это не цепь; укажите также "
+"net_template: '<pattern>'"
+
+#: kicadstamp/config/entries.py:158
+#, python-brace-format
+msgid "both net_template_pad and net_template_same_as_role in slot {role!r}"
+msgstr "одновременно net_template_pad и net_template_same_as_role в слоте {role!r}"
+
+#: kicadstamp/config/entries.py:160
+#, python-brace-format
+msgid ""
+"mutually exclusive — pick ONE mechanism per role: a fixed pad number "
+"(net_template_pad, safe only for fixed-pinout parts: ICs/diodes/polarized "
+"caps) or a same-net role reference (net_template_same_as_role, safe for "
+"symmetric 2-pin R/C)"
+msgstr ""
+"взаимоисключающе — выберите ОДИН механизм на роль: фиксированный номер пада "
+"(net_template_pad, безопасен только для деталей с фиксированным пиноутом: "
+"ИС/диоды/полярные конденсаторы) или ссылку на роль с той же цепью "
+"(net_template_same_as_role, безопасно для симметричных 2-выводных R/C)"
+
+#: kicadstamp/config/entries.py:201
+#, python-brace-format
+msgid "net_template_same_as_role={ref!r} in slot {role!r} is not a role of cell {name!r}"
+msgstr "net_template_same_as_role={ref!r} в слоте {role!r} не является ролью ячейки {name!r}"
+
+#: kicadstamp/config/entries.py:203
+#, python-brace-format
+msgid ""
+"net_template_same_as_role must reference ANOTHER role of THIS cell (cell roles: "
+"{roles}) — it names whose net this role shares, so it must exist here"
+msgstr ""
+"net_template_same_as_role должен ссылаться на ДРУГУЮ роль ЭТОЙ ячейки (роли "
+"ячейки: {roles}) — он указывает, чью цепь повторяет эта роль, поэтому такая "
+"роль должна существовать здесь"
+
 #: gui/docks/cell_editor.py:231 gui/docks/cell_editor.py:276
 #: gui/docks/cell_editor.py:326 gui/docks/cell_editor.py:400
 msgid "Add"

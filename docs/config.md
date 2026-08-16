@@ -126,6 +126,15 @@ cells:
   affect the by-nets resolver at apply time (that one already searches by an already-known expected
   net — pad count doesn't matter there), and it is fatal to load if set without `net_template:`
   (mirrors via/track's `net_from_role_pad`-without-`net_from_role` check).
+  Optional `net_template_same_as_role:` (2026-08-16) — the safer ALTERNATIVE to `net_template_pad:`
+  (mutually exclusive with it, fatal if both set): names ANOTHER role of THIS cell whose resolved
+  net (lemma-2-safe, exactly one non-rule net) is electrically IDENTICAL to this role's. Electrical
+  topology (which nets are the same node) is guaranteed to survive between clone instances; a pad
+  number is not — found live 2026-08-16: an R/C's identifying net sat on pad 2 in one routed
+  instance and pad 1 in another (identical geometry, verified not rotation/mirror), silently wrong
+  for 3 of 13 roles. Prefer `net_template_same_as_role` whenever a lemma-2 sibling exists; extract
+  writes it automatically when one is available in the same selection. Fixed-pinout parts (ICs/
+  diodes/polarized caps) stay safe with `net_template_pad:` and keep using it.
 - `tracks:` — straight segments only (no arcs); a polyline is just several consecutive `tracks:`
   entries sharing an endpoint. Collisions with existing copper are **not** checked by this tool —
   KiCad's own DRC is the source of truth for that, by design (see [docs/geometry.md](geometry.md)).

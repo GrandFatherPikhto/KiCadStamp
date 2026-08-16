@@ -642,9 +642,11 @@ class TestResolveSingleRoleCandidate:
 class TestSuggestRoleNetsFromCluster:
     """PlacerDock's Nets-tab "Auto-fill from board" button (2026-08-12) —
     read-only, never raises: unresolvable roles are simply absent from the
-    returned dict, left for the user to fill by hand. SIGNATURE (2026-08-16,
-    net_template_pad): `roles: list[str]` became `role_pads: dict[str, str|
-    None]` — each role's cell-level net_template_pad (None if absent)."""
+    returned dict, left for the user to fill by hand. SIGNATURE (2026-08-16):
+    first `roles: list[str]` -> `role_pads: dict[str, str|None]` (morning,
+    net_template_pad), then -> `role_hints: dict[str, tuple[str|None, str|None]]`
+    (afternoon, net_template_same_as_role): each role's (net_template_pad,
+    net_template_same_as_role) pair — exactly one non-None, or both None."""
 
     def _adapter(self, fps):
         adapter = MagicMock()
@@ -659,7 +661,7 @@ class TestSuggestRoleNetsFromCluster:
             _make_fp("C22", role="C_IN_BULK", cluster="Out_Pi_Filter_N2V5", nets=["+1V2", "GND"]),
         ])
 
-        result = suggest_role_nets_from_cluster(adapter, {"C_IN_BULK": None}, "Out_Pi_Filter_N2V5")
+        result = suggest_role_nets_from_cluster(adapter, {"C_IN_BULK": (None, None)}, "Out_Pi_Filter_N2V5")
 
         assert result == {"C_IN_BULK": "+1V2"}
 
@@ -670,7 +672,7 @@ class TestSuggestRoleNetsFromCluster:
             _make_fp("C22", role="C_IN_BULK", cluster="Out_Pi_Filter_N2V5/sub", nets=["+1V2"]),
         ])
 
-        result = suggest_role_nets_from_cluster(adapter, {"C_IN_BULK": None}, "Out_Pi_Filter_N2V5")
+        result = suggest_role_nets_from_cluster(adapter, {"C_IN_BULK": (None, None)}, "Out_Pi_Filter_N2V5")
 
         assert result == {"C_IN_BULK": "+1V2"}
 
@@ -679,7 +681,7 @@ class TestSuggestRoleNetsFromCluster:
             _make_fp("C22", role="C_IN_BULK", cluster="Some_Other_Cluster", nets=["+1V2"]),
         ])
 
-        result = suggest_role_nets_from_cluster(adapter, {"C_IN_BULK": None}, "Out_Pi_Filter_N2V5")
+        result = suggest_role_nets_from_cluster(adapter, {"C_IN_BULK": (None, None)}, "Out_Pi_Filter_N2V5")
 
         assert result == {}
 
@@ -689,7 +691,7 @@ class TestSuggestRoleNetsFromCluster:
             _make_fp("C23", role="C_IN_BULK", cluster="Out_Pi_Filter_N2V5", nets=["+1V2"]),
         ])
 
-        result = suggest_role_nets_from_cluster(adapter, {"C_IN_BULK": None}, "Out_Pi_Filter_N2V5")
+        result = suggest_role_nets_from_cluster(adapter, {"C_IN_BULK": (None, None)}, "Out_Pi_Filter_N2V5")
 
         assert result == {}
 
@@ -701,7 +703,7 @@ class TestSuggestRoleNetsFromCluster:
             _make_fp("FB6", role="PI_FB", cluster="Out_Pi_Filter_N2V5", nets=["+1V2", "+1V2_VCCINT"]),
         ])
 
-        result = suggest_role_nets_from_cluster(adapter, {"PI_FB": None}, "Out_Pi_Filter_N2V5")
+        result = suggest_role_nets_from_cluster(adapter, {"PI_FB": (None, None)}, "Out_Pi_Filter_N2V5")
 
         assert result == {}
 
@@ -710,7 +712,7 @@ class TestSuggestRoleNetsFromCluster:
             _make_fp("C22", role="C_IN_BULK", cluster="Out_Pi_Filter_N2V5", nets=["GND"]),
         ])
 
-        result = suggest_role_nets_from_cluster(adapter, {"C_IN_BULK": None}, "Out_Pi_Filter_N2V5")
+        result = suggest_role_nets_from_cluster(adapter, {"C_IN_BULK": (None, None)}, "Out_Pi_Filter_N2V5")
 
         assert result == {}
 
@@ -719,7 +721,7 @@ class TestSuggestRoleNetsFromCluster:
             _make_fp("C22", role="C_IN_BULK", cluster="Out_Pi_Filter_N2V5", nets=["+1V2", "+5V"]),
         ])
 
-        result = suggest_role_nets_from_cluster(adapter, {"C_IN_BULK": None}, "Out_Pi_Filter_N2V5",
+        result = suggest_role_nets_from_cluster(adapter, {"C_IN_BULK": (None, None)}, "Out_Pi_Filter_N2V5",
                                                  rule_nets={"+5V"})
 
         assert result == {"C_IN_BULK": "+1V2"}
@@ -730,7 +732,7 @@ class TestSuggestRoleNetsFromCluster:
             _make_fp("FB6", role="PI_FB", cluster="Out_Pi_Filter_N2V5", nets=["+1V2", "+1V2_VCCINT"]),
         ])
 
-        result = suggest_role_nets_from_cluster(adapter, {"C_IN_BULK": None, "PI_FB": None},
+        result = suggest_role_nets_from_cluster(adapter, {"C_IN_BULK": (None, None), "PI_FB": (None, None)},
                                                 "Out_Pi_Filter_N2V5")
 
         assert result == {"C_IN_BULK": "+1V2"}
@@ -745,7 +747,7 @@ class TestSuggestRoleNetsFromCluster:
                      nets=["+2V5_ADJ", "+2V5_DIRTY", "+5V"]),
         ])
 
-        result = suggest_role_nets_from_cluster(adapter, {"LDO_ADJ": "3"}, "LDO_ADJ_P2V5")
+        result = suggest_role_nets_from_cluster(adapter, {"LDO_ADJ": ("3", None)}, "LDO_ADJ_P2V5")
 
         assert result == {"LDO_ADJ": "+5V"}
 
@@ -756,7 +758,7 @@ class TestSuggestRoleNetsFromCluster:
                      nets=["+2V5_ADJ", "+2V5_DIRTY", "+5V"]),
         ])
 
-        result = suggest_role_nets_from_cluster(adapter, {"LDO_ADJ": "1"}, "LDO_ADJ_P2V5")
+        result = suggest_role_nets_from_cluster(adapter, {"LDO_ADJ": ("1", None)}, "LDO_ADJ_P2V5")
 
         assert result == {"LDO_ADJ": "+2V5_ADJ"}
 
@@ -768,7 +770,47 @@ class TestSuggestRoleNetsFromCluster:
                      nets=["+2V5_ADJ", "+2V5_DIRTY", "+5V"]),
         ])
 
-        result = suggest_role_nets_from_cluster(adapter, {"LDO_ADJ": "9"}, "LDO_ADJ_P2V5")
+        result = suggest_role_nets_from_cluster(adapter, {"LDO_ADJ": ("9", None)}, "LDO_ADJ_P2V5")
+
+        assert result == {}
+
+    def test_same_as_role_resolves_via_lemma2_sibling(self):
+        """net_template_same_as_role (2026-08-16 afternoon): the role's net is
+        taken live from the named sibling role, resolved on the SAME cluster
+        and RE-VERIFIED to be lemma-2-safe on the current board (exactly one
+        non-rule net) — the cross-instance-safe alternative to a pad number
+        for electrically symmetric 2-pin parts (the R_FB_TOP/R_FB_BOT case)."""
+        adapter = self._adapter([
+            _make_fp("R10", role="R_FB_TOP", cluster="LDO_ADJ_P2V5", nets=["+2V5_ADJ", "-2V5_DIRTY"]),
+            _make_fp("R11", role="R_FB_BOT", cluster="LDO_ADJ_P2V5", nets=["+2V5_ADJ", "GND"]),
+        ])
+
+        result = suggest_role_nets_from_cluster(adapter, {"R_FB_TOP": (None, "R_FB_BOT")}, "LDO_ADJ_P2V5")
+
+        # R_FB_BOT is lemma-2-safe on "+2V5_ADJ" -> R_FB_TOP shares that net.
+        assert result == {"R_FB_TOP": "+2V5_ADJ"}
+
+    def test_same_as_role_sibling_absent_leaves_role_out(self):
+        """Same-as-role names a sibling that is NOT on this live board (0 or
+        2+ candidates) — role left out, never a stale guess."""
+        adapter = self._adapter([
+            _make_fp("R10", role="R_FB_TOP", cluster="LDO_ADJ_P2V5", nets=["+2V5_ADJ", "-2V5_DIRTY"]),
+        ])
+
+        result = suggest_role_nets_from_cluster(adapter, {"R_FB_TOP": (None, "R_FB_BOT")}, "LDO_ADJ_P2V5")
+
+        assert result == {}
+
+    def test_same_as_role_sibling_no_longer_lemma2_safe_leaves_role_out(self):
+        """Sibling exists on the live board but is no longer lemma-2-safe there
+        (board changed since extraction — now multi-net) — left out, NOT a
+        stale/wrong guess: the sibling's own net is re-verified live."""
+        adapter = self._adapter([
+            _make_fp("R10", role="R_FB_TOP", cluster="LDO_ADJ_P2V5", nets=["+2V5_ADJ", "-2V5_DIRTY"]),
+            _make_fp("R11", role="R_FB_BOT", cluster="LDO_ADJ_P2V5", nets=["+2V5_ADJ", "-2V5_DIRTY"]),
+        ])
+
+        result = suggest_role_nets_from_cluster(adapter, {"R_FB_TOP": (None, "R_FB_BOT")}, "LDO_ADJ_P2V5")
 
         assert result == {}
 

@@ -145,6 +145,23 @@ def _load_template_component_slot(data: dict[str, Any]) -> TemplateComponentSlot
                "candidate the net comes from — it is not a net by itself; "
                "write net_template: '<pattern>' too").format(pad=net_template_pad)]
         ))
+    net_template_same_as_role = data.get('net_template_same_as_role')
+    if net_template_same_as_role is not None and net_template is None:
+        raise ValidationError(format_fatal_error(
+            _("net_template_same_as_role without net_template in slot {role!r}").format(role=data.get('role')),
+            [_("net_template_same_as_role={ref!r} only narrows which OTHER role's "
+               "net this one shares — it is not a net by itself; write "
+               "net_template: '<pattern>' too").format(ref=net_template_same_as_role)]
+        ))
+    if net_template_pad is not None and net_template_same_as_role is not None:
+        raise ValidationError(format_fatal_error(
+            _("both net_template_pad and net_template_same_as_role in slot {role!r}")
+            .format(role=data.get('role')),
+            [_("mutually exclusive — pick ONE mechanism per role: a fixed pad "
+               "number (net_template_pad, safe only for fixed-pinout parts: ICs/"
+               "diodes/polarized caps) or a same-net role reference "
+               "(net_template_same_as_role, safe for symmetric 2-pin R/C)")]
+        ))
     return TemplateComponentSlot(
         role=data['role'],
         offset_along_mm=data.get('offset_along_mm', 0.0),
@@ -153,6 +170,7 @@ def _load_template_component_slot(data: dict[str, Any]) -> TemplateComponentSlot
         vias=[_load_template_via(v) for v in data.get('vias', [])],
         net_template=net_template,
         net_template_pad=net_template_pad,
+        net_template_same_as_role=net_template_same_as_role,
         layer=layer,
     )
 
@@ -170,6 +188,22 @@ def _load_cell(name: str, data: dict[str, Any]) -> Cell:
                "in the placement registry)").format(role=r, count=roles.count(r))
              for r in sorted(duplicates)]
         ))
+
+    # Cross-reference check (2026-08-16, net_template_same_as_role): the
+    # referenced "same-net role" must actually exist in THIS cell — the
+    # single-slot loader has no visibility into sibling slots, so this
+    # cell-wide check lives here, next to role-uniqueness.
+    role_set = set(roles)
+    for slot in components:
+        ref = slot.net_template_same_as_role
+        if ref is not None and ref not in role_set:
+            raise ValidationError(format_fatal_error(
+                _("net_template_same_as_role={ref!r} in slot {role!r} is not a role of cell {name!r}")
+                .format(ref=ref, role=slot.role, name=name),
+                [_("net_template_same_as_role must reference ANOTHER role of THIS "
+                   "cell (cell roles: {roles}) — it names whose net this role "
+                   "shares, so it must exist here").format(roles=sorted(role_set))]
+            ))
 
     if 'reference_side' in data:
         raise ValidationError(format_fatal_error(

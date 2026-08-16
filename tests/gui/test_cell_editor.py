@@ -87,6 +87,56 @@ def test_component_net_template_pad_requires_net_template(main_window, tmp_path,
     assert dock._components == []
 
 
+def test_add_component_with_same_as_role(main_window, tmp_path):
+    """2026-08-16 (net_template_same_as_role): the component form accepts a
+    same-net role reference (a closed combo of THIS cell's own roles) next to
+    net_template and writes it into the built entry."""
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock.comp_role_edit.setCurrentText("R_FB_BOT")
+    dock.comp_net_template_edit.setText("NET_{p}")
+    dock._on_add_component()
+    dock.comp_role_edit.setCurrentText("R_FB_TOP")
+    dock.comp_net_template_edit.setText("NET_{p}")
+    dock.comp_net_template_same_as_role_combo.setCurrentText("R_FB_BOT")
+    dock._on_add_component()
+
+    assert dock._components[1] == {"role": "R_FB_TOP", "net_template": "NET_{p}",
+                                   "net_template_same_as_role": "R_FB_BOT"}
+    assert dock.components_table.item(1, 7).text() == "R_FB_BOT"  # Same net as role column
+
+
+def test_component_same_as_role_requires_net_template(main_window, tmp_path, caplog):
+    """Mirror of the loader's fatal (2026-08-16, net_template_same_as_role):
+    the form rejects a same-net role reference without a net_template BEFORE
+    assembling an entry the loader would reject on the next load."""
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock.comp_role_edit.setCurrentText("R_FB_BOT")
+    dock.comp_net_template_edit.setText("NET_{p}")
+    dock._on_add_component()
+    dock.comp_role_edit.setCurrentText("R_FB_TOP")
+    dock.comp_net_template_edit.setText("")  # no net_template for this row
+    dock.comp_net_template_same_as_role_combo.setCurrentText("R_FB_BOT")
+
+    assert dock._build_component_dict() is None
+    assert any("Same net as role requires a net template" in r.message for r in caplog.records)
+
+
+def test_component_pad_and_same_as_role_both_rejected(main_window, tmp_path, caplog):
+    """Mirror of the loader's mutual-exclusion fatal (2026-08-16): a fixed pad
+    number AND a same-net role reference together are rejected in the form."""
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock.comp_role_edit.setCurrentText("R_FB_BOT")
+    dock.comp_net_template_edit.setText("NET_{p}")
+    dock._on_add_component()
+    dock.comp_role_edit.setCurrentText("R_FB_TOP")
+    dock.comp_net_template_edit.setText("NET_{p}")
+    dock.comp_net_template_pad_edit.setText("2")
+    dock.comp_net_template_same_as_role_combo.setCurrentText("R_FB_BOT")
+
+    assert dock._build_component_dict() is None
+    assert any("not both" in r.message for r in caplog.records)
+
+
 def test_duplicate_component_role_is_rejected_on_add(main_window, tmp_path):
     """The per-slot validator (load_template_component_slot) doesn't check
     uniqueness by itself (that's a whole-cell check, see _load_cell) — this
@@ -607,6 +657,34 @@ def test_load_entry_round_trips_net_template_pad(main_window, tmp_path):
     saved = _read_yaml(target)["cells"]["composite"]
     assert saved["components"] == [{"role": "LDO_ADJ", "net_template": "NET_{p}",
                                     "net_template_pad": "3"}]
+
+
+def test_load_entry_round_trips_same_as_role(main_window, tmp_path):
+    """2026-08-16 (net_template_same_as_role): the same-net role reference
+    loads into the closed combo, shows in the table, and round-trips back out
+    on Save alongside its net_template."""
+    dock, target = _make_dock(main_window, tmp_path, {"cells": {
+        "composite": {
+            "components": [
+                {"role": "R_FB_BOT", "net_template": "NET_{p}"},
+                {"role": "R_FB_TOP", "net_template": "NET_{p}",
+                 "net_template_same_as_role": "R_FB_BOT"},
+            ],
+        }
+    }})
+
+    dock.load_entry("composite")
+
+    assert dock._components[1]["net_template_same_as_role"] == "R_FB_BOT"
+    dock.components_table.selectRow(1)
+    assert dock.comp_net_template_same_as_role_combo.currentText() == "R_FB_BOT"
+    assert dock.components_table.item(1, 7).text() == "R_FB_BOT"  # Same net as role column
+
+    # And it round-trips back out unchanged on Save.
+    dock.name_edit.setText("composite")
+    dock._on_save()
+    saved = _read_yaml(target)["cells"]["composite"]
+    assert saved["components"][1]["net_template_same_as_role"] == "R_FB_BOT"
 
 
 def test_load_entry_with_anchor_xy(main_window, tmp_path):

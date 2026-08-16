@@ -1242,6 +1242,42 @@ def test_do_autofill_nets_fills_multi_pad_role_with_net_template_pad(main_window
     assert any("Auto-filled all 1 role(s)" in r.message for r in caplog.records)
 
 
+def test_do_autofill_nets_resolves_same_as_role_via_sibling(main_window, tmp_path, caplog):
+    """2026-08-16 (net_template_same_as_role): a multi-net role whose cell
+    references ANOTHER role (net_template_same_as_role) is resolved live via
+    that sibling on the same cluster — cross-instance-safe for electrically
+    symmetric 2-pin parts, instead of a routing-artifact pad number."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {"cells": {
+        "ldo_cell": {
+            "components": [
+                {"role": "R_FB_BOT", "net_template": "NET_{p}"},
+                {"role": "R_FB_TOP", "net_template": "NET_{p}",
+                 "net_template_same_as_role": "R_FB_BOT"},
+            ],
+            "vias": [], "tracks": [], "layer": "F.Cu",
+        }
+    }})
+    placer_file = tmp_path / "root.yaml"
+    _write_yaml(placer_file, {"clone_placements": []})
+    dock = PlacerDock(main_window)
+    dock.set_cells_file(cells_file)
+    dock.set_placer_file(placer_file)
+    dock.set_selected_cell("ldo_cell")
+    dock.cluster_edit.setCurrentText("LDO_ADJ_P2V5")
+    main_window.connection.board = _FakeAutofillBoard([
+        _FakeAutofillFootprint("R10", "R_FB_TOP", "LDO_ADJ_P2V5", ["+2V5_ADJ", "-2V5_DIRTY"]),
+        _FakeAutofillFootprint("R11", "R_FB_BOT", "LDO_ADJ_P2V5", ["+2V5_ADJ", "GND"]),
+    ])
+
+    dock._do_autofill_nets()
+
+    # R_FB_BOT is lemma-2-safe on "+2V5_ADJ" (its own fill); R_FB_TOP shares
+    # that net via the same-as-role reference, NOT a pad number.
+    assert dock.nets_table.to_dict() == {"R_FB_BOT": "+2V5_ADJ", "R_FB_TOP": "+2V5_ADJ"}
+    assert any("Auto-filled all 2 role(s)" in r.message for r in caplog.records)
+
+
 def test_run_autofill_nets_carries_candidate_nets_narrowing(main_window, tmp_path):
     """2026-08-16 (net_template_pad): the auto-fill worker also computes the
     per-role candidate-net narrowing (for the Net-combobox) in the SAME live
@@ -1312,7 +1348,7 @@ def test_on_autofill_nets_dispatches_to_worker(main_window, tmp_path, monkeypatc
     assert captured["on_error"] == dock._on_autofill_nets_failed
 
     payload = captured["args"][0]
-    assert payload["role_pads"] == {"C_IN": None}
+    assert payload["role_hints"] == {"C_IN": (None, None)}
     assert payload["cluster"] == "Out_Pi_Filter_N2V5"
     assert payload["adapter"] is main_window.connection.board.adapter
 
