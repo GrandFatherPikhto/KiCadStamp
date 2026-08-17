@@ -15,6 +15,21 @@ The `placement/` directory contains the core logic for placing components, creat
 
 All services use the `kicad/adapter.py` adapter, the `geometry/` utilities, and the `config/` configuration package.
 
+### `channel-copy` (variant Б, live) — the fourth placement path
+
+Alongside the three config-driven placement types above there is
+`kicadstamp/channel_copy.py` — a TOP-LEVEL module (not part of `placement/`)
+that copies the ENTIRE placement of a channel (components + vias + tracks) from
+a source to one or more destination channels **through the live IPC adapter**,
+with a single rigid transform (anchor + rotation + optional mirror). Its twin
+map is built from `fp.sheet_path.path` UUID chains, not from Role names — so
+repeated Role schemes between PIF instances inside one channel are irrelevant
+(the structural limit that makes a monolithic extract cell inapplicable to a
+whole channel). Idempotency is position+net based (0.01 mm / 0.1°), the
+registry is never touched, and `track_matches` (the shared positional
+predicate) is reused for track idempotency. CLI: `channel-copy` — see
+[docs/commands.md](commands.md).
+
 ## CoordinatePlacement (the "dumb placer")
 
 `coordinate_placements:` moves an existing footprint — identified by an exact

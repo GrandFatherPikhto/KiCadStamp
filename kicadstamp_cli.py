@@ -27,7 +27,7 @@ if hasattr(sys.stderr, "reconfigure"):
 
 from kicadstamp import __version__
 from kicadstamp.apply_pipeline import cmd_apply
-from kicadstamp.cli import cmd_clone_extract, cmd_extract, cmd_undo
+from kicadstamp.cli import cmd_channel_copy, cmd_clone_extract, cmd_extract, cmd_undo
 from kicadstamp.cli_common import peek_log_file, run_cli
 from kicadstamp.logging_setup import setup_logging
 from kicadstamp.constants import DEFAULT_TIMEOUT_MS, DEFAULT_BATCH_SIZE
@@ -37,7 +37,7 @@ from kicadstamp.i18n import _
 # Real subcommands the CLI can dispatch to. Any other first argument (that is
 # not a flag) is treated as a bare config path for 'apply' — see
 # _rewrite_bare_config_to_apply().
-_SUBCOMMANDS = ("apply", "undo", "extract", "clone-extract")
+_SUBCOMMANDS = ("apply", "undo", "extract", "clone-extract", "channel-copy")
 
 
 def _looks_like_misspelled_subcommand(token: str) -> bool:
@@ -184,13 +184,54 @@ def main() -> int:
                                        "the specific pad of that component, not its centre. "
                                        "Fatal without --origin-by-component-role."))
 
+    channel_copy_parser = subparsers.add_parser(
+        "channel-copy",
+        help=_("Copy a whole channel's placement (components + vias + tracks) "
+               "from --src to --dst via a live twin map (variant B)")
+    )
+    channel_copy_parser.add_argument("--src", required=True,
+                                     help=_("Source channel name, e.g. Channel_0"))
+    channel_copy_parser.add_argument("--dst", action="append", required=True, metavar="CHANNEL",
+                                     help=_("Destination channel name, e.g. Channel_1; "
+                                            "repeatable to copy to several channels in one run"))
+    pivot_group = channel_copy_parser.add_mutually_exclusive_group()
+    pivot_group.add_argument("--pivot", metavar="REF",
+                             help=_("Pivot component refdes on the source channel"))
+    pivot_group.add_argument("--pivot-role", metavar="ROLE",
+                             help=_("Pivot by Role field on the source channel (survives re-annotation)"))
+    channel_copy_parser.add_argument("--pivot-pad", metavar="PAD",
+                                     help=_("Anchor on this pad of the pivot instead of its centre"))
+    channel_copy_parser.add_argument("--offset", metavar="DX,DY",
+                                     help=_("Extra shift added to the pivot's destination position"))
+    channel_copy_parser.add_argument("--target-dst", metavar="X,Y",
+                                     help=_("Explicit destination anchor point (when the pivot "
+                                            "twin is not placed yet)"))
+    channel_copy_parser.add_argument("--src-point", metavar="X,Y",
+                                     help=_("Points mode: source anchor point"))
+    channel_copy_parser.add_argument("--dst-point", metavar="X,Y",
+                                     help=_("Points mode: destination anchor point"))
+    channel_copy_parser.add_argument("--angle", type=float, default=0.0,
+                                     help=_("Rotation of the whole construction (degrees)"))
+    channel_copy_parser.add_argument("--mirror", action="store_true",
+                                     help=_("Mirror the whole construction (all layers inverted)"))
+    channel_copy_parser.add_argument("--include-global", action="store_true",
+                                     help=_("Also copy foreign (global-net) copper inside the source bbox"))
+    channel_copy_parser.add_argument("--dry-run", action="store_true",
+                                     help=_("Only print the plan, do not write to the board"))
+    channel_copy_parser.add_argument("--no-collision-check", action="store_true",
+                                     help=_("Disable collision checking"))
+    channel_copy_parser.add_argument("--verbose", action="store_true", help=_("Verbose output"))
+    channel_copy_parser.add_argument("--timeout-ms", type=int, default=DEFAULT_TIMEOUT_MS,
+                                     help=_("IPC timeout in ms"))
+    channel_copy_parser.add_argument("--log-file", help=_("File to save logs"))
+
     try:
         args = parser.parse_args()
     except SystemExit as e:
         if rewritten and e.code == 2:
             print(_("Note: the first argument was taken as a config path for 'apply' "
                     "(bare-config shorthand). If you meant a subcommand, spell it exactly: "
-                    "apply, undo, extract, clone-extract."), file=sys.stderr)
+                    "apply, undo, extract, clone-extract, channel-copy."), file=sys.stderr)
         raise
 
     # Pick up log_file from the config before setup_logging() — but WITHOUT a
@@ -218,6 +259,10 @@ def main() -> int:
             cmd_clone_extract(args)
         elif args.command == "extract":
             cmd_extract(args)
+        elif args.command == "channel-copy":
+            report = cmd_channel_copy(args)
+            if report:
+                print("\n".join(report))
         else:
             parser.print_help()
             sys.exit(1)

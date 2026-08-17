@@ -5996,6 +5996,304 @@ msgstr ""
 msgid "Total spokes: {count}"
 msgstr ""
 
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "  move {src_ref} -> {dst_ref}: ({x:.3f}, {y:.3f}) mm, angle={a:.1f}°"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "  track ({sx:.3f}, {sy:.3f}) -> ({ex:.3f}, {ey:.3f}) mm, net={net}, width={w} mm"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "  track ({sx:.3f}, {sy:.3f}) -> ({ex:.3f}, {ey:.3f}) mm, net={net}: already exists, skipped"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "  via ({x:.3f}, {y:.3f}) mm, net={net}"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "  via ({x:.3f}, {y:.3f}) mm, net={net}: already exists, skipped"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "  {ref}: already at the target position, skipped"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid " — NOT copied (use --include-global to copy)"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid " — will be copied (--include-global)"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid ", mirrored"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "--pivot-pad must name an existing pad number of the pivot footprint"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "--pivot-role must match the Role field of a source-channel component"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "--src-point and --dst-point must be given together"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "Also copy foreign (global-net) copper inside the source bbox"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "Anchor on this pad of the pivot instead of its centre"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "Copy a whole channel's placement (components + vias + tracks) from --src to --dst via a live twin map (variant B)"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "Copy: {src} -> {dst}"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "Destination channel name, e.g. Channel_1; repeatable to copy to several channels in one run"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "Explicit destination anchor point (when the pivot twin is not placed yet)"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "Extra shift added to the pivot's destination position"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "Foreign copper inside the source bbox WILL be copied (--include-global): {segs} tracks, {vias} vias, nets: {nets}"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "Foreign copper inside the source bbox is NOT copied by default: {segs} tracks, {vias} vias, nets: {nets}. Rerun with --include-global to copy it too."
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "Foreign copper inside the source bbox: none"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "Foreign copper inside the source bbox: {segs} tracks, {vias} vias, nets: {nets}{copied}"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "Mirror the whole construction (all layers inverted)"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "Moves ({count}):"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "No twin on {dst} for {count} source footprints (skipped): {refs}"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "Note: the first argument was taken as a config path for 'apply' (bare-config shorthand). If you meant a subcommand, spell it exactly: apply, undo, extract, clone-extract, channel-copy."
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "Only print the plan, do not write to the board"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "Pivot by Role field on the source channel (survives re-annotation)"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "Pivot component refdes on the source channel"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "Points mode: destination anchor point"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "Points mode: source anchor point"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "Rotation of the whole construction (degrees)"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "Source channel name, e.g. Channel_0"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "Tracks ({count}):"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "Transform: anchor {sx:.3f},{sy:.3f} -> {dx:.3f},{dy:.3f} mm, angle={a:.1f}°{mirror}"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "Vias ({count}):"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "[error] {flag} must be X,Y (two comma-separated numbers)"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "channel name {name!r} is ambiguous on the board"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "channel-copy needs a pivot component that exists on the live board to anchor the source channel to"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "channel_copy needs exactly one reference mode"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "destination channel {dst!r} not found on the board"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "exactly one reference mode is required for channel-copy"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "give --pivot REF (or --pivot-role ROLE), or --src-point X,Y with --dst-point X,Y — and not more than one of them"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "give --target-dst X,Y to place the construction at an explicit point instead"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "give pivot (or pivot_role), or src_point+dst_point — not both and not neither"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "it maps to more than one sheet uuid ({a} and {b}) — the channels cannot be told apart by local nets"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "its sheet_path.path has fewer than 2 UUIDs — a twin map cannot be built for a footprint outside the sheet hierarchy"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "more than one source-channel footprint has this role — use --pivot with a refdes instead"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "no footprint with a local net of channel {ch!r} was found — is the channel's schematic present and annotated?"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "no footprint with a local net of channel {dst!r} was found — is the channel's schematic present and annotated?"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "no footprint with role {role!r} on channel {ch!r}"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "no footprint with role {role!r} on the source channel"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "no footprint with the pivot's inner key was found on the destination channel — is the dst channel present on the board? If the twin is not placed yet, give --target-dst X,Y explicitly"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "pad {pad!r} not found on pivot {ref!r}"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "pivot footprint {ref!r} has no usable sheet hierarchy"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "pivot footprint {ref!r} not found on the board"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "pivot {ref!r} has no twin on the destination channel"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+msgid "points mode needs both endpoints of the anchor shift"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "role {role!r} is ambiguous on channel {ch!r}"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "role {role!r} is ambiguous on the source channel"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "source channel {ch!r} not found on the board"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "source channel {src!r} does not match the pivot's channel"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "the pivot's sheet uuid is {pivot_uuid} but channel {src!r} resolved to {resolved_uuid} on this board — check --src / --pivot"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "twin {twin!r} of pivot {ref!r} is in the twin map but not on the board"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "{src} -> {dst}: {moves} moves, {vias} vias, {tracks} tracks planned"
+msgstr ""
 #~ msgid ""
 #~ "Process only rules/clone_placements/thermal_via_array "
 #~ "with this name (can be repeated). "

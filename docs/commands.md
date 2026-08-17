@@ -341,6 +341,84 @@ The resulting YAML file contains a complete overview of the channel, which can b
 
 ---
 
+## `channel-copy` – copy a whole channel placement (live)
+
+Copies the ENTIRE placement of a channel (components + vias + tracks) from the
+source channel to one or more destination channels, applying one rigid
+transform (anchor + rotation + optional mirror) to the whole construction. The
+twin map (which ref on the destination corresponds to which ref on the source)
+is built from the LIVE board via `fp.sheet_path.path` UUID chains — NOT from
+Role names — so repeated Role schemes between PIF instances inside one channel
+do not matter (the structural limit that makes single-cell extract inapplicable
+to a whole channel). It is variant **Б** of the A/Б/В triple, complementary to
+`ClonePlacement`/`CoordinatePlacement` — see
+[docs/placement.md](placement.md) for the comparison.
+
+Idempotency is position+net based (tolerances 0.01 mm / 0.1°) — a double run on
+the same destination creates no duplicates, and the placement registry is never
+touched.
+
+### Syntax
+
+```bash
+python kicadstamp_cli.py channel-copy --src <channel> --dst <channel> [--dst <channel> ...]
+    (--pivot REF [--pivot-pad P] | --pivot-role ROLE | --src-point X,Y --dst-point X,Y)
+    [--offset DX,DY] [--target-dst X,Y] [--angle DEG] [--mirror]
+    [--include-global] [--dry-run] [--no-collision-check] [--verbose]
+```
+
+### Options
+
+| Flag | Description |
+|------|-------------|
+| `--src` | Source channel name (e.g. `Channel_0`). |
+| `--dst` | Destination channel name (e.g. `Channel_1`); repeatable — several channels in one run. |
+| `--pivot REF` | Pivot component refdes on the source channel. |
+| `--pivot-role ROLE` | Pivot by the `Role` field on the source channel (survives re-annotation). |
+| `--pivot-pad P` | Anchor on this pad of the pivot instead of its centre. |
+| `--offset DX,DY` | Extra shift added to the pivot's destination position. |
+| `--target-dst X,Y` | Explicit destination anchor point (when the pivot twin is not placed yet). |
+| `--src-point X,Y` / `--dst-point X,Y` | Points mode — no component involved. |
+| `--angle DEG` | Rotation of the whole construction (degrees). |
+| `--mirror` | Mirror the whole construction (all layers inverted). |
+| `--include-global` | Also copy foreign (global-net) copper inside the source bbox. |
+| `--dry-run` | Only print the plan, do not write to the board. |
+| `--no-collision-check` | Disable collision checking. |
+| `--verbose` | Verbose output. |
+
+### Transformation semantics (anchor + rotation + shift)
+
+For every source footprint (no mirror):
+
+```
+X'   = R(angle) · (X − anchor_src) + anchor_dst
+rot' = (rot + angle) mod 360°
+```
+
+With `--mirror` the point is X-mirrored about the vertical axis through
+`anchor_src` and the angle becomes `(180° − (rot + angle)) mod 360°` — the same
+convention as `ClonePlacement.mirror`. Order of operations (documented, they do
+not commute): **rotate first, then mirror**. All layers are inverted (F.Cu↔B.Cu).
+Vias/tracks/net mapping: local nets `/Channel_0/...` become `/Channel_1/...`
+(via `TwinMap.twin_net`); global nets pass through unchanged.
+
+### Example
+
+```bash
+# Copy Channel_0 -> Channel_1 with a +2,-1 mm offset and no rotation (dry-run first!)
+python kicadstamp_cli.py channel-copy --src Channel_0 --dst Channel_1 --pivot C601 --offset 2,-1 --dry-run
+
+# Real run, two destinations, 90° rotation
+python kicadstamp_cli.py channel-copy --src Channel_0 --dst Channel_1 --dst Channel_2 \
+    --pivot C601 --angle 90
+```
+
+> **Mandatory first-run protocol** — `channel-copy` is the largest batched live
+> write (move + via + track) in the project: run `--dry-run` first and review
+> the plan, then run on a test board. This is part of the Definition of Done.
+
+---
+
 ## Utility scripts (`tools/`)
 
 ### `transform_template.py` – template transformation utility (optional)

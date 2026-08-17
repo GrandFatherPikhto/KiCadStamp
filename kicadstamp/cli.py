@@ -144,6 +144,53 @@ def cmd_clone_extract(args) -> None:
                         vias=s['vias'], output=output))
 
 
+def cmd_channel_copy(args) -> list[str] | None:
+    """Copy a whole channel's placement (variant B) via the live twin map.
+
+    Thin CLI wrapper: turns argparse.Namespace into explicit arguments for
+    kicadstamp.channel_copy.channel_copy, raising PlacerError on invalid
+    input (the entry point maps it to exit code 1). Returns the dry-run report
+    (list of lines) when --dry-run is set, None after a real run — the entry
+    point prints the returned report, same as cmd_apply. A repeated --dst is
+    copied in one run, one report section per channel.
+    """
+    adapter = KiCadBoardAdapter(timeout_ms=args.timeout_ms)
+    adapter.refresh_board()
+
+    def parse_pair(raw, flag):
+        if not raw:
+            return None
+        try:
+            x, y = (float(v) for v in raw.split(","))
+        except (ValueError, TypeError):
+            raise PlacerError(_("[error] {flag} must be X,Y (two comma-separated numbers)")
+                              .format(flag=flag))
+        return (x, y)
+
+    offset = parse_pair(args.offset, "--offset") or (0.0, 0.0)
+    target_dst = parse_pair(args.target_dst, "--target-dst")
+    src_point = parse_pair(args.src_point, "--src-point")
+    dst_point = parse_pair(args.dst_point, "--dst-point")
+
+    from kicadstamp.channel_copy import channel_copy, format_channel_copy_report
+    report: list[str] = []
+    for dst in args.dst:
+        plan = channel_copy(
+            adapter,
+            src=args.src, dst=dst,
+            pivot=args.pivot, pivot_role=args.pivot_role, pivot_pad=args.pivot_pad,
+            offset=offset, target_dst=target_dst,
+            src_point=src_point, dst_point=dst_point,
+            angle_deg=args.angle, mirror=args.mirror,
+            include_global=args.include_global,
+            dry_run=args.dry_run,
+            check_collisions=not args.no_collision_check,
+        )
+        if args.dry_run:
+            report.extend(format_channel_copy_report(plan))
+    return report or None
+
+
 def cmd_undo(args, log_dir: str | None = None) -> None:
     """Undo the last operation.
 
