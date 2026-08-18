@@ -266,6 +266,16 @@ class TestTwinMap:
         with pytest.raises(ValidationError):
             resolve_channel_uuids(adapter, CH0, "Channel_1", ["Channel_1"], groups=groups)
 
+    def test_resolve_channel_uuids_src_typo_fatal(self):
+        # A typo in --src must be FATAL, not silently drop the vias/tracks —
+        # they are filtered by the literal /src_channel/ prefix (review fix,
+        # 2026-08-18: a typo moved the components by the pivot's uuid while
+        # quietly emptying the via/track plan).
+        adapter = _adapter(_channel_fps())
+        groups = build_channel_groups(adapter)
+        with pytest.raises(ValidationError, match="not found on the board"):
+            resolve_channel_uuids(adapter, CH0, "Channel_X", ["Channel_1"], groups=groups)
+
 
 # ── Task 2.2: transform resolution modes and errors ──────────────────────────
 
@@ -305,6 +315,16 @@ class TestResolveTransform:
                                src_uuid=src_uuid, src_channel="Channel_0", dst_uuid=CH1,
                                groups=groups, target_dst=(7.0, 8.0))
         assert tr.anchor_dst.x == 7 * MM and tr.anchor_dst.y == 8 * MM
+
+    def test_pivot_mode_target_dst_with_offset(self):
+        # --offset must apply to an explicit --target-dst too (review fix,
+        # 2026-08-18: it used to be silently ignored in that branch).
+        adapter = _adapter(_channel_fps())
+        src_uuid, groups = build_live_twin_map(adapter, "IC0")
+        tr = resolve_transform(adapter, pivot_ref="IC0", pivot_role=None, pivot_pad=None,
+                               src_uuid=src_uuid, src_channel="Channel_0", dst_uuid=CH1,
+                               groups=groups, target_dst=(7.0, 8.0), offset=(2.0, -1.0))
+        assert tr.anchor_dst.x == 9 * MM and tr.anchor_dst.y == 7 * MM
 
     def test_pivot_by_role(self):
         adapter = _adapter(_channel_fps())

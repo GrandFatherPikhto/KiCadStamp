@@ -51,7 +51,8 @@ from kipy.geometry import Vector2, Angle
 
 from .cloner.models import TwinMap
 from .config import Config
-from .constants import DEFAULT_BATCH_SIZE, POSITION_TOLERANCE_MM, ANGLE_TOLERANCE_DEG
+from .constants import (DEFAULT_BATCH_SIZE, POSITION_TOLERANCE_MM,
+                        ANGLE_TOLERANCE_DEG, ROLE_FIELD_NAME)
 from .exceptions import ValidationError, format_fatal_error
 from .geometry.spoke_layout import rotate_local_offset
 from .i18n import _
@@ -116,7 +117,9 @@ def build_channel_groups(adapter, src_uuid: str | None = None) -> dict[str, dict
     return groups
 
 
-def build_live_twin_map(adapter, pivot_ref: str) -> tuple[str, dict[str, dict[str, str]]]:
+def build_live_twin_map(adapter, pivot_ref: str,
+                        groups: dict[str, dict[str, str]] | None = None
+                        ) -> tuple[str, dict[str, dict[str, str]]]:
     """Build the twin map anchored on a pivot footprint of the source channel.
 
     Returns (src_uuid, groups) where:
@@ -124,6 +127,10 @@ def build_live_twin_map(adapter, pivot_ref: str) -> tuple[str, dict[str, dict[st
         root of the source channel;
       - groups: inner_key -> {channel_uuid -> ref} for EVERY footprint on the
         board (see build_channel_groups) — the dst twins are looked up in it.
+
+    `groups` may be passed in to avoid a second full-board scan when the caller
+    (channel_copy, --pivot-role path) already built the twin map; otherwise it
+    is built here.
 
     Fatal if the pivot is not on the board or carries no hierarchy chain.
     """
@@ -145,7 +152,8 @@ def build_live_twin_map(adapter, pivot_ref: str) -> tuple[str, dict[str, dict[st
             [_("its sheet_path.path has fewer than 2 UUIDs — a twin map cannot be "
                "built for a footprint outside the sheet hierarchy")]))
     src_uuid = chain[0]
-    groups = build_channel_groups(adapter)
+    if groups is None:
+        groups = build_channel_groups(adapter)
     return src_uuid, groups
 
 
@@ -201,7 +209,17 @@ def resolve_channel_uuids(adapter, src_uuid: str, src_channel: str,
                 [_("it maps to more than one sheet uuid ({a} and {b}) — the "
                    "channels cannot be told apart by local nets").format(a=prev, b=ch_uuid)]))
 
-    if src_channel in name_to_uuid and name_to_uuid[src_channel] != src_uuid:
+    if src_channel not in name_to_uuid:
+        # The vias/tracks of the copy are filtered by the literal /src_channel/
+        # prefix, so an unknown --src must be FATAL, not silently skipped —
+        # otherwise a typo would move the components (filtered by the pivot's
+        # real uuid) while quietly dropping ALL vias and tracks.
+        raise ValidationError(format_fatal_error(
+            _("source channel {src!r} not found on the board").format(src=src_channel),
+            [_("no footprint with a local net of channel {src!r} was found — the copy's "
+               "vias/tracks are filtered by this name, so a typo in --src would "
+               "silently drop them all; check --src / --pivot").format(src=src_channel)]))
+    if name_to_uuid[src_channel] != src_uuid:
         raise ValidationError(format_fatal_error(
             _("source channel {src!r} does not match the pivot's channel").format(src=src_channel),
             [_("the pivot's sheet uuid is {pivot_uuid} but channel {src!r} resolved "
@@ -296,7 +314,7 @@ def resolve_transform(adapter, *, pivot_ref: str | None, pivot_role: str | None,
             chain = _path_uuids(fp)
             if not chain or chain[0] != src_uuid:
                 continue
-            if adapter.get_field_value(fp, "Role") == pivot_role:
+            if adapter.get_field_value(fp, ROLE_FIELD_NAME) == pivot_role:
                 candidates.append(fp)
         if not candidates:
             raise ValidationError(format_fatal_error(
@@ -315,7 +333,10 @@ def resolve_transform(adapter, *, pivot_ref: str | None, pivot_role: str | None,
     inner = "/" + "/".join(_path_uuids(pivot_fp)[1:])
     twin_ref = groups.get(inner, {}).get(dst_uuid)
     if target_dst is not None:
-        anchor_dst = Vector2.from_xy_mm(*target_dst)
+        # --offset applies to an explicit --target-dst too — it is documented as
+        # "extra shift added to the pivot's destination position", no exception.
+        anchor_dst = Vector2.from_xy_mm(target_dst[0] + offset[0],
+                                        target_dst[1] + offset[1])
     elif twin_ref is not None:
         twin_fp = adapter.get_footprint(twin_ref)
         if twin_fp is None:
@@ -573,10 +594,13 @@ def _plan_foreign(all_fps, live_vias, live_tracks, src_prefix: str,
     lies inside the source channel's footprint bbox + 1 mm margin — same scan
     as cloner/pcb.py. Returns (report, vias, tracks): the vias/tracks are empty
     unless include_global is set (net NOT remapped — it is a global net)."""
-    xs = [fp.position.x for fp in all_fps
-          if _path_uuids(fp) and _path_uuids(fp)[0] == src_uuid]
-    ys = [fp.position.y for fp in all_fps
-          if _path_uuids(fp) and _path_uuids(fp)[0] == src_uuid]
+    xs: list[int] = []
+    ys: list[int] = []
+    for fp in all_fps:
+        chain = _path_uuids(fp)
+        if chain and chain[0] == src_uuid:
+            xs.append(fp.position.x)
+            ys.append(fp.position.y)
     report = ForeignReport(include_global=include_global)
     if not xs:
         return report, [], []
@@ -687,11 +711,12 @@ def channel_copy(adapter, *, src: str, dst: str,
             [_("give pivot (or pivot_role), or src_point+dst_point — not both and "
                "not neither")]))
 
+    groups: dict[str, dict[str, str]] | None = None
     if has_pivot:
         if pivot is None and pivot_role is not None:
             groups = build_channel_groups(adapter)
             pivot = _find_pivot_ref_by_role(adapter, pivot_role, src, groups)
-        src_uuid, groups = build_live_twin_map(adapter, pivot)
+        src_uuid, groups = build_live_twin_map(adapter, pivot, groups=groups)
     else:
         groups = build_channel_groups(adapter)
         src_uuid = _src_uuid_by_channel(adapter, src, groups)
@@ -733,7 +758,7 @@ def _find_pivot_ref_by_role(adapter, role: str, src_channel: str,
             continue
         if _channel_name_of_fp(adapter, fp) != src_channel:
             continue
-        if adapter.get_field_value(fp, "Role") == role:
+        if adapter.get_field_value(fp, ROLE_FIELD_NAME) == role:
             candidates.append(fp.reference_field.text.value)
     if not candidates:
         raise ValidationError(format_fatal_error(

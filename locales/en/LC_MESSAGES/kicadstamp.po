@@ -6294,6 +6294,16 @@ msgstr ""
 #, python-brace-format
 msgid "{src} -> {dst}: {moves} moves, {vias} vias, {tracks} tracks planned"
 msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "source channel {src!r} not found on the board"
+msgstr ""
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "no footprint with a local net of channel {src!r} was found — the copy's vias/tracks are filtered by this name, so a typo in --src would silently drop them all; check --src / --pivot"
+msgstr ""
 #~ msgid ""
 #~ "Process only rules/clone_placements/thermal_via_array "
 #~ "with this name (can be repeated). "

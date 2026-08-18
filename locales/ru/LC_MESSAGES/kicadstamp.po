@@ -6702,6 +6702,16 @@ msgstr "близнец {twin!r} пивота {ref!r} есть в карте бл
 #, python-brace-format
 msgid "{src} -> {dst}: {moves} moves, {vias} vias, {tracks} tracks planned"
 msgstr "{src} -> {dst}: запланировано перемещений {moves}, via {vias}, дорожек {tracks}"
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "source channel {src!r} not found on the board"
+msgstr "исходный канал {src!r} не найден на плате"
+
+#: kicadstamp/channel_copy.py
+#, python-brace-format
+msgid "no footprint with a local net of channel {src!r} was found — the copy's vias/tracks are filtered by this name, so a typo in --src would silently drop them all; check --src / --pivot"
+msgstr "не найден футпринт с локальной цепью канала {src!r} — via/дорожки копии фильтруются по этому имени, поэтому опечатка в --src молча удалила бы их все; проверьте --src / --pivot"
 #~ msgid ""
 #~ "Process only rules/clone_placements/thermal_via_array "
 #~ "with this name (can be repeated). "
