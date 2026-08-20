@@ -222,20 +222,28 @@ class LogDock(QDockWidget):
             self.text.find(query, flags)
 
     def append_line(self, message: str, levelno: int) -> None:
+        # FIXED (2026-08-20): this used to call appendPlainText() for
+        # uncolored lines and appendHtml() for colored ones. appendHtml()
+        # leaves the text cursor's *current char format* set to the last
+        # inserted span's color; appendPlainText() inserts using that same
+        # cursor's current char format rather than resetting to the
+        # document/palette default — so every line after an ERROR/WARNING
+        # kept rendering red/orange until something else reset the cursor.
+        # Always going through appendHtml (with no inline color on the
+        # uncolored path, so the span just inherits the widget's palette
+        # color) keeps every line self-contained and avoids the leak.
         color = _LEVEL_COLOR.get(levelno)
-        if color:
-            # appendHtml() does NOT preserve \n as a line break (HTML collapses
-            # whitespace outside a whitespace-preserving container) — a
-            # multi-line message (e.g. format_fatal_error()'s bulleted dump)
-            # would otherwise render as one run-on line. white-space:pre-wrap
-            # fixes it without <pre>'s forced monospace font (verified live
-            # against QTextDocument — both preserve \n identically).
-            self.text.appendHtml(
-                f'<div style="white-space:pre-wrap"><span style="color:{color}">'
-                f'{html.escape(message)}</span></div>'
-            )
-        else:
-            self.text.appendPlainText(message)
+        style = f' style="color:{color}"' if color else ""
+        # appendHtml() does NOT preserve \n as a line break (HTML collapses
+        # whitespace outside a whitespace-preserving container) — a
+        # multi-line message (e.g. format_fatal_error()'s bulleted dump)
+        # would otherwise render as one run-on line. white-space:pre-wrap
+        # fixes it without <pre>'s forced monospace font (verified live
+        # against QTextDocument — both preserve \n identically).
+        self.text.appendHtml(
+            f'<div style="white-space:pre-wrap"><span{style}>'
+            f'{html.escape(message)}</span></div>'
+        )
         # Auto-scroll (2026-08-15, plan_2026_08_15_log_dock_autoscroll.md):
         # force the view to the bottom on every line while the checkbox is
         # checked. Deliberately scrollbar.setValue(maximum()), NOT
