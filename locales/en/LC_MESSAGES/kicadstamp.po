@@ -6360,6 +6360,75 @@ msgstr ""
 #: gui/docks/rules.py
 msgid "Spoke moved:"
 msgstr ""
+
+#: gui/docks/rules.py
+msgid "Bulk-set Cell for net"
+msgstr ""
+
+#: gui/docks/rules.py
+msgid "New Cell:"
+msgstr ""
+
+#: gui/docks/rules.py
+msgid "Apply"
+msgstr ""
+
+#: gui/docks/rules.py
+msgid "Cancel"
+msgstr ""
+
+#: gui/docks/rules.py
+msgid "Pick a net."
+msgstr ""
+
+#: gui/docks/rules.py
+#, python-brace-format
+msgid "No rules on net {net!r}."
+msgstr ""
+
+#: gui/docks/rules.py
+#, python-brace-format
+msgid "{name} in {file} (pads: {pads})"
+msgstr ""
+
+#: gui/docks/rules.py
+#, python-brace-format
+msgid ""
+"Will set cell {cell!r} on {n} rule(s) / {m} spoke(s) of net {net!r}:\n"
+"{lines}"
+msgstr ""
+
+#: gui/docks/rules.py
+msgid "Set the project root first."
+msgstr ""
+
+#: gui/docks/rules.py
+msgid "Bulk-set Cell needs both a net and a cell."
+msgstr ""
+
+#: gui/docks/rules.py
+#, python-brace-format
+msgid "Bulk-set Cell: wrote {n} rule(s) on net {net!r}."
+msgstr ""
+
+#: gui/docks/rules.py
+#, python-brace-format
+msgid "Bulk-set Cell: wrote {n_ok} rule(s); FAILED {n_failed} — {failed}"
+msgstr ""
+
+#: gui/docks/rules.py
+#, python-brace-format
+msgid "{name} in {file}: {err}"
+msgstr ""
+
+#: gui/docks/rules.py
+#, python-brace-format
+msgid "{name} in {file}"
+msgstr ""
+
+#: gui/docks/rules.py
+msgid "Bulk set Cell for net…"
+msgstr ""
 #~ msgid ""
 #~ "Process only rules/clone_placements/thermal_via_array "
 #~ "with this name (can be repeated). "

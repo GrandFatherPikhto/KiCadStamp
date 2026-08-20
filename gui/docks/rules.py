@@ -89,7 +89,7 @@ from typing import Any, Dict, List, Optional
 import yaml
 from kipy.errors import ApiError
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFormLayout,
+from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog, QFormLayout,
                               QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton,
                               QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
@@ -103,9 +103,11 @@ from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       configure_searchable, display_path, parse_float_field,
-                      refresh_file_combo_choices, set_combo_items, set_file_combo_selection,
-                      set_mode_pair_enabled, show_message, upsert_list_entry)
-from .rename import collect_all_cell_names, collect_all_point_names, collect_all_sheet_names
+                      read_data, refresh_file_combo_choices, set_combo_items,
+                      set_file_combo_selection, set_mode_pair_enabled, show_message,
+                      upsert_list_entry)
+from .rename import (collect_all_cell_names, collect_all_point_names,
+                     collect_all_rule_nets, collect_all_sheet_names, collect_rules_by_net)
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +119,74 @@ def _rule_identity(entry: Dict[str, Any]) -> Any:
     """upsert_list_entry's key_fn — mirrors rule_effective_name() at the
     raw-dict level (Save hasn't necessarily built a Rule object yet)."""
     return entry.get("name") or entry.get("net")
+
+
+class BulkSetCellDialog(QDialog):
+    """Stage 3 (2026-08-20, plan rule_spoke_fixes): pick a net + a new cell
+    and PREVIEW the exact rules/spokes it will change before writing anything
+    (a net's rules routinely live in DIFFERENT included files — see
+    collect_rules_by_net). Pure selection + preview, read-only: the write
+    itself happens in RuleDock._apply_bulk_cell_set, which reports per-rule
+    success/failure to the Log dock (never a silent partial write)."""
+
+    def __init__(self, root_path: Path, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(_("Bulk-set Cell for net"))
+        self._root_path = root_path
+        layout = QVBoxLayout(self)
+
+        form = QFormLayout()
+        self.net_combo = QComboBox()
+        configure_searchable(self.net_combo)
+        set_combo_items(self.net_combo, collect_all_rule_nets(root_path))
+        form.addRow(_("Net:"), self.net_combo)
+        self.cell_combo = QComboBox()
+        configure_searchable(self.cell_combo)
+        set_combo_items(self.cell_combo, collect_all_cell_names(root_path))
+        form.addRow(_("New Cell:"), self.cell_combo)
+        layout.addLayout(form)
+
+        self.preview_label = QLabel()
+        self.preview_label.setWordWrap(True)
+        layout.addWidget(self.preview_label)
+
+        buttons = QHBoxLayout()
+        self.apply_button = QPushButton(_("Apply"))
+        self.apply_button.clicked.connect(self.accept)
+        cancel_button = QPushButton(_("Cancel"))
+        cancel_button.clicked.connect(self.reject)
+        buttons.addWidget(self.apply_button)
+        buttons.addWidget(cancel_button)
+        layout.addLayout(buttons)
+
+        # Preview refreshes on combo change (typing too — it's a read-only
+        # label update, not a write, so per-keystroke is fine).
+        self.net_combo.activated.connect(self._refresh_preview)
+        self.net_combo.editTextChanged.connect(self._refresh_preview)
+        self.cell_combo.activated.connect(self._refresh_preview)
+        self.cell_combo.editTextChanged.connect(self._refresh_preview)
+        self._refresh_preview()
+
+    def _refresh_preview(self) -> None:
+        net = self.net_combo.currentText().strip()
+        if not net:
+            self.preview_label.setText(_("Pick a net."))
+            return
+        affected = collect_rules_by_net(self._root_path, net)
+        if not affected:
+            self.preview_label.setText(_("No rules on net {net!r}.").format(net=net))
+            return
+        total_spokes = sum(len(rule.get("spokes") or []) for _, rule in affected)
+        lines = [
+            _("{name} in {file} (pads: {pads})").format(
+                name=_rule_identity(rule), file=path.name,
+                pads=", ".join(str(s.get("pad", "?")) for s in (rule.get("spokes") or [])))
+            for path, rule in affected
+        ]
+        self.preview_label.setText(
+            _("Will set cell {cell!r} on {n} rule(s) / {m} spoke(s) of net {net!r}:\n{lines}")
+            .format(cell=self.cell_combo.currentText().strip(), n=len(affected),
+                    m=total_spokes, net=net, lines="\n".join(lines)))
 
 
 class RuleDock(QWidget):
@@ -315,6 +385,9 @@ class RuleDock(QWidget):
         self.redraw_spoke_button = QPushButton(_("Redraw selected spoke"))
         self.redraw_spoke_button.clicked.connect(self._on_redraw_spoke)
         button_row.addWidget(self.redraw_spoke_button)
+        self.bulk_set_cell_button = QPushButton(_("Bulk set Cell for net…"))
+        self.bulk_set_cell_button.clicked.connect(self._on_bulk_set_cell)
+        button_row.addWidget(self.bulk_set_cell_button)
         self.save_button = QPushButton(_("Save"))
         self.save_button.clicked.connect(self._on_save)
         button_row.addWidget(self.save_button)
@@ -795,6 +868,90 @@ class RuleDock(QWidget):
         themselves (see _persist_rule/_autosave_current_spoke). Always
         notifies the tree, since a name/net change alters what it shows."""
         self._persist_rule("", notify_tree=True)
+
+    # ── Bulk-set Cell for net (Stage 3, 2026-08-20) ─────────────────────────
+
+    def _on_bulk_set_cell(self) -> None:
+        """'Bulk set Cell for net…' button — opens the preview dialog
+        (BulkSetCellDialog), then applies the chosen cell to every rule on
+        the chosen net (see _apply_bulk_cell_set)."""
+        if self._root_path is None:
+            self._show_message(_("Set the project root first."), _ERROR_STYLE)
+            return
+        dlg = BulkSetCellDialog(self._root_path, self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        net = dlg.net_combo.currentText().strip()
+        cell = dlg.cell_combo.currentText().strip()
+        if not net or not cell:
+            self._show_message(_("Bulk-set Cell needs both a net and a cell."), _ERROR_STYLE)
+            return
+        self._apply_bulk_cell_set(net, cell)
+
+    def _apply_bulk_cell_set(self, net: str, cell: str) -> None:
+        """Set spoke.cell = cell for EVERY rule on `net` across the whole
+        include: graph, one upsert_list_entry per rule (rules routinely live
+        in different included files — collect_rules_by_net walks them all).
+        Partial failure is reported EXPLICITLY — which rules wrote and which
+        did not — never a silent half-applied change. After a success the
+        currently-loaded rule is reloaded if it was on the affected net
+        (otherwise a later spoke autosave would write the stale pre-bulk
+        state back over the bulk change — silent data loss)."""
+        if self._root_path is None:
+            self._show_message(_("Set the project root first."), _ERROR_STYLE)
+            return
+        affected = collect_rules_by_net(self._root_path, net)
+        if not affected:
+            self._show_message(_("No rules on net {net!r}.").format(net=net), _ERROR_STYLE)
+            return
+        ok: List[str] = []
+        failed: List[str] = []
+        for path, rule in affected:
+            modified = dict(rule)
+            modified["spokes"] = [{**s, "cell": cell} for s in (rule.get("spokes") or [])]
+            name = _rule_identity(modified)
+            try:
+                load_rule(modified)  # validate before writing, same as _on_save
+            except ValidationError as e:
+                failed.append(_("{name} in {file}: {err}")
+                              .format(name=name, file=display_path(path), err=e))
+                continue
+            try:
+                upsert_list_entry(path, "rules", modified, key_fn=_rule_identity)
+                ok.append(_("{name} in {file}").format(name=name, file=display_path(path)))
+            except OSError as e:
+                failed.append(_("{name} in {file}: {err}")
+                              .format(name=name, file=display_path(path), err=e))
+        if failed:
+            self._show_message(
+                _("Bulk-set Cell: wrote {n_ok} rule(s); FAILED {n_failed} — {failed}")
+                .format(n_ok=len(ok), n_failed=len(failed), failed="; ".join(failed)),
+                _ERROR_STYLE)
+        else:
+            self._show_message(
+                _("Bulk-set Cell: wrote {n} rule(s) on net {net!r}.").format(n=len(ok), net=net),
+                _SUCCESS_STYLE)
+        self._reload_if_bulk_affected(net)
+
+    def _reload_if_bulk_affected(self, net: str) -> None:
+        """After a bulk cell set rewrote the files, the dock's in-memory
+        editor for the currently-loaded rule (if it is on the affected net)
+        is stale — and worse, a subsequent spoke autosave (Stage 2) would
+        write that stale state back, silently undoing the bulk change. Re-read
+        its entry from disk and reload the form so shown + autosaved state
+        match the bulk result."""
+        if self._path is None or self.net_edit.currentText().strip() != net:
+            return
+        loaded_identity = _rule_identity(
+            {"net": net, "name": self.name_edit.text().strip() or None})
+        try:
+            data = read_data(self._path)
+        except OSError:
+            return
+        for rule in data.get("rules") or []:
+            if isinstance(rule, dict) and _rule_identity(rule) == loaded_identity:
+                self.load_entry(rule)
+                return
 
     # ── Starting a brand new entry (ConfigTreeDock's Add rule...) ───────────
 

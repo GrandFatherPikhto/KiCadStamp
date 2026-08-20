@@ -499,6 +499,12 @@ Update/Remove row, and Redraw/Save stay outside the tabs — they act on the who
   fields (spoke edits autosave themselves, see the Spokes bullet above). It writes the whole rule
   into the target file's `rules:` list, matched by name if set, else net (`rules:` is the one list
   section without a required `name:` — see [docs/config.md](config.md)'s `rule_effective_name`).
+- **Bulk set Cell for net…** (2026-08-20) — sets `cell:` on EVERY spoke of every rule on the
+  chosen net at once, even when those rules live in different included files (a net's rules
+  routinely do — the dialog's net picker and preview walk the whole include: graph). A dialog
+  previews the exact rules/pads that will change BEFORE applying; a partial write failure is
+  reported explicitly (which rules wrote, which didn't) — never a silent half-applied change. If
+  the currently-loaded rule is on that net, its form is reloaded from disk afterwards.
 
 ## Cells
 

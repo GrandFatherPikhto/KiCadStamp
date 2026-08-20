@@ -30,6 +30,24 @@ def _make_dock(main_window, tmp_path, data=None):
     return dock, target_file
 
 
+def _bulk_graph(tmp_path):
+    """A project root that includes two rule files sharing net +3V3 — the
+    cross-file scenario Bulk-set Cell for net exists for (a net's rules
+    routinely live in different included files)."""
+    target = tmp_path / "rules.yaml"
+    target.write_text(yaml.dump({"rules": [
+        {"net": "+3V3", "anchor_role": "FPGA", "spokes": [{"pad": "17", "cell": "old_a"}]},
+    ]}, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    sibling = tmp_path / "sibling.yaml"
+    sibling.write_text(yaml.dump({"rules": [
+        {"net": "+3V3", "anchor_role": "FPGA", "spokes": [{"pad": "26", "cell": "old_b"}]},
+        {"net": "GND", "anchor_role": "FPGA", "spokes": []},
+    ]}, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    root = tmp_path / "root.yaml"
+    root.write_text("include:\n  - rules.yaml\n  - sibling.yaml\n", encoding="utf-8")
+    return target, sibling, root
+
+
 # ── Building the rule dict ───────────────────────────────────────────────
 
 def test_build_rule_dict_anchor_role_with_sheet_and_cluster(main_window, tmp_path):
@@ -525,6 +543,93 @@ def test_autosave_failure_reports_error_never_silent(main_window, tmp_path, capl
     assert any("Anchor: set Ref or Role" in r.message for r in caplog.records)
     # nothing was written
     assert _read_yaml(target)["rules"][0]["spokes"][0]["shift_x_mm"] == 1.2
+
+
+# ── Bulk-set Cell for net (Stage 3, 2026-08-20) ───────────────────────────
+
+def test_collect_rule_nets_and_rules_by_net_across_files(tmp_path):
+    from gui.docks.rename import collect_all_rule_nets, collect_rules_by_net
+    _target, _sibling, root = _bulk_graph(tmp_path)
+
+    assert collect_all_rule_nets(root) == ["+3V3", "GND"]
+
+    affected = collect_rules_by_net(root, "+3V3")
+    assert len(affected) == 2
+    assert {p.name for p, _ in affected} == {"rules.yaml", "sibling.yaml"}
+    assert all(r["net"] == "+3V3" for _, r in affected)
+
+
+def test_bulk_set_cell_writes_all_rules_on_net_across_files(main_window, tmp_path, caplog):
+    dock, target = _make_dock(main_window, tmp_path)
+    target, sibling, root = _bulk_graph(tmp_path)
+    dock.set_root_path(root)
+
+    dock._apply_bulk_cell_set("+3V3", "new_cell")
+
+    assert _read_yaml(target)["rules"][0]["spokes"][0]["cell"] == "new_cell"
+    assert _read_yaml(sibling)["rules"][0]["spokes"][0]["cell"] == "new_cell"
+    # a rule on a DIFFERENT net is untouched
+    assert _read_yaml(sibling)["rules"][1]["spokes"] == []
+    assert any("Bulk-set Cell" in r.message for r in caplog.records)
+
+
+def test_bulk_set_cell_partial_failure_reported(main_window, tmp_path, caplog, monkeypatch):
+    """The plan's hard requirement: a partial write failure must be reported
+    EXPLICITLY (which rules wrote, which did not) — never a silent half-applied
+    change."""
+    import gui.docks.rules as rules_mod
+    dock, target = _make_dock(main_window, tmp_path)
+    target, sibling, root = _bulk_graph(tmp_path)
+    dock.set_root_path(root)
+
+    real_upsert = rules_mod.upsert_list_entry
+
+    def flaky(path, *args, **kwargs):
+        if path.name == "sibling.yaml":
+            raise OSError("locked by another process")
+        return real_upsert(path, *args, **kwargs)
+
+    monkeypatch.setattr(rules_mod, "upsert_list_entry", flaky)
+
+    dock._apply_bulk_cell_set("+3V3", "new_cell")
+
+    assert _read_yaml(target)["rules"][0]["spokes"][0]["cell"] == "new_cell"  # wrote
+    assert _read_yaml(sibling)["rules"][0]["spokes"][0]["cell"] == "old_b"    # failed
+    assert any("FAILED" in r.message for r in caplog.records)
+    assert any("sibling.yaml" in r.message for r in caplog.records)
+
+
+def test_bulk_dialog_preview_shows_rules_and_pads(main_window, tmp_path):
+    from gui.docks.rules import BulkSetCellDialog
+    _target, _sibling, root = _bulk_graph(tmp_path)
+
+    dlg = BulkSetCellDialog(root, main_window)
+    dlg.net_combo.setCurrentText("+3V3")
+    dlg._refresh_preview()
+
+    text = dlg.preview_label.text()
+    assert "2 rule(s)" in text
+    assert "rules.yaml" in text and "sibling.yaml" in text
+    assert "17" in text and "26" in text
+
+
+def test_bulk_set_cell_reloads_loaded_rule_if_affected(main_window, tmp_path):
+    """The currently-loaded rule, if it is on the affected net, must be
+    reloaded from disk — otherwise a later spoke autosave (Stage 2) would
+    write the stale pre-bulk state back over the bulk change."""
+    dock, target = _make_dock(main_window, tmp_path)
+    target, sibling, root = _bulk_graph(tmp_path)
+    dock.set_root_path(root)
+    dock.load_entry(_read_yaml(target)["rules"][0])
+    assert dock._spokes[0]["cell"] == "old_a"
+
+    dock._apply_bulk_cell_set("+3V3", "new_cell")
+
+    # the reloaded rule's in-memory spokes carry the bulk result...
+    assert dock._spokes[0]["cell"] == "new_cell"
+    # ...and selecting its row shows the new cell in the spoke editor
+    dock.spokes_table.selectRow(0)
+    assert dock.spoke_cell_combo.currentText() == "new_cell"
 
 
 # ── new_rule / load_entry ─────────────────────────────────────────────────

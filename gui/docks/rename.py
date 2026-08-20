@@ -175,6 +175,33 @@ def collect_all_cell_names(root_path: Path) -> List[str]:
     return sorted(names)
 
 
+def collect_all_rule_nets(root_path: Path) -> List[str]:
+    """Distinct net: values of every rule reachable from root_path via
+    include: — the net picker for Rules' Bulk-set Cell dialog (2026-08-20,
+    plan rule_spoke_fixes stage 3). A net's rules routinely live in DIFFERENT
+    included files, so this walks the whole graph, not just the current
+    file."""
+    nets: set = set()
+    for path in collect_graph_files(root_path):
+        for rule in (read_data(path).get("rules") or []):
+            if isinstance(rule, dict) and rule.get("net"):
+                nets.add(rule["net"])
+    return sorted(nets)
+
+
+def collect_rules_by_net(root_path: Path, net: str) -> List[tuple]:
+    """Every (file_path, rule_dict) in the include: graph rooted at
+    root_path whose rule's net: equals `net` — what the Bulk-set Cell action
+    must touch: ALL of a net's spokes, even when the rules live in different
+    included files (2026-08-20, plan rule_spoke_fixes stage 3)."""
+    result: List[tuple] = []
+    for path in collect_graph_files(root_path):
+        for rule in (read_data(path).get("rules") or []):
+            if isinstance(rule, dict) and rule.get("net") == net:
+                result.append((path, rule))
+    return result
+
+
 def collect_all_sheet_names(root_path: Path) -> List[str]:
     """Distinct human-readable sheet-instance names reachable from
     root_path's schematic_dir/schematic_files (RuntimeContext.sheet_names,

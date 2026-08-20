@@ -6768,6 +6768,77 @@ msgstr "Спица удалена:"
 #: gui/docks/rules.py
 msgid "Spoke moved:"
 msgstr "Спица перемещена:"
+
+#: gui/docks/rules.py
+msgid "Bulk-set Cell for net"
+msgstr "Пакетная замена Cell для сети"
+
+#: gui/docks/rules.py
+msgid "New Cell:"
+msgstr "Новая Cell:"
+
+#: gui/docks/rules.py
+msgid "Apply"
+msgstr "Применить"
+
+#: gui/docks/rules.py
+msgid "Cancel"
+msgstr "Отмена"
+
+#: gui/docks/rules.py
+msgid "Pick a net."
+msgstr "Выберите сеть."
+
+#: gui/docks/rules.py
+#, python-brace-format
+msgid "No rules on net {net!r}."
+msgstr "Нет правил на сети {net!r}."
+
+#: gui/docks/rules.py
+#, python-brace-format
+msgid "{name} in {file} (pads: {pads})"
+msgstr "{name} в {file} (пады: {pads})"
+
+#: gui/docks/rules.py
+#, python-brace-format
+msgid ""
+"Will set cell {cell!r} on {n} rule(s) / {m} spoke(s) of net {net!r}:\n"
+"{lines}"
+msgstr ""
+"Будет изменена cell {cell!r}: правил — {n}, спиц — {m} (сеть {net!r}):\n"
+"{lines}"
+
+#: gui/docks/rules.py
+msgid "Set the project root first."
+msgstr "Сначала задайте root проекта."
+
+#: gui/docks/rules.py
+msgid "Bulk-set Cell needs both a net and a cell."
+msgstr "Для пакетной замены Cell нужны и сеть, и cell."
+
+#: gui/docks/rules.py
+#, python-brace-format
+msgid "Bulk-set Cell: wrote {n} rule(s) on net {net!r}."
+msgstr "Пакетная замена Cell: записано правил {n} на сети {net!r}."
+
+#: gui/docks/rules.py
+#, python-brace-format
+msgid "Bulk-set Cell: wrote {n_ok} rule(s); FAILED {n_failed} — {failed}"
+msgstr "Пакетная замена Cell: записано правил {n_ok}; НЕ УДАЛОСЬ {n_failed} — {failed}"
+
+#: gui/docks/rules.py
+#, python-brace-format
+msgid "{name} in {file}: {err}"
+msgstr "{name} в {file}: {err}"
+
+#: gui/docks/rules.py
+#, python-brace-format
+msgid "{name} in {file}"
+msgstr "{name} в {file}"
+
+#: gui/docks/rules.py
+msgid "Bulk set Cell for net…"
+msgstr "Пакетно задать Cell для сети…"
 #~ msgid ""
 #~ "Process only rules/clone_placements/thermal_via_array "
 #~ "with this name (can be repeated). "
