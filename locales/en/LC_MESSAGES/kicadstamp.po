@@ -6322,6 +6322,28 @@ msgstr ""
 #: kicadstamp/validation.py
 msgid "open the right board in KiCad, or fix board_name: in the config"
 msgstr ""
+
+#: kicadstamp/validation.py
+msgid "rules on the same net compete for the same component pool"
+msgstr ""
+
+#: kicadstamp/validation.py
+#, python-brace-format
+msgid "rules {a!r} and {b!r} on net {net!r} both consume role {role!r} from the same component pool{cluster_hint}"
+msgstr ""
+
+#: kicadstamp/validation.py
+#, python-brace-format
+msgid " (cluster {cluster!r})"
+msgstr ""
+
+#: kicadstamp/validation.py
+msgid " (no cluster)"
+msgstr ""
+
+#: kicadstamp/validation.py
+msgid "fix: give a distinguishing cluster: to the spokes of one of them, so each rule takes components from its own pool — see Rule's docstring (Cluster is the standard mechanism for splitting several rules on one net); a rule redrawn alone (Redraw / --only) will otherwise silently take components meant for its neighbour"
+msgstr ""
 #~ msgid ""
 #~ "Process only rules/clone_placements/thermal_via_array "
 #~ "with this name (can be repeated). "

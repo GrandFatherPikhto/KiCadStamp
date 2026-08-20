@@ -18,6 +18,8 @@ from kicadstamp.validation import (
     check_no_duplicate_clone_anchors,
     check_clone_nets_exist_on_board,
     check_single_selection_based_clone,
+    check_config_structure,
+    check_no_candidate_pool_collisions,
 )
 
 
@@ -390,3 +392,97 @@ def test_check_coordinate_placements_exist_resolves_each_entry():
     cfg.coordinate_placements[0].retired = True
     cfg.coordinate_placements[1].retired = True
     check_coordinate_placements_exist(adapter, cfg)  # no raise despite no match
+
+
+class TestCandidatePoolCollisions:
+    """2026-08-20: two rules sharing one net and consuming the SAME
+    (role, spoke-cluster) candidate pool silently steal each other's
+    components (ComponentPool rebuilt per rule, no ownership/distance) — a
+    loud fatal on the FULL config is the fix, so a Redraw (--only=<one rule>)
+    can't hide the collision by filtering the sibling out first."""
+
+    @staticmethod
+    def _cell(role: str):
+        return Cell(name=f"cell_{role}", components=[TemplateComponentSlot(role=role)])
+
+    def _cfg(self, rules):
+        # Build the cells referenced by the spokes: cell name "cell_<ROLE>"
+        # implies the single Role the pool for that cell needs.
+        built = {}
+        for rule in rules:
+            for spoke in rule.spokes:
+                role = spoke.cell.split("_", 1)[1] if "_" in spoke.cell else "DECOUP"
+                built[spoke.cell] = self._cell(role)
+        return Config(cells=built, rules=rules)
+
+    def test_same_net_same_role_no_cluster_is_fatal(self):
+        rules = [
+            Rule(net="+3V3", anchor_ref='IC1',
+                 spokes=[ManualSpoke(pad="17", cell="cell_DECOUP")]),
+            Rule(net="+3V3", anchor_ref='IC2',
+                 spokes=[ManualSpoke(pad="26", cell="cell_DECOUP")]),
+        ]
+        cfg = self._cfg(rules)
+        with pytest.raises(ValidationError) as exc_info:
+            check_no_candidate_pool_collisions(cfg)
+        text = str(exc_info.value)
+        assert "+3V3" in text
+        assert "DECOUP" in text
+
+    def test_same_net_same_role_different_clusters_ok(self):
+        rules = [
+            Rule(net="+3V3", anchor_ref='IC1',
+                 spokes=[ManualSpoke(pad="17", cell="cell_DECOUP", cluster="Left")]),
+            Rule(net="+3V3", anchor_ref='IC2',
+                 spokes=[ManualSpoke(pad="26", cell="cell_DECOUP", cluster="Right")]),
+        ]
+        check_no_candidate_pool_collisions(self._cfg(rules))  # no raise
+
+    def test_same_net_same_role_cluster_vs_none_ok(self):
+        rules = [
+            Rule(net="+3V3", anchor_ref='IC1',
+                 spokes=[ManualSpoke(pad="17", cell="cell_DECOUP")]),
+            Rule(net="+3V3", anchor_ref='IC2',
+                 spokes=[ManualSpoke(pad="26", cell="cell_DECOUP", cluster="Right")]),
+        ]
+        check_no_candidate_pool_collisions(self._cfg(rules))  # clusters differ -> no collision
+
+    def test_different_nets_ok(self):
+        rules = [
+            Rule(net="+3V3", anchor_ref='IC1',
+                 spokes=[ManualSpoke(pad="17", cell="cell_DECOUP")]),
+            Rule(net="+1V2", anchor_ref='IC1',
+                 spokes=[ManualSpoke(pad="40", cell="cell_DECOUP")]),
+        ]
+        check_no_candidate_pool_collisions(self._cfg(rules))  # different nets -> separate pools
+
+    def test_different_roles_ok(self):
+        rules = [
+            Rule(net="+3V3", anchor_ref='IC1',
+                 spokes=[ManualSpoke(pad="17", cell="cell_DECOUP")]),
+            Rule(net="+3V3", anchor_ref='IC2',
+                 spokes=[ManualSpoke(pad="26", cell="cell_BYPASS")]),
+        ]
+        check_no_candidate_pool_collisions(self._cfg(rules))  # disjoint roles -> separate pools
+
+    def test_retired_rule_ignored(self):
+        rules = [
+            Rule(net="+3V3", anchor_ref='IC1',
+                 spokes=[ManualSpoke(pad="17", cell="cell_DECOUP")]),
+            Rule(net="+3V3", anchor_ref='IC2', retired=True,
+                 spokes=[ManualSpoke(pad="26", cell="cell_DECOUP")]),
+        ]
+        check_no_candidate_pool_collisions(self._cfg(rules))  # retired rule never plans
+
+    def test_wired_into_check_config_structure(self):
+        """Runs on the FULL config — so a Redraw (--only=<one rule>), which
+        filters the sibling out before validation, still sees the collision."""
+        rules = [
+            Rule(net="+3V3", anchor_ref='IC1',
+                 spokes=[ManualSpoke(pad="17", cell="cell_DECOUP")]),
+            Rule(net="+3V3", anchor_ref='IC2',
+                 spokes=[ManualSpoke(pad="26", cell="cell_DECOUP")]),
+        ]
+        cfg = self._cfg(rules)
+        with pytest.raises(ValidationError, match="compete for the same component pool"):
+            check_config_structure(cfg)

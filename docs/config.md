@@ -206,6 +206,12 @@ radially around specific pads of **one** anchor component, drawing real componen
 `(net, Role)` — not tied to a specific refdes, so re-annotation-safe. Does **not** support tracks
 between spokes across different pads (each spoke is self-contained).
 
+> **Two `rules:` on the same net that consume the same `(role, cluster)` pool are a fatal
+> validation error** (2026-08-20): the pool is rebuilt per rule with no ownership/distance, so
+> whichever rule runs later silently takes components meant for its neighbour (a Redraw of one
+> rule is where this is most visible). Fix: give the spokes of one of them a distinguishing
+> `cluster:` so each rule draws from its own pool.
+
 ```yaml
 # boards/3ch-awg-tia/profiles/rules/fpga_spokes.yaml
 rules:

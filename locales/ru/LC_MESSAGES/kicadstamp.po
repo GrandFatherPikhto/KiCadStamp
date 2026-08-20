@@ -6730,6 +6730,28 @@ msgstr "но в KiCad сейчас открыта {live!r}"
 #: kicadstamp/validation.py
 msgid "open the right board in KiCad, or fix board_name: in the config"
 msgstr "откройте нужную плату в KiCad или исправьте board_name: в конфиге"
+
+#: kicadstamp/validation.py
+msgid "rules on the same net compete for the same component pool"
+msgstr "правила на одной сети конкурируют за один и тот же пул компонентов"
+
+#: kicadstamp/validation.py
+#, python-brace-format
+msgid "rules {a!r} and {b!r} on net {net!r} both consume role {role!r} from the same component pool{cluster_hint}"
+msgstr "правила {a!r} и {b!r} на сети {net!r} обе потребляют роль {role!r} из одного и того же пула компонентов{cluster_hint}"
+
+#: kicadstamp/validation.py
+#, python-brace-format
+msgid " (cluster {cluster!r})"
+msgstr " (кластер {cluster!r})"
+
+#: kicadstamp/validation.py
+msgid " (no cluster)"
+msgstr " (без кластера)"
+
+#: kicadstamp/validation.py
+msgid "fix: give a distinguishing cluster: to the spokes of one of them, so each rule takes components from its own pool — see Rule's docstring (Cluster is the standard mechanism for splitting several rules on one net); a rule redrawn alone (Redraw / --only) will otherwise silently take components meant for its neighbour"
+msgstr "исправление: задайте различающий cluster: спицам одного из них, чтобы каждое правило брало компоненты из своего пула — см. докстринг Rule (Cluster — штатный механизм разделения нескольких правил на одной сети); правило, перерисовываемое в одиночку (Redraw / --only), иначе молча заберёт компоненты, предназначенные соседу"
 #~ msgid ""
 #~ "Process only rules/clone_placements/thermal_via_array "
 #~ "with this name (can be repeated). "

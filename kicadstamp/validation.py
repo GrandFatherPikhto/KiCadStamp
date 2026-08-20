@@ -16,7 +16,10 @@ import difflib
 from pathlib import Path
 
 
-from .config import Config, clone_placement_effective_name, coordinate_placement_effective_name
+from .config import (
+    Config, Rule, ManualSpoke, clone_placement_effective_name,
+    coordinate_placement_effective_name, rule_effective_name,
+)
 from .geometry.clone_geometry import clone_shift_mm
 from .kicad.adapter import KiCadBoardAdapter
 from .exceptions import ValidationError, format_fatal_error
@@ -382,6 +385,89 @@ def check_anchor_sheet_configured(cfg: Config, sheet_names=None) -> None:
     logger.debug(_("anchor_sheet/sheet_names check passed"))
 
 
+def _spoke_roles(cfg: Config, spoke: ManualSpoke) -> set:
+    """The set of component Role fields a spoke's cell needs — the SAME roles
+    ComponentPool is built with (see manual_position_calculator.py:112-118)."""
+    cell = cfg.cells.get(spoke.cell)
+    if cell is None:
+        return set()
+    return {slot.role for slot in cell.components}
+
+
+def check_no_candidate_pool_collisions(cfg: Config) -> None:
+    """Pure config check (no live board). Two rules sharing one net and
+    consuming the SAME (role, spoke-cluster) candidate pool will silently
+    steal each other's components: ComponentPool is rebuilt per rule
+    (manual_position_calculator.py), filtering candidates ONLY by net + Role +
+    (if set) spoke cluster (component_pool.py) — no ownership registry, no
+    distance heuristic — so whichever rule plans later pops the same
+    candidates first (natural order). Cluster is the documented mechanism for
+    splitting several rules on one net (Rule's own docstring) but nothing
+    enforced/checked it.
+
+    Reported on the FULL config (before --only/--cluster narrow it) — this is
+    exactly when it must fire: a Redraw (--only=<one rule>) would otherwise
+    hide the collision by filtering the sibling rule out before it is ever
+    seen (apply_only_filter), which is the live incident that motivated this
+    check. Fatal (never a proximity heuristic): each problem names both rules,
+    the net, the shared role and the spoke cluster (or "no cluster"); the hint
+    points at the standard fix — a distinguishing spoke cluster: on one of
+    them."""
+    problems = []
+    seen: set[tuple] = set()
+    rules_by_net: dict[str, list[Rule]] = {}
+    for rule in cfg.rules:
+        if rule.retired or rule.skip:
+            continue  # drop_inactive_items drops these before planning
+        rules_by_net.setdefault(rule.net, []).append(rule)
+
+    for net, rules in rules_by_net.items():
+        if len(rules) < 2:
+            continue
+        for i in range(len(rules)):
+            for j in range(i + 1, len(rules)):
+                a, b = rules[i], rules[j]
+                for sa in a.spokes:
+                    if sa.retired or sa.skip:
+                        continue
+                    roles_a = _spoke_roles(cfg, sa)
+                    if not roles_a:
+                        continue
+                    for sb in b.spokes:
+                        if sb.retired or sb.skip:
+                            continue
+                        if sa.cluster != sb.cluster:
+                            continue
+                        shared = roles_a & _spoke_roles(cfg, sb)
+                        if not shared:
+                            continue
+                        for role in sorted(shared):
+                            key = (rule_effective_name(a), rule_effective_name(b),
+                                   role, sa.cluster)
+                            if key in seen:
+                                continue
+                            seen.add(key)
+                            cluster_hint = (_(" (cluster {cluster!r})").format(cluster=sa.cluster)
+                                            if sa.cluster is not None else _(" (no cluster)"))
+                            problems.append(
+                                _("rules {a!r} and {b!r} on net {net!r} both consume role "
+                                  "{role!r} from the same component pool{cluster_hint}")
+                                .format(a=rule_effective_name(a), b=rule_effective_name(b),
+                                        net=net, role=role, cluster_hint=cluster_hint)
+                            )
+
+    if problems:
+        raise ValidationError(format_fatal_error(
+            _("rules on the same net compete for the same component pool"),
+            problems + [_("fix: give a distinguishing cluster: to the spokes of one of them, "
+                          "so each rule takes components from its own pool — see Rule's "
+                          "docstring (Cluster is the standard mechanism for splitting several "
+                          "rules on one net); a rule redrawn alone (Redraw / --only) will "
+                          "otherwise silently take components meant for its neighbour")]
+        ))
+    logger.debug(_("Candidate-pool collision checks passed"))
+
+
 def check_clone_nets_exist_on_board(adapter: KiCadBoardAdapter, cfg: Config) -> None:
     """
     Resolves via.net for EACH clone_placement (both spoke‑level and those nested
@@ -488,6 +574,7 @@ def check_config_structure(cfg: Config, sheet_names=None) -> None:
     check_no_cell_definition_cycles(cfg)
     check_no_duplicate_clone_anchors(cfg)
     check_anchor_sheet_configured(cfg, sheet_names=_sn)
+    check_no_candidate_pool_collisions(cfg)
 
 
 def _fatal_title_line(e: ValidationError) -> str:
