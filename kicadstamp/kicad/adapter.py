@@ -103,6 +103,21 @@ class KiCadBoardAdapter(IBoardAdapter):
         self._footprints_cache = None
         logger.info(_("Board obtained"))
 
+    def get_board_filename(self) -> str | None:
+        """Filename of the live board's .kicad_pcb (e.g. '3CH-AWG-TIA-v102.
+        kicad_pcb'), or None if not connected. Source: kipy's Board.name
+        (board.py:280-283), which reads DocumentSpecifier.board_filename off
+        the live IPC connection. NOTE (empirical, to verify live): whether this
+        returns the bare filename or a full path depends on what KiCad's IPC
+        layer puts in DocumentSpecifier.board_filename — callers must compare
+        by basename stem only (see check_board_identity), never assume the
+        shape. Exposed here because nothing outside the adapter could see the
+        live board's identity before (validation's check_board_identity needs
+        it to fatal early when the config targets a different board)."""
+        if self._board is None:
+            return None
+        return self._board.name
+
     def close(self) -> None:
         """Explicitly closes the underlying kipy client's pynng socket
         instead of leaving that to the garbage collector. Found live

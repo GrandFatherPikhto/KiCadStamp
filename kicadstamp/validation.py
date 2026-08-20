@@ -13,6 +13,7 @@ at the first spoke.
 """
 import logging
 import difflib
+from pathlib import Path
 
 
 from .config import Config, clone_placement_effective_name, coordinate_placement_effective_name
@@ -530,6 +531,40 @@ def check_coordinate_placements_exist(adapter: KiCadBoardAdapter, cfg: Config,
         ))
 
 
+def check_board_identity(cfg: Config, adapter: KiCadBoardAdapter) -> None:
+    """Opt-in "config targets board X, but board Y is open in KiCad" guard
+    (2026-08-20). Fatal EARLY, before any other check, because a board mismatch
+    makes every other check's result misleading — the real incident: a config
+    whose schematic_dir pointed at a stale board revision while a different
+    revision was open live surfaced as an unrelated-looking fatal deep in
+    Extract ("anchor_sheet is used but sheet name dictionary is empty"), not as
+    a clear "wrong board" message.
+
+    Skipped (never fatal) when:
+      - cfg.board_name is unset (the field is opt-in, old profiles don't get
+        this protection); or
+      - the adapter isn't connected yet (get_board_filename() -> None — a
+        different check already covers "no board at all").
+
+    Compares the BASENAME STEM case-insensitively, never the full path: the
+    config and the live board live in unrelated directory trees, and paths
+    differ across Denis's Windows/Linux machines (see Config.board_name)."""
+    if cfg.board_name is None:
+        return  # opt-in, skip if not declared
+    live = adapter.get_board_filename()
+    if live is None:
+        return  # not connected yet — a different check already covers this
+    live_stem = Path(live).stem
+    expected_stem = Path(cfg.board_name).stem
+    if live_stem.lower() != expected_stem.lower():
+        raise ValidationError(format_fatal_error(
+            _("connected board does not match this config"),
+            [_("config expects board {expected!r}").format(expected=cfg.board_name),
+             _("but KiCad currently has {live!r} open").format(live=live),
+             _("open the right board in KiCad, or fix board_name: in the config")]
+        ))
+
+
 def run_all_checks(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None) -> None:
     """Runs all checks in order — from cheap to more comprehensive.
 
@@ -542,6 +577,11 @@ def run_all_checks(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None) ->
     it must not run on the unfiltered config."""
     _sn = sheet_names or {}
     logger.info(_("Running pre‑validation checks..."))
+    # FIRST, before check_config_structure and everything else: if the board
+    # open in KiCad is not the board this config targets, every other check
+    # would validate against the WRONG board and report misleading results
+    # (see check_board_identity's docstring for the real incident this guards).
+    check_board_identity(cfg, adapter)
     check_config_structure(cfg, sheet_names=_sn)
     check_single_selection_based_clone(cfg)
     check_cells_and_pads_exist(adapter, cfg, sheet_names=_sn)

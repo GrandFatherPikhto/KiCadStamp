@@ -6712,6 +6712,24 @@ msgstr "исходный канал {src!r} не найден на плате"
 #, python-brace-format
 msgid "no footprint with a local net of channel {src!r} was found — the copy's vias/tracks are filtered by this name, so a typo in --src would silently drop them all; check --src / --pivot"
 msgstr "не найден футпринт с локальной цепью канала {src!r} — via/дорожки копии фильтруются по этому имени, поэтому опечатка в --src молча удалила бы их все; проверьте --src / --pivot"
+
+#: kicadstamp/validation.py
+msgid "connected board does not match this config"
+msgstr "подключённая плата не соответствует этому конфигу"
+
+#: kicadstamp/validation.py
+#, python-brace-format
+msgid "config expects board {expected!r}"
+msgstr "конфиг ожидает плату {expected!r}"
+
+#: kicadstamp/validation.py
+#, python-brace-format
+msgid "but KiCad currently has {live!r} open"
+msgstr "но в KiCad сейчас открыта {live!r}"
+
+#: kicadstamp/validation.py
+msgid "open the right board in KiCad, or fix board_name: in the config"
+msgstr "откройте нужную плату в KiCad или исправьте board_name: в конфиге"
 #~ msgid ""
 #~ "Process only rules/clone_placements/thermal_via_array "
 #~ "with this name (can be repeated). "

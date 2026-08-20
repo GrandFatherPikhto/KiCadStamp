@@ -51,6 +51,7 @@ clone_placements:
 | `schematic_files` | list of strings | Extra `.kicad_sch` files outside `schematic_dir` (e.g. the root sheet, if it lives elsewhere). |
 | `registry_path`, `track_registry_path` | strings | Explicit paths for the placement/track registries (see [docs/placement.md](placement.md)). Default: derived from the config file's own name/path if unset. |
 | `log_file` | string | Log file for `apply` runs against this config — avoids retyping `--log-file` every time. The CLI's own `--log-file` flag wins if both are given. |
+| `board_name` | string | Optional. Name of the board (`.kicad_pcb`) this config targets, e.g. `3CH-AWG-TIA-v102` (the extension may be omitted). When set, `apply` fatals BEFORE any other check if the board actually open in KiCad has a different name — a clear "wrong board" error instead of a misleading failure deep in some other subsystem (a real incident: a stale `schematic_dir` pointing at a previous board revision surfaced as an unrelated `anchor_sheet` fatal in Extract). Compared case-insensitively by basename stem only, never the full path (config and board live in unrelated directory trees, and paths differ across machines). Unset = no check, old profiles unaffected. |
 
 **Deprecated, fatal on load (no silent fallback):** `templates_file`/`template_files` (renamed to
 `cells_file`/`cell_files`, themselves folded into `include:` on 2026-08-02 — see next), `cells_file`/

@@ -324,6 +324,12 @@ def load_config(path: str) -> tuple[Config, RuntimeContext]:
     if root_sheet:
         root_sheet = resolve_config_relative_path(config_dir, root_sheet)
 
+    # board_name — NOT a path, deliberately not resolved relative to the YAML
+    # (see Config.board_name's docstring): it's a board/project identity string
+    # compared by basename stem only, and the config and the live board live in
+    # unrelated directory trees.
+    board_name = data.get('board_name')
+
     # sheet_names is runtime-computed data (NOT part of the YAML schema), so
     # it is threaded via RuntimeContext rather than stored on Config — keeping
     # Config a pure description of the YAML schema (see runtime_context.py).
@@ -350,6 +356,7 @@ def load_config(path: str) -> tuple[Config, RuntimeContext]:
         track_registry_path=track_registry_path,
         log_file=log_file,
         operation_log_dir=operation_log_dir,
+        board_name=board_name,
     )
     total_spokes = sum(len(r.spokes) for r in cfg.rules)
     logger.debug(_("Config loaded: layer={layer}, cells={cells}, points={points}, rules={rules}, "

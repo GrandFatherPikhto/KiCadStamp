@@ -690,6 +690,18 @@ class Config:
     # process CWD. When unset, OperationLogger/cmd_undo fall back to
     # DEFAULT_LOG_DIR ("logs" next to the CWD) for backward compatibility.
     operation_log_dir: str | None = None
+    # Which board (.kicad_pcb) this config targets — e.g. '3CH-AWG-TIA-v102'
+    # (with or without the '.kicad_pcb' extension). Optional (opt-in): when set,
+    # validation's check_board_identity() fatals if the board actually open in
+    # KiCad has a DIFFERENT name — the explicit "you opened the wrong board"
+    # guard added 2026-08-20 after a real incident where a stale schematic_dir
+    # pointed at a previous board revision and the mismatch surfaced only as an
+    # unrelated-looking fatal deep in Extract. Compared case-insensitively by
+    # basename stem ONLY (never the full path): the config and the live board
+    # live in unrelated directory trees, and paths differ across Denis's
+    # Windows/Linux machines. Unlike every other string field above this is NOT
+    # a path — deliberately not resolved relative to the YAML.
+    board_name: str | None = None
     @property
     def anchor_refs(self) -> set:
         """All anchor refs in the config: spoke rules + thermal via arrays."""
