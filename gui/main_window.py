@@ -85,8 +85,8 @@ from kicadstamp.i18n import _
 from . import settings
 from .connection import BoardConnection
 from .dock_hub import DockHub
+from .app_icon import build_app_icon
 from .kicad_processes_dialog import KicadProcessesDialog
-from .tray_icon import build_tray_icon
 from .worker import PollWorkerHandle
 
 logger = logging.getLogger(__name__)
@@ -285,7 +285,7 @@ class MainWindow(QMainWindow):
                 return
             if not QSystemTrayIcon.isSystemTrayAvailable():
                 logger.warning(_("Tray icon requested but no system tray is available here."))
-            self._tray_icon = QSystemTrayIcon(build_tray_icon(), self)
+            self._tray_icon = QSystemTrayIcon(build_app_icon(), self)
             self._tray_icon.setToolTip(_("KiCadStamp"))
             menu = QMenu()
             menu.addAction(_("Show/Hide"), self._toggle_visibility)

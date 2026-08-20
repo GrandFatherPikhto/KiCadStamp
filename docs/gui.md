@@ -576,8 +576,10 @@ no listener configured it attaches directly to the root logger, as before.
 
 ## Tray icon
 
-The **Tray icon** status-bar checkbox creates an OS tray icon (a small programmatic icon, not a
-binary asset — `gui/tray_icon.py`) with a menu: **Show/Hide**, **Open fieldstool**, **Quit**.
+The **Tray icon** status-bar checkbox creates an OS tray icon with the app's real icon
+(`images/kicadstamp.ico`, base64-embedded in `gui/app_icon.py` — the same icon as the window /
+Windows taskbar, no images/ file dependency at runtime) and a menu: **Show/Hide**, **Open
+fieldstool**, **Quit**.
 While checked, closing the window via its title-bar X hides it instead of quitting — reachable
 again from the tray (single click/double-click, or the Show/Hide menu item). Unchecked, closing
 behaves exactly as without a tray at all — a real quit. The tray menu's **Quit** always does a real

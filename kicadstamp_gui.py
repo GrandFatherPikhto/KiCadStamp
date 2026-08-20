@@ -32,7 +32,6 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
-from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication
 
 from kicadstamp import __version__
@@ -40,6 +39,7 @@ from kicadstamp.constants import DEFAULT_TIMEOUT_MS
 from kicadstamp.i18n import _
 from kicadstamp.logging_setup import setup_logging
 
+from gui.app_icon import build_app_icon
 from gui.main_window import MainWindow
 from gui.single_instance import SingleInstanceGuard
 
@@ -62,13 +62,12 @@ def main():
     app = QApplication(sys.argv)
 
     # Default icon for every window this app creates (taskbar/alt-tab/window
-    # manager decorations) — a real asset, unlike gui/tray_icon.py's
-    # programmatic "K" glyph (that one's deliberately not a binary asset,
-    # see its own docstring; the window icon has no such constraint). Missing
-    # file is not fatal — Qt just falls back to no icon.
-    icon_path = Path(__file__).parent / "images" / "kicadstamp.png"
-    if icon_path.is_file():
-        app.setWindowIcon(QIcon(str(icon_path)))
+    # manager decorations) — the real kicadstamp.ico, base64-embedded into
+    # gui/app_icon.py (2026-08-20, "sew the icon into the app itself") so it
+    # renders from any CWD / frozen build without an images/ file dependency.
+    # The same embedded icon feeds the system tray (gui/main_window.py's
+    # _set_tray_enabled).
+    app.setWindowIcon(build_app_icon())
 
     # On GNOME/Wayland, setWindowIcon() alone is not enough — the Shell
     # (taskbar/Activities overview/alt-tab) resolves the icon through the
