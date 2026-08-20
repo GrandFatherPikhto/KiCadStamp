@@ -70,6 +70,16 @@ rule_effective_name (name if set, else net) — rules: is the one list
 section without a REQUIRED name: field (see config/models.py's
 rule_effective_name), unlike clone_placements:/thermal_via_arrays: which
 always require one.
+
+Spoke edits autosave (2026-08-20, plan rule_spoke_fixes stage 2): "editing
+finished" on any spoke editor field (blur/Enter/combo pick/checkbox) does
+what 'Update selected' + 'Save' used to do together — rebuild the selected
+spoke and immediately persist the whole rule via upsert_list_entry. Add/
+Update/Remove/Move also persist right away, so no spoke-level change ever
+needs an explicit Save. The Save button remains, but only for the rule's
+OWN Net/Origin fields (the one thing left without an editingFinished hook).
+Every failed autosave is reported to the Log dock — never silent — so an
+edit that could not be written is never mistaken for one that was.
 """
 import dataclasses
 import logging
@@ -244,6 +254,28 @@ class RuleDock(QWidget):
         spoke_page_layout.addLayout(spoke_checks_row)
         spoke_page_layout.addStretch(1)
         self._tabs.addTab(spoke_page, _("Spoke"))
+
+        # Stage 2 (2026-08-20, plan rule_spoke_fixes): spoke edits autosave.
+        # "Editing finished" on any spoke field (blur/Enter/combo pick/
+        # checkbox) immediately does what 'Update selected' + 'Save' used to
+        # do together — see _autosave_current_spoke. PyQt drops a signal's
+        # extra args for a no-arg Python slot (same as spoke_mode_combo's
+        # currentIndexChanged -> _update_spoke_mode above).
+        for edit in (self.spoke_pad_edit, self.spoke_shift_x_edit,
+                     self.spoke_shift_y_edit, self.spoke_radius_edit,
+                     self.spoke_angle_edit, self.spoke_rotation_edit):
+            edit.editingFinished.connect(self._autosave_current_spoke)
+        for combo in (self.spoke_cell_combo, self.spoke_cluster_combo):
+            combo.activated.connect(self._autosave_current_spoke)
+            # An editable QComboBox has no editingFinished of its own — the
+            # signal lives on its internal QLineEdit (Enter/blur on typed
+            # text); 'activated' above covers picking from the dropdown.
+            line_edit = combo.lineEdit()
+            if line_edit is not None:
+                line_edit.editingFinished.connect(self._autosave_current_spoke)
+        self.spoke_mode_combo.activated.connect(self._autosave_current_spoke)
+        self.spoke_retired_checkbox.clicked.connect(self._autosave_current_spoke)
+        self.spoke_skip_checkbox.clicked.connect(self._autosave_current_spoke)
 
         layout.addWidget(QLabel(_("Spokes:")))
         self.spokes_table = QTableWidget(0, len(_COLUMNS))
@@ -499,6 +531,65 @@ class RuleDock(QWidget):
             return None
         return entry
 
+    def _persist_rule(self, context: str, notify_tree: bool = False) -> None:
+        """Build the current rule from the form, validate it, and write it to
+        the target file (upsert_list_entry). Shared by the Save button (the
+        rule's own Net/Origin fields) and every spoke autosave path (Stage 2,
+        2026-08-20). On ANY failure — invalid form, invalid rule, or write
+        error — report it to the Log dock and return; a failed autosave must
+        be visible, never silent (an edit that didn't get written looks
+        exactly like one that did).
+
+        `context` is a short operation label prefixed to the success message
+        ("Spoke added:", ...); empty for the Save button. The `saved` signal
+        fires only when the tree's display can actually change: notify_tree
+        (Save button — a name/net change alters what the tree shows), or an
+        autosave that CREATED a brand-new rule (upsert returned "wrote", not
+        "overwrote"). A plain spoke-value tweak on an already-saved rule is
+        deliberately silent to the tree — config_tree_dock.refresh() clears
+        and rebuilds the whole tree (losing selection), so firing it on every
+        blur would be both wasteful and jarring."""
+        if self._path is None:
+            self._show_message(_("Pick a file in the Config tree first."), _ERROR_STYLE)
+            return
+        entry = self._build_rule_dict()
+        if entry is None:
+            return  # _build_rule_dict already reported the specific error
+        try:
+            load_rule(entry)  # validate before writing anything
+        except ValidationError as e:
+            self._show_message(str(e), _ERROR_STYLE)
+            return
+        try:
+            overwritten = upsert_list_entry(self._path, "rules", entry, key_fn=_rule_identity)
+        except OSError as e:
+            self._show_message(_("Write failed: {error}").format(error=e), _ERROR_STYLE)
+            return
+        suffix = _("{action} {name!r} in {path}").format(
+            action=_("Overwrote") if overwritten else _("Wrote"),
+            name=_rule_identity(entry), path=display_path(self._path))
+        self._show_message(f"{context} {suffix}".strip(), _SUCCESS_STYLE)
+        if notify_tree or not overwritten:
+            self.saved.emit()
+
+    def _autosave_current_spoke(self) -> None:
+        """Stage 2 (2026-08-20): a spoke editor field's 'editing finished'
+        (blur/Enter/combo pick/checkbox). Immediately does what 'Update
+        selected' + 'Save' used to do together: rebuild the SELECTED spoke
+        from the editor, replace it in self._spokes, and persist the whole
+        rule. No selected row = nothing to update (a brand-new spoke still
+        goes through 'Add spoke'). Any failure is reported by _persist_rule
+        /_build_spoke_dict — never silent."""
+        if self._selected_index is None:
+            return  # nothing to update; 'Add spoke' is the entry point for a new row
+        entry = self._build_spoke_dict()
+        if entry is None:
+            return  # error already reported
+        self._spokes[self._selected_index] = entry
+        self._refresh_table()
+        self.spokes_table.selectRow(self._selected_index)
+        self._persist_rule(_("Spoke updated:"))
+
     def _on_add_spoke(self) -> None:
         entry = self._build_spoke_dict()
         if entry is None:
@@ -506,7 +597,7 @@ class RuleDock(QWidget):
         self._spokes.append(entry)
         self._refresh_table()
         self.spokes_table.selectRow(len(self._spokes) - 1)
-        self._show_message(_("Spoke added — remember to Save the rule."), _SUCCESS_STYLE)
+        self._persist_rule(_("Spoke added:"))
 
     def _on_update_spoke(self) -> None:
         if self._selected_index is None:
@@ -518,7 +609,7 @@ class RuleDock(QWidget):
         self._spokes[self._selected_index] = entry
         self._refresh_table()
         self.spokes_table.selectRow(self._selected_index)
-        self._show_message(_("Spoke updated — remember to Save the rule."), _SUCCESS_STYLE)
+        self._persist_rule(_("Spoke updated:"))
 
     def _on_remove_spoke(self) -> None:
         if self._selected_index is None:
@@ -528,7 +619,7 @@ class RuleDock(QWidget):
         self._selected_index = None
         self._refresh_table()
         self._clear_spoke_editor()
-        self._show_message(_("Spoke removed — remember to Save the rule."), _SUCCESS_STYLE)
+        self._persist_rule(_("Spoke removed:"))
 
     def _on_move_spoke(self, delta: int) -> None:
         if self._selected_index is None:
@@ -542,6 +633,7 @@ class RuleDock(QWidget):
         self._selected_index = new_index
         self._refresh_table()
         self.spokes_table.selectRow(new_index)
+        self._persist_rule(_("Spoke moved:"))
 
     # ── Building the Rule entry dict (shared by Redraw/Save) ────────────────
 
@@ -698,31 +790,11 @@ class RuleDock(QWidget):
     # ── Save ──────────────────────────────────────────────────────────────
 
     def _on_save(self) -> None:
-        entry = self._build_rule_dict()
-        if entry is None:
-            return
-        if self._path is None:
-            self._show_message(_("Pick a file in the Config tree first."), _ERROR_STYLE)
-            return
-
-        try:
-            load_rule(entry)  # validate before writing anything
-        except ValidationError as e:
-            self._show_message(str(e), _ERROR_STYLE)
-            return
-
-        try:
-            overwritten = upsert_list_entry(self._path, "rules", entry, key_fn=_rule_identity)
-        except OSError as e:
-            self._show_message(_("Write failed: {error}").format(error=e), _ERROR_STYLE)
-            return
-
-        self._show_message(
-            _("{action} {name!r} in {path}").format(
-                action=_("Overwrote") if overwritten else _("Wrote"),
-                name=_rule_identity(entry), path=display_path(self._path)),
-            _SUCCESS_STYLE)
-        self.saved.emit()
+        """The Save button's sole remaining job since Stage 2 (2026-08-20):
+        the rule's OWN Net/Origin/retired/skip fields — spoke edits autosave
+        themselves (see _persist_rule/_autosave_current_spoke). Always
+        notifies the tree, since a name/net change alters what it shows."""
+        self._persist_rule("", notify_tree=True)
 
     # ── Starting a brand new entry (ConfigTreeDock's Add rule...) ───────────
 

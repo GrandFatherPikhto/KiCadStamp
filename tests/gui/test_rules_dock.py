@@ -393,6 +393,140 @@ def test_save_without_a_file_picked_shows_error(main_window, caplog):
     assert any("Pick a file" in r.message for r in caplog.records)
 
 
+# ── Autosave (Stage 2, 2026-08-20: "писать сразу, без Save") ──────────────
+
+def test_spoke_field_editing_finished_autosaves(main_window, tmp_path, caplog):
+    """A spoke field's editingFinished (blur/Enter) immediately persists —
+    no explicit Save pressed (old 'Update selected' + 'Save' became one)."""
+    dock, target = _make_dock(main_window, tmp_path, {"rules": [{
+        "net": "+3V3", "anchor_role": "FPGA",
+        "spokes": [{"pad": "17", "cell": "cap_pair", "shift_x_mm": 1.2}],
+    }]})
+    dock.load_entry(_read_yaml(dock._path)["rules"][0])
+    dock.spokes_table.selectRow(0)
+
+    dock.spoke_shift_x_edit.setText("2.5")
+    dock.spoke_shift_x_edit.editingFinished.emit()
+
+    data = _read_yaml(target)
+    assert data["rules"][0]["spokes"][0]["shift_x_mm"] == 2.5
+    assert dock._spokes[0]["shift_x_mm"] == 2.5
+    assert any("Spoke updated" in r.message for r in caplog.records)
+
+
+def test_spoke_combo_activated_autosaves(main_window, tmp_path):
+    """Picking a new cell from the (editable) Cell combo persists immediately."""
+    dock, target = _make_dock(main_window, tmp_path, {"rules": [{
+        "net": "+3V3", "anchor_role": "FPGA",
+        "spokes": [{"pad": "17", "cell": "cap_pair"}],
+    }]})
+    dock.load_entry(_read_yaml(dock._path)["rules"][0])
+    dock.spokes_table.selectRow(0)
+
+    dock.spoke_cell_combo.setCurrentText("other_cell")
+    dock.spoke_cell_combo.activated.emit(dock.spoke_cell_combo.currentIndex())
+
+    assert _read_yaml(target)["rules"][0]["spokes"][0]["cell"] == "other_cell"
+
+
+def test_add_spoke_persists_immediately(main_window, tmp_path):
+    dock, target = _make_dock(main_window, tmp_path)
+    dock.net_edit.setCurrentText("+3V3")
+    dock.origin_mode_combo.setCurrentIndex(0)
+    dock.anchor_role_edit.setCurrentText("FPGA")
+    dock.spoke_pad_edit.setText("17")
+    dock.spoke_cell_combo.setCurrentText("cap_pair")
+
+    dock._on_add_spoke()  # no Save pressed
+
+    assert _read_yaml(target)["rules"] == [{
+        "net": "+3V3", "anchor_role": "FPGA", "spokes": [{"pad": "17", "cell": "cap_pair"}]}]
+
+
+def test_remove_spoke_persists_immediately(main_window, tmp_path):
+    dock, target = _make_dock(main_window, tmp_path, {"rules": [{
+        "net": "+3V3", "anchor_role": "FPGA",
+        "spokes": [{"pad": "17", "cell": "cap_pair"}, {"pad": "26", "cell": "cap_pair"}],
+    }]})
+    dock.load_entry(_read_yaml(dock._path)["rules"][0])
+    dock.spokes_table.selectRow(0)
+
+    dock._on_remove_spoke()
+
+    assert [s["pad"] for s in _read_yaml(target)["rules"][0]["spokes"]] == ["26"]
+
+
+def test_move_spoke_persists_immediately(main_window, tmp_path):
+    dock, target = _make_dock(main_window, tmp_path, {"rules": [{
+        "net": "+3V3", "anchor_role": "FPGA",
+        "spokes": [{"pad": "17", "cell": "cap_pair"}, {"pad": "26", "cell": "cap_pair"}],
+    }]})
+    dock.load_entry(_read_yaml(dock._path)["rules"][0])
+    dock.spokes_table.selectRow(0)
+
+    dock._on_move_spoke(1)
+
+    assert [s["pad"] for s in _read_yaml(target)["rules"][0]["spokes"]] == ["26", "17"]
+
+
+def test_autosave_creating_a_new_rule_notifies_the_tree(main_window, tmp_path):
+    """A brand-new rule written by autosave must fire saved so the Config
+    tree learns it exists (it shows rule NODES by name)."""
+    dock, target = _make_dock(main_window, tmp_path)  # {"rules": []}
+    fired = []
+    dock.saved.connect(lambda: fired.append(True))
+    dock.net_edit.setCurrentText("+3V3")
+    dock.origin_mode_combo.setCurrentIndex(0)
+    dock.anchor_role_edit.setCurrentText("FPGA")
+    dock.spoke_pad_edit.setText("17")
+    dock.spoke_cell_combo.setCurrentText("cap_pair")
+
+    dock._on_add_spoke()
+
+    assert fired
+    assert _read_yaml(target)["rules"] == [{
+        "net": "+3V3", "anchor_role": "FPGA", "spokes": [{"pad": "17", "cell": "cap_pair"}]}]
+
+
+def test_autosave_existing_rule_does_not_churn_the_tree(main_window, tmp_path):
+    """A spoke value tweak on an ALREADY-saved rule must NOT fire saved —
+    config_tree_dock.refresh() clears and rebuilds the whole tree (losing
+    selection), and a spoke value isn't even shown there."""
+    dock, target = _make_dock(main_window, tmp_path, {"rules": [{
+        "net": "+3V3", "anchor_role": "FPGA",
+        "spokes": [{"pad": "17", "cell": "cap_pair", "shift_x_mm": 1.2}],
+    }]})
+    dock.load_entry(_read_yaml(dock._path)["rules"][0])
+    dock.spokes_table.selectRow(0)
+    fired = []
+    dock.saved.connect(lambda: fired.append(True))
+
+    dock.spoke_shift_x_edit.setText("2.5")
+    dock.spoke_shift_x_edit.editingFinished.emit()
+
+    assert not fired
+    assert _read_yaml(target)["rules"][0]["spokes"][0]["shift_x_mm"] == 2.5
+
+
+def test_autosave_failure_reports_error_never_silent(main_window, tmp_path, caplog):
+    """A failed autosave must be visible in the Log dock — an edit that could
+    not be written looks exactly like one that did (Stage 2 plan)."""
+    dock, target = _make_dock(main_window, tmp_path, {"rules": [{
+        "net": "+3V3", "anchor_role": "FPGA",
+        "spokes": [{"pad": "17", "cell": "cap_pair", "shift_x_mm": 1.2}],
+    }]})
+    dock.load_entry(_read_yaml(dock._path)["rules"][0])
+    dock.spokes_table.selectRow(0)
+
+    dock.origin_widget.clear()  # break the rule -> _build_rule_dict fails
+    dock.spoke_shift_x_edit.setText("2.5")
+    dock.spoke_shift_x_edit.editingFinished.emit()
+
+    assert any("Anchor: set Ref or Role" in r.message for r in caplog.records)
+    # nothing was written
+    assert _read_yaml(target)["rules"][0]["spokes"][0]["shift_x_mm"] == 1.2
+
+
 # ── new_rule / load_entry ─────────────────────────────────────────────────
 
 def test_new_rule_resets_form_and_targets_file(main_window, tmp_path):

@@ -6752,6 +6752,22 @@ msgstr " (без кластера)"
 #: kicadstamp/validation.py
 msgid "fix: give a distinguishing cluster: to the spokes of one of them, so each rule takes components from its own pool — see Rule's docstring (Cluster is the standard mechanism for splitting several rules on one net); a rule redrawn alone (Redraw / --only) will otherwise silently take components meant for its neighbour"
 msgstr "исправление: задайте различающий cluster: спицам одного из них, чтобы каждое правило брало компоненты из своего пула — см. докстринг Rule (Cluster — штатный механизм разделения нескольких правил на одной сети); правило, перерисовываемое в одиночку (Redraw / --only), иначе молча заберёт компоненты, предназначенные соседу"
+
+#: gui/docks/rules.py
+msgid "Spoke added:"
+msgstr "Спица добавлена:"
+
+#: gui/docks/rules.py
+msgid "Spoke updated:"
+msgstr "Спица обновлена:"
+
+#: gui/docks/rules.py
+msgid "Spoke removed:"
+msgstr "Спица удалена:"
+
+#: gui/docks/rules.py
+msgid "Spoke moved:"
+msgstr "Спица перемещена:"
 #~ msgid ""
 #~ "Process only rules/clone_placements/thermal_via_array "
 #~ "with this name (can be repeated). "

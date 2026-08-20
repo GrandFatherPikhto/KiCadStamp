@@ -480,6 +480,9 @@ Update/Remove row, and Redraw/Save stay outside the tabs — they act on the who
   rotation/cluster at a glance). The table itself is read-only; all editing goes through the row
   below it and its own **Add spoke** / **Update selected** / **Remove selected** / **Move up** /
   **Move down** buttons — a table row can never drift from what was actually validated and stored.
+  Every one of these, plus any spoke field's *editing finished* (blur / Enter / combo pick),
+  writes the rule to disk immediately (2026-08-20) — no separate Save for spoke-level work, and a
+  failed write is reported in the Log dock, never silent.
 - **Cell** (per spoke) is a searchable combo listing every `cells:` key reachable from the
   project's root via `include:` — not just this file's own, since a spoke's cell routinely lives in
   a different file than the rule using it. **Point** (the rule's own anchor, not per-spoke — a
@@ -492,9 +495,10 @@ Update/Remove row, and Redraw/Save stay outside the tabs — they act on the who
   resolution shares ONE component pool per net across the whole rule, so a single spoke can't be
   resolved in total isolation, but the pipeline can be told to skip every spoke except the one
   you're checking, which `skip:` already exists to do.
-- **Save** — writes the whole rule into the target file's `rules:` list, matched by name if set,
-  else net (`rules:` is the one list section without a required `name:` — see
-  [docs/config.md](config.md)'s `rule_effective_name`).
+- **Save** — since 2026-08-20 this button's only remaining job is the rule's OWN **Net/Origin**
+  fields (spoke edits autosave themselves, see the Spokes bullet above). It writes the whole rule
+  into the target file's `rules:` list, matched by name if set, else net (`rules:` is the one list
+  section without a required `name:` — see [docs/config.md](config.md)'s `rule_effective_name`).
 
 ## Cells
 
