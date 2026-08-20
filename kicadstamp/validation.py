@@ -618,6 +618,21 @@ def check_coordinate_placements_exist(adapter: KiCadBoardAdapter, cfg: Config,
         ))
 
 
+def _path_basename_stem(path: str) -> str:
+    """Return the basename stem of a path string, treating BOTH '/' and '\\'
+    as directory separators.
+
+    pathlib.Path in OS-default mode only understands the separator of the
+    current OS: on Linux (PosixPath) a Windows-style path with backslashes is
+    treated as ONE filename, so Path(live).stem would yield the whole path
+    instead of the board stem (the very failure this helper exists to avoid).
+    Normalizing separators first keeps the comparison independent of the OS
+    the interpreter runs on. The caller passes either get_board_filename()
+    output or cfg.board_name, which may be a bare filename or a full path."""
+    basename = path.replace("\\", "/").rsplit("/", 1)[-1]
+    return Path(basename).stem
+
+
 def check_board_identity(cfg: Config, adapter: KiCadBoardAdapter) -> None:
     """Opt-in "config targets board X, but board Y is open in KiCad" guard
     (2026-08-20). Fatal EARLY, before any other check, because a board mismatch
@@ -641,8 +656,8 @@ def check_board_identity(cfg: Config, adapter: KiCadBoardAdapter) -> None:
     live = adapter.get_board_filename()
     if live is None:
         return  # not connected yet — a different check already covers this
-    live_stem = Path(live).stem
-    expected_stem = Path(cfg.board_name).stem
+    live_stem = _path_basename_stem(live)
+    expected_stem = _path_basename_stem(cfg.board_name)
     if live_stem.lower() != expected_stem.lower():
         raise ValidationError(format_fatal_error(
             _("connected board does not match this config"),

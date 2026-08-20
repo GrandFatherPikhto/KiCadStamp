@@ -14,7 +14,11 @@ from unittest.mock import MagicMock
 
 from kicadstamp.config import Config, load_config
 from kicadstamp.exceptions import ValidationError
-from kicadstamp.validation import check_board_identity, run_all_checks
+from kicadstamp.validation import (
+    _path_basename_stem,
+    check_board_identity,
+    run_all_checks,
+)
 
 
 def _adapter(live: str | None) -> MagicMock:
@@ -81,8 +85,33 @@ class TestCheckBoardIdentity:
     def test_live_full_path_is_compared_by_basename_only(self):
         # The config and the live board live in unrelated directory trees, and
         # paths differ across Windows/Linux — only the basename stem matters.
+        # The Windows path (backslashes) must be parsed the same way on Linux
+        # (PosixPath) as on Windows, or this guard misfires (2026-08-20).
         cfg = Config(board_name="3CH-AWG-TIA-v102")
         check_board_identity(cfg, _adapter(live=r"D:\Projects\KiCad\3CH-AWG-TIA\3CH-AWG-TIA-v102\3CH-AWG-TIA-v102.kicad_pcb"))
+
+    def test_board_name_full_path_matches_live_full_path(self):
+        # board_name may itself arrive as a full path (either separator style);
+        # both sides go through _path_basename_stem, so this must pass.
+        cfg = Config(board_name=r"D:\Projects\KiCad\3CH-AWG-TIA\3CH-AWG-TIA-v102\3CH-AWG-TIA-v102.kicad_pcb")
+        check_board_identity(cfg, _adapter(live="/home/denis/kicad/3CH-AWG-TIA-v102.kicad_pcb"))
+
+
+class TestPathBasenameStem:
+    def test_windows_path_backslashes(self):
+        assert _path_basename_stem(r"D:\Projects\KiCad\3CH-AWG-TIA\3CH-AWG-TIA-v102\3CH-AWG-TIA-v102.kicad_pcb") == "3CH-AWG-TIA-v102"
+
+    def test_posix_path_forward_slashes(self):
+        assert _path_basename_stem("/home/denis/kicad/3CH-AWG-TIA-v102.kicad_pcb") == "3CH-AWG-TIA-v102"
+
+    def test_mixed_separators(self):
+        assert _path_basename_stem(r"D:\Projects/KiCad\3CH-AWG-TIA-v102.kicad_pcb") == "3CH-AWG-TIA-v102"
+
+    def test_bare_filename(self):
+        assert _path_basename_stem("3CH-AWG-TIA-v102.kicad_pcb") == "3CH-AWG-TIA-v102"
+
+    def test_multiple_dots_kept_in_stem(self):
+        assert _path_basename_stem("3CH.AWG-TIA-v102.kicad_pcb") == "3CH.AWG-TIA-v102"
 
     def test_mismatch_is_fatal_with_both_names(self):
         cfg = Config(board_name="3CH-AWG-TIA-v102")
