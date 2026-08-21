@@ -18,11 +18,13 @@ from .models import (
     Rule,
     ClonePlacement,
     CoordinatePlacement,
+    NetTrace,
     Config,
     rule_effective_name,
     thermal_via_array_effective_name,
     coordinate_placement_effective_name,
     clone_placement_effective_name,
+    net_trace_effective_name,
 )
 from .points import Point
 from ..runtime_context import RuntimeContext
@@ -39,6 +41,7 @@ from .loader import (
     _load_clone_placement,
     _load_thermal_via_array,
     _load_coordinate_placement,
+    _load_net_trace,
     _check_layer_value,
 )
 
@@ -51,6 +54,8 @@ load_template_component_slot = _load_template_component_slot
 load_template_via = _load_template_via
 load_template_track = _load_template_track
 load_cell_placement = _load_cell_placement
+# load_net_trace (2026-08-21) — same pattern, for a future net_traces GUI dock.
+load_net_trace = _load_net_trace
 
 # Public aliases for the loader entry points the GUI uses to validate/rebuild
 # a single entry (Phase 4.2 — gui/ must not import the private names).
@@ -80,6 +85,7 @@ __all__ = [
     "Rule",
     "ClonePlacement",
     "CoordinatePlacement",
+    "NetTrace",
     "Config",
     "RuntimeContext",
     "load_config",
@@ -91,6 +97,7 @@ __all__ = [
     "load_clone_placement",
     "load_thermal_via_array",
     "load_coordinate_placement",
+    "load_net_trace",
     "load_point",
     "load_rule",
     "load_manual_spoke",
@@ -98,4 +105,5 @@ __all__ = [
     "thermal_via_array_effective_name",
     "coordinate_placement_effective_name",
     "clone_placement_effective_name",
+    "net_trace_effective_name",
 ]

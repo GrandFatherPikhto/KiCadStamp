@@ -488,6 +488,65 @@ def rule_effective_name(rule: "Rule") -> str:
 
 
 @dataclass
+class NetTrace:
+    """One net's copper (tracks + vias), captured as LOCAL offsets from an
+    anchor pad, re-resolved LIVE on every apply/redraw — same anchor fields
+    serve BOTH the extraction-time origin AND the apply-time anchor (this is
+    deliberately NOT split into a Cell+ClonePlacement pair: net_traces are
+    single-instance by design, no reuse-at-multiple-anchors need, so the
+    usual two-layer indirection would be pure overhead — see
+    techdocs/handoff/deepseek/plan_2026_08_21_net_traces.md §0 for the full
+    reasoning).
+
+    net — the network name. This is the SAVE/--only identity (net_trace_
+    effective_name) AND, being unique per record, the registry's
+    template_name (see net_trace_anchor_id in kicadstamp/net_trace_planner.py).
+    One net_traces: record per net — fatal at load if two records share a net
+    (see config/loader.py).
+
+    anchor_role — REQUIRED. Resolves the anchor footprint over the WHOLE live
+    board (never the mouse selection) at BOTH extract time (origin) and apply
+    time (anchor) — the same resolve_footprint_by_role search Rule/
+    ClonePlacement already use. anchor_sheet/anchor_cluster optionally narrow
+    that role's ambiguity, anchor_pad optionally moves the anchor point from
+    the footprint centre to a specific pad's centre (same semantics as
+    ClonePlacement.anchor_pad).
+
+    tracks/vias — the copper as LOCAL (along/across) offsets from the anchor
+    point, reusing the exact TemplateTrack/TemplateVia shape Cell.tracks/
+    Cell.vias use (same local_to_absolute formula at apply time, just always
+    with rotation_deg=0 — a net trace is a translation-following bundle, not
+    a rotatable cell). Track/via net is ALWAYS written explicitly (the whole
+    record is about ONE net; there is no enclosing Rule to inherit a net
+    from, unlike Cell contents).
+
+    retired/skip — the same convention as every other section (Rule/
+    ClonePlacement/ThermalViaArrayConfig): retired: true = "does not exist on
+    the board right now" (registry protection dropped, see
+    _compute_all_anchor_ids in apply_pipeline.py); skip: true = "skip just
+    this run" (registry protection kept). Both simply mean "don't plan this
+    record" — a net trace never moves components, only creates/adopts copper.
+    """
+    net: str
+    anchor_role: str
+    anchor_sheet: str | None = None
+    anchor_cluster: str | None = None
+    anchor_pad: str | None = None
+    tracks: list[TemplateTrack] = field(default_factory=list)
+    vias: list[TemplateVia] = field(default_factory=list)
+    retired: bool = False
+    skip: bool = False
+
+
+def net_trace_effective_name(nt: "NetTrace") -> str:
+    """Single point for reading the --only/SAVE identity of a NetTrace — the
+    net itself (guaranteed present on any NetTrace, and unique per record by
+    a load-time check, so it is a safe, low-typing-cost identity for --only,
+    exactly like Rule's net-derived default name)."""
+    return nt.net
+
+
+@dataclass
 class ClonePlacement:
     """
     Applying a cell at a new location (TemplatePlacer/Cloner) — unlike
@@ -646,6 +705,7 @@ class Config:
     rules: list[Rule] = field(default_factory=list)
     clone_placements: list[ClonePlacement] = field(default_factory=list)
     coordinate_placements: list[CoordinatePlacement] = field(default_factory=list)
+    net_traces: list[NetTrace] = field(default_factory=list)
     place_components: bool = True
     skip_existing_components: bool = False
     # Free‑space search parameters — currently used only for thermal vias

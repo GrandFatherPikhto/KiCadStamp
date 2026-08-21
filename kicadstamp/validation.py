@@ -382,6 +382,14 @@ def check_anchor_sheet_configured(cfg: Config, sheet_names=None) -> None:
              _("you need schematic_dir (or schematic_files) at the root of the config — "
                "path to the folder with *.kicad_sch files, relative to this YAML")]
         ))
+    net_trace_users = [nt.net for nt in cfg.net_traces if not nt.retired and nt.anchor_sheet]
+    if net_trace_users and not _sn:
+        raise ValidationError(format_fatal_error(
+            _("anchor_sheet is used but sheet name dictionary is empty"),
+            [_("net_traces with anchor_sheet: {users}").format(users=net_trace_users),
+             _("you need schematic_dir (or schematic_files) at the root of the config — "
+               "path to the folder with *.kicad_sch files, relative to this YAML")]
+        ))
     logger.debug(_("anchor_sheet/sheet_names check passed"))
 
 

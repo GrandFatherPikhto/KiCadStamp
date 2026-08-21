@@ -51,6 +51,7 @@ from .entries import (
     _load_clone_placement,
     _load_coordinate_placement,
     _load_manual_spoke,
+    _load_net_trace,
     _load_point,
     _load_rule,
     _load_template_component_slot,
@@ -62,8 +63,9 @@ from .entries import (
 from .includes import _load_yaml_file, resolve_includes
 from .sheet_templates import expand_sheet_templates
 from .models import (
-    ThermalViaArrayConfig, CoordinatePlacement, Config, rule_effective_name,
-    coordinate_placement_effective_name,
+    ThermalViaArrayConfig, CoordinatePlacement, NetTrace, Config,
+    rule_effective_name, coordinate_placement_effective_name,
+    net_trace_effective_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -158,6 +160,20 @@ def load_config(path: str) -> tuple[Config, RuntimeContext]:
         _("every coordinate_placements entry needs a unique name (explicit, or the "
           "default cluster/role pair) — --only cannot tell same-named entries apart "
           "otherwise"))
+
+    net_traces: list[NetTrace] = [
+        _load_net_trace(nt_data) for nt_data in data.get('net_traces', [])
+    ]
+
+    # net_traces: one record per net by design (see NetTrace docstring in
+    # config/models.py) — two records on the same net would silently collide
+    # under --only=<net> (both would match), and there is no "second instance"
+    # concept for a net trace to justify reusing one net name, so it is fatal
+    # at load, same duplicate-name discipline as the other list sections.
+    _check_duplicate_names(
+        net_traces, net_trace_effective_name, "net_traces",
+        _("every net_traces entry needs a unique net: — one record per net; "
+          "--only=<net> cannot tell same-netted entries apart otherwise"))
 
     cells_data = dict(data.get('cells', {}) or {})
 
@@ -343,6 +359,7 @@ def load_config(path: str) -> tuple[Config, RuntimeContext]:
         rules=rules,
         clone_placements=clone_placements,
         coordinate_placements=coordinate_placements,
+        net_traces=net_traces,
         place_components=data.get('place_components', True),
         skip_existing_components=data.get('skip_existing_components', False),
         via_keepout_clearance_mm=data.get('via_keepout_clearance_mm', 0.2),

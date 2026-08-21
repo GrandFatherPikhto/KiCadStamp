@@ -38,7 +38,8 @@ logger = logging.getLogger(__name__)
 # include's, in listed order). YAML order has no functional effect —
 # dependency_order.py already reorders rules/clone_placements by real anchor
 # dependency at apply time.
-_LIST_SECTIONS = ('rules', 'clone_placements', 'thermal_via_arrays', 'coordinate_placements')
+_LIST_SECTIONS = ('rules', 'clone_placements', 'thermal_via_arrays', 'coordinate_placements',
+                  'net_traces')
 
 # Dict sections: merged key-by-key, fatal on a key defined in two different
 # files — these are meant to be genuinely separate subsystem files, so a

@@ -20,6 +20,7 @@ from ..i18n import _
 from .models import (
     ThermalViaArrayConfig, TemplateVia, TemplateComponentSlot, TemplateTrack,
     Cell, CellPlacement, ManualSpoke, Rule, ClonePlacement, CoordinatePlacement,
+    NetTrace,
 )
 from .points import Point
 
@@ -623,6 +624,64 @@ def _load_rule(rule_data: dict[str, Any]) -> Rule:
                name=rule_data.get('name'),
                retired=rule_data.get('retired', False),
                skip=rule_data.get('skip', False))
+
+
+_NET_TRACE_KNOWN_KEYS = {
+    'net', 'anchor_role', 'anchor_sheet', 'anchor_cluster', 'anchor_pad',
+    'tracks', 'vias', 'retired', 'skip',
+}
+
+
+def _load_net_trace(data: dict[str, Any]) -> NetTrace:
+    """One net_traces: entry — the flat single-record net-trace binding (see
+    NetTrace's docstring in config/models.py). Extracted 2026-08-21 as a
+    standalone per-entry validator (same shape as _load_rule/_load_clone_
+    placement) so the GUI could later validate a single entry before writing;
+    the list-level duplicate-net check stays in load_config() — it needs the
+    WHOLE net_traces list, not one entry.
+
+    anchor_role — REQUIRED (the NetTrace record always resolves its anchor by
+    Role field, matching the plan: no anchor_ref/anchor_point variant).
+    anchor_sheet/anchor_cluster/anchor_pad are all optional narrowings of
+    that role and are only meaningful together with it (which is guaranteed
+    here by anchor_role being required)."""
+    net = data.get('net')
+    check_unknown_keys(data, _NET_TRACE_KNOWN_KEYS,
+                       _("unknown fields in net_traces entry (net {net!r})").format(net=net))
+    if not net:
+        raise ValidationError(format_fatal_error(
+            _("net_traces entry without net"),
+            [_("every net_traces entry must have net: <NET NAME> — the net "
+               "name is the record's --only identity and must be unique across "
+               "the whole net_traces list; one record per net")]))
+    anchor_role = data.get('anchor_role')
+    if not anchor_role:
+        raise ValidationError(format_fatal_error(
+            _("net_traces entry (net {net!r}) without anchor_role").format(net=net),
+            [_("every net_traces entry needs anchor_role: <ROLE> — the anchor "
+               "footprint is resolved by its Role field over the whole board at "
+               "both extract time (origin) and apply time (anchor). "
+               "anchor_sheet/anchor_cluster narrow its ambiguity, anchor_pad "
+               "moves the anchor point to a specific pad of it")]))
+
+    anchor_sheet = data.get('anchor_sheet')
+    anchor_cluster = data.get('anchor_cluster')
+    anchor_pad = data.get('anchor_pad')
+
+    tracks = [_load_template_track(t) for t in data.get('tracks', [])]
+    vias = [_load_template_via(v) for v in data.get('vias', [])]
+
+    return NetTrace(
+        net=net,
+        anchor_role=anchor_role,
+        anchor_sheet=anchor_sheet,
+        anchor_cluster=anchor_cluster,
+        anchor_pad=str(anchor_pad) if anchor_pad is not None else None,
+        tracks=tracks,
+        vias=vias,
+        retired=data.get('retired', False),
+        skip=data.get('skip', False),
+    )
 
 
 _THERMAL_VIA_ARRAY_KNOWN_KEYS = {
