@@ -9,7 +9,6 @@ Mock-adapter tests for the net_traces apply/redraw path (net_trace_planner.py
   - --only=<net> redraws exactly one record, not the whole config.
 """
 import sys
-import os
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -22,9 +21,11 @@ from kipy.geometry import Vector2
 from kipy.board_types import BoardLayer
 
 from kicadstamp.config import Config, NetTrace, TemplateTrack, TemplateVia
+from kicadstamp.exceptions import PlacerError
 from kicadstamp.net_trace_planner import plan_net_traces, net_trace_anchor_id, adopt_net_trace_copper
 from kicadstamp.registry import PlacementRegistry, TrackRegistry
-from kicadstamp.apply_pipeline import apply_only_filter, drop_inactive_items, _compute_all_anchor_ids
+from kicadstamp.apply_pipeline import (apply_only_filter, apply_cluster_filter,
+                                       drop_inactive_items, _compute_all_anchor_ids)
 from kicadstamp.constants import SPOKE_LEVEL_ROLE_PLACEHOLDER
 from kicadstamp.utils.units import MM
 
@@ -258,3 +259,54 @@ def test_adoption_never_steals_foreign_owned_copper(tmp_path):
     # Net-trace keys must NOT have been added (uuid already owned).
     assert tracks[0].registry_key not in treg.entries
     assert vias[0].registry_key not in vreg.entries
+
+
+# ── apply_cluster_filter (--cluster) for net_traces ──────────────────────────
+# (review fix 2026-08-21: the --cluster branch for net_traces was added but
+# never tested — only --only was covered.)
+
+
+def _nt(net, cluster=None, retired=False):
+    nt = _net_trace()
+    nt.net = net
+    nt.anchor_cluster = cluster
+    nt.retired = retired
+    return nt
+
+
+def test_cluster_filter_matches_by_anchor_cluster():
+    cfg = Config(net_traces=[_nt("DAC_DB0", "Channel_0"),
+                             _nt("DAC_DB1", "Channel_1")])
+    out = apply_cluster_filter(cfg, ["Channel_0"])
+    assert [nt.net for nt in out.net_traces] == ["DAC_DB0"]
+
+
+def test_cluster_filter_prefix_match():
+    """Segment-prefix match: 'Channel_0' also selects 'Channel_0/DAC'."""
+    cfg = Config(net_traces=[_nt("DAC_DB0", "Channel_0/DAC"),
+                             _nt("DAC_DB1", "Channel_1/DAC")])
+    out = apply_cluster_filter(cfg, ["Channel_0"])
+    assert [nt.net for nt in out.net_traces] == ["DAC_DB0"]
+
+
+def test_cluster_filter_excludes_retired():
+    cfg = Config(net_traces=[_nt("DAC_DB0", "Channel_0"),
+                             _nt("DAC_DB1", "Channel_0", retired=True)])
+    out = apply_cluster_filter(cfg, ["Channel_0"])
+    assert [nt.net for nt in out.net_traces] == ["DAC_DB0"]
+
+
+def test_cluster_filter_matched_nothing_fatal():
+    cfg = Config(net_traces=[_nt("DAC_DB0", "Channel_0")])
+    with pytest.raises(PlacerError, match="matched nothing"):
+        apply_cluster_filter(cfg, ["Channel_9"])
+
+
+def test_cluster_filter_composes_with_only_via_and():
+    """--cluster AND --only (both are AND-narrowing, not OR)."""
+    cfg = Config(net_traces=[_nt("DAC_DB0", "Channel_0"),
+                             _nt("DAC_DB1", "Channel_0"),
+                             _nt("DAC_DB2", "Channel_1")])
+    clustered = apply_cluster_filter(cfg, ["Channel_0"])
+    only = apply_only_filter(clustered, ["DAC_DB1"])
+    assert [nt.net for nt in only.net_traces] == ["DAC_DB1"]

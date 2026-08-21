@@ -127,6 +127,7 @@ _SECTION_LABELS = {
     "clone_placements": _("Clone placements"),
     "thermal_via_arrays": _("Thermal via arrays"),
     "coordinate_placements": _("Coordinate placements"),
+    "net_traces": _("Net traces"),
     "cells": _("Cells"),
     "points": _("Points"),
     "extract_profiles": _("Extract profiles"),

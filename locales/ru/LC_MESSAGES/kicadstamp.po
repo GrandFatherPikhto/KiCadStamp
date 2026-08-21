@@ -7303,7 +7303,7 @@ msgstr "Примечание: первый аргумент был принят 
 #: kicadstamp/net_traces (2026-08-21)
 #, python-brace-format
 msgid "unknown fields in net_traces entry (net {net!r})"
-msgstr "запись net_traces (сеть {net!r})"
+msgstr "неизвестные поля в записи net_traces (сеть {net!r})"
 
 #: kicadstamp/net_traces (2026-08-21)
 msgid "net_traces entry without net"
@@ -7369,3 +7369,17 @@ msgstr "net_traces: спланировано переходных отверст
 #, python-brace-format
 msgid "net_traces: {count} tracks planned"
 msgstr "net_traces: спланировано дорожек: {count}"
+
+#: kicadstamp/net_traces review fixes (2026-08-21)
+#, python-brace-format
+msgid "net_traces track (net {net!r}, index {idx}) has no layer"
+msgstr "дорожка net_traces (сеть {net!r}, индекс {idx}) без слоя"
+
+#: kicadstamp/net_traces review fixes (2026-08-21)
+#, python-brace-format
+msgid "net_traces track has invalid layer {layer!r}"
+msgstr "дорожка net_traces имеет недопустимый слой {layer!r}"
+
+#: kicadstamp/net_traces review fixes (2026-08-21)
+msgid "Net traces"
+msgstr "Трассировки сетей"

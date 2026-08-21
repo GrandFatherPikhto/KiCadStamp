@@ -53,7 +53,19 @@ def net_trace_anchor_id(nt: NetTrace) -> str:
 
 
 def _layer_to_board(layer: str | None) -> BoardLayer:
-    """'F.Cu'/'B.Cu' (or None -> default F.Cu) -> BoardLayer."""
+    """'F.Cu'/'B.Cu' -> BoardLayer.
+
+    Defensive only: a net-trace track with layer None/other is already a
+    LOAD-TIME fatal (see _load_net_trace in config/entries.py — a net trace
+    has no cell to inherit a layer from, so a missing layer must never
+    silently default to F.Cu and route copper onto the wrong side). Reaching
+    this branch means a directly-constructed NetTrace bypassed the loader."""
+    if layer not in ('F.Cu', 'B.Cu'):
+        raise ValidationError(format_fatal_error(
+            _("net_traces track has invalid layer {layer!r}").format(layer=layer),
+            [_("net_traces tracks need an absolute layer: 'F.Cu' or 'B.Cu' — "
+               "extract-net always writes one; there is no cell to inherit "
+               "from")]))
     return BoardLayer.BL_B_Cu if layer == "B.Cu" else BoardLayer.BL_F_Cu
 
 

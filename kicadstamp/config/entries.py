@@ -671,6 +671,23 @@ def _load_net_trace(data: dict[str, Any]) -> NetTrace:
     tracks = [_load_template_track(t) for t in data.get('tracks', [])]
     vias = [_load_template_via(v) for v in data.get('vias', [])]
 
+    # net_traces tracks MUST carry an explicit absolute layer. Unlike cells:
+    # (where layer: None legitimately means "inherit the cell layer"), a net
+    # trace has no enclosing cell to inherit from — a silent default to F.Cu
+    # would route copper onto the wrong side with no warning (found at review
+    # 2026-08-21: net_trace_planner._layer_to_board used to default None ->
+    # F.Cu). extract-net always writes the real layer explicitly; a hand-edited
+    # record without layer: is a config error, not something to guess.
+    for i, t in enumerate(tracks):
+        if t.layer not in ('F.Cu', 'B.Cu'):
+            raise ValidationError(format_fatal_error(
+                _("net_traces track (net {net!r}, index {idx}) has no layer").format(
+                    net=net, idx=i),
+                [_("extract-net always writes layer: F.Cu or B.Cu explicitly — a "
+                   "net trace has no cell to inherit a layer from (unlike cells: "
+                   "where layer: null means 'inherit'). If hand-editing, add "
+                   "layer: F.Cu or layer: B.Cu to this track")]))
+
     return NetTrace(
         net=net,
         anchor_role=anchor_role,

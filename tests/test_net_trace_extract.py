@@ -276,3 +276,27 @@ def test_load_config_net_traces_duplicate_net_fatal(tmp_path):
     )
     with pytest.raises(ValidationError, match="unique net"):
         load_config(str(cfg_path))
+
+
+def test_load_config_net_traces_track_without_layer_fatal(tmp_path):
+    """Review fix 2026-08-21: a net_traces track with layer: null (or no
+    layer) must be a LOAD-TIME fatal — unlike cells:, there is no cell to
+    inherit a layer from, and a silent F.Cu default would route copper onto
+    the wrong side."""
+    from kicadstamp.config import load_config
+    cfg_path = tmp_path / "board.yaml"
+    cfg_path.write_text(
+        "net_traces:\n"
+        "  - net: DAC_DB0\n"
+        "    anchor_role: FPGA\n"
+        "    tracks:\n"
+        "      - start_along_mm: 1.0\n"
+        "        start_across_mm: 2.0\n"
+        "        end_along_mm: 3.0\n"
+        "        end_across_mm: 4.0\n"
+        "        net: DAC_DB0\n"
+        "        # layer: intentionally omitted\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValidationError, match="has no layer"):
+        load_config(str(cfg_path))
