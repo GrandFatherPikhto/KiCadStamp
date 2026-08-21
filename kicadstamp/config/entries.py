@@ -572,7 +572,7 @@ def _load_manual_spoke(data: dict[str, Any], rule_label: str) -> ManualSpoke:
 
 _RULE_KNOWN_KEYS = {
     'net', 'spokes', 'anchor_ref', 'anchor_role', 'anchor_sheet',
-    'anchor_cluster', 'anchor_point', 'name', 'retired', 'skip',
+    'anchor_cluster', 'anchor_point', 'name', 'sheet', 'retired', 'skip',
 }
 
 
@@ -591,6 +591,7 @@ def _load_rule(rule_data: dict[str, Any]) -> Rule:
     anchor_sheet = rule_data.get('anchor_sheet')
     anchor_cluster = rule_data.get('anchor_cluster')
     anchor_point = rule_data.get('anchor_point')
+    sheet = rule_data.get('sheet')
 
     if anchor_ref and anchor_role:
         raise ValidationError(format_fatal_error(
@@ -621,6 +622,7 @@ def _load_rule(rule_data: dict[str, Any]) -> Rule:
     return Rule(net=rule_net, spokes=spokes, anchor_ref=anchor_ref,
                anchor_role=anchor_role, anchor_sheet=anchor_sheet,
                anchor_cluster=anchor_cluster, anchor_point=anchor_point,
+               sheet=sheet,
                name=rule_data.get('name'),
                retired=rule_data.get('retired', False),
                skip=rule_data.get('skip', False))

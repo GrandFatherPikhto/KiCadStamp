@@ -19,12 +19,19 @@ mechanism exists.
 
 Reserved tokens, ONLY inside sheet_templates: blocks (nowhere else in the
 schema):
-  - `sheet: self` / `anchor_sheet: self` -> the literal name of the sheet
-    currently being generated. Deliberately NOT auto-filling every omitted
-    anchor_sheet: — an anchor_role: FPGA entry must NOT gain an anchor_sheet
-    it never asked for (FPGA is a single, non-sheet-scoped instance); the
-    substitution happens only where the template author explicitly wrote
-    `self`. An omitted anchor_sheet: stays omitted after expansion.
+  - `anchor_sheet: self` -> the literal name of the sheet currently being
+    generated. Deliberately NOT auto-filling every omitted anchor_sheet: —
+    an anchor_role: FPGA entry must NOT gain an anchor_sheet it never asked
+    for (FPGA is a single, non-sheet-scoped instance); the substitution
+    happens only where the template author explicitly wrote `self`. An
+    omitted anchor_sheet: stays omitted after expansion.
+  - `sheet` (own-identity) is NOT a token: it is ALWAYS auto-filled from the
+    current loop sheet name, at any list length (2026-08-21, anchor
+    dependency tree plan §1.0) — the (Sheet, Cluster, Role) convention
+    completed for templated entries. A template's own `sheet:` value
+    (including the historical `self` marker, which equals the loop name) is
+    overwritten; the identity string (placer_name:/name:) is an INDEPENDENT
+    result of the same loop and is unaffected.
   - `$SHEET` inside string values (params:/nets:/net_overrides: hierarchical
     net paths like /$SHEET/DAC/+3V3_AVDD) -> the same sheet name, textual
     substring replacement, not a general-purpose templating engine.
@@ -55,14 +62,16 @@ logger = logging.getLogger(__name__)
 _TEMPLATE_SECTIONS = ('clone_placements', 'coordinate_placements')
 _TEMPLATE_KEYS = ('sheets',) + _TEMPLATE_SECTIONS
 
-_SELF_FIELDS = ('sheet', 'anchor_sheet')
+_SELF_FIELDS = ('anchor_sheet',)
 _SHEET_TOKEN = '$SHEET'
 
 
 def _substitute_self_fields(entry: dict, sheet: str) -> None:
-    """sheet: self / anchor_sheet: self -> the literal generated sheet name.
-    Anything else (including absence) is left exactly as written — only the
-    explicit 'self' marker is special."""
+    """anchor_sheet: self -> the literal generated sheet name. Anything else
+    (including absence) is left exactly as written — only the explicit 'self'
+    marker is special. (The own-identity `sheet` is no longer a 'self' token:
+    the expansion loop auto-fills it unconditionally, see the module
+    docstring.)"""
     for key in _SELF_FIELDS:
         if entry.get(key) == 'self':
             entry[key] = sheet
@@ -145,6 +154,12 @@ def expand_sheet_templates(data: dict) -> dict:
                     gen = copy.deepcopy(entry)
                     _substitute_self_fields(gen, sheet)
                     gen = _substitute_sheet_token(gen, sheet)
+                    # §1.0 (anchor dependency tree): the own-identity sheet is
+                    # ALWAYS auto-filled from the loop sheet name, at any list
+                    # length — no special case for a single sheet. Overwrites
+                    # whatever the template wrote (including 'self', equal to
+                    # `sheet`); the identity string below is independent.
+                    gen['sheet'] = sheet
                     if multi:
                         if section == 'clone_placements':
                             base = _identity_base(entry, section)

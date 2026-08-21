@@ -465,6 +465,17 @@ class Rule:
     (re)planning them this run — the inline, per-item equivalent of --only/
     --cluster, for narrowing work without retyping CLI flags each time (see
     drop_inactive_items in kicadstamp/apply_pipeline.py, added 2026-07-29).
+
+    sheet — OPTIONAL own-identity sheet (2026-08-21, anchor dependency tree
+    plan §1.0): mirrors ClonePlacement.sheet / CoordinatePlacement.sheet —
+    the same (Sheet, Cluster, Role) addressing convention completed for Rule.
+    It narrows the roles THIS rule produces (its spokes' cell component roles)
+    for the STATIC anchor graph / dependency tree grouping, and is DISTINCT
+    from anchor_sheet (which narrows only the OTHER, anchor component).
+    Deliberately NOT consumed by the live spoke resolver (ComponentPool has
+    no sheet axis) — a rule's produced roles are matched on the board by
+    net + role + cluster only, so this field is config bookkeeping + graph
+    grouping, not live resolution.
     """
     net: str
     spokes: list[ManualSpoke]
@@ -476,6 +487,7 @@ class Rule:
     # for the mutual-exclusion/footprint-required rules, same here (Rule looks
     # up spoke.pad on the resolved component, a bare coordinate isn't enough).
     anchor_point: str | None = None
+    sheet: str | None = None
     name: str | None = None
     retired: bool = False
     skip: bool = False

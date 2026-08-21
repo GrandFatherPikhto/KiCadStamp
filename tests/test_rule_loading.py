@@ -49,6 +49,19 @@ def test_anchor_point_rule_loads():
     assert rule.anchor_role is None
 
 
+def test_rule_sheet_reads_and_defaults_to_none():
+    """§1.0 (anchor dependency tree): Rule gains its own optional `sheet` —
+    the same nature as ClonePlacement.sheet / CoordinatePlacement.sheet.
+    Read from YAML, defaults to None; configs written before this field
+    continue to load unchanged (purely additive)."""
+    with_sheet = load_rule(
+        {"net": "+3V3", "anchor_role": "FPGA", "sheet": "Channel_0", "spokes": []})
+    assert with_sheet.sheet == "Channel_0"
+
+    without_sheet = load_rule({"net": "+3V3", "anchor_role": "FPGA", "spokes": []})
+    assert without_sheet.sheet is None
+
+
 def test_anchor_ref_and_role_together_is_fatal():
     with pytest.raises(ValidationError, match="mutually exclusive"):
         load_rule({"net": "+3V3", "anchor_ref": "U3", "anchor_role": "FPGA", "spokes": []})

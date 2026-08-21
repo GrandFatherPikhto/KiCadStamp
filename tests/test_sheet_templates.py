@@ -134,7 +134,35 @@ sheet_templates:
     assert len(cfg.coordinate_placements) == 1
     cp = cfg.coordinate_placements[0]
     assert cp.name is None  # effective name is the default OP_AMP/OP_AMP
-    assert cp.sheet is None  # no sheet: self in template -> stays absent
+    assert cp.sheet == "Channel_0"  # §1.0: own sheet auto-filled even for a single sheet
+
+
+def test_sheet_autofill_without_explicit_sheet(tmp_path):
+    """§1.0 (anchor dependency tree): the own-identity `sheet` is auto-filled
+    from the loop sheet name with NO `sheet:` written in the template — for
+    multi-sheet (and, per the plan, for a single sheet alike)."""
+    root = tmp_path / "root.yaml"
+    root.write_text("""
+sheet_templates:
+  t:
+    sheets: [Channel_0, Channel_1]
+    coordinate_placements:
+    - cluster: OP_AMP
+      role: OP_AMP
+      name: op_amp
+      x_mm: 9.0
+      y_mm: 0.0
+      rotation_deg: 270.0
+      anchor_role: AD_DAC
+""", encoding="utf-8")
+
+    cfg, _ = load_config(str(root))
+    by_name = {cp.name: cp for cp in cfg.coordinate_placements}
+    assert set(by_name) == {"Channel_0_op_amp", "Channel_1_op_amp"}
+    assert by_name["Channel_0_op_amp"].sheet == "Channel_0"
+    assert by_name["Channel_1_op_amp"].sheet == "Channel_1"
+    # anchor_sheet is NOT auto-filled (only explicit `self` is substituted).
+    assert by_name["Channel_0_op_amp"].anchor_sheet is None
 
 
 # ── FPGA without anchor_sheet stays without ─────────────────────────────────

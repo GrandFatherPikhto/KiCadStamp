@@ -3703,6 +3703,26 @@ msgstr "anchor_role {role!r} не является компонентом шаб
 msgid "anchor_role must name one of this cell's own components: {roles}"
 msgstr "anchor_role должен называть один из собственных компонентов этого шаблона: {roles}"
 
+#: kicadstamp/anchor_graph.py
+#, python-brace-format
+msgid "clone_placement {name!r}: cell {cell!r} not found, produces nothing"
+msgstr "clone_placement {name!r}: шаблон {cell!r} не найден, ничего не производит"
+
+#: kicadstamp/anchor_graph.py
+#, python-brace-format
+msgid "rule {name!r}: spoke cell {cell!r} not found, produces nothing"
+msgstr "rule {name!r}: шаблон спицы {cell!r} не найден, ничего не производит"
+
+#: kicadstamp/anchor_graph.py
+#, python-brace-format
+msgid "anchor_role {role!r} of {name!r} is not produced by any config record"
+msgstr "anchor_role {role!r} записи {name!r} не производится ни одной записью конфига"
+
+#: kicadstamp/anchor_graph.py
+#, python-brace-format
+msgid "anchor_point {point!r} of {name!r} not found in points:"
+msgstr "anchor_point {point!r} записи {name!r} не найден в points:"
+
 #: kicadstamp/config/entries.py:205
 #, python-brace-format
 msgid "nested clone_placement without name in cell {cell!r}"

@@ -3449,6 +3449,26 @@ msgstr ""
 msgid "anchor_role must name one of this cell's own components: {roles}"
 msgstr ""
 
+#: kicadstamp/anchor_graph.py
+#, python-brace-format
+msgid "clone_placement {name!r}: cell {cell!r} not found, produces nothing"
+msgstr ""
+
+#: kicadstamp/anchor_graph.py
+#, python-brace-format
+msgid "rule {name!r}: spoke cell {cell!r} not found, produces nothing"
+msgstr ""
+
+#: kicadstamp/anchor_graph.py
+#, python-brace-format
+msgid "anchor_role {role!r} of {name!r} is not produced by any config record"
+msgstr ""
+
+#: kicadstamp/anchor_graph.py
+#, python-brace-format
+msgid "anchor_point {point!r} of {name!r} not found in points:"
+msgstr ""
+
 #: kicadstamp/config/entries.py:205
 #, python-brace-format
 msgid "nested clone_placement without name in cell {cell!r}"
