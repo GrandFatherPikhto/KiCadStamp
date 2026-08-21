@@ -27,7 +27,8 @@ if hasattr(sys.stderr, "reconfigure"):
 
 from kicadstamp import __version__
 from kicadstamp.apply_pipeline import cmd_apply
-from kicadstamp.cli import cmd_channel_copy, cmd_clone_extract, cmd_extract, cmd_undo
+from kicadstamp.cli import (cmd_channel_copy, cmd_clone_extract, cmd_extract,
+                            cmd_extract_net, cmd_undo)
 from kicadstamp.cli_common import peek_log_file, run_cli
 from kicadstamp.logging_setup import setup_logging
 from kicadstamp.constants import DEFAULT_TIMEOUT_MS, DEFAULT_BATCH_SIZE
@@ -37,7 +38,7 @@ from kicadstamp.i18n import _
 # Real subcommands the CLI can dispatch to. Any other first argument (that is
 # not a flag) is treated as a bare config path for 'apply' — see
 # _rewrite_bare_config_to_apply().
-_SUBCOMMANDS = ("apply", "undo", "extract", "clone-extract", "channel-copy")
+_SUBCOMMANDS = ("apply", "undo", "extract", "extract-net", "clone-extract", "channel-copy")
 
 
 def _looks_like_misspelled_subcommand(token: str) -> bool:
@@ -184,6 +185,30 @@ def main() -> int:
                                        "the specific pad of that component, not its centre. "
                                        "Fatal without --origin-by-component-role."))
 
+    extract_net_parser = subparsers.add_parser(
+        "extract-net",
+        help=_("Capture one net's copper (tracks + vias) as a net_traces: record, "
+               "anchored to a Role-resolved footprint over the whole board")
+    )
+    extract_net_parser.add_argument("--net", required=True, metavar="NET",
+                                    help=_("Network name to capture (e.g. DAC_DB0; local hierarchical "
+                                           "nets keep their full '/Channel_0/...' form)"))
+    extract_net_parser.add_argument("--anchor-role", required=True, metavar="ROLE",
+                                    help=_("Role field of the anchor footprint (resolved over the whole "
+                                           "board, same search Rule/ClonePlacement use)"))
+    extract_net_parser.add_argument("--anchor-sheet", metavar="SHEET",
+                                    help=_("Narrow the anchor_role search by sheet (needs schematic_dir "
+                                           "in the target config at apply time; extract-net itself has no "
+                                           "config, so prefer --anchor-cluster for disambiguation)"))
+    extract_net_parser.add_argument("--anchor-cluster", metavar="CLUSTER",
+                                    help=_("Narrow the anchor_role search by Cluster field (prefix match)"))
+    extract_net_parser.add_argument("--anchor-pad", metavar="PAD",
+                                    help=_("Anchor point = this pad's centre instead of the footprint centre"))
+    extract_net_parser.add_argument("--output", required=True, help=_("Output YAML/JSON file"))
+    extract_net_parser.add_argument("--timeout-ms", type=int, default=20000, help=_("IPC timeout in ms"))
+    extract_net_parser.add_argument("--verbose", action="store_true", help=_("Verbose output"))
+    extract_net_parser.add_argument("--log-file", help=_("File to save logs"))
+
     channel_copy_parser = subparsers.add_parser(
         "channel-copy",
         help=_("Copy a whole channel's placement (components + vias + tracks) "
@@ -231,7 +256,7 @@ def main() -> int:
         if rewritten and e.code == 2:
             print(_("Note: the first argument was taken as a config path for 'apply' "
                     "(bare-config shorthand). If you meant a subcommand, spell it exactly: "
-                    "apply, undo, extract, clone-extract, channel-copy."), file=sys.stderr)
+                    "apply, undo, extract, extract-net, clone-extract, channel-copy."), file=sys.stderr)
         raise
 
     # Pick up log_file from the config before setup_logging() — but WITHOUT a
@@ -259,6 +284,8 @@ def main() -> int:
             cmd_clone_extract(args)
         elif args.command == "extract":
             cmd_extract(args)
+        elif args.command == "extract-net":
+            cmd_extract_net(args)
         elif args.command == "channel-copy":
             report = cmd_channel_copy(args)
             if report:

@@ -443,6 +443,73 @@ find-and-replace on an old config, re-check the intended sense).
 
 ---
 
+## `net_traces:` — one net's copper, following one anchor pad
+
+The answer to "I hand-routed the FPGA↔DAC bus and don't want to re-route it
+every time I move the FPGA": captures ALL of one net's live copper (tracks +
+vias) as LOCAL offsets from an anchor pad, then re-resolves it LIVE on every
+`apply`/Redraw from the anchor's *current* position — move the anchor in KiCad,
+run `apply --only=<net>`, and the whole net trace follows it (old copper is
+deleted by the registry, new one created at the new position). One record =
+ONE net (no net lists inside a record — lists live in only one place in this
+project, the spokes).
+
+```yaml
+# boards/3ch-awg-tia/profiles/net_traces.yaml  (include:'d into the config)
+net_traces:
+  - net: DAC_DB0            # the net's name — also the --only identity
+    anchor_role: FPGA       # anchor footprint by Role (whole-board search)
+    # anchor_sheet: ...     # optional — narrow the Role search by sheet
+    # anchor_cluster: ...   # optional — narrow by Cluster (prefix match)
+    # anchor_pad: '42'      # optional — anchor on this pad's centre, not the fp centre
+    tracks:
+      - start_along_mm: 1.0
+        start_across_mm: 2.0
+        end_along_mm: 3.0
+        end_across_mm: 4.0
+        width_mm: 0.2
+        net: DAC_DB0
+        layer: F.Cu
+    vias:
+      - offset_along_mm: 5.0
+        offset_across_mm: 6.0
+        net: DAC_DB0
+        drill_mm: 0.3
+        diameter_mm: 0.6
+    # retired: true   # "does not exist on the board right now" (registry protection dropped)
+    # skip: true      # "skip just this run" (registry protection kept)
+```
+
+- **`net`** (required) — the network name. Unique per record (fatal at load if
+  two records share a net). Local hierarchical nets keep their full
+  `/Channel_0/...` form.
+- **`anchor_role`** (required) — the Role field of the anchor footprint,
+  resolved over the WHOLE live board (never the mouse selection) at BOTH
+  extract time (origin) and apply time (anchor) — the same
+  `resolve_footprint_by_role` search Rule/ClonePlacement use. Optional
+  `anchor_sheet`/`anchor_cluster` narrow that role's ambiguity, optional
+  `anchor_pad` moves the anchor point from the footprint centre to a specific
+  pad's centre.
+- **`tracks`/`vias`** — the copper as local (along/across) offsets from the
+  anchor point, the exact `TemplateTrack`/`TemplateVia` shape `cells:` use.
+  The net is ALWAYS written explicitly on each element (there is no enclosing
+  Rule to inherit a net from).
+- **`retired`/`skip`** — the same convention as every other section.
+- **`--only=<net>`** selects exactly one record for a Redraw; the registry
+  gives idempotency (a repeat run with an unmoved anchor creates 0 new items).
+
+Extraction is a CLI command, not the mouse-selection `extract`:
+`kicadstamp_cli.py extract-net --net DAC_DB0 --anchor-role FPGA [--anchor-pad 42]
+--output <config.yaml>` appends/replaces the record under `net_traces:`.
+
+**Design note (see `techdocs/handoff/deepseek/plan_2026_08_21_net_traces.md`):**
+deliberately NOT a `Cell`+`ClonePlacement` pair — a net trace is single-instance
+by design (no reuse at multiple anchors), so the usual two-layer indirection
+would be pure overhead. Extract-time origin and apply-time anchor are the SAME
+field set, hence one flat record.
+
+---
+
 ## `points:` — named, reusable anchors
 
 ```yaml

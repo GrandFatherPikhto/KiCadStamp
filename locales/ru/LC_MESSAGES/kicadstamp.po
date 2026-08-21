@@ -7196,3 +7196,176 @@ msgstr "Пакетно задать Cell для сети…"
 #~ "(config/loader.py)"
 #~ msgstr ""
 
+#: kicadstamp/net_traces (2026-08-21)
+#, python-brace-format
+msgid "net_trace for net {net!r}"
+msgstr "net_trace для сети {net!r}"
+
+#: kicadstamp/net_traces (2026-08-21)
+#, python-brace-format
+msgid "{label}: anchor pad {pad!r} not found on {ref}"
+msgstr "{label}: якорный пад {pad!r} не найден на {ref}"
+
+#: kicadstamp/net_traces (2026-08-21)
+msgid "--anchor-pad must name an existing pad number of the anchor footprint; without it the footprint centre is used"
+msgstr "--anchor-pad должен называть существующий номер пада якорного футпринта; без него используется центр футпринта"
+
+#: kicadstamp/net_traces (2026-08-21)
+#, python-brace-format
+msgid "net {net!r} has no copper (tracks or vias) on the board"
+msgstr "сеть {net!r} не имеет меди (дорожек или переходных отверстий) на плате"
+
+#: kicadstamp/net_traces (2026-08-21)
+msgid "a net_traces record needs at least one track or via on the net — check the net name (are you looking at a LOCAL hierarchical net like '/Channel_0/...'?), or route some copper first"
+msgstr "запись net_traces требует хотя бы одной дорожки или переходного отверстия на сети — проверьте имя сети (не смотрите ли вы на ЛОКАЛЬНУЮ иерархическую сеть вида '/Channel_0/...'?), или сначала проложите медь"
+
+#: kicadstamp/net_traces (2026-08-21)
+#, python-brace-format
+msgid "Net {net!r}: {tracks} tracks, {vias} vias captured from anchor ({ax:.3f}, {ay:.3f}) mm (role {role!r})"
+msgstr "Сеть {net!r}: захвачено дорожек {tracks}, переходных отверстий {vias} от якоря ({ax:.3f}, {ay:.3f}) мм (роль {role!r})"
+
+#: kicadstamp/net_traces (2026-08-21)
+#, python-brace-format
+msgid "Net trace {net!r} appended to net_traces: in {output}"
+msgstr "Трассировка сети {net!r} добавлена в net_traces: файла {output}"
+
+#: kicadstamp/net_traces (2026-08-21)
+#, python-brace-format
+msgid "Net trace {net!r} replaced in net_traces: of {output}"
+msgstr "Трассировка сети {net!r} заменена в net_traces: файла {output}"
+
+#: kicadstamp/net_traces (2026-08-21)
+#, python-brace-format
+msgid "net_traces entry (net {net!r})"
+msgstr "запись net_traces (сеть {net!r})"
+
+#: kicadstamp/net_traces (2026-08-21)
+msgid "anchor_pad must name an existing pad number of the anchor footprint; remove it to anchor on the footprint centre"
+msgstr "anchor_pad должен называть существующий номер пада якорного футпринта; удалите его, чтобы якориться на центр футпринта"
+
+#: kicadstamp/net_traces (2026-08-21)
+#, python-brace-format
+msgid "net_traces entry (net {net!r}): retired/skip, not planned"
+msgstr "запись net_traces (сеть {net!r}): retired/skip, не планируется"
+
+#: kicadstamp/net_traces (2026-08-21)
+#, python-brace-format
+msgid "net_traces entry (net {net!r}): {tracks} tracks, {vias} vias planned"
+msgstr "запись net_traces (сеть {net!r}): спланировано дорожек {tracks}, переходных отверстий {vias}"
+
+#: kicadstamp/net_traces (2026-08-21)
+#, python-brace-format
+msgid "net_trace: adopted existing via ({x:.3f}, {y:.3f}) mm into the placement registry"
+msgstr "net_trace: существующее переходное отверстие ({x:.3f}, {y:.3f}) мм принято в реестр размещения"
+
+#: kicadstamp/net_traces (2026-08-21)
+#, python-brace-format
+msgid "net_trace: adopted existing track ({sx:.3f}, {sy:.3f}) -> ({ex:.3f}, {ey:.3f}) mm into the track registry"
+msgstr "net_trace: существующая дорожка ({sx:.3f}, {sy:.3f}) -> ({ex:.3f}, {ey:.3f}) мм принята в реестр дорожек"
+
+#: kicadstamp/net_traces (2026-08-21)
+msgid "[error] need --net, --anchor-role and --output"
+msgstr "[ошибка] нужны --net, --anchor-role и --output"
+
+#: kicadstamp/net_traces (2026-08-21)
+#, python-brace-format
+msgid "✅ Net trace for {net!r} (anchor role {role!r}): {tracks} tracks, {vias} vias -> {output}"
+msgstr "✅ Трассировка сети {net!r} (якорная роль {role!r}): дорожек {tracks}, переходных отверстий {vias} -> {output}"
+
+#: kicadstamp/net_traces (2026-08-21)
+msgid "Capture one net's copper (tracks + vias) as a net_traces: record, anchored to a Role-resolved footprint over the whole board"
+msgstr "Захват меди одной сети (дорожки + переходные отверстия) как записи net_traces: с привязкой к футпринту, найденному по Role на всей плате"
+
+#: kicadstamp/net_traces (2026-08-21)
+msgid "Network name to capture (e.g. DAC_DB0; local hierarchical nets keep their full '/Channel_0/...' form)"
+msgstr "Имя сети для захвата (например DAC_DB0; локальные иерархические сети сохраняют полную форму '/Channel_0/...')"
+
+#: kicadstamp/net_traces (2026-08-21)
+msgid "Role field of the anchor footprint (resolved over the whole board, same search Rule/ClonePlacement use)"
+msgstr "Поле Role якорного футпринта (ищется по всей плате, тот же поиск, что у Rule/ClonePlacement)"
+
+#: kicadstamp/net_traces (2026-08-21)
+msgid "Narrow the anchor_role search by sheet (needs schematic_dir in the target config at apply time; extract-net itself has no config, so prefer --anchor-cluster for disambiguation)"
+msgstr "Сузить поиск anchor_role по листу (требует schematic_dir в целевом конфиге на этапе apply; сам extract-net не имеет конфига, поэтому для снятия неоднозначности предпочитайте --anchor-cluster)"
+
+#: kicadstamp/net_traces (2026-08-21)
+msgid "Narrow the anchor_role search by Cluster field (prefix match)"
+msgstr "Сузить поиск anchor_role по полю Cluster (совпадение по префиксу)"
+
+#: kicadstamp/net_traces (2026-08-21)
+msgid "Anchor point = this pad's centre instead of the footprint centre"
+msgstr "Точка якоря = центр этого пада вместо центра футпринта"
+
+#: kicadstamp/net_traces (2026-08-21)
+msgid "Note: the first argument was taken as a config path for 'apply' (bare-config shorthand). If you meant a subcommand, spell it exactly: apply, undo, extract, extract-net, clone-extract, channel-copy."
+msgstr "Примечание: первый аргумент был принят как путь к конфигу для 'apply' (сокращение без подкоманды). Если вы имели в виду подкоманду, напишите её точно: apply, undo, extract, extract-net, clone-extract, channel-copy."
+
+#: kicadstamp/net_traces (2026-08-21)
+#, python-brace-format
+msgid "unknown fields in net_traces entry (net {net!r})"
+msgstr "запись net_traces (сеть {net!r})"
+
+#: kicadstamp/net_traces (2026-08-21)
+msgid "net_traces entry without net"
+msgstr "запись net_traces без net"
+
+#: kicadstamp/net_traces (2026-08-21)
+msgid "every net_traces entry must have net: <NET NAME> — the net name is the record's --only identity and must be unique across the whole net_traces list; one record per net"
+msgstr "каждая запись net_traces должна иметь net: <ИМЯ СЕТИ> — имя сети является идентификатором --only записи и должно быть уникальным во всём списке net_traces; одна запись на сеть"
+
+#: kicadstamp/net_traces (2026-08-21)
+#, python-brace-format
+msgid "net_traces entry (net {net!r}) without anchor_role"
+msgstr "запись net_traces (сеть {net!r}) без anchor_role"
+
+#: kicadstamp/net_traces (2026-08-21)
+msgid "every net_traces entry needs anchor_role: <ROLE> — the anchor footprint is resolved by its Role field over the whole board at both extract time (origin) and apply time (anchor). anchor_sheet/anchor_cluster narrow its ambiguity, anchor_pad moves the anchor point to a specific pad of it"
+msgstr "каждой записи net_traces нужен anchor_role: <РОЛЬ> — якорный футпринт находится по его полю Role по всей плате и на этапе extract (origin), и на этапе apply (anchor). anchor_sheet/anchor_cluster сужают его неоднозначность, anchor_pad переносит точку якоря на конкретный пад"
+
+#: kicadstamp/net_traces (2026-08-21)
+msgid "every net_traces entry needs a unique net: — one record per net; --only=<net> cannot tell same-netted entries apart otherwise"
+msgstr "каждая запись net_traces должна иметь уникальную net: — одна запись на сеть; иначе --only=<net> не сможет различить записи с одинаковой сетью"
+
+#: kicadstamp/net_traces (2026-08-21)
+#, python-brace-format
+msgid "net_traces with anchor_sheet: {users}"
+msgstr "net_traces с anchor_sheet: {users}"
+
+#: kicadstamp/net_traces (2026-08-21)
+#, python-brace-format
+msgid "net_traces entry (net {net!r}): skip=true, skipped this run (existing copper stays protected)"
+msgstr "запись net_traces (сеть {net!r}): skip=true, пропущена в этом прогоне (существующая медь остаётся защищённой)"
+
+#: kicadstamp/net_traces (2026-08-21)
+#, python-brace-format
+msgid "  {name!r} — not found among rules, clone_placements, thermal_via_arrays, coordinate_placements, or net_traces{hint}"
+msgstr "  {name!r} — не найдено среди rules, clone_placements, thermal_via_arrays, coordinate_placements или net_traces{hint}"
+
+#: kicadstamp/net_traces (2026-08-21)
+#, python-brace-format
+msgid "--only {requested}: rules={rules}, clone_placements={clones}, thermal_via_arrays={thermal}, coordinate_placements={coords}, net_traces={nets} (everything else is ignored in this run)"
+msgstr "--only {requested}: rules={rules}, clone_placements={clones}, thermal_via_arrays={thermal}, coordinate_placements={coords}, net_traces={nets} (всё остальное в этом прогоне игнорируется)"
+
+#: kicadstamp/net_traces (2026-08-21)
+#, python-brace-format
+msgid "[error] --cluster {paths}: matched nothing among rules' spokes, clone_placements, thermal_via_arrays, coordinate_placements, or net_traces"
+msgstr "[ошибка] --cluster {paths}: ничего не найдено среди спиц rules, clone_placements, thermal_via_arrays, coordinate_placements или net_traces"
+
+#: kicadstamp/net_traces (2026-08-21)
+#, python-brace-format
+msgid "--cluster {paths}: rules={rules} (spokes narrowed), clone_placements={clones}, thermal_via_arrays={thermal}, coordinate_placements={coords}, net_traces={nets}"
+msgstr "--cluster {paths}: rules={rules} (спицы сужены), clone_placements={clones}, thermal_via_arrays={thermal}, coordinate_placements={coords}, net_traces={nets}"
+
+#: kicadstamp/net_traces (2026-08-21)
+msgid "(net_traces entries are included in the vias/tracks sections above; their anchors are resolved from CURRENT component positions, so a real apply after a Rule/CoordinatePlacement moves the anchor will follow it)"
+msgstr "(записи net_traces включены в разделы vias/tracks выше; их якоря резолвятся из ТЕКУЩИХ позиций компонентов, поэтому реальный apply после перемещения якоря Rule/CoordinatePlacement последует за ним)"
+
+#: kicadstamp/net_traces (2026-08-21)
+#, python-brace-format
+msgid "net_traces: {count} vias planned"
+msgstr "net_traces: спланировано переходных отверстий: {count}"
+
+#: kicadstamp/net_traces (2026-08-21)
+#, python-brace-format
+msgid "net_traces: {count} tracks planned"
+msgstr "net_traces: спланировано дорожек: {count}"

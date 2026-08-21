@@ -294,6 +294,49 @@ Note: if a template with the same name already exists, it will be overwritten.
 
 ---
 
+## `extract-net` – capture one net's copper as a `net_traces:` record
+
+NOT the selection-based `extract`: captures ALL of one net's live copper
+(tracks + vias) over the WHOLE board, anchored to a Role-resolved footprint, as
+LOCAL offsets — then `apply --only=<net>` re-places that copper LIVE relative to
+the anchor's current position every run (move the anchor in KiCad -> the net
+trace follows). See `docs/config.md` → `net_traces:`.
+
+### Syntax
+
+```bash
+python kicadstamp_cli.py extract-net --net <NET> --anchor-role <ROLE> \
+    [--anchor-sheet <SHEET>] [--anchor-cluster <CLUSTER>] [--anchor-pad <PAD>] \
+    --output <file.yaml>
+```
+
+### Options
+
+- `--net` (required) — the network name to capture (e.g. `DAC_DB0`; local
+  hierarchical nets keep their full `/Channel_0/...` form).
+- `--anchor-role` (required) — the Role field of the anchor footprint, searched
+  over the whole live board (the same `resolve_footprint_by_role` search
+  Rule/ClonePlacement use). Fatal if absent or ambiguous.
+- `--anchor-sheet` — narrow the anchor_role search by sheet. NOTE:
+  `extract-net` has no config of its own, so sheet narrowing needs
+  `schematic_dir` in the TARGET config at apply time; prefer `--anchor-cluster`
+  here for disambiguation.
+- `--anchor-cluster` — narrow by Cluster field (prefix match).
+- `--anchor-pad` — anchor on this pad's centre instead of the footprint centre.
+- `--output` (required) — YAML/JSON file; appends/replaces the record under
+  `net_traces:` (same net is replaced in place, everything else preserved).
+
+### Example
+
+```bash
+python kicadstamp_cli.py extract-net --net DAC_DB0 --anchor-role FPGA \
+    --anchor-pad 42 --output 3ch-awg-tia.yaml --verbose
+# then, after moving the FPGA in KiCad:
+python kicadstamp_cli.py apply 3ch-awg-tia.yaml --only DAC_DB0
+```
+
+---
+
 ## `clone-extract` – snapshot a channel (file‑based cloner)
 
 Analyzes a hierarchical project (without IPC) and extracts all components, tracks, and vias belonging to the specified channel, saving the snapshot as YAML. Useful for studying the channel structure before writing a ClonePlacement configuration.
