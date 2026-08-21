@@ -57,7 +57,7 @@ from ._common import read_data, write_data
 CASCADE_FIELD = {"cells": "cell", "points": "anchor_point"}
 
 DICT_SECTIONS = ("cells", "points", "extract_profiles", "clone_profiles")
-LIST_SECTIONS = ("clone_placements", "thermal_via_arrays", "rules")
+LIST_SECTIONS = ("clone_placements", "thermal_via_arrays", "rules", "net_traces")
 
 # rules: entries fall back to net: as their effective name when name: is
 # absent (config/models.py's rule_effective_name()) — the only section with

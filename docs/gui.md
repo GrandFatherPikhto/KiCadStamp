@@ -17,7 +17,7 @@ from the first run instead of having to turn it on after something goes wrong.
 
 ## Layout
 
-Nine docks, tabbed into two groups plus a status bar:
+Eight docks, tabbed into two groups plus a status bar:
 
 - **Left** (tabbed): **Components** (Role/Cluster tree) and **Cells** (extracted Cell list).
 - **Right** (tabbed): **fieldstool**, **Files**, **Extract**, **Placer**.

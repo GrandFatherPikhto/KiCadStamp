@@ -219,6 +219,7 @@ class DockHub:
         self.cells_dock.set_root_path(self.root_metadata_dock.root_path)
         self.points_dock.set_root_path(self.root_metadata_dock.root_path)
         self.extract_dock.set_root_path(self.root_metadata_dock.root_path)
+        self.net_trace_dock.set_root_path(self.root_metadata_dock.root_path)
         self.fieldstool_dock.set_root_path(self.root_metadata_dock.root_path)
         self._on_root_file_changed_for_logging(self.root_metadata_dock.root_path)
         # file_selected fires BEFORE the more specific cell_picked/

@@ -126,7 +126,12 @@ def cmd_extract_net(args) -> None:
     adapter = KiCadBoardAdapter(timeout_ms=args.timeout_ms)
     adapter.refresh_board()
 
-    from kicadstamp.net_trace_extract import extract_net_trace, write_net_trace
+    from kicadstamp.net_trace_extract import (extract_net_trace, read_net_trace_flags,
+                                              write_net_trace)
+    # A re-extract refreshes the GEOMETRY but must not silently clear the
+    # hand-set retired:/skip: of an already-saved record (review fix
+    # 2026-08-21) — carry the existing flags into the new extraction.
+    existing_retired, existing_skip = read_net_trace_flags(args.output, args.net)
     nt = extract_net_trace(
         adapter,
         net=args.net,
@@ -135,6 +140,8 @@ def cmd_extract_net(args) -> None:
         anchor_cluster=args.anchor_cluster,
         anchor_pad=args.anchor_pad,
         sheet_names={},
+        retired=existing_retired,
+        skip=existing_skip,
     )
     write_net_trace(args.output, nt)
     logger.info(_("✅ Net trace for {net!r} (anchor role {role!r}): "

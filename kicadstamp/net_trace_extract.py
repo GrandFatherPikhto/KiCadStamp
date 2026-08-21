@@ -50,6 +50,8 @@ def extract_net_trace(
     anchor_cluster: str | None = None,
     anchor_pad: str | None = None,
     sheet_names: dict[str, str] | None = None,
+    retired: bool = False,
+    skip: bool = False,
 ) -> NetTrace:
     """Capture one net's copper as a local-from-anchor NetTrace.
 
@@ -71,6 +73,12 @@ def extract_net_trace(
     config's RuntimeContext). Empty/None (the default — extract-net is a
     standalone CLI command with no config) means anchor_sheet never narrows,
     exactly like the rest of the project without schematic_dir.
+
+    retired/skip — carried into the produced NetTrace. The CALLER is expected
+    to read the existing record with the same net (if any) and pass its flags
+    here: a re-extract must refresh the GEOMETRY but never silently clear the
+    hand-set retired:/skip: (review fix 2026-08-21 — write_net_trace replaces
+    the whole entry, so without this a re-extract would wipe them).
     """
     label = _("net_trace for net {net!r}").format(net=net)
     anchor_fp = resolve_footprint_by_role(
@@ -140,6 +148,8 @@ def extract_net_trace(
         anchor_pad=anchor_pad,
         tracks=[load_template_track(t) for t in tracks],
         vias=[load_template_via(v) for v in vias],
+        retired=retired,
+        skip=skip,
     )
 
 
@@ -188,6 +198,25 @@ def net_trace_to_dict(nt: NetTrace) -> dict[str, Any]:
     return d
 
 
+def read_net_trace_flags(path: str, net: str) -> tuple[bool, bool]:
+    """(retired, skip) of the existing net_traces record with this net in
+    `path`, or (False, False) when there is none (or the file can't be read).
+    For a re-extract: refresh the geometry but never silently clear the
+    hand-set retired:/skip: (review fix 2026-08-21 — see extract_net_trace's
+    retired/skip params; write_net_trace replaces the whole entry by net)."""
+    p = Path(path)
+    if not p.exists():
+        return False, False
+    try:
+        data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return False, False
+    for e in data.get("net_traces") or []:
+        if isinstance(e, dict) and e.get("net") == net:
+            return bool(e.get("retired")), bool(e.get("skip"))
+    return False, False
+
+
 def write_net_trace(output: str, nt: NetTrace) -> dict[str, Any]:
     """Upsert-write one NetTrace under a `net_traces:` list key in `output`
     (YAML or JSON), preserving everything else in the file — the same
@@ -230,5 +259,6 @@ def write_net_trace(output: str, nt: NetTrace) -> dict[str, Any]:
 __all__ = [
     "extract_net_trace",
     "net_trace_to_dict",
+    "read_net_trace_flags",
     "write_net_trace",
 ]

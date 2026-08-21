@@ -27,7 +27,8 @@ from kipy.board_types import BoardLayer
 
 from kicadstamp.config import NetTrace
 from kicadstamp.exceptions import ValidationError
-from kicadstamp.net_trace_extract import extract_net_trace, write_net_trace, net_trace_to_dict
+from kicadstamp.net_trace_extract import (extract_net_trace, write_net_trace,
+                                          net_trace_to_dict, read_net_trace_flags)
 from kicadstamp.utils.units import MM
 
 
@@ -300,3 +301,56 @@ def test_load_config_net_traces_track_without_layer_fatal(tmp_path):
     )
     with pytest.raises(ValidationError, match="has no layer"):
         load_config(str(cfg_path))
+
+
+# ── re-extract preserves hand-set retired/skip (review fix 2026-08-21) ────────
+
+
+def test_extract_carries_retired_and_skip_params():
+    fpga = _make_fp("U1", "FPGA", 50, 50)
+    adapter = _adapter(
+        [fpga],
+        [_make_track(50, 50, 55, 55, "DAC_DB0")],
+        [],
+    )
+    nt = extract_net_trace(adapter, net="DAC_DB0", anchor_role="FPGA",
+                           retired=True, skip=True)
+    assert nt.retired is True
+    assert nt.skip is True
+
+
+def test_read_net_trace_flags(tmp_path):
+    out = tmp_path / "trace.yaml"
+    assert read_net_trace_flags(str(out), "DAC_DB0") == (False, False)  # no file
+    out.write_text(
+        "net_traces:\n"
+        "  - net: DAC_DB0\n    anchor_role: FPGA\n    retired: true\n"
+        "  - net: DAC_DB1\n    anchor_role: FPGA\n    skip: true\n",
+        encoding="utf-8",
+    )
+    assert read_net_trace_flags(str(out), "DAC_DB0") == (True, False)
+    assert read_net_trace_flags(str(out), "DAC_DB1") == (False, True)
+    assert read_net_trace_flags(str(out), "DAC_DB9") == (False, False)
+
+
+def test_reextract_keeps_retired_flag_through_write(tmp_path):
+    """End-to-end: a record marked retired: true survives a re-extract+write —
+    geometry is refreshed, the hand-set flag is NOT cleared."""
+    fpga = _make_fp("U1", "FPGA", 50, 50)
+    adapter = _adapter(
+        [fpga],
+        [_make_track(50, 50, 55, 55, "DAC_DB0")],
+        [],
+    )
+    out = tmp_path / "trace.yaml"
+    write_net_trace(str(out), NetTrace(net="DAC_DB0", anchor_role="FPGA", retired=True))
+
+    existing_retired, _skip = read_net_trace_flags(str(out), "DAC_DB0")
+    nt = extract_net_trace(adapter, net="DAC_DB0", anchor_role="FPGA",
+                           retired=existing_retired)
+    write_net_trace(str(out), nt)
+
+    data = yaml.safe_load(out.read_text(encoding="utf-8"))
+    entry = data["net_traces"][0]
+    assert entry["retired"] is True  # survived the re-extract
+    assert len(entry["tracks"]) == 1  # geometry refreshed

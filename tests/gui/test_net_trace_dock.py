@@ -277,3 +277,23 @@ def test_redraw_runs_apply_with_only_net(main_window, tmp_path, monkeypatch):
     # the pipeline receives it via preloaded_cfg (ApplyPipeline's kwarg name).
     nt = captured["preloaded_cfg"].net_traces[0]
     assert len(nt.tracks) == 1
+
+
+def test_extract_preserves_existing_retired_flag(main_window, tmp_path, caplog):
+    """Review fix 2026-08-21: a re-Extract refreshes the GEOMETRY of an
+    already-saved record but must NOT silently clear its hand-set retired:
+    (same net, record already marked retired: true)."""
+    dock, target = _make_dock(main_window, tmp_path, data={
+        "net_traces": [{"net": "DAC_DB0", "anchor_role": "FPGA", "retired": True}]
+    })
+    _connect_board(dock, [_make_fp("U1", "FPGA", 50, 50)],
+                   [_make_track(53, 54, 55, 56, "DAC_DB0")], [])
+    dock.net_edit.setCurrentText("DAC_DB0")
+    dock.anchor_widget.load(mode="anchor", role="FPGA")
+
+    result = dock._do_extract()
+
+    assert "error" not in result
+    entry = _read_yaml(target)["net_traces"][0]
+    assert entry["retired"] is True  # survived the re-extract
+    assert len(entry["tracks"]) == 1  # geometry refreshed

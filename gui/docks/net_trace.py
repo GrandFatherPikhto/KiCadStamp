@@ -38,7 +38,8 @@ from kicadstamp.apply_pipeline import ApplyPipeline
 from kicadstamp.config import Config, RuntimeContext, load_config, load_net_trace
 from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.i18n import _
-from kicadstamp.net_trace_extract import extract_net_trace, net_trace_to_dict, write_net_trace
+from kicadstamp.net_trace_extract import (extract_net_trace, net_trace_to_dict,
+                                          read_net_trace_flags, write_net_trace)
 
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
@@ -274,12 +275,18 @@ class NetTraceDock(QWidget):
     def _run_extract(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Worker thread: board IPC + file write only — never touches a widget."""
         try:
+            # A re-extract refreshes GEOMETRY but must not silently clear the
+            # hand-set retired:/skip: of an already-saved record (review fix
+            # 2026-08-21) — carry the existing flags into the new extraction.
+            existing_retired, existing_skip = read_net_trace_flags(
+                str(payload["path"]), payload["net"])
             nt = extract_net_trace(
                 payload["board"].adapter,
                 net=payload["net"], anchor_role=payload["anchor_role"],
                 anchor_sheet=payload["anchor_sheet"],
                 anchor_cluster=payload["anchor_cluster"],
-                anchor_pad=payload["anchor_pad"], sheet_names={})
+                anchor_pad=payload["anchor_pad"], sheet_names={},
+                retired=existing_retired, skip=existing_skip)
             write_net_trace(str(payload["path"]), nt)
         except (PlacerError, ValidationError, OSError, yaml.YAMLError) as e:
             return {"error": _("Extract failed: {error}").format(error=e)}
