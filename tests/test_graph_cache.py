@@ -25,6 +25,16 @@ def _bump_mtime_forward(path: Path, seconds: float = 1.0) -> None:
                        st.st_mtime_ns + int(seconds * 1e9)))
 
 
+def _pin_mtime(path: Path, mtime_ns: int) -> None:
+    """os.utime() the file to an EXACT mtime_ns — used to force the
+    delete-then-upsert race invalidate_graph_path() exists to close,
+    independent of how fine-grained this machine's real filesystem clock
+    happens to be (a fine clock would otherwise give the two writes naturally
+    different mtimes, making the race test pass for the wrong reason — see
+    handoff_2026_08_21_mtime_race_tests_dont_race.md)."""
+    os.utime(path, ns=(mtime_ns, mtime_ns))
+
+
 def _cell_yaml(name: str) -> str:
     """A load_config()-valid single-cell YAML body (same minimal shape as
     tests/gui/test_dock_hub_startup_reads.py's _MINIMAL_CELL)."""
@@ -146,31 +156,34 @@ def test_topology_change_via_new_include_is_seen(tmp_path):
 def test_write_data_delete_then_upsert_never_stale_graph(tmp_path):
     """Regression for the delete-then-upsert race ON THE GRAPH LAYER: fill the
     graph cache, then perform two physical Save-like writes of the same file
-    back-to-back with NO manual os.utime() between them, then load again —
-    the second write must be visible, regardless of filesystem timer
-    granularity. This is what invalidate_graph_path() guarantees, symmetric
-    with tests/test_file_cache.py's single-file equivalent."""
+    back-to-back pinned to the SAME mtime_ns (the coarse-timer-filesystem
+    scenario the mtime re-check alone cannot see), then load again — the
+    second write must be visible. The race is FORCED via _pin_mtime(), so the
+    graph cache ALONE would return the stale Config; the test passes only
+    because _write_data() calls the real invalidate_graph_path() (verified by
+    temporarily removing it and watching this test fail — see
+    handoff_2026_08_21_mtime_race_tests_dont_race.md)."""
     from kicadstamp import config_writer
 
     root = tmp_path / "root.yaml"
+    base = {"layer": "F.Cu", "rules": [], "points": {},
+            "clone_placements": [], "thermal_via_arrays": []}
     cell_old = {"components": [{"role": "R1", "offset_along_mm": 0.0,
                                 "offset_across_mm": 0.0, "angle_deg": 0.0}]}
     cell_new = {"components": [{"role": "R2", "offset_along_mm": 0.0,
                                 "offset_across_mm": 0.0, "angle_deg": 0.0}]}
-    config_writer._write_data(root, {
-        "layer": "F.Cu", "rules": [], "points": {}, "clone_placements": [],
-        "thermal_via_arrays": [], "cells": {"old": cell_old},
-    })
+    config_writer._write_data(root, {**base, "cells": {"old": cell_old}})
+    pinned_ns = os.stat(root).st_mtime_ns
 
     cfg1, _ = load_config(str(root))
-    assert set(cfg1.cells) == {"old"}  # graph cache now filled
+    assert set(cfg1.cells) == {"old"}  # both cache layers now filled
 
-    # delete-then-upsert, back to back, no mtime bump between the two writes:
-    data = config_writer._read_data(root)
-    data["cells"] = {}
-    config_writer._write_data(root, data)
-    data["cells"] = {"new": cell_new}
-    config_writer._write_data(root, data)
+    # delete-then-upsert, back to back, both writes pinned to the SAME
+    # mtime_ns so the mtime re-check alone cannot tell them apart:
+    config_writer._write_data(root, {**base, "cells": {}})
+    _pin_mtime(root, pinned_ns)
+    config_writer._write_data(root, {**base, "cells": {"new": cell_new}})
+    _pin_mtime(root, pinned_ns)
 
     cfg2, _ = load_config(str(root))
     assert set(cfg2.cells) == {"new"}

@@ -34,6 +34,16 @@ def _bump_mtime_forward(path: Path, seconds: float = 1.0) -> None:
                        st.st_mtime_ns + int(seconds * 1e9)))
 
 
+def _pin_mtime(path: Path, mtime_ns: int) -> None:
+    """os.utime() the file to an EXACT mtime_ns — used to force the
+    delete-then-upsert race invalidate_path() exists to close, independent of
+    how fine-grained this machine's real filesystem clock happens to be (a
+    fine clock would otherwise give the two writes naturally different
+    mtimes, making the race test pass for the wrong reason — see
+    handoff_2026_08_21_mtime_race_tests_dont_race.md)."""
+    os.utime(path, ns=(mtime_ns, mtime_ns))
+
+
 def test_repeat_read_on_unchanged_file_calls_loader_once(tmp_path):
     path = tmp_path / "conf.yaml"
     path.write_text("a: 1\n", encoding="utf-8")
@@ -164,19 +174,26 @@ def test_write_data_delete_then_upsert_never_stale(tmp_path):
     after the SECOND write must see the second write's content even if the
     filesystem gave both writes the same mtime_ns.
 
-    Uses the REAL write chokepoint (config_writer._write_data, which is what
-    calls invalidate_path() in production) with NO manual mtime bump between
-    the two writes — the test must pass regardless of the test machine's
-    timer granularity, which is exactly the property mtime alone can't give."""
+    The race is FORCED, not left to the filesystem's clock: both
+    delete-then-upsert writes are pinned to the SAME mtime_ns via
+    _pin_mtime(), so the mtime-keyed cache ALONE would return the stale
+    pre-write content — the test passes only because _write_data() calls the
+    real invalidate_path(). Verified by temporarily removing invalidate_path()
+    from _write_data and watching this test fail (see
+    handoff_2026_08_21_mtime_race_tests_dont_race.md)."""
     from kicadstamp import config_writer
 
     path = tmp_path / "target.yaml"
     config_writer._write_data(path, {"clone_placements": [{"name": "old"}]})
+    pinned_ns = os.stat(path).st_mtime_ns
     assert config_writer._read_data(path)["clone_placements"][0]["name"] == "old"
 
-    # delete-then-upsert, back to back, no mtime bump between the two writes:
+    # delete-then-upsert, back to back, both writes pinned to the SAME
+    # mtime_ns so the mtime check alone cannot tell them apart:
     config_writer._write_data(path, {"clone_placements": []})
+    _pin_mtime(path, pinned_ns)
     config_writer._write_data(path, {"clone_placements": [{"name": "new"}]})
+    _pin_mtime(path, pinned_ns)
 
     data = config_writer._read_data(path)
     assert [e["name"] for e in data["clone_placements"]] == ["new"]
