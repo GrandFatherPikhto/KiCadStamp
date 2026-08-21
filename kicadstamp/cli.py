@@ -109,6 +109,40 @@ def cmd_extract(args) -> None:
                      origin_component_pad=origin_component_pad)
 
 
+def cmd_extract_net(args) -> None:
+    """Extract one net's copper (tracks + vias) as a net_traces: record.
+
+    Thin CLI wrapper for kicadstamp.net_trace_extract.extract_net_trace: the
+    net is searched over the WHOLE live board (not the mouse selection) and the
+    anchor footprint by anchor_role — the same resolve_footprint_by_role search
+    Rule/ClonePlacement use. Raises PlacerError on invalid input (the entry
+    point maps it to exit code 1). sheet_names stays empty (extract-net is a
+    standalone command with no config), so --anchor-sheet narrowing requires
+    the anchor_role to be unambiguous without it — use --anchor-cluster for a
+    second narrowing axis that does not need a schematic_dir.
+    """
+    if not (args.net and args.anchor_role and args.output):
+        raise PlacerError(_("[error] need --net, --anchor-role and --output"))
+    adapter = KiCadBoardAdapter(timeout_ms=args.timeout_ms)
+    adapter.refresh_board()
+
+    from kicadstamp.net_trace_extract import extract_net_trace, write_net_trace
+    nt = extract_net_trace(
+        adapter,
+        net=args.net,
+        anchor_role=args.anchor_role,
+        anchor_sheet=args.anchor_sheet,
+        anchor_cluster=args.anchor_cluster,
+        anchor_pad=args.anchor_pad,
+        sheet_names={},
+    )
+    write_net_trace(args.output, nt)
+    logger.info(_("✅ Net trace for {net!r} (anchor role {role!r}): "
+                  "{tracks} tracks, {vias} vias -> {output}")
+                .format(net=nt.net, role=nt.anchor_role,
+                        tracks=len(nt.tracks), vias=len(nt.vias), output=args.output))
+
+
 def cmd_clone_extract(args) -> None:
     """Snapshot a channel to YAML (file-based cloner, no IPC).
 
