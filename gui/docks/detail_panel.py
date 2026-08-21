@@ -55,13 +55,14 @@ from ._common import highlight_stylesheet_for
 from .cell_editor import CellDock
 from .configurator import ConfiguratorDock
 from .extract import ExtractDock
+from .net_trace import NetTraceDock
 from .placer import PlacerDock
 from .points import PointsDock
 from .root_metadata import RootMetadataDock
 from .rules import RuleDock
 from .thermal_via import ThermalViaArrayDock
 
-_ROOT, _EXTRACT, _PLACER, _THERMAL_VIA, _POINTS, _RULES, _CELLS, _SETTINGS = range(8)
+_ROOT, _EXTRACT, _PLACER, _THERMAL_VIA, _POINTS, _RULES, _NET_TRACE, _CELLS, _SETTINGS = range(9)
 
 
 class DetailDock(QDockWidget):
@@ -89,6 +90,7 @@ class DetailDock(QDockWidget):
         self.tab_bar.addTab(_("Thermal via"))
         self.tab_bar.addTab(_("Points"))
         self.tab_bar.addTab(_("Rules"))
+        self.tab_bar.addTab(_("Net traces"))
         self.tab_bar.addTab(_("Cells"))
         # Settings (2026-08-15, plan configurator_panel) — GUI/app settings
         # for this machine (always-on-top, tray, highlight color, connection
@@ -105,6 +107,7 @@ class DetailDock(QDockWidget):
         self.thermal_via_panel = ThermalViaArrayDock(main_window)
         self.points_panel = PointsDock(main_window, connection=connection)
         self.rules_panel = RuleDock(main_window)
+        self.net_trace_panel = NetTraceDock(main_window, connection=connection)
         self.cells_panel = CellDock(main_window)
         self.configurator_panel = ConfiguratorDock(main_window, connection=connection)
         self.stack.addWidget(self.root_panel)
@@ -113,6 +116,7 @@ class DetailDock(QDockWidget):
         self.stack.addWidget(self.thermal_via_panel)
         self.stack.addWidget(self.points_panel)
         self.stack.addWidget(self.rules_panel)
+        self.stack.addWidget(self.net_trace_panel)
         self.stack.addWidget(self.cells_panel)
         self.stack.addWidget(self.configurator_panel)
         layout.addWidget(self.stack)
@@ -136,6 +140,7 @@ class DetailDock(QDockWidget):
         _THERMAL_VIA: _("Thermal via"),
         _POINTS: _("Points"),
         _RULES: _("Rules"),
+        _NET_TRACE: _("Net traces"),
         _CELLS: _("Cells"),
         _SETTINGS: _("Settings"),
     }
@@ -159,6 +164,8 @@ class DetailDock(QDockWidget):
             return self.points_panel.name_edit.text().strip()
         if index == _RULES:
             return self.rules_panel.name_edit.text().strip() or self.rules_panel.net_edit.currentText().strip()
+        if index == _NET_TRACE:
+            return self.net_trace_panel.net_edit.currentText().strip()
         if index == _CELLS:
             return self.cells_panel.name_edit.text().strip()
         return ""
@@ -209,6 +216,9 @@ class DetailDock(QDockWidget):
 
     def show_rules(self) -> None:
         self._show(_RULES)
+
+    def show_net_trace(self) -> None:
+        self._show(_NET_TRACE)
 
     def show_cells(self) -> None:
         self._show(_CELLS)

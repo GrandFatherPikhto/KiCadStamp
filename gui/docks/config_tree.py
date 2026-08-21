@@ -218,6 +218,10 @@ class ConfigTreeDock(QDockWidget):
     # add_thermal_via_requested — opens the form blank.
     rule_picked = pyqtSignal(object)
     add_rule_requested = pyqtSignal(object)
+    # Fired when a net_traces leaf is clicked (2026-08-21, plan net_trace_dock) —
+    # same list-section full-dict payload as rule_picked. NetTraceDock.
+    # load_entry() listens.
+    net_trace_picked = pyqtSignal(object)
     # Fired by the context menu's "Add extract profile..." (2026-08-13, plan
     # context_menu_by_section) — unlike the other five Add-actions it does NOT
     # open a blank form ready to Save (an extract profile's params come from a
@@ -423,6 +427,8 @@ class ConfigTreeDock(QDockWidget):
             self.points_picked.emit(ref)
         elif section == "rules":
             self.rule_picked.emit(ref)
+        elif section == "net_traces":
+            self.net_trace_picked.emit(ref)
 
     # ── Context menu (right-click anywhere under a file) ────────────────
 

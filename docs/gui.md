@@ -17,7 +17,7 @@ from the first run instead of having to turn it on after something goes wrong.
 
 ## Layout
 
-Eight docks, tabbed into two groups plus a status bar:
+Nine docks, tabbed into two groups plus a status bar:
 
 - **Left** (tabbed): **Components** (Role/Cluster tree) and **Cells** (extracted Cell list).
 - **Right** (tabbed): **fieldstool**, **Files**, **Extract**, **Placer**.
@@ -164,9 +164,10 @@ see plan_2026_08_15_graph_changed_broadcast.md).
 
 ## Detail dock
 
-Extract/Placer/Project/Thermal via/Points/Rules/Cells/Settings below all live as tabs inside one
-shared **Detail** dock, not as separate docks — switching is both automatic (a Config-tree click
-routes to the matching tab) and manual (click the tab bar directly). Every automatic switch also
+Extract/Placer/Project/Thermal via/Points/Rules/Net traces/Cells/Settings below all live as tabs
+inside one shared **Detail** dock, not as separate docks — switching is both automatic (a
+Config-tree click routes to the matching tab) and manual (click the tab bar directly). Every
+automatic switch also
 raises Detail to the front of its own tabified group (it shares screen space with fieldstool) and
 updates its window title to name the page and, where there's a single obvious current entity, its
 name too — e.g. "Detail — Cells: composite", or just "Detail — Extract" for pages with no single
@@ -505,6 +506,29 @@ Update/Remove row, and Redraw/Save stay outside the tabs — they act on the who
   previews the exact rules/pads that will change BEFORE applying; a partial write failure is
   reported explicitly (which rules wrote, which didn't) — never a silent half-applied change. If
   the currently-loaded rule is on that net, its form is reloaded from disk afterwards.
+
+## Net traces
+
+Edits a `net_traces:` record (see [docs/config.md](config.md)'s `net_traces:` section) — the GUI
+face of `extract-net`/`apply --only=<net>` (plan `techdocs/handoff/deepseek/plan_2026_08_21_
+net_trace_dock.md`). Added 2026-08-21.
+
+- **Net picker** — a searchable combo listing every net with COPPER on the live board, sourced from
+ `adapter.get_tracks()` + `adapter.get_vias()` over the WHOLE board — NOT the mouse selection
+ (this deliberately closes the GUI gap the review's finding 5 was about: the old ExtractDock
+ "Origin: Via net" combo is selection-scoped; a net can now be picked by name with nothing
+ selected). Pad-only nets with no copper are excluded.
+- **Anchor block** — the shared `AnchorOriginWidget`, anchor-role mode with sheet/pad/cluster
+ fields. `net_traces` anchors by Role ONLY — filling Ref is rejected with an explicit message.
+- **Extract** — captures the picked net's live copper (whole-board search) and writes it under
+ `net_traces:` in the target file, then refreshes the Config tree. Geometry (`tracks:`/`vias:`) is
+ machine-written and shown read-only by design — edit it by re-extracting, not by hand (same rule
+ as `cells:`).
+- **Save** — edits the controllable fields (net/anchor/retired/skip) of an already-saved record and
+ PRESERVES its machine-written geometry (a Save must never silently erase `tracks:`/`vias:`).
+- **Redraw** — `apply --only=<net>` for the loaded record (same `ApplyPipeline` mechanism RuleDock's
+ Redraw uses), so a moved anchor re-places the captured copper live.
+- Clicking a `net_traces:` leaf in the Config tree loads that record into the form.
 
 ## Cells
 

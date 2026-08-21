@@ -95,6 +95,7 @@ class DockHub:
         self.thermal_via_dock = self.detail_dock.thermal_via_panel
         self.points_dock = self.detail_dock.points_panel
         self.rules_dock = self.detail_dock.rules_panel
+        self.net_trace_dock = self.detail_dock.net_trace_panel
         self.cells_dock = self.detail_dock.cells_panel
         # Settings tab (ConfiguratorDock, 2026-08-15, plan
         # configurator_panel) — GUI/app settings for this machine, NOT
@@ -141,6 +142,7 @@ class DockHub:
         self.config_tree_dock.file_selected.connect(self.placer_dock.set_target_file)
         self.config_tree_dock.file_selected.connect(self.points_dock.set_target_file)
         self.config_tree_dock.file_selected.connect(self.rules_dock.set_target_file)
+        self.config_tree_dock.file_selected.connect(self.net_trace_dock.set_target_file)
         self.config_tree_dock.file_selected.connect(self.cells_dock.set_target_file)
         # RootMetadataDock's Working file combobox (2026-08-11, Denis: "туда
         # же напрашивается и выбор текущего рабочего файла... без прыжков
@@ -174,6 +176,7 @@ class DockHub:
         # points it at.
         self.root_metadata_dock.root_changed.connect(self.config_tree_dock.set_root_file)
         self.root_metadata_dock.root_changed.connect(self.rules_dock.set_root_path)
+        self.root_metadata_dock.root_changed.connect(self.net_trace_dock.set_root_path)
         self.root_metadata_dock.root_changed.connect(self.placer_dock.set_root_path)
         self.root_metadata_dock.root_changed.connect(self.thermal_via_dock.set_root_path)
         self.root_metadata_dock.root_changed.connect(self.cells_dock.set_root_path)
@@ -251,6 +254,8 @@ class DockHub:
         self.config_tree_dock.points_picked.connect(self.detail_dock.show_points)
         self.config_tree_dock.rule_picked.connect(self.rules_dock.load_entry)
         self.config_tree_dock.rule_picked.connect(self.detail_dock.show_rules)
+        self.config_tree_dock.net_trace_picked.connect(self.net_trace_dock.load_entry)
+        self.config_tree_dock.net_trace_picked.connect(self.detail_dock.show_net_trace)
         # "Edit cell..." (context menu, 2026-08-06) — deliberately NOT wired
         # to cell_picked, which keeps meaning "pick this cell as a
         # placement's content" (see config_tree.py's module docstring).
@@ -276,6 +281,7 @@ class DockHub:
         self.extract_dock.saved.connect(self.config_tree_dock.refresh)
         self.points_dock.saved.connect(self.config_tree_dock.refresh)
         self.rules_dock.saved.connect(self.config_tree_dock.refresh)
+        self.net_trace_dock.saved.connect(self.config_tree_dock.refresh)
         self.cells_dock.saved.connect(self.config_tree_dock.refresh)
         self.placer_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.thermal_via_dock.saved.connect(self._refresh_graph_dependent_choices)
@@ -361,6 +367,8 @@ class DockHub:
         self.points_dock.refresh_known_roles(snapshot)
         self.rules_dock.refresh_known_roles(snapshot)
         self.rules_dock.refresh_known_nets(board)
+        self.net_trace_dock.refresh_known_roles(snapshot)
+        self.net_trace_dock.refresh_known_nets(board)
         self.cells_dock.refresh_known_roles(snapshot)
 
     def clear_components(self) -> None:

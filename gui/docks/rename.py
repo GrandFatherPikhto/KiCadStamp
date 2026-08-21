@@ -63,7 +63,10 @@ LIST_SECTIONS = ("clone_placements", "thermal_via_arrays", "rules")
 # absent (config/models.py's rule_effective_name()) — the only section with
 # a fallback identifying field. Public (2026-08-05): gui/docks/entity_delete.py
 # needs the same "name or net" identity to match a rules: entry for removal.
-FALLBACK_KEY = {"rules": "net"}
+# net_traces: entries always carry net: and it IS their --only identity
+# (config/models.py's net_trace_effective_name()) — same "single field
+# fallback" shape as rules (2026-08-21, plan net_trace_dock).
+FALLBACK_KEY = {"rules": "net", "net_traces": "net"}
 
 
 def _coordinate_placement_effective_name(entry: dict) -> str | None:

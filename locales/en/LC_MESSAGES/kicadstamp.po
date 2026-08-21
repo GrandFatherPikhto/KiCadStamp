@@ -7496,3 +7496,34 @@ msgstr ""
 #: kicadstamp/net_traces review fixes (2026-08-21)
 msgid "Net traces"
 msgstr ""
+
+#: gui/docks/net_trace.py (2026-08-21)
+msgid "Net trace file:"
+msgstr ""
+
+#: gui/docks/net_trace.py (2026-08-21)
+msgid "net name (from the whole board's copper)"
+msgstr ""
+
+#: gui/docks/net_trace.py (2026-08-21)
+msgid "tracks:/vias: are written by Extract — edit them by re-extracting, not by hand."
+msgstr ""
+
+#: gui/docks/net_trace.py (2026-08-21)
+msgid "net_traces anchors by Role only — anchor_ref is not a net_traces field."
+msgstr ""
+
+#: gui/docks/net_trace.py (2026-08-21)
+#, python-brace-format
+msgid "Wrote net trace {net!r} — {tracks} tracks, {vias} vias -> {path}"
+msgstr ""
+
+#: gui/docks/net_trace.py (2026-08-21)
+#, python-brace-format
+msgid "Operation failed: {error}"
+msgstr ""
+
+#: gui/docks/net_trace.py (2026-08-21)
+#, python-brace-format
+msgid "{action} net trace {net!r} in {path}"
+msgstr ""
