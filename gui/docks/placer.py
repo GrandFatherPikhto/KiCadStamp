@@ -133,7 +133,6 @@ from kicadstamp.placement.services.clone_role_resolver import (
     suggest_role_nets_from_cluster,
 )
 
-from .. import yaml_io
 from ..ui_utils import busy
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
@@ -145,7 +144,7 @@ from .cascade import cascade_records, run_cascade_worker
 from .entity_delete import delete_entry
 from .rename import (collect_all_cell_names, collect_all_point_names,
                      collect_all_sheet_names, collect_section_entries,
-                     entry_effective_name)
+                     entry_effective_name, find_list_entry_file)
 
 logger = logging.getLogger(__name__)
 
@@ -2109,13 +2108,21 @@ class PlacerDock(QWidget):
 
     # ── Loading an already-saved placement back into the form ──────────────
 
-    def load_placement(self, entry: Dict[str, Any]) -> None:
+    def load_placement(self, entry: Dict[str, Any], file_path: Optional[Path] = None) -> None:
         """Reverse of _build_entry_dict() — called by ConfigTreeDock when a
         Clone placement OR Coordinate placement leaf is clicked (2026-08-12,
         Group 1: both route here, the form adapts to whether the entry has
         cell:). A clone_placement loads the cell-based field set, a
-        coordinate_placement (no cell:) the _CoordinatePlacementForm."""
+        coordinate_placement (no cell:) the _CoordinatePlacementForm. The
+        WRITE target is set back to the file the entry actually lives in, so
+        a Save updates that file instead of adding a root duplicate
+        (2026-08-21 review fix)."""
         self._show_message("")
+        section = "clone_placements" if "cell" in entry else "coordinate_placements"
+        if file_path is None:
+            file_path = find_list_entry_file(self._root_path, section, entry)
+        if file_path is not None:
+            self._placer_path = file_path
         # Reset the clone Origin before anything else (plan 2026-08-13, p.3):
         # on the moment set_selected_cell() runs below, anchor_cluster must be
         # empty (or already THIS record's), never the previous record's value —

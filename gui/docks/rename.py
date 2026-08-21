@@ -42,7 +42,7 @@ preservation, consistent with every other write path in this GUI.
 """
 import yaml
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from kicadstamp.config import load_config
 from kicadstamp.config.includes import walk_include_tree
@@ -193,6 +193,38 @@ def collect_section_entries(root_path: Path, section: str) -> dict:
     for path in collect_graph_files(root_path):
         merged.update(read_data(path).get(section) or {})
     return merged
+
+
+def find_dict_entry_file(root_path: Optional[Path], section: str, name: str) -> Optional[Path]:
+    """The physical file where a DICT-section entry (cells:/points:/...)
+    named `name` lives, anywhere in the include: graph rooted at root_path.
+    Used to write an EDIT of an existing entry back to ITS OWN file instead
+    of the root (2026-08-21 review fix — see
+    handoff_2026_08_21_flatten_gui_stage2_review_fix.md). None when
+    root_path is None or the name is absent."""
+    if root_path is None:
+        return None
+    for path in collect_graph_files(root_path):
+        if name in (read_data(path).get(section) or {}):
+            return path
+    return None
+
+
+def find_list_entry_file(root_path: Optional[Path], section: str, entry: dict) -> Optional[Path]:
+    """The physical file where a LIST-section entry (rules:/clone_placements:/
+    thermal_via_arrays:/coordinate_placements:/net_traces:) with the same
+    effective identity as `entry` lives — same "write an edit back to its
+    own file" purpose as find_dict_entry_file. Identity via
+    entry_effective_name(), the one formula the loader's own duplicate-name
+    checks use, so the match is unambiguous by construction."""
+    if root_path is None:
+        return None
+    identity = entry_effective_name(section, entry)
+    for path in collect_graph_files(root_path):
+        for item in (read_data(path).get(section) or []):
+            if isinstance(item, dict) and entry_effective_name(section, item) == identity:
+                return path
+    return None
 
 
 def collect_all_rule_nets(root_path: Path) -> List[str]:

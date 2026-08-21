@@ -69,7 +69,7 @@ from ._anchor_origin import AnchorOriginWidget
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       configure_searchable, display_path,
                       set_combo_items, show_message, upsert_list_entry)
-from .rename import collect_all_point_names, collect_all_sheet_names
+from .rename import collect_all_point_names, collect_all_sheet_names, find_list_entry_file
 
 logger = logging.getLogger(__name__)
 
@@ -432,11 +432,18 @@ class ThermalViaArrayDock(QWidget):
 
     # ── Loading an already-saved entry back into the form ───────────────────
 
-    def load_entry(self, entry: Dict[str, Any]) -> None:
+    def load_entry(self, entry: Dict[str, Any], file_path: Optional[Path] = None) -> None:
         """Reverse of _build_entry_dict() — called by ConfigTreeDock's
         Thermal via arrays category (via thermal_via_picked) when an
-        already-saved entry is clicked, same shape as PlacerDock.load_placement."""
+        already-saved entry is clicked, same shape as PlacerDock.load_placement.
+        The WRITE target is set back to the file the entry actually lives in,
+        so a Save updates that file instead of adding a root duplicate
+        (2026-08-21 review fix)."""
         self._show_message("")
+        if file_path is None:
+            file_path = find_list_entry_file(self._root_path, "thermal_via_arrays", entry)
+        if file_path is not None:
+            self._path = file_path
         self.name_edit.setText(str(entry.get("name", "")))
         self.pad_edit.setText(str(entry.get("pad", "")))
         self.net_edit.setCurrentText(str(entry.get("net", "GND")))

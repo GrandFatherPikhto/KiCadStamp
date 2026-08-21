@@ -79,7 +79,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from kipy.errors import ApiError
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import (QComboBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
+from PyQt6.QtWidgets import (QFormLayout, QHBoxLayout, QLineEdit,
                               QPushButton, QVBoxLayout, QWidget)
 
 from kicadstamp.config import load_point
@@ -92,7 +92,7 @@ from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       display_path, merge_write, show_message)
-from .rename import collect_all_sheet_names, collect_section_entries
+from .rename import collect_all_sheet_names, collect_section_entries, find_dict_entry_file
 
 logger = logging.getLogger(__name__)
 
@@ -386,8 +386,13 @@ class PointsDock(QWidget):
         clicked. points: is a DICT section (see module docstring), so the
         signal only carries the name — the actual data is re-read fresh
         from the WHOLE include graph here (a point can live in any included
-        file)."""
+        file). The WRITE target is set back to the file the entry actually
+        lives in, so a Save updates that file instead of duplicating the
+        point into the root (2026-08-21 review fix)."""
         self._show_message("")
+        source = find_dict_entry_file(self._root_path, "points", name)
+        if source is not None:
+            self._path = source
         entry = {}
         if self._root_path is not None:
             entry = collect_section_entries(self._root_path, "points").get(name) or {}

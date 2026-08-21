@@ -486,9 +486,10 @@ class DockHub:
     def _edit_cell(self, name, file_path) -> None:
         """ConfigTreeDock's cell_edit_requested delegate — right-click
         "Edit cell..." never goes through _on_clicked/file_selected (see
-        that wiring's own comment above), so the target file is set
-        explicitly here before loading, then the Cells tab is raised."""
-        self.cells_dock.load_entry(name)
+        that wiring's own comment above), so the file the cell lives in is
+        passed explicitly here before loading — a later Save writes the edit
+        back to that file, not the root (2026-08-21 review fix)."""
+        self.cells_dock.load_entry(name, file_path)
         self.detail_dock.show_cells()
 
     def _attach_log_file_handler(self, handler) -> None:

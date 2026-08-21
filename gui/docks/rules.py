@@ -106,7 +106,8 @@ from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STY
                       set_combo_items, set_mode_pair_enabled, show_message,
                       upsert_list_entry)
 from .rename import (collect_all_cell_names, collect_all_point_names,
-                     collect_all_rule_nets, collect_all_sheet_names, collect_rules_by_net)
+                     collect_all_rule_nets, collect_all_sheet_names,
+                     collect_rules_by_net, find_list_entry_file)
 
 logger = logging.getLogger(__name__)
 
@@ -949,13 +950,20 @@ class RuleDock(QWidget):
 
     # ── Loading an already-saved entry back into the form ───────────────────
 
-    def load_entry(self, entry: Dict[str, Any]) -> None:
+    def load_entry(self, entry: Dict[str, Any], file_path: Optional[Path] = None) -> None:
         """Reverse of _build_rule_dict() — called by ConfigTreeDock's Rules
         category (via rule_picked) when an already-saved entry is clicked,
         same shape as PlacerDock.load_placement/ThermalViaArrayDock.
         load_entry. rules: is a list section (see module docstring), so
-        the payload is already the full dict — no re-read needed."""
+        the payload is already the full dict — no re-read needed. The WRITE
+        target is set back to the file the rule actually lives in, so a Save
+        updates that file instead of adding a root duplicate (2026-08-21
+        review fix)."""
         self._show_message("")
+        if file_path is None:
+            file_path = find_list_entry_file(self._root_path, "rules", entry)
+        if file_path is not None:
+            self._path = file_path
         self.net_edit.setCurrentText(str(entry.get("net", "")))
         self.name_edit.setText(str(entry.get("name") or ""))
 

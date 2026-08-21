@@ -46,7 +46,7 @@ from ._anchor_origin import AnchorOriginWidget
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       configure_searchable, display_path, read_data,
                       set_combo_items, show_message, upsert_list_entry)
-from .rename import collect_all_sheet_names
+from .rename import collect_all_sheet_names, find_list_entry_file
 
 logger = logging.getLogger(__name__)
 
@@ -208,11 +208,18 @@ class NetTraceDock(QWidget):
             entry["skip"] = True
         return entry
 
-    def load_entry(self, entry: Dict[str, Any]) -> None:
+    def load_entry(self, entry: Dict[str, Any], file_path: Optional[Path] = None) -> None:
         """Reverse of _build_entry_dict — called by ConfigTreeDock's net_traces
         leaf click (net_trace_picked): fills the form from the saved record.
-        tracks:/vias: are deliberately not shown (not hand-edited)."""
+        tracks:/vias: are deliberately not shown (not hand-edited). The WRITE
+        target is set back to the file the record actually lives in, so a Save
+        updates that file instead of adding a root duplicate (2026-08-21
+        review fix)."""
         self._show_message("")
+        if file_path is None:
+            file_path = find_list_entry_file(self._root_path, "net_traces", entry)
+        if file_path is not None:
+            self._path = file_path
         self.net_edit.setCurrentText(str(entry.get("net", "")))
         self.anchor_widget.load(
             mode="anchor", role=str(entry.get("anchor_role", "")),

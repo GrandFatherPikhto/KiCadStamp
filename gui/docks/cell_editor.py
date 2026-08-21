@@ -81,11 +81,10 @@ from kicadstamp.config import (load_cell, load_cell_placement, load_template_com
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
 
-from .. import yaml_io
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       configure_searchable, display_path, merge_write, parse_float_field,
                       set_combo_items, show_message)
-from .rename import collect_all_cell_names, collect_section_entries
+from .rename import collect_all_cell_names, collect_section_entries, find_dict_entry_file
 
 logger = logging.getLogger(__name__)
 
@@ -1229,7 +1228,7 @@ class CellDock(QWidget):
 
     # ── Loading an already-saved entry back into the form ───────────────
 
-    def load_entry(self, name: str) -> None:
+    def load_entry(self, name: str, file_path: Optional[Path] = None) -> None:
         """Reverse of _build_cell_dict() — called by ConfigTreeDock's Cells
         category (via cell_edit_requested, NOT cell_picked — see config_
         tree.py's module docstring on why editing needs its own action
@@ -1237,8 +1236,15 @@ class CellDock(QWidget):
         already-saved entry is clicked. cells: is a DICT section (see
         module docstring), so the signal only carries the name — the actual
         data is re-read fresh from the WHOLE include graph here (a cell can
-        live in any included file)."""
+        live in any included file). `file_path` (from cell_edit_requested)
+        is the file the entry lives in; the WRITE target is set back to it
+        so a Save updates that file instead of duplicating the cell into the
+        root (2026-08-21 review fix)."""
         self._show_message("")
+        if file_path is None:
+            file_path = find_dict_entry_file(self._root_path, "cells", name)
+        if file_path is not None:
+            self._path = file_path
         entry = {}
         if self._root_path is not None:
             entry = collect_section_entries(self._root_path, "cells").get(name) or {}
