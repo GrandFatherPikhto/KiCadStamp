@@ -350,10 +350,12 @@ Holds global constants used across various modules.
 
 ---
 
-## 18. `utils/file_cache.py` – Single-File Read Cache
+## 18. `utils/file_cache.py` – Read Caches (single-file + graph-level)
 
 **Purpose:**
 Memoizes a single file's `open()+parse` by `(resolved path, mtime_ns)` — a changed mtime (typically an external hand-edit) is a cache miss on its own, and every raw reader shares one cache entry per file. Kills the GUI's startup redundancy: one `MainWindow()` construction used to re-parse the same `include:` graph of YAML files ~13× and the same `.kicad_sch` files 4× each (profiled: 15.0s → ~1.1s construction, `yaml.safe_load` 113 → ~8 calls on the real project — see `techdocs/handoff/plan_2026_08_15_config_read_cache_startup.md`).
+
+A second layer, `cached_graph_result` (2026-08-21), memoizes the RESULT of a whole-graph computation (`load_config()`, `walk_include_tree()`) keyed by `(kind, resolved_root_path)` plus the mtimes of every file that computation read: on a repeat call with unchanged files it re-checks a handful of `os.stat()`s and returns a deep copy without re-running any traversal/merge/validation. The same-day profiling also found the REAL remaining startup bottleneck: `gui/yaml_io.load_data()` was the one raw reader the 2026-08-15 cache missed, so `RootMetadataDock` re-parsed the root YAML outside the cache right before every dock re-read it through the cache (~1.9s of redundant parse). Routing it through `cached_file_read` cut `MainWindow()` construction from ~6.0s to ~4.1s (`yaml.safe_load` 4 → 2 calls) — see `techdocs/handoff/deepseek/plan_2026_08_21_startup_graph_level_cache.md`.
 
 **Main functions:**
 
@@ -361,8 +363,10 @@ Memoizes a single file's `open()+parse` by `(resolved path, mtime_ns)` — a cha
 |----------|-------------|
 | `cached_file_read(path, loader)` | Returns a deep copy of `loader(path)`, keyed by `(resolved path, mtime_ns)`; never caches a missing file (loader handles it directly). |
 | `invalidate_path(path)` | Drops every cached generation of `path` — must be called by writers right after the physical write (mtime alone can't distinguish two writes landing in the same timer tick). |
+| `cached_graph_result(kind, root_path, compute_fn)` | Memoizes one whole-graph computation by `(kind, root)` + the mtime set of every file it touched; a repeat call re-checks those mtimes and returns a deep copy without re-running `compute_fn`. |
+| `invalidate_graph_path(path)` | Drops every graph-level result whose file set includes `path` — the graph cache's counterpart of `invalidate_path()`, called from the same single write chokepoint. |
 
-**Used in:** `config/includes.py`, `config/loader.py`, `config_writer.py` (read + the single write chokepoint), `sheet_names.py`.
+**Used in:** `config/includes.py`, `config/loader.py` (both wrap their entry points in `cached_graph_result`), `config_writer.py` (read + the single write chokepoint, which invalidates both layers), `sheet_names.py`, `gui/yaml_io.py`.
 
 ---
 

@@ -27,7 +27,13 @@ from gui.dock_hub import DockHub
 # Every module with its own `cached_file_read` import binding (each consumer
 # imports it directly at module level, so each needs its own counter wrapper —
 # patching file_cache.cached_file_read itself would not affect these bindings).
+# gui.yaml_io joined this set on 2026-08-21 (plan_2026_08_21_startup_graph_level_
+# cache.md's "actual bottleneck" finding): it was the one raw reader the
+# 2026-08-15 cache missed, so RootMetadataDock re-parsed the root YAML outside
+# the cache. Now that it goes through cached_file_read too, it must be counted
+# like every other reader or the root file's single parse is invisible here.
 _CACHE_CONSUMER_MODULES = (
+    "gui.yaml_io",
     "kicadstamp.config.includes",
     "kicadstamp.config.loader",
     "kicadstamp.config_writer",
@@ -180,6 +186,45 @@ def test_dock_hub_startup_reads_each_unique_file_at_most_once(tmp_path, qapp, ma
         # request count must far exceed its single parse.
         assert requests[str(root.resolve())] > 2
         assert requests[str(root.resolve())] > parses[str(root.resolve())]
+    finally:
+        _teardown_hub(hub)
+
+
+def test_dock_hub_startup_runs_graph_bodies_at_most_twice(tmp_path, qapp, main_window, monkeypatch):
+    """The graph-level result cache (2026-08-21, plan_2026_08_21_startup_graph_
+    level_cache.md): during ONE DockHub construction the EXPENSIVE bodies of
+    load_config()/walk_include_tree() — counted on their internal "uncached"
+    versions — must each run at most 1-2 times, not the pre-fix 6 / 11 times
+    measured on the real project (see diagnostics/count_startup_graph_calls.
+    py). The cached public wrappers are still called once per dock; only the
+    real traversal/merge/validation collapses to a single run per changed
+    graph."""
+    import kicadstamp.config.includes as includes_mod
+    import kicadstamp.config.loader as loader_mod
+
+    root = _write_test_project(tmp_path)
+    _seed_last_root_file(root)
+
+    load_calls = []
+    walk_calls = []
+    real_load = loader_mod._load_config_uncached
+    real_walk = includes_mod._walk_include_tree_uncached
+
+    def counting_load(p):
+        load_calls.append(p)
+        return real_load(p)
+
+    def counting_walk(p):
+        walk_calls.append(p)
+        return real_walk(p)
+
+    monkeypatch.setattr(loader_mod, "_load_config_uncached", counting_load)
+    monkeypatch.setattr(includes_mod, "_walk_include_tree_uncached", counting_walk)
+
+    hub = DockHub(main_window, connection=main_window.connection, verbose=False)
+    try:
+        assert len(load_calls) <= 2, f"load_config body ran {len(load_calls)}x"
+        assert len(walk_calls) <= 2, f"walk_include_tree body ran {len(walk_calls)}x"
     finally:
         _teardown_hub(hub)
 

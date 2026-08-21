@@ -23,7 +23,7 @@ from pathlib import Path
 from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
 from ..runtime_context import RuntimeContext
-from ..utils.file_cache import cached_file_read
+from ..utils.file_cache import cached_file_read, cached_graph_result
 
 # NOTE (2026-08-11, arch step 6): the `..sheet_names` import below is a
 # DELIBERATE, documented exception to config/loader's "pure YAML-schema
@@ -94,6 +94,17 @@ def _check_duplicate_names(items, name_fn, section_label: str, hint: str) -> Non
 
 
 def load_config(path: str) -> tuple[Config, RuntimeContext]:
+    """Load + validate one config file (the root of an include: graph) into
+    (Config, RuntimeContext). Memoized by graph mtime via cached_graph_result
+    (2026-08-21, plan_2026_08_21_startup_graph_level_cache.md) — the WHOLE
+    computation (traversal + merge + validation + sheet-name map), not just
+    the raw file reads, is cached one layer above cached_file_read. The
+    result is a deep copy on every call, so mutating it can never corrupt
+    the cache — same contract as cached_file_read."""
+    return cached_graph_result("load_config", path, lambda: _load_config_uncached(path))
+
+
+def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
     logger.info(_("Loading configuration from {path}").format(path=path))
     data = cached_file_read(Path(path), _load_yaml_file)
     data = resolve_includes(path, data)

@@ -19,7 +19,7 @@ from typing import Any, Callable, Dict, Optional
 import yaml
 
 from kicadstamp.i18n import _
-from kicadstamp.utils.file_cache import cached_file_read, invalidate_path
+from kicadstamp.utils.file_cache import cached_file_read, invalidate_graph_path, invalidate_path
 
 logger = logging.getLogger(__name__)
 
@@ -75,18 +75,21 @@ def _write_data(path: Path, data: dict) -> None:
     """Write merged content back in the same format (YAML/JSON by file
     extension) it was read in. Every GUI dock write path
     (merge_write/add_list_entry/upsert_*/_remove_entry) funnels through
-    this ONE physical-write chokepoint, which is why invalidate_path()
-    lives here and nowhere else: mtime alone can't tell two writes to the
-    same file microseconds apart apart on a coarse-timer filesystem (the
-    delete-then-upsert shape of PlacerDock._do_save), so the cache is
-    explicitly dropped for this path right after the write — see
-    kicadstamp/utils/file_cache.py's invalidate_path() docstring."""
+    this ONE physical-write chokepoint, which is why invalidate_path() AND
+    invalidate_graph_path() live here and nowhere else: mtime alone can't
+    tell two writes to the same file microseconds apart apart on a
+    coarse-timer filesystem (the delete-then-upsert shape of
+    PlacerDock._do_save), so BOTH cache layers are explicitly dropped for
+    this path right after the write — the single-file cache and the
+    graph-level result cache (see kicadstamp/utils/file_cache.py's
+    invalidate_path()/invalidate_graph_path() docstrings)."""
     with open(path, "w", encoding="utf-8") as f:
         if path.suffix.lower() == ".json":
             json.dump(data, f, indent=2, ensure_ascii=False, sort_keys=False)
         else:
             yaml.dump(data, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
     invalidate_path(path)
+    invalidate_graph_path(path)
 
 
 # Public aliases — these two are consumed across the gui/ package boundary

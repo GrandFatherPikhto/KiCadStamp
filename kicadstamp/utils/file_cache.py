@@ -50,6 +50,7 @@ Design notes:
   writer right after the physical write (the project has exactly one write
   chokepoint: config_writer._write_data).
 """
+import contextvars
 import copy
 import os
 import threading
@@ -64,6 +65,22 @@ _cache: dict[tuple[str, int], object] = {}
 # than one mtime_ns generation alive briefly under concurrent readers) — kept
 # only so invalidate_path() can evict without scanning the whole cache.
 _keys_by_path: dict[str, set[tuple[str, int]]] = {}
+
+# ── Graph-level result cache (2026-08-21, the layer ABOVE cached_file_read,
+#    see cached_graph_result below) ───────────────────────────────────────
+# keyed by (kind, resolved_root_path) -> (deep-copied result, {resolved file
+# path: mtime_ns} of every file that computation actually read).
+_graph_cache: dict[tuple[str, str], tuple[object, dict[str, int]]] = {}
+# reverse index: resolved file path -> the (kind, root) keys whose known file
+# set includes it — kept only so invalidate_graph_path() can evict without
+# scanning the whole graph cache.
+_graph_keys_by_path: dict[str, set[tuple[str, str]]] = {}
+# Active per-computation trace: while a graph computation runs, every
+# cached_file_read() records the (path, mtime_ns) it stat'ed into this dict.
+# A ContextVar (not a plain global) so each thread — and each nested
+# computation — gets its own, independently restorable trace.
+_trace: contextvars.ContextVar[dict[str, int] | None] = contextvars.ContextVar(
+    "file_cache_graph_trace", default=None)
 
 
 def cached_file_read(path: Path, loader: Callable[[Path], T]) -> T:
@@ -88,6 +105,13 @@ def cached_file_read(path: Path, loader: Callable[[Path], T]) -> T:
         mtime_ns = os.stat(resolved).st_mtime_ns
     except OSError:
         return loader(path)
+    # Report this (path, mtime) to the active graph-computation trace, if any —
+    # this is what lets cached_graph_result() learn the FULL file set a
+    # computation touched, for free (the stat() already happens here on every
+    # read, cache hit or miss alike).
+    trace = _trace.get()
+    if trace is not None:
+        trace[resolved] = mtime_ns
     key = (resolved, mtime_ns)
     with _lock:
         cached = _cache.get(key)
@@ -113,3 +137,104 @@ def invalidate_path(path: Path) -> None:
     with _lock:
         for key in _keys_by_path.pop(resolved, ()):
             _cache.pop(key, None)
+
+
+def _graph_mtimes_unchanged(files: dict[str, int]) -> bool:
+    """True when every stored (path, mtime_ns) still matches what's on disk —
+    a handful of os.stat() calls (microseconds), the whole re-validation a
+    graph-cache HIT performs. A missing file (deleted since the computation)
+    is a miss, so the next full computation re-raises/re-discovers it the
+    same way the uncached path would."""
+    for path, mtime in files.items():
+        try:
+            if os.stat(path).st_mtime_ns != mtime:
+                return False
+        except OSError:
+            return False
+    return True
+
+
+def _drop_graph_entry(key: tuple[str, str]) -> None:
+    """Evict one graph-cache entry and remove `key` from every file's reverse
+    index — keeps _graph_keys_by_path consistent with _graph_cache whether
+    the eviction came from a stale re-check or from invalidate_graph_path()."""
+    entry = _graph_cache.pop(key, None)
+    if entry is None:
+        return
+    _, files = entry
+    for path in files:
+        keys = _graph_keys_by_path.get(path)
+        if keys is not None:
+            keys.discard(key)
+            if not keys:
+                _graph_keys_by_path.pop(path, None)
+
+
+def cached_graph_result(kind: str, root_path: str, compute_fn: Callable[[], T]) -> T:
+    """Memoize compute_fn() for ONE include: graph, keyed by (kind,
+    resolved_root_path) — the layer ABOVE cached_file_read() (2026-08-21,
+    plan_2026_08_21_startup_graph_level_cache.md). Once raw file reads got
+    cheap (the single-file mtime cache), the cost left on GUI startup was the
+    whole-graph TRAVERSAL/merge/validation being re-run 6-11 times per start
+    even when no file changed — this caches the RESULT of one such
+    computation, not just the bytes.
+
+    compute_fn() is the full UNCACHED computation (load_config's body,
+    walk_include_tree's body) and runs ONLY on a cache miss. While it runs,
+    every cached_file_read() it triggers records the (path, mtime_ns) it
+    stat'ed into an active trace (a ContextVar — no signature changes anywhere
+    in the include recursion). On a later call with the same root_path the
+    stored mtimes are re-checked with a handful of os.stat() calls; if they
+    all match, the stored result is returned as a deep copy WITHOUT re-running
+    any traversal/merge/validation. A changed mtime (an external edit) is a
+    miss on its own, same philosophy as cached_file_read one layer down.
+
+    Correctness for a TOPOLOGY change (an include: starting/stopping to point
+    at a new file) needs no special logic: to change topology you must edit an
+    already-known file (the one carrying the include: line), and that edit
+    changes ITS mtime, which is already in the re-checked set.
+
+    `kind` disambiguates different computations over the same root
+    ("load_config" vs "walk_include_tree" — different result types).
+
+    Returns a deep copy (hit or miss) so no caller can corrupt the cache —
+    same contract as cached_file_read. Missing-file handling is NOT this
+    function's job, exactly like cached_file_read: if compute_fn() raises,
+    the exception propagates and nothing is cached.
+    """
+    root = str(Path(root_path).resolve())
+    key = (kind, root)
+    with _lock:
+        entry = _graph_cache.get(key)
+        if entry is not None and _graph_mtimes_unchanged(entry[1]):
+            return copy.deepcopy(entry[0])
+        if entry is not None:
+            _drop_graph_entry(key)
+    # Compute outside the lock: compute_fn() calls cached_file_read(), which
+    # takes _lock itself — holding _lock here would deadlock.
+    trace: dict[str, int] = {}
+    token = _trace.set(trace)
+    try:
+        result = compute_fn()
+    finally:
+        _trace.reset(token)
+    with _lock:
+        _graph_cache[key] = (copy.deepcopy(result), dict(trace))
+        for path in trace:
+            _graph_keys_by_path.setdefault(path, set()).add(key)
+    return copy.deepcopy(result)
+
+
+def invalidate_graph_path(path: Path) -> None:
+    """Drop every graph-level cached result whose known file set includes
+    `path` — the graph cache's counterpart to invalidate_path() for the
+    single-file cache. MUST be called by config_writer._write_data right
+    after the physical write, for the SAME delete-then-upsert race reason:
+    two writes microseconds apart can land on the same mtime_ns tick on a
+    coarse-timer filesystem, which the mtime re-check alone cannot see — and
+    the graph cache could otherwise hand back a stale Config immediately
+    after a Save. Safe to call on a path never part of any graph (no-op)."""
+    resolved = str(path.resolve())
+    with _lock:
+        for key in _graph_keys_by_path.pop(resolved, ()):
+            _drop_graph_entry(key)

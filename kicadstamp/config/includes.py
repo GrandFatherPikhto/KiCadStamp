@@ -30,7 +30,7 @@ import yaml
 
 from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
-from ..utils.file_cache import cached_file_read
+from ..utils.file_cache import cached_file_read, cached_graph_result
 
 logger = logging.getLogger(__name__)
 
@@ -288,6 +288,16 @@ def walk_include_tree(path: str) -> IncludeTreeNode:
     here — unlike resolve_includes(), there is no merge to protect, so both
     occurrences are walked and shown independently; this is deliberately
     simpler than resolve_includes() for exactly that reason (see
-    handoff_2026_08_03_gui_tree_risks_resolved.md)."""
+    handoff_2026_08_03_gui_tree_risks_resolved.md).
+
+    Memoized by graph mtime via cached_graph_result (2026-08-21, plan_
+    2026_08_21_startup_graph_level_cache.md) — the whole traversal is
+    cached one layer above cached_file_read, so the GUI's many per-dock
+    graph walks collapse to a single walk per changed graph."""
+    return cached_graph_result(
+        "walk_include_tree", path, lambda: _walk_include_tree_uncached(path))
+
+
+def _walk_include_tree_uncached(path: str) -> IncludeTreeNode:
     root_path = Path(path).resolve()
     return _walk(path, ancestors={root_path})
