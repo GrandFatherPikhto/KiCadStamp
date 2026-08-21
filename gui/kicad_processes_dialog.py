@@ -15,7 +15,7 @@ dialog only lists what kicadstamp.schematic_safety.list_kicad_processes()
 reports and kills whichever single PID the user explicitly selects and
 confirms — see kill_kicad_process()'s own docstring for the same point.
 """
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QListWidget,
                               QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout)
 
@@ -26,6 +26,11 @@ _PID_ROLE = Qt.ItemDataRole.UserRole
 
 
 class KicadProcessesDialog(QDialog):
+    # Poll cadence while waiting for a killed PID to vanish from the process
+    # list, and how many re-checks to make before giving up (see _on_kill()).
+    _CLOSE_POLL_INTERVAL_MS = 200
+    _CLOSE_POLL_MAX_ATTEMPTS = 10
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle(_("KiCad processes"))
@@ -55,6 +60,15 @@ class KicadProcessesDialog(QDialog):
         close_button.clicked.connect(self.reject)
         button_row.addWidget(close_button)
         layout.addLayout(button_row)
+
+        # Single-shot timer that re-checks whether a force-closed PID is really
+        # gone before refreshing — see _on_kill()/_poll_closed_pid().
+        self._close_poll_timer = QTimer(self)
+        self._close_poll_timer.setSingleShot(True)
+        self._close_poll_timer.setInterval(self._CLOSE_POLL_INTERVAL_MS)
+        self._close_poll_timer.timeout.connect(self._poll_closed_pid)
+        self._pending_kill_pid = None
+        self._kill_poll_attempts = 0
 
         self._refresh()
 
@@ -97,4 +111,43 @@ class KicadProcessesDialog(QDialog):
             self.message_label.setText(_("Could not close PID {pid}: {error}").format(
                 pid=pid, error=str(e)))
             return
+        # The OS only *accepted* the kill request — taskkill's exit code means
+        # "termination requested", SIGKILL only sends a signal. The PID can
+        # linger in the process table for a second or two, so refreshing right
+        # here would race against that and show the killed process still in the
+        # list. Wait for the PID to actually disappear before refreshing.
+        self._begin_waiting_for_close(pid)
+
+    def _begin_waiting_for_close(self, pid: int) -> None:
+        self._pending_kill_pid = pid
+        self._kill_poll_attempts = 0
+        self.refresh_button.setEnabled(False)
+        self.kill_button.setEnabled(False)
+        self.message_label.setText(_("Closing PID {pid}…").format(pid=pid))
+        self._close_poll_timer.start()
+
+    def _poll_closed_pid(self) -> None:
+        pid = self._pending_kill_pid
+        if pid is None:
+            return
+        still_listed = any(proc.pid == pid for proc in list_kicad_processes())
+        if not still_listed:
+            self._finish_waiting_for_close()
+            return
+        self._kill_poll_attempts += 1
+        if self._kill_poll_attempts >= self._CLOSE_POLL_MAX_ATTEMPTS:
+            self._finish_waiting_for_close(
+                _("PID {pid} did not confirm closing within a reasonable time.")
+                .format(pid=pid))
+            return
+        self._close_poll_timer.start()
+
+    def _finish_waiting_for_close(self, message=None) -> None:
+        self._close_poll_timer.stop()
+        self._pending_kill_pid = None
+        self._kill_poll_attempts = 0
+        self.refresh_button.setEnabled(True)
+        self.kill_button.setEnabled(True)
         self._refresh()
+        if message is not None:
+            self.message_label.setText(message)

@@ -1,4 +1,6 @@
 # tests/gui/test_kicad_processes_dialog.py
+import time
+
 from PyQt6.QtWidgets import QMessageBox
 
 import gui.kicad_processes_dialog as kicad_processes_dialog_mod
@@ -8,6 +10,17 @@ from kicadstamp.schematic_safety import KicadProcessInfo
 
 def _patch_processes(monkeypatch, processes):
     monkeypatch.setattr(kicad_processes_dialog_mod, "list_kicad_processes", lambda: processes)
+
+
+def _pump_until(qapp, until, timeout=5.0):
+    """Pump the Qt event loop until `until()` is truthy — the close-poll
+    timer only fires while the UI-thread loop is spinning."""
+    deadline = time.monotonic() + timeout
+    while not until():
+        if time.monotonic() > deadline:
+            raise TimeoutError("timed out pumping the Qt event loop")
+        qapp.processEvents()
+        time.sleep(0.005)
 
 
 def test_refresh_populates_list_from_processes(qapp, monkeypatch):
@@ -58,24 +71,61 @@ def test_kill_declined_does_not_call_kill_kicad_process(qapp, monkeypatch):
     assert calls == []
 
 
-def test_kill_confirmed_calls_kill_kicad_process_and_refreshes(qapp, monkeypatch):
+def test_kill_waits_for_pid_to_disappear_before_refresh(qapp, monkeypatch):
+    """After kill_kicad_process() returns, the dialog must NOT refresh right
+    away — the OS may still list the killed PID for a moment. Refresh and
+    button re-enable happen only after a later poll sees the PID gone."""
     remaining = [KicadProcessInfo(pid=1, status="Running", title=None)]
     _patch_processes(monkeypatch, remaining)
     monkeypatch.setattr(kicad_processes_dialog_mod.QMessageBox, "question",
                         staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
     calls = []
-
-    def _kill(pid):
-        calls.append(pid)
-        remaining.clear()  # simulate the process actually being gone afterwards
-    monkeypatch.setattr(kicad_processes_dialog_mod, "kill_kicad_process", _kill)
+    monkeypatch.setattr(kicad_processes_dialog_mod, "kill_kicad_process",
+                        lambda pid: calls.append(pid))
     dialog = KicadProcessesDialog()
+    dialog._close_poll_timer.setInterval(5)  # keep the test fast
     dialog.list.setCurrentRow(0)
 
     dialog._on_kill()
 
     assert calls == [1]
-    assert dialog.list.count() == 0  # refreshed after the kill
+    assert not dialog.kill_button.isEnabled()
+    assert not dialog.refresh_button.isEnabled()
+    assert "Closing PID 1" in dialog.message_label.text()
+    # PID still listed right after the kill → no refresh has happened yet.
+    assert dialog.list.count() == 1
+
+    remaining.clear()  # the OS finally removed the process
+    _pump_until(qapp, lambda: dialog.list.count() == 0)
+
+    assert dialog.kill_button.isEnabled()
+    assert dialog.refresh_button.isEnabled()
+    assert "Closing PID 1" not in dialog.message_label.text()
+
+
+def test_kill_timeout_still_reenables_buttons(qapp, monkeypatch):
+    """If the PID never disappears, polling stops after the attempt cap and
+    the buttons are re-enabled instead of hanging disabled forever."""
+    remaining = [KicadProcessInfo(pid=1, status="Running", title=None)]
+    _patch_processes(monkeypatch, remaining)
+    monkeypatch.setattr(kicad_processes_dialog_mod.QMessageBox, "question",
+                        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
+    monkeypatch.setattr(kicad_processes_dialog_mod, "kill_kicad_process",
+                        lambda pid: None)
+    monkeypatch.setattr(kicad_processes_dialog_mod.KicadProcessesDialog,
+                        "_CLOSE_POLL_MAX_ATTEMPTS", 2)
+    dialog = KicadProcessesDialog()
+    dialog._close_poll_timer.setInterval(5)
+    dialog.list.setCurrentRow(0)
+
+    dialog._on_kill()
+
+    assert not dialog.kill_button.isEnabled()
+    _pump_until(qapp, lambda: dialog.kill_button.isEnabled())
+
+    assert dialog.refresh_button.isEnabled()
+    assert "did not confirm closing" in dialog.message_label.text()
+    assert dialog.list.count() == 1  # honestly shows the still-listed PID
 
 
 def test_kill_failure_shows_error_message(qapp, monkeypatch):
