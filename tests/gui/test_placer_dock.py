@@ -18,6 +18,7 @@ import gui.docks.placer as placer_mod
 from gui.docks.placer import PlacerDock
 from kicadstamp.config import Cell, Config, RuntimeContext, TemplateComponentSlot, load_clone_placement
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
+from kicadstamp.exceptions import ValidationError
 
 
 def _write_yaml(path, data) -> None:
@@ -1667,6 +1668,66 @@ def test_load_target_config_root_path_none_leaves_empty_sheet_names(main_window,
     assert loaded is not None
     _, ctx = loaded
     assert ctx.sheet_names == {}
+
+
+def test_load_target_config_leaf_load_error_shows_message_not_crash(main_window, tmp_path, monkeypatch, caplog):
+    """2026-08-21 (handoff_2026_08_21_placer_gettext_shadowing_crash): when
+    the Placer file itself fails to load — e.g. a legit ValidationError like
+    "mirror without layer change" — _load_target_config() must show that
+    error in the Log dock and return None, NOT crash the whole GUI process
+    with UnboundLocalError. The old code used `_, root_ctx =
+    load_config(...)` for the root fallback, which made `_` (this module's
+    gettext import) a LOCAL for the whole method; the except block's
+    _("Failed to load Placer file: {error}") then blew up with "cannot
+    access local variable '_'" before the real error could be shown."""
+    leaf = tmp_path / "leaf.yaml"
+    leaf.write_text("clone_placements: []\n", encoding="utf-8")
+    root = tmp_path / "root.yaml"
+    root.write_text("clone_placements: []\n", encoding="utf-8")
+
+    def _failing_load(path):
+        raise ValidationError(
+            "mirror without layer change in clone_placement 'PIF_3V3_VDDA'")
+
+    dock = PlacerDock(main_window)
+    dock._root_path = root
+    dock._placer_path = leaf
+    monkeypatch.setattr(placer_mod, "load_config", _failing_load)
+
+    loaded = dock._load_target_config()
+    assert loaded is None
+    assert any("Failed to load Placer file" in r.message
+               and "PIF_3V3_VDDA" in r.message for r in caplog.records)
+
+
+def test_load_target_config_root_fallback_failure_keeps_leaf_sheet_names(main_window, tmp_path, monkeypatch, caplog):
+    """2026-08-21 (DoD from handoff_2026_08_21_placer_gettext_shadowing_crash):
+    the root-config fallback is best-effort — when the ROOT fails to load
+    (ValidationError) but the leaf loaded fine with an empty sheet_names,
+    the method must keep the leaf's (empty) sheet_names and return normally:
+    no crash, no error message (the fallback must not fail Redraw). Same
+    `_`-shadowing region as the leaf-load-error test above."""
+    leaf = tmp_path / "leaf.yaml"
+    leaf.write_text("clone_placements: []\n", encoding="utf-8")
+    root = tmp_path / "root.yaml"
+    root.write_text("clone_placements: []\n", encoding="utf-8")
+    real_load_config = placer_mod.load_config
+
+    def _root_only_failing_load(path):
+        if path == str(root):
+            raise ValidationError("root is broken")
+        return real_load_config(path)
+
+    dock = PlacerDock(main_window)
+    dock._root_path = root
+    dock._placer_path = leaf
+    monkeypatch.setattr(placer_mod, "load_config", _root_only_failing_load)
+
+    loaded = dock._load_target_config()
+    assert loaded is not None
+    _, ctx = loaded
+    assert ctx.sheet_names == {}
+    assert not any("Failed to load Placer file" in r.message for r in caplog.records)
 
 
 # ── Cluster/Name auto-fill vs. hard overwrite (2026-08-15, plan

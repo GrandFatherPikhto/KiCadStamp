@@ -83,7 +83,7 @@ def snapshot_to_dict(snap: ChannelPcbSnapshot, twin: TwinMap) -> dict[str, Any]:
 
 def extract_channel(net_path: str, pcb_path: str, channel: str,
                     output_yaml: str) -> dict[str, Any]:
-    comps, local_by_ch, _ = parse_netlist(net_path)
+    comps, local_by_ch, _global_nets = parse_netlist(net_path)
     twin = build_twin_map(comps, local_by_ch)
     if channel not in twin.channels:
         raise ValueError(_("Channel {channel!r} not found; available: {avail}")

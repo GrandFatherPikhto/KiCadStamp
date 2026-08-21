@@ -1682,7 +1682,7 @@ class PlacerDock(QWidget):
             if (not ctx.sheet_names and self._root_path is not None
                     and self._root_path != self._placer_path):
                 try:
-                    _, root_ctx = load_config(str(self._root_path))
+                    root_cfg, root_ctx = load_config(str(self._root_path))
                     ctx.sheet_names = root_ctx.sheet_names
                 except (ValidationError, OSError, yaml.YAMLError):
                     pass  # keep the leaf's own (empty) sheet_names — don't fail
