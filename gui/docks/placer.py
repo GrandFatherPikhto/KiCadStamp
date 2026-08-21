@@ -1947,12 +1947,15 @@ class PlacerDock(QWidget):
         except ValidationError as e:
             self._show_message(str(e), _ERROR_STYLE)
             return
-        names = [r.name for r in records]
-        if not names:
+        # `records` always includes the start record itself; a cascade of ONE
+        # (just the start, no dependents) is pointless — the plain Redraw
+        # button already covers that single-record case.
+        if len(records) <= 1:
             self._show_message(
                 _("No records anchor on {name!r} — nothing to redraw.").format(name=name),
                 _WARN_STYLE)
             return
+        names = [r.name for r in records]
         self._start_cascade_op(str(self._root_path), cfg, ctx, names)
 
     def _start_cascade_op(self, config_path: str, cfg, ctx, names: list) -> None:

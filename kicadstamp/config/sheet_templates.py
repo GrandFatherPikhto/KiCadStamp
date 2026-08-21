@@ -136,7 +136,8 @@ def expand_sheet_templates(data: dict) -> dict:
                 _("sheet_template {name!r} has unsupported key(s): {keys}")
                 .format(name=tpl_name, keys=unsupported),
                 [_("supported: {keys} — rules: is deliberately out of scope "
-                   "(Rule has no sheet: field)").format(keys=_TEMPLATE_KEYS)]))
+                   "(sheet_templates instantiates clone_placements/"
+                   "coordinate_placements only)").format(keys=_TEMPLATE_KEYS)]))
         sheets = tpl.get('sheets')
         if not isinstance(sheets, list) or not sheets:
             raise ValidationError(format_fatal_error(

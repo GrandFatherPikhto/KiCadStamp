@@ -168,8 +168,11 @@ The **Anchor tree** tab (tabbed with the Config tree, same left group) shows the
 records, regrouped by their ANCHOR edges instead of by file/section — "which record anchors on which
 other record". Built PURELY from the config (no live board): one node = one config record. Roots are
 records with no anchor (absolute placements), external `anchor_ref` targets (the FPGA-like case,
-shown as `REF (external)`), and `points:` entries (leaves by design). A record whose anchor is
-produced by another record appears as that record's child; a record with Sheet metadata appears under
+shown as `REF (external)`), and `points:` entries with no anchor of their own (`xy`/`anchor_origin`).
+Points are ordinary records here: a point that chains to another point (`anchor_point`), anchors on a
+produced role (`anchor_role`), or on an external ref sits under its own parent. A record whose anchor
+is produced by another record appears as that record's child; a record with Sheet metadata appears
+under
 a synthetic **Sheet** folder inside its parent's branch (with its generated `Sheet_` prefix stripped,
 e.g. `DAC_BUF` under `Channel_0`), giving the `Channel_0_DAC_BUF`/`Channel_1_DAC_BUF`/
 `Channel_2_DAC_BUF` grouping from the plan's FPGA example.

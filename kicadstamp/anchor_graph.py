@@ -307,17 +307,20 @@ def resolve_anchor_edge(rec: Record, cfg: Config,
 
       - anchor_ref set          -> ExternalLeaf (edge leads OUT of the graph —
                                    a legal non-fatal case, no parent RECORD)
-      - anchor_point set        -> the corresponding points: entry (a leaf: the
-                                   point is NOT expanded further, see below)
+      - anchor_point set        -> the corresponding points: entry (which may
+                                   itself chain further — points are normal
+                                   records here, NOT leaves: a Point really
+                                   does carry its own anchor fields, see
+                                   config/points.py)
       - anchor_role set         -> list of parent records (1 = single parent,
                                    2+ = multiple parents), or fatal if zero
       - none of the above       -> None (no anchor at all: absolute placement,
-                                   a root by construction)
+                                   xy/anchor_origin, a root by construction)
 
     `points` maps a point name to its Record (built once by the caller). A
-    point referenced by anchor_point is returned as a parent but its OWN anchor
-    (points CAN chain via anchor_point/anchor_ref/anchor_role) is deliberately
-    NOT resolved here — per the plan decision, points are leaves in the tree.
+    point referenced by anchor_point is returned as a parent; the point's OWN
+    anchor is resolved by the SAME function when the graph walks it, so
+    point->point chains and point->role edges are part of the graph.
     """
     if rec.anchor_ref:
         return ExternalLeaf(rec.anchor_ref)
@@ -344,7 +347,9 @@ def build_anchor_graph(cfg: Config) -> AnchorGraph:
     The graph has one node per config record (retired records dropped, skip
     kept) plus one synthetic node per external anchor_ref target. Edges run
     child -> parent(s); roots are nodes with no parent at all (absolute
-    placements, external targets, and points — which are leaves by decision).
+    placements, xy/anchor_origin points, and external targets). Points are
+    normal records: a point can chain to another point (anchor_point), anchor
+    on a produced role (anchor_role), or an external ref (anchor_ref).
     """
     records = build_records(cfg)
     by_key = {record_key(r): r for r in records}
@@ -356,14 +361,10 @@ def build_anchor_graph(cfg: Config) -> AnchorGraph:
     external_order: list[str] = []
 
     for rec in records:
-        if rec.kind == "point":
-            # Points are leaves by construction (plan decision): their own
-            # anchor is never expanded, so they never gain a parent here.
-            continue
         edge = resolve_anchor_edge(rec, cfg, index, points)
         key = record_key(rec)
         if edge is None:
-            continue  # no anchor -> root
+            continue  # no anchor -> root (absolute placement / xy / anchor_origin)
         if isinstance(edge, ExternalLeaf):
             ekey = external_key(edge.ref)
             if ekey not in external:
@@ -380,6 +381,27 @@ def build_anchor_graph(cfg: Config) -> AnchorGraph:
 
     roots = [record_key(r) for r in records if not parents[record_key(r)]]
     roots += external_order
+
+    # Cycle guard: every record must be reachable from some root. A set of
+    # records whose anchors loop back onto each other, with no root reaching
+    # them from outside, would otherwise silently disappear from the tree (the
+    # UI renders only graph.roots) — detect it here and fail loudly instead.
+    reachable: set[str] = set()
+    stack = list(roots)
+    while stack:
+        key = stack.pop()
+        if key in reachable:
+            continue
+        reachable.add(key)
+        stack.extend(children.get(key, []))
+
+    unreachable = [key for key in parents if key not in reachable]
+    if unreachable:
+        raise ValidationError(format_fatal_error(
+            _("dependency cycle in anchor graph"),
+            [_("these records form a cycle through their anchors (no root reaches them): {items}")
+             .format(items=", ".join(sorted(unreachable)))]
+        ))
 
     return AnchorGraph(
         records=records,
@@ -398,10 +420,9 @@ def collect_dependents(graph: AnchorGraph, start_key: str) -> list[str]:
     """§2.1: all node keys TRANSITIVELY anchored on `start_key` — DFS over the
     children map, excluding start_key itself. Deterministic order: children
     lists are built in config order and the stack is processed LIFO, so the
-    result is a stable depth-first discovery order. External leaves/points
-    are returned too when they are descendants (points are leaves by
-    construction, so in practice they only ever appear as roots, not
-    descendants)."""
+    result is a stable depth-first discovery order. External leaves and
+    points are returned too when they are descendants (a record anchored on
+    a point that is itself anchored further up is reached transitively)."""
     out: list[str] = []
     seen: set[str] = {start_key}
     stack: list[str] = list(graph.children.get(start_key, []))

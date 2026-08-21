@@ -294,14 +294,17 @@ class DockHub:
         self.rules_dock.saved.connect(self.config_tree_dock.refresh)
         self.net_trace_dock.saved.connect(self.config_tree_dock.refresh)
         self.cells_dock.saved.connect(self.config_tree_dock.refresh)
-        # The anchor tree shows the SAME records — refresh it on every Save too.
-        self.placer_dock.saved.connect(self.anchor_tree_dock.refresh)
-        self.thermal_via_dock.saved.connect(self.anchor_tree_dock.refresh)
-        self.extract_dock.saved.connect(self.anchor_tree_dock.refresh)
-        self.points_dock.saved.connect(self.anchor_tree_dock.refresh)
-        self.rules_dock.saved.connect(self.anchor_tree_dock.refresh)
-        self.net_trace_dock.saved.connect(self.anchor_tree_dock.refresh)
-        self.cells_dock.saved.connect(self.anchor_tree_dock.refresh)
+        # The anchor tree shows the SAME records — refresh it on every Save too,
+        # but DEBOUNCED (schedule_refresh coalesces a burst of saves into one
+        # rebuild on the next event-loop turn, so it never stacks a second
+        # synchronous full YAML re-read on top of ConfigTreeDock.refresh()).
+        self.placer_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
+        self.thermal_via_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
+        self.extract_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
+        self.points_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
+        self.rules_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
+        self.net_trace_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
+        self.cells_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
         self.placer_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.thermal_via_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.extract_dock.saved.connect(self._refresh_graph_dependent_choices)
@@ -339,7 +342,7 @@ class DockHub:
         # reassigned. NOT wired to the tree's initial refresh (first
         # population, not a change) or to _on_export (no graph change).
         self.config_tree_dock.graph_changed.connect(self._refresh_graph_dependent_choices)
-        self.config_tree_dock.graph_changed.connect(self.anchor_tree_dock.refresh)
+        self.config_tree_dock.graph_changed.connect(self.anchor_tree_dock.schedule_refresh)
 
         # fieldstool tab -> Components tree: an explicit Rescan/Apply there
         # refreshes this tree's schematic view (see FieldsToolDock).

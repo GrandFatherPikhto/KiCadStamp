@@ -22,7 +22,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (QDockWidget, QMenu, QMessageBox, QTreeWidget,
                              QTreeWidgetItem, QVBoxLayout, QWidget)
 
@@ -62,6 +62,11 @@ class AnchorTreeDock(QDockWidget):
         self._ctx = None
         self._graph: Optional[AnchorGraph] = None
         self._active_op = None
+        # Debounce coalescer for schedule_refresh() — see its docstring.
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.setSingleShot(True)
+        self._refresh_timer.setInterval(0)
+        self._refresh_timer.timeout.connect(self.refresh)
 
         container = QWidget()
         layout = QVBoxLayout(container)
@@ -84,13 +89,25 @@ class AnchorTreeDock(QDockWidget):
     # ── Setting/refreshing the root ─────────────────────────────────────
 
     def set_root_file(self, path: Optional[Path]) -> None:
-        """Slot — RootMetadataDock.root_changed (wired in gui/dock_hub.py)."""
+        """Slot — RootMetadataDock.root_changed (wired in gui/dock_hub.py).
+        Root changes are rare and expected to be immediate, so a pending
+        debounced refresh from an earlier Save is cancelled here."""
         self._root_path = path
+        self._refresh_timer.stop()
         self.refresh()
 
+    def schedule_refresh(self) -> None:
+        """Debounced refresh — coalesces a burst of triggers (several
+        entity-dock `saved` signals in one event-loop turn, or Save +
+        graph_changed) into ONE rebuild, deferred to the next event-loop turn.
+        Avoids a second synchronous full YAML/include: re-read stacked on top
+        of ConfigTreeDock.refresh() on every Save (review 2026-08-21: two
+        independent full re-reads per Save stalled the UI on large projects)."""
+        self._refresh_timer.start()
+
     def refresh(self) -> None:
-        """Public — also called after an entity dock's Save, so the anchor
-        tree reflects new/renamed/removed records without reassigning root."""
+        """Rebuild the tree from the current root. Called directly by
+        set_root_file() and (debounced) via schedule_refresh()."""
         self.tree.clear()
         self._graph = None
         self._cfg = None
@@ -197,9 +214,19 @@ class AnchorTreeDock(QDockWidget):
             return
         names = [r.name for r in records]
         if not names:
+            # External leaf / point with no record anchored on it at all.
             QMessageBox.information(
                 self, _("Redraw dependents"),
                 _("No records anchor on this node."))
+            return
+        # A RECORD start is always included in `records`; if it is the only
+        # entry, there are no actual dependents — the plain "Redraw" already
+        # covers that single-record case, so do not run a pointless cascade.
+        start_rec = self._graph.by_key.get(key)
+        if start_rec is not None and start_rec.kind != "point" and len(names) == 1:
+            QMessageBox.information(
+                self, _("Redraw dependents"),
+                _("No dependents to redraw for {name!r}.").format(name=start_rec.name))
             return
         self._run_cascade(names)
 

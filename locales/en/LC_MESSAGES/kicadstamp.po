@@ -3584,6 +3584,21 @@ msgstr ""
 msgid "Redraw dependents failed: {error}"
 msgstr ""
 
+#: kicadstamp/anchor_graph.py
+#, python-brace-format
+msgid "these records form a cycle through their anchors (no root reaches them): {items}"
+msgstr ""
+
+#: gui/docks/anchor_tree.py
+#, python-brace-format
+msgid "No dependents to redraw for {name!r}."
+msgstr ""
+
+#: kicadstamp/config/sheet_templates.py
+#, python-brace-format
+msgid "supported: {keys} — rules: is deliberately out of scope (sheet_templates instantiates clone_placements/coordinate_placements only)"
+msgstr ""
+
 #: kicadstamp/config/entries.py:205
 #, python-brace-format
 msgid "nested clone_placement without name in cell {cell!r}"

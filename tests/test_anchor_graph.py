@@ -330,3 +330,42 @@ def test_redraw_records_skip_points_and_external():
     g = build_anchor_graph(cfg)
     order = redraw_records_in_order(g, "point:P1")
     assert [r.name for r in order] == ["X"]
+
+
+def test_point_chain_cascade_through_point():
+    """A point is NOT an unconditional leaf: a point anchored on a produced
+    role gets that producer as its parent, and a record anchored on the point
+    is reached transitively by a cascade from the producer (review
+    2026-08-21: the leaf shortcut silently dropped such records)."""
+    prod_cell = _cell("prod", "R")
+    y_cell = _cell("y_cell", "OTHER")
+    cfg = Config(
+        cells={"prod": prod_cell, "y_cell": y_cell},
+        clone_placements=[
+            ClonePlacement(name="X", cell="prod", xy=(0.0, 0.0)),
+            ClonePlacement(name="Y", cell="y_cell", xy=(0.0, 0.0), anchor_point="P"),
+        ],
+        points={"P": Point(name="P", anchor_role="R")},
+    )
+    g = build_anchor_graph(cfg)
+    assert g.parents["point:P"] == ["clone:X"]
+    assert g.parents["clone:Y"] == ["point:P"]
+    order = redraw_records_in_order(g, "clone:X")
+    assert [r.name for r in order] == ["X", "Y"]
+
+
+def test_anchor_cycle_is_fatal():
+    """A pure anchor cycle (records looping onto each other, no root reaching
+    them) is a config error — build_anchor_graph raises instead of silently
+    dropping the records from the tree (review 2026-08-21)."""
+    a_cell = _cell("a", "RA")
+    b_cell = _cell("b", "RB")
+    cfg = Config(
+        cells={"a": a_cell, "b": b_cell},
+        clone_placements=[
+            ClonePlacement(name="A", cell="a", xy=(0.0, 0.0), anchor_role="RB"),
+            ClonePlacement(name="B", cell="b", xy=(0.0, 0.0), anchor_role="RA"),
+        ],
+    )
+    with pytest.raises(ValidationError, match="cycle"):
+        build_anchor_graph(cfg)
