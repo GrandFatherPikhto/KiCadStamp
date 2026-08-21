@@ -64,7 +64,7 @@ class TestEditingIncludedEntryWritesBackToItsFile:
 
         dock = RuleDock(main_window)
         dock.set_root_path(root)
-        dock.load_entry({"net": "+3V3", "anchor_role": "FPGA", "spokes": []}, sub)
+        dock.load_entry({"net": "+3V3", "anchor_role": "FPGA", "spokes": []})
         dock.retired_checkbox.setChecked(True)
         dock._on_save()
 
@@ -80,7 +80,7 @@ class TestEditingIncludedEntryWritesBackToItsFile:
 
         dock = ThermalViaArrayDock(main_window)
         dock.set_root_path(root)
-        dock.load_entry({"name": "t1", "pad": "1", "anchor_ref": "U1"}, sub)
+        dock.load_entry({"name": "t1", "pad": "1", "anchor_ref": "U1"})
         dock.rows_edit.setText("8")
         dock._on_save()
 
@@ -96,7 +96,7 @@ class TestEditingIncludedEntryWritesBackToItsFile:
 
         dock = NetTraceDock(main_window)
         dock.set_root_path(root)
-        dock.load_entry({"net": "DAC_DB0", "anchor_role": "AD_DAC"}, sub)
+        dock.load_entry({"net": "DAC_DB0", "anchor_role": "AD_DAC"})
         dock.retired_checkbox.setChecked(True)
         dock._on_save()
 
@@ -115,7 +115,7 @@ class TestEditingIncludedEntryWritesBackToItsFile:
 
         dock = PlacerDock(main_window)
         dock.set_root_path(root)
-        dock.load_placement({"name": "p1", "cell": "c1"}, sub)
+        dock.load_placement({"name": "p1", "cell": "c1"})
         dock.rotation_edit.setText("45")
         dock._do_save()
 
