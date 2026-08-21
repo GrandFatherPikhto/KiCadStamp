@@ -30,6 +30,7 @@ from PyQt6.QtCore import Qt
 from kicadstamp.cli_common import peek_log_file
 from kicadstamp.logging_setup import get_log_listener
 
+from .docks.anchor_tree import AnchorTreeDock
 from .docks.config_tree import ConfigTreeDock
 from .docks.detail_panel import DetailDock
 from .docks.fieldstool_dock import FieldsToolDock
@@ -56,6 +57,13 @@ class DockHub:
         self.config_tree_dock = ConfigTreeDock(main_window)
         main_window.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.config_tree_dock)
         main_window.tabifyDockWidget(self.tree_dock, self.config_tree_dock)
+
+        # Anchor dependency tree (2026-08-21, plan anchor_dependency_tree) —
+        # the same records as ConfigTreeDock, regrouped by anchor edges
+        # instead of file/section. Tabbed with the Config tree.
+        self.anchor_tree_dock = AnchorTreeDock(main_window)
+        main_window.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.anchor_tree_dock)
+        main_window.tabifyDockWidget(self.config_tree_dock, self.anchor_tree_dock)
 
         # ── bottom: Pending changes (constructed here — shared between
         # RoleClusterTreeDock's live-board writes and fieldstool's own
@@ -175,6 +183,7 @@ class DockHub:
         # root, not whatever file each dock's own set_target_file above
         # points it at.
         self.root_metadata_dock.root_changed.connect(self.config_tree_dock.set_root_file)
+        self.root_metadata_dock.root_changed.connect(self.anchor_tree_dock.set_root_file)
         self.root_metadata_dock.root_changed.connect(self.rules_dock.set_root_path)
         self.root_metadata_dock.root_changed.connect(self.net_trace_dock.set_root_path)
         self.root_metadata_dock.root_changed.connect(self.placer_dock.set_root_path)
@@ -213,6 +222,7 @@ class DockHub:
         # tree empty / Rules' Cell combo empty (found live 2026-08-05 for
         # the equivalent ConfigTreeDock-owned case this mirrors).
         self.config_tree_dock.set_root_file(self.root_metadata_dock.root_path)
+        self.anchor_tree_dock.set_root_file(self.root_metadata_dock.root_path)
         self.rules_dock.set_root_path(self.root_metadata_dock.root_path)
         self.placer_dock.set_root_path(self.root_metadata_dock.root_path)
         self.thermal_via_dock.set_root_path(self.root_metadata_dock.root_path)
@@ -284,6 +294,14 @@ class DockHub:
         self.rules_dock.saved.connect(self.config_tree_dock.refresh)
         self.net_trace_dock.saved.connect(self.config_tree_dock.refresh)
         self.cells_dock.saved.connect(self.config_tree_dock.refresh)
+        # The anchor tree shows the SAME records — refresh it on every Save too.
+        self.placer_dock.saved.connect(self.anchor_tree_dock.refresh)
+        self.thermal_via_dock.saved.connect(self.anchor_tree_dock.refresh)
+        self.extract_dock.saved.connect(self.anchor_tree_dock.refresh)
+        self.points_dock.saved.connect(self.anchor_tree_dock.refresh)
+        self.rules_dock.saved.connect(self.anchor_tree_dock.refresh)
+        self.net_trace_dock.saved.connect(self.anchor_tree_dock.refresh)
+        self.cells_dock.saved.connect(self.anchor_tree_dock.refresh)
         self.placer_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.thermal_via_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.extract_dock.saved.connect(self._refresh_graph_dependent_choices)
@@ -321,6 +339,7 @@ class DockHub:
         # reassigned. NOT wired to the tree's initial refresh (first
         # population, not a change) or to _on_export (no graph change).
         self.config_tree_dock.graph_changed.connect(self._refresh_graph_dependent_choices)
+        self.config_tree_dock.graph_changed.connect(self.anchor_tree_dock.refresh)
 
         # fieldstool tab -> Components tree: an explicit Rescan/Apply there
         # refreshes this tree's schematic view (see FieldsToolDock).
@@ -352,6 +371,7 @@ class DockHub:
         Settings tab (see gui/docks/configurator.py)."""
         self.detail_dock.apply_highlight()
         self.config_tree_dock.apply_highlight()
+        self.anchor_tree_dock.apply_highlight()
         self.tree_dock.apply_highlight()
 
     # ── delegates MainWindow's poll/timer logic drives ────────────────────

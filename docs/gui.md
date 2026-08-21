@@ -162,6 +162,32 @@ created by an entity dock's own Save (e.g. CellDock's "Add cell..." + Save) is i
 in every other dock's combo — no root reassignment, no GUI restart (a `graph_changed` broadcast,
 see plan_2026_08_15_graph_changed_broadcast.md).
 
+## Anchor tree
+
+The **Anchor tree** tab (tabbed with the Config tree, same left group) shows the SAME config
+records, regrouped by their ANCHOR edges instead of by file/section — "which record anchors on which
+other record". Built PURELY from the config (no live board): one node = one config record. Roots are
+records with no anchor (absolute placements), external `anchor_ref` targets (the FPGA-like case,
+shown as `REF (external)`), and `points:` entries (leaves by design). A record whose anchor is
+produced by another record appears as that record's child; a record with Sheet metadata appears under
+a synthetic **Sheet** folder inside its parent's branch (with its generated `Sheet_` prefix stripped,
+e.g. `DAC_BUF` under `Channel_0`), giving the `Channel_0_DAC_BUF`/`Channel_1_DAC_BUF`/
+`Channel_2_DAC_BUF` grouping from the plan's FPGA example.
+
+Right-click a node for:
+- **Redraw** — one record (the existing Redraw/`--only`).
+- **Redraw dependents** — the cascade: this record plus EVERY record transitively anchored on it,
+  redrawn in topological order (a parent always before the records anchored on it), each via its own
+  `ApplyPipeline --only` run so a dependent reads its anchor's POST-move position. Per-record
+  success/failure and the order are written to the Log dock. The same action is also a **Redraw
+  dependents** button on the Placer dock.
+
+A record anchored on a role TWO records both produce gets BOTH of them as parents and is therefore
+shown (duplicated) under each — the tree is technically a DAG at that point, rendered as a tree the
+usual way. The static anchor resolution lives in
+[`kicadstamp/anchor_graph.py`](kicadstamp/anchor_graph.py) and the shared cascade in
+[`gui/docks/cascade.py`](gui/docks/cascade.py).
+
 ## Detail dock
 
 Extract/Placer/Project/Thermal via/Points/Rules/Net traces/Cells/Settings below all live as tabs

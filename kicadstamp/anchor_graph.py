@@ -35,6 +35,7 @@ same --only identity apply_only_filter uses).
 from __future__ import annotations
 
 import logging
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Union
 
@@ -388,3 +389,84 @@ def build_anchor_graph(cfg: Config) -> AnchorGraph:
         children=children,
         roots=roots,
     )
+
+
+# ── §2: cascade traversal and topological order ───────────────────────────────
+
+
+def collect_dependents(graph: AnchorGraph, start_key: str) -> list[str]:
+    """§2.1: all node keys TRANSITIVELY anchored on `start_key` — DFS over the
+    children map, excluding start_key itself. Deterministic order: children
+    lists are built in config order and the stack is processed LIFO, so the
+    result is a stable depth-first discovery order. External leaves/points
+    are returned too when they are descendants (points are leaves by
+    construction, so in practice they only ever appear as roots, not
+    descendants)."""
+    out: list[str] = []
+    seen: set[str] = {start_key}
+    stack: list[str] = list(graph.children.get(start_key, []))
+    while stack:
+        key = stack.pop()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(key)
+        stack.extend(graph.children.get(key, []))
+    return out
+
+
+def topological_order(graph: AnchorGraph, start_key: str) -> list[str]:
+    """§2.2: topological order of {start_key} ∪ its transitive dependents —
+    a parent ALWAYS appears before any node anchored on it, respecting ALL
+    incoming edges (a DAG point with several parents is ordered after every
+    one of them). Kahn's algorithm over the induced subgraph; the start node
+    is guaranteed first (its parents lie outside the subgraph). Raises
+    ValidationError on a cycle (anchors looping back onto each other)."""
+    dependents = collect_dependents(graph, start_key)
+    nodes = [start_key] + dependents
+    node_set = set(nodes)
+
+    in_degree: dict[str, int] = {k: 0 for k in nodes}
+    for key in nodes:
+        for parent in graph.parents.get(key, []):
+            if parent in node_set:
+                in_degree[key] += 1
+
+    queue = deque(k for k in nodes if in_degree[k] == 0)
+    order: list[str] = []
+    while queue:
+        key = queue.popleft()
+        order.append(key)
+        for child in graph.children.get(key, []):
+            if child in in_degree and in_degree[child] > 0:
+                in_degree[child] -= 1
+                if in_degree[child] == 0:
+                    queue.append(child)
+
+    if len(order) != len(nodes):
+        remaining = sorted(k for k in nodes if k not in order)
+        raise ValidationError(format_fatal_error(
+            _("dependency cycle in anchor graph"),
+            [_("these records form a cycle through their anchors: {items}")
+             .format(items=", ".join(remaining))]
+        ))
+    return order
+
+
+def redraw_records_in_order(graph: AnchorGraph, start_key: str) -> list[Record]:
+    """§2.3 input: the records to redraw for a "Redraw dependents" cascade —
+    the start node and all transitive dependents, in topological order,
+    FILTERED to records actually appliable via --only. Points (anchor-only
+    bookkeeping) and external leaves (not config records) are skipped, but
+    the traversal still passes through them so their record descendants are
+    included."""
+    order = topological_order(graph, start_key)
+    result: list[Record] = []
+    for key in order:
+        rec = graph.by_key.get(key)
+        if rec is None:
+            continue  # external leaf — not a --only-appliable record
+        if rec.kind == "point":
+            continue  # anchor-only bookkeeping — not appliable via --only
+        result.append(rec)
+    return result

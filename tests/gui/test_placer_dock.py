@@ -928,7 +928,8 @@ def test_on_redraw_dispatches_to_worker(main_window, tmp_path, monkeypatch):
 
     assert dock._active_op == "fake-controller"
     assert captured["connection"] is main_window.connection
-    assert captured["widgets"] == (dock.redraw_button, dock.save_button)
+    assert captured["widgets"] == (
+        dock.redraw_button, dock.redraw_dependents_button, dock.save_button)
     # Bound methods: each access creates a fresh object, so compare with ==
     # (equality checks __self__ + __func__) rather than `is`.
     assert captured["fn"] == dock._run_redraw

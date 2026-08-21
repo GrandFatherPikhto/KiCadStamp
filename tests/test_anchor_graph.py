@@ -20,6 +20,7 @@ from kicadstamp.anchor_graph import (
     Record, ExternalLeaf, AnchorGraph,
     build_records, build_producer_index, resolve_anchor_edge,
     build_anchor_graph, record_key, external_key,
+    collect_dependents, topological_order, redraw_records_in_order,
 )
 
 
@@ -257,3 +258,75 @@ def test_record_and_external_keys_are_namespaced():
                  anchor_cluster=None, anchor_point=None, params={})
     assert record_key(rec) == "clone:GND"
     assert external_key("GND") == "ref:GND"
+
+
+# ── §2: cascade traversal + topological order ────────────────────────────────
+
+
+def _chain_cfg():
+    """FPGA-like external node <- CoordinatePlacement <- ClonePlacement <-
+    ClonePlacement — the plan's 3-level chain, built purely from config."""
+    cp_cell = _cell("cp_cell", "R_CP")
+    c1_cell = _cell("c1_cell", "R_C1")
+    c2_cell = _cell("c2_cell", "R_C2")
+    return Config(
+        cells={"cp_cell": cp_cell, "c1_cell": c1_cell, "c2_cell": c2_cell},
+        coordinate_placements=[
+            CoordinatePlacement(cluster="CP_C", role="R_CP", anchor_ref="FPGA"),
+        ],
+        clone_placements=[
+            ClonePlacement(name="C1", cell="c1_cell", xy=(0.0, 0.0), anchor_role="R_CP"),
+            ClonePlacement(name="C2", cell="c2_cell", xy=(0.0, 0.0), anchor_role="R_C1"),
+        ],
+    )
+
+
+def test_collect_dependents_transitive():
+    """§2.1: transitive dependents of the coordinate placement are both clones."""
+    g = build_anchor_graph(_chain_cfg())
+    deps = collect_dependents(g, "coordinate:CP_C/R_CP")
+    assert set(deps) == {"clone:C1", "clone:C2"}
+
+
+def test_cascade_topological_order_chain_of_three():
+    """§2.2: parent ALWAYS before child — the 3-level chain redraws in
+    coordinate -> C1 -> C2 order, with the external leaf skipped."""
+    g = build_anchor_graph(_chain_cfg())
+    order = redraw_records_in_order(g, "ref:FPGA")
+    assert [r.name for r in order] == ["CP_C/R_CP", "C1", "C2"]
+
+
+def test_cascade_multiple_parents_dag():
+    """A node with two parents is ordered after BOTH of them when both are
+    inside the induced subgraph; a cascade from one parent still places it
+    after that parent."""
+    pcell = _cell("p", "R")
+    ccell = _cell("c", "C")
+    cfg = Config(
+        cells={"p": pcell, "c": ccell},
+        clone_placements=[
+            ClonePlacement(name="P1", cell="p", xy=(0.0, 0.0)),
+            ClonePlacement(name="P2", cell="p", xy=(0.0, 0.0)),
+            ClonePlacement(name="C", cell="c", xy=(0.0, 0.0), anchor_role="R"),
+        ],
+    )
+    g = build_anchor_graph(cfg)
+    assert set(g.parents["clone:C"]) == {"clone:P1", "clone:P2"}
+
+    order = topological_order(g, "clone:P1")
+    assert order[0] == "clone:P1"
+    assert order[1] == "clone:C"
+
+
+def test_redraw_records_skip_points_and_external():
+    """Points and external leaves are not --only-appliable — they are skipped
+    in the cascade order, their record descendants kept."""
+    cfg = Config(
+        points={"P1": Point(name="P1", xy=(1.0, 2.0))},
+        clone_placements=[
+            ClonePlacement(name="X", cell="c", xy=(0.0, 0.0), anchor_point="P1"),
+        ],
+    )
+    g = build_anchor_graph(cfg)
+    order = redraw_records_in_order(g, "point:P1")
+    assert [r.name for r in order] == ["X"]

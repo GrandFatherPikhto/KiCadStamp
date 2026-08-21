@@ -3723,6 +3723,121 @@ msgstr "anchor_role {role!r} записи {name!r} не производится
 msgid "anchor_point {point!r} of {name!r} not found in points:"
 msgstr "anchor_point {point!r} записи {name!r} не найден в points:"
 
+#: kicadstamp/anchor_graph.py
+msgid "dependency cycle in anchor graph"
+msgstr "цикл зависимостей в графе анкоров"
+
+#: kicadstamp/anchor_graph.py
+#, python-brace-format
+msgid "these records form a cycle through their anchors: {items}"
+msgstr "эти записи образуют цикл через свои анкоры: {items}"
+
+#: gui/docks/cascade.py
+#, python-brace-format
+msgid "Redraw dependents: applying {name!r}"
+msgstr "Redraw dependents: применяю {name!r}"
+
+#: gui/docks/cascade.py
+#, python-brace-format
+msgid "Redraw dependents: {name!r} — ok"
+msgstr "Redraw dependents: {name!r} — ok"
+
+#: gui/docks/cascade.py
+#, python-brace-format
+msgid "Redraw dependents: {name!r} — FAILED: {error}"
+msgstr "Redraw dependents: {name!r} — ОШИБКА: {error}"
+
+#: gui/docks/anchor_tree.py
+msgid "Anchor tree"
+msgstr "Дерево анкоров"
+
+#: gui/docks/anchor_tree.py
+msgid "external"
+msgstr "внешний"
+
+#: gui/docks/anchor_tree.py
+msgid "rule"
+msgstr "правило"
+
+#: gui/docks/anchor_tree.py
+msgid "net trace"
+msgstr "трасса цепи"
+
+#: gui/docks/anchor_tree.py
+msgid "thermal"
+msgstr "термо"
+
+#: gui/docks/anchor_tree.py
+msgid "point"
+msgstr "точка"
+
+#: gui/docks/anchor_tree.py gui/docks/placer.py
+msgid "Redraw dependents"
+msgstr "Перерисовать зависимых"
+
+#: gui/docks/anchor_tree.py
+msgid "No records anchor on this node."
+msgstr "На этот узел не анкорится ни одна запись."
+
+#: gui/docks/anchor_tree.py
+#, python-brace-format
+msgid "Redraw: {count} record(s) in order: {order}"
+msgstr "Redraw: {count} записей по порядку: {order}"
+
+#: gui/docks/anchor_tree.py
+#, python-brace-format
+msgid "Redraw: {ok}/{total} ok — {status}"
+msgstr "Redraw: {ok}/{total} ok — {status}"
+
+#: gui/docks/anchor_tree.py
+#, python-brace-format
+msgid "Redraw: {failed} record(s) failed — see the log above"
+msgstr "Redraw: не удалось {failed} записей — см. лог выше"
+
+#: gui/docks/anchor_tree.py
+#, python-brace-format
+msgid "Redraw failed: {error}"
+msgstr "Redraw не удался: {error}"
+
+#: gui/docks/placer.py
+msgid "Pick a root file first."
+msgstr "Сначала выберите корневой файл."
+
+#: gui/docks/placer.py
+#, python-brace-format
+msgid "Failed to load root config: {error}"
+msgstr "Не удалось загрузить корневой конфиг: {error}"
+
+#: gui/docks/placer.py
+#, python-brace-format
+msgid "No records anchor on {name!r} — nothing to redraw."
+msgstr "На {name!r} не анкорится ни одна запись — перерисовывать нечего."
+
+#: gui/docks/placer.py
+#, python-brace-format
+msgid "Redraw dependents: {count} record(s) in order: {order}"
+msgstr "Redraw dependents: {count} записей по порядку: {order}"
+
+#: gui/docks/placer.py
+#, python-brace-format
+msgid "Redraw dependents: {ok}/{total} ok — {status}"
+msgstr "Redraw dependents: {ok}/{total} ok — {status}"
+
+#: gui/docks/placer.py
+#, python-brace-format
+msgid "{failed}/{total} record(s) failed — see the log."
+msgstr "Не удалось {failed}/{total} записей — см. лог."
+
+#: gui/docks/placer.py
+#, python-brace-format
+msgid "Redrawn {total} record(s) (dependents)."
+msgstr "Перерисовано {total} записей (зависимых)."
+
+#: gui/docks/placer.py
+#, python-brace-format
+msgid "Redraw dependents failed: {error}"
+msgstr "Redraw dependents не удался: {error}"
+
 #: kicadstamp/config/entries.py:205
 #, python-brace-format
 msgid "nested clone_placement without name in cell {cell!r}"

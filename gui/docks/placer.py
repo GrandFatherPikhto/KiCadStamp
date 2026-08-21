@@ -142,6 +142,7 @@ from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STY
                       parse_float_field, refresh_file_combo_choices, set_combo_items,
                       set_file_combo_selection, set_mode_pair_enabled,
                       show_message, upsert_clone_placement, upsert_list_entry)
+from .cascade import cascade_records, run_cascade_worker
 from .entity_delete import delete_entry
 from .rename import collect_all_point_names, collect_all_sheet_names, entry_effective_name
 
@@ -1003,6 +1004,12 @@ class PlacerDock(QWidget):
         self.redraw_button = QPushButton(_("Redraw"))
         self.redraw_button.clicked.connect(self._on_redraw)
         button_row.addWidget(self.redraw_button)
+        # Cascade redraw (§2.4, plan anchor_dependency_tree) — same action as
+        # AnchorTreeDock's context-menu "Redraw dependents": redraw this
+        # placement + every record transitively anchored on it, in order.
+        self.redraw_dependents_button = QPushButton(_("Redraw dependents"))
+        self.redraw_dependents_button.clicked.connect(self._on_redraw_dependents)
+        button_row.addWidget(self.redraw_dependents_button)
         self.save_button = QPushButton(_("Save"))
         self.save_button.clicked.connect(self._on_save)
         button_row.addWidget(self.save_button)
@@ -1883,7 +1890,8 @@ class PlacerDock(QWidget):
 
     def _start_redraw_op(self, payload: Dict[str, Any]) -> None:
         self._active_op = start_long_op(
-            self._main_window.connection, (self.redraw_button, self.save_button),
+            self._main_window.connection,
+            (self.redraw_button, self.redraw_dependents_button, self.save_button),
             self._run_redraw, self._finish_redraw, self._on_redraw_failed, payload)
 
     def _on_redraw_failed(self, message: str) -> None:
@@ -1898,6 +1906,83 @@ class PlacerDock(QWidget):
             return
         result = self._run_redraw(payload)
         self._finish_redraw(result)
+
+    # ── Redraw dependents (§2.4) ────────────────────────────────────────
+
+    def _on_redraw_dependents(self) -> None:
+        """Cascade "Redraw dependents" for the CURRENT placement — the same
+        action as AnchorTreeDock's context-menu item. The anchor graph is
+        built from the project ROOT config (the whole include: graph), so
+        dependents living in other included files are found; the current form
+        only supplies the START record's identity (its saved anchor state is
+        what the graph reads — see the anchor_graph module docstring)."""
+        self._show_message("")
+        if self._root_path is None:
+            self._show_message(_("Pick a root file first."), _ERROR_STYLE)
+            return
+        entry = self._build_entry_dict()
+        if entry is None:
+            return
+        try:
+            if self.is_coordinate:
+                cp = load_coordinate_placement(entry)
+                name = coordinate_placement_effective_name(cp)
+                start_key = f"coordinate:{name}"
+            else:
+                cp = load_clone_placement(entry)
+                name = clone_placement_effective_name(cp)
+                start_key = f"clone:{name}"
+        except ValidationError as e:
+            self._show_message(str(e), _ERROR_STYLE)
+            return
+
+        try:
+            cfg, ctx = load_config(str(self._root_path))
+        except (ValidationError, OSError, yaml.YAMLError) as e:
+            self._show_message(
+                _("Failed to load root config: {error}").format(error=e), _ERROR_STYLE)
+            return
+        try:
+            records = cascade_records(cfg, start_key)
+        except ValidationError as e:
+            self._show_message(str(e), _ERROR_STYLE)
+            return
+        names = [r.name for r in records]
+        if not names:
+            self._show_message(
+                _("No records anchor on {name!r} — nothing to redraw.").format(name=name),
+                _WARN_STYLE)
+            return
+        self._start_cascade_op(str(self._root_path), cfg, ctx, names)
+
+    def _start_cascade_op(self, config_path: str, cfg, ctx, names: list) -> None:
+        payload = {"config_path": config_path, "cfg": cfg, "ctx": ctx, "names": names}
+        logger.info(_("Redraw dependents: {count} record(s) in order: {order}")
+                    .format(count=len(names), order=" -> ".join(names)))
+        self._active_op = start_long_op(
+            self._main_window.connection,
+            (self.redraw_button, self.redraw_dependents_button, self.save_button),
+            run_cascade_worker, self._finish_cascade, self._on_cascade_failed, payload)
+
+    def _finish_cascade(self, results) -> None:
+        ok = sum(1 for _name, good, _err in results if good)
+        failed = len(results) - ok
+        status = ", ".join(
+            f"{name}={'ok' if good else 'FAILED'}" for name, good, _err in results)
+        logger.info(_("Redraw dependents: {ok}/{total} ok — {status}")
+                    .format(ok=ok, total=len(results), status=status))
+        if failed:
+            self._show_message(
+                _("{failed}/{total} record(s) failed — see the log.")
+                .format(failed=failed, total=len(results)), _ERROR_STYLE)
+        else:
+            self._show_message(
+                _("Redrawn {total} record(s) (dependents).").format(total=len(results)),
+                _SUCCESS_STYLE)
+
+    def _on_cascade_failed(self, message: str) -> None:
+        self._show_message(
+            _("Redraw dependents failed: {error}").format(error=message), _ERROR_STYLE)
 
     def _tag_cluster(self, pipeline: ApplyPipeline, cfg: Config, ctx: RuntimeContext, name: str) -> int:
         """Recovers which refs this specific clone_placement touched (see
