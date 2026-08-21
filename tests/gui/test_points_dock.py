@@ -29,7 +29,7 @@ def _make_dock(main_window, tmp_path, data=None):
     target_file = tmp_path / "root.yaml"
     _write_yaml(target_file, data if data is not None else {"points": {}})
     dock = PointsDock(main_window)
-    dock.set_target_file(target_file)
+    dock.set_root_path(target_file)
     return dock, target_file
 
 
@@ -221,7 +221,7 @@ def test_save_without_a_file_picked_shows_error(main_window, caplog):
     dock.y_edit.setText("2.0")
 
     dock._on_save()
-    assert any("Pick a file" in r.message for r in caplog.records)
+    assert any("Set the project root first" in r.message for r in caplog.records)
 
 
 def test_save_refreshes_point_name_autocomplete(main_window, tmp_path):
@@ -304,7 +304,7 @@ def test_load_entry_board_origin_mode(main_window, tmp_path):
 
 # ── Point-name autocomplete ──────────────────────────────────────────────
 
-def test_point_name_autocomplete_refreshes_on_set_target_file(main_window, tmp_path):
+def test_point_name_autocomplete_refreshes_on_set_root_path(main_window, tmp_path):
     dock, target = _make_dock(main_window, tmp_path, {"points": {"a": {"xy": [0, 0]}, "b": {"xy": [1, 1]}}})
     assert [dock.point_edit.itemText(i) for i in range(dock.point_edit.count())] == ["a", "b"]
 
@@ -468,100 +468,18 @@ def _combo_index_for_filename(combo, filename):
     return -1
 
 
-def test_set_root_path_populates_target_file_combo(main_window, tmp_path):
-    (tmp_path / "sub.yaml").write_text("points: {}\n", encoding="utf-8")
-    root = tmp_path / "root.yaml"
-    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
-    dock = PointsDock(main_window)
-
-    dock.set_root_path(root)
-
-    assert dock._root_path == root
-    names = {dock.target_file_combo.itemData(i).name for i in range(dock.target_file_combo.count())}
-    assert names == {"root.yaml", "sub.yaml"}
-
-
-def test_set_root_path_none_clears_the_target_file_combo(main_window):
-    dock = PointsDock(main_window)
-    dock.set_root_path(None)
-    assert dock.target_file_combo.count() == 0
-
-
-def test_picking_target_file_combo_calls_set_target_file(main_window, tmp_path):
-    (tmp_path / "sub.yaml").write_text("points: {}\n", encoding="utf-8")
-    root = tmp_path / "root.yaml"
-    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
-    dock = PointsDock(main_window)
-    dock.set_root_path(root)
-
-    dock.target_file_combo.setCurrentIndex(
-        _combo_index_for_filename(dock.target_file_combo, "sub.yaml"))
-
-    assert dock._path is not None
-    assert dock._path.name == "sub.yaml"
-
-
-def test_set_target_file_reflects_into_the_combo_even_before_root_is_known(main_window, tmp_path):
-    """ConfigTreeDock's own file_selected click must keep working exactly
-    as before — even before set_root_path() (or for a file outside the
-    include graph) the path is still selected as an extra combo item."""
-    target = tmp_path / "points.yaml"
-    _write_yaml(target, {"points": {}})
-    dock = PointsDock(main_window)
-
-    dock.set_target_file(target)
-
-    assert dock.target_file_combo.currentData() == target
-    assert dock._path == target
-
-
-def test_set_root_path_does_not_clobber_point_name_autocomplete(main_window, tmp_path):
-    """The point-chain autocomplete stays scoped to the dock's OWN target
-    file (unchanged behaviour), while the target-file combo comes from the
-    whole include graph — two independent sources, set_root_path must not
-    touch the former."""
+def test_set_root_path_point_name_autocomplete_covers_whole_graph(main_window, tmp_path):
+    """The point-chain autocomplete now reads the WHOLE include graph (a
+    point can live in any included file) — after the file pickers were
+    removed (2026-08-21), there is no separate "target file" to scope it to."""
     dock, target = _make_dock(main_window, tmp_path, {"points": {"a": {"xy": [0, 0]}}})
     sub = tmp_path / "sub.yaml"
     _write_yaml(sub, {"points": {"b": {"xy": [1, 1]}}})
-    root = tmp_path / "root.yaml"
-    _write_yaml(root, {"points": {}, "include": ["sub.yaml"]})
+    root2 = tmp_path / "root2.yaml"
+    _write_yaml(root2, {"include": ["root.yaml", "sub.yaml"]})
 
-    dock.set_root_path(root)
+    dock.set_root_path(root2)
 
-    # combo lists whole graph; autocomplete still only the targeted file
-    combo_names = {dock.target_file_combo.itemData(i).name for i in range(dock.target_file_combo.count())}
-    assert combo_names == {"root.yaml", "sub.yaml"}
-    assert [dock.point_edit.itemText(i) for i in range(dock.point_edit.count())] == ["a"]
+    assert sorted(dock.point_edit.itemText(i) for i in range(dock.point_edit.count())) == \
+        ["a", "b"]
 
-
-def test_target_file_combo_is_a_closed_picker_not_free_text(main_window):
-    dock = PointsDock(main_window)
-    assert not dock.target_file_combo.isEditable()
-
-
-def test_set_root_path_drops_old_project_file_not_in_new_graph(main_window, tmp_path):
-    """2026-08-16 evening — same regression as PlacerDock/CellDock, proving
-    the fix generalizes through the shared refresh_file_combo_choices helper
-    (this dock is one of the single-_path set_root_path call sites): a file
-    not in the NEW root's graph must be dropped, not kept via the helper's
-    extra-item fallback."""
-    project_a = tmp_path / "project_a"
-    project_a.mkdir()
-    target_a = project_a / "points.yaml"
-    _write_yaml(target_a, {"points": {}})
-    root_a = project_a / "root.yaml"
-    _write_yaml(root_a, {"points": {}, "include": ["points.yaml"]})
-    dock = PointsDock(main_window)
-    dock.set_target_file(target_a)
-    dock.set_root_path(root_a)
-    assert dock._path == target_a
-
-    project_b = tmp_path / "project_b"
-    project_b.mkdir()
-    root_b = project_b / "root.yaml"
-    _write_yaml(root_b, {"points": {}})
-
-    dock.set_root_path(root_b)
-
-    assert dock._path is None
-    assert dock.target_file_combo.currentData() is None

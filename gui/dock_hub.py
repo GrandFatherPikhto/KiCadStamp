@@ -134,44 +134,15 @@ class DockHub:
         """Every dock-to-dock connection (real pyqtSignals — a role can
         legitimately have more than one listener)."""
 
-        # Config tree -> Extract/Placer (2026-08-03, replaces FilePickerDock
-        # entirely — see gui/docks/config_tree.py's module docstring):
-        # file_selected fires on every click anywhere in the tree, and
-        # feeds ALL of ExtractDock's/PlacerDock's file targets at once —
-        # what used to be three independently-assigned roles (Cells/
-        # Extractor/Placer) collapse into "whichever file is currently
-        # being browsed".
-        self.config_tree_dock.file_selected.connect(self.extract_dock.set_target_file)
-        self.config_tree_dock.file_selected.connect(self.extract_dock.set_profile_file)
-        self.config_tree_dock.file_selected.connect(self.extract_dock.set_placer_file)
-        self.config_tree_dock.file_selected.connect(self.placer_dock.set_cells_file)
-        self.config_tree_dock.file_selected.connect(self.placer_dock.set_placer_file)
-        self.config_tree_dock.file_selected.connect(self.thermal_via_dock.set_target_file)
-        self.config_tree_dock.file_selected.connect(self.placer_dock.set_target_file)
-        self.config_tree_dock.file_selected.connect(self.points_dock.set_target_file)
-        self.config_tree_dock.file_selected.connect(self.rules_dock.set_target_file)
-        self.config_tree_dock.file_selected.connect(self.net_trace_dock.set_target_file)
-        self.config_tree_dock.file_selected.connect(self.cells_dock.set_target_file)
-        # RootMetadataDock's Working file combobox (2026-08-11, Denis: "туда
-        # же напрашивается и выбор текущего рабочего файла... без прыжков
-        # между доками") — a second, direct entry point for the exact same
-        # target-file broadcast as the 9 file_selected lines above, so the
-        # working file can be changed from the Project tab without
-        # navigating the tree. The tree still feeds the combobox's own
-        # DISPLAY (set_working_file_from_tree, no re-broadcast — see
-        # gui/docks/root_metadata.py's module docstring), so it never goes
-        # stale relative to whatever was last clicked.
+        # 2026-08-21 (plan flatten_and_single_file_gui): the entity docks no
+        # longer ask "which file do I write to" — every new record (rule/
+        # clone_placement/coordinate_placement/thermal_via_array/point/cell/
+        # extract_profile/net_trace) is written to the project ROOT file,
+        # which each dock's own set_root_path() receives via root_changed
+        # below. The old file_selected/working_file_changed -> set_target_file
+        # broadcast (2026-08-03..2026-08-13) is gone; the tree still feeds
+        # RootMetadataDock's Working-file combobox DISPLAY below.
         self.config_tree_dock.file_selected.connect(self.root_metadata_dock.set_working_file_from_tree)
-        self.root_metadata_dock.working_file_changed.connect(self.extract_dock.set_target_file)
-        self.root_metadata_dock.working_file_changed.connect(self.extract_dock.set_profile_file)
-        self.root_metadata_dock.working_file_changed.connect(self.extract_dock.set_placer_file)
-        self.root_metadata_dock.working_file_changed.connect(self.placer_dock.set_cells_file)
-        self.root_metadata_dock.working_file_changed.connect(self.placer_dock.set_placer_file)
-        self.root_metadata_dock.working_file_changed.connect(self.thermal_via_dock.set_target_file)
-        self.root_metadata_dock.working_file_changed.connect(self.placer_dock.set_target_file)
-        self.root_metadata_dock.working_file_changed.connect(self.points_dock.set_target_file)
-        self.root_metadata_dock.working_file_changed.connect(self.rules_dock.set_target_file)
-        self.root_metadata_dock.working_file_changed.connect(self.cells_dock.set_target_file)
         # Root ownership moved to RootMetadataDock 2026-08-11 (was
         # ConfigTreeDock's — see gui/docks/root_metadata.py's module
         # docstring for the full reasoning); root_changed replaces the old
@@ -517,7 +488,6 @@ class DockHub:
         "Edit cell..." never goes through _on_clicked/file_selected (see
         that wiring's own comment above), so the target file is set
         explicitly here before loading, then the Cells tab is raised."""
-        self.cells_dock.set_target_file(file_path)
         self.cells_dock.load_entry(name)
         self.detail_dock.show_cells()
 

@@ -84,9 +84,8 @@ from kicadstamp.i18n import _
 from .. import yaml_io
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       configure_searchable, display_path, merge_write, parse_float_field,
-                      refresh_file_combo_choices, set_combo_items,
-                      set_file_combo_selection, show_message)
-from .rename import collect_all_cell_names
+                      set_combo_items, show_message)
+from .rename import collect_all_cell_names, collect_section_entries
 
 logger = logging.getLogger(__name__)
 
@@ -144,20 +143,6 @@ class CellDock(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
-
-        # Target file as a dropdown (2026-08-13, plan
-        # tree_to_combo_file_pickers) — was a plain label + ConfigTreeDock
-        # click only; same "a tree click yanks the user into a different
-        # panel" pain every other file picker already fixed with a combo.
-        # set_target_file() stays the shared entry point (tree click and
-        # combo both feed it), so the tree keeps working unchanged.
-        target_file_row = QHBoxLayout()
-        target_file_row.addWidget(QLabel(_("Cell file:")))
-        self.target_file_combo = QComboBox()
-        self.target_file_combo.setPlaceholderText(_("pick a file (or browse it in the Config tree)"))
-        self.target_file_combo.currentIndexChanged.connect(self._on_target_file_combo_changed)
-        target_file_row.addWidget(self.target_file_combo, 1)
-        layout.addLayout(target_file_row)
 
         head_form = QFormLayout()
         self.name_edit = QLineEdit()
@@ -504,22 +489,14 @@ class CellDock(QWidget):
 
     # ── Wiring from the Config tree ─────────────────────────────────────
 
-    def set_target_file(self, path: Optional[Path]) -> None:
-        self._path = path
-        set_file_combo_selection(self.target_file_combo, path)
-
-    def _on_target_file_combo_changed(self, index: int) -> None:
-        path = self.target_file_combo.itemData(index)
-        if path is not None:
-            self.set_target_file(path)
-
     def set_root_path(self, path: Optional[Path]) -> None:
-        """Wired to RootMetadataDock's root_changed — the Nested cells
-        tab's Cell combo is sourced from the WHOLE include graph (same
-        reasoning as RuleDock's spoke.cell combo), not just this dock's own
-        target file (a nested cell routinely lives in a different file)."""
+        """Wired to RootMetadataDock's root_changed — new cells: entries are
+        always written to the project root file (2026-08-21, plan
+        flatten_and_single_file_gui), so the write target IS the root. The
+        Nested cells tab's Cell combo stays sourced from the WHOLE include
+        graph (a nested cell routinely lives in a different file)."""
         self._root_path = path
-        (self._path,) = refresh_file_combo_choices((self.target_file_combo,), path, (self._path,))
+        self._path = path
         names = collect_all_cell_names(path) if path is not None else []
         set_combo_items(self.nested_cell_combo, names)
 
@@ -1199,7 +1176,7 @@ class CellDock(QWidget):
             return
         name, entry = built
         if self._path is None:
-            self._show_message(_("Pick a file in the Config tree first."), _ERROR_STYLE)
+            self._show_message(_("Set the project root first."), _ERROR_STYLE)
             return
 
         try:
@@ -1218,14 +1195,15 @@ class CellDock(QWidget):
     # ── Starting a brand new entry (ConfigTreeDock's Add cell...) ────────
 
     def new_cell(self, path: Path) -> None:
-        """Resets the form to its initial (blank) state and targets path —
-        ConfigTreeDock's "Add cell..." context-menu action opens this form
-        empty instead of writing a raw {"components": []} stub straight to
-        YAML (the exact root cause of the Conn_PM5V bug this dock was built
-        to fix — see module docstring), same reasoning as PlacerDock.
-        new_placement()/ThermalViaArrayDock.new_thermal_via()/PointsDock.
-        new_point()/RuleDock.new_rule()."""
-        self.set_target_file(path)
+        """Resets the form to its initial (blank) state — ConfigTreeDock's
+        "Add cell..." context-menu action opens this form empty instead of
+        writing a raw {"components": []} stub straight to YAML (the exact
+        root cause of the Conn_PM5V bug this dock was built to fix — see
+        module docstring), same reasoning as PlacerDock.new_placement()/
+        ThermalViaArrayDock.new_thermal_via()/PointsDock.new_point()/
+        RuleDock.new_rule(). The entry is written to the project root file
+        (2026-08-21), so the passed path is ignored."""
+        self._path = self._root_path
         self.name_edit.setText("")
         self.layer_combo.setCurrentIndex(0)
         self.anchor_mode_combo.setCurrentIndex(0)
@@ -1257,13 +1235,13 @@ class CellDock(QWidget):
         tree.py's module docstring on why editing needs its own action
         distinct from "pick this cell as a placement's content") when an
         already-saved entry is clicked. cells: is a DICT section (see
-        module docstring), so the signal only carries the name — the
-        actual data is re-read fresh from self._path here, same discipline
-        PointsDock.load_entry already uses."""
+        module docstring), so the signal only carries the name — the actual
+        data is re-read fresh from the WHOLE include graph here (a cell can
+        live in any included file)."""
         self._show_message("")
         entry = {}
-        if self._path is not None:
-            entry = (yaml_io.load_data(self._path).get("cells") or {}).get(name) or {}
+        if self._root_path is not None:
+            entry = collect_section_entries(self._root_path, "cells").get(name) or {}
         self.name_edit.setText(name)
         self.layer_combo.setCurrentIndex(self._findable(self.layer_combo, entry.get("layer", "F.Cu")))
 

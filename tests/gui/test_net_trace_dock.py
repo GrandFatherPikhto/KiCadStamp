@@ -36,7 +36,7 @@ def _make_dock(main_window, tmp_path, data=None):
     target_file = tmp_path / "root.yaml"
     _write_yaml(target_file, data if data is not None else {})
     dock = NetTraceDock(main_window)
-    dock.set_target_file(target_file)
+    dock.set_root_path(target_file)
     return dock, target_file
 
 

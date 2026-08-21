@@ -50,22 +50,20 @@ def _write(path):
     path.write_text("{}\n", encoding="utf-8")
 
 
-def test_config_tree_file_selected_reaches_extract_and_placer(real_main_window, tmp_path):
-    """file_selected (fired by ANY click in the Config tree, see
-    gui/docks/config_tree.py's module docstring) feeds every one of
-    ExtractDock's/PlacerDock's file targets at once — this REPLACES the
-    three independent FilePickerDock role signals (Cells/Extractor/
-    Placer), which no longer exist."""
+def test_config_tree_file_selected_does_not_retarget_entity_docks(real_main_window, tmp_path):
+    """2026-08-21 (plan flatten_and_single_file_gui): the entity docks no
+    longer follow tree clicks — new records always go to the project ROOT
+    file, so file_selected must NOT change their write targets."""
     target_file = tmp_path / "power.yaml"
     _write(target_file)
 
     real_main_window.config_tree_dock.file_selected.emit(target_file)
 
-    assert real_main_window.extract_dock._target_path == target_file
-    assert real_main_window.extract_dock._profile_path == target_file
-    assert real_main_window.extract_dock._placer_path == target_file
-    assert real_main_window.placer_dock._cells_path == target_file
-    assert real_main_window.placer_dock._placer_path == target_file
+    assert real_main_window.extract_dock._target_path is None
+    assert real_main_window.extract_dock._profile_path is None
+    assert real_main_window.extract_dock._placer_path is None
+    assert real_main_window.placer_dock._cells_path is None
+    assert real_main_window.placer_dock._placer_path is None
 
 
 def test_root_metadata_dock_restores_last_root_after_restart(qapp, tmp_path):
@@ -179,7 +177,7 @@ def test_profile_picked_fills_extract_form(real_main_window, tmp_path):
     extractor_file = tmp_path / "profiles.yaml"
     extractor_file.write_text(
         "extract_profiles:\n  alpha_profile:\n    params: {ROLE: '+3V3'}\n", encoding="utf-8")
-    real_main_window.extract_dock.set_profile_file(extractor_file)
+    real_main_window.extract_dock.set_root_path(extractor_file)
 
     real_main_window.config_tree_dock.profile_picked.emit("alpha_profile")
 
@@ -201,7 +199,7 @@ def test_points_picked_fills_points_form_and_switches_tab(real_main_window, tmp_
     # docstring); a real tree click fires file_selected first (setting
     # _path), same as test_profile_picked_fills_extract_form's own
     # set_profile_file call below.
-    real_main_window.points_dock.set_target_file(points_file)
+    real_main_window.points_dock.set_root_path(points_file)
 
     real_main_window.config_tree_dock.points_picked.emit("origin")
 
@@ -240,7 +238,6 @@ def test_add_point_requested_opens_blank_points_form_and_shows_tab(real_main_win
     real_main_window.config_tree_dock.add_point_requested.emit(points_file)
 
     assert real_main_window.points_dock.name_edit.text() == ""
-    assert real_main_window.points_dock._path == points_file
     assert real_main_window._dock_hub.detail_dock.stack.currentWidget() is real_main_window.points_dock
 
 
@@ -320,7 +317,6 @@ def test_add_rule_requested_opens_blank_rules_form_and_shows_tab(real_main_windo
     real_main_window.config_tree_dock.add_rule_requested.emit(rules_file)
 
     assert real_main_window.rules_dock.net_edit.currentText() == ""
-    assert real_main_window.rules_dock._path == rules_file
     assert real_main_window._dock_hub.detail_dock.stack.currentWidget() is real_main_window.rules_dock
 
 
@@ -338,7 +334,6 @@ def test_add_extract_profile_requested_arms_extract_and_shows_tab(real_main_wind
 
     assert real_main_window.extract_dock.save_profile_checkbox.isChecked()
     assert real_main_window.extract_dock.profile_key_edit.text() == ""
-    assert real_main_window.extract_dock._profile_path == profiles_file
     assert real_main_window._dock_hub.detail_dock.stack.currentWidget() is real_main_window.extract_dock
 
 
@@ -475,7 +470,7 @@ def test_extract_dock_feeds_injected_adapter_into_extraction(main_window, tmp_pa
     adapter = object()
     injected = SimpleNamespace(board=SimpleNamespace(adapter=adapter))
     dock = ExtractDock(main_window, connection=injected)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
     dock.name_edit.setText("c1")
     dock._raw_items = ["item1"]
 
@@ -586,11 +581,11 @@ def test_main_window_exposes_all_docks_through_the_hub(real_main_window):
     assert real_main_window.log_dock is hub.log_dock
 
 
-def test_dock_hub_constructs_all_docks_and_wires_file_selected(main_window, tmp_path):
-    """A standalone DockHub builds every dock on any QMainWindow and the
-    Config tree's file_selected signal reaches every listener except Root
-    (which follows root_file_changed instead, see below) — the composition
-    root works without a real MainWindow too."""
+def test_dock_hub_constructs_all_docks(main_window, tmp_path):
+    """A standalone DockHub builds every dock on any QMainWindow — the
+    composition root works without a real MainWindow too. (file_selected no
+    longer retargets the entity docks — see
+    test_config_tree_file_selected_does_not_retarget_entity_docks.)"""
     target_file = tmp_path / "power.yaml"
     _write(target_file)
 
@@ -607,10 +602,10 @@ def test_dock_hub_constructs_all_docks_and_wires_file_selected(main_window, tmp_
         assert hub.log_dock is not None
 
         hub.config_tree_dock.file_selected.emit(target_file)
-        assert hub.extract_dock._target_path == target_file
-        assert hub.placer_dock._cells_path == target_file
-        assert hub.points_dock._path == target_file
-        assert hub.rules_dock._path == target_file
+        assert hub.extract_dock._target_path is None
+        assert hub.placer_dock._cells_path is None
+        assert hub.points_dock._path is None
+        assert hub.rules_dock._path is None
     finally:
         _teardown_hub(hub)
 
@@ -662,10 +657,8 @@ def test_dock_hub_wires_root_changed_to_rules_dock(main_window, tmp_path):
 
 
 def test_dock_hub_wires_root_changed_to_points_dock(main_window, tmp_path):
-    """PointsDock gained set_root_path (2026-08-13, plan
-    tree_to_combo_file_pickers — the only dock that had none) — root_changed
-    must reach it like every other dock, and its new target-file combo must
-    list the whole include graph."""
+    """root_changed reaches PointsDock like every other dock — and since the
+    file pickers were removed (2026-08-21) its write target IS the root."""
     sub_file = tmp_path / "sub.yaml"
     sub_file.write_text("points: {}\n", encoding="utf-8")
     root_file = tmp_path / "root.yaml"
@@ -678,9 +671,7 @@ def test_dock_hub_wires_root_changed_to_points_dock(main_window, tmp_path):
         hub.root_metadata_dock.root_changed.emit(root_file)
 
         assert hub.points_dock._root_path == root_file
-        data_names = {hub.points_dock.target_file_combo.itemData(i).name
-                      for i in range(hub.points_dock.target_file_combo.count())}
-        assert data_names == {"root.yaml", "sub.yaml"}
+        assert hub.points_dock._path == root_file
     finally:
         _teardown_hub(hub)
 
@@ -989,37 +980,6 @@ def test_dock_saved_also_refreshes_graph_dependent_choices(main_window, monkeypa
             getattr(hub, dock_name).saved.emit()
         for name, calls in targets.items():
             assert len(calls) == 6, f"{name} not refreshed once per dock Save: {calls}"
-    finally:
-        _teardown_hub(hub)
-
-
-def test_add_included_file_new_file_appears_in_placer_combo(main_window, tmp_path, monkeypatch):
-    """The live complaint the plan fixes (Denis: "добавляю пласер, новый файл,
-    а его только из дерева можно добавить"): adding a brand-new file via the
-    Config tree must make it visible in every other dock's file combo
-    IMMEDIATELY — no root reassignment, no GUI restart. Before the fix,
-    placer_dock.cells_file_combo stayed stale until the root was switched
-    away and back. This exercises the REAL DockHub + real ConfigTreeDock
-    action (QFileDialog mocked, same as test_config_tree.py's own tests for
-    this method) — no mocked load_config or faked config."""
-    root = tmp_path / "root.yaml"
-    root.write_text("cells: {}\nrules: []\n", encoding="utf-8")
-    _seed_last_root(root)
-    new_file = tmp_path / "power.yaml"
-
-    hub = DockHub(main_window, connection=main_window.connection, verbose=False)
-    try:
-        def combo_has(combo, path):
-            return any(Path(combo.itemData(i)).resolve() == path.resolve()
-                       for i in range(combo.count()))
-        assert not combo_has(hub.placer_dock.cells_file_combo, new_file)
-
-        monkeypatch.setattr(config_tree_mod.QFileDialog, "getSaveFileName",
-                            staticmethod(lambda *a, **k: (str(new_file), "")))
-        hub.config_tree_dock._add_included_file(root)
-
-        assert new_file.exists()
-        assert combo_has(hub.placer_dock.cells_file_combo, new_file)
     finally:
         _teardown_hub(hub)
 

@@ -25,27 +25,28 @@ def _write_yaml(path, data) -> None:
 
 
 def _make_cell_and_dock(main_window, tmp_path):
-    # Content here is never actually parsed via the real cells: mechanism —
-    # every test that checks cfg.cells monkeypatches load_config with its
-    # own fake Config below; this file only exists to give set_cells_file()
-    # a path. Still written in the real (wrapped) on-disk shape for realism.
+    # The cells live in an INCLUDED file (cells.yaml), reachable from the
+    # project root (root.yaml) via include: — after the file pickers were
+    # removed (2026-08-21) PlacerDock reads cells from the WHOLE include
+    # graph, so the cells file must be part of the root's graph for the
+    # cell combo/params/roles to see pi_filter. Every test that checks
+    # cfg.cells monkeypatches load_config with its own fake Config below.
     cells_file = tmp_path / "cells.yaml"
     _write_yaml(cells_file, {"cells": {
         "pi_filter": {
             "components": [{"role": "C_IN", "offset_along_mm": 0, "offset_across_mm": 0,
                              "angle_deg": 0, "net_template": "{PWR_IN}"}],
             "vias": [{"offset_along_mm": 1, "offset_across_mm": 1, "net": "{PWR_OUT}",
-                      "drill_mm": 0.3, "diameter_mm": 0.6}],
+                       "drill_mm": 0.3, "diameter_mm": 0.6}],
             "tracks": [],
             "layer": "F.Cu",
         }
     }})
     placer_file = tmp_path / "root.yaml"
-    _write_yaml(placer_file, {"clone_placements": []})
+    _write_yaml(placer_file, {"clone_placements": [], "include": ["cells.yaml"]})
 
     dock = PlacerDock(main_window)
-    dock.set_cells_file(cells_file)
-    dock.set_placer_file(placer_file)
+    dock.set_root_path(placer_file)
     dock.set_selected_cell("pi_filter")  # Cell picking now lives in ConfigTreeDock, see test_config_tree.py
     return dock, cells_file, placer_file
 
@@ -95,115 +96,6 @@ def _combo_index_for_filename(combo, filename):
         if combo.itemData(i).name == filename:
             return i
     return -1
-
-
-def test_set_root_path_populates_both_file_combos(main_window, tmp_path):
-    (tmp_path / "sub.yaml").write_text("cells: {}\n", encoding="utf-8")
-    root = tmp_path / "root.yaml"
-    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
-    dock = PlacerDock(main_window)
-
-    dock.set_root_path(root)
-
-    cells_names = {dock.cells_file_combo.itemData(i).name for i in range(dock.cells_file_combo.count())}
-    placer_names = {dock.placer_file_combo.itemData(i).name for i in range(dock.placer_file_combo.count())}
-    assert cells_names == {"root.yaml", "sub.yaml"}
-    assert placer_names == {"root.yaml", "sub.yaml"}
-
-
-def test_picking_the_cells_file_combo_calls_set_cells_file(main_window, tmp_path):
-    (tmp_path / "sub.yaml").write_text("cells: {}\n", encoding="utf-8")
-    root = tmp_path / "root.yaml"
-    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
-    dock = PlacerDock(main_window)
-    dock.set_root_path(root)
-
-    dock.cells_file_combo.setCurrentIndex(
-        _combo_index_for_filename(dock.cells_file_combo, "sub.yaml"))
-
-    assert dock._cells_path is not None
-    assert dock._cells_path.name == "sub.yaml"
-
-
-def test_picking_the_placer_file_combo_calls_set_placer_file(main_window, tmp_path):
-    (tmp_path / "sub.yaml").write_text("cells: {}\n", encoding="utf-8")
-    root = tmp_path / "root.yaml"
-    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
-    dock = PlacerDock(main_window)
-    dock.set_root_path(root)
-
-    dock.placer_file_combo.setCurrentIndex(
-        _combo_index_for_filename(dock.placer_file_combo, "sub.yaml"))
-
-    assert dock._placer_path is not None
-    assert dock._placer_path.name == "sub.yaml"
-
-
-def test_set_cells_file_reflects_into_the_combo_even_before_root_is_known(main_window, tmp_path):
-    """ConfigTreeDock's own file_selected click must keep working exactly
-    as before — even before set_root_path() (or for a file outside the
-    include graph) the path is still selected as an extra combo item."""
-    cells_file = tmp_path / "cells.yaml"
-    cells_file.write_text("cells: {}\n", encoding="utf-8")
-    dock = PlacerDock(main_window)
-
-    dock.set_cells_file(cells_file)
-
-    assert dock.cells_file_combo.currentData() == cells_file
-    assert dock._cells_path == cells_file
-
-
-def test_set_placer_file_reflects_into_the_combo_even_before_root_is_known(main_window, tmp_path):
-    placer_file = tmp_path / "root.yaml"
-    placer_file.write_text("clone_placements: []\n", encoding="utf-8")
-    dock = PlacerDock(main_window)
-
-    dock.set_placer_file(placer_file)
-
-    assert dock.placer_file_combo.currentData() == placer_file
-    assert dock._placer_path == placer_file
-
-
-def test_file_combos_are_closed_pickers_not_free_text_fields(main_window):
-    dock = PlacerDock(main_window)
-    assert not dock.cells_file_combo.isEditable()
-    assert not dock.placer_file_combo.isEditable()
-
-
-def test_set_root_path_drops_old_project_file_not_in_new_graph(main_window, tmp_path):
-    """2026-08-16 evening (Denis live): PlacerDock kept showing/reading the
-    OLD project's components file after switching root_path to a project
-    whose graph doesn't include it. set_root_path must reset _cells_path/
-    _placer_path (and thus the Cell choices) to "nothing picked" for any
-    file no longer reachable from the new root — not keep it via
-    set_file_combo_selection's "add as an extra item" fallback."""
-    project_a = tmp_path / "project_a"
-    project_a.mkdir()
-    cells_a = project_a / "cells.yaml"
-    _write_yaml(cells_a, {"cells": {
-        "pi_filter": {"components": [], "vias": [], "tracks": [], "layer": "F.Cu"}}})
-    root_a = project_a / "root.yaml"
-    _write_yaml(root_a, {"include": ["cells.yaml"]})
-    dock = PlacerDock(main_window)
-    dock.set_root_path(root_a)
-    dock.set_cells_file(cells_a)
-    assert dock._cells_path == cells_a
-    assert dock.cell_combo.count() == 1  # "pi_filter" loaded before the switch
-
-    # Project B: a completely separate graph that does NOT include project A.
-    project_b = tmp_path / "project_b"
-    project_b.mkdir()
-    root_b = project_b / "root.yaml"
-    _write_yaml(root_b, {"clone_placements": []})
-
-    dock.set_root_path(root_b)
-
-    assert dock._cells_path is None
-    assert dock._placer_path is None
-    # Re-reading with the reset _cells_path yields NO cells — the old
-    # project's components must not keep showing up.
-    dock._refresh_cell_choices()
-    assert dock.cell_combo.count() == 0
 
 
 def test_new_placement_clears_the_cell_combo_selection(main_window, tmp_path):
@@ -1146,10 +1038,9 @@ def _make_two_role_cell_and_dock(main_window, tmp_path):
         }
     }})
     placer_file = tmp_path / "root2.yaml"
-    _write_yaml(placer_file, {"clone_placements": []})
+    _write_yaml(placer_file, {"clone_placements": [], "include": ["cells.yaml"]})
     dock = PlacerDock(main_window)
-    dock.set_cells_file(cells_file)
-    dock.set_placer_file(placer_file)
+    dock.set_root_path(placer_file)
     dock.set_selected_cell("pi_filter2")
     return dock, cells_file, placer_file
 
@@ -1278,15 +1169,17 @@ def test_collect_autofill_nets_inputs_no_placer_file_stays_empty(main_window, tm
     assert payload["sheet_names"] == {}
 
 
-def test_collect_autofill_nets_inputs_broken_placer_file_silent_fallback(main_window, tmp_path, caplog):
-    """2026-08-16 (Auto-fill Sheet narrowing): a broken Placer file must not
+def test_collect_autofill_nets_inputs_broken_placer_file_silent_fallback(main_window, tmp_path, monkeypatch, caplog):
+    """2026-08-16 (Auto-fill Sheet narrowing): a broken Placer config must not
     crash or spam the quiet auto-trigger — silent load -> None -> empty
     sheet_names, Auto-fill falls back to no-Sheet-narrowing (as before)."""
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
     dock.cluster_edit.setCurrentText("DAC_BUF")
     main_window.connection.board = _FakeAutofillBoard([])
-    # Break the placer file so load_config() raises.
-    dock._placer_path.write_text("not: [valid: yaml: {", encoding="utf-8")
+    # _load_target_config() is the silent loader that returns None on a broken
+    # config — simulate it directly (the root file must stay valid so the
+    # cell read above still works).
+    monkeypatch.setattr(dock, "_load_target_config", lambda silent=False: None)
 
     payload = dock._collect_autofill_nets_inputs(quiet=True)
 
@@ -1310,10 +1203,9 @@ def test_do_autofill_nets_narrows_by_sheet_on_reused_sheets(main_window, tmp_pat
         }
     }})
     placer_file = tmp_path / "root.yaml"
-    _write_yaml(placer_file, {"clone_placements": []})
+    _write_yaml(placer_file, {"clone_placements": [], "include": ["cells.yaml"]})
     dock = PlacerDock(main_window)
-    dock.set_cells_file(cells_file)
-    dock.set_placer_file(placer_file)
+    dock.set_root_path(placer_file)
     dock.set_selected_cell("dac_buf")
     dock.cluster_edit.setCurrentText("DAC_BUF")
     dock.sheet_edit.setCurrentText("Channel_0")
@@ -1364,10 +1256,9 @@ def test_do_autofill_nets_fills_multi_pad_role_with_net_template_pad(main_window
         }
     }})
     placer_file = tmp_path / "root.yaml"
-    _write_yaml(placer_file, {"clone_placements": []})
+    _write_yaml(placer_file, {"clone_placements": [], "include": ["cells.yaml"]})
     dock = PlacerDock(main_window)
-    dock.set_cells_file(cells_file)
-    dock.set_placer_file(placer_file)
+    dock.set_root_path(placer_file)
     dock.set_selected_cell("ldo_cell")
     dock.cluster_edit.setCurrentText("LDO_ADJ_P2V5")
     main_window.connection.board = _FakeAutofillBoard([
@@ -1398,10 +1289,9 @@ def test_do_autofill_nets_resolves_same_as_role_via_sibling(main_window, tmp_pat
         }
     }})
     placer_file = tmp_path / "root.yaml"
-    _write_yaml(placer_file, {"clone_placements": []})
+    _write_yaml(placer_file, {"clone_placements": [], "include": ["cells.yaml"]})
     dock = PlacerDock(main_window)
-    dock.set_cells_file(cells_file)
-    dock.set_placer_file(placer_file)
+    dock.set_root_path(placer_file)
     dock.set_selected_cell("ldo_cell")
     dock.cluster_edit.setCurrentText("LDO_ADJ_P2V5")
     main_window.connection.board = _FakeAutofillBoard([
@@ -1478,10 +1368,9 @@ def test_param_placeholder_not_exactly_one_role_stays_unnarrowed(main_window, tm
         }
     }})
     placer_file = tmp_path / "root.yaml"
-    _write_yaml(placer_file, {"clone_placements": []})
+    _write_yaml(placer_file, {"clone_placements": [], "include": ["cells.yaml"]})
     dock = PlacerDock(main_window)
-    dock.set_cells_file(cells_file)
-    dock.set_placer_file(placer_file)
+    dock.set_root_path(placer_file)
     dock.set_selected_cell("sheet_cell")
     dock._known_nets = ["+1V2", "GND"]
     dock._rebuild_param_rows()  # re-populate now that _known_nets is set

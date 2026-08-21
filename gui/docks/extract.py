@@ -173,8 +173,8 @@ from kicadstamp.template_extraction import (
 from .. import yaml_io
 from ..worker import start_long_op
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
-                      WARN_STYLE as _WARN_STYLE, refresh_file_combo_choices,
-                      set_combo_items, set_file_combo_selection, show_message)
+                      WARN_STYLE as _WARN_STYLE, set_combo_items, show_message)
+from .rename import collect_section_entries
 
 logger = logging.getLogger(__name__)
 
@@ -282,33 +282,6 @@ class ExtractDock(QWidget):
         self.name_edit.setPlaceholderText(_("cell name (key under cells:)"))
         form.addRow(_("Cell name:"), self.name_edit)
         layout.addLayout(form)
-
-        # Cell/Profile file pickers as independent dropdowns (2026-08-06,
-        # Denis: "имя файла, куда пишем extract и cell... тоже, выпадашками
-        # (комбобоксами со списком доступных файлов)" — until now, both
-        # ALWAYS followed the SAME ConfigTreeDock click (file_selected fires
-        # set_target_file/set_profile_file together, see dock_hub.py and
-        # this dock's own module docstring's "collapsed into one" note from
-        # 2026-08-03) — asked live whether they could even be different:
-        # yes, the backend already supports it (run_extract_to_file takes
-        # them independently, extract_profiles: entries have their own
-        # output:), the GUI just never surfaced it. These combos genuinely
-        # un-couple them: set_target_file()/set_profile_file() stay the
-        # SAME shared entry points ConfigTreeDock's click still calls (so
-        # that path keeps working unchanged), but each combo can now ALSO
-        # independently override its own path. Closed-set, non-editable —
-        # same "an editable combo whose value must match something real is
-        # a freeze risk" lesson as CellDock's anchor_role_combo/PlacerDock's
-        # cell_combo — populated from every file reachable via include:
-        # from the current project root (collect_graph_files, same helper
-        # gui/docks/rename.py's own renaming already relies on).
-        target_file_row = QHBoxLayout()
-        target_file_row.addWidget(QLabel(_("Cell file:")))
-        self.target_file_combo = QComboBox()
-        self.target_file_combo.setPlaceholderText(_("pick a file (or browse it in the Config tree)"))
-        self.target_file_combo.currentIndexChanged.connect(self._on_target_file_combo_changed)
-        target_file_row.addWidget(self.target_file_combo, 1)
-        layout.addLayout(target_file_row)
 
         # Tabbed instead of stacked (2026-08-04, Denis: "плашка отказывается
         # переразмериваться" — a QVBoxLayout's minimum height is the SUM of
@@ -456,29 +429,6 @@ class ExtractDock(QWidget):
         profile_key_label.setToolTip(profile_key_tooltip)
         profile_form.addRow(profile_key_label, self.profile_key_edit)
         layout.addLayout(profile_form)
-
-        profile_file_row = QHBoxLayout()
-        profile_file_row.addWidget(QLabel(_("Profile file:")))
-        self.profile_file_combo = QComboBox()
-        self.profile_file_combo.setPlaceholderText(_("pick a file (or browse it in the Config tree)"))
-        self.profile_file_combo.currentIndexChanged.connect(self._on_profile_file_combo_changed)
-        profile_file_row.addWidget(self.profile_file_combo, 1)
-        layout.addLayout(profile_file_row)
-
-        # Placer file as a dropdown too (2026-08-13, plan
-        # tree_to_combo_file_pickers): it used to be a plain label + a
-        # ConfigTreeDock click only — same "a click anywhere in the tree
-        # yanks the user into a different panel" pain every other file
-        # picker here already fixed with a combo. set_placer_file() stays
-        # the shared entry point (tree click and combo both feed it), so
-        # the tree keeps working unchanged.
-        placer_file_row = QHBoxLayout()
-        placer_file_row.addWidget(QLabel(_("Placer file (optional):")))
-        self.placer_file_combo = QComboBox()
-        self.placer_file_combo.setPlaceholderText(_("pick a file (or browse it in the Config tree)"))
-        self.placer_file_combo.currentIndexChanged.connect(self._on_placer_file_combo_changed)
-        placer_file_row.addWidget(self.placer_file_combo, 1)
-        layout.addLayout(placer_file_row)
 
         self.extract_button = QPushButton(_("Extract to file"))
         self.extract_button.setEnabled(False)
@@ -664,76 +614,31 @@ class ExtractDock(QWidget):
         set_combo_items(self.origin_via_net_combo, via_nets)
 
     def set_root_path(self, path: Optional[Path]) -> None:
-        """Wired to RootMetadataDock's root_changed — populates
-        target_file_combo/profile_file_combo/placer_file_combo from every
-        file reachable via include: from the project root (same
-        collect_graph_files() gui/docks/rename.py's own renaming uses),
-        same pattern as RulesDock/PlacerDock/CellDock's own set_root_path
-        (2026-08-06, closing the "Cell/Profile file also as a dropdown"
-        gap — see target_file_combo's own comment). Uses the shared
-        refresh_file_combo_choices() helper (2026-08-13, plan
-        tree_to_combo_file_pickers) instead of this dock's own private
-        _refresh_file_choices copy."""
+        """Wired to RootMetadataDock's root_changed — new extracted cells:/
+        extract_profiles: entries are always written to the project root
+        file (2026-08-21, plan flatten_and_single_file_gui), so all three
+        output targets (Cell file / Profile file / Placer file) ARE the
+        root. The Existing lists and auto-fill read the WHOLE include graph
+        (see _graph_section_keys/_graph_section_entry)."""
         self._root_path = path
-        self._target_path, self._profile_path, self._placer_path = refresh_file_combo_choices(
-            (self.target_file_combo, self.profile_file_combo, self.placer_file_combo),
-            path, (self._target_path, self._profile_path, self._placer_path))
-
-    def _on_target_file_combo_changed(self, index: int) -> None:
-        path = self.target_file_combo.itemData(index)
-        if path is not None:
-            self.set_target_file(path)
-
-    def _on_profile_file_combo_changed(self, index: int) -> None:
-        path = self.profile_file_combo.itemData(index)
-        if path is not None:
-            self.set_profile_file(path)
-
-    def _on_placer_file_combo_changed(self, index: int) -> None:
-        path = self.placer_file_combo.itemData(index)
-        if path is not None:
-            self.set_placer_file(path)
-
-    def set_target_file(self, path: Optional[Path]) -> None:
-        """Shared entry point for picking the Cell output file — called both
-        by ConfigTreeDock's file_selected signal (2026-08-03 — replaced
-        FilePickerDock's Cells-role slot; see gui/docks/config_tree.py's
-        module docstring) AND by target_file_combo's own selection
-        (2026-08-06 — see its comment). Either path keeps the other in
-        sync, same shared-setter pattern as PlacerDock's
-        set_selected_cell()."""
         self._target_path = path
-        set_file_combo_selection(self.target_file_combo, path)
+        self._profile_path = path
+        self._placer_path = path
+        self._registry_uuids_cache = None
         self._refresh_existing_lists()
         self._update_button_state()
 
-    def set_profile_file(self, path: Optional[Path]) -> None:
-        """Shared entry point for picking the Extract-profile output file —
-        called both by ConfigTreeDock's file_selected signal (2026-08-03 —
-        replaced FilePickerDock's Extractor-role slot; Cell/Profile files
-        used to always follow the SAME currently-browsed file, collapsed
-        into one back then) AND by profile_file_combo's own selection
-        (2026-08-06 — genuinely un-couples them again, see
-        target_file_combo's own comment for why)."""
-        self._profile_path = path
-        set_file_combo_selection(self.profile_file_combo, path)
-        self._refresh_existing_lists()
+    def _graph_section_keys(self, section: str):
+        """Every key of a DICT section across the whole include graph."""
+        if self._root_path is None:
+            return []
+        return sorted(collect_section_entries(self._root_path, section).keys())
 
-    def set_placer_file(self, path: Optional[Path]) -> None:
-        """Shared entry point for picking the Placer file — called both by
-        ConfigTreeDock's file_selected signal (2026-08-03 — replaced
-        FilePickerDock's Placer-role slot) AND by placer_file_combo's own
-        selection (2026-08-13, plan tree_to_combo_file_pickers — was a
-        plain label before, kept scoped to the tree's click). Either path
-        keeps the other in sync, same shared-setter pattern as
-        set_target_file/set_profile_file. Optional — extraction works the
-        same without one, it just skips the include: wiring described in
-        the module docstring. Also invalidates _registry_uuids_cache — a
-        different Placer file means a different registry.json to check the
-        Cluster filter's Via/Track exclusion against (see its own docstring)."""
-        self._placer_path = path
-        self._registry_uuids_cache = None
-        set_file_combo_selection(self.placer_file_combo, path)
+    def _graph_section_entry(self, section: str, key: str) -> dict:
+        """One DICT-section entry by name, read from the whole include graph."""
+        if self._root_path is None:
+            return {}
+        return collect_section_entries(self._root_path, section).get(key, {})
 
     def prepare_new_profile(self, file_path: Path) -> None:
         """ConfigTreeDock's "Add extract profile..." delegate (2026-08-13,
@@ -753,7 +658,8 @@ class ExtractDock(QWidget):
         that field's existing tooltip); the hint message goes only to the Log
         dock (show_message — no inline label since 2026-08-13, deliberately
         not reintroducing one for this single hint)."""
-        self.set_profile_file(file_path)
+        self._profile_path = self._root_path
+        self._refresh_existing_lists()
         self.save_profile_checkbox.setChecked(True)
         self.profile_key_edit.clear()
         self.profile_key_edit.setFocus()
@@ -771,9 +677,9 @@ class ExtractDock(QWidget):
 
     def _refresh_existing_lists(self) -> None:
         self.cells_list.clear()
-        self.cells_list.addItems(sorted(self._existing_keys(self._target_path, section="cells")))
+        self.cells_list.addItems(self._graph_section_keys("cells"))
         self.profiles_list.clear()
-        self.profiles_list.addItems(sorted(self._existing_keys(self._profile_path, section="extract_profiles")))
+        self.profiles_list.addItems(self._graph_section_keys("extract_profiles"))
         self._last_autofill_key = None  # force _autofill_from_cluster to re-check against the new content
 
     @staticmethod
@@ -825,7 +731,7 @@ class ExtractDock(QWidget):
             if "/" in cluster:
                 candidates.append(self._slugify(cluster.rsplit("/", 1)[-1]))
 
-            cell_keys = self._existing_keys(self._target_path, section="cells")
+            cell_keys = self._graph_section_keys("cells")
             matched_cell = next((c for c in candidates if c in cell_keys), None)
             if not self.name_edit.text().strip():
                 # An existing key wins if there is one (it reflects
@@ -836,7 +742,7 @@ class ExtractDock(QWidget):
                 # имя кластера, зачем придумывать что-то").
                 self.name_edit.setText(matched_cell or candidates[0])
 
-            profile_keys = self._existing_keys(self._profile_path, section="extract_profiles")
+            profile_keys = self._graph_section_keys("extract_profiles")
             matched_profile = next((c for c in candidates if c in profile_keys), None)
             if matched_profile:
                 if not self.profile_key_edit.text().strip():
@@ -858,7 +764,7 @@ class ExtractDock(QWidget):
         — but the alias fields, and then the Origin combo too, stayed
         untouched, because back then this pull only lived inside the
         auto-match branch and didn't cover Origin at all)."""
-        profile_entry = self._load_data(self._profile_path).get("extract_profiles", {}).get(profile_key, {})
+        profile_entry = self._graph_section_entry("extract_profiles", profile_key)
         if not profile_entry:
             return
 
@@ -927,7 +833,8 @@ class ExtractDock(QWidget):
         '2v5_adj_pi_filter'). Used when the Cells list is clicked, so that
         click can find and pull the matching profile's aliases too, not
         just the ones the Profiles list itself was clicked for."""
-        profiles = self._load_data(self._profile_path).get("extract_profiles", {}) or {}
+        profiles = (collect_section_entries(self._root_path, "extract_profiles")
+                    if self._root_path is not None else {})
         return next((key for key, entry in profiles.items()
                      if (entry.get("name") or key) == cell_name), None)
 

@@ -178,6 +178,23 @@ def collect_all_cell_names(root_path: Path) -> List[str]:
     return sorted(names)
 
 
+def collect_section_entries(root_path: Path, section: str) -> dict:
+    """Merged name -> entry dict for a DICT section (cells:/points:/
+    extract_profiles:/clone_profiles:/sheet_templates:) across the whole
+    include: graph rooted at root_path (root first, then includes in walk
+    order). Read-only — the docks' display/autocomplete after the file
+    pickers were removed (2026-08-21, plan flatten_and_single_file_gui):
+    a cells:/points: entry can live in ANY included file, so the dock now
+    reads the whole graph instead of one hand-picked file. A duplicate name
+    across two files is already fatal in resolve_includes()/load_config()
+    (dict sections merge key-by-key), so a plain update() can never
+    silently collide here."""
+    merged: dict = {}
+    for path in collect_graph_files(root_path):
+        merged.update(read_data(path).get(section) or {})
+    return merged
+
+
 def collect_all_rule_nets(root_path: Path) -> List[str]:
     """Distinct net: values of every rule reachable from root_path via
     include: — the net picker for Rules' Bulk-set Cell dialog (2026-08-20,

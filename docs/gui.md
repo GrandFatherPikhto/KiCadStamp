@@ -149,12 +149,12 @@ blank form like the other Add-actions (an extract profile's params come from a r
 profile-key field, so the profile is saved as a side effect of the next real Extract.
 
 Clicking any node also switches the Detail dock to that node's own panel (Rule → Rules, file →
-Project, ...) — which made the tree a confusing way to pick a file for a DIFFERENT dock. Since
-2026-08-13 every entity dock has its OWN file dropdown beside its fields (Cell file/Profile file/
-Placer file in Extract, Cells file/Placer file in Placer, plus Rule file/Thermal via file/Points
-file/Cell file in the others) — closed-set combos populated from the whole `include:` graph, so the
-target file can be picked without touching the tree. Both remain shared entry points: a tree click
-and a combo pick feed the exact same setter, and either one keeps the other in sync.
+Project, ...). Since 2026-08-21 the entity docks no longer ask **which file to write to** — every
+new record (Rule/ClonePlacement/CoordinatePlacement/ThermalViaArray/Point/Cell/ExtractProfile/
+NetTrace) is written to the project's ONE root file (the file shown in the Project panel), with no
+file picker in the form. The `include:` graph is still fully supported for READING: the Config tree
+and every dock's autocomplete/list show entries from ANY included file. To move a piece of config
+into a separate file, use the tree's context-menu **Export...** (see below).
 
 Since 2026-08-15 every dock's file/name combos stay live: a file added/removed via the tree's
 "Add included file..."/"Remove this file", an entry renamed/deleted there, OR a brand-new entity
@@ -244,22 +244,10 @@ section's own — the dock couldn't shrink below that even when most of it didn'
 A `QTabWidget` only sizes for the current page, so the dock resizes freely; **Net template role**'s
 tab is hidden outright (not just its content) until it actually applies.
 
-- **Cell file** / **Profile file** — closed-set dropdowns (not editable — same reasoning as
-  Placer's Cell combo), populated from every file reachable via `include:` from the project root
-  (`collect_graph_files`, the same helper `rename.py`'s own renaming uses). Added 2026-08-06 (Denis:
-  "имя файла, куда пишем extract и cell... тоже, выпадашками") — until then both ALWAYS followed
-  whatever file was last clicked in the Config tree (`file_selected` fired `set_target_file`/
-  `set_profile_file` together, a deliberate 2026-08-03 collapse of what used to be two independent
-  role slots). Asked live whether the two could even differ: yes — the backend already supports
-  independent `target_path`/`profile_path` (an `extract_profiles:` entry has its own `output:` too)
-  — the GUI just never surfaced it. `set_target_file()`/`set_profile_file()` stay the SAME shared
-  entry points a Config-tree click still calls, so that path is unchanged; these combos are a
-  second, independent way to set either one, genuinely un-coupling them if you want a Cell and its
-  Extract profile to live in different files.
-- **Placer file** — a third dropdown in the same row style (2026-08-13), for the optional Placer
-  root config Extract wires `include:` into after a successful extract (see below). Was a plain
-  label before — `set_placer_file()` is the same shared setter the Config-tree click still calls,
-  now also fed by the combo.
+- **Write target** — a successful extraction writes the Cell into the project root file's `cells:`
+  section (and, with "Also save as extract_profile", the profile recipe into that same file's
+  `extract_profiles:` section). The former Cell-file/Profile-file/Placer-file dropdowns are gone
+  (2026-08-21): everything the Extract dock produces now lands in the one root file.
 - **Cell name** — defaults to the current selection's Cluster, slugified (`PWR/DAC0` →
   `pwr_dac0`), if nothing's been extracted from this Cluster before; if an existing Cells/
   Extractor key already matches, that wins instead. Never overwrites something you've typed.
@@ -290,9 +278,8 @@ tab is hidden outright (not just its content) until it actually applies.
   origin/net_template_role) into the Extractor file's `extract_profiles:` section, so the same
   extraction can be re-run later from the CLI (`kicadstamp_cli.py extract --profile <key>`)
   without retyping the alias mapping.
-- If a **Placer** file is assigned, a successful extraction also makes sure that file's
-  `include:` list includes both the Cells file and the Extractor file (deduplicated by resolved
-  path) — the Placer file ends up ready to use what was just extracted.
+- The extracted Cell and its profile recipe are both written into the project root file, so the
+  root file is immediately ready to use what was just extracted (no separate `include:` wiring).
 
 ## Placer
 
@@ -309,12 +296,9 @@ pairing itself was explicitly liked as-is; Net overrides and Refs are rarer and 
 instead of competing for the same vertical space). Redraw/Save and the message label stay outside
 the tabs — they act on the whole placement, not one tab.
 
-- **Cells file** / **Placer file** — two file dropdowns above the tabs (2026-08-13, same
-  outside-the-tabs zone as the buttons — "which file" is context for the whole placement, not one
-  tab), populated from the whole `include:` graph. Same shared-setter pattern as everywhere else:
-  the Config tree's click and the combo both feed `set_cells_file()`/`set_placer_file()`, each keeps
-  the other in sync. Not to be confused with the **Cell** combo inside Source — that picks a Cell
-  WITHIN a file; these pick the files themselves.
+- **Write target** — the placement is written into the project root file's `clone_placements:`
+  (or `coordinate_placements:`) section. The former Cells-file/Placer-file dropdowns are gone
+  (2026-08-21); the **Cell** combo inside Source still picks a Cell from the WHOLE `include:` graph.
 - **Source** — **Cell** (default), **Role**, or **Cluster** (all added 2026-08-06, Denis: "путь
   потрясающе длинный: создать экстрактор, извлечь шаблон, сделать cell и только потом, placement") —
   Role/Cluster both skip Extract/Cell entirely for a genuine single-component placement; neither
@@ -427,7 +411,7 @@ the tabs — they act on the whole placement, not one tab.
   that were actually placed are tagged `Cluster=<name>` (nothing else in the pipeline does this —
   see [docs/config.md](config.md) on `Cluster` being read-only during `apply`). Change a field,
   click Redraw again — idempotent, safe to repeat.
-- **Save** — separately, writes the current form into the Placer file's `clone_placements:` list
+- **Save** — separately, writes the current form into the project root file's `clone_placements:` list
   (replacing an existing entry of the same name, never duplicating). Redraw does **not** save by
   itself — look, adjust, Redraw again, and only Save once you're happy with the result. KiCad's own
   undo covers "moved something to the wrong place" — there's no separate movement log here.
@@ -485,7 +469,7 @@ Placer's Origin widget.
   preview specifically (it needs the project's `schematic_dir`, a second file dependency this first
   pass deferred) — Sheet is still saved correctly for a real `apply` run, which does build that
   narrowing properly.
-- **Save** — writes into the target file's `points:` section (a dict keyed by name, unlike
+- **Save** — writes into the project root file's `points:` section (a dict keyed by name, unlike
   Placer/Thermal via's list-of-dicts sections — an existing name is replaced in place, not
   duplicated).
 
@@ -527,7 +511,7 @@ Update/Remove row, and Redraw/Save stay outside the tabs — they act on the who
   you're checking, which `skip:` already exists to do.
 - **Save** — since 2026-08-20 this button's only remaining job is the rule's OWN **Net/Origin**
   fields (spoke edits autosave themselves, see the Spokes bullet above). It writes the whole rule
-  into the target file's `rules:` list, matched by name if set, else net (`rules:` is the one list
+  into the project root file's `rules:` list, matched by name if set, else net (`rules:` is the one list
   section without a required `name:` — see [docs/config.md](config.md)'s `rule_effective_name`).
 - **Bulk set Cell for net…** (2026-08-20) — sets `cell:` on EVERY spoke of every rule on the
   chosen net at once, even when those rules live in different included files (a net's rules
@@ -550,7 +534,7 @@ net_trace_dock.md`). Added 2026-08-21.
 - **Anchor block** — the shared `AnchorOriginWidget`, anchor-role mode with sheet/pad/cluster
  fields. `net_traces` anchors by Role ONLY — filling Ref is rejected with an explicit message.
 - **Extract** — captures the picked net's live copper (whole-board search) and writes it under
- `net_traces:` in the target file, then refreshes the Config tree. Geometry (`tracks:`/`vias:`) is
+  `net_traces:` in the project root file, then refreshes the Config tree. Geometry (`tracks:`/`vias:`) is
  machine-written and shown read-only by design — edit it by re-extracting, not by hand (same rule
  as `cells:`).
 - **Save** — edits the controllable fields (net/anchor/retired/skip) of an already-saved record and
@@ -597,7 +581,7 @@ recurse — that tree is Config tree's own Cells category, which now shows a com
   preserved verbatim if already present, not editable from this form.
 - No Redraw/Resolve — unlike Rule/Point/Placer, a Cell has no anchor of its own on the live board; it
   only ever gets a physical position in the context of a placement/spoke that references it.
-- **Save** — writes into the target file's `cells:` section (a dict keyed by name, same shape as
+- **Save** — writes into the project root file's `cells:` section (a dict keyed by name, same shape as
   Points).
 
 Config tree's **Add cell...** now opens this form blank (`new_cell()`) instead of writing a stub —

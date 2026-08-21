@@ -76,7 +76,7 @@ def test_net_aliases_table_has_one_row_per_distinct_net(main_window, tmp_path):
     cells_file = tmp_path / "cells.yaml"
     _write_yaml(cells_file, {})
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
 
     dock.set_board_selection([], [FakeSelected("C1", "C_IN", "X", {"1": "+3V3", "2": "GND"})])
 
@@ -89,7 +89,7 @@ def test_net_aliases_table_net_column_is_read_only(main_window, tmp_path):
     cells_file = tmp_path / "cells.yaml"
     _write_yaml(cells_file, {})
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
 
     dock.set_board_selection([], [FakeSelected("C1", "C_IN", "X", {"1": "+3V3"})])
 
@@ -105,7 +105,7 @@ def test_net_aliases_table_alias_and_checkbox_are_cell_widgets(main_window, tmp_
     cells_file = tmp_path / "cells.yaml"
     _write_yaml(cells_file, {})
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
 
     dock.set_board_selection([], [FakeSelected("C1", "C_IN", "X", {"1": "+3V3"})])
 
@@ -144,7 +144,7 @@ def test_auto_role_shows_lemma2_role_and_disables_alias(main_window, tmp_path, m
         "R_SERIES": {"1": {"FPGA_SIG"}, "2": {"FPGA_SIG"}},
     })
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
 
     dock.set_board_selection(
         [_fake_fp("R1")],
@@ -167,7 +167,7 @@ def test_auto_role_stays_empty_and_alias_active_for_fallback(main_window, tmp_pa
         "C_IN": {"1": {"+3V3"}, "2": {"GND"}},
     })
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
 
     # "+1V8" is not on any role's pad -> fallback.
     dock.set_board_selection(
@@ -190,7 +190,7 @@ def test_auto_role_gnd_is_fallback_not_pretend_owned(main_window, tmp_path, monk
         "C_IN_BULK": {"1": {"+3V3"}, "2": {"GND"}},
     })
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
 
     dock.set_board_selection(
         [_fake_fp("C1")],
@@ -223,7 +223,7 @@ def test_rule_net_checked_net_does_not_make_the_role_ambiguous(main_window, tmp_
         "PI_FILTER_FB": {"1": {"-2V5"}, "2": {"-2V5_DIRTY"}},
     })
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
     dock.set_board_selection(
         [_fake_fp("FB6")],
         [FakeSelected("FB6", "PI_FILTER_FB", "X", {"1": "-2V5", "2": "-2V5_DIRTY"}, fp=object())])
@@ -251,7 +251,7 @@ def test_refresh_auto_role_cells_clears_a_stale_by_role_tooltip(main_window, tmp
         "R_SERIES": {"1": {"FPGA_SIG"}, "2": {"FPGA_SIG"}},
     })
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
     dock.set_board_selection(
         [_fake_fp("R1")],
         [FakeSelected("R1", "R_SERIES", "X", {"1": "FPGA_SIG", "2": "FPGA_SIG"}, fp=object())])
@@ -277,7 +277,7 @@ def test_refresh_auto_role_cells_ignores_a_rule_net_checked_net(main_window, tmp
         "R_SERIES": {"1": {"FPGA_SIG"}, "2": {"FPGA_SIG"}},
     })
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
     dock.set_board_selection(
         [_fake_fp("R1")],
         [FakeSelected("R1", "R_SERIES", "X", {"1": "FPGA_SIG", "2": "FPGA_SIG"}, fp=object())])
@@ -309,7 +309,7 @@ def test_rule_net_click_immediately_clears_the_auto_role_visuals(main_window, tm
         "R_SERIES": {"1": {"FPGA_SIG"}, "2": {"FPGA_SIG"}},
     })
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
     dock.set_board_selection(
         [_fake_fp("R1")],
         [FakeSelected("R1", "R_SERIES", "X", {"1": "FPGA_SIG", "2": "FPGA_SIG"}, fp=object())])
@@ -336,7 +336,7 @@ def test_rebuilt_table_row_respects_a_restored_rule_net_checkbox(main_window, tm
         "R_SERIES": {"1": {"FPGA_SIG"}, "2": {"FPGA_SIG"}},
     })
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
     # First selection: FPGA_SIG classified by role; mark it Rule net.
     dock.set_board_selection(
         [_fake_fp("R1")],
@@ -371,123 +371,6 @@ def _combo_index_for_filename(combo, filename):
     return -1
 
 
-def test_set_root_path_populates_both_file_combos(tmp_path, main_window):
-    (tmp_path / "sub.yaml").write_text("cells: {}\n", encoding="utf-8")
-    root = tmp_path / "root.yaml"
-    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
-    dock = ExtractDock(main_window)
-
-    dock.set_root_path(root)
-
-    target_names = {dock.target_file_combo.itemData(i).name for i in range(dock.target_file_combo.count())}
-    profile_names = {dock.profile_file_combo.itemData(i).name for i in range(dock.profile_file_combo.count())}
-    assert target_names == {"root.yaml", "sub.yaml"}
-    assert profile_names == {"root.yaml", "sub.yaml"}
-
-
-def test_picking_the_target_combo_calls_set_target_file(tmp_path, main_window):
-    (tmp_path / "sub.yaml").write_text("cells: {}\n", encoding="utf-8")
-    root = tmp_path / "root.yaml"
-    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
-    dock = ExtractDock(main_window)
-    dock.set_root_path(root)
-
-    dock.target_file_combo.setCurrentIndex(_combo_index_for_filename(dock.target_file_combo, "sub.yaml"))
-
-    assert dock._target_path is not None
-    assert dock._target_path.name == "sub.yaml"
-
-
-def test_target_and_profile_files_can_genuinely_differ(tmp_path, main_window):
-    """The whole point of the request — previously these two always
-    followed the same ConfigTreeDock click and could never diverge."""
-    (tmp_path / "cells_only.yaml").write_text("cells: {}\n", encoding="utf-8")
-    (tmp_path / "profiles_only.yaml").write_text("extract_profiles: {}\n", encoding="utf-8")
-    root = tmp_path / "root.yaml"
-    root.write_text("include:\n  - cells_only.yaml\n  - profiles_only.yaml\n", encoding="utf-8")
-    dock = ExtractDock(main_window)
-    dock.set_root_path(root)
-
-    dock.target_file_combo.setCurrentIndex(
-        _combo_index_for_filename(dock.target_file_combo, "cells_only.yaml"))
-    dock.profile_file_combo.setCurrentIndex(
-        _combo_index_for_filename(dock.profile_file_combo, "profiles_only.yaml"))
-
-    assert dock._target_path.name == "cells_only.yaml"
-    assert dock._profile_path.name == "profiles_only.yaml"
-    assert dock._target_path != dock._profile_path
-
-
-def test_set_target_file_reflects_into_the_combo_even_before_root_is_known(tmp_path, main_window):
-    """ConfigTreeDock's own file_selected click must keep working exactly
-    as before, even for a dock that never got set_root_path() yet (or a
-    file outside the include graph) — same fallback PlacerDock's
-    cell_combo/set_selected_cell already relies on."""
-    cells_file = tmp_path / "cells.yaml"
-    cells_file.write_text("cells: {}\n", encoding="utf-8")
-    dock = ExtractDock(main_window)
-
-    dock.set_target_file(cells_file)
-
-    assert dock.target_file_combo.currentData() == cells_file
-    assert dock._target_path == cells_file
-
-
-def test_file_combos_are_closed_pickers_not_free_text_fields(main_window):
-    dock = ExtractDock(main_window)
-    assert not dock.target_file_combo.isEditable()
-    assert not dock.profile_file_combo.isEditable()
-
-
-# ── Placer file combo (2026-08-13, plan tree_to_combo_file_pickers) ──────
-
-def test_set_root_path_populates_placer_file_combo(tmp_path, main_window):
-    (tmp_path / "sub.yaml").write_text("cells: {}\n", encoding="utf-8")
-    root = tmp_path / "root.yaml"
-    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
-    dock = ExtractDock(main_window)
-
-    dock.set_root_path(root)
-
-    placer_names = {dock.placer_file_combo.itemData(i).name for i in range(dock.placer_file_combo.count())}
-    assert placer_names == {"root.yaml", "sub.yaml"}
-
-
-def test_picking_the_placer_combo_calls_set_placer_file(tmp_path, main_window):
-    (tmp_path / "sub.yaml").write_text("cells: {}\n", encoding="utf-8")
-    root = tmp_path / "root.yaml"
-    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
-    dock = ExtractDock(main_window)
-    dock.set_root_path(root)
-
-    dock.placer_file_combo.setCurrentIndex(_combo_index_for_filename(dock.placer_file_combo, "sub.yaml"))
-
-    assert dock._placer_path is not None
-    assert dock._placer_path.name == "sub.yaml"
-
-
-def test_set_placer_file_reflects_into_the_combo_even_before_root_is_known(tmp_path, main_window):
-    """ConfigTreeDock's own file_selected click must keep working exactly
-    as before for the Placer role too — even before set_root_path() (or for
-    a file outside the include graph) the path is still selected as an
-    extra combo item."""
-    placer_file = tmp_path / "placer.yaml"
-    placer_file.write_text("clone_placements: []\n", encoding="utf-8")
-    dock = ExtractDock(main_window)
-
-    dock.set_placer_file(placer_file)
-
-    assert dock.placer_file_combo.currentData() == placer_file
-    assert dock._placer_path == placer_file
-
-
-def test_placer_file_combo_is_a_closed_picker_not_free_text(main_window):
-    dock = ExtractDock(main_window)
-    assert not dock.placer_file_combo.isEditable()
-
-
-# ── prepare_new_profile (2026-08-13, plan context_menu_by_section) ────────
-
 def test_prepare_new_profile_arms_the_extract_flow(main_window, tmp_path):
     """ConfigTreeDock's "Add extract profile..." delegate — not a blank form
     (an extract_profiles: entry's params come from a real board selection):
@@ -498,7 +381,7 @@ def test_prepare_new_profile_arms_the_extract_flow(main_window, tmp_path):
     profile_file = tmp_path / "profiles.yaml"
     profile_file.write_text("extract_profiles: {}\n", encoding="utf-8")
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
     dock.save_profile_checkbox.setChecked(False)
     dock.profile_key_edit.setText("stale")
 
@@ -509,8 +392,7 @@ def test_prepare_new_profile_arms_the_extract_flow(main_window, tmp_path):
     # hasFocus() is False in offscreen (the window is never shown/activated)
     # — focusWidget() reflects the window's set focus widget instead.
     assert dock.focusWidget() is dock.profile_key_edit
-    assert dock._profile_path == profile_file
-    assert dock.profile_file_combo.currentData() == profile_file  # combo kept in sync
+    assert dock._profile_path == dock._root_path
 
 
 def test_prepare_new_profile_does_not_disturb_the_cells_context(main_window, tmp_path):
@@ -523,7 +405,7 @@ def test_prepare_new_profile_does_not_disturb_the_cells_context(main_window, tmp
     profile_file = tmp_path / "profiles.yaml"
     profile_file.write_text("extract_profiles: {}\n", encoding="utf-8")
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
 
     before_items = [dock.cells_list.item(i).text() for i in range(dock.cells_list.count())]
     before_target = dock._target_path
@@ -548,7 +430,7 @@ def test_cluster_slug_default_when_nothing_matches(main_window, tmp_path):
     cells_file = tmp_path / "cells.yaml"
     _write_yaml(cells_file, {})
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
 
     dock.set_board_selection([], [FakeSelected("D1", "SOME_ROLE", "PWR/DAC0", {"1": "+3V3"})])
     assert dock.name_edit.text() == "pwr_dac0"
@@ -558,7 +440,7 @@ def test_cluster_slug_does_not_stomp_manual_typing(main_window, tmp_path):
     cells_file = tmp_path / "cells.yaml"
     _write_yaml(cells_file, {})
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
 
     dock.name_edit.setText("my_custom_name")
     dock.set_board_selection([], [FakeSelected("D1", "SOME_ROLE", "OTHER/CLUSTER", {"1": "+3V3"})])
@@ -571,7 +453,7 @@ def test_existing_cell_key_beats_raw_cluster_slug(main_window, tmp_path):
         "existing_manual_name": {"vias": [], "components": [], "tracks": [], "layer": "F.Cu"},
     }})
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
 
     dock.set_board_selection([], [FakeSelected("D1", "SOME_ROLE", "Existing Manual Name", {"1": "+3V3"})])
     assert dock.name_edit.text() == "existing_manual_name"
@@ -611,8 +493,8 @@ def test_clicking_profile_pulls_aliases_role_and_origin(main_window, tmp_path, m
     })
 
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
-    dock.set_profile_file(extractor_file)
+    dock.set_root_path(cells_file)
+    dock.set_root_path(extractor_file)
 
     sel = [
         FakeSelected("C22", "C_OUT_BULK", "Out_Pi_Filter_N2V5", {"1": "-2V5", "2": "GND"}, fp=object()),
@@ -647,25 +529,24 @@ def test_clicking_profile_pulls_aliases_role_and_origin(main_window, tmp_path, m
 
 
 def test_clicking_cell_cross_references_matching_profile(main_window, tmp_path):
-    cells_dir = tmp_path / "templates"
-    cells_dir.mkdir()
-    cells_file = cells_dir / "test.yaml"
-    _write_yaml(cells_file, {"cells": {"2v5_adj_pi_filter": {"vias": [], "components": [], "tracks": [], "layer": "F.Cu"}}})
-
-    extractor_file = tmp_path / "test_extract.yaml"
-    _write_yaml(extractor_file, {
+    # Both the cells: and extract_profiles: sections live in the ONE project
+    # root (the GUI reads the whole include: graph since the file pickers were
+    # removed, 2026-08-21) — the cross-reference is name-based: a profile
+    # whose entry `name:` equals the clicked cell key is pulled in.
+    root_file = tmp_path / "root.yaml"
+    _write_yaml(root_file, {
+        "cells": {"2v5_adj_pi_filter": {"vias": [], "components": [], "tracks": [], "layer": "F.Cu"}},
         "extract_profiles": {
             "n2v5_adj_pi_filter": {
                 "output": "templates/test.yaml",
                 "name": "2v5_adj_pi_filter",
                 "params": {"PWR_OUT": "-2V5"},
             }
-        }
+        },
     })
 
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
-    dock.set_profile_file(extractor_file)
+    dock.set_root_path(root_file)
     dock.set_board_selection([], [FakeSelected("C22", "C_OUT_BULK", "Anything", {"1": "-2V5"})])
 
     item = dock.cells_list.findItems("2v5_adj_pi_filter", Qt.MatchFlag.MatchExactly)[0]
@@ -693,8 +574,8 @@ def test_net_alias_positional_fallback_on_rail_swap(main_window, tmp_path):
     })
 
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
-    dock.set_profile_file(extractor_file)
+    dock.set_root_path(cells_file)
+    dock.set_root_path(extractor_file)
     dock.set_board_selection([], [
         FakeSelected("D1", "SOME_ROLE", "X", {"1": "-2V5", "2": "-2V5_DIRTY", "3": "GND"}),
     ])
@@ -715,7 +596,7 @@ def test_tabs_have_the_expected_labels(main_window, tmp_path):
     cells_file = tmp_path / "cells.yaml"
     _write_yaml(cells_file, {})
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
 
     assert [dock._tabs.tabText(i) for i in range(dock._tabs.count())] == [
         "Origin", "Net aliases", "Net template role", "Existing"]
@@ -732,7 +613,7 @@ def test_net_template_role_tab_hidden_until_classification_sees_two_nets(main_wi
     cells_file = tmp_path / "cells.yaml"
     _write_yaml(cells_file, {})
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
     assert dock._tabs.isTabVisible(dock._role_net_tab_index) is False
 
     # No board/classification -> every net fallback -> nothing ambiguous,
@@ -769,7 +650,7 @@ def test_role_net_tab_appears_from_classification_without_any_alias(main_window,
         "PI_FILTER_FB": {"1": {"-2V5"}, "2": {"-2V5_DIRTY"}},
     })
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
     assert dock._tabs.isTabVisible(dock._role_net_tab_index) is False
 
     dock.set_board_selection(
@@ -793,7 +674,7 @@ def test_net_template_role_blocks_extraction_until_resolved(main_window, tmp_pat
     })
     monkeypatch.setattr(extract_mod, "extract_template_from_selection", _fake_extract)
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
 
     dock.set_board_selection(
         [_fake_fp("FB6")],
@@ -832,7 +713,7 @@ def test_net_template_role_pick_seeds_params_for_classified_net(main_window, tmp
     })
     monkeypatch.setattr(extract_mod, "extract_template_from_selection", _fake_extract)
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
 
     dock.set_board_selection(
         [_fake_fp("FB6")],
@@ -858,97 +739,6 @@ def test_net_template_role_pick_seeds_params_for_classified_net(main_window, tmp
     assert "bridging_cell" in saved["cells"]
 
 
-def test_placer_gets_include_entries_deduped(main_window, tmp_path, monkeypatch):
-    templates_dir = tmp_path / "templates"
-    templates_dir.mkdir()
-    cells_file = templates_dir / "test.yaml"
-    _write_yaml(cells_file, {})
-    extractor_file = tmp_path / "extracts.yaml"
-    _write_yaml(extractor_file, {})
-    placer_file = tmp_path / "root.yaml"
-    _write_yaml(placer_file, {"clone_placements": []})
-
-    dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
-    dock.set_profile_file(extractor_file)
-    dock.set_placer_file(placer_file)
-
-    monkeypatch.setattr(extract_mod, "extract_template_from_selection", _fake_extract)
-    main_window.connection.board = FakeBoard()
-
-    dock.name_edit.setText("some_cell")
-    dock.save_profile_checkbox.setChecked(True)
-    dock.profile_key_edit.setText("some_profile")
-    dock._raw_items = [object()]
-    dock._do_extract()
-
-    placer_data = yaml.safe_load(placer_file.read_text())
-    # cells_file:/cell_files: were folded into include: 2026-08-02 — both the
-    # Cells file and the Extractor file are now wired the same way.
-    assert placer_data["include"] == ["templates/test.yaml", "extracts.yaml"]
-    assert placer_data["clone_placements"] == []  # untouched, not overwritten
-
-    # A second extraction under a different name must not duplicate entries.
-    dock._last_autofill_key = None
-    dock.name_edit.setText("another_cell")
-    dock.profile_key_edit.setText("another_profile")
-    dock._do_extract()
-
-    placer_data2 = yaml.safe_load(placer_file.read_text())
-    assert placer_data2["include"] == ["templates/test.yaml", "extracts.yaml"]
-
-
-def test_placer_wiring_skips_include_for_a_root_shaped_extractor_file(main_window, tmp_path, monkeypatch, caplog):
-    """Reproduces the real failure found live 2026-08-01: an Extractor
-    file that's ALSO a full root config (registry_path/schematic_dir/...,
-    e.g. because it predates being assigned this role, or is reused as a
-    standalone config too) can't be include:'d — config/includes.py only
-    merges rules/clone_placements/cells/points/extract_profiles/
-    clone_profiles from an included file, everything else is fatal there.
-    Blindly adding include: left the Placer file unloadable the next time
-    anything read it (Redraw, or a real `apply`)."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
-    extractor_file = tmp_path / "extractor.yaml"
-    _write_yaml(extractor_file, {"registry_path": "registries/x.json", "schematic_dir": "../sch"})
-    placer_file = tmp_path / "root.yaml"
-    _write_yaml(placer_file, {"clone_placements": []})
-
-    dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
-    dock.set_profile_file(extractor_file)
-    dock.set_placer_file(placer_file)
-
-    monkeypatch.setattr(extract_mod, "extract_template_from_selection", _fake_extract)
-    main_window.connection.board = FakeBoard()
-
-    dock.name_edit.setText("some_cell")
-    dock.save_profile_checkbox.setChecked(True)
-    dock.profile_key_edit.setText("some_profile")
-    dock._raw_items = [object()]
-    dock._do_extract()
-
-    assert any("root-config-only" in r.message for r in caplog.records)
-    placer_data = yaml.safe_load(placer_file.read_text())
-    # cells_file:/cell_files: were folded into include: 2026-08-02 — the
-    # Cells file is still wired via include:, only the root-shaped Extractor
-    # file's entry is skipped.
-    assert placer_data["include"] == ["cells.yaml"]  # unaffected, still added
-
-    # The written extractor file must still actually load_config() cleanly
-    # via include: once it stops carrying root-only keys — confirms the
-    # guard's diagnosis is real, not just a plausible-sounding message.
-    from kicadstamp.config import load_config
-    extractor_data = yaml.safe_load(extractor_file.read_text())
-    del extractor_data["registry_path"]
-    del extractor_data["schematic_dir"]
-    _write_yaml(extractor_file, extractor_data)
-    _write_yaml(placer_file, {**yaml.safe_load(placer_file.read_text()), "include": ["cells.yaml", "extractor.yaml"]})
-    load_config(str(placer_file))  # must not raise, now that extractor.yaml is include:-safe
-
-
-# ── net_from_role auto-classification summary ────────────────────────────
-
 def test_summarize_net_from_role_returns_none_without_any(main_window):
     dock = ExtractDock(main_window)
     template_dict = {"cell1": {"vias": [{"net": "GND"}], "tracks": [], "components": [], "layer": "F.Cu"}}
@@ -972,7 +762,7 @@ def test_extract_shows_net_from_role_summary_on_success(main_window, tmp_path, m
     cells_file = tmp_path / "cells.yaml"
     _write_yaml(cells_file, {})
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
 
     def _fake_extract_with_role(adapter, name, params=None, items=None, annotations=None, **kwargs):
         return {name: {"vias": [{"net_from_role": "C_IN_BULK"}], "components": [], "tracks": [], "layer": "F.Cu"}}
@@ -997,7 +787,7 @@ def test_on_extract_dispatches_to_worker(main_window, tmp_path, monkeypatch):
     cells_file = tmp_path / "cells.yaml"
     _write_yaml(cells_file, {})
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
     main_window.connection.board = FakeBoard()
 
     captured = {}
@@ -1038,7 +828,7 @@ def test_on_extract_dispatches_to_worker(main_window, tmp_path, monkeypatch):
     assert payload["save_profile"] is False
     assert payload["board"] is main_window.connection.board
     assert payload["target_path"] == cells_file
-    assert payload["placer_path"] is None
+    assert payload["placer_path"] == cells_file
     assert payload["params"] == {}
     assert payload["rule_nets"] == set()
     assert payload["origin_kwargs"] == {}
@@ -1052,7 +842,7 @@ def test_checking_rule_net_clears_and_disables_the_alias_edit(main_window, tmp_p
     cells_file = tmp_path / "cells.yaml"
     _write_yaml(cells_file, {})
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
     dock.set_board_selection([], [FakeSelected("D1", "SOME_ROLE", "X", {"1": "+3V3_VCCIO"})])
 
     edit = dock._net_alias_edits["+3V3_VCCIO"]
@@ -1070,7 +860,7 @@ def test_collect_inputs_includes_checked_rule_nets(main_window, tmp_path):
     cells_file = tmp_path / "cells.yaml"
     _write_yaml(cells_file, {})
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
     dock.set_board_selection([], [
         FakeSelected("D1", "SOME_ROLE", "X", {"1": "+3V3_VCCIO", "2": "GND"}),
     ])
@@ -1091,8 +881,8 @@ def test_extract_persists_rule_nets_into_the_profile(main_window, tmp_path, monk
     extractor_file = tmp_path / "extractor.yaml"
     _write_yaml(extractor_file, {})
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
-    dock.set_profile_file(extractor_file)
+    dock.set_root_path(cells_file)
+    dock.set_root_path(extractor_file)
     dock.set_board_selection([], [FakeSelected("D1", "SOME_ROLE", "X", {"1": "+3V3_VCCIO"})])
     dock._rule_net_checkboxes["+3V3_VCCIO"].setChecked(True)
 
@@ -1119,8 +909,8 @@ def test_clicking_profile_re_checks_its_rule_nets(main_window, tmp_path):
         }
     })
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
-    dock.set_profile_file(extractor_file)
+    dock.set_root_path(cells_file)
+    dock.set_root_path(extractor_file)
     dock.set_board_selection([], [
         FakeSelected("D1", "SOME_ROLE", "X", {"1": "+3V3_VCCIO", "2": "GND"}),
     ])
@@ -1140,7 +930,7 @@ def test_cluster_filter_hidden_for_a_single_cluster_selection(main_window, tmp_p
     cells_file = tmp_path / "cells.yaml"
     _write_yaml(cells_file, {})
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
     main_window.show()  # isVisible() needs the whole ancestor chain shown
 
     dock.set_board_selection([_fake_fp("R18")],
@@ -1154,7 +944,7 @@ def test_cluster_filter_shown_and_defaults_to_majority_cluster(main_window, tmp_
     cells_file = tmp_path / "cells.yaml"
     _write_yaml(cells_file, {})
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
     main_window.show()  # isVisible() needs the whole ancestor chain shown
 
     dock.set_board_selection(
@@ -1179,7 +969,7 @@ def test_cluster_filter_excludes_other_cluster_footprints_but_keeps_vias(main_wi
     cells_file = tmp_path / "cells.yaml"
     _write_yaml(cells_file, {})
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
     dock.name_edit.setText("fpga_periph")
     main_window.connection.board = FakeBoard()
 
@@ -1203,7 +993,7 @@ def test_cluster_filter_unchecked_keeps_full_selection(main_window, tmp_path):
     cells_file = tmp_path / "cells.yaml"
     _write_yaml(cells_file, {})
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
     dock.name_edit.setText("fpga_periph")
     main_window.connection.board = FakeBoard()
 
@@ -1225,7 +1015,7 @@ def test_cluster_filter_updates_selection_label_and_warning(main_window, tmp_pat
     cells_file = tmp_path / "cells.yaml"
     _write_yaml(cells_file, {})
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
 
     dock.set_board_selection(
         [_fake_fp("R18"), _fake_fp("R19"), _fake_fp("C5")],
@@ -1252,7 +1042,7 @@ def test_cluster_filter_resets_when_selection_no_longer_spans_clusters(main_wind
     cells_file = tmp_path / "cells.yaml"
     _write_yaml(cells_file, {})
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
     main_window.show()  # isVisible() needs the whole ancestor chain shown
 
     dock.set_board_selection(
@@ -1288,8 +1078,8 @@ def test_registry_filter_excludes_via_already_in_placer_registry(main_window, tm
     })
 
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
-    dock.set_placer_file(placer_file)
+    dock.set_root_path(cells_file)
+    dock.set_root_path(placer_file)
     dock.name_edit.setText("fpga_periph")
     main_window.connection.board = FakeBoard()
 
@@ -1322,8 +1112,8 @@ def test_registry_filter_excludes_track_already_in_placer_registry(main_window, 
     })
 
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
-    dock.set_placer_file(placer_file)
+    dock.set_root_path(cells_file)
+    dock.set_root_path(placer_file)
     dock.name_edit.setText("fpga_periph")
     main_window.connection.board = FakeBoard()
 
@@ -1350,7 +1140,7 @@ def test_registry_filter_is_a_noop_without_a_placer_file(main_window, tmp_path):
     cells_file = tmp_path / "cells.yaml"
     _write_yaml(cells_file, {})
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
+    dock.set_root_path(cells_file)
     dock.name_edit.setText("fpga_periph")
     main_window.connection.board = FakeBoard()
 
@@ -1377,8 +1167,8 @@ def test_registry_uuids_cached_until_placer_file_changes(main_window, tmp_path, 
     _write_registry(tmp_path / "placer.registry.json", {})
 
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
-    dock.set_placer_file(placer_file)
+    dock.set_root_path(cells_file)
+    dock.set_root_path(placer_file)
 
     import kicadstamp.registry as registry_mod
     calls = []
@@ -1403,7 +1193,7 @@ def test_registry_uuids_cached_until_placer_file_changes(main_window, tmp_path, 
     other_placer = tmp_path / "other_placer.yaml"
     _write_yaml(other_placer, {"clone_placements": []})
     _write_registry(tmp_path / "other_placer.registry.json", {})
-    dock.set_placer_file(other_placer)
+    dock.set_root_path(other_placer)
     dock._registry_uuids()
 
     assert len(calls) == 2  # cache invalidated by the Placer file changing
@@ -1421,8 +1211,8 @@ def test_registry_filter_survives_a_missing_registry_file(main_window, tmp_path)
     # deliberately no placer.registry.json / placer.tracks.registry.json
 
     dock = ExtractDock(main_window)
-    dock.set_target_file(cells_file)
-    dock.set_placer_file(placer_file)
+    dock.set_root_path(cells_file)
+    dock.set_root_path(placer_file)
     dock.name_edit.setText("fpga_periph")
     main_window.connection.board = FakeBoard()
 

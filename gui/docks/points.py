@@ -88,13 +88,11 @@ from kicadstamp.i18n import _
 from kicadstamp.placement.services.point_resolver import resolve_point_chain
 from kicadstamp.utils.units import MM
 
-from .. import yaml_io
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
-                      display_path, merge_write, refresh_file_combo_choices,
-                      set_file_combo_selection, show_message)
-from .rename import collect_all_sheet_names
+                      display_path, merge_write, show_message)
+from .rename import collect_all_sheet_names, collect_section_entries
 
 logger = logging.getLogger(__name__)
 
@@ -118,20 +116,6 @@ class PointsDock(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
-
-        # Target file as a dropdown (2026-08-13, plan
-        # tree_to_combo_file_pickers) — was a plain label + ConfigTreeDock
-        # click only; same "a tree click yanks the user into a different
-        # panel" pain every other file picker already fixed with a combo.
-        # set_target_file() stays the shared entry point (tree click and
-        # combo both feed it), so the tree keeps working unchanged.
-        target_file_row = QHBoxLayout()
-        target_file_row.addWidget(QLabel(_("Points file:")))
-        self.target_file_combo = QComboBox()
-        self.target_file_combo.setPlaceholderText(_("pick a file (or browse it in the Config tree)"))
-        self.target_file_combo.currentIndexChanged.connect(self._on_target_file_combo_changed)
-        target_file_row.addWidget(self.target_file_combo, 1)
-        layout.addLayout(target_file_row)
 
         name_form = QFormLayout()
         self.name_edit = QLineEdit()
@@ -171,27 +155,17 @@ class PointsDock(QWidget):
 
     # ── Wiring from the Config tree ─────────────────────────────────────
 
-    def set_target_file(self, path: Optional[Path]) -> None:
-        self._path = path
-        set_file_combo_selection(self.target_file_combo, path)
-        self._refresh_point_names()
-
-    def _on_target_file_combo_changed(self, index: int) -> None:
-        path = self.target_file_combo.itemData(index)
-        if path is not None:
-            self.set_target_file(path)
-
     def set_root_path(self, path: Optional[Path]) -> None:
-        """Wired to RootMetadataDock's root_changed (2026-08-13, plan
-        tree_to_combo_file_pickers — the ONLY dock that had no
-        set_root_path at all before): populates target_file_combo from
-        every file reachable via include: from the project root, same
-        refresh_file_combo_choices() pattern as every other dock's
-        set_root_path. Points' own point-chain autocomplete (_refresh_point_
-        names) stays scoped to this dock's own target file, unchanged."""
+        """Wired to RootMetadataDock's root_changed — new points: entries are
+        always written to the project root file (2026-08-21, plan
+        flatten_and_single_file_gui), so the write target IS the root. The
+        point-chain autocomplete now reads the WHOLE include graph (a point
+        can live in any included file), same graph-wide scope as every other
+        dock's point autocomplete."""
         self._root_path = path
-        (self._path,) = refresh_file_combo_choices((self.target_file_combo,), path, (self._path,))
+        self._path = path
         self._refresh_sheet_names()
+        self._refresh_point_names()
 
     def refresh_known_roles(self, snapshot) -> None:
         """Same "populate from the live board" pattern as PlacerDock's own
@@ -202,13 +176,12 @@ class PointsDock(QWidget):
         self.origin_widget.set_known_roles(roles, clusters)
 
     def _refresh_point_names(self) -> None:
-        """Autocomplete for the Point-chain field, from the currently
-        targeted file's own points: keys — self-contained (no live board,
-        no other dock), closes docs/gui.md's long-flagged "points:-name
-        autocomplete" gap for at least this dock's own Point mode."""
+        """Autocomplete for the Point-chain field, from the WHOLE include
+        graph's points: keys (a point can live in any included file — see
+        collect_section_entries)."""
         names = []
-        if self._path is not None:
-            names = sorted((yaml_io.load_data(self._path).get("points") or {}).keys())
+        if self._root_path is not None:
+            names = sorted(collect_section_entries(self._root_path, "points").keys())
         self.origin_widget.set_point_names(names)
 
     def _refresh_sheet_names(self) -> None:
@@ -299,7 +272,7 @@ class PointsDock(QWidget):
             return None
 
         if self._path is None:
-            self._show_message(_("Pick a file in the Config tree first."), _ERROR_STYLE)
+            self._show_message(_("Set the project root first."), _ERROR_STYLE)
             return None
 
         board = self._connection.board
@@ -308,7 +281,7 @@ class PointsDock(QWidget):
             return None
 
         points = {}
-        for other_name, other_data in (yaml_io.load_data(self._path).get("points") or {}).items():
+        for other_name, other_data in collect_section_entries(self._root_path, "points").items():
             if other_name == name:
                 continue
             try:
@@ -369,7 +342,7 @@ class PointsDock(QWidget):
             return
         name, entry = built
         if self._path is None:
-            self._show_message(_("Pick a file in the Config tree first."), _ERROR_STYLE)
+            self._show_message(_("Set the project root first."), _ERROR_STYLE)
             return
 
         try:
@@ -395,11 +368,12 @@ class PointsDock(QWidget):
     # ── Starting a brand new entry (ConfigTreeDock's Add point...) ──────────
 
     def new_point(self, path: Path) -> None:
-        """Resets the form to its initial (blank) state and targets path —
-        ConfigTreeDock's "Add point..." context-menu action opens this form
-        empty, same reasoning as PlacerDock.new_placement()/ThermalViaArrayDock.
-        new_thermal_via()."""
-        self.set_target_file(path)
+        """Resets the form to its initial (blank) state — ConfigTreeDock's
+        "Add point..." context-menu action opens this form empty, same
+        reasoning as PlacerDock.new_placement()/ThermalViaArrayDock.
+        new_thermal_via(). The entry is written to the project root file
+        (2026-08-21), so the passed path is ignored."""
+        self._path = self._root_path
         self.name_edit.setText("")
         self.origin_widget.clear()
         self._show_message("")
@@ -411,12 +385,12 @@ class PointsDock(QWidget):
         category (via points_picked) when an already-saved entry is
         clicked. points: is a DICT section (see module docstring), so the
         signal only carries the name — the actual data is re-read fresh
-        from self._path here, same discipline root_metadata.py's
-        set_target_file already uses."""
+        from the WHOLE include graph here (a point can live in any included
+        file)."""
         self._show_message("")
         entry = {}
-        if self._path is not None:
-            entry = (yaml_io.load_data(self._path).get("points") or {}).get(name) or {}
+        if self._root_path is not None:
+            entry = collect_section_entries(self._root_path, "points").get(name) or {}
         self.name_edit.setText(name)
 
         shift_x = entry.get("shift_x_mm") or None

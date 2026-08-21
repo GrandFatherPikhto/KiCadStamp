@@ -103,8 +103,7 @@ from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       configure_searchable, display_path, parse_float_field,
-                      read_data, refresh_file_combo_choices, set_combo_items,
-                      set_file_combo_selection, set_mode_pair_enabled, show_message,
+                      set_combo_items, set_mode_pair_enabled, show_message,
                       upsert_list_entry)
 from .rename import (collect_all_cell_names, collect_all_point_names,
                      collect_all_rule_nets, collect_all_sheet_names, collect_rules_by_net)
@@ -209,20 +208,6 @@ class RuleDock(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
-
-        # Target file as a dropdown (2026-08-13, plan
-        # tree_to_combo_file_pickers) — was a plain label + ConfigTreeDock
-        # click only; same "a tree click yanks the user into a different
-        # panel" pain every other file picker already fixed with a combo.
-        # set_target_file() stays the shared entry point (tree click and
-        # combo both feed it), so the tree keeps working unchanged.
-        target_file_row = QHBoxLayout()
-        target_file_row.addWidget(QLabel(_("Rule file:")))
-        self.target_file_combo = QComboBox()
-        self.target_file_combo.setPlaceholderText(_("pick a file (or browse it in the Config tree)"))
-        self.target_file_combo.currentIndexChanged.connect(self._on_target_file_combo_changed)
-        target_file_row.addWidget(self.target_file_combo, 1)
-        layout.addLayout(target_file_row)
 
         # Tabbed (2026-08-05) — see module docstring for why Net/Origin/
         # Spoke split this way and why the table+buttons below stay outside
@@ -397,22 +382,13 @@ class RuleDock(QWidget):
 
     # ── Wiring from the Config tree ─────────────────────────────────────
 
-    def set_target_file(self, path: Optional[Path]) -> None:
-        self._path = path
-        set_file_combo_selection(self.target_file_combo, path)
-
-    def _on_target_file_combo_changed(self, index: int) -> None:
-        path = self.target_file_combo.itemData(index)
-        if path is not None:
-            self.set_target_file(path)
-
     def set_root_path(self, path: Optional[Path]) -> None:
-        """Wired to RootMetadataDock's root_changed — the Cell/Point
-        combos are sourced from the WHOLE include graph (see module
-        docstring), which needs the project's root, not this dock's own
-        target file."""
+        """Wired to RootMetadataDock's root_changed — new rules: entries are
+        always written to the project root file (2026-08-21, plan
+        flatten_and_single_file_gui), so the write target IS the root. The
+        Cell/Point combos stay sourced from the WHOLE include graph."""
         self._root_path = path
-        (self._path,) = refresh_file_combo_choices((self.target_file_combo,), path, (self._path,))
+        self._path = path
         self._refresh_cell_names()
         self._refresh_point_names()
         self._refresh_sheet_names()
@@ -623,7 +599,7 @@ class RuleDock(QWidget):
         and rebuilds the whole tree (losing selection), so firing it on every
         blur would be both wasteful and jarring."""
         if self._path is None:
-            self._show_message(_("Pick a file in the Config tree first."), _ERROR_STYLE)
+            self._show_message(_("Set the project root first."), _ERROR_STYLE)
             return
         entry = self._build_rule_dict()
         if entry is None:
@@ -772,7 +748,7 @@ class RuleDock(QWidget):
         if entry is None:
             return None
         if self._path is None:
-            self._show_message(_("Pick a file in the Config tree first."), _ERROR_STYLE)
+            self._show_message(_("Set the project root first."), _ERROR_STYLE)
             return None
 
         try:
@@ -940,15 +916,13 @@ class RuleDock(QWidget):
         write that stale state back, silently undoing the bulk change. Re-read
         its entry from disk and reload the form so shown + autosaved state
         match the bulk result."""
-        if self._path is None or self.net_edit.currentText().strip() != net:
+        if self._root_path is None or self.net_edit.currentText().strip() != net:
             return
         loaded_identity = _rule_identity(
             {"net": net, "name": self.name_edit.text().strip() or None})
-        try:
-            data = read_data(self._path)
-        except OSError:
-            return
-        for rule in data.get("rules") or []:
+        # Rules on a net can live in ANY included file — search the whole
+        # graph, not just the root (the dock's write target).
+        for _file, rule in collect_rules_by_net(self._root_path, net):
             if isinstance(rule, dict) and _rule_identity(rule) == loaded_identity:
                 self.load_entry(rule)
                 return
@@ -956,11 +930,12 @@ class RuleDock(QWidget):
     # ── Starting a brand new entry (ConfigTreeDock's Add rule...) ───────────
 
     def new_rule(self, path: Path) -> None:
-        """Resets the form to its initial (blank) state and targets path —
-        ConfigTreeDock's "Add rule..." context-menu action opens this form
-        empty, same reasoning as PlacerDock.new_placement()/
-        ThermalViaArrayDock.new_thermal_via()/PointsDock.new_point()."""
-        self.set_target_file(path)
+        """Resets the form to its initial (blank) state — ConfigTreeDock's
+        "Add rule..." context-menu action opens this form empty, same
+        reasoning as PlacerDock.new_placement()/ThermalViaArrayDock.
+        new_thermal_via()/PointsDock.new_point(). The entry is written to the
+        project root file (2026-08-21), so the passed path is ignored."""
+        self._path = self._root_path
         self.net_edit.setCurrentText("")
         self.name_edit.setText("")
         self.origin_widget.clear()

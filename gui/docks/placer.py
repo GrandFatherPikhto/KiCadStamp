@@ -139,12 +139,13 @@ from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       WARN_STYLE as _WARN_STYLE, configure_searchable, display_path,
-                      parse_float_field, refresh_file_combo_choices, set_combo_items,
-                      set_file_combo_selection, set_mode_pair_enabled,
+                      parse_float_field, set_combo_items, set_mode_pair_enabled,
                       show_message, upsert_clone_placement, upsert_list_entry)
 from .cascade import cascade_records, run_cascade_worker
 from .entity_delete import delete_entry
-from .rename import collect_all_point_names, collect_all_sheet_names, entry_effective_name
+from .rename import (collect_all_cell_names, collect_all_point_names,
+                     collect_all_sheet_names, collect_section_entries,
+                     entry_effective_name)
 
 logger = logging.getLogger(__name__)
 
@@ -973,33 +974,6 @@ class PlacerDock(QWidget):
         origin_page_layout.addStretch(1)
         self._origin_tab_index = self._tabs.addTab(origin_page, _("Origin"))
 
-        # Cells/Placer file pickers as dropdowns (2026-08-13, plan
-        # tree_to_combo_file_pickers) — same "which file" context for the
-        # WHOLE dock (not one tab), same zone OUTSIDE self._tabs where the
-        # buttons live ("act on the whole placement, not one tab" — the
-        # same principle ExtractDock already uses for its own file combos),
-        # same closed-set non-editable combo pattern as ExtractDock's
-        # target_file_combo/profile_file_combo. Not to be confused with
-        # cell_combo above (Source tab) — that picks a Cell WITHIN a file;
-        # these pick the files themselves. Both stay shared entry points:
-        # ConfigTreeDock's click and the combo both feed the same
-        # set_cells_file()/set_placer_file().
-        cells_file_row = QHBoxLayout()
-        cells_file_row.addWidget(QLabel(_("Cells file:")))
-        self.cells_file_combo = QComboBox()
-        self.cells_file_combo.setPlaceholderText(_("pick a file (or browse it in the Config tree)"))
-        self.cells_file_combo.currentIndexChanged.connect(self._on_cells_file_combo_changed)
-        cells_file_row.addWidget(self.cells_file_combo, 1)
-        layout.addLayout(cells_file_row)
-
-        placer_file_row = QHBoxLayout()
-        placer_file_row.addWidget(QLabel(_("Placer file:")))
-        self.placer_file_combo = QComboBox()
-        self.placer_file_combo.setPlaceholderText(_("pick a file (or browse it in the Config tree)"))
-        self.placer_file_combo.currentIndexChanged.connect(self._on_placer_file_combo_changed)
-        placer_file_row.addWidget(self.placer_file_combo, 1)
-        layout.addLayout(placer_file_row)
-
         button_row = QHBoxLayout()
         self.redraw_button = QPushButton(_("Redraw"))
         self.redraw_button.clicked.connect(self._on_redraw)
@@ -1048,50 +1022,31 @@ class PlacerDock(QWidget):
 
     # ── Wiring from the Config tree / Components tree ─────────────────────
 
-    def set_cells_file(self, path: Optional[Path]) -> None:
-        self._cells_path = path
-        set_file_combo_selection(self.cells_file_combo, path)
-        self._refresh_cell_choices()
-
-    def _on_cells_file_combo_changed(self, index: int) -> None:
-        path = self.cells_file_combo.itemData(index)
-        if path is not None:
-            self.set_cells_file(path)
-
-    def _on_placer_file_combo_changed(self, index: int) -> None:
-        path = self.placer_file_combo.itemData(index)
-        if path is not None:
-            self.set_placer_file(path)
-
     def _refresh_cell_choices(self) -> None:
-        cells = yaml_io.load_data(self._cells_path).get("cells", {}) if self._cells_path else {}
-        set_combo_items(self.cell_combo, sorted(cells.keys()))
+        names = collect_all_cell_names(self._root_path) if self._root_path is not None else []
+        set_combo_items(self.cell_combo, names)
 
-    def set_placer_file(self, path: Optional[Path]) -> None:
-        self._placer_path = path
-        set_file_combo_selection(self.placer_file_combo, path)
-
-    def set_target_file(self, path: Optional[Path]) -> None:
-        """Alias for set_placer_file (2026-08-12, Group 1): after the old
-        CoordinatePlacerDock was merged in, the ONE dock has a single target
-        file — whatever file is currently browsed in the Config tree — used
-        for both clone_placements: and coordinate_placements: writes. Kept as
-        a distinct name so the config-tree file_selected wiring reads the
-        same for both sources."""
-        self.set_placer_file(path)
+    def _cell_data(self, name: Optional[str]) -> dict:
+        """Full cells: entry dict for `name`, read from the WHOLE include
+        graph (a cell can live in any included file) — after the file pickers
+        were removed (2026-08-21, plan flatten_and_single_file_gui) the dock
+        edits the whole project, so a cell's params/roles must be looked up
+        graph-wide, not in one hand-picked file."""
+        if not name or self._root_path is None:
+            return {}
+        return collect_section_entries(self._root_path, "cells").get(name, {})
 
     def set_root_path(self, path: Optional[Path]) -> None:
-        """Wired to RootMetadataDock's root_changed — the Point combo is
-        sourced from the WHOLE include graph (a Point routinely lives in a
-        different file than the clone_placement referencing it), same
-        reasoning/pattern as RuleDock's own set_root_path (gui/docks/rules.py).
-        Closes the "anchor_point Point-name autocomplete" gap this dock's own
-        module docstring had deliberately deferred until now (2026-08-06,
-        Denis: "думаю имена Points тоже надо делать выпадашкой с именами")."""
+        """Wired to RootMetadataDock's root_changed — new clone_placements:/
+        coordinate_placements: entries are always written to the project root
+        file (2026-08-21, plan flatten_and_single_file_gui), so both file
+        targets ARE the root. The Point combo stays sourced from the WHOLE
+        include graph (a Point routinely lives in a different file than the
+        clone_placement referencing it)."""
         self._root_path = path
-        self._cells_path, self._placer_path = refresh_file_combo_choices(
-            (self.cells_file_combo, self.placer_file_combo),
-            path, (self._cells_path, self._placer_path))
+        self._cells_path = path
+        self._placer_path = path
+        self._refresh_cell_choices()
         self._refresh_point_names()
         self._refresh_sheet_names()
 
@@ -1262,7 +1217,7 @@ class PlacerDock(QWidget):
         self.net_overrides_table.set_value_choices(self._known_nets)
 
     def _rebuild_param_rows(self) -> None:
-        cell_data = yaml_io.load_data(self._cells_path).get("cells", {}).get(self._selected_cell, {})
+        cell_data = self._cell_data(self._selected_cell)
         placeholders = sorted(self._discover_placeholders(cell_data))
         previous = {name: edit.currentText() for name, edit in self._param_edits.items()}
 
@@ -1300,7 +1255,7 @@ class PlacerDock(QWidget):
         board-wide role list was misleadingly broad. Same "scope to the
         owning cell, not the whole board" fix as CellDock's own
         anchor_role_combo (2026-08-06)."""
-        cell_data = yaml_io.load_data(self._cells_path).get("cells", {}).get(self._selected_cell, {})
+        cell_data = self._cell_data(self._selected_cell)
         roles = sorted({c.get("role") for c in cell_data.get("components", []) if c.get("role")})
         self.nets_table.set_key_choices(roles)
         self.refs_table.set_key_choices(roles)
@@ -1360,7 +1315,7 @@ class PlacerDock(QWidget):
                       "board by Role + that Cluster (prefix match), same signal the by-nets "
                       "resolver's own narrowing already uses."), _ERROR_STYLE)
             return None
-        cell_data = yaml_io.load_data(self._cells_path).get("cells", {}).get(self._selected_cell, {})
+        cell_data = self._cell_data(self._selected_cell)
         # 2026-08-16 (net_template_pad + afternoon net_template_same_as_role):
         # carry each role's cell-level (net_template_pad, net_template_same_as_role)
         # pair (both None if absent — loader's mutual-exclusion fatal guarantees
@@ -1748,7 +1703,7 @@ class PlacerDock(QWidget):
         if entry is None:
             return None
         if self._placer_path is None:
-            self._show_message(_("Pick a Placer file in Files first."), _ERROR_STYLE)
+            self._show_message(_("Set the project root first."), _ERROR_STYLE)
             return None
         # Coordinate mode (2026-08-12, Group 1): the entry has no cell:, place
         # it through its own coordinate-specific collection path.
@@ -1758,7 +1713,7 @@ class PlacerDock(QWidget):
         # synthesises its one-component Cell on the fly (see
         # _on_cell_mode_changed's docstring), cells: is never read.
         if "cell" in entry and self._cells_path is None:
-            self._show_message(_("Pick a Cells file in Files first."), _ERROR_STYLE)
+            self._show_message(_("Set the project root first."), _ERROR_STYLE)
             return None
 
         try:
@@ -2027,7 +1982,7 @@ class PlacerDock(QWidget):
         if entry is None:
             return
         if self._placer_path is None:
-            self._show_message(_("Pick a Placer file in Files first."), _ERROR_STYLE)
+            self._show_message(_("Set the project root first."), _ERROR_STYLE)
             return
         if self.is_coordinate:
             self._do_save_coordinate(entry)
@@ -2102,13 +2057,14 @@ class PlacerDock(QWidget):
     # ── Starting a brand new placement (ConfigTreeDock's Add placer) ───────
 
     def new_placement(self, placer_path: Path) -> None:
-        """Resets the form to its initial (blank) state and targets
-        placer_path — ConfigTreeDock's "Add placer" context-menu action
-        (2026-08-03) opens this form empty rather than writing a raw stub
-        straight to YAML, so the existing validated Save path
-        (_do_save -> load_clone_placement) is what actually creates the
-        entry, same as every other way a placement gets saved."""
-        self._placer_path = placer_path
+        """Resets the form to its initial (blank) state — ConfigTreeDock's
+        "Add placer" context-menu action (2026-08-03) opens this form empty
+        rather than writing a raw stub straight to YAML, so the existing
+        validated Save path (_do_save -> load_clone_placement) is what
+        actually creates the entry, same as every other way a placement gets
+        saved. The entry is written to the project root file (2026-08-21), so
+        the passed path is ignored."""
+        self._placer_path = self._root_path
         self._selected_cell = None
         self.cell_combo.setCurrentIndex(-1)
         self.cell_mode_combo.setCurrentIndex(0)
@@ -2139,12 +2095,13 @@ class PlacerDock(QWidget):
         self._show_message("")
 
     def new_coordinate_placement(self, placer_path: Path) -> None:
-        """Resets the form to a blank COORDINATE placement and targets
-        placer_path (2026-08-12, Group 1) — ConfigTreeDock's "Add
-        coordinate placement..." context-menu action opens the coordinate
-        form empty, same validated-Save path as new_placement's clone
-        counterpart (_do_save_coordinate -> load_coordinate_placement)."""
-        self._placer_path = placer_path
+        """Resets the form to a blank COORDINATE placement — ConfigTreeDock's
+        "Add coordinate placement..." context-menu action opens the
+        coordinate form empty, same validated-Save path as new_placement's
+        clone counterpart (_do_save_coordinate -> load_coordinate_placement).
+        The entry is written to the project root file (2026-08-21), so the
+        passed path is ignored."""
+        self._placer_path = self._root_path
         self.cell_mode_combo.setCurrentIndex(1)  # -> Single component (signal toggles tabs)
         self._on_cell_mode_changed()
         self.coordinate_form.clear()

@@ -26,7 +26,7 @@ def _make_dock(main_window, tmp_path, data=None):
     target_file = tmp_path / "rules.yaml"
     _write_yaml(target_file, data if data is not None else {"rules": []})
     dock = RuleDock(main_window)
-    dock.set_target_file(target_file)
+    dock.set_root_path(target_file)
     return dock, target_file
 
 
@@ -408,7 +408,7 @@ def test_save_without_a_file_picked_shows_error(main_window, caplog):
     dock.anchor_role_edit.setCurrentText("FPGA")
 
     dock._on_save()
-    assert any("Pick a file" in r.message for r in caplog.records)
+    assert any("Set the project root first" in r.message for r in caplog.records)
 
 
 # ── Autosave (Stage 2, 2026-08-20: "писать сразу, без Save") ──────────────
@@ -794,7 +794,7 @@ def test_redraw_rule_resolves_cells_via_project_root_not_rule_file(main_window, 
     _write_yaml(root_file, {"include": ["cells.yaml", "rules.yaml"]})
 
     dock = RuleDock(main_window)
-    dock.set_target_file(target_file)
+    dock.set_root_path(target_file)
     dock.set_root_path(root_file)
 
     dock.net_edit.setCurrentText("+3V3")
@@ -909,47 +909,3 @@ def _combo_index_for_filename(combo, filename):
             return i
     return -1
 
-
-def test_set_root_path_populates_target_file_combo(main_window, tmp_path):
-    (tmp_path / "sub.yaml").write_text("rules: []\n", encoding="utf-8")
-    root = tmp_path / "root.yaml"
-    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
-    dock = RuleDock(main_window)
-
-    dock.set_root_path(root)
-
-    names = {dock.target_file_combo.itemData(i).name for i in range(dock.target_file_combo.count())}
-    assert names == {"root.yaml", "sub.yaml"}
-
-
-def test_picking_target_file_combo_calls_set_target_file(main_window, tmp_path):
-    (tmp_path / "sub.yaml").write_text("rules: []\n", encoding="utf-8")
-    root = tmp_path / "root.yaml"
-    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
-    dock = RuleDock(main_window)
-    dock.set_root_path(root)
-
-    dock.target_file_combo.setCurrentIndex(
-        _combo_index_for_filename(dock.target_file_combo, "sub.yaml"))
-
-    assert dock._path is not None
-    assert dock._path.name == "sub.yaml"
-
-
-def test_set_target_file_reflects_into_the_combo_even_before_root_is_known(main_window, tmp_path):
-    """ConfigTreeDock's own file_selected click must keep working exactly
-    as before — even before set_root_path() (or for a file outside the
-    include graph) the path is still selected as an extra combo item."""
-    target = tmp_path / "rules.yaml"
-    _write_yaml(target, {"rules": []})
-    dock = RuleDock(main_window)
-
-    dock.set_target_file(target)
-
-    assert dock.target_file_combo.currentData() == target
-    assert dock._path == target
-
-
-def test_target_file_combo_is_a_closed_picker_not_free_text(main_window):
-    dock = RuleDock(main_window)
-    assert not dock.target_file_combo.isEditable()

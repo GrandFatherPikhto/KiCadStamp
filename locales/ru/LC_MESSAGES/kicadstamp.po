@@ -6672,8 +6672,8 @@ msgid "No twin on {dst} for {count} source footprints (skipped): {refs}"
 msgstr "Нет близнеца на {dst} для {count} футпринтов источника (пропущены): {refs}"
 
 #: kicadstamp/channel_copy.py
-msgid "Note: the first argument was taken as a config path for 'apply' (bare-config shorthand). If you meant a subcommand, spell it exactly: apply, undo, extract, clone-extract, channel-copy."
-msgstr "Примечание: первый аргумент был принят как путь к конфигу для 'apply' (сокращение). Если вы имели в виду подкоманду, укажите её точно: apply, undo, extract, clone-extract, channel-copy."
+msgid "Note: the first argument was taken as a config path for 'apply' (bare-config shorthand). If you meant a subcommand, spell it exactly: apply, undo, extract, clone-extract, channel-copy, flatten."
+msgstr "Примечание: первый аргумент был принят как путь к конфигу для 'apply' (сокращение). Если вы имели в виду подкоманду, укажите её точно: apply, undo, extract, clone-extract, channel-copy, flatten."
 
 #: kicadstamp/channel_copy.py
 msgid "Only print the plan, do not write to the board"
@@ -7447,8 +7447,8 @@ msgid "Anchor point = this pad's centre instead of the footprint centre"
 msgstr "Точка якоря = центр этого пада вместо центра футпринта"
 
 #: kicadstamp/net_traces (2026-08-21)
-msgid "Note: the first argument was taken as a config path for 'apply' (bare-config shorthand). If you meant a subcommand, spell it exactly: apply, undo, extract, extract-net, clone-extract, channel-copy."
-msgstr "Примечание: первый аргумент был принят как путь к конфигу для 'apply' (сокращение без подкоманды). Если вы имели в виду подкоманду, напишите её точно: apply, undo, extract, extract-net, clone-extract, channel-copy."
+msgid "Note: the first argument was taken as a config path for 'apply' (bare-config shorthand). If you meant a subcommand, spell it exactly: apply, undo, extract, extract-net, clone-extract, channel-copy, flatten."
+msgstr "Примечание: первый аргумент был принят как путь к конфигу для 'apply' (сокращение без подкоманды). Если вы имели в виду подкоманду, напишите её точно: apply, undo, extract, extract-net, clone-extract, channel-copy, flatten."
 
 #: kicadstamp/net_traces (2026-08-21)
 #, python-brace-format
@@ -7564,3 +7564,39 @@ msgstr "Операция не удалась: {error}"
 #, python-brace-format
 msgid "{action} net trace {net!r} in {path}"
 msgstr "{action} трассировку сети {net!r} в {path}"
+
+#: kicadstamp/flatten.py / kicadstamp_cli.py (flatten, 2026-08-21)
+msgid "Merge an include: project into one self-contained file"
+msgstr "Слить проект с include: в один самодостаточный файл"
+
+#: kicadstamp/flatten.py / kicadstamp_cli.py (flatten, 2026-08-21)
+msgid "Root config file to flatten (the whole include: graph is resolved from it)"
+msgstr "Корневой файл конфига для слияния (из него разрешается весь граф include:)"
+
+#: kicadstamp/flatten.py / kicadstamp_cli.py (flatten, 2026-08-21)
+msgid "Output file. Default: overwrite the root file in place; an explicit path writes a NEW file and leaves the root untouched"
+msgstr "Выходной файл. По умолчанию: перезапись корневого файла на месте; явный путь пишет НОВЫЙ файл, а корневой не трогает"
+
+#: kicadstamp/flatten.py / kicadstamp_cli.py (flatten, 2026-08-21)
+msgid "Print the consolidation plan (sections and target path) without writing anything"
+msgstr "Напечатать план консолидации (секции и целевой путь) без записи"
+
+#: kicadstamp/flatten.py / kicadstamp_cli.py (flatten, 2026-08-21)
+msgid "Flatten {files} file(s) from {root}"
+msgstr "Слияние {files} файл(ов) из {root}"
+
+#: kicadstamp/flatten.py / kicadstamp_cli.py (flatten, 2026-08-21)
+msgid "Root keys: {keys}"
+msgstr "Корневые ключи: {keys}"
+
+#: kicadstamp/flatten.py / kicadstamp_cli.py (flatten, 2026-08-21)
+msgid "Would write to: {path}"
+msgstr "Записал бы в: {path}"
+
+#: kicadstamp/flatten.py / kicadstamp_cli.py (flatten, 2026-08-21)
+msgid "Written to: {path}"
+msgstr "Записано в: {path}"
+
+#: kicadstamp/flatten.py / kicadstamp_cli.py (flatten, 2026-08-21)
+msgid "flatten: wrote {path} ({files} files consolidated)"
+msgstr "flatten: записано {path} (слито {files} файл(ов))"

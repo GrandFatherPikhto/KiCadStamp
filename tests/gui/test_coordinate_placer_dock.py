@@ -26,7 +26,7 @@ def _make_dock(main_window, tmp_path):
     target_file = tmp_path / "root.yaml"
     _write_yaml(target_file, {"coordinate_placements": []})
     dock = PlacerDock(main_window)
-    dock.set_target_file(target_file)
+    dock.set_root_path(target_file)
     return dock, target_file
 
 
@@ -267,7 +267,7 @@ def test_save_without_target_file_shows_error(main_window, tmp_path, caplog):
 
     dock._do_save()
 
-    assert any("Pick a Placer file" in r.message for r in caplog.records)
+    assert any("Set the project root first" in r.message for r in caplog.records)
 
 
 # ── Redraw/Place (coordinate mode) ────────────────────────────────────────
@@ -386,7 +386,7 @@ def test_do_save_survives_a_broken_legacy_entry_in_the_same_file(main_window, tm
         {"cluster": "OLD", "role": "R_LEGACY", "center_x_mm": 0.0},
     ]})
     dock = PlacerDock(main_window)
-    dock.set_target_file(target_file)
+    dock.set_root_path(target_file)
     form = _new_coordinate(dock, target_file)
     _fill_cartesian(form, role="R18")
 

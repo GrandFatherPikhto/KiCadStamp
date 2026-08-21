@@ -67,9 +67,8 @@ from kicadstamp.i18n import _
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
-                      configure_searchable, display_path, refresh_file_combo_choices,
-                      set_combo_items, set_file_combo_selection, show_message,
-                      upsert_list_entry)
+                      configure_searchable, display_path,
+                      set_combo_items, show_message, upsert_list_entry)
 from .rename import collect_all_point_names, collect_all_sheet_names
 
 logger = logging.getLogger(__name__)
@@ -95,20 +94,6 @@ class ThermalViaArrayDock(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
-
-        # Target file as a dropdown (2026-08-13, plan
-        # tree_to_combo_file_pickers) — was a plain label + ConfigTreeDock
-        # click only; same "a tree click yanks the user into a different
-        # panel" pain every other file picker already fixed with a combo.
-        # set_target_file() stays the shared entry point (tree click and
-        # combo both feed it), so the tree keeps working unchanged.
-        target_file_row = QHBoxLayout()
-        target_file_row.addWidget(QLabel(_("Thermal via file:")))
-        self.target_file_combo = QComboBox()
-        self.target_file_combo.setPlaceholderText(_("pick a file (or browse it in the Config tree)"))
-        self.target_file_combo.currentIndexChanged.connect(self._on_target_file_combo_changed)
-        target_file_row.addWidget(self.target_file_combo, 1)
-        layout.addLayout(target_file_row)
 
         form = QFormLayout()
         self.name_edit = QLineEdit()
@@ -184,22 +169,15 @@ class ThermalViaArrayDock(QWidget):
 
     # ── Wiring from the Config tree ─────────────────────────────────────
 
-    def set_target_file(self, path: Optional[Path]) -> None:
-        self._path = path
-        set_file_combo_selection(self.target_file_combo, path)
-
-    def _on_target_file_combo_changed(self, index: int) -> None:
-        path = self.target_file_combo.itemData(index)
-        if path is not None:
-            self.set_target_file(path)
-
     def set_root_path(self, path: Optional[Path]) -> None:
-        """Wired to RootMetadataDock's root_changed — the Point combo is
-        sourced from the WHOLE include graph (a Point routinely lives in a
-        different file than the thermal_via_arrays entry referencing it),
-        same reasoning/pattern as RuleDock's/PlacerDock's own set_root_path."""
+        """Wired to RootMetadataDock's root_changed — new thermal_via_arrays:
+        entries are always written to the project root file (2026-08-21, plan
+        flatten_and_single_file_gui), so the write target IS the root. The
+        Point combo stays sourced from the WHOLE include graph (a Point
+        routinely lives in a different file than the thermal_via_arrays entry
+        referencing it)."""
         self._root_path = path
-        (self._path,) = refresh_file_combo_choices((self.target_file_combo,), path, (self._path,))
+        self._path = path
         self._refresh_point_names()
         self._refresh_sheet_names()
 
@@ -339,7 +317,7 @@ class ThermalViaArrayDock(QWidget):
         if entry is None:
             return None
         if self._path is None:
-            self._show_message(_("Pick a file in the Config tree first."), _ERROR_STYLE)
+            self._show_message(_("Set the project root first."), _ERROR_STYLE)
             return None
 
         try:
@@ -408,7 +386,7 @@ class ThermalViaArrayDock(QWidget):
         if entry is None:
             return
         if self._path is None:
-            self._show_message(_("Pick a file in the Config tree first."), _ERROR_STYLE)
+            self._show_message(_("Set the project root first."), _ERROR_STYLE)
             return
         try:
             load_thermal_via_array(entry)  # validate before writing anything
@@ -432,11 +410,12 @@ class ThermalViaArrayDock(QWidget):
     # ── Starting a brand new entry (ConfigTreeDock's Add thermal via pad) ───
 
     def new_thermal_via(self, path: Path) -> None:
-        """Resets the form to its initial (blank) state and targets path —
-        ConfigTreeDock's "Add thermal via pad" context-menu action
-        (2026-08-03) opens this form empty rather than writing a raw stub
-        straight to YAML, same reasoning as PlacerDock.new_placement()."""
-        self._path = path
+        """Resets the form to its initial (blank) state — ConfigTreeDock's
+        "Add thermal via pad" context-menu action (2026-08-03) opens this
+        form empty rather than writing a raw stub straight to YAML, same
+        reasoning as PlacerDock.new_placement(). The entry is written to the
+        project root file (2026-08-21), so the passed path is ignored."""
+        self._path = self._root_path
         self.name_edit.setText("")
         self.origin_widget.clear()
         self.pad_edit.setText("")

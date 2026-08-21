@@ -6264,7 +6264,7 @@ msgid "No twin on {dst} for {count} source footprints (skipped): {refs}"
 msgstr ""
 
 #: kicadstamp/channel_copy.py
-msgid "Note: the first argument was taken as a config path for 'apply' (bare-config shorthand). If you meant a subcommand, spell it exactly: apply, undo, extract, clone-extract, channel-copy."
+msgid "Note: the first argument was taken as a config path for 'apply' (bare-config shorthand). If you meant a subcommand, spell it exactly: apply, undo, extract, clone-extract, channel-copy, flatten."
 msgstr ""
 
 #: kicadstamp/channel_copy.py
@@ -7560,7 +7560,7 @@ msgid "Anchor point = this pad's centre instead of the footprint centre"
 msgstr ""
 
 #: kicadstamp/net_traces (2026-08-21)
-msgid "Note: the first argument was taken as a config path for 'apply' (bare-config shorthand). If you meant a subcommand, spell it exactly: apply, undo, extract, extract-net, clone-extract, channel-copy."
+msgid "Note: the first argument was taken as a config path for 'apply' (bare-config shorthand). If you meant a subcommand, spell it exactly: apply, undo, extract, extract-net, clone-extract, channel-copy, flatten."
 msgstr ""
 
 #: kicadstamp/net_traces (2026-08-21)
@@ -7676,4 +7676,40 @@ msgstr ""
 #: gui/docks/net_trace.py (2026-08-21)
 #, python-brace-format
 msgid "{action} net trace {net!r} in {path}"
+msgstr ""
+
+#: kicadstamp/flatten.py / kicadstamp_cli.py (flatten, 2026-08-21)
+msgid "Merge an include: project into one self-contained file"
+msgstr ""
+
+#: kicadstamp/flatten.py / kicadstamp_cli.py (flatten, 2026-08-21)
+msgid "Root config file to flatten (the whole include: graph is resolved from it)"
+msgstr ""
+
+#: kicadstamp/flatten.py / kicadstamp_cli.py (flatten, 2026-08-21)
+msgid "Output file. Default: overwrite the root file in place; an explicit path writes a NEW file and leaves the root untouched"
+msgstr ""
+
+#: kicadstamp/flatten.py / kicadstamp_cli.py (flatten, 2026-08-21)
+msgid "Print the consolidation plan (sections and target path) without writing anything"
+msgstr ""
+
+#: kicadstamp/flatten.py / kicadstamp_cli.py (flatten, 2026-08-21)
+msgid "Flatten {files} file(s) from {root}"
+msgstr ""
+
+#: kicadstamp/flatten.py / kicadstamp_cli.py (flatten, 2026-08-21)
+msgid "Root keys: {keys}"
+msgstr ""
+
+#: kicadstamp/flatten.py / kicadstamp_cli.py (flatten, 2026-08-21)
+msgid "Would write to: {path}"
+msgstr ""
+
+#: kicadstamp/flatten.py / kicadstamp_cli.py (flatten, 2026-08-21)
+msgid "Written to: {path}"
+msgstr ""
+
+#: kicadstamp/flatten.py / kicadstamp_cli.py (flatten, 2026-08-21)
+msgid "flatten: wrote {path} ({files} files consolidated)"
 msgstr ""

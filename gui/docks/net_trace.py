@@ -45,8 +45,7 @@ from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       configure_searchable, display_path, read_data,
-                      refresh_file_combo_choices, set_combo_items,
-                      set_file_combo_selection, show_message, upsert_list_entry)
+                      set_combo_items, show_message, upsert_list_entry)
 from .rename import collect_all_sheet_names
 
 logger = logging.getLogger(__name__)
@@ -81,16 +80,6 @@ class NetTraceDock(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
-
-        # Target file as a dropdown (same tree_to_combo_file_pickers pattern
-        # as RuleDock's own target_file_combo).
-        target_file_row = QHBoxLayout()
-        target_file_row.addWidget(QLabel(_("Net trace file:")))
-        self.target_file_combo = QComboBox()
-        self.target_file_combo.setPlaceholderText(_("pick a file (or browse it in the Config tree)"))
-        self.target_file_combo.currentIndexChanged.connect(self._on_target_file_combo_changed)
-        target_file_row.addWidget(self.target_file_combo, 1)
-        layout.addLayout(target_file_row)
 
         # Net picker — over the WHOLE live board's copper (tracks+vias), NOT
         # the mouse selection (see module docstring).
@@ -136,19 +125,12 @@ class NetTraceDock(QWidget):
 
     # ── Target file / root ──────────────────────────────────────────────────
 
-    def set_target_file(self, path: Optional[Path]) -> None:
-        self._path = path
-        set_file_combo_selection(self.target_file_combo, path)
-
-    def _on_target_file_combo_changed(self, index: int) -> None:
-        path = self.target_file_combo.itemData(index)
-        if path is not None:
-            self.set_target_file(path)
-
     def set_root_path(self, path: Optional[Path]) -> None:
+        """Wired to RootMetadataDock's root_changed — new net_traces: records
+        are always written to the project root file (2026-08-21, plan
+        flatten_and_single_file_gui), so the dock's write target IS the root."""
         self._root_path = path
-        (self._path,) = refresh_file_combo_choices(
-            (self.target_file_combo,), path, (self._path,))
+        self._path = path
         self._refresh_sheet_names()
 
     def _refresh_sheet_names(self) -> None:
@@ -252,7 +234,7 @@ class NetTraceDock(QWidget):
             self._show_message(_("Connect to KiCad first."), _ERROR_STYLE)
             return
         if self._path is None:
-            self._show_message(_("Pick a file in the Config tree first."), _ERROR_STYLE)
+            self._show_message(_("Set the project root first."), _ERROR_STYLE)
             return
         net = self.net_edit.currentText().strip()
         if not net:
@@ -319,7 +301,7 @@ class NetTraceDock(QWidget):
         never writes silently."""
         self._show_message("")
         if self._path is None:
-            self._show_message(_("Pick a file in the Config tree first."), _ERROR_STYLE)
+            self._show_message(_("Set the project root first."), _ERROR_STYLE)
             return
         entry = self._build_entry_dict()
         if entry is None:
@@ -379,7 +361,7 @@ class NetTraceDock(QWidget):
         if entry is None:
             return None
         if self._path is None:
-            self._show_message(_("Pick a file in the Config tree first."), _ERROR_STYLE)
+            self._show_message(_("Set the project root first."), _ERROR_STYLE)
             return None
         try:
             load_net_trace(entry)  # validate the form's controllable fields
