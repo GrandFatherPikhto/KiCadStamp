@@ -26,7 +26,9 @@ import difflib
 import logging
 
 from .config import (load_config, rule_effective_name, thermal_via_array_effective_name,
-                    coordinate_placement_effective_name, clone_placement_effective_name)
+                    coordinate_placement_effective_name, clone_placement_effective_name,
+                    net_trace_effective_name)
+from .net_trace_planner import net_trace_anchor_id, adopt_net_trace_copper
 from .runtime_context import RuntimeContext
 from .kicad.adapter import KiCadBoardAdapter
 from .placement.planner import PlacementPlanner
@@ -143,10 +145,24 @@ def drop_inactive_items(cfg, _logger=None) -> "Config":
             continue
         kept_coords.append(cp)
 
+    # net_traces: same retired/skip semantics as thermal_via_arrays — a
+    # skipped record's registry entries stay protected (it remains in cfg,
+    # planner skips it), only retired records drop out of known_anchor_ids
+    # (see _compute_all_anchor_ids).
+    kept_net_traces = []
+    for nt in cfg.net_traces:
+        if not nt.retired and nt.skip:
+            l.info(_("net_traces entry (net {net!r}): skip=true, skipped this run "
+                      "(existing copper stays protected)")
+                   .format(net=net_trace_effective_name(nt)))
+            continue
+        kept_net_traces.append(nt)
+
     return dataclasses.replace(cfg, rules=narrowed_rules,
                                clone_placements=kept_clones,
                                thermal_via_arrays=kept_tvas,
-                               coordinate_placements=kept_coords)
+                               coordinate_placements=kept_coords,
+                               net_traces=kept_net_traces)
 
 
 def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
@@ -168,11 +184,14 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
     matched_coords = [cp for cp in cfg.coordinate_placements
                       if not cp.retired
                       and coordinate_placement_effective_name(cp) in requested]
+    matched_nets = [nt for nt in cfg.net_traces
+                    if not nt.retired and net_trace_effective_name(nt) in requested]
 
     found_names = ({rule_effective_name(r) for r in matched_rules}
                    | {clone_placement_effective_name(c) for c in matched_clones}
                    | {thermal_via_array_effective_name(t) for t in matched_tvas}
-                   | {coordinate_placement_effective_name(cp) for cp in matched_coords})
+                   | {coordinate_placement_effective_name(cp) for cp in matched_coords}
+                   | {net_trace_effective_name(nt) for nt in matched_nets})
     missing = requested - found_names
     if missing:
         all_names = sorted(
@@ -181,6 +200,7 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
             | {thermal_via_array_effective_name(t) for t in cfg.thermal_via_arrays if not t.retired}
             | {coordinate_placement_effective_name(cp) for cp in cfg.coordinate_placements
                if not cp.retired}
+            | {net_trace_effective_name(nt) for nt in cfg.net_traces if not nt.retired}
         )
         lines = []
         for name in sorted(missing):
@@ -188,23 +208,25 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
             hint = (_(" (maybe you meant {suggestion!r}?)").format(suggestion=suggestion[0])
                     if suggestion else "")
             lines.append(_("  {name!r} — not found among rules, clone_placements, "
-                           "thermal_via_arrays, or coordinate_placements{hint}")
+                           "thermal_via_arrays, coordinate_placements, or net_traces{hint}")
                          .format(name=name, hint=hint))
         raise PlacerError(_("[error] --only: names not found:\n{lines}\nAvailable: {all}")
                           .format(lines="\n".join(lines), all=all_names))
 
     l.info(_("--only {requested}: rules={rules}, clone_placements={clones}, "
-              "thermal_via_arrays={thermal}, coordinate_placements={coords} "
-              "(everything else is ignored in this run)")
+              "thermal_via_arrays={thermal}, coordinate_placements={coords}, "
+              "net_traces={nets} (everything else is ignored in this run)")
             .format(requested=sorted(requested),
                     rules=[rule_effective_name(r) for r in matched_rules],
                     clones=[clone_placement_effective_name(c) for c in matched_clones],
                     thermal=[thermal_via_array_effective_name(t) for t in matched_tvas],
-                    coords=[coordinate_placement_effective_name(cp) for cp in matched_coords]))
+                    coords=[coordinate_placement_effective_name(cp) for cp in matched_coords],
+                    nets=[net_trace_effective_name(nt) for nt in matched_nets]))
     return dataclasses.replace(cfg, rules=matched_rules,
                                clone_placements=matched_clones,
                                thermal_via_arrays=matched_tvas,
-                               coordinate_placements=matched_coords)
+                               coordinate_placements=matched_coords,
+                               net_traces=matched_nets)
 
 
 def apply_cluster_filter(cfg, cluster_paths: list[str], _logger=None) -> "Config":
@@ -228,6 +250,8 @@ def apply_cluster_filter(cfg, cluster_paths: list[str], _logger=None) -> "Config
     # the SAME prefix-match convention still applies to it.
     matched_coords = [cp for cp in cfg.coordinate_placements
                       if not cp.retired and _matches_any_cluster(cp.cluster, cluster_paths)]
+    matched_nets = [nt for nt in cfg.net_traces
+                    if not nt.retired and _matches_any_cluster(nt.anchor_cluster, cluster_paths)]
 
     narrowed_rules = []
     for r in cfg.rules:
@@ -238,23 +262,27 @@ def apply_cluster_filter(cfg, cluster_paths: list[str], _logger=None) -> "Config
             l.debug(_("Rule {name!r}: no spokes match --cluster {paths}, rule dropped")
                      .format(name=rule_effective_name(r), paths=cluster_paths))
 
-    if not narrowed_rules and not matched_clones and not matched_tvas and not matched_coords:
+    if (not narrowed_rules and not matched_clones and not matched_tvas
+            and not matched_coords and not matched_nets):
         raise PlacerError(_("[error] --cluster {paths}: matched nothing among rules' spokes, "
-                            "clone_placements, thermal_via_arrays, or coordinate_placements")
+                            "clone_placements, thermal_via_arrays, coordinate_placements, "
+                            "or net_traces")
                           .format(paths=cluster_paths))
 
     l.info(_("--cluster {paths}: rules={rules} (spokes narrowed), "
               "clone_placements={clones}, thermal_via_arrays={thermal}, "
-              "coordinate_placements={coords}")
+              "coordinate_placements={coords}, net_traces={nets}")
             .format(paths=cluster_paths,
                     rules=[rule_effective_name(r) for r in narrowed_rules],
                     clones=[c.name for c in matched_clones],
                     thermal=[thermal_via_array_effective_name(t) for t in matched_tvas],
-                    coords=[coordinate_placement_effective_name(cp) for cp in matched_coords]))
+                    coords=[coordinate_placement_effective_name(cp) for cp in matched_coords],
+                    nets=[net_trace_effective_name(nt) for nt in matched_nets]))
     return dataclasses.replace(cfg, rules=narrowed_rules,
                                clone_placements=matched_clones,
                                thermal_via_arrays=matched_tvas,
-                               coordinate_placements=matched_coords)
+                               coordinate_placements=matched_coords,
+                               net_traces=matched_nets)
 
 
 # ── Compute helper ────────────────────────────────────────────────────────────
@@ -266,6 +294,10 @@ def _compute_all_anchor_ids(cfg) -> set[str]:
     for r in cfg.rules:
         ids |= rule_anchor_ids(r)
     ids |= {thermal_anchor_id(t) for t in cfg.thermal_via_arrays if not t.retired}
+    # net_traces: an --only-filtered net trace must keep its registry entries
+    # protected, same as the other sections (registry.py reconcile's protected
+    # 'net:' prefix — see the startswith list there).
+    ids |= {net_trace_anchor_id(nt) for nt in cfg.net_traces if not nt.retired}
     return ids
 
 
@@ -421,6 +453,10 @@ class ApplyPipeline:
                            "net={net}, width={w} mm")
                          .format(owner=t.owner_ref, sx=t.start.x / 1e6, sy=t.start.y / 1e6,
                                  ex=t.end.x / 1e6, ey=t.end.y / 1e6, net=t.net_name, w=t.width_mm))
+        if self.cfg.net_traces:
+            lines.append(_("(net_traces entries are included in the vias/tracks sections above; "
+                           "their anchors are resolved from CURRENT component positions, so a real "
+                           "apply after a Rule/CoordinatePlacement moves the anchor will follow it)"))
         lines.append("\n" + _("(thermal via keepout is computed based on CURRENT component positions, "
                               "not the target ones — may slightly differ from the real run)"))
         lines.append(_("(track collisions with other copper/components are NOT checked by this tool — "
@@ -498,6 +534,15 @@ class ApplyPipeline:
 
         # --- Phase 2: vias ---
         all_vias = self.planner.plan_vias()
+        # net_traces are captured from ALREADY-EXISTING hand-routed copper, so
+        # the first apply (board unchanged since extract) must not duplicate
+        # it: claim any planned net-trace via/track already sitting exactly at
+        # the planned position into the registries (one-time migration, see
+        # net_trace_planner.adopt_net_trace_copper). plan_vias() above already
+        # populated the planner's net-trace caches.
+        adopt_net_trace_copper(
+            self.adapter, registry, track_registry,
+            self.planner._net_trace_vias or [], self.planner._net_trace_tracks or [])
         vias_to_create = registry.reconcile(all_vias, known_anchor_ids=self.all_anchor_ids)
         logger.info(_("Planned vias: {total}, actually to create (registry filtered already "
                        "correctly placed): {to_create}")

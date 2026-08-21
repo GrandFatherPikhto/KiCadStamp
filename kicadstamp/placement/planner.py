@@ -45,6 +45,13 @@ class PlacementPlanner:
         self._planned = None
         self._planned_vias = None
         self._planned_tracks = None
+        # net_traces are expanded lazily on the FIRST plan_vias/plan_tracks
+        # call (i.e. AFTER Phase 1 moves + refresh in a real apply — a moved
+        # anchor is followed); cached here so plan_vias() and plan_tracks()
+        # see the same commands, and the pipeline can hand them to
+        # adopt_net_trace_copper before reconcile.
+        self._net_trace_vias: list[ViaCommand] | None = None
+        self._net_trace_tracks: list[TrackCommand] | None = None
         self.via_planner = ViaPlanner(adapter, config, sheet_names=_sn,
                                       resolved_points=self.resolved_points)
         logger.info(_("Planner initialised: layer={layer}, anchors in rules: {anchors}")
@@ -58,6 +65,8 @@ class PlacementPlanner:
         self._planned = []
         self._planned_vias = []
         self._planned_tracks = []
+        self._net_trace_vias = None
+        self._net_trace_tracks = None
 
     def plan_item(self, item) -> list[MoveCommand]:
         """
@@ -137,16 +146,43 @@ class PlacementPlanner:
         logger.info(_("plan_moves completed: {count} moves").format(count=len(moves)))
         return moves
 
+    def plan_net_traces(self) -> tuple[list[ViaCommand], list[TrackCommand]]:
+        """Expand every active (non-retired/skip) net_traces record into
+        absolute ViaCommand/TrackCommand, anchors resolved LIVE from the
+        current board (see net_trace_planner.py). Deliberately called from
+        plan_vias/plan_tracks — i.e. AFTER Phase 1 moves + refresh in a real
+        apply, so a Rule/CoordinatePlacement that moved the anchor earlier in
+        this run is followed. Cached: both plan_vias() and plan_tracks() see
+        the same commands, and ApplyPipeline hands them to
+        adopt_net_trace_copper before reconcile.
+
+        plan_net_traces is imported lazily: net_trace_planner imports from
+        .placement.commands, which re-enters the placement package while its
+        __init__ (executor -> ... -> this planner) is still initialising —
+        a module-level import here would be a circular-import crash (found
+        2026-08-21)."""
+        if self._net_trace_vias is None:
+            from ..net_trace_planner import plan_net_traces
+            self._net_trace_vias, self._net_trace_tracks = plan_net_traces(
+                self.adapter, self.cfg.net_traces, sheet_names=self.sheet_names)
+        return self._net_trace_vias, self._net_trace_tracks
+
     def plan_vias(self) -> list[ViaCommand]:
         # Thermal via anchor resolution (anchor_ref/anchor_role/anchor_sheet/
         # anchor_cluster), one per cfg.thermal_via_arrays entry, is entirely
         # inside via_planner.py (_resolve_thermal_anchor) — we do not
         # duplicate that logic here.
-        return self.via_planner.plan_vias(
+        vias = self.via_planner.plan_vias(
             planned_components=self._planned,
             planned_vias=self._planned_vias,
             target_layer=self._target_layer
         )
+        nt_vias, nt_tracks = self.plan_net_traces()
+        self._net_trace_vias, self._net_trace_tracks = nt_vias, nt_tracks
+        if nt_vias:
+            logger.info(_("net_traces: {count} vias planned").format(count=len(nt_vias)))
+            vias.extend(nt_vias)
+        return vias
 
     def plan_tracks(self) -> list[TrackCommand]:
         """
@@ -157,7 +193,13 @@ class PlacementPlanner:
         deliberately not done (see discussion), we rely on KiCad DRC after
         placement.
         """
-        return list(self._planned_tracks or [])
+        tracks = list(self._planned_tracks or [])
+        nt_vias, nt_tracks = self.plan_net_traces()
+        self._net_trace_vias, self._net_trace_tracks = nt_vias, nt_tracks
+        if nt_tracks:
+            logger.info(_("net_traces: {count} tracks planned").format(count=len(nt_tracks)))
+            tracks.extend(nt_tracks)
+        return tracks
 
     def plan(self) -> tuple[list[MoveCommand], list[ViaCommand], list[TrackCommand]]:
         moves = self.plan_moves()
