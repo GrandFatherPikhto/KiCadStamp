@@ -462,6 +462,62 @@ python kicadstamp_cli.py channel-copy --src Channel_0 --dst Channel_1 --dst Chan
 
 ---
 
+## `flatten` – merge an `include:` project into one self-contained file
+
+Consolidates a multi-file project (a root config that pulls subsystem files in
+via `include:`) into a single YAML file. It resolves the whole `include:`
+graph exactly the way `apply`/`load_config` does, then writes the fully merged
+content back out — every list section (`rules:`/`clone_placements:`/
+`thermal_via_arrays:`/`coordinate_placements:`/`net_traces:`) concatenated and
+every dict section (`cells:`/`points:`/`extract_profiles:`/`clone_profiles:`/
+`sheet_templates:`) merged by key. The now-resolved `include:` key is dropped,
+so the output has no external dependencies left. Root-only keys (`layer:`,
+`schematic_dir:`, `registry_path:`, ...) are carried over unchanged.
+
+This is an **on-demand** consolidation — the GUI and CLI keep reading
+multi-file projects fine, so `flatten` runs only when you deliberately want
+one file.
+
+### Syntax
+
+```bash
+python kicadstamp_cli.py flatten --root <config.yaml> [--output <file.yaml>] [--dry-run]
+```
+
+### Options
+
+| Flag | Description |
+|------|-------------|
+| `--root FILE` | Root config file to flatten (required). The whole `include:` graph is resolved from it. |
+| `--output FILE` | Output file. Default: overwrite the root file in place. An explicit path writes a NEW file and leaves the root untouched. |
+| `--dry-run` | Print the consolidation plan (consolidated file count, per-section entry counts, target path) without writing anything. |
+
+### Notes
+
+- `flatten` never deletes the old subsystem files — after checking that the
+  merged result is correct, remove `components.yaml`/`fpga_spokes.yaml`/...
+  by hand.
+- If the config resolves (no missing include, no cycle, no duplicate
+  dict-section key across files), there are no name collisions to handle by
+  construction — `flatten` works on top of an already-resolved config.
+- The output file gets a `# flattened by kicadstamp flatten on <date> from
+  N file(s)` comment at the top as a memo.
+
+### Examples
+
+```bash
+# See what would be consolidated, without writing
+python kicadstamp_cli.py flatten --root profiles/3ch-awg-tia.yaml --dry-run
+
+# Write the merged result into a NEW file (the root and its includes stay untouched)
+python kicadstamp_cli.py flatten --root profiles/3ch-awg-tia.yaml --output profiles/3ch-awg-tia-flat.yaml
+
+# Overwrite the root file in place with the consolidated content
+python kicadstamp_cli.py flatten --root profiles/3ch-awg-tia.yaml
+```
+
+---
+
 ## Utility scripts (`tools/`)
 
 ### `transform_template.py` – template transformation utility (optional)

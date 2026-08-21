@@ -28,7 +28,7 @@ if hasattr(sys.stderr, "reconfigure"):
 from kicadstamp import __version__
 from kicadstamp.apply_pipeline import cmd_apply
 from kicadstamp.cli import (cmd_channel_copy, cmd_clone_extract, cmd_extract,
-                            cmd_extract_net, cmd_undo)
+                            cmd_extract_net, cmd_flatten, cmd_undo)
 from kicadstamp.cli_common import peek_log_file, run_cli
 from kicadstamp.logging_setup import setup_logging
 from kicadstamp.constants import DEFAULT_TIMEOUT_MS, DEFAULT_BATCH_SIZE
@@ -38,7 +38,8 @@ from kicadstamp.i18n import _
 # Real subcommands the CLI can dispatch to. Any other first argument (that is
 # not a flag) is treated as a bare config path for 'apply' — see
 # _rewrite_bare_config_to_apply().
-_SUBCOMMANDS = ("apply", "undo", "extract", "extract-net", "clone-extract", "channel-copy")
+_SUBCOMMANDS = ("apply", "undo", "extract", "extract-net", "clone-extract",
+                "channel-copy", "flatten")
 
 
 def _looks_like_misspelled_subcommand(token: str) -> bool:
@@ -250,13 +251,29 @@ def main() -> int:
                                      help=_("IPC timeout in ms"))
     channel_copy_parser.add_argument("--log-file", help=_("File to save logs"))
 
+    flatten_parser = subparsers.add_parser(
+        "flatten",
+        help=_("Merge an include: project into one self-contained file")
+    )
+    flatten_parser.add_argument("--root", required=True, metavar="FILE",
+                                help=_("Root config file to flatten (the whole include: graph "
+                                       "is resolved from it)"))
+    flatten_parser.add_argument("--output", metavar="FILE",
+                                help=_("Output file. Default: overwrite the root file in place; "
+                                       "an explicit path writes a NEW file and leaves the root "
+                                       "untouched"))
+    flatten_parser.add_argument("--dry-run", action="store_true",
+                                help=_("Print the consolidation plan (sections and target path) "
+                                       "without writing anything"))
+
     try:
         args = parser.parse_args()
     except SystemExit as e:
         if rewritten and e.code == 2:
             print(_("Note: the first argument was taken as a config path for 'apply' "
                     "(bare-config shorthand). If you meant a subcommand, spell it exactly: "
-                    "apply, undo, extract, extract-net, clone-extract, channel-copy."), file=sys.stderr)
+                    "apply, undo, extract, extract-net, clone-extract, channel-copy, flatten."),
+                  file=sys.stderr)
         raise
 
     # Pick up log_file from the config before setup_logging() — but WITHOUT a
@@ -288,6 +305,10 @@ def main() -> int:
             cmd_extract_net(args)
         elif args.command == "channel-copy":
             report = cmd_channel_copy(args)
+            if report:
+                print("\n".join(report))
+        elif args.command == "flatten":
+            report = cmd_flatten(args)
             if report:
                 print("\n".join(report))
         else:

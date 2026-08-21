@@ -17,6 +17,7 @@ from kicadstamp.cli_extract import (load_profile, extract_template,
                                     CLONE_EXTRACT_PROFILE_KNOWN_KEYS)
 from kicadstamp.constants import DEFAULT_LOG_DIR
 from kicadstamp.exceptions import PlacerError
+from kicadstamp.flatten import flatten_config
 from kicadstamp.kicad.adapter import KiCadBoardAdapter
 from kicadstamp.i18n import _
 from kicadstamp.undo import undo_last_operation
@@ -230,6 +231,16 @@ def cmd_channel_copy(args) -> list[str] | None:
         if args.dry_run:
             report.extend(format_channel_copy_report(plan))
     return report or None
+
+
+def cmd_flatten(args) -> list[str] | None:
+    """Consolidate a multi-file include: project into one self-contained file.
+
+    Thin CLI wrapper for kicadstamp.flatten.flatten_config — a pure file
+    operation (no IPC, no board access). Returns the report (list of lines)
+    for the entry point to print, same shape as cmd_apply/cmd_channel_copy.
+    """
+    return flatten_config(root=args.root, output=args.output, dry_run=args.dry_run)
 
 
 def cmd_undo(args, log_dir: str | None = None) -> None:
