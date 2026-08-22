@@ -12,7 +12,11 @@ a crash rate, not a single anecdote.
 
 Cross-platform (Windows/Linux). Per-iteration cycle:
   1. Kill KiCad if running — taskkill /IM kicad.exe /F on Windows, pkill -x
-     kicad on Linux.
+     kicad on Linux — then WAIT for the process(es) to actually disappear
+     (tasklist on Windows, psutil elsewhere), not just fire the kill and
+     trust a flat sleep. A hung kicad.exe can linger for tens of seconds
+     even after a forced kill (live evidence 2026-08-22), and starting the
+     next instance on top of a survivor silently invalidates the run.
   2. Clean up leftovers — tools/clean_kicad_crash_state.py (currently only
      actually cleans Flatpak/Linux leftovers — safe no-op with a warning on
      Windows, doesn't crash).
@@ -33,7 +37,8 @@ Cross-platform (Windows/Linux). Per-iteration cycle:
      counted as a crash.
   6. Record the outcome: ok / crash (dropped connection — this one is
      actually #24966) / busy (still busy after all retries — reported
-     separately, not as a crash).
+     separately, not as a crash) / zombie (previous kicad never died after
+     the kill, iteration skipped — reported separately too).
   7. Kill KiCad, next iteration.
 
 IMPORTANT: "Schematic Editor open in the session" is the precondition from
@@ -102,6 +107,54 @@ def kill_kicad():
         subprocess.run(["taskkill", "/IM", "kicad.exe", "/F"], capture_output=True)
     else:
         subprocess.run(["pkill", "-x", "kicad"], capture_output=True)
+
+
+def _list_kicad_pids():
+    """PID of every live kicad process: tasklist on Windows, psutil
+    elsewhere. Same approach as diagnose_first_write_crash.py's
+    list_kicad_pids() — that module is off-limits to edit, so this private
+    copy lives here instead of being imported. A failed enumeration returns
+    [] (treated as "no processes"), mirroring the diagnostics code."""
+    pids = []
+    try:
+        if os.name == "nt":
+            out = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq kicad.exe", "/FO", "CSV", "/NH"],
+                capture_output=True, text=True, timeout=10,
+            ).stdout
+            for line in out.splitlines():
+                parts = [p.strip('"') for p in line.split('","')]
+                if len(parts) >= 2 and parts[0].lower() == "kicad.exe":
+                    pids.append(int(parts[1]))
+        else:
+            import psutil  # optional
+            pids = [p.pid for p in psutil.process_iter(["name"])
+                    if p.info["name"] and "kicad" in p.info["name"].lower()]
+    except Exception as e:
+        print(f"[предупреждение] не удалось получить список kicad-процессов: {e}")
+    return sorted(pids)
+
+
+def wait_until_dead(timeout_s: float = 25.0, poll_s: float = 0.5, context: str = "") -> bool:
+    """Wait until no kicad process is alive, polling _list_kicad_pids()
+    instead of firing taskkill/pkill and trusting a flat sleep. Returns True
+    if every process is gone before the timeout, False if at least one
+    survived (a "zombie" candidate). Prints progress while waiting rather
+    than sleeping silently — a hung kicad.exe on Windows can take tens of
+    seconds to die even after a forced kill (live evidence 2026-08-22), and
+    an operator should see that this is expected, not the script hanging."""
+    deadline = time.monotonic() + timeout_s
+    label = f"[{context}] " if context else ""
+    while True:
+        pids = _list_kicad_pids()
+        if not pids:
+            return True
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        print(f"{label}ожидание завершения kicad.exe PID {pids}, осталось ~{remaining:.0f}с")
+        time.sleep(min(poll_s, remaining))
+    return not _list_kicad_pids()
 
 
 def clean_state(boards_dir: Path):
@@ -185,7 +238,6 @@ def try_commit_once(busy_retries: int = 5, busy_backoff_s: float = 2.0) -> str:
     real-crash statistics."""
     import kipy
     from kipy.errors import ApiError, ApiStatusCode
-    last_exc = None
     for attempt in range(1 + busy_retries):
         try:
             k = kipy.KiCad(timeout_ms=15000)
@@ -205,7 +257,6 @@ def try_commit_once(busy_retries: int = 5, busy_backoff_s: float = 2.0) -> str:
                 print(f"  [занято] KiCad ещё не готов принимать запись, "
                       f"жду {wait:.1f}с [{attempt + 1}/{busy_retries}]")
                 time.sleep(wait)
-                last_exc = e
                 continue
             if e.code == ApiStatusCode.AS_BUSY:
                 print(f"  -> так и не отпустило busy за {busy_retries} ретраев: {e}")
@@ -255,11 +306,27 @@ def main():
         kicad_exe = args.kicad_exe or config.get("linux", {}).get("kicad_exe")
     flatpak_branch = args.flatpak_branch or config.get("linux", {}).get("flatpak_branch")
 
+    # Clean session start: kill whatever kicad is still alive (leftover from a
+    # previous run of this script, or left open by hand) and CONFIRM it actually
+    # died before trusting any iteration — a survivor would silently invalidate
+    # every "clean, fresh instance" attempt below (live evidence 2026-08-22). If
+    # it won't die, there is no way to guarantee a clean session, so abort rather
+    # than launch on top of a zombie.
+    kill_kicad()
+    if not wait_until_dead(context="начало сессии"):
+        sys.exit("[зомби] kicad.exe всё ещё жив после kill и ожидания — не могу "
+                 "гарантировать чистую сессию. Завершите процесс вручную "
+                 "(Диспетчер задач / taskkill /PID <pid> /F) и запустите скрипт заново.")
+
     results = []
     for i in range(1, runs + 1):
         print(f"=== попытка {i}/{runs} ===")
         kill_kicad()
-        time.sleep(1.0)
+        if not wait_until_dead(context=f"попытка {i}"):
+            print("  -> [зомби] kicad.exe не завершился за отведённое время — "
+                  "пропускаю попытку, не запускаю новый экземпляр поверх старого")
+            results.append("zombie")
+            continue
         clean_state(Path(boards_dir))
         launch_kicad(project, kicad_exe, flatpak_branch)
 
@@ -277,17 +344,20 @@ def main():
 
     kill_kicad()
 
-    # "busy" (never cleared within all retries) and "timeout" (never came up
-    # at all) are NOT #24966 crashes — separate outcomes, kept out of the
-    # crash rate so they don't add noise to it.
+    # "busy" (never cleared within all retries), "timeout" (never came up at
+    # all) and "zombie" (previous instance never died, iteration skipped) are
+    # NOT #24966 crashes — separate outcomes, kept out of the crash rate so
+    # they don't add noise to it.
     ok = results.count("ok")
     crashes = results.count("crash")
     busy = results.count("busy")
     timeout = results.count("timeout")
+    zombie = results.count("zombie")
     total = ok + crashes
     print()
     print("===== ИТОГ =====")
-    print(f"Прогонов: {total} (не поднялся: {timeout}, не отпустило busy: {busy})")
+    print(f"Прогонов: {total} (не поднялся: {timeout}, не отпустило busy: {busy}, "
+          f"зомби: {zombie})")
     if total:
         print(f"Падений: {crashes} ({crashes / total * 100:.0f}%)")
     else:

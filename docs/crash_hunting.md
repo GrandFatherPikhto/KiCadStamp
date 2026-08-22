@@ -119,7 +119,12 @@ now branch on `os.name`, same convention as `list_kicad_pids()` in `diagnose_fir
 
 Per-iteration cycle:
 
-1. Kill KiCad if running — `taskkill /IM kicad.exe /F` on Windows, `pkill -x kicad` on Linux.
+1. Kill KiCad if running — `taskkill /IM kicad.exe /F` on Windows, `pkill -x kicad` on Linux — then **wait
+   until it actually disappears** (`wait_until_dead()`, tasklist on Windows / psutil elsewhere, up to ~25s).
+   Since 2026-08-22 a forced kill is no longer trusted blindly: a hung `kicad.exe` on this machine was observed
+   lingering for tens of seconds even after `taskkill /F`, and starting the next attempt on top of a survivor
+   silently corrupted the reported crash rate. The same check also runs once at session start — a leftover
+   zombie that won't die aborts the run instead of polluting it.
 2. Clean up leftovers — invokes `tools/clean_kicad_crash_state.py` as a subprocess. **Still Linux/Flatpak-only
    under the hood** (see below) — on Windows this step is a safe no-op (prints a warning, doesn't crash), it
    just doesn't actually clean anything yet.
@@ -140,7 +145,9 @@ Per-iteration cycle:
    on Linux). Retried here with backoff, the same technique as `commit_with_retry` in production
    (`kicadstamp/kicad/adapter.py`) — not counted as a crash.
 6. Record the outcome: `ok` / `crash` (dropped connection — this one is actually #24966) / `busy` (still busy
-   after all retries — reported separately, not as a crash).
+   after all retries — reported separately, not as a crash) / `zombie` (the previous `kicad.exe` never died
+   within `wait_until_dead()`'s timeout — the attempt is skipped, no new instance is launched on top of it;
+   reported separately, not as a crash).
 7. Kill KiCad, next iteration.
 
 **Config:** by default reads `crash_config.yaml` from the repo root — no need to type `--project`/
@@ -190,10 +197,10 @@ python tools/repeat_first_write_crash.py --kicad-exe "C:\Program Files\KiCad\9.0
 - `--kicad-exe` — path to `kicad.exe` (overrides `kicad_exe` from the config; **mandatory on Windows**,
   fatal with a usage hint if missing there; ignored on Linux).
 
-**Output:** a line of `OK`/`CRASH`/`BUSY` per attempt, followed by a summary (total runs counted towards the
-crash rate, how many never came up in time, how many stayed busy through all retries, crash percentage — the
-crash percentage is computed over `ok + crash` only, `busy`/timed-out runs are excluded so they don't dilute
-or inflate the #24966 statistic with unrelated noise).
+**Output:** a line of `OK`/`CRASH`/`BUSY`/`ZOMBIE` per attempt, followed by a summary (total runs counted
+towards the crash rate, how many never came up in time, how many stayed busy through all retries, how many were
+skipped as zombies, crash percentage — the crash percentage is computed over `ok + crash` only, `busy`/timed-out/
+zombie runs are excluded so they don't dilute or inflate the #24966 statistic with unrelated noise).
 
 **Important note on the "Schematic Editor open" condition:** whether the schematic editor reopens
 automatically on project launch depends on whether the `.kicad_pro` project itself remembered its open
