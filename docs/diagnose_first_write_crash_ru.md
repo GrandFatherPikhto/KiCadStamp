@@ -82,8 +82,8 @@ PCB Editor, та же лесенка проходит чисто. Уязвима
 
 ## См. также
 
-- [crash_hunting_ru.md](crash_hunting_ru.md) — описания обоих багов (#24966/#24970), остальные два
-  инструмента набора (`clean_kicad_crash_state.py`, `repeat_first_write_crash.py`) и рекомендованный
-  порядок работы.
+- [crash_hunting_ru.md](crash_hunting_ru.md) — описания обоих багов (#24966/#24970), `clean_kicad_crash_state.py`
+  и рекомендованный порядок работы. Сам `repeat_first_write_crash.py` переехал в отдельный проект,
+  [`KiCadTestIPCrash`](https://github.com/GrandFatherPikhto/KiCadTestIPCrash).
 - [crash_hunting_ru.md#как-снять-и-разобрать-core-dump-windows--linux](crash_hunting_ru.md) — что делать,
   если лесенка всё-таки уронила KiCad и нужен полный символизированный бэктрейс.

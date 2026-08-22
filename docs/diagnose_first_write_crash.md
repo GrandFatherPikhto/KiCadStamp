@@ -85,8 +85,8 @@ writeup of this condition.
 
 ## See also
 
-- [crash_hunting.md](crash_hunting.md) — descriptions of both bugs (#24966/#24970), the other two tools
-  in the toolkit (`clean_kicad_crash_state.py`, `repeat_first_write_crash.py`), and the recommended
-  workflow.
+- [crash_hunting.md](crash_hunting.md) — descriptions of both bugs (#24966/#24970), `clean_kicad_crash_state.py`,
+  and the recommended workflow. `repeat_first_write_crash.py` itself has moved to its own project,
+  [`KiCadTestIPCrash`](https://github.com/GrandFatherPikhto/KiCadTestIPCrash).
 - [crash_hunting.md#how-to-catch-and-analyze-a-core-dump-windows--linux](crash_hunting.md) — what to do
   if the ladder does crash KiCad and you need a full symbolized backtrace.
