@@ -1,7 +1,7 @@
 # Конфиг для tools/repeat_first_write_crash.py (issue #24966).
 # Все поля переопределяются одноимёнными CLI-флагами (--project, --runs, ...) —
 # то, что задано в командной строке, всегда побеждает конфиг.
-project: boards/3CH-AWG-TIA/3CH-AWG-TIA.kicad_pro
+project: D:/Projects/KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v102/3CH-AWG-TIA-v102.kicad_pro
 boards_dir: boards
 runs: 5
 startup_wait: 30.0
