@@ -100,7 +100,11 @@ merge_write()/upsert_list_entry() every other write path uses) vs.
 Overwrite (replaces the target file's whole content). See gui/docks/
 entity_export.py.
 """
+import cProfile
+import io
 import os
+import pstats
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -304,7 +308,19 @@ class ConfigTreeDock(QDockWidget):
     def refresh(self) -> None:
         """Public — also called by PlacerDock's saved signal (see
         gui/dock_hub.py) so a successful Save shows up here without
-        reassigning the root file."""
+        reassigning the root file.
+
+        TEMPORARY (2026-08-22, diagnosing a slow-redraw complaint): when
+        KICADSTAMP_PROFILE_TREE=1 is set, times the three phases and runs
+        the whole body under cProfile, printing a one-line summary to the
+        console and the full cProfile stats to
+        diagnostics/tree_refresh_profile.txt — NOT to the Log dock (see
+        [[project_linux_small_screen_gui_constraint]], a dump this size
+        would be disruptive there). Remove this block once the bottleneck
+        is found and fixed."""
+        if os.environ.get("KICADSTAMP_PROFILE_TREE") == "1":
+            self._refresh_profiled()
+            return
         self.tree.clear()
         if self._root_path is None:
             return
@@ -315,6 +331,55 @@ class ConfigTreeDock(QDockWidget):
             return
         self._build_file_item(self.tree.invisibleRootItem(), node, parent_path=None)
         self.tree.expandAll()
+
+    def _refresh_profiled(self) -> None:
+        """See the TEMPORARY note on refresh() — same body, instrumented.
+        Each call writes its OWN numbered output file (_refresh_call_count)
+        instead of overwriting the same one — a driver script calling
+        refresh() N times in a row (cold vs. warm walk_include_tree cache)
+        needs each run's cProfile detail kept separately, not just the
+        last one."""
+        ConfigTreeDock._refresh_call_count = getattr(
+            ConfigTreeDock, "_refresh_call_count", 0) + 1
+        call_no = ConfigTreeDock._refresh_call_count
+        profiler = cProfile.Profile()
+        profiler.enable()
+        t0 = time.perf_counter()
+        self.tree.clear()
+        if self._root_path is None:
+            profiler.disable()
+            return
+        try:
+            node = walk_include_tree(str(self._root_path))
+        except ValidationError as e:
+            QTreeWidgetItem(self.tree, [str(e)])
+            profiler.disable()
+            return
+        t1 = time.perf_counter()
+        self._build_file_item(self.tree.invisibleRootItem(), node, parent_path=None)
+        t2 = time.perf_counter()
+        self.tree.expandAll()
+        t3 = time.perf_counter()
+        # repaint() is a SYNCHRONOUS immediate repaint (unlike update(), which
+        # just schedules one for later) — without this, a deferred paint cost
+        # would happen invisibly after profiler.disable() below and never show
+        # up in either the timings or the cProfile stats, understating the
+        # actual on-screen slowness Denis is seeing.
+        self.tree.repaint()
+        t4 = time.perf_counter()
+        profiler.disable()
+        print(
+            f"[ConfigTreeDock.refresh #{call_no}] walk={1000*(t1-t0):.1f}ms "
+            f"build={1000*(t2-t1):.1f}ms expand={1000*(t3-t2):.1f}ms "
+            f"paint={1000*(t4-t3):.1f}ms total={1000*(t4-t0):.1f}ms"
+        )
+        out_path = (Path(__file__).resolve().parents[2] / "diagnostics" /
+                    f"tree_refresh_profile_{call_no:02d}.txt")
+        out_path.parent.mkdir(exist_ok=True)
+        stream = io.StringIO()
+        pstats.Stats(profiler, stream=stream).sort_stats("cumulative").print_stats(40)
+        out_path.write_text(stream.getvalue(), encoding="utf-8")
+        print(f"[ConfigTreeDock.refresh #{call_no}] full profile written to {out_path}")
 
     # ── Building the tree from an IncludeTreeNode ───────────────────────
 
