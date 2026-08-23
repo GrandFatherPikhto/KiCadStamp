@@ -52,16 +52,20 @@ def list_kicad_pids() -> list[int]:
                     pids.append(int(parts[1]))
         else:
             import psutil  # optional, see requirements.txt
-            # Excludes our own PID (found live 2026-08-07: launched directly
-            # as ./kicadstamp_gui.py, Linux's comm — what psutil's name()
-            # reads — is the truncated SCRIPT basename, "kicadstamp_gui." for
-            # a 15-char comm field, which contains "kicad" just as much as
-            # real KiCad's own process name does. Denis picked the one PID
-            # the "KiCad processes" dialog offered, force-closed it, and it
-            # was this app killing itself).
-            pids = [p.pid for p in psutil.process_iter(["name"])
-                    if p.pid != os.getpid() and p.info["name"]
-                    and "kicad" in p.info["name"].lower()]
+            # Exact image-name match (not a substring): found live
+            # 2026-08-07 that launching directly as ./kicadstamp_gui.py makes
+            # Linux's comm — what psutil's name() reads — the truncated
+            # SCRIPT basename, "kicadstamp_gui." for a 15-char comm field,
+            # which contains "kicad" just as much as real KiCad's own process
+            # name does. Denis picked the one PID the "KiCad processes"
+            # dialog offered, force-closed it, and it was this app killing
+            # itself. An exact match can never hit our own process (or any
+            # other kicadstamp-family tool), so no PID exclusion is needed.
+            # Zombies are skipped: after a crash kicad lingers in state Z
+            # until its parent reaps it, and psutil still reports it by name.
+            pids = [p.pid for p in psutil.process_iter(["name", "status"])
+                    if p.info["name"] and p.info["name"].lower() == "kicad"
+                    and p.info["status"] != psutil.STATUS_ZOMBIE]
     except Exception as e:
         logger.debug("could not get kicad PIDs: %s", e)
     return sorted(pids)
@@ -102,14 +106,14 @@ def list_kicad_processes() -> list[KicadProcessInfo]:
                         title=None if title == "N/A" else title))
         else:
             import psutil  # optional, see requirements.txt
-            # Same self-match exclusion as list_kicad_pids() above — this is
-            # the function gui/kicad_processes_dialog.py's picker actually
-            # lists from, so it's the one that let Force-close target our
-            # own process live.
-            own_pid = os.getpid()
-            for p in psutil.process_iter(["pid", "name"]):
-                if (p.info["pid"] != own_pid and p.info["name"]
-                        and "kicad" in p.info["name"].lower()):
+            # Same exact-name match plus zombie filter as list_kicad_pids()
+            # above — see its comment for the 2026-08-07 self-match incident
+            # and why no PID exclusion is needed. This is the function
+            # gui/kicad_processes_dialog.py's picker actually lists from, so
+            # it's the one that let Force-close target our own process live.
+            for p in psutil.process_iter(["pid", "name", "status"]):
+                if (p.info["name"] and p.info["name"].lower() == "kicad"
+                        and p.info["status"] != psutil.STATUS_ZOMBIE):
                     processes.append(KicadProcessInfo(pid=p.info["pid"]))
     except Exception as e:
         logger.debug("could not get kicad process details: %s", e)

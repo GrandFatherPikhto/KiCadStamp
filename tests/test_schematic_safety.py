@@ -7,18 +7,21 @@ human-facing picker enough information (PID/status/title) to pick and
 force-close the right one, never an automated decision (see
 kill_kicad_process's own docstring for why that distinction matters).
 """
+import os
 import subprocess
 
 import pytest
 
 from kicadstamp.schematic_safety import (KicadProcessInfo, kill_kicad_process,
-                                          list_kicad_processes)
+                                          list_kicad_pids, list_kicad_processes)
 
-# Only the Windows branch is exercised here — same scope as the existing
-# list_kicad_pids() (no test patches os.name to "posix" anywhere in this
-# project): os.name is a process-wide value pathlib/pytest also consult
-# internally, so flipping it mid-test is unsafe on a Windows test runner
-# (verified live: it corrupts pytest's own failure-report formatting).
+# The Windows branch is exercised here. The psutil (non-Windows) branch is
+# exercised separately at the bottom of this file via
+# pytest.mark.skipif(os.name != "posix"): os.name is a process-wide value
+# pathlib/pytest also consult internally, so flipping it mid-test is unsafe
+# on a Windows test runner (verified live: it corrupts pytest's own
+# failure-report formatting). On a POSIX runner the posix tests run for real;
+# on a Windows runner they're skipped.
 
 # A real two-process tasklist /FO CSV /V /NH capture (2026-08-03, one
 # crashed/Not Responding kicad.exe left over, one fresh/Running one) —
@@ -93,5 +96,59 @@ def test_kill_kicad_process_windows_failure_raises_with_diagnostic(monkeypatch):
 
     with pytest.raises(RuntimeError, match="could not be terminated"):
         kill_kicad_process(36828)
+
+
+# ---------------------------------------------------------------- posix branch
+#
+# The psutil (non-Windows) branch is exercised here, guarded so a Windows
+# test runner simply skips it. The branch must match the EXACT image name
+# ("kicad"), not a substring (2026-08-23: a kicadstamp-family helper like
+# kicadstamp_gui.py / analyze_kicad_c.py was picked as a "KiCad process" and
+# force-closed by hand), and must skip zombies (a crashed kicad lingers in
+# state Z until its parent reaps it while psutil still reports its name).
+
+class _FakePsutilProc:
+    def __init__(self, pid, name, status):
+        self.pid = pid
+        self.info = {"pid": pid, "name": name, "status": status}
+
+
+def _fake_process_iter(procs):
+    def _iter(attrs=None):
+        return iter(procs)
+    return _iter
+
+
+@pytest.mark.skipif(os.name != "posix",
+                    reason="exercises the psutil (non-Windows) branch")
+def test_list_kicad_pids_posix_exact_name_and_zombie_filter(monkeypatch):
+    import psutil
+    monkeypatch.setattr(psutil, "process_iter", _fake_process_iter([
+        _FakePsutilProc(100, "kicad", "running"),          # exact match -> kept
+        _FakePsutilProc(101, "kicad", "zombie"),           # zombie -> skipped
+        _FakePsutilProc(102, "kicadstamp_gui.", "running"),  # substring only -> skipped
+        _FakePsutilProc(103, "analyze_kicad_c", "running"),  # substring only -> skipped
+        _FakePsutilProc(104, "KICAD", "sleeping"),         # case-insensitive exact -> kept
+        _FakePsutilProc(105, "kicad", None),               # unknown status -> kept
+    ]))
+
+    assert list_kicad_pids() == [100, 104, 105]
+
+
+@pytest.mark.skipif(os.name != "posix",
+                    reason="exercises the psutil (non-Windows) branch")
+def test_list_kicad_processes_posix_exact_name_and_zombie_filter(monkeypatch):
+    import psutil
+    monkeypatch.setattr(psutil, "process_iter", _fake_process_iter([
+        _FakePsutilProc(100, "kicad", "running"),
+        _FakePsutilProc(101, "kicad", "zombie"),
+        _FakePsutilProc(102, "kicadstamp_gui.", "running"),
+        _FakePsutilProc(103, "Kicad", "sleeping"),
+    ]))
+
+    assert list_kicad_processes() == [
+        KicadProcessInfo(pid=100),
+        KicadProcessInfo(pid=103),
+    ]
 
 

@@ -89,8 +89,15 @@ def list_kicad_pids():
                     pids.append(int(parts[1]))
         else:
             import psutil  # optional
-            pids = [p.pid for p in psutil.process_iter(["name"])
-                    if p.info["name"] and "kicad" in p.info["name"].lower()]
+            # Exact image-name match (not a substring) so this diagnostic's
+            # own helper scripts and any other kicadstamp-family tool are
+            # never mistaken for a live kicad. Zombies are skipped: after a
+            # crash kicad lingers in state Z until its parent reaps it, and
+            # psutil still reports it by name — counting it would misreport
+            # a dead session as alive in the snapshot/pulse.
+            pids = [p.pid for p in psutil.process_iter(["name", "status"])
+                    if p.info["name"] and p.info["name"].lower() == "kicad"
+                    and p.info["status"] != psutil.STATUS_ZOMBIE]
     except Exception as e:
         logger.debug(_("Failed to get kicad PIDs: {e}").format(e=e))
     return sorted(pids)
