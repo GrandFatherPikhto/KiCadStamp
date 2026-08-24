@@ -724,3 +724,47 @@ class TestTrackViaClusterClosure:
         assert result["t"]["vias"] == []
         assert "/Channel_0/OpAmp/PROT_OUT_P" in caplog.text
         assert "/Channel_0/OpAmp/PA_EN_PROT" in caplog.text
+
+    def test_raw_selection_keeps_isolated_via_the_filter_would_drop(self):
+        """The live case behind --raw-selection (2026-08-24): a via not
+        connected to any kept footprint's pad is dropped by the connectivity
+        filter (default), but taken as-is when raw_selection=True."""
+        fp = _make_fp_with_pads("U1", 0, 0, 0, "A", [("GND", 0, 0, 0.6)])
+        via = _make_via(50, 50, "+3V3")  # not on the pad, not the role's net
+
+        # Default (and an explicit False) — the filter drops the via.
+        result_default = extract_template_from_selection(
+            _make_closure_adapter([fp], [via], []), "t")
+        assert result_default["t"]["vias"] == []
+
+        result_false = extract_template_from_selection(
+            _make_closure_adapter([fp], [via], []), "t", raw_selection=False)
+        assert result_false["t"]["vias"] == []
+
+        # raw_selection=True — the via goes into the cell exactly as selected.
+        result_raw = extract_template_from_selection(
+            _make_closure_adapter([fp], [via], []), "t", raw_selection=True)
+        assert len(result_raw["t"]["vias"]) == 1
+        assert result_raw["t"]["vias"][0]["net"] == "+3V3"
+
+    def test_raw_selection_via_still_works_as_origin(self):
+        """raw_selection=True must not break --origin-by-via-net: a via the
+        filter would otherwise drop now survives into the selection and can be
+        used as the extraction origin (without the flag it is fatal)."""
+        fp = _make_fp_with_pads("U1", 0, 0, 0, "A", [("GND", 0, 0, 0.6)])
+        via = _make_via(50, 50, "+3V3")
+
+        # Default: the via is filtered out, so --origin-by-via-net is fatal.
+        with pytest.raises(ValidationError):
+            extract_template_from_selection(
+                _make_closure_adapter([fp], [via], []), "t", origin_via_net="+3V3")
+
+        result = extract_template_from_selection(
+            _make_closure_adapter([fp], [via], []), "t",
+            raw_selection=True, origin_via_net="+3V3")
+
+        comp = result["t"]["components"][0]
+        # Origin = the via at (50, 50); component at (0, 0) -> offsets -50.
+        assert comp["offset_along_mm"] == -50.0
+        assert comp["offset_across_mm"] == -50.0
+        assert len(result["t"]["vias"]) == 1

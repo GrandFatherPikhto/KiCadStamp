@@ -67,3 +67,77 @@ class TestRuleNets:
         )
 
         assert captured["rule_nets"] == {"+3V3_VCCIO"}
+
+
+class TestRawSelection:
+    """raw_selection (2026-08-24, --raw-selection) — the opt-in bypass of the
+    pad-connectivity filter: a profile known key and a passthrough down to
+    extract_template_from_selection()."""
+
+    def test_raw_selection_is_a_known_extract_profile_key(self):
+        assert 'raw_selection' in EXTRACT_PROFILE_KNOWN_KEYS
+
+    def test_raw_selection_forwarded_to_extract_template_from_selection(self, monkeypatch, tmp_path):
+        captured = {}
+
+        def _fake(adapter, name, **kwargs):
+            captured.update(kwargs)
+            return {name: {"vias": [], "components": [], "tracks": [], "layer": "F.Cu"}}
+
+        import kicadstamp.cli_extract as cli_extract_mod
+        monkeypatch.setattr(cli_extract_mod, "extract_template_from_selection", _fake)
+
+        extract_template(
+            adapter=object(), name="cell", output=str(tmp_path / "out.yaml"),
+            raw_selection=True,
+        )
+
+        assert captured["raw_selection"] is True
+
+    def test_raw_selection_defaults_to_false(self, monkeypatch, tmp_path):
+        captured = {}
+
+        def _fake(adapter, name, **kwargs):
+            captured.update(kwargs)
+            return {name: {"vias": [], "components": [], "tracks": [], "layer": "F.Cu"}}
+
+        import kicadstamp.cli_extract as cli_extract_mod
+        monkeypatch.setattr(cli_extract_mod, "extract_template_from_selection", _fake)
+
+        extract_template(adapter=object(), name="cell", output=str(tmp_path / "out.yaml"))
+
+        assert captured["raw_selection"] is False
+
+
+class TestCmdExtractRawSelection:
+    """argparse --raw-selection reaches cmd_extract and is threaded through
+    the thin CLI wrapper down to the library core."""
+
+    def test_raw_selection_flag_reaches_extract_template(self, monkeypatch):
+        from types import SimpleNamespace
+        import kicadstamp.cli as cli_mod
+
+        class _FakeAdapter:
+            def refresh_board(self):
+                pass
+
+        monkeypatch.setattr(cli_mod, "KiCadBoardAdapter", lambda timeout_ms: _FakeAdapter())
+        captured = {}
+
+        def _fake_extract(adapter, **kwargs):
+            captured.update(kwargs)
+
+        monkeypatch.setattr(cli_mod, "extract_template", _fake_extract)
+
+        args = SimpleNamespace(
+            name="cell", output="out.yaml", timeout_ms=100,
+            param=None, net_template=None, net_template_role=None, rule_net=None,
+            origin_by_via_net=None, origin_by_component_role=None,
+            origin_by_component_pad=None, profile=None, profiles=None,
+            raw_selection=True,
+        )
+        cli_mod.cmd_extract(args)
+
+        assert captured["raw_selection"] is True
+        assert captured["name"] == "cell"
+        assert captured["output"] == "out.yaml"

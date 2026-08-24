@@ -39,11 +39,11 @@ def cmd_extract(args) -> None:
     direct_args_given = bool(args.name or args.output or args.param or args.net_template
                              or args.net_template_role or args.rule_net
                              or args.origin_by_via_net or args.origin_by_component_role
-                             or args.origin_by_component_pad)
+                             or args.origin_by_component_pad or args.raw_selection)
     if args.profile and direct_args_given:
         raise PlacerError(_("[error] --profile cannot be combined with --name/--output/--param/--net-template/"
-                            "--net-template-role/--rule-net/--origin-by-*: either all from profile or all as "
-                            "explicit flags, not mixed."))
+                            "--net-template-role/--rule-net/--raw-selection/--origin-by-*: either all from "
+                            "profile or all as explicit flags, not mixed."))
 
     if args.profile:
         if not args.profiles:
@@ -65,6 +65,7 @@ def cmd_extract(args) -> None:
         origin_via_net = prof.get("origin_by_via_net")
         origin_component_role = prof.get("origin_by_component_role")
         origin_component_pad = prof.get("origin_by_component_pad")
+        raw_selection = bool(prof.get("raw_selection", False))
         logger.info(_("Profile {profile!r} from {profiles}: name={name}, output={output}")
                     .format(profile=args.profile, profiles=args.profiles, name=name, output=output))
     else:
@@ -101,13 +102,15 @@ def cmd_extract(args) -> None:
         origin_via_net = args.origin_by_via_net
         origin_component_role = args.origin_by_component_role
         origin_component_pad = args.origin_by_component_pad
+        raw_selection = args.raw_selection
 
     extract_template(adapter, name=name, output=output, params=params,
                      net_template_map=net_template_map, net_template_role=net_template_role,
                      rule_nets=rule_nets,
                      origin_via_net=origin_via_net,
                      origin_component_role=origin_component_role,
-                     origin_component_pad=origin_component_pad)
+                     origin_component_pad=origin_component_pad,
+                     raw_selection=raw_selection)
 
 
 def cmd_extract_net(args) -> None:

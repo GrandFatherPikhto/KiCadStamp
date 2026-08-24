@@ -174,6 +174,10 @@ def main() -> int:
                                        "(spoke_layout.py's 'via.net or rule_net'), so this makes the "
                                        "cell reusable across Rules on different nets. Can be repeated. "
                                        "Fatal if the same net is also in --param/--net-template."))
+    extract_parser.add_argument("--raw-selection", action="store_true",
+                                help=_("Take the current selection as tracks/vias as-is, without the "
+                                       "pad-connectivity filter (every selected track/via goes into the "
+                                       "cell, no 'connected to a kept footprint's pad' check)"))
     origin_group = extract_parser.add_mutually_exclusive_group()
     origin_group.add_argument("--origin-by-via-net", metavar="NET",
                               help=_("Template origin — position of via on this net (instead of bbox); "

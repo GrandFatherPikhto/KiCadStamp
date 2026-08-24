@@ -1229,3 +1229,61 @@ def test_registry_filter_survives_a_missing_registry_file(main_window, tmp_path)
     payload = dock._collect_extract_inputs()
 
     assert set(payload["raw_items"]) == {fp_r18, via}
+
+
+# ── Raw selection (2026-08-24, handoff_2026_08_24_extract_raw_selection_flag):
+# "take selection as-is" — opt-in bypass of the pad-connectivity filter ─────
+
+def test_raw_selection_checkbox_defaults_off(main_window, tmp_path):
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+    dock.name_edit.setText("some_cell")
+    main_window.connection.board = FakeBoard()
+    dock._raw_items = [object()]
+
+    payload = dock._collect_extract_inputs()
+
+    assert payload["raw_selection"] is False
+
+
+def test_raw_selection_checkbox_collected_when_checked(main_window, tmp_path):
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+    dock.name_edit.setText("some_cell")
+    main_window.connection.board = FakeBoard()
+    dock._raw_items = [object()]
+    dock.raw_selection_checkbox.setChecked(True)
+
+    payload = dock._collect_extract_inputs()
+
+    assert payload["raw_selection"] is True
+
+
+def test_raw_selection_reaches_run_extract_to_file(main_window, tmp_path, monkeypatch):
+    """The checkbox state must flow: checkbox -> _collect_extract_inputs ->
+    _run_extract -> run_extract_to_file(raw_selection=...) (the worker-side
+    forwarding itself is covered in tests/test_extract_writer.py)."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+    dock.name_edit.setText("some_cell")
+    main_window.connection.board = FakeBoard()
+    dock._raw_items = [object()]
+    dock.raw_selection_checkbox.setChecked(True)
+
+    captured = {}
+
+    def _fake_run(adapter, **kwargs):
+        captured.update(kwargs)
+        return {"messages": [], "annotations": [], "template_dict": {}}
+
+    monkeypatch.setattr(extract_mod, "run_extract_to_file", _fake_run)
+
+    dock._run_extract(dock._collect_extract_inputs())
+
+    assert captured["raw_selection"] is True

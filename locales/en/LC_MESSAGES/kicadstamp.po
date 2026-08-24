@@ -7723,3 +7723,23 @@ msgstr ""
 #: kicadstamp/flatten.py / kicadstamp_cli.py (flatten, 2026-08-21)
 msgid "flatten: wrote {path} ({files} files consolidated)"
 msgstr ""
+
+#: gui/docks/extract.py / kicadstamp_cli.py (raw_selection, 2026-08-24)
+msgid "Take selection as-is (skip connectivity filter)"
+msgstr ""
+
+#: gui/docks/extract.py (raw_selection, 2026-08-24)
+msgid ""
+"By default extract keeps only tracks/vias whose connected copper reaches a pad of "
+"a kept footprint (the connectivity filter). Check this to take the selection "
+"exactly as selected — every selected track/via goes into the cell with no "
+"pad-connectivity check (useful for via arrays / copper with no anchor component "
+"in the selection, or a quick draft capture)."
+msgstr ""
+
+#: kicadstamp_cli.py (raw_selection, 2026-08-24)
+msgid ""
+"Take the current selection as tracks/vias as-is, without the "
+"pad-connectivity filter (every selected track/via goes into the "
+"cell, no 'connected to a kept footprint's pad' check)"
+msgstr ""

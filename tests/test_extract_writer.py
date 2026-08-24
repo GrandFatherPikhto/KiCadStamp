@@ -36,11 +36,12 @@ class _CapturingExtract:
         self.raise_error = None
 
     def __call__(self, adapter, name, params=None, items=None, net_template_role=None,
-                 rule_nets=None, annotations=None, **kwargs):
+                 rule_nets=None, annotations=None, raw_selection=False, **kwargs):
         self.calls.append({
             "adapter": adapter, "name": name, "params": params, "items": items,
             "net_template_role": net_template_role, "rule_nets": rule_nets,
-            "annotations": annotations, "kwargs": kwargs,
+            "annotations": annotations, "raw_selection": raw_selection,
+            "kwargs": kwargs,
         })
         if self.raise_error is not None:
             raise self.raise_error
@@ -51,7 +52,8 @@ class _CapturingExtract:
 
 def _run(tmp_path, *, name="cell1", params=None, items=None, net_template_role=None,
          rule_nets=None, origin_kwargs=None, save_profile=False, profile_key="cell1",
-         profile_path=None, placer_path=None, extract_fn=None, adapter="ADAPTER"):
+         profile_path=None, placer_path=None, raw_selection=False, extract_fn=None,
+         adapter="ADAPTER"):
     """Run run_extract_to_file with a fresh cells target under tmp_path and a
     default capturing extractor (unless one is supplied)."""
     target = tmp_path / "cells.yaml"
@@ -61,7 +63,8 @@ def _run(tmp_path, *, name="cell1", params=None, items=None, net_template_role=N
         name=name, params=params, items=items, net_template_role=net_template_role,
         rule_nets=rule_nets, origin_kwargs=origin_kwargs or {},
         target_path=target, save_profile=save_profile, profile_key=profile_key,
-        profile_path=profile_path, placer_path=placer_path, extract_fn=fn)
+        profile_path=profile_path, placer_path=placer_path,
+        raw_selection=raw_selection, extract_fn=fn)
     return target, result, fn
 
 
@@ -270,7 +273,32 @@ def test_extract_fn_receives_full_payload(tmp_path):
     assert call["items"] == items
     assert call["net_template_role"] == "C1"
     assert call["rule_nets"] == ["GND"]
+    assert call["raw_selection"] is False
     assert call["kwargs"] == {"origin_component_role": "X"}
+
+
+def test_raw_selection_forwarded_and_persisted(tmp_path):
+    """raw_selection=True flows through run_extract_to_file into the extractor
+    AND into the saved extract_profiles entry (so a profile can replay it)."""
+    profile = tmp_path / "profiles.yaml"
+    fn = _CapturingExtract()
+    _, result, _ = _run(
+        tmp_path, save_profile=True, profile_key="cell1", profile_path=profile,
+        raw_selection=True, extract_fn=fn)
+
+    assert "error" not in result
+    assert fn.calls[0]["raw_selection"] is True
+    entry = _load(profile)["extract_profiles"]["cell1"]
+    assert entry["raw_selection"] is True
+
+
+def test_raw_selection_default_omitted_from_profile(tmp_path):
+    """raw_selection=False (default) must not seed a junk key in the profile."""
+    profile = tmp_path / "profiles.yaml"
+    _, _, _ = _run(tmp_path, save_profile=True, profile_key="cell1", profile_path=profile)
+
+    entry = _load(profile)["extract_profiles"]["cell1"]
+    assert set(entry.keys()) == {"output"}
 
 
 def test_annotations_are_collected_and_returned(tmp_path):

@@ -209,7 +209,7 @@ python kicadstamp_cli.py undo --verbose
 ### Синтаксис
 
 ```bash
-python kicadstamp_cli.py extract --name <имя_шаблона> --output <файл> [--timeout-ms] [--verbose] [--log-file] [--param KEY=VALUE] [--net-template ЛИТЕРАЛ=ПАТТЕРН] [--origin-by-via-net NET] [--origin-by-component-role ROLE] [--profiles FILE] [--profile NAME]
+python kicadstamp_cli.py extract --name <имя_шаблона> --output <файл> [--timeout-ms] [--verbose] [--log-file] [--param KEY=VALUE] [--net-template ЛИТЕРАЛ=ПАТТЕРН] [--origin-by-via-net NET] [--origin-by-component-role ROLE] [--origin-by-component-pad PAD] [--raw-selection] [--profiles FILE] [--profile NAME]
 ```
 
 ### Опции
@@ -226,8 +226,9 @@ python kicadstamp_cli.py extract --name <имя_шаблона> --output <фай
 | `--origin-by-via-net NET` | Задаёт origin шаблона по позиции via с указанной цепью (вместо левого нижнего угла bbox). Фатально, если такой via нет или она не единственна. Взаимоисключающе с `--origin-by-component-role` (можно указать только один способ задания origin). |
 | `--origin-by-component-role ROLE` | Задаёт origin по позиции компонента с указанной ролью. Взаимоисключающе с `--origin-by-via-net`. |
 | `--origin-by-component-pad PAD` | Уточняет `--origin-by-component-role`: origin — позиция конкретного пада компонента, а не его центр. Без `--origin-by-component-role` — фатал (уточнять пад можно только у уже указанной роли). |
+| `--raw-selection` | Взять текущее выделение как треки/via **как есть**, без pad-connectivity фильтра — каждый выделенный трек/via попадёт в ячейку без проверки «связи с падом оставленного футпринта». По умолчанию выключено (фильтр остаётся дефолтным поведением); включайте, когда точно знаете, что вся выделенная медь ваша (например, массив via без якорного компонента в выделении). |
 | `--profiles FILE` | YAML-файл с именованными профилями для `extract`. |
-| `--profile NAME` | Использовать профиль из файла `--profiles` вместо явных флагов (нельзя сочетать с `--name`, `--output`, `--param`, `--net-template`, `--origin-by-*` — либо всё из профиля, либо всё явными флагами). |
+| `--profile NAME` | Использовать профиль из файла `--profiles` вместо явных флагов (нельзя сочетать с `--name`, `--output`, `--param`, `--net-template`, `--raw-selection`, `--origin-by-*` — либо всё из профиля, либо всё явными флагами). |
 
 **Важно:** перед запуском выделите в PCB-редакторе нужные компоненты, via и треки. Роли должны быть уникальны. Вывод (YAML или JSON) записывается обёрнутым в ключ `cells:`, готовый к тому, чтобы просто перечислить его в `include:` основного конфига.
 

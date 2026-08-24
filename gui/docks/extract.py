@@ -277,6 +277,22 @@ class ExtractDock(QWidget):
         self.cluster_filter_checkbox.setVisible(False)
         self.cluster_filter_combo.setVisible(False)
 
+        # Raw-selection bypass (2026-08-24, handoff_2026_08_24_extract_raw_
+        # selection_flag): by default extract keeps only tracks/vias whose
+        # connected copper reaches a pad of a kept footprint (the connectivity
+        # filter in template_selection.py). Checking this takes the selection
+        # EXACTLY as selected — no pad-connectivity check at all. Opt-in only,
+        # the filter remains the default; useful for via/copper arrays with no
+        # anchor component in the selection, or a quick draft capture.
+        self.raw_selection_checkbox = QCheckBox(_("Take selection as-is (skip connectivity filter)"))
+        self.raw_selection_checkbox.setToolTip(
+            _("By default extract keeps only tracks/vias whose connected copper reaches a pad of "
+              "a kept footprint (the connectivity filter). Check this to take the selection "
+              "exactly as selected — every selected track/via goes into the cell with no "
+              "pad-connectivity check (useful for via arrays / copper with no anchor component "
+              "in the selection, or a quick draft capture)."))
+        layout.addWidget(self.raw_selection_checkbox)
+
         form = QFormLayout()
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText(_("cell name (key under cells:)"))
@@ -1251,6 +1267,7 @@ class ExtractDock(QWidget):
             "rule_nets": rule_nets,
             "origin_kwargs": origin_kwargs,
             "net_template_role": net_template_role,
+            "raw_selection": self.raw_selection_checkbox.isChecked(),
             "board": board,
         }
 
@@ -1278,6 +1295,7 @@ class ExtractDock(QWidget):
             profile_key=payload["profile_key"],
             profile_path=payload["profile_path"],
             placer_path=payload["placer_path"],
+            raw_selection=payload["raw_selection"],
             extract_fn=extract_template_from_selection)
 
     @staticmethod

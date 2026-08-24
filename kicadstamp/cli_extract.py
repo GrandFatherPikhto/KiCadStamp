@@ -28,8 +28,8 @@ logger = logging.getLogger(__name__)
 # extract_profiles: / clone_profiles: known keys — see load_profile's
 # known_keys param. Field names read from the profile dict: cmd_extract's
 # --profile branch (name/output/params/net_template/net_template_role/
-# origin_by_via_net/origin_by_component_role/origin_by_component_pad) and
-# clone-extract's --profile branch (net/pcb/channel/output).
+# origin_by_via_net/origin_by_component_role/origin_by_component_pad/
+# raw_selection) and clone-extract's --profile branch (net/pcb/channel/output).
 #
 # Public names (no underscore prefix): cli.py and the tests consume these
 # across the module boundary, and the project rule is that private names do
@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 EXTRACT_PROFILE_KNOWN_KEYS = {
     'name', 'output', 'params', 'net_template', 'net_template_role', 'rule_nets',
     'origin_by_via_net', 'origin_by_component_role', 'origin_by_component_pad',
+    'raw_selection',
 }
 CLONE_EXTRACT_PROFILE_KNOWN_KEYS = {'net', 'pcb', 'channel', 'output'}
 
@@ -101,7 +102,8 @@ def extract_template(adapter: KiCadBoardAdapter, *, name: str, output: str,
                      rule_nets: set[str] | None = None,
                      origin_via_net: str | None = None,
                      origin_component_role: str | None = None,
-                     origin_component_pad: str | None = None) -> dict[str, Any]:
+                     origin_component_pad: str | None = None,
+                     raw_selection: bool = False) -> dict[str, Any]:
     """Extract a spoke cell template from the current board selection and
     merge-write it, wrapped under a 'cells:' key, into `output` (YAML/JSON),
     preserving any existing entries (including any OTHER top-level key the
@@ -128,6 +130,7 @@ def extract_template(adapter: KiCadBoardAdapter, *, name: str, output: str,
         net_template_role=net_template_role or {},
         rule_nets=rule_nets or set(),
         annotations=annotations,
+        raw_selection=raw_selection,
     )
 
     output_path = Path(output)

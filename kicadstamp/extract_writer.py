@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 def run_extract_to_file(adapter, *, name: str, params, items, net_template_role,
                         rule_nets, origin_kwargs: Dict[str, Any], target_path: Path,
                         save_profile: bool, profile_key: str, profile_path: Optional[Path],
-                        placer_path: Optional[Path],
+                        placer_path: Optional[Path], raw_selection: bool = False,
                         extract_fn=extract_template_from_selection) -> Dict[str, Any]:
     """Run the extract-transform-write flow for one ExtractDock payload.
 
@@ -55,7 +55,7 @@ def run_extract_to_file(adapter, *, name: str, params, items, net_template_role,
             adapter, name, params=params,
             items=items, net_template_role=net_template_role,
             rule_nets=rule_nets,
-            annotations=annotations, **origin_kwargs)
+            annotations=annotations, raw_selection=raw_selection, **origin_kwargs)
     except PlacerError as e:
         return {"error": str(e)}
 
@@ -79,6 +79,8 @@ def run_extract_to_file(adapter, *, name: str, params, items, net_template_role,
             entry["net_template_role"] = net_template_role
         if rule_nets:
             entry["rule_nets"] = sorted(rule_nets)
+        if raw_selection:
+            entry["raw_selection"] = True
         for key, value in origin_kwargs.items():
             # Function kwargs (origin_component_role) vs. profile YAML
             # keys (origin_by_component_role) differ by "by_" — see

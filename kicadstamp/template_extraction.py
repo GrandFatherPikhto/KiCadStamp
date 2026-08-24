@@ -118,6 +118,7 @@ def extract_template_from_selection(
     rule_nets: set[str] | None = None,
     items: list[Any] | None = None,
     annotations: list[tuple[str, str, str]] | None = None,
+    raw_selection: bool = False,
 ) -> dict[str, Any]:
     """
     Builds a dict {name: {vias: [...], components: [...], tracks: [...]}}
@@ -180,6 +181,18 @@ def extract_template_from_selection(
     cmd_extract) can render it as a commented placeholder line in the
     written YAML via render_uncertain_comments() instead of leaving the gap
     only visible in the log.
+
+    raw_selection — OPTIONAL bool (default False). When True, the pad-
+    connectivity filter (_filter_tracks_and_vias_within_selection) is skipped
+    entirely: every selected track/via goes into the cell exactly as selected,
+    with no "connected to a kept footprint's pad" check. This is an explicit
+    opt-in BYPASS of the filter — the filter itself remains the default
+    behaviour, nothing about it changes. Use it when the user knows all the
+    selected copper is theirs (e.g. a via/copper array with no single anchor
+    component in the selection, or a quick draft capture). The "Tracks in
+    selection: N, taken into cell: M" log line is suppressed in this mode,
+    since nothing is filtered and the "the rest extend beyond the selection"
+    wording would be misleading.
     """
     params = params or {}
     net_template_role = net_template_role or {}
@@ -211,12 +224,14 @@ def extract_template_from_selection(
         logger.warning(_("{count} selected objects — not footprint, via, or track, "
                          "ignored (cell only supports these)").format(count=len(ignored)))
 
-    if tracks_selected or vias:
+    if raw_selection:
+        tracks, vias = tracks_selected, vias
+    elif tracks_selected or vias:
         tracks, vias = _filter_tracks_and_vias_within_selection(
             tracks_selected, vias, footprints, adapter)
     else:
         tracks, vias = [], []
-    if len(tracks) < len(tracks_selected):
+    if not raw_selection and len(tracks) < len(tracks_selected):
         logger.info(_("Tracks in selection: {total}, taken into cell: {kept} "
                       "(the rest extend beyond the selection, see warning above)")
                     .format(total=len(tracks_selected), kept=len(tracks)))
