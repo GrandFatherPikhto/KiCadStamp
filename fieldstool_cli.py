@@ -9,6 +9,10 @@ subcommands:
           docs/commands_ru.md).
   rename  field -> {old_value: new_value}, applied to every symbol whose
           CURRENT value matches, project-wide — no refdes enumeration.
+          With --also-profile <root.yaml>, the SAME renames: map is also
+          applied to the profile config YAML files reachable through that
+          profile's include: graph (profiles/*.yaml) — one rename
+          propagates to the schematic AND the placed config tree.
 
 Both: dry-run by default, --write to actually touch files, --allow-non-
 ascii to skip the homoglyph-typo guard, --force-with-kicad-running to
@@ -22,6 +26,7 @@ Usage:
     python fieldstool_cli.py set roles.yaml                # dry-run
     python fieldstool_cli.py set roles.yaml --write
     python fieldstool_cli.py rename renames.yaml --write
+    python fieldstool_cli.py rename renames.yaml --also-profile profiles/3ch-awg-tia/3ch-awg-tia.yaml --write
 """
 import argparse
 import logging
@@ -37,9 +42,14 @@ if hasattr(sys.stderr, "reconfigure"):
 # project root — where kicadstamp/ lives — is that script's own directory,
 # already on sys.path by default; no sys.path.insert needed (unlike
 # kicadstamp_cli.py/kicadstamp_gui.py, see their own comments on this).
+from kicadstamp.config_rename import (
+    plan_profile_rename_edits,
+    print_profile_report,
+    write_profile_files,
+)
 from kicadstamp.exceptions import FieldsToolError
 from kicadstamp.schematic_editing import check_kicad_not_running, print_report, write_files
-from kicadstamp.schematic_rename_fields import plan_rename_edits
+from kicadstamp.schematic_rename_fields import load_rename_config, plan_rename_edits
 from kicadstamp.schematic_safety import find_non_ascii
 from kicadstamp.schematic_set_fields import plan_set_edits
 
@@ -96,17 +106,66 @@ def cmd_set(args) -> int:
 
 
 def cmd_rename(args) -> int:
+    config_path = Path(args.config)
+    has_profile = bool(args.also_profile)
     try:
-        edits_by_file, file_texts, report, unmatched = plan_rename_edits(Path(args.config))
+        edits_by_file, file_texts, report, unmatched = plan_rename_edits(config_path)
+        prof_edits: dict = {}
+        prof_texts: dict = {}
+        prof_report = []
+        prof_unmatched: list[str] = []
+        if has_profile:
+            _, renames_cfg = load_rename_config(config_path)
+            prof_edits, prof_texts, prof_report, prof_unmatched = plan_profile_rename_edits(
+                Path(args.also_profile), renames_cfg)
     except FieldsToolError as e:
         sys.exit(f"[error] {e}")
-    _check_ascii(report, allow_non_ascii=args.allow_non_ascii)
+
+    _check_ascii(report + prof_report, allow_non_ascii=args.allow_non_ascii)
     if unmatched:
-        print("[warning] these old values matched nothing anywhere (already renamed, or a typo):")
+        print("[warning] schematic — these old values matched nothing anywhere "
+              "(already renamed, or a typo):")
         for u in unmatched:
             print(f"  {u}")
-    return _run(report, edits_by_file, file_texts,
-                write=args.write, force_with_kicad_running=args.force_with_kicad_running)
+    if prof_unmatched:
+        print("[warning] profile — these old values matched nothing anywhere "
+              "(already renamed, or a typo):")
+        for u in prof_unmatched:
+            print(f"  {u}")
+
+    if not report and not prof_report:
+        print("Nothing to change — every requested value already matches.")
+        return 0
+
+    print_report(report, write_mode=args.write)
+    if has_profile:
+        print_profile_report(prof_report, write_mode=args.write)
+    if not args.write:
+        print("\nDry-run — nothing written. Rerun with --write to apply.")
+        return 0
+
+    # The running-KiCad guard only protects .kicad_sch edits; profile YAML files
+    # are never open in KiCad, so a profile-only run is allowed with KiCad open.
+    if report:
+        try:
+            check_kicad_not_running(force=args.force_with_kicad_running)
+        except RuntimeError as e:
+            sys.exit(f"[error] {e}")
+
+    exit_code = 0
+    if report:
+        written, failed = write_files(edits_by_file, file_texts)
+        print(f"\nSchematic files written: {len(written)}. Backups alongside them, .bak extension.")
+        if failed:
+            print(f"FAILED to write schematic (restored from .bak): {failed}")
+            exit_code = 1
+    if prof_report:
+        written, failed = write_profile_files(prof_edits, prof_texts)
+        print(f"Profile files written: {len(written)}. Backups alongside them, .bak extension.")
+        if failed:
+            print(f"FAILED to write profile (restored from .bak): {failed}")
+            exit_code = 1
+    return exit_code
 
 
 def _add_common_flags(p: argparse.ArgumentParser) -> None:
@@ -132,6 +191,11 @@ def main() -> int:
     rename_parser = subparsers.add_parser(
         "rename", help="rename a field's value everywhere it occurs (config: root_sheet + renames:)")
     _add_common_flags(rename_parser)
+    rename_parser.add_argument(
+        "--also-profile", metavar="ROOT.yaml",
+        help="also apply the SAME renames: to the profile config YAML files "
+             "reachable through ROOT.yaml's include: graph (profiles/*.yaml) — "
+             "one rename propagates to the schematic AND the placed config tree")
     rename_parser.set_defaults(func=cmd_rename)
 
     args = parser.parse_args()

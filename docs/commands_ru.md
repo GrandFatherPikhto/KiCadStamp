@@ -636,7 +636,7 @@ fieldstool_ru.md)). Есть и GUI — первый правый таб `kicads
 
 ```bash
 python fieldstool_cli.py set <config.yaml> [--write] [--allow-non-ascii] [--force-with-kicad-running] [--verbose]
-python fieldstool_cli.py rename <config.yaml> [--write] [--allow-non-ascii] [--force-with-kicad-running] [--verbose]
+python fieldstool_cli.py rename <config.yaml> [--write] [--allow-non-ascii] [--force-with-kicad-running] [--verbose] [--also-profile <профиль.yaml>]
 ```
 
 #### Формат конфига
@@ -674,6 +674,7 @@ renames:
 | `--write` | Реально записать. Без флага — только dry-run (печатает, что изменится). |
 | `--allow-non-ascii` | Пропустить проверку значений на не-ASCII символы (по умолчанию — фатал). |
 | `--force-with-kicad-running` | Писать, даже если обнаружен запущенный процесс KiCad. |
+| `--also-profile ROOT.yaml` | (`rename` только) применить ТО ЖЕ `renames:` ещё и к YAML-файлам профиля, достижимым через `include:`-граф корневого `ROOT.yaml` (`profiles/*.yaml`) — одно переименование подхватывается и в схеме, и в расставленном дереве конфигурации. |
 | `--verbose` | Подробный вывод. |
 
 #### Что важно знать перед использованием
@@ -693,6 +694,17 @@ renames:
   затрагивается — проверено `diff` на реальном файле, диф в одну строку.
 - После `--write` обязательно `Update PCB from Schematic` в pcbnew — правка в `.kicad_sch` на плату сама не
   долетает.
+- `rename --also-profile <профиль.yaml>` переносит то же переименование в YAML-файлы профиля, достижимые
+  через его `include:`-граф (не голый glob `profiles/**/*.yaml` — файлы других профилей не трогаются).
+  Правятся только семантически верные поля: для `Role` — `role:`/`anchor_role:`/`net_from_role:`/
+  `net_template_same_as_role:` и ключи словарей `refs:`/`nets:` (это `{роль: ...}`); для `Cluster` —
+  `cluster:`/`anchor_cluster:` и `name:` у `clone_placements:` (это и есть Cluster-тег, который пишется на
+  компоненты платы). Правка — точечная, комментарии и форматирование сохраняются (`.bak` + самопроверка
+  `yaml.safe_load`, как у схемной части). Про иерархические кластеры: переименование — только по ТОЧНОМУ
+  совпадению значения, как и на стороне схемы; `"Channel_1" -> "Channel_1_v2"` НЕ перепишет дочернее
+  `"Channel_1/sub"` — посегментное (префиксное) переименование намеренно не реализовано (в текущих профилях
+  кластеры-литералы с `/` не встречаются, `cluster_prefix_match` — это про разрешение на apply, не про
+  переименование).
 
 #### Пример
 

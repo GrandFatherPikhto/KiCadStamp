@@ -121,6 +121,18 @@ multi-instance conflict above, since it always writes the *same* new value to ev
 `old_value` that matched nothing anywhere is reported as a **warning**, not a fatal error — it's
 just as likely a harmless re-run (renaming is idempotent) as a typo.
 
+`rename --also-profile <root.yaml>` additionally applies the SAME `renames:` map to the profile
+config YAML files reachable through that profile's `include:` graph — the answer to "rename a
+Role/Cluster on the schematic and have it propagate into the already-placed `profiles/*.yaml`
+tree without a second, duplicating rename file". Only semantically-correct fields are edited:
+`Role` → `role:`/`anchor_role:`/`net_from_role:`/`net_template_same_as_role:` and the KEYS of the
+`refs:`/`nets:` dicts; `Cluster` → `cluster:`/`anchor_cluster:` and `name:` of `clone_placements:`
+(that `name` IS the Cluster tag written onto the board's components). The edit is a byte-offset
+text splice (comments/formatting preserved, `.bak` + `yaml.safe_load` self-verify), never a
+parse→dump round trip. Renaming is exact-value only, mirroring the schematic side: a hierarchical
+cluster literal like `Channel_1/sub` is NOT rewritten when renaming `Channel_1` — segment/prefix
+renaming is deliberately out of scope (see `kicadstamp/config_rename.py`).
+
 ### Safety guards
 
 - **Dry-run by default** — `--write` required to touch anything.

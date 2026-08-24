@@ -107,6 +107,9 @@ def _filter_tracks_and_vias_within_selection(
     """
     all_pads = [p for fp in footprints for p in adapter.get_footprint_pads(fp)]
     pad_boxes = _inflated_boxes(adapter, all_pads)
+    logger.debug(_("Kept footprints: {refs}; pad boxes: {ok} real / {total} total").format(
+        refs=[fp.reference_field.text.value if fp.reference_field else "?" for fp in footprints],
+        ok=sum(1 for b in pad_boxes if b is not None), total=len(pad_boxes)))
 
     if not any(b is not None for b in pad_boxes):
         # No real kept-pad anchors available — via-only extraction / mock
