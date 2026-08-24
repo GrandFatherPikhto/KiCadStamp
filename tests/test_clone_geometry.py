@@ -30,7 +30,7 @@ def _pi_filter_template() -> Cell:
 
 class TestApplyCloneGeometry:
     def test_origin_is_direct_no_shift(self):
-        clone = ClonePlacement(name="filter1", cell="pi_filter", xy=(50.0, 50.0))
+        clone = ClonePlacement(cluster="filter1", cell="pi_filter", xy=(50.0, 50.0))
         layout = apply_clone_geometry(clone, _pi_filter_template(), {"CAP_IN": "C10", "CAP_OUT": "C11"})
         assert layout.origin.x == int(50.0 * MM)
         assert layout.origin.y == int(50.0 * MM)
@@ -38,7 +38,7 @@ class TestApplyCloneGeometry:
     def test_polar_mode_origin_matches_local_to_absolute(self):
         """Polar radius/angle define the shift via the same local_to_absolute
         primitive as CoordinatePlacement — "radius along X, rotated by angle"."""
-        clone = ClonePlacement(name="f1", cell="pi_filter", xy=(0.0, 0.0),
+        clone = ClonePlacement(cluster="f1", cell="pi_filter", xy=(0.0, 0.0),
                                radius_mm=5.0, angle_deg=37.0)
         layout = apply_clone_geometry(clone, _pi_filter_template(), {"CAP_IN": "C10", "CAP_OUT": "C11"})
         expected = local_to_absolute(Vector2.from_xy(0, 0), 5.0, 0.0, 37.0)
@@ -47,7 +47,7 @@ class TestApplyCloneGeometry:
 
     def test_polar_mode_no_anchor_is_absolute_position(self):
         """No anchor + polar = absolute point at radius/angle from board origin."""
-        clone = ClonePlacement(name="f1", cell="pi_filter", xy=(0.0, 0.0),
+        clone = ClonePlacement(cluster="f1", cell="pi_filter", xy=(0.0, 0.0),
                                radius_mm=4.0, angle_deg=90.0)
         layout = apply_clone_geometry(clone, _pi_filter_template(), {"CAP_IN": "C10", "CAP_OUT": "C11"})
         expected = local_to_absolute(Vector2.from_xy(0, 0), 4.0, 0.0, 90.0)
@@ -57,7 +57,7 @@ class TestApplyCloneGeometry:
     def test_polar_angle_does_not_become_component_rotation(self):
         """Unlike CoordinatePlacement, polar angle_deg must NOT leak into
         rotation_deg — it only positions the origin."""
-        clone = ClonePlacement(name="f1", cell="pi_filter", xy=(0.0, 0.0),
+        clone = ClonePlacement(cluster="f1", cell="pi_filter", xy=(0.0, 0.0),
                                radius_mm=3.0, angle_deg=120.0, rotation_deg=0.0)
         layout = apply_clone_geometry(clone, _pi_filter_template(), {"CAP_IN": "C10", "CAP_OUT": "C11"})
         cap_out = next(c for c in layout.components if c.role == "CAP_OUT")
@@ -68,7 +68,7 @@ class TestApplyCloneGeometry:
         rotated parent frame must rotate by angle_deg + parent_rotation_deg —
         exactly like xy does — or nested Cells silently misplace."""
         anchor = Vector2.from_xy(int(100.0 * MM), int(200.0 * MM))
-        clone = ClonePlacement(name="f1", cell="pi_filter", xy=(0.0, 0.0),
+        clone = ClonePlacement(cluster="f1", cell="pi_filter", xy=(0.0, 0.0),
                                radius_mm=5.0, angle_deg=30.0)
         layout = apply_clone_geometry(
             clone, _pi_filter_template(), {"CAP_IN": "C10", "CAP_OUT": "C11"},
@@ -81,7 +81,7 @@ class TestApplyCloneGeometry:
         assert cap_out.angle_deg == 180.0 + 90.0
 
     def test_roles_mapped_and_angle_includes_rotation(self):
-        clone = ClonePlacement(name="filter1", cell="pi_filter", xy=(50.0, 50.0),
+        clone = ClonePlacement(cluster="filter1", cell="pi_filter", xy=(50.0, 50.0),
                               rotation_deg=90.0)
         layout = apply_clone_geometry(clone, _pi_filter_template(), {"CAP_IN": "C10", "CAP_OUT": "C11"})
         cap_in = next(c for c in layout.components if c.role == "CAP_IN")
@@ -92,7 +92,7 @@ class TestApplyCloneGeometry:
         assert cap_out.angle_deg == 180.0 + 90.0
 
     def test_spoke_and_component_level_vias_both_resolved(self):
-        clone = ClonePlacement(name="filter1", cell="pi_filter", xy=(0.0, 0.0))
+        clone = ClonePlacement(cluster="filter1", cell="pi_filter", xy=(0.0, 0.0))
         layout = apply_clone_geometry(clone, _pi_filter_template(), {"CAP_IN": "C10", "CAP_OUT": "C11"})
         assert len(layout.vias) == 1
         assert layout.vias[0].net == "GND"
@@ -104,7 +104,7 @@ class TestApplyCloneGeometry:
         tpl = Cell(name="dac", vias=[
             TemplateVia(offset_along_mm=0.0, offset_across_mm=0.0, net="DAC{channel}_DB1")
         ])
-        clone = ClonePlacement(name="dac2", cell="dac", xy=(0.0, 0.0),
+        clone = ClonePlacement(cluster="dac2", cell="dac", xy=(0.0, 0.0),
                               params={"channel": 2})
         layout = apply_clone_geometry(clone, tpl, {})
         assert layout.vias[0].net == "DAC2_DB1"
@@ -113,7 +113,7 @@ class TestApplyCloneGeometry:
         tpl = Cell(name="mcu", vias=[
             TemplateVia(offset_along_mm=0.0, offset_across_mm=0.0, net="/STM32F4xx/BOOT0")
         ])
-        clone = ClonePlacement(name="mcu2", cell="mcu", xy=(0.0, 0.0),
+        clone = ClonePlacement(cluster="mcu2", cell="mcu", xy=(0.0, 0.0),
                               net_overrides={"/STM32F4xx/BOOT0": "/STM32F4xx_2/BOOT0"})
         layout = apply_clone_geometry(clone, tpl, {})
         assert layout.vias[0].net == "/STM32F4xx_2/BOOT0"
@@ -121,12 +121,12 @@ class TestApplyCloneGeometry:
     def test_via_without_net_raises_fatal(self):
         """Нет rule_net, на который можно упасть, в отличие от ManualSpoke — via без net фатальна."""
         tpl = Cell(name="bad", vias=[TemplateVia(offset_along_mm=0.0, offset_across_mm=0.0, net=None)])
-        clone = ClonePlacement(name="x", cell="bad", xy=(0.0, 0.0))
+        clone = ClonePlacement(cluster="x", cell="bad", xy=(0.0, 0.0))
         with pytest.raises(ValidationError):
             apply_clone_geometry(clone, tpl, {})
 
     def test_role_without_resolved_ref_is_skipped(self):
-        clone = ClonePlacement(name="filter1", cell="pi_filter", xy=(0.0, 0.0))
+        clone = ClonePlacement(cluster="filter1", cell="pi_filter", xy=(0.0, 0.0))
         layout = apply_clone_geometry(clone, _pi_filter_template(), {"CAP_IN": "C10"})  # CAP_OUT не разрешена
         assert len(layout.components) == 1
         assert layout.components[0].role == "CAP_IN"
@@ -140,7 +140,7 @@ class TestApplyCloneGeometry:
                 TemplateComponentSlot(role="A", offset_along_mm=1.0, offset_across_mm=0.0, angle_deg=45.0)
             ]
         )
-        clone = ClonePlacement(name="mirror_test", cell="simple", xy=(10.0, 20.0),
+        clone = ClonePlacement(cluster="mirror_test", cell="simple", xy=(10.0, 20.0),
                                rotation_deg=30.0)
         role_to_ref = {"A": "C1"}
 
@@ -164,7 +164,7 @@ class TestApplyCloneGeometry:
     def test_anchor_position_shifts_origin(self):
         """Если задан anchor_position, origin = anchor_position + (origin_x, origin_y) (плоский сдвиг)."""
         tpl = Cell(name="single", components=[TemplateComponentSlot(role="A")])
-        clone = ClonePlacement(name="anchor_test", cell="single",
+        clone = ClonePlacement(cluster="anchor_test", cell="single",
                                xy=(5.0, 7.0))
         anchor = Vector2.from_xy(int(100.0 * MM), int(200.0 * MM))
         layout = apply_clone_geometry(clone, tpl, {"A": "C1"}, anchor_position=anchor)
@@ -188,7 +188,7 @@ class TestApplyCloneGeometry:
         как это интуитивно ожидалось бы для "чего-то, что едет вместе с ним".
         """
         tpl = Cell(name="single", components=[TemplateComponentSlot(role="A")])
-        clone = ClonePlacement(name="anchor_test", cell="single", xy=(5.0, 0.0))
+        clone = ClonePlacement(cluster="anchor_test", cell="single", xy=(5.0, 0.0))
 
         anchor_0deg = Vector2.from_xy(0, 0)
         layout_0 = apply_clone_geometry(clone, tpl, {"A": "C1"}, anchor_position=anchor_0deg)
@@ -217,8 +217,8 @@ class TestApplyCloneGeometry:
         строго к одному clone_placement, а не ко всей anchor-семье.
         """
         tpl = Cell(name="single", components=[TemplateComponentSlot(role="A")])
-        clone_a = ClonePlacement(name="A", cell="single", xy=(0.0, 0.0))
-        clone_b = ClonePlacement(name="B", cell="single", xy=(5.0, 0.0))
+        clone_a = ClonePlacement(cluster="A", cell="single", xy=(0.0, 0.0))
+        clone_b = ClonePlacement(cluster="B", cell="single", xy=(5.0, 0.0))
 
         anchor_old = Vector2.from_xy(0, 0)
         anchor_new = Vector2.from_xy(int(4.0 * MM), 0)
@@ -240,12 +240,12 @@ class TestApplyCloneGeometry:
 def test_clone_shift_mm_polar_equals_cartesian():
     """clone_shift_mm converts a polar offset to its Cartesian equivalent —
     the single identity used by the registry / duplicate-anchor check."""
-    polar = ClonePlacement(name="f", cell="t", xy=(0.0, 0.0), radius_mm=5.0, angle_deg=0.0)
-    cart = ClonePlacement(name="f", cell="t", xy=(5.0, 0.0))
+    polar = ClonePlacement(cluster="f", cell="t", xy=(0.0, 0.0), radius_mm=5.0, angle_deg=0.0)
+    cart = ClonePlacement(cluster="f", cell="t", xy=(5.0, 0.0))
     assert clone_shift_mm(polar) == (5.0, 0.0)
     assert clone_shift_mm(cart) == (5.0, 0.0)
 
-    polar90 = ClonePlacement(name="f", cell="t", xy=(0.0, 0.0), radius_mm=5.0, angle_deg=90.0)
+    polar90 = ClonePlacement(cluster="f", cell="t", xy=(0.0, 0.0), radius_mm=5.0, angle_deg=90.0)
     expected = rotate_local_offset(5.0, 0.0, 90.0)
     ox, oy = clone_shift_mm(polar90)
     assert abs(ox - expected.x / MM) < 1e-6
@@ -260,7 +260,7 @@ class TestNetFromRoleInGeometry:
         tpl = Cell(name="r", vias=[
             TemplateVia(offset_along_mm=0.0, offset_across_mm=0.0,
                         net_from_role="CAP_IN")])
-        clone = ClonePlacement(name="x", cell="r", xy=(0.0, 0.0))
+        clone = ClonePlacement(cluster="x", cell="r", xy=(0.0, 0.0))
         layout = apply_clone_geometry(
             clone, tpl, {"CAP_IN": "C10"},
             resolved_role_nets={("CAP_IN", None): "+3V3"})
@@ -270,7 +270,7 @@ class TestNetFromRoleInGeometry:
         tpl = Cell(name="r", vias=[
             TemplateVia(offset_along_mm=0.0, offset_across_mm=0.0,
                         net_from_role="LDO", net_from_role_pad="2")])
-        clone = ClonePlacement(name="x", cell="r", xy=(0.0, 0.0))
+        clone = ClonePlacement(cluster="x", cell="r", xy=(0.0, 0.0))
         layout = apply_clone_geometry(
             clone, tpl, {"LDO": "U1"},
             resolved_role_nets={("LDO", "2"): "+3V3"})
@@ -281,7 +281,7 @@ class TestNetFromRoleInGeometry:
             TemplateTrack(start_along_mm=0.0, start_across_mm=0.0,
                           end_along_mm=1.0, end_across_mm=1.0,
                           net_from_role="CAP_OUT")])
-        clone = ClonePlacement(name="x", cell="r", xy=(0.0, 0.0))
+        clone = ClonePlacement(cluster="x", cell="r", xy=(0.0, 0.0))
         layout = apply_clone_geometry(
             clone, tpl, {"CAP_OUT": "C11"},
             resolved_role_nets={("CAP_OUT", None): "+3V3"})
@@ -292,7 +292,7 @@ class TestNetFromRoleInGeometry:
             TemplateComponentSlot(role="CAP_OUT", vias=[
                 TemplateVia(offset_along_mm=0.0, offset_across_mm=0.0,
                             net_from_role="CAP_OUT")])])
-        clone = ClonePlacement(name="x", cell="r", xy=(0.0, 0.0))
+        clone = ClonePlacement(cluster="x", cell="r", xy=(0.0, 0.0))
         layout = apply_clone_geometry(
             clone, tpl, {"CAP_OUT": "C11"},
             resolved_role_nets={("CAP_OUT", None): "+1V2"})
@@ -305,7 +305,7 @@ class TestNetFromRoleInGeometry:
         tpl = Cell(name="r", vias=[
             TemplateVia(offset_along_mm=0.0, offset_across_mm=0.0,
                         net_from_role="CAP_IN")])
-        clone = ClonePlacement(name="x", cell="r", xy=(0.0, 0.0))
+        clone = ClonePlacement(cluster="x", cell="r", xy=(0.0, 0.0))
         with pytest.raises(ValidationError, match="not resolved"):
             apply_clone_geometry(clone, tpl, {"CAP_IN": "C10"},
                                  resolved_role_nets={})
@@ -314,6 +314,6 @@ class TestNetFromRoleInGeometry:
         tpl = Cell(name="r", vias=[
             TemplateVia(offset_along_mm=0.0, offset_across_mm=0.0,
                         net_from_role="CAP_IN")])
-        clone = ClonePlacement(name="x", cell="r", xy=(0.0, 0.0))
+        clone = ClonePlacement(cluster="x", cell="r", xy=(0.0, 0.0))
         with pytest.raises(ValidationError, match="not resolved"):
             apply_clone_geometry(clone, tpl, {"CAP_IN": "C10"})

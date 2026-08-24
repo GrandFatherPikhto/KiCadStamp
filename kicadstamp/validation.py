@@ -188,7 +188,7 @@ def check_clone_cells_exist(cfg: Config) -> None:
             continue
         if clone.cell not in cfg.cells:
             problems.append(_("clone_placement {name!r}: cell {cell!r} not found in cells")
-                            .format(name=clone.name, cell=clone.cell))
+                            .format(name=clone_placement_effective_name(clone), cell=clone.cell))
     for cell in cfg.cells.values():
         for nested in cell.clone_placements:
             if nested.cell is None:
@@ -254,8 +254,9 @@ def check_no_cell_definition_cycles(cfg: Config) -> None:
 def check_no_duplicate_clone_anchors(cfg: Config) -> None:
     """
     Pure config check (does not require live board):
-      1. clone_placements[].name must be unique — this is the primary identifier
-         for anchor‑less placements (see clone_anchor_id) and good hygiene.
+      1. clone_placements' effective identity (name-or-cluster) must be unique —
+         this is the save/--only identity, and is also the fallback identifier
+         for anchor‑less placements (see clone_anchor_id).
       2. (content, anchor_ref, anchor_pad, xy) among
          clone_placements with anchor_ref set must be unique — this mirrors
          the identity used by the registry (registry.py, see clone_anchor_id).
@@ -283,7 +284,6 @@ def check_no_duplicate_clone_anchors(cfg: Config) -> None:
          registry as two anchor_ref/anchor_role duplicates would be.
     """
     problems = []
-    seen_names = {}
     seen_effective_names = {}
     seen_point_anchors = {}
     seen_ref_anchors = {}
@@ -291,24 +291,22 @@ def check_no_duplicate_clone_anchors(cfg: Config) -> None:
     for clone in cfg.clone_placements:
         if clone.retired:
             continue
-        if clone.name in seen_names:
-            problems.append(_("name {name!r} appears twice in clone_placements — names must be unique")
-                            .format(name=clone.name))
-        seen_names[clone.name] = True
 
-        # Effective SAVE/--only identity must be unique too (2026-08-15,
-        # plan clone_placement_placer_name_split): with placer_name split from
-        # `name`, two entries CAN have different Cluster tags and the SAME
-        # explicit placer_name — which would make --only/upsert unable to tell
-        # them apart. The `name` check above still guards the physical Cluster
-        # tags; this one guards the config-bookkeeping identity.
+        # Effective SAVE/--only identity must be unique (2026-08-15, plan
+        # clone_placement_placer_name_split; 2026-08-24 the Cluster tag moved
+        # to its own `cluster:` field): two entries CAN share a Cluster tag
+        # (legitimately — a reused hierarchical sheet clones identical Cluster
+        # onto every instance) and still be distinct, so only the identity
+        # (name, falling back to cluster) is checked. The old duplicate check
+        # on the Cluster tag itself was REMOVED 2026-08-24 — it was the false
+        # positive behind "name 'PIF_DVDD' appears twice in clone_placements".
         effective = clone_placement_effective_name(clone)
         if effective in seen_effective_names:
             problems.append(
-                _("Placer name {name!r} appears twice in clone_placements — "
-                  "used by {users}; placer_name/name identities must be unique")
-                .format(name=effective, users=", ".join(sorted(seen_effective_names[effective] + [clone.name]))))
-        seen_effective_names.setdefault(effective, []).append(clone.name)
+                _("Name {name!r} appears twice in clone_placements — "
+                  "used by {users}; name identities must be unique")
+                .format(name=effective, users=", ".join(sorted(seen_effective_names[effective] + [clone.cluster]))))
+        seen_effective_names.setdefault(effective, []).append(clone.cluster)
 
         content_id = clone.cell
         ox, oy = clone_shift_mm(clone)
@@ -322,10 +320,10 @@ def check_no_duplicate_clone_anchors(cfg: Config) -> None:
                       "(cell/role={content!r}, anchor_point={point!r}, origin=({ox}, {oy}) mm) — "
                       "the registry would confuse their vias/tracks; likely a copy‑paste typo (if "
                       "this is intentional, give them different xy)")
-                    .format(this=clone.name, other=seen_point_anchors[key], content=content_id,
-                            point=clone.anchor_point, ox=origin[0], oy=origin[1])
+                    .format(this=clone_placement_effective_name(clone), other=seen_point_anchors[key],
+                            content=content_id, point=clone.anchor_point, ox=origin[0], oy=origin[1])
                 )
-            seen_point_anchors[key] = clone.name
+            seen_point_anchors[key] = clone_placement_effective_name(clone)
 
         if clone.anchor_ref is not None:
             key = (content_id, clone.anchor_ref, clone.anchor_pad, origin)
@@ -336,10 +334,11 @@ def check_no_duplicate_clone_anchors(cfg: Config) -> None:
                       "origin=({ox}, {oy}) mm) — the registry would confuse their vias/tracks; "
                       "likely a copy‑paste typo (if this is intentional, give them different "
                       "xy)")
-                    .format(this=clone.name, other=seen_ref_anchors[key], content=content_id,
-                            ref=clone.anchor_ref, pad=clone.anchor_pad, ox=origin[0], oy=origin[1])
+                    .format(this=clone_placement_effective_name(clone), other=seen_ref_anchors[key],
+                            content=content_id, ref=clone.anchor_ref, pad=clone.anchor_pad,
+                            ox=origin[0], oy=origin[1])
                 )
-            seen_ref_anchors[key] = clone.name
+            seen_ref_anchors[key] = clone_placement_effective_name(clone)
 
         if clone.anchor_role is not None:
             key = (content_id, clone.anchor_role, clone.anchor_sheet, clone.anchor_cluster,
@@ -351,11 +350,11 @@ def check_no_duplicate_clone_anchors(cfg: Config) -> None:
                       "anchor_cluster={cluster!r}, anchor_pad={pad!r}, origin=({ox}, {oy}) mm) — "
                       "the registry would confuse their vias/tracks; likely a copy‑paste typo (if "
                       "this is intentional, give them different xy)")
-                    .format(this=clone.name, other=seen_role_anchors[key], content=content_id,
-                            role=clone.anchor_role, sheet=clone.anchor_sheet, cluster=clone.anchor_cluster,
-                            pad=clone.anchor_pad, ox=origin[0], oy=origin[1])
+                    .format(this=clone_placement_effective_name(clone), other=seen_role_anchors[key],
+                            content=content_id, role=clone.anchor_role, sheet=clone.anchor_sheet,
+                            cluster=clone.anchor_cluster, pad=clone.anchor_pad, ox=origin[0], oy=origin[1])
                 )
-            seen_role_anchors[key] = clone.name
+            seen_role_anchors[key] = clone_placement_effective_name(clone)
 
     if problems:
         raise ValidationError(format_fatal_error(
@@ -374,7 +373,8 @@ def check_anchor_sheet_configured(cfg: Config, sheet_names=None) -> None:
     of anchor_role will fail with a less helpful fatal. Better to say it upfront.
     """
     _sn = sheet_names or {}
-    users = [c.name for c in cfg.clone_placements if not c.retired and c.anchor_sheet]
+    users = [clone_placement_effective_name(c)
+             for c in cfg.clone_placements if not c.retired and c.anchor_sheet]
     if users and not _sn:
         raise ValidationError(format_fatal_error(
             _("anchor_sheet is used but sheet name dictionary is empty"),
@@ -509,7 +509,7 @@ def check_clone_nets_exist_on_board(adapter: KiCadBoardAdapter, cfg: Config) -> 
             problems.append(
                 _("{name!r}, {where}: via.net {net_name!r} resolves to {resolved!r}, "
                   "but that net does not exist on the board{suggestion}")
-                .format(name=clone.name, where=where, net_name=via.net,
+                .format(name=clone_placement_effective_name(clone), where=where, net_name=via.net,
                         resolved=resolved, suggestion=suggestion)
             )
 
@@ -540,7 +540,9 @@ def check_single_selection_based_clone(cfg: Config) -> None:
     in a single run. If more than one, fatal with a hint to either retire the
     extras (retired: true) or run apply separately for each with --only NAME.
     """
-    selection_based = [c.name for c in cfg.clone_placements if not c.retired and clone_uses_selection_mode(c)]
+    selection_based = [clone_placement_effective_name(c)
+                       for c in cfg.clone_placements
+                       if not c.retired and clone_uses_selection_mode(c)]
     if len(selection_based) > 1:
         raise ValidationError(format_fatal_error(
             _("multiple clone_placements in 'by selection' mode in one run"),

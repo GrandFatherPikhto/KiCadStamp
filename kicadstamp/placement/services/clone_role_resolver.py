@@ -38,7 +38,7 @@ from kipy.board_types import FootprintInstance
 from kipy.geometry import Vector2
 
 from ...cluster_matching import cluster_prefix_match
-from ...config import Cell, ClonePlacement
+from ...config import Cell, ClonePlacement, clone_placement_effective_name
 from ...exceptions import ValidationError, format_fatal_error
 from ...net_resolution import RULE_NETS, resolve_net, resolve_placeholder
 from .component_pool import ROLE_FIELD_NAME
@@ -272,7 +272,7 @@ def resolve_roles_by_selection(adapter, cell: Cell, clone: ClonePlacement,
     items = adapter.get_selected_items()
     footprints = [i for i in items if isinstance(i, FootprintInstance)]
     selected_refs = {fp.reference_field.text.value for fp in footprints}
-    clone_name = clone.name
+    clone_name = clone_placement_effective_name(clone)
 
     cell_roles = {slot.role for slot in cell.components}
 
@@ -364,16 +364,16 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement,
          which narrows only the EXTERNAL anchor (resolve_footprint_by_role), the
          same 08-14 anchor_cluster-style conflation resolved for the Sheet
          dimension.
-      3. if several candidates AND the placement's OWN Cluster (clone.name —
+      3. if several candidates AND the placement's OWN Cluster (clone.cluster —
          the GUI's "Cluster:" field on the Source tab writes straight into
-         name, see gui/docks/placer.py) matches — narrow to candidates whose
+         cluster, see gui/docks/placer.py) matches — narrow to candidates whose
          Cluster field matches by prefix segments (see cluster_prefix_match).
          This is the main path for the typical case "N identical roles on one
          sheet because the net is common power, not per‑channel". Independent
          of step 2 — a reused hierarchical sheet shares custom fields (Cluster
          included) across every instance, so Cluster alone can't disambiguate
          THOSE cases; anchor_sheet (step 2) is what's needed there instead.
-         Split 2026-08-14: the Cluster read here is clone.name, NOT
+         Split 2026-08-14: the Cluster read here is clone.cluster, NOT
          clone.anchor_cluster — that field narrows only the EXTERNAL anchor
          (resolve_footprint_by_role); the two were conflated into one field
          before (Denis: "Мы печатаем два раза кластер размещаемого целла.
@@ -387,7 +387,7 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement,
          survives re‑annotation.
       6. still several — FATAL: candidates are indistinguishable by all
          available means. Suggest either splitting roles by names in the
-         schematic, checking this placement's own Cluster (name) tagging,
+         schematic, checking this placement's own Cluster (cluster) tagging,
          setting this placement's sheet, selecting the desired instance, or
          (last resort) explicit refs.
     """
@@ -422,7 +422,7 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement,
             continue
         role_to_ref[role] = ref
         logger.info(_("[{name}] role {role!r} -> {ref} (explicit refs)")
-                    .format(name=clone.name, role=role, ref=ref))
+                    .format(name=clone_placement_effective_name(clone), role=role, ref=ref))
 
     # --- first pass: unambiguous by Role+net ---
     for slot in cell.components:
@@ -438,7 +438,7 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement,
             problems.append(_("role {role!r}: no net for mapping (neither in nets "
                               "of {name!r}, nor in cell net_template) — in 'by nets' "
                               "mode, a net is required for every role")
-                            .format(role=role, name=clone.name))
+                           .format(role=role, name=clone_placement_effective_name(clone)))
             continue
 
         expected_net = resolve_net(net_template, clone.params, clone.net_overrides)
@@ -471,7 +471,8 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement,
     # --- narrowing ambiguous: anchor_sheet -> Cluster -> selection -> physical proximity (common function) ---
     for role, expected_net, matched in ambiguous:
         narrowed, note = _narrow_ambiguous_candidates(
-            matched, clone, adapter, selected_refs, anchor_position, clone.name, role, sheet_names
+            matched, clone, adapter, selected_refs, anchor_position,
+            clone_placement_effective_name(clone), role, sheet_names
         )
 
         if len(narrowed) == 1:
@@ -479,12 +480,12 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement,
         else:
             refs = sorted(fp.reference_field.text.value for fp in narrowed)
             # The narrowing for INTERNAL roles always tries the placement's OWN
-            # Cluster (clone.name — required and non-empty, see entries.py), so
-            # `placement_cluster` is effectively always set here; the else
-            # branch is a defensive fallback only (name missing/empty on a
+            # Cluster (clone.cluster — required and non-empty, see entries.py),
+            # so `placement_cluster` is effectively always set here; the else
+            # branch is a defensive fallback only (cluster missing/empty on a
             # non-config object, e.g. a directly-constructed test double).
             placement_sheet = getattr(clone, "sheet", None)
-            placement_cluster = getattr(clone, "name", None)
+            placement_cluster = getattr(clone, "cluster", None)
             if placement_sheet or placement_cluster:
                 narrowed_by = ", ".join(
                     (_("this placement's sheet {sheet!r}").format(sheet=placement_sheet) if placement_sheet else "",
@@ -496,7 +497,7 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement,
                                  "physically different instances, one of them would narrow to one)")
             problems.append(
                 _("role {role!r}: ambiguity — {count} components on net {net!r}{cluster_hint}{note}: {refs}. "
-                  "Solutions: check this placement's own Cluster (name) is tagged correctly on the board, "
+                  "Solutions: check this placement's own Cluster (cluster) is tagged correctly on the board, "
                   "and/or set this placement's sheet, OR select the desired instance on the board before running, "
                   "OR split roles by net names in the schematic (e.g. DAC_PI_3V3_C1 vs DAC_PI_AVDD_C1), "
                   "OR use explicit refs: {{ {role}: {first_ref} }}")
@@ -507,11 +508,12 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement,
 
     if problems:
         raise ValidationError(format_fatal_error(
-            _("net‑based mapping failed ({name!r})").format(name=clone.name),
+            _("net‑based mapping failed ({name!r})").format(name=clone_placement_effective_name(clone)),
             problems
         ))
 
-    logger.info(_("[{name}] mapped by nets: {count} roles").format(name=clone.name, count=len(role_to_ref)))
+    logger.info(_("[{name}] mapped by nets: {count} roles").format(
+        name=clone_placement_effective_name(clone), count=len(role_to_ref)))
     return role_to_ref
 
 
@@ -537,8 +539,9 @@ def resolve_footprint_by_role(adapter, anchor_role: str, anchor_sheet: str | Non
       4. still several, or 0 — FATAL with candidate list and hints
          (anchor_sheet/anchor_cluster/selection/explicit anchor_ref).
 
-    label — only for error messages (clone.name for ClonePlacement,
-    rule.net for Rule — Rule has no "name", net serves as label).
+    label — only for error messages (clone_placement_effective_name(clone)
+    for ClonePlacement, rule.net for Rule — Rule has no "name", net serves
+    as label).
     sheet_names — {uuid: Sheetname}, see Config.sheet_names; empty dictionary
     (schematic_dir/schematic_files not set) — anchor_sheet then never narrows
     anything (fatal checked earlier in validation.py).
@@ -590,4 +593,5 @@ def resolve_anchor_by_role(adapter, clone: ClonePlacement, sheet_names: dict[str
     if anchor_sheet is not None:
         anchor_sheet = resolve_placeholder(anchor_sheet, clone.params, what="anchor_sheet")
     return resolve_footprint_by_role(adapter, clone.anchor_role, anchor_sheet,
-                                     clone.anchor_cluster, sheet_names, clone.name)
+                                     clone.anchor_cluster, sheet_names,
+                                     clone_placement_effective_name(clone))

@@ -25,7 +25,7 @@ cells:
 def test_include_merges_clone_placements_and_rules(tmp_path):
     (tmp_path / "sub.yaml").write_text(MINIMAL_TEMPLATE + """
 clone_placements:
-  - name: from_sub
+  - cluster: from_sub
     cell: one_role
     xy: [1.0, 2.0]
 """, encoding="utf-8")
@@ -35,13 +35,13 @@ clone_placements:
 include:
   - sub.yaml
 clone_placements:
-  - name: from_root
+  - cluster: from_root
     cell: one_role
     xy: [0.0, 0.0]
 """, encoding="utf-8")
 
     cfg, _ = load_config(str(root))
-    names = {cp.name for cp in cfg.clone_placements}
+    names = {cp.cluster for cp in cfg.clone_placements}
     assert names == {"from_root", "from_sub"}
     assert "one_role" in cfg.cells
 
@@ -334,7 +334,7 @@ def test_bare_list_at_top_level_is_fatal(tmp_path):
 def test_nested_include_is_merged(tmp_path):
     (tmp_path / "c.yaml").write_text(MINIMAL_TEMPLATE + """
 clone_placements:
-  - name: from_c
+  - cluster: from_c
     cell: one_role
     xy: [0.0, 0.0]
 """, encoding="utf-8")
@@ -344,7 +344,7 @@ clone_placements:
     root.write_text("include:\n  - b.yaml\n", encoding="utf-8")
 
     cfg, _ = load_config(str(root))
-    assert [cp.name for cp in cfg.clone_placements] == ["from_c"]
+    assert [cp.cluster for cp in cfg.clone_placements] == ["from_c"]
 
 
 # ── walk_include_tree() — structure-preserving, GUI Config tree (2026-08-03) ──

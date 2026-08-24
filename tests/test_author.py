@@ -18,22 +18,22 @@ from kicadstamp.apply_pipeline import RunOptions
 
 class TestPruneDefaults:
     def test_drops_default_valued_fields(self):
-        cp = ClonePlacement(name="c", cell="t", xy=(1.0, 2.0))
+        cp = ClonePlacement(cluster="c", cell="t", xy=(1.0, 2.0))
         d = _prune_defaults(cp)
         assert "rotation_deg" not in d      # default 0.0
         assert "retired" not in d           # default False
         assert "nets" not in d              # default_factory dict, empty
 
     def test_keeps_required_fields_regardless_of_value(self):
-        cp = ClonePlacement(name="c", cell="t", xy=(0.0, 0.0))
+        cp = ClonePlacement(cluster="c", cell="t", xy=(0.0, 0.0))
         d = _prune_defaults(cp)
         # xy has no default at all -> always present, even though (0.0, 0.0)
         # also happens to be a "natural" default-looking value.
-        assert d["name"] == "c"
+        assert d["cluster"] == "c"
         assert d["xy"] == [0.0, 0.0]
 
     def test_keeps_non_default_fields(self):
-        cp = ClonePlacement(name="c", cell="t", xy=(1.0, 2.0),
+        cp = ClonePlacement(cluster="c", cell="t", xy=(1.0, 2.0),
                             rotation_deg=90.0, nets={"X": "NET_A"})
         d = _prune_defaults(cp)
         assert d["rotation_deg"] == 90.0
@@ -48,7 +48,7 @@ class TestPruneDefaults:
 class TestDumpRoundTrip:
     def test_clone_placements_round_trip(self, tmp_path):
         clones = [
-            ClonePlacement(name="channel_0_ad9707", cell="ad_dac",
+            ClonePlacement(cluster="channel_0_ad9707", cell="ad_dac",
                            anchor_role="FPGA", anchor_sheet="Channel_{channel}",
                            nets={"AD_DAC": "/Channel_{channel}/DAC/DAC_OUT_P"},
                            params={"channel": 0},
@@ -61,7 +61,7 @@ class TestDumpRoundTrip:
         assert len(cfg.clone_placements) == 1
         loaded = cfg.clone_placements[0]
         original = clones[0]
-        assert loaded.name == original.name
+        assert loaded.cluster == original.cluster
         assert loaded.cell == original.cell
         assert loaded.anchor_role == original.anchor_role
         assert loaded.anchor_sheet == original.anchor_sheet
@@ -92,7 +92,7 @@ class TestDumpRoundTrip:
     def test_minimal_clone_placement_omits_defaults_in_yaml_text(self, tmp_path):
         """Sanity check on the actual written text, not just the round-trip —
         confirms the YAML stays close to hand-written minimal style."""
-        clones = [ClonePlacement(name="c", cell="t", xy=(1.0, 2.0))]
+        clones = [ClonePlacement(cluster="c", cell="t", xy=(1.0, 2.0))]
         out = tmp_path / "generated.yaml"
         dump_clone_placements(clones, str(out))
         text = out.read_text(encoding="utf-8")
@@ -105,7 +105,7 @@ class TestDumpRoundTrip:
         (radius_mm/angle_deg) reloaded fatally with "has both xy and
         radius_mm/angle_deg" — the round-trip that used to work was broken
         for any script-generated polar clone."""
-        clones = [ClonePlacement(name="polar", cell="t", xy=(0.0, 0.0),
+        clones = [ClonePlacement(cluster="polar", cell="t", xy=(0.0, 0.0),
                                  radius_mm=5.0, angle_deg=37.0)]
         out = tmp_path / "polar.yaml"
         dump_clone_placements(clones, str(out))
@@ -181,7 +181,7 @@ class TestCliMain:
 
     @staticmethod
     def _build():
-        return [ClonePlacement(name="c", cell="t", xy=(1.0, 2.0))]
+        return [ClonePlacement(cluster="c", cell="t", xy=(1.0, 2.0))]
 
     def test_without_apply_only_writes_output(self, tmp_path):
         out = tmp_path / "generated.yaml"

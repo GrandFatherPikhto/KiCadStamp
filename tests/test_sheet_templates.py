@@ -49,7 +49,7 @@ sheet_templates:
       anchor_role: AD_DAC
       anchor_sheet: self
     clone_placements:
-    - name: PIF_AVDD
+    - cluster: PIF_AVDD
       cell: c
       sheet: self
       xy: [2.0, 1.0]
@@ -74,11 +74,11 @@ sheet_templates:
     assert coord["Channel_1_op_amp"].sheet == "Channel_1"
     assert coord["Channel_1_op_amp"].anchor_sheet == "Channel_1"
 
-    clones = {cp.placer_name: cp for cp in cfg.clone_placements}
+    clones = {cp.name: cp for cp in cfg.clone_placements}
     assert set(clones) == {"Channel_0_PIF_AVDD", "Channel_1_PIF_AVDD", "Channel_2_PIF_AVDD"}
-    # name (Cluster tag) is identical across copies — never touched.
-    assert clones["Channel_0_PIF_AVDD"].name == "PIF_AVDD"
-    assert clones["Channel_1_PIF_AVDD"].name == "PIF_AVDD"
+    # cluster (the Cluster tag) is identical across copies — never touched.
+    assert clones["Channel_0_PIF_AVDD"].cluster == "PIF_AVDD"
+    assert clones["Channel_1_PIF_AVDD"].cluster == "PIF_AVDD"
     assert clones["Channel_0_PIF_AVDD"].sheet == "Channel_0"
     assert clones["Channel_0_PIF_AVDD"].anchor_sheet == "Channel_0"
     assert clones["Channel_1_PIF_AVDD"].params["FB_PI_FLT"] == "/Channel_1/DAC/+3V3_AVDD"
@@ -97,8 +97,8 @@ sheet_templates:
   channel:
     sheets: [Channel_0]
     clone_placements:
-    - name: PIF_AVDD
-      placer_name: CH0_PIF_AVDD
+    - cluster: PIF_AVDD
+      name: CH0_PIF_AVDD
       cell: c
       sheet: self
       xy: [2.0, 1.0]
@@ -108,8 +108,8 @@ sheet_templates:
     cfg, _ = load_config(str(root))
     assert len(cfg.clone_placements) == 1
     cp = cfg.clone_placements[0]
-    assert cp.name == "PIF_AVDD"
-    assert cp.placer_name == "CH0_PIF_AVDD"
+    assert cp.cluster == "PIF_AVDD"
+    assert cp.name == "CH0_PIF_AVDD"
     assert cp.sheet == "Channel_0"
 
 

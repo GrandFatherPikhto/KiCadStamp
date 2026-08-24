@@ -159,7 +159,7 @@ def test_placement_picked_loads_into_placer_form(real_main_window):
     already-saved placement leaf in the real Config tree must reach
     PlacerDock's form end-to-end, not just via a direct load_placement()
     call (already covered elsewhere, but never through the actual signal)."""
-    entry = {"name": "spoke_1", "cell": "ldo_adj", "xy": [1.5, 2.5]}
+    entry = {"cluster": "spoke_1", "cell": "ldo_adj", "xy": [1.5, 2.5]}
     real_main_window.config_tree_dock.placement_picked.emit(entry)
 
     assert real_main_window.placer_dock.cluster_edit.currentText() == "spoke_1"

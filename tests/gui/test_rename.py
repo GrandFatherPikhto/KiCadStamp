@@ -339,54 +339,54 @@ def test_rename_entry_refuses_a_graph_wide_collision_before_writing_anything(tmp
 # clone_placement_effective_name(): display/match/rename must use placer_name
 # (the save/--only identity), not the raw Cluster tag `name`. ─────────────
 
-def test_entry_effective_name_uses_placer_name_for_clone_placements():
-    """clone_placements identity is placer_name when set, else name (the
-    Cluster tag) — the tree/Rename/Delete must show/match the save/--only
-    identity, not the physical tag."""
+def test_entry_effective_name_uses_name_for_clone_placements():
+    """clone_placements identity is name when set, else cluster (the Cluster
+    tag) — the tree/Rename/Delete must show/match the save/--only identity,
+    not the physical tag."""
     assert entry_effective_name("clone_placements",
-                                {"name": "PIF_AVDD", "placer_name": "CH0_PIF_AVDD"}) == "CH0_PIF_AVDD"
-    assert entry_effective_name("clone_placements", {"name": "PIF_AVDD"}) == "PIF_AVDD"
+                                {"cluster": "PIF_AVDD", "name": "CH0_PIF_AVDD"}) == "CH0_PIF_AVDD"
+    assert entry_effective_name("clone_placements", {"cluster": "PIF_AVDD"}) == "PIF_AVDD"
 
 
-def test_rename_list_entry_finds_entry_by_placer_name(tmp_path):
-    """Rename must locate a clone_placement by its placer_name (the identity
-    the tree shows) — and write the new value to placer_name, leaving the
-    Cluster tag untouched."""
+def test_rename_list_entry_finds_entry_by_name(tmp_path):
+    """Rename must locate a clone_placement by its name (the identity the tree
+    shows) — and write the new value to name, leaving the Cluster tag
+    untouched."""
     path = tmp_path / "config.yaml"
     path.write_text(
         "clone_placements:\n"
-        "  - name: PIF_AVDD\n    placer_name: CH0_PIF_AVDD\n    cell: ldo\n",
+        "  - cluster: PIF_AVDD\n    name: CH0_PIF_AVDD\n    cell: ldo\n",
         encoding="utf-8")
 
     rename_list_entry(path, "clone_placements", "CH0_PIF_AVDD", "CH1_PIF_AVDD")
 
     data = _load(path)["clone_placements"][0]
-    assert data["placer_name"] == "CH1_PIF_AVDD"
-    assert data["name"] == "PIF_AVDD"  # Cluster tag untouched
+    assert data["name"] == "CH1_PIF_AVDD"
+    assert data["cluster"] == "PIF_AVDD"  # Cluster tag untouched
 
 
-def test_rename_list_entry_writes_name_when_no_placer_name_yet(tmp_path):
+def test_rename_list_entry_writes_cluster_when_no_name_yet(tmp_path):
     """Regression guard: an entry that never diverged still renames its
-    single `name` field, exactly as before the split."""
+    single `cluster` field, exactly as before the split."""
     path = tmp_path / "config.yaml"
     path.write_text(
-        "clone_placements:\n  - name: spoke_1\n    cell: ldo\n", encoding="utf-8")
+        "clone_placements:\n  - cluster: spoke_1\n    cell: ldo\n", encoding="utf-8")
 
     rename_list_entry(path, "clone_placements", "spoke_1", "spoke_1_renamed")
 
     data = _load(path)["clone_placements"][0]
-    assert data["name"] == "spoke_1_renamed"
-    assert "placer_name" not in data
+    assert data["cluster"] == "spoke_1_renamed"
+    assert "name" not in data
 
 
-def test_rename_list_entry_collision_checks_by_placer_name(tmp_path):
+def test_rename_list_entry_collision_checks_by_name(tmp_path):
     """The new_name collision check must also use the effective identity —
-    renaming to a placer_name another entry already has must be refused."""
+    renaming to a name another entry already has must be refused."""
     path = tmp_path / "config.yaml"
     path.write_text(
         "clone_placements:\n"
-        "  - name: A\n    placer_name: CH0_PIF_AVDD\n    cell: ldo\n"
-        "  - name: B\n    placer_name: CH1_PIF_AVDD\n    cell: ldo\n",
+        "  - cluster: A\n    name: CH0_PIF_AVDD\n    cell: ldo\n"
+        "  - cluster: B\n    name: CH1_PIF_AVDD\n    cell: ldo\n",
         encoding="utf-8")
 
     try:

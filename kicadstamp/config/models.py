@@ -609,7 +609,16 @@ class ClonePlacement:
     "by selection" — see resolve_roles_by_selection's docstring in
     clone_role_resolver.py).
     """
-    name: str
+    # Cluster TAG — the physical cluster this placement writes onto the
+    # board's components (PlacerDock's Cluster field), read by
+    # role_narrowing.py as the placement's OWN Cluster for internal role
+    # narrowing (placement/services/role_narrowing.py). NOT the save/--only
+    # identity — that is `name` below. Renamed 2026-08-24 from `name`, which
+    # used to be BOTH this Cluster tag and the identity fallback — the
+    # conflation that made two instances of one reused hierarchical sheet
+    # (same Cluster, legitimately) falsely collide under the old
+    # name-uniqueness check in validation.py.
+    cluster: str
     xy: tuple[float, float]
     cell: str
     radius_mm: float | None = None
@@ -656,18 +665,17 @@ class ClonePlacement:
     # identically on every channel's cloned sheet). Optional — only needed
     # when Cluster+Role alone is ambiguous.
     sheet: str | None = None
-    # Save/--only identity — split 2026-08-15 from `name`. `name` stays the
-    # Cluster TAG (written onto the board's components, read by
-    # role_narrowing.py for internal role narrowing) — placer_name is a
-    # SEPARATE, purely config-bookkeeping identity: upsert_clone_placement's
-    # key_fn and PlacerDock's Redraw replace-by-name filter both match on
-    # this instead of raw `name` now, so renaming/re-tagging Cluster on an
-    # already-saved entry no longer creates a duplicate config entry (Денис,
-    # live: renaming Cluster back and forth on PIF_AVDD/CH0_PIF_AVDD kept
-    # spawning a second entry, because `name` WAS both the tag and the save
-    # key). Optional — None means "same as name", the fallback every
-    # existing clone_placement (none of which set this) keeps using.
-    placer_name: str | None = None
+    # Save/--only identity — split 2026-08-15 from the Cluster tag (then named
+    # placer_name, renamed 2026-08-24 to name after the Cluster tag moved into
+    # its own `cluster:` field above): upsert_clone_placement's key_fn and
+    # PlacerDock's Redraw replace-by-name filter both match on this instead of
+    # the raw Cluster tag, so renaming/re-tagging Cluster on an already-saved
+    # entry no longer creates a duplicate config entry (Денис, live: renaming
+    # Cluster back and forth on PIF_AVDD/CH0_PIF_AVDD kept spawning a second
+    # entry, because the field WAS both the tag and the save key). Optional —
+    # None means "same as cluster", the fallback every existing
+    # clone_placement (none of which set this) keeps using.
+    name: str | None = None
     # Alternative to anchor_ref/anchor_role — name of a points: entry (see
     # config/points.py). Mutually exclusive with anchor_ref/anchor_role
     # (fatal if combined — see config/loader.py). Unlike Rule/
@@ -699,10 +707,9 @@ class ClonePlacement:
 
 def clone_placement_effective_name(clone: "ClonePlacement") -> str:
     """Single point for reading the SAVE/--only identity of a
-    ClonePlacement — placer_name if set, else name (the Cluster tag).
-    See ClonePlacement.placer_name's own comment for why these two were
-    split 2026-08-15."""
-    return clone.placer_name or clone.name
+    ClonePlacement — name if set, else cluster (the Cluster tag).
+    See ClonePlacement.name's own comment for why these two were split."""
+    return clone.name or clone.cluster
 
 
 @dataclass

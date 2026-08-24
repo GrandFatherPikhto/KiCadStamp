@@ -179,7 +179,7 @@ def _record_produces(cfg: Config, rec: Record) -> list[tuple[str | None, str, st
     they can never be a parent in the graph.
 
     Cluster tag conventions (mirroring role_narrowing.py's live cascade):
-      - clone_placement -> its own `name` (the Cluster TAG, not placer_name)
+      - clone_placement -> its own `cluster` (the Cluster TAG, not `name`)
       - rule -> each spoke's own `cluster` (a rule can produce the same role
         under several clusters, one entry per spoke)
       - coordinate_placement -> its own cluster/role/sheet fields
@@ -190,7 +190,7 @@ def _record_produces(cfg: Config, rec: Record) -> list[tuple[str | None, str, st
             logger.debug(_("clone_placement {name!r}: cell {cell!r} not found, produces nothing")
                          .format(name=rec.name, cell=rec.obj.cell))
             return []
-        return [(rec.obj.name, slot.role, rec.sheet) for slot in cell.components]
+        return [(rec.obj.cluster, slot.role, rec.sheet) for slot in cell.components]
 
     if rec.kind == "rule":
         out: list[tuple[str | None, str, str | None]] = []
@@ -280,7 +280,7 @@ def _resolve_role_edge(rec: Record, cfg: Config,
             entries = by_sheet
 
     # Cluster narrowing — exact reuse of cluster_prefix_match on the produced
-    # cluster (clone.name / spoke.cluster / coordinate.cluster).
+    # cluster (clone.cluster / spoke.cluster / coordinate.cluster).
     if rec.anchor_cluster:
         by_cluster = [(c, s, p) for (c, s, p) in entries
                       if c is not None and cluster_prefix_match(c, rec.anchor_cluster)]

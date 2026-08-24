@@ -33,7 +33,8 @@ import logging
 from dataclasses import dataclass
 
 
-from ..config import Config, Rule, ClonePlacement, Point
+from ..config import (Config, Rule, ClonePlacement, Point,
+                      clone_placement_effective_name)
 from ..kicad.adapter import KiCadBoardAdapter
 from ..exceptions import ValidationError, format_fatal_error
 from .services.manual_position_calculator import resolve_rule_anchor_ref
@@ -134,7 +135,7 @@ def _resolve_clone_produces(adapter: KiCadBoardAdapter, cfg: Config, clone: Clon
     if cell is None:
         logger.warning(
             _("{name}: cell {cell!r} not found in cells, skipping")
-            .format(name=clone.name, cell=clone.cell)
+            .format(name=clone_placement_effective_name(clone), cell=clone.cell)
         )
         return set()
 
@@ -191,7 +192,8 @@ def _build_items(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None) -> l
             anchor_ref = resolve_clone_anchor_ref(adapter, cfg, clone, sheet_names=_sn)
             produces = _resolve_clone_produces(adapter, cfg, clone, sheet_names=_sn)
         items.append(Item(
-            kind='clone', obj=clone, label=_("clone_placement {name!r}").format(name=clone.name),
+            kind='clone', obj=clone,
+            label=_("clone_placement {name!r}").format(name=clone_placement_effective_name(clone)),
             anchor_ref=anchor_ref, produces=produces,
         ))
 

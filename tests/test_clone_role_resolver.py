@@ -64,7 +64,7 @@ class TestResolveRolesBySelection:
         ])
 
     def _clone(self, name="crystal2"):
-        return ClonePlacement(name=name, cell="crystal", xy=(0.0, 0.0))
+        return ClonePlacement(cluster=name, cell="crystal", xy=(0.0, 0.0))
 
     def test_exact_match_resolves(self):
         adapter = MagicMock()
@@ -120,7 +120,7 @@ class TestResolveRolesBySelection:
         adapter.get_field_value.side_effect = _role_or_cluster
         adapter.get_footprints.return_value = fps + adapter.get_selected_items.return_value
 
-        clone = ClonePlacement(name="Out_Cluster", cell="crystal", xy=(0, 0))
+        clone = ClonePlacement(cluster="Out_Cluster", cell="crystal", xy=(0, 0))
         result = resolve_roles_by_selection(adapter, tpl, clone)
         assert result == {"XTAL": "Y3", "LOAD_CAP_1": "C20", "LOAD_CAP_2": "C21"}
 
@@ -155,7 +155,7 @@ class TestResolveRolesByNets:
         results = {}
         for gpio_num, gpio_name in [(12, "filter_gpio12"), (13, "filter_gpio13"), (14, "filter_gpio14")]:
             clone = ClonePlacement(
-                name=gpio_name, cell="pi_filter", xy=(0, 0),
+                cluster=gpio_name, cell="pi_filter", xy=(0, 0),
                 nets={"CAP_IN": f"GPIO{gpio_num}", "CAP_OUT": f"GPIO{gpio_num}_FILTERED",
                      "FERRITE": f"GPIO{gpio_num}"},
             )
@@ -178,7 +178,7 @@ class TestResolveRolesByNets:
         adapter.get_field_value.side_effect = lambda fp, name: fp._role
         adapter.get_footprint_pads.side_effect = _get_pads
 
-        clone = ClonePlacement(name="dac_ch2", cell="dac", xy=(0, 0), params={"channel": 2})
+        clone = ClonePlacement(cluster="dac_ch2", cell="dac", xy=(0, 0), params={"channel": 2})
         result = resolve_roles_by_nets(adapter, tpl, clone)
         assert result == {"DAC_DB1_CAP": "C50"}
 
@@ -193,7 +193,7 @@ class TestResolveRolesByNets:
         adapter.get_field_value.side_effect = lambda fp, name: fp._role
         adapter.get_footprint_pads.side_effect = _get_pads
 
-        clone = ClonePlacement(name="c", cell="t", xy=(0, 0), nets={"X": "REAL_NET"})
+        clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0), nets={"X": "REAL_NET"})
         result = resolve_roles_by_nets(adapter, tpl, clone)
         assert result == {"X": "A"}
 
@@ -241,7 +241,7 @@ class TestResolveRolesByNets:
         adapter.get_footprint_pads.side_effect = _get_pads
         adapter.get_selected_items.return_value = []
 
-        clone = ClonePlacement(name="Out_Cluster", cell="t", xy=(0, 0),
+        clone = ClonePlacement(cluster="Out_Cluster", cell="t", xy=(0, 0),
                                nets={"PI_FB": "NET1"})
         assert clone.anchor_cluster is None  # narrowing must NOT depend on it
         result = resolve_roles_by_nets(adapter, tpl, clone)
@@ -263,7 +263,7 @@ class TestResolveRolesByNets:
         adapter.get_footprint_pads.side_effect = _get_pads
         adapter.get_selected_items.return_value = []
 
-        clone = ClonePlacement(name="Out_Cluster", cell="t", xy=(0, 0),
+        clone = ClonePlacement(cluster="Out_Cluster", cell="t", xy=(0, 0),
                                nets={"PI_FB": "NET1"},
                                anchor_cluster="Unrelated_Anchor_Cluster")
         result = resolve_roles_by_nets(adapter, tpl, clone)
@@ -287,7 +287,7 @@ class TestResolveRolesByNets:
         adapter.get_footprint_pads.side_effect = _get_pads
         adapter.get_selected_items.return_value = []
 
-        clone = ClonePlacement(name="c", cell="t", xy=(0, 0),
+        clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0),
                                nets={"PI_FB": "NET1"}, sheet="Channel_0")
         assert clone.anchor_sheet is None  # narrowing must NOT depend on it
         result = resolve_roles_by_nets(
@@ -311,7 +311,7 @@ class TestResolveRolesByNets:
         adapter.get_footprint_pads.side_effect = _get_pads
         adapter.get_selected_items.return_value = []
 
-        clone = ClonePlacement(name="c", cell="t", xy=(0, 0),
+        clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0),
                                nets={"PI_FB": "NET1"}, sheet="Channel_0",
                                anchor_sheet="Unrelated_Sheet_99")
         result = resolve_roles_by_nets(
@@ -321,7 +321,7 @@ class TestResolveRolesByNets:
 
     def test_role_without_any_net_source_raises(self):
         tpl = Cell(name="t2", components=[TemplateComponentSlot(role="NO_NET_ROLE")])
-        clone = ClonePlacement(name="x", cell="t2", xy=(0, 0))
+        clone = ClonePlacement(cluster="x", cell="t2", xy=(0, 0))
         adapter = MagicMock()
         adapter.get_footprints.return_value = []
         with pytest.raises(ValidationError, match="NO_NET_ROLE"):
@@ -335,7 +335,7 @@ class TestResolveRolesByNets:
         adapter.get_field_value.side_effect = lambda fp, name: fp._role
         adapter.get_footprint_pads.side_effect = _get_pads
 
-        clone = ClonePlacement(name="y", cell="t3", xy=(0, 0), nets={"X": "NET1"})
+        clone = ClonePlacement(cluster="y", cell="t3", xy=(0, 0), nets={"X": "NET1"})
         with pytest.raises(ValidationError, match="A.*B|B.*A"):
             resolve_roles_by_nets(adapter, tpl, clone)
 
@@ -347,7 +347,7 @@ class TestResolveRolesByNets:
         adapter.get_field_value.side_effect = lambda fp, name: fp._role
         adapter.get_footprint_pads.side_effect = _get_pads
 
-        clone = ClonePlacement(name="z", cell="t4", xy=(0, 0), nets={"X": "NO_SUCH_NET"})
+        clone = ClonePlacement(cluster="z", cell="t4", xy=(0, 0), nets={"X": "NO_SUCH_NET"})
         with pytest.raises(ValidationError, match="NO_SUCH_NET"):
             resolve_roles_by_nets(adapter, tpl, clone)
 
@@ -357,7 +357,7 @@ class TestResolveRolesByNets:
         tpl = Cell(name="t5", components=[TemplateComponentSlot(role="NONEXISTENT_ROLE")])
         adapter = MagicMock()
         adapter.get_footprints.return_value = []  # nothing at all on board
-        clone = ClonePlacement(name="z", cell="t5", xy=(0, 0),
+        clone = ClonePlacement(cluster="z", cell="t5", xy=(0, 0),
                               nets={"NONEXISTENT_ROLE": "GND"})
         # Message text is translated (see kicadstamp/i18n.py) — match either
         # locale the project ships (en/ru), not just the raw English msgid.
@@ -374,7 +374,7 @@ class TestResolveRolesByNets:
         adapter.get_field_value.side_effect = lambda fp, name: fp._role
         adapter.get_footprint_pads.side_effect = _get_pads
 
-        clone = ClonePlacement(name="z", cell="t6", xy=(0, 0), nets={"X": "EXPECTED_NET"})
+        clone = ClonePlacement(cluster="z", cell="t6", xy=(0, 0), nets={"X": "EXPECTED_NET"})
         with pytest.raises(ValidationError, match="ACTUAL_NET") as exc_info:
             resolve_roles_by_nets(adapter, tpl, clone)
         msg = str(exc_info.value)
@@ -405,7 +405,7 @@ class TestResolveRolesByNets:
         adapter.get_field_value.side_effect = lambda fp, name: fp._role
         adapter.get_footprint_pads.side_effect = _get_pads
 
-        clone = ClonePlacement(name="power_filter_vccio", cell="pi_filter", xy=(0, 0),
+        clone = ClonePlacement(cluster="power_filter_vccio", cell="pi_filter", xy=(0, 0),
                               params={"NET_IN": "+3V3", "NET_OUT": "+3V3_VCCIO"})
         with pytest.raises(ValidationError) as exc_info:
             resolve_roles_by_nets(adapter, tpl, clone)
@@ -425,7 +425,7 @@ class TestResolveRolesByNets:
         adapter.get_field_value.side_effect = lambda fp, name: fp._role
         adapter.get_footprint_pads.side_effect = _get_pads
 
-        clone = ClonePlacement(name="c", cell="t", xy=(0, 0),
+        clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0),
                                nets={"X": "NET1"}, refs={"X": "B"})
         result = resolve_roles_by_nets(adapter, tpl, clone)
         assert result == {"X": "B"}  # Must pick B despite ambiguity
@@ -470,7 +470,7 @@ class TestResolveRolesByNetsPlacementSheet:
         adapter.get_selected_items.return_value = []
         sheet_names = {"sheet-uuid-0": "Channel_0", "sheet-uuid-1": "Channel_1", "sheet-uuid-2": "Channel_2"}
 
-        clone = ClonePlacement(name="c1", cell="pi_filter", xy=(0, 0),
+        clone = ClonePlacement(cluster="c1", cell="pi_filter", xy=(0, 0),
                                nets={"CAP_IN": "+3V3"}, sheet="Channel_1")
         assert clone.anchor_sheet is None  # narrowing must NOT depend on it
         result = resolve_roles_by_nets(adapter, self._template(), clone, sheet_names=sheet_names)
@@ -494,7 +494,7 @@ class TestResolveRolesByNetsPlacementSheet:
         adapter.get_selected_items.return_value = []
         sheet_names = {"sheet-uuid-0": "Channel_0", "sheet-uuid-1": "Channel_1"}
 
-        clone = ClonePlacement(name="c1", cell="pi_filter", xy=(0, 0),
+        clone = ClonePlacement(cluster="c1", cell="pi_filter", xy=(0, 0),
                                nets={"CAP_IN": "+3V3"}, sheet="Channel_{channel}",
                                params={"channel": 1})
         with pytest.raises(ValidationError, match="CAP_IN"):
@@ -516,7 +516,7 @@ class TestResolveRolesByNetsPlacementSheet:
         adapter.get_selected_items.return_value = []
         sheet_names = {"sheet-uuid-0": "Channel_0", "sheet-uuid-1": "Channel_1"}
 
-        clone = ClonePlacement(name="c1", cell="pi_filter", xy=(0, 0),
+        clone = ClonePlacement(cluster="c1", cell="pi_filter", xy=(0, 0),
                                nets={"CAP_IN": "+3V3"}, sheet="Channel_0")
         with pytest.raises(ValidationError, match="Channel_0") as exc_info:
             resolve_roles_by_nets(adapter, self._template(), clone, sheet_names=sheet_names)
@@ -539,7 +539,7 @@ class TestResolveRolesByNetsPlacementSheet:
         adapter.get_footprint_pads.side_effect = _get_pads
         adapter.get_selected_items.return_value = []
 
-        clone = ClonePlacement(name="c1", cell="pi_filter", xy=(0, 0),
+        clone = ClonePlacement(cluster="c1", cell="pi_filter", xy=(0, 0),
                                nets={"CAP_IN": "+3V3"})
         with pytest.raises(ValidationError, match="CAP_IN") as exc_info:
             resolve_roles_by_nets(adapter, self._template(), clone)
@@ -578,7 +578,7 @@ class TestResolveAnchorByRole:
         ]
         adapter = self._adapter(fps)
         sheet_names = {"sheet-uuid-0": "Channel_0", "sheet-uuid-1": "Channel_1"}
-        clone = ClonePlacement(name="c0", cell="t", xy=(0, 0),
+        clone = ClonePlacement(cluster="c0", cell="t", xy=(0, 0),
                                anchor_role="AD_DAC", anchor_sheet="Channel_{channel}",
                                params={"channel": 0})
         result = resolve_anchor_by_role(adapter, clone, sheet_names)
@@ -587,7 +587,7 @@ class TestResolveAnchorByRole:
     def test_anchor_sheet_missing_param_raises(self):
         fps = [_make_anchor_fp("IC2", "AD_DAC", "sheet-uuid-0")]
         adapter = self._adapter(fps)
-        clone = ClonePlacement(name="c0", cell="t", xy=(0, 0),
+        clone = ClonePlacement(cluster="c0", cell="t", xy=(0, 0),
                                anchor_role="AD_DAC", anchor_sheet="Channel_{channel}", params={})
         with pytest.raises(ValidationError, match="channel"):
             resolve_anchor_by_role(adapter, clone, {"sheet-uuid-0": "Channel_0"})
@@ -601,7 +601,7 @@ class TestResolveAnchorByRole:
         ]
         adapter = self._adapter(fps)
         sheet_names = {"sheet-uuid-0": "Channel_0", "sheet-uuid-1": "Channel_1"}
-        clone = ClonePlacement(name="c0", cell="t", xy=(0, 0),
+        clone = ClonePlacement(cluster="c0", cell="t", xy=(0, 0),
                                anchor_role="AD_DAC", anchor_sheet="Channel_0")
         result = resolve_anchor_by_role(adapter, clone, sheet_names)
         assert result.reference_field.text.value == "IC2"

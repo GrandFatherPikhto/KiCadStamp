@@ -16,7 +16,8 @@ import yaml
 
 import gui.docks.placer as placer_mod
 from gui.docks.placer import PlacerDock
-from kicadstamp.config import Cell, Config, RuntimeContext, TemplateComponentSlot, load_clone_placement
+from kicadstamp.config import (Cell, Config, RuntimeContext, TemplateComponentSlot,
+                               clone_placement_effective_name, load_clone_placement)
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.exceptions import ValidationError
 
@@ -116,11 +117,11 @@ def test_build_entry_dict_absolute_xy_round_trips_through_loader(main_window, tm
 
     entry = dock._build_entry_dict()
     assert entry == {
-        "name": "Channel_2_PI_Filter", "cell": "pi_filter", "xy": [10.5, -3.2],
+        "cluster": "Channel_2_PI_Filter", "cell": "pi_filter", "xy": [10.5, -3.2],
         "params": {"PWR_IN": "+3V3_CH2", "PWR_OUT": "+3V3_CH2_DIRTY"},
     }
     cp = load_clone_placement(entry)  # must validate against the real backend loader
-    assert cp.name == "Channel_2_PI_Filter"
+    assert cp.cluster == "Channel_2_PI_Filter"
     assert cp.xy == (10.5, -3.2)
 
 
@@ -213,7 +214,7 @@ def test_build_entry_dict_polar_xy_writes_radius_angle(main_window, tmp_path):
 
     entry = dock._build_entry_dict()
     assert entry == {
-        "name": "Channel_2_PI_Filter", "cell": "pi_filter",
+        "cluster": "Channel_2_PI_Filter", "cell": "pi_filter",
         "radius_mm": 5.0, "angle_deg": 37.0,
     }
     cp = load_clone_placement(entry)
@@ -277,7 +278,7 @@ def test_load_placement_anchor_with_polar_offset_round_trips(main_window, tmp_pa
     round-trips through _build_entry_dict as radius_mm/angle_deg, not xy."""
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
     entry = {
-        "name": "X", "cell": "pi_filter", "anchor_role": "FPGA",
+        "cluster": "X", "cell": "pi_filter", "anchor_role": "FPGA",
         "radius_mm": 5.0, "angle_deg": 37.0,
     }
 
@@ -300,7 +301,7 @@ def test_load_placement_anchor_point_with_polar_offset_round_trips(main_window, 
     anchor_role bug just fixed)."""
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
     entry = {
-        "name": "X", "cell": "pi_filter", "anchor_point": "origin_point",
+        "cluster": "X", "cell": "pi_filter", "anchor_point": "origin_point",
         "radius_mm": 5.0, "angle_deg": 37.0,
     }
 
@@ -345,10 +346,10 @@ def test_save_upserts_by_name_without_duplicating(main_window, tmp_path):
     saved2 = yaml.safe_load(placer_file.read_text())
     assert len(saved2["clone_placements"]) == 1  # no duplicate on the same name
 
-    other = dict(entry, name="Channel_3_PI_Filter")
+    other = dict(entry, cluster="Channel_3_PI_Filter")
     dock._upsert_clone_placement(placer_file, other)
     saved3 = yaml.safe_load(placer_file.read_text())
-    assert sorted(e["name"] for e in saved3["clone_placements"]) == [
+    assert sorted(e["cluster"] for e in saved3["clone_placements"]) == [
         "Channel_2_PI_Filter", "Channel_3_PI_Filter"]
 
 
@@ -383,7 +384,7 @@ def test_redraw_preserves_other_placements_for_registry_safety(main_window, tmp_
     dock._param_edits["PWR_IN"].setCurrentText("+3V3_CH2")
     dock._param_edits["PWR_OUT"].setCurrentText("+3V3_CH2_DIRTY")
 
-    pre_existing = load_clone_placement({"name": "OTHER_PLACEMENT", "cell": "pi_filter", "xy": [0, 0]})
+    pre_existing = load_clone_placement({"cluster": "OTHER_PLACEMENT", "cell": "pi_filter", "xy": [0, 0]})
     fake_cfg = Config(
         cells={"pi_filter": Cell(name="pi_filter", vias=[], tracks=[], clone_placements=[], components=[
             TemplateComponentSlot(role="C_IN", offset_along_mm=0, offset_across_mm=0, angle_deg=0),
@@ -423,7 +424,8 @@ def test_redraw_preserves_other_placements_for_registry_safety(main_window, tmp_
             pipeline_calls.append({"config_path": config_path, "cfg": preloaded_cfg, "only": only})
             self.cfg = preloaded_cfg
             self.adapter = _FakeAdapter()
-            my_placement = next(c for c in preloaded_cfg.clone_placements if c.name in only)
+            my_placement = next(c for c in preloaded_cfg.clone_placements
+                                if clone_placement_effective_name(c) in only)
             self.items = [_FakeItem(pre_existing), _FakeItem(my_placement)]
 
         def run(self):
@@ -437,7 +439,7 @@ def test_redraw_preserves_other_placements_for_registry_safety(main_window, tmp_
             pass
 
         def plan_item(self, item):
-            return [_FakeMove("U5")] if item.obj.name == "Channel_2_PI_Filter" else [_FakeMove("U1")]
+            return [_FakeMove("U5")] if item.obj.cluster == "Channel_2_PI_Filter" else [_FakeMove("U1")]
 
     monkeypatch.setattr(placer_mod, "ApplyPipeline", _FakePipeline)
     monkeypatch.setattr(placer_mod, "PlacementPlanner", _FakePlanner)
@@ -449,7 +451,7 @@ def test_redraw_preserves_other_placements_for_registry_safety(main_window, tmp_
     assert pipeline_calls[-1]["only"] == ["Channel_2_PI_Filter"]
     assert pipeline_calls[-1]["config_path"] == str(placer_file)
     used_cfg = pipeline_calls[-1]["cfg"]
-    names = [c.name for c in used_cfg.clone_placements]
+    names = [c.cluster for c in used_cfg.clone_placements]
     assert "OTHER_PLACEMENT" in names  # not dropped -> registry-protected
     assert names.count("Channel_2_PI_Filter") == 1  # replaced, not duplicated
     assert any("Placed" in r.message for r in caplog.records)
@@ -582,7 +584,7 @@ def test_load_placement_round_trips_absolute_xy(main_window, tmp_path):
     load_placement()."""
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
     entry = {
-        "name": "Channel_2_PI_Filter", "cell": "pi_filter", "xy": [10.5, -3.2],
+        "cluster": "Channel_2_PI_Filter", "cell": "pi_filter", "xy": [10.5, -3.2],
         "params": {"PWR_IN": "+3V3_CH2", "PWR_OUT": "+3V3_CH2_DIRTY"},
     }
 
@@ -602,7 +604,7 @@ def test_load_placement_round_trips_polar_xy(main_window, tmp_path):
     the XY row in Polar mode and round-trip back through _build_entry_dict
     without loss."""
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
-    entry = {"name": "polar", "cell": "pi_filter",
+    entry = {"cluster": "polar", "cell": "pi_filter",
              "radius_mm": 5.0, "angle_deg": 37.0}
 
     dock.load_placement(entry)
@@ -619,7 +621,7 @@ def test_load_placement_round_trips_polar_xy(main_window, tmp_path):
 def test_load_placement_round_trips_anchor_mode(main_window, tmp_path):
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
     entry = {
-        "name": "X", "cell": "pi_filter", "xy": [2.0, 0.0],
+        "cluster": "X", "cell": "pi_filter", "xy": [2.0, 0.0],
         "anchor_role": "SOME_ROLE", "anchor_pad": "1", "anchor_cluster": "Channel_1",
     }
 
@@ -637,7 +639,7 @@ def test_load_placement_round_trips_anchor_mode(main_window, tmp_path):
 
 def test_load_placement_round_trips_point_mode(main_window, tmp_path):
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
-    entry = {"name": "X", "cell": "pi_filter", "xy": [1.0, 2.0], "anchor_point": "origin_point"}
+    entry = {"cluster": "X", "cell": "pi_filter", "xy": [1.0, 2.0], "anchor_point": "origin_point"}
 
     dock.load_placement(entry)
 
@@ -1579,12 +1581,12 @@ def test_load_placement_clears_stale_anchor_cluster(main_window, tmp_path):
     the source: Origin is cleared at the start of load_placement()."""
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
 
-    dock.load_placement({"name": "A", "cell": "pi_filter", "xy": [1.0, 1.0],
+    dock.load_placement({"cluster": "A", "cell": "pi_filter", "xy": [1.0, 1.0],
                          "anchor_role": "SOME_ROLE", "anchor_cluster": "Channel_X"})
     assert dock.anchor_cluster_edit.currentText() == "Channel_X"
 
     # Record B: same cell, plain absolute xy (no anchor) — must NOT inherit X.
-    dock.load_placement({"name": "B", "cell": "pi_filter", "xy": [2.0, 2.0]})
+    dock.load_placement({"cluster": "B", "cell": "pi_filter", "xy": [2.0, 2.0]})
     assert dock.anchor_cluster_edit.currentText() == ""
 
 
@@ -1766,7 +1768,7 @@ def test_set_cluster_name_does_not_overwrite_loaded_entry(main_window, tmp_path)
     """2026-08-15 fix: an already-saved entry owns its identity — the tree
     click auto-fill must not pull the form off the loaded record."""
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
-    dock.load_placement({"name": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]})
+    dock.load_placement({"cluster": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]})
     dock.set_cluster_name("ДругоеИмя")
     assert dock.cluster_edit.currentText() == "PIF_AVDD"
 
@@ -1775,7 +1777,7 @@ def test_new_placement_resets_dirty_flag_so_autofill_works_again(main_window, tm
     """2026-08-15 fix: the dirty flag is reset ONLY when the form goes back to
     blank (new_placement) — so a fresh placement gets the auto-fill again."""
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
-    dock.load_placement({"name": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]})
+    dock.load_placement({"cluster": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]})
     assert dock._cluster_identity_dirty is True
     dock.new_placement(dock._placer_path)
     assert dock._cluster_identity_dirty is False
@@ -1831,7 +1833,7 @@ def test_placer_name_does_not_autofill_while_editing_loaded_entry(main_window, t
     times — Placer name must NOT follow, so the next save no longer spawns a
     duplicate."""
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
-    dock.load_placement({"name": "PIF_AVDD", "placer_name": "CH0_PIF_AVDD",
+    dock.load_placement({"cluster": "PIF_AVDD", "name": "CH0_PIF_AVDD",
                          "cell": "pi_filter", "xy": [1.0, 1.0]})
     assert dock.placer_name_edit.text() == "CH0_PIF_AVDD"
     dock.cluster_edit.setCurrentText("PIF_AVDD2")
@@ -1848,31 +1850,31 @@ def test_build_entry_dict_omits_placer_name_when_equal_to_cluster(main_window, t
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
     # Load a full entry so the Origin widget has a position _build_entry_dict
     # can read back (same setup as the existing round-trip tests).
-    dock.load_placement({"name": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]})
+    dock.load_placement({"cluster": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]})
     dock.cluster_edit.setCurrentText("PIF_AVDD")
     dock.placer_name_edit.setText("PIF_AVDD")
     entry = dock._build_entry_dict()
-    assert entry["name"] == "PIF_AVDD"
-    assert "placer_name" not in entry
+    assert entry["cluster"] == "PIF_AVDD"
+    assert "name" not in entry
 
 
 def test_build_entry_dict_includes_placer_name_when_different(main_window, tmp_path):
     """Placer name that differs from Cluster is written — that is the whole
     point of the split."""
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
-    dock.load_placement({"name": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]})
+    dock.load_placement({"cluster": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]})
     dock.cluster_edit.setCurrentText("PIF_AVDD")
     dock.placer_name_edit.setText("CH0_PIF_AVDD")
     entry = dock._build_entry_dict()
-    assert entry["name"] == "PIF_AVDD"
-    assert entry["placer_name"] == "CH0_PIF_AVDD"
+    assert entry["cluster"] == "PIF_AVDD"
+    assert entry["name"] == "CH0_PIF_AVDD"
 
 
 def test_new_placement_resets_placer_name_dirty_flag(main_window, tmp_path):
     """A fresh form wants auto-fill again: load (dirty) -> new_placement ->
     Cluster commit fills Placer name."""
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
-    dock.load_placement({"name": "PIF_AVDD", "placer_name": "CH0_PIF_AVDD",
+    dock.load_placement({"cluster": "PIF_AVDD", "name": "CH0_PIF_AVDD",
                          "cell": "pi_filter", "xy": [1.0, 1.0]})
     assert dock._placer_name_dirty is True
     dock.new_placement(dock._placer_path)
@@ -1898,18 +1900,18 @@ def test_save_after_renaming_placer_name_removes_old_entry(main_window, tmp_path
     and Cluster stays untouched."""
     dock, _, placer_file = _make_cell_and_dock(main_window, tmp_path)
     _write_yaml(placer_file, {"clone_placements": [
-        {"name": "PIF_AVDD", "placer_name": "CH0_PIF_AVDD", "cell": "pi_filter",
+        {"cluster": "PIF_AVDD", "name": "CH0_PIF_AVDD", "cell": "pi_filter",
          "xy": [1.0, 1.0]},
     ]})
-    dock.load_placement({"name": "PIF_AVDD", "placer_name": "CH0_PIF_AVDD",
+    dock.load_placement({"cluster": "PIF_AVDD", "name": "CH0_PIF_AVDD",
                          "cell": "pi_filter", "xy": [1.0, 1.0]})
     dock.placer_name_edit.setText("CH1_PIF_AVDD")
     dock._do_save()
 
     entries = yaml.safe_load(placer_file.read_text(encoding="utf-8"))["clone_placements"]
     assert len(entries) == 1
-    assert entries[0]["placer_name"] == "CH1_PIF_AVDD"
-    assert entries[0]["name"] == "PIF_AVDD"  # Cluster tag untouched
+    assert entries[0]["name"] == "CH1_PIF_AVDD"
+    assert entries[0]["cluster"] == "PIF_AVDD"  # Cluster tag untouched
 
 
 def test_save_after_renaming_cluster_without_placer_name_removes_old_entry(main_window, tmp_path):
@@ -1918,15 +1920,15 @@ def test_save_after_renaming_cluster_without_placer_name_removes_old_entry(main_
     duplicate."""
     dock, _, placer_file = _make_cell_and_dock(main_window, tmp_path)
     _write_yaml(placer_file, {"clone_placements": [
-        {"name": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]},
+        {"cluster": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]},
     ]})
-    dock.load_placement({"name": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]})
+    dock.load_placement({"cluster": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]})
     dock.cluster_edit.setCurrentText("CH0_PIF_AVDD")
     dock._do_save()
 
     entries = yaml.safe_load(placer_file.read_text(encoding="utf-8"))["clone_placements"]
     assert len(entries) == 1
-    assert entries[0]["name"] == "CH0_PIF_AVDD"
+    assert entries[0]["cluster"] == "CH0_PIF_AVDD"
 
 
 def test_save_without_identity_change_still_replaces_in_place(main_window, tmp_path):
@@ -1935,9 +1937,9 @@ def test_save_without_identity_change_still_replaces_in_place(main_window, tmp_p
     spurious delete cycles."""
     dock, _, placer_file = _make_cell_and_dock(main_window, tmp_path)
     _write_yaml(placer_file, {"clone_placements": [
-        {"name": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]},
+        {"cluster": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]},
     ]})
-    dock.load_placement({"name": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]})
+    dock.load_placement({"cluster": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]})
     dock._do_save()
     dock._do_save()
 
@@ -1961,7 +1963,7 @@ def test_save_new_placement_does_not_trigger_delete(main_window, tmp_path, monke
     assert calls == []
     entries = yaml.safe_load(placer_file.read_text(encoding="utf-8"))["clone_placements"]
     assert len(entries) == 1
-    assert entries[0]["name"] == "PIF_AVDD"
+    assert entries[0]["cluster"] == "PIF_AVDD"
 
 
 def test_save_twice_in_a_row_after_rename_does_not_error(main_window, tmp_path):
@@ -1969,10 +1971,10 @@ def test_save_twice_in_a_row_after_rename_does_not_error(main_window, tmp_path):
     already-removed old entry (identity now matches, delete path not entered)."""
     dock, _, placer_file = _make_cell_and_dock(main_window, tmp_path)
     _write_yaml(placer_file, {"clone_placements": [
-        {"name": "PIF_AVDD", "placer_name": "CH0_PIF_AVDD", "cell": "pi_filter",
+        {"cluster": "PIF_AVDD", "name": "CH0_PIF_AVDD", "cell": "pi_filter",
          "xy": [1.0, 1.0]},
     ]})
-    dock.load_placement({"name": "PIF_AVDD", "placer_name": "CH0_PIF_AVDD",
+    dock.load_placement({"cluster": "PIF_AVDD", "name": "CH0_PIF_AVDD",
                          "cell": "pi_filter", "xy": [1.0, 1.0]})
     dock.placer_name_edit.setText("CH1_PIF_AVDD")
     dock._do_save()  # renames: removes CH0, writes CH1
@@ -1980,4 +1982,4 @@ def test_save_twice_in_a_row_after_rename_does_not_error(main_window, tmp_path):
 
     entries = yaml.safe_load(placer_file.read_text(encoding="utf-8"))["clone_placements"]
     assert len(entries) == 1
-    assert entries[0]["placer_name"] == "CH1_PIF_AVDD"
+    assert entries[0]["name"] == "CH1_PIF_AVDD"

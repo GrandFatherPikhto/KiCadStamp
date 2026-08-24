@@ -80,12 +80,12 @@ def _coordinate_placement_effective_name(entry: dict) -> str | None:
 
 
 def _clone_placement_effective_name(entry: dict) -> str | None:
-    """clone_placements: placer_name if set, else name (the Cluster tag) —
+    """clone_placements: name if set, else cluster (the Cluster tag) —
     same split as config/models.py's clone_placement_effective_name(),
-    2026-08-15. Without this, the tree/Rename/Delete would show and match
-    by the physical Cluster tag instead of the save/--only identity the
-    user actually manages."""
-    return entry.get("placer_name") or entry.get("name")
+    2026-08-15 (cluster: renamed from name: 2026-08-24). Without this, the
+    tree/Rename/Delete would show and match by the physical Cluster tag
+    instead of the save/--only identity the user actually manages."""
+    return entry.get("name") or entry.get("cluster")
 
 
 # Sections whose effective name is a COMPOSED fallback (not a single field) —
@@ -96,12 +96,12 @@ EFFECTIVE_NAME_FN = {
 }
 
 
-# clone_placements: which field Rename actually writes — placer_name once an
-# entry already has one (2026-08-15 split: Cluster is a physical board tag,
-# only the save/--only identity is what Rename is for), else name (pre-split
+# clone_placements: which field Rename actually writes — name once an entry
+# already has one (2026-08-15 split: Cluster is a physical board tag, only the
+# save/--only identity is what Rename is for), else cluster (pre-split
 # entries, single field, unchanged).
 RENAME_TARGET_FIELD = {
-    "clone_placements": lambda entry: "placer_name" if entry.get("placer_name") else "name",
+    "clone_placements": lambda entry: "name" if entry.get("name") else "cluster",
 }
 
 
@@ -300,9 +300,10 @@ def rename_list_entry(path: Path, section: str, old_name: str, new_name: str) ->
     list of dicts, entry matched by its effective name (name:, or the
     section's fallback — net: for a nameless rules:, cluster/role for a
     nameless coordinate_placements: — see entry_effective_name), then the
-    section's RENAME_TARGET_FIELD is set/created on it (name: normally;
-    placer_name for a clone_placement that already has one — 2026-08-15
-    split, Cluster stays a physical tag). For a rules:/coordinate_placements:
+    section's RENAME_TARGET_FIELD is set/created on it (name: normally; the
+    cluster: field for a clone_placement whose identity is still just its
+    Cluster tag — 2026-08-15 split, Cluster stays a physical tag). For a
+    rules:/coordinate_placements:
     entry matched only by its fallback, this is what actually gives it an
     explicit name: for the first time, distinct from its fallback."""
     data = read_data(path)

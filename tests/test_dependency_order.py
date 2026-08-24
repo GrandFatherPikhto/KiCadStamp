@@ -51,7 +51,7 @@ def _adapter_for(fps):
 
 
 def _clone(name, anchor_ref, cell, nets):
-    return ClonePlacement(name=name, cell=cell, xy=(0.0, 0.0),
+    return ClonePlacement(cluster=name, cell=cell, xy=(0.0, 0.0),
                           anchor_ref=anchor_ref, nets=nets)
 
 
@@ -84,7 +84,7 @@ def test_cell_mode_clone_produces_cell_roles():
     tagged = _make_fp("J1", role="PRODUCED_ROLE", nets=["NET_A"])
     other = _make_fp("J2", role="SOMETHING_ELSE")
 
-    clone = ClonePlacement(name="Conn_PM5V", cell="producer_tpl",
+    clone = ClonePlacement(cluster="Conn_PM5V", cell="producer_tpl",
                            xy=(0.0, 0.0), nets={"PRODUCED_ROLE": "NET_A"})
     cfg = _cfg([clone])
 
@@ -107,7 +107,7 @@ def test_disabled_clone_is_skipped_entirely():
 
     clone_enabled = _clone("clone_a", "ANCHOR1", "producer_tpl", {"PRODUCED_ROLE": "NET_A"})
     clone_disabled = ClonePlacement(
-        name="clone_disabled", cell="consumer_tpl", xy=(0.0, 0.0),
+        cluster="clone_disabled", cell="consumer_tpl", xy=(0.0, 0.0),
         anchor_role="NONEXISTENT_ROLE", retired=True,
     )
     cfg = _cfg([clone_enabled, clone_disabled])
@@ -227,7 +227,7 @@ class TestPointItems:
         p1 = _make_fp("P1", role="PRODUCED_ROLE", nets=["NET_A"])
         pt = Point(name="my_point", anchor_ref="ANCHOR1")
         clone_consumer = ClonePlacement(
-            name="consumer", cell="producer_tpl", xy=(0.0, 0.0),
+            cluster="consumer", cell="producer_tpl", xy=(0.0, 0.0),
             anchor_point="my_point", nets={"PRODUCED_ROLE": "NET_A"},
         )
         cfg = _cfg(clones=[clone_consumer], points={"my_point": pt})
@@ -252,7 +252,7 @@ class TestPointItems:
         clone_producer = _clone("producer", "ANCHOR1", "producer_tpl", {"PRODUCED_ROLE": "NET_A"})
         pt = Point(name="my_point", anchor_ref="P1")  # P1 is produced by clone_producer
         clone_consumer = ClonePlacement(
-            name="consumer", cell="consumer_tpl", xy=(0.0, 0.0),
+            cluster="consumer", cell="consumer_tpl", xy=(0.0, 0.0),
             anchor_point="my_point", nets={"OTHER_ROLE": "NET_B"},
         )
         cfg = _cfg(clones=[clone_consumer, clone_producer], points={"my_point": pt})

@@ -23,8 +23,8 @@ def _chain_cfg():
         cells={"cp_cell": cp_cell, "c1_cell": c1_cell},
         coordinate_placements=[],
         clone_placements=[
-            ClonePlacement(name="PRODUCER", cell="cp_cell", xy=(0.0, 0.0)),
-            ClonePlacement(name="CONSUMER", cell="c1_cell", xy=(0.0, 0.0),
+            ClonePlacement(cluster="PRODUCER", cell="cp_cell", xy=(0.0, 0.0)),
+            ClonePlacement(cluster="CONSUMER", cell="c1_cell", xy=(0.0, 0.0),
                            anchor_role="R_CP"),
         ],
     )

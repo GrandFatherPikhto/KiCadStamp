@@ -796,12 +796,12 @@ class PlacerDock(QWidget):
         form.addRow(_("Sheet:"), self.sheet_edit)
         self.cluster_edit = QComboBox()
         configure_searchable(self.cluster_edit)
-        self.cluster_edit.lineEdit().setPlaceholderText(_("Cluster / clone_placement name"))
+        self.cluster_edit.lineEdit().setPlaceholderText(_("cluster tag (written onto the board's components)"))
         form.addRow(_("Cluster:"), self.cluster_edit)
         self.placer_name_edit = QLineEdit()
         self.placer_name_edit.setPlaceholderText(
             _("same as Cluster unless changed (identity for Save/--only)"))
-        form.addRow(_("Placer name:"), self.placer_name_edit)
+        form.addRow(_("Name:"), self.placer_name_edit)
         source_page_layout.addWidget(self._name_row)
         # Auto-fill on the PLACEMENT's Cluster COMMIT (plan 2026-08-13, p.2;
         # re-tied to cluster_edit 2026-08-14, split anchor_cluster: the
@@ -1550,15 +1550,15 @@ class PlacerDock(QWidget):
         if not self._selected_cell:
             self._show_message(_("Pick a Cell first."), _ERROR_STYLE)
             return None
-        entry: Dict[str, Any] = {"name": name, "cell": self._selected_cell}
-        # Placer name (save/--only identity, split 2026-08-15 from Cluster) —
-        # only written when it actually differs from Cluster (same "don't
-        # write a redundant field" principle as sheet below); when absent the
-        # loader/upsert fall back to `name`, so existing configs stay
-        # untouched.
-        placer_name = self.placer_name_edit.text().strip()
-        if placer_name and placer_name != name:
-            entry["placer_name"] = placer_name
+        entry: Dict[str, Any] = {"cluster": name, "cell": self._selected_cell}
+        # Name (save/--only identity, split 2026-08-15 from the Cluster tag,
+        # which moved into its own `cluster:` field 2026-08-24) — only written
+        # when it actually differs from Cluster (same "don't write a redundant
+        # field" principle as sheet below); when absent the loader/upsert fall
+        # back to `cluster`, so existing configs stay untouched.
+        identity = self.placer_name_edit.text().strip()
+        if identity and identity != name:
+            entry["name"] = identity
         # Own-identity sheet (2026-08-15, Cell mode) — only written when
         # non-empty, same pattern as name above.
         sheet = self.sheet_edit.currentText().strip()
@@ -1748,9 +1748,9 @@ class PlacerDock(QWidget):
             "placer_path": self._placer_path,
             "cfg": cfg,
             "ctx": ctx,
-            # Cluster tag written onto the board by _tag_cluster — raw .name,
-            # NOT the placer_name identity (the two are split since 2026-08-15).
-            "name": clone_placement.name,
+            # Cluster tag written onto the board by _tag_cluster — raw .cluster,
+            # NOT the name identity (the two are split since 2026-08-15).
+            "name": clone_placement.cluster,
             # save/--only identity for ApplyPipeline's own only= filter.
             "only_name": new_identity,
         }
@@ -1948,7 +1948,7 @@ class PlacerDock(QWidget):
         given `only=[name]` just ran successfully, but not fatal either
         way, since the board is already correctly placed regardless)."""
         my_item = next((it for it in pipeline.items
-                         if it.kind == 'clone' and it.obj.name == name), None)
+                         if it.kind == 'clone' and it.obj.cluster == name), None)
         if my_item is None:
             return 0
 
@@ -1997,7 +1997,7 @@ class PlacerDock(QWidget):
         # the new identity, leaving the old one behind. Remove the old entry
         # first (same mechanism ConfigTreeDock's own Delete uses), then upsert
         # the new one (2026-08-15, plan placer_form_save_renames_not_duplicates).
-        new_identity = entry.get("placer_name") or entry.get("name")
+        new_identity = entry.get("name") or entry.get("cluster")
         if (self._loaded_clone_identity is not None
                 and self._loaded_clone_identity != new_identity):
             try:
@@ -2135,7 +2135,7 @@ class PlacerDock(QWidget):
             self._on_cell_mode_changed()
             self.coordinate_form.load(entry)
             return
-        self.cluster_edit.setCurrentText(str(entry.get("name", "")))
+        self.cluster_edit.setCurrentText(str(entry.get("cluster", "")))
         # A loaded entry owns its identity (2026-08-15, plan
         # cluster_field_autofill_not_hard_overwrite) — a stray tree click must
         # not pull the form off an already-saved record.
@@ -2143,13 +2143,13 @@ class PlacerDock(QWidget):
         # A loaded entry owns its Placer name identity too — editing Cluster
         # on it must not drag Placer name along (2026-08-15, plan
         # clone_placement_placer_name_split).
-        self.placer_name_edit.setText(str(entry.get("placer_name") or ""))
+        self.placer_name_edit.setText(str(entry.get("name") or ""))
         self._placer_name_dirty = True
         # Remember what identity this form loaded — _do_save() removes the old
         # entry when the about-to-be-saved identity differs (rename via the
         # form's own fields), instead of letting upsert append a duplicate
         # (2026-08-15, plan placer_form_save_renames_not_duplicates).
-        self._loaded_clone_identity = entry.get("placer_name") or entry.get("name")
+        self._loaded_clone_identity = entry.get("name") or entry.get("cluster")
         self.sheet_edit.setCurrentText(str(entry.get("sheet") or ""))
         # cell: is mandatory on ClonePlacement since 2026-08-12 (Group 0
         # consolidation — the role:/cluster: modes migrated to

@@ -56,7 +56,7 @@ class TestClonePlacementAnchorPoint:
         cell = Cell(name="tpl", components=[
             TemplateComponentSlot(role="R1", offset_along_mm=0.0, offset_across_mm=0.0, angle_deg=0.0)
         ])
-        clone = ClonePlacement(name="cp1", cell="tpl", xy=(2.0, -1.0),
+        clone = ClonePlacement(cluster="cp1", cell="tpl", xy=(2.0, -1.0),
                                anchor_point="fpga_center")
         cfg = Config(layer="F.Cu", cells={"tpl": cell}, clone_placements=[clone])
 

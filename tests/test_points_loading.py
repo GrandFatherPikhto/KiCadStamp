@@ -250,7 +250,7 @@ cells:
     components:
       - role: THE_ROLE
 clone_placements:
-  - name: cp1
+  - cluster: cp1
     cell: one_role
     anchor_point: board_zero
 """
@@ -271,7 +271,7 @@ cells:
     components:
       - role: THE_ROLE
 clone_placements:
-  - name: cp1
+  - cluster: cp1
     cell: one_role
     anchor_point: fpga_center
     rotation_deg: 0.0
@@ -294,7 +294,7 @@ cells:
     components:
       - role: THE_ROLE
 clone_placements:
-  - name: cp1
+  - cluster: cp1
     cell: one_role
     anchor_point: shifted
 """
@@ -313,7 +313,7 @@ cells:
     components:
       - role: THE_ROLE
 clone_placements:
-  - name: cp1
+  - cluster: cp1
     cell: one_role
     anchor_ref: U5
     anchor_point: fpga_center
@@ -333,7 +333,7 @@ cells:
     components:
       - role: THE_ROLE
 clone_placements:
-  - name: cp1
+  - cluster: cp1
     cell: one_role
     anchor_pad: "1"
     anchor_point: fpga_center
@@ -482,7 +482,7 @@ cells:
     components:
       - role: THE_ROLE
 clone_placements:
-  - name: cp1
+  - cluster: cp1
     cell: one_role
     anchor_point: does_not_exist
 """
@@ -501,7 +501,7 @@ cells:
     components:
       - role: THE_ROLE
 clone_placements:
-  - name: cp1
+  - cluster: cp1
     cell: one_role
     anchor_point: fpga_centre
 """

@@ -193,11 +193,11 @@ def upsert_list_entry(path: Path, section: str, entry: Dict[str, Any], key: str 
 def upsert_clone_placement(path: Path, entry: Dict[str, Any]) -> bool:
     """clone_placements:-specific name kept for the existing call sites/
     tests — see upsert_list_entry, the general form this now delegates to.
-    Identity is placer_name if set, else name (the Cluster tag) — split
+    Identity is name if set, else cluster (the Cluster tag) — split
     2026-08-15 so changing which Cluster an already-saved entry tags no
     longer creates a duplicate on save."""
     return upsert_list_entry(path, "clone_placements", entry,
-                             key_fn=lambda e: e.get("placer_name") or e.get("name"))
+                             key_fn=lambda e: e.get("name") or e.get("cluster"))
 
 
 def _include_entry_target(entry: Any, base_dir: Path) -> Optional[Path]:

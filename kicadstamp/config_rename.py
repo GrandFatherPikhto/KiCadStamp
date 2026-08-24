@@ -24,15 +24,15 @@ schematic side never confuses a Role VALUE with some other string that
 happens to be equal:
 
   Cluster renames (``renames: Cluster:``):
-    - ``cluster:``        — rules[].spokes[].cluster, coordinate_placements[].cluster
+    - ``cluster:``        — rules[].spokes[].cluster, coordinate_placements[].cluster,
+                            clone_placements[].cluster (the Cluster TAG written onto
+                            the board's components, read by role_narrowing.py as
+                            the placement's own Cluster)
     - ``anchor_cluster:`` — rules / clone_placements / coordinate_placements /
                             thermal_via_arrays / net_traces / points
-    - ``name:``           — clone_placements[].name ONLY (the Cluster TAG written
-                            onto the board's components, read by role_narrowing.py
-                            as the placement's own Cluster). Deliberately NOT
-                            coordinate_placements[].name / rules[].name /
-                            thermal_via_arrays[].name / points keys / cells keys —
-                            those are save identities/recipe names, not clusters.
+    (``name:`` of clone_placements is the SAVE/--only identity, NOT a Cluster —
+    deliberately not touched; same for rules[].name / thermal_via_arrays[].name /
+    coordinate_placements[].name / points keys / cells keys.)
 
   Role renames (``renames: Role:``):
     - ``role:``                    — cells.*.components[].role,
@@ -175,12 +175,10 @@ def _visit_rule(rule, location: str, ctx: _PlanContext) -> None:
         _visit_sequence(spokes[1], f"{location}.spokes", _visit_spoke, ctx)
 
 
-def _visit_placement_kind(entry, location: str, ctx: _PlanContext,
-                          include_name_as_cluster: bool) -> None:
-    """Shared for clone_placements / coordinate_placements entries."""
-    if include_name_as_cluster:
-        _visit_value_field(entry, "name", location, "Cluster",
-                           ctx.cluster_map, ctx.matched_cluster, ctx)
+def _visit_placement_kind(entry, location: str, ctx: _PlanContext) -> None:
+    """Shared for clone_placements / coordinate_placements entries — both now
+    carry their Cluster in a separate `cluster:` field (2026-08-24 split), so
+    the `name` field of neither is a Cluster and is never touched here."""
     _visit_value_field(entry, "role", location, "Role",
                        ctx.role_map, ctx.matched_role, ctx)
     _visit_value_field(entry, "cluster", location, "Cluster",
@@ -201,11 +199,11 @@ def _visit_placement_kind(entry, location: str, ctx: _PlanContext,
 
 
 def _visit_clone_placement(entry, location: str, ctx: _PlanContext) -> None:
-    _visit_placement_kind(entry, location, ctx, include_name_as_cluster=True)
+    _visit_placement_kind(entry, location, ctx)
 
 
 def _visit_coordinate_placement(entry, location: str, ctx: _PlanContext) -> None:
-    _visit_placement_kind(entry, location, ctx, include_name_as_cluster=False)
+    _visit_placement_kind(entry, location, ctx)
 
 
 def _visit_thermal_via_array(entry, location: str, ctx: _PlanContext) -> None:

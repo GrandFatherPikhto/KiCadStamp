@@ -711,11 +711,11 @@ _THERMAL_VIA_ARRAY_KNOWN_KEYS = {
 
 
 _CLONE_PLACEMENT_KNOWN_KEYS = {
-    'name', 'cell', 'xy', 'rotation_deg',
+    'cluster', 'cell', 'xy', 'rotation_deg',
     'nets', 'params', 'net_overrides', 'retired', 'skip', 'ignore_selection',
     'anchor_ref', 'anchor_pad', 'anchor_role', 'anchor_sheet', 'anchor_cluster',
     'anchor_point', 'layer', 'mirror', 'refs', 'by_selection',
-    'sheet', 'placer_name',
+    'sheet', 'name',
     'radius_mm', 'angle_deg',
     'side',  # deprecated – recognised separately to give a migration message
     'origin_x_mm', 'origin_y_mm',  # deprecated – recognised to give a migration message
@@ -723,16 +723,17 @@ _CLONE_PLACEMENT_KNOWN_KEYS = {
 
 
 def _load_clone_placement(data: dict[str, Any]) -> ClonePlacement:
-    name = data.get('name', '?')
-    if not data.get('name'):
+    cluster = data.get('cluster')
+    if not cluster:
         raise ValidationError(format_fatal_error(
-            _("clone_placement without name"),
-            [_("every clone_placement must have a name – used in --only "
-               "(kicadstamp_cli.py) for isolated runs; write name: <string>. "
-               "Previously missing name would silently substitute '?' – that was a bug")]
+            _("clone_placement without cluster"),
+            [_("every clone_placement must have a cluster – the physical Cluster "
+               "tag written onto the board's components (read by role_narrowing.py); "
+               "write cluster: <string>. The save/--only identity (name:) is "
+               "optional and falls back to cluster")]
         ))
     check_unknown_keys(data, _CLONE_PLACEMENT_KNOWN_KEYS,
-                       _("unknown fields in clone_placement {name!r}").format(name=name),
+                       _("unknown fields in clone_placement {name!r}").format(name=cluster),
                        extra_hint=_(" (e.g. 'pad' won't work; use 'anchor_pad')"))
 
     anchor_ref = data.get('anchor_ref')
@@ -747,7 +748,7 @@ def _load_clone_placement(data: dict[str, Any]) -> ClonePlacement:
     # anchor. Deliberately NOT resolved through resolve_placeholder (own
     # identity, not a templated external field).
     sheet = data.get('sheet')
-    placer_name = data.get('placer_name')
+    name = data.get('name')
 
     cell = data.get('cell')
     if not cell:
@@ -869,7 +870,7 @@ def _load_clone_placement(data: dict[str, Any]) -> ClonePlacement:
     _check_layer_value(layer, _("in clone_placement {name!r}").format(name=name))
 
     return ClonePlacement(
-        name=name,
+        cluster=cluster,
         cell=cell,
         xy=xy,
         radius_mm=radius_mm,
@@ -888,7 +889,7 @@ def _load_clone_placement(data: dict[str, Any]) -> ClonePlacement:
         anchor_cluster=anchor_cluster,
         anchor_point=anchor_point,
         sheet=sheet,
-        placer_name=placer_name,
+        name=name,
         layer=layer,
         mirror=bool(data.get('mirror', False)),
         refs=data.get('refs', {}) or {},

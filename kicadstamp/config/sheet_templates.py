@@ -30,14 +30,14 @@ schema):
     dependency tree plan §1.0) — the (Sheet, Cluster, Role) convention
     completed for templated entries. A template's own `sheet:` value
     (including the historical `self` marker, which equals the loop name) is
-    overwritten; the identity string (placer_name:/name:) is an INDEPENDENT
+    overwritten; the identity string (name:/cluster:) is an INDEPENDENT
     result of the same loop and is unaffected.
   - `$SHEET` inside string values (params:/nets:/net_overrides: hierarchical
     net paths like /$SHEET/DAC/+3V3_AVDD) -> the same sheet name, textual
     substring replacement, not a general-purpose templating engine.
 
-Identity (placer_name: for clone_placements, name: for coordinate_placements —
-NOT clone_placements' own name:, which is the Cluster tag and is NEVER
+Identity (name: for clone_placements, name: for coordinate_placements —
+NOT clone_placements' own cluster:, which is the Cluster tag and is NEVER
 touched), clarified 2026-08-16 after an Architect-mode review caught that the
 original "respect an explicit value, else auto-generate" wording was ambiguous
 AND broke this module's byte-identical regression contract:
@@ -93,14 +93,14 @@ def _substitute_sheet_token(value, sheet: str):
 def _identity_base(entry: dict, section: str) -> str:
     """The `base` in the multi-sheet identity f"{sheet}_{base}".
 
-    clone_placements: placer_name if the template set it, else the Cluster tag
-    `name` (the non-templated default identity for a clone_placement IS
-    placer_name-or-name, see clone_placement_effective_name).
+    clone_placements: name if the template set it, else the Cluster tag
+    `cluster` (the non-templated default identity for a clone_placement IS
+    name-or-cluster, see clone_placement_effective_name).
     coordinate_placements: explicit name, else the same default the
     non-templated path uses (coordinate_placement_effective_name's
     f"{cluster}/{role}")."""
     if section == 'clone_placements':
-        return entry.get('placer_name') or entry.get('name') or ''
+        return entry.get('name') or entry.get('cluster') or ''
     return entry.get('name') or f"{entry.get('cluster', '')}/{entry.get('role', '')}"
 
 
@@ -167,9 +167,9 @@ def expand_sheet_templates(data: dict) -> dict:
                             if not base:
                                 raise ValidationError(format_fatal_error(
                                     _("sheet_template {name!r}: multi-sheet clone_placement "
-                                      "needs a name: (Cluster tag) to derive placer_name:")
+                                      "needs a cluster: (Cluster tag) to derive name:")
                                     .format(name=tpl_name)))
-                            gen['placer_name'] = f"{sheet}_{base}"
+                            gen['name'] = f"{sheet}_{base}"
                         else:
                             gen['name'] = f"{sheet}_{_identity_base(entry, section)}"
                     result[section].append(gen)

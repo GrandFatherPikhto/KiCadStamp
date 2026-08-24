@@ -40,8 +40,8 @@ def test_build_producer_index_clone_rule_coordinate():
     cfg = Config(
         cells={"buf_cell": buf_cell},
         clone_placements=[
-            ClonePlacement(name="CH0", cell="buf_cell", xy=(0.0, 0.0), sheet="Channel_0"),
-            ClonePlacement(name="CH1", cell="buf_cell", xy=(0.0, 0.0), sheet="Channel_1"),
+            ClonePlacement(cluster="CH0", cell="buf_cell", xy=(0.0, 0.0), sheet="Channel_0"),
+            ClonePlacement(cluster="CH1", cell="buf_cell", xy=(0.0, 0.0), sheet="Channel_1"),
         ],
         rules=[
             Rule(net="GND", spokes=[ManualSpoke(pad="1", cell="buf_cell", cluster="R_CL")]),
@@ -84,7 +84,7 @@ def test_resolve_anchor_edge_single_candidate():
     cfg = Config(
         cells={"buf_cell": cell},
         clone_placements=[
-            ClonePlacement(name="CH0", cell="buf_cell", xy=(0.0, 0.0), sheet="Channel_0"),
+            ClonePlacement(cluster="CH0", cell="buf_cell", xy=(0.0, 0.0), sheet="Channel_0"),
         ],
         coordinate_placements=[
             CoordinatePlacement(cluster="CONS", role="CONS_R",
@@ -115,8 +115,8 @@ def test_resolve_anchor_edge_multiple_parents():
     cfg = Config(
         cells={"buf_cell": cell},
         clone_placements=[
-            ClonePlacement(name="CH0", cell="buf_cell", xy=(0.0, 0.0), sheet="Channel_0"),
-            ClonePlacement(name="CH1", cell="buf_cell", xy=(0.0, 0.0), sheet="Channel_1"),
+            ClonePlacement(cluster="CH0", cell="buf_cell", xy=(0.0, 0.0), sheet="Channel_0"),
+            ClonePlacement(cluster="CH1", cell="buf_cell", xy=(0.0, 0.0), sheet="Channel_1"),
         ],
         coordinate_placements=[
             CoordinatePlacement(cluster="C", role="R", anchor_role="DAC_BUF"),
@@ -134,8 +134,8 @@ def test_resolve_anchor_edge_sheet_narrows_to_one():
     cfg = Config(
         cells={"buf_cell": cell},
         clone_placements=[
-            ClonePlacement(name="CH0", cell="buf_cell", xy=(0.0, 0.0), sheet="Channel_0"),
-            ClonePlacement(name="CH1", cell="buf_cell", xy=(0.0, 0.0), sheet="Channel_1"),
+            ClonePlacement(cluster="CH0", cell="buf_cell", xy=(0.0, 0.0), sheet="Channel_0"),
+            ClonePlacement(cluster="CH1", cell="buf_cell", xy=(0.0, 0.0), sheet="Channel_1"),
         ],
         coordinate_placements=[
             CoordinatePlacement(cluster="C", role="R",
@@ -173,7 +173,7 @@ def test_resolve_anchor_edge_cluster_narrows_to_one():
 def test_resolve_anchor_edge_anchor_ref_external():
     """anchor_ref -> ExternalLeaf, a legal non-fatal case."""
     cfg = Config(clone_placements=[
-        ClonePlacement(name="X", cell="c", xy=(0.0, 0.0), anchor_ref="FPGA1"),
+        ClonePlacement(cluster="X", cell="c", xy=(0.0, 0.0), anchor_ref="FPGA1"),
     ])
     records = build_records(cfg)
     edge = resolve_anchor_edge(records[0], cfg, {}, {})
@@ -186,7 +186,7 @@ def test_resolve_anchor_edge_anchor_point():
     cfg = Config(
         points={"P1": Point(name="P1", xy=(1.0, 2.0))},
         clone_placements=[
-            ClonePlacement(name="X", cell="c", xy=(0.0, 0.0), anchor_point="P1"),
+            ClonePlacement(cluster="X", cell="c", xy=(0.0, 0.0), anchor_point="P1"),
         ],
     )
     records = build_records(cfg)
@@ -199,7 +199,7 @@ def test_resolve_anchor_edge_anchor_point():
 def test_resolve_anchor_edge_no_anchor_is_none():
     """No anchor at all (absolute placement) -> None (root by construction)."""
     cfg = Config(clone_placements=[
-        ClonePlacement(name="X", cell="c", xy=(0.0, 0.0)),
+        ClonePlacement(cluster="X", cell="c", xy=(0.0, 0.0)),
     ])
     records = build_records(cfg)
     assert resolve_anchor_edge(records[0], cfg, {}, {}) is None
@@ -211,7 +211,7 @@ def test_build_anchor_graph_external_root():
     cfg = Config(
         cells={"buf_cell": cell},
         clone_placements=[
-            ClonePlacement(name="CH0", cell="buf_cell", xy=(0.0, 0.0),
+            ClonePlacement(cluster="CH0", cell="buf_cell", xy=(0.0, 0.0),
                            sheet="Channel_0", anchor_ref="FPGA"),
         ],
     )
@@ -230,8 +230,8 @@ def test_build_anchor_graph_role_chain():
     cfg = Config(
         cells={"prod": prod, "cons": cons},
         clone_placements=[
-            ClonePlacement(name="producer", cell="prod", xy=(0.0, 0.0)),
-            ClonePlacement(name="consumer", cell="cons", xy=(0.0, 0.0), anchor_role="A"),
+            ClonePlacement(cluster="producer", cell="prod", xy=(0.0, 0.0)),
+            ClonePlacement(cluster="consumer", cell="cons", xy=(0.0, 0.0), anchor_role="A"),
         ],
     )
     g = build_anchor_graph(cfg)
@@ -243,7 +243,7 @@ def test_build_anchor_graph_role_chain():
 def test_build_anchor_graph_retired_dropped():
     """retired records neither appear nor produce (drop_disabled_rules convention)."""
     cfg = Config(clone_placements=[
-        ClonePlacement(name="ret", cell="c", xy=(0.0, 0.0), retired=True),
+        ClonePlacement(cluster="ret", cell="c", xy=(0.0, 0.0), retired=True),
     ])
     assert build_records(cfg) == []
     g = build_anchor_graph(cfg)
@@ -275,8 +275,8 @@ def _chain_cfg():
             CoordinatePlacement(cluster="CP_C", role="R_CP", anchor_ref="FPGA"),
         ],
         clone_placements=[
-            ClonePlacement(name="C1", cell="c1_cell", xy=(0.0, 0.0), anchor_role="R_CP"),
-            ClonePlacement(name="C2", cell="c2_cell", xy=(0.0, 0.0), anchor_role="R_C1"),
+            ClonePlacement(cluster="C1", cell="c1_cell", xy=(0.0, 0.0), anchor_role="R_CP"),
+            ClonePlacement(cluster="C2", cell="c2_cell", xy=(0.0, 0.0), anchor_role="R_C1"),
         ],
     )
 
@@ -305,9 +305,9 @@ def test_cascade_multiple_parents_dag():
     cfg = Config(
         cells={"p": pcell, "c": ccell},
         clone_placements=[
-            ClonePlacement(name="P1", cell="p", xy=(0.0, 0.0)),
-            ClonePlacement(name="P2", cell="p", xy=(0.0, 0.0)),
-            ClonePlacement(name="C", cell="c", xy=(0.0, 0.0), anchor_role="R"),
+            ClonePlacement(cluster="P1", cell="p", xy=(0.0, 0.0)),
+            ClonePlacement(cluster="P2", cell="p", xy=(0.0, 0.0)),
+            ClonePlacement(cluster="C", cell="c", xy=(0.0, 0.0), anchor_role="R"),
         ],
     )
     g = build_anchor_graph(cfg)
@@ -324,7 +324,7 @@ def test_redraw_records_skip_points_and_external():
     cfg = Config(
         points={"P1": Point(name="P1", xy=(1.0, 2.0))},
         clone_placements=[
-            ClonePlacement(name="X", cell="c", xy=(0.0, 0.0), anchor_point="P1"),
+            ClonePlacement(cluster="X", cell="c", xy=(0.0, 0.0), anchor_point="P1"),
         ],
     )
     g = build_anchor_graph(cfg)
@@ -342,8 +342,8 @@ def test_point_chain_cascade_through_point():
     cfg = Config(
         cells={"prod": prod_cell, "y_cell": y_cell},
         clone_placements=[
-            ClonePlacement(name="X", cell="prod", xy=(0.0, 0.0)),
-            ClonePlacement(name="Y", cell="y_cell", xy=(0.0, 0.0), anchor_point="P"),
+            ClonePlacement(cluster="X", cell="prod", xy=(0.0, 0.0)),
+            ClonePlacement(cluster="Y", cell="y_cell", xy=(0.0, 0.0), anchor_point="P"),
         ],
         points={"P": Point(name="P", anchor_role="R")},
     )
@@ -363,8 +363,8 @@ def test_anchor_cycle_is_fatal():
     cfg = Config(
         cells={"a": a_cell, "b": b_cell},
         clone_placements=[
-            ClonePlacement(name="A", cell="a", xy=(0.0, 0.0), anchor_role="RB"),
-            ClonePlacement(name="B", cell="b", xy=(0.0, 0.0), anchor_role="RA"),
+            ClonePlacement(cluster="A", cell="a", xy=(0.0, 0.0), anchor_role="RB"),
+            ClonePlacement(cluster="B", cell="b", xy=(0.0, 0.0), anchor_role="RA"),
         ],
     )
     with pytest.raises(ValidationError, match="cycle"):

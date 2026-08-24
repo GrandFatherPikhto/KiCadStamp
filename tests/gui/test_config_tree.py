@@ -1130,16 +1130,15 @@ def test_on_export_cancelled_dialog_writes_nothing(main_window, tmp_path, monkey
     assert data["cells"] == {"existing": {}}  # untouched — Cancel aborted the export
 
 
-def test_clone_placement_leaf_shows_placer_name_when_set(main_window, tmp_path):
-    """2026-08-15, plan config_tree_rename_placer_name_aware: a clone_
-    placements leaf whose entry carries placer_name shows THAT (the save/
-    --only identity) in the tree — not the raw Cluster tag `name`. Entries
-    without placer_name fall back to name as before."""
+def test_clone_placement_leaf_shows_name_when_set(main_window, tmp_path):
+    """A clone_placements leaf whose entry carries name shows THAT (the save/
+    --only identity) in the tree — not the raw Cluster tag `cluster`. Entries
+    without name fall back to cluster as before."""
     root = tmp_path / "root.yaml"
     root.write_text(
         "clone_placements:\n"
-        "  - name: PIF_AVDD\n    placer_name: CH0_PIF_AVDD\n    cell: ldo_adj\n    xy: [0, 0]\n"
-        "  - name: plain\n    cell: ldo_adj\n    xy: [0, 0]\n",
+        "  - cluster: PIF_AVDD\n    name: CH0_PIF_AVDD\n    cell: ldo_adj\n    xy: [0, 0]\n"
+        "  - cluster: plain\n    cell: ldo_adj\n    xy: [0, 0]\n",
         encoding="utf-8")
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)

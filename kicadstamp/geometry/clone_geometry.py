@@ -13,7 +13,8 @@ for ClonePlacement (TemplatePlacer), unlike spoke_layout.py:
 """
 from kipy.geometry import Vector2
 
-from ..config import ClonePlacement, Cell, TemplateVia, TemplateTrack
+from ..config import (ClonePlacement, Cell, TemplateVia, TemplateTrack,
+                      clone_placement_effective_name)
 from ..exceptions import ValidationError, format_fatal_error
 from ..net_resolution import resolve_net
 from ..utils.units import MM
@@ -37,7 +38,7 @@ def _net_from_resolved(role: str, pad: str | None, resolved_role_nets: dict,
     except KeyError:
         raise ValidationError(format_fatal_error(
             _("{kind} with net_from_role not resolved in cell {cell!r} ({name!r})")
-            .format(kind=kind, cell=clone.cell, name=clone.name),
+            .format(kind=kind, cell=clone.cell, name=clone_placement_effective_name(clone)),
             [_("{where} has net_from_role={role!r}{pad_txt}, but it was not "
                "resolved before geometry — internal consistency: the calculator "
                "must resolve every net_from_role prior to apply_clone_geometry")
@@ -58,7 +59,7 @@ def _resolve_clone_via(origin: Vector2, via: TemplateVia, rotation_deg: float,
         if via.net is None:
             raise ValidationError(format_fatal_error(
                 _("via without net in cell {cell!r} ({name!r})").format(
-                    cell=clone.cell, name=clone.name),
+                    cell=clone.cell, name=clone_placement_effective_name(clone)),
                 [_("via at (along={along}, across={across}) has no net — "
                    "ClonePlacement has no default rule net (unlike ManualSpoke), "
                    "so every via in a cloned cell must have a net explicitly set")
@@ -91,7 +92,7 @@ def _resolve_clone_track(origin: Vector2, track: TemplateTrack, rotation_deg: fl
         if track.net is None:
             raise ValidationError(format_fatal_error(
                 _("track without net in cell {cell!r} ({name!r})").format(
-                    cell=clone.cell, name=clone.name),
+                    cell=clone.cell, name=clone_placement_effective_name(clone)),
                 [_("track (along={s_along},{s_across} -> {e_along},{e_across}) has no net — "
                    "every track in a cloned cell must have a net, just like vias")
                  .format(s_along=track.start_along_mm, s_across=track.start_across_mm,

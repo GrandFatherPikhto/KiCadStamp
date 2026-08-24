@@ -106,7 +106,7 @@ class TestEditingIncludedEntryWritesBackToItsFile:
 
     def test_clone_placement(self, main_window, tmp_path):
         sub = tmp_path / "sub.yaml"
-        _write(sub, {"clone_placements": [{"name": "p1", "cell": "c1"}]})
+        _write(sub, {"clone_placements": [{"cluster": "p1", "cell": "c1"}]})
         root = tmp_path / "root.yaml"
         _write(root, {
             "cells": {"c1": {"components": [], "vias": [], "tracks": [], "layer": "F.Cu"}},
@@ -115,7 +115,7 @@ class TestEditingIncludedEntryWritesBackToItsFile:
 
         dock = PlacerDock(main_window)
         dock.set_root_path(root)
-        dock.load_placement({"name": "p1", "cell": "c1"})
+        dock.load_placement({"cluster": "p1", "cell": "c1"})
         dock.rotation_edit.setText("45")
         dock._do_save()
 

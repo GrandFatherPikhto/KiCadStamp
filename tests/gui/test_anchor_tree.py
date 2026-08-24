@@ -85,13 +85,13 @@ cells:
         offset_across_mm: 0.0
         angle_deg: 0.0
 clone_placements:
-  - name: P1
+  - cluster: P1
     cell: p_cell
     xy: [0.0, 0.0]
-  - name: P2
+  - cluster: P2
     cell: p_cell
     xy: [0.0, 0.0]
-  - name: C
+  - cluster: C
     cell: c_cell
     xy: [0.0, 0.0]
     anchor_role: R

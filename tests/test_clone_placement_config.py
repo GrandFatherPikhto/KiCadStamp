@@ -21,13 +21,13 @@ cells:
         offset_across_mm: 1.0
         net: "DAC{channel}_DB1"
 clone_placements:
-  - name: dac_channel_2
+  - cluster: dac_channel_2
     cell: dac_channel
     xy: [80.0, 40.0]
     rotation_deg: 90.0
     params:
       channel: 2
-  - name: mcu_section
+  - cluster: mcu_section
     cell: dac_channel
     xy: [0.0, 0.0]
     net_overrides:
@@ -41,8 +41,8 @@ def test_load_clone_placement_is_a_public_alias():
     import kicadstamp.config as config
 
     assert "load_clone_placement" in config.__all__
-    cp = config.load_clone_placement({"name": "p", "cell": "c", "xy": [0.0, 0.0]})
-    assert cp.name == "p"
+    cp = config.load_clone_placement({"cluster": "p", "cell": "c", "xy": [0.0, 0.0]})
+    assert cp.cluster == "p"
     assert isinstance(cp, config.ClonePlacement)
 
 
@@ -54,7 +54,7 @@ def test_clone_placements_loaded_with_all_fields(tmp_path):
     assert len(cfg.clone_placements) == 2
 
     cp1 = cfg.clone_placements[0]
-    assert cp1.name == "dac_channel_2"
+    assert cp1.cluster == "dac_channel_2"
     assert cp1.cell == "dac_channel"
     assert cp1.xy == (80.0, 40.0)
     assert cp1.rotation_deg == 90.0
@@ -74,10 +74,10 @@ cells:
   t:
     components: []
 clone_placements:
-  - name: default_skip
+  - cluster: default_skip
     cell: t
     xy: [0, 0]
-  - name: explicitly_skipped
+  - cluster: explicitly_skipped
     cell: t
     xy: [0, 0]
     skip: true
@@ -95,10 +95,10 @@ cells:
   t:
     components: []
 clone_placements:
-  - name: default_selection
+  - cluster: default_selection
     cell: t
     xy: [0, 0]
-  - name: ignores_selection
+  - cluster: ignores_selection
     cell: t
     xy: [0, 0]
     ignore_selection: true
@@ -123,7 +123,7 @@ cells:
   t:
     components: []
 clone_placements:
-  - name: polar
+  - cluster: polar
     cell: t
     radius_mm: 5.0
     angle_deg: 37.0
@@ -143,7 +143,7 @@ cells:
   t:
     components: []
 clone_placements:
-  - name: both
+  - cluster: both
     cell: t
     xy: [1.0, 2.0]
     radius_mm: 5.0
@@ -164,7 +164,7 @@ cells:
   t:
     components: []
 clone_placements:
-  - name: partial
+  - cluster: partial
     cell: t
     radius_mm: 5.0
 """
@@ -182,7 +182,7 @@ cells:
   t:
     components: []
 clone_placements:
-  - name: anchored
+  - cluster: anchored
     cell: t
     anchor_ref: IC1
     anchor_pad: 17
@@ -203,7 +203,7 @@ cells:
   t:
     components: []
 clone_placements:
-  - name: anchored
+  - cluster: anchored
     cell: t
     anchor_ref: IC1
 """
@@ -221,7 +221,7 @@ cells:
   t:
     components: []
 clone_placements:
-  - name: by_role
+  - cluster: by_role
     cell: t
     anchor_role: MCU
     anchor_sheet: Channel_0
@@ -244,7 +244,7 @@ cells:
   t:
     components: []
 clone_placements:
-  - name: with_cluster
+  - cluster: with_cluster
     cell: t
     anchor_role: MCU
     anchor_cluster: FPGA_PWR_BANK
@@ -264,7 +264,7 @@ cells:
     layer: F.Cu
     components: []
 clone_placements:
-  - name: mirrored
+  - cluster: mirrored
     cell: t
     xy: [0, 0]
     layer: B.Cu
@@ -287,7 +287,7 @@ cells:
       - role: A
       - role: B
 clone_placements:
-  - name: with_nets
+  - cluster: with_nets
     cell: t
     xy: [0, 0]
     nets:
@@ -311,7 +311,7 @@ cells:
   t:
     components: []
 clone_placements:
-  - name: selection_mode
+  - cluster: selection_mode
     cell: t
     xy: [0, 0]
     by_selection: true
@@ -331,7 +331,7 @@ cells:
     components:
       - role: A
 clone_placements:
-  - name: conflict
+  - cluster: conflict
     cell: t
     xy: [0, 0]
     by_selection: true
@@ -351,7 +351,7 @@ cells:
   t:
     components: []
 clone_placements:
-  - name: both_anchors
+  - cluster: both_anchors
     cell: t
     anchor_ref: IC1
     anchor_role: MCU
@@ -369,7 +369,7 @@ cells:
   t:
     components: []
 clone_placements:
-  - name: sheet_without_role
+  - cluster: sheet_without_role
     cell: t
     anchor_sheet: Channel_0
 """
@@ -386,7 +386,7 @@ cells:
   t:
     components: []
 clone_placements:
-  - name: pad_without_anchor
+  - cluster: pad_without_anchor
     cell: t
     anchor_pad: 17
 """
@@ -403,7 +403,7 @@ cells:
   t:
     components: []
 clone_placements:
-  - name: no_anchor_no_origin
+  - cluster: no_anchor_no_origin
     cell: t
 """
     config_file = tmp_path / "no_anchor_no_origin.yaml"
@@ -425,7 +425,7 @@ cells:
   t:
     components: []
 clone_placements:
-  - name: single_role
+  - cluster: single_role
     role: LED
     xy: [10.0, 20.0]
 """
@@ -438,7 +438,7 @@ clone_placements:
 def test_missing_cell_raises(tmp_path):
     yaml_content = """
 clone_placements:
-  - name: no_content
+  - cluster: no_content
     xy: [0, 0]
 """
     config_file = tmp_path / "no_content.yaml"
@@ -455,7 +455,7 @@ cells:
   t:
     components: []
 clone_placements:
-  - name: both_content
+  - cluster: both_content
     cell: t
     role: LED
 """
@@ -465,18 +465,18 @@ clone_placements:
         load_config(str(config_file))
 
 
-def test_cluster_field_is_rejected(tmp_path):
+def test_cluster_field_is_required(tmp_path):
+    """cluster: is now REQUIRED (2026-08-24, the old `name:` field renamed) —
+    an entry without it is fatal."""
     yaml_content = """
 cells:
   t:
     components: []
 clone_placements:
-  - name: both
-    cell: t
-    cluster: CH2_BYPASS
+  - cell: t
     xy: [0, 0]
 """
-    config_file = tmp_path / "cluster_field.yaml"
+    config_file = tmp_path / "missing_cluster.yaml"
     config_file.write_text(yaml_content, encoding="utf-8")
-    with pytest.raises(ValidationError, match="unknown fields"):
+    with pytest.raises(ValidationError, match="without cluster"):
         load_config(str(config_file))

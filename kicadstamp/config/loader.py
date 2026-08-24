@@ -65,7 +65,7 @@ from .sheet_templates import expand_sheet_templates
 from .models import (
     ThermalViaArrayConfig, CoordinatePlacement, NetTrace, Config,
     rule_effective_name, coordinate_placement_effective_name,
-    net_trace_effective_name,
+    clone_placement_effective_name, net_trace_effective_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -256,7 +256,8 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
         layer_changed = placement_layer != cell.layer
         if cp.mirror and not layer_changed:
             raise ValidationError(format_fatal_error(
-                _("mirror without layer change in clone_placement {name!r}").format(name=cp.name),
+                _("mirror without layer change in clone_placement {name!r}").format(
+                    name=clone_placement_effective_name(cp)),
                 [_("cell {cell!r} is on {cell_layer}, placement layer is {place_layer} – "
                    "mirror without changing side is physically meaningless: either set layer to "
                    "{opposite}, or remove mirror").format(
@@ -265,7 +266,8 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
             ))
         if layer_changed and not cp.mirror:
             raise ValidationError(format_fatal_error(
-                _("layer changed without mirror in clone_placement {name!r}").format(name=cp.name),
+                _("layer changed without mirror in clone_placement {name!r}").format(
+                    name=clone_placement_effective_name(cp)),
                 [_("cell {cell!r} is on {cell_layer}, placement layer is {place_layer} – "
                    "flipped footprints on non‑flipped sites are nonsense; add mirror: true, "
                    "or remove the layer override").format(
@@ -309,8 +311,9 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
         _check_anchor_point(_("rule (net {net!r})").format(net=rule.net), rule.anchor_point,
                             needs_footprint=True)
     for cp in clone_placements:
-        _check_anchor_point(_("clone_placement {name!r}").format(name=cp.name), cp.anchor_point,
-                            needs_footprint=False)
+        _check_anchor_point(_("clone_placement {name!r}").format(
+            name=clone_placement_effective_name(cp)), cp.anchor_point,
+            needs_footprint=False)
     for ccp in coordinate_placements:
         # Anchor-relative CoordinatePlacement (2026-08-12, Group 0): only ever
         # needs a coordinate (like ClonePlacement), not a footprint — a

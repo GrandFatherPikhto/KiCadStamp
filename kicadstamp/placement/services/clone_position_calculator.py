@@ -7,19 +7,20 @@ based section cloning), so they have independent signatures.
 
 anchor_id for the registry (see registry.py) is built from PHYSICAL binding
 (anchor_ref/anchor_pad, PLUS the xy offset — see
-clone_anchor_id), not from clone.name — for the same reason that refdes is not
-a reliable key: the name is arbitrary and can change (renaming a
-clone_placement should not erase vias/tracks if the physical anchor and offset
-remain the same). Only if anchor_ref is not set at all (absolute coordinate
-mode, a rare case) — we have no choice but to use clone.name, the only
-available identifier.
+clone_anchor_id), not from the clone's identity — for the same reason that
+refdes is not a reliable key: the identity is arbitrary and can change
+(renaming a clone_placement should not erase vias/tracks if the physical anchor
+and offset remain the same). Only if anchor_ref is not set at all (absolute
+coordinate mode, a rare case) — we have no choice but to use
+clone_placement_effective_name(clone), the only available identifier.
 """
 import logging
 
 from kipy.geometry import Vector2
 from kipy.board_types import BoardLayer
 
-from ...config import Config, ClonePlacement, CellPlacement, Cell, TemplateComponentSlot
+from ...config import (Config, ClonePlacement, CellPlacement, Cell,
+                       TemplateComponentSlot, clone_placement_effective_name)
 from ...exceptions import ValidationError, format_fatal_error
 from ...kicad.adapter import KiCadBoardAdapter
 from ...geometry.clone_geometry import apply_clone_geometry, clone_shift_mm
@@ -82,8 +83,9 @@ def clone_anchor_id(clone: ClonePlacement) -> str:
         to clone.name changes; anchor_sheet is included because it is part of the
         anchor search conditions — changing anchor_sheet also changes the physical
         placement)
-      neither (absolute coordinates) -> "name:{clone.name}",
-        the only available identifier in this mode.
+      neither (absolute coordinates) -> "name:{clone_placement_effective_name(clone)}",
+        the only available identifier in this mode (the effective identity —
+        name if set, else the Cluster tag).
 
     xy is included in the anchor_ref/anchor_role branches
     (found 2026-07-27): two clone_placements can legitimately share the same
@@ -112,7 +114,7 @@ def clone_anchor_id(clone: ClonePlacement) -> str:
     if clone.anchor_role is not None:
         return (f"role:{clone.anchor_role}:{clone.anchor_sheet or ''}:{clone.anchor_cluster or ''}"
                 f":{clone.anchor_pad or ''}:{ox:.4f}:{oy:.4f}")
-    return f"name:{clone.name}"
+    return f"name:{clone_placement_effective_name(clone)}"
 
 
 class ClonePositionCalculator:
@@ -165,10 +167,12 @@ class ClonePositionCalculator:
             # needs a coordinate, unlike Rule/thermal_via_array — a shifted
             # or xy-literal point is fine here.
             logger.debug(_("  [{name}] anchor: point {point!r}")
-                         .format(name=clone.name, point=clone.anchor_point))
+                         .format(name=clone_placement_effective_name(clone),
+                                 point=clone.anchor_point))
             return self.resolved_points[clone.anchor_point].position
         if clone.anchor_ref is not None:
-            fp = resolve_footprint_by_ref(self.adapter, clone.anchor_ref, clone.name)
+            fp = resolve_footprint_by_ref(self.adapter, clone.anchor_ref,
+                                          clone_placement_effective_name(clone))
         elif clone.anchor_role is not None:
             fp = resolve_anchor_by_role(self.adapter, clone, self.sheet_names)
         else:
@@ -176,12 +180,15 @@ class ClonePositionCalculator:
 
         if clone.anchor_pad is None:
             logger.debug(_("  [{name}] anchor: centre of {ref} ({x:.3f}, {y:.3f}) mm")
-                         .format(name=clone.name, ref=fp.reference_field.text.value,
+                         .format(name=clone_placement_effective_name(clone),
+                                 ref=fp.reference_field.text.value,
                                  x=fp.position.x/1e6, y=fp.position.y/1e6))
             return fp.position
-        position = resolve_anchor_pad_position(self.adapter, fp, clone.anchor_pad, clone.name)
+        position = resolve_anchor_pad_position(self.adapter, fp, clone.anchor_pad,
+                                               clone_placement_effective_name(clone))
         logger.debug(_("  [{name}] anchor: pad {ref}.{pad} ({x:.3f}, {y:.3f}) mm")
-                     .format(name=clone.name, ref=fp.reference_field.text.value,
+                     .format(name=clone_placement_effective_name(clone),
+                             ref=fp.reference_field.text.value,
                              pad=clone.anchor_pad,
                              x=position.x/1e6, y=position.y/1e6))
         return position
@@ -241,6 +248,11 @@ class ClonePositionCalculator:
         call below), so nested content gets a unique, rename-stable key.
         """
         mirror = placement.mirror
+        # Human-readable label for logs / via-track ownership. ClonePlacement
+        # carries its save identity in `name` (falling back to the Cluster tag);
+        # a nested CellPlacement has a required `name` and no `cluster`.
+        placement_label = (clone_placement_effective_name(placement)
+                           if isinstance(placement, ClonePlacement) else placement.name)
         if mirror and cell.clone_placements:
             # Composing an outer mirror with an already-resolved nested
             # subtree is a real reflection-composition problem (see
@@ -287,7 +299,7 @@ class ClonePositionCalculator:
                                       parent_rotation_deg=parent_rotation_deg,
                                       resolved_role_nets=resolved_role_nets)
         logger.info(_("  [{name}] cell {tpl!r} on {layer}{mirror_suffix}")
-                    .format(name=placement.name, tpl=cell.name, layer=cell.layer,
+                    .format(name=placement_label, tpl=cell.name, layer=cell.layer,
                             mirror_suffix=_(" -> mirrored as a whole") if mirror else _(" -> as written")))
 
         components_result: list[PlacedComponentInfo] = []
@@ -297,23 +309,23 @@ class ClonePositionCalculator:
         for via_index, via in enumerate(layout.vias):
             vias_result.append(ViaCommand(
                 position=via.position, drill_mm=via.drill_mm, diameter_mm=via.diameter_mm,
-                net_name=via.net, owner_ref=placement.name,
+                net_name=via.net, owner_ref=placement_label,
                 registry_key=make_registry_key(anchor_id, cell_name, None, via_index),
             ))
             logger.debug(_("  [{name}] spoke‑level via: ({x:.3f}, {y:.3f}) mm, net={net}")
-                         .format(name=placement.name, x=via.position.x/1e6,
+                         .format(name=placement_label, x=via.position.x/1e6,
                                  y=via.position.y/1e6, net=via.net))
 
         for track_index, track in enumerate(layout.tracks):
             track_layer = BoardLayer.BL_B_Cu if track.layer == 'B.Cu' else BoardLayer.BL_F_Cu
             tracks_result.append(TrackCommand(
                 start=track.start, end=track.end, width_mm=track.width_mm,
-                net_name=track.net, layer=track_layer, owner_ref=placement.name,
+                net_name=track.net, layer=track_layer, owner_ref=placement_label,
                 registry_key=make_registry_key(anchor_id, cell_name, None, track_index),
             ))
             logger.debug(_("  [{name}] track: ({sx:.3f}, {sy:.3f}) -> ({ex:.3f}, {ey:.3f}) mm, "
                            "net={net}, layer={layer}")
-                         .format(name=placement.name, sx=track.start.x/1e6, sy=track.start.y/1e6,
+                         .format(name=placement_label, sx=track.start.x/1e6, sy=track.start.y/1e6,
                                  ex=track.end.x/1e6, ey=track.end.y/1e6,
                                  net=track.net, layer=track.layer))
 
@@ -331,7 +343,7 @@ class ClonePositionCalculator:
             ))
             logger.debug(
                 _("  [{name}] {ref} (role {role}): position ({x:.3f}, {y:.3f}) mm, angle {angle:.1f}°")
-                .format(name=placement.name, ref=comp_layout.ref, role=comp_layout.role,
+                .format(name=placement_label, ref=comp_layout.ref, role=comp_layout.role,
                         x=comp_layout.position.x/1e6, y=comp_layout.position.y/1e6,
                         angle=comp_layout.angle_deg)
             )
@@ -350,7 +362,7 @@ class ClonePositionCalculator:
         world_rotation_deg = parent_rotation_deg + placement.rotation_deg
         for nested in cell.clone_placements:
             nested_cell, nested_cell_name = self._resolve_content(
-                nested.cell, nested.role, f"{placement.name}/{nested.name}")
+                nested.cell, nested.role, f"{placement_label}/{nested.name}")
             if nested_cell is None:
                 continue
             nc, nv, nt = self._resolve_one_level(
@@ -377,7 +389,8 @@ class ClonePositionCalculator:
             if clone.retired:
                 continue
 
-            cell, cell_name = self._resolve_content(clone.cell, None, clone.name)
+            cell, cell_name = self._resolve_content(clone.cell, None,
+                                                    clone_placement_effective_name(clone))
             if cell is None:
                 continue
 

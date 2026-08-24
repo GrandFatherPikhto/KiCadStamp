@@ -26,71 +26,71 @@ def _cfg(clones, cells=None):
 
 class TestCloneUsesSelectionMode:
     def test_no_nets_no_params_is_selection_mode(self):
-        c = ClonePlacement(name="a", cell="t", xy=(0, 0))
+        c = ClonePlacement(cluster="a", cell="t", xy=(0, 0))
         assert clone_uses_selection_mode(c) is True
 
     def test_nets_present_is_not_selection_mode(self):
-        c = ClonePlacement(name="a", cell="t", xy=(0, 0), nets={"X": "GND"})
+        c = ClonePlacement(cluster="a", cell="t", xy=(0, 0), nets={"X": "GND"})
         assert clone_uses_selection_mode(c) is False
 
     def test_params_present_is_not_selection_mode(self):
-        c = ClonePlacement(name="a", cell="t", xy=(0, 0), params={"channel": 1})
+        c = ClonePlacement(cluster="a", cell="t", xy=(0, 0), params={"channel": 1})
         assert clone_uses_selection_mode(c) is False
 
     def test_by_selection_explicit_true_overrides_nets(self):
         """Explicit by_selection: true forces selection mode even if nets are non‑empty."""
-        c = ClonePlacement(name="a", cell="t", xy=(0, 0),
+        c = ClonePlacement(cluster="a", cell="t", xy=(0, 0),
                            nets={"X": "GND"}, by_selection=True)
         assert clone_uses_selection_mode(c) is True
 
     def test_by_selection_false_with_empty_nets_and_params_implicit_selection(self):
         """by_selection: false with empty nets/params — still selection mode (old behaviour)."""
-        c = ClonePlacement(name="a", cell="t", xy=(0, 0), by_selection=False)
+        c = ClonePlacement(cluster="a", cell="t", xy=(0, 0), by_selection=False)
         assert clone_uses_selection_mode(c) is True
 
     def test_anchor_role_does_not_affect_selection_mode(self):
         """anchor_role does not change the mode; it is determined by nets/params/by_selection."""
-        c = ClonePlacement(name="a", cell="t", xy=(0, 0),
+        c = ClonePlacement(cluster="a", cell="t", xy=(0, 0),
                            anchor_role="SOME_ROLE")
         assert clone_uses_selection_mode(c) is True
 
-        c2 = ClonePlacement(name="b", cell="t", xy=(0, 0),
+        c2 = ClonePlacement(cluster="b", cell="t", xy=(0, 0),
                             anchor_role="SOME_ROLE", nets={"X": "GND"})
         assert clone_uses_selection_mode(c2) is False
 
 
 class TestCheckSingleSelectionBasedClone:
     def test_single_selection_based_passes(self):
-        cfg = _cfg([ClonePlacement(name="a", cell="t", xy=(0, 0))])
+        cfg = _cfg([ClonePlacement(cluster="a", cell="t", xy=(0, 0))])
         check_single_selection_based_clone(cfg)
 
     def test_two_selection_based_raises_with_both_names(self):
         cfg = _cfg([
-            ClonePlacement(name="a", cell="t", xy=(0, 0)),
-            ClonePlacement(name="b", cell="t", xy=(0, 0)),
+            ClonePlacement(cluster="a", cell="t", xy=(0, 0)),
+            ClonePlacement(cluster="b", cell="t", xy=(0, 0)),
         ])
         with pytest.raises(ValidationError, match="'a'.*'b'|'b'.*'a'"):
             check_single_selection_based_clone(cfg)
 
     def test_selection_and_nets_based_do_not_conflict(self):
         cfg = _cfg([
-            ClonePlacement(name="a", cell="t", xy=(0, 0)),
-            ClonePlacement(name="b", cell="t", xy=(0, 0), nets={"X": "GND"}),
+            ClonePlacement(cluster="a", cell="t", xy=(0, 0)),
+            ClonePlacement(cluster="b", cell="t", xy=(0, 0), nets={"X": "GND"}),
         ])
         check_single_selection_based_clone(cfg)
 
     def test_retired_clone_not_counted(self):
         cfg = _cfg([
-            ClonePlacement(name="a", cell="t", xy=(0, 0)),
-            ClonePlacement(name="b", cell="t", xy=(0, 0), retired=True),
+            ClonePlacement(cluster="a", cell="t", xy=(0, 0)),
+            ClonePlacement(cluster="b", cell="t", xy=(0, 0), retired=True),
         ])
         check_single_selection_based_clone(cfg)
 
     def test_three_selection_based_still_fatal(self):
         cfg = _cfg([
-            ClonePlacement(name="a", cell="t", xy=(0, 0)),
-            ClonePlacement(name="b", cell="t", xy=(0, 0)),
-            ClonePlacement(name="c", cell="t", xy=(0, 0)),
+            ClonePlacement(cluster="a", cell="t", xy=(0, 0)),
+            ClonePlacement(cluster="b", cell="t", xy=(0, 0)),
+            ClonePlacement(cluster="c", cell="t", xy=(0, 0)),
         ])
         with pytest.raises(ValidationError):
             check_single_selection_based_clone(cfg)
@@ -98,15 +98,15 @@ class TestCheckSingleSelectionBasedClone:
     def test_by_selection_true_with_nets_counts_as_selection_based(self):
         """Even with nets, by_selection: true makes it count as selection‑based."""
         cfg = _cfg([
-            ClonePlacement(name="a", cell="t", xy=(0, 0), nets={"X": "GND"}, by_selection=True),
-            ClonePlacement(name="b", cell="t", xy=(0, 0), nets={"Y": "GND"}),
+            ClonePlacement(cluster="a", cell="t", xy=(0, 0), nets={"X": "GND"}, by_selection=True),
+            ClonePlacement(cluster="b", cell="t", xy=(0, 0), nets={"Y": "GND"}),
         ])
         # a is selection‑based (by_selection), b is nets‑based => no conflict
         check_single_selection_based_clone(cfg)
 
         cfg2 = _cfg([
-            ClonePlacement(name="a", cell="t", xy=(0, 0), by_selection=True),
-            ClonePlacement(name="b", cell="t", xy=(0, 0), by_selection=True),
+            ClonePlacement(cluster="a", cell="t", xy=(0, 0), by_selection=True),
+            ClonePlacement(cluster="b", cell="t", xy=(0, 0), by_selection=True),
         ])
         # two with by_selection => fatal
         with pytest.raises(ValidationError):
@@ -122,8 +122,8 @@ class TestCheckConfigStructureExcludesSelectionMode:
     """
     def test_two_selection_based_clones_do_not_fail_config_structure(self):
         cfg = _cfg([
-            ClonePlacement(name="a", cell="t", xy=(0, 0)),
-            ClonePlacement(name="b", cell="t", xy=(0, 0)),
+            ClonePlacement(cluster="a", cell="t", xy=(0, 0)),
+            ClonePlacement(cluster="b", cell="t", xy=(0, 0)),
         ])
         check_config_structure(cfg)  # must not raise
         with pytest.raises(ValidationError):
@@ -132,15 +132,15 @@ class TestCheckConfigStructureExcludesSelectionMode:
 
 class TestCheckCloneCellsExist:
     def test_existing_cell_passes(self):
-        cfg = _cfg([ClonePlacement(name="a", cell="t", xy=(0, 0))])
+        cfg = _cfg([ClonePlacement(cluster="a", cell="t", xy=(0, 0))])
         check_clone_cells_exist(cfg)
 
     def test_missing_cell_raises(self):
-        cfg = _cfg([ClonePlacement(name="a", cell="does_not_exist", xy=(0, 0))])
+        cfg = _cfg([ClonePlacement(cluster="a", cell="does_not_exist", xy=(0, 0))])
         with pytest.raises(ValidationError, match="does_not_exist"):
             check_clone_cells_exist(cfg)
 
     def test_retired_clone_missing_cell_not_checked(self):
-        cfg = _cfg([ClonePlacement(name="a", cell="does_not_exist", xy=(0, 0),
+        cfg = _cfg([ClonePlacement(cluster="a", cell="does_not_exist", xy=(0, 0),
                                    retired=True)])
         check_clone_cells_exist(cfg)  # should not raise – retired

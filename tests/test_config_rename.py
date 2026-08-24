@@ -111,7 +111,7 @@ def test_rename_cluster_and_anchor_cluster_flat(tmp_path):
 def test_rename_refs_key_not_value(tmp_path):
     root = (
         "clone_placements:\n"
-        "- name: PIF\n"
+        "- cluster: PIF\n"
         "  cell: one\n"
         "  xy: [0.0, 0.0]\n"
         "  refs: {LDO: \"U5\"}\n"
@@ -128,7 +128,7 @@ def test_rename_refs_key_not_value(tmp_path):
 def test_rename_nets_key(tmp_path):
     root = (
         "clone_placements:\n"
-        "- name: PIF\n"
+        "- cluster: PIF\n"
         "  cell: one\n"
         "  xy: [0.0, 0.0]\n"
         "  nets:\n"
@@ -164,13 +164,14 @@ def test_hierarchical_cluster_not_renamed_exact_match_only(tmp_path):
     assert unmatched == ["Cluster: 'Channel_1'"]
 
 
-def test_clone_placement_name_renamed_as_cluster_tag(tmp_path):
-    """clone_placements[].name IS the Cluster TAG (unlike
-    coordinate_placements[].name, which is a save identity) — so a Cluster
-    rename rewrites the former and leaves the latter alone."""
+def test_clone_placement_cluster_renamed_name_not(tmp_path):
+    """clone_placements[].cluster IS the Cluster TAG (2026-08-24 split, like
+    coordinate_placements[].cluster); its `name` is the save/--only identity
+    and must NOT be rewritten by a Cluster rename."""
     root = (
         "clone_placements:\n"
-        "- name: PIF_P5V\n"
+        "- cluster: PIF_P5V\n"
+        "  name: ch0_pif\n"
         "  cell: one\n"
         "  xy: [0.0, 0.0]\n"
         "coordinate_placements:\n"
@@ -185,8 +186,9 @@ def test_clone_placement_name_renamed_as_cluster_tag(tmp_path):
         tmp_path, root, renames={"Cluster": {"PIF_P5V": "PIF_P5V_V2"}})
     new_root = apply_edits(texts[str(tmp_path / "root.yaml")],
                            edits[str(tmp_path / "root.yaml")])
-    assert "- name: PIF_P5V_V2\n" in new_root
-    assert "  name: channel0_r1\n" in new_root
+    assert "- cluster: PIF_P5V_V2\n" in new_root
+    assert "  name: ch0_pif\n" in new_root            # identity untouched
+    assert "  name: channel0_r1\n" in new_root         # coordinate identity untouched
     assert unmatched == []
 
 

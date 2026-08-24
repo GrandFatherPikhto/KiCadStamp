@@ -66,7 +66,7 @@ class TestTwoLevelComposition:
         inner = CellPlacement(name="inner", cell="leaf", xy=(10.0, 0.0), rotation_deg=90.0,
                               nets={"R1": "NET_A"})
         mid = Cell(name="mid", clone_placements=[inner])
-        top = ClonePlacement(name="top", cell="mid", xy=(100.0, 100.0))
+        top = ClonePlacement(cluster="top", cell="mid", xy=(100.0, 100.0))
         cfg = Config(layer="F.Cu", cells={"leaf": leaf, "mid": mid}, clone_placements=[top])
         return top, cfg
 
@@ -101,7 +101,7 @@ class TestTwoLevelComposition:
         ])
         inner = CellPlacement(name="inner", cell="leaf", xy=(0.0, 0.0))
         mid = Cell(name="mid", clone_placements=[inner])
-        top = ClonePlacement(name="top", cell="mid", xy=(0.0, 0.0))
+        top = ClonePlacement(cluster="top", cell="mid", xy=(0.0, 0.0))
         cfg = Config(layer="F.Cu", cells={"leaf": leaf, "mid": mid}, clone_placements=[top])
         adapter = _adapter_for([])
         calc = ClonePositionCalculator(adapter, cfg)
@@ -123,7 +123,7 @@ class TestThreeLevelComposition:
         mid = Cell(name="mid", clone_placements=[level2])
         level1 = CellPlacement(name="lvl1", cell="mid", xy=(1.0, 0.0), rotation_deg=90.0)
         top_cell = Cell(name="top_cell", clone_placements=[level1])
-        top = ClonePlacement(name="top", cell="top_cell", xy=(0.0, 0.0))
+        top = ClonePlacement(cluster="top", cell="top_cell", xy=(0.0, 0.0))
         cfg = Config(layer="F.Cu", cells={"leaf": leaf, "mid": mid, "top_cell": top_cell},
                     clone_placements=[top])
         c1 = _make_fp("C1", role="R1", nets=["NET_A"])
@@ -153,7 +153,7 @@ class TestNestedRoleMode:
     def test_nested_placement_by_role_without_cell(self):
         inner = CellPlacement(name="inner", role="R1", xy=(3.0, 4.0), nets={"R1": "NET_A"})
         mid = Cell(name="mid", clone_placements=[inner])
-        top = ClonePlacement(name="top", cell="mid", xy=(0.0, 0.0))
+        top = ClonePlacement(cluster="top", cell="mid", xy=(0.0, 0.0))
         cfg = Config(layer="F.Cu", cells={"mid": mid}, clone_placements=[top])
         c1 = _make_fp("C1", role="R1", nets=["NET_A"])
         adapter = _adapter_for([c1])
@@ -174,7 +174,7 @@ class TestMirrorOfCompositeCellIsRejected:
         ])
         inner = CellPlacement(name="inner", cell="leaf", xy=(0.0, 0.0), nets={"R1": "NET_A"})
         mid = Cell(name="mid", clone_placements=[inner])
-        top = ClonePlacement(name="top", cell="mid", xy=(0.0, 0.0), mirror=True, layer="B.Cu")
+        top = ClonePlacement(cluster="top", cell="mid", xy=(0.0, 0.0), mirror=True, layer="B.Cu")
         cfg = Config(layer="F.Cu", cells={"leaf": leaf, "mid": mid}, clone_placements=[top])
         adapter = _adapter_for([])
         calc = ClonePositionCalculator(adapter, cfg)
@@ -196,7 +196,7 @@ class TestNoParamScoping:
         # for R1 (no nets[], no params to fill net_template's placeholder).
         inner = CellPlacement(name="inner", cell="leaf", xy=(0.0, 0.0))
         mid = Cell(name="mid", clone_placements=[inner])
-        top = ClonePlacement(name="top", cell="mid", xy=(0.0, 0.0), params={"channel": 1})
+        top = ClonePlacement(cluster="top", cell="mid", xy=(0.0, 0.0), params={"channel": 1})
         cfg = Config(layer="F.Cu", cells={"leaf": leaf, "mid": mid}, clone_placements=[top])
         c1 = _make_fp("C1", role="R1", nets=["NET_1"])
         adapter = _adapter_for([c1])

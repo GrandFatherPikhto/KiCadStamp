@@ -50,7 +50,7 @@ def test_clone_placements_only_via_selection():
             TemplateComponentSlot(role="LOAD_CAP", offset_along_mm=1.0, offset_across_mm=0.0, angle_deg=90.0),
         ],
     )
-    clone = ClonePlacement(name="crystal2", cell="crystal", xy=(100.0, 50.0),
+    clone = ClonePlacement(cluster="crystal2", cell="crystal", xy=(100.0, 50.0),
                           rotation_deg=0.0)
     cfg = Config(
         layer='B.Cu',
@@ -110,7 +110,7 @@ def test_rules_and_clone_placements_together():
         layer='B.Cu',
         cells={"cap_single": spoke_tpl, "crystal": clone_tpl},
         rules=[Rule(net="+3V3", anchor_ref='IC1', spokes=[ManualSpoke(pad="17", cell="cap_single")])],
-        clone_placements=[ClonePlacement(name="xtal1", cell="crystal", xy=(200.0, 0.0))],
+        clone_placements=[ClonePlacement(cluster="xtal1", cell="crystal", xy=(200.0, 0.0))],
     )
 
     c5 = _make_fp("C5", role="SOLO", nets=["+3V3"])

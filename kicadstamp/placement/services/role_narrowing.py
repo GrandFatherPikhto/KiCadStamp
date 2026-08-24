@@ -13,10 +13,10 @@ only narrows if it reduces the set — it never chooses for the user.
 
 The "Cluster" step is deliberately split (2026-08-14, plan
 split_anchor_cluster_from_placement_cluster): the by-nets/by-selection
-paths narrow roles INSIDE the cell by the PLACEMENT'S OWN Cluster — by
-convention carried in `name` (the GUI's "Cluster:" field on the Source
-tab, see gui/docks/placer.py) — NOT by `anchor_cluster`, which narrows
-only the EXTERNAL anchor (resolve_footprint_by_role in
+paths narrow roles INSIDE the cell by the PLACEMENT'S OWN Cluster — carried
+in `cluster` (renamed 2026-08-24 from `name`; the GUI's "Cluster:" field on
+the Source tab, see gui/docks/placer.py) — NOT by `anchor_cluster`, which
+narrows only the EXTERNAL anchor (resolve_footprint_by_role in
 clone_role_resolver.py). The two were conflated into one field before
 (Denis: "Мы печатаем два раза кластер размещаемого целла. Зачем?!"),
 split per his own (Sheet, Cluster, Role) addressing convention, already
@@ -163,16 +163,16 @@ def _narrow_ambiguous_candidates(candidates, clone: ClonePlacement, adapter, sel
     # sheet concept at all — always None for it, real values for ClonePlacement.
     # `name` is required (and non-empty) on BOTH ClonePlacement and
     # CellPlacement (see config/entries.py), so reading it here is safe.
-    # Internal-role narrowing uses the PLACEMENT'S OWN Cluster — by convention
-    # `name` already carries it (GUI's "Cluster:" field on Source tab writes
-    # straight into name, see placer.py). NOT anchor_cluster: that field narrows
-    # only the EXTERNAL anchor (see resolve_footprint_by_role below) — the two
-    # were conflated into one field before 2026-08-14 (Denis: "Мы печатаем два
-    # раза кластер размещаемого целла. Зачем?!"), split per his own (Sheet,
-    # Cluster, Role) addressing convention, already correctly separate for
-    # Rule/ManualSpoke (rule.anchor_cluster vs spoke.cluster — see
+    # Internal-role narrowing uses the PLACEMENT'S OWN Cluster — the `cluster`
+    # field (renamed 2026-08-24 from `name`; the GUI's "Cluster:" field on the
+    # Source tab writes straight into cluster, see placer.py). NOT anchor_cluster:
+    # that field narrows only the EXTERNAL anchor (see resolve_footprint_by_role
+    # below) — the two were conflated into one field before 2026-08-14 (Denis:
+    # "Мы печатаем два раза кластер размещаемого целла. Зачем?!"), split per
+    # his own (Sheet, Cluster, Role) addressing convention, already correctly
+    # separate for Rule/ManualSpoke (rule.anchor_cluster vs spoke.cluster — see
     # manual_position_calculator.py).
-    placement_cluster = getattr(clone, "name", None)
+    placement_cluster = getattr(clone, "cluster", None)
     # Internal-role narrowing ALSO uses the placement's OWN sheet — the
     # 2026-08-15 second half of the 08-14 anchor_cluster split, the (Sheet,
     # Cluster, Role) convention completed for the internal-role cascade. NOT
