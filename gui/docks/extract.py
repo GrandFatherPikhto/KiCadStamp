@@ -729,6 +729,19 @@ class ExtractDock(QWidget):
             return ("track", item.uuid)
         return (type(item).__name__, getattr(item, "uuid", str(id(item))))
 
+    def _sub_placement_is_self_reference(self, clone) -> bool:
+        """True when `clone` references the cell currently being extracted
+        (clone.cell == the Cell-name field) — a literal self-reference (cell
+        `dac_buf` containing clone_placements: cell: dac_buf), which the
+        resolver's cycle guard would only catch AFTER it was already written.
+        Compared exactly as-is, matching the project's other cell-name
+        comparisons (e.g. _refresh_re_extract_placements' `c.cell ==
+        cell_name`). An empty target name never matches — on a selection-watch
+        tick that fires before the name was typed there is nothing to compare
+        against, so nothing is filtered."""
+        target = self.name_edit.text().strip()
+        return bool(target) and getattr(clone, "cell", None) == target
+
     def _sub_placement_catalog(self) -> List[Tuple[Any, List[Any]]]:
         """[(clone, resolved_board_items)] for every top-level ClonePlacement
         in the Placer file's config — CACHED per Placer path (invalidated by
@@ -819,6 +832,12 @@ class ExtractDock(QWidget):
                     continue
                 item_keys = {self._item_key(i) for i in items}
                 if item_keys <= selection_keys:
+                    # Self-reference guard (2026-08-25, handoff sub_placements_
+                    # self_reference_guard): a candidate whose cell: IS the
+                    # target cell would write `dac_buf -> dac_buf`. Excluded
+                    # outright — its items stay on the flat path instead.
+                    if self._sub_placement_is_self_reference(clone):
+                        continue
                     candidates.append(SubPlacementCandidate(
                         clone=clone, items=items, item_keys=frozenset(item_keys)))
         self._sub_placement_candidates = candidates
@@ -1466,6 +1485,13 @@ class ExtractDock(QWidget):
                 cb = self._sub_placement_checkboxes.get(
                     clone_placement_effective_name(cand.clone))
                 if cb is not None and cb.isChecked():
+                    # Defense-in-depth self-reference guard (2026-08-25): a
+                    # stale UI tick may have built the table before the Cell
+                    # name was typed, so a self-referencing candidate could
+                    # still be checked here. Skip it entirely — its items stay
+                    # flat and nothing is lost.
+                    if self._sub_placement_is_self_reference(cand.clone):
+                        continue
                     excluded_keys |= cand.item_keys
                     sub_placements.append({
                         "name": clone_placement_effective_name(cand.clone),
@@ -1654,7 +1680,9 @@ class ExtractDock(QWidget):
         coordinates are guaranteed to share one coordinate system. The world
         origin is computed via clone_world_origin (board_items_resolver) — the
         same anchor + shift composition apply_clone_geometry uses. mirror/layer
-        are copied one-to-one.
+        are copied one-to-one; params/nets/net_overrides/refs are carried over
+        verbatim when non-empty (the source placement and the new nested
+        CellPlacement reference the SAME cell, so their meaning is unchanged).
 
         Returns (entries, None) or (None, error_message) — the caller returns
         the error verbatim, so a checked Sub-placement that cannot be resolved
@@ -1673,6 +1701,11 @@ class ExtractDock(QWidget):
         entries: List[Dict[str, Any]] = []
         for rec in payload["sub_placements"]:
             clone = rec["clone"]
+            # Final self-reference guard (defense-in-depth, 2026-08-25): the
+            # UI-thread filters above already exclude these, but never write a
+            # cell -> itself reference even if a stale record slips through.
+            if getattr(clone, "cell", None) == payload.get("name"):
+                continue
             try:
                 world_origin = clone_world_origin(adapter, cfg, clone,
                                                   sheet_names=sheet_names)
@@ -1696,6 +1729,19 @@ class ExtractDock(QWidget):
                 entry["mirror"] = True
             if clone.layer is not None:
                 entry["layer"] = clone.layer
+            # Parametrisation carried over verbatim (2026-08-25, handoff
+            # sub_placements_lost_params): the source ClonePlacement and the
+            # new nested CellPlacement reference the SAME cell, so params/nets/
+            # net_overrides/refs keep their meaning unchanged. Written only
+            # when non-empty — no `params: {}` noise on plain placements.
+            if clone.params:
+                entry["params"] = dict(clone.params)
+            if clone.nets:
+                entry["nets"] = dict(clone.nets)
+            if clone.net_overrides:
+                entry["net_overrides"] = dict(clone.net_overrides)
+            if clone.refs:
+                entry["refs"] = dict(clone.refs)
             entries.append(entry)
         return entries, None
 

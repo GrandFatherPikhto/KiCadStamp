@@ -1621,6 +1621,11 @@ def test_filtered_selection_keeps_fully_covered_placements_copper(main_window, t
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
     dock.set_root_path(placer_file)  # _placer_path -> placer.yaml (registry read)
+    # A DISTINCT target cell name keeps this placement from being a
+    # self-reference (cell: pif_avdd == target), which the 2026-08-25
+    # self-reference guard excludes — this test is about the registry-copper
+    # exemption (Задание 1б), not about the self-reference filter.
+    dock.name_edit.setText("dac_buf")
 
     clone = ClonePlacement(cluster="PIF_AVDD", name="CH0_PIF_AVDD", cell="pif_avdd",
                            xy=(5.0, 2.0))
@@ -1687,3 +1692,165 @@ def test_filtered_selection_still_drops_foreign_registry_copper(main_window, tmp
     assert dock._sub_placement_candidates == []  # C1 missing -> not covered
     filtered_items, _footprints = dock._filtered_selection()
     assert via not in filtered_items  # still dropped by the registry filter
+
+
+# ── Sub-placements: self-reference guard (2026-08-25, handoff sub_placements_
+# self_reference_guard) ───────────────────────────────────────────────────
+
+def test_sub_placements_self_reference_candidate_excluded(main_window, tmp_path, monkeypatch):
+    """Live bug 2026-08-25: re-extracting the region of an already-placed
+    `dac_buf` (cell: dac_buf) into a cell ALSO named dac_buf must NOT offer
+    that placement as a Sub-placement — it would be a literal self-reference
+    (dac_buf -> dac_buf), caught by the cycle guard only after the fact."""
+    clone = ClonePlacement(cluster="DAC_BUF", name="CH1_DAC_BUF", cell="dac_buf",
+                           xy=(5.0, 2.0))
+    fp = _fake_fp("C1")
+    dock = _sub_placement_dock(main_window, tmp_path, monkeypatch, clone, [fp])
+    dock.name_edit.setText("dac_buf")
+
+    dock.set_board_selection([fp], [FakeSelected("C1", "C_IN", "DAC_BUF", {})])
+
+    assert dock._sub_placement_candidates == []
+    assert not dock._tabs.isTabVisible(dock._sub_placement_tab_index)
+    assert dock._sub_placements_table.rowCount() == 0
+
+
+def test_sub_placements_self_reference_empty_cell_name_not_filtered(main_window, tmp_path, monkeypatch):
+    """The Cell-name field may still be empty when the selection-watch tick
+    builds candidates — with nothing to compare against, no candidate is
+    dropped by the self-reference guard (nothing mysteriously vanishes)."""
+    clone = ClonePlacement(cluster="DAC_BUF", name="CH1_DAC_BUF", cell="dac_buf",
+                           xy=(5.0, 2.0))
+    fp = _fake_fp("C1")
+    dock = _sub_placement_dock(main_window, tmp_path, monkeypatch, clone, [fp])
+
+    dock.set_board_selection([fp], [FakeSelected("C1", "C_IN", "DAC_BUF", {})])
+
+    assert len(dock._sub_placement_candidates) == 1
+
+
+def test_sub_placements_non_self_reference_still_candidate(main_window, tmp_path, monkeypatch):
+    """The guard must not over-filter: a placement referencing a DIFFERENT cell
+    stays a candidate even when the Cell name is filled in."""
+    clone = ClonePlacement(cluster="PIF_AVDD", name="CH0_PIF_AVDD", cell="pif_avdd",
+                           xy=(5.0, 2.0))
+    fp = _fake_fp("C1")
+    dock = _sub_placement_dock(main_window, tmp_path, monkeypatch, clone, [fp])
+    dock.name_edit.setText("dac_buf")
+
+    dock.set_board_selection([fp], [FakeSelected("C1", "C_IN", "PIF_AVDD", {})])
+
+    assert len(dock._sub_placement_candidates) == 1
+
+
+def test_collect_extract_inputs_skips_stale_self_reference_keeps_items_flat(
+        main_window, tmp_path, monkeypatch):
+    """Defense-in-depth: the candidate table may have been built BEFORE the Cell
+    name was typed (stale tick), leaving a self-referencing candidate checked.
+    The collect-time guard must still skip it — and, critically, NOT exclude its
+    items from the flat selection (otherwise the geometry would be lost)."""
+    clone = ClonePlacement(cluster="DAC_BUF", name="CH1_DAC_BUF", cell="dac_buf",
+                           xy=(5.0, 2.0))
+    fp = _fake_fp("C1")
+    via = _fake_via("+3V3", uuid="via-uuid-dac")
+    extra = _fake_fp("C2")
+    dock = _sub_placement_dock(main_window, tmp_path, monkeypatch, clone, [fp, via])
+    dock.name_edit.setText("dac_buf")
+    main_window.connection.board = FakeBoard()
+
+    # Simulate a stale tick: candidates + a checked checkbox already exist, and
+    # the fresh detection (_filtered_selection) is bypassed so the guard is hit
+    # at COLLECT time, not during re-detection.
+    dock._sub_placement_candidates = [
+        SubPlacementCandidate(
+            clone=clone, items=[fp, via],
+            item_keys=frozenset({("fp", "C1"), ("via", "via-uuid-dac")}))]
+
+    class _CheckedBox:
+        def isChecked(self):
+            return True
+
+    dock._sub_placement_checkboxes = {"CH1_DAC_BUF": _CheckedBox()}
+    monkeypatch.setattr(
+        ExtractDock, "_filtered_selection",
+        lambda self: ([fp, via, extra],
+                      [FakeSelected("C1", "C_IN", "DAC_BUF", {}),
+                       FakeSelected("C2", "OTHER", "SOMETHING", {})]))
+
+    payload = dock._collect_extract_inputs()
+
+    assert payload["sub_placements"] == []
+    assert set(payload["raw_items"]) == {fp, via, extra}  # nothing excluded
+
+
+# ── Sub-placements: params/nets/net_overrides/refs carried over (2026-08-25,
+# handoff sub_placements_lost_params) ──────────────────────────────────────
+
+def test_build_sub_placements_copies_params_nets_overrides_refs(main_window, tmp_path, monkeypatch):
+    """Live bug 2026-08-25: an existing top-level ClonePlacement turned into a
+    Sub-placement silently lost params/nets/net_overrides/refs — the new nested
+    CellPlacement then couldn't resolve its {placeholders} on the next Redraw.
+    The four fields are copied verbatim (the same cell, so the semantics
+    don't change)."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {"clone_placements": []})
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+
+    clone = ClonePlacement(
+        cluster="PIF_DVDD", name="CH1_PIF_DVDD", cell="dac_pif_dvdd",
+        xy=(10.0, 5.0),
+        params={"FB_PI_FLT": "/Channel_1/DAC/+3V3_DVDD"},
+        nets={"C_IN": "+3V3_DVDD"},
+        net_overrides={"C_OUT": "+3V3_DVDD_DIRTY"},
+        refs={"L1": "L100"},
+    )
+    monkeypatch.setattr(
+        "kicadstamp.placement.services.board_items_resolver.clone_world_origin",
+        lambda adapter, cfg, clone, sheet_names=None, resolved_points=None:
+        Vector2.from_xy(15_000_000, 8_000_000))
+
+    payload = {
+        "board": FakeBoard(), "placer_path": cells_file, "name": "dac_buf",
+        "raw_items": [_fake_fp("C9")], "origin_kwargs": {},
+        "sub_placements": [{"name": "CH1_PIF_DVDD", "clone": clone}],
+    }
+    entries, err = dock._build_sub_placements(
+        payload, origin=Vector2.from_xy(5_000_000, 3_000_000))
+
+    assert err is None
+    entry = entries[0]
+    assert entry["params"] == {"FB_PI_FLT": "/Channel_1/DAC/+3V3_DVDD"}
+    assert entry["nets"] == {"C_IN": "+3V3_DVDD"}
+    assert entry["net_overrides"] == {"C_OUT": "+3V3_DVDD_DIRTY"}
+    assert entry["refs"] == {"L1": "L100"}
+
+
+def test_build_sub_placements_omits_empty_param_fields(main_window, tmp_path, monkeypatch):
+    """A plain placement (all four parametrisation fields empty) must not gain
+    params: {} / nets: {} / net_overrides: {} / refs: {} noise in the written
+    cell — the defaults stay omitted, same style as rotation/mirror/layer."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {"clone_placements": []})
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+
+    clone = ClonePlacement(cluster="PIF_AVDD", name="CH0_PIF_AVDD", cell="pif_avdd",
+                           xy=(5.0, 2.0))
+    monkeypatch.setattr(
+        "kicadstamp.placement.services.board_items_resolver.clone_world_origin",
+        lambda adapter, cfg, clone, sheet_names=None, resolved_points=None:
+        Vector2.from_xy(5_000_000, 2_000_000))
+
+    payload = {
+        "board": FakeBoard(), "placer_path": cells_file, "name": "dac_buf",
+        "raw_items": [_fake_fp("C9")], "origin_kwargs": {},
+        "sub_placements": [{"name": "CH0_PIF_AVDD", "clone": clone}],
+    }
+    entries, err = dock._build_sub_placements(
+        payload, origin=Vector2.from_xy(0, 0))
+
+    assert err is None
+    entry = entries[0]
+    for key in ("params", "nets", "net_overrides", "refs"):
+        assert key not in entry
