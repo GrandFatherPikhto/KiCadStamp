@@ -372,7 +372,7 @@ def check_anchor_sheet_configured(cfg: Config, sheet_names=None) -> None:
     will NEVER narrow anything — it will silently do nothing, and later ambiguity
     of anchor_role will fail with a less helpful fatal. Better to say it upfront.
     """
-    _sn = sheet_names or {}
+    _sn = dict(sheet_names) if sheet_names is not None else {}
     users = [clone_placement_effective_name(c)
              for c in cfg.clone_placements if not c.retired and c.anchor_sheet]
     if users and not _sn:

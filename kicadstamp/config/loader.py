@@ -42,7 +42,7 @@ from ..utils.file_cache import cached_file_read, cached_graph_result
 # config gains no cycle and no heavier dependency (no geometry/placement/
 # adapter). Deliberately NOT refactored out — deferred/rebuild would spread
 # the logic and risk divergence for zero architectural gain.
-from ..sheet_names import build_sheet_name_map
+from ..sheet_names import LazySheetNameMap
 from ..utils.paths import resolve_config_relative_path
 from .entries import (
     _check_layer_value,
@@ -332,7 +332,7 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
     # sheet-name map must be built HERE, at load time. anchor_sheet in the
     # config references real schematic sheets, and this is the single
     # construction point for the runtime map shared by the whole pipeline.
-    sheet_names = build_sheet_name_map(path, schematic_dir, schematic_files)
+    sheet_names = LazySheetNameMap(path, schematic_dir, schematic_files)
 
     config_dir = Path(path).parent
     registry_path = data.get('registry_path')

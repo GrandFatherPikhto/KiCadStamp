@@ -16,6 +16,7 @@ not needed at all if anchor_sheet is not used in the config.
 """
 import glob
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 
 
@@ -114,6 +115,51 @@ def build_sheet_name_map(config_path: str, schematic_dir: str | None,
                       "{sheets} sheets in dictionary")
                     .format(count=len(files), sheets=len(result)))
     return result
+
+
+class LazySheetNameMap(Mapping):
+    """``{uuid: Sheetname}`` computed lazily on first access.
+
+    ``load_config()`` installs this instead of eagerly parsing every
+    ``*.kicad_sch`` (sexpdata — ~0.49s for a real project): the parse now
+    happens only when a caller actually needs a sheet name (anchor_sheet/sheet
+    narrowing, a GUI sheet combo, validation). It is deliberately ALWAYS
+    truthy, so the ubiquitous ``sheet_names or {}`` fallbacks never force a
+    parse; use ``len()``/``get()``/iteration (or ``dict(sheet_names)``) to
+    inspect it, which materialises the map.
+    """
+
+    def __init__(self, config_path: str, schematic_dir: str | None,
+                 schematic_files: list[str]):
+        self._config_path = config_path
+        self._schematic_dir = schematic_dir
+        self._schematic_files = schematic_files
+        self._cache: dict[str, str] | None = None
+
+    def _data(self) -> dict[str, str]:
+        if self._cache is None:
+            self._cache = build_sheet_name_map(
+                self._config_path, self._schematic_dir, self._schematic_files)
+        return self._cache
+
+    def __getitem__(self, key: str) -> str:
+        return self._data()[key]
+
+    def __iter__(self):
+        return iter(self._data())
+
+    def __len__(self) -> int:
+        return len(self._data())
+
+    def __eq__(self, other) -> bool:
+        if isinstance(other, LazySheetNameMap):
+            return self._data() == other._data()
+        if isinstance(other, dict):
+            return self._data() == other
+        return NotImplemented
+
+    def __repr__(self) -> str:
+        return repr(self._data())
 
 
 def resolve_sheet_path_names(fp, sheet_names: dict[str, str]) -> list[str | None]:
