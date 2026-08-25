@@ -61,7 +61,7 @@ def test_registry_reconcile(adapter, test_config, tmp_path):
     )
 
     # Первый вызов — должна создаться
-    to_create = registry.reconcile([via_cmd])
+    to_create, _ = registry.reconcile([via_cmd])
     assert len(to_create) == 1
 
     # Создаём via и записываем в реестр
@@ -75,7 +75,7 @@ def test_registry_reconcile(adapter, test_config, tmp_path):
         raise
 
     # Второй вызов — via уже существует, должна быть пропущена
-    to_create_2 = registry.reconcile([via_cmd])
+    to_create_2, _ = registry.reconcile([via_cmd])
     assert len(to_create_2) == 0
 
     # Удаляем via через реестр (prune)
@@ -102,7 +102,7 @@ def test_registry_with_via(registry, temp_via):
     # Сначала записываем созданную via в реестр
     registry.record_created(cmd, via_id)
     # Теперь reconcile должен пропустить via
-    to_create = registry.reconcile([cmd])
+    to_create, _ = registry.reconcile([cmd])
     assert len(to_create) == 0
 
 

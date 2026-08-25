@@ -126,10 +126,10 @@ def test_reversed_live_track_not_recreated():
         end_x_mm=30.0, end_y_mm=40.0, width_mm=0.25, net="+3V3", layer="F.Cu")}
 
     planned = [_track_cmd((10.0, 20.0), (30.0, 40.0), registry_key=key)]
-    to_create = registry.reconcile(planned, known_anchor_ids={"pad:1"})
+    to_create, to_delete = registry.reconcile(planned, known_anchor_ids={"pad:1"})
 
     assert to_create == []
-    adapter.remove_by_id.assert_not_called()
+    assert to_delete == []
     assert key in registry.entries
 
 
@@ -196,12 +196,11 @@ def test_registered_path_not_touched_by_precheck():
         end_x_mm=30.0, end_y_mm=40.0, width_mm=0.25, net="+3V3", layer="F.Cu")}
 
     cmd = _track_cmd(start, end, registry_key=key)
-    to_create = registry.reconcile([cmd], known_anchor_ids={"pad:1"})
+    to_create, to_delete = registry.reconcile([cmd], known_anchor_ids={"pad:1"})
     assert to_create == []                       # already correctly placed
+    assert to_delete == []                       # no delete, no prune
     to_create = filter_existing_tracks(to_create, [live_registered, live_manual])
     assert to_create == []                       # pre-check: nothing to drop
-
-    adapter.remove_by_id.assert_not_called()     # no delete, no prune
     assert key in registry.entries
 
 
@@ -218,7 +217,8 @@ def test_double_run_no_duplicates():
     adapter1.get_tracks.return_value = []
     registry1 = TrackRegistry(adapter1, reg_path)
     cmd = _track_cmd(start, end, registry_key=key)
-    assert registry1.reconcile([cmd], known_anchor_ids={"pad:1"}) == [cmd]
+    to_create1, _ = registry1.reconcile([cmd], known_anchor_ids={"pad:1"})
+    assert to_create1 == [cmd]
     registry1.record_created(cmd, "uuid-t")      # executor would do this
 
     # Run 2: the track is now live (registered UUID path).
@@ -226,7 +226,7 @@ def test_double_run_no_duplicates():
     adapter2 = MagicMock()
     adapter2.get_tracks.return_value = [live_created]
     registry2 = TrackRegistry(adapter2, reg_path)
-    to_create2 = registry2.reconcile([cmd], known_anchor_ids={"pad:1"})
+    to_create2, _ = registry2.reconcile([cmd], known_anchor_ids={"pad:1"})
     assert to_create2 == []                      # registered path: skip
     assert filter_existing_tracks(to_create2, [live_created]) == []
 

@@ -189,10 +189,12 @@ def test_adoption_claims_existing_copper_then_reconcile_skips(tmp_path):
 
     # Reconcile with a full registry now sees everything "already correctly
     # placed" -> 0 new operations (the idempotency contract of §3.2).
-    to_create_v = vreg.reconcile(vias, known_anchor_ids={"net:DAC_DB0"})
-    to_create_t = treg.reconcile(tracks, known_anchor_ids={"net:DAC_DB0"})
+    to_create_v, to_delete_v = vreg.reconcile(vias, known_anchor_ids={"net:DAC_DB0"})
+    to_create_t, to_delete_t = treg.reconcile(tracks, known_anchor_ids={"net:DAC_DB0"})
     assert to_create_v == []
     assert to_create_t == []
+    assert to_delete_v == []
+    assert to_delete_t == []
 
 
 def test_anchor_moved_reconcile_deletes_and_recreates(tmp_path):
@@ -226,19 +228,17 @@ def test_anchor_moved_reconcile_deletes_and_recreates(tmp_path):
     # anchor, tracks left hanging" scenario the feature exists for.
     fpga.position = Vector2.from_xy(int(70 * MM), int(70 * MM))
     pad42.position = Vector2.from_xy(int(72 * MM), int(72 * MM))
-    removed = []
-    adapter.remove_by_id.side_effect = lambda uuid: removed.append(uuid)
     vias2, tracks2 = plan_net_traces(adapter, [nt])
 
-    to_create_v = vreg.reconcile(vias2, known_anchor_ids={"net:DAC_DB0"})
-    to_create_t = treg.reconcile(tracks2, known_anchor_ids={"net:DAC_DB0"})
+    to_create_v, to_delete_v = vreg.reconcile(vias2, known_anchor_ids={"net:DAC_DB0"})
+    to_create_t, to_delete_t = treg.reconcile(tracks2, known_anchor_ids={"net:DAC_DB0"})
     assert len(to_create_v) == 1
     assert len(to_create_t) == 1
     assert to_create_v[0].position.x / MM == 77.0
     assert to_create_t[0].start.x / MM == 73.0
     # The previously-claimed old copper is deleted (no orphaned duplicate).
-    assert "existing-via" in removed
-    assert "existing-trk" in removed
+    assert to_delete_v == ["existing-via"]
+    assert to_delete_t == ["existing-trk"]
 
 
 def test_adoption_never_steals_foreign_owned_copper(tmp_path):

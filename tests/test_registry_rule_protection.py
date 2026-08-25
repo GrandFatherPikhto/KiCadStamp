@@ -59,10 +59,10 @@ def test_pad_prefixed_anchor_not_processed_this_run_stays_protected():
     }
 
     # This run planned NOTHING for pad 17 at all (excluded by --only/--cluster).
-    to_create = registry.reconcile([], known_anchor_ids={anchor_id})
+    to_create, to_delete = registry.reconcile([], known_anchor_ids={anchor_id})
 
     assert to_create == []
-    adapter.remove_by_id.assert_not_called()
+    assert to_delete == []
     assert f"{anchor_id}|fpga_cap_pair_spoke|__spoke__|0" in registry.entries
 
 
@@ -86,10 +86,10 @@ def test_pad_prefixed_anchor_pruned_without_protection():
             drill_mm=0.3, diameter_mm=0.6),
     }
 
-    to_create = registry.reconcile([], known_anchor_ids=set())
+    to_create, to_delete = registry.reconcile([], known_anchor_ids=set())
 
     assert to_create == []
-    adapter.remove_by_id.assert_called_once_with("uuid-pad17")
+    assert to_delete == ["uuid-pad17"]
     assert f"{anchor_id}|fpga_cap_pair_spoke|__spoke__|0" not in registry.entries
 
 

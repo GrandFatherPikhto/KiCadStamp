@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kicadstamp"
+description = "KiCad placement automation: spokes, vias, tracks and channel cloning over the KiCad IPC API"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Denis" }]
+dynamic = ["version"]
+dependencies = [
+    "kicad-python==0.7.1",
+    "PyYAML==6.0.3",
+    "sexpdata==1.0.2",
+    "PyQt6==6.11.0",
+    "pynng==0.9.0",
+    "protobuf==5.29.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.1.1",
+    "babel==2.18.0",
+    "pyflakes==3.4.0",
+]
+diagnostics = [
+    "numpy==2.5.1",
+    "scipy==1.18.0",
+    "psutil==7.2.2",
+    "rich==15.0.0",
+    "watchdog==6.0.0",
+]
+
+[project.scripts]
+kicadstamp = "kicadstamp.cli_main:main"
+kicadstamp-gui = "kicadstamp.gui_main:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "kicadstamp._version.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["kicadstamp*", "gui*"]
+
+[tool.setuptools.package-data]
+# Locales stay at the repo-root locales/ for now (source checkout layout);
+# i18n.py falls back to them. Moving locales into kicadstamp/ for packaged
+# translations is a follow-up (see the 2026-08-25 architecture audit P0-1).
+"*" = ["*.mo", "*.po"]

@@ -1,32 +1,10 @@
-attrs==26.1.0
-babel==2.18.0
-cffi==2.0.0
-colorama==0.4.6
-iniconfig==2.3.0
-jsonschema==4.26.0
-jsonschema-specifications==2025.9.1
-kicad-python==0.7.1
-markdown-it-py==4.2.0
-mdurl==0.1.2
-numpy==2.5.1
-packaging==26.2
-pluggy==1.6.0
-protobuf==5.29.6
-psutil==7.2.2
-pycparser==3.0
-pyflakes==3.4.0
-Pygments==2.20.0
-pynng==0.9.0
-PyQt6==6.11.0
-PyQt6-Qt6==6.11.1
-PyQt6_sip==13.11.1
-pytest==9.1.1
-PyYAML==6.0.3
-referencing==0.37.0
-rich==15.0.0
-rpds-py==2026.5.1
-scipy==1.18.0
-sexpdata==1.0.2
-sniffio==1.3.1
-typing_extensions==4.16.0
-watchdog==6.0.0
+# KiCadStamp — RUNTIME dependencies (direct).
+# Transitive dependencies are resolved by pip automatically and are NOT
+# pinned here (this used to be a `pip freeze` dump — see the 2026-08-25
+# architecture audit, P0-2).
+kicad-python==0.7.1   # kipy — KiCad IPC client
+PyYAML==6.0.3         # config loading
+sexpdata==1.0.2       # .kicad_sch parsing (sheet-name map)
+PyQt6==6.11.0         # GUI
+pynng==0.9.0          # IPC transport (patched on import by kicadstamp/kicad/pynng_safety.py)
+protobuf==5.29.6      # kipy message schemas

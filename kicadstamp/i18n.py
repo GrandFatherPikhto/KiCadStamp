@@ -6,7 +6,11 @@ import locale
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).parent.parent
-LOCALE_DIR = ROOT_DIR / "locales"
+# Source checkout: <repo>/locales. Installed package: <package>/locales (if
+# locales are ever shipped as package-data — see pyproject.toml). Prefer the
+# first candidate that actually exists on disk.
+_LOCALE_CANDIDATES = (ROOT_DIR / "locales", Path(__file__).parent / "locales")
+LOCALE_DIR = next((p for p in _LOCALE_CANDIDATES if p.is_dir()), _LOCALE_CANDIDATES[0])
 
 # Global translation function, installed by setup_i18n().
 _ = gettext.gettext  # fallback

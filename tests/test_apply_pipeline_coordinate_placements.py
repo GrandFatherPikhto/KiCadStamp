@@ -57,8 +57,10 @@ def test_coordinate_placements_are_moved_before_phase1(monkeypatch):
     monkeypatch.setattr("kicadstamp.apply_pipeline.build_coordinate_moves", fake_build_coordinate_moves)
 
     p_exec, p_reg, p_track_reg = _patched_executors()
-    with p_exec as MockExecutorCls, p_reg, p_track_reg:
+    with p_exec as MockExecutorCls, p_reg as MockRegistryCls, p_track_reg as MockTrackRegistryCls:
         mock_executor = MockExecutorCls.return_value
+        MockRegistryCls.return_value.reconcile.return_value = ([], [])
+        MockTrackRegistryCls.return_value.reconcile.return_value = ([], [])
 
         def fake_execute_moves(moves, **kwargs):
             call_order.append(("execute_moves", list(moves)))
@@ -85,8 +87,10 @@ def test_no_coordinate_placements_skips_phase0_entirely(monkeypatch):
                         lambda *a, **kw: called.append(1) or [])
 
     p_exec, p_reg, p_track_reg = _patched_executors()
-    with p_exec as MockExecutorCls, p_reg, p_track_reg:
+    with p_exec as MockExecutorCls, p_reg as MockRegistryCls, p_track_reg as MockTrackRegistryCls:
         mock_executor = MockExecutorCls.return_value
+        MockRegistryCls.return_value.reconcile.return_value = ([], [])
+        MockTrackRegistryCls.return_value.reconcile.return_value = ([], [])
         mock_executor.execute_moves.return_value = []
         mock_executor.execute_vias.return_value = []
         mock_executor.execute_tracks.return_value = []

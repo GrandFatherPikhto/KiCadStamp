@@ -152,10 +152,10 @@ class TestAuthorReportPlumbing:
 
 class TestKicadstampCliPrintsReport:
     def test_apply_dry_run_prints_report(self, monkeypatch, capsys):
-        import kicadstamp_cli
+        from kicadstamp import cli_main
         monkeypatch.setattr(sys, "argv", ["kicadstamp_cli.py", "apply", "cfg.yaml", "--dry-run"])
-        monkeypatch.setattr(kicadstamp_cli, "cmd_apply",
+        monkeypatch.setattr(cli_main, "cmd_apply",
                             lambda args, cfg=None, ctx=None: ["rep1", "rep2"])
-        code = kicadstamp_cli.main()
+        code = cli_main.main()
         assert code == 0
         assert "rep1\nrep2" in capsys.readouterr().out

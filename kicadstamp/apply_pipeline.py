@@ -543,7 +543,10 @@ class ApplyPipeline:
         adopt_net_trace_copper(
             self.adapter, registry, track_registry,
             self.planner._net_trace_vias or [], self.planner._net_trace_tracks or [])
-        vias_to_create = registry.reconcile(all_vias, known_anchor_ids=self.all_anchor_ids)
+        vias_to_create, vias_to_delete = registry.reconcile(all_vias,
+                                                            known_anchor_ids=self.all_anchor_ids)
+        for uuid in vias_to_delete:
+            self.adapter.remove_by_id(uuid)
         logger.info(_("Planned vias: {total}, actually to create (registry filtered already "
                        "correctly placed): {to_create}")
                     .format(total=len(all_vias), to_create=len(vias_to_create)))
@@ -555,8 +558,10 @@ class ApplyPipeline:
 
         # --- Phase 3: tracks ---
         all_tracks = self.planner.plan_tracks()
-        tracks_to_create = track_registry.reconcile(all_tracks,
-                                                     known_anchor_ids=self.all_anchor_ids)
+        tracks_to_create, tracks_to_delete = track_registry.reconcile(
+            all_tracks, known_anchor_ids=self.all_anchor_ids)
+        for uuid in tracks_to_delete:
+            self.adapter.remove_by_id(uuid)
         if self.cfg.skip_existing_components:
             # Positional pre-check of tracks — unregistered-copper idempotency
             # (analog of the via pre-check). STRICTLY AFTER reconcile(), on its

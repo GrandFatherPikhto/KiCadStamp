@@ -71,10 +71,10 @@ def test_orphaned_key_within_a_processed_anchor_is_pruned():
     )]
     known_anchor_ids = {anchor_id}  # this clone is still not retired
 
-    to_create = registry.reconcile(planned, known_anchor_ids=known_anchor_ids)
+    to_create, to_delete = registry.reconcile(planned, known_anchor_ids=known_anchor_ids)
 
     assert to_create == []  # index 0 already correctly placed
-    adapter.remove_by_id.assert_called_once_with("uuid-orphan")
+    assert to_delete == ["uuid-orphan"]
     assert f"{anchor_id}|tpl|__spoke__|5" not in registry.entries
 
 
@@ -98,8 +98,8 @@ def test_unprocessed_anchor_stays_protected():
     }
 
     # This run planned NOTHING for anchor B at all (excluded by --only).
-    to_create = registry.reconcile([], known_anchor_ids={anchor_id})
+    to_create, to_delete = registry.reconcile([], known_anchor_ids={anchor_id})
 
     assert to_create == []
-    adapter.remove_by_id.assert_not_called()
+    assert to_delete == []
     assert f"{anchor_id}|tpl|__spoke__|0" in registry.entries

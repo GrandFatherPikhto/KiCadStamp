@@ -35,9 +35,10 @@ def test_registry_full_cycle(adapter, tmp_path):
     )
 
     # Первый вызов reconcile — должна создаться
-    to_create = registry.reconcile([via_cmd])
+    to_create, to_delete = registry.reconcile([via_cmd])
     assert len(to_create) == 1
     assert to_create[0] is via_cmd
+    assert to_delete == []
 
     # Создаём via на плате
     commit = adapter.begin_commit()
@@ -61,7 +62,7 @@ def test_registry_full_cycle(adapter, tmp_path):
     assert entry.net == "GND"
 
     # 2. Второй прогон — via уже существует, должна быть пропущена
-    to_create_2 = registry.reconcile([via_cmd])
+    to_create_2, _ = registry.reconcile([via_cmd])
     assert len(to_create_2) == 0
 
     # 3. Изменяем позицию via в конфиге (создаём новую команду с другой позицией)
@@ -75,12 +76,12 @@ def test_registry_full_cycle(adapter, tmp_path):
     )
 
     # Reconcile должен определить изменение, удалить старую via и вернуть новую для создания
-    to_create_3 = registry.reconcile([via_cmd_updated])
+    to_create_3, to_delete_3 = registry.reconcile([via_cmd_updated])
     assert len(to_create_3) == 1
     assert to_create_3[0] is via_cmd_updated
+    assert to_delete_3 == [created_uuid]
 
-    # Проверяем, что старая via удалена с платы (adapter.remove_by_id вызван)
-    # В реестре запись должна быть удалена (или обновлена позже)
+    # Проверяем, что старая via помечена на удаление, а запись в реестре удалена
     assert via_cmd.registry_key not in registry.entries
 
     # Создаём новую via
@@ -98,9 +99,10 @@ def test_registry_full_cycle(adapter, tmp_path):
     assert registry.entries[via_cmd.registry_key].uuid == new_uuid
 
     # 4. Prune: удаляем ключ из конфига (не передаём via_cmd_updated)
-    to_create_4 = registry.reconcile([])
+    to_create_4, to_delete_4 = registry.reconcile([])
     assert len(to_create_4) == 0
-    # В реестре запись должна быть удалена, а via с платы удалена (remove_by_id вызван)
+    assert to_delete_4 == [new_uuid]
+    # В реестре запись должна быть удалена, а via помечена на удаление с платы
     assert via_cmd.registry_key not in registry.entries
 
     # Проверяем, что файл реестра обновлён (сохранился)
@@ -126,7 +128,7 @@ def test_registry_persists_across_runs(adapter, tmp_path):
 
     # Первый прогон
     registry1 = PlacementRegistry(adapter, str(reg_path))
-    to_create1 = registry1.reconcile([via_cmd])
+    to_create1, _ = registry1.reconcile([via_cmd])
     assert len(to_create1) == 1
 
     # Создаём via
@@ -142,7 +144,7 @@ def test_registry_persists_across_runs(adapter, tmp_path):
 
     # Второй прогон (новый экземпляр реестра с тем же файлом)
     registry2 = PlacementRegistry(adapter, str(reg_path))
-    to_create2 = registry2.reconcile([via_cmd])
+    to_create2, _ = registry2.reconcile([via_cmd])
     assert len(to_create2) == 0  # via должна быть пропущена
 
     # Удаляем via вручную для очистки

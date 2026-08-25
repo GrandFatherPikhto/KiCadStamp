@@ -48,6 +48,10 @@ kicadspoke.txt
 *.sln
 *.swp
 
+# Windows folder artifacts
+desktop.ini
+Thumbs.db
+
 # ──────────────────────────── KICAD ────────────────────────────
 # Игнорируем временные файлы KiCad, если запускаете скрипт прямо в папке проекта
 *.bak

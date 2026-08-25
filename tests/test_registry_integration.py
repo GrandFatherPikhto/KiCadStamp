@@ -101,8 +101,9 @@ def test_registry_full_cycle_across_two_runs():
     assert key == expected_key
 
     reg1 = PlacementRegistry(adapter, reg_path)
-    to_create1 = reg1.reconcile(vias1)
+    to_create1, to_delete1 = reg1.reconcile(vias1)
     assert len(to_create1) == 1
+    assert to_delete1 == []
     reg1.record_created(vias1[0], "uuid-abc")
     # Simulate real via creation on the board -- otherwise the next run
     # (with the new live‑board‑as‑source‑of‑truth logic) will see "not on board"
@@ -113,18 +114,20 @@ def test_registry_full_cycle_across_two_runs():
     calc2 = ManualPositionCalculator(adapter, cfg1)
     _, vias2, _ = calc2.compute_raw_positions(cfg1.rules)
     reg2 = PlacementRegistry(adapter, reg_path)
-    to_create2 = reg2.reconcile(vias2)
+    to_create2, to_delete2 = reg2.reconcile(vias2)
     assert len(to_create2) == 0, "config unchanged, via is really placed -- no need to recreate"
-    adapter.remove_by_id.assert_not_called()
+    assert to_delete2 == []
 
     # --- Run 3: user changed offset_across_mm -- old via must be deleted by UUID, new one marked for creation ---
     cfg3 = _build_cfg(power_via_offset_across=-3.0)  # different value!
     calc3 = ManualPositionCalculator(adapter, cfg3)
     _, vias3, _ = calc3.compute_raw_positions(cfg3.rules)
     reg3 = PlacementRegistry(adapter, reg_path)
-    to_create3 = reg3.reconcile(vias3)
+    to_create3, to_delete3 = reg3.reconcile(vias3)
     assert len(to_create3) == 1
-    adapter.remove_by_id.assert_called_once_with("uuid-abc")
+    assert to_delete3 == ["uuid-abc"]
+    for uuid in to_delete3:  # the pipeline performs the deletions reconcile returned
+        adapter.remove_by_id(uuid)
     reg3.record_created(vias3[0], "uuid-def")
     live_vias.append(_make_live_via("uuid-def", 50.0, 47.0, "+3V3", 0.3, 0.6))
 
@@ -138,7 +141,9 @@ def test_registry_full_cycle_across_two_runs():
     _, vias4, _ = calc4.compute_raw_positions(cfg4.rules)
     assert vias4 == []
     reg4 = PlacementRegistry(adapter, reg_path)
-    to_create4 = reg4.reconcile(vias4)
+    to_create4, to_delete4 = reg4.reconcile(vias4)
     assert to_create4 == []
-    adapter.remove_by_id.assert_called_once_with("uuid-def")  # stale via is pruned
+    assert to_delete4 == ["uuid-def"]
+    for uuid in to_delete4:
+        adapter.remove_by_id(uuid)
     assert live_vias == [], "prune must have actually deleted the via from the 'board'"

@@ -189,10 +189,13 @@ class BaseRegistry(ABC, Generic[TEntry]):
     def reconcile(self, planned_cmds,
                   known_anchor_ids: set | None = None) -> list:
         """
-        Returns the subset of planned_cmds that actually need to be created
-        (already correctly placed ones are excluded). Deletes stale ones by
-        stored UUID: both those whose position/parameters changed, and those
-        whose key does not appear in this run at all (prune).
+        Returns (to_create, to_delete): the subset of planned_cmds that
+        actually need to be created (already correctly placed ones are
+        excluded), plus the UUIDs of stale items to delete — both those whose
+        position/parameters changed and those whose key does not appear in
+        this run at all (prune). reconcile() itself NO LONGER deletes from the
+        board (P0-3, 2026-08-25): the caller performs the deletions, keeping
+        the registry a pure persistence/planning component.
 
         Source of truth for "is it already placed correctly" is the LIVE item on
         the board (one query for the whole reconcile), not the numbers stored in
@@ -224,6 +227,7 @@ class BaseRegistry(ABC, Generic[TEntry]):
         by the current cell, never got cleaned up run after run).
         """
         to_create: list = []
+        to_delete: list[str] = []
         seen_keys = set()
         live_by_uuid = {str(item.id.value): item for item in self._get_live_items()}
 
@@ -259,7 +263,7 @@ class BaseRegistry(ABC, Generic[TEntry]):
             logger.info(_("  {key}: position/parameters changed, deleting old item ({uuid}) "
                           "and creating a new one")
                         .format(key=cmd.registry_key, uuid=existing.uuid))
-            self.adapter.remove_by_id(existing.uuid)
+            to_delete.append(existing.uuid)
             del self.entries[cmd.registry_key]
             to_create.append(cmd)
 
@@ -286,10 +290,10 @@ class BaseRegistry(ABC, Generic[TEntry]):
             entry = self.entries.pop(key)
             logger.info(_("  prune: {key} no longer appears in config, deleting ({uuid})")
                         .format(key=key, uuid=entry.uuid))
-            self.adapter.remove_by_id(entry.uuid)
+            to_delete.append(entry.uuid)
 
         self._save_entries(self.entries)
-        return to_create
+        return to_create, to_delete
 
     def record_created(self, cmd, created_uuid: str) -> None:
         """Called by the executor immediately after successfully creating a specific item."""
