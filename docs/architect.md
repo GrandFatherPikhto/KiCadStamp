@@ -61,6 +61,7 @@ Repo root
     ├── extract_writer.py / config_writer.py / config_rename.py
     ├── explore.py / validation.py / registry.py / undo.py / sheet_names.py
     ├── runtime_context.py / exceptions.py / constants.py / i18n.py / logging_setup.py
+    ├── domain/                        # board DTOs + geometry value types (the kipy-free public types)
     ├── config/                        # entries, includes, loader, models, points, sheet_templates
     ├── geometry/                      # clone_geometry, keepout, pad_projection, spoke_layout, thermal_grid
     ├── kicad/                         # adapter, interfaces, pynng_safety
@@ -78,6 +79,7 @@ Repo root
 
 - **`adapter.py`** – implements `KiCadBoardAdapter`, encapsulating all `kipy` calls. Provides methods for searching components, pads, zones, nets; getting bounding boxes; transactions (commit/rollback); creating vias **and tracks**; executing flips; reading user fields; retrieving selection with group expansion; deleting objects by UUID.
 - **`interfaces.py`** – defines the abstract `IBoardAdapter` interface, enabling easy substitution (e.g., for testing with mocks).
+- **`domain/` (types outside `kicad/`)** – `board.py` (DTOs: Footprint/Pad/Via/Track/Net/Zone) and `geometry.py` (value types: Vector2/Angle/BoardLayer/Box2). The adapter converts kipy → domain at the boundary, so `IBoardAdapter` and every consumer use these domain types, never `kipy.*`.
 
 ### 4.2. Geometry Utilities (`geometry/`)
 

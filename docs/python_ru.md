@@ -189,7 +189,7 @@ board.select(role="AD_DAC").show()
 три смысла `xy:` в [docs/config_ru.md](config_ru.md)). Скопировать числа сдвига с Channel_0 на
 Channel_1/2 с другим поворотом молча поставило бы пассив не туда. `dac_channels.py` решает это,
 поворачивая проверенную базовую линию Channel_0 тем же примитивом, что использует сам движок
-(`kipy.geometry.Vector2.rotate()`, совпадает с `rotate_local_offset` в `geometry/spoke_layout.py`) —
+(`kicadstamp.domain.geometry.Vector2.rotate()`, совпадает с `rotate_local_offset` в `geometry/spoke_layout.py`) —
 посчитано один раз, потом визуально проверено живьём в KiCad, не угадано на каждый канал вручную:
 
 ```python

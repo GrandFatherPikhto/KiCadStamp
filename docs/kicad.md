@@ -24,7 +24,8 @@ The modules in the `kicad/` directory provide a unified interface for interactin
 kicad/
 ├── __init__.py        # Public API export
 ├── interfaces.py      # Abstract IBoardAdapter interface
-└── adapter.py         # KiCadBoardAdapter implementation
+├── adapter.py         # KiCadBoardAdapter implementation
+└── pynng_safety.py    # pynng.Socket.close patch (applied on import)
 ```
 
 ---
@@ -60,6 +61,13 @@ Defines the abstract base class `IBoardAdapter`, which describes the contract fo
 | `create_via(position, net, drill_mm, diameter_mm)` | Create a `Via` object (not yet added to the board). |
 | `create_track(start, end, width_mm, net, layer)` | Create a `Track` object (not yet added). |
 | `remove_by_id(uuid_str)` | Delete an object by UUID (used by registries). |
+
+The interface deliberately does **not** expose kipy types. Every method
+returns/accepts the project's own domain types — `Footprint`, `Pad`, `Via`,
+`Track`, `Net`, `Zone` from `kicadstamp/domain/board.py` and `Vector2`/
+`Angle`/`BoardLayer`/`Box2` from `kicadstamp/domain/geometry.py`. Only
+`adapter.py` imports `kipy.*` and converts at the boundary (see the `*_from_kipy`
+mappers in `domain/board.py`).
 
 ---
 
@@ -194,10 +202,11 @@ All such places are **documented** in the code and covered by unit tests, allowi
 
 ## Dependencies
 
-- `kipy` – official Python library for KiCad IPC (installed separately, version 0.7.1 or newer).
-- `kipy.board_types` – KiCad data types (FootprintInstance, Pad, Via, Track, Net, Field, Group, BoardLayer, etc.).
-- `kipy.geometry` – geometric primitives (Vector2, Box2, Angle).
+- `kipy` – official Python library for KiCad IPC (installed separately, version 0.7.1 or newer). Imported ONLY by `adapter.py`; nothing outside `kicad/` touches it.
+- `kipy.board_types` – KiCad data types (FootprintInstance, Pad, Via, Track, Net, Field, Group, BoardLayer, etc.) — internal to `adapter.py`.
+- `kipy.geometry` – geometric primitives (Vector2, Box2, Angle) — internal to `adapter.py`.
 - `kipy.errors.ApiError`, `kipy.errors.ConnectionError` – for IPC error handling.
+- `kicadstamp.domain` (`domain/board.py`, `domain/geometry.py`) – the domain DTOs and value types the interface exposes to the rest of the project.
 - Standard Python packages: `logging`, `time`, `typing`.
 
 ---

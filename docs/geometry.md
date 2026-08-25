@@ -140,7 +140,7 @@ Computes absolute coordinates for an array of thermal vias under a thermal pad (
 
 ```python
 from kicadstamp.geometry.keepout import build_keepout, find_free_point
-from kipy.geometry import Vector2
+from kicadstamp.domain.geometry import Vector2
 
 # Get pad bounding boxes via the adapter
 bboxes = adapter.get_bounding_boxes(pads)

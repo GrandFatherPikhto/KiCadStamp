@@ -140,7 +140,7 @@ geometry/
 
 ```python
 from kicadstamp.geometry.keepout import build_keepout, find_free_point
-from kipy.geometry import Vector2
+from kicadstamp.domain.geometry import Vector2
 
 # Получаем bounding box'ы падов через адаптер
 bboxes = adapter.get_bounding_boxes(pads)

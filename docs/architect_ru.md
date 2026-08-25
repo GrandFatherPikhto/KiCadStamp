@@ -61,6 +61,7 @@
     ├── extract_writer.py / config_writer.py / config_rename.py
     ├── explore.py / validation.py / registry.py / undo.py / sheet_names.py
     ├── runtime_context.py / exceptions.py / constants.py / i18n.py / logging_setup.py
+    ├── domain/                        # DTO платы + геометрические value-типы (публичные типы без kipy)
     ├── config/                        # entries, includes, loader, models, points, sheet_templates
     ├── geometry/                      # clone_geometry, keepout, pad_projection, spoke_layout, thermal_grid
     ├── kicad/                         # adapter, interfaces, pynng_safety
@@ -78,6 +79,7 @@
 
 - **`adapter.py`** – реализует `KiCadBoardAdapter`, инкапсулирующий все вызовы к `kipy`. Предоставляет методы для поиска компонентов, падов, зон, цепей, получения bounding box'ов, транзакций (commit/rollback), создания via **и треков**, выполнения флипа, чтения пользовательских полей, получения выделения с учётом групп и удаления объектов по UUID.
 - **`interfaces.py`** – определяет абстрактный интерфейс `IBoardAdapter`, позволяющий легко подменять адаптер (например, для тестирования с моками).
+- **`domain/` (типы вне `kicad/`)** – `board.py` (DTO: Footprint/Pad/Via/Track/Net/Zone) и `geometry.py` (value-типы: Vector2/Angle/BoardLayer/Box2). Адаптер конвертирует kipy → domain на границе, поэтому `IBoardAdapter` и все потребители используют доменные типы, а не `kipy.*`.
 
 ### 4.2. Геометрические утилиты (`geometry/`)
 

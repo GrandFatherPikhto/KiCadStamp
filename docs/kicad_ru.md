@@ -24,7 +24,8 @@
 kicad/
 ├── __init__.py        # Экспорт публичного API
 ├── interfaces.py      # Абстрактный интерфейс IBoardAdapter
-└── adapter.py         # Реализация KiCadBoardAdapter
+├── adapter.py         # Реализация KiCadBoardAdapter
+└── pynng_safety.py    # Патч pynng.Socket.close (применяется на импорте)
 ```
 
 ---
@@ -60,6 +61,12 @@ kicad/
 | `create_via(position, net, drill_mm, diameter_mm)` | Создать объект `Via` (без добавления на плату). |
 | `create_track(start, end, width_mm, net, layer)` | Создать объект `Track` (без добавления на плату). |
 | `remove_by_id(uuid_str)` | Удалить объект по UUID (для реестра). |
+
+Интерфейс намеренно **не** отдаёт kipy-типы. Каждый метод возвращает/принимает
+собственные доменные типы проекта — `Footprint`, `Pad`, `Via`, `Track`, `Net`,
+`Zone` из `kicadstamp/domain/board.py` и `Vector2`/`Angle`/`BoardLayer`/`Box2`
+из `kicadstamp/domain/geometry.py`. Только `adapter.py` импортирует `kipy.*` и
+конвертирует на границе (см. мапперы `*_from_kipy` в `domain/board.py`).
 
 ---
 
@@ -270,10 +277,11 @@ print(f"Новый слой: {fp.layer}")
 
 ## Зависимости и требования
 
-- `kipy` – официальная Python-библиотека для IPC KiCad (устанавливается отдельно, версия 0.7.1 или новее).
-- `kipy.board_types` – типы данных KiCad (FootprintInstance, Pad, Via, Track, Net, Field, Group, BoardLayer и др.).
-- `kipy.geometry` – геометрические примитивы (Vector2, Box2, Angle).
+- `kipy` – официальная Python-библиотека для IPC KiCad (устанавливается отдельно, версия 0.7.1 или новее). Импортируется ТОЛЬКО в `adapter.py`; ничего вне `kicad/` её не трогает.
+- `kipy.board_types` – типы данных KiCad (FootprintInstance, Pad, Via, Track, Net, Field, Group, BoardLayer и др.) — внутреннее дело `adapter.py`.
+- `kipy.geometry` – геометрические примитивы (Vector2, Box2, Angle) — внутреннее дело `adapter.py`.
 - `kipy.errors.ApiError`, `kipy.errors.ConnectionError` – для обработки ошибок IPC.
+- `kicadstamp.domain` (`domain/board.py`, `domain/geometry.py`) – доменные DTO и value-типы, которые интерфейс отдаёт остальному проекту.
 - Стандартные пакеты Python: `logging`, `time`, `typing`.
 
 ---

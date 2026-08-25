@@ -188,7 +188,7 @@ board.select(role="AD_DAC").show()
 [docs/config.md](config.md)'s note on `xy:`'s three meanings). Copying Channel_0's offset numbers onto
 a differently-rotated Channel_1/2 would silently misplace the passive. `dac_channels.py` handles this
 by rotating the verified Channel_0 baseline with the same primitive the engine itself uses
-(`kipy.geometry.Vector2.rotate()`, matching `geometry/spoke_layout.py`'s `rotate_local_offset`) —
+(`kicadstamp.domain.geometry.Vector2.rotate()`, matching `geometry/spoke_layout.py`'s `rotate_local_offset`) —
 computed once, then visually verified live in KiCad, not hand-guessed per channel:
 
 ```python
