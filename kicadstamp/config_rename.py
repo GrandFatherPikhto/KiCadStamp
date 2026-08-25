@@ -75,6 +75,7 @@ import yaml
 from .exceptions import FieldsToolError, ValidationError
 from .schematic_editing import Edit, EditReport, apply_edits
 from .config.includes import _parse_include_entry
+from .utils.yaml_loader import safe_load
 
 logger = logging.getLogger(__name__)
 
@@ -336,7 +337,7 @@ def _collect_include_files(root: Path) -> dict[Path, str]:
             raise FieldsToolError(f"cannot read profile file {path}: {exc}") from exc
         files[path] = text
         try:
-            data = yaml.safe_load(text) or {}
+            data = safe_load(text) or {}
         except yaml.YAMLError as exc:
             raise FieldsToolError(f"cannot parse profile file {path}: {exc}") from exc
         if not isinstance(data, dict):
@@ -445,7 +446,7 @@ def write_profile_files(edits_by_file: dict[str, list[Edit]],
             fh.write(new_text)
         try:
             with open(file, encoding="utf-8") as fh:
-                yaml.safe_load(fh)
+                safe_load(fh)
         except Exception as exc:
             logger.error("%s: result does not parse as YAML (%s: %s) — restoring from %s",
                          file, type(exc).__name__, exc, bak_path)

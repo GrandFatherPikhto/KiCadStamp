@@ -17,14 +17,13 @@ exit code and the message.
 import logging
 from pathlib import Path
 
-import yaml
-
 from kipy.errors import ApiError, ApiStatusCode
 
 from .exceptions import PlacerError
 from .i18n import _
 from .utils.file_cache import cached_file_read
 from .utils.paths import resolve_config_relative_path
+from .utils.yaml_loader import safe_load
 
 
 def api_error_message(e: ApiError) -> str:
@@ -82,7 +81,7 @@ def _read_root_yaml(path: Path) -> dict:
     """Raw root-YAML read for peek_log_file — kept separate so it can be
     passed to cached_file_read as the miss loader."""
     with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+        return safe_load(f) or {}
 
 
 def peek_log_file(config_path: str) -> str | None:

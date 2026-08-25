@@ -26,11 +26,10 @@ import logging
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
 from ..utils.file_cache import cached_file_read, cached_graph_result
+from ..utils.yaml_loader import safe_load
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +56,7 @@ def _load_yaml_file(path: Path) -> dict:
     independent ones). Always a dict, never None (a YAML file whose content
     is empty/scalar-null becomes {}) — cached_file_read requires that."""
     with open(path, 'r', encoding='utf-8') as f:
-        return yaml.safe_load(f) or {}
+        return safe_load(f) or {}
 
 
 def _parse_include_entry(entry: Any, source_path: str) -> tuple[str, bool]:

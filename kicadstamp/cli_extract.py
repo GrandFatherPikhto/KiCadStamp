@@ -17,6 +17,7 @@ from typing import Any
 import yaml
 
 from kicadstamp.config.includes import resolve_includes
+from kicadstamp.utils.yaml_loader import safe_load
 from kicadstamp.exceptions import PlacerError, check_unknown_keys
 from kicadstamp.kicad.adapter import KiCadBoardAdapter
 from kicadstamp.template_extraction import extract_template_from_selection, render_uncertain_comments
@@ -76,7 +77,7 @@ def load_profile(profiles_path: str, top_key: str, profile_name: str,
     if not p.exists():
         raise PlacerError(_("[error] profiles file {path!r} not found").format(path=profiles_path))
     with open(p, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
+        data = safe_load(f) or {}
     data = resolve_includes(str(p), data)
     profiles = data.get(top_key, {})
     if profile_name not in profiles:
@@ -138,7 +139,7 @@ def extract_template(adapter: KiCadBoardAdapter, *, name: str, output: str,
     existing = {}
     if output_path.exists():
         with open(output_path, "r", encoding="utf-8") as f:
-            existing = (json.load(f) if is_json else yaml.safe_load(f)) or {}
+            existing = (json.load(f) if is_json else safe_load(f)) or {}
     existing_cells = existing.setdefault('cells', {})
     if name in existing_cells:
         logger.warning(_("Template {name!r} already exists in {output} — will be overwritten")

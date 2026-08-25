@@ -27,6 +27,8 @@ import yaml
 
 from kipy.board_types import BoardLayer
 
+from .utils.yaml_loader import safe_load
+
 from .config import NetTrace
 from .exceptions import ValidationError, format_fatal_error
 from .placement.services.clone_role_resolver import resolve_footprint_by_role
@@ -208,7 +210,7 @@ def read_net_trace_flags(path: str, net: str) -> tuple[bool, bool]:
     if not p.exists():
         return False, False
     try:
-        data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+        data = safe_load(p.read_text(encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError):
         return False, False
     for e in data.get("net_traces") or []:
@@ -228,7 +230,7 @@ def write_net_trace(output: str, nt: NetTrace) -> dict[str, Any]:
     existing: dict[str, Any] = {}
     if output_path.exists():
         with open(output_path, "r", encoding="utf-8") as f:
-            existing = (json.load(f) if is_json else yaml.safe_load(f)) or {}
+            existing = (json.load(f) if is_json else safe_load(f)) or {}
 
     net_traces = existing.setdefault('net_traces', [])
     entry = net_trace_to_dict(nt)

@@ -13,9 +13,8 @@ the message doubles as the caller's own section label.
 """
 from pathlib import Path
 
-import yaml
-
 from .exceptions import FieldsToolError
+from .utils.yaml_loader import safe_load
 
 
 def load_fields_config(path: Path, section: str) -> tuple[str, dict[str, dict[str, str]]]:
@@ -23,7 +22,7 @@ def load_fields_config(path: Path, section: str) -> tuple[str, dict[str, dict[st
     FieldsToolError if the file has no root_sheet or no non-empty `section`
     (the two fatal conditions both callers recognize)."""
     with open(path, encoding='utf-8') as f:
-        data = yaml.safe_load(f) or {}
+        data = safe_load(f) or {}
     root_sheet = data.get('root_sheet')
     if not root_sheet:
         raise FieldsToolError("config has no root_sheet")

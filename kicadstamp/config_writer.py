@@ -20,6 +20,7 @@ import yaml
 
 from kicadstamp.i18n import _
 from kicadstamp.utils.file_cache import cached_file_read, invalidate_graph_path, invalidate_path
+from kicadstamp.utils.yaml_loader import safe_load
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ def _read_data(path: Path) -> dict:
         with open(p, "r", encoding="utf-8") as f:
             try:
                 return (json.load(f) if p.suffix.lower() == ".json"
-                        else yaml.safe_load(f)) or {}
+                        else safe_load(f)) or {}
             except (json.JSONDecodeError, yaml.YAMLError) as e:
                 raise OSError(_("{path} is not valid {kind}: {error}").format(
                     path=path, kind="JSON" if p.suffix.lower() == ".json" else "YAML",
@@ -280,7 +281,7 @@ def _load_data_tolerant(path: Path) -> dict:
         return {}
     try:
         with open(path, "r", encoding="utf-8") as f:
-            return (json.load(f) if path.suffix.lower() == ".json" else yaml.safe_load(f)) or {}
+            return (json.load(f) if path.suffix.lower() == ".json" else safe_load(f)) or {}
     except (OSError, yaml.YAMLError, json.JSONDecodeError) as e:
         logger.warning("Failed to read %s: %s", path, e)
         return {}

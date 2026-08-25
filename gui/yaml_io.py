@@ -15,6 +15,7 @@ from typing import Optional, Set
 import yaml
 
 from kicadstamp.utils.file_cache import cached_file_read
+from kicadstamp.utils.yaml_loader import safe_load
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ def load_data(path: Optional[Path]) -> dict:
 
     def _uncached_read(p: Path) -> dict:
         with open(p, "r", encoding="utf-8") as f:
-            return (json.load(f) if p.suffix.lower() == ".json" else yaml.safe_load(f)) or {}
+            return (json.load(f) if p.suffix.lower() == ".json" else safe_load(f)) or {}
 
     try:
         return cached_file_read(path, _uncached_read)
