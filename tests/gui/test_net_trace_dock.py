@@ -18,6 +18,7 @@ import yaml
 
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.domain.geometry import BoardLayer
+from kicadstamp.config import Config, RuntimeContext
 
 import gui.docks.net_trace as net_trace_mod
 from gui.docks.net_trace import NetTraceDock
@@ -297,3 +298,82 @@ def test_extract_preserves_existing_retired_flag(main_window, tmp_path, caplog):
     entry = _read_yaml(target)["net_traces"][0]
     assert entry["retired"] is True  # survived the re-extract
     assert len(entry["tracks"]) == 1  # geometry refreshed
+
+
+# ── anchor_sheet narrowing (bug handoff 2026-08-25) ─────────────────────────
+
+def test_extract_anchor_sheet_narrows_ambiguous_role(main_window, tmp_path, monkeypatch):
+    """Regression (handoff_2026_08_25_net_trace_sheet_names_bug): _run_extract()
+    used to pass sheet_names={}, so an anchor_role with several candidates on
+    different sheets always failed 'ambiguous' even with anchor_sheet filled in.
+    The fix loads the real ctx.sheet_names (with a root fallback) and lets
+    resolve_footprint_by_role narrow to the ONE candidate on that sheet."""
+    dock, target = _make_dock(main_window, tmp_path)
+    # Three identical-role candidates on different sheets; IC3 sits on Channel_1.
+    ic2 = _make_fp("IC2", "AD_DAC", 50, 50)
+    ic2.sheet_path_uuids = ("sheet-0", "comp")
+    ic3 = _make_fp("IC3", "AD_DAC", 100, 100)
+    ic3.sheet_path_uuids = ("sheet-1", "comp")
+    ic4 = _make_fp("IC4", "AD_DAC", 150, 150)
+    ic4.sheet_path_uuids = ("sheet-2", "comp")
+    _connect_board(dock, [ic2, ic3, ic4],
+                   [_make_track(110, 100, 120, 100, "DAC_DB0")], [])
+    dock.net_edit.setCurrentText("DAC_DB0")
+    dock.anchor_widget.load(mode="anchor", role="AD_DAC", sheet="Channel_1")
+
+    sheet_names = {"sheet-0": "Channel_0", "sheet-1": "Channel_1", "sheet-2": "Channel_2"}
+    monkeypatch.setattr(net_trace_mod, "load_config",
+                        lambda path: (Config(), RuntimeContext(sheet_names=sheet_names)))
+
+    result = dock._do_extract()
+
+    assert "error" not in result
+    entry = _read_yaml(target)["net_traces"][0]
+    assert entry["anchor_sheet"] == "Channel_1"
+    # Track at absolute (110,100): relative to IC3 (Channel_1, 100,100) it is
+    # along=10.0; relative to IC2 it would be 60.0 and to IC4 -40.0 — this
+    # proves the CORRECT candidate (the one on the specified sheet) was picked.
+    assert entry["tracks"][0]["start_along_mm"] == 10.0
+
+
+def test_extract_happy_path_without_sheet_still_works(main_window, tmp_path, monkeypatch, caplog):
+    """A single candidate and no anchor_sheet must keep working — the new
+    sheet_names loading is best-effort (empty map when nothing resolves) and
+    must not change the plain single-candidate path."""
+    dock, target = _make_dock(main_window, tmp_path)
+    _connect_board(dock, [_make_fp("U1", "FPGA", 50, 50)],
+                   [_make_track(53, 54, 55, 56, "DAC_DB0")], [])
+    dock.net_edit.setCurrentText("DAC_DB0")
+    dock.anchor_widget.load(mode="anchor", role="FPGA")
+    # No schematic map anywhere -> no narrowing; single candidate resolves.
+    monkeypatch.setattr(net_trace_mod, "load_config",
+                        lambda path: (Config(), RuntimeContext()))
+
+    result = dock._do_extract()
+
+    assert "error" not in result
+    assert len(_read_yaml(target)["net_traces"]) == 1
+    assert any("Wrote net trace" in r.message for r in caplog.records)
+
+
+def test_sheet_names_falls_back_to_root(main_window, tmp_path, monkeypatch):
+    """A leaf file whose own resolution yields no sheet_names must still narrow
+    via the ROOT's sheet_names (schematic_dir: conventionally lives only on the
+    root; resolve_includes() only merges DOWNWARD, so the leaf alone is empty)."""
+    dock, root = _make_dock(main_window, tmp_path)
+    leaf = tmp_path / "leaf.yaml"
+    _write_yaml(leaf, {})
+    calls = []
+
+    def fake_load(path):
+        calls.append(str(path))
+        if str(path) == str(leaf):
+            return Config(), RuntimeContext()  # leaf resolves no schematic map
+        return Config(), RuntimeContext(sheet_names={"u": "Channel_1"})
+
+    monkeypatch.setattr(net_trace_mod, "load_config", fake_load)
+
+    sheet_names = dock._resolve_sheet_names_for_extract(leaf)
+
+    assert sheet_names == {"u": "Channel_1"}
+    assert calls == [str(leaf), str(root)]

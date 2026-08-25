@@ -262,6 +262,39 @@ class NetTraceDock(QWidget):
             (self.extract_button, self.save_button, self.redraw_button),
             self._run_extract, self._finish_extract, self._on_op_failed, payload)
 
+    def _resolve_sheet_names_for_extract(self, path: Optional[Path]) -> Dict[str, str]:
+        """Best-effort ctx.sheet_names for anchor_sheet narrowing at extract
+        time (bug handoff 2026-08-25): the anchor_sheet field is only meaningful
+        when the resolver can map a sheet segment onto footprint candidates,
+        which needs the real {uuid: Sheetname} map. Load it from the target
+        file, and fall back to the project root when the target's own map is
+        empty — schematic_dir: conventionally lives only on the ROOT config,
+        and resolve_includes() only merges DOWNWARD, so a leaf file's own
+        resolution is often empty while the root's is fine (the same
+        root-fallback reasoning as PlacerDock._load_target_config).
+
+        Deliberately best-effort: any config-load error keeps the OLD behaviour
+        (empty map — anchor_sheet just won't narrow, and extract_net_trace()
+        still honestly reports 'ambiguous' when the data is insufficient)
+        instead of failing the Extract with a confusing secondary error."""
+        candidates: list[Path] = []
+        if path is not None:
+            candidates.append(Path(path))
+        if self._root_path is not None and self._root_path not in candidates:
+            candidates.append(self._root_path)
+        for candidate in candidates:
+            try:
+                if not candidate.exists():
+                    continue
+                _cfg, ctx = load_config(str(candidate))
+            except (ValidationError, OSError, yaml.YAMLError):
+                continue
+            # len(), not "not ctx.sheet_names": LazySheetNameMap is always
+            # truthy by design (2026-08-25) — see placer.py's _load_target_config.
+            if len(ctx.sheet_names):
+                return ctx.sheet_names
+        return {}
+
     def _run_extract(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Worker thread: board IPC + file write only — never touches a widget."""
         try:
@@ -270,12 +303,13 @@ class NetTraceDock(QWidget):
             # 2026-08-21) — carry the existing flags into the new extraction.
             existing_retired, existing_skip = read_net_trace_flags(
                 str(payload["path"]), payload["net"])
+            sheet_names = self._resolve_sheet_names_for_extract(payload["path"])
             nt = extract_net_trace(
                 payload["board"].adapter,
                 net=payload["net"], anchor_role=payload["anchor_role"],
                 anchor_sheet=payload["anchor_sheet"],
                 anchor_cluster=payload["anchor_cluster"],
-                anchor_pad=payload["anchor_pad"], sheet_names={},
+                anchor_pad=payload["anchor_pad"], sheet_names=sheet_names,
                 retired=existing_retired, skip=existing_skip)
             write_net_trace(str(payload["path"]), nt)
         except (PlacerError, ValidationError, OSError, yaml.YAMLError) as e:
