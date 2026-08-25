@@ -102,6 +102,7 @@ entity_export.py.
 """
 import cProfile
 import io
+import logging
 import os
 import pstats
 import time
@@ -109,6 +110,7 @@ from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (QAbstractItemView, QDockWidget, QFileDialog,
                               QInputDialog, QMenu, QMessageBox, QTreeWidget,
                               QTreeWidgetItem, QVBoxLayout, QWidget)
@@ -117,12 +119,14 @@ from kicadstamp.config.includes import IncludeTreeNode, walk_include_tree
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
 
-from .. import yaml_io
+from .. import settings, yaml_io
 from ._common import (add_include, disable_include, display_path,
                       highlight_stylesheet_for, non_includable_keys)
 from .entity_delete import delete_entry, find_references
 from .entity_export import ExportItem, export_entries
 from .rename import CASCADE_FIELD, collect_graph_files, entry_effective_name, rename_entry
+
+logger = logging.getLogger(__name__)
 
 # Display label per recognized section, in the order shown under a file
 # node. Order matches config/includes.py's _LIST_SECTIONS + _DICT_SECTIONS.
@@ -276,6 +280,15 @@ class ConfigTreeDock(QDockWidget):
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._on_context_menu)
         layout.addWidget(self.tree)
+
+        # F2 = Rename on the current leaf (2026-08-25, the project's first
+        # shortcut — see docs/hotkeys.md). WidgetWithChildrenShortcut, NOT the
+        # default WindowShortcut: F2 must fire only while this tree (or one of
+        # its children) has focus, so it never steals F2 from other widgets
+        # that may get their own shortcut later.
+        self._rename_shortcut = QShortcut(QKeySequence("F2"), self.tree)
+        self._rename_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self._rename_shortcut.activated.connect(self._on_rename_shortcut)
 
         self.setWidget(container)
 
@@ -527,6 +540,21 @@ class ConfigTreeDock(QDockWidget):
             item = item.parent()
         return None
 
+    def _rename_target_for_item(self, item) -> Optional[tuple]:
+        """(file_path, section, old_name) for a leaf's Rename action, or None
+        when `item` is not a renameable leaf (file header / category / read-only
+        node). The ONE extraction shared by the context menu's "Rename..." and
+        the F2 shortcut (2026-08-25) — the two entry points can never drift
+        apart."""
+        file_ctx = self._file_context_for_item(item)
+        if file_ctx is None:
+            return None
+        leaf_data = item.data(0, Qt.ItemDataRole.UserRole)
+        if leaf_data is None or leaf_data[0] != "leaf":
+            return None
+        _kind, section, _payload = leaf_data
+        return file_ctx[0], section, item.text(0)
+
     def _on_context_menu(self, pos) -> None:
         item = self.tree.itemAt(pos)
         if item is None:
@@ -546,10 +574,12 @@ class ConfigTreeDock(QDockWidget):
 
         menu = QMenu(self.tree)
 
-        leaf_data = item.data(0, Qt.ItemDataRole.UserRole)
-        if leaf_data is not None and leaf_data[0] == "leaf":
-            _kind, section, _payload = leaf_data
-            old_name = item.text(0)
+        # Leaf-only block (Edit cell/Rename/Delete) — the (file_path, section,
+        # old_name) triple is extracted by the same _rename_target_for_item the
+        # F2 shortcut uses (2026-08-25), so the two entry points stay in sync.
+        rename_target = self._rename_target_for_item(item)
+        if rename_target is not None:
+            section, old_name = rename_target[1], rename_target[2]
             if section == "cells":
                 menu.addAction(_("Edit cell...")).triggered.connect(
                     lambda: self.cell_edit_requested.emit(old_name, file_path))
@@ -628,7 +658,27 @@ class ConfigTreeDock(QDockWidget):
             message += " " + _(
                 "If any CLI command uses --only/--profile {old!r}, update that separately — "
                 "this only rewrites YAML files, it can't see command-line usage.").format(old=old_name)
-        QMessageBox.information(self, _("Renamed"), message)
+        if settings.state.get("rename_confirmation_enabled", True):
+            QMessageBox.information(self, _("Renamed"), message)
+        else:
+            # Silent rename (Settings -> Config tree -> "Show confirmation
+            # after rename" unchecked, 2026-08-25): same summary, just not
+            # modal — Log dock instead of a blocking popup.
+            logger.info(message)
+
+    def _on_rename_shortcut(self) -> None:
+        """F2 — Rename on the tree's current leaf (2026-08-25). Silently does
+        nothing when there is no selection or the current item isn't a
+        renameable leaf: F2 on a file header / category is normal tree
+        navigation, not a user error, so no message."""
+        item = self.tree.currentItem()
+        if item is None:
+            return
+        target = self._rename_target_for_item(item)
+        if target is None:
+            return
+        file_path, section, old_name = target
+        self._on_rename(file_path, section, old_name)
 
     def _on_delete(self, file_path: Path, section: str, name: str) -> None:
         """Removes a leaf entry (one at a time — see the tree's

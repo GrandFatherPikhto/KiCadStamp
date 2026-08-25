@@ -7843,3 +7843,18 @@ msgstr ""
 #, python-brace-format
 msgid "Failed to look up items by id: {type}: {e}"
 msgstr ""
+
+#: gui/docks/configurator.py
+msgid "Config tree"
+msgstr ""
+
+#: gui/docks/configurator.py
+msgid "Show confirmation after rename"
+msgstr ""
+
+#: gui/docks/configurator.py
+msgid ""
+"When checked, Rename on the Config tree shows a confirmation "
+"dialog after the entry is renamed. Uncheck to rename silently — "
+"the summary line still goes to the Log."
+msgstr ""

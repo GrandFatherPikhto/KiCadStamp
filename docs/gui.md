@@ -127,6 +127,7 @@ and its own included files, recursively.
 Right-click any entry for:
 - **Rename...** — renames the entry; for Cells/Points, also rewrites every reference to it
   (`cell:`/`anchor_point:`) anywhere in the whole include: graph, not just the file it's declared in.
+  `F2` on a leaf does the same (see [docs/hotkeys.md](hotkeys.md)).
 - **Delete...** — removes the entry, after backing up the whole file it lived in (timestamped, next
   to the original — a repeated delete never overwrites an earlier backup). For Cells/Points, the
   whole include: graph is scanned for references first; if any are found, the confirmation lists

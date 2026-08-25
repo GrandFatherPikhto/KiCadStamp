@@ -173,3 +173,30 @@ def test_three_consumers_have_highlight_stylesheet(main_window):
     assert "selected" in config_tree.tree.styleSheet()
     components = RoleClusterTreeDock(main_window)
     assert "selected" in components.tree.styleSheet()
+
+
+# ── Config tree: rename confirmation toggle (2026-08-25) ─────────────────
+
+def test_rename_confirmation_defaults_to_enabled(main_window, qapp):
+    """No key stored yet == the confirmation dialog stays ON (the default —
+    this setting only ever ADDS the option to silence it, never changes the
+    default behavior)."""
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    assert dock.rename_confirmation_checkbox.isChecked()
+    assert settings.state.get("rename_confirmation_enabled") is None  # not written at construction
+
+
+def test_unchecking_rename_confirmation_persists(main_window, qapp):
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    dock.rename_confirmation_checkbox.setChecked(False)
+    assert settings.state.get("rename_confirmation_enabled") is False
+    dock.rename_confirmation_checkbox.setChecked(True)
+    assert settings.state.get("rename_confirmation_enabled") is True
+
+
+def test_rename_confirmation_state_restored_on_recreation(main_window, qapp):
+    """The setting survives a dock rebuild — read back from settings.state at
+    construction, like every other key on this page."""
+    settings.state.set("rename_confirmation_enabled", False)
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    assert not dock.rename_confirmation_checkbox.isChecked()

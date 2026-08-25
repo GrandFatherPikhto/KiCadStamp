@@ -7748,3 +7748,21 @@ msgstr "извлеките/сохраните ячейку и убедитесь
 #, python-brace-format
 msgid "Failed to look up items by id: {type}: {e}"
 msgstr "Не удалось найти объекты по id: {type}: {e}"
+
+#: gui/docks/configurator.py
+msgid "Config tree"
+msgstr "Дерево конфигурации"
+
+#: gui/docks/configurator.py
+msgid "Show confirmation after rename"
+msgstr "Показывать подтверждение после переименования"
+
+#: gui/docks/configurator.py
+msgid ""
+"When checked, Rename on the Config tree shows a confirmation "
+"dialog after the entry is renamed. Uncheck to rename silently — "
+"the summary line still goes to the Log."
+msgstr ""
+"Когда включено, Rename в дереве конфигурации показывает диалог подтверждения "
+"после переименования. Снимите, чтобы переименовывать молча — "
+"строка с итогом всё равно попадёт в Log."

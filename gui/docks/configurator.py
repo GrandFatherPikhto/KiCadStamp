@@ -152,6 +152,25 @@ class ConfiguratorDock(QWidget):
             self._connection.timeout_ms = value
         layout.addWidget(timeout_group)
 
+        # ── Config tree ──────────────────────────────────────────────────
+        # First (and so far only) ConfigTreeDock setting — the confirmation
+        # dialog that pops after a Rename (2026-08-25, Denis: "оно нафиг не
+        # надо"). Default ON — this only adds the OPTION to silence it, the
+        # default behavior is unchanged.
+        config_tree_group = QGroupBox(_("Config tree"))
+        config_tree_layout = QVBoxLayout(config_tree_group)
+        self.rename_confirmation_checkbox = QCheckBox(_("Show confirmation after rename"))
+        self.rename_confirmation_checkbox.setToolTip(
+            _("When checked, Rename on the Config tree shows a confirmation "
+              "dialog after the entry is renamed. Uncheck to rename silently — "
+              "the summary line still goes to the Log."))
+        self.rename_confirmation_checkbox.setChecked(
+            settings.state.get("rename_confirmation_enabled", True))
+        self.rename_confirmation_checkbox.toggled.connect(
+            self._on_rename_confirmation_toggled)
+        config_tree_layout.addWidget(self.rename_confirmation_checkbox)
+        layout.addWidget(config_tree_group)
+
         layout.addStretch(1)
 
     # ── Highlight ────────────────────────────────────────────────────────
@@ -180,6 +199,11 @@ class ConfiguratorDock(QWidget):
         settings.state.set("highlight_color", hex_color)
         self._update_color_preview()
         self.highlight_changed.emit()
+
+    # ── Config tree ──────────────────────────────────────────────────────
+
+    def _on_rename_confirmation_toggled(self, checked: bool) -> None:
+        settings.state.set("rename_confirmation_enabled", checked)
 
     # ── Connection timeout ───────────────────────────────────────────────
 

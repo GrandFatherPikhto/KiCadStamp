@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import QMessageBox
 
 import gui.docks.config_tree as config_tree_mod
 from gui.docks.config_tree import ConfigTreeDock
+from gui import settings
 
 MINIMAL_CELL = """
 cells:
@@ -1251,3 +1252,112 @@ def test_export_does_not_emit_graph_changed(main_window, tmp_path, monkeypatch):
     dock._on_export(dock._selected_export_items())
 
     assert emitted == []
+
+
+# ── Rename confirmation toggle (2026-08-25) ──────────────────────────────
+
+def test_rename_confirmation_shown_when_enabled(main_window, tmp_path, monkeypatch):
+    """Default (key absent == enabled): a successful Rename still shows the
+    modal QMessageBox.information summary."""
+    root = tmp_path / "root.yaml"
+    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+    monkeypatch.setattr(config_tree_mod.QInputDialog, "getText",
+                        staticmethod(lambda *a, **k: ("renamed_cell", True)))
+    shown = []
+    monkeypatch.setattr(config_tree_mod.QMessageBox, "information",
+                        staticmethod(lambda self_, title, text: shown.append(text)))
+
+    dock._on_rename(root, "cells", "one_role")
+
+    assert len(shown) == 1  # the confirmation dialog was shown exactly once
+
+
+def test_rename_confirmation_silent_when_disabled(main_window, tmp_path, monkeypatch, caplog):
+    """Setting OFF: the rename still happens (file updated + graph_changed
+    emitted), but the modal confirmation is NOT shown — the same summary goes
+    to the Log dock instead."""
+    settings.state.set("rename_confirmation_enabled", False)
+    root = tmp_path / "root.yaml"
+    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+    monkeypatch.setattr(config_tree_mod.QInputDialog, "getText",
+                        staticmethod(lambda *a, **k: ("renamed_cell", True)))
+    shown = []
+    monkeypatch.setattr(config_tree_mod.QMessageBox, "information",
+                        staticmethod(lambda self_, title, text: shown.append(text)))
+    emitted = []
+    dock.graph_changed.connect(lambda: emitted.append(True))
+
+    dock._on_rename(root, "cells", "one_role")
+
+    assert shown == []  # no modal popup
+    assert "renamed_cell" in yaml.safe_load(root.read_text(encoding="utf-8"))["cells"]
+    assert emitted == [True]  # the rest of the rename flow is untouched
+    assert any("Renamed" in r.message for r in caplog.records)  # summary in the Log
+
+
+# ── F2 = Rename shortcut (2026-08-25) ────────────────────────────────────
+
+def test_f2_rename_calls_on_rename_with_context_menu_args(main_window, tmp_path, monkeypatch):
+    """F2 on a selected leaf routes through _on_rename with exactly the
+    (file_path, section, old_name) the context menu's "Rename..." would use —
+    both go through the same _rename_target_for_item."""
+    root = tmp_path / "root.yaml"
+    root.write_text(ALL_SECTIONS_YAML, encoding="utf-8")
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+    leaf = _find(dock.tree.topLevelItem(0), "Cells").child(0)  # "my_cell"
+
+    calls = []
+    monkeypatch.setattr(dock, "_on_rename",
+                        lambda file_path, section, old_name: calls.append(
+                            (str(file_path), section, old_name)))
+
+    dock.tree.setCurrentItem(leaf)
+    dock._on_rename_shortcut()
+
+    assert calls == [(str(root), "cells", "my_cell")]
+
+
+def test_f2_rename_noop_without_selection(main_window, tmp_path, monkeypatch):
+    root = tmp_path / "root.yaml"
+    root.write_text(ALL_SECTIONS_YAML, encoding="utf-8")
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+    calls = []
+    monkeypatch.setattr(dock, "_on_rename", lambda *a: calls.append(a))
+
+    dock.tree.setCurrentItem(None)
+    dock._on_rename_shortcut()  # must not raise, must not call _on_rename
+
+    assert calls == []
+
+
+def test_f2_rename_noop_on_non_leaf(main_window, tmp_path, monkeypatch):
+    """F2 on a category header / file node is normal tree navigation — no
+    rename, no error message."""
+    root = tmp_path / "root.yaml"
+    root.write_text(ALL_SECTIONS_YAML, encoding="utf-8")
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+    calls = []
+    monkeypatch.setattr(dock, "_on_rename", lambda *a: calls.append(a))
+
+    category = _find(dock.tree.topLevelItem(0), "Cells")
+    dock.tree.setCurrentItem(category)
+    dock._on_rename_shortcut()
+
+    assert calls == []
+
+
+def test_f2_shortcut_is_widget_scoped(main_window, tmp_path):
+    """F2 is scoped to the tree (WidgetWithChildrenShortcut), NOT the window —
+    so it never steals F2 from other widgets that may gain their own shortcut."""
+    root = tmp_path / "root.yaml"
+    root.write_text(ALL_SECTIONS_YAML, encoding="utf-8")
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+    assert dock._rename_shortcut.context() == config_tree_mod.Qt.ShortcutContext.WidgetWithChildrenShortcut
