@@ -353,7 +353,7 @@ class ClonePositionCalculator:
             comp_layer = BoardLayer.BL_B_Cu if slot_layer == 'B.Cu' else BoardLayer.BL_F_Cu
             components_result.append(PlacedComponentInfo(
                 ref=comp_layout.ref, dest=comp_layout.position, angle_deg=comp_layout.angle_deg,
-                layer=comp_layer,
+                layer=comp_layer, owner_ref=placement_label,
             ))
             logger.debug(
                 _("  [{name}] {ref} (role {role}): position ({x:.3f}, {y:.3f}) mm, angle {angle:.1f}°")

@@ -406,8 +406,9 @@ def test_redraw_preserves_other_placements_for_registry_safety(main_window, tmp_
             self.obj = obj
 
     class _FakeMove:
-        def __init__(self, ref):
+        def __init__(self, ref, owner_ref=None):
             self.ref = ref
+            self.owner_ref = owner_ref
 
     class _FakeFootprint:
         def __init__(self, ref):
@@ -443,7 +444,12 @@ def test_redraw_preserves_other_placements_for_registry_safety(main_window, tmp_
             pass
 
         def plan_item(self, item):
-            return [_FakeMove("U5")] if item.obj.cluster == "Channel_2_PI_Filter" else [_FakeMove("U1")]
+            # owner_ref mirrors clone_position_calculator's placement_label:
+            # each placement's own level, so _tag_cluster keeps only the
+            # my_item-level refs (U5), dropping the other placement's (U1).
+            if item.obj.cluster == "Channel_2_PI_Filter":
+                return [_FakeMove("U5", owner_ref="Channel_2_PI_Filter")]
+            return [_FakeMove("U1", owner_ref="OTHER_PLACEMENT")]
 
     monkeypatch.setattr(placer_mod, "ApplyPipeline", _FakePipeline)
     monkeypatch.setattr(placer_mod, "PlacementPlanner", _FakePlanner)
@@ -460,6 +466,136 @@ def test_redraw_preserves_other_placements_for_registry_safety(main_window, tmp_
     assert names.count("Channel_2_PI_Filter") == 1  # replaced, not duplicated
     assert any("Placed" in r.message for r in caplog.records)
     assert any("1 component(s) tagged Cluster" in r.message for r in caplog.records)
+
+
+def test_tag_cluster_only_tags_own_level_refs_not_nested(main_window, tmp_path, monkeypatch):
+    """Live bug 2026-08-26 (handoff tag_cluster_overtag): _tag_cluster used to
+    tag EVERY ref the placement dragged along — including nested CellPlacement
+    components — with the top placement's Cluster, wiping their own Cluster
+    fields (all 25 components of composite dac_buf ended up Cluster='DAC_BUF').
+    The owner_ref filter must restrict tagging to the placement's OWN level."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+
+    top = load_clone_placement({
+        "cluster": "DAC_BUF", "cell": "dac_buf", "xy": [0, 0],
+        "nets": {"R_OWN": "NET_OWN"},
+    })
+    cfg = Config(cells={}, clone_placements=[top])
+    ctx = RuntimeContext()
+
+    class _FakeItem:
+        def __init__(self, obj):
+            self.kind = "clone"
+            self.obj = obj
+
+    class _FakeMove:
+        def __init__(self, ref, owner_ref):
+            self.ref = ref
+            self.owner_ref = owner_ref
+
+    class _FakeFootprint:
+        def __init__(self, ref):
+            self.ref = ref
+
+    class _FakeAdapter:
+        def __init__(self):
+            self.field_writes = None
+
+        def get_footprint(self, ref):
+            return _FakeFootprint(ref)
+
+        def set_field_values_bulk(self, updates, description):
+            self.field_writes = [(fp.ref, field, value) for fp, field, value in updates]
+
+    class _FakePipeline:
+        def __init__(self):
+            self.adapter = _FakeAdapter()
+            self.items = [_FakeItem(top)]
+
+    class _FakePlanner:
+        def __init__(self, adapter, cfg, sheet_names=None):
+            pass
+
+        def begin_planning(self):
+            pass
+
+        def plan_item(self, item):
+            # my_item (DAC_BUF): one OWN component + two nested sub-cell ones
+            return [
+                _FakeMove("U_OWN", "DAC_BUF"),
+                _FakeMove("C147", "ch1_pif_dvdd"),
+                _FakeMove("C148", "ch1_pif_avdd"),
+            ]
+
+    pipeline = _FakePipeline()
+    monkeypatch.setattr(placer_mod, "PlacementPlanner", _FakePlanner)
+
+    tagged = dock._tag_cluster(pipeline, cfg, ctx, "DAC_BUF")
+
+    assert tagged == 1
+    assert pipeline.adapter.field_writes == [("U_OWN", CLUSTER_FIELD_NAME, "DAC_BUF")]
+
+
+def test_tag_cluster_pure_composite_tags_nothing(main_window, tmp_path, monkeypatch):
+    """A composite cell with NO own direct components (only nested
+    clone_placements) has nothing on the board that belongs to the top
+    placement's own level — _tag_cluster must tag nothing at all (the empty
+    refs list is already handled by the existing `if updates:` branch)."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+
+    top = load_clone_placement({
+        "cluster": "DAC_BUF", "cell": "dac_buf", "xy": [0, 0],
+        "nets": {"R_OWN": "NET_OWN"},
+    })
+    cfg = Config(cells={}, clone_placements=[top])
+    ctx = RuntimeContext()
+
+    class _FakeItem:
+        def __init__(self, obj):
+            self.kind = "clone"
+            self.obj = obj
+
+    class _FakeMove:
+        def __init__(self, ref, owner_ref):
+            self.ref = ref
+            self.owner_ref = owner_ref
+
+    class _FakeAdapter:
+        def __init__(self):
+            self.field_writes = None
+
+        def get_footprint(self, ref):
+            return None  # not reachable — refs is empty
+
+        def set_field_values_bulk(self, updates, description):
+            self.field_writes = [(fp.ref, field, value) for fp, field, value in updates]
+
+    class _FakePipeline:
+        def __init__(self):
+            self.adapter = _FakeAdapter()
+            self.items = [_FakeItem(top)]
+
+    class _FakePlanner:
+        def __init__(self, adapter, cfg, sheet_names=None):
+            pass
+
+        def begin_planning(self):
+            pass
+
+        def plan_item(self, item):
+            # ONLY nested sub-cell components — none at the top placement's own level
+            return [
+                _FakeMove("C147", "ch1_pif_dvdd"),
+                _FakeMove("C148", "ch1_pif_avdd"),
+            ]
+
+    pipeline = _FakePipeline()
+    monkeypatch.setattr(placer_mod, "PlacementPlanner", _FakePlanner)
+
+    tagged = dock._tag_cluster(pipeline, cfg, ctx, "DAC_BUF")
+
+    assert tagged == 0
+    assert pipeline.adapter.field_writes is None  # set_field_values_bulk never called
 
 
 # ── Cell source (2026-08-12, Group 0: role:/cluster: migrated to coordinate_placements) ──

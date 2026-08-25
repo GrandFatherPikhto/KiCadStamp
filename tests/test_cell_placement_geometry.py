@@ -110,6 +110,49 @@ class TestTwoLevelComposition:
         assert len(vias) == 1
         assert "inner" in vias[0].registry_key
 
+    def test_owner_ref_is_nested_level_not_top(self):
+        """2026-08-26 (handoff tag_cluster_overtag): a component resolved by a
+        nested CellPlacement must carry THAT nested placement's name as
+        owner_ref (not the top-level clone's) — placer.py::_tag_cluster uses
+        this to avoid re-tagging nested sub-cell components with the top
+        placement's Cluster."""
+        top, cfg = self._build()
+        c1 = _make_fp("C1", role="R1", nets=["NET_A"])
+        adapter = _adapter_for([c1])
+        calc = ClonePositionCalculator(adapter, cfg)
+
+        placed, _vias, _tracks = calc.compute_raw_positions([top])
+
+        assert len(placed) == 1
+        assert placed[0].owner_ref == "inner"  # NOT "top"
+
+    def test_owner_ref_is_top_level_for_own_direct_component(self):
+        """The mirror case: a component owned DIRECTLY by the top-level
+        placement's cell (mid) is resolved at the TOP level, so its owner_ref
+        is the top clone's effective name — while the nested one still carries
+        the nested name."""
+        leaf = Cell(name="leaf", components=[
+            TemplateComponentSlot(role="R1", offset_along_mm=5.0, offset_across_mm=0.0, angle_deg=0.0),
+        ])
+        inner = CellPlacement(name="inner", cell="leaf", xy=(10.0, 0.0), nets={"R1": "NET_A"})
+        mid = Cell(name="mid", components=[
+            TemplateComponentSlot(role="R_MID", offset_along_mm=1.0, offset_across_mm=0.0, angle_deg=0.0),
+        ], clone_placements=[inner])
+        top = ClonePlacement(cluster="top", cell="mid", xy=(0.0, 0.0),
+                             nets={"R_MID": "NET_B"})
+        cfg = Config(layer="F.Cu", cells={"leaf": leaf, "mid": mid}, clone_placements=[top])
+        adapter = _adapter_for([
+            _make_fp("C1", role="R1", nets=["NET_A"]),
+            _make_fp("RM1", role="R_MID", nets=["NET_B"]),
+        ])
+        calc = ClonePositionCalculator(adapter, cfg)
+
+        placed, _vias, _tracks = calc.compute_raw_positions([top])
+
+        by_ref = {p.ref: p.owner_ref for p in placed}
+        assert by_ref["C1"] == "inner"
+        assert by_ref["RM1"] == "top"
+
 
 class TestThreeLevelComposition:
     def test_three_level_chain_resolves(self):

@@ -71,6 +71,7 @@ class PositionTracker:
                 position=info.dest,
                 angle=Angle.from_degrees(info.angle_deg),
                 layer=layer,
+                owner_ref=info.owner_ref,
             ))
         if skipped:
             logger.info(

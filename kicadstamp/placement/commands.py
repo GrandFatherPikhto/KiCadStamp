@@ -13,6 +13,12 @@ class MoveCommand:
     position: Vector2
     angle: Angle
     layer: BoardLayer
+    # Which placement level resolved this component (clone_position_calculator
+    # _resolve_one_level's placement_label) — lets callers (e.g.
+    # placer.py::_tag_cluster) tell the top-level placement's OWN components
+    # apart from those dragged in via nested CellPlacements. Empty for
+    # ManualSpoke/manual moves (they never recurse into nested cells).
+    owner_ref: str = ""
 
 
 @dataclass
@@ -52,3 +58,5 @@ class PlacedComponentInfo:
     # Layer of THIS component (per-placement side of ClonePlacement).
     # None = inherit the planner's global target_layer.
     layer: BoardLayer | None = None
+    # Which placement level resolved this component — see MoveCommand.owner_ref.
+    owner_ref: str = ""

@@ -442,8 +442,12 @@ the tabs — they act on the whole placement, not one tab.
   (loading the *real*, full Placer config first, so any other already-saved placement's vias/
   tracks are protected — not a synthetic single-placement preview). On success, the components
   that were actually placed are tagged `Cluster=<name>` (nothing else in the pipeline does this —
-  see [docs/config.md](config.md) on `Cluster` being read-only during `apply`). Change a field,
-  click Redraw again — idempotent, safe to repeat.
+  see [docs/config.md](config.md) on `Cluster` being read-only during `apply`). Since 2026-08-26
+  only the placement's OWN-level components are tagged: for a composite cell (nested
+  `clone_placements:`), components resolved by a nested `CellPlacement` keep their own Cluster
+  (`PIF_DVDD`, ...) instead of being re-tagged with the top placement's name (live bug
+  tag_cluster_overtag — a Redraw wiped every nested sub-cell component's Cluster field). Change a
+  field, click Redraw again — idempotent, safe to repeat.
 - **Redraw & Save** (2026-08-25) — Redraw, then — only if it actually succeeded — Save, in one
   click. Redraw runs on a worker thread; Save waits for its real completion (never a naive
   `_on_redraw(); _on_save()`, so they can't race), and is skipped with a clear Log message when

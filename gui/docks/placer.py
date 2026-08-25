@@ -2120,11 +2120,21 @@ class PlacerDock(QWidget):
 
         planner = PlacementPlanner(pipeline.adapter, cfg, sheet_names=ctx.sheet_names if ctx else {})
         planner.begin_planning()
+        # owner_ref is the placement_label of the level that resolved each
+        # component (clone_position_calculator::_resolve_one_level): the
+        # top-level ClonePlacement's OWN components carry this placement's
+        # effective name, while components of nested CellPlacements carry the
+        # nested name (ch1_pif_dvdd, ...). Filter to ONLY this placement's own
+        # level — otherwise a composite cell's Redraw would re-tag every
+        # nested sub-cell component with THIS cluster, wiping their own
+        # Cluster fields (live bug 2026-08-26, handoff tag_cluster_overtag:
+        # all 25 components of dac_buf ended up Cluster='DAC_BUF').
+        own_label = clone_placement_effective_name(my_item.obj)
         refs: List[str] = []
         for item in pipeline.items:
             moves = planner.plan_item(item)
             if item is my_item:
-                refs = [m.ref for m in moves]
+                refs = [m.ref for m in moves if m.owner_ref == own_label]
                 break
 
         updates = []
