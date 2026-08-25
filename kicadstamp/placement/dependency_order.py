@@ -37,12 +37,14 @@ from ..config import (Config, Rule, ClonePlacement, Point,
                       clone_placement_effective_name)
 from ..kicad.adapter import KiCadBoardAdapter
 from ..exceptions import ValidationError, format_fatal_error
-from .services.manual_position_calculator import resolve_rule_anchor_ref
+from .services.manual_position_calculator import (resolve_rule_anchor_ref,
+                                                  rule_roles_needed, rule_clusters_needed,
+                                                  consume_role_to_ref)
 from .services.clone_position_calculator import resolve_clone_anchor_ref
 from .services.point_resolver import resolve_point_anchor_ref
 from .services.clone_role_resolver import (resolve_roles_by_selection, resolve_roles_by_nets,
                                            clone_uses_selection_mode)
-from .services.component_pool import ComponentPool
+from .services.component_resolver import ComponentResolver
 from ..i18n import _
 
 logger = logging.getLogger(__name__)
@@ -73,30 +75,19 @@ def _resolve_rule_produces(adapter: KiCadBoardAdapter, cfg: Config, rule: Rule) 
     avoided — the pool must be scanned to know which refs match the role+net
     criteria. What we skip is all the geometry computation (apply_spoke_geometry,
     pad lookups, via/track command creation).
+
+    The roles/clusters/pool-building/pool-consumption steps are shared with
+    ManualPositionCalculator (rule_roles_needed / rule_clusters_needed /
+    consume_role_to_ref + ComponentResolver.build_pools, 2026-08-25), so the
+    produced set can never drift from what the real pass produces.
     """
     produces: set[str] = set()
 
-    # --- Collect all roles needed across non-retired spokes ---
-    roles_needed: set[str] = set()
-    for spoke in rule.spokes:
-        if spoke.retired:
-            continue
-        cell = cfg.cells.get(spoke.cell)
-        if cell is not None:
-            roles_needed.update(slot.role for slot in cell.components)
-
-    # --- Collect unique clusters used in non-retired spokes ---
-    clusters_needed: set[str | None] = {spoke.cluster for spoke in rule.spokes if not spoke.retired}
+    roles_needed = rule_roles_needed(cfg, rule)
+    clusters_needed = rule_clusters_needed(rule)
 
     # --- Build ComponentPools per cluster (same as ManualPositionCalculator) ---
-    pools_by_cluster: dict[str | None, ComponentPool] = {}
-    for cluster in clusters_needed:
-        pools_by_cluster[cluster] = ComponentPool(
-            adapter,
-            rule.net,
-            roles=sorted(roles_needed),
-            cluster=cluster,
-        )
+    pools_by_cluster = ComponentResolver.build_pools(adapter, rule.net, roles_needed, clusters_needed)
 
     # --- Consume pools in spoke order (same as ManualPositionCalculator) ---
     for spoke in rule.spokes:
@@ -106,9 +97,7 @@ def _resolve_rule_produces(adapter: KiCadBoardAdapter, cfg: Config, rule: Rule) 
         if cell is None:
             continue
 
-        pool = pools_by_cluster[spoke.cluster]
-        role_to_ref = {slot.role: pool.pop(slot.role, spoke.pad) for slot in cell.components}
-        produces.update(role_to_ref.values())
+        produces.update(consume_role_to_ref(pools_by_cluster[spoke.cluster], cell, spoke.pad).values())
 
     return produces
 

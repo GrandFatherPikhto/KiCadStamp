@@ -6,9 +6,9 @@ from contextlib import contextmanager
 from typing import Any
 import kipy
 from kipy.board_types import BoardLayer as KipyBoardLayer, Field, Group, Pad as KipyPad, Track as KipyTrack, Via as KipyVia, ViaType
-from kipy.geometry import Vector2 as KipyVector2, Box2, Angle as KipyAngle
+from kipy.geometry import Vector2 as KipyVector2, Angle as KipyAngle
 
-from ..domain.geometry import BoardLayer, Vector2
+from ..domain.geometry import BoardLayer, Box2, Vector2
 from kipy.proto.board import board_commands_pb2
 from kipy.errors import FutureVersionError
 
@@ -431,7 +431,14 @@ class KiCadBoardAdapter(IBoardAdapter):
         # Defensive normalisation in case it's not a list
         if not isinstance(result, list):
             result = [result]
-        return result
+        converted = []
+        for box in result:
+            if box is None:
+                converted.append(None)
+            else:
+                converted.append(Box2(pos=Vector2(box.pos.x, box.pos.y),
+                                      size=Vector2(box.size.x, box.size.y)))
+        return converted
 
     # --- Transactions ---
     def begin_commit(self):

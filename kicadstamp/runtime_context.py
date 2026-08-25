@@ -35,11 +35,25 @@ class RuntimeContext:
     Runtime-computed data that complements the static YAML Config.
 
     Created by load_config() and threaded through the pipeline alongside Config
-    wherever sheet_names (or future runtime fields) are needed.
+    wherever sheet_names (or the resolved path fields below) are needed.
 
     sheet_names — {uuid: Sheetname} built from *.kicad_sch by load_config();
     this field is the reason load_config() deliberately imports sheet_names
     (see the module docstring): anchor_sheet in the YAML references real
     schematic sheets, and resolving it needs this runtime map.
+
+    registry_path / track_registry_path / log_file / operation_log_dir /
+    root_sheet — the RESOLVED absolute paths of the corresponding Config
+    fields (P1-3, 2026-08-25): Config stores the RAW values exactly as the
+    user wrote them in the YAML (relative to that YAML), while load_config()
+    resolves them against the config file's directory and stores the RESULTS
+    here. Consumers that actually open/read/write these files read from
+    RuntimeContext, never re-resolving or re-deriving the path themselves.
+    Each is None when the YAML leaves the key unset.
     """
     sheet_names: dict[str, str] = field(default_factory=dict)
+    registry_path: str | None = None
+    track_registry_path: str | None = None
+    log_file: str | None = None
+    operation_log_dir: str | None = None
+    root_sheet: str | None = None

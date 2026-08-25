@@ -566,9 +566,9 @@ class ExtractDock(QWidget):
         track_uuids: set = set()
         if self._placer_path.exists():
             try:
-                cfg, _ctx = load_config(str(self._placer_path))
-                registry_path = cfg.registry_path or registry_path_for_config(str(self._placer_path))
-                track_registry_path = (cfg.track_registry_path
+                _cfg, _ctx = load_config(str(self._placer_path))
+                registry_path = _ctx.registry_path or registry_path_for_config(str(self._placer_path))
+                track_registry_path = (_ctx.track_registry_path
                                        or track_registry_path_for_config(str(self._placer_path)))
                 via_uuids = {entry.uuid for entry in load_registry(registry_path).values()}
                 track_uuids = {entry.uuid for entry in load_track_registry(track_registry_path).values()}

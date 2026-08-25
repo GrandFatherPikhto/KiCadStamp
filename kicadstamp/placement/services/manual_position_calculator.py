@@ -12,6 +12,7 @@ from ...registry import make_registry_key
 from ..commands import PlacedComponentInfo, ViaCommand, TrackCommand
 from .clone_role_resolver import resolve_footprint_by_role
 from .component_resolver import ComponentResolver, resolve_anchor_identity
+from .component_pool import ComponentPool
 from ...i18n import _
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,34 @@ def resolve_rule_anchor_ref(adapter: KiCadBoardAdapter, cfg: Config, rule: Rule,
             _sn, label=_("rule (net {net!r})").format(net=rule.net),
         ),
     )
+
+
+def rule_roles_needed(cfg: Config, rule: Rule) -> set[str]:
+    """The set of component Role fields across all non-retired spokes' cells —
+    the SAME roles ComponentPool is built with. Shared with dependency_order.py
+    (2026-08-25, P1-3 sibling dedup), so the produced-refs set computed there
+    and the real geometry pass below can never drift."""
+    roles_needed: set[str] = set()
+    for spoke in rule.spokes:
+        if spoke.retired:
+            continue
+        cell = cfg.cells.get(spoke.cell)
+        if cell is not None:
+            roles_needed.update(slot.role for slot in cell.components)
+    return roles_needed
+
+
+def rule_clusters_needed(rule: Rule) -> set[str | None]:
+    """Unique clusters across non-retired spokes (``None`` included) — shared
+    with dependency_order.py (2026-08-25)."""
+    return {spoke.cluster for spoke in rule.spokes if not spoke.retired}
+
+
+def consume_role_to_ref(pool: ComponentPool, cell, spoke_pad: str) -> dict[str, str]:
+    """Pop one component per role slot of ``cell`` from ``pool`` — the SAME
+    consumption expression dependency_order.py uses to compute produced refs
+    (2026-08-25). Kept here so the two passes agree exactly."""
+    return {slot.role: pool.pop(slot.role, spoke_pad) for slot in cell.components}
 
 
 def rule_anchor_ids(rule: Rule) -> set[str]:
@@ -109,13 +138,7 @@ class ManualPositionCalculator:
             anchor_ref_resolved = target_fp.ref
 
             # --- Collect all roles needed for this rule ---
-            roles_needed = set()
-            for spoke in rule.spokes:
-                if spoke.retired:
-                    continue
-                cell = self.cfg.cells.get(spoke.cell)
-                if cell is not None:
-                    roles_needed.update(slot.role for slot in cell.components)
+            roles_needed = rule_roles_needed(self.cfg, rule)
 
             # Important: do not skip the rule entirely if roles_needed is empty —
             # this only means "no component‑bearing slots in any spoke cell",
@@ -126,7 +149,7 @@ class ManualPositionCalculator:
             # gives empty pools below — cheap, no special branch needed.
 
             # --- Collect clusters used in spokes (including None) ---
-            clusters_needed = {spoke.cluster for spoke in rule.spokes if not spoke.retired}
+            clusters_needed = rule_clusters_needed(rule)
 
             # --- Build pools for each cluster ---
             pools_by_cluster = ComponentResolver.build_pools(
@@ -162,7 +185,7 @@ class ManualPositionCalculator:
                 pool = pools_by_cluster[spoke.cluster]
 
                 # Consume pool by roles
-                role_to_ref = {slot.role: pool.pop(slot.role, spoke.pad) for slot in cell.components}
+                role_to_ref = consume_role_to_ref(pool, cell, spoke.pad)
 
                 layout = apply_spoke_geometry(pad.position, spoke, cell, rule.net, role_to_ref)
                 anchor_id = f"pad:{spoke.pad}"

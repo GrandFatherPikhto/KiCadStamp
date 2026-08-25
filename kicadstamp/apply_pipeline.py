@@ -470,15 +470,21 @@ class ApplyPipeline:
     # ── Execution ───────────────────────────────────────────────────────────
 
     def _execute(self) -> None:
-        executor = BatchExecutor(self.adapter, self.cfg, batch_size=self.batch_size)
-        registry = PlacementRegistry(
-            self.adapter,
-            self.cfg.registry_path or registry_path_for_config(self.config_path),
+        ctx = self.ctx
+        # Resolved absolute paths live on RuntimeContext (P1-3). Fall back to
+        # the raw Config value only when no ctx was preloaded — author.py's
+        # apply_config may be called with ctx=None and a manually built Config
+        # whose registry_path is already absolute (see its docstring).
+        registry_path = ((ctx.registry_path if ctx else self.cfg.registry_path)
+                         or registry_path_for_config(self.config_path))
+        track_registry_path = ((ctx.track_registry_path if ctx else self.cfg.track_registry_path)
+                               or track_registry_path_for_config(self.config_path))
+        executor = BatchExecutor(
+            self.adapter, self.cfg, batch_size=self.batch_size,
+            operation_log_dir=ctx.operation_log_dir if ctx else self.cfg.operation_log_dir,
         )
-        track_registry = TrackRegistry(
-            self.adapter,
-            self.cfg.track_registry_path or track_registry_path_for_config(self.config_path),
-        )
+        registry = PlacementRegistry(self.adapter, registry_path)
+        track_registry = TrackRegistry(self.adapter, track_registry_path)
 
         # --- Phase 0: coordinate_placements ("dumb placer") — self-
         # contained absolute-position moves, no dependency on anything else

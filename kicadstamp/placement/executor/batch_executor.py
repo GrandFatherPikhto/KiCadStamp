@@ -15,14 +15,19 @@ from ...i18n import _
 logger = logging.getLogger(__name__)
 
 class BatchExecutor:
-    def __init__(self, adapter: KiCadBoardAdapter, config: Config, batch_size: int = DEFAULT_BATCH_SIZE):
+    def __init__(self, adapter: KiCadBoardAdapter, config: Config,
+                 batch_size: int = DEFAULT_BATCH_SIZE,
+                 operation_log_dir: str | None = None):
         self.adapter = adapter
         self.cfg = config
         self.batch_size = batch_size
         self.move_executor = MoveExecutor(adapter, config, batch_size)
         self.via_executor = ViaExecutor(adapter, config, batch_size)
         self.track_executor = TrackExecutor(adapter, config, batch_size)
-        self.logger = OperationLogger(config.operation_log_dir or DEFAULT_LOG_DIR)
+        # operation_log_dir is the RESOLVED absolute directory (P1-3: the
+        # resolved value now lives on RuntimeContext, not Config); None falls
+        # back to DEFAULT_LOG_DIR exactly as before.
+        self.logger = OperationLogger(operation_log_dir or DEFAULT_LOG_DIR)
         self._pending_move_log = []
         self._pending_via_log = []
 

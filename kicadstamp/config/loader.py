@@ -335,24 +335,27 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
     sheet_names = LazySheetNameMap(path, schematic_dir, schematic_files)
 
     config_dir = Path(path).parent
+    # RAW values from the YAML (exactly what the user wrote, relative to that
+    # YAML) stay on Config — Config is a pure description of the YAML schema.
+    # The RESOLVED absolute paths below go onto RuntimeContext instead (P1-3,
+    # 2026-08-25): the schema/runtime split that keeps Config free of
+    # filesystem-derived data.
     registry_path = data.get('registry_path')
     track_registry_path = data.get('track_registry_path')
-    if registry_path:
-        registry_path = resolve_config_relative_path(config_dir, registry_path)
-    if track_registry_path:
-        track_registry_path = resolve_config_relative_path(config_dir, track_registry_path)
-
     log_file = data.get('log_file')
-    if log_file:
-        log_file = resolve_config_relative_path(config_dir, log_file)
-
     operation_log_dir = data.get('operation_log_dir')
-    if operation_log_dir:
-        operation_log_dir = resolve_config_relative_path(config_dir, operation_log_dir)
-
     root_sheet = data.get('root_sheet')
-    if root_sheet:
-        root_sheet = resolve_config_relative_path(config_dir, root_sheet)
+
+    resolved_registry_path = (resolve_config_relative_path(config_dir, registry_path)
+                              if registry_path else None)
+    resolved_track_registry_path = (resolve_config_relative_path(config_dir, track_registry_path)
+                                    if track_registry_path else None)
+    resolved_log_file = (resolve_config_relative_path(config_dir, log_file)
+                         if log_file else None)
+    resolved_operation_log_dir = (resolve_config_relative_path(config_dir, operation_log_dir)
+                                  if operation_log_dir else None)
+    resolved_root_sheet = (resolve_config_relative_path(config_dir, root_sheet)
+                           if root_sheet else None)
 
     # board_name — NOT a path, deliberately not resolved relative to the YAML
     # (see Config.board_name's docstring): it's a board/project identity string
@@ -360,10 +363,18 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
     # unrelated directory trees.
     board_name = data.get('board_name')
 
-    # sheet_names is runtime-computed data (NOT part of the YAML schema), so
-    # it is threaded via RuntimeContext rather than stored on Config — keeping
-    # Config a pure description of the YAML schema (see runtime_context.py).
-    ctx = RuntimeContext(sheet_names=sheet_names)
+    # sheet_names + the resolved path fields are runtime-computed data (NOT
+    # part of the YAML schema), so they are threaded via RuntimeContext rather
+    # than stored on Config — keeping Config a pure description of the YAML
+    # schema (see runtime_context.py).
+    ctx = RuntimeContext(
+        sheet_names=sheet_names,
+        registry_path=resolved_registry_path,
+        track_registry_path=resolved_track_registry_path,
+        log_file=resolved_log_file,
+        operation_log_dir=resolved_operation_log_dir,
+        root_sheet=resolved_root_sheet,
+    )
 
     cfg = Config(
         layer=root_layer,

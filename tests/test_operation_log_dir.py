@@ -31,8 +31,10 @@ class TestLoadConfigResolvesOperationLogDir:
     def test_absent_defaults_to_none(self, tmp_path):
         config_file = tmp_path / "board.yaml"
         config_file.write_text("layer: F.Cu\ncells: {}\nrules: []\n", encoding="utf-8")
-        cfg, _ = load_config(str(config_file))
+        cfg, ctx = load_config(str(config_file))
+        # P1-3: Config keeps the RAW value; the RESOLVED path lives on ctx.
         assert cfg.operation_log_dir is None
+        assert ctx.operation_log_dir is None
 
     def test_relative_resolved_against_config_file(self, tmp_path):
         """operation_log_dir is relative to the config file itself (like
@@ -41,8 +43,10 @@ class TestLoadConfigResolvesOperationLogDir:
         config_file.write_text(
             "layer: F.Cu\ncells: {}\nrules: []\noperation_log_dir: logs\n",
             encoding="utf-8")
-        cfg, _ = load_config(str(config_file))
-        assert cfg.operation_log_dir == str(tmp_path / "logs")
+        cfg, ctx = load_config(str(config_file))
+        # P1-3: Config keeps the RAW value; the RESOLVED path lives on ctx.
+        assert cfg.operation_log_dir == "logs"
+        assert ctx.operation_log_dir == str(tmp_path / "logs")
 
 
 class TestOperationLoggerCreatesNestedDir:
@@ -70,7 +74,9 @@ class TestOperationLoggerCreatesNestedDir:
 
 class TestBatchExecutorUsesConfigOperationLogDir:
     """Writing side of П.7: BatchExecutor must route operation logs to
-    config.operation_log_dir when set — regardless of the process CWD."""
+    operation_log_dir when set — regardless of the process CWD. P1-3: the
+    resolved directory is passed explicitly (it lives on RuntimeContext, not
+    Config), so BatchExecutor no longer reads config.operation_log_dir."""
 
     @staticmethod
     def _fp(ref):
@@ -100,10 +106,10 @@ class TestBatchExecutorUsesConfigOperationLogDir:
             cells={},
             rules=[],
             clone_placements=[],
-            operation_log_dir=str(bound),
         )
         adapter = self._adapter(self._fp("C39"))
-        executor = BatchExecutor(adapter, cfg, batch_size=10)
+        executor = BatchExecutor(adapter, cfg, batch_size=10,
+                                 operation_log_dir=str(bound))
 
         move = MoveCommand(ref="C39", position=Vector2.from_xy(int(51 * MM), int(51 * MM)),
                           angle=Angle.from_degrees(180.0), layer=BoardLayer.BL_B_Cu)
@@ -120,10 +126,10 @@ class TestBatchExecutorUsesConfigOperationLogDir:
             cells={},
             rules=[],
             clone_placements=[],
-            operation_log_dir=str(bound),
         )
         adapter = self._adapter(self._fp("C39"))
-        executor = BatchExecutor(adapter, cfg, batch_size=10)
+        executor = BatchExecutor(adapter, cfg, batch_size=10,
+                                 operation_log_dir=str(bound))
 
         move = MoveCommand(ref="C39", position=Vector2.from_xy(int(51 * MM), int(51 * MM)),
                           angle=Angle.from_degrees(180.0), layer=BoardLayer.BL_B_Cu)

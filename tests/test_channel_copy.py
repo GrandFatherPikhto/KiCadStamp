@@ -509,7 +509,7 @@ class TestExecution:
         captured = {}
 
         class FakeExecutor:
-            def __init__(self, adapter, config, batch_size=10):
+            def __init__(self, adapter, config, batch_size=10, operation_log_dir=None):
                 captured["config"] = config
 
             def execute(self, moves, vias, tracks, check_collisions=True,

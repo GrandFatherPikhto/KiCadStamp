@@ -151,3 +151,27 @@ class BoardLayer(Enum):
 
     BL_F_Cu = 0
     BL_B_Cu = 32
+
+
+class Box2:
+    """A bounding box — API-compatible with kipy.Box2 (pos/size/inflate)."""
+
+    __slots__ = ("pos", "size")
+
+    def __init__(self, pos: Vector2 | None = None, size: Vector2 | None = None):
+        self.pos = pos if pos is not None else Vector2(0, 0)
+        self.size = size if size is not None else Vector2(0, 0)
+
+    def __repr__(self) -> str:
+        return f"Box2(pos={self.pos}, size={self.size})"
+
+    def center(self) -> Vector2:
+        return Vector2(self.pos.x + self.size.x // 2, self.pos.y + self.size.y // 2)
+
+    def inflate(self, amount: int) -> "Box2":
+        new_width = self.size.x + amount
+        new_height = self.size.y + amount
+        self.pos = Vector2(self.pos.x - (new_width - self.size.x) // 2,
+                           self.pos.y - (new_height - self.size.y) // 2)
+        self.size = Vector2(new_width, new_height)
+        return self

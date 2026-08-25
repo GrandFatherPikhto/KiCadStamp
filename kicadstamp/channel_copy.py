@@ -654,7 +654,8 @@ def execute_channel_copy(adapter, plan: ChannelCopyPlan, *,
 
     Returns (failed_refs, failed_vias, failed_tracks)."""
     cfg = config or Config()
-    executor = BatchExecutor(adapter, cfg, batch_size=batch_size)
+    executor = BatchExecutor(adapter, cfg, batch_size=batch_size,
+                             operation_log_dir=cfg.operation_log_dir)
     failed_refs, failed_vias, failed_tracks = executor.execute(
         plan.moves, plan.vias, plan.tracks,
         check_collisions=check_collisions,
