@@ -48,15 +48,23 @@ from ...config import (
     CoordinatePlacement,
     Config,
     RuntimeContext,
+    clone_placement_effective_name,
     coordinate_placement_effective_name,
 )
 from ...domain.board import Footprint, Track, Via
+from ...domain.geometry import Vector2
 from ...exceptions import ValidationError, format_fatal_error
+from ...geometry.clone_geometry import clone_layout_origin
 from ...i18n import _
 from .clone_role_resolver import (
     clone_uses_selection_mode,
+    resolve_anchor_by_role,
     resolve_roles_by_nets,
     resolve_roles_by_selection,
+)
+from .component_resolver import (
+    resolve_anchor_pad_position,
+    resolve_footprint_by_ref,
 )
 from .coordinate_position_calculator import resolve_footprint_by_cluster_role
 
@@ -198,3 +206,51 @@ def resolve_clone_board_items(
     anchor_id = clone_anchor_id(clone)
     items.extend(_resolve_clone_copper(adapter, anchor_id, registry_path, track_registry_path))
     return items
+
+
+def _resolve_clone_anchor_position(adapter, cfg: Config, clone: ClonePlacement,
+                                   sheet_names: dict[str, str],
+                                   resolved_points: dict) -> Vector2 | None:
+    """Absolute anchor point of a top-level ClonePlacement — the SAME branch
+    ClonePositionCalculator._resolve_anchor uses (anchor_point first, then
+    anchor_ref, then anchor_role; anchor_pad refines to a pad position). None
+    for the absolute-coordinate mode (no anchor at all). Split out so
+    clone_world_origin() can reuse it without instantiating the calculator."""
+    if clone.anchor_point is not None:
+        from .point_resolver import resolve_point_chain
+        if clone.anchor_point not in resolved_points:
+            resolved_points[clone.anchor_point] = resolve_point_chain(
+                adapter, cfg.points, clone.anchor_point, sheet_names)
+        return resolved_points[clone.anchor_point].position
+    if clone.anchor_ref is not None:
+        fp = resolve_footprint_by_ref(adapter, clone.anchor_ref,
+                                      clone_placement_effective_name(clone))
+    elif clone.anchor_role is not None:
+        fp = resolve_anchor_by_role(adapter, clone, sheet_names)
+    else:
+        return None
+    if clone.anchor_pad is None:
+        return fp.position
+    return resolve_anchor_pad_position(adapter, fp, clone.anchor_pad,
+                                       clone_placement_effective_name(clone))
+
+
+def clone_world_origin(adapter, cfg: Config, clone: ClonePlacement,
+                       sheet_names: dict[str, str] | None = None,
+                       resolved_points: dict | None = None) -> Vector2:
+    """World-space position of a top-level ClonePlacement's cell-local (0,0) —
+    exactly what apply_clone_geometry() calls `layout.origin` (anchor + flat
+    shift, via clone_layout_origin), without re-running role resolution or the
+    rest of the geometry. Used by ExtractDock's Sub-placements (2026-08-25) to
+    convert an existing placement's world origin into the new cell's local xy
+    at extraction time.
+
+    adapter — live board reads (anchor resolution); cfg — the loaded Config
+    (points: for an anchor_point-anchored clone); clone — the top-level
+    ClonePlacement. resolved_points — optional pre-resolved point cache
+    (name -> ResolvedPoint), reused across callers the way planner.py owns
+    one. Raises the same ValidationError the apply path's anchor resolution
+    raises on a missing/ambiguous anchor."""
+    anchor_position = _resolve_clone_anchor_position(
+        adapter, cfg, clone, sheet_names or {}, dict(resolved_points or {}))
+    return clone_layout_origin(clone, anchor_position)

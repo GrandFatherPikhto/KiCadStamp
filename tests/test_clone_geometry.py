@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pytest
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.config import ClonePlacement, Cell, TemplateVia, TemplateTrack, TemplateComponentSlot
-from kicadstamp.geometry.clone_geometry import apply_clone_geometry, clone_shift_mm
+from kicadstamp.geometry.clone_geometry import apply_clone_geometry, clone_layout_origin, clone_shift_mm
 from kicadstamp.geometry.spoke_layout import local_to_absolute, rotate_local_offset
 from kicadstamp.exceptions import ValidationError
 
@@ -317,3 +317,33 @@ class TestNetFromRoleInGeometry:
         clone = ClonePlacement(cluster="x", cell="r", xy=(0.0, 0.0))
         with pytest.raises(ValidationError, match="not resolved"):
             apply_clone_geometry(clone, tpl, {"CAP_IN": "C10"})
+
+
+class TestCloneLayoutOrigin:
+    """clone_layout_origin must return EXACTLY the `layout.origin` that
+    apply_clone_geometry computes (same anchor + shift composition) — it is
+    what ExtractDock's Sub-placements xy derives from (2026-08-25), so a
+    divergence here would silently misplace a referenced sub-placement."""
+
+    def test_anchored_cartesian_matches_apply_origin(self):
+        clone = ClonePlacement(cluster="filter1", cell="pi_filter", xy=(5.0, 2.0))
+        anchor = Vector2.from_xy(int(100.0 * MM), int(200.0 * MM))
+
+        layout = apply_clone_geometry(clone, _pi_filter_template(), {},
+                                      anchor_position=anchor)
+        assert clone_layout_origin(clone, anchor) == layout.origin
+
+    def test_absolute_cartesian_matches_apply_origin(self):
+        clone = ClonePlacement(cluster="filter1", cell="pi_filter", xy=(5.0, 2.0))
+
+        layout = apply_clone_geometry(clone, _pi_filter_template(), {})
+        assert clone_layout_origin(clone, None) == layout.origin
+
+    def test_polar_matches_apply_origin(self):
+        clone = ClonePlacement(cluster="filter1", cell="pi_filter", xy=(0.0, 0.0),
+                               radius_mm=5.0, angle_deg=37.0)
+        anchor = Vector2.from_xy(int(10.0 * MM), int(20.0 * MM))
+
+        layout = apply_clone_geometry(clone, _pi_filter_template(), {},
+                                      anchor_position=anchor)
+        assert clone_layout_origin(clone, anchor) == layout.origin

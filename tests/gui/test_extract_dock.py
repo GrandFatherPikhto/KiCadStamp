@@ -7,11 +7,12 @@ import yaml
 from kicadstamp.domain.geometry import BoardLayer
 from kicadstamp.domain.geometry import Vector2
 
+from kicadstamp.config import ClonePlacement
 from kicadstamp.domain.board import Footprint, Track, Via
 from PyQt6.QtCore import Qt
 
 import gui.docks.extract as extract_mod
-from gui.docks.extract import ExtractDock
+from gui.docks.extract import ExtractDock, SubPlacementCandidate
 
 
 class FakeSelected:
@@ -589,14 +590,18 @@ def test_tabs_have_the_expected_labels(main_window, tmp_path):
     """2026-08-04 (Denis: "плашка отказывается переразмериваться") — Origin/
     Net aliases/Net template role/Existing moved from one long stacked
     QVBoxLayout into a QTabWidget, so the dock's minimum height is that of
-    ONE page, not the sum of all of them."""
+    ONE page, not the sum of all of them. "Sub-placements" (2026-08-25) is a
+    hidden-by-default tab, same as "Net template role" — it must not break the
+    tab order or the "only current page sizes the window" invariant."""
     cells_file = tmp_path / "cells.yaml"
     _write_yaml(cells_file, {})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
 
     assert [dock._tabs.tabText(i) for i in range(dock._tabs.count())] == [
-        "Origin", "Net aliases", "Net template role", "Existing"]
+        "Origin", "Net aliases", "Net template role", "Sub-placements", "Existing"]
+    # Hidden until there is at least one fully-covered placement candidate.
+    assert not dock._tabs.isTabVisible(dock._sub_placement_tab_index)
 
 
 def test_net_template_role_tab_hidden_until_classification_sees_two_nets(main_window, tmp_path, monkeypatch):
@@ -1284,3 +1289,293 @@ def test_raw_selection_reaches_run_extract_to_file(main_window, tmp_path, monkey
     dock._run_extract(dock._collect_extract_inputs())
 
     assert captured["raw_selection"] is True
+
+
+# ── Sub-placements: auto-detect fully-covered existing placements (2026-08-25,
+# handoff composite_cell_autodetect_and_cycle_guard, Задание 1) ────────────
+
+def _sub_placement_dock(main_window, tmp_path, monkeypatch, clone, items):
+    """ExtractDock with a fixed sub-placement catalog (the resolver itself is
+    core-tested in tests/test_clone_placement_geometry.py + the board_items_
+    resolver tests; here we exercise the dock's detection/exclusion logic on
+    top of it). `items` are the resolved board items the catalog reports for
+    `clone` — a placement is a candidate exactly when ALL of them are in the
+    current selection."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+    monkeypatch.setattr(ExtractDock, "_sub_placement_catalog",
+                        lambda self: [(clone, items)])
+    return dock
+
+
+def test_sub_placements_candidate_detected_when_fully_covered(main_window, tmp_path, monkeypatch):
+    """Selection = DAC/OpAmp + a WHOLE existing PIF_AVDD (its components and
+    via/tracks) -> the Sub-placements tab appears with one row, checked by
+    default, showing placement name + cell + matched count."""
+    clone = ClonePlacement(cluster="PIF_AVDD", name="CH0_PIF_AVDD", cell="pif_avdd",
+                           xy=(5.0, 2.0))
+    fp = _fake_fp("C1")
+    via = _fake_via("+3V3", uuid="via-uuid-pif")
+    track = _fake_track("+3V3", uuid="track-uuid-pif")
+    dock = _sub_placement_dock(main_window, tmp_path, monkeypatch, clone, [fp, via, track])
+
+    dock.set_board_selection(
+        [fp, via, track, _fake_fp("C2")],
+        [FakeSelected("C1", "C_IN", "PIF_AVDD", {}),
+         FakeSelected("C2", "OTHER", "DAC_BUF", {})])
+
+    assert len(dock._sub_placement_candidates) == 1
+    assert dock._sub_placement_candidates[0].clone is clone
+    assert dock._tabs.isTabVisible(dock._sub_placement_tab_index)
+    assert dock._sub_placements_table.rowCount() == 1
+    cb = dock._sub_placements_table.cellWidget(0, 0)
+    assert cb is not None and cb.isChecked()  # default on
+    assert dock._sub_placements_table.item(0, 1).text() == "CH0_PIF_AVDD"
+    assert dock._sub_placements_table.item(0, 2).text() == "pif_avdd"
+    assert dock._sub_placements_table.item(0, 3).text() == "1 component(s), 2 via/track(s)"
+
+
+def test_sub_placements_partial_coverage_is_not_a_candidate(main_window, tmp_path, monkeypatch):
+    """Selection holds only PART of PIF_AVDD (e.g. the area-select missed one
+    resistor) -> NOT a candidate, old behavior (no surprises on a partial
+    overlap), tab stays hidden."""
+    clone = ClonePlacement(cluster="PIF_AVDD", name="CH0_PIF_AVDD", cell="pif_avdd",
+                           xy=(5.0, 2.0))
+    fp = _fake_fp("C1")
+    via = _fake_via("+3V3", uuid="via-uuid-pif")
+    track = _fake_track("+3V3", uuid="track-uuid-pif")
+    dock = _sub_placement_dock(main_window, tmp_path, monkeypatch, clone, [fp, via, track])
+
+    # track is missing from the selection
+    dock.set_board_selection(
+        [fp, via],
+        [FakeSelected("C1", "C_IN", "PIF_AVDD", {})])
+
+    assert dock._sub_placement_candidates == []
+    assert not dock._tabs.isTabVisible(dock._sub_placement_tab_index)
+    assert dock._sub_placements_table.rowCount() == 0
+
+
+def test_sub_placements_empty_placement_is_not_a_candidate(main_window, tmp_path, monkeypatch):
+    """A placement with no resolved items (never placed / unresolved) must not
+    be offered — an empty set is trivially a subset of any selection, which
+    would otherwise flood the tab with junk rows."""
+    clone = ClonePlacement(cluster="PIF_AVDD", name="CH0_PIF_AVDD", cell="pif_avdd",
+                           xy=(5.0, 2.0))
+    dock = _sub_placement_dock(main_window, tmp_path, monkeypatch, clone, [])
+
+    dock.set_board_selection([_fake_fp("C2")], [FakeSelected("C2", "OTHER", "DAC_BUF", {})])
+
+    assert dock._sub_placement_candidates == []
+    assert not dock._tabs.isTabVisible(dock._sub_placement_tab_index)
+
+
+def test_sub_placements_unchecked_keeps_items_flat(main_window, tmp_path, monkeypatch):
+    """Checkbox OFF -> the old behavior: the placement's items stay in the
+    flat extraction and no clone_placements entry is produced."""
+    clone = ClonePlacement(cluster="PIF_AVDD", name="CH0_PIF_AVDD", cell="pif_avdd",
+                           xy=(5.0, 2.0))
+    fp = _fake_fp("C1")
+    via = _fake_via("+3V3", uuid="via-uuid-pif")
+    track = _fake_track("+3V3", uuid="track-uuid-pif")
+    extra = _fake_fp("C2")
+    dock = _sub_placement_dock(main_window, tmp_path, monkeypatch, clone, [fp, via, track])
+
+    dock.set_board_selection(
+        [fp, via, track, extra],
+        [FakeSelected("C1", "C_IN", "PIF_AVDD", {}),
+         FakeSelected("C2", "OTHER", "DAC_BUF", {})])
+    dock._sub_placement_checkboxes["CH0_PIF_AVDD"].setChecked(False)
+    dock.name_edit.setText("dac_buf")
+    main_window.connection.board = FakeBoard()
+
+    payload = dock._collect_extract_inputs()
+
+    assert payload["sub_placements"] == []
+    # every item still in the flat selection
+    assert set(payload["raw_items"]) == {fp, via, track, extra}
+
+
+def test_sub_placements_checked_excludes_items_and_adds_entry(main_window, tmp_path, monkeypatch):
+    """Checkbox ON (default) -> the placement's items are EXCLUDED from the
+    flat selection, and a clone_placements payload record (name + clone) is
+    produced for the worker to turn into a CellPlacement entry."""
+    clone = ClonePlacement(cluster="PIF_AVDD", name="CH0_PIF_AVDD", cell="pif_avdd",
+                           xy=(5.0, 2.0), rotation_deg=180.0, mirror=True, layer="B.Cu")
+    fp = _fake_fp("C1")
+    via = _fake_via("+3V3", uuid="via-uuid-pif")
+    track = _fake_track("+3V3", uuid="track-uuid-pif")
+    extra = _fake_fp("C2")
+    dock = _sub_placement_dock(main_window, tmp_path, monkeypatch, clone, [fp, via, track])
+
+    dock.set_board_selection(
+        [fp, via, track, extra],
+        [FakeSelected("C1", "C_IN", "PIF_AVDD", {}),
+         FakeSelected("C2", "OTHER", "DAC_BUF", {})])
+    dock.name_edit.setText("dac_buf")
+    main_window.connection.board = FakeBoard()
+
+    payload = dock._collect_extract_inputs()
+
+    assert set(payload["raw_items"]) == {extra}  # PIF items excluded
+    assert len(payload["sub_placements"]) == 1
+    rec = payload["sub_placements"][0]
+    assert rec["name"] == "CH0_PIF_AVDD"
+    assert rec["clone"] is clone
+
+
+def test_run_extract_forwards_built_clone_placements(main_window, tmp_path, monkeypatch):
+    """The worker forwards the built CellPlacement entries into
+    run_extract_to_file(clone_placements=...) — the write-through itself is
+    covered in tests/test_extract_writer.py."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+    captured = {}
+    monkeypatch.setattr(
+        extract_mod, "run_extract_to_file",
+        lambda adapter, **kw: captured.update(kw) or
+        {"messages": [], "annotations": [], "template_dict": {}})
+    monkeypatch.setattr(
+        ExtractDock, "_build_sub_placements",
+        lambda self, payload: ([{"name": "ch0_pif_avdd", "cell": "pif_avdd",
+                                 "xy": [5.0, 2.0]}], None))
+
+    payload = {
+        "board": FakeBoard(), "name": "dac_buf", "params": {},
+        "raw_items": [_fake_fp("C9")], "net_template_role": {}, "rule_nets": set(),
+        "origin_kwargs": {}, "target_path": cells_file, "save_profile": False,
+        "profile_key": "dac_buf", "profile_path": None, "placer_path": cells_file,
+        "raw_selection": False,
+        "sub_placements": [{"name": "CH0_PIF_AVDD", "clone": object()}],
+    }
+    dock._run_extract(payload)
+
+    assert captured["clone_placements"] == [
+        {"name": "ch0_pif_avdd", "cell": "pif_avdd", "xy": [5.0, 2.0]}]
+
+
+def test_build_sub_placements_xy_is_world_origin_in_new_cell_local_frame(main_window, tmp_path, monkeypatch):
+    """xy = the existing placement's world origin converted into the new cell's
+    local frame via the SAME (world - origin) formula the extractor uses for
+    every other point. The new cell is extracted 'as-is' at rotation 0, so the
+    placement's world rotation IS its local rotation (copied verbatim), and
+    mirror/layer copy one-to-one. clone_world_origin/_find_origin are patched
+    (their own geometry is core-tested); this pins the GUI's composition."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {"clone_placements": []})
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+
+    clone = ClonePlacement(cluster="PIF_AVDD", name="CH0_PIF_AVDD", cell="pif_avdd",
+                           xy=(10.0, 5.0), rotation_deg=90.0, layer="B.Cu")
+    monkeypatch.setattr("kicadstamp.placement.services.board_items_resolver.clone_world_origin",
+                        lambda adapter, cfg, clone, sheet_names=None, resolved_points=None:
+                        Vector2.from_xy(15_000_000, 8_000_000))
+    monkeypatch.setattr("kicadstamp.template_selection._find_origin",
+                        lambda footprints, vias, onet, orole, opad, adapter:
+                        Vector2.from_xy(5_000_000, 3_000_000))
+
+    payload = {
+        "board": FakeBoard(), "placer_path": cells_file,
+        "raw_items": [_fake_fp("C9")], "origin_kwargs": {},
+        "sub_placements": [{"name": "CH0_PIF_AVDD", "clone": clone}],
+    }
+    entries, err = dock._build_sub_placements(payload)
+
+    assert err is None
+    # name is the slug of the existing placement's name (Cluster->slug rule)
+    assert entries == [{
+        "name": "ch0_pif_avdd", "cell": "pif_avdd", "xy": [10.0, 5.0],
+        "rotation_deg": 90.0, "layer": "B.Cu",
+    }]
+
+
+def test_filtered_selection_keeps_fully_covered_placements_copper(main_window, tmp_path, monkeypatch):
+    """Задание 1б: with the Cluster filter ON, a Via whose UUID is already in
+    the registry of a placement that is WHOLLY covered by the selection is no
+    longer silently dropped — the placement became a Sub-placement candidate,
+    so its own copper stays in the selection (it becomes a reference or stays
+    flat per the user's checkbox, never silently stripped in between)."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    placer_file = tmp_path / "placer.yaml"
+    _write_yaml(placer_file, {"clone_placements": []})
+    _write_registry(tmp_path / "placer.registry.json", {
+        "pif|via|0|0": {"uuid": "via-uuid-pif", "x_mm": 0, "y_mm": 0,
+                        "net": "+3V3", "drill_mm": 0.3, "diameter_mm": 0.6},
+    })
+    _write_registry(tmp_path / "placer.tracks.registry.json", {})
+
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+    dock.set_root_path(placer_file)  # _placer_path -> placer.yaml (registry read)
+
+    clone = ClonePlacement(cluster="PIF_AVDD", name="CH0_PIF_AVDD", cell="pif_avdd",
+                           xy=(5.0, 2.0))
+    fp = _fake_fp("C1")
+    via = _fake_via("+3V3", uuid="via-uuid-pif")
+    other = _fake_fp("C2")
+    monkeypatch.setattr(ExtractDock, "_sub_placement_catalog",
+                        lambda self: [(clone, [fp, via])])
+
+    dock.set_board_selection(
+        [fp, via, other],
+        [FakeSelected("C1", "C_IN", "PIF_AVDD", {}),
+         FakeSelected("C2", "OTHER", "DAC_BUF", {})])
+    # Two distinct clusters -> the filter stays usable; pick the PIF cluster.
+    dock.cluster_filter_checkbox.setChecked(True)
+    idx = dock.cluster_filter_combo.findData("PIF_AVDD")
+    dock.cluster_filter_combo.setCurrentIndex(idx)
+
+    assert len(dock._sub_placement_candidates) == 1  # fully covered -> candidate
+    filtered_items, _footprints = dock._filtered_selection()
+    assert via in filtered_items  # kept despite being in the registry
+
+
+def test_filtered_selection_still_drops_foreign_registry_copper(main_window, tmp_path, monkeypatch):
+    """1б must not soften the registry filter for placements that are NOT fully
+    covered (or not candidates at all) — a wholly-foreign/partially-covered
+    placement's copper is still dropped the old way."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {})
+    placer_file = tmp_path / "placer.yaml"
+    _write_yaml(placer_file, {"clone_placements": []})
+    _write_registry(tmp_path / "placer.registry.json", {
+        "pif|via|0|0": {"uuid": "via-uuid-pif", "x_mm": 0, "y_mm": 0,
+                        "net": "+3V3", "drill_mm": 0.3, "diameter_mm": 0.6},
+    })
+    _write_registry(tmp_path / "placer.tracks.registry.json", {})
+
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+    dock.set_root_path(placer_file)
+
+    # Clone whose via is registered, but whose footprint is NOT in the
+    # selection -> not fully covered -> not a candidate.
+    clone = ClonePlacement(cluster="PIF_AVDD", name="CH0_PIF_AVDD", cell="pif_avdd",
+                           xy=(5.0, 2.0))
+    fp = _fake_fp("C1")
+    via = _fake_via("+3V3", uuid="via-uuid-pif")
+    c2 = _fake_fp("C2")
+    c3 = _fake_fp("C3")
+    monkeypatch.setattr(ExtractDock, "_sub_placement_catalog",
+                        lambda self: [(clone, [fp, via])])
+
+    # Two distinct clusters (needed for the Cluster filter to stay usable);
+    # the PIF clone's own footprint C1 is NOT among them, so the placement is
+    # not fully covered -> not a candidate.
+    dock.set_board_selection(
+        [via, c2, c3],
+        [FakeSelected("C2", "OTHER", "DAC_BUF", {}),
+         FakeSelected("C3", "SOMETHING", "PIF_AVDD", {})])
+    dock.cluster_filter_checkbox.setChecked(True)
+    idx = dock.cluster_filter_combo.findData("DAC_BUF")
+    dock.cluster_filter_combo.setCurrentIndex(idx)
+
+    assert dock._sub_placement_candidates == []  # C1 missing -> not covered
+    filtered_items, _footprints = dock._filtered_selection()
+    assert via not in filtered_items  # still dropped by the registry filter

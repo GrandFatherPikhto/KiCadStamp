@@ -229,6 +229,7 @@ class ClonePositionCalculator:
         anchor_position: Vector2 | None,
         parent_rotation_deg: float,
         anchor_id: str,
+        chain: tuple[str, ...] = (),
     ) -> tuple[list[PlacedComponentInfo], list[ViaCommand], list[TrackCommand]]:
         """
         Resolves ONE placement (top-level ClonePlacement or a nested
@@ -246,6 +247,19 @@ class ClonePositionCalculator:
         anchor_id is THIS placement's own registry identity — path-composed
         one level deeper for each nested recursive call (see the recursive
         call below), so nested content gets a unique, rename-stable key.
+
+        chain — the ordered tuple of CELL NAMES already visited on the
+        CURRENT branch of the recursion (each nested cell's name appended
+        before recursing, never shared between sibling branches — a diamond
+        where two branches reference the same leaf is NOT a cycle). Used to
+        catch a cyclic clone_placements graph (A -> B -> A) with a clean
+        ValidationError instead of Python's own RecursionError: the
+        load-time check_no_cell_definition_cycles (config/loader.py) catches
+        it in configs that go through load_config, but a cfg assembled in
+        memory (GUI single-file edit flows, programmatic construction) can
+        still reach here — this guard is the last line of defence, and after
+        ExtractDock starts auto-generating clone_placements (2026-08-25) such
+        cycles become possible without any hand-typing.
         """
         mirror = placement.mirror
         # Human-readable label for logs / via-track ownership. ClonePlacement
@@ -365,11 +379,30 @@ class ClonePositionCalculator:
                 nested.cell, nested.role, f"{placement_label}/{nested.name}")
             if nested_cell is None:
                 continue
+            if nested_cell_name in chain:
+                # Cycle guard (2026-08-25, handoff composite_cell_autodetect_
+                # and_cycle_guard): a cell referencing itself, directly or
+                # through a longer chain, would recurse forever — Python's own
+                # RecursionError is an unhelpful crash. Report the actual path
+                # (cell names in this branch, e.g. "A -> B -> A") so the user
+                # can see exactly where the cycle is. A diamond (the same cell
+                # referenced from two SIBLING branches) is deliberately NOT a
+                # cycle — each branch carries its own `chain`, so the shared
+                # leaf never sees itself twice on one path.
+                chain_path = " -> ".join(chain + (nested_cell_name,))
+                raise ValidationError(format_fatal_error(
+                    _("circular clone_placements reference in {label}: {path}")
+                    .format(label=placement_label, path=chain_path),
+                    [_("cell {cell!r} already appears in the current branch's chain "
+                       "({path}) — a cell may not reference itself, directly or "
+                       "indirectly; check the clone_placements: of cell {head!r}")
+                     .format(cell=nested_cell_name, path=chain_path, head=chain[0])]))
             nc, nv, nt = self._resolve_one_level(
                 nested, nested_cell, nested_cell_name,
                 anchor_position=layout.origin,
                 parent_rotation_deg=world_rotation_deg,
                 anchor_id=f"{anchor_id}/{nested.name}",
+                chain=chain + (nested_cell_name,),
             )
             components_result.extend(nc)
             vias_result.extend(nv)
@@ -404,8 +437,12 @@ class ClonePositionCalculator:
                 anchor_position = self._resolve_anchor(clone)
 
             anchor_id = clone_anchor_id(clone)
+            # chain starts at the top-level cell: a clone whose cell directly
+            # references itself (cell: X -> clone_placements[].cell: X) is a
+            # self-cycle and must be caught on the very first recursion.
             c, v, t = self._resolve_one_level(clone, cell, cell_name, anchor_position,
-                                              parent_rotation_deg=0.0, anchor_id=anchor_id)
+                                              parent_rotation_deg=0.0, anchor_id=anchor_id,
+                                              chain=(cell_name,))
             components_result.extend(c)
             vias_result.extend(v)
             tracks_result.extend(t)

@@ -37,7 +37,8 @@ def run_extract_to_file(adapter, *, name: str, params, items, net_template_role,
                         rule_nets, origin_kwargs: Dict[str, Any], target_path: Path,
                         save_profile: bool, profile_key: str, profile_path: Optional[Path],
                         placer_path: Optional[Path], raw_selection: bool = False,
-                        extract_fn=extract_template_from_selection) -> Dict[str, Any]:
+                        extract_fn=extract_template_from_selection,
+                        clone_placements: Optional[list] = None) -> Dict[str, Any]:
     """Run the extract-transform-write flow for one ExtractDock payload.
 
     Parameters mirror the GUI payload keys (see ExtractDock._collect_extract_inputs)
@@ -48,6 +49,12 @@ def run_extract_to_file(adapter, *, name: str, params, items, net_template_role,
     file; save_profile/profile_key/profile_path — optional extract_profiles
     write; placer_path — optional placer file to wire include: into.
     `extract_fn` is injectable (default: extract_template_from_selection).
+
+    clone_placements — OPTIONAL list of CellPlacement-shaped dicts
+    (name/cell/xy/rotation_deg/mirror/layer) written into the extracted cell's
+    own clone_placements: section (Sub-placements, 2026-08-25): existing
+    placements wholly covered by the extraction are referenced instead of
+    copied flat, so the composite cell stays in sync with them on every apply.
     """
     annotations: List[Tuple[str, str, str]] = []
     try:
@@ -58,6 +65,14 @@ def run_extract_to_file(adapter, *, name: str, params, items, net_template_role,
             annotations=annotations, raw_selection=raw_selection, **origin_kwargs)
     except PlacerError as e:
         return {"error": str(e)}
+
+    if clone_placements:
+        # A pure-composite cell is legitimate (only clone_placements, no flat
+        # content) — but a plain extract always produces at least the named
+        # cell dict, so guard defensively for injected fakes in tests.
+        cell_dict = template_dict.get(name)
+        if isinstance(cell_dict, dict):
+            cell_dict["clone_placements"] = clone_placements
 
     try:
         cell_overwritten = merge_write(

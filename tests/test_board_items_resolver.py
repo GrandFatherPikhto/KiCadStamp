@@ -15,10 +15,12 @@ from kicadstamp.domain.board import BoardLayer, Footprint, Track, Via
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.config import (Cell, ClonePlacement, Config, CoordinatePlacement,
                                RuntimeContext, TemplateComponentSlot)
-from kicadstamp.placement.services.board_items_resolver import resolve_clone_board_items
+from kicadstamp.placement.services.board_items_resolver import (
+    clone_world_origin, resolve_clone_board_items)
 from kicadstamp.placement.services.clone_position_calculator import clone_anchor_id
 from kicadstamp.registry import (RegistryEntry, TrackRegistryEntry, make_registry_key,
                                  save_registry, save_track_registry)
+from kicadstamp.utils.units import MM
 
 
 def _make_fp(ref, role=None, nets=None, cluster=None):
@@ -223,3 +225,39 @@ class TestExtractItemsParity:
         assert explicit == via_selection
         roles = [c["role"] for c in explicit["cell"]["components"]]
         assert roles == ["A", "B"]
+
+
+class TestCloneWorldOrigin:
+    """clone_world_origin — the placement's cell-local (0,0) in world space,
+    the same `layout.origin` apply_clone_geometry computes (anchor + flat
+    shift). Feeds ExtractDock's Sub-placements xy (2026-08-25, Задание 1)."""
+
+    def test_absolute_clone_origin_is_xy(self):
+        clone = ClonePlacement(cluster="myclone", cell="cella", xy=(5.0, 2.0))
+        cfg = Config(cells={"cella": _cell()}, clone_placements=[clone])
+
+        origin = clone_world_origin(_by_nets_adapter([]), cfg, clone)
+
+        assert origin == Vector2.from_xy(int(5.0 * MM), int(2.0 * MM))
+
+    def test_anchor_ref_clone_origin_is_anchor_position_plus_shift(self):
+        anchor = _make_fp("U1", role="FPGA", nets=[])
+        anchor.position = Vector2.from_xy(int(100.0 * MM), int(200.0 * MM))
+        clone = ClonePlacement(cluster="myclone", cell="cella", xy=(5.0, 2.0),
+                               anchor_ref="U1")
+        cfg = Config(cells={"cella": _cell()}, clone_placements=[clone])
+
+        origin = clone_world_origin(_by_nets_adapter([anchor]), cfg, clone)
+
+        assert origin == Vector2.from_xy(int(105.0 * MM), int(202.0 * MM))
+
+    def test_polar_clone_origin_uses_rotated_shift(self):
+        clone = ClonePlacement(cluster="myclone", cell="cella", xy=(0.0, 0.0),
+                               radius_mm=5.0, angle_deg=90.0)
+        cfg = Config(cells={"cella": _cell()}, clone_placements=[clone])
+
+        origin = clone_world_origin(_by_nets_adapter([]), cfg, clone)
+
+        # 5 mm along X, rotated 90° -> (0, -5) mm (KiCad's clockwise-positive
+        # convention, same rotate_local_offset the whole project uses)
+        assert origin == Vector2.from_xy(0, -int(5.0 * MM))

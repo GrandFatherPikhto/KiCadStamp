@@ -1412,6 +1412,70 @@ msgstr ""
 msgid "Net template role"
 msgstr ""
 
+#: gui/docks/extract.py:430
+msgid ""
+"Sub-placements (existing placements fully covered by this selection — "
+"referenced via clone_placements, not copied):"
+msgstr ""
+
+#: gui/docks/extract.py:437
+msgid "Include"
+msgstr ""
+
+#: gui/docks/extract.py:437
+msgid "Placement"
+msgstr ""
+
+#: gui/docks/extract.py:437
+msgid "Matched"
+msgstr ""
+
+#: gui/docks/extract.py:447
+msgid "Sub-placements"
+msgstr ""
+
+#: gui/docks/extract.py:770
+#, python-brace-format
+msgid "{fp} component(s), {cu} via/track(s)"
+msgstr ""
+
+#: gui/docks/extract.py:786
+#, python-brace-format
+msgid "Sub-placements: failed to load config ({placer}): {type}: {error}"
+msgstr ""
+
+#: gui/docks/extract.py:790
+#, python-brace-format
+msgid "Sub-placements: {name}: {error}"
+msgstr ""
+
+#: gui/docks/extract.py:1473
+msgid "Nothing left to extract — the checked Sub-placements cover the whole selection."
+msgstr ""
+
+#: gui/docks/extract.py:1618
+#, python-brace-format
+msgid "Failed to load config for Sub-placements: {error}"
+msgstr ""
+
+#: gui/docks/extract.py:1642
+#, python-brace-format
+msgid "Sub-placement {name!r}: {error}"
+msgstr ""
+
+#: kicadstamp/placement/services/clone_position_calculator.py:410
+#, python-brace-format
+msgid "circular clone_placements reference in {label}: {path}"
+msgstr ""
+
+#: kicadstamp/placement/services/clone_position_calculator.py:412
+#, python-brace-format
+msgid ""
+"cell {cell!r} already appears in the current branch's chain ({path}) — a "
+"cell may not reference itself, directly or indirectly; check the "
+"clone_placements: of cell {head!r}"
+msgstr ""
+
 #: gui/docks/extract.py:318
 msgid "Cells:"
 msgstr ""

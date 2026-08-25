@@ -239,11 +239,12 @@ use), this tab just adds GUI editing on top of a few more keys.
 Builds a `Cell` from whatever's currently selected on the board (components, vias, tracks) and
 writes it into the Cells file — the GUI equivalent of `kicadstamp_cli.py extract`.
 
-**Origin**/**Net aliases**/**Net template role**/**Existing** below live in a tab widget
-(2026-08-04: previously stacked in one long column, whose minimum height was the SUM of every
-section's own — the dock couldn't shrink below that even when most of it didn't apply right now).
-A `QTabWidget` only sizes for the current page, so the dock resizes freely; **Net template role**'s
-tab is hidden outright (not just its content) until it actually applies.
+**Origin**/**Net aliases**/**Net template role**/**Sub-placements**/**Existing** below live in a
+tab widget (2026-08-04: previously stacked in one long column, whose minimum height was the SUM of
+every section's own — the dock couldn't shrink below that even when most of it didn't apply right
+now). A `QTabWidget` only sizes for the current page, so the dock resizes freely; **Net template
+role**'s and **Sub-placements**' tabs are hidden outright (not just their content) until they
+actually apply.
 
 - **Write target** — a successful extraction writes the Cell into the project root file's `cells:`
   section (and, with "Also save as extract_profile", the profile recipe into that same file's
@@ -269,6 +270,24 @@ tab is hidden outright (not just its content) until it actually applies.
 - **Net template role** — appears only when a component's pads touch **2 or more already-aliased
   nets** (a bridging part — inductor, ferrite bead, fuse spanning two rails). The tool can't guess
   which one is "the" role's net_template in that case; extraction is blocked until you pick.
+- **Sub-placements** (2026-08-25) — appears when an area-select sweeps up an existing,
+  already-extracted top-level `clone_placement` (e.g. a PIF power-filter) together with the new
+  cell's own components. Instead of copying that placement's geometry **flat** into the new cell
+  (which would silently desynchronize the copy from the original placement the moment either is
+  re-placed on another channel), the dock detects it: for every top-level `clone_placement` in the
+  Placer file's config it resolves the placement's live board items (via the same
+  `resolve_clone_board_items` the Re-extract feature uses) and checks whether the WHOLE set is
+  covered by the current selection — only a fully-covered placement is a candidate (a partial
+  overlap is probably a geometric coincidence and stays on the old path). The tab lists each
+  candidate (placement name, its cell, how many components/vias/tracks matched) with a checkbox
+  **on by default**; extracting with it checked writes the placement as a `clone_placements:`
+  reference into the new composite cell (`name`/`cell`/`xy`/`rotation_deg`/`mirror`/`layer`, xy
+  = the placement's world origin converted into the new cell's local frame) and **excludes** its
+  board-items from the new cell's flat `components:`/`vias:`/`tracks:` — the same geometry is
+  never both referenced and copied. Unchecking restores the old flat behavior. With the Cluster
+  filter on, a fully-covered placement's own via/tracks are no longer silently dropped by the
+  registry filter (they become part of the reference); foreign/partially-covered placements are
+  still dropped as before.
 - **Existing (click to reuse a name)** — two lists (Cells/Profiles) read from the currently
   assigned files. Clicking an entry reuses its name outright and pulls its saved net aliases,
   net-template-role picks, and origin settings back into the form (matched by alias, not by the

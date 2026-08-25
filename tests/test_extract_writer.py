@@ -53,7 +53,7 @@ class _CapturingExtract:
 def _run(tmp_path, *, name="cell1", params=None, items=None, net_template_role=None,
          rule_nets=None, origin_kwargs=None, save_profile=False, profile_key="cell1",
          profile_path=None, placer_path=None, raw_selection=False, extract_fn=None,
-         adapter="ADAPTER"):
+         adapter="ADAPTER", clone_placements=None):
     """Run run_extract_to_file with a fresh cells target under tmp_path and a
     default capturing extractor (unless one is supplied)."""
     target = tmp_path / "cells.yaml"
@@ -64,7 +64,8 @@ def _run(tmp_path, *, name="cell1", params=None, items=None, net_template_role=N
         rule_nets=rule_nets, origin_kwargs=origin_kwargs or {},
         target_path=target, save_profile=save_profile, profile_key=profile_key,
         profile_path=profile_path, placer_path=placer_path,
-        raw_selection=raw_selection, extract_fn=fn)
+        raw_selection=raw_selection, extract_fn=fn,
+        clone_placements=clone_placements)
     return target, result, fn
 
 
@@ -113,6 +114,35 @@ def test_preserves_unrelated_top_level_keys(tmp_path):
     assert "clone_placements" in data
     assert data["clone_placements"]["cp1"]["cell"] == "x"
     assert "cell1" in data["cells"]
+
+
+# ── Sub-placements clone_placements write-through (2026-08-25, Задание 1) ──
+
+def test_clone_placements_written_into_the_extracted_cell(tmp_path):
+    """Checked Sub-placements reach the written cell as its own
+    clone_placements: section — the same geometry is referenced, not copied
+    flat (the flat exclusion happens earlier, in the GUI payload building)."""
+    target, result, _fn = _run(
+        tmp_path, name="dac_buf",
+        clone_placements=[{
+            "name": "ch0_pif_avdd", "cell": "pif_avdd",
+            "xy": [5.0, 2.0], "rotation_deg": 90.0, "mirror": True, "layer": "B.Cu",
+        }])
+
+    assert "error" not in result
+    data = _load(target)
+    assert data["cells"]["dac_buf"]["clone_placements"] == [{
+        "name": "ch0_pif_avdd", "cell": "pif_avdd",
+        "xy": [5.0, 2.0], "rotation_deg": 90.0, "mirror": True, "layer": "B.Cu",
+    }]
+
+def test_no_clone_placements_means_no_section_written(tmp_path):
+    """The normal (no Sub-placements) path must not gain an empty
+    clone_placements: section — clone_placements=None is a no-op."""
+    target, _result, _fn = _run(tmp_path, name="cell1")
+
+    data = _load(target)
+    assert "clone_placements" not in data["cells"]["cell1"]
 
 
 def test_cell_write_os_error_returns_error(tmp_path):

@@ -138,6 +138,36 @@ def clone_shift_mm(clone) -> tuple[float, float]:
     return (clone.xy[0], clone.xy[1])
 
 
+def clone_layout_origin(clone: ClonePlacement,
+                        anchor_position: Vector2 | None,
+                        parent_rotation_deg: float = 0.0) -> Vector2:
+    """World-space position of a clone placement's cell-local (0,0) — EXACTLY
+    the `origin` apply_clone_geometry() computes (same shift composition via
+    rotate_local_offset, same anchor+shift addition), without resolving any
+    cell content (no role_to_ref, no vias/tracks).
+
+    Split out (2026-08-25, handoff composite_cell_autodetect_and_cycle_guard)
+    so ExtractDock's Sub-placements can convert an existing top-level
+    placement's world origin into a new cell's local xy without re-running the
+    whole geometry. parent_rotation_deg defaults to 0.0 (a top-level
+    ClonePlacement has no parent frame) and mirrors apply_clone_geometry's
+    composition for completeness — a nested CellPlacement's xy IS expressed in
+    the parent's rotated frame, same rule as everywhere else in this module.
+
+    anchor_position is resolved EXTERNALLY (live board reads stay in the
+    caller, geometry does not touch the board — the same boundary
+    apply_clone_geometry documents)."""
+    radius_mm = getattr(clone, "radius_mm", None)
+    if radius_mm is not None:
+        shift = rotate_local_offset(radius_mm, 0.0,
+                                    getattr(clone, "angle_deg", 0.0) + parent_rotation_deg)
+    else:
+        shift = rotate_local_offset(clone.xy[0], clone.xy[1], parent_rotation_deg)
+    if anchor_position is not None:
+        return Vector2.from_xy(anchor_position.x + shift.x, anchor_position.y + shift.y)
+    return shift
+
+
 def apply_clone_geometry(
     clone: ClonePlacement,
     cell: Cell,

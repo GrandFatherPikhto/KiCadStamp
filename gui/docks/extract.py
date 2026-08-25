@@ -140,6 +140,7 @@ against) — footprint filtering alone still applies.
 import logging
 import re
 from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -156,6 +157,7 @@ from kicadstamp.exceptions import ValidationError
 from kicadstamp.explore import Selected
 from kicadstamp.extract_writer import run_extract_to_file
 from kicadstamp.i18n import _
+from kicadstamp.utils.units import MM
 from kicadstamp.net_resolution import RULE_NETS
 from kicadstamp.template_extraction import (
     extract_template_from_selection,
@@ -177,6 +179,24 @@ from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STY
 from .rename import collect_section_entries
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class SubPlacementCandidate:
+    """One existing top-level ClonePlacement ENTIRELY covered by the current
+    selection — a candidate for the new cell's clone_placements: section
+    (2026-08-25, handoff composite_cell_autodetect_and_cycle_guard, Задание 1).
+    Instead of copying its geometry flat into the new cell, Extract can
+    reference the placement by name, so the two stay in sync on every apply.
+
+    clone — the ClonePlacement; items — its live board items (Footprint/Via/
+    Track), resolved via resolve_clone_board_items (cached per Placer path);
+    item_keys — the items' stable identity keys (see ExtractDock._item_key),
+    reused both for the subset check and for excluding the items from the
+    new cell's flat lists at extract time."""
+    clone: Any
+    items: List[Any]
+    item_keys: frozenset
 
 
 class ExtractDock(QWidget):
@@ -234,6 +254,17 @@ class ExtractDock(QWidget):
         self._re_extract_cell_name: Optional[str] = None
         self._re_extract_profile_key: Optional[str] = None
         self._re_extract_profile_entry: Dict[str, Any] = {}
+        # Sub-placements (2026-08-25, handoff composite_cell_autodetect_and_
+        # cycle_guard, Задание 1): existing top-level ClonePlacements fully
+        # covered by the current selection — see _update_sub_placement_candidates.
+        self._sub_placement_candidates: List[SubPlacementCandidate] = []
+        # placement effective name -> checkbox (preserved across preview ticks).
+        self._sub_placement_checkboxes: Dict[str, QCheckBox] = {}
+        # [(clone, resolved_board_items)] per Placer path — CACHED like
+        # _registry_uuids_cache (resolve_clone_board_items is live-board work,
+        # far too heavy for the ~400ms selection-watch tick); reset to None by
+        # set_root_path().
+        self._sub_placements_cache: Optional[List[Tuple[Any, List[Any]]]] = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -405,6 +436,39 @@ class ExtractDock(QWidget):
         # old setVisible(False) on the section widget itself (see the sole
         # other call site of this, near _role_net_tab_index below).
         self._tabs.setTabVisible(self._role_net_tab_index, False)
+
+        # Sub-placements (2026-08-25, handoff composite_cell_autodetect_and_
+        # cycle_guard, Задание 1): existing top-level ClonePlacements whose
+        # ENTIRE board-item set is covered by the current selection. Checking
+        # a row means "reference it via clone_placements: instead of copying
+        # its geometry flat into the new cell" — see
+        # _update_sub_placement_candidates. Same hidden-tab pattern as the
+        # "Net template role" section above: invisible until there is at
+        # least one candidate.
+        self._sub_placement_section = QWidget()
+        sub_placement_section_layout = QVBoxLayout(self._sub_placement_section)
+        sub_placement_section_layout.addWidget(QLabel(
+            _("Sub-placements (existing placements fully covered by this "
+              "selection — referenced via clone_placements, not copied):")))
+        self._sub_placements_table = QTableWidget(0, 4)
+        self._sub_placements_table.setHorizontalHeaderLabels(
+            [_("Include"), _("Placement"), _("Cell"), _("Matched")])
+        self._sub_placements_table.verticalHeader().setVisible(False)
+        self._sub_placements_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.ResizeToContents)
+        self._sub_placements_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch)
+        self._sub_placements_table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.ResizeToContents)
+        self._sub_placements_table.horizontalHeader().setSectionResizeMode(
+            3, QHeaderView.ResizeMode.ResizeToContents)
+        self._sub_placements_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers)
+        sub_placement_section_layout.addWidget(self._sub_placements_table, 1)
+        sub_placement_section_layout.addStretch(1)
+        self._sub_placement_tab_index = self._tabs.addTab(
+            self._sub_placement_section, _("Sub-placements"))
+        self._tabs.setTabVisible(self._sub_placement_tab_index, False)
 
         existing_page = QWidget()
         existing_row = QHBoxLayout(existing_page)
@@ -612,27 +676,188 @@ class ExtractDock(QWidget):
         target, if one is active — otherwise the untouched full selection.
         Excludes the matching FootprintInstance from raw_items by ref, and
         any Via/Track already known to belong to another existing placement
-        by registry UUID (see _registry_uuids())."""
+        by registry UUID (see _registry_uuids()).
+
+        Sub-placements (2026-08-25, Задание 1/1б): candidates are detected on
+        the footprint-narrowed selection BEFORE the registry drop — a
+        fully-covered existing placement must not be disqualified by the very
+        drop that would strip its own copper. Its via/tracks are then exempt
+        from the drop (kept in the selection; they become a reference or stay
+        flat per the user's Sub-placements checkbox)."""
         target = self._cluster_filter_target()
         if target is None:
-            return self._raw_items, self._selected_footprints
-        footprints = [s for s in self._selected_footprints if s.cluster == target]
-        kept_refs = {s.ref for s in footprints}
+            footprints = self._selected_footprints
+            raw_items = self._raw_items
+        else:
+            footprints = [s for s in self._selected_footprints if s.cluster == target]
+            kept_refs = {s.ref for s in footprints}
+            raw_items = [i for i in self._raw_items
+                         if not (isinstance(i, Footprint) and i.ref not in kept_refs)]
+        # Candidate detection (also rebuilds the hidden Sub-placements tab) —
+        # always on the footprint-narrowed selection with ALL via/tracks still
+        # present, so a wholly-covered placement's own copper cannot disqualify
+        # it from becoming a candidate.
+        self._update_sub_placement_candidates(raw_items, footprints)
+        if target is None:
+            return raw_items, footprints
         via_uuids, track_uuids = self._registry_uuids()
-        raw_items = []
-        for item in self._raw_items:
-            if isinstance(item, Footprint):
-                if item.ref in kept_refs:
-                    raw_items.append(item)
-            elif isinstance(item, Via):
-                if item.uuid not in via_uuids:
-                    raw_items.append(item)
+        exempt_via, exempt_track = self._sub_placement_owned_uuids()
+        final_items = []
+        for item in raw_items:
+            if isinstance(item, Via):
+                if item.uuid not in via_uuids or item.uuid in exempt_via:
+                    final_items.append(item)
             elif isinstance(item, Track):
-                if item.uuid not in track_uuids:
-                    raw_items.append(item)
+                if item.uuid not in track_uuids or item.uuid in exempt_track:
+                    final_items.append(item)
             else:
-                raw_items.append(item)
-        return raw_items, footprints
+                final_items.append(item)
+        return final_items, footprints
+
+    @staticmethod
+    def _item_key(item: Any) -> Tuple[str, str]:
+        """Stable identity of a board item for the subset check / flat-list
+        exclusion: a Footprint by its ref (the selection and resolve_clone_
+        board_items both see the SAME footprint index, so ref is exact), a
+        Via/Track by its UUID. The kind prefix keeps the three namespaces
+        from ever colliding."""
+        if isinstance(item, Footprint):
+            return ("fp", item.ref)
+        if isinstance(item, Via):
+            return ("via", item.uuid)
+        if isinstance(item, Track):
+            return ("track", item.uuid)
+        return (type(item).__name__, getattr(item, "uuid", str(id(item))))
+
+    def _sub_placement_catalog(self) -> List[Tuple[Any, List[Any]]]:
+        """[(clone, resolved_board_items)] for every top-level ClonePlacement
+        in the Placer file's config — CACHED per Placer path (invalidated by
+        set_root_path, the same staleness window as _registry_uuids):
+        resolve_clone_board_items is live-board work (role resolution +
+        registry -> UUID -> live item), far too heavy for the ~400ms
+        selection-watch tick. Returns [] when there's no Placer file /
+        config / adapter (nothing to match against — the Sub-placements
+        feature just stays off)."""
+        if self._sub_placements_cache is not None:
+            return self._sub_placements_cache
+        catalog: List[Tuple[Any, List[Any]]] = []
+        if self._placer_path is not None and self._placer_path.exists():
+            board = self._connection.board
+            adapter = getattr(board, "adapter", None)
+            if adapter is not None:
+                try:
+                    cfg, ctx = load_config(str(self._placer_path))
+                except Exception as e:
+                    logger.warning(_("Sub-placements: failed to load config "
+                                     "({placer}): {type}: {error}")
+                                   .format(placer=self._placer_path,
+                                           type=type(e).__name__, error=e))
+                    cfg = None
+                if cfg is not None:
+                    from kicadstamp.registry import (registry_path_for_config,
+                                                     track_registry_path_for_config)
+                    from kicadstamp.placement.services.board_items_resolver import (
+                        resolve_clone_board_items)
+                    registry_path = (ctx.registry_path
+                                     or registry_path_for_config(str(self._placer_path)))
+                    track_registry_path = (ctx.track_registry_path
+                                           or track_registry_path_for_config(
+                                               str(self._placer_path)))
+                    for clone in cfg.clone_placements:
+                        try:
+                            items = resolve_clone_board_items(
+                                adapter, cfg, ctx, clone,
+                                registry_path=registry_path,
+                                track_registry_path=track_registry_path)
+                        except ValidationError as e:
+                            # Unresolvable on this board — no candidate (falls
+                            # back to the old flat path), never fatal.
+                            logger.warning(_("Sub-placements: {name}: {error}")
+                                           .format(name=clone_placement_effective_name(clone),
+                                                   error=e))
+                            items = []
+                        catalog.append((clone, items))
+        self._sub_placements_cache = catalog
+        return catalog
+
+    def _sub_placement_owned_uuids(self) -> Tuple[set, set]:
+        """(via_uuids, track_uuids) owned by the CURRENT sub-placement
+        candidates (their via/track items). Used by _filtered_selection to NOT
+        registry-drop a fully-covered placement's own copper (Задание 1б): a
+        wholly-covered placement either becomes a referenced sub-placement or
+        stays flat per the user's checkbox, but its copper must never be
+        silently stripped by the registry filter in between."""
+        via_uuids: set = set()
+        track_uuids: set = set()
+        for cand in self._sub_placement_candidates:
+            for item in cand.items:
+                if isinstance(item, Via):
+                    via_uuids.add(item.uuid)
+                elif isinstance(item, Track):
+                    track_uuids.add(item.uuid)
+        return via_uuids, track_uuids
+
+    def _update_sub_placement_candidates(self, raw_items: List[Any],
+                                         footprints: List[Selected]) -> None:
+        """Detect existing top-level ClonePlacements whose ENTIRE board-item
+        set is a subset of the current (Cluster-narrowed) selection — those
+        become "Sub-placements" candidates (Задание 1): instead of copying
+        their geometry flat into the new cell, Extract can reference them via
+        clone_placements:. Only a FULLY covered placement is a candidate — a
+        partial overlap is probably a geometric coincidence and stays on the
+        old path (no surprises). Nested CellPlacements are deliberately not
+        considered (they have no .mirror and their rotation_deg is not a world
+        angle — a separate, later task). Rebuilds the hidden tab + visibility.
+
+        Called from _filtered_selection (once per selection-watch tick, plus
+        at extract time) — the resolved items come from the cached catalog."""
+        candidates: List[SubPlacementCandidate] = []
+        if raw_items:
+            selection_keys = {self._item_key(i) for i in raw_items}
+            for clone, items in self._sub_placement_catalog():
+                if not items:
+                    continue
+                item_keys = {self._item_key(i) for i in items}
+                if item_keys <= selection_keys:
+                    candidates.append(SubPlacementCandidate(
+                        clone=clone, items=items, item_keys=frozenset(item_keys)))
+        self._sub_placement_candidates = candidates
+        self._rebuild_sub_placements_table()
+
+    @staticmethod
+    def _sub_placement_counts_text(cand: SubPlacementCandidate) -> str:
+        """Trust evidence for the table: how many components/vias/tracks of the
+        placement are present in the selection — "this is really the whole
+        placement, not a coincidence". Counts are per-kind, not a raw item
+        total, so the number reads naturally."""
+        n_fp = sum(1 for i in cand.items if isinstance(i, Footprint))
+        n_cu = sum(1 for i in cand.items if isinstance(i, (Via, Track)))
+        return _("{fp} component(s), {cu} via/track(s)").format(fp=n_fp, cu=n_cu)
+
+    def _rebuild_sub_placements_table(self) -> None:
+        """One row per candidate: checkbox (default on) | placement name |
+        its cell | matched count. Preserves checkbox state across preview ticks
+        by placement name (same spirit as _rebuild_net_aliases preserving
+        typed aliases). Tab stays hidden while there are no candidates."""
+        previous = {name: cb.isChecked()
+                    for name, cb in self._sub_placement_checkboxes.items()}
+        self._sub_placements_table.setRowCount(0)
+        self._sub_placement_checkboxes = {}
+        for cand in self._sub_placement_candidates:
+            name = clone_placement_effective_name(cand.clone)
+            row = self._sub_placements_table.rowCount()
+            self._sub_placements_table.insertRow(row)
+            cb = QCheckBox()
+            cb.setChecked(previous.get(name, True))
+            self._sub_placement_checkboxes[name] = cb
+            self._sub_placements_table.setCellWidget(row, 0, cb)
+            self._sub_placements_table.setItem(row, 1, QTableWidgetItem(name))
+            self._sub_placements_table.setItem(row, 2,
+                                               QTableWidgetItem(cand.clone.cell or ""))
+            self._sub_placements_table.setItem(
+                row, 3, QTableWidgetItem(self._sub_placement_counts_text(cand)))
+        self._tabs.setTabVisible(self._sub_placement_tab_index,
+                                 bool(self._sub_placement_candidates))
 
     def _on_origin_mode_changed(self) -> None:
         mode = self.origin_mode_combo.currentIndex()
@@ -668,6 +893,7 @@ class ExtractDock(QWidget):
         self._profile_path = path
         self._placer_path = path
         self._registry_uuids_cache = None
+        self._sub_placements_cache = None
         self._refresh_existing_lists()
         self._update_button_state()
 
@@ -1221,6 +1447,32 @@ class ExtractDock(QWidget):
         raw_items, _footprints = self._filtered_selection()
         if not raw_items or self._target_path is None:
             return None
+        # Sub-placements (Задание 1): a checked candidate's board-items are
+        # EXCLUDED from what becomes the new cell's flat components/vias/tracks
+        # — they are referenced via clone_placements: instead, so the same
+        # geometry must not land in the cell twice (once flat, once by
+        # reference). The CellPlacement entry itself (with xy) is built on the
+        # worker (_build_sub_placements), which owns the live origin reads.
+        sub_placements: List[Dict[str, Any]] = []
+        if self._sub_placement_candidates:
+            excluded_keys: set = set()
+            for cand in self._sub_placement_candidates:
+                cb = self._sub_placement_checkboxes.get(
+                    clone_placement_effective_name(cand.clone))
+                if cb is not None and cb.isChecked():
+                    excluded_keys |= cand.item_keys
+                    sub_placements.append({
+                        "name": clone_placement_effective_name(cand.clone),
+                        "clone": cand.clone,
+                    })
+            if excluded_keys:
+                raw_items = [i for i in raw_items
+                             if self._item_key(i) not in excluded_keys]
+        if not raw_items:
+            self._show_message(_("Nothing left to extract — the checked "
+                                 "Sub-placements cover the whole selection."),
+                               _ERROR_STYLE)
+            return None
         save_profile = self.save_profile_checkbox.isChecked()
         if save_profile and self._profile_path is None:
             self._show_message(
@@ -1301,6 +1553,7 @@ class ExtractDock(QWidget):
             "origin_kwargs": origin_kwargs,
             "net_template_role": net_template_role,
             "raw_selection": self.raw_selection_checkbox.isChecked(),
+            "sub_placements": sub_placements,
             "board": board,
         }
 
@@ -1315,6 +1568,11 @@ class ExtractDock(QWidget):
         {"error": str} for the expected failure modes (an unexpected
         exception is caught by _LongOpWorker and reported through the failed
         signal instead)."""
+        clone_placements = None
+        if payload.get("sub_placements"):
+            clone_placements, sub_err = self._build_sub_placements(payload)
+            if clone_placements is None:
+                return {"error": sub_err}
         return run_extract_to_file(
             payload["board"].adapter,
             name=payload["name"],
@@ -1329,7 +1587,78 @@ class ExtractDock(QWidget):
             profile_path=payload["profile_path"],
             placer_path=payload["placer_path"],
             raw_selection=payload["raw_selection"],
-            extract_fn=extract_template_from_selection)
+            extract_fn=extract_template_from_selection,
+            clone_placements=clone_placements)
+
+    def _build_sub_placements(self, payload: Dict[str, Any]) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
+        """Worker thread: turn the checked Sub-placements (payload records
+        carrying the clone) into CellPlacement-shaped dicts for the new cell's
+        clone_placements: section.
+
+        xy is the existing placement's world origin converted into the NEW
+        cell's local frame via the SAME absolute->local conversion the
+        extractor uses for every other point (template_selection._find_origin
+        for the new origin, then (world - origin) / MM) — the new cell is
+        extracted "as-is" at rotation 0, so the existing placement's world
+        rotation IS its local rotation (copied verbatim). The world origin is
+        computed via clone_world_origin (board_items_resolver) — the same
+        anchor + shift composition apply_clone_geometry uses. mirror/layer are
+        copied one-to-one.
+
+        Returns (entries, None) or (None, error_message) — the caller returns
+        the error verbatim, so a checked Sub-placement that cannot be resolved
+        (missing anchor on the board, etc.) aborts the extract instead of
+        silently dropping the referenced geometry."""
+        adapter = payload["board"].adapter
+        from kicadstamp.placement.services.board_items_resolver import clone_world_origin
+        from kicadstamp.template_selection import _find_origin
+
+        try:
+            cfg, ctx = load_config(str(payload["placer_path"]))
+        except Exception as e:
+            return None, _("Failed to load config for Sub-placements: {error}") \
+                .format(error=e)
+        sheet_names = ctx.sheet_names or {}
+
+        raw_items = payload["raw_items"]
+        footprints = [i for i in raw_items if isinstance(i, Footprint)]
+        vias = [i for i in raw_items if isinstance(i, Via)]
+        origin_kwargs = payload.get("origin_kwargs") or {}
+        try:
+            origin = _find_origin(
+                footprints, vias,
+                origin_kwargs.get("origin_via_net"),
+                origin_kwargs.get("origin_component_role"),
+                origin_kwargs.get("origin_component_pad"),
+                adapter)
+        except ValidationError as e:
+            return None, str(e)
+
+        entries: List[Dict[str, Any]] = []
+        for rec in payload["sub_placements"]:
+            clone = rec["clone"]
+            try:
+                world_origin = clone_world_origin(adapter, cfg, clone,
+                                                  sheet_names=sheet_names)
+            except ValidationError as e:
+                return None, _("Sub-placement {name!r}: {error}") \
+                    .format(name=rec["name"], error=e)
+            entry: Dict[str, Any] = {
+                # Nested name — slug of the existing placement's name (the
+                # same Cluster->slug rule the Cell-name quiet auto-fill uses),
+                # not the raw effective name.
+                "name": self._slugify(rec["name"]),
+                "cell": clone.cell,
+                "xy": [round((world_origin.x - origin.x) / MM, 4),
+                       round((world_origin.y - origin.y) / MM, 4)],
+                "rotation_deg": clone.rotation_deg,
+            }
+            if clone.mirror:
+                entry["mirror"] = True
+            if clone.layer is not None:
+                entry["layer"] = clone.layer
+            entries.append(entry)
+        return entries, None
 
     @staticmethod
     def _summarize_net_from_role(template_dict: Dict[str, Any]) -> Optional[str]:
