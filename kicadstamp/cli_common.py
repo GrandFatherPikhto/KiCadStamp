@@ -23,6 +23,7 @@ from kipy.errors import ApiError, ApiStatusCode
 
 from .exceptions import PlacerError
 from .i18n import _
+from .utils.file_cache import cached_file_read
 from .utils.paths import resolve_config_relative_path
 
 
@@ -77,6 +78,13 @@ def run_cli(main_fn: Callable[[], None]) -> int:
     return 0
 
 
+def _read_root_yaml(path: Path) -> dict:
+    """Raw root-YAML read for peek_log_file — kept separate so it can be
+    passed to cached_file_read as the miss loader."""
+    with open(path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
 def peek_log_file(config_path: str) -> str | None:
     """Cheap, non-raising read of ONLY the config's ``log_file`` key.
 
@@ -91,10 +99,16 @@ def peek_log_file(config_path: str) -> str | None:
     ``log_file`` is a root-file top-level key (``include:`` never contributes
     it), so a root-only read is faithful. Returns the resolved log path or
     ``None``.
+
+    Routed through :func:`kicadstamp.utils.file_cache.cached_file_read` so the
+    GUI startup doesn't re-parse the root YAML a second time: DockHub's
+    _on_root_file_changed_for_logging calls this right after RootMetadataDock's
+    set_target_file() already parsed the same bytes through yaml_io.load_data()
+    (same bug class as the 2026-08-21 yaml_io fix). The never-raise contract is
+    unchanged — a missing/broken file still logs a warning and returns None.
     """
     try:
-        with open(config_path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
+        data = cached_file_read(Path(config_path), _read_root_yaml)
         raw = data.get("log_file") if isinstance(data, dict) else None
         if not raw:
             return None
