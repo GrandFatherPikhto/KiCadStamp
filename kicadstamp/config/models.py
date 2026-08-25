@@ -334,6 +334,14 @@ class CellPlacement:
     fields onto every instance, so only these two can tell identical physical
     copies apart when narrowing a shared-net role (e.g. +3V3 on a PI-filter).
 
+    sheet — when None, inherits the resolved sheet of the PARENT placement
+    (the enclosing ClonePlacement or CellPlacement one level up), chained
+    through arbitrarily deep nesting — see clone_position_calculator.py::
+    _resolve_one_level. Set explicitly only when this specific nested placement
+    genuinely lives on a different sheet than its parent (rare); the common
+    case (a reusable composite cell cloned once per channel/section) should
+    leave it unset and rely on inheritance.
+
     No param scoping — params/nets/net_overrides/refs here are the ONLY
     ones this nested placement sees, never inherited from the parent cell's
     own placement (same convention ClonePlacement.params already has today,
@@ -351,7 +359,8 @@ class CellPlacement:
     layer: str | None = None
     # Own identity for internal role narrowing (role_narrowing.py), NOT an
     # external anchor — anchor_sheet/anchor_cluster remain deliberately absent,
-    # see the closed-boundary note above.
+    # see the closed-boundary note above. When None, inherits the resolved
+    # sheet of the parent placement (chained) — see the docstring above.
     sheet: str | None = None
     cluster: str | None = None
     nets: dict[str, str] = field(default_factory=dict)

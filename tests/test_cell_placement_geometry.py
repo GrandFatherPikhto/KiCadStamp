@@ -19,6 +19,7 @@ from kipy.board_types import Pad, FootprintInstance
 from kicadstamp.config import Config, Cell, CellPlacement, ClonePlacement, TemplateComponentSlot, TemplateVia
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.geometry.spoke_layout import rotate_local_offset, local_to_absolute
+from kicadstamp.placement.services import role_narrowing
 from kicadstamp.placement.services.clone_position_calculator import ClonePositionCalculator
 
 MM = 1_000_000
@@ -247,3 +248,116 @@ class TestNoParamScoping:
 
         with pytest.raises(ValidationError):
             calc.compute_raw_positions([top])
+
+
+class TestCellPlacementSheetInheritance:
+    """2026-08-26 (handoff cell_placement_sheet_inherit): a nested
+    CellPlacement with no own `sheet` inherits the RESOLVED sheet of the
+    enclosing placement (chained through arbitrarily deep nesting), so a
+    reusable composite cell resolves per-channel without hardcoding the
+    channel into the nested entries. Verified by spying on
+    role_narrowing.narrow_candidates_by_sheet — the only consumer of the
+    effective sheet (it filters ambiguity candidates by it)."""
+
+    def _leaf(self):
+        return Cell(name="leaf", components=[
+            TemplateComponentSlot(role="R1", offset_along_mm=1.0, offset_across_mm=0.0, angle_deg=0.0),
+        ])
+
+    def _spy_narrow(self, monkeypatch, calls):
+        def _spy(candidates, sheet, sheet_names):
+            calls.append(sheet)
+            # collapse to the first candidate so the cascade resolves uniquely
+            return [candidates[0]]
+
+        monkeypatch.setattr(role_narrowing, "narrow_candidates_by_sheet", _spy)
+
+    def _two_candidates(self):
+        # 2 same-role/same-net candidates -> ambiguity narrowing actually runs
+        return [
+            _make_fp("C1", role="R1", nets=["NET_A"]),
+            _make_fp("C2", role="R1", nets=["NET_A"]),
+        ]
+
+    def _two_level(self, top_sheet, inner_sheet=None):
+        leaf = self._leaf()
+        inner = CellPlacement(name="inner", cell="leaf", xy=(1.0, 0.0),
+                              nets={"R1": "NET_A"}, sheet=inner_sheet)
+        mid = Cell(name="mid", clone_placements=[inner])
+        top = ClonePlacement(cluster="top", cell="mid", xy=(0.0, 0.0),
+                             nets={"R1": "NET_A"}, sheet=top_sheet)
+        cfg = Config(layer="F.Cu", cells={"leaf": leaf, "mid": mid}, clone_placements=[top])
+        return top, cfg
+
+    def test_nested_without_sheet_inherits_parent_sheet(self, monkeypatch):
+        top, cfg = self._two_level(top_sheet="SheetA")
+        calls = []
+        self._spy_narrow(monkeypatch, calls)
+        adapter = _adapter_for(self._two_candidates())
+        calc = ClonePositionCalculator(adapter, cfg)
+
+        placed, _vias, _tracks = calc.compute_raw_positions([top])
+
+        assert len(placed) == 1
+        # the nested level narrowed with the INHERITED top sheet, not None
+        assert calls == ["SheetA"]
+
+    def test_explicit_nested_sheet_overrides_inheritance(self, monkeypatch):
+        top, cfg = self._two_level(top_sheet="SheetA", inner_sheet="SheetB")
+        calls = []
+        self._spy_narrow(monkeypatch, calls)
+        adapter = _adapter_for(self._two_candidates())
+        calc = ClonePositionCalculator(adapter, cfg)
+
+        placed, _vias, _tracks = calc.compute_raw_positions([top])
+
+        assert len(placed) == 1
+        assert calls == ["SheetB"]  # explicit value wins, not inherited "SheetA"
+
+    def test_three_level_chain_inherits_through_middle_level(self, monkeypatch):
+        """The top sheet must chain through an intermediate level that has no
+        sheet of its own — not just one hop down."""
+        leaf = self._leaf()
+        level2 = CellPlacement(name="lvl2", cell="leaf", xy=(1.0, 0.0), nets={"R1": "NET_A"})
+        mid2 = Cell(name="mid2", clone_placements=[level2])
+        level1 = CellPlacement(name="lvl1", cell="mid2", xy=(1.0, 0.0))
+        mid = Cell(name="mid", clone_placements=[level1])
+        top = ClonePlacement(cluster="top", cell="mid", xy=(0.0, 0.0),
+                             nets={"R1": "NET_A"}, sheet="SheetA")
+        cfg = Config(layer="F.Cu", cells={"leaf": leaf, "mid2": mid2, "mid": mid},
+                     clone_placements=[top])
+        calls = []
+        self._spy_narrow(monkeypatch, calls)
+        adapter = _adapter_for(self._two_candidates())
+        calc = ClonePositionCalculator(adapter, cfg)
+
+        placed, _vias, _tracks = calc.compute_raw_positions([top])
+
+        assert len(placed) == 1
+        assert calls == ["SheetA"]  # reached the leaf via lvl1 -> lvl2 chain
+
+    def test_shared_cell_not_mutated_between_branches(self, monkeypatch):
+        """Regression: `nested` is a SHARED object between recursion branches
+        (one `mid` Cell entry reused by two different top-level ClonePlacements
+        with different sheets). Inheritance must build a local copy — the
+        original cfg.cells[...] entry must stay sheet=None, and the second
+        branch must see its OWN sheet, not the first branch's."""
+        leaf = self._leaf()
+        inner = CellPlacement(name="inner", cell="leaf", xy=(1.0, 0.0), nets={"R1": "NET_A"})
+        mid = Cell(name="mid", clone_placements=[inner])
+        top0 = ClonePlacement(cluster="top0", cell="mid", xy=(0.0, 0.0),
+                              nets={"R1": "NET_A"}, sheet="Channel_0")
+        top1 = ClonePlacement(cluster="top1", cell="mid", xy=(0.0, 0.0),
+                              nets={"R1": "NET_A"}, sheet="Channel_1")
+        cfg = Config(layer="F.Cu", cells={"leaf": leaf, "mid": mid},
+                     clone_placements=[top0, top1])
+        calls = []
+        self._spy_narrow(monkeypatch, calls)
+        adapter = _adapter_for(self._two_candidates())
+        calc = ClonePositionCalculator(adapter, cfg)
+
+        placed, _vias, _tracks = calc.compute_raw_positions([top0, top1])
+
+        assert len(placed) == 2
+        assert inner.sheet is None  # original shared object untouched
+        assert calls == ["Channel_0", "Channel_1"]  # each branch its own sheet

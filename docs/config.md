@@ -183,7 +183,12 @@ Fields: `name` (required — used to build this nested item's own registry key),
 narrowing, the same meaning as `ClonePlacement.sheet`/`cluster` below: when a shared-rail role
 (e.g. `+3V3` on a PI-filter) has several identical physical instances on the board, these narrow them
 the same way they do for a top-level `ClonePlacement`; they are NOT external anchors — `anchor_*`
-remain deliberately absent, the position still comes from the parent), `nets:`, `params:`,
+remain deliberately absent, the position still comes from the parent). `sheet:` when unset
+(`null`/omitted) is INHERITED from the enclosing placement (the top-level `ClonePlacement` one level
+up), chained through arbitrarily deep nesting (2026-08-26) — so a reusable composite cell (one
+`dac_buf` definition cloned into `CH0_DAC_BUF`/`CH1_DAC_BUF`) resolves per-channel without
+hardcoding the channel into the nested entries. Set it explicitly only when a nested placement
+genuinely lives on a different sheet than its parent. `nets:`, `params:`,
 `net_overrides:`, `refs:` — no param scoping, a nested placement never inherits `params`/`nets` from
 its parent, same convention `ClonePlacement.params` already has.
 

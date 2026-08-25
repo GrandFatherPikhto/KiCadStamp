@@ -14,6 +14,7 @@ and offset remain the same). Only if anchor_ref is not set at all (absolute
 coordinate mode, a rare case) — we have no choice but to use
 clone_placement_effective_name(clone), the only available identifier.
 """
+import dataclasses
 import logging
 
 from ...domain.geometry import Vector2
@@ -375,6 +376,19 @@ class ClonePositionCalculator:
         # rename-stably keyed in the registry.
         world_rotation_deg = parent_rotation_deg + placement.rotation_deg
         for nested in cell.clone_placements:
+            # Sheet inheritance (2026-08-26, handoff cell_placement_sheet_inherit):
+            # a nested CellPlacement with NO own sheet takes the RESOLVED sheet of
+            # the CURRENT level's placement (the top-level ClonePlacement on the
+            # first recursion), chained down through arbitrarily deep nesting. This
+            # makes a reusable composite cell (one `dac_buf` definition cloned into
+            # CH0_DAC_BUF/CH1_DAC_BUF) resolve per-channel without hardcoding the
+            # channel into the nested entries. `nested` is a SHARED object between
+            # recursion branches — never mutate it, build a local dataclasses.replace
+            # copy instead (only sheet changes; name/cell stay identical).
+            if nested.sheet is None:
+                inherited_sheet = getattr(placement, "sheet", None)
+                if inherited_sheet is not None:
+                    nested = dataclasses.replace(nested, sheet=inherited_sheet)
             nested_cell, nested_cell_name = self._resolve_content(
                 nested.cell, nested.role, f"{placement_label}/{nested.name}")
             if nested_cell is None:
