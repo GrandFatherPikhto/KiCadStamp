@@ -187,3 +187,24 @@ def test_write_data_delete_then_upsert_never_stale_graph(tmp_path):
 
     cfg2, _ = load_config(str(root))
     assert set(cfg2.cells) == {"new"}
+
+
+def test_graph_cache_returns_shared_snapshot_copy_before_mutate(tmp_path):
+    """2026-08-25 contract change: cached_graph_result returns the SHARED
+    cached snapshot (no per-hit deepcopy — the old behavior cost ~0.5s of
+    startup once the Config grew large). Two loads of an unchanged path are
+    the SAME object, and a caller that copies before mutating (the GUI
+    write-path docks do dataclasses.replace()) must not leak its mutation
+    into the cached snapshot."""
+    from dataclasses import replace
+
+    root = _write_minimal(tmp_path / "root.yaml")
+    cfg1, _ = load_config(str(root))
+    cfg2, _ = load_config(str(root))
+    assert cfg1 is cfg2  # shared snapshot, not a fresh deep copy
+
+    cfg_copy = replace(cfg1)
+    cfg_copy.thermal_via_arrays = ["MUTATED"]  # type: ignore[assignment]
+
+    cfg3, _ = load_config(str(root))
+    assert cfg3.thermal_via_arrays == []  # cached snapshot untouched

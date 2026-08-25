@@ -340,7 +340,10 @@ def test_on_redraw_dispatches_to_worker(main_window, tmp_path, monkeypatch):
     payload = captured["args"][0]
     assert payload["name"] == "fpga_thermal"
     assert payload["path"] == target_file
-    assert payload["cfg"] is fake_cfg
+    # The dock copies the config before mutating it (the graph cache is now
+    # shared), so the payload carries the MUTATED copy, not the injected one.
+    assert payload["cfg"] is not fake_cfg
+    assert [t.name for t in payload["cfg"].thermal_via_arrays] == ["fpga_thermal"]
     assert payload["ctx"] is fake_ctx
 
 

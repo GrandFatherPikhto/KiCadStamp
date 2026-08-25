@@ -24,6 +24,7 @@ Reuses (never rewrites):
 Geometry (tracks:/vias:) is NEVER edited by the form — machine-written data,
 hand-edited only by re-running Extract (same reason cells: are not hand-edited).
 """
+from dataclasses import replace
 import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -396,6 +397,9 @@ class NetTraceDock(QWidget):
                 break
 
         nt = load_net_trace(entry)  # full NetTrace incl. carried geometry
+        # load_config() returns the graph cache's SHARED Config (no defensive
+        # deepcopy) — the replace-by-net below must not mutate the cached one.
+        cfg = replace(cfg)
         cfg.net_traces = [n for n in cfg.net_traces if n.net != entry["net"]]
         cfg.net_traces.append(nt)
         return {"path": config_path, "cfg": cfg, "ctx": ctx, "name": entry["net"]}

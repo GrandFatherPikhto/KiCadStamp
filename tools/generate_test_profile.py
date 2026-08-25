@@ -58,7 +58,12 @@ def build(n_rules, n_clones, n_coords, n_thermals, n_cells) -> dict:
         })
 
     clones = [
-        {"name": f"clone_{i}", "role": f"ROLE_{i}", "xy": [float(i), 0.0]}
+        {
+            "name": f"clone_{i}",
+            "cluster": f"CL_{i}",
+            "cell": f"cell_{i % n_cells}",
+            "xy": [float(i), 0.0],
+        }
         for i in range(n_clones)
     ]
 
@@ -107,11 +112,17 @@ def main() -> int:
     parser.add_argument("--coords", type=int, default=N_COORDS)
     parser.add_argument("--thermals", type=int, default=N_THERMALS)
     parser.add_argument("--cells", type=int, default=N_CELLS)
+    parser.add_argument("--schematic-dir", default=None,
+                        help="Optional schematic_dir: to point at a real KiCad "
+                             "schematic tree so the profile also exercises the "
+                             "sheet-name map (sexpdata) parse, not just YAML.")
     args = parser.parse_args()
 
     out = Path("profiles/tests/test.yaml")
     out.parent.mkdir(parents=True, exist_ok=True)
     data = build(args.rules, args.clones, args.coords, args.thermals, args.cells)
+    if args.schematic_dir:
+        data["schematic_dir"] = args.schematic_dir
     with open(out, "w", encoding="utf-8") as f:
         yaml.dump(data, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
     print(f"Wrote {out} ({len(data['rules'])} rules, {len(data['clone_placements'])} "

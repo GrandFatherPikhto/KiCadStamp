@@ -785,6 +785,7 @@ class RuleDock(QWidget):
         effective = rule_effective_name(rule)
         # Replace-by-identity: previewing an already-saved rule's edits must
         # not create a second copy alongside the saved one.
+        cfg = dataclasses.replace(cfg)  # graph cache is shared; don't mutate it
         cfg.rules = [r for r in cfg.rules if rule_effective_name(r) != effective]
         cfg.rules.append(rule)
 

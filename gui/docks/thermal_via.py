@@ -48,6 +48,7 @@ RootMetadataDock's root_changed same as RuleDock's/PlacerDock's own,
 sources the combo from the WHOLE include graph via
 collect_all_point_names(), not just this dock's own target file.
 """
+from dataclasses import replace
 import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -337,6 +338,7 @@ class ThermalViaArrayDock(QWidget):
 
         # Replace-by-name: previewing an already-saved entry's edits must
         # not create a second copy alongside the saved one.
+        cfg = replace(cfg)  # graph cache is shared; don't mutate the cached Config
         cfg.thermal_via_arrays = [t for t in cfg.thermal_via_arrays if t.name != tva.name]
         cfg.thermal_via_arrays.append(tva)
 

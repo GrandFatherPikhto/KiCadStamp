@@ -68,8 +68,10 @@ _keys_by_path: dict[str, set[tuple[str, int]]] = {}
 
 # ── Graph-level result cache (2026-08-21, the layer ABOVE cached_file_read,
 #    see cached_graph_result below) ───────────────────────────────────────
-# keyed by (kind, resolved_root_path) -> (deep-copied result, {resolved file
-# path: mtime_ns} of every file that computation actually read).
+# keyed by (kind, resolved_root_path) -> (shared result, {resolved file path:
+# mtime_ns} of every file that computation actually read). The result is
+# SHARED (no defensive copy) — callers must not mutate it (see
+# cached_graph_result below; the GUI write-path docks copy first).
 _graph_cache: dict[tuple[str, str], tuple[object, dict[str, int]]] = {}
 # reverse index: resolved file path -> the (kind, root) keys whose known file
 # set includes it — kept only so invalidate_graph_path() can evict without
@@ -197,17 +199,24 @@ def cached_graph_result(kind: str, root_path: str, compute_fn: Callable[[], T]) 
     `kind` disambiguates different computations over the same root
     ("load_config" vs "walk_include_tree" — different result types).
 
-    Returns a deep copy (hit or miss) so no caller can corrupt the cache —
-    same contract as cached_file_read. Missing-file handling is NOT this
-    function's job, exactly like cached_file_read: if compute_fn() raises,
-    the exception propagates and nothing is cached.
+    Returns the SHARED cached result with NO defensive copy (2026-08-25, a
+    deliberate contract change from the old deepcopy-on-every-hit behavior):
+    once the Config grew to thousands of records, deepcopying it on each of
+    the ~6 load_config / ~11 walk_include_tree hits per GUI startup cost
+    ~0.5s — the largest remaining startup cost. The result is therefore an
+    immutable-by-convention snapshot: every caller must treat it as
+    read-only, and the few GUI write-path docks that mutate a loaded Config
+    (or RuntimeContext) must copy it first with dataclasses.replace().
+    Missing-file handling is NOT this function's job, exactly like
+    cached_file_read: if compute_fn() raises, the exception propagates and
+    nothing is cached.
     """
     root = str(Path(root_path).resolve())
     key = (kind, root)
     with _lock:
         entry = _graph_cache.get(key)
         if entry is not None and _graph_mtimes_unchanged(entry[1]):
-            return copy.deepcopy(entry[0])
+            return entry[0]
         if entry is not None:
             _drop_graph_entry(key)
     # Compute outside the lock: compute_fn() calls cached_file_read(), which
@@ -219,10 +228,10 @@ def cached_graph_result(kind: str, root_path: str, compute_fn: Callable[[], T]) 
     finally:
         _trace.reset(token)
     with _lock:
-        _graph_cache[key] = (copy.deepcopy(result), dict(trace))
+        _graph_cache[key] = (result, dict(trace))
         for path in trace:
             _graph_keys_by_path.setdefault(path, set()).add(key)
-    return copy.deepcopy(result)
+    return result
 
 
 def invalidate_graph_path(path: Path) -> None:

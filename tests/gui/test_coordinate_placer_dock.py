@@ -290,8 +290,11 @@ def test_collect_redraw_inputs_coordinate_payload(main_window, tmp_path, monkeyp
     assert payload["coordinate"] is True
     assert payload["name"] == "FPGA_PERIPH/R18"
     assert payload["placer_path"] == target_file
-    # The form's entry replaced-by-name the in-memory cfg's coordinate_placements.
-    assert [cp.role for cp in fake_cfg.coordinate_placements] == ["R18"]
+    # The form's entry replaced-by-name the (copied) cfg's coordinate_placements;
+    # the injected fake_cfg itself must stay untouched (the dock copies before
+    # mutating because the graph cache is now shared).
+    assert [cp.role for cp in payload["cfg"].coordinate_placements] == ["R18"]
+    assert fake_cfg.coordinate_placements == []
 
 
 def test_collect_redraw_inputs_coordinate_retired_blocked(main_window, tmp_path, caplog):

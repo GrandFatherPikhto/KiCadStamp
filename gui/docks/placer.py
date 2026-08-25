@@ -107,6 +107,7 @@ named-records tree section now (one leaf per entry, like clone_placements),
 and Save/Redraw write/run through the same upsert/ApplyPipeline flow as the
 clone source, matched by effective name.
 """
+from dataclasses import replace
 import logging
 import re
 from pathlib import Path
@@ -1683,7 +1684,8 @@ class PlacerDock(QWidget):
                     and self._root_path != self._placer_path):
                 try:
                     root_cfg, root_ctx = load_config(str(self._root_path))
-                    ctx.sheet_names = root_ctx.sheet_names
+                    # graph cache is shared; copy ctx before writing to it
+                    ctx = replace(ctx, sheet_names=root_ctx.sheet_names)
                 except (ValidationError, OSError, yaml.YAMLError):
                     pass  # keep the leaf's own (empty) sheet_names — don't fail
                           # Redraw over a fallback that didn't pan out
@@ -1738,6 +1740,7 @@ class PlacerDock(QWidget):
         # effective save/--only identity (placer_name if set, else Cluster),
         # not raw .name (2026-08-15, plan clone_placement_placer_name_split).
         new_identity = clone_placement_effective_name(clone_placement)
+        cfg = replace(cfg)  # graph cache is shared; don't mutate the cached Config
         cfg.clone_placements = [
             c for c in cfg.clone_placements
             if clone_placement_effective_name(c) != new_identity
@@ -1784,6 +1787,7 @@ class PlacerDock(QWidget):
 
         # Replace-by-name: previewing an already-saved entry's edits must
         # not create a second copy alongside the saved one.
+        cfg = replace(cfg)  # graph cache is shared; don't mutate the cached Config
         cfg.coordinate_placements = [
             c for c in cfg.coordinate_placements
             if coordinate_placement_effective_name(c) != name

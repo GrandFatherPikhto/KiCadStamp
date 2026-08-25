@@ -834,7 +834,10 @@ def test_on_redraw_dispatches_to_worker(main_window, tmp_path, monkeypatch):
     payload = captured["args"][0]
     assert payload["name"] == "Channel_2_PI_Filter"
     assert payload["placer_path"] == placer_file
-    assert payload["cfg"] is fake_cfg
+    # The dock copies the config before mutating it (the graph cache is now
+    # shared), so the payload carries the MUTATED copy, not the injected one.
+    assert payload["cfg"] is not fake_cfg
+    assert [c.cluster for c in payload["cfg"].clone_placements] == ["Channel_2_PI_Filter"]
     assert payload["ctx"] is fake_ctx
 
 
