@@ -151,6 +151,12 @@ class LazySheetNameMap(Mapping):
     def __len__(self) -> int:
         return len(self._data())
 
+    def __bool__(self) -> bool:
+        # Without this, Python falls back to __len__() for truthiness, which
+        # materialises the map — defeating the "sheet_names or {}" fallback
+        # this class exists to keep lazy (see the class docstring above).
+        return True
+
     def __eq__(self, other) -> bool:
         if isinstance(other, LazySheetNameMap):
             return self._data() == other._data()

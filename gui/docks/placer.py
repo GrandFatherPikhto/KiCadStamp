@@ -1680,7 +1680,12 @@ class PlacerDock(QWidget):
                 cfg, ctx = load_config(str(self._placer_path))
             else:
                 cfg, ctx = Config(), RuntimeContext()
-            if (not ctx.sheet_names and self._root_path is not None
+            # len(), not "not ctx.sheet_names": LazySheetNameMap is always
+            # truthy by design (2026-08-25) so the ubiquitous "sheet_names or
+            # {}" fallbacks elsewhere never force a parse — but that means
+            # "not ctx.sheet_names" can no longer detect a genuinely empty
+            # map here. This IS the site that needs the real answer.
+            if (len(ctx.sheet_names) == 0 and self._root_path is not None
                     and self._root_path != self._placer_path):
                 try:
                     root_cfg, root_ctx = load_config(str(self._root_path))
