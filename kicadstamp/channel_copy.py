@@ -73,16 +73,6 @@ def _path_uuids(fp) -> list[str]:
     return [str(u.value) for u in fp.sheet_path.path]
 
 
-def _layer_to_board(layer: str) -> BoardLayer:
-    """'F.Cu'/'B.Cu' -> BoardLayer (same mapping the planners use)."""
-    return BoardLayer.BL_B_Cu if layer == "B.Cu" else BoardLayer.BL_F_Cu
-
-
-def _board_layer_to_str(layer: BoardLayer) -> str:
-    """BoardLayer -> 'F.Cu'/'B.Cu'."""
-    return "B.Cu" if layer == BoardLayer.BL_B_Cu else "F.Cu"
-
-
 def _channel_name_of_fp(adapter, fp) -> str | None:
     """Name of the channel a footprint belongs to, derived from the LOCAL
     hierarchical net of any of its pads ("/Channel_0/DAC/+3V3_AVDD" -> "Channel_0").

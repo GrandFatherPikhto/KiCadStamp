@@ -24,6 +24,12 @@ class TrackExecutor:
         track_batches = [tracks[i:i+self.batch_size] for i in range(0, len(tracks), self.batch_size)]
         logger.info(_("Creating tracks in {count} batches").format(count=len(track_batches)))
         for idx, batch in enumerate(track_batches, 1):
+            # (cmd, uuid) pairs, recorded into the registry ONLY after the
+            # commit actually succeeded (P0-3, 2026-08-25: record_created used
+            # to run inside work(), i.e. before push_commit — a crash between
+            # the JSON write and the board commit then left the registry lying).
+            pending = []
+
             def work(batch=batch):
                 new_tracks = []
                 cmd_for_track = []
@@ -50,10 +56,12 @@ class TrackExecutor:
                             'net_name': t.net.name,
                             'owner_ref': cmd.owner_ref
                         })
-                        if registry is not None:
-                            registry.record_created(cmd, uuid_str)
+                        pending.append((cmd, uuid_str))
                     logger.debug(_("  created {count} tracks").format(count=len(created)))
             ok = self.adapter.commit_with_retry(_("Track batch {idx}/{total}").format(idx=idx, total=len(track_batches)), work)
+            if ok and registry is not None:
+                for cmd, uuid_str in pending:
+                    registry.record_created(cmd, uuid_str)
             if not ok:
                 failed_track_owners.extend(cmd.owner_ref for cmd in batch)
                 logger.error(_("  track batch {idx} failed").format(idx=idx))

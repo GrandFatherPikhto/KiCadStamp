@@ -3,21 +3,29 @@
 import json
 import logging
 from pathlib import Path
-from kipy.board_types import BoardLayer
 from kipy.geometry import Vector2, Angle
 from kicadstamp.kicad.adapter import KiCadBoardAdapter
+from kicadstamp.utils.layers import layer_from_str
 from kicadstamp.utils.units import MM
 from kicadstamp.i18n import _
 
 logger = logging.getLogger(__name__)
 
 
-def undo_last_operation(json_path: Path) -> bool:
-    """Undoes the operation described in the JSON file."""
+def undo_last_operation(json_path: Path, adapter=None) -> bool:
+    """Undoes the operation described in the JSON file.
+
+    ``adapter`` — an IBoardAdapter to restore through (dependency injection,
+    2026-08-25, P0-5 of the architecture audit: the function used to
+    construct its own KiCadBoardAdapter, which made it untestable without a
+    live KiCad). When None (the production CLI path), a fresh
+    KiCadBoardAdapter is created. The board is always refreshed first.
+    """
     with open(json_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
 
-    adapter = KiCadBoardAdapter()
+    if adapter is None:
+        adapter = KiCadBoardAdapter()
     adapter.refresh_board()
 
     # 1. Restore moved components
@@ -36,10 +44,7 @@ def undo_last_operation(json_path: Path) -> bool:
 
         # Determine original layer
         orig_layer_str = item.get('original_layer', 'F.Cu')
-        if 'B.Cu' in orig_layer_str:
-            orig_layer = BoardLayer.BL_B_Cu
-        else:
-            orig_layer = BoardLayer.BL_F_Cu
+        orig_layer = layer_from_str(orig_layer_str)
 
         # If current layer differs from original — flip
         if fp.layer != orig_layer:

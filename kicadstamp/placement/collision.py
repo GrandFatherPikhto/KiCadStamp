@@ -13,7 +13,7 @@ import math
 from kipy.board_types import FootprintInstance
 from kipy.geometry import Vector2
 
-from .planner import MoveCommand
+from .commands import MoveCommand
 from ..utils.units import MM
 from ..i18n import _
 

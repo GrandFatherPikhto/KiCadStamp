@@ -1,6 +1,5 @@
 # kicadstamp/placement/executor/base.py
-from kipy.board_types import BoardLayer
-
-def layer_to_str(layer) -> str:
-    """Convert BoardLayer to string 'F.Cu' or 'B.Cu'."""
-    return "B.Cu" if layer == BoardLayer.BL_B_Cu else "F.Cu"
+"""layer_to_str moved to kicadstamp/utils/layers.py (single source of truth).
+This module remains as a thin re-export so the executor's existing importers
+(move_executor.py, flip_manager.py) and tests keep working unchanged."""
+from ...utils.layers import layer_to_str

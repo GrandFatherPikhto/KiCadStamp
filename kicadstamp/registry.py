@@ -37,22 +37,15 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import TypeVar, Generic
 
-from kipy.board_types import BoardLayer
-
 from .placement.commands import ViaCommand, TrackCommand
 from .utils.units import MM
+from .utils.layers import layer_to_str
 from .constants import POSITION_TOLERANCE_MM, SPOKE_LEVEL_ROLE_PLACEHOLDER
 from .i18n import _
 
 logger = logging.getLogger(__name__)
 
 _POSITION_TOLERANCE_MM = POSITION_TOLERANCE_MM
-
-
-def _layer_to_str(layer: BoardLayer) -> str:
-    """BoardLayer -> 'F.Cu'/'B.Cu' — local copy (don't pull from
-    .placement.executor.base to avoid import cycles)."""
-    return "B.Cu" if layer == BoardLayer.BL_B_Cu else "F.Cu"
 
 
 def make_registry_key(anchor_id: str, template_name: str, role: str | None, index: int) -> str:
@@ -393,7 +386,7 @@ def track_matches(live_track, cmd: TrackCommand) -> bool:
         return False
     if abs(live_track.width / MM - cmd.width_mm) >= 1e-6:
         return False
-    if _layer_to_str(live_track.layer) != _layer_to_str(cmd.layer):
+    if layer_to_str(live_track.layer) != layer_to_str(cmd.layer):
         return False
     return True
 
@@ -463,5 +456,5 @@ class TrackRegistry(BaseRegistry[TrackRegistryEntry]):
             end_y_mm=track.end.y / MM,
             width_mm=track.width_mm,
             net=track.net_name,
-            layer=_layer_to_str(track.layer),
+            layer=layer_to_str(track.layer),
         )

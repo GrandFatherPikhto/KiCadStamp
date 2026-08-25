@@ -23,6 +23,12 @@ class ViaExecutor:
         via_batches = [vias[i:i+self.batch_size] for i in range(0, len(vias), self.batch_size)]
         logger.info(_("Creating vias in {count} batches").format(count=len(via_batches)))
         for idx, batch in enumerate(via_batches, 1):
+            # (cmd, uuid) pairs, recorded into the registry ONLY after the
+            # commit actually succeeded (P0-3, 2026-08-25: record_created used
+            # to run inside work(), i.e. before push_commit — a crash between
+            # the JSON write and the board commit then left the registry lying).
+            pending = []
+
             def work(batch=batch):
                 new_vias = []
                 cmd_for_via = []
@@ -48,10 +54,12 @@ class ViaExecutor:
                             'net_name': v.net.name,
                             'owner_ref': cmd.owner_ref
                         })
-                        if registry is not None:
-                            registry.record_created(cmd, uuid_str)
+                        pending.append((cmd, uuid_str))
                     logger.debug(_("  created {count} vias").format(count=len(created)))
             ok = self.adapter.commit_with_retry(_("Via batch {idx}/{total}").format(idx=idx, total=len(via_batches)), work)
+            if ok and registry is not None:
+                for cmd, uuid_str in pending:
+                    registry.record_created(cmd, uuid_str)
             if not ok:
                 failed_via_owners.extend(cmd.owner_ref for cmd in batch)
                 logger.error(_("  via batch {idx} failed").format(idx=idx))
