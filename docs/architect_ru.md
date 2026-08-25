@@ -36,74 +36,38 @@
 ## 3. Структура проекта
 
 ```
-kicadstamp/
-├── __init__.py                       # Пакетный инициализатор
-├── kicadstamp_cli.py                 # Точка входа (CLI) — dispatch по командам
-├── apply_pipeline.py                 # ApplyPipeline: apply-команда целиком (загрузка, фильтры, выполнение)
-├── cli_extract.py                    # cmd_extract — команда extract
-├── logging_setup.py                  # setup_logging — настройка логирования
-├── runtime_context.py                # RuntimeContext (sheet_names)
-├── sheet_names.py                    # Парсинг UUID листов из .kicad_sch → build_sheet_name_map()
-├── i18n.py                           # gettext i18n: _() для русских сообщений
-├── author.py                         # Скриптовые хелперы: dump/apply (чистая библиотека)
-├── author_cli.py                     # cli_main — CLI-точка входа для скриптов плат
-├── explore.py                        # Запросы к плате только на чтение
-├── exceptions.py                     # Иерархия исключений
-├── undo.py                           # Откат операций
-├── validation.py                     # Предварительные проверки (включая проверку цепей via/треков)
-├── registry.py                       # Реестр расстановки via (PlacementRegistry) и треков (TrackRegistry)
-├── net_resolution.py                 # Разрешение цепей для клонирования (и обратная параметризация)
-├── template_extraction.py            # Извлечение шаблонов из выделения (с поддержкой треков, JSON, параметризации)
-├── constants.py                      # Глобальные константы
-├── config/                           # Конфигурация (пакет, вместо одного config.py)
-│   ├── __init__.py                   # Экспорт типов и функций
-│   ├── loader.py                     # load_config() и _load_* функции
-│   ├── models.py                     # Датаклассы (Config, Rule, ClonePlacement, SpokeTemplate …)
-│   └── includes.py                   # Обработка include: директив
-├── utils/                            # Вспомогательные утилиты
-│   ├── __init__.py
-│   └── units.py                      # MM = 1_000_000 и другие константы единиц
-├── geometry/                         # Геометрические утилиты (независимые от KiCad)
-│   ├── __init__.py
-│   ├── keepout.py                    # Ограничивающие прямоугольники и поиск свободного места
-│   ├── pad_projection.py             # Предсказание позиции пада
-│   ├── spoke_layout.py               # Преобразование локальных координат шаблона в глобальные (для ManualSpoke)
-│   ├── clone_geometry.py             # Преобразование для ClonePlacement (с поддержкой треков и mirror)
-│   └── thermal_grid.py               # Генерация сетки термовиа
-├── kicad/                            # Адаптер для KiCad
-│   ├── __init__.py
-│   ├── adapter.py                    # Реализация KiCadBoardAdapter (с поддержкой треков)
-│   └── interfaces.py                 # Абстрактный интерфейс IBoardAdapter
-├── placement/                        # Основная логика
-│   ├── __init__.py
-│   ├── planner.py                    # Главный планировщик (plan_moves, plan_vias, plan_tracks)
-│   ├── commands.py                   # Структуры данных (MoveCommand, ViaCommand, TrackCommand, PlacedComponentInfo)
-│   ├── collision.py                  # Проверка коллизий
-│   ├── dependency_order.py           # Разрешение порядка выполнения по anchor_ref/anchor_role
-│   ├── executor/                     # Исполнитель команд (разбит на модули)
-│   │   ├── __init__.py
-│   │   ├── batch_executor.py         # Фасад, объединяющий перемещения, via и треки
-│   │   ├── move_executor.py          # Исполнение перемещений
-│   │   ├── via_executor.py           # Исполнение создания via
-│   │   ├── track_executor.py         # Исполнение создания треков
-│   │   ├── flip_manager.py           # Управление флипом компонентов
-│   │   └── operation_logger.py       # Логирование операций в JSON (включая треки)
-│   └── services/                     # Сервисные классы
-│       ├── __init__.py
-│       ├── component_pool.py         # Подбор компонентов по ролям и цепи (для ManualSpoke)
-│       ├── clone_role_resolver.py    # Разрешение ролей для ClonePlacement (с учётом близости к якорю и выделения)
-│       ├── clone_position_calculator.py # Расчёт позиций, via и треков для ClonePlacement
-│       ├── component_resolver.py     # Общая логика resolve_anchor_fp / build_pools
-│       ├── position_tracker.py       # Трекинг позиций для разрешения зависимостей
-│       ├── manual_position_calculator.py  # Расчёт позиций и via для ManualSpoke
-│       └── via_planner.py            # Планирование термовиа и фильтрация via через реестр
-├── cloner/                           # Файловый клонер (без IPC)
-│   ├── extract.py
-│   ├── models.py
-│   ├── netlist.py
-│   ├── pcb.py
-│   └── sexp.py
-└── diagnostics/                      # Диагностические скрипты
+Корень репозитория
+├── pyproject.toml                     # упаковка (PEP 621): метаданные, зависимости, console-скрипты
+├── kicadstamp_cli.py                  # тонкая обёртка -> kicadstamp.cli_main:main (dev-флоу)
+├── kicadstamp_gui.py                  # тонкая обёртка -> kicadstamp.gui_main:main (dev-флоу)
+├── fieldstool_cli.py                  # офлайн-редактор полей .kicad_sch (set/rename)
+├── requirements*.txt                  # runtime / dev / diagnostics раздельно
+├── tests/                             # unit + GUI тесты (integration в tests/integration_tests)
+└── kicadstamp/
+    ├── __init__.py                    # только импорт __version__ (без побочных эффектов импорта)
+    ├── _version.py                    # единственный источник __version__
+    ├── cli_main.py / gui_main.py      # пакетные точки входа (console-скрипты)
+    ├── apply_pipeline.py              # cmd_apply / ApplyPipeline
+    ├── cli.py / cli_common.py / cli_extract.py   # обёртки команд CLI + владелец exit-кодов
+    ├── author.py / author_cli.py      # скриптовые хелперы + CLI для скриптов плат
+    ├── channel_copy.py / flatten.py   # копирование канала + уплощение include-графа
+    ├── anchor_graph.py                # статический граф зависимостей по якорям
+    ├── cluster_matching.py / net_resolution.py / net_from_role_resolver.py
+    ├── net_trace_extract.py / net_trace_planner.py
+    ├── schematic_blocks.py / schematic_config.py / schematic_discovery.py /
+    │   schematic_editing.py / schematic_rename_fields.py / schematic_safety.py /
+    │   schematic_set_fields.py
+    ├── template_extraction.py / template_extraction_render.py / template_selection.py
+    ├── extract_writer.py / config_writer.py / config_rename.py
+    ├── explore.py / validation.py / registry.py / undo.py / sheet_names.py
+    ├── runtime_context.py / exceptions.py / constants.py / i18n.py / logging_setup.py
+    ├── config/                        # entries, includes, loader, models, points, sheet_templates
+    ├── geometry/                      # clone_geometry, keepout, pad_projection, spoke_layout, thermal_grid
+    ├── kicad/                         # adapter, interfaces, pynng_safety
+    ├── placement/                     # planner, collision, commands, dependency_order + executor/ + services/
+    ├── cloner/                        # файловый клонер (extract, models, netlist, pcb, sexp)
+    ├── utils/                         # file_cache, layers, paths, units, yaml_loader
+    └── diagnostics/                   # диагностические пробники (второй diagnostics/ есть и в корне)
 ```
 
 ---

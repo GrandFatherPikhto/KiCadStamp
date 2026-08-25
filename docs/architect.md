@@ -36,73 +36,38 @@ The core concept is a **spoke** – a set of components, vias, and tracks that b
 ## 3. Project Structure
 
 ```
-kicadstamp/
-├── __init__.py
-├── kicadstamp_cli.py                 # CLI entry point
-├── apply_pipeline.py                 # cmd_apply and ApplyPipeline class
-├── cli_extract.py                    # cmd_extract command logic
-├── logging_setup.py                  # Logging configuration
-├── runtime_context.py                # RuntimeContext dataclass
-├── sheet_names.py                    # Sheet UUID → name resolution
-├── i18n.py                           # gettext internationalisation
-├── author.py                         # Scripting: dump/apply helpers (pure library)
-├── author_cli.py                     # cli_main — CLI entry point for board scripts
-├── explore.py                        # Board query helpers
-├── config/                           # Configuration package (loader, models, includes)
-│   ├── __init__.py                   # Public exports
-│   ├── loader.py                     # YAML → dataclass loading
-│   ├── models.py                     # Dataclasses (Config, Rule, ClonePlacement, etc.)
-│   └── includes.py                   # Include resolution for `include:` key
-├── exceptions.py                     # Exception hierarchy
-├── undo.py                           # Undo operations
-├── validation.py                     # Pre‑validation checks (including net resolution)
-├── registry.py                       # Registry for vias (PlacementRegistry) and tracks (TrackRegistry)
-├── net_resolution.py                 # Net resolution for cloning (and reverse parametrisation)
-├── template_extraction.py            # Template extraction (supports tracks, JSON, net parametrisation)
-├── constants.py                      # Global constants
-├── geometry/                         # Geometry utilities (KiCad‑independent)
-│   ├── keepout.py                    # Keepout rectangles and free‑space search
-│   ├── pad_projection.py             # Pad position prediction after move/rotate/flip
-│   ├── spoke_layout.py               # Local‑to‑global transformation for ManualSpoke
-│   ├── clone_geometry.py             # Transformation for ClonePlacement (supports tracks and mirror)
-│   └── thermal_grid.py               # Thermal via grid generation
-├── kicad/                            # KiCad adapter
-│   ├── adapter.py                    # KiCadBoardAdapter implementation (supports tracks)
-│   └── interfaces.py                 # IBoardAdapter abstraction
-├── placement/                        # Core placement logic
-│   ├── __init__.py                   # Public exports (BatchExecutor, PlacementPlanner, commands)
-│   ├── planner.py                    # Main orchestrator (plan_moves, plan_vias, plan_tracks)
-│   ├── commands.py                   # DTOs (MoveCommand, ViaCommand, TrackCommand, PlacedComponentInfo)
-│   ├── collision.py                  # Collision checking
-│   ├── dependency_order.py           # Execution order resolution (anchor_ref/anchor_role dependencies)
-│   ├── executor/                     # Command executors
-│   │   ├── __init__.py
-│   │   ├── batch_executor.py         # Façade combining moves, vias, tracks
-│   │   ├── move_executor.py          # Move execution
-│   │   ├── via_executor.py           # Via creation
-│   │   ├── track_executor.py         # Track creation
-│   │   ├── flip_manager.py           # Component flip management
-│   │   ├── operation_logger.py       # JSON logging (includes tracks)
-│   │   └── base.py                   # Utilities (layer_to_str)
-│   └── services/                     # Service classes
-│       ├── __init__.py
-│       ├── component_pool.py         # Component pool by role and net (for ManualSpoke)
-│       ├── clone_role_resolver.py    # Role resolution for ClonePlacement (with anchor‑proximity disambiguation)
-│       ├── clone_position_calculator.py # Position/via/track calculation for ClonePlacement
-│       ├── manual_position_calculator.py  # Position/via calculation for ManualSpoke
-│       ├── via_planner.py            # Thermal via planning and registry filtering
-│       ├── position_tracker.py       # Shared position tracking helper
-│       └── component_resolver.py     # Common anchor/pool resolution for ManualSpoke/ClonePlacement
-├── cloner/                           # File‑based cloner (no IPC)
-│   ├── extract.py
-│   ├── models.py
-│   ├── netlist.py
-│   ├── pcb.py
-│   └── sexp.py
-├── diagnostics/                      # Diagnostic scripts
-├── utils/                            # Utilities
-│   └── units.py                      # MM constant for unit conversion
-└── tests/                            # Unit and integration tests
+Repo root
+├── pyproject.toml                     # packaging (PEP 621): metadata, deps, console scripts
+├── kicadstamp_cli.py                  # thin wrapper -> kicadstamp.cli_main:main (dev workflow)
+├── kicadstamp_gui.py                  # thin wrapper -> kicadstamp.gui_main:main (dev workflow)
+├── fieldstool_cli.py                  # offline .kicad_sch bulk field editor (set/rename)
+├── requirements*.txt                  # runtime / dev / diagnostics split
+├── tests/                             # unit + GUI tests (integration in tests/integration_tests)
+└── kicadstamp/
+    ├── __init__.py                    # imports __version__ only (no import-time side effects)
+    ├── _version.py                    # single source of truth for __version__
+    ├── cli_main.py / gui_main.py      # package entry points (console scripts)
+    ├── apply_pipeline.py              # cmd_apply / ApplyPipeline
+    ├── cli.py / cli_common.py / cli_extract.py   # CLI command wrappers + exit-code owner
+    ├── author.py / author_cli.py      # scripting helpers + board-script CLI
+    ├── channel_copy.py / flatten.py   # channel copy + include-graph flattening
+    ├── anchor_graph.py                # static anchor-dependency graph
+    ├── cluster_matching.py / net_resolution.py / net_from_role_resolver.py
+    ├── net_trace_extract.py / net_trace_planner.py
+    ├── schematic_blocks.py / schematic_config.py / schematic_discovery.py /
+    │   schematic_editing.py / schematic_rename_fields.py / schematic_safety.py /
+    │   schematic_set_fields.py
+    ├── template_extraction.py / template_extraction_render.py / template_selection.py
+    ├── extract_writer.py / config_writer.py / config_rename.py
+    ├── explore.py / validation.py / registry.py / undo.py / sheet_names.py
+    ├── runtime_context.py / exceptions.py / constants.py / i18n.py / logging_setup.py
+    ├── config/                        # entries, includes, loader, models, points, sheet_templates
+    ├── geometry/                      # clone_geometry, keepout, pad_projection, spoke_layout, thermal_grid
+    ├── kicad/                         # adapter, interfaces, pynng_safety
+    ├── placement/                     # planner, collision, commands, dependency_order + executor/ + services/
+    ├── cloner/                        # file-based cloner (extract, models, netlist, pcb, sexp)
+    ├── utils/                         # file_cache, layers, paths, units, yaml_loader
+    └── diagnostics/                   # diagnostic probes (a second diagnostics/ also exists at repo root)
 ```
 
 ---
