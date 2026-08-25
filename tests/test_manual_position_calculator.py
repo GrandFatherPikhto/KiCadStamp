@@ -11,8 +11,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import MagicMock
-from kipy.geometry import Vector2
-from kipy.board_types import Pad, FootprintInstance, BoardLayer
+from kicadstamp.domain.geometry import Vector2
+from kipy.board_types import Pad, FootprintInstance
+from kicadstamp.domain.geometry import BoardLayer
 
 from kicadstamp.config import Config, Rule, ManualSpoke, Cell, TemplateComponentSlot
 from kicadstamp.placement.services.manual_position_calculator import ManualPositionCalculator

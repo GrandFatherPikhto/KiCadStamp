@@ -20,7 +20,7 @@ import logging
 from typing import Any
 
 from .domain.board import Footprint, Via, Track
-from kipy.geometry import Vector2
+from .domain.geometry import Vector2
 
 from .constants import POSITION_TOLERANCE_MM, ROLE_FIELD_NAME
 from .exceptions import ValidationError, format_fatal_error

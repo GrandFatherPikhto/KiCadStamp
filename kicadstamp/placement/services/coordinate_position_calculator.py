@@ -29,7 +29,7 @@ ClonePlacement's own component moves in apply_pipeline.py's Phase 1.
 """
 import logging
 
-from kipy.geometry import Vector2, Angle
+from ...domain.geometry import Vector2, Angle
 
 from ...domain.board import Footprint
 

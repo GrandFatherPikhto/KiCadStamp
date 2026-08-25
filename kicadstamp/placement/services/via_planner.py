@@ -2,8 +2,8 @@
 
 import logging
 
-from kipy.board_types import BoardLayer
-from kipy.geometry import Vector2
+from ...domain.geometry import BoardLayer
+from ...domain.geometry import Vector2
 
 from ...domain.board import Footprint
 

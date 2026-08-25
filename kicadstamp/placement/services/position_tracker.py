@@ -3,8 +3,8 @@
 import logging
 
 
-from kipy.board_types import BoardLayer
-from kipy.geometry import Angle
+from ...domain.geometry import BoardLayer
+from ...domain.geometry import Angle
 
 from ...kicad.adapter import KiCadBoardAdapter
 from ..commands import MoveCommand, PlacedComponentInfo

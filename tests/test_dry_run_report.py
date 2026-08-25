@@ -16,8 +16,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import MagicMock, patch
 
-from kipy.geometry import Vector2, Angle
-from kipy.board_types import BoardLayer
+from kicadstamp.domain.geometry import Vector2, Angle
+from kicadstamp.domain.geometry import BoardLayer
 
 from kicadstamp.apply_pipeline import ApplyPipeline, RunOptions, cmd_apply, run_apply
 from kicadstamp.author import apply_config

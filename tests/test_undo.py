@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from kipy.board_types import BoardLayer
+from kicadstamp.domain.geometry import BoardLayer
 
 from kicadstamp.undo import undo_last_operation
 

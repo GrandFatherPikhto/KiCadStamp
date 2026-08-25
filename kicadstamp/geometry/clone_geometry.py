@@ -11,7 +11,7 @@ for ClonePlacement (TemplatePlacer), unlike spoke_layout.py:
     via.net=None is FATAL here — there is no sensible default to fall back to,
     unlike in spoke_layout.py.
 """
-from kipy.geometry import Vector2
+from ..domain.geometry import Vector2
 
 from ..config import (ClonePlacement, Cell, TemplateVia, TemplateTrack,
                       clone_placement_effective_name)

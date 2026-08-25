@@ -18,8 +18,9 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-from kipy.board_types import BoardLayer, FootprintInstance, Via, Track
-from kipy.geometry import Vector2, Angle
+from kipy.board_types import FootprintInstance, Via, Track
+from kicadstamp.domain.geometry import BoardLayer
+from kicadstamp.domain.geometry import Vector2, Angle
 
 from kicadstamp.config import Config
 from kicadstamp.exceptions import ValidationError

@@ -25,7 +25,7 @@ from typing import Any
 
 import yaml
 
-from kipy.board_types import BoardLayer
+from .domain.geometry import BoardLayer
 
 from .utils.yaml_loader import safe_load
 

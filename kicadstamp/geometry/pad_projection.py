@@ -19,7 +19,7 @@ real board, comparing this prediction with what KiCad actually shows after a
 real flip+rotation.
 """
 from ..domain.board import Footprint, Pad
-from kipy.geometry import Vector2, Angle
+from ..domain.geometry import Vector2, Angle
 
 
 def local_pad_offset(fp: Footprint, pad: Pad) -> Vector2:

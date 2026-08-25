@@ -5,7 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
-from kipy.geometry import Vector2
+from kicadstamp.domain.geometry import Vector2
 from kicadstamp.config import ClonePlacement, Cell, TemplateVia, TemplateTrack, TemplateComponentSlot
 from kicadstamp.geometry.clone_geometry import apply_clone_geometry, clone_shift_mm
 from kicadstamp.geometry.spoke_layout import local_to_absolute, rotate_local_offset

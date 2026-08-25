@@ -2,7 +2,7 @@
 
 import math
 
-from kipy.geometry import Vector2
+from ..domain.geometry import Vector2
 
 """
 * Rect class — AABB rectangle, used to represent keepout zones.

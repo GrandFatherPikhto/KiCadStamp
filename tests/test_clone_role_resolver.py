@@ -6,8 +6,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from unittest.mock import MagicMock
-from kipy.board_types import BoardLayer
-from kipy.geometry import Vector2
+from kicadstamp.domain.geometry import BoardLayer
+from kicadstamp.domain.geometry import Vector2
 
 from kicadstamp.domain.board import Footprint
 

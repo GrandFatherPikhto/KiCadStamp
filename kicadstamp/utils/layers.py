@@ -7,7 +7,7 @@ audit): placement/executor/base.py (BoardLayer -> str), registry.py's local
 ``_board_layer_to_str`` pair, and an inline string parse in undo.py.
 Consolidated here.
 """
-from kipy.board_types import BoardLayer
+from ..domain.geometry import BoardLayer
 
 
 def layer_to_str(layer: BoardLayer) -> str:

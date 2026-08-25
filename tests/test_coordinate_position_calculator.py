@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from kipy.board_types import FootprintInstance
-from kipy.geometry import Vector2
+from kicadstamp.domain.geometry import Vector2
 
 from kicadstamp.config import CoordinatePlacement, Point
 from kicadstamp.exceptions import ValidationError

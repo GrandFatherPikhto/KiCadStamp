@@ -4,8 +4,8 @@ from unittest.mock import MagicMock
 import json
 
 import yaml
-from kipy.board_types import BoardLayer
-from kipy.geometry import Vector2
+from kicadstamp.domain.geometry import BoardLayer
+from kicadstamp.domain.geometry import Vector2
 
 from kicadstamp.domain.board import Footprint, Track, Via
 from PyQt6.QtCore import Qt

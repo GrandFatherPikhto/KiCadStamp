@@ -3,8 +3,8 @@
 import logging
 
 
-from kipy.board_types import BoardLayer
-from kipy.geometry import Angle, Vector2
+from ..domain.geometry import BoardLayer
+from ..domain.geometry import Angle, Vector2
 
 from ..config import Config
 from ..kicad.adapter import KiCadBoardAdapter

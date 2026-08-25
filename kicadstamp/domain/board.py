@@ -24,10 +24,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from kipy.board_types import BoardLayer, FootprintInstance, Net as KipyNet, Pad as KipyPad, Track as KipyTrack, Via as KipyVia, Zone as KipyZone
-from kipy.geometry import Vector2
+from kipy.board_types import BoardLayer as KipyBoardLayer, FootprintInstance, Net as KipyNet, Pad as KipyPad, Track as KipyTrack, Via as KipyVia, Zone as KipyZone
+from kipy.geometry import Vector2 as KipyVector2
 
 from ..utils.units import MM
+from .geometry import BoardLayer, Vector2
 
 __all__ = [
     "Footprint",
@@ -164,12 +165,23 @@ class Track:
 
 # --- Mappers (kipy -> DTO) -------------------------------------------------
 
+def _point_from_kipy(v) -> Vector2:
+    return Vector2(v.x, v.y)
+
+
+def _layer_from_kipy(layer) -> BoardLayer:
+    return BoardLayer.BL_B_Cu if layer == KipyBoardLayer.BL_B_Cu else BoardLayer.BL_F_Cu
+
+
 def net_from_kipy(net: KipyNet) -> Net:
     return Net(name=net.name, code=getattr(net, "code", 0), _kipy=net)
 
 
 def zone_from_kipy(zone: KipyZone) -> Zone:
-    return Zone(name=zone.name, layer=getattr(zone, "layer", None), _kipy=zone)
+    layer = getattr(zone, "layer", None)
+    return Zone(name=zone.name,
+                layer=_layer_from_kipy(layer) if layer is not None else None,
+                _kipy=zone)
 
 
 def footprint_from_kipy(fp: FootprintInstance) -> Footprint:
@@ -179,9 +191,9 @@ def footprint_from_kipy(fp: FootprintInstance) -> Footprint:
     return Footprint(
         ref=fp.reference_field.text.value if fp.reference_field else "",
         uuid=str(fp.id.value),
-        position=fp.position,
+        position=_point_from_kipy(fp.position),
         angle_deg=fp.orientation.degrees,
-        layer=fp.layer,
+        layer=_layer_from_kipy(fp.layer),
         value=fp.value_field.text.value if fp.value_field else None,
         sheet_path_uuids=sheet_path_uuids,
         _kipy=fp,
@@ -195,15 +207,16 @@ def pad_from_kipy(pad: KipyPad) -> Pad:
     if padstack is not None:
         copper = getattr(padstack, "copper_layers", None)
         if copper:
-            size = copper[0].size
+            size = _point_from_kipy(copper[0].size)
         angle = getattr(padstack, "angle", None)
         if angle is not None:
             angle_rad = angle.to_radians()
+    layer = getattr(pad, "layer", None)
     return Pad(
         number=pad.number,
         net_name=pad.net.name if pad.net else None,
-        position=pad.position,
-        layer=getattr(pad, "layer", None),
+        position=_point_from_kipy(pad.position),
+        layer=_layer_from_kipy(layer) if layer is not None else None,
         size=size,
         angle_rad=angle_rad,
         _kipy=pad,
@@ -211,13 +224,14 @@ def pad_from_kipy(pad: KipyPad) -> Pad:
 
 
 def via_from_kipy(via: KipyVia) -> Via:
+    layer = getattr(via, "layer", None)
     return Via(
         uuid=str(via.id.value),
-        position=via.position,
+        position=_point_from_kipy(via.position),
         net_name=via.net.name if via.net else None,
         drill_mm=via.drill_diameter / MM,
         diameter_mm=via.diameter / MM,
-        layer=getattr(via, "layer", None),
+        layer=_layer_from_kipy(layer) if layer is not None else None,
         _kipy=via,
     )
 
@@ -225,11 +239,11 @@ def via_from_kipy(via: KipyVia) -> Via:
 def track_from_kipy(track: KipyTrack) -> Track:
     return Track(
         uuid=str(track.id.value),
-        start=track.start,
-        end=track.end,
+        start=_point_from_kipy(track.start),
+        end=_point_from_kipy(track.end),
         net_name=track.net.name if track.net else None,
         width_mm=track.width / MM,
-        layer=track.layer,
+        layer=_layer_from_kipy(track.layer),
         _kipy=track,
     )
 

@@ -11,7 +11,7 @@ import logging
 import math
 
 from ..domain.board import Footprint
-from kipy.geometry import Vector2
+from ..domain.geometry import Vector2
 
 from .commands import MoveCommand
 from ..utils.units import MM

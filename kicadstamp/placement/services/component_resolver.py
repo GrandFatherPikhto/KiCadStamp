@@ -4,7 +4,7 @@ from collections.abc import Callable
 import logging
 
 
-from kipy.geometry import Vector2
+from ...domain.geometry import Vector2
 
 from ...domain.board import Footprint
 

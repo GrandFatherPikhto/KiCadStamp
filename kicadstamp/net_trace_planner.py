@@ -30,7 +30,7 @@ adoption the registry owns the copper exactly like any Cell-created item.
 """
 import logging
 
-from kipy.board_types import BoardLayer
+from .domain.geometry import BoardLayer
 
 from .config import NetTrace
 from .exceptions import ValidationError, format_fatal_error

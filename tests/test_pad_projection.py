@@ -13,8 +13,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import MagicMock
-from kipy.geometry import Vector2, Angle
-from kipy.board_types import BoardLayer
+from kicadstamp.domain.geometry import Vector2, Angle
+from kicadstamp.domain.geometry import BoardLayer
 
 
 from kicadstamp.geometry.pad_projection import predict_pad_position, local_pad_offset

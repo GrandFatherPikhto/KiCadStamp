@@ -14,8 +14,9 @@ adapter.py — adapter пока не умеет треки вообще, зде�
 это не снимется (апдейт KiCad/kipy).
 """
 import pytest
-from kipy.geometry import Vector2
-from kipy.board_types import Track, BoardLayer
+from kicadstamp.domain.geometry import Vector2
+from kipy.board_types import Track
+from kicadstamp.domain.geometry import BoardLayer
 from kicadstamp.utils.units import MM
 
 

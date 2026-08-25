@@ -35,7 +35,7 @@ sheet: identity (see coordinate_position_calculator.py).
 import logging
 import math
 
-from kipy.geometry import Vector2
+from ...domain.geometry import Vector2
 
 from ...config import ClonePlacement
 from ...utils.units import MM

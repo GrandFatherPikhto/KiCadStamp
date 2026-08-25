@@ -3,7 +3,7 @@
 import json
 import logging
 from pathlib import Path
-from kipy.geometry import Vector2
+from .domain.geometry import Vector2
 from kicadstamp.kicad.adapter import KiCadBoardAdapter
 from kicadstamp.utils.layers import layer_from_str
 from kicadstamp.utils.units import MM

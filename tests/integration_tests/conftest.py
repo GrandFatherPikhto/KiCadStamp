@@ -1,8 +1,8 @@
 # tests/integration_tests/conftest.py
 
 import pytest
-from kipy.geometry import Vector2
-from kipy.board_types import BoardLayer
+from kicadstamp.domain.geometry import Vector2
+from kicadstamp.domain.geometry import BoardLayer
 
 import sys
 from pathlib import Path

@@ -42,7 +42,7 @@ extract_template_from_selection (defined below) and render_uncertain_comments
 import logging
 from typing import Any
 
-from kipy.board_types import BoardLayer
+from .domain.geometry import BoardLayer
 
 from .domain.board import Footprint, Via, Track
 

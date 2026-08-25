@@ -27,7 +27,7 @@ dependency on the live board for vias.
 """
 from dataclasses import dataclass, field
 
-from kipy.geometry import Vector2, Angle
+from ..domain.geometry import Vector2, Angle
 
 from ..config import ManualSpoke, Cell, TemplateVia, TemplateTrack
 from ..utils.units import MM

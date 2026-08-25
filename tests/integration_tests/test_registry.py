@@ -11,7 +11,7 @@
 import pytest
 import json
 from pathlib import Path
-from kipy.geometry import Vector2
+from kicadstamp.domain.geometry import Vector2
 from kicadstamp.utils.units import MM
 from kicadstamp.placement.commands import ViaCommand
 from kicadstamp.registry import PlacementRegistry, RegistryEntry

@@ -3,7 +3,7 @@
 import math
 
 from ..domain.board import Pad
-from kipy.geometry import Vector2
+from ..domain.geometry import Vector2
 from ..utils.units import MM
 from ..exceptions import GeometryError
 from ..i18n import _

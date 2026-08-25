@@ -2,7 +2,7 @@
 
 import logging
 
-from kipy.board_types import BoardLayer
+from ...domain.geometry import BoardLayer
 
 from ...config import Config, Rule
 from ...kicad.adapter import KiCadBoardAdapter

@@ -16,7 +16,7 @@ import logging
 from dataclasses import dataclass
 
 
-from kipy.geometry import Vector2
+from ...domain.geometry import Vector2
 
 from ...domain.board import Footprint
 

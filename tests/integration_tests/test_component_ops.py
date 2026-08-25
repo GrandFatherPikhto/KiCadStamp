@@ -1,7 +1,7 @@
 import pytest
-from kipy.geometry import Vector2
+from kicadstamp.domain.geometry import Vector2
 from kicadstamp.utils.units import MM
-from kipy.board_types import BoardLayer
+from kicadstamp.domain.geometry import BoardLayer
 
 @pytest.mark.integration
 def test_move_component(adapter, test_component_ref):

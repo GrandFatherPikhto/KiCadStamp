@@ -24,8 +24,9 @@ Rules for the seam:
 from abc import ABC, abstractmethod
 from typing import Any
 
-from kipy.board_types import BoardLayer
-from kipy.geometry import Box2, Vector2
+from kipy.geometry import Box2
+
+from ..domain.geometry import BoardLayer, Vector2
 
 from ..domain.board import Footprint, Net, Pad, Track, Via, Zone
 

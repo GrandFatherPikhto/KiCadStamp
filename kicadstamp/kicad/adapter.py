@@ -5,8 +5,10 @@ import logging
 from contextlib import contextmanager
 from typing import Any
 import kipy
-from kipy.board_types import BoardLayer, Field, Group, Pad as KipyPad, Track as KipyTrack, Via as KipyVia, ViaType
-from kipy.geometry import Vector2, Box2, Angle
+from kipy.board_types import BoardLayer as KipyBoardLayer, Field, Group, Pad as KipyPad, Track as KipyTrack, Via as KipyVia, ViaType
+from kipy.geometry import Vector2 as KipyVector2, Box2, Angle as KipyAngle
+
+from ..domain.geometry import BoardLayer, Vector2
 from kipy.proto.board import board_commands_pb2
 from kipy.errors import FutureVersionError
 
@@ -412,7 +414,8 @@ class KiCadBoardAdapter(IBoardAdapter):
     _BOARD_ORIGIN_KINDS = {"grid": board_commands_pb2.BOT_GRID, "drill": board_commands_pb2.BOT_DRILL}
 
     def get_board_origin(self, kind: str) -> Vector2:
-        return self._board.get_origin(self._BOARD_ORIGIN_KINDS[kind])
+        v = self._board.get_origin(self._BOARD_ORIGIN_KINDS[kind])
+        return Vector2(v.x, v.y)
 
     # --- Bounding boxes (for collisions — see collision.py) ---
     def get_bounding_boxes(self, items) -> list[Box2 | None]:
@@ -515,9 +518,10 @@ class KiCadBoardAdapter(IBoardAdapter):
         field writes (``set_field_value``) mutate the kipy object in place.
         """
         if isinstance(dto, Footprint):
-            kipy_item.position = dto.position
-            kipy_item.orientation = Angle.from_degrees(dto.angle_deg)
-            kipy_item.layer = dto.layer
+            kipy_item.position = KipyVector2.from_xy(dto.position.x, dto.position.y)
+            kipy_item.orientation = KipyAngle.from_degrees(dto.angle_deg)
+            kipy_item.layer = (KipyBoardLayer.BL_B_Cu if dto.layer == BoardLayer.BL_B_Cu
+                               else KipyBoardLayer.BL_F_Cu)
 
     def update_items(self, items):
         logger.debug(_("Updating {count} items").format(count=len(items)))
@@ -598,7 +602,7 @@ class KiCadBoardAdapter(IBoardAdapter):
                      .format(x=position.x/MM, y=position.y/MM, net=net.name))
         via = KipyVia()
         via.type = ViaType.VT_THROUGH
-        via.position = position
+        via.position = KipyVector2.from_xy(position.x, position.y)
         via.net = unwrap(net)
         via.drill_diameter = int(drill_mm * MM)
         via.diameter = int(diameter_mm * MM)
@@ -611,11 +615,11 @@ class KiCadBoardAdapter(IBoardAdapter):
                      .format(sx=start.x/MM, sy=start.y/MM,
                              ex=end.x/MM, ey=end.y/MM, net=net.name))
         track = KipyTrack()
-        track.start = start
-        track.end = end
+        track.start = KipyVector2.from_xy(start.x, start.y)
+        track.end = KipyVector2.from_xy(end.x, end.y)
         track.width = int(width_mm * MM)
         track.net = unwrap(net)
-        track.layer = layer
+        track.layer = KipyBoardLayer.BL_B_Cu if layer == BoardLayer.BL_B_Cu else KipyBoardLayer.BL_F_Cu
         return Track(uuid="", start=start, end=end, net_name=net.name if net else None,
                      width_mm=width_mm, layer=layer, _kipy=track)
 

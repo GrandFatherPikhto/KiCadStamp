@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import MagicMock
-from kipy.geometry import Vector2, Angle
+from kicadstamp.domain.geometry import Vector2, Angle
 from kipy.board_types import Pad
 
 from kicadstamp.config import Config, ThermalViaArrayConfig

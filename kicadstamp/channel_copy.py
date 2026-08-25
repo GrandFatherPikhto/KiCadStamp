@@ -46,8 +46,8 @@ subcommand channel-copy) is a thin wrapper on top.
 import logging
 from dataclasses import dataclass, field
 
-from kipy.board_types import BoardLayer
-from kipy.geometry import Vector2, Angle
+from .domain.geometry import BoardLayer
+from .domain.geometry import Vector2, Angle
 
 from .cloner.models import TwinMap
 from .config import Config

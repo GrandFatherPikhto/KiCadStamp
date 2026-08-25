@@ -13,7 +13,7 @@ import math
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from kipy.geometry import Vector2
+from kicadstamp.domain.geometry import Vector2
 
 from kicadstamp.config import (
     ManualSpoke, Cell, TemplateVia, TemplateComponentSlot, TemplateTrack

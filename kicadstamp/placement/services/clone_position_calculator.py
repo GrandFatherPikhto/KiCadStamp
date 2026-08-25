@@ -16,8 +16,8 @@ clone_placement_effective_name(clone), the only available identifier.
 """
 import logging
 
-from kipy.geometry import Vector2
-from kipy.board_types import BoardLayer
+from ...domain.geometry import Vector2
+from ...domain.geometry import BoardLayer
 
 from ...config import (Config, ClonePlacement, CellPlacement, Cell,
                        TemplateComponentSlot, clone_placement_effective_name)
