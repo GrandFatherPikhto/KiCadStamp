@@ -1558,6 +1558,10 @@ msgstr "Не удалось загрузить конфиг для Подраз�
 msgid "Sub-placement {name!r}: {error}"
 msgstr "Подразмещение {name!r}: {error}"
 
+#: kicadstamp/template_extraction.py:279
+msgid "explicit (caller-supplied)"
+msgstr "явный (задан вызывающим)"
+
 #: kicadstamp/placement/services/clone_position_calculator.py:410
 #, python-brace-format
 msgid "circular clone_placements reference in {label}: {path}"

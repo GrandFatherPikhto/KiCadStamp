@@ -773,3 +773,42 @@ class TestTrackViaClusterClosure:
         assert comp["offset_along_mm"] == -50.0
         assert comp["offset_across_mm"] == -50.0
         assert len(result["t"]["vias"]) == 1
+
+
+class TestExplicitOriginParam:
+    """origin: Vector2 | None (2026-08-25, Sub-placements origin fix): when set,
+    extract_template_from_selection uses it VERBATIM (no _find_origin call) so
+    the caller's single precomputed origin and the flat geometry share one
+    coordinate system; when None (default) it derives the origin internally
+    exactly as before — CLI/script callers are unaffected."""
+
+    def test_origin_none_default_still_derives_bbox(self):
+        xtal = _make_fp("Y2", 10.0, 10.0, 0.0, "XTAL")
+        result = extract_template_from_selection(_make_adapter([xtal]), "t")
+        comp = result["t"]["components"][0]
+        # bbox origin of a single fp at (10,10) is (10,10) -> offsets (0,0)
+        assert comp["offset_along_mm"] == 0.0
+        assert comp["offset_across_mm"] == 0.0
+
+    def test_explicit_origin_is_used_verbatim(self):
+        xtal = _make_fp("Y2", 10.0, 10.0, 0.0, "XTAL")
+        result = extract_template_from_selection(
+            _make_adapter([xtal]), "t", origin=Vector2.from_xy(5 * MM, 5 * MM))
+        comp = result["t"]["components"][0]
+        # coordinates are relative to the EXPLICIT origin (5,5), not the bbox
+        assert comp["offset_along_mm"] == 5.0
+        assert comp["offset_across_mm"] == 5.0
+
+    def test_explicit_origin_skips_find_origin(self, monkeypatch):
+        """The whole point: with an explicit origin, _find_origin is NOT called
+        — the caller's precomputed origin wins, so Sub-placement xy and the flat
+        geometry can never disagree on the origin."""
+        xtal = _make_fp("Y2", 10.0, 10.0, 0.0, "XTAL")
+        import kicadstamp.template_extraction as te_mod
+        calls = []
+        monkeypatch.setattr(
+            te_mod, "_find_origin",
+            lambda *a, **k: calls.append(a) or Vector2.from_xy(0, 0))
+        extract_template_from_selection(
+            _make_adapter([xtal]), "t", origin=Vector2.from_xy(5 * MM, 5 * MM))
+        assert calls == []

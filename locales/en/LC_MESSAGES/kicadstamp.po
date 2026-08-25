@@ -1463,6 +1463,10 @@ msgstr ""
 msgid "Sub-placement {name!r}: {error}"
 msgstr ""
 
+#: kicadstamp/template_extraction.py:279
+msgid "explicit (caller-supplied)"
+msgstr ""
+
 #: kicadstamp/placement/services/clone_position_calculator.py:410
 #, python-brace-format
 msgid "circular clone_placements reference in {label}: {path}"

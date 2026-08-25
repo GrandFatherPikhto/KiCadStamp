@@ -684,7 +684,7 @@ def test_net_template_role_blocks_extraction_until_resolved(main_window, tmp_pat
     assert "PI_FILTER_FB" in dock._net_template_role_edits
 
     dock.name_edit.setText("n2v5_adj_pi_filter")
-    dock._raw_items = [object()]
+    dock._raw_items = [_fake_fp("C1")]
     dock._on_extract()
     assert any("PI_FILTER_FB" in r.message for r in caplog.records)
     assert yaml.safe_load(cells_file.read_text()) in (None, {})
@@ -727,7 +727,7 @@ def test_net_template_role_pick_seeds_params_for_classified_net(main_window, tmp
 
     dock._net_template_role_edits["PI_FILTER_FB"].setCurrentText("-2V5")
     dock.name_edit.setText("bridging_cell")
-    dock._raw_items = [object()]
+    dock._raw_items = [_fake_fp("C1")]
 
     payload = dock._collect_extract_inputs()
     assert payload["net_template_role"] == {"PI_FILTER_FB": "-2V5"}
@@ -773,7 +773,7 @@ def test_extract_shows_net_from_role_summary_on_success(main_window, tmp_path, m
     main_window.connection.board = FakeBoard()
 
     dock.name_edit.setText("some_cell")
-    dock._raw_items = [object()]
+    dock._raw_items = [_fake_fp("C1")]
     dock._do_extract()
 
     assert any("auto-classified by role" in r.message for r in caplog.records)
@@ -807,7 +807,7 @@ def test_on_extract_dispatches_to_worker(main_window, tmp_path, monkeypatch):
 
     dock.name_edit.setText("some_cell")
     dock.profile_key_edit.setText("some_profile")
-    dock._raw_items = [object()]
+    dock._raw_items = [_fake_fp("C1")]
     dock._on_extract()
 
     # The controller reference is kept on the dock so a parent-less QThread
@@ -868,7 +868,7 @@ def test_collect_inputs_includes_checked_rule_nets(main_window, tmp_path):
     ])
     dock._rule_net_checkboxes["+3V3_VCCIO"].setChecked(True)
     dock.name_edit.setText("some_cell")
-    dock._raw_items = [object()]
+    dock._raw_items = [_fake_fp("C1")]
     main_window.connection.board = FakeBoard()
 
     payload = dock._collect_extract_inputs()
@@ -894,7 +894,7 @@ def test_extract_persists_rule_nets_into_the_profile(main_window, tmp_path, monk
     dock.name_edit.setText("some_cell")
     dock.save_profile_checkbox.setChecked(True)
     dock.profile_key_edit.setText("some_profile")
-    dock._raw_items = [object()]
+    dock._raw_items = [_fake_fp("C1")]
     dock._do_extract()
 
     profile = yaml.safe_load(extractor_file.read_text())["extract_profiles"]["some_profile"]
@@ -1243,7 +1243,7 @@ def test_raw_selection_checkbox_defaults_off(main_window, tmp_path):
     dock.set_root_path(cells_file)
     dock.name_edit.setText("some_cell")
     main_window.connection.board = FakeBoard()
-    dock._raw_items = [object()]
+    dock._raw_items = [_fake_fp("C1")]
 
     payload = dock._collect_extract_inputs()
 
@@ -1257,7 +1257,7 @@ def test_raw_selection_checkbox_collected_when_checked(main_window, tmp_path):
     dock.set_root_path(cells_file)
     dock.name_edit.setText("some_cell")
     main_window.connection.board = FakeBoard()
-    dock._raw_items = [object()]
+    dock._raw_items = [_fake_fp("C1")]
     dock.raw_selection_checkbox.setChecked(True)
 
     payload = dock._collect_extract_inputs()
@@ -1275,7 +1275,7 @@ def test_raw_selection_reaches_run_extract_to_file(main_window, tmp_path, monkey
     dock.set_root_path(cells_file)
     dock.name_edit.setText("some_cell")
     main_window.connection.board = FakeBoard()
-    dock._raw_items = [object()]
+    dock._raw_items = [_fake_fp("C1")]
     dock.raw_selection_checkbox.setChecked(True)
 
     captured = {}
@@ -1441,12 +1441,13 @@ def test_run_extract_forwards_built_clone_placements(main_window, tmp_path, monk
         {"messages": [], "annotations": [], "template_dict": {}})
     monkeypatch.setattr(
         ExtractDock, "_build_sub_placements",
-        lambda self, payload: ([{"name": "ch0_pif_avdd", "cell": "pif_avdd",
-                                 "xy": [5.0, 2.0]}], None))
+        lambda self, payload, origin: ([{"name": "ch0_pif_avdd", "cell": "pif_avdd",
+                                         "xy": [5.0, 2.0]}], None))
 
     payload = {
         "board": FakeBoard(), "name": "dac_buf", "params": {},
-        "raw_items": [_fake_fp("C9")], "net_template_role": {}, "rule_nets": set(),
+        "raw_items": [_fake_fp("C9")], "full_raw_items": [_fake_fp("C9")],
+        "net_template_role": {}, "rule_nets": set(),
         "origin_kwargs": {}, "target_path": cells_file, "save_profile": False,
         "profile_key": "dac_buf", "profile_path": None, "placer_path": cells_file,
         "raw_selection": False,
@@ -1456,6 +1457,8 @@ def test_run_extract_forwards_built_clone_placements(main_window, tmp_path, monk
 
     assert captured["clone_placements"] == [
         {"name": "ch0_pif_avdd", "cell": "pif_avdd", "xy": [5.0, 2.0]}]
+    # the single precomputed origin (from the full list) reaches the extractor
+    assert captured["origin"] == Vector2.from_xy(0, 0)
 
 
 def test_build_sub_placements_xy_is_world_origin_in_new_cell_local_frame(main_window, tmp_path, monkeypatch):
@@ -1463,8 +1466,9 @@ def test_build_sub_placements_xy_is_world_origin_in_new_cell_local_frame(main_wi
     local frame via the SAME (world - origin) formula the extractor uses for
     every other point. The new cell is extracted 'as-is' at rotation 0, so the
     placement's world rotation IS its local rotation (copied verbatim), and
-    mirror/layer copy one-to-one. clone_world_origin/_find_origin are patched
-    (their own geometry is core-tested); this pins the GUI's composition."""
+    mirror/layer copy one-to-one. The origin is the ONE precomputed one from
+    _compute_extract_origin (passed in, not recomputed here); clone_world_origin
+    is patched (its own geometry is core-tested)."""
     cells_file = tmp_path / "cells.yaml"
     _write_yaml(cells_file, {"clone_placements": []})
     dock = ExtractDock(main_window)
@@ -1475,16 +1479,14 @@ def test_build_sub_placements_xy_is_world_origin_in_new_cell_local_frame(main_wi
     monkeypatch.setattr("kicadstamp.placement.services.board_items_resolver.clone_world_origin",
                         lambda adapter, cfg, clone, sheet_names=None, resolved_points=None:
                         Vector2.from_xy(15_000_000, 8_000_000))
-    monkeypatch.setattr("kicadstamp.template_selection._find_origin",
-                        lambda footprints, vias, onet, orole, opad, adapter:
-                        Vector2.from_xy(5_000_000, 3_000_000))
 
     payload = {
         "board": FakeBoard(), "placer_path": cells_file,
         "raw_items": [_fake_fp("C9")], "origin_kwargs": {},
         "sub_placements": [{"name": "CH0_PIF_AVDD", "clone": clone}],
     }
-    entries, err = dock._build_sub_placements(payload)
+    entries, err = dock._build_sub_placements(
+        payload, origin=Vector2.from_xy(5_000_000, 3_000_000))
 
     assert err is None
     # name is the slug of the existing placement's name (Cluster->slug rule)
@@ -1492,6 +1494,112 @@ def test_build_sub_placements_xy_is_world_origin_in_new_cell_local_frame(main_wi
         "name": "ch0_pif_avdd", "cell": "pif_avdd", "xy": [10.0, 5.0],
         "rotation_deg": 90.0, "layer": "B.Cu",
     }]
+
+
+def test_worker_origin_computed_from_full_selection_for_role_origin(main_window, tmp_path, monkeypatch):
+    """Live bug 2026-08-25: origin (e.g. Component role) was resolved against
+    the ALREADY-TRIMMED list (after Sub-placements exclusion), so an origin
+    component that belongs to a checked Sub-placement vanished ->
+    '--origin-by-component-role ... not found in selection'. The worker's
+    _compute_extract_origin uses the FULL (pre-exclusion) list, and
+    _build_sub_placements consumes that SAME origin — Sub-placement xy and the
+    flat geometry share one coordinate system."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {"clone_placements": []})
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+
+    class _RoleAwareBoard:
+        class _Adapter:
+            def get_field_value(self, fp, name):
+                if name == "Role":
+                    return getattr(fp, "_role", None)
+                return None
+        adapter = _Adapter()
+
+    dac_fp = _fake_fp("U1")
+    dac_fp._role = "AD_DAC"
+    dac_fp.position = Vector2.from_xy(10_000_000, 20_000_000)
+    pif_fp = _fake_fp("C1")
+    pif_fp._role = "C_IN"
+    clone = ClonePlacement(cluster="PIF_AVDD", name="CH0_PIF_AVDD", cell="pif_avdd",
+                           xy=(0.0, 0.0))
+    payload = {
+        "board": _RoleAwareBoard(),
+        # AD_DAC is present in the FULL (pre-exclusion) list...
+        "full_raw_items": [dac_fp, pif_fp],
+        # ...but excluded from the flat items (it belongs to the sub-placement)
+        "raw_items": [pif_fp],
+        "origin_kwargs": {"origin_component_role": "AD_DAC"},
+        "placer_path": cells_file,
+        "sub_placements": [{"name": "CH0_PIF_AVDD", "clone": clone}],
+    }
+
+    origin, err = dock._compute_extract_origin(payload)
+    assert err is None
+    assert origin == dac_fp.position  # found in the FULL list despite exclusion
+
+    entries, err = dock._build_sub_placements(payload, origin)
+    assert err is None
+    # Sub-placement xy (-10, -20) is relative to the SAME origin the flat
+    # geometry uses (flat coords = item position - origin)
+    assert entries[0]["xy"] == [-10.0, -20.0]
+
+
+def test_pure_composite_selection_is_legitimate_not_an_error(main_window, tmp_path, monkeypatch):
+    """A selection FULLY covered by one Sub-placement -> `raw_items` (flat) is
+    empty but `sub_placements` is not: the payload proceeds (not an error) and
+    carries BOTH lists — the trimmed one for flat geometry and the full one for
+    the worker's single origin computation."""
+    clone = ClonePlacement(cluster="PIF_AVDD", name="CH0_PIF_AVDD", cell="pif_avdd",
+                           xy=(5.0, 2.0))
+    fp = _fake_fp("C1")
+    via = _fake_via("+3V3", uuid="via-uuid-pif")
+    dock = _sub_placement_dock(main_window, tmp_path, monkeypatch, clone, [fp, via])
+
+    dock.set_board_selection([fp, via], [FakeSelected("C1", "C_IN", "PIF_AVDD", {})])
+    dock.name_edit.setText("dac_buf")
+    main_window.connection.board = FakeBoard()
+
+    payload = dock._collect_extract_inputs()
+
+    assert payload["sub_placements"] != []
+    assert payload["raw_items"] == []                       # flat content excluded
+    assert set(payload["full_raw_items"]) == {fp, via}      # full list kept for origin
+
+
+def test_pure_composite_extract_skips_extract_fn(main_window, tmp_path, monkeypatch):
+    """End-to-end: a fully-covered selection extracts a pure-composite cell —
+    extract_fn must NOT be called (it would fatal 'nothing to extract'); the
+    written cell carries clone_placements and empty flat lists."""
+    clone = ClonePlacement(cluster="PIF_AVDD", name="CH0_PIF_AVDD", cell="pif_avdd",
+                           xy=(5.0, 2.0))
+    fp = _fake_fp("C1")
+    via = _fake_via("+3V3", uuid="via-uuid-pif")
+    dock = _sub_placement_dock(main_window, tmp_path, monkeypatch, clone, [fp, via])
+
+    dock.set_board_selection([fp, via], [FakeSelected("C1", "C_IN", "PIF_AVDD", {})])
+    dock.name_edit.setText("dac_buf")
+    main_window.connection.board = FakeBoard()
+
+    calls = []
+
+    def _fake_extract(*args, **kwargs):
+        calls.append((args, kwargs))
+        return {"dac_buf": {"components": [], "vias": [], "tracks": [], "layer": "F.Cu"}}
+
+    monkeypatch.setattr(extract_mod, "extract_template_from_selection", _fake_extract)
+
+    dock._do_extract()
+
+    assert calls == []  # extract_fn never called for a pure composite
+    data = yaml.safe_load((tmp_path / "cells.yaml").read_text(encoding="utf-8"))
+    cell = data["cells"]["dac_buf"]
+    assert cell["components"] == []
+    assert cell["vias"] == []
+    assert cell["tracks"] == []
+    assert cell["clone_placements"] == [{
+        "name": "ch0_pif_avdd", "cell": "pif_avdd", "xy": [5.0, 2.0]}]
 
 
 def test_filtered_selection_keeps_fully_covered_placements_copper(main_window, tmp_path, monkeypatch):

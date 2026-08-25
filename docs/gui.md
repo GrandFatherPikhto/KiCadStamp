@@ -287,7 +287,12 @@ actually apply.
   never both referenced and copied. Unchecking restores the old flat behavior. With the Cluster
   filter on, a fully-covered placement's own via/tracks are no longer silently dropped by the
   registry filter (they become part of the reference); foreign/partially-covered placements are
-  still dropped as before.
+  still dropped as before. A selection covered ENTIRELY by Sub-placements is a legitimate
+  **pure-composite** extract: the new cell gets only `clone_placements:` (empty flat lists) and
+  the flat extractor is skipped. The cell's origin (bbox/component-role/via-net) is always
+  derived from the FULL pre-exclusion selection, so the Sub-placement `xy` and the flat geometry
+  share one coordinate system even when the origin component itself belongs to an excluded
+  Sub-placement.
 - **Existing (click to reuse a name)** — two lists (Cells/Profiles) read from the currently
   assigned files. Clicking an entry reuses its name outright and pulls its saved net aliases,
   net-template-role picks, and origin settings back into the form (matched by alias, not by the

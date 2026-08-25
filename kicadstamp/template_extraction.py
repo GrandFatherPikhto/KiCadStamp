@@ -42,7 +42,7 @@ extract_template_from_selection (defined below) and render_uncertain_comments
 import logging
 from typing import Any
 
-from .domain.geometry import BoardLayer
+from .domain.geometry import BoardLayer, Vector2
 
 from .domain.board import Footprint, Via, Track
 
@@ -121,6 +121,7 @@ def extract_template_from_selection(
     items: list[Any] | None = None,
     annotations: list[tuple[str, str, str]] | None = None,
     raw_selection: bool = False,
+    origin: Vector2 | None = None,
 ) -> dict[str, Any]:
     """
     Builds a dict {name: {vias: [...], components: [...], tracks: [...]}}
@@ -265,12 +266,22 @@ def extract_template_from_selection(
     if problems:
         raise ValidationError(format_fatal_error(_("problems in current selection"), problems))
 
-    origin = _find_origin(footprints, vias, origin_via_net, origin_component_role,
-                          origin_component_pad, adapter)
-    origin_desc = (_("via on net {net!r}") if origin_via_net
-                   else _("component with role {role!r}") if origin_component_role
-                   else _("bbox of selection (lower‑left corner)"))
-    origin_desc = origin_desc.format(net=origin_via_net, role=origin_component_role) if '{' in origin_desc else origin_desc
+    if origin is None:
+        # Caller (CLI/scripts) didn't pre-resolve the origin — the default
+        # path: derive it from the selection ourselves, exactly as always.
+        origin = _find_origin(footprints, vias, origin_via_net, origin_component_role,
+                              origin_component_pad, adapter)
+        origin_desc = (_("via on net {net!r}") if origin_via_net
+                       else _("component with role {role!r}") if origin_component_role
+                       else _("bbox of selection (lower‑left corner)"))
+        origin_desc = origin_desc.format(net=origin_via_net, role=origin_component_role) if '{' in origin_desc else origin_desc
+    else:
+        # Explicit caller-supplied origin (GUI Sub-placements, 2026-08-25): the
+        # SAME Vector2 the worker resolved once from the FULL pre-exclusion
+        # selection — used verbatim so the Sub-placement xy and the flat
+        # geometry are guaranteed to share one coordinate system. The
+        # origin_*_ kwargs are ignored here (nothing to derive).
+        origin_desc = _("explicit (caller-supplied)")
     logger.info(_("Origin ({desc}): ({x:.3f}, {y:.3f}) mm")
                 .format(desc=origin_desc, x=origin.x/MM, y=origin.y/MM))
 

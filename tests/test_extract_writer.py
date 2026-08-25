@@ -145,6 +145,56 @@ def test_no_clone_placements_means_no_section_written(tmp_path):
     assert "clone_placements" not in data["cells"]["cell1"]
 
 
+# ── Pure-composite extract (2026-08-25 fix) ────────────────────────────────
+
+def test_pure_composite_does_not_call_extract_fn(tmp_path):
+    """A selection FULLY covered by Sub-placements has empty `items` but
+    non-empty `clone_placements` — extract_fn (which has no concept of
+    clone_placements and fatals "nothing to extract" on empty items) must NOT
+    be called; the cell dict is synthesized with empty flat lists instead."""
+    fn = _CapturingExtract()
+    target, result, fn = _run(
+        tmp_path, name="dac_buf", items=[],
+        clone_placements=[{"name": "ch0_pif_avdd", "cell": "pif_avdd",
+                           "xy": [5.0, 2.0]}],
+        extract_fn=fn)
+
+    assert "error" not in result
+    assert fn.calls == []  # extract_fn never called for a pure composite
+    data = _load(target)
+    cell = data["cells"]["dac_buf"]
+    assert cell["components"] == []
+    assert cell["vias"] == []
+    assert cell["tracks"] == []
+    assert cell["clone_placements"] == [{
+        "name": "ch0_pif_avdd", "cell": "pif_avdd", "xy": [5.0, 2.0]}]
+    # default Cell layer when no Sub-placement declares one
+    assert cell["layer"] == "F.Cu"
+
+
+def test_pure_composite_layer_from_first_sub_placement(tmp_path):
+    """A Sub-placement that declares its own layer gives the pure-composite
+    cell a meaningful layer instead of the 'F.Cu' default."""
+    target, result, _fn = _run(
+        tmp_path, name="dac_buf", items=[],
+        clone_placements=[{"name": "a", "cell": "x", "xy": [0.0, 0.0],
+                           "layer": "B.Cu"}])
+
+    assert "error" not in result
+    cell = _load(target)["cells"]["dac_buf"]
+    assert cell["layer"] == "B.Cu"
+
+
+def test_empty_items_without_clone_placements_still_calls_extract_fn(tmp_path):
+    """The old behavior for a genuinely empty selection is untouched: with no
+    clone_placements, extract_fn IS still called (the real extractor fatals
+    "nothing to extract"; the fake here just records the call) — only the
+    pure-composite case skips it."""
+    fn = _CapturingExtract()
+    _run(tmp_path, name="cell1", items=[], extract_fn=fn)
+    assert len(fn.calls) == 1
+
+
 def test_cell_write_os_error_returns_error(tmp_path):
     # A directory where the cells file should be -> merge_write raises OSError.
     bad_target = tmp_path / "cells.yaml"
@@ -304,7 +354,9 @@ def test_extract_fn_receives_full_payload(tmp_path):
     assert call["net_template_role"] == "C1"
     assert call["rule_nets"] == ["GND"]
     assert call["raw_selection"] is False
-    assert call["kwargs"] == {"origin_component_role": "X"}
+    # origin defaults to None (caller didn't pre-resolve) — extract_fn then
+    # derives it internally, unchanged behavior for CLI/direct callers.
+    assert call["kwargs"] == {"origin_component_role": "X", "origin": None}
 
 
 def test_raw_selection_forwarded_and_persisted(tmp_path):

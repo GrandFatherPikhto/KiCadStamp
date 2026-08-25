@@ -38,33 +38,53 @@ def run_extract_to_file(adapter, *, name: str, params, items, net_template_role,
                         save_profile: bool, profile_key: str, profile_path: Optional[Path],
                         placer_path: Optional[Path], raw_selection: bool = False,
                         extract_fn=extract_template_from_selection,
-                        clone_placements: Optional[list] = None) -> Dict[str, Any]:
+                        clone_placements: Optional[list] = None,
+                        origin=None) -> Dict[str, Any]:
     """Run the extract-transform-write flow for one ExtractDock payload.
 
     Parameters mirror the GUI payload keys (see ExtractDock._collect_extract_inputs)
     so the dock's thin wrapper is a plain forward of the payload dict:
     adapter — the board adapter to extract from; name — cell/profile name;
     params/items/net_template_role/rule_nets — extractor inputs; origin_kwargs
-    — origin_* kwargs forwarded to the extractor; target_path — the cells
-    file; save_profile/profile_key/profile_path — optional extract_profiles
-    write; placer_path — optional placer file to wire include: into.
-    `extract_fn` is injectable (default: extract_template_from_selection).
+    — origin_* kwargs forwarded to the extractor (used for the extract_profile
+    recipe and, when `origin` is None, for deriving the origin); target_path —
+    the cells file; save_profile/profile_key/profile_path — optional
+    extract_profiles write; placer_path — optional placer file to wire include:
+    into. `extract_fn` is injectable (default: extract_template_from_selection).
 
     clone_placements — OPTIONAL list of CellPlacement-shaped dicts
     (name/cell/xy/rotation_deg/mirror/layer) written into the extracted cell's
     own clone_placements: section (Sub-placements, 2026-08-25): existing
     placements wholly covered by the extraction are referenced instead of
     copied flat, so the composite cell stays in sync with them on every apply.
+
+    origin — OPTIONAL pre-resolved world origin (a domain Vector2, nm),
+    forwarded to `extract_fn(..., origin=origin)` so the flat geometry and the
+    Sub-placement xy share ONE coordinate system. None (default) — the
+    extractor derives the origin itself, exactly as before (CLI/other callers
+    unchanged). `items` may be empty ONLY when `clone_placements` is non-empty:
+    a pure-composite cell has no flat content and `extract_fn` (which has no
+    concept of clone_placements) would fatal "nothing to extract" on it — in
+    that case the cell dict is synthesized here instead of calling extract_fn.
     """
     annotations: List[Tuple[str, str, str]] = []
-    try:
-        template_dict = extract_fn(
-            adapter, name, params=params,
-            items=items, net_template_role=net_template_role,
-            rule_nets=rule_nets,
-            annotations=annotations, raw_selection=raw_selection, **origin_kwargs)
-    except PlacerError as e:
-        return {"error": str(e)}
+    if items or not clone_placements:
+        try:
+            template_dict = extract_fn(
+                adapter, name, params=params,
+                items=items, net_template_role=net_template_role,
+                rule_nets=rule_nets,
+                annotations=annotations, raw_selection=raw_selection,
+                origin=origin, **origin_kwargs)
+        except PlacerError as e:
+            return {"error": str(e)}
+    else:
+        # Pure-composite extract (2026-08-25 fix): nothing but clone_placements
+        # to write — synthesize the empty cell dict directly. `layer` = the
+        # first Sub-placement's own layer when it declares one (the composite's
+        # own content would inherit it), else the Cell default 'F.Cu'.
+        layer = next((cp.get("layer") for cp in clone_placements if cp.get("layer")), "F.Cu")
+        template_dict = {name: {"components": [], "vias": [], "tracks": [], "layer": layer}}
 
     if clone_placements:
         # A pure-composite cell is legitimate (only clone_placements, no flat

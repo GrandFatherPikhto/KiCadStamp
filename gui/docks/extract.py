@@ -1444,16 +1444,22 @@ class ExtractDock(QWidget):
         if not name:
             self._show_message(_("Cell name is required."), _ERROR_STYLE)
             return None
-        raw_items, _footprints = self._filtered_selection()
-        if not raw_items or self._target_path is None:
+        full_raw_items, _footprints = self._filtered_selection()
+        if not full_raw_items or self._target_path is None:
             return None
         # Sub-placements (Задание 1): a checked candidate's board-items are
         # EXCLUDED from what becomes the new cell's flat components/vias/tracks
         # — they are referenced via clone_placements: instead, so the same
         # geometry must not land in the cell twice (once flat, once by
         # reference). The CellPlacement entry itself (with xy) is built on the
-        # worker (_build_sub_placements), which owns the live origin reads.
+        # worker. `full_raw_items` (BEFORE the exclusion) is carried in the
+        # payload too: the worker derives the ONE origin from it, so an
+        # anchor/origin component that gets excluded as a Sub-placement is
+        # still found and the Sub-placement xy and the flat geometry share one
+        # coordinate system (live bug 2026-08-25 — origin used to be derived
+        # from the already-trimmed list).
         sub_placements: List[Dict[str, Any]] = []
+        raw_items = full_raw_items  # trimmed below for the flat geometry
         if self._sub_placement_candidates:
             excluded_keys: set = set()
             for cand in self._sub_placement_candidates:
@@ -1466,9 +1472,12 @@ class ExtractDock(QWidget):
                         "clone": cand.clone,
                     })
             if excluded_keys:
-                raw_items = [i for i in raw_items
+                raw_items = [i for i in full_raw_items
                              if self._item_key(i) not in excluded_keys]
-        if not raw_items:
+        # A pure-composite cell (only clone_placements, no flat content) is a
+        # legitimate extract — an empty `raw_items` is only an error when there
+        # are no Sub-placements to reference either.
+        if not raw_items and not sub_placements:
             self._show_message(_("Nothing left to extract — the checked "
                                  "Sub-placements cover the whole selection."),
                                _ERROR_STYLE)
@@ -1543,6 +1552,7 @@ class ExtractDock(QWidget):
         return {
             "name": name,
             "raw_items": raw_items,
+            "full_raw_items": full_raw_items,
             "target_path": self._target_path,
             "save_profile": save_profile,
             "profile_key": self.profile_key_edit.text().strip() or name,
@@ -1568,9 +1578,12 @@ class ExtractDock(QWidget):
         {"error": str} for the expected failure modes (an unexpected
         exception is caught by _LongOpWorker and reported through the failed
         signal instead)."""
+        origin, origin_err = self._compute_extract_origin(payload)
+        if origin_err is not None:
+            return {"error": origin_err}
         clone_placements = None
         if payload.get("sub_placements"):
-            clone_placements, sub_err = self._build_sub_placements(payload)
+            clone_placements, sub_err = self._build_sub_placements(payload, origin)
             if clone_placements is None:
                 return {"error": sub_err}
         return run_extract_to_file(
@@ -1588,41 +1601,31 @@ class ExtractDock(QWidget):
             placer_path=payload["placer_path"],
             raw_selection=payload["raw_selection"],
             extract_fn=extract_template_from_selection,
+            origin=origin,
             clone_placements=clone_placements)
 
-    def _build_sub_placements(self, payload: Dict[str, Any]) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
-        """Worker thread: turn the checked Sub-placements (payload records
-        carrying the clone) into CellPlacement-shaped dicts for the new cell's
-        clone_placements: section.
-
-        xy is the existing placement's world origin converted into the NEW
-        cell's local frame via the SAME absolute->local conversion the
-        extractor uses for every other point (template_selection._find_origin
-        for the new origin, then (world - origin) / MM) — the new cell is
-        extracted "as-is" at rotation 0, so the existing placement's world
-        rotation IS its local rotation (copied verbatim). The world origin is
-        computed via clone_world_origin (board_items_resolver) — the same
-        anchor + shift composition apply_clone_geometry uses. mirror/layer are
-        copied one-to-one.
-
-        Returns (entries, None) or (None, error_message) — the caller returns
-        the error verbatim, so a checked Sub-placement that cannot be resolved
-        (missing anchor on the board, etc.) aborts the extract instead of
-        silently dropping the referenced geometry."""
+    def _compute_extract_origin(self, payload: Dict[str, Any]) -> Tuple[Optional[Any], Optional[str]]:
+        """Worker thread: the ONE origin for the whole Extract, derived from the
+        FULL (pre-Sub-placements-exclusion) selection (`full_raw_items`) via the
+        same `_find_origin` the extractor uses — then shared by the flat
+        geometry (`run_extract_to_file(origin=...)` -> extract_fn) and the
+        Sub-placement xy (`_build_sub_placements`). Fixes the live bug
+        2026-08-25: origin used to be derived from the already-trimmed list, so
+        an anchor/origin component that gets excluded as a Sub-placement
+        vanished -> "--origin-by-component-role ... not found in selection".
+        Returns (origin, None) or (None, error_message)."""
         adapter = payload["board"].adapter
-        from kicadstamp.placement.services.board_items_resolver import clone_world_origin
         from kicadstamp.template_selection import _find_origin
-
-        try:
-            cfg, ctx = load_config(str(payload["placer_path"]))
-        except Exception as e:
-            return None, _("Failed to load config for Sub-placements: {error}") \
-                .format(error=e)
-        sheet_names = ctx.sheet_names or {}
-
-        raw_items = payload["raw_items"]
-        footprints = [i for i in raw_items if isinstance(i, Footprint)]
-        vias = [i for i in raw_items if isinstance(i, Via)]
+        full = payload.get("full_raw_items", payload["raw_items"])
+        footprints = [i for i in full if isinstance(i, Footprint)]
+        vias = [i for i in full if isinstance(i, Via)]
+        if not footprints and not vias:
+            # No geometric items to derive an origin from (empty selection, or
+            # only non-footprint/via/track items). Leave origin None — extract_fn
+            # then handles it exactly as before (its own "nothing to extract"
+            # fatal for a genuinely empty selection), and Sub-placements can't
+            # be present (they require non-empty board items in the selection).
+            return None, None
         origin_kwargs = payload.get("origin_kwargs") or {}
         try:
             origin = _find_origin(
@@ -1633,6 +1636,39 @@ class ExtractDock(QWidget):
                 adapter)
         except ValidationError as e:
             return None, str(e)
+        return origin, None
+
+    def _build_sub_placements(self, payload: Dict[str, Any], origin) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
+        """Worker thread: turn the checked Sub-placements (payload records
+        carrying the clone) into CellPlacement-shaped dicts for the new cell's
+        clone_placements: section.
+
+        xy is the existing placement's world origin converted into the NEW
+        cell's local frame via the SAME absolute->local conversion the
+        extractor uses for every other point (then (world - origin) / MM) — the
+        new cell is extracted "as-is" at rotation 0, so the existing
+        placement's world rotation IS its local rotation (copied verbatim).
+        `origin` is the ONE precomputed origin from _compute_extract_origin
+        (derived from the FULL pre-exclusion selection) — the same origin the
+        flat geometry and extract_fn use, so Sub-placement xy and the flat
+        coordinates are guaranteed to share one coordinate system. The world
+        origin is computed via clone_world_origin (board_items_resolver) — the
+        same anchor + shift composition apply_clone_geometry uses. mirror/layer
+        are copied one-to-one.
+
+        Returns (entries, None) or (None, error_message) — the caller returns
+        the error verbatim, so a checked Sub-placement that cannot be resolved
+        (missing anchor on the board, etc.) aborts the extract instead of
+        silently dropping the referenced geometry."""
+        adapter = payload["board"].adapter
+        from kicadstamp.placement.services.board_items_resolver import clone_world_origin
+
+        try:
+            cfg, ctx = load_config(str(payload["placer_path"]))
+        except Exception as e:
+            return None, _("Failed to load config for Sub-placements: {error}") \
+                .format(error=e)
+        sheet_names = ctx.sheet_names or {}
 
         entries: List[Dict[str, Any]] = []
         for rec in payload["sub_placements"]:
@@ -1651,8 +1687,11 @@ class ExtractDock(QWidget):
                 "cell": clone.cell,
                 "xy": [round((world_origin.x - origin.x) / MM, 4),
                        round((world_origin.y - origin.y) / MM, 4)],
-                "rotation_deg": clone.rotation_deg,
             }
+            # Defaults omitted from the written YAML (same style as the rest of
+            # the config): rotation/mirror/layer only when they actually deviate.
+            if clone.rotation_deg:
+                entry["rotation_deg"] = clone.rotation_deg
             if clone.mirror:
                 entry["mirror"] = True
             if clone.layer is not None:
