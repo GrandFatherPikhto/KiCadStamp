@@ -325,6 +325,15 @@ class CellPlacement:
     board-attached ClonePlacement. xy/rotation_deg are ALWAYS relative to
     the parent cell's own local (0,0), never to anything live on the board.
 
+    sheet/cluster (2026-08-26) — the placement's OWN identity for INTERNAL
+    role narrowing (role_narrowing.py), NOT an external anchor: anchor_sheet/
+    anchor_cluster remain deliberately absent (see the closed-boundary note
+    above — a nested CellPlacement has no external anchor by design, its
+    position comes from the parent). Same semantics as ClonePlacement.sheet/
+    .cluster below — a reused hierarchical sheet clones IDENTICAL Cluster/Role
+    fields onto every instance, so only these two can tell identical physical
+    copies apart when narrowing a shared-net role (e.g. +3V3 on a PI-filter).
+
     No param scoping — params/nets/net_overrides/refs here are the ONLY
     ones this nested placement sees, never inherited from the parent cell's
     own placement (same convention ClonePlacement.params already has today,
@@ -340,6 +349,11 @@ class CellPlacement:
     rotation_deg: float = 0.0
     mirror: bool = False
     layer: str | None = None
+    # Own identity for internal role narrowing (role_narrowing.py), NOT an
+    # external anchor — anchor_sheet/anchor_cluster remain deliberately absent,
+    # see the closed-boundary note above.
+    sheet: str | None = None
+    cluster: str | None = None
     nets: dict[str, str] = field(default_factory=dict)
     params: dict[str, Any] = field(default_factory=dict)
     net_overrides: dict[str, str] = field(default_factory=dict)

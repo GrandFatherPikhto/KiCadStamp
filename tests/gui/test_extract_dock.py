@@ -1489,10 +1489,12 @@ def test_build_sub_placements_xy_is_world_origin_in_new_cell_local_frame(main_wi
         payload, origin=Vector2.from_xy(5_000_000, 3_000_000))
 
     assert err is None
-    # name is the slug of the existing placement's name (Cluster->slug rule)
+    # name is the slug of the existing placement's name (Cluster->slug rule);
+    # cluster (own-identity, required on ClonePlacement) is carried over too
+    # (2026-08-26, handoff cell_placement_sheet_cluster).
     assert entries == [{
         "name": "ch0_pif_avdd", "cell": "pif_avdd", "xy": [10.0, 5.0],
-        "rotation_deg": 90.0, "layer": "B.Cu",
+        "rotation_deg": 90.0, "layer": "B.Cu", "cluster": "PIF_AVDD",
     }]
 
 
@@ -1599,7 +1601,8 @@ def test_pure_composite_extract_skips_extract_fn(main_window, tmp_path, monkeypa
     assert cell["vias"] == []
     assert cell["tracks"] == []
     assert cell["clone_placements"] == [{
-        "name": "ch0_pif_avdd", "cell": "pif_avdd", "xy": [5.0, 2.0]}]
+        "name": "ch0_pif_avdd", "cell": "pif_avdd", "xy": [5.0, 2.0],
+        "cluster": "PIF_AVDD"}]
 
 
 def test_filtered_selection_keeps_fully_covered_placements_copper(main_window, tmp_path, monkeypatch):
@@ -1854,3 +1857,69 @@ def test_build_sub_placements_omits_empty_param_fields(main_window, tmp_path, mo
     entry = entries[0]
     for key in ("params", "nets", "net_overrides", "refs"):
         assert key not in entry
+
+
+# ── Sub-placements: own-identity sheet/cluster carried over (2026-08-26,
+# handoff cell_placement_sheet_cluster) ───────────────────────────────────
+
+def test_build_sub_placements_copies_sheet_cluster(main_window, tmp_path, monkeypatch):
+    """Live bug 2026-08-25/26: a top-level ClonePlacement turned into a nested
+    CellPlacement lost its own-identity sheet/cluster, so role_narrowing.py's
+    sheet/cluster steps read None (getattr) and a shared-net role (e.g. +3V3
+    on a PI-filter) stayed ambiguous among identical physical instances.
+    Both fields must be copied into the new nested entry."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {"clone_placements": []})
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+
+    clone = ClonePlacement(
+        cluster="PIF_DVDD", name="CH1_PIF_DVDD", cell="dac_pif_dvdd",
+        xy=(10.0, 5.0), sheet="Channel_1",
+    )
+    monkeypatch.setattr(
+        "kicadstamp.placement.services.board_items_resolver.clone_world_origin",
+        lambda adapter, cfg, clone, sheet_names=None, resolved_points=None:
+        Vector2.from_xy(15_000_000, 8_000_000))
+
+    payload = {
+        "board": FakeBoard(), "placer_path": cells_file, "name": "dac_buf",
+        "raw_items": [_fake_fp("C9")], "origin_kwargs": {},
+        "sub_placements": [{"name": "CH1_PIF_DVDD", "clone": clone}],
+    }
+    entries, err = dock._build_sub_placements(
+        payload, origin=Vector2.from_xy(5_000_000, 3_000_000))
+
+    assert err is None
+    entry = entries[0]
+    assert entry["sheet"] == "Channel_1"
+    assert entry["cluster"] == "PIF_DVDD"
+
+
+def test_build_sub_placements_omits_sheet_when_none(main_window, tmp_path, monkeypatch):
+    """clone.sheet is None must not produce a `sheet: null` key in the written
+    YAML (same style as layer) — only set sheets/clusters are carried over."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {"clone_placements": []})
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+
+    clone = ClonePlacement(cluster="PIF_AVDD", name="CH0_PIF_AVDD", cell="pif_avdd",
+                           xy=(5.0, 2.0), sheet=None)
+    monkeypatch.setattr(
+        "kicadstamp.placement.services.board_items_resolver.clone_world_origin",
+        lambda adapter, cfg, clone, sheet_names=None, resolved_points=None:
+        Vector2.from_xy(5_000_000, 2_000_000))
+
+    payload = {
+        "board": FakeBoard(), "placer_path": cells_file, "name": "dac_buf",
+        "raw_items": [_fake_fp("C9")], "origin_kwargs": {},
+        "sub_placements": [{"name": "CH0_PIF_AVDD", "clone": clone}],
+    }
+    entries, err = dock._build_sub_placements(
+        payload, origin=Vector2.from_xy(0, 0))
+
+    assert err is None
+    entry = entries[0]
+    assert "sheet" not in entry
+    assert entry["cluster"] == "PIF_AVDD"

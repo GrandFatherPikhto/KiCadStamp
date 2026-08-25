@@ -275,6 +275,7 @@ def _load_cell(name: str, data: dict[str, Any]) -> Cell:
 
 _CELL_PLACEMENT_KNOWN_KEYS = {
     'name', 'cell', 'role', 'xy', 'rotation_deg', 'mirror', 'layer',
+    'sheet', 'cluster',
     'nets', 'params', 'net_overrides', 'refs',
 }
 
@@ -340,6 +341,8 @@ def _load_cell_placement(cell_name: str, data: dict[str, Any]) -> CellPlacement:
         rotation_deg=data.get('rotation_deg', 0.0),
         mirror=bool(data.get('mirror', False)),
         layer=layer,
+        sheet=data.get('sheet'),
+        cluster=data.get('cluster'),
         nets=data.get('nets', {}) or {},
         params=data.get('params', {}) or {},
         net_overrides=data.get('net_overrides', {}) or {},

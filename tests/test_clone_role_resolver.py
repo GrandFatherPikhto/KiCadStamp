@@ -225,6 +225,66 @@ class TestResolveRolesByNets:
         result = resolve_roles_by_nets(adapter, tpl, nested)
         assert result == {"X": "A"}
 
+    def test_cell_placement_own_sheet_cluster_narrows_shared_net_role(self):
+        """Live bug 2026-08-25/26 (handoff cell_placement_sheet_cluster): a
+        nested CellPlacement had NO own sheet/cluster, so the narrowing
+        cascade read None (getattr) and a shared-rail role like C_IN_BULK on
+        +3V3 stayed ambiguous among identical physical instances (14
+        candidates board-wide, <2x anchor gap, honest fatal). With
+        sheet/cluster carried over from the source ClonePlacement, the cascade
+        narrows 14 -> 3 (by sheet Channel_1) -> 1 (by cluster PIF_DVDD)
+        without a fatal."""
+        from kicadstamp.config import CellPlacement
+
+        tpl = Cell(name="dac_pif_dvdd", components=[
+            TemplateComponentSlot(role="C_IN_BULK"),
+        ])
+        # 14 identical C_IN_BULK instances on the shared +3V3 rail, spread
+        # over 3 reused hierarchical sheets (Channel_0/1/2) with PIF_* clusters.
+        fps = [
+            # Channel_0 (5)
+            _make_fp_with_sheet("C100", "C_IN_BULK", ["+3V3"], "sheet-uuid-0", cluster="PIF_DVDD"),
+            _make_fp_with_sheet("C101", "C_IN_BULK", ["+3V3"], "sheet-uuid-0", cluster="PIF_AVDD"),
+            _make_fp_with_sheet("C102", "C_IN_BULK", ["+3V3"], "sheet-uuid-0", cluster="PIF_CLKVDD"),
+            _make_fp_with_sheet("C103", "C_IN_BULK", ["+3V3"], "sheet-uuid-0", cluster="PIF_DVDD"),
+            _make_fp_with_sheet("C104", "C_IN_BULK", ["+3V3"], "sheet-uuid-0", cluster="PIF_DVDD"),
+            # Channel_1 (3)
+            _make_fp_with_sheet("C147", "C_IN_BULK", ["+3V3"], "sheet-uuid-1", cluster="PIF_DVDD"),
+            _make_fp_with_sheet("C148", "C_IN_BULK", ["+3V3"], "sheet-uuid-1", cluster="PIF_AVDD"),
+            _make_fp_with_sheet("C149", "C_IN_BULK", ["+3V3"], "sheet-uuid-1", cluster="PIF_CLKVDD"),
+            # Channel_2 (6)
+            _make_fp_with_sheet("C200", "C_IN_BULK", ["+3V3"], "sheet-uuid-2", cluster="PIF_DVDD"),
+            _make_fp_with_sheet("C201", "C_IN_BULK", ["+3V3"], "sheet-uuid-2", cluster="PIF_AVDD"),
+            _make_fp_with_sheet("C202", "C_IN_BULK", ["+3V3"], "sheet-uuid-2", cluster="PIF_CLKVDD"),
+            _make_fp_with_sheet("C203", "C_IN_BULK", ["+3V3"], "sheet-uuid-2", cluster="PIF_DVDD"),
+            _make_fp_with_sheet("C204", "C_IN_BULK", ["+3V3"], "sheet-uuid-2", cluster="PIF_DVDD"),
+            _make_fp_with_sheet("C205", "C_IN_BULK", ["+3V3"], "sheet-uuid-2", cluster="PIF_AVDD"),
+        ]
+        assert len(fps) == 14
+        adapter = MagicMock()
+        adapter.get_footprints.return_value = fps
+        adapter.get_field_value.side_effect = _role_or_cluster
+        adapter.get_footprint_pads.side_effect = _get_pads
+        adapter.get_selected_items.return_value = []
+
+        sheet_names = {"sheet-uuid-0": "Channel_0", "sheet-uuid-1": "Channel_1",
+                       "sheet-uuid-2": "Channel_2"}
+        nested = CellPlacement(
+            name="ch1_pif_dvdd", cell="dac_pif_dvdd", xy=(0, 0),
+            nets={"C_IN_BULK": "+3V3"}, sheet="Channel_1", cluster="PIF_DVDD")
+        # Sheet narrows 14 -> 3 (Channel_1's instances), Cluster narrows 3 -> 1.
+        result = resolve_roles_by_nets(adapter, tpl, nested, sheet_names=sheet_names)
+        assert result == {"C_IN_BULK": "C147"}
+
+        # Negative control — the OLD broken shape (no own sheet/cluster) must
+        # stay ambiguous: proves the fix is what unblocked this, not some
+        # other narrowing step.
+        stripped = CellPlacement(
+            name="ch1_pif_dvdd", cell="dac_pif_dvdd", xy=(0, 0),
+            nets={"C_IN_BULK": "+3V3"})
+        with pytest.raises(ValidationError, match="C_IN_BULK"):
+            resolve_roles_by_nets(adapter, tpl, stripped, sheet_names=sheet_names)
+
     def test_internal_role_narrowing_uses_placement_name(self):
         """Split 2026-08-14: ambiguous roles INSIDE the cell are narrowed by
         the placement's OWN Cluster — by convention clone.name (the GUI's

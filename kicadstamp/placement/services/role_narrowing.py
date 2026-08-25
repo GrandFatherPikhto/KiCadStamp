@@ -160,7 +160,11 @@ def _narrow_ambiguous_candidates(candidates, clone: ClonePlacement, adapter, sel
     # getattr, not direct attribute access: this function also serves
     # CellPlacement (nested, closed-boundary references inside a composite
     # Cell — see config/models.py), which has no anchor_sheet/anchor_cluster/
-    # sheet concept at all — always None for it, real values for ClonePlacement.
+    # anchor_pad/by_selection/ignore_selection at all — always None for it,
+    # real values for ClonePlacement. Since 2026-08-26 CellPlacement DOES have
+    # its own-identity sheet/cluster (own identity for internal role
+    # narrowing, NOT an external anchor — see config/models.py), so those two
+    # read real values for nested placements too.
     # `name` is required (and non-empty) on BOTH ClonePlacement and
     # CellPlacement (see config/entries.py), so reading it here is safe.
     # Internal-role narrowing uses the PLACEMENT'S OWN Cluster — the `cluster`

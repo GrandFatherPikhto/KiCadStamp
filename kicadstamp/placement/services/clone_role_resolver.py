@@ -39,7 +39,7 @@ from ...domain.geometry import Vector2
 from ...domain.board import Footprint
 
 from ...cluster_matching import cluster_prefix_match
-from ...config import Cell, ClonePlacement, clone_placement_effective_name
+from ...config import Cell, CellPlacement, ClonePlacement, clone_placement_effective_name
 from ...exceptions import ValidationError, format_fatal_error
 from ...net_resolution import RULE_NETS, resolve_net, resolve_placeholder
 from .component_pool import ROLE_FIELD_NAME
@@ -341,7 +341,7 @@ def resolve_roles_by_selection(adapter, cell: Cell, clone: ClonePlacement,
     return role_to_ref
 
 
-def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement,
+def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement | CellPlacement,
                           anchor_position: Vector2 | None = None,
                           sheet_names: dict[str, str] | None = None) -> dict[str, str]:
     """

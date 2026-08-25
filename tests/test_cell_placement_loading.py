@@ -100,6 +100,37 @@ cells:
         assert len(mixed.components) == 1
         assert len(mixed.clone_placements) == 1
 
+    def test_sheet_cluster_load_and_default(self, tmp_path):
+        """2026-08-26 (handoff cell_placement_sheet_cluster): a nested
+        clone_placement may carry its own-identity sheet/cluster (used by
+        role_narrowing.py for internal role narrowing) — they must NOT be
+        rejected as unknown fields, and default to None when absent."""
+        text = MINIMAL + """
+cells:
+  leaf:
+    components:
+      - role: R1
+  composite:
+    clone_placements:
+      - name: inner
+        cell: leaf
+        sheet: Channel_1
+        cluster: PIF_DVDD
+      - name: plain
+        cell: leaf
+"""
+        config_file = tmp_path / "test.yaml"
+        config_file.write_text(text, encoding="utf-8")
+        cfg, _ = load_config(str(config_file))
+
+        with_identity = cfg.cells["composite"].clone_placements[0]
+        assert with_identity.sheet == "Channel_1"
+        assert with_identity.cluster == "PIF_DVDD"
+
+        plain = cfg.cells["composite"].clone_placements[1]
+        assert plain.sheet is None
+        assert plain.cluster is None
+
 
 class TestCellPlacementMutualExclusion:
     def test_cell_and_role_together_is_fatal(self, tmp_path):

@@ -1683,6 +1683,8 @@ class ExtractDock(QWidget):
         are copied one-to-one; params/nets/net_overrides/refs are carried over
         verbatim when non-empty (the source placement and the new nested
         CellPlacement reference the SAME cell, so their meaning is unchanged).
+        sheet/cluster (own-identity for internal role narrowing) are carried
+        over the same way (2026-08-26, handoff cell_placement_sheet_cluster).
 
         Returns (entries, None) or (None, error_message) — the caller returns
         the error verbatim, so a checked Sub-placement that cannot be resolved
@@ -1729,6 +1731,18 @@ class ExtractDock(QWidget):
                 entry["mirror"] = True
             if clone.layer is not None:
                 entry["layer"] = clone.layer
+            # Own-identity sheet/cluster carried over (2026-08-26, handoff
+            # cell_placement_sheet_cluster): the nested CellPlacement needs the
+            # SAME (Sheet, Cluster) identity as the source ClonePlacement —
+            # otherwise role_narrowing.py's sheet/cluster narrowing steps read
+            # None (getattr) and a shared-net role (e.g. +3V3 on a PI-filter)
+            # stays ambiguous among identical physical instances. sheet only
+            # when set (like layer), cluster when truthy (required on
+            # ClonePlacement, so always present in practice).
+            if clone.sheet is not None:
+                entry["sheet"] = clone.sheet
+            if clone.cluster:
+                entry["cluster"] = clone.cluster
             # Parametrisation carried over verbatim (2026-08-25, handoff
             # sub_placements_lost_params): the source ClonePlacement and the
             # new nested CellPlacement reference the SAME cell, so params/nets/
