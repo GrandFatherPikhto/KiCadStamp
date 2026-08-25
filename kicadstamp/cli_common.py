@@ -17,8 +17,6 @@ exit code and the message.
 import logging
 from pathlib import Path
 
-from kipy.errors import ApiError, ApiStatusCode
-
 from .exceptions import PlacerError
 from .i18n import _
 from .utils.file_cache import cached_file_read
@@ -26,13 +24,17 @@ from .utils.paths import resolve_config_relative_path
 from .utils.yaml_loader import safe_load
 
 
-def api_error_message(e: ApiError) -> str:
+def api_error_message(e) -> str:
     """Human-readable message for a KiCad IPC :class:`ApiError`.
 
     ``AS_BUSY`` gets the long "finish the tool in KiCad" explanation — the
     most common real-world cause and the easiest to misread as a hang. Every
     other code gets a straightforward "KiCad returned API error: ...".
+
+    ``ApiStatusCode`` is imported lazily: non-IPC commands (``flatten``) never
+    raise an IPC error, so they never pay for the kipy import chain.
     """
+    from kipy.errors import ApiStatusCode
     if e.code == ApiStatusCode.AS_BUSY:
         return _(
             "KiCad is busy and cannot respond right now. Usually this means an unfinished "
@@ -68,10 +70,13 @@ def run_cli(main_fn: Callable[[], None]) -> int:
     except PlacerError as e:
         logging.error(_("Error: {e}").format(e=e))
         return 1
-    except ApiError as e:
-        logging.error(api_error_message(e))
-        return 1
-    except Exception:
+    except Exception as e:
+        # ApiError is imported lazily: non-IPC commands (flatten) never raise
+        # an IPC error, so they never pay for the kipy import chain.
+        from kipy.errors import ApiError
+        if isinstance(e, ApiError):
+            logging.error(api_error_message(e))
+            return 1
         logging.exception(_("Unexpected error"))
         return 2
     return 0

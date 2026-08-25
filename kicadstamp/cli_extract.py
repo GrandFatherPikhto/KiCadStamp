@@ -19,7 +19,7 @@ import yaml
 from kicadstamp.config.includes import resolve_includes
 from kicadstamp.utils.yaml_loader import safe_load
 from kicadstamp.exceptions import PlacerError, check_unknown_keys
-from kicadstamp.kicad.adapter import KiCadBoardAdapter
+from kicadstamp.kicad.interfaces import IBoardAdapter
 from kicadstamp.template_extraction import extract_template_from_selection, render_uncertain_comments
 from kicadstamp.i18n import _
 
@@ -96,7 +96,7 @@ def load_profile(profiles_path: str, top_key: str, profile_name: str,
     return prof
 
 
-def extract_template(adapter: KiCadBoardAdapter, *, name: str, output: str,
+def extract_template(adapter: IBoardAdapter, *, name: str, output: str,
                      params: dict[str, Any] | None = None,
                      net_template_map: dict[str, str] | None = None,
                      net_template_role: dict[str, str] | None = None,

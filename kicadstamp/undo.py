@@ -5,7 +5,6 @@ import logging
 from pathlib import Path
 from .domain.geometry import Vector2
 from .persistence import OPERATION_LOG_SCHEMA_VERSION, check_schema_version
-from kicadstamp.kicad.adapter import KiCadBoardAdapter
 from kicadstamp.utils.layers import layer_from_str
 from kicadstamp.utils.units import MM
 from kicadstamp.i18n import _
@@ -29,6 +28,9 @@ def undo_last_operation(json_path: Path, adapter=None) -> bool:
     check_schema_version(version, OPERATION_LOG_SCHEMA_VERSION, json_path, "operation log")
 
     if adapter is None:
+        # Lazy import: importing kicadstamp.undo must not pull the kipy chain
+        # (the adapter is only needed on the production CLI path).
+        from kicadstamp.kicad.adapter import KiCadBoardAdapter
         adapter = KiCadBoardAdapter()
     adapter.refresh_board()
 

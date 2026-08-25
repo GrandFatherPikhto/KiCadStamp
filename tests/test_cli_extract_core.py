@@ -116,18 +116,22 @@ class TestCmdExtractRawSelection:
     def test_raw_selection_flag_reaches_extract_template(self, monkeypatch):
         from types import SimpleNamespace
         import kicadstamp.cli as cli_mod
+        import kicadstamp.cli_extract as cli_extract_mod
+        import kicadstamp.kicad.adapter as adapter_mod
 
         class _FakeAdapter:
             def refresh_board(self):
                 pass
 
-        monkeypatch.setattr(cli_mod, "KiCadBoardAdapter", lambda timeout_ms: _FakeAdapter())
+        # cli.py imports KiCadBoardAdapter/extract_template lazily inside
+        # cmd_extract, so patch the modules they are imported FROM.
+        monkeypatch.setattr(adapter_mod, "KiCadBoardAdapter", lambda timeout_ms: _FakeAdapter())
         captured = {}
 
         def _fake_extract(adapter, **kwargs):
             captured.update(kwargs)
 
-        monkeypatch.setattr(cli_mod, "extract_template", _fake_extract)
+        monkeypatch.setattr(cli_extract_mod, "extract_template", _fake_extract)
 
         args = SimpleNamespace(
             name="cell", output="out.yaml", timeout_ms=100,

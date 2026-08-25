@@ -12,15 +12,13 @@ import logging
 from pathlib import Path
 
 
-from kicadstamp.cli_extract import (load_profile, extract_template,
-                                    EXTRACT_PROFILE_KNOWN_KEYS,
-                                    CLONE_EXTRACT_PROFILE_KNOWN_KEYS)
+# kipy-bearing imports (KiCadBoardAdapter, cli_extract, undo) are deliberately
+# NOT at module level — each command imports them lazily inside its own body,
+# so non-IPC commands like `flatten` never pay for kipy+protobuf+pynng at import.
 from kicadstamp.constants import DEFAULT_LOG_DIR
 from kicadstamp.exceptions import PlacerError
 from kicadstamp.flatten import flatten_config
-from kicadstamp.kicad.adapter import KiCadBoardAdapter
 from kicadstamp.i18n import _
-from kicadstamp.undo import undo_last_operation
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +31,9 @@ def cmd_extract(args) -> None:
     kicadstamp.cli_extract.extract_template, raising PlacerError on invalid
     input (the entry point maps it to exit code 1).
     """
+    from kicadstamp.kicad.adapter import KiCadBoardAdapter
+    from kicadstamp.cli_extract import (load_profile, extract_template,
+                                        EXTRACT_PROFILE_KNOWN_KEYS)
     adapter = KiCadBoardAdapter(timeout_ms=args.timeout_ms)
     adapter.refresh_board()
 
@@ -127,6 +128,7 @@ def cmd_extract_net(args) -> None:
     """
     if not (args.net and args.anchor_role and args.output):
         raise PlacerError(_("[error] need --net, --anchor-role and --output"))
+    from kicadstamp.kicad.adapter import KiCadBoardAdapter
     adapter = KiCadBoardAdapter(timeout_ms=args.timeout_ms)
     adapter.refresh_board()
 
@@ -162,6 +164,7 @@ def cmd_clone_extract(args) -> None:
     input (the entry point maps it to exit code 1). The success summary is
     logged (INFO) instead of print()ed — the module owns no stdout writes.
     """
+    from kicadstamp.cli_extract import load_profile, CLONE_EXTRACT_PROFILE_KNOWN_KEYS
     direct_given = bool(args.net or args.pcb or args.channel or args.output)
     if args.profile and direct_given:
         raise PlacerError(_("[error] --profile cannot be combined with --net/--pcb/--channel/--output"))
@@ -199,6 +202,7 @@ def cmd_channel_copy(args) -> list[str] | None:
     point prints the returned report, same as cmd_apply. A repeated --dst is
     copied in one run, one report section per channel.
     """
+    from kicadstamp.kicad.adapter import KiCadBoardAdapter
     adapter = KiCadBoardAdapter(timeout_ms=args.timeout_ms)
     adapter.refresh_board()
 
@@ -272,6 +276,7 @@ def cmd_undo(args, log_dir: str | None = None) -> None:
 
     last_file = files[-1]
     logger.info(_("Undoing operation from {file}").format(file=last_file.name))
+    from kicadstamp.undo import undo_last_operation
     success = undo_last_operation(last_file)
     if success:
         logger.info(_("✅ Operation successfully undone."))

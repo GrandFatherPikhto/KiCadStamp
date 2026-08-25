@@ -20,13 +20,24 @@ from kicadstamp.i18n import setup_i18n
 setup_i18n()
 
 from kicadstamp import __version__
-from kicadstamp.apply_pipeline import cmd_apply
 from kicadstamp.cli import (cmd_channel_copy, cmd_clone_extract, cmd_extract,
                             cmd_extract_net, cmd_flatten, cmd_undo)
 from kicadstamp.cli_common import peek_log_file, run_cli
 from kicadstamp.logging_setup import setup_logging
 from kicadstamp.constants import DEFAULT_TIMEOUT_MS, DEFAULT_BATCH_SIZE
 from kicadstamp.i18n import _
+
+
+def cmd_apply(*args, **kwargs):
+    """Lazy import wrapper for :func:`kicadstamp.apply_pipeline.cmd_apply`.
+
+    ``apply`` is the only command whose import chain pulls
+    ``kicadstamp.kicad.adapter`` (kipy + protobuf + pynng). Deferring that
+    import to call time keeps the whole CLI entry point — and therefore
+    non-IPC commands like ``flatten`` — from paying for kipy at import.
+    """
+    from kicadstamp.apply_pipeline import cmd_apply as _real_cmd_apply
+    return _real_cmd_apply(*args, **kwargs)
 
 # Translated/typographic text (em dashes, non-breaking hyphens, degree signs, ...)
 # can't be encoded by legacy console codepages (e.g. Windows cp1251/cp866), which

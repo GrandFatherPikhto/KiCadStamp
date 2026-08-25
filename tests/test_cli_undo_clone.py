@@ -94,8 +94,11 @@ class TestCmdUndoValidation:
         """--operation-log-dir must point cmd_undo at the config-bound dir
         instead of the CWD-relative logs/ (П.7)."""
         import kicadstamp.cli as cli_mod
+        import kicadstamp.undo as undo_mod
         undone = []
-        monkeypatch.setattr(cli_mod, "undo_last_operation",
+        # cli.py imports undo_last_operation lazily inside cmd_undo, so patch
+        # the module it is imported FROM.
+        monkeypatch.setattr(undo_mod, "undo_last_operation",
                             lambda json_path: undone.append(json_path) or True)
         custom = tmp_path / "custom_logs"
         custom.mkdir()
