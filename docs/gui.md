@@ -278,6 +278,14 @@ tab is hidden outright (not just its content) until it actually applies.
   origin/net_template_role) into the Extractor file's `extract_profiles:` section, so the same
   extraction can be re-run later from the CLI (`kicadstamp_cli.py extract --profile <key>`)
   without retyping the alias mapping.
+- **Re-extract from current board state** (2026-08-25) — for an ALREADY saved Cell/extract profile:
+  pick it in the **Existing** lists, then pick the **Placement** (the `clone_placement` whose
+  `cell:` is that Cell) in the combo, and the dock re-captures that placement's live components +
+  registered vias/tracks straight from the board and re-writes the Cell — no manual re-selection in
+  pcbnew. The combo lists every `clone_placement` referencing the picked Cell; the button stays
+  disabled when no placement uses that Cell (a bare Cell never placed through a `clone_placement`
+  has nothing to re-extract from). Everything else (origin/net aliases/`raw_selection` recipe from
+  the saved profile) is reused unchanged — only the source of the extracted items differs.
 - The extracted Cell and its profile recipe are both written into the project root file, so the
   root file is immediately ready to use what was just extracted (no separate `include:` wiring).
 
@@ -418,6 +426,10 @@ the tabs — they act on the whole placement, not one tab.
 - **Save** — separately, writes the current form into the project root file's `clone_placements:` list
   (replacing an existing entry of the same name, never duplicating). Redraw does **not** save by
   itself — look, adjust, Redraw again, and only Save once you're happy with the result.
+- **Select on board** (2026-08-25) — resolves the current form's placement to its live board items
+  (its components plus every via/track the registry records under this placement's anchor) and
+  highlights exactly those in pcbnew — a visual check of what this placement really owns, without
+  moving anything. Nothing found (not placed yet) is a short Log message, never a crash.
 - **Undo** (2026-08-25) — confirms first, then undoes the NEWEST `operation_*.json` in the whole
   project's operation-log directory (the same pick as the CLI `kicadstamp undo` — not necessarily
   the operation this Placer form ran). Moved components are restored and created vias/tracks are

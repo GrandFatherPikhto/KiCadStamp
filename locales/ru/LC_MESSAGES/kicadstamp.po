@@ -7689,3 +7689,62 @@ msgstr ""
 "Взять текущее выделение как треки/via как есть, без pad-connectivity фильтра "
 "(каждый выделенный трек/via попадёт в ячейку, без проверки "
 "'связи с падом оставленного футпринта')"
+
+#: gui/docks/placer.py gui/docks/extract.py (clone-item resolver, 2026-08-25)
+msgid "Select on board"
+msgstr "Выделить на плате"
+
+#: gui/docks/placer.py gui/docks/extract.py
+msgid "nothing found on the board for this placement — has it been placed yet?"
+msgstr "на плате ничего не найдено для этого размещения — оно ещё не размещено?"
+
+#: gui/docks/placer.py
+#, python-brace-format
+msgid "Selected {count} item(s) on the board for {name!r}."
+msgstr "На плате выделено элементов: {count} (для {name!r})."
+
+#: gui/docks/extract.py
+msgid "Placement:"
+msgstr "Размещение:"
+
+#: gui/docks/extract.py
+msgid ""
+"The clone_placement that currently places the picked Cell on the board "
+"(populated when you pick an existing profile/Cell). Re-extract re-captures "
+"that placement's live components/vias/tracks."
+msgstr ""
+"ClonePlacement, который сейчас размещает выбранную ячейку на плате "
+"(заполняется при выборе существующего профиля/ячейки). Re-extract заново "
+"захватывает живые компоненты/via/track этого размещения."
+
+#: gui/docks/extract.py
+msgid "Re-extract from current board state"
+msgstr "Пересобрать из текущего состояния платы"
+
+#: gui/docks/extract.py
+msgid "Pick an existing profile/Cell and a placement first."
+msgstr "Сначала выберите существующий профиль/ячейку и размещение."
+
+#: gui/docks/extract.py
+#, python-brace-format
+msgid "Failed to load config: {error}"
+msgstr "Не удалось загрузить конфиг: {error}"
+
+#: gui/docks/extract.py
+#, python-brace-format
+msgid "Placement {name!r} not found in the config graph."
+msgstr "Размещение {name!r} не найдено в графе конфига."
+
+#: kicadstamp/placement/services/board_items_resolver.py
+#, python-brace-format
+msgid "cell {cell!r} not found in config"
+msgstr "ячейка {cell!r} не найдена в конфиге"
+
+#: kicadstamp/placement/services/board_items_resolver.py
+msgid "extract/save the cell and make sure include: is wired (see Extract)"
+msgstr "извлеките/сохраните ячейку и убедитесь, что подключён include: (см. Extract)"
+
+#: kicadstamp/kicad/adapter.py
+#, python-brace-format
+msgid "Failed to look up items by id: {type}: {e}"
+msgstr "Не удалось найти объекты по id: {type}: {e}"

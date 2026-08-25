@@ -829,7 +829,8 @@ def test_on_redraw_dispatches_to_worker(main_window, tmp_path, monkeypatch):
     assert captured["connection"] is main_window.connection
     assert captured["widgets"] == (
         dock.redraw_button, dock.redraw_dependents_button,
-        dock.redraw_and_save_button, dock.save_button, dock.undo_button)
+        dock.redraw_and_save_button, dock.save_button, dock.select_button,
+        dock.undo_button)
     # Bound methods: each access creates a fresh object, so compare with ==
     # (equality checks __self__ + __func__) rather than `is`.
     assert captured["fn"] == dock._run_redraw
@@ -2029,7 +2030,8 @@ def test_on_redraw_and_save_dispatches_to_worker(main_window, tmp_path, monkeypa
     assert captured["connection"] is main_window.connection
     assert captured["widgets"] == (
         dock.redraw_button, dock.redraw_dependents_button,
-        dock.redraw_and_save_button, dock.save_button, dock.undo_button)
+        dock.redraw_and_save_button, dock.save_button, dock.select_button,
+        dock.undo_button)
     assert captured["fn"] == dock._run_redraw
     assert captured["on_success"] == dock._finish_redraw_and_save
     assert captured["on_error"] == dock._on_redraw_and_save_failed
@@ -2176,7 +2178,8 @@ def test_undo_dispatches_to_worker_with_guard_widgets(main_window, tmp_path, mon
     assert captured["connection"] is main_window.connection
     assert captured["widgets"] == (
         dock.redraw_button, dock.redraw_dependents_button,
-        dock.redraw_and_save_button, dock.save_button, dock.undo_button)
+        dock.redraw_and_save_button, dock.save_button, dock.select_button,
+        dock.undo_button)
     assert captured["fn"] == dock._run_undo
     assert captured["on_success"] == dock._finish_undo
     assert captured["on_error"] == dock._on_undo_failed

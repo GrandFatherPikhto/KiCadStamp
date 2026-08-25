@@ -1004,6 +1004,14 @@ class PlacerDock(QWidget):
         self.save_button = QPushButton(_("Save"))
         self.save_button.clicked.connect(self._on_save)
         button_row.addWidget(self.save_button)
+        # Select on board (2026-08-25, handoff clone_item_resolver_select_and_
+        # reextract): resolve the CURRENT form's placement to its live board
+        # items and highlight them in pcbnew — visual check of what this
+        # placement really owns, without moving anything. See
+        # _on_select_on_board / placement/services/board_items_resolver.py.
+        self.select_button = QPushButton(_("Select on board"))
+        self.select_button.clicked.connect(self._on_select_on_board)
+        button_row.addWidget(self.select_button)
         # Undo (2026-08-25): undo the NEWEST operation_*.json in the whole
         # project's operation_log_dir (same semantics as `kicadstamp undo`,
         # not necessarily the op this Placer form ran) — see _on_undo().
@@ -1880,7 +1888,75 @@ class PlacerDock(QWidget):
         Save runs, so no two board-touching actions can overlap (same "one
         socket in flight" discipline as connection.long_op_active)."""
         return (self.redraw_button, self.redraw_dependents_button,
-                self.redraw_and_save_button, self.save_button, self.undo_button)
+                self.redraw_and_save_button, self.save_button, self.select_button,
+                self.undo_button)
+
+    def _on_select_on_board(self) -> None:
+        """Select-on-board button — resolve the CURRENT form's placement
+        (ClonePlacement or CoordinatePlacement) to its live board items via
+        board_items_resolver.resolve_clone_board_items() and highlight them in
+        pcbnew through adapter.select_items(). Read-only: never moves/tags/
+        writes. Short synchronous board reads only (same discipline as
+        refresh_known_roles), wrapped in busy() so no two board-touching
+        actions overlap."""
+        with busy(self._action_buttons()):
+            board = self._main_window.connection.board
+            if board is None or getattr(board, "adapter", None) is None:
+                self._show_message(_("Not connected."), _ERROR_STYLE)
+                return
+            entry = self._build_entry_dict()
+            if entry is None:
+                return
+            if self._placer_path is None:
+                self._show_message(_("Set the project root first."), _ERROR_STYLE)
+                return
+            try:
+                if self.is_coordinate:
+                    placement = load_coordinate_placement(entry)
+                else:
+                    placement = load_clone_placement(entry)
+            except ValidationError as e:
+                self._show_message(str(e), _ERROR_STYLE)
+                return
+
+            loaded = self._load_target_config()
+            if loaded is None:
+                return
+            cfg, ctx = loaded
+
+            if not self.is_coordinate and placement.cell not in cfg.cells:
+                self._show_message(
+                    _("Cell {cell!r} isn't reachable from the Placer file's include: — "
+                      "extract/save it and make sure include: is wired (see Extract).")
+                    .format(cell=placement.cell), _ERROR_STYLE)
+                return
+
+            from kicadstamp.placement.services.board_items_resolver import resolve_clone_board_items
+            from kicadstamp.registry import (registry_path_for_config,
+                                             track_registry_path_for_config)
+
+            registry_path = ctx.registry_path or registry_path_for_config(str(self._placer_path))
+            track_registry_path = (ctx.track_registry_path
+                                   or track_registry_path_for_config(str(self._placer_path)))
+            try:
+                items = resolve_clone_board_items(
+                    board.adapter, cfg, ctx, placement,
+                    registry_path=registry_path, track_registry_path=track_registry_path)
+            except ValidationError as e:
+                self._show_message(str(e), _ERROR_STYLE)
+                return
+
+            if not items:
+                self._show_message(
+                    _("nothing found on the board for this placement — has it been placed yet?"),
+                    _WARN_STYLE)
+                return
+
+            board.adapter.select_items(items)
+            name = (coordinate_placement_effective_name(placement)
+                    if self.is_coordinate else clone_placement_effective_name(placement))
+            self._show_message(_("Selected {count} item(s) on the board for {name!r}.")
+                               .format(count=len(items), name=name), _SUCCESS_STYLE)
 
     def _start_redraw_op(self, payload: Dict[str, Any]) -> None:
         self._active_op = start_long_op(

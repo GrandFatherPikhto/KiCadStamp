@@ -7787,3 +7787,59 @@ msgid ""
 "pad-connectivity filter (every selected track/via goes into the "
 "cell, no 'connected to a kept footprint's pad' check)"
 msgstr ""
+
+#: gui/docks/placer.py gui/docks/extract.py (clone-item resolver, 2026-08-25)
+msgid "Select on board"
+msgstr ""
+
+#: gui/docks/placer.py gui/docks/extract.py
+msgid "nothing found on the board for this placement — has it been placed yet?"
+msgstr ""
+
+#: gui/docks/placer.py
+#, python-brace-format
+msgid "Selected {count} item(s) on the board for {name!r}."
+msgstr ""
+
+#: gui/docks/extract.py
+msgid "Placement:"
+msgstr ""
+
+#: gui/docks/extract.py
+msgid ""
+"The clone_placement that currently places the picked Cell on the board "
+"(populated when you pick an existing profile/Cell). Re-extract re-captures "
+"that placement's live components/vias/tracks."
+msgstr ""
+
+#: gui/docks/extract.py
+msgid "Re-extract from current board state"
+msgstr ""
+
+#: gui/docks/extract.py
+msgid "Pick an existing profile/Cell and a placement first."
+msgstr ""
+
+#: gui/docks/extract.py
+#, python-brace-format
+msgid "Failed to load config: {error}"
+msgstr ""
+
+#: gui/docks/extract.py
+#, python-brace-format
+msgid "Placement {name!r} not found in the config graph."
+msgstr ""
+
+#: kicadstamp/placement/services/board_items_resolver.py
+#, python-brace-format
+msgid "cell {cell!r} not found in config"
+msgstr ""
+
+#: kicadstamp/placement/services/board_items_resolver.py
+msgid "extract/save the cell and make sure include: is wired (see Extract)"
+msgstr ""
+
+#: kicadstamp/kicad/adapter.py
+#, python-brace-format
+msgid "Failed to look up items by id: {type}: {e}"
+msgstr ""

@@ -151,7 +151,7 @@ from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFormLayou
                               QListWidget, QPushButton, QTableWidget, QTableWidgetItem,
                               QTabWidget, QVBoxLayout, QWidget)
 
-from kicadstamp.config import load_config
+from kicadstamp.config import clone_placement_effective_name, load_config
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.explore import Selected
 from kicadstamp.extract_writer import run_extract_to_file
@@ -228,6 +228,12 @@ class ExtractDock(QWidget):
         # every ~400ms selection-watch tick. Reset (to None, meaning "stale,
         # recompute on next need") only by set_placer_file().
         self._registry_uuids_cache: Optional[Tuple[set, set]] = None
+        # Re-extract target (2026-08-25, handoff clone_item_resolver_select_and_
+        # reextract): the picked existing profile/Cell plus the placement the
+        # user chose in the re-extract combo — see _refresh_re_extract_placements.
+        self._re_extract_cell_name: Optional[str] = None
+        self._re_extract_profile_key: Optional[str] = None
+        self._re_extract_profile_entry: Dict[str, Any] = {}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -450,6 +456,27 @@ class ExtractDock(QWidget):
         self.extract_button.setEnabled(False)
         self.extract_button.clicked.connect(self._on_extract)
         layout.addWidget(self.extract_button)
+
+        # Re-extract from current board state (2026-08-25, handoff
+        # clone_item_resolver_select_and_reextract): pick an already-saved
+        # extract profile (or Cell) in the Existing tab, then re-capture its
+        # cell from the live board via the clone_placement that currently owns
+        # it — no manual re-selection in pcbnew. The combo lists every
+        # clone_placement whose cell: references the picked cell; the button is
+        # enabled only once a concrete placement is chosen.
+        re_extract_row = QHBoxLayout()
+        re_extract_row.addWidget(QLabel(_("Placement:")))
+        self.re_extract_placement_combo = QComboBox()
+        self.re_extract_placement_combo.setToolTip(
+            _("The clone_placement that currently places the picked Cell on the board "
+              "(populated when you pick an existing profile/Cell). Re-extract re-captures "
+              "that placement's live components/vias/tracks."))
+        re_extract_row.addWidget(self.re_extract_placement_combo, 1)
+        layout.addLayout(re_extract_row)
+        self.re_extract_button = QPushButton(_("Re-extract from current board state"))
+        self.re_extract_button.setEnabled(False)
+        self.re_extract_button.clicked.connect(self._on_re_extract)
+        layout.addWidget(self.re_extract_button)
 
     def set_board_selection(self, raw_items: List[Any], selected_footprints: List[Selected]) -> None:
         """Called every selection-watch tick — see module docstring for why
@@ -862,6 +889,9 @@ class ExtractDock(QWidget):
             if not self.profile_key_edit.text().strip():
                 self.profile_key_edit.setText(profile_key)
             self._apply_profile_entry(profile_key)
+        entry = (self._graph_section_entry("extract_profiles", profile_key)
+                 if profile_key is not None else {})
+        self._set_re_extract_target(cell_name, profile_key, entry)
 
     def _on_profile_item_clicked(self, item) -> None:
         self.pick_profile(item.text())
@@ -874,6 +904,9 @@ class ExtractDock(QWidget):
         without duplicating it."""
         self.profile_key_edit.setText(profile_key)
         self._apply_profile_entry(profile_key)
+        entry = self._graph_section_entry("extract_profiles", profile_key)
+        self._set_re_extract_target((entry.get("name") or profile_key) if entry else profile_key,
+                                    profile_key, entry)
 
     def _update_net_template_role_rows(self, footprints=None) -> None:
         """A role needs an explicit net_template_role pick exactly when 2+ of
@@ -1366,4 +1399,147 @@ class ExtractDock(QWidget):
             return
         result = self._run_extract(payload)
         self._finish_extract(result)
+
+    # ── Re-extract from current board state ───────────────────────────────
+
+    def _set_re_extract_target(self, cell_name: Optional[str], profile_key: Optional[str],
+                               profile_entry: Dict[str, Any]) -> None:
+        """Record the picked existing profile/Cell as the re-extract target
+        and repopulate the placement combo for it."""
+        self._re_extract_cell_name = cell_name
+        self._re_extract_profile_key = profile_key
+        self._re_extract_profile_entry = dict(profile_entry) if profile_entry else {}
+        self._refresh_re_extract_placements()
+
+    def _refresh_re_extract_placements(self) -> None:
+        """Populate the re-extract placement combo with every clone_placement
+        in the include graph whose cell: references the picked re-extract cell
+        (profile's name / picked Cell). The button is enabled exactly when a
+        concrete placement is chosen. Read-only, on the UI thread — an explicit
+        user action (profile/cell click), same load_config cost as
+        _registry_uuids()."""
+        cell_name = self._re_extract_cell_name
+        self.re_extract_placement_combo.blockSignals(True)
+        self.re_extract_placement_combo.clear()
+        placements: List[Any] = []
+        if cell_name and self._root_path is not None:
+            try:
+                cfg, _ctx = load_config(str(self._root_path))
+            except Exception:
+                cfg = None
+            if cfg is not None:
+                placements = [c for c in cfg.clone_placements if c.cell == cell_name]
+        for c in placements:
+            name = clone_placement_effective_name(c)
+            self.re_extract_placement_combo.addItem(name, name)
+        self.re_extract_placement_combo.blockSignals(False)
+        self.re_extract_button.setEnabled(self.re_extract_placement_combo.count() > 0)
+
+    def _resolve_re_extract_target(self, cell_name: str, profile_entry: Dict[str, Any]) -> Optional[Path]:
+        """The cells file re-extract writes back into — the profile's stored
+        output: (written by run_extract_to_file as display_path(), i.e.
+        relative to the project root when possible), or the dock's current
+        target path when re-extracting a bare Cell with no profile."""
+        output = profile_entry.get("output")
+        if output:
+            from kicadstamp.config_writer import PROJECT_ROOT
+            p = Path(output)
+            return p if p.is_absolute() else PROJECT_ROOT / p
+        if self._target_path is not None:
+            return self._target_path
+        self._show_message(_("Set the project root first."), _ERROR_STYLE)
+        return None
+
+    def _on_re_extract(self) -> None:
+        """Re-extract button — collect the picked profile/cell + placement on
+        the UI thread, then run the heavy work (load_config + resolver + file
+        write) on a worker thread, same split as the normal Extract path."""
+        board = self._connection.board
+        if board is None or getattr(board, "adapter", None) is None:
+            self._show_message(_("Not connected."), _ERROR_STYLE)
+            return
+        cell_name = self._re_extract_cell_name
+        placement_name = self.re_extract_placement_combo.currentData()
+        if not cell_name or not placement_name:
+            self._show_message(_("Pick an existing profile/Cell and a placement first."), _ERROR_STYLE)
+            return
+        if self._root_path is None or self._placer_path is None:
+            self._show_message(_("Set the project root first."), _ERROR_STYLE)
+            return
+        target_path = self._resolve_re_extract_target(cell_name, self._re_extract_profile_entry)
+        if target_path is None:
+            return
+        payload = {
+            "root_path": self._root_path,
+            "placer_path": self._placer_path,
+            "board": board,
+            "cell_name": cell_name,
+            "placement_name": placement_name,
+            "profile_key": self._re_extract_profile_key,
+            "profile_entry": self._re_extract_profile_entry,
+            "target_path": target_path,
+        }
+        self._start_re_extract_op(payload)
+
+    def _run_re_extract(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Worker thread: board IPC + file writes only — never touches a
+        widget. Resolves the chosen placement's live items and re-runs the
+        SAME run_extract_to_file transform the normal path uses, with
+        items= from the resolver instead of the GUI selection."""
+        from kicadstamp.placement.services.board_items_resolver import resolve_clone_board_items
+        from kicadstamp.registry import (registry_path_for_config,
+                                         track_registry_path_for_config)
+
+        adapter = payload["board"].adapter
+        try:
+            cfg, ctx = load_config(str(payload["root_path"]))
+        except Exception as e:
+            return {"error": _("Failed to load config: {error}").format(error=e)}
+
+        placement_name = payload["placement_name"]
+        clone = next((c for c in cfg.clone_placements
+                      if clone_placement_effective_name(c) == placement_name), None)
+        if clone is None:
+            return {"error": _("Placement {name!r} not found in the config graph.")
+                    .format(name=placement_name)}
+
+        registry_path = ctx.registry_path or registry_path_for_config(str(payload["placer_path"]))
+        track_registry_path = (ctx.track_registry_path
+                               or track_registry_path_for_config(str(payload["placer_path"])))
+        try:
+            items = resolve_clone_board_items(
+                adapter, cfg, ctx, clone,
+                registry_path=registry_path, track_registry_path=track_registry_path)
+        except ValidationError as e:
+            return {"error": str(e)}
+        if not items:
+            return {"error": _("nothing found on the board for this placement — "
+                               "has it been placed yet?")}
+
+        entry = payload["profile_entry"] or {}
+        origin_kwargs: Dict[str, str] = {}
+        for profile_key, value in entry.items():
+            if profile_key.startswith("origin_by_") and value:
+                origin_kwargs["origin_" + profile_key[len("origin_by_"):]] = value
+
+        return run_extract_to_file(
+            adapter,
+            name=payload["cell_name"],
+            params=entry.get("params") or {},
+            items=items,
+            net_template_role=entry.get("net_template_role") or {},
+            rule_nets=set(entry.get("rule_nets") or []),
+            origin_kwargs=origin_kwargs,
+            target_path=payload["target_path"],
+            save_profile=False,
+            profile_key=payload.get("profile_key") or payload["cell_name"],
+            profile_path=None,
+            placer_path=payload["placer_path"],
+            raw_selection=bool(entry.get("raw_selection", False)),
+            extract_fn=extract_template_from_selection)
+
+    def _start_re_extract_op(self, payload: Dict[str, Any]) -> None:
+        self._active_op = start_long_op(
+            self._connection, (self.re_extract_button,),
+            self._run_re_extract, self._finish_extract, self._on_extract_failed, payload)
 

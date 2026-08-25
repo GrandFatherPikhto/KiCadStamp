@@ -183,6 +183,36 @@ class KiCadBoardAdapter(IBoardAdapter):
         logger.debug(_("Footprint with uuid {uuid} not found").format(uuid=uuid_str))
         return None
 
+    def get_items_by_id(self, uuid_strs: list[str]) -> list[Any]:
+        """
+        Point lookups by UUID for arbitrary board items (via/track/...), in
+        ONE IPC round trip via kipy's ``Board.get_items_by_id`` (added in
+        kipy 0.7.0 / KiCad 10.0.0 — the same GetItemsById command
+        ``remove_by_id`` already uses for the delete direction). The
+        multi-UUID counterpart of get_footprint_by_id(), which resolves
+        refdes-independent identity for copper the same way it already does
+        for footprints. UUIDs with no live item are simply absent from the
+        result (KiCad returns only what exists) — not an error, mirroring
+        the registry's own "a stale UUID is not an error" stance
+        (registry.py's reconcile).
+        """
+        from kipy.proto.common.types import base_types_pb2 as common_types_pb2
+
+        kiids = []
+        for uuid_str in uuid_strs:
+            kiid = common_types_pb2.KIID()
+            kiid.value = uuid_str
+            kiids.append(kiid)
+        if not kiids:
+            return []
+        try:
+            raw = self._board.get_items_by_id(kiids)
+        except Exception as e:
+            logger.warning(_("Failed to look up items by id: {type}: {e}")
+                           .format(type=type(e).__name__, e=e))
+            return []
+        return [board_item_from_kipy(item) for item in raw]
+
     def get_footprints(self) -> list[Footprint]:
         """
         Cached per board generation (cleared by refresh_board()). Anchor/role
