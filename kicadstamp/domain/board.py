@@ -6,10 +6,10 @@ board *entity* types that used to leak through `IBoardAdapter`
 (``FootprintInstance``, ``Via``, ``Track``, ``Pad``, ``Net``, ``Zone``) with
 domain DTOs, so consumers no longer import those kipy classes.
 
-Scope of THIS stage: only the board **entity** types are decoupled. The
-geometric/enum *value* types (``Vector2``, ``Angle``, ``Box2``, ``BoardLayer``)
-are deliberately kept as kipy types for now — they are stable, well-tested
-value objects, and replacing them is a separate follow-up.
+The geometric/enum *value* types (``Vector2``, ``Angle``, ``Box2``,
+``BoardLayer``) are ALSO decoupled — see ``kicadstamp/domain/geometry.py``
+(completed 2026-08-25). The whole seam (entity DTOs + value types) is now
+domain-only, and kipy is confined to ``adapter.py``.
 
 Write-path round-trip: each mutable DTO carries an opaque ``_kipy`` back
 reference to the live kipy object. Consumers MUST NOT touch ``_kipy``; it

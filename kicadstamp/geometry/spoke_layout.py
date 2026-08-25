@@ -15,8 +15,9 @@ spoke completely eliminates the need to manually adjust sign offsets for a
 particular package.
 
 Uses the SAME rotation formula as the rest of the project
-(kipy.geometry.Vector2.rotate(), empirically confirmed earlier for the flip
-convention) — does not reinvent rotation on its own.
+(kicadstamp.domain.geometry.Vector2.rotate(), a faithful port of the kipy
+formula, empirically confirmed earlier for the flip convention) — does not
+reinvent rotation on its own.
 
 CHANGED (KiCadStamp, generalised vias): previously component‑level vias
 ("GND via") were computed from the REAL ground pad of the already‑placed

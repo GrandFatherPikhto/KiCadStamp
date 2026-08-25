@@ -1,12 +1,11 @@
 # kicadstamp/domain/geometry.py
 """Domain value types for board geometry, decoupling KiCadStamp from kipy.
 
-P1-4 follow-up: replace the kipy geometric/enum *value* types that still leak
-through the seam (``Vector2``, ``Angle``, ``BoardLayer``) with domain types of
-the same name and API, so consumers no longer import ``kipy.geometry`` /
-``kipy.board_types`` at all. ``Box2`` (bounding boxes) is intentionally left as
-a kipy type for now — it flows only through ``get_bounding_boxes`` and is a
-documented follow-up.
+P1-4 follow-up (completed 2026-08-25): the kipy geometric/enum *value* types
+(``Vector2``, ``Angle``, ``BoardLayer``, ``Box2``) are replaced by domain types
+of the same name and API, so consumers no longer import ``kipy.geometry`` /
+``kipy.board_types`` at all. Only the adapter seam (``kicad/adapter.py``)
+converts kipy <-> domain.
 
 The types deliberately mirror kipy's exact semantics (nanometre integers,
 KiCad's Y-down rotation, in-place ``rotate``) so the migration is a pure import

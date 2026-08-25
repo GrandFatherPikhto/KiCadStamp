@@ -7,10 +7,10 @@ DTOs (``Footprint``, ``Pad``, ``Via``, ``Track``, ``Net``, ``Zone`` from
 consumers no longer import ``kipy.board_types`` entity types.
 
 The geometric/enum *value* types (``Vector2``, ``Angle``, ``Box2``,
-``BoardLayer``) are intentionally still kipy types for now — they are stable
-value objects; replacing them is a documented follow-up. The kipy version
-remains pinned at ``kicad-python==0.7.1`` (``pyproject.toml`` /
-``requirements.txt``).
+``BoardLayer``) are also domain types now (``kicadstamp.domain.geometry``,
+completed 2026-08-25) — the seam is fully decoupled from kipy value types as
+well as board-entity types. The kipy version remains pinned at
+``kicad-python==0.7.1`` (``pyproject.toml`` / ``requirements.txt``).
 
 Rules for the seam:
 
@@ -32,9 +32,10 @@ from ..domain.board import Footprint, Net, Pad, Track, Via, Zone
 class IBoardAdapter(ABC):
     """Facade over a live KiCad board over the kipy IPC API.
 
-    See the module docstring: this class deliberately exposes domain DTOs;
-    kipy value types remain and the full value-type decoupling is a planned
-    follow-up.
+    See the module docstring: this class deliberately exposes ONLY domain
+    types — board DTOs (``domain/board.py``) and geometry value types
+    (``domain/geometry.py``) — never ``kipy.*``. The kipy conversion happens
+    solely inside ``adapter.py``.
     """
 
     @abstractmethod

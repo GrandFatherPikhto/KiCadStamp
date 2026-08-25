@@ -10,7 +10,7 @@ this one absolute point with this one rotation".
 Reuses the project's existing rotation/anchor-pad primitives rather than
 reinventing them:
   - local_to_absolute() (geometry/spoke_layout.py) — the SAME rotation
-    formula every other subsystem uses (kipy.geometry.Vector2.rotate()), so
+    formula every other subsystem uses (kicadstamp.domain.geometry.Vector2.rotate()), so
     the polar mode's angle_deg follows the identical sign/axis convention
     as rotation_deg everywhere else in the project — not a second,
     independently-invented rotation. resolve_self_pad_anchor() below needs
@@ -51,7 +51,7 @@ _ORIGIN = Vector2.from_xy(0, 0)
 
 def _rotate_native(vec: Vector2, angle_deg: float) -> Vector2:
     """Rotate an ALREADY-native-units Vector2 by angle_deg around (0,0) —
-    the exact same kipy.geometry.Vector2.rotate() call rotate_local_offset()
+    the exact same kicadstamp.domain.geometry.Vector2.rotate() call rotate_local_offset()
     itself wraps (geometry/spoke_layout.py), used directly here because our
     inputs (a pad's offset from its footprint's origin) are already native
     units, not mm: round-tripping through rotate_local_offset's mm/int
@@ -146,7 +146,7 @@ def resolve_self_pad_anchor(adapter, fp: Footprint, pad_number: str,
     footprint layout, independent of where it's sitting right now), then
     re-rotate that local offset by the NEW rotation and subtract it from
     the target — the new origin. Both rotations go through _rotate_native()
-    — the same kipy.geometry.Vector2.rotate() call/convention
+    — the same kicadstamp.domain.geometry.Vector2.rotate() call/convention
     rotate_local_offset() itself uses, just without its mm round-trip
     (unnecessary here — see _rotate_native's own docstring)."""
     pad_position = resolve_anchor_pad_position(adapter, fp, pad_number, label)
