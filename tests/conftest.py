@@ -1,12 +1,13 @@
 # tests/conftest.py
 """
 Forces English gettext output for the whole test suite, regardless of the
-calling shell's locale — kicadstamp/__init__.py calls setup_i18n() exactly
-once, at first import of the kicadstamp package, reading these same env
-vars (see kicadstamp/i18n.py's detect_language() precedence: LANGUAGE >
-LC_ALL > LC_MESSAGES > LANG). Most modules bind `_` at import time (`from
-kicadstamp.i18n import _`), so whichever language wins at that ONE import
-is what every test importing kicadstamp afterwards is stuck with — on a
+calling shell's locale — this file calls setup_i18n() itself, once, before
+any test module imports kicadstamp (see below; kicadstamp/__init__.py no
+longer does this at import — P1-1, 2026-08-25), reading these same env vars
+(see kicadstamp/i18n.py's detect_language() precedence: LANGUAGE > LC_ALL >
+LC_MESSAGES > LANG). Most modules bind `_` at import time (`from
+kicadstamp.i18n import _`), so whichever language wins at that ONE call is
+what every test importing kicadstamp afterwards is stuck with — on a
 machine/shell with LANG=ru_RU.UTF-8 (common on this project's dev
 machines), that meant tests asserting a hardcoded English substring
 against format_fatal_error()'s output (or anything built from it, e.g. the
@@ -32,10 +33,7 @@ os.environ.pop("LANGUAGE", None)
 os.environ["LC_ALL"] = "en_US.UTF-8"
 os.environ["LANG"] = "en_US.UTF-8"
 
-# Explicit i18n init (P1-1, 2026-08-25): kicadstamp/__init__.py no longer
-# calls setup_i18n() at import — entry points do. Tests import library
-# modules directly, so set up the translation function here (English) before
-# any test module imports kicadstamp.
+# See module docstring above for why this call lives here.
 from kicadstamp.i18n import setup_i18n
 
 setup_i18n()
