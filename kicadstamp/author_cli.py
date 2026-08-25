@@ -15,6 +15,12 @@ import argparse
 import sys
 from pathlib import Path
 
+# Explicit i18n init (P1-1, 2026-08-25) — board generator scripts run this
+# module directly, so gettext must be set up before cli_common binds `_`.
+from .i18n import setup_i18n
+
+setup_i18n()
+
 from .author import apply_config, dump_clone_placements
 from .cli_common import run_cli
 from .config import ClonePlacement, load_config

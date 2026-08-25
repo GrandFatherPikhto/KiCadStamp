@@ -32,6 +32,14 @@ os.environ.pop("LANGUAGE", None)
 os.environ["LC_ALL"] = "en_US.UTF-8"
 os.environ["LANG"] = "en_US.UTF-8"
 
+# Explicit i18n init (P1-1, 2026-08-25): kicadstamp/__init__.py no longer
+# calls setup_i18n() at import — entry points do. Tests import library
+# modules directly, so set up the translation function here (English) before
+# any test module imports kicadstamp.
+from kicadstamp.i18n import setup_i18n
+
+setup_i18n()
+
 
 @pytest.fixture(autouse=True)
 def _reset_logging_after_test():

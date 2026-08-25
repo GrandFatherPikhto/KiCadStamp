@@ -38,6 +38,12 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
+# Explicit i18n init (P1-1, 2026-08-25) — kicadstamp/__init__.py no longer
+# calls setup_i18n() at import, so this bare-script entry point must.
+from kicadstamp.i18n import setup_i18n
+
+setup_i18n()
+
 # fieldstool_cli.py runs as a bare script (no package context), and the
 # project root — where kicadstamp/ lives — is that script's own directory,
 # already on sys.path by default; no sys.path.insert needed (unlike

@@ -11,6 +11,14 @@ import argparse
 import difflib
 import sys
 
+# Explicit i18n init (P1-1, 2026-08-25): kicadstamp/__init__.py no longer calls
+# setup_i18n() at import. Entry points set up gettext BEFORE importing the
+# modules that bind `_` at import time, so those bindings see the translated
+# function.
+from kicadstamp.i18n import setup_i18n
+
+setup_i18n()
+
 from kicadstamp import __version__
 from kicadstamp.apply_pipeline import cmd_apply
 from kicadstamp.cli import (cmd_channel_copy, cmd_clone_extract, cmd_extract,

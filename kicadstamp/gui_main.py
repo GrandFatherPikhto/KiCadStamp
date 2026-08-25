@@ -9,6 +9,11 @@ kicadstamp_gui.py`` dev workflow keeps working unchanged.
 import argparse
 import sys
 
+# Explicit i18n init (P1-1, 2026-08-25) — same reason as kicadstamp/cli_main.py.
+from kicadstamp.i18n import setup_i18n
+
+setup_i18n()
+
 # See kicadstamp_cli.py for why this is needed (UnicodeEncodeError on legacy
 # console codepages with translated/typographic text).
 if hasattr(sys.stdout, "reconfigure"):
