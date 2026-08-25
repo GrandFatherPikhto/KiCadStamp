@@ -6,6 +6,7 @@ from pathlib import Path
 
 
 from ...constants import DEFAULT_LOG_DIR
+from ...persistence import OPERATION_LOG_SCHEMA_VERSION
 from ...i18n import _
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,7 @@ class OperationLogger:
         try:
             self.log_dir.mkdir(parents=True, exist_ok=True)
             log_data = {
+                'schema_version': OPERATION_LOG_SCHEMA_VERSION,
                 'timestamp': datetime.now().isoformat(),
                 'moves': move_log,
                 'created_vias': via_log,

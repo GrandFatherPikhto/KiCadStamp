@@ -41,6 +41,7 @@ from .placement.commands import ViaCommand, TrackCommand
 from .utils.units import MM
 from .utils.layers import layer_to_str
 from .constants import POSITION_TOLERANCE_MM, SPOKE_LEVEL_ROLE_PLACEHOLDER
+from .persistence import REGISTRY_SCHEMA_VERSION, check_schema_version
 from .i18n import _
 
 logger = logging.getLogger(__name__)
@@ -110,6 +111,19 @@ def load_registry(path: str) -> dict[str, RegistryEntry]:
         return {}
     try:
         raw = json.loads(p.read_text(encoding="utf-8"))
+    except Exception as e:
+        logger.warning(_("Failed to read registry {path}: {type}: {e} — "
+                         "treating registry as empty (all vias will be created anew)")
+                       .format(path=path, type=type(e).__name__, e=e))
+        return {}
+    if isinstance(raw, dict):
+        # A future schema_version fails loudly (before the lenient entry parse
+        # below) — mis-parsing a newer format could recreate duplicate copper.
+        check_schema_version(raw.get("schema_version"), REGISTRY_SCHEMA_VERSION, path, "registry")
+        raw = {k: v for k, v in raw.items() if k != "schema_version"}
+    else:
+        raw = {}
+    try:
         return {k: RegistryEntry(**v) for k, v in raw.items()}
     except Exception as e:
         logger.warning(_("Failed to read registry {path}: {type}: {e} — "
@@ -121,7 +135,8 @@ def load_registry(path: str) -> dict[str, RegistryEntry]:
 def save_registry(path: str, entries: dict[str, RegistryEntry]) -> None:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    data = {k: asdict(v) for k, v in entries.items()}
+    data = {"schema_version": REGISTRY_SCHEMA_VERSION,
+            **{k: asdict(v) for k, v in entries.items()}}
     p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
@@ -131,6 +146,18 @@ def load_track_registry(path: str) -> dict[str, TrackRegistryEntry]:
         return {}
     try:
         raw = json.loads(p.read_text(encoding="utf-8"))
+    except Exception as e:
+        logger.warning(_("Failed to read track registry {path}: {type}: {e} — "
+                         "treating registry as empty (all tracks will be created anew)")
+                       .format(path=path, type=type(e).__name__, e=e))
+        return {}
+    if isinstance(raw, dict):
+        check_schema_version(raw.get("schema_version"), REGISTRY_SCHEMA_VERSION,
+                             path, "track registry")
+        raw = {k: v for k, v in raw.items() if k != "schema_version"}
+    else:
+        raw = {}
+    try:
         return {k: TrackRegistryEntry(**v) for k, v in raw.items()}
     except Exception as e:
         logger.warning(_("Failed to read track registry {path}: {type}: {e} — "
@@ -142,7 +169,8 @@ def load_track_registry(path: str) -> dict[str, TrackRegistryEntry]:
 def save_track_registry(path: str, entries: dict[str, TrackRegistryEntry]) -> None:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    data = {k: asdict(v) for k, v in entries.items()}
+    data = {"schema_version": REGISTRY_SCHEMA_VERSION,
+            **{k: asdict(v) for k, v in entries.items()}}
     p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 

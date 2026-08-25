@@ -4,6 +4,7 @@ import json
 import logging
 from pathlib import Path
 from .domain.geometry import Vector2
+from .persistence import OPERATION_LOG_SCHEMA_VERSION, check_schema_version
 from kicadstamp.kicad.adapter import KiCadBoardAdapter
 from kicadstamp.utils.layers import layer_from_str
 from kicadstamp.utils.units import MM
@@ -23,6 +24,9 @@ def undo_last_operation(json_path: Path, adapter=None) -> bool:
     """
     with open(json_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
+
+    version = data.get("schema_version") if isinstance(data, dict) else None
+    check_schema_version(version, OPERATION_LOG_SCHEMA_VERSION, json_path, "operation log")
 
     if adapter is None:
         adapter = KiCadBoardAdapter()
