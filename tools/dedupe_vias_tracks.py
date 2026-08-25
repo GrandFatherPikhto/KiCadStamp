@@ -56,7 +56,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from kicadstamp.kicad.adapter import KiCadBoardAdapter
 from kicadstamp.utils.units import MM
 from kicadstamp.constants import POSITION_TOLERANCE_MM
-from kipy.board_types import BoardLayer, Via, Track
+from kicadstamp.domain.board import Via, Track
+from kicadstamp.domain.geometry import BoardLayer
 
 T = TypeVar("T")
 
@@ -91,7 +92,7 @@ def _find_duplicate_groups(items: Sequence[T], key_fn: Callable[[T], tuple],
 
 
 def _via_key(via: Via) -> tuple:
-    return (via.net.name if via.net else None,)
+    return (via.net_name,)
 
 
 def _via_pos(via: Via) -> Tuple[float, float]:
@@ -99,7 +100,7 @@ def _via_pos(via: Via) -> Tuple[float, float]:
 
 
 def _track_key(track: Track) -> tuple:
-    return (track.net.name if track.net else None, track.layer)
+    return (track.net_name, track.layer)
 
 
 def _track_pos(track: Track) -> Tuple[float, float, float, float]:
@@ -110,24 +111,25 @@ def _track_pos(track: Track) -> Tuple[float, float, float, float]:
 
 
 def _report_via_group(group: List[Via]) -> None:
-    net = group[0].net.name if group[0].net else "?"
+    net = group[0].net_name or "?"
     x_mm, y_mm = _via_pos(group[0])
-    sizes = {(round(v.drill_diameter / MM, 4), round(v.diameter / MM, 4)) for v in group}
+    # drill_mm/diameter_mm are already in mm (domain DTO conversion) — no / MM.
+    sizes = {(round(v.drill_mm, 4), round(v.diameter_mm, 4)) for v in group}
     print(f"  via net={net!r} @ ({x_mm:.4f}, {y_mm:.4f}) mm — {len(group)} copies")
     if len(sizes) > 1:
         print(f"    [warning] drill/diameter differ within this group: {sorted(sizes)}")
     for v in group:
-        print(f"    {v.id.value}")
+        print(f"    {v.uuid}")
 
 
 def _report_track_group(group: List[Track]) -> None:
-    net = group[0].net.name if group[0].net else "?"
+    net = group[0].net_name or "?"
     layer = _layer_str(group[0].layer)
     sx, sy, ex, ey = _track_pos(group[0])
     print(f"  track net={net!r} layer={layer} @ ({sx:.4f},{sy:.4f}) -> ({ex:.4f},{ey:.4f}) mm — "
           f"{len(group)} copies")
     for t in group:
-        print(f"    {t.id.value}")
+        print(f"    {t.uuid}")
 
 
 def main():
@@ -152,9 +154,9 @@ def main():
             _report_via_group(group)
             for v in group[1:]:
                 if args.dry_run:
-                    print(f"    [dry-run] would delete {v.id.value}")
+                    print(f"    [dry-run] would delete {v.uuid}")
                 else:
-                    adapter.remove_by_id(v.id.value)
+                    adapter.remove_by_id(v.uuid)
                     deleted += 1
 
     if track_groups:
@@ -163,9 +165,9 @@ def main():
             _report_track_group(group)
             for t in group[1:]:
                 if args.dry_run:
-                    print(f"    [dry-run] would delete {t.id.value}")
+                    print(f"    [dry-run] would delete {t.uuid}")
                 else:
-                    adapter.remove_by_id(t.id.value)
+                    adapter.remove_by_id(t.uuid)
                     deleted += 1
 
     if args.dry_run:
