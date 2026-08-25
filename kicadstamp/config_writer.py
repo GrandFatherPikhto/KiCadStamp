@@ -11,6 +11,7 @@ gui/yaml_io.load_data, which is for read-only browsing) — these helpers are
 on the docks' WRITE path, where a broken file must surface as an OSError the
 caller turns into an on-screen error message.
 """
+import copy
 import json
 import logging
 from pathlib import Path
@@ -116,7 +117,7 @@ def merge_write(path: Path, new_data: dict, section: Optional[str] = None) -> bo
     include:, ...) is left untouched.
     Returns whether the specific key being written already existed.
     """
-    existing = _read_data(path)
+    existing = copy.deepcopy(_read_data(path))
     if section is None:
         key = next(iter(new_data))
         overwritten = key in existing
@@ -139,7 +140,7 @@ def add_list_entry(path: Path, section: str, entry: str) -> bool:
     merge_write(), but for a list section (include:) instead of a dict
     one — every other key in the file is left untouched. Returns whether
     an entry was actually added."""
-    existing = _read_data(path)
+    existing = copy.deepcopy(_read_data(path))
     items = existing.setdefault(section, [])
     if not isinstance(items, list):
         raise OSError(_("{section}: in {path} is not a list — refusing to touch it")
@@ -174,7 +175,7 @@ def upsert_list_entry(path: Path, section: str, entry: Dict[str, Any], key: str 
     unlike clone_placements:/thermal_via_arrays: which always require an
     explicit name:."""
     identity = key_fn if key_fn is not None else (lambda e: e.get(key))
-    existing = _read_data(path)
+    existing = copy.deepcopy(_read_data(path))
     items = existing.setdefault(section, [])
     if not isinstance(items, list):
         raise OSError(_("{section}: in {path} is not a list — refusing to touch it")
@@ -219,7 +220,7 @@ def add_include(path: Path, entry: str) -> bool:
     previously removed via disable_include() below should undo that, not
     pile up a second entry for the same path. Returns whether anything
     changed (added or re-enabled)."""
-    existing = _read_data(path)
+    existing = copy.deepcopy(_read_data(path))
     items = existing.setdefault("include", [])
     if not isinstance(items, list):
         raise OSError(_("include: in {path} is not a list — refusing to touch it").format(path=path))
@@ -246,7 +247,7 @@ def disable_include(path: Path, target: Path) -> bool:
     plain string entry into the {path:, enabled: false} mapping form
     add_include()/config/includes.py's _parse_include_entry already
     understand. Returns whether an entry was found and changed."""
-    existing = _read_data(path)
+    existing = copy.deepcopy(_read_data(path))
     items = existing.get("include") or []
     base_dir = path.parent
     for i, existing_entry in enumerate(items):

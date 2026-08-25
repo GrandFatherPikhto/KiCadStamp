@@ -40,6 +40,8 @@ Operates on the SAME raw read-merge-write primitives as gui/docks/
 _common.py (read_data/write_data) — plain PyYAML round-trip, no comment
 preservation, consistent with every other write path in this GUI.
 """
+import copy
+
 import yaml
 from pathlib import Path
 from typing import List, Optional
@@ -358,7 +360,7 @@ def rename_references(files: List[Path], field_name: str, old_value: str, new_va
     returns those paths for a summary message."""
     changed_files = []
     for path in files:
-        data = read_data(path)
+        data = copy.deepcopy(read_data(path))
         if _rename_field_recursive(data, field_name, old_value, new_value):
             write_data(path, data)
             changed_files.append(path)

@@ -23,12 +23,11 @@ Design notes:
   invalidation call. Nothing here registers a filesystem watcher; the
   stat() per read is cheap (~microseconds) compared to the tens of ms a
   missed parse costs.
-- Always returns a deep copy, on hit AND miss, so no caller can corrupt the
-  cache — or another caller's view — by mutating what it got back. Auditing
-  every downstream mutator instead (the callers build shallow copies of
-  top-level dicts that still alias nested objects) is fragile and expensive;
-  deepcopy of a config file is microseconds, negligible next to the parse
-  it replaces.
+- Returns the SHARED cached object (no defensive copy) — callers must treat
+  it as read-only; the write-path helpers in config_writer (and the two dock
+  mutators in gui/docks/entity_delete.py + gui/docks/rename.py) deepcopy
+  before mutating. On a MISS the freshly computed object is returned
+  (isolated from the stored copy), so a miss caller may mutate freely.
 - Guarded by a single module lock held for the whole check-or-populate body
   (including loader(path) itself), so two threads racing on the same file
   parse it once, not twice. CPython dicts are individually atomic under the
@@ -101,7 +100,13 @@ def cached_file_read(path: Path, loader: Callable[[Path], T]) -> T:
 
     This function alone does NOT guarantee a write is always visible to the
     next read — see invalidate_path() below for why mtime alone isn't
-    enough, and why every writer must call it."""
+    enough, and why every writer must call it.
+
+    Returns the SHARED cached object (no defensive copy) — callers must not
+    mutate it; the write-path mutators (config_writer's merge_write/
+    add_list_entry/upsert_list_entry/add_include/disable_include and the
+    entity_delete/rename dock helpers) deepcopy before mutating. The miss
+    case returns the freshly computed object, isolated from the stored copy."""
     resolved = str(path.resolve())
     try:
         mtime_ns = os.stat(resolved).st_mtime_ns
@@ -118,11 +123,11 @@ def cached_file_read(path: Path, loader: Callable[[Path], T]) -> T:
     with _lock:
         cached = _cache.get(key)
         if cached is not None:
-            return copy.deepcopy(cached)
+            return cached
         result = loader(path)
         _cache[key] = copy.deepcopy(result)
         _keys_by_path.setdefault(resolved, set()).add(key)
-        return copy.deepcopy(result)
+        return result
 
 
 def invalidate_path(path: Path) -> None:

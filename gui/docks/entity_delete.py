@@ -88,7 +88,7 @@ def _remove_entry(path: Path, section: str, name: str) -> bool:
     for clone_placements:/thermal_via_arrays:/rules:, same identity rule
     (name, falling back to net: for rules:) as rename.py's
     rename_list_entry(). Returns whether anything was actually removed."""
-    data = read_data(path)
+    data = copy.deepcopy(read_data(path))
     if section in DICT_SECTIONS:
         section_dict = data.get(section) or {}
         if name not in section_dict:
@@ -228,7 +228,7 @@ def delete_entry(root_path: Optional[Path], entry_path: Path, section: str, name
     field_name = CASCADE_FIELD.get(section)
     if cascade and field_name and root_path is not None:
         for path in collect_graph_files(root_path):
-            data = read_data(path)
+            data = copy.deepcopy(read_data(path))
             if _prune_file_data(data, field_name, name, on_match=lambda e: None):
                 _ensure_backup(path)
                 write_data(path, data)
