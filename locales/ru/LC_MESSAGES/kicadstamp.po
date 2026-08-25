@@ -3785,6 +3785,58 @@ msgstr "точка"
 msgid "Redraw dependents"
 msgstr "Перерисовать зависимых"
 
+#: gui/docks/placer.py
+msgid "Redraw & Save"
+msgstr "Перерисовать и сохранить"
+
+#: gui/docks/placer.py
+msgid "Undo"
+msgstr "Отменить"
+
+#: gui/docks/placer.py
+msgid "Save was not run — Redraw failed."
+msgstr "Сохранение не выполнено — Redraw не удался."
+
+#: gui/docks/placer.py
+#, python-brace-format
+msgid ""
+"Undo the LAST operation logged in the whole project's "
+"operation-log directory ({dir})?\n"
+"\n"
+"It is not necessarily the operation THIS Placer form ran — it "
+"undoes whatever `kicadstamp undo` would pick (the newest "
+"operation_*.json). Moved components are restored and created "
+"vias/tracks are removed. This cannot be redone from the GUI."
+msgstr ""
+"Отменить ПОСЛЕДНЮЮ операцию, записанную в каталоге журнала "
+"операций всего проекта ({dir})?\n"
+"\n"
+"Это не обязательно операция, которую запускала именно эта форма "
+"Placer — отменяется то, что выбрала бы команда `kicadstamp undo` "
+"(самый новый operation_*.json). Перемещённые компоненты будут "
+"возвращены, созданные переходы/дорожки удалены. Отменить это из "
+"GUI нельзя."
+
+#: gui/docks/placer.py
+#, python-brace-format
+msgid "Nothing to undo — no operation logs in {dir}."
+msgstr "Отменять нечего — в {dir} нет журналов операций."
+
+#: gui/docks/placer.py
+#, python-brace-format
+msgid "Undo failed for {name}: {error}"
+msgstr "Не удалось отменить {name}: {error}"
+
+#: gui/docks/placer.py
+#, python-brace-format
+msgid "Undone operation {name}."
+msgstr "Операция {name} отменена."
+
+#: gui/docks/placer.py
+#, python-brace-format
+msgid "Undo failed: {error}"
+msgstr "Отмена не удалась: {error}"
+
 #: gui/docks/anchor_tree.py
 msgid "No records anchor on this node."
 msgstr "На этот узел не анкорится ни одна запись."

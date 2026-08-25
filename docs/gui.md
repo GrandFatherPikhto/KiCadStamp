@@ -411,10 +411,19 @@ the tabs — they act on the whole placement, not one tab.
   that were actually placed are tagged `Cluster=<name>` (nothing else in the pipeline does this —
   see [docs/config.md](config.md) on `Cluster` being read-only during `apply`). Change a field,
   click Redraw again — idempotent, safe to repeat.
+- **Redraw & Save** (2026-08-25) — Redraw, then — only if it actually succeeded — Save, in one
+  click. Redraw runs on a worker thread; Save waits for its real completion (never a naive
+  `_on_redraw(); _on_save()`, so they can't race), and is skipped with a clear Log message when
+  Redraw failed.
 - **Save** — separately, writes the current form into the project root file's `clone_placements:` list
   (replacing an existing entry of the same name, never duplicating). Redraw does **not** save by
-  itself — look, adjust, Redraw again, and only Save once you're happy with the result. KiCad's own
-  undo covers "moved something to the wrong place" — there's no separate movement log here.
+  itself — look, adjust, Redraw again, and only Save once you're happy with the result.
+- **Undo** (2026-08-25) — confirms first, then undoes the NEWEST `operation_*.json` in the whole
+  project's operation-log directory (the same pick as the CLI `kicadstamp undo` — not necessarily
+  the operation this Placer form ran). Moved components are restored and created vias/tracks are
+  removed; the log file is deleted so it can't be undone twice. No logs -> a "nothing to undo"
+  message with no confirmation dialog. The directory comes from the config's `operation_log_dir`
+  (project root as fallback), else `logs/` — same resolution as `kicadstamp undo`.
 
 Not covered by the GUI yet (still reachable by hand-editing the saved YAML): `by_selection` mode.
 `anchor_sheet` narrowing WAS in this deferred list — closed 2026-08-15: every Sheet field is now a

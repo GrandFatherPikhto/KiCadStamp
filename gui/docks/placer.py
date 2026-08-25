@@ -118,14 +118,14 @@ from kipy.errors import ApiError
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox,
                               QFormLayout, QGridLayout, QHBoxLayout, QHeaderView, QLabel,
-                              QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
+                              QLineEdit, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem,
                               QTabWidget, QVBoxLayout, QWidget)
 
 from kicadstamp.apply_pipeline import ApplyPipeline
 from kicadstamp.config import (Config, RuntimeContext, clone_placement_effective_name,
                                coordinate_placement_effective_name, load_clone_placement,
                                load_config, load_coordinate_placement)
-from kicadstamp.constants import CLUSTER_FIELD_NAME
+from kicadstamp.constants import CLUSTER_FIELD_NAME, DEFAULT_LOG_DIR
 from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.i18n import _
 from kicadstamp.placement.planner import PlacementPlanner
@@ -150,6 +150,16 @@ from .rename import (collect_all_cell_names, collect_all_point_names,
 logger = logging.getLogger(__name__)
 
 _PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
+
+
+def _newest_operation_file(log_dir: Path) -> Optional[Path]:
+    """The most recently written operation_*.json in `log_dir` (by st_ctime,
+    same pick as `kicadstamp undo` / cmd_undo), or None when the directory
+    doesn't exist or holds no operation files."""
+    if not log_dir.exists():
+        return None
+    files = sorted(log_dir.glob("operation_*.json"), key=lambda p: p.stat().st_ctime)
+    return files[-1] if files else None
 
 
 class _KeyValueTableEditor(QWidget):
@@ -984,9 +994,22 @@ class PlacerDock(QWidget):
         self.redraw_dependents_button = QPushButton(_("Redraw dependents"))
         self.redraw_dependents_button.clicked.connect(self._on_redraw_dependents)
         button_row.addWidget(self.redraw_dependents_button)
+        # Redraw & Save (2026-08-25): one click = Redraw, then — only if the
+        # worker reported success — Save. Redraw is async (worker thread), so
+        # this is NOT a naive _on_redraw(); _on_save() — see
+        # _on_redraw_and_save()/_finish_redraw_and_save().
+        self.redraw_and_save_button = QPushButton(_("Redraw & Save"))
+        self.redraw_and_save_button.clicked.connect(self._on_redraw_and_save)
+        button_row.addWidget(self.redraw_and_save_button)
         self.save_button = QPushButton(_("Save"))
         self.save_button.clicked.connect(self._on_save)
         button_row.addWidget(self.save_button)
+        # Undo (2026-08-25): undo the NEWEST operation_*.json in the whole
+        # project's operation_log_dir (same semantics as `kicadstamp undo`,
+        # not necessarily the op this Placer form ran) — see _on_undo().
+        self.undo_button = QPushButton(_("Undo"))
+        self.undo_button.clicked.connect(self._on_undo)
+        button_row.addWidget(self.undo_button)
         layout.addLayout(button_row)
 
         self._on_cell_mode_changed()
@@ -1851,10 +1874,18 @@ class PlacerDock(QWidget):
             _("Placed {name!r} ({count} component(s) tagged Cluster={name!r}).")
             .format(name=result["name"], count=result["tagged"]), _SUCCESS_STYLE)
 
+    def _action_buttons(self) -> tuple:
+        """Every action button in the bottom row — disabled while any long op
+        (Redraw / Redraw dependents / Redraw & Save / Undo) or the synchronous
+        Save runs, so no two board-touching actions can overlap (same "one
+        socket in flight" discipline as connection.long_op_active)."""
+        return (self.redraw_button, self.redraw_dependents_button,
+                self.redraw_and_save_button, self.save_button, self.undo_button)
+
     def _start_redraw_op(self, payload: Dict[str, Any]) -> None:
         self._active_op = start_long_op(
             self._main_window.connection,
-            (self.redraw_button, self.redraw_dependents_button, self.save_button),
+            self._action_buttons(),
             self._run_redraw, self._finish_redraw, self._on_redraw_failed, payload)
 
     def _on_redraw_failed(self, message: str) -> None:
@@ -1869,6 +1900,56 @@ class PlacerDock(QWidget):
             return
         result = self._run_redraw(payload)
         self._finish_redraw(result)
+
+    # ── Redraw & Save ────────────────────────────────────────────────────
+
+    def _on_redraw_and_save(self) -> None:
+        """Redraw & Save button handler — same collect(UI thread)/run(worker
+        thread) split as plain Redraw, reusing _collect_redraw_inputs and
+        _run_redraw unchanged. The difference is the SUCCESS callback: it
+        only runs after the worker has genuinely finished (queued signal back
+        on the UI thread) and calls Save exactly once, then — never for a
+        failed Redraw (no time.sleep/polling, no _on_redraw(); _on_save()
+        race)."""
+        self._show_message("")
+        payload = self._collect_redraw_inputs()
+        if payload is None:
+            return
+        self._start_redraw_and_save_op(payload)
+
+    def _start_redraw_and_save_op(self, payload: Dict[str, Any]) -> None:
+        self._active_op = start_long_op(
+            self._main_window.connection,
+            self._action_buttons(),
+            self._run_redraw, self._finish_redraw_and_save,
+            self._on_redraw_and_save_failed, payload)
+
+    def _finish_redraw_and_save(self, result: Dict[str, Any]) -> None:
+        """UI thread, fired only after the worker's Redraw finished. Save runs
+        ONLY on success — a failed Redraw (error dict) leaves a clear message
+        that just Redraw was reached and Save was skipped."""
+        if result.get("error"):
+            self._show_message(result["error"], _ERROR_STYLE)
+            self._show_message(_("Save was not run — Redraw failed."), _ERROR_STYLE)
+            return
+        # Same message as plain Redraw (warn = placed but tagging failed, still
+        # a successful placement worth saving), then the synchronous Save path.
+        self._finish_redraw(result)
+        self._do_save()
+
+    def _on_redraw_and_save_failed(self, message: str) -> None:
+        self._show_message(_("Placement failed: {error}").format(error=message), _ERROR_STYLE)
+        self._show_message(_("Save was not run — Redraw failed."), _ERROR_STYLE)
+
+    def _do_redraw_and_save(self) -> None:
+        """Synchronous composition of collect + run + finish — the same "for
+        tests" shape as _do_redraw (Redraw runs synchronously here, so Save
+        is provably called AFTER it)."""
+        payload = self._collect_redraw_inputs()
+        if payload is None:
+            return
+        result = self._run_redraw(payload)
+        self._finish_redraw_and_save(result)
 
     # ── Redraw dependents (§2.4) ────────────────────────────────────────
 
@@ -1927,7 +2008,7 @@ class PlacerDock(QWidget):
                     .format(count=len(names), order=" -> ".join(names)))
         self._active_op = start_long_op(
             self._main_window.connection,
-            (self.redraw_button, self.redraw_dependents_button, self.save_button),
+            self._action_buttons(),
             run_cascade_worker, self._finish_cascade, self._on_cascade_failed, payload)
 
     def _finish_cascade(self, results) -> None:
@@ -1982,7 +2063,7 @@ class PlacerDock(QWidget):
     # ── Save ──────────────────────────────────────────────────────────────
 
     def _on_save(self) -> None:
-        with busy((self.redraw_button, self.save_button)):
+        with busy(self._action_buttons()):
             self._do_save()
 
     def _do_save(self) -> None:
@@ -2061,6 +2142,104 @@ class PlacerDock(QWidget):
                 name=name, path=display_path(self._placer_path)),
             _SUCCESS_STYLE)
         self.saved.emit()
+
+    # ── Undo (2026-08-25) ────────────────────────────────────────────────
+
+    def _resolve_operation_log_dir(self) -> Path:
+        """The operation-log directory Undo should read — the SAME directory
+        `apply` writes (ctx.operation_log_dir, resolved by load_config relative
+        to the config file). Falls back to the project ROOT config's value when
+        the Placer file itself doesn't set one (a leaf Placer file's own
+        resolution comes up empty even though the root resolves it — same
+        downward-only include: merge as _load_target_config's sheet_names
+        fallback), and finally to DEFAULT_LOG_DIR exactly like cmd_undo."""
+        if self._placer_path is not None:
+            loaded = self._load_target_config(silent=True)
+            if loaded is not None:
+                _, ctx = loaded
+                if ctx.operation_log_dir:
+                    return Path(ctx.operation_log_dir)
+                if self._root_path is not None and self._root_path != self._placer_path:
+                    try:
+                        _root_cfg, root_ctx = load_config(str(self._root_path))
+                        if root_ctx.operation_log_dir:
+                            return Path(root_ctx.operation_log_dir)
+                    except (ValidationError, OSError, yaml.YAMLError):
+                        pass
+        return Path(DEFAULT_LOG_DIR)
+
+    def _on_undo(self) -> None:
+        """Undo button handler — undo the NEWEST operation_*.json in the whole
+        project's operation_log_dir, NOT necessarily the operation this Placer
+        form ran (same semantics as `kicadstamp undo`). Confirm first
+        (destructive, one-shot), then run undo_last_operation on the worker
+        thread — it opens its own kipy socket, gated by long_op_active like
+        Redraw's ApplyPipeline."""
+        self._show_message("")
+        log_dir = self._resolve_operation_log_dir()
+        last_file = _newest_operation_file(log_dir)
+        if last_file is None:
+            self._show_message(
+                _("Nothing to undo — no operation logs in {dir}.")
+                .format(dir=display_path(log_dir)), _ERROR_STYLE)
+            return
+        reply = QMessageBox.question(
+            self, _("Undo last operation"),
+            _("Undo the LAST operation logged in the whole project's "
+              "operation-log directory ({dir})?\n\n"
+              "It is not necessarily the operation THIS Placer form ran — it "
+              "undoes whatever `kicadstamp undo` would pick (the newest "
+              "operation_*.json). Moved components are restored and created "
+              "vias/tracks are removed. This cannot be redone from the GUI.")
+            .format(dir=display_path(log_dir)),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self._start_undo_op(last_file)
+
+    def _start_undo_op(self, last_file: Path) -> None:
+        payload = {"json_path": str(last_file)}
+        self._active_op = start_long_op(
+            self._main_window.connection,
+            self._action_buttons(),
+            self._run_undo, self._finish_undo, self._on_undo_failed, payload)
+
+    @staticmethod
+    def _run_undo(payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Worker thread: undo the operation described by payload["json_path"]
+        — never touches a widget. undo_last_operation builds its own
+        KiCadBoardAdapter here on the worker thread (the same "the op opens its
+        own kipy socket, gated by long_op_active" model as _run_redraw's
+        ApplyPipeline)."""
+        from kicadstamp.undo import undo_last_operation
+        json_path = Path(payload["json_path"])
+        try:
+            undo_last_operation(json_path)
+        except Exception as e:
+            logger.exception("Undo failed")
+            return {"error": str(e), "name": json_path.name}
+        return {"name": json_path.name}
+
+    def _finish_undo(self, result: Dict[str, Any]) -> None:
+        """UI thread: report the undone operation's file name; an error leaves
+        an explicit failure message (the confirm dialog must not imply
+        something was undone when the undo actually failed)."""
+        if result.get("error"):
+            self._show_message(
+                _("Undo failed for {name}: {error}")
+                .format(name=result["name"], error=result["error"]), _ERROR_STYLE)
+            return
+        self._show_message(_("Undone operation {name}.").format(name=result["name"]),
+                           _SUCCESS_STYLE)
+
+    def _on_undo_failed(self, message: str) -> None:
+        self._show_message(_("Undo failed: {error}").format(error=message), _ERROR_STYLE)
+
+    def _do_undo(self, last_file: Path) -> None:
+        """Synchronous composition of run + finish — the same "for tests"
+        shape as _do_redraw."""
+        result = self._run_undo({"json_path": str(last_file)})
+        self._finish_undo(result)
 
     # ── Starting a brand new placement (ConfigTreeDock's Add placer) ───────
 

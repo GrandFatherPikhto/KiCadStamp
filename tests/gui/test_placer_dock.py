@@ -10,16 +10,20 @@ pipeline, see test_redraw_preserves_other_placements_for_registry_safety).
 Actually invoking the real pipeline against a live board is left to
 manual verification against KiCad, same as every other dock this session.
 """
+import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import yaml
 
 import gui.docks.placer as placer_mod
+import kicadstamp.undo as undo_mod
 from gui.docks.placer import PlacerDock
 from kicadstamp.config import (Cell, Config, RuntimeContext, TemplateComponentSlot,
                                clone_placement_effective_name, load_clone_placement)
-from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
+from kicadstamp.constants import CLUSTER_FIELD_NAME, DEFAULT_LOG_DIR, ROLE_FIELD_NAME
 from kicadstamp.exceptions import ValidationError
+from tests.gui.conftest import _pump
 
 
 def _write_yaml(path, data) -> None:
@@ -824,7 +828,8 @@ def test_on_redraw_dispatches_to_worker(main_window, tmp_path, monkeypatch):
     assert dock._active_op == "fake-controller"
     assert captured["connection"] is main_window.connection
     assert captured["widgets"] == (
-        dock.redraw_button, dock.redraw_dependents_button, dock.save_button)
+        dock.redraw_button, dock.redraw_dependents_button,
+        dock.redraw_and_save_button, dock.save_button, dock.undo_button)
     # Bound methods: each access creates a fresh object, so compare with ==
     # (equality checks __self__ + __func__) rather than `is`.
     assert captured["fn"] == dock._run_redraw
@@ -1986,3 +1991,266 @@ def test_save_twice_in_a_row_after_rename_does_not_error(main_window, tmp_path):
     entries = yaml.safe_load(placer_file.read_text(encoding="utf-8"))["clone_placements"]
     assert len(entries) == 1
     assert entries[0]["name"] == "CH1_PIF_AVDD"
+
+
+# ── Redraw & Save (2026-08-25) ──────────────────────────────────────────
+
+def test_on_redraw_and_save_dispatches_to_worker(main_window, tmp_path, monkeypatch):
+    """The combined button reuses the plain Redraw collect/run path and only
+    differs in the completion callback — start_long_op must get _run_redraw +
+    _finish_redraw_and_save (NOT _finish_redraw), plus the full guard-widget
+    set including the new button."""
+    dock, cells_file, placer_file = _make_cell_and_dock(main_window, tmp_path)
+    dock.cluster_edit.setCurrentText("Channel_2_PI_Filter")
+    dock.x_edit.setText("1")
+    dock.y_edit.setText("2")
+    fake_cfg = Config(
+        cells={"pi_filter": Cell(name="pi_filter", vias=[], tracks=[],
+                                 clone_placements=[], components=[])})
+    fake_ctx = RuntimeContext()
+    monkeypatch.setattr(placer_mod, "load_config", lambda path: (fake_cfg, fake_ctx))
+
+    captured = {}
+
+    def _fake_start(connection, widgets, fn, on_success, on_error, *args):
+        captured["connection"] = connection
+        captured["widgets"] = widgets
+        captured["fn"] = fn
+        captured["on_success"] = on_success
+        captured["on_error"] = on_error
+        captured["args"] = args
+        return "fake-controller"
+
+    monkeypatch.setattr(placer_mod, "start_long_op", _fake_start)
+
+    dock._on_redraw_and_save()
+
+    assert dock._active_op == "fake-controller"
+    assert captured["connection"] is main_window.connection
+    assert captured["widgets"] == (
+        dock.redraw_button, dock.redraw_dependents_button,
+        dock.redraw_and_save_button, dock.save_button, dock.undo_button)
+    assert captured["fn"] == dock._run_redraw
+    assert captured["on_success"] == dock._finish_redraw_and_save
+    assert captured["on_error"] == dock._on_redraw_and_save_failed
+
+    payload = captured["args"][0]
+    assert payload["name"] == "Channel_2_PI_Filter"
+
+
+def test_redraw_and_save_calls_save_after_successful_redraw(main_window, tmp_path, monkeypatch):
+    """Order, not race: Save runs only after _run_redraw produced its
+    (successful) result — via _do_redraw_and_save's synchronous composition."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    calls = []
+    monkeypatch.setattr(dock, "_collect_redraw_inputs", lambda: {"dummy": 1})
+    monkeypatch.setattr(dock, "_run_redraw",
+                        lambda payload: calls.append("run") or {"name": "X", "tagged": 1})
+    monkeypatch.setattr(dock, "_do_save", lambda: calls.append("save"))
+
+    dock._do_redraw_and_save()
+
+    assert calls == ["run", "save"]
+
+
+def test_redraw_and_save_skips_save_when_redraw_fails(main_window, tmp_path, monkeypatch, caplog):
+    """A failed Redraw must NOT save, and the log must say only Redraw was
+    reached."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    saved = []
+    monkeypatch.setattr(dock, "_collect_redraw_inputs", lambda: {"dummy": 1})
+    monkeypatch.setattr(dock, "_run_redraw", lambda payload: {"error": "boom"})
+    monkeypatch.setattr(dock, "_do_save", lambda: saved.append(1))
+
+    dock._do_redraw_and_save()
+
+    assert saved == []
+    assert any("Save was not run" in r.message for r in caplog.records)
+
+
+def test_redraw_and_save_worker_saves_only_after_redraw_finished(main_window, tmp_path, monkeypatch, qapp):
+    """Real worker thread: the async button path saves exactly once, AFTER the
+    worker result arrived back on the UI thread — no naive _on_redraw();
+    _on_save() race."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    calls = []
+    monkeypatch.setattr(dock, "_collect_redraw_inputs", lambda: {"dummy": 1})
+    monkeypatch.setattr(dock, "_run_redraw",
+                        lambda payload: calls.append("run") or {"name": "X", "tagged": 1})
+    monkeypatch.setattr(dock, "_do_save", lambda: calls.append("save"))
+
+    dock._on_redraw_and_save()
+    _pump(qapp, lambda: not main_window.connection.long_op_active)
+
+    assert calls == ["run", "save"]
+
+
+# ── Undo (2026-08-25) ───────────────────────────────────────────────────
+
+def _write_operation_file(log_dir: Path, name: str) -> Path:
+    log_dir.mkdir(parents=True, exist_ok=True)
+    path = log_dir / name
+    path.write_text("{}", encoding="utf-8")
+    return path
+
+
+def test_undo_no_files_shows_message_without_confirmation(main_window, tmp_path, monkeypatch, caplog):
+    """No operation files (missing dir or empty) -> an error message and NO
+    confirmation dialog, no worker dispatch."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    log_dir = tmp_path / "logs"  # doesn't exist
+    monkeypatch.setattr(dock, "_resolve_operation_log_dir", lambda: log_dir)
+    asked = []
+    monkeypatch.setattr(
+        placer_mod.QMessageBox, "question",
+        staticmethod(lambda *a, **k: asked.append(a)
+                     or placer_mod.QMessageBox.StandardButton.Yes))
+    dispatched = []
+    monkeypatch.setattr(dock, "_start_undo_op", lambda f: dispatched.append(f))
+
+    dock._on_undo()
+
+    assert asked == []
+    assert dispatched == []
+    assert any("Nothing to undo" in r.message for r in caplog.records)
+
+
+def test_undo_confirm_yes_dispatches_worker_with_newest_file(main_window, tmp_path, monkeypatch):
+    """Yes -> the newest operation_*.json is handed to the worker (same pick
+    as cmd_undo)."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    log_dir = tmp_path / "logs"
+    _write_operation_file(log_dir, "operation_20260825_100000.json")
+    time.sleep(0.02)  # ensure a strictly later st_ctime for the newer file
+    newer = _write_operation_file(log_dir, "operation_20260825_110000.json")
+    monkeypatch.setattr(dock, "_resolve_operation_log_dir", lambda: log_dir)
+    monkeypatch.setattr(
+        placer_mod.QMessageBox, "question",
+        staticmethod(lambda *a, **k: placer_mod.QMessageBox.StandardButton.Yes))
+    dispatched = []
+    monkeypatch.setattr(dock, "_start_undo_op", lambda f: dispatched.append(f))
+
+    dock._on_undo()
+
+    assert dispatched == [newer]
+
+
+def test_undo_confirm_cancel_does_nothing(main_window, tmp_path, monkeypatch):
+    """Cancel -> no worker dispatch at all."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    log_dir = tmp_path / "logs"
+    _write_operation_file(log_dir, "operation_20260825_100000.json")
+    monkeypatch.setattr(dock, "_resolve_operation_log_dir", lambda: log_dir)
+    monkeypatch.setattr(
+        placer_mod.QMessageBox, "question",
+        staticmethod(lambda *a, **k: placer_mod.QMessageBox.StandardButton.Cancel))
+    dispatched = []
+    monkeypatch.setattr(dock, "_start_undo_op", lambda f: dispatched.append(f))
+
+    dock._on_undo()
+
+    assert dispatched == []
+
+
+def test_undo_dispatches_to_worker_with_guard_widgets(main_window, tmp_path, monkeypatch):
+    """Undo must run off the UI thread through start_long_op (own kipy socket
+    inside undo_last_operation, gated by long_op_active) with the same guard
+    buttons as Redraw/Save."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    captured = {}
+
+    def _fake_start(connection, widgets, fn, on_success, on_error, *args):
+        captured["connection"] = connection
+        captured["widgets"] = widgets
+        captured["fn"] = fn
+        captured["on_success"] = on_success
+        captured["on_error"] = on_error
+        captured["args"] = args
+        return "fake-controller"
+
+    monkeypatch.setattr(placer_mod, "start_long_op", _fake_start)
+    last_file = tmp_path / "operation.json"
+    dock._start_undo_op(last_file)
+
+    assert dock._active_op == "fake-controller"
+    assert captured["connection"] is main_window.connection
+    assert captured["widgets"] == (
+        dock.redraw_button, dock.redraw_dependents_button,
+        dock.redraw_and_save_button, dock.save_button, dock.undo_button)
+    assert captured["fn"] == dock._run_undo
+    assert captured["on_success"] == dock._finish_undo
+    assert captured["on_error"] == dock._on_undo_failed
+    assert captured["args"][0] == {"json_path": str(last_file)}
+
+
+def test_run_undo_calls_undo_last_operation_and_reports_name(main_window, tmp_path, monkeypatch, caplog):
+    """Worker fn: undo_last_operation is called with the payload's path and the
+    success message carries the file name."""
+    undone = []
+    monkeypatch.setattr(undo_mod, "undo_last_operation",
+                        lambda json_path: undone.append(json_path) or True)
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    last_file = tmp_path / "operation_20260825_110000.json"
+
+    result = dock._run_undo({"json_path": str(last_file)})
+
+    assert undone == [last_file]
+    assert result == {"name": "operation_20260825_110000.json"}
+    dock._finish_undo(result)
+    assert any("Undone operation operation_20260825_110000.json" in r.message
+               for r in caplog.records)
+
+
+def test_run_undo_error_path_reports_failure(main_window, tmp_path, monkeypatch, caplog):
+    """If undo_last_operation raises, the result carries an explicit error and
+    _finish_undo shows it (never a success impression)."""
+
+    def _boom(json_path):
+        raise RuntimeError("kaboom")
+
+    monkeypatch.setattr(undo_mod, "undo_last_operation", _boom)
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    last_file = tmp_path / "operation_20260825_110000.json"
+
+    result = dock._run_undo({"json_path": str(last_file)})
+
+    assert result["error"] == "kaboom"
+    assert result["name"] == "operation_20260825_110000.json"
+    dock._finish_undo(result)
+    assert any("Undo failed for operation_20260825_110000.json" in r.message
+               for r in caplog.records)
+
+
+def test_resolve_operation_log_dir_uses_ctx_value(main_window, tmp_path, monkeypatch):
+    """ctx.operation_log_dir (resolved by load_config) wins."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    ctx = RuntimeContext(operation_log_dir=str(tmp_path / "oplogs"))
+    monkeypatch.setattr(dock, "_load_target_config", lambda silent=False: (Config(), ctx))
+
+    assert dock._resolve_operation_log_dir() == tmp_path / "oplogs"
+
+
+def test_resolve_operation_log_dir_falls_back_to_root(main_window, tmp_path, monkeypatch):
+    """A leaf Placer file without operation_log_dir falls back to the root
+    config's value (same downward-only include: merge as sheet_names)."""
+    dock, _, placer_file = _make_cell_and_dock(main_window, tmp_path)
+    root = tmp_path / "root.yaml"
+    root.write_text("operation_log_dir: oplogs\n", encoding="utf-8")
+    dock._root_path = root
+    dock._placer_path = placer_file
+    leaf_ctx = RuntimeContext()  # leaf resolves none
+    root_ctx = RuntimeContext(operation_log_dir=str(tmp_path / "oplogs"))
+    monkeypatch.setattr(placer_mod, "load_config",
+                        lambda path: (Config(), root_ctx if str(path) == str(root) else leaf_ctx))
+
+    assert dock._resolve_operation_log_dir() == tmp_path / "oplogs"
+
+
+def test_resolve_operation_log_dir_defaults_to_default_log_dir(main_window, tmp_path, monkeypatch):
+    """With no operation_log_dir anywhere, fall back to DEFAULT_LOG_DIR (same
+    as cmd_undo)."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    monkeypatch.setattr(dock, "_load_target_config",
+                        lambda silent=False: (Config(), RuntimeContext()))
+
+    assert dock._resolve_operation_log_dir() == Path(DEFAULT_LOG_DIR)
