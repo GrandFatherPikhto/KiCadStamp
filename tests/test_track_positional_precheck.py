@@ -36,11 +36,11 @@ MM = 1_000_000
 def _make_live_track(uuid_str, start_mm, end_mm, net_name="+3V3",
                      width_mm=0.25, layer=BoardLayer.BL_F_Cu):
     track = MagicMock()
-    track.id.value = uuid_str
+    track.uuid = uuid_str
     track.start = Vector2.from_xy(int(start_mm[0] * MM), int(start_mm[1] * MM))
     track.end = Vector2.from_xy(int(end_mm[0] * MM), int(end_mm[1] * MM))
-    track.net.name = net_name
-    track.width = int(width_mm * MM)
+    track.net_name = net_name
+    track.width_mm = width_mm
     track.layer = layer
     return track
 
@@ -100,8 +100,8 @@ def test_track_matches_live_net_none():
     live = MagicMock()
     live.start = Vector2.from_xy(int(10 * MM), int(20 * MM))
     live.end = Vector2.from_xy(int(30 * MM), int(40 * MM))
-    live.net = None
-    live.width = int(0.25 * MM)
+    live.net_name = None
+    live.width_mm = 0.25
     live.layer = BoardLayer.BL_F_Cu
     cmd = _track_cmd((10.0, 20.0), (30.0, 40.0), net_name="+3V3")
     assert not track_matches(live, cmd)

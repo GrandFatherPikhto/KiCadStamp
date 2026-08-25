@@ -91,7 +91,7 @@ def extract_net_trace(
     if anchor_pad is not None:
         pad = adapter.get_pad_by_number(anchor_fp, anchor_pad)
         if pad is None:
-            ref = anchor_fp.reference_field.text.value
+            ref = anchor_fp.ref
             raise ValidationError(format_fatal_error(
                 _("{label}: anchor pad {pad!r} not found on {ref}").format(
                     label=label, pad=anchor_pad, ref=ref),
@@ -103,7 +103,7 @@ def extract_net_trace(
 
     tracks = []
     for t in adapter.get_tracks():
-        t_net = t.net.name if t.net else None
+        t_net = t.net_name
         if t_net != net:
             continue
         tracks.append({
@@ -111,22 +111,22 @@ def extract_net_trace(
             "start_across_mm": round((t.start.y - anchor.y) / MM, 4),
             "end_along_mm": round((t.end.x - anchor.x) / MM, 4),
             "end_across_mm": round((t.end.y - anchor.y) / MM, 4),
-            "width_mm": round(t.width / MM, 4),
+            "width_mm": round(t.width_mm, 4),
             "net": net,
             "layer": _layer_str(t.layer),
         })
 
     vias = []
     for v in adapter.get_vias():
-        v_net = v.net.name if v.net else None
+        v_net = v.net_name
         if v_net != net:
             continue
         vias.append({
             "offset_along_mm": round((v.position.x - anchor.x) / MM, 4),
             "offset_across_mm": round((v.position.y - anchor.y) / MM, 4),
             "net": net,
-            "drill_mm": round(v.drill_diameter / MM, 4),
-            "diameter_mm": round(v.diameter / MM, 4),
+            "drill_mm": round(v.drill_mm, 4),
+            "diameter_mm": round(v.diameter_mm, 4),
         })
 
     if not tracks and not vias:

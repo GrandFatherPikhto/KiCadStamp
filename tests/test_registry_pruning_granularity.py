@@ -32,11 +32,11 @@ MM = 1_000_000
 
 def _make_live_via(uuid_str, x_mm, y_mm, net_name="GND", drill_mm=0.3, diameter_mm=0.6):
     via = MagicMock()
-    via.id.value = uuid_str
+    via.uuid = uuid_str
     via.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
-    via.net.name = net_name
-    via.drill_diameter = int(drill_mm * MM)
-    via.diameter = int(diameter_mm * MM)
+    via.net_name = net_name
+    via.drill_mm = drill_mm
+    via.diameter_mm = diameter_mm
     return via
 
 

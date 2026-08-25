@@ -45,15 +45,15 @@ class TrackExecutor:
                 if new_tracks:
                     created = self.adapter.create_items(new_tracks)
                     for cmd, t in zip(cmd_for_track, created):
-                        uuid_str = str(t.id.value)
+                        uuid_str = t.uuid
                         created_track_log.append({
                             'uuid': uuid_str,
                             'start_x_mm': t.start.x / MM,
                             'start_y_mm': t.start.y / MM,
                             'end_x_mm': t.end.x / MM,
                             'end_y_mm': t.end.y / MM,
-                            'width_mm': t.width / MM,
-                            'net_name': t.net.name,
+                            'width_mm': t.width_mm,
+                            'net_name': t.net_name,
                             'owner_ref': cmd.owner_ref
                         })
                         pending.append((cmd, uuid_str))

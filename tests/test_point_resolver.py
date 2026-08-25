@@ -28,7 +28,7 @@ def _make_pad(number, x_mm, y_mm):
 
 def _make_fp(ref, x_mm=0.0, y_mm=0.0, role=None, pads=()):
     fp = MagicMock(spec=FootprintInstance)
-    fp.reference_field.text.value = ref
+    fp.ref = ref
     fp.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
     fp._role = role
     fp._pads = list(pads)
@@ -36,7 +36,7 @@ def _make_fp(ref, x_mm=0.0, y_mm=0.0, role=None, pads=()):
 
 
 def _adapter_for(fps):
-    by_ref = {fp.reference_field.text.value: fp for fp in fps}
+    by_ref = {fp.ref: fp for fp in fps}
     adapter = MagicMock()
     adapter.get_footprints.return_value = fps
     adapter.get_footprint.side_effect = lambda ref: by_ref.get(ref)

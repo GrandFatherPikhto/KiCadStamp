@@ -19,7 +19,7 @@ Contains only selection logic with no YAML/serialization concern:
 import logging
 from typing import Any
 
-from kipy.board_types import FootprintInstance, Via, Track
+from .domain.board import Footprint, Via, Track
 from kipy.geometry import Vector2
 
 from .constants import POSITION_TOLERANCE_MM, ROLE_FIELD_NAME
@@ -64,7 +64,7 @@ def _point_in_box(point: Vector2, box) -> bool:
 
 
 def _filter_tracks_and_vias_within_selection(
-    tracks: list[Track], vias: list[Via], footprints: list[FootprintInstance],
+    tracks: list[Track], vias: list[Via], footprints: list[Footprint],
     adapter: KiCadBoardAdapter,
 ) -> tuple[list[Track], list[Via]]:
     """
@@ -108,7 +108,7 @@ def _filter_tracks_and_vias_within_selection(
     all_pads = [p for fp in footprints for p in adapter.get_footprint_pads(fp)]
     pad_boxes = _inflated_boxes(adapter, all_pads)
     logger.debug(_("Kept footprints: {refs}; pad boxes: {ok} real / {total} total").format(
-        refs=[fp.reference_field.text.value if fp.reference_field else "?" for fp in footprints],
+        refs=[fp.ref if fp.ref else "?" for fp in footprints],
         ok=sum(1 for b in pad_boxes if b is not None), total=len(pad_boxes)))
 
     if not any(b is not None for b in pad_boxes):
@@ -143,7 +143,7 @@ def _filter_tracks_and_vias_within_selection(
                                  "probably extends beyond the intended area, skipped")
                                .format(sx=t.start.x/MM, sy=t.start.y/MM,
                                        ex=t.end.x/MM, ey=t.end.y/MM,
-                                       net=t.net.name if t.net else None,
+                                       net=t.net_name,
                                        missing=missing))
         return kept_tracks, list(vias)
 
@@ -198,24 +198,24 @@ def _filter_tracks_and_vias_within_selection(
                          "not connected to any kept footprint's pad or via — "
                          "belongs to excluded material, skipped")
                        .format(sx=t.start.x/MM, sy=t.start.y/MM, ex=t.end.x/MM, ey=t.end.y/MM,
-                               net=t.net.name if t.net else None))
+                               net=t.net_name))
     for v in dropped_vias:
         logger.warning(_("  via at ({x:.3f},{y:.3f}) mm, net={net}: "
                          "not connected to any kept footprint's pad — "
                          "belongs to excluded material, skipped")
                        .format(x=v.position.x/MM, y=v.position.y/MM,
-                               net=v.net.name if v.net else None))
+                               net=v.net_name))
     return kept_tracks, kept_vias
 
 
-def _bbox_origin(footprints: list[FootprintInstance], vias: list[Via]) -> Vector2:
+def _bbox_origin(footprints: list[Footprint], vias: list[Via]) -> Vector2:
     """(min_x, max_y) — lower‑left corner of the selection bounding box."""
     xs = [fp.position.x for fp in footprints] + [v.position.x for v in vias]
     ys = [fp.position.y for fp in footprints] + [v.position.y for v in vias]
     return Vector2.from_xy(min(xs), max(ys))
 
 
-def _find_origin(footprints: list[FootprintInstance], vias: list[Via],
+def _find_origin(footprints: list[Footprint], vias: list[Via],
                  origin_via_net: str | None, origin_component_role: str | None,
                  origin_component_pad: str | None,
                  adapter: KiCadBoardAdapter) -> Vector2:
@@ -231,7 +231,7 @@ def _find_origin(footprints: list[FootprintInstance], vias: list[Via],
     Fatal if the element is not found or (for via_net) ambiguous — no guessing.
     """
     if origin_via_net is not None:
-        candidates = [v for v in vias if v.net and v.net.name == origin_via_net]
+        candidates = [v for v in vias if v.net_name == origin_via_net]
         if not candidates:
             raise ValidationError(format_fatal_error(
                 _("--origin-by-via-net {net!r} not found in selection").format(net=origin_via_net),
@@ -260,7 +260,7 @@ def _find_origin(footprints: list[FootprintInstance], vias: list[Via],
                         _("--origin-by-component-pad {pad!r} not found").format(pad=origin_component_pad),
                         [_("component with role {role!r} ({ref}) has no pad {pad!r} — "
                            "pad numbers are strings as in KiCad").format(
-                               role=origin_component_role, ref=fp.reference_field.text.value,
+                               role=origin_component_role, ref=fp.ref,
                                pad=origin_component_pad)]
                     ))
                 return pad.position

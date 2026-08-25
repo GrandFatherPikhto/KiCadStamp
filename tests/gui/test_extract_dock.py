@@ -4,7 +4,10 @@ from unittest.mock import MagicMock
 import json
 
 import yaml
-from kipy.board_types import FootprintInstance, Track, Via
+from kipy.board_types import BoardLayer
+from kipy.geometry import Vector2
+
+from kicadstamp.domain.board import Footprint, Track, Via
 from PyQt6.QtCore import Qt
 
 import gui.docks.extract as extract_mod
@@ -38,27 +41,21 @@ def _fake_extract(adapter, name, params=None, items=None, annotations=None, **kw
 
 
 def _fake_fp(ref):
-    """A MagicMock(spec=FootprintInstance) so isinstance() checks (both in
-    this dock's own _filtered_selection() and in kicadstamp code) treat it
-    as a real footprint — same pattern used throughout tests/*.py for the
-    same reason (see e.g. tests/test_clone_ignore_selection.py)."""
-    fp = MagicMock(spec=FootprintInstance)
-    fp.reference_field.text.value = ref
-    return fp
+    """A real domain Footprint so isinstance() checks (both in this dock's
+    own _filtered_selection() and in kicadstamp code) treat it as a
+    footprint."""
+    return Footprint(ref=ref, uuid=f"uuid-{ref}", position=Vector2.from_xy(0, 0),
+                     angle_deg=0.0, layer=BoardLayer.BL_F_Cu)
 
 
 def _fake_via(net_name, uuid="via-uuid-unregistered"):
-    via = MagicMock(spec=Via)
-    via.net.name = net_name
-    via.id.value = uuid
-    return via
+    return Via(uuid=uuid, position=Vector2.from_xy(0, 0), net_name=net_name,
+               drill_mm=0.3, diameter_mm=0.6, layer=BoardLayer.BL_F_Cu)
 
 
 def _fake_track(net_name="GND", uuid="track-uuid-unregistered"):
-    track = MagicMock(spec=Track)
-    track.net.name = net_name
-    track.id.value = uuid
-    return track
+    return Track(uuid=uuid, start=Vector2.from_xy(0, 0), end=Vector2.from_xy(0, 0),
+                 net_name=net_name, width_mm=0.25, layer=BoardLayer.BL_F_Cu)
 
 
 def _write_registry(path, entries) -> None:

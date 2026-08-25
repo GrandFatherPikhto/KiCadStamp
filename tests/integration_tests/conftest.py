@@ -69,7 +69,7 @@ def temp_via(adapter):
     try:
         created = adapter.create_items([via])
         adapter.push_commit(commit, "test: create temp via")
-        via_id = str(created[0].id.value)
+        via_id = created[0].uuid
     except Exception:
         adapter.drop_commit(commit)
         raise

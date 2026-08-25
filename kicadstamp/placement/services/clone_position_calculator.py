@@ -181,14 +181,14 @@ class ClonePositionCalculator:
         if clone.anchor_pad is None:
             logger.debug(_("  [{name}] anchor: centre of {ref} ({x:.3f}, {y:.3f}) mm")
                          .format(name=clone_placement_effective_name(clone),
-                                 ref=fp.reference_field.text.value,
+                                 ref=fp.ref,
                                  x=fp.position.x/1e6, y=fp.position.y/1e6))
             return fp.position
         position = resolve_anchor_pad_position(self.adapter, fp, clone.anchor_pad,
                                                clone_placement_effective_name(clone))
         logger.debug(_("  [{name}] anchor: pad {ref}.{pad} ({x:.3f}, {y:.3f}) mm")
                      .format(name=clone_placement_effective_name(clone),
-                             ref=fp.reference_field.text.value,
+                             ref=fp.ref,
                              pad=clone.anchor_pad,
                              x=position.x/1e6, y=position.y/1e6))
         return position

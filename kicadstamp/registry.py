@@ -229,7 +229,7 @@ class BaseRegistry(ABC, Generic[TEntry]):
         to_create: list = []
         to_delete: list[str] = []
         seen_keys = set()
-        live_by_uuid = {str(item.id.value): item for item in self._get_live_items()}
+        live_by_uuid = {item.uuid: item for item in self._get_live_items()}
 
         for cmd in planned_cmds:
             if cmd.registry_key is None:
@@ -326,13 +326,13 @@ class PlacementRegistry(BaseRegistry[RegistryEntry]):
         y_mm = via.position.y / MM
         live_x_mm = live_via.position.x / MM
         live_y_mm = live_via.position.y / MM
-        live_net = live_via.net.name if live_via.net else None
+        live_net = live_via.net_name
         return (
             abs(live_x_mm - x_mm) <= _POSITION_TOLERANCE_MM
             and abs(live_y_mm - y_mm) <= _POSITION_TOLERANCE_MM
             and live_net == via.net_name
-            and abs(live_via.drill_diameter / MM - via.drill_mm) < 1e-6
-            and abs(live_via.diameter / MM - via.diameter_mm) < 1e-6
+            and abs(live_via.drill_mm - via.drill_mm) < 1e-6
+            and abs(live_via.diameter_mm - via.diameter_mm) < 1e-6
         )
 
     def _build_entry(self, via: ViaCommand, uuid: str) -> RegistryEntry:
@@ -385,10 +385,10 @@ def track_matches(live_track, cmd: TrackCommand) -> bool:
     if not (same_orientation or swapped_orientation):
         return False
 
-    live_net = live_track.net.name if live_track.net else None
+    live_net = live_track.net_name
     if live_net != cmd.net_name:
         return False
-    if abs(live_track.width / MM - cmd.width_mm) >= 1e-6:
+    if abs(live_track.width_mm - cmd.width_mm) >= 1e-6:
         return False
     if layer_to_str(live_track.layer) != layer_to_str(cmd.layer):
         return False

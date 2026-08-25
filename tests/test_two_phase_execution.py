@@ -40,7 +40,7 @@ def _make_pad(number, x_mm, y_mm, net_name):
     pad = MagicMock(spec=Pad)
     pad.number = number
     pad.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
-    pad.net.name = net_name
+    pad.net_name = net_name
     return pad
 
 
@@ -61,14 +61,14 @@ def test_two_phase_flow_completes_and_via_geometry_is_correct():
     )
 
     ic1 = MagicMock()
-    ic1.reference_field.text.value = "IC1"
+    ic1.ref = "IC1"
     pad_pos = Vector2.from_xy(int(50.0 * MM), int(50.0 * MM))
     ic1.definition.items = [_make_pad("17", 50.0, 50.0, "+3V3")]
 
     c5 = MagicMock()
-    c5.reference_field.text.value = "C5"
+    c5.ref = "C5"
     c5.position = Vector2.from_xy(0, 0)
-    c5.orientation = Angle.from_degrees(0.0)
+    c5.angle_deg = 0.0
     c5.layer = BoardLayer.BL_F_Cu
     c5.definition.items = [_make_pad("1", 0.0, 0.0, "+3V3"), _make_pad("2", 0.0, 0.0, "GND")]
     c5._role = "LIGHT"

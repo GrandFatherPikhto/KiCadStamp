@@ -39,11 +39,11 @@ class _FakeAdapter:
 
     def get_footprint(self, ref):
         fp = self._fps.setdefault(ref, Mock())
-        fp.reference_field.text.value = ref
+        fp.ref = ref
         return fp
 
     def has_field(self, fp, field_name):
-        ref = fp.reference_field.text.value
+        ref = fp.ref
         return (ref, field_name) not in self._missing_fields
 
     def set_field_values_bulk(self, updates, description):

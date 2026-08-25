@@ -14,7 +14,7 @@ against (see registry.py).
 from dataclasses import dataclass, field
 from typing import Any
 
-from kipy.board_types import FootprintInstance
+from .domain.board import Footprint
 
 from .constants import CLUSTER_FIELD_NAME, DEFAULT_TIMEOUT_MS, ROLE_FIELD_NAME
 from .cluster_matching import cluster_prefix_match
@@ -32,11 +32,10 @@ def selection_signature(items) -> tuple:
     calls this directly."""
     parts = []
     for item in items:
-        if isinstance(item, FootprintInstance):
-            parts.append(("fp", item.reference_field.text.value))
+        if isinstance(item, Footprint):
+            parts.append(("fp", item.ref))
         else:
-            parts.append((type(item).__name__,
-                          getattr(getattr(item, "net", None), "name", None)))
+            parts.append((type(item).__name__, getattr(item, "net_name", None)))
     return tuple(parts)
 
 
@@ -49,7 +48,7 @@ class Selected:
     cluster: str | None
     sheet: list[str | None]     # full resolve_sheet_path_names() chain
     nets: dict[str, str]           # pad number -> net name
-    fp: FootprintInstance = field(repr=False)
+    fp: Footprint = field(repr=False)
 
 
 class Selection(list):
@@ -94,7 +93,7 @@ class Board:
     def __init__(self, adapter: KiCadBoardAdapter, sheet_names: dict[str, str]):
         self.adapter = adapter
         self.sheet_names = sheet_names
-        self._footprints: list[FootprintInstance] = []
+        self._footprints: list[Footprint] = []
         self._role_cache: dict[str, str | None] = {}
         self._cluster_cache: dict[str, str | None] = {}
         self._nets_cache: dict[str, dict[str, str]] = {}
@@ -132,29 +131,29 @@ class Board:
         self._sheet_cache.clear()
 
     @staticmethod
-    def _ref(fp: FootprintInstance) -> str:
-        return fp.reference_field.text.value
+    def _ref(fp: Footprint) -> str:
+        return fp.ref
 
-    def _role(self, fp: FootprintInstance) -> str | None:
+    def _role(self, fp: Footprint) -> str | None:
         ref = self._ref(fp)
         if ref not in self._role_cache:
             self._role_cache[ref] = self.adapter.get_field_value(fp, ROLE_FIELD_NAME)
         return self._role_cache[ref]
 
-    def _cluster(self, fp: FootprintInstance) -> str | None:
+    def _cluster(self, fp: Footprint) -> str | None:
         ref = self._ref(fp)
         if ref not in self._cluster_cache:
             self._cluster_cache[ref] = self.adapter.get_field_value(fp, CLUSTER_FIELD_NAME)
         return self._cluster_cache[ref]
 
-    def _nets(self, fp: FootprintInstance) -> dict[str, str]:
+    def _nets(self, fp: Footprint) -> dict[str, str]:
         ref = self._ref(fp)
         if ref not in self._nets_cache:
             pads = self.adapter.get_footprint_pads(fp)
-            self._nets_cache[ref] = {p.number: p.net.name for p in pads if p.net and p.net.name}
+            self._nets_cache[ref] = {p.number: p.net_name for p in pads if p.net_name}
         return self._nets_cache[ref]
 
-    def _sheet(self, fp: FootprintInstance) -> list[str | None]:
+    def _sheet(self, fp: Footprint) -> list[str | None]:
         ref = self._ref(fp)
         if ref not in self._sheet_cache:
             self._sheet_cache[ref] = resolve_sheet_path_names(fp, self.sheet_names)
@@ -213,6 +212,6 @@ class Board:
         the (common) case where the net name itself is already unambiguous."""
         items: list[Any] = [s.fp for s in self.select(role=role, cluster=cluster, sheet=sheet, net=net)]
         if net is not None:
-            items.extend(v for v in self.adapter.get_vias() if v.net and v.net.name == net)
-            items.extend(t for t in self.adapter.get_tracks() if t.net and t.net.name == net)
+            items.extend(v for v in self.adapter.get_vias() if v.net_name == net)
+            items.extend(t for t in self.adapter.get_tracks() if t.net_name == net)
         return items

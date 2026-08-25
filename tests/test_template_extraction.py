@@ -6,8 +6,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from unittest.mock import MagicMock
-from kipy.geometry import Vector2, Angle
-from kipy.board_types import FootprintInstance, Via, Track, Group, BoardLayer
+from kipy.geometry import Vector2
+from kipy.board_types import Group, BoardLayer
+
+from kicadstamp.domain.board import Footprint, Via, Track
 
 from kicadstamp.template_extraction import extract_template_from_selection, render_uncertain_comments
 from kicadstamp.kicad.adapter import KiCadBoardAdapter
@@ -17,10 +19,9 @@ MM = 1_000_000
 
 
 def _make_fp(ref, x_mm, y_mm, angle_deg, role, pad_nets=None):
-    fp = MagicMock(spec=FootprintInstance)
-    fp.reference_field.text.value = ref
-    fp.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
-    fp.orientation = Angle.from_degrees(angle_deg)
+    fp = Footprint(ref=ref, uuid=f"uuid-{ref}",
+                   position=Vector2.from_xy(int(x_mm * MM), int(y_mm * MM)),
+                   angle_deg=angle_deg, layer=BoardLayer.BL_F_Cu)
     fp._role = role
     fp._pad_nets = pad_nets or []  # см. _make_adapter_with_pads
     return fp
@@ -37,7 +38,7 @@ def _make_adapter(footprints, vias=()):
         pads = []
         for i, net_name in enumerate(fp._pad_nets):
             pad = MagicMock()
-            pad.net.name = net_name
+            pad.net_name = net_name
             pad.number = str(i + 1)
             pads.append(pad)
         return pads
@@ -47,12 +48,9 @@ def _make_adapter(footprints, vias=()):
 
 
 def _make_via(x_mm, y_mm, net_name, drill_mm=0.3, diameter_mm=0.6):
-    v = MagicMock(spec=Via)
-    v.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
-    v.net.name = net_name
-    v.drill_diameter = int(drill_mm * MM)
-    v.diameter = int(diameter_mm * MM)
-    return v
+    return Via(uuid="", position=Vector2.from_xy(int(x_mm * MM), int(y_mm * MM)),
+               net_name=net_name, drill_mm=drill_mm, diameter_mm=diameter_mm,
+               layer=BoardLayer.BL_F_Cu)
 
 
 class TestExtractTemplateFromSelection:
@@ -169,12 +167,26 @@ class TestGetSelectedItems:
         group.proto.items = [member_uuid]
         group.items = []  # с сервера всегда пусто -- не должно использоваться
 
-        fp_in_group = MagicMock(spec=FootprintInstance)
+        fp_in_group = MagicMock()
+        fp_in_group.reference_field.text.value = "IC1"
         fp_in_group.id.value = "fp-uuid-1"
-        fp_direct = MagicMock(spec=FootprintInstance)
+        fp_in_group.orientation.degrees = 0.0
+        fp_in_group.value_field = None
+        fp_in_group.sheet_path.path = []
+        fp_direct = MagicMock()
+        fp_direct.reference_field.text.value = "IC2"
         fp_direct.id.value = "fp-uuid-2"
-        via_direct = MagicMock(spec=Via)
+        fp_direct.uuid = "fp-uuid-2"
+        fp_direct.orientation.degrees = 0.0
+        fp_direct.value_field = None
+        fp_direct.sheet_path.path = []
+        via_direct = MagicMock()
         via_direct.id.value = "via-uuid-1"
+        via_direct.uuid = "via-uuid-1"
+        via_direct.position = Vector2.from_xy(0, 0)
+        via_direct.net = None
+        via_direct.drill_diameter = 0
+        via_direct.diameter = 0
 
         board = MagicMock()
         board.get_selection.return_value = [group, fp_direct, via_direct]
@@ -185,10 +197,11 @@ class TestGetSelectedItems:
         adapter.ignore_selection = False
 
         items = adapter.get_selected_items()
+        uuids = {getattr(i, "uuid", None) for i in items}
         assert len(items) == 3
-        assert fp_in_group in items
-        assert fp_direct in items
-        assert via_direct in items
+        assert "fp-uuid-1" in uuids  # group member expanded via get_footprints
+        assert "fp-uuid-2" in uuids  # direct footprint (raw passthrough)
+        assert "via-uuid-1" in uuids  # direct via (raw passthrough)
 
 
 class TestNetTemplateAutoDetect:
@@ -519,13 +532,9 @@ class TestNetFromRoleAutoSuggest:
         cap = _make_fp("C1", 0.0, 0.0, 0.0, "C_OUT_BULK", pad_nets=["+3V3", "GND"])
         via_start = _make_via(0.0, 0.0, "+3V3")
         via_end = _make_via(0.0, -2.0, "+3V3")
-        t = MagicMock(spec=Track)
-        t.start = Vector2.from_xy(0, 0)
-        t.end = Vector2.from_xy(0, int(-2.0 * MM))
-        t.net = MagicMock()
-        t.net.name = "+3V3"
-        t.width = int(0.65 * MM)
-        t.layer = BoardLayer.BL_F_Cu
+        t = Track(uuid="", start=Vector2.from_xy(0, 0),
+                  end=Vector2.from_xy(0, int(-2.0 * MM)),
+                  net_name="+3V3", width_mm=0.65, layer=BoardLayer.BL_F_Cu)
         adapter = _make_adapter([cap], [via_start, via_end])
         adapter.get_selected_items.return_value = [cap, via_start, via_end, t]
 
@@ -554,15 +563,14 @@ def _make_fp_with_pads(ref, x_mm, y_mm, angle_deg, role, pads):
     """Like _make_fp, but with REAL pad geometry (position + size) so the
     connected-components closure sees actual pad boxes to anchor at.
     pads: list of (net_name, px_mm, py_mm, size_mm)."""
-    fp = MagicMock(spec=FootprintInstance)
-    fp.reference_field.text.value = ref
-    fp.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
-    fp.orientation = Angle.from_degrees(angle_deg)
+    fp = Footprint(ref=ref, uuid=f"uuid-{ref}",
+                   position=Vector2.from_xy(int(x_mm * MM), int(y_mm * MM)),
+                   angle_deg=angle_deg, layer=BoardLayer.BL_F_Cu)
     fp._role = role
     fp._pads = []
     for i, (net, px, py, size) in enumerate(pads):
         pad = MagicMock()
-        pad.net.name = net
+        pad.net_name = net
         pad.number = str(i + 1)
         pad.position = Vector2.from_xy(int(px * MM), int(py * MM))
         pad._box_size = int(size * MM)
@@ -571,14 +579,10 @@ def _make_fp_with_pads(ref, x_mm, y_mm, angle_deg, role, pads):
 
 
 def _make_track(x1_mm, y1_mm, x2_mm, y2_mm, net_name):
-    t = MagicMock(spec=Track)
-    t.start = Vector2.from_xy(int(x1_mm * MM), int(y1_mm * MM))
-    t.end = Vector2.from_xy(int(x2_mm * MM), int(y2_mm * MM))
-    t.net = MagicMock()
-    t.net.name = net_name
-    t.width = int(0.65 * MM)
-    t.layer = BoardLayer.BL_F_Cu
-    return t
+    return Track(uuid="",
+                 start=Vector2.from_xy(int(x1_mm * MM), int(y1_mm * MM)),
+                 end=Vector2.from_xy(int(x2_mm * MM), int(y2_mm * MM)),
+                 net_name=net_name, width_mm=0.65, layer=BoardLayer.BL_F_Cu)
 
 
 def _make_closure_adapter(footprints, vias=(), tracks=()):

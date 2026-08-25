@@ -45,7 +45,7 @@ class PositionTracker:
             return False
         if abs(fp.position.y - dest.y) > POSITION_TOLERANCE_NM:
             return False
-        angle_diff = abs((fp.orientation.degrees - angle_deg + 180) % 360 - 180)
+        angle_diff = abs((fp.angle_deg - angle_deg + 180) % 360 - 180)
         return angle_diff <= ANGLE_TOLERANCE_DEG
 
     def moves_from_placed(self,

@@ -498,7 +498,7 @@ class MainWindow(QMainWindow):
         updates = []
         skipped = []
         for fp in footprints:
-            ref = fp.reference_field.text.value if fp.reference_field else "?"
+            ref = fp.ref if fp.ref else "?"
             for field, value in (("Role", payload["role"]), ("Cluster", payload["cluster"])):
                 if not value:
                     continue

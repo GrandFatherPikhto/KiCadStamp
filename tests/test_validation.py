@@ -87,9 +87,9 @@ class TestRolePoolSufficiency:
         fps = []
         for ref, role, net_name in components:
             fp = MagicMock()
-            fp.reference_field.text.value = ref
+            fp.ref = ref
             pad = MagicMock()
-            pad.net.name = net_name
+            pad.net_name = net_name
             fp._pads = [pad]
             fp._role = role
             fps.append(fp)
@@ -367,7 +367,7 @@ def test_check_coordinate_placements_exist_resolves_each_entry():
                             x_mm=0.0, y_mm=0.0, rotation_deg=0.0),
     ])
     fp = MagicMock()
-    fp.reference_field.text.value = "R18"
+    fp.ref = "R18"
     adapter = MagicMock()
     adapter.get_footprints.return_value = [fp]
     adapter.get_field_value.side_effect = lambda _fp, field: {

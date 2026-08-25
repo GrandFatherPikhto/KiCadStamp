@@ -29,7 +29,7 @@ def _snapshot(adapter):
     snap = []
     for fp in adapter.get_footprints():
         snap.append(Selected(
-            ref=fp.reference_field.text.value,
+            ref=fp.ref,
             role=adapter.get_field_value(fp, ROLE_FIELD_NAME),
             cluster=adapter.get_field_value(fp, CLUSTER_FIELD_NAME),
             sheet=[], nets={}, fp=fp,
@@ -53,7 +53,7 @@ def test_board_symbol_uuid_readable_from_live_footprints(adapter):
     objects — the guard's board half."""
     fps = list(adapter.get_footprints())
     assert fps, "live board has no footprints?"
-    missing = [fp.reference_field.text.value for fp in fps
+    missing = [fp.ref for fp in fps
                if _board_symbol_uuid(Selected(ref="x", role=None, cluster=None,
                                               sheet=[], nets={}, fp=fp)) is None]
     # Allow a tiny fraction of board-only/odd footprints (e.g. added straight

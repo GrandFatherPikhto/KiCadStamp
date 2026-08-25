@@ -10,7 +10,7 @@
 import logging
 import math
 
-from kipy.board_types import FootprintInstance
+from ..domain.board import Footprint
 from kipy.geometry import Vector2
 
 from .commands import MoveCommand
@@ -29,7 +29,7 @@ def _radius_from_bbox(bbox) -> float:
     return 0.5 * math.hypot(bbox.size.x, bbox.size.y)
 
 
-def compute_radii(footprints: list[FootprintInstance], adapter) -> dict[str, float]:
+def compute_radii(footprints: list[Footprint], adapter) -> dict[str, float]:
     """
     Computes radii (nm) for a list of footprints with ONE batch request through
     adapter.get_bounding_boxes(), instead of calling the non-existent
@@ -49,7 +49,7 @@ def compute_radii(footprints: list[FootprintInstance], adapter) -> dict[str, flo
     bboxes = adapter.get_bounding_boxes(footprints)
     radii = {}
     for fp, bbox in zip(footprints, bboxes):
-        ref = fp.reference_field.text.value
+        ref = fp.ref
         radii[ref] = _radius_from_bbox(bbox)
         if bbox is None:
             logger.debug(_("  {ref}: bounding box unavailable, using fallback radius {radius}mm").format(
@@ -65,7 +65,7 @@ def footprints_overlap(pos1: Vector2, r1: float, pos2: Vector2, r2: float,
 
 
 def check_collisions(moves: list[MoveCommand],
-                     all_footprints: list[FootprintInstance],
+                     all_footprints: list[Footprint],
                      adapter,
                      ignore_refs: set[str] = None,
                      margin_mm: float = 0.2) -> list[tuple[str, str, float]]:
@@ -85,10 +85,10 @@ def check_collisions(moves: list[MoveCommand],
     move_refs = set(move_positions.keys())
 
     relevant_footprints = [fp for fp in all_footprints
-                            if fp.reference_field.text.value not in ignore_refs]
+                            if fp.ref not in ignore_refs]
     radii = compute_radii(relevant_footprints, adapter)
 
-    fp_by_ref = {fp.reference_field.text.value: fp for fp in relevant_footprints}
+    fp_by_ref = {fp.ref: fp for fp in relevant_footprints}
 
     checked_pairs = set()
 

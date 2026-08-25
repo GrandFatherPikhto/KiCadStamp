@@ -70,7 +70,7 @@ _FOREIGN_BBOX_MARGIN_MM = 1.0
 
 def _path_uuids(fp) -> list[str]:
     """UUID chain of a footprint's sheet_path.path, as plain strings."""
-    return [str(u.value) for u in fp.sheet_path.path]
+    return list(fp.sheet_path_uuids)
 
 
 def _channel_name_of_fp(adapter, fp) -> str | None:
@@ -79,7 +79,7 @@ def _channel_name_of_fp(adapter, fp) -> str | None:
     None when the footprint carries no local net on any pad (e.g. a purely
     global-net component, or a footprint whose pads have no nets yet)."""
     for pad in adapter.get_footprint_pads(fp):
-        net = getattr(getattr(pad, "net", None), "name", None)
+        net = getattr(pad, "net_name", None)
         if net and net.startswith("/Channel_"):
             return net.split("/")[1]
     return None
@@ -103,7 +103,7 @@ def build_channel_groups(adapter, src_uuid: str | None = None) -> dict[str, dict
         if len(chain) < 2:
             continue
         inner = "/" + "/".join(chain[1:])
-        groups.setdefault(inner, {})[chain[0]] = fp.reference_field.text.value
+        groups.setdefault(inner, {})[chain[0]] = fp.ref
     return groups
 
 
@@ -127,7 +127,7 @@ def build_live_twin_map(adapter, pivot_ref: str,
     all_fps = adapter.get_footprints()
     pivot = None
     for fp in all_fps:
-        if fp.reference_field.text.value == pivot_ref:
+        if fp.ref == pivot_ref:
             pivot = fp
             break
     if pivot is None:
@@ -250,7 +250,7 @@ def _resolve_pivot_anchor(adapter, fp, pad_number: str | None) -> Vector2:
     if pad is None:
         raise ValidationError(format_fatal_error(
             _("pad {pad!r} not found on pivot {ref!r}").format(pad=pad_number,
-                                                               ref=fp.reference_field.text.value),
+                                                               ref=fp.ref),
             [_("--pivot-pad must name an existing pad number of the pivot footprint")]))
     return pad.position
 
@@ -317,7 +317,7 @@ def resolve_transform(adapter, *, pivot_ref: str | None, pivot_role: str | None,
                    "--pivot with a refdes instead")]))
         pivot_fp = candidates[0]
 
-    ref = pivot_fp.reference_field.text.value
+    ref = pivot_fp.ref
     anchor_src = _resolve_pivot_anchor(adapter, pivot_fp, pivot_pad)
 
     inner = "/" + "/".join(_path_uuids(pivot_fp)[1:])
@@ -431,7 +431,7 @@ def _fp_matches_position(fp, position: Vector2, angle_deg: float, layer: BoardLa
     """Idempotency of a component move: skip when the twin already stands at
     the target position/angle/layer within the tolerances."""
     return (_point_close(fp.position, position)
-            and _angle_close(fp.orientation.degrees, angle_deg)
+            and _angle_close(fp.angle_deg, angle_deg)
             and fp.layer == layer)
 
 
@@ -439,7 +439,7 @@ def _via_already_exists(live_vias, position: Vector2, net_name: str) -> bool:
     """Idempotency of a via: skip when a via already sits at the position on
     the same net within the tolerance (position+net, no registry)."""
     for v in live_vias:
-        live_net = v.net.name if v.net else None
+        live_net = v.net_name
         if live_net != net_name:
             continue
         if _point_close(v.position, position):
@@ -473,19 +473,19 @@ def plan_channel_copy(adapter, *, src_uuid: str, dst_uuid: str,
     missing_twins = []
 
     # ── Task 2.4: component moves ───────────────────────────────────────────
-    fp_by_ref = {fp.reference_field.text.value: fp for fp in all_fps}
+    fp_by_ref = {fp.ref: fp for fp in all_fps}
     for fp in all_fps:
         chain = _path_uuids(fp)
         if not chain or chain[0] != src_uuid:
             continue
         inner = "/" + "/".join(chain[1:])
         dst_ref = groups.get(inner, {}).get(dst_uuid)
-        ref = fp.reference_field.text.value
+        ref = fp.ref
         if dst_ref is None:
             missing_twins.append(ref)
             continue
         new_pos = transform_point(fp.position, transform)
-        new_angle = transform_angle(fp.orientation.degrees, transform)
+        new_angle = transform_angle(fp.angle_deg, transform)
         new_layer = transform_layer(fp.layer, transform)
         dst_fp = fp_by_ref.get(dst_ref)
         if dst_fp is not None and _fp_matches_position(dst_fp, new_pos, new_angle, new_layer):
@@ -505,7 +505,7 @@ def plan_channel_copy(adapter, *, src_uuid: str, dst_uuid: str,
 
     # ── Task 2.5: vias, Task 2.6: tracks ────────────────────────────────────
     for v in live_vias:
-        net = v.net.name if v.net else None
+        net = v.net_name
         if net is None or not net.startswith(src_prefix):
             continue
         new_pos = transform_point(v.position, transform)
@@ -516,8 +516,8 @@ def plan_channel_copy(adapter, *, src_uuid: str, dst_uuid: str,
             continue
         plan.vias.append(ViaCommand(
             position=new_pos,
-            drill_mm=v.drill_diameter / MM,
-            diameter_mm=v.diameter / MM,
+            drill_mm=v.drill_mm,
+            diameter_mm=v.diameter_mm,
             net_name=new_net,
             owner_ref=dst_channel,
             registry_key=None,  # channel-copy never participates in the registry
@@ -526,7 +526,7 @@ def plan_channel_copy(adapter, *, src_uuid: str, dst_uuid: str,
                     .format(x=new_pos.x / MM, y=new_pos.y / MM, net=new_net))
 
     for t in live_tracks:
-        net = t.net.name if t.net else None
+        net = t.net_name
         if net is None or not net.startswith(src_prefix):
             continue
         new_start = transform_point(t.start, transform)
@@ -534,7 +534,7 @@ def plan_channel_copy(adapter, *, src_uuid: str, dst_uuid: str,
         new_net = _twin_net(net, src_channel, dst_channel)
         new_layer = transform_layer(t.layer, transform)
         cmd = TrackCommand(start=new_start, end=new_end,
-                           width_mm=t.width / MM, net_name=new_net,
+                           width_mm=t.width_mm, net_name=new_net,
                            layer=new_layer, owner_ref=dst_channel,
                            registry_key=None)
         if any(track_matches(live, cmd) for live in live_tracks):
@@ -604,7 +604,7 @@ def _plan_foreign(all_fps, live_vias, live_tracks, src_prefix: str,
     foreign_vias: list[ViaCommand] = []
     foreign_tracks: list[TrackCommand] = []
     for v in live_vias:
-        net = v.net.name if v.net else None
+        net = v.net_name
         if net is None or net.startswith(src_prefix) or not inside(v.position):
             continue
         report.vias += 1
@@ -613,12 +613,12 @@ def _plan_foreign(all_fps, live_vias, live_tracks, src_prefix: str,
             new_pos = transform_point(v.position, transform)
             if not _via_already_exists(live_vias, new_pos, net):
                 foreign_vias.append(ViaCommand(position=new_pos,
-                                               drill_mm=v.drill_diameter / MM,
-                                               diameter_mm=v.diameter / MM,
+                                               drill_mm=v.drill_mm,
+                                               diameter_mm=v.diameter_mm,
                                                net_name=net,
                                                owner_ref=dst_channel))
     for t in live_tracks:
-        net = t.net.name if t.net else None
+        net = t.net_name
         if net is None or net.startswith(src_prefix):
             continue
         if not (inside(t.start) or inside(t.end)):
@@ -630,7 +630,7 @@ def _plan_foreign(all_fps, live_vias, live_tracks, src_prefix: str,
             new_end = transform_point(t.end, transform)
             new_layer = transform_layer(t.layer, transform)
             cmd = TrackCommand(start=new_start, end=new_end,
-                               width_mm=t.width / MM, net_name=net,
+                               width_mm=t.width_mm, net_name=net,
                                layer=new_layer, owner_ref=dst_channel)
             if not any(track_matches(live, cmd) for live in live_tracks):
                 foreign_tracks.append(cmd)
@@ -749,7 +749,7 @@ def _find_pivot_ref_by_role(adapter, role: str, src_channel: str,
         if _channel_name_of_fp(adapter, fp) != src_channel:
             continue
         if adapter.get_field_value(fp, ROLE_FIELD_NAME) == role:
-            candidates.append(fp.reference_field.text.value)
+            candidates.append(fp.ref)
     if not candidates:
         raise ValidationError(format_fatal_error(
             _("no footprint with role {role!r} on channel {ch!r}").format(role=role, ch=src_channel),

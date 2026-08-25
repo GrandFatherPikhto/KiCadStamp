@@ -34,8 +34,9 @@ now only the resolution orchestration on top of it.
 """
 import logging
 
-from kipy.board_types import FootprintInstance
 from kipy.geometry import Vector2
+
+from ...domain.board import Footprint
 
 from ...cluster_matching import cluster_prefix_match
 from ...config import Cell, ClonePlacement, clone_placement_effective_name
@@ -53,7 +54,7 @@ from .role_narrowing import (
 logger = logging.getLogger(__name__)
 
 
-def match_unique_footprint_by_fields(matches, field_matches: dict, label: str) -> FootprintInstance:
+def match_unique_footprint_by_fields(matches, field_matches: dict, label: str) -> Footprint:
     """Given the ALREADY-COMPUTED list of footprints whose custom fields all
     equal field_matches (the same dict that produced them), return the single
     one or raise the fatal none/ambiguous ValidationError. Split out of
@@ -70,7 +71,7 @@ def match_unique_footprint_by_fields(matches, field_matches: dict, label: str) -
                "fieldstool), or check for a typo").format(fields="/".join(field_matches))]
         ))
     if len(matches) > 1:
-        refs = sorted(fp.reference_field.text.value for fp in matches)
+        refs = sorted(fp.ref for fp in matches)
         tag_desc = ", ".join(f"{field}={value!r}" for field, value in field_matches.items())
         raise ValidationError(format_fatal_error(
             _("{label}: {count} components tagged {tag_desc}, expected exactly one")
@@ -81,7 +82,7 @@ def match_unique_footprint_by_fields(matches, field_matches: dict, label: str) -
     return matches[0]
 
 
-def resolve_unique_footprint_by_fields(adapter, field_matches: dict, label: str) -> FootprintInstance:
+def resolve_unique_footprint_by_fields(adapter, field_matches: dict, label: str) -> Footprint:
     """Shared "find the ONE footprint whose custom fields match, fatal if
     none or if several" helper — the exact-match filter plus none/ambiguous
     fatals of the former resolve_by_cluster_tag (ClonePlacement's cluster:
@@ -135,7 +136,7 @@ def candidate_nets(adapter, fp, rule_nets: set[str] | None = None) -> list[str]:
     """Sorted non-rule nets on a resolved candidate's pads."""
     rule = set(rule_nets) if rule_nets is not None else set(RULE_NETS)
     pads = adapter.get_footprint_pads(fp)
-    return sorted({p.net.name for p in pads if p.net and p.net.name and p.net.name not in rule})
+    return sorted({p.net_name for p in pads if p.net_name and p.net_name not in rule})
 
 
 def suggest_role_nets_from_cluster(adapter, role_hints: dict[str, tuple[str | None, str | None]],
@@ -202,8 +203,8 @@ def suggest_role_nets_from_cluster(adapter, role_hints: dict[str, tuple[str | No
             continue
         if pad is not None:
             p = adapter.get_pad_by_number(fp, str(pad))
-            if p is not None and p.net and p.net.name:
-                suggestions[role] = p.net.name
+            if p is not None and p.net_name:
+                suggestions[role] = p.net_name
             continue
         non_rule = candidate_nets(adapter, fp, rule_nets)
         if len(non_rule) == 1:
@@ -270,8 +271,8 @@ def resolve_roles_by_selection(adapter, cell: Cell, clone: ClonePlacement,
     """
     sheet_names = sheet_names or {}
     items = adapter.get_selected_items()
-    footprints = [i for i in items if isinstance(i, FootprintInstance)]
-    selected_refs = {fp.reference_field.text.value for fp in footprints}
+    footprints = [i for i in items if isinstance(i, Footprint)]
+    selected_refs = {fp.ref for fp in footprints}
     clone_name = clone_placement_effective_name(clone)
 
     cell_roles = {slot.role for slot in cell.components}
@@ -280,7 +281,7 @@ def resolve_roles_by_selection(adapter, cell: Cell, clone: ClonePlacement,
     problems: list[str] = []
 
     for fp in footprints:
-        ref = fp.reference_field.text.value
+        ref = fp.ref
         role = adapter.get_field_value(fp, ROLE_FIELD_NAME)
         if role is None:
             problems.append(_("{ref}: no {field!r} field").format(ref=ref, field=ROLE_FIELD_NAME))
@@ -311,7 +312,7 @@ def resolve_roles_by_selection(adapter, cell: Cell, clone: ClonePlacement,
                                 .format(role=role))
                 continue
             if len(candidates) == 1:
-                ref = candidates[0].reference_field.text.value
+                ref = candidates[0].ref
                 role_to_ref[role] = ref
                 logger.info(_("[{name}] role {role!r} -> {ref} (unique on whole board, no selection needed)")
                             .format(name=clone_name, role=role, ref=ref))
@@ -321,9 +322,9 @@ def resolve_roles_by_selection(adapter, cell: Cell, clone: ClonePlacement,
                 candidates, clone, adapter, selected_refs, anchor_position, clone_name, role, sheet_names
             )
             if len(narrowed) == 1:
-                role_to_ref[role] = narrowed[0].reference_field.text.value
+                role_to_ref[role] = narrowed[0].ref
             else:
-                refs = sorted(fp.reference_field.text.value for fp in narrowed)
+                refs = sorted(fp.ref for fp in narrowed)
                 problems.append(_("role {role!r} is in cell, not found in selection, and ambiguous on board "
                                   "({count} candidates: {refs}){note} — check this placement's own Cluster "
                                   "(name) is tagged correctly on the board, and/or set anchor_sheet, OR select "
@@ -393,14 +394,14 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement,
     """
     sheet_names = sheet_names or {}
     selected_items = adapter.get_selected_items()
-    selected_refs = {i.reference_field.text.value for i in selected_items
-                     if isinstance(i, FootprintInstance)}
+    selected_refs = {i.ref for i in selected_items
+                     if isinstance(i, Footprint)}
 
     all_fps = adapter.get_footprints()
     fps_by_role: dict[str, list] = {}
     fps_by_ref = {}
     for fp in all_fps:
-        fps_by_ref[fp.reference_field.text.value] = fp
+        fps_by_ref[fp.ref] = fp
         role = adapter.get_field_value(fp, ROLE_FIELD_NAME)
         if role is not None:
             fps_by_role.setdefault(role, []).append(fp)
@@ -447,7 +448,7 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement,
         matched = []
         for fp in candidates:
             pads = adapter.get_footprint_pads(fp)
-            nets_on_fp = {p.net.name for p in pads if p.net and p.net.name}
+            nets_on_fp = {p.net_name for p in pads if p.net_name}
             if expected_net in nets_on_fp:
                 matched.append(fp)
 
@@ -457,8 +458,8 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement,
                             .format(role=role))
         elif not matched:
             found_nets = sorted({n for fp in candidates for n in
-                                 {p.net.name for p in adapter.get_footprint_pads(fp) if p.net and p.net.name}})
-            refs = sorted(fp.reference_field.text.value for fp in candidates)
+                                 {p.net_name for p in adapter.get_footprint_pads(fp) if p.net_name}})
+            refs = sorted(fp.ref for fp in candidates)
             problems.append(_("role {role!r}: component(s) {refs} with this role exist on the board, "
                               "but none is on net {expected!r} — they are actually on {found} "
                               "(check params/net name or the schematic connection)")
@@ -466,7 +467,7 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement,
         elif len(matched) > 1:
             ambiguous.append((role, expected_net, matched))
         else:
-            role_to_ref[role] = matched[0].reference_field.text.value
+            role_to_ref[role] = matched[0].ref
 
     # --- narrowing ambiguous: anchor_sheet -> Cluster -> selection -> physical proximity (common function) ---
     for role, expected_net, matched in ambiguous:
@@ -476,9 +477,9 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement,
         )
 
         if len(narrowed) == 1:
-            role_to_ref[role] = narrowed[0].reference_field.text.value
+            role_to_ref[role] = narrowed[0].ref
         else:
-            refs = sorted(fp.reference_field.text.value for fp in narrowed)
+            refs = sorted(fp.ref for fp in narrowed)
             # The narrowing for INTERNAL roles always tries the placement's OWN
             # Cluster (clone.cluster — required and non-empty, see entries.py),
             # so `placement_cluster` is effectively always set here; the else
@@ -519,7 +520,7 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement,
 
 def resolve_footprint_by_role(adapter, anchor_role: str, anchor_sheet: str | None,
                               anchor_cluster: str | None, sheet_names: dict[str, str],
-                              label: str) -> FootprintInstance:
+                              label: str) -> Footprint:
     """
     Resolves ANY anchor component by anchor_role (Role field on the board,
     NOT a cell role — this is different: here we search for the anchor itself
@@ -559,8 +560,8 @@ def resolve_footprint_by_role(adapter, anchor_role: str, anchor_sheet: str | Non
         ))
 
     selected_items = adapter.get_selected_items()
-    selected_refs = {i.reference_field.text.value for i in selected_items
-                     if isinstance(i, FootprintInstance)}
+    selected_refs = {i.ref for i in selected_items
+                     if isinstance(i, Footprint)}
 
     narrowed = _narrow_by_sheet_cluster_selection(
         candidates, adapter, selected_refs,
@@ -571,7 +572,7 @@ def resolve_footprint_by_role(adapter, anchor_role: str, anchor_sheet: str | Non
     if len(narrowed) == 1:
         return narrowed[0]
 
-    refs = sorted(fp.reference_field.text.value for fp in narrowed)
+    refs = sorted(fp.ref for fp in narrowed)
     raise ValidationError(format_fatal_error(
         _("{label}: anchor_role {role!r} is ambiguous").format(label=label, role=anchor_role),
         [_("candidates: {count} — {refs}. Solutions: refine anchor_sheet "
@@ -581,7 +582,7 @@ def resolve_footprint_by_role(adapter, anchor_role: str, anchor_sheet: str | Non
     ))
 
 
-def resolve_anchor_by_role(adapter, clone: ClonePlacement, sheet_names: dict[str, str]) -> FootprintInstance:
+def resolve_anchor_by_role(adapter, clone: ClonePlacement, sheet_names: dict[str, str]) -> Footprint:
     """Thin wrapper of resolve_footprint_by_role for ClonePlacement — backward
     compatibility for calling code (clone_position_calculator.py).
 

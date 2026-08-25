@@ -16,8 +16,9 @@ import logging
 from dataclasses import dataclass
 
 
-from kipy.board_types import FootprintInstance
 from kipy.geometry import Vector2
+
+from ...domain.board import Footprint
 
 from ...config import Point
 from ...kicad.adapter import KiCadBoardAdapter
@@ -48,7 +49,7 @@ class ResolvedPoint:
     actually produced.
     """
     position: Vector2
-    footprint: FootprintInstance | None
+    footprint: Footprint | None
 
 
 def resolve_point_anchor_ref(adapter: KiCadBoardAdapter, point: Point, sheet_names=None) -> str | None:

@@ -38,18 +38,18 @@ def _make_pad(number, x_mm, y_mm, net_name):
     pad = MagicMock(spec=Pad)
     pad.number = number
     pad.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
-    pad.net.name = net_name
+    pad.net_name = net_name
     return pad
 
 
 def _make_live_via(uuid_str, x_mm, y_mm, net_name, drill_mm, diameter_mm):
     """Live via on the "board" — exactly the fields that PlacementRegistry._live_matches checks."""
     via = MagicMock()
-    via.id.value = uuid_str
+    via.uuid = uuid_str
     via.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
-    via.net.name = net_name
-    via.drill_diameter = int(drill_mm * MM)
-    via.diameter = int(diameter_mm * MM)
+    via.net_name = net_name
+    via.drill_mm = drill_mm
+    via.diameter_mm = diameter_mm
     return via
 
 
@@ -87,7 +87,7 @@ def test_registry_full_cycle_across_two_runs():
     adapter.get_vias.side_effect = lambda: list(live_vias)
 
     def _remove_by_id(uuid_str):
-        live_vias[:] = [v for v in live_vias if v.id.value != uuid_str]
+        live_vias[:] = [v for v in live_vias if v.uuid != uuid_str]
         return True
     adapter.remove_by_id.side_effect = _remove_by_id
 

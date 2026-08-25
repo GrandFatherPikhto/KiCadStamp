@@ -47,9 +47,10 @@ class TestOriginalLayerCapture:
         in between) — original_layer in the log must be 'B.Cu', not the
         incorrect default 'F.Cu'."""
         fp = MagicMock()
-        fp.reference_field.text.value = "C39"
+        fp.ref = "C39"
+        fp.uuid = "uuid-C39"
         fp.position = Vector2.from_xy(int(50 * MM), int(50 * MM))
-        fp.orientation = Angle.from_degrees(90.0)
+        fp.angle_deg = 90.0
         fp.layer = BoardLayer.BL_B_Cu
 
         adapter = MagicMock()

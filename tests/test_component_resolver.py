@@ -26,7 +26,7 @@ from kicadstamp.placement.services.component_resolver import (
 
 def _make_fp(ref):
     fp = MagicMock(spec=FootprintInstance)
-    fp.reference_field.text.value = ref
+    fp.ref = ref
     return fp
 
 

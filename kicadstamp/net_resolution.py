@@ -114,7 +114,7 @@ def resolve_net_from_role(role: str, pad: str | None, role_to_ref: dict[str, str
 
     if pad is not None:
         p = adapter.get_pad_by_number(fp, str(pad))
-        if p is None or not p.net or not p.net.name:
+        if p is None or not p.net_name:
             raise ValidationError(format_fatal_error(
                 _("pad {pad!r} of {ref!r} (role {role!r}) not found or has no net")
                 .format(pad=pad, ref=ref, role=role),
@@ -122,13 +122,13 @@ def resolve_net_from_role(role: str, pad: str | None, role_to_ref: dict[str, str
                    "resolved footprint {ref!r} has no such connected pad — wrong "
                    "pad number?").format(pad=pad, ref=ref, role=role)]
             ))
-        return p.net.name
+        return p.net_name
 
     # No explicit pad — lemma 2: this role must carry exactly one non-rule net.
     non_rule: set[str] = set()
     for p in adapter.get_footprint_pads(fp):
-        if p.net and p.net.name and p.net.name not in rule:
-            non_rule.add(p.net.name)
+        if p.net_name and p.net_name not in rule:
+            non_rule.add(p.net_name)
     if len(non_rule) == 1:
         return next(iter(non_rule))
     raise ValidationError(format_fatal_error(

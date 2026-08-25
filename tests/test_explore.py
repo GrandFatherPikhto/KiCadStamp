@@ -5,41 +5,42 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import MagicMock
-from kipy.board_types import FootprintInstance
+from kipy.board_types import BoardLayer
+from kipy.geometry import Vector2
 
 from kicadstamp.constants import ROLE_FIELD_NAME, CLUSTER_FIELD_NAME
+from kicadstamp.domain.board import Footprint
 from kicadstamp.explore import Board, selection_signature
 
 
 def _make_pad(number, net_name):
     pad = MagicMock()
     pad.number = number
-    pad.net.name = net_name
+    pad.net_name = net_name
     return pad
 
 
 def _make_fp(ref, role=None, cluster=None, nets=None, sheet_uuid=None):
-    fp = MagicMock(spec=FootprintInstance)
-    fp.reference_field.text.value = ref
+    fp = Footprint(ref=ref, uuid=f"uuid-{ref}", position=Vector2.from_xy(0, 0),
+                   angle_deg=0.0, layer=BoardLayer.BL_F_Cu)
     fp._role = role
     fp._cluster = cluster
     fp._pads = [_make_pad(str(i + 1), n) for i, n in enumerate(nets or [])]
-    fp.sheet_path.path = (
-        [MagicMock(value=sheet_uuid), MagicMock(value=f"{ref}-own-uuid")]
-        if sheet_uuid is not None else []
+    fp.sheet_path_uuids = (
+        (sheet_uuid, f"{ref}-own-uuid") if sheet_uuid is not None else ()
     )
     return fp
 
 
 def _make_via(net_name):
     v = MagicMock()
-    v.net.name = net_name
+    v.net_name = net_name
     return v
 
 
 def _make_track(net_name):
     t = MagicMock()
-    t.net.name = net_name
+    t.net_name = net_name
     return t
 
 
@@ -202,11 +203,11 @@ def test_selection_signature_footprints_key_on_refdes():
 def test_selection_signature_non_footprints_key_by_type_and_net():
     class _Via:
         def __init__(self, net):
-            self.net = type("_Net", (), {"name": net})()
+            self.net_name = net
 
     class _Track:
         def __init__(self, net):
-            self.net = type("_Net", (), {"name": net})()
+            self.net_name = net
 
     class _NoNet:
         pass

@@ -45,7 +45,7 @@ def test_registry_full_cycle(adapter, tmp_path):
     try:
         created = adapter.create_items([adapter.create_via(pos, net, 0.3, 0.6)])
         adapter.push_commit(commit, "test: create via")
-        created_uuid = str(created[0].id.value)
+        created_uuid = created[0].uuid
     except Exception:
         adapter.drop_commit(commit)
         raise
@@ -89,7 +89,7 @@ def test_registry_full_cycle(adapter, tmp_path):
     try:
         created2 = adapter.create_items([adapter.create_via(new_pos, net, 0.3, 0.6)])
         adapter.push_commit(commit2, "test: create updated via")
-        new_uuid = str(created2[0].id.value)
+        new_uuid = created2[0].uuid
     except Exception:
         adapter.drop_commit(commit2)
         raise
@@ -136,7 +136,7 @@ def test_registry_persists_across_runs(adapter, tmp_path):
     try:
         created = adapter.create_items([adapter.create_via(pos, net, 0.3, 0.6)])
         adapter.push_commit(commit, "test: persist via")
-        uuid = str(created[0].id.value)
+        uuid = created[0].uuid
     except Exception:
         adapter.drop_commit(commit)
         raise

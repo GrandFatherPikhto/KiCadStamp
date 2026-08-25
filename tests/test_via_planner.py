@@ -31,16 +31,14 @@ def _make_thermal_pad(number="1", x_mm=0.0, y_mm=0.0, size_mm=4.0):
     pad = MagicMock(spec=Pad)
     pad.number = number
     pad.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
-    layer = MagicMock()
-    layer.size = Vector2.from_xy(int(size_mm * MM), int(size_mm * MM))
-    pad.padstack.copper_layers = [layer]
-    pad.padstack.angle = Angle.from_degrees(0.0)
+    pad.size = Vector2.from_xy(int(size_mm * MM), int(size_mm * MM))
+    pad.angle_rad = 0.0
     return pad
 
 
 def _make_anchor_fp(pad):
     fp = MagicMock()
-    fp.reference_field.text.value = "Q1"
+    fp.ref = "Q1"
     return fp
 
 
@@ -150,8 +148,8 @@ class TestMultipleThermalViaArrays:
         pad1 = _make_thermal_pad(x_mm=0.0)
         pad2 = _make_thermal_pad(x_mm=20.0)
         fp1, fp2 = MagicMock(), MagicMock()
-        fp1.reference_field.text.value = "Q1"
-        fp2.reference_field.text.value = "Q2"
+        fp1.ref = "Q1"
+        fp2.ref = "Q2"
         adapter = MagicMock()
         adapter.get_footprint.side_effect = lambda ref: {"Q1": fp1, "Q2": fp2}.get(ref)
         adapter.get_footprint_pads.side_effect = lambda fp: (
@@ -179,8 +177,8 @@ class TestMultipleThermalViaArrays:
         pad1 = _make_thermal_pad(x_mm=0.0)
         pad2 = _make_thermal_pad(x_mm=20.0)
         fp1, fp2 = MagicMock(), MagicMock()
-        fp1.reference_field.text.value = "Q1"
-        fp2.reference_field.text.value = "Q2"
+        fp1.ref = "Q1"
+        fp2.ref = "Q2"
         adapter = MagicMock()
         adapter.get_footprint.side_effect = lambda ref: {"Q1": fp1, "Q2": fp2}.get(ref)
         adapter.get_footprint_pads.side_effect = lambda fp: (

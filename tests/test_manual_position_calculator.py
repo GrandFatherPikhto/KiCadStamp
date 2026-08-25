@@ -23,14 +23,14 @@ MM = 1_000_000
 def _make_pad(number, net_name, x_mm=0.0, y_mm=0.0):
     pad = MagicMock(spec=Pad)
     pad.number = number
-    pad.net.name = net_name
+    pad.net_name = net_name
     pad.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
     return pad
 
 
 def _make_fp(ref, role=None, nets=()):
     fp = MagicMock(spec=FootprintInstance)
-    fp.reference_field.text.value = ref
+    fp.ref = ref
     fp._role = role
     fp._pads = [_make_pad("1", n) for n in nets]
     return fp
@@ -41,7 +41,7 @@ def _adapter_for(anchor_fp, comp_fp, anchor_pad):
     adapter = MagicMock()
     adapter.get_footprints.return_value = all_fps
     adapter.get_footprint.side_effect = lambda ref: next(
-        (fp for fp in all_fps if fp.reference_field.text.value == ref), None)
+        (fp for fp in all_fps if fp.ref == ref), None)
     adapter.get_field_value.side_effect = lambda fp, name: getattr(fp, "_role", None) if name == "Role" else None
     adapter.get_footprint_pads.side_effect = lambda fp: list(getattr(fp, "_pads", []))
     adapter.get_pad_by_number.return_value = anchor_pad

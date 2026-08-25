@@ -119,7 +119,7 @@ def _narrow_by_sheet_cluster_selection(
             narrowed = by_cluster
 
     if len(narrowed) > 1 and selected_refs:
-        by_selection = [fp for fp in narrowed if fp.reference_field.text.value in selected_refs]
+        by_selection = [fp for fp in narrowed if fp.ref in selected_refs]
         if by_selection and len(by_selection) < len(narrowed):
             logger.info(_("[{label}] role {role_str!r}: {count} candidates narrowed to {narrowed} by current selection")
                         .format(label=label, role_str=role_str, count=len(narrowed),
@@ -202,13 +202,13 @@ def _narrow_ambiguous_candidates(candidates, clone: ClonePlacement, adapter, sel
         closest_dist, closest_fp = with_dist[0]
         second_dist = with_dist[1][0]
         note = _(" (closest to anchor {name!r}: {ref} at {d:.2f} mm, second — {d2:.2f} mm)")
-        note = note.format(name=clone_name, ref=closest_fp.reference_field.text.value,
+        note = note.format(name=clone_name, ref=closest_fp.ref,
                            d=closest_dist, d2=second_dist)
         if second_dist >= 2 * max(closest_dist, 1e-6):
             logger.info(_("[{name}] role {role!r}: {count} candidates narrowed to 1 by physical proximity to anchor "
                           "({ref}, {d:.2f} mm, second closest — {d2:.2f} mm, sufficient gap)")
                         .format(name=clone_name, role=role, count=len(narrowed),
-                                ref=closest_fp.reference_field.text.value,
+                                ref=closest_fp.ref,
                                 d=closest_dist, d2=second_dist))
             narrowed = [closest_fp]
         else:

@@ -41,18 +41,18 @@ def test_owner_ref_matches_actual_command_not_first_in_batch():
     net.name = "GND"
 
     created_via_1 = MagicMock()
-    created_via_1.id.value = "uuid-1"
+    created_via_1.uuid = "uuid-1"
     created_via_1.position = Vector2.from_xy(int(1 * MM), 0)
-    created_via_1.diameter = int(0.6 * MM)
-    created_via_1.drill_diameter = int(0.3 * MM)
-    created_via_1.net.name = "GND"
+    created_via_1.diameter_mm = 0.6
+    created_via_1.drill_mm = 0.3
+    created_via_1.net_name = "GND"
 
     created_via_2 = MagicMock()
-    created_via_2.id.value = "uuid-2"
+    created_via_2.uuid = "uuid-2"
     created_via_2.position = Vector2.from_xy(int(2 * MM), 0)
-    created_via_2.diameter = int(0.6 * MM)
-    created_via_2.drill_diameter = int(0.3 * MM)
-    created_via_2.net.name = "GND"
+    created_via_2.diameter_mm = 0.6
+    created_via_2.drill_mm = 0.3
+    created_via_2.net_name = "GND"
 
     adapter = MagicMock()
     adapter.get_net_by_name.return_value = net
@@ -93,18 +93,18 @@ def test_registry_record_created_called_with_correct_uuid_per_via():
     net.name = "GND"
 
     created_via_1 = MagicMock()
-    created_via_1.id.value = "uuid-1"
+    created_via_1.uuid = "uuid-1"
     created_via_1.position = Vector2.from_xy(int(1 * MM), 0)
-    created_via_1.diameter = int(0.6 * MM)
-    created_via_1.drill_diameter = int(0.3 * MM)
-    created_via_1.net.name = "GND"
+    created_via_1.diameter_mm = 0.6
+    created_via_1.drill_mm = 0.3
+    created_via_1.net_name = "GND"
 
     created_via_2 = MagicMock()
-    created_via_2.id.value = "uuid-2"
+    created_via_2.uuid = "uuid-2"
     created_via_2.position = Vector2.from_xy(int(2 * MM), 0)
-    created_via_2.diameter = int(0.6 * MM)
-    created_via_2.drill_diameter = int(0.3 * MM)
-    created_via_2.net.name = "GND"
+    created_via_2.diameter_mm = 0.6
+    created_via_2.drill_mm = 0.3
+    created_via_2.net_name = "GND"
 
     adapter = MagicMock()
     adapter.get_net_by_name.return_value = net

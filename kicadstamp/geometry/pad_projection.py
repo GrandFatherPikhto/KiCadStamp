@@ -18,11 +18,11 @@ diagnose/test_pad_mirror_convention.py — a one‑time but definitive test on a
 real board, comparing this prediction with what KiCad actually shows after a
 real flip+rotation.
 """
-from kipy.board_types import FootprintInstance, Pad
+from ..domain.board import Footprint, Pad
 from kipy.geometry import Vector2, Angle
 
 
-def local_pad_offset(fp: FootprintInstance, pad: Pad) -> Vector2:
+def local_pad_offset(fp: Footprint, pad: Pad) -> Vector2:
     """
     Returns the pad offset relative to the footprint centre in the footprint's
     OWN UNROTATED coordinate system — i.e. a constant geometry fact independent
@@ -31,11 +31,11 @@ def local_pad_offset(fp: FootprintInstance, pad: Pad) -> Vector2:
     """
     origin = Vector2.from_xy(0, 0)
     diff = pad.position - fp.position
-    return diff.rotate(Angle.from_degrees(-fp.orientation.degrees), origin)
+    return diff.rotate(Angle.from_degrees(-fp.angle_deg), origin)
 
 
 def predict_pad_position(
-    fp: FootprintInstance,
+    fp: Footprint,
     pad: Pad,
     dest: Vector2,
     angle_deg: float,

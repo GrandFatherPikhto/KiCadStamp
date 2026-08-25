@@ -74,7 +74,7 @@ rebuilds (aliases, origin combos, button state) aren't churned for nothing.
 import logging
 from typing import Optional
 
-from kipy.board_types import FootprintInstance
+from kicadstamp.domain.board import Footprint
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (QApplication, QLabel, QMainWindow, QMenu,
                               QPushButton, QSystemTrayIcon)
@@ -453,8 +453,8 @@ class MainWindow(QMainWindow):
             self.action_button.setText(_("Reconnect"))
             return
         items = result["items"]
-        refs = {item.reference_field.text.value for item in items
-                if isinstance(item, FootprintInstance)}
+        refs = {item.ref for item in items
+                if isinstance(item, Footprint)}
 
         # Early-exit guard (same idea as RoleClusterTreeDock.
         # highlight_board_selection()'s own): if neither the raw selection

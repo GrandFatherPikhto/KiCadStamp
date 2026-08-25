@@ -34,7 +34,7 @@ from kicadstamp.utils.units import MM
 
 def _make_fp(ref, role, x_mm, y_mm):
     fp = MagicMock()
-    fp.reference_field.text.value = ref
+    fp.ref = ref
     fp.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
     fp._role = role
     return fp
@@ -48,20 +48,20 @@ def _make_pad(x_mm, y_mm):
 
 def _make_track(sx, sy, ex, ey, net, width=0.25, layer=BoardLayer.BL_F_Cu):
     t = MagicMock()
-    t.net = SimpleNamespace(name=net)
+    t.net_name = net
     t.start = Vector2.from_xy(int(sx * MM), int(sy * MM))
     t.end = Vector2.from_xy(int(ex * MM), int(ey * MM))
-    t.width = int(width * MM)
+    t.width_mm = width
     t.layer = layer
     return t
 
 
 def _make_via(x, y, net, drill=0.3, dia=0.6):
     v = MagicMock()
-    v.net = SimpleNamespace(name=net)
+    v.net_name = net
     v.position = Vector2.from_xy(int(x * MM), int(y * MM))
-    v.drill_diameter = int(drill * MM)
-    v.diameter = int(dia * MM)
+    v.drill_mm = drill
+    v.diameter_mm = dia
     return v
 
 

@@ -31,14 +31,14 @@ def _make_pad(number, x_mm, y_mm, net_name):
     pad = MagicMock(spec=Pad)
     pad.number = number
     pad.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
-    pad.net.name = net_name
+    pad.net_name = net_name
     return pad
 
 
 def _make_ic1_fp(pads_config):
     """pads_config: list of (number, x_mm, y_mm, net_name)"""
     fp = MagicMock()
-    fp.reference_field.text.value = "IC1"
+    fp.ref = "IC1"
     fp.definition.items = [_make_pad(*p) for p in pads_config]
     return fp
 
@@ -47,7 +47,7 @@ def _make_cap_fp(ref, net_name, role):
     """Mock capacitor footprint — for the pool only ref/role/net matter;
     actual position is irrelevant for vias (computed geometrically)."""
     fp = MagicMock()
-    fp.reference_field.text.value = ref
+    fp.ref = ref
     fp.definition.items = [_make_pad("1", 0, 0, net_name), _make_pad("2", 0, 0, "GND")]
     fp._role = role
     return fp
@@ -88,7 +88,7 @@ def _build_config():
 
 def _make_pool_adapter(ic1, cap_fps):
     all_fps = [ic1] + cap_fps
-    fps_by_ref = {fp.reference_field.text.value: fp for fp in all_fps}
+    fps_by_ref = {fp.ref: fp for fp in all_fps}
 
     adapter = MagicMock()
     adapter.get_footprint.side_effect = lambda ref: fps_by_ref.get(ref)

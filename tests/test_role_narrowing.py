@@ -19,11 +19,9 @@ from kicadstamp.placement.services.role_narrowing import narrow_candidates_by_sh
 
 
 def _make_fp(ref, sheet_uuid):
-    """resolve_sheet_path_names reads fp.sheet_path.path[:-1] (last entry is
-    the component's own uuid, excluded) — see kicadstamp/sheet_names.py."""
-    fp = MagicMock(spec=FootprintInstance)
-    fp.reference_field.text.value = ref
-    fp.sheet_path.path = [MagicMock(value=sheet_uuid), MagicMock(value=f"{ref}-own-uuid")]
+    fp = MagicMock()
+    fp.ref = ref
+    fp.sheet_path_uuids = (sheet_uuid, f"{ref}-own-uuid")
     return fp
 
 
@@ -33,7 +31,7 @@ _SHEET_NAMES = {"sheet-0": "Channel_0", "sheet-1": "Channel_1"}
 def test_narrows_to_candidates_on_the_requested_sheet():
     fps = [_make_fp("IC2", "sheet-0"), _make_fp("IC3", "sheet-1")]
     narrowed = narrow_candidates_by_sheet(fps, "Channel_0", _SHEET_NAMES)
-    assert [fp.reference_field.text.value for fp in narrowed] == ["IC2"]
+    assert [fp.ref for fp in narrowed] == ["IC2"]
 
 
 def test_noop_when_sheet_empty_or_none():

@@ -32,13 +32,13 @@ def _make_pad(number, x_mm, y_mm, net_name="NET1"):
     pad = MagicMock(spec=Pad)
     pad.number = number
     pad.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
-    pad.net.name = net_name
+    pad.net_name = net_name
     return pad
 
 
 def _make_fp(ref, role=None, pads=()):
     fp = MagicMock(spec=FootprintInstance)
-    fp.reference_field.text.value = ref
+    fp.ref = ref
     fp._role = role
     fp._pads = list(pads)
     return fp

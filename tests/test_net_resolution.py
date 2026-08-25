@@ -79,7 +79,7 @@ class _Net:
 class _Pad:
     def __init__(self, number: str, net_name: str):
         self.number = number
-        self.net = _Net(net_name)
+        self.net_name = net_name
 
 
 class _Fp:

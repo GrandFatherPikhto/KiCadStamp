@@ -26,7 +26,7 @@ from kicadstamp.utils.units import MM
 
 def _make_fp(ref, role=None, cluster=None):
     fp = MagicMock(spec=FootprintInstance)
-    fp.reference_field.text.value = ref
+    fp.ref = ref
     fp._role = role
     fp._cluster = cluster
     return fp
@@ -45,7 +45,7 @@ def _make_fp_with_sheet(ref, role=None, cluster=None, sheet_uuid=None):
     reads fp.sheet_path.path[:-1] (last entry is the component's own uuid,
     excluded) — see kicadstamp/sheet_names.py."""
     fp = _make_fp(ref, role=role, cluster=cluster)
-    fp.sheet_path.path = [MagicMock(value=sheet_uuid), MagicMock(value=f"{ref}-own-uuid")]
+    fp.sheet_path_uuids = (sheet_uuid, f"{ref}-own-uuid")
     return fp
 
 
@@ -61,7 +61,7 @@ def test_unique_match_resolves():
 
     fp = resolve_footprint_by_cluster_role(adapter, "FPGA_PERIPH", "R_SERIES", "label")
 
-    assert fp.reference_field.text.value == "R18"
+    assert fp.ref == "R18"
 
 
 def test_no_match_raises():
@@ -113,7 +113,7 @@ def test_resolve_footprint_by_cluster_role_narrows_by_sheet():
         adapter, "AD_DAC", "AD_DAC", "label",
         sheet="Channel_0", sheet_names={"sheet-0": "Channel_0", "sheet-1": "Channel_1"})
 
-    assert fp.reference_field.text.value == "IC2"
+    assert fp.ref == "IC2"
 
 
 def test_resolve_footprint_by_cluster_role_sheet_no_match_keeps_ambiguous_fatal():
@@ -195,7 +195,7 @@ def test_same_rotation_is_a_plain_offset_subtraction():
     depend on which way Vector2.rotate() turns positive angles)."""
     fp = MagicMock(spec=FootprintInstance)
     fp.position = Vector2.from_xy(int(5.0 * MM), int(-3.0 * MM))
-    fp.orientation.degrees = 47.0
+    fp.angle_deg = 47.0
     pad = MagicMock()
     pad.position = Vector2.from_xy(int(7.5 * MM), int(-1.0 * MM))
     adapter = _adapter_with_pad(pad)
@@ -215,7 +215,7 @@ def test_same_rotation_is_a_plain_offset_subtraction():
 def test_rotation_preserves_pad_to_origin_distance():
     fp = MagicMock(spec=FootprintInstance)
     fp.position = Vector2.from_xy(0, 0)
-    fp.orientation.degrees = 0.0
+    fp.angle_deg = 0.0
     pad = MagicMock()
     pad.position = Vector2.from_xy(int(2.0 * MM), 0)
     adapter = _adapter_with_pad(pad)
@@ -231,9 +231,9 @@ def test_rotation_preserves_pad_to_origin_distance():
 
 def test_missing_pad_raises():
     fp = MagicMock(spec=FootprintInstance)
-    fp.reference_field.text.value = "R18"
+    fp.ref = "R18"
     fp.position = Vector2.from_xy(0, 0)
-    fp.orientation.degrees = 0.0
+    fp.angle_deg = 0.0
     adapter = _adapter_with_pad(None)
     target = Vector2.from_xy(int(10.0 * MM), int(10.0 * MM))
 
@@ -246,7 +246,7 @@ def test_missing_pad_raises():
 def test_build_coordinate_moves_center_anchor():
     fp = _make_fp("R18", role="R_SERIES", cluster="FPGA_PERIPH")
     fp.position = Vector2.from_xy(0, 0)
-    fp.orientation.degrees = 0.0
+    fp.angle_deg = 0.0
     fp.layer = "F.Cu"
     adapter = MagicMock()
     adapter.get_footprints.return_value = [fp]
@@ -269,7 +269,7 @@ def test_build_coordinate_moves_center_anchor():
 def test_build_coordinate_moves_pad_anchor():
     fp = _make_fp("R18", role="R_SERIES", cluster="FPGA_PERIPH")
     fp.position = Vector2.from_xy(int(5.0 * MM), int(-3.0 * MM))
-    fp.orientation.degrees = 47.0
+    fp.angle_deg = 47.0
     fp.layer = "F.Cu"
     pad = MagicMock()
     pad.position = Vector2.from_xy(int(7.5 * MM), int(-1.0 * MM))

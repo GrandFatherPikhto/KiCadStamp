@@ -24,7 +24,7 @@ from kicadstamp.utils.units import MM
 def _make_fp(x_mm, y_mm, angle_deg, layer):
     fp = MagicMock()
     fp.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
-    fp.orientation = Angle.from_degrees(angle_deg)
+    fp.angle_deg = angle_deg
     fp.layer = layer
     return fp
 
@@ -32,7 +32,7 @@ def _make_fp(x_mm, y_mm, angle_deg, layer):
 def _make_pad(x_mm, y_mm, net_name="GND"):
     pad = MagicMock()
     pad.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
-    pad.net.name = net_name
+    pad.net_name = net_name
     return pad
 
 

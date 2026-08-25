@@ -24,17 +24,17 @@ class MoveExecutor:
                        collision_margin_mm: float = 0.2) -> tuple[list[str], list[dict]]:
         failed_refs = []
         all_fps = self.adapter.get_footprints()
-        fp_by_ref = {fp.reference_field.text.value: fp for fp in all_fps}
+        fp_by_ref = {fp.ref: fp for fp in all_fps}
 
         original_states = {}
         for cmd in moves:
             fp = fp_by_ref.get(cmd.ref)
             if fp is not None:
                 original_states[cmd.ref] = {
-                    'uuid': str(fp.id.value),
+                    'uuid': fp.uuid,
                     'x': fp.position.x,
                     'y': fp.position.y,
-                    'angle_deg': fp.orientation.degrees,
+                    'angle_deg': fp.angle_deg,
                     'layer': layer_to_str(fp.layer)
                 }
 
@@ -62,7 +62,7 @@ class MoveExecutor:
                         logger.warning(_("  {ref} not found, skipping").format(ref=cmd.ref))
                         continue
                     fp.position = cmd.position
-                    fp.orientation = cmd.angle
+                    fp.angle_deg = cmd.angle.degrees
                     items_to_update.append(fp)
                 if items_to_update:
                     self.adapter.update_items(items_to_update)

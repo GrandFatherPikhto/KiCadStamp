@@ -125,6 +125,6 @@ def resolve_sheet_path_names(fp, sheet_names: dict[str, str]) -> list[str | None
     built) — calling code must honestly say "no match", not silently treat None
     as a matching segment.
     """
-    path_uuids = [str(u.value) for u in fp.sheet_path.path]
+    path_uuids = list(fp.sheet_path_uuids)
     chain = path_uuids[:-1]
     return [sheet_names.get(u) for u in chain]

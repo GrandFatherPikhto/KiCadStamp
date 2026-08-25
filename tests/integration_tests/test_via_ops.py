@@ -22,14 +22,14 @@ def test_create_and_remove_via(adapter, test_config, tmp_path):
         created = adapter.create_items([via])
         adapter.push_commit(commit, "test: create via")
         assert len(created) == 1
-        via_id = str(created[0].id.value)
+        via_id = created[0].uuid
     except Exception:
         adapter.drop_commit(commit)
         raise
 
     # Проверяем, что via появилась
     vias_after = adapter.get_vias()
-    assert any(str(v.id.value) == via_id for v in vias_after)
+    assert any(v.uuid == via_id for v in vias_after)
 
     # Удаляем via (через реестр или напрямую)
     adapter.remove_by_id(via_id)
@@ -42,7 +42,7 @@ def test_create_and_remove_via(adapter, test_config, tmp_path):
 
     # Проверяем, что via удалена
     vias_final = adapter.get_vias()
-    assert not any(str(v.id.value) == via_id for v in vias_final)
+    assert not any(v.uuid == via_id for v in vias_final)
 
 
 @pytest.mark.integration
@@ -68,7 +68,7 @@ def test_registry_reconcile(adapter, test_config, tmp_path):
     commit = adapter.begin_commit()
     try:
         created = adapter.create_items([adapter.create_via(via_cmd.position, adapter.get_net_by_name("GND"), 0.3, 0.6)])
-        registry.record_created(via_cmd, str(created[0].id.value))
+        registry.record_created(via_cmd, created[0].uuid)
         adapter.push_commit(commit, "test: registry via")
     except Exception:
         adapter.drop_commit(commit)

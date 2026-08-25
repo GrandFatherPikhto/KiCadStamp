@@ -156,8 +156,8 @@ class NetTraceDock(QWidget):
             set_combo_items(self.net_edit, [])
             return
         adapter = board.adapter
-        nets = {t.net.name for t in adapter.get_tracks() if t.net and t.net.name}
-        nets |= {v.net.name for v in adapter.get_vias() if v.net and v.net.name}
+        nets = {t.net_name for t in adapter.get_tracks() if t.net_name}
+        nets |= {v.net_name for v in adapter.get_vias() if v.net_name}
         set_combo_items(self.net_edit, sorted(nets))
 
     # ── Message helper ──────────────────────────────────────────────────────

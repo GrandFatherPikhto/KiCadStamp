@@ -45,7 +45,7 @@ def test_create_read_remove_track(adapter):
         raise
 
     assert len(created) == 1, "create_items должен вернуть ровно один созданный объект"
-    track_id = str(created[0].id.value)
+    track_id = created[0].uuid
 
     # --- Читаем обратно ---
     tracks_after = adapter._board.get_tracks()

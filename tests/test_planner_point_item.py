@@ -20,7 +20,7 @@ MM = 1_000_000
 
 def _make_fp(ref, x_mm=0.0, y_mm=0.0):
     fp = MagicMock(spec=FootprintInstance)
-    fp.reference_field.text.value = ref
+    fp.ref = ref
     fp.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
     return fp
 

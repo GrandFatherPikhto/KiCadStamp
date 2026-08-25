@@ -3,7 +3,7 @@
 import json
 import logging
 from pathlib import Path
-from kipy.geometry import Vector2, Angle
+from kipy.geometry import Vector2
 from kicadstamp.kicad.adapter import KiCadBoardAdapter
 from kicadstamp.utils.layers import layer_from_str
 from kicadstamp.utils.units import MM
@@ -61,7 +61,7 @@ def undo_last_operation(json_path: Path, adapter=None) -> bool:
         orig_y = item['original_position']['y']
         orig_angle = item['original_angle_deg']
         fp.position = Vector2.from_xy(int(orig_x), int(orig_y))
-        fp.orientation = Angle.from_degrees(orig_angle)
+        fp.angle_deg = orig_angle
         adapter.update_items([fp])
         logger.debug(_("Restored {ref} to position ({x:.3f}, {y:.3f}) mm, angle {angle:.1f}°")
                      .format(ref=ref, x=orig_x/MM, y=orig_y/MM, angle=orig_angle))

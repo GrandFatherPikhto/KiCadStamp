@@ -4,8 +4,9 @@ from collections.abc import Callable
 import logging
 
 
-from kipy.board_types import FootprintInstance
 from kipy.geometry import Vector2
+
+from ...domain.board import Footprint
 
 from ...config import Config
 from ...kicad.adapter import KiCadBoardAdapter
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 def resolve_anchor_identity(anchor_ref: str | None, anchor_role: str | None,
                             anchor_point: str | None,
-                            resolve_role_fp: Callable[[], FootprintInstance]) -> str | None:
+                            resolve_role_fp: Callable[[], Footprint]) -> str | None:
     """Shared ref-or-role-or-point-or-none identity dispatch, used by the
     three lightweight "identity only" resolvers (resolve_rule_anchor_ref /
     resolve_clone_anchor_ref / resolve_point_anchor_ref) that
@@ -51,14 +52,14 @@ def resolve_anchor_identity(anchor_ref: str | None, anchor_role: str | None,
         return anchor_ref
     if anchor_role is not None:
         fp = resolve_role_fp()
-        return fp.reference_field.text.value
+        return fp.ref
     if anchor_point is not None:
         # Namespaced token — see dependency_order.py's Item.produces for points.
         return f"point:{anchor_point}"
     return None
 
 
-def resolve_anchor_pad_position(adapter: KiCadBoardAdapter, fp: FootprintInstance,
+def resolve_anchor_pad_position(adapter: KiCadBoardAdapter, fp: Footprint,
                                 anchor_pad: str, label: str) -> Vector2:
     """Resolves a specific pad's position on an already-resolved anchor
     footprint, or raises a fatal ValidationError. Shared by ClonePlacement
@@ -84,14 +85,14 @@ def resolve_anchor_pad_position(adapter: KiCadBoardAdapter, fp: FootprintInstanc
     if pad is None:
         raise ValidationError(format_fatal_error(
             _("{label}: {ref} has no pad {pad!r}").format(
-                label=label, ref=fp.reference_field.text.value, pad=anchor_pad),
+                label=label, ref=fp.ref, pad=anchor_pad),
             [_("check anchor_pad — pad numbers are strings as in KiCad ('1', '17', 'A3')")]
         ))
     return pad.position
 
 
 def resolve_footprint_by_ref(adapter: KiCadBoardAdapter, anchor_ref: str, label: str,
-                             not_found_hint: str | None = None) -> FootprintInstance:
+                             not_found_hint: str | None = None) -> Footprint:
     """Look up a footprint by exact ref, or raise a fatal ValidationError.
 
     Was written three times near-identically (Rule via ComponentResolver
@@ -141,7 +142,7 @@ class ComponentResolver:
                           anchor_role: str | None,
                           anchor_sheet: str | None,
                           anchor_cluster: str | None,
-                          label: str = "") -> FootprintInstance:
+                          label: str = "") -> Footprint:
         """Resolve a footprint by ref **or** by role/sheet/cluster.
 
         Returns the footprint instance. Raises a fatal :class:`ValidationError`

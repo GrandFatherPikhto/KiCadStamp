@@ -106,7 +106,7 @@ class ManualPositionCalculator:
                     rule.anchor_sheet, rule.anchor_cluster,
                     label=_("rule (net {net!r})").format(net=rule.net),
                 )
-            anchor_ref_resolved = target_fp.reference_field.text.value
+            anchor_ref_resolved = target_fp.ref
 
             # --- Collect all roles needed for this rule ---
             roles_needed = set()

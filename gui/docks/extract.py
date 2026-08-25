@@ -144,7 +144,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
-from kipy.board_types import FootprintInstance, Track, Via
+from kicadstamp.domain.board import Footprint, Track, Via
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFormLayout,
                               QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
@@ -594,14 +594,14 @@ class ExtractDock(QWidget):
         via_uuids, track_uuids = self._registry_uuids()
         raw_items = []
         for item in self._raw_items:
-            if isinstance(item, FootprintInstance):
-                if item.reference_field.text.value in kept_refs:
+            if isinstance(item, Footprint):
+                if item.ref in kept_refs:
                     raw_items.append(item)
             elif isinstance(item, Via):
-                if str(item.id.value) not in via_uuids:
+                if item.uuid not in via_uuids:
                     raw_items.append(item)
             elif isinstance(item, Track):
-                if str(item.id.value) not in track_uuids:
+                if item.uuid not in track_uuids:
                     raw_items.append(item)
             else:
                 raw_items.append(item)
@@ -625,8 +625,8 @@ class ExtractDock(QWidget):
         roles = sorted({s.role for s in footprints if s.role})
         set_combo_items(self.origin_role_combo, roles)
 
-        via_nets = sorted({item.net.name for item in raw_items
-                            if isinstance(item, Via) and item.net and item.net.name})
+        via_nets = sorted({item.net_name for item in raw_items
+                            if isinstance(item, Via) and item.net_name})
         set_combo_items(self.origin_via_net_combo, via_nets)
 
     def set_root_path(self, path: Optional[Path]) -> None:

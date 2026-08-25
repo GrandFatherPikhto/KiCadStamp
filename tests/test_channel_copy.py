@@ -56,20 +56,20 @@ C_SYM = "c-sym-uuid"
 def _pad(net_name):
     p = MagicMock()
     p.net = MagicMock()
-    p.net.name = net_name
+    p.net_name = net_name
     return p
 
 
 def _fp(ref, x_mm, y_mm, angle_deg, layer, path, pad_nets=(), role=None):
     fp = MagicMock(spec=FootprintInstance)
-    fp.reference_field.text.value = ref
+    fp.ref = ref
     fp.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
-    fp.orientation = Angle.from_degrees(angle_deg)
+    fp.angle_deg = angle_deg
     fp.layer = layer
-    fp.sheet_path.path = [MagicMock(value=u) for u in path]
+    fp.sheet_path_uuids = tuple(path)
     fp._pad_nets = list(pad_nets)
     fp._role = role
-    fp.id.value = f"uuid-{ref}"
+    fp.uuid = f"uuid-{ref}"
     return fp
 
 
@@ -77,10 +77,10 @@ def _via(x_mm, y_mm, net_name, drill_mm=0.3, diameter_mm=0.6):
     v = MagicMock(spec=Via)
     v.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
     v.net = MagicMock()
-    v.net.name = net_name
-    v.drill_diameter = int(drill_mm * MM)
-    v.diameter = int(diameter_mm * MM)
-    v.id.value = f"via-{net_name}-{x_mm}-{y_mm}"
+    v.net_name = net_name
+    v.drill_mm = drill_mm
+    v.diameter_mm = diameter_mm
+    v.uuid = f"via-{net_name}-{x_mm}-{y_mm}"
     return v
 
 
@@ -89,10 +89,10 @@ def _track(x1, y1, x2, y2, net_name, width_mm=0.25, layer=BoardLayer.BL_F_Cu):
     t.start = Vector2.from_xy(int(x1 * MM), int(y1 * MM))
     t.end = Vector2.from_xy(int(x2 * MM), int(y2 * MM))
     t.net = MagicMock()
-    t.net.name = net_name
-    t.width = int(width_mm * MM)
+    t.net_name = net_name
+    t.width_mm = width_mm
     t.layer = layer
-    t.id.value = f"track-{net_name}-{x1}-{y1}"
+    t.uuid = f"track-{net_name}-{x1}-{y1}"
     return t
 
 
@@ -114,7 +114,7 @@ def _adapter(fps, vias=None, tracks=None):
     adapter.get_footprints.return_value = fps
     adapter.get_vias.return_value = vias or []
     adapter.get_tracks.return_value = tracks or []
-    by_ref = {fp.reference_field.text.value: fp for fp in fps}
+    by_ref = {fp.ref: fp for fp in fps}
 
     def pads(fp):
         return [_pad(n) for n in fp._pad_nets]
@@ -397,7 +397,7 @@ class TestPlanning:
 
     def test_missing_twin_warns_and_skips(self, caplog):
         # Remove C1 from the board: C0 has no twin -> skipped with a warning
-        fps = [fps0 for fps0 in _channel_fps() if fps0.reference_field.text.value != "C1"]
+        fps = [fps0 for fps0 in _channel_fps() if fps0.ref != "C1"]
         with caplog.at_level("WARNING"):
             _, plan = _plan_for(fps)
         assert [m.ref for m in plan.moves] == []
@@ -551,7 +551,7 @@ class TestExecution:
         assert failed == ([], [], [])
 
         # C1 must have been moved to the target position
-        c1 = next(fp for fp in fps if fp.reference_field.text.value == "C1")
+        c1 = next(fp for fp in fps if fp.ref == "C1")
         assert c1.position.x == 52 * MM and c1.position.y == 54 * MM
         # vias and tracks were created (2 create_items calls: vias, then tracks)
         assert adapter.create_items.call_count == 2

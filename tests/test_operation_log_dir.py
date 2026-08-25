@@ -75,9 +75,10 @@ class TestBatchExecutorUsesConfigOperationLogDir:
     @staticmethod
     def _fp(ref):
         fp = MagicMock()
-        fp.reference_field.text.value = ref
+        fp.ref = ref
+        fp.uuid = f"uuid-{ref}"
         fp.position = Vector2.from_xy(int(50 * MM), int(50 * MM))
-        fp.orientation = Angle.from_degrees(90.0)
+        fp.angle_deg = 90.0
         fp.layer = BoardLayer.BL_B_Cu
         return fp
 

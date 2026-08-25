@@ -31,11 +31,14 @@ from kicadstamp.exceptions import ValidationError
 
 
 def _make_fp(ref):
-    # spec=FootprintInstance so isinstance() checks in resolve_roles_by_selection
-    # (footprints = [i for i in items if isinstance(i, FootprintInstance)])
-    # actually see this mock as a footprint — a plain MagicMock() fails those.
+    # spec=FootprintInstance: the real adapter maps these through
+    # footprint_from_kipy(), which reads the kipy attribute names.
     fp = MagicMock(spec=FootprintInstance)
     fp.reference_field.text.value = ref
+    fp.id.value = f"uuid-{ref}"
+    fp.orientation.degrees = 0.0
+    fp.value_field = None
+    fp.sheet_path.path = []
     return fp
 
 
@@ -51,7 +54,7 @@ def _adapter_with_stray_selection():
     adapter._board.get_footprints.return_value = [ic1, j1]
     adapter._board.get_selection.return_value = [j1]
     roles = {"IC1": "FPGA", "J1": "CONN_PM5V"}
-    adapter.get_field_value = MagicMock(side_effect=lambda fp, field: roles[fp.reference_field.text.value])
+    adapter.get_field_value = MagicMock(side_effect=lambda fp, field: roles[fp.ref])
     return adapter
 
 

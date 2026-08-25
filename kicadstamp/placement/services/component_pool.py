@@ -53,10 +53,10 @@ class ComponentPool:
                 if fp_cluster is None or not cluster_prefix_match(fp_cluster, self.cluster):
                     continue
             pads = self.adapter.get_footprint_pads(fp)
-            nets_on_fp = {p.net.name for p in pads if p.net and p.net.name}
+            nets_on_fp = {p.net_name for p in pads if p.net_name}
             if self.net_name not in nets_on_fp:
                 continue
-            ref = fp.reference_field.text.value
+            ref = fp.ref
             self._pools[role].append(ref)
 
         for role in self._pools:

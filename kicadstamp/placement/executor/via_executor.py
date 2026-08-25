@@ -44,14 +44,14 @@ class ViaExecutor:
                 if new_vias:
                     created = self.adapter.create_items(new_vias)
                     for cmd, v in zip(cmd_for_via, created):
-                        uuid_str = str(v.id.value)
+                        uuid_str = v.uuid
                         created_via_log.append({
                             'uuid': uuid_str,
                             'x_mm': v.position.x / MM,
                             'y_mm': v.position.y / MM,
-                            'diameter_mm': v.diameter / MM,
-                            'drill_mm': v.drill_diameter / MM,
-                            'net_name': v.net.name,
+                            'diameter_mm': v.diameter_mm,
+                            'drill_mm': v.drill_mm,
+                            'net_name': v.net_name,
                             'owner_ref': cmd.owner_ref
                         })
                         pending.append((cmd, uuid_str))

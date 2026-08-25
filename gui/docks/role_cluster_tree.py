@@ -645,7 +645,7 @@ class RoleClusterTreeDock(QDockWidget):
             if adapter.has_field(fp, ROLE_FIELD_NAME) and adapter.has_field(fp, CLUSTER_FIELD_NAME):
                 usable.append(fp)
             else:
-                skipped_refs.append(fp.reference_field.text.value if fp.reference_field else "?")
+                skipped_refs.append(fp.ref if fp.ref else "?")
 
         updates = []
         for fp in usable:

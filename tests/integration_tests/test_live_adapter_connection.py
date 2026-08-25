@@ -13,7 +13,7 @@ def test_get_footprint(adapter, test_component_ref):
     """Проверяем поиск компонента."""
     fp = adapter.get_footprint(test_component_ref)
     assert fp is not None
-    assert fp.reference_field.text.value == test_component_ref
+    assert fp.ref == test_component_ref
 
 
 @pytest.mark.integration

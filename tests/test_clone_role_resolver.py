@@ -6,7 +6,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from unittest.mock import MagicMock
-from kipy.board_types import FootprintInstance
+from kipy.board_types import BoardLayer
+from kipy.geometry import Vector2
+
+from kicadstamp.domain.board import Footprint
 
 from kicadstamp.config import Cell, TemplateComponentSlot, ClonePlacement
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
@@ -19,8 +22,8 @@ from kicadstamp.exceptions import ValidationError
 
 
 def _make_fp(ref, role=None, nets=None, cluster=None):
-    fp = MagicMock(spec=FootprintInstance)
-    fp.reference_field.text.value = ref
+    fp = Footprint(ref=ref, uuid=f"uuid-{ref}", position=Vector2.from_xy(0, 0),
+                   angle_deg=0.0, layer=BoardLayer.BL_F_Cu)
     fp._role = role
     fp._nets = nets or []
     fp._cluster = cluster
@@ -46,7 +49,7 @@ def _get_pads(fp):
     for i, n in enumerate(fp._nets, start=1):
         p = MagicMock()
         p.number = str(i)
-        p.net.name = n
+        p.net_name = n
         pads.append(p)
     return pads
 
@@ -439,7 +442,7 @@ def _make_fp_with_sheet(ref, role, nets, sheet_uuid, cluster=None):
     resolve_single_role_candidate can be exercised on same-Role/same-Cluster
     candidates spread across reused hierarchical sheets."""
     fp = _make_fp(ref, role, nets, cluster)
-    fp.sheet_path.path = [MagicMock(value=sheet_uuid), MagicMock(value=f"{ref}-own-uuid")]
+    fp.sheet_path_uuids = (sheet_uuid, f"{ref}-own-uuid")
     return fp
 
 
@@ -548,12 +551,12 @@ class TestResolveRolesByNetsPlacementSheet:
 
 
 def _make_anchor_fp(ref, role, sheet_uuid):
-    fp = MagicMock(spec=FootprintInstance)
-    fp.reference_field.text.value = ref
+    fp = Footprint(ref=ref, uuid=f"uuid-{ref}", position=Vector2.from_xy(0, 0),
+                   angle_deg=0.0, layer=BoardLayer.BL_F_Cu)
     fp._role = role
-    # resolve_sheet_path_names reads fp.sheet_path.path[:-1] (last entry is
+    # resolve_sheet_path_names reads fp.sheet_path_uuids[:-1] (last entry is
     # the component's own uuid, excluded) — see kicadstamp/sheet_names.py.
-    fp.sheet_path.path = [MagicMock(value=sheet_uuid), MagicMock(value=f"{ref}-own-uuid")]
+    fp.sheet_path_uuids = (sheet_uuid, f"{ref}-own-uuid")
     return fp
 
 
@@ -582,7 +585,7 @@ class TestResolveAnchorByRole:
                                anchor_role="AD_DAC", anchor_sheet="Channel_{channel}",
                                params={"channel": 0})
         result = resolve_anchor_by_role(adapter, clone, sheet_names)
-        assert result.reference_field.text.value == "IC2"
+        assert result.ref == "IC2"
 
     def test_anchor_sheet_missing_param_raises(self):
         fps = [_make_anchor_fp("IC2", "AD_DAC", "sheet-uuid-0")]
@@ -604,7 +607,7 @@ class TestResolveAnchorByRole:
         clone = ClonePlacement(cluster="c0", cell="t", xy=(0, 0),
                                anchor_role="AD_DAC", anchor_sheet="Channel_0")
         result = resolve_anchor_by_role(adapter, clone, sheet_names)
-        assert result.reference_field.text.value == "IC2"
+        assert result.ref == "IC2"
 
 
 class TestResolveSingleRoleCandidate:
@@ -624,7 +627,7 @@ class TestResolveSingleRoleCandidate:
         ])
         fp = resolve_single_role_candidate(adapter.get_footprints(), adapter,
                                            "C_IN_BULK", "Out_Pi_Filter_N2V5")
-        assert fp.reference_field.text.value == "C22"
+        assert fp.ref == "C22"
 
     def test_no_candidate_returns_none(self):
         adapter = self._adapter([
@@ -653,7 +656,7 @@ class TestResolveSingleRoleCandidate:
         sheet_names = {"sheet-uuid-0": "Channel_0", "sheet-uuid-1": "Channel_1", "sheet-uuid-2": "Channel_2"}
         fp = resolve_single_role_candidate(adapter.get_footprints(), adapter,
                                            "AD_DAC", "DAC_BUF", sheet="Channel_0", sheet_names=sheet_names)
-        assert fp.reference_field.text.value == "IC2"
+        assert fp.ref == "IC2"
 
     def test_sheet_none_stays_ambiguous(self):
         """Regression guard: no sheet passed — the same Cluster+Role ambiguity

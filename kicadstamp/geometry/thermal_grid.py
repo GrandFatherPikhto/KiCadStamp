@@ -2,7 +2,7 @@
 
 import math
 
-from kipy.board_types import Pad
+from ..domain.board import Pad
 from kipy.geometry import Vector2
 from ..utils.units import MM
 from ..exceptions import GeometryError
@@ -10,10 +10,9 @@ from ..i18n import _
 
 def get_pad_size(pad: Pad) -> tuple:
     """Returns (width, height) of the padstack copper layer."""
-    layers = pad.padstack.copper_layers
-    if not layers:
+    size = pad.size
+    if size is None:
         raise GeometryError(_("pad has no copper layers in its padstack"))
-    size = layers[0].size
     return size.x, size.y
 
 def compute_thermal_via_grid(pad: Pad, rows: int, cols: int, margin_mm: float, stagger: bool = False) -> list[Vector2]:
@@ -37,7 +36,7 @@ def compute_thermal_via_grid(pad: Pad, rows: int, cols: int, margin_mm: float, s
             x = 0 if cols == 1 else -usable_w/2 + usable_w * c / (cols - 1)
             local_points.append((x + row_offset, y))
 
-    angle_rad = pad.padstack.angle.to_radians()
+    angle_rad = pad.angle_rad
     cos_a, sin_a = math.cos(angle_rad), math.sin(angle_rad)
     abs_points = []
     for lx, ly in local_points:

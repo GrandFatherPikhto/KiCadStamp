@@ -472,7 +472,7 @@ def test_clear_all_skips_footprint_missing_a_field_instead_of_rolling_back_the_b
     monkeypatch.setattr(role_cluster_tree_mod, "start_long_op", _run_sync)
     ok_fp = Mock()
     missing_fp = Mock()
-    missing_fp.reference_field.text.value = "FB15"
+    missing_fp.ref = "FB15"
     board = FakeBoard()
     board.adapter._missing_fields = {missing_fp: {"Cluster"}}
     main_window.connection.board = board

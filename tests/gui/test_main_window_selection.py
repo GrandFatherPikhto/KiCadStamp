@@ -18,24 +18,22 @@ from tests.gui.conftest import _pump
 
 
 class _FakeFootprint:
-    """Looks like a FootprintInstance well enough for the tick — the test
-    monkeypatches main_window_mod.FootprintInstance to this class so the
-    refs comprehension's isinstance() check treats it as a footprint. (The
-    selection signature moved to kicadstamp.explore.selection_signature in
-    Phase 2 of the god-file decomposition and uses the REAL FootprintInstance,
+    """Looks like the domain Footprint well enough for the tick — the test
+    monkeypatches main_window_mod.Footprint to this class so the refs
+    comprehension's isinstance() check treats it as a footprint. (The
+    selection signature in kicadstamp.explore uses the REAL domain Footprint,
     so these fakes key by type name there — still deterministic, which is all
     the early-exit tests rely on.)"""
 
     def __init__(self, ref):
-        text = type("_Text", (), {"value": ref})()
-        self.reference_field = type("_RefField", (), {"text": text})()
+        self.ref = ref
 
 
 class _FakeVia:
     """A non-footprint item (vias/tracks shape the tick's signature too)."""
 
     def __init__(self, net_name):
-        self.net = type("_Net", (), {"name": net_name})()
+        self.net_name = net_name
 
 
 class _FakeAdapter:
@@ -69,7 +67,7 @@ def _connected_window(real_main_window, monkeypatch, items, snapshot):
     footprints, and wires a fake board into a real BoardConnection."""
     real_main_window._timer.stop()
     real_main_window._selection_timer.stop()
-    monkeypatch.setattr(main_window_mod, "FootprintInstance", _FakeFootprint)
+    monkeypatch.setattr(main_window_mod, "Footprint", _FakeFootprint)
 
     board = _FakeBoard(items, snapshot)
     connection = BoardConnection(timeout_ms=10)

@@ -10,7 +10,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import MagicMock
 from kipy.geometry import Vector2, Angle
-from kipy.board_types import BoardLayer, Pad, FootprintInstance, Net
+from kipy.board_types import BoardLayer, Pad, Net
+
+from kicadstamp.domain.board import Footprint
 
 from kicadstamp.config import (
     Config, ClonePlacement, Cell,
@@ -26,14 +28,15 @@ def _make_pad(number, x_mm, y_mm, net_name):
     pad = MagicMock(spec=Pad)
     pad.number = number
     pad.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
-    pad.net.name = net_name
+    pad.net_name = net_name
     return pad
 
 
 def _make_fp(ref, role=None, nets=None):
-    fp = MagicMock(spec=FootprintInstance)
-    fp.reference_field.text.value = ref
+    fp = Footprint(ref=ref, uuid=f"uuid-{ref}", position=Vector2.from_xy(0, 0),
+                   angle_deg=0.0, layer=BoardLayer.BL_F_Cu)
     fp._role = role
+    fp.definition = MagicMock()
     fp.definition.items = [_make_pad("1", 0, 0, n) for n in (nets or [])]
     return fp
 

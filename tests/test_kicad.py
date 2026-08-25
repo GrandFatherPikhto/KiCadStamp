@@ -80,6 +80,10 @@ def test_init_without_connection():
 def _make_fp(ref):
     fp = MagicMock()
     fp.reference_field.text.value = ref
+    fp.id.value = f"uuid-{ref}"
+    fp.orientation.degrees = 0.0
+    fp.value_field = None
+    fp.sheet_path.path = []
     return fp
 
 
@@ -168,8 +172,8 @@ class TestFootprintsCache:
         first = adapter.get_footprints()
         second = adapter.get_footprints()
 
-        assert [fp.reference_field.text.value for fp in first] == ["R1", "C1"]
-        assert [fp.reference_field.text.value for fp in second] == ["R1", "C1"]
+        assert [fp.ref for fp in first] == ["R1", "C1"]
+        assert [fp.ref for fp in second] == ["R1", "C1"]
         adapter._board.get_footprints.assert_called_once()
 
     def test_get_footprint_by_ref_uses_the_cache_too(self):
@@ -181,7 +185,7 @@ class TestFootprintsCache:
         found = adapter.get_footprint("C1")
         adapter.get_footprints()  # second read — must still hit the cache
 
-        assert found.reference_field.text.value == "C1"
+        assert found.ref == "C1"
         adapter._board.get_footprints.assert_called_once()
 
     def test_refresh_board_clears_the_cache(self):
@@ -236,8 +240,9 @@ class TestFootprintsCache:
         adapter.flip_selected(first)
         second = adapter.get_footprints()
 
-        assert first[0] is pre_flip_fp
-        assert second[0] is post_flip_fp
+        assert first[0].ref == "C1"
+        assert second[0].ref == "C1"
+        assert first[0] is not second[0]  # cache was invalidated -> fresh DTOs
         assert adapter._board.get_footprints.call_count == 2
 
 

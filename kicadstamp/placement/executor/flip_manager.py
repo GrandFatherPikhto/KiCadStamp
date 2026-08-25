@@ -17,7 +17,7 @@ class FlipManager:
     def flip_if_needed(self, moves: list[MoveCommand]) -> dict[str, object]:
         """Return ref->footprint dict after possibly flipping components."""
         all_fps = self.adapter.get_footprints()
-        fp_by_ref = {fp.reference_field.text.value: fp for fp in all_fps}
+        fp_by_ref = {fp.ref: fp for fp in all_fps}
 
         refs_to_flip = [m.ref for m in moves if self._needs_flip(m, fp_by_ref)]
         if refs_to_flip:
@@ -26,7 +26,7 @@ class FlipManager:
             time.sleep(0.5)
             # Reload footprints after flip
             all_fps = self.adapter.get_footprints()
-            fp_by_ref = {fp.reference_field.text.value: fp for fp in all_fps}
+            fp_by_ref = {fp.ref: fp for fp in all_fps}
         return fp_by_ref
 
     def _needs_flip(self, cmd: MoveCommand, fp_by_ref: dict[str, object]) -> bool:

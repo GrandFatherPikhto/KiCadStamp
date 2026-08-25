@@ -5,12 +5,28 @@ import logging
 from contextlib import contextmanager
 from typing import Any
 import kipy
-from kipy.board_types import FootprintInstance, Zone, Net, Via, ViaType, Track, BoardLayer, Pad, Field, Group
+from kipy.board_types import BoardLayer, Field, Group, Pad as KipyPad, Track as KipyTrack, Via as KipyVia, ViaType
 from kipy.geometry import Vector2, Box2, Angle
 from kipy.proto.board import board_commands_pb2
 from kipy.errors import FutureVersionError
 
 from .interfaces import IBoardAdapter
+from ..domain.board import (
+    Footprint,
+    Net,
+    Pad,
+    Track,
+    Via,
+    Zone,
+    board_item_from_kipy,
+    footprint_from_kipy,
+    net_from_kipy,
+    pad_from_kipy,
+    track_from_kipy,
+    unwrap,
+    via_from_kipy,
+    zone_from_kipy,
+)
 from ..exceptions import BoardNotFoundError, ComponentNotFoundError, ValidationError, format_fatal_error
 from ..utils.units import MM
 from ..constants import DEFAULT_TIMEOUT_MS
@@ -50,7 +66,7 @@ class KiCadBoardAdapter(IBoardAdapter):
             logger.debug(_("Could not query KiCad version after connect"), exc_info=True)
         self._board = None
         self._write_risk_checked = False
-        self._footprints_cache: list[FootprintInstance] | None = None
+        self._footprints_cache: list[Footprint] | None = None
         # get_selected_items() is polled every ~400ms by the GUI's live-
         # selection timer (see main_window.py's _poll_board_selection) —
         # logging its count unconditionally at DEBUG flooded the log file
@@ -146,26 +162,26 @@ class KiCadBoardAdapter(IBoardAdapter):
             logger.debug(_("Closing previous kipy connection failed (ignored)"), exc_info=True)
 
     # --- Search ---
-    def get_footprint(self, ref: str) -> FootprintInstance | None:
+    def get_footprint(self, ref: str) -> Footprint | None:
         for fp in self.get_footprints():
-            if fp.reference_field.text.value == ref:
+            if fp.ref == ref:
                 logger.debug(_("Found footprint {ref}").format(ref=ref))
                 return fp
         logger.debug(_("Footprint {ref} not found").format(ref=ref))
         return None
 
-    def get_footprint_by_id(self, uuid_str: str) -> FootprintInstance | None:
+    def get_footprint_by_id(self, uuid_str: str) -> Footprint | None:
         """Refdes-independent lookup, for identity that must survive
         re-annotation (undo.py's move log — see move_executor.py's uuid
         capture)."""
         for fp in self.get_footprints():
-            if str(fp.id.value) == uuid_str:
+            if fp.uuid == uuid_str:
                 logger.debug(_("Found footprint by uuid {uuid}").format(uuid=uuid_str))
                 return fp
         logger.debug(_("Footprint with uuid {uuid} not found").format(uuid=uuid_str))
         return None
 
-    def get_footprints(self) -> list[FootprintInstance]:
+    def get_footprints(self) -> list[Footprint]:
         """
         Cached per board generation (cleared by refresh_board()). Anchor/role
         resolution (clone_role_resolver.py), ComponentPool, dependency_order.py
@@ -183,17 +199,17 @@ class KiCadBoardAdapter(IBoardAdapter):
         structural, not data-dependent.
         """
         if self._footprints_cache is None:
-            self._footprints_cache = list(self._board.get_footprints())
+            self._footprints_cache = [footprint_from_kipy(fp) for fp in self._board.get_footprints()]
             logger.debug(_("Retrieved {count} footprints").format(count=len(self._footprints_cache)))
         return list(self._footprints_cache)
 
     def get_vias(self) -> list[Via]:
-        vias = list(self._board.get_vias())
+        vias = [via_from_kipy(v) for v in self._board.get_vias()]
         logger.debug(_("Retrieved {count} vias").format(count=len(vias)))
         return vias
 
     def get_tracks(self) -> list[Track]:
-        tracks = list(self._board.get_tracks())
+        tracks = [track_from_kipy(t) for t in self._board.get_tracks()]
         logger.debug(_("Retrieved {count} tracks").format(count=len(tracks)))
         return tracks
 
@@ -211,7 +227,7 @@ class KiCadBoardAdapter(IBoardAdapter):
         if self.ignore_selection:
             return []
         raw_selection = list(self._board.get_selection())
-        direct_items = [item for item in raw_selection if not isinstance(item, Group)]
+        direct_items = [board_item_from_kipy(item) for item in raw_selection if not isinstance(item, Group)]
         group_uuids = set()
         for item in raw_selection:
             if isinstance(item, Group):
@@ -220,10 +236,10 @@ class KiCadBoardAdapter(IBoardAdapter):
 
         if group_uuids:
             for fp in self.get_footprints():
-                if str(fp.id.value) in group_uuids:
+                if fp.uuid in group_uuids:
                     direct_items.append(fp)
             for via in self.get_vias():
-                if str(via.id.value) in group_uuids:
+                if via.uuid in group_uuids:
                     direct_items.append(via)
 
         if len(direct_items) != getattr(self, "_last_selection_log_count", None):
@@ -245,9 +261,9 @@ class KiCadBoardAdapter(IBoardAdapter):
         logger.debug(_("Setting GUI selection to {count} items").format(count=len(items)))
         self._board.clear_selection()
         if items:
-            self._board.add_to_selection(items)
+            self._board.add_to_selection([unwrap(i) for i in items])
 
-    def get_field_value(self, footprint: FootprintInstance, field_name: str) -> str | None:
+    def get_field_value(self, footprint: Footprint, field_name: str) -> str | None:
         """
         Value of a custom component field (e.g., Role for KiCadStamp 4.0).
         IMPORTANT: texts_and_fields contains a mix of actual Field objects
@@ -255,21 +271,21 @@ class KiCadBoardAdapter(IBoardAdapter):
         name at all) — filter by type, otherwise we get AttributeError on .name
         for BoardText.
         """
-        for item in footprint.texts_and_fields:
+        for item in unwrap(footprint).texts_and_fields:
             if isinstance(item, Field) and item.name == field_name:
                 return item.text.value if item.text else None
         return None
 
-    def has_field(self, footprint: FootprintInstance, field_name: str) -> bool:
+    def has_field(self, footprint: Footprint, field_name: str) -> bool:
         """True if footprint carries a field with this name at all — unlike
         get_field_value(), which returns None both for "field missing" and
         for "field present but empty", this distinguishes the two so a
         caller can skip a footprint instead of hitting set_field_value's
         fatal ValidationError mid-batch."""
         return any(isinstance(item, Field) and item.name == field_name
-                   for item in footprint.texts_and_fields)
+                   for item in unwrap(footprint).texts_and_fields)
 
-    def set_field_value(self, footprint: FootprintInstance, field_name: str, value: str) -> None:
+    def set_field_value(self, footprint: Footprint, field_name: str, value: str) -> None:
         """
         Write counterpart of get_field_value() — sets a custom footprint
         field's text value IN PLACE. Does not by itself push anything to
@@ -296,11 +312,11 @@ class KiCadBoardAdapter(IBoardAdapter):
         scratch" (KIID/position/layer/schematic-symbol sync are all unknown
         here), so this never attempts it.
         """
-        for item in footprint.texts_and_fields:
+        for item in unwrap(footprint).texts_and_fields:
             if isinstance(item, Field) and item.name == field_name:
                 item.text.value = value
                 return
-        ref = footprint.reference_field.text.value if footprint.reference_field else "?"
+        ref = footprint.ref
         raise ValidationError(format_fatal_error(
             _("cannot set field {field!r}").format(field=field_name),
             [_("{ref} has no field {field!r} on its footprint — add the field once in "
@@ -351,16 +367,16 @@ class KiCadBoardAdapter(IBoardAdapter):
 
         return self.commit_with_retry(description, work)
 
-    def get_footprint_pads(self, footprint: FootprintInstance) -> list[Pad]:
+    def get_footprint_pads(self, footprint: Footprint) -> list[Pad]:
         """
         Returns the list of pads of this footprint. Does not go to the API
         separately — pads are already in footprint.definition.items together
         with fields/graphics; just filter by type. Moved here from planner.py
         to avoid duplication in future places (e.g., keepout building).
         """
-        return [item for item in footprint.definition.items if isinstance(item, Pad)]
+        return [pad_from_kipy(item) for item in unwrap(footprint).definition.items if isinstance(item, KipyPad)]
 
-    def get_pad_by_number(self, footprint: FootprintInstance, pad_number: str) -> Pad | None:
+    def get_pad_by_number(self, footprint: Footprint, pad_number: str) -> Pad | None:
         """Finds a specific pad of a footprint by number (e.g., '1', '145')."""
         for pad in self.get_footprint_pads(footprint):
             if pad.number == pad_number:
@@ -371,7 +387,7 @@ class KiCadBoardAdapter(IBoardAdapter):
         for z in self._board.get_zones():
             if z.name == name:
                 logger.debug(_("Found zone {name}").format(name=name))
-                return z
+                return zone_from_kipy(z)
         logger.debug(_("Zone {name} not found").format(name=name))
         return None
 
@@ -379,12 +395,12 @@ class KiCadBoardAdapter(IBoardAdapter):
         for n in self._board.get_nets():
             if n.name == name:
                 logger.debug(_("Found net {name}").format(name=name))
-                return n
+                return net_from_kipy(n)
         logger.debug(_("Net {name} not found").format(name=name))
         return None
 
     def get_all_nets(self) -> list[Net]:
-        nets = list(self._board.get_nets())
+        nets = [net_from_kipy(n) for n in self._board.get_nets()]
         logger.debug(_("Retrieved {count} nets").format(count=len(nets)))
         return nets
 
@@ -408,7 +424,7 @@ class KiCadBoardAdapter(IBoardAdapter):
         """
         if not items:
             return []
-        result = self._board.get_item_bounding_box(list(items))
+        result = self._board.get_item_bounding_box([unwrap(i) for i in items])
         # Defensive normalisation in case it's not a list
         if not isinstance(result, list):
             result = [result]
@@ -490,23 +506,42 @@ class KiCadBoardAdapter(IBoardAdapter):
                 raise
         raise last_exc
 
+    def _sync_dto_to_kipy(self, dto, kipy_item) -> None:
+        """Copy consumer-side DTO mutations back onto the live kipy object.
+
+        Only ``Footprint`` is mutated by consumers before ``update_items``
+        (move_executor.py sets ``position``/``angle_deg``; undo.py sets
+        ``position``/``angle_deg``). Via/Track DTOs are created, not mutated;
+        field writes (``set_field_value``) mutate the kipy object in place.
+        """
+        if isinstance(dto, Footprint):
+            kipy_item.position = dto.position
+            kipy_item.orientation = Angle.from_degrees(dto.angle_deg)
+            kipy_item.layer = dto.layer
+
     def update_items(self, items):
         logger.debug(_("Updating {count} items").format(count=len(items)))
+        kipy_items = []
+        for dto in items:
+            kipy_item = unwrap(dto)
+            self._sync_dto_to_kipy(dto, kipy_item)
+            kipy_items.append(kipy_item)
         return self._mutating_call("update_items",
-                                   lambda: self._board.update_items(items))
+                                   lambda: self._board.update_items(kipy_items))
 
     def create_items(self, items):
         logger.debug(_("Creating {count} items").format(count=len(items)))
         created = self._mutating_call("create_items",
-                                      lambda: self._board.create_items(items))
-        logger.debug(_("Created {count} items").format(count=len(created)))
-        return created
+                                      lambda: self._board.create_items([unwrap(i) for i in items]))
+        created_dtos = [board_item_from_kipy(item) for item in created]
+        logger.debug(_("Created {count} items").format(count=len(created_dtos)))
+        return created_dtos
 
     # --- Specialised actions ---
-    def flip_selected(self, footprints: list[FootprintInstance]):
+    def flip_selected(self, footprints: list[Footprint]):
         logger.info(_("Flipping {count} footprints via GUI action").format(count=len(footprints)))
         self._board.clear_selection()
-        self._board.add_to_selection(footprints)
+        self._board.add_to_selection([unwrap(fp) for fp in footprints])
         self._kicad.run_action("pcbnew.InteractiveEdit.flip")
         self._board.clear_selection()
         # The flip happens server-side via a GUI action — unlike update_items,
@@ -561,26 +596,28 @@ class KiCadBoardAdapter(IBoardAdapter):
     def create_via(self, position: Vector2, net: Net, drill_mm: float, diameter_mm: float) -> Via:
         logger.debug(_("Creating via at ({x:.3f}, {y:.3f}) mm, net={net}")
                      .format(x=position.x/MM, y=position.y/MM, net=net.name))
-        via = Via()
+        via = KipyVia()
         via.type = ViaType.VT_THROUGH
         via.position = position
-        via.net = net
+        via.net = unwrap(net)
         via.drill_diameter = int(drill_mm * MM)
         via.diameter = int(diameter_mm * MM)
-        return via
+        return Via(uuid="", position=position, net_name=net.name if net else None,
+                   drill_mm=drill_mm, diameter_mm=diameter_mm, layer=None, _kipy=via)
 
     def create_track(self, start: Vector2, end: Vector2, width_mm: float,
                      net: Net, layer: BoardLayer) -> Track:
         logger.debug(_("Creating track ({sx:.3f}, {sy:.3f}) -> ({ex:.3f}, {ey:.3f}) mm, net={net}")
                      .format(sx=start.x/MM, sy=start.y/MM,
                              ex=end.x/MM, ey=end.y/MM, net=net.name))
-        track = Track()
+        track = KipyTrack()
         track.start = start
         track.end = end
         track.width = int(width_mm * MM)
-        track.net = net
+        track.net = unwrap(net)
         track.layer = layer
-        return track
+        return Track(uuid="", start=start, end=end, net_name=net.name if net else None,
+                     width_mm=width_mm, layer=layer, _kipy=track)
 
     def remove_by_id(self, uuid_str: str) -> bool:
         """

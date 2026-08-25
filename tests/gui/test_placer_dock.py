@@ -990,17 +990,17 @@ def test_refresh_known_nets_feeds_nets_and_net_overrides_value_choices(main_wind
 
 class _FakeAutofillFootprint:
     def __init__(self, ref, role, cluster, nets, sheet_uuid=None):
-        self.reference_field = SimpleNamespace(text=SimpleNamespace(value=ref))
+        self.ref = ref
         self._role = role
         self._cluster = cluster
         self._nets = nets
-        # resolve_sheet_path_names reads fp.sheet_path.path[:-1] (last entry is
+        # resolve_sheet_path_names reads fp.sheet_path_uuids[:-1] (last entry is
         # the component's own uuid, excluded) — see kicadstamp/sheet_names.py.
         # sheet_uuid (2026-08-16, Auto-fill Sheet narrowing tests): set it to
         # exercise narrow_candidates_by_sheet on a reused-sheet ambiguity.
-        if sheet_uuid is not None:
-            self.sheet_path = SimpleNamespace(
-                path=[SimpleNamespace(value=sheet_uuid), SimpleNamespace(value=f"{ref}-own-uuid")])
+        self.sheet_path_uuids = (
+            (sheet_uuid, f"{ref}-own-uuid") if sheet_uuid is not None else ()
+        )
 
 
 class _FakeAutofillAdapter:
@@ -1020,7 +1020,7 @@ class _FakeAutofillAdapter:
     def get_footprint_pads(self, fp):
         # Pads get sequential numbers 1..N (2026-08-16, net_template_pad) so
         # get_pad_by_number can resolve a role's net_template_pad.
-        return [SimpleNamespace(net=SimpleNamespace(name=n), number=str(i + 1))
+        return [SimpleNamespace(net_name=n, number=str(i + 1))
                 for i, n in enumerate(fp._nets)]
 
     def get_pad_by_number(self, fp, pad_number):

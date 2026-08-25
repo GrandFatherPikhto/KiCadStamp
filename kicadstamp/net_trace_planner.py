@@ -80,7 +80,7 @@ def _resolve_anchor(adapter, nt: NetTrace, sheet_names: dict[str, str]):
     if nt.anchor_pad is not None:
         pad = adapter.get_pad_by_number(anchor_fp, nt.anchor_pad)
         if pad is None:
-            ref = anchor_fp.reference_field.text.value
+            ref = anchor_fp.ref
             raise ValidationError(format_fatal_error(
                 _("{label}: anchor pad {pad!r} not found on {ref}").format(
                     label=label, pad=nt.anchor_pad, ref=ref),
@@ -155,11 +155,11 @@ def adopt_net_trace_copper(adapter, via_registry, track_registry,
         if cmd.registry_key is None or cmd.registry_key in via_registry.entries:
             continue
         for v in live_vias:
-            if str(v.id.value) in owned_via_uuids:
+            if v.uuid in owned_via_uuids:
                 continue
             if via_registry._live_matches(v, cmd):
-                via_registry.entries[cmd.registry_key] = via_registry._build_entry(cmd, str(v.id.value))
-                owned_via_uuids.add(str(v.id.value))
+                via_registry.entries[cmd.registry_key] = via_registry._build_entry(cmd, v.uuid)
+                owned_via_uuids.add(v.uuid)
                 logger.info(_("net_trace: adopted existing via ({x:.3f}, {y:.3f}) mm into the "
                               "placement registry").format(x=cmd.position.x / 1e6, y=cmd.position.y / 1e6))
                 break
@@ -170,11 +170,11 @@ def adopt_net_trace_copper(adapter, via_registry, track_registry,
         if cmd.registry_key is None or cmd.registry_key in track_registry.entries:
             continue
         for t in live_tracks:
-            if str(t.id.value) in owned_track_uuids:
+            if t.uuid in owned_track_uuids:
                 continue
             if track_matches(t, cmd):
-                track_registry.entries[cmd.registry_key] = track_registry._build_entry(cmd, str(t.id.value))
-                owned_track_uuids.add(str(t.id.value))
+                track_registry.entries[cmd.registry_key] = track_registry._build_entry(cmd, t.uuid)
+                owned_track_uuids.add(t.uuid)
                 logger.info(_("net_trace: adopted existing track ({sx:.3f}, {sy:.3f}) -> "
                               "({ex:.3f}, {ey:.3f}) mm into the track registry")
                             .format(sx=cmd.start.x / 1e6, sy=cmd.start.y / 1e6,

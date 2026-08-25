@@ -2,8 +2,10 @@
 
 import logging
 
-from kipy.board_types import FootprintInstance, BoardLayer
+from kipy.board_types import BoardLayer
 from kipy.geometry import Vector2
+
+from ...domain.board import Footprint
 
 from ...config import Config, ThermalViaArrayConfig
 from ...geometry.keepout import Rect, build_keepout, find_free_point
@@ -45,14 +47,14 @@ class ViaPlanner:
 
     def _via_already_exists(self, existing_vias, position: Vector2, net_name: str) -> bool:
         for via in existing_vias:
-            if not via.net or via.net.name != net_name:
+            if via.net_name != net_name:
                 continue
             if (abs(via.position.x - position.x) <= self._VIA_POSITION_TOLERANCE_NM and
                     abs(via.position.y - position.y) <= self._VIA_POSITION_TOLERANCE_NM):
                 return True
         return False
 
-    def _resolve_thermal_anchor(self, tva: ThermalViaArrayConfig) -> FootprintInstance | None:
+    def _resolve_thermal_anchor(self, tva: ThermalViaArrayConfig) -> Footprint | None:
         """
         Resolves the anchor for one thermal_via_arrays entry by anchor_ref,
         anchor_role (with anchor_sheet and anchor_cluster), or anchor_point.
@@ -152,13 +154,13 @@ class ViaPlanner:
 
     def _build_keepout(
         self,
-        target_fp: FootprintInstance,
+        target_fp: Footprint,
         planned: list[PlacedComponentInfo],
         exclude: set[tuple[str, str]] | None = None,
         planned_vias: list[ViaCommand] | None = None,
     ) -> list[Rect]:
         pad_items = []
-        target_ref_name = target_fp.reference_field.text.value
+        target_ref_name = target_fp.ref
         for pad in self.adapter.get_footprint_pads(target_fp):
             if exclude and (target_ref_name, pad.number) in exclude:
                 continue
@@ -186,7 +188,7 @@ class ViaPlanner:
     def _plan_thermal_vias(
         self,
         planned: list[PlacedComponentInfo],
-        target_fp: FootprintInstance,
+        target_fp: Footprint,
         existing_vias: list | None,
         tva: ThermalViaArrayConfig,
         planned_vias: list[ViaCommand] | None = None,
@@ -195,12 +197,12 @@ class ViaPlanner:
 
         # target_fp should already be resolved (passed from plan_vias)
         logger.debug(_("Planning thermal vias for {ref}, pad {pad}")
-                     .format(ref=target_fp.reference_field.text.value, pad=tva.pad))
+                     .format(ref=target_fp.ref, pad=tva.pad))
         pad = self.adapter.get_pad_by_number(target_fp, tva.pad)
         if pad is None:
             raise ComponentNotFoundError(
                 _("Thermal pad: {ref} has no pad {pad}").format(
-                    ref=target_fp.reference_field.text.value, pad=tva.pad)
+                    ref=target_fp.ref, pad=tva.pad)
             )
 
         try:
@@ -214,7 +216,7 @@ class ViaPlanner:
         except GeometryError as e:
             raise GeometryError(_("Thermal pad: {error}").format(error=e))
 
-        exclude = {(target_fp.reference_field.text.value, tva.pad)}
+        exclude = {(target_fp.ref, tva.pad)}
         keepout_excl = self._build_keepout(target_fp, planned, exclude=exclude, planned_vias=planned_vias)
         logger.debug(_("Keepout for {name!r}: {count} rectangles")
                      .format(name=tva.name, count=len(keepout_excl)))
@@ -246,7 +248,7 @@ class ViaPlanner:
                                .format(x=p.x/MM, y=p.y/MM))
                 continue
             result.append(ViaCommand(free_p, tva.drill_mm, tva.diameter_mm, tva.net,
-                                     target_fp.reference_field.text.value,
+                                     target_fp.ref,
                                      # "thermal_via_array" (singular, literal) is a fixed
                                      # registry-key tag persisted in real registries/*.json
                                      # on disk — NOT the config field name, must not be

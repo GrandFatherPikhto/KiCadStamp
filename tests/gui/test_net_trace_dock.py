@@ -42,7 +42,7 @@ def _make_dock(main_window, tmp_path, data=None):
 
 def _make_fp(ref, role, x_mm, y_mm):
     fp = MagicMock()
-    fp.reference_field.text.value = ref
+    fp.ref = ref
     fp.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
     fp._role = role
     return fp
@@ -50,20 +50,20 @@ def _make_fp(ref, role, x_mm, y_mm):
 
 def _make_track(sx, sy, ex, ey, net, layer=BoardLayer.BL_F_Cu):
     t = MagicMock()
-    t.net = SimpleNamespace(name=net)
+    t.net_name = net
     t.start = Vector2.from_xy(int(sx * MM), int(sy * MM))
     t.end = Vector2.from_xy(int(ex * MM), int(ey * MM))
-    t.width = int(0.15 * MM)
+    t.width_mm = 0.15
     t.layer = layer
     return t
 
 
 def _make_via(x, y, net):
     v = MagicMock()
-    v.net = SimpleNamespace(name=net)
+    v.net_name = net
     v.position = Vector2.from_xy(int(x * MM), int(y * MM))
-    v.drill_diameter = int(0.3 * MM)
-    v.diameter = int(0.6 * MM)
+    v.drill_mm = 0.3
+    v.diameter_mm = 0.6
     return v
 
 

@@ -42,7 +42,9 @@ extract_template_from_selection (defined below) and render_uncertain_comments
 import logging
 from typing import Any
 
-from kipy.board_types import FootprintInstance, Via, Track, BoardLayer
+from kipy.board_types import BoardLayer
+
+from .domain.board import Footprint, Via, Track
 
 from .constants import ROLE_FIELD_NAME
 from .exceptions import ValidationError, format_fatal_error
@@ -78,11 +80,11 @@ def _selection_role_nets(adapter, footprints) -> dict[str, dict[str, set[str]]]:
             # literal/parametrize path for anything it cannot classify.
             continue
         for pad_idx, p in enumerate(fp_pads):
-            if not p.net or not p.net.name:
+            if not p.net_name:
                 continue
             pad_num = getattr(p, "number", None)
             pads.setdefault(str(pad_num if pad_num is not None else pad_idx + 1),
-                            set()).add(p.net.name)
+                            set()).add(p.net_name)
         role_nets[role] = pads
     return role_nets
 
@@ -215,10 +217,10 @@ def extract_template_from_selection(
                "\"always resolved from this param\" — pick one per net")]
         ))
     items = items if items is not None else adapter.get_selected_items()
-    footprints = [i for i in items if isinstance(i, FootprintInstance)]
+    footprints = [i for i in items if isinstance(i, Footprint)]
     vias = [i for i in items if isinstance(i, Via)]
     tracks_selected = [i for i in items if isinstance(i, Track)]
-    ignored = [i for i in items if not isinstance(i, (FootprintInstance, Via, Track))]
+    ignored = [i for i in items if not isinstance(i, (Footprint, Via, Track))]
 
     if ignored:
         logger.warning(_("{count} selected objects — not footprint, via, or track, "
@@ -246,7 +248,7 @@ def extract_template_from_selection(
     problems: list[str] = []
     roles_seen: dict[str, str] = {}
     for fp in footprints:
-        ref = fp.reference_field.text.value
+        ref = fp.ref
         role = adapter.get_field_value(fp, ROLE_FIELD_NAME)
         if role is None:
             problems.append(_("{ref}: no {field!r} field — every selected component "
@@ -303,7 +305,7 @@ def extract_template_from_selection(
             "role": role,
             "offset_along_mm": along_mm,
             "offset_across_mm": across_mm,
-            "angle_deg": fp.orientation.degrees,
+            "angle_deg": fp.angle_deg,
         }
         if fp.layer != tpl_layer:
             slot["layer"] = 'F.Cu' if fp.layer == BoardLayer.BL_F_Cu else 'B.Cu'
@@ -311,12 +313,12 @@ def extract_template_from_selection(
         if role in net_template_role:
             literal = net_template_role[role]
             fp_pads = adapter.get_footprint_pads(fp)
-            fp_nets = sorted({p.net.name for p in fp_pads if p.net and p.net.name})
+            fp_nets = sorted({p.net_name for p in fp_pads if p.net_name})
             if literal not in fp_nets:
                 raise ValidationError(format_fatal_error(
                     _("--net-template-role for role {role!r} asks for net {literal!r}, "
                       "but it is not on any pad of {ref}").format(role=role, literal=literal,
-                                                                   ref=fp.reference_field.text.value),
+                                                                   ref=fp.ref),
                     [_("actual nets on pads: {nets} — check typo in "
                        "--net-template-role or in the role itself").format(nets=fp_nets)]
                 ))
@@ -337,12 +339,12 @@ def extract_template_from_selection(
             if same_as is not None:
                 slot["net_template_same_as_role"] = same_as
             else:
-                pad_num = next((p.number for p in fp_pads if p.net and p.net.name == literal), None)
+                pad_num = next((p.number for p in fp_pads if p.net_name == literal), None)
                 if pad_num is not None:
                     slot["net_template_pad"] = str(pad_num)
         elif net_template_map:
             fp_pads = adapter.get_footprint_pads(fp)
-            fp_nets = sorted({p.net.name for p in fp_pads if p.net and p.net.name})
+            fp_nets = sorted({p.net_name for p in fp_pads if p.net_name})
             mapped = [n for n in fp_nets if n in net_template_map]
             if len(mapped) == 1:
                 slot["net_template"] = parametrize_net(mapped[0], net_template_map, params)
@@ -361,14 +363,14 @@ def extract_template_from_selection(
                 logger.warning(_("  {ref} (role {role}): {count} nets from --net-template on pads "
                                  "({nets}) — net_template not set, fill it manually in the "
                                  "resulting YAML, or use --net-template-role {role}=<net> in advance")
-                               .format(ref=fp.reference_field.text.value, role=role,
+                               .format(ref=fp.ref, role=role,
                                        count=len(mapped), nets=mapped))
                 if annotations is not None:
                     annotations.append((role, "net_template", hint))
         components.append(slot)
         logger.debug(_("  {ref} (role {role}): along={along}, across={across}, angle={angle}{layer}{net}")
-                     .format(ref=fp.reference_field.text.value, role=role,
-                             along=along_mm, across=across_mm, angle=fp.orientation.degrees,
+                     .format(ref=fp.ref, role=role,
+                             along=along_mm, across=across_mm, angle=fp.angle_deg,
                              layer=_(", layer={layer}").format(layer=slot.get('layer')) if 'layer' in slot else "",
                              net=_(", net_template={nt}").format(nt=slot.get('net_template')) if 'net_template' in slot else ""))
 
@@ -382,7 +384,7 @@ def extract_template_from_selection(
     for v in vias:
         along_mm = round((v.position.x - origin.x) / MM, 4)
         across_mm = round((v.position.y - origin.y) / MM, 4)
-        via_net = v.net.name if v.net else None
+        via_net = v.net_name
         role_net = role_net_pad = None
         if via_net in rule_nets:
             via_net = None
@@ -403,8 +405,8 @@ def extract_template_from_selection(
             "offset_along_mm": along_mm,
             "offset_across_mm": across_mm,
             "net": via_net,
-            "drill_mm": round(v.drill_diameter / MM, 4),
-            "diameter_mm": round(v.diameter / MM, 4),
+            "drill_mm": round(v.drill_mm, 4),
+            "diameter_mm": round(v.diameter_mm, 4),
         }
         if role_net is not None:
             entry["net_from_role"] = role_net
@@ -421,7 +423,7 @@ def extract_template_from_selection(
         start_across_mm = round((t.start.y - origin.y) / MM, 4)
         end_along_mm = round((t.end.x - origin.x) / MM, 4)
         end_across_mm = round((t.end.y - origin.y) / MM, 4)
-        track_net = t.net.name if t.net else None
+        track_net = t.net_name
         role_net = role_net_pad = None
         if track_net in rule_nets:
             track_net = None
@@ -440,7 +442,7 @@ def extract_template_from_selection(
             "start_across_mm": start_across_mm,
             "end_along_mm": end_along_mm,
             "end_across_mm": end_across_mm,
-            "width_mm": round(t.width / MM, 4),
+            "width_mm": round(t.width_mm, 4),
             "net": track_net,
         }
         if role_net is not None:

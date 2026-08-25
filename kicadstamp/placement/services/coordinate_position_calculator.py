@@ -29,8 +29,9 @@ ClonePlacement's own component moves in apply_pipeline.py's Phase 1.
 """
 import logging
 
-from kipy.board_types import FootprintInstance
 from kipy.geometry import Vector2, Angle
+
+from ...domain.board import Footprint
 
 from ...config import CoordinatePlacement, coordinate_placement_effective_name
 from ...constants import ROLE_FIELD_NAME, CLUSTER_FIELD_NAME
@@ -63,7 +64,7 @@ def _rotate_native(vec: Vector2, angle_deg: float) -> Vector2:
 
 def resolve_footprint_by_cluster_role(adapter, cluster: str, role: str, label: str,
                                       sheet: str | None = None,
-                                      sheet_names: dict[str, str] | None = None) -> FootprintInstance:
+                                      sheet_names: dict[str, str] | None = None) -> Footprint:
     """Exact-match lookup — same convention as ClonePlacement's cluster:
     mode (resolve_by_cluster_tag in clone_role_resolver.py, 2026-08-06:
     "Cluster is meant to be unique per instance... a direct, unconditional
@@ -129,7 +130,7 @@ def resolve_target_position(cp: CoordinatePlacement) -> tuple[Vector2, float]:
     return target, rotation_deg
 
 
-def resolve_self_pad_anchor(adapter, fp: FootprintInstance, pad_number: str,
+def resolve_self_pad_anchor(adapter, fp: Footprint, pad_number: str,
                             target: Vector2, new_rotation_deg: float, label: str) -> Vector2:
     """Where must fp's OWN origin end up so that, after rotating to
     new_rotation_deg, pad `pad_number` lands exactly on `target`? This is
@@ -150,7 +151,7 @@ def resolve_self_pad_anchor(adapter, fp: FootprintInstance, pad_number: str,
     (unnecessary here — see _rotate_native's own docstring)."""
     pad_position = resolve_anchor_pad_position(adapter, fp, pad_number, label)
     world_offset = Vector2.from_xy(pad_position.x - fp.position.x, pad_position.y - fp.position.y)
-    local_offset = _rotate_native(world_offset, -fp.orientation.degrees)
+    local_offset = _rotate_native(world_offset, -fp.angle_deg)
     new_offset = _rotate_native(local_offset, new_rotation_deg)
     return Vector2.from_xy(target.x - new_offset.x, target.y - new_offset.y)
 
@@ -199,7 +200,7 @@ def _anchor_offset_mm(cp: CoordinatePlacement) -> tuple[float, float]:
     return cp.x_mm or 0.0, cp.y_mm or 0.0
 
 
-def _build_footprint_index(adapter) -> dict[tuple[str, str], list[FootprintInstance]]:
+def _build_footprint_index(adapter) -> dict[tuple[str, str], list[Footprint]]:
     """Group EVERY footprint by its (Role, Cluster) custom-field pair in one
     adapter.get_footprints() scan (2026-08-12, Group 4): build_coordinate_moves
     used to call resolve_footprint_by_cluster_role per entry, and each call
@@ -207,7 +208,7 @@ def _build_footprint_index(adapter) -> dict[tuple[str, str], list[FootprintInsta
     exact-match semantics — the key is the EXACT (role, cluster) pair, not
     prefix-matched (same convention as resolve_footprint_by_cluster_role's
     own docstring)."""
-    index: dict[tuple[str, str], list[FootprintInstance]] = {}
+    index: dict[tuple[str, str], list[Footprint]] = {}
     for fp in adapter.get_footprints():
         key = (adapter.get_field_value(fp, ROLE_FIELD_NAME),
                adapter.get_field_value(fp, CLUSTER_FIELD_NAME))
@@ -260,12 +261,12 @@ def build_coordinate_moves(adapter, coordinate_placements: list[CoordinatePlacem
             origin = (resolve_self_pad_anchor(adapter, fp, cp.anchor_pad, target, rotation_deg, label)
                       if cp.anchor == 'pad' else target)
         moves.append(MoveCommand(
-            ref=fp.reference_field.text.value,
+            ref=fp.ref,
             position=origin,
             angle=Angle.from_degrees(rotation_deg),
             layer=fp.layer,
         ))
         logger.info(_("[{label}] {ref} -> ({x:.3f}, {y:.3f}) mm, {angle}°")
-                    .format(label=label, ref=fp.reference_field.text.value,
+                    .format(label=label, ref=fp.ref,
                             x=origin.x / MM, y=origin.y / MM, angle=rotation_deg))
     return moves
