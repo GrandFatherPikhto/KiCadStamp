@@ -1664,6 +1664,20 @@ class ExtractDock(QWidget):
             return None, str(e)
         return origin, None
 
+    @staticmethod
+    def _templatize_sheet(value: str, sheet: str | None) -> str:
+        """Replace a literal `sheet` path segment (as `/{sheet}/`) with the
+        `{sheet}` placeholder, so the extracted nested CellPlacement's nets:/
+        params: resolve against whichever sheet this reusable composite gets at
+        apply time (see clone_position_calculator.py::_resolve_one_level, the
+        same effective-sheet inheritance/injection cf1041a + handoff
+        cell_placement_net_sheet_template). A no-op when `sheet` is falsy or
+        doesn't appear in `value` as a full path segment (bounded by '/' on
+        both sides) — e.g. a global rail like '+3V3' is left untouched."""
+        if not sheet:
+            return value
+        return value.replace(f"/{sheet}/", "/{sheet}/")
+
     def _build_sub_placements(self, payload: Dict[str, Any], origin) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
         """Worker thread: turn the checked Sub-placements (payload records
         carrying the clone) into CellPlacement-shaped dicts for the new cell's
@@ -1743,15 +1757,25 @@ class ExtractDock(QWidget):
                 entry["sheet"] = clone.sheet
             if clone.cluster:
                 entry["cluster"] = clone.cluster
-            # Parametrisation carried over verbatim (2026-08-25, handoff
-            # sub_placements_lost_params): the source ClonePlacement and the
-            # new nested CellPlacement reference the SAME cell, so params/nets/
-            # net_overrides/refs keep their meaning unchanged. Written only
-            # when non-empty — no `params: {}` noise on plain placements.
+            # Parametrisation carried over (2026-08-25, handoff
+            # sub_placements_lost_params) with the literal `sheet` path segment
+            # templatized to `{sheet}` (2026-08-26, handoff
+            # cell_placement_net_sheet_template): the source ClonePlacement and
+            # the new nested CellPlacement reference the SAME cell, so
+            # params/nets keep their meaning — but a reusable composite cloned
+            # per channel must NOT carry a hardcoded /Channel_1/ in its nets/
+            # params (that would drag Channel_1 parts onto every other channel
+            # at apply time). net_overrides/refs stay verbatim (net_overrides
+            # is keyed by the already-resolved name — templatizing its keys is
+            # out of scope). Written only when non-empty — no `params: {}`
+            # noise on plain placements.
             if clone.params:
-                entry["params"] = dict(clone.params)
+                entry["params"] = {
+                    k: (self._templatize_sheet(v, clone.sheet) if isinstance(v, str) else v)
+                    for k, v in clone.params.items()
+                }
             if clone.nets:
-                entry["nets"] = dict(clone.nets)
+                entry["nets"] = {k: self._templatize_sheet(v, clone.sheet) for k, v in clone.nets.items()}
             if clone.net_overrides:
                 entry["net_overrides"] = dict(clone.net_overrides)
             if clone.refs:

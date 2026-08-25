@@ -360,4 +360,63 @@ class TestCellPlacementSheetInheritance:
 
         assert len(placed) == 2
         assert inner.sheet is None  # original shared object untouched
+        assert inner.params == {}  # ... and params not polluted with "sheet" either
         assert calls == ["Channel_0", "Channel_1"]  # each branch its own sheet
+
+
+class TestCellPlacementSheetPlaceholder:
+    """2026-08-26 (handoff cell_placement_net_sheet_template): nets:/params:
+    of a nested CellPlacement may use the `{sheet}` placeholder — the EFFECTIVE
+    sheet (own or inherited) is injected into the nested placement's OWN params
+    under "sheet" at resolve time, so per-instance hierarchical nets like
+    /Channel_1/DAC/+3V3_DVDD resolve per-channel instead of dragging Channel_1
+    parts onto every other channel. Real net-based resolution, no mocks."""
+
+    def _build(self, top_sheet, inner_sheet=None, inner_params=None, net_template="{sheet}_NET"):
+        leaf = Cell(name="leaf", components=[
+            TemplateComponentSlot(role="R1", offset_along_mm=1.0, offset_across_mm=0.0, angle_deg=0.0),
+        ])
+        inner = CellPlacement(name="inner", cell="leaf", xy=(1.0, 0.0),
+                              nets={"R1": net_template}, sheet=inner_sheet, params=inner_params or {})
+        mid = Cell(name="mid", clone_placements=[inner])
+        top = ClonePlacement(cluster="top", cell="mid", xy=(0.0, 0.0), sheet=top_sheet)
+        cfg = Config(layer="F.Cu", cells={"leaf": leaf, "mid": mid}, clone_placements=[top])
+        return top, cfg
+
+    def test_inherited_sheet_resolves_sheet_placeholder(self):
+        """top.sheet='Channel_0', nested nets {R1: '{sheet}_NET'} -> matches a
+        component on 'Channel_0_NET' (NOT the literal '{sheet}_NET' — which no
+        real net has)."""
+        top, cfg = self._build(top_sheet="Channel_0")
+        adapter = _adapter_for([_make_fp("C1", role="R1", nets=["Channel_0_NET"])])
+        calc = ClonePositionCalculator(adapter, cfg)
+
+        placed, _vias, _tracks = calc.compute_raw_positions([top])
+
+        assert len(placed) == 1
+        assert placed[0].ref == "C1"
+
+    def test_explicit_nested_sheet_wins_for_placeholder(self):
+        """Explicit nested.sheet ('SheetB') overrides the inherited one
+        ('SheetA') — {sheet} resolves to the explicit value."""
+        top, cfg = self._build(top_sheet="SheetA", inner_sheet="SheetB")
+        adapter = _adapter_for([_make_fp("C1", role="R1", nets=["SheetB_NET"])])
+        calc = ClonePositionCalculator(adapter, cfg)
+
+        placed, _vias, _tracks = calc.compute_raw_positions([top])
+
+        assert len(placed) == 1
+        assert placed[0].ref == "C1"
+
+    def test_explicit_params_sheet_overrides_injected(self):
+        """A user-authored params['sheet'] ('Custom') wins over the injected
+        effective sheet — {sheet} resolves to 'Custom', not to the inherited
+        'Channel_0'."""
+        top, cfg = self._build(top_sheet="Channel_0", inner_params={"sheet": "Custom"})
+        adapter = _adapter_for([_make_fp("C1", role="R1", nets=["Custom_NET"])])
+        calc = ClonePositionCalculator(adapter, cfg)
+
+        placed, _vias, _tracks = calc.compute_raw_positions([top])
+
+        assert len(placed) == 1
+        assert placed[0].ref == "C1"

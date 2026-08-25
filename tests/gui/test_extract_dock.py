@@ -1923,3 +1923,85 @@ def test_build_sub_placements_omits_sheet_when_none(main_window, tmp_path, monke
     entry = entries[0]
     assert "sheet" not in entry
     assert entry["cluster"] == "PIF_AVDD"
+
+
+# ── Sub-placements: literal sheet segment templatized to {sheet} (2026-08-26,
+# handoff cell_placement_net_sheet_template) ────────────────────────────────
+
+def test_templatize_sheet_helper(main_window, tmp_path):
+    """Direct unit on _templatize_sheet: a full `/Channel_1/` path segment is
+    replaced with `/{sheet}/`; a global rail with no sheet segment and a falsy
+    sheet are left untouched."""
+    dock = ExtractDock(main_window)
+    assert dock._templatize_sheet("/Channel_1/DAC/+3V3_DVDD", "Channel_1") == "/{sheet}/DAC/+3V3_DVDD"
+    assert dock._templatize_sheet("+3V3", "Channel_1") == "+3V3"
+    assert dock._templatize_sheet("/Channel_1/DAC/+3V3_DVDD", None) == "/Channel_1/DAC/+3V3_DVDD"
+
+
+def test_build_sub_placements_templatizes_sheet_in_nets_params(main_window, tmp_path, monkeypatch):
+    """Live bug 2026-08-26: extracted nested CellPlacements carried a hardcoded
+    /Channel_1/ in nets:/params:, so reusing the composite on Channel_0 dragged
+    Channel_1 parts over. The literal sheet path segment must be written as
+    {sheet}; a global rail (no sheet segment) is left untouched, and non-string
+    params values are preserved as-is."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {"clone_placements": []})
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+
+    clone = ClonePlacement(
+        cluster="PIF_DVDD", name="CH1_PIF_DVDD", cell="dac_pif_dvdd", xy=(10.0, 5.0),
+        sheet="Channel_1",
+        nets={"FB": "/Channel_1/DAC/+3V3_DVDD", "C_IN": "+3V3"},
+        params={"PWR": "/Channel_1/DAC/+3V3_DVDD", "COUNT": 3},
+    )
+    monkeypatch.setattr(
+        "kicadstamp.placement.services.board_items_resolver.clone_world_origin",
+        lambda adapter, cfg, clone, sheet_names=None, resolved_points=None:
+        Vector2.from_xy(15_000_000, 8_000_000))
+
+    payload = {
+        "board": FakeBoard(), "placer_path": cells_file, "name": "dac_buf",
+        "raw_items": [_fake_fp("C9")], "origin_kwargs": {},
+        "sub_placements": [{"name": "CH1_PIF_DVDD", "clone": clone}],
+    }
+    entries, err = dock._build_sub_placements(
+        payload, origin=Vector2.from_xy(5_000_000, 3_000_000))
+
+    assert err is None
+    entry = entries[0]
+    assert entry["nets"] == {"FB": "/{sheet}/DAC/+3V3_DVDD", "C_IN": "+3V3"}
+    assert entry["params"] == {"PWR": "/{sheet}/DAC/+3V3_DVDD", "COUNT": 3}
+
+
+def test_build_sub_placements_sheet_none_copies_literally(main_window, tmp_path, monkeypatch):
+    """clone.sheet is None -> nets/params are copied verbatim, no templatizing
+    attempted (the current, pre-this-fix behavior is preserved for placements
+    without a sheet)."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {"clone_placements": []})
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+
+    clone = ClonePlacement(
+        cluster="PIF_AVDD", name="CH0_PIF_AVDD", cell="pif_avdd", xy=(5.0, 2.0),
+        nets={"FB": "/Channel_1/DAC/+3V3_DVDD"},
+        params={"PWR": "/Channel_1/DAC/+3V3_DVDD"},
+    )
+    monkeypatch.setattr(
+        "kicadstamp.placement.services.board_items_resolver.clone_world_origin",
+        lambda adapter, cfg, clone, sheet_names=None, resolved_points=None:
+        Vector2.from_xy(5_000_000, 2_000_000))
+
+    payload = {
+        "board": FakeBoard(), "placer_path": cells_file, "name": "dac_buf",
+        "raw_items": [_fake_fp("C9")], "origin_kwargs": {},
+        "sub_placements": [{"name": "CH0_PIF_AVDD", "clone": clone}],
+    }
+    entries, err = dock._build_sub_placements(
+        payload, origin=Vector2.from_xy(0, 0))
+
+    assert err is None
+    entry = entries[0]
+    assert entry["nets"] == {"FB": "/Channel_1/DAC/+3V3_DVDD"}
+    assert entry["params"] == {"PWR": "/Channel_1/DAC/+3V3_DVDD"}

@@ -376,19 +376,23 @@ class ClonePositionCalculator:
         # rename-stably keyed in the registry.
         world_rotation_deg = parent_rotation_deg + placement.rotation_deg
         for nested in cell.clone_placements:
-            # Sheet inheritance (2026-08-26, handoff cell_placement_sheet_inherit):
-            # a nested CellPlacement with NO own sheet takes the RESOLVED sheet of
-            # the CURRENT level's placement (the top-level ClonePlacement on the
-            # first recursion), chained down through arbitrarily deep nesting. This
-            # makes a reusable composite cell (one `dac_buf` definition cloned into
-            # CH0_DAC_BUF/CH1_DAC_BUF) resolve per-channel without hardcoding the
-            # channel into the nested entries. `nested` is a SHARED object between
-            # recursion branches — never mutate it, build a local dataclasses.replace
-            # copy instead (only sheet changes; name/cell stay identical).
-            if nested.sheet is None:
-                inherited_sheet = getattr(placement, "sheet", None)
-                if inherited_sheet is not None:
-                    nested = dataclasses.replace(nested, sheet=inherited_sheet)
+            # Sheet inheritance (2026-08-26, handoff cell_placement_sheet_inherit) +
+            # {sheet} placeholder injection (2026-08-26, handoff
+            # cell_placement_net_sheet_template): the EFFECTIVE sheet (own explicit
+            # value, or inherited from the enclosing placement) is both (a) what a
+            # nested CellPlacement with no own sheet resolves to, AND (b) injected
+            # into this nested placement's OWN params under "sheet", so any
+            # {sheet} placeholder in its nets:/params: (net_resolution.resolve_net ->
+            # resolve_placeholder) resolves against it automatically. setdefault, not
+            # unconditional overwrite — an explicit user-authored params["sheet"]
+            # (unlikely, but possible) wins. `nested` is a SHARED object between
+            # recursion branches (see cf1041a) — never mutate it, always a local
+            # dataclasses.replace copy.
+            effective_sheet = nested.sheet if nested.sheet is not None else getattr(placement, "sheet", None)
+            if effective_sheet is not None:
+                merged_params = dict(nested.params)
+                merged_params.setdefault("sheet", effective_sheet)
+                nested = dataclasses.replace(nested, sheet=effective_sheet, params=merged_params)
             nested_cell, nested_cell_name = self._resolve_content(
                 nested.cell, nested.role, f"{placement_label}/{nested.name}")
             if nested_cell is None:
