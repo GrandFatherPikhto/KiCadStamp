@@ -24,6 +24,9 @@ build/
 dist/
 downloads/
 diagnostics/**
+
+# Внутренние/локальные скрипты (машинно-специфичные, не для коммита)
+utils/**
 eggs/
 lib/
 lib64/
