@@ -1867,16 +1867,20 @@ def test_build_sub_placements_copies_sheet_cluster(main_window, tmp_path, monkey
     CellPlacement lost its own-identity sheet/cluster, so role_narrowing.py's
     sheet/cluster steps read None (getattr) and a shared-net role (e.g. +3V3
     on a PI-filter) stayed ambiguous among identical physical instances.
-    Both fields must be copied into the new nested entry."""
+    Both fields must be copied into the new nested entry — here on a
+    CROSS-sheet batch (two different sheets), where sheet: is legitimately
+    kept per item (the uniform-sheet omission is covered separately)."""
     cells_file = tmp_path / "cells.yaml"
     _write_yaml(cells_file, {"clone_placements": []})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
 
-    clone = ClonePlacement(
-        cluster="PIF_DVDD", name="CH1_PIF_DVDD", cell="dac_pif_dvdd",
-        xy=(10.0, 5.0), sheet="Channel_1",
-    )
+    clones = [
+        ClonePlacement(cluster="PIF_DVDD", name="CH1_PIF_DVDD", cell="dac_pif_dvdd",
+                       xy=(10.0, 5.0), sheet="Channel_1"),
+        ClonePlacement(cluster="PIF_AVDD", name="CH2_PIF_AVDD", cell="dac_pif_avdd",
+                       xy=(12.0, 5.0), sheet="Channel_2"),
+    ]
     monkeypatch.setattr(
         "kicadstamp.placement.services.board_items_resolver.clone_world_origin",
         lambda adapter, cfg, clone, sheet_names=None, resolved_points=None:
@@ -1885,15 +1889,16 @@ def test_build_sub_placements_copies_sheet_cluster(main_window, tmp_path, monkey
     payload = {
         "board": FakeBoard(), "placer_path": cells_file, "name": "dac_buf",
         "raw_items": [_fake_fp("C9")], "origin_kwargs": {},
-        "sub_placements": [{"name": "CH1_PIF_DVDD", "clone": clone}],
+        "sub_placements": [{"name": c.name, "clone": c} for c in clones],
     }
     entries, err = dock._build_sub_placements(
         payload, origin=Vector2.from_xy(5_000_000, 3_000_000))
 
     assert err is None
-    entry = entries[0]
-    assert entry["sheet"] == "Channel_1"
-    assert entry["cluster"] == "PIF_DVDD"
+    assert entries[0]["sheet"] == "Channel_1"
+    assert entries[0]["cluster"] == "PIF_DVDD"
+    assert entries[1]["sheet"] == "Channel_2"
+    assert entries[1]["cluster"] == "PIF_AVDD"
 
 
 def test_build_sub_placements_omits_sheet_when_none(main_window, tmp_path, monkeypatch):
@@ -2005,3 +2010,142 @@ def test_build_sub_placements_sheet_none_copies_literally(main_window, tmp_path,
     entry = entries[0]
     assert entry["nets"] == {"FB": "/Channel_1/DAC/+3V3_DVDD"}
     assert entry["params"] == {"PWR": "/Channel_1/DAC/+3V3_DVDD"}
+
+
+# ── Sub-placements: omit sheet: when the whole batch is on one sheet
+# (2026-08-26, handoff extract_omit_uniform_sheet) ─────────────────────────
+
+def _sub_placement_payload(cells_file, clones):
+    return {
+        "board": FakeBoard(), "placer_path": cells_file, "name": "dac_buf",
+        "raw_items": [_fake_fp("C9")], "origin_kwargs": {},
+        "sub_placements": [{"name": c.name, "clone": c} for c in clones],
+    }
+
+
+def test_build_sub_placements_uniform_sheet_omits_sheet_key(main_window, tmp_path, monkeypatch):
+    """Live pain 2026-08-26: a fresh dac_buf extract kept writing `sheet:
+    Channel_1` on all five nested nodes, which muted BOTH sheet inheritance
+    (cf1041a) and {sheet} templating (36ef950). When every sub-placement in
+    the batch shares one non-None sheet, sheet: must be omitted everywhere."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {"clone_placements": []})
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+
+    clones = [
+        ClonePlacement(cluster=f"PIF_{i}", name=f"CH1_PIF_{i}", cell="dac_pif_dvdd",
+                       xy=(i, 1.0), sheet="Channel_1")
+        for i in range(5)
+    ]
+    monkeypatch.setattr(
+        "kicadstamp.placement.services.board_items_resolver.clone_world_origin",
+        lambda adapter, cfg, clone, sheet_names=None, resolved_points=None:
+        Vector2.from_xy(15_000_000, 8_000_000))
+
+    entries, err = dock._build_sub_placements(
+        _sub_placement_payload(cells_file, clones), origin=Vector2.from_xy(5_000_000, 3_000_000))
+
+    assert err is None
+    assert len(entries) == 5
+    for entry in entries:
+        assert "sheet" not in entry
+        assert entry["cluster"].startswith("PIF_")  # cluster untouched
+
+
+def test_build_sub_placements_cross_sheet_keeps_literal_sheet(main_window, tmp_path, monkeypatch):
+    """A genuine cross-sheet composite (sub-placements on DIFFERENT sheets) is
+    NOT uniform — every entry keeps its own explicit sheet:, unchanged."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {"clone_placements": []})
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+
+    clones = [
+        ClonePlacement(cluster="PIF_DVDD", name="CH1_PIF_DVDD", cell="dac_pif_dvdd",
+                       xy=(1.0, 1.0), sheet="Channel_1"),
+        ClonePlacement(cluster="PIF_AVDD", name="CH2_PIF_AVDD", cell="dac_pif_avdd",
+                       xy=(2.0, 1.0), sheet="Channel_2"),
+    ]
+    monkeypatch.setattr(
+        "kicadstamp.placement.services.board_items_resolver.clone_world_origin",
+        lambda adapter, cfg, clone, sheet_names=None, resolved_points=None:
+        Vector2.from_xy(15_000_000, 8_000_000))
+
+    entries, err = dock._build_sub_placements(
+        _sub_placement_payload(cells_file, clones), origin=Vector2.from_xy(5_000_000, 3_000_000))
+
+    assert err is None
+    assert entries[0]["sheet"] == "Channel_1"
+    assert entries[1]["sheet"] == "Channel_2"
+
+
+def test_build_sub_placements_mixed_sheet_none_behaves_as_before(main_window, tmp_path, monkeypatch):
+    """sheet set on some, None on others -> not uniform (None in the set):
+    each entry behaves exactly as before the fix."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {"clone_placements": []})
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+
+    clones = [
+        ClonePlacement(cluster="PIF_DVDD", name="CH1_PIF_DVDD", cell="dac_pif_dvdd",
+                       xy=(1.0, 1.0), sheet="Channel_1"),
+        ClonePlacement(cluster="PIF_AVDD", name="CH2_PIF_AVDD", cell="dac_pif_avdd",
+                       xy=(2.0, 1.0)),
+    ]
+    monkeypatch.setattr(
+        "kicadstamp.placement.services.board_items_resolver.clone_world_origin",
+        lambda adapter, cfg, clone, sheet_names=None, resolved_points=None:
+        Vector2.from_xy(15_000_000, 8_000_000))
+
+    entries, err = dock._build_sub_placements(
+        _sub_placement_payload(cells_file, clones), origin=Vector2.from_xy(5_000_000, 3_000_000))
+
+    assert err is None
+    assert entries[0]["sheet"] == "Channel_1"
+    assert "sheet" not in entries[1]
+
+
+def test_build_sub_placements_single_uniform_sheet_omits(main_window, tmp_path, monkeypatch):
+    """A single sub-placement with a set sheet is trivially 'uniform' (nothing
+    to compare against) -> sheet: omitted, same principle as a 5-node batch."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {"clone_placements": []})
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+
+    clone = ClonePlacement(cluster="PIF_DVDD", name="CH1_PIF_DVDD", cell="dac_pif_dvdd",
+                           xy=(1.0, 1.0), sheet="Channel_1")
+    monkeypatch.setattr(
+        "kicadstamp.placement.services.board_items_resolver.clone_world_origin",
+        lambda adapter, cfg, clone, sheet_names=None, resolved_points=None:
+        Vector2.from_xy(15_000_000, 8_000_000))
+
+    entries, err = dock._build_sub_placements(
+        _sub_placement_payload(cells_file, [clone]), origin=Vector2.from_xy(5_000_000, 3_000_000))
+
+    assert err is None
+    assert "sheet" not in entries[0]
+
+
+def test_build_sub_placements_single_sheet_none_no_key(main_window, tmp_path, monkeypatch):
+    """A single sub-placement with sheet=None: nothing to omit additionally —
+    sheet: was not written before either (the uniform logic doesn't add it)."""
+    cells_file = tmp_path / "cells.yaml"
+    _write_yaml(cells_file, {"clone_placements": []})
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+
+    clone = ClonePlacement(cluster="PIF_AVDD", name="CH0_PIF_AVDD", cell="pif_avdd",
+                           xy=(5.0, 2.0))
+    monkeypatch.setattr(
+        "kicadstamp.placement.services.board_items_resolver.clone_world_origin",
+        lambda adapter, cfg, clone, sheet_names=None, resolved_points=None:
+        Vector2.from_xy(5_000_000, 2_000_000))
+
+    entries, err = dock._build_sub_placements(
+        _sub_placement_payload(cells_file, [clone]), origin=Vector2.from_xy(0, 0))
+
+    assert err is None
+    assert "sheet" not in entries[0]

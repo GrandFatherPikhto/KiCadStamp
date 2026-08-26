@@ -205,7 +205,10 @@ whole, the dock writes it as a `clone_placements:` reference instead of copying 
 Since 2026-08-26 the dock also carries the source placement's `sheet:`/`cluster:` into the new
 nested entry (own-identity for internal role narrowing, same as above), and templatizes a literal
 `sheet` path segment in the copied `nets:`/`params:` to `{sheet}` — so a freshly extracted
-reusable composite stays per-channel instead of carrying the source channel's path.
+reusable composite stays per-channel instead of carrying the source channel's path. When every
+sub-placement in one extract batch is on the SAME sheet, `sheet:` is omitted on all of them
+entirely (2026-08-26) — the reusable composite then lets the future parent's inheritance supply
+the sheet per channel, instead of baking this extract's channel into the nested entries forever.
 A cyclic reference graph (A → B → A) is rejected both at load time and — as the last line of defence,
 for configs assembled in memory — by the resolver itself (a clean `ValidationError` naming the full
 path, not a Python `RecursionError`).

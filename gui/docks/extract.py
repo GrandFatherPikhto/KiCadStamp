@@ -1715,6 +1715,22 @@ class ExtractDock(QWidget):
         sheet_names = ctx.sheet_names or {}
 
         entries: List[Dict[str, Any]] = []
+        # Pre-pass (2026-08-26, handoff extract_omit_uniform_sheet): are ALL
+        # sub-placements of this extract batch on the SAME, non-None sheet? —
+        # the common "reusable single-sheet composite" case (all five dac_buf
+        # PI-filters were on Channel_1). When uniform, `sheet:` is omitted on
+        # every node so cf1041a's inheritance supplies it per future channel
+        # instead of baking THIS extract's channel in forever. Same
+        # self-reference guard as the loop below (such a record would be
+        # `continue`d anyway, so it must not skew the comparison). Mixed/None
+        # values leave the current per-item literal behaviour unchanged — a
+        # genuine cross-sheet composite must not be silently collapsed to one
+        # inherited value.
+        _sub_clones = [rec["clone"] for rec in payload["sub_placements"]
+                       if getattr(rec["clone"], "cell", None) != payload.get("name")]
+        _sheets = {c.sheet for c in _sub_clones}
+        uniform_sheet = len(_sheets) == 1 and None not in _sheets
+
         for rec in payload["sub_placements"]:
             clone = rec["clone"]
             # Final self-reference guard (defense-in-depth, 2026-08-25): the
@@ -1752,8 +1768,10 @@ class ExtractDock(QWidget):
             # None (getattr) and a shared-net role (e.g. +3V3 on a PI-filter)
             # stays ambiguous among identical physical instances. sheet only
             # when set (like layer), cluster when truthy (required on
-            # ClonePlacement, so always present in practice).
-            if clone.sheet is not None:
+            # ClonePlacement, so always present in practice). sheet: is
+            # additionally OMITTED when every sub-placement of this extract
+            # batch is on the same sheet (uniform_sheet, see the pre-pass above).
+            if clone.sheet is not None and not uniform_sheet:
                 entry["sheet"] = clone.sheet
             if clone.cluster:
                 entry["cluster"] = clone.cluster
