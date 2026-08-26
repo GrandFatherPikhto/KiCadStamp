@@ -551,8 +551,10 @@ class ApplyPipeline:
             self.planner._net_trace_vias or [], self.planner._net_trace_tracks or [])
         vias_to_create, vias_to_delete = registry.reconcile(all_vias,
                                                             known_anchor_ids=self.all_anchor_ids)
-        for uuid in vias_to_delete:
-            self.adapter.remove_by_id(uuid)
+        # Batch deletion — kipy's remove_items_by_id() accepts a list, so N
+        # stale vias go out as a single IPC request (see adapter.remove_by_ids).
+        if vias_to_delete:
+            self.adapter.remove_by_ids(vias_to_delete)
         logger.info(_("Planned vias: {total}, actually to create (registry filtered already "
                        "correctly placed): {to_create}")
                     .format(total=len(all_vias), to_create=len(vias_to_create)))
@@ -564,10 +566,16 @@ class ApplyPipeline:
 
         # --- Phase 3: tracks ---
         all_tracks = self.planner.plan_tracks()
+        # Live tracks fetched ONCE for both consumers below — reconcile() would
+        # otherwise call adapter.get_tracks() again internally (registry.py's
+        # _get_live_items) just to build its uuid index, and the positional
+        # pre-check needs the same list.
+        live_tracks = self.adapter.get_tracks()
         tracks_to_create, tracks_to_delete = track_registry.reconcile(
-            all_tracks, known_anchor_ids=self.all_anchor_ids)
-        for uuid in tracks_to_delete:
-            self.adapter.remove_by_id(uuid)
+            all_tracks, known_anchor_ids=self.all_anchor_ids, live_items=live_tracks)
+        # Batch deletion — same single-IPC rationale as the via path above.
+        if tracks_to_delete:
+            self.adapter.remove_by_ids(tracks_to_delete)
         if self.cfg.skip_existing_components:
             # Positional pre-check of tracks — unregistered-copper idempotency
             # (analog of the via pre-check). STRICTLY AFTER reconcile(), on its
@@ -575,8 +583,7 @@ class ApplyPipeline:
             # seen_keys and make prune delete the REGISTERED tool track (see
             # plan_2026_08_16_position_based_copper_idempotency.md). Skip-only —
             # never removes/adopts foreign copper.
-            tracks_to_create = filter_existing_tracks(
-                tracks_to_create, self.adapter.get_tracks())
+            tracks_to_create = filter_existing_tracks(tracks_to_create, live_tracks)
         logger.info(_("Planned tracks: {total}, actually to create (registry filtered already "
                        "correctly placed): {to_create}")
                     .format(total=len(all_tracks), to_create=len(tracks_to_create)))

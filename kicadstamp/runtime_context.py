@@ -25,6 +25,7 @@ trade-off, not an oversight:
     exceptions/i18n), so config gains no cycle and no heavier dependency
     (no geometry/placement/adapter).
 """
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 
@@ -51,7 +52,7 @@ class RuntimeContext:
     RuntimeContext, never re-resolving or re-deriving the path themselves.
     Each is None when the YAML leaves the key unset.
     """
-    sheet_names: dict[str, str] = field(default_factory=dict)
+    sheet_names: Mapping[str, str] = field(default_factory=dict)
     registry_path: str | None = None
     track_registry_path: str | None = None
     log_file: str | None = None

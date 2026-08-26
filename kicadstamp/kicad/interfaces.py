@@ -122,3 +122,6 @@ class IBoardAdapter(ABC):
 
     @abstractmethod
     def remove_by_id(self, uuid_str: str) -> bool: ...
+
+    @abstractmethod
+    def remove_by_ids(self, uuid_strs: list[str]) -> bool: ...

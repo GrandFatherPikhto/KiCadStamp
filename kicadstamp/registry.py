@@ -215,7 +215,8 @@ class BaseRegistry(ABC, Generic[TEntry]):
     # ── Shared logic ────────────────────────────────────────────────────────
 
     def reconcile(self, planned_cmds,
-                  known_anchor_ids: set | None = None) -> list:
+                  known_anchor_ids: set | None = None,
+                  live_items=None) -> list:
         """
         Returns (to_create, to_delete): the subset of planned_cmds that
         actually need to be created (already correctly placed ones are
@@ -257,7 +258,13 @@ class BaseRegistry(ABC, Generic[TEntry]):
         to_create: list = []
         to_delete: list[str] = []
         seen_keys = set()
-        live_by_uuid = {item.uuid: item for item in self._get_live_items()}
+        # live_items — optional pre-fetched live board items, passed by a
+        # caller that already has them (apply_pipeline fetches get_tracks()
+        # once and feeds both this and the positional pre-check); when None,
+        # fetched here as before (_get_live_items).
+        if live_items is None:
+            live_items = self._get_live_items()
+        live_by_uuid = {item.uuid: item for item in live_items}
 
         for cmd in planned_cmds:
             if cmd.registry_key is None:
