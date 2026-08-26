@@ -11,9 +11,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from kicadstamp.config import Config, Cell, TemplateComponentSlot, ClonePlacement
+from kicadstamp.exceptions import ValidationError
+from kicadstamp.link_trees import link_trees
+from kicadstamp.tree_position import curated_redraw_plan
+from kicadstamp.trees import load_trees
 
 import gui.docks.cascade as cascade_mod
-from gui.docks.cascade import cascade_records, run_cascade
+from gui.docks.cascade import cascade_records, run_cascade, run_curated_tree_redraw
 
 
 def _chain_cfg():
@@ -60,3 +64,91 @@ def test_run_cascade_sequential_order_and_partial_failure(monkeypatch):
 
     assert calls == [["A"], ["B"], ["C"]]
     assert results == [("A", True, None), ("B", False, "boom"), ("C", True, None)]
+
+
+# ── run_curated_tree_redraw: trees -> link -> plan -> run_cascade ─────────
+
+def _tree_text(body):
+    return "(kicadstamp-trees\n" + body + ")"
+
+
+def _curated_cfg():
+    """Two clone_placements (CL_A/CL_B) that a curated tree can reference."""
+    return Config(
+        cells={},
+        clone_placements=[
+            ClonePlacement(cluster="CL_A", cell="c", xy=(0.0, 0.0)),
+            ClonePlacement(cluster="CL_B", cell="c", xy=(1.0, 1.0)),
+        ],
+    )
+
+
+def _load_tree(tmp_path, body):
+    path = tmp_path / "curated.trees"
+    path.write_text(_tree_text(body), encoding="utf-8")
+    return load_trees(str(path))
+
+
+def test_run_curated_tree_redraw_calls_run_cascade_with_plan_names(monkeypatch, tmp_path, caplog):
+    """The shim links trees, plans the curated redraw over selected_refs, and
+    feeds exactly curated_redraw_plan's name list into run_cascade."""
+    cfg = _curated_cfg()
+    trees = _load_tree(tmp_path,
+        '(tree (name "t") (anchor (origin))\n'
+        '      (node (ref "CL_A") (xy 1 2))\n'
+        '      (node (ref "CL_B") (xy 3 4)))')
+    selected = {"CL_B"}
+
+    calls = []
+    monkeypatch.setattr(cascade_mod, "run_cascade",
+                        lambda cp, c, x, names: (calls.append(names), [])[1])
+
+    results, warnings = run_curated_tree_redraw("/root.yaml", cfg, None, trees,
+                                                "t", selected)
+
+    linked = link_trees(cfg, trees)
+    expected_names, expected_warnings = curated_redraw_plan(
+        next(t for t in linked if t.name == "t"), selected)
+    assert calls == [expected_names]
+    assert results == []
+    assert warnings == expected_warnings
+    # No warnings expected for an origin anchor + top-level selection.
+    assert warnings == []
+
+
+def test_run_curated_tree_redraw_warns_and_logs_parent_not_selected(monkeypatch, tmp_path, caplog):
+    """A selected node whose parent isn't selected produces a plan warning,
+    which is returned AND logged via the module logger."""
+    cfg = _curated_cfg()
+    trees = _load_tree(tmp_path,
+        '(tree (name "t") (anchor (origin))\n'
+        '      (node (ref "CL_A") (xy 1 2)\n'
+        '            (node (ref "CL_B") (xy 3 4))))')
+    selected = {"CL_B"}  # parent CL_A not selected -> warning
+
+    monkeypatch.setattr(cascade_mod, "run_cascade", lambda *a, **k: [])
+
+    results, warnings = run_curated_tree_redraw("/root.yaml", cfg, None, trees,
+                                                "t", selected)
+
+    assert any("CL_B" in w and "CL_A" in w for w in warnings)
+    assert any("not in selection" in w for w in warnings)
+    # The warning is also logged (module logger), not just returned.
+    assert any("not in selection" in r.message for r in caplog.records)
+
+
+def test_run_curated_tree_redraw_unknown_tree_is_fatal(monkeypatch, tmp_path):
+    """A tree_name absent from `trees` is a ValidationError (lookup/config
+    problem), before any redraw runs."""
+    cfg = _curated_cfg()
+    trees = _load_tree(tmp_path,
+        '(tree (name "t") (anchor (origin))\n'
+        '      (node (ref "CL_A") (xy 1 2)))')
+
+    monkeypatch.setattr(cascade_mod, "run_cascade", lambda *a, **k: [])
+
+    try:
+        run_curated_tree_redraw("/root.yaml", cfg, None, trees, "no_such_tree", {"CL_A"})
+        assert False, "expected ValidationError"
+    except ValidationError:
+        pass

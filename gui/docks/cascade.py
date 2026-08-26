@@ -23,7 +23,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from kicadstamp.anchor_graph import build_anchor_graph, redraw_records_in_order
 from kicadstamp.apply_pipeline import ApplyPipeline
+from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
+from kicadstamp.link_trees import link_trees
+from kicadstamp.tree_position import curated_redraw_plan
+from kicadstamp.trees import Tree
 
 logger = logging.getLogger(__name__)
 
@@ -70,3 +74,29 @@ def run_cascade_worker(payload: Dict[str, Any]) -> list:
     (never touches a widget)."""
     return run_cascade(
         payload["config_path"], payload["cfg"], payload["ctx"], payload["names"])
+
+
+def run_curated_tree_redraw(config_path: str, cfg, ctx, trees: list[Tree],
+                            tree_name: str, selected_refs: set[str]
+                            ) -> tuple[List[Tuple[str, bool, Optional[str]]], List[str]]:
+    """Links `trees` against cfg, finds tree_name, plans a curated redraw over
+    selected_refs (curated_redraw_plan), logs its structural warnings, and
+    runs the resulting name list via run_cascade — the same per-name
+    --only/topological-order machinery the plain "Redraw dependents" cascade
+    already uses. Returns (run_cascade's per-name results, the plan's own
+    warnings) so a future caller (CLI probe, GUI dock) can surface both.
+
+    Raises ValidationError if tree_name isn't among trees (a lookup/config
+    problem, not a redraw failure — same "fatal at the boundary" discipline
+    as link_trees/load_trees)."""
+    linked = link_trees(cfg, trees)
+    tree = next((t for t in linked if t.name == tree_name), None)
+    if tree is None:
+        raise ValidationError(
+            _("Tree {name!r} not found (known: {known})")
+            .format(name=tree_name, known=", ".join(t.name for t in linked) or _("none")))
+    names, warnings = curated_redraw_plan(tree, selected_refs)
+    for warning in warnings:
+        logger.warning(warning)
+    results = run_cascade(config_path, cfg, ctx, names)
+    return results, warnings
