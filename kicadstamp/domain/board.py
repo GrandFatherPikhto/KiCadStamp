@@ -79,7 +79,6 @@ class Zone:
     """A board zone (``get_zone_by_name``)."""
 
     name: str
-    layer: BoardLayer | None = None
     _kipy: Any = field(default=None, repr=False, compare=False)
 
 
@@ -119,7 +118,6 @@ class Pad:
     number: Any  # kipy reports str/int/float depending on the pad — kept as-is
     net_name: str | None
     position: Vector2
-    layer: BoardLayer | None = None
     size: Vector2 | None = None
     angle_rad: float = 0.0
     _kipy: Any = field(default=None, repr=False, compare=False)
@@ -141,7 +139,6 @@ class Via:
     net_name: str | None
     drill_mm: float
     diameter_mm: float
-    layer: BoardLayer | None = None
     _kipy: Any = field(default=None, repr=False, compare=False)
 
 
@@ -178,10 +175,7 @@ def net_from_kipy(net: KipyNet) -> Net:
 
 
 def zone_from_kipy(zone: KipyZone) -> Zone:
-    layer = getattr(zone, "layer", None)
-    return Zone(name=zone.name,
-                layer=_layer_from_kipy(layer) if layer is not None else None,
-                _kipy=zone)
+    return Zone(name=zone.name, _kipy=zone)
 
 
 def footprint_from_kipy(fp: FootprintInstance) -> Footprint:
@@ -211,12 +205,10 @@ def pad_from_kipy(pad: KipyPad) -> Pad:
         angle = getattr(padstack, "angle", None)
         if angle is not None:
             angle_rad = angle.to_radians()
-    layer = getattr(pad, "layer", None)
     return Pad(
         number=pad.number,
         net_name=pad.net.name if pad.net else None,
         position=_point_from_kipy(pad.position),
-        layer=_layer_from_kipy(layer) if layer is not None else None,
         size=size,
         angle_rad=angle_rad,
         _kipy=pad,
@@ -224,14 +216,12 @@ def pad_from_kipy(pad: KipyPad) -> Pad:
 
 
 def via_from_kipy(via: KipyVia) -> Via:
-    layer = getattr(via, "layer", None)
     return Via(
         uuid=str(via.id.value),
         position=_point_from_kipy(via.position),
         net_name=via.net.name if via.net else None,
         drill_mm=via.drill_diameter / MM,
         diameter_mm=via.diameter / MM,
-        layer=_layer_from_kipy(layer) if layer is not None else None,
         _kipy=via,
     )
 

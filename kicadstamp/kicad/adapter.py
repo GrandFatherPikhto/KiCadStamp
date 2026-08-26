@@ -644,7 +644,7 @@ class KiCadBoardAdapter(IBoardAdapter):
         via.drill_diameter = int(drill_mm * MM)
         via.diameter = int(diameter_mm * MM)
         return Via(uuid="", position=position, net_name=net.name if net else None,
-                   drill_mm=drill_mm, diameter_mm=diameter_mm, layer=None, _kipy=via)
+                   drill_mm=drill_mm, diameter_mm=diameter_mm, _kipy=via)
 
     def create_track(self, start: Vector2, end: Vector2, width_mm: float,
                      net: Net, layer: BoardLayer) -> Track:
@@ -668,13 +668,29 @@ class KiCadBoardAdapter(IBoardAdapter):
         completed without exception — does NOT guarantee that an object with
         that UUID actually existed (stale UUID is not an error, just no‑op).
         """
+        return self.remove_by_ids([uuid_str])
+
+    def remove_by_ids(self, uuid_strs: list[str]) -> bool:
+        """
+        Deletes several objects by their UUIDs in ONE IPC request — kipy's
+        remove_items_by_id() already accepts a batch, so apply_pipeline's
+        old delete-one-per-request loop (stale vias/tracks from the
+        registries) was N round-trips for what is a single call. Same
+        return contract as remove_by_id: True if the request completed
+        without exception, stale UUIDs are not errors, just no‑ops.
+        """
+        if not uuid_strs:
+            return True
         from kipy.proto.common.types import base_types_pb2 as common_types_pb2
-        kiid = common_types_pb2.KIID()
-        kiid.value = uuid_str
+        kiids = []
+        for uuid_str in uuid_strs:
+            kiid = common_types_pb2.KIID()
+            kiid.value = uuid_str
+            kiids.append(kiid)
         try:
-            self._board.remove_items_by_id([kiid])
+            self._board.remove_items_by_id(kiids)
             return True
         except Exception as e:
-            logger.warning(_("Failed to delete object {uuid}: {type}: {e}")
-                           .format(uuid=uuid_str, type=type(e).__name__, e=e))
+            logger.warning(_("Failed to delete {count} objects: {type}: {e}")
+                           .format(count=len(uuid_strs), type=type(e).__name__, e=e))
             return False

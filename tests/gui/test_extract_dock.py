@@ -51,7 +51,7 @@ def _fake_fp(ref):
 
 def _fake_via(net_name, uuid="via-uuid-unregistered"):
     return Via(uuid=uuid, position=Vector2.from_xy(0, 0), net_name=net_name,
-               drill_mm=0.3, diameter_mm=0.6, layer=BoardLayer.BL_F_Cu)
+               drill_mm=0.3, diameter_mm=0.6)
 
 
 def _fake_track(net_name="GND", uuid="track-uuid-unregistered"):

@@ -50,8 +50,7 @@ def _make_adapter(footprints, vias=()):
 
 def _make_via(x_mm, y_mm, net_name, drill_mm=0.3, diameter_mm=0.6):
     return Via(uuid="", position=Vector2.from_xy(int(x_mm * MM), int(y_mm * MM)),
-               net_name=net_name, drill_mm=drill_mm, diameter_mm=diameter_mm,
-               layer=BoardLayer.BL_F_Cu)
+               net_name=net_name, drill_mm=drill_mm, diameter_mm=diameter_mm)
 
 
 class TestExtractTemplateFromSelection:
