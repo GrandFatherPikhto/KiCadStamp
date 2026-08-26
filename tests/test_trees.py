@@ -9,7 +9,7 @@ pass by catching the WRONG validation error, which masks the real cause.
 import pytest
 
 from kicadstamp.exceptions import ValidationError
-from kicadstamp.trees import Tree, TreeAnchor, TreeNode, load_trees
+from kicadstamp.trees import Tree, TreeAnchor, TreeNode, load_trees, save_trees
 
 
 def _write(tmp_path, text, name="trees.trees"):
@@ -278,3 +278,92 @@ def test_multiple_trees_keep_their_own_names(tmp_path):
   (tree (name "second") (anchor (origin)) (node (ref "B") (xy 0 0))))"""
     trees = load_trees(_write(tmp_path, text))
     assert [t.name for t in trees] == ["first", "second"]
+
+
+# ── save_trees: inverse serializer + round-trip ────────────────────────────
+
+def _tree_obj(name="t", anchor=None, nodes=None):
+    return Tree(name=name,
+                anchor=anchor if anchor is not None else TreeAnchor(ref=None, is_origin=True),
+                nodes=nodes if nodes is not None else [])
+
+
+def _node_obj(ref, kind=None, xy=None, polar=None, rotation=0.0, name=None,
+              group=None, children=None):
+    return TreeNode(ref=ref, kind=kind, xy=xy, polar=polar, rotation=rotation,
+                    name=name, group=group, children=children or [])
+
+
+def test_save_trees_roundtrip_origin_anchor(tmp_path):
+    """A tree with an origin anchor, an xy node and a nested child round-trips
+    to the identical dataclass list via save_trees -> load_trees."""
+    trees = [_tree_obj(name="t1", nodes=[
+        _node_obj(ref="R1", kind="clone", xy=(5.0, 2.0), rotation=45.0,
+                  name="cap_in", group="power"),
+        _node_obj(ref="R2", polar=(3.0, 45.0),
+                  children=[_node_obj(ref="R2C", xy=(1.0, 0.0))]),
+    ])]
+    path = tmp_path / "rt.trees"
+    save_trees(str(path), trees)
+    assert load_trees(str(path)) == trees
+
+
+def test_save_trees_roundtrip_ref_anchor(tmp_path):
+    """A ref anchor (not origin) serializes as (anchor (ref ...)) and
+    round-trips to the same TreeAnchor."""
+    trees = [_tree_obj(name="t1",
+                       anchor=TreeAnchor(ref="CONN_PM5V", is_origin=False),
+                       nodes=[_node_obj(ref="R1", xy=(1.0, 2.0))])]
+    path = tmp_path / "rt.trees"
+    save_trees(str(path), trees)
+    assert load_trees(str(path)) == trees
+
+
+def test_save_trees_roundtrip_multiple_trees(tmp_path):
+    """Several trees in one file keep their names and anchors."""
+    trees = [
+        _tree_obj(name="first", nodes=[_node_obj(ref="A", xy=(0.0, 0.0))]),
+        _tree_obj(name="second",
+                  anchor=TreeAnchor(ref="BASE", is_origin=False),
+                  nodes=[_node_obj(ref="B", xy=(10.0, 20.0))]),
+    ]
+    path = tmp_path / "rt.trees"
+    save_trees(str(path), trees)
+    assert load_trees(str(path)) == trees
+
+
+def test_save_trees_omits_default_value_fields(tmp_path):
+    """Default-valued node fields (kind None, rotation 0.0, name None,
+    group None) must NOT be written to the file — otherwise a round-trip test
+    could 'pass' on serializer noise that the parser merely re-defaults.
+    (The tree-level `(name "t1")` is required by the grammar and IS written —
+    this checks the NODE's optional fields are omitted.)"""
+    trees = [_tree_obj(name="t1", nodes=[_node_obj(ref="R1", xy=(1.0, 2.0))])]
+    path = tmp_path / "rt.trees"
+    save_trees(str(path), trees)
+    text = path.read_text(encoding="utf-8")
+    assert "(kind" not in text
+    assert "(rotation" not in text
+    assert "(group" not in text
+    assert "(polar" not in text
+    assert '(name "R1")' not in text  # the node's own name: would only appear if written
+    # The only non-default node fields written are ref and xy.
+    assert '(ref "R1")' in text
+    assert "(xy 1.0 2.0)" in text
+    assert '(name "t1")' in text  # the tree-level name is required and present
+
+
+def test_save_trees_writes_non_default_fields(tmp_path):
+    """When set, kind/rotation/name/group ARE written — the omission is per
+    default value, not wholesale."""
+    trees = [_tree_obj(name="t1", nodes=[
+        _node_obj(ref="R1", kind="external", rotation=90.0,
+                  name="ext", group="g"),
+    ])]
+    path = tmp_path / "rt.trees"
+    save_trees(str(path), trees)
+    text = path.read_text(encoding="utf-8")
+    assert "(kind external)" in text
+    assert "(rotation 90.0)" in text
+    assert '(name "ext")' in text
+    assert '(group "g")' in text

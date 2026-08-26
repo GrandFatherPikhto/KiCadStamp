@@ -28,7 +28,7 @@ Syntactic rules enforced here (fatal via ValidationError):
 """
 from dataclasses import dataclass, field
 
-from .cloner.sexp import atom, child, children, is_node, load_file, sval
+from .cloner.sexp import atom, child, children, is_node, load_file, save_file, sval, sym
 from .exceptions import ValidationError
 from .i18n import _
 
@@ -198,3 +198,57 @@ def load_trees(path: str) -> list[Tree]:
         ))
 
     return trees
+
+
+def _node_to_sexp(node: TreeNode) -> list:
+    """Serialize one TreeNode into the nested s-expr node shape. Fields with
+    default values are OMITTED (kind None, rotation 0.0, name/group None) —
+    load_trees would re-default them on read anyway, so writing them is pure
+    noise (same "no `sheet: null`" principle the YAML config uses)."""
+    out: list = [sym("node"), [sym("ref"), node.ref]]
+    if node.kind is not None:
+        # kind is a Symbol in the grammar ((kind clone)), not a quoted string —
+        # load_trees's sval() reads it back as str either way, so the
+        # round-trip dataclass equality is unaffected.
+        out.append([sym("kind"), sym(node.kind)])
+    if node.xy is not None:
+        out.append([sym("xy"), node.xy[0], node.xy[1]])
+    elif node.polar is not None:
+        out.append([sym("polar"), node.polar[0], node.polar[1]])
+    if node.rotation != 0.0:
+        out.append([sym("rotation"), node.rotation])
+    if node.name is not None:
+        out.append([sym("name"), node.name])
+    if node.group is not None:
+        out.append([sym("group"), node.group])
+    for child_node in node.children:
+        out.append(_node_to_sexp(child_node))
+    return out
+
+
+def _anchor_to_sexp(anchor: TreeAnchor) -> list:
+    """(ref "...") for a ref anchor, (origin) for an origin anchor."""
+    if anchor.is_origin:
+        return [sym("anchor"), [sym("origin")]]
+    return [sym("anchor"), [sym("ref"), anchor.ref]]
+
+
+def _tree_to_sexp(tree: Tree) -> list:
+    """Serialize one Tree (name, anchor, top-level nodes)."""
+    out: list = [sym("tree"), [sym("name"), tree.name]]
+    out.append(_anchor_to_sexp(tree.anchor))
+    for node in tree.nodes:
+        out.append(_node_to_sexp(node))
+    return out
+
+
+def save_trees(path: str, trees: list[Tree]) -> None:
+    """Inverse of load_trees(): serializes trees back into the v1 s-expr
+    grammar and writes them via cloner.sexp.save_file(). Round-trip
+    contract: load_trees(path) after save_trees(path, trees) must equal
+    trees structurally (== on the dataclasses, which are plain @dataclass,
+    not @dataclass(eq=False) — see Tree/TreeNode/TreeAnchor definitions)."""
+    obj: list = [sym("kicadstamp-trees"), [sym("version"), 1]]
+    for tree in trees:
+        obj.append(_tree_to_sexp(tree))
+    save_file(path, obj)
