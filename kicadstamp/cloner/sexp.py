@@ -43,3 +43,19 @@ def atom(node, key: str, default=None):
 def load_file(path: str):
     with open(path, encoding="utf-8", errors="replace") as f:
         return sexpdata.loads(f.read())
+
+
+def sym(s: str) -> sexpdata.Symbol:
+    """Inverse of sval(): wrap a plain str as a Symbol for building nodes."""
+    return sexpdata.Symbol(s)
+
+
+def dumps(obj) -> str:
+    """Thin wrapper over sexpdata.dumps()."""
+    return sexpdata.dumps(obj)
+
+
+def save_file(path: str, obj) -> None:
+    """Mirrors load_file(): writes dumps(obj) to a utf-8 file."""
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(dumps(obj))
