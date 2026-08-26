@@ -671,7 +671,7 @@ class ClonePlacement:
     # in clone_role_resolver.py). Cluster-based narrowing of roles INSIDE the
     # cell instead uses this placement's own `name` (see role_narrowing.py::
     # _narrow_ambiguous_candidates) — split 2026-08-14, the two were conflated
-    # into this one field before (Денис: печатать Cluster дважды было лишним).
+    # into this one field before (Denis: printing the Cluster twice was redundant).
     # Comparison is by PREFIX segments ('Channel_1' matches both 'Channel_1'
     # and 'Channel_1/1V2_PLL_PI_FILTER'), not by exact equality — hierarchy
     # and flat names work with the same code.
@@ -693,7 +693,7 @@ class ClonePlacement:
     # its own `cluster:` field above): upsert_clone_placement's key_fn and
     # PlacerDock's Redraw replace-by-name filter both match on this instead of
     # the raw Cluster tag, so renaming/re-tagging Cluster on an already-saved
-    # entry no longer creates a duplicate config entry (Денис, live: renaming
+    # entry no longer creates a duplicate config entry (Denis, live: renaming
     # Cluster back and forth on PIF_AVDD/CH0_PIF_AVDD kept spawning a second
     # entry, because the field WAS both the tag and the save key). Optional —
     # None means "same as cluster", the fallback every existing

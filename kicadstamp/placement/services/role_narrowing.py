@@ -18,7 +18,7 @@ in `cluster` (renamed 2026-08-24 from `name`; the GUI's "Cluster:" field on
 the Source tab, see gui/docks/placer.py) — NOT by `anchor_cluster`, which
 narrows only the EXTERNAL anchor (resolve_footprint_by_role in
 clone_role_resolver.py). The two were conflated into one field before
-(Denis: "Мы печатаем два раза кластер размещаемого целла. Зачем?!"),
+(Denis: "We print the placed cell's cluster twice. Why?!"),
 split per his own (Sheet, Cluster, Role) addressing convention, already
 correctly separate for Rule/ManualSpoke (rule.anchor_cluster vs
 spoke.cluster — see manual_position_calculator.py).
@@ -172,7 +172,7 @@ def _narrow_ambiguous_candidates(candidates, clone: ClonePlacement, adapter, sel
     # Source tab writes straight into cluster, see placer.py). NOT anchor_cluster:
     # that field narrows only the EXTERNAL anchor (see resolve_footprint_by_role
     # below) — the two were conflated into one field before 2026-08-14 (Denis:
-    # "Мы печатаем два раза кластер размещаемого целла. Зачем?!"), split per
+    # "We print the placed cell's cluster twice. Why?!"), split per
     # his own (Sheet, Cluster, Role) addressing convention, already correctly
     # separate for Rule/ManualSpoke (rule.anchor_cluster vs spoke.cluster — see
     # manual_position_calculator.py).
