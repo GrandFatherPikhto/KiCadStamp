@@ -109,7 +109,7 @@ def main():
         created = step(_("adapter.create_items([via])"), adapter.create_items, [via])
         step(_("adapter.push_commit(commit, ...)"), adapter.push_commit, commit,
              f"test_create_one_via: near {args.ref}")
-        created_id = created[0].id.value if created else None
+        created_id = created[0].uuid if created else None
         print(_("\nDone. Via created, id={id}").format(id=created_id))
         if created_id:
             STATE_FILE.write_text(json.dumps({"id": created_id, "ref": args.ref}), encoding="utf-8")
