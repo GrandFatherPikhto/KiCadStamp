@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import logging
-from kipy.board_types import FootprintInstance
+from kicadstamp.domain.board import Footprint
 from kicadstamp.constants import ROLE_FIELD_NAME
 from kicadstamp.kicad.adapter import KiCadBoardAdapter
 from kicadstamp.utils.units import MM
@@ -30,7 +30,7 @@ def main():
 
     # Get selected items (expanding groups)
     items = adapter.get_selected_items()
-    footprints = [i for i in items if isinstance(i, FootprintInstance)]
+    footprints = [i for i in items if isinstance(i, Footprint)]
 
     if not footprints:
         print(_("Nothing selected in KiCad (or selected items are not components)."))
@@ -43,12 +43,11 @@ def main():
     print("=" * 100)
 
     for fp, bbox in zip(footprints, bboxes):
-        ref = fp.reference_field.text.value
-        val = fp.value_field.text.value
-        fp_name = str(fp.definition.id)
+        ref = fp.ref
+        val = fp.value
         x = fp.position.x / MM
         y = fp.position.y / MM
-        angle = fp.orientation.degrees
+        angle = fp.angle_deg
         role = adapter.get_field_value(fp, ROLE_FIELD_NAME) or _("(not set)")
 
         if bbox:
@@ -60,7 +59,6 @@ def main():
 
         print(_("[{ref}]").format(ref=ref))
         print(_("  Value:        {val}").format(val=val))
-        print(_("  Footprint:    {fp}").format(fp=fp_name))
         print(_("  Position:     ({x:.3f}, {y:.3f}) mm").format(x=x, y=y))
         print(_("  Angle:        {angle:.1f}°").format(angle=angle))
         print(_("  Size:         {size}").format(size=size_str))
@@ -72,14 +70,12 @@ def main():
             print(_("  Pads:"))
             for pad in pads:
                 pnum = pad.number
-                net = pad.net.name if pad.net else _("(none)")
+                net = pad.net_name if pad.net_name else _("(none)")
                 px = pad.position.x / MM
                 py = pad.position.y / MM
-                # pad size (copper layer)
-                copper = pad.padstack.copper_layers
-                if copper:
-                    pw = copper[0].size.x / MM
-                    ph = copper[0].size.y / MM
+                if pad.size:
+                    pw = pad.size.x / MM
+                    ph = pad.size.y / MM
                     psize = _("{pw:.2f} x {ph:.2f} mm").format(pw=pw, ph=ph)
                 else:
                     psize = _("?x?")
