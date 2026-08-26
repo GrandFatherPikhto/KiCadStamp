@@ -394,3 +394,69 @@ def test_rename_list_entry_collision_checks_by_name(tmp_path):
         assert False, "expected OSError"
     except OSError:
         pass
+
+
+# ── shared-cache regression (2026-08-26 code-review, item 3) ───────────────
+#
+# cached_file_read() returns the SHARED cached object on a hit (no defensive
+# copy), so a rename that mutates read_data()'s return in place and then
+# fails at write_data() would leave the in-process cache diverged from disk
+# (write_data() only invalidates the cache AFTER a successful write). The
+# rename helpers must deepcopy before mutating.
+
+def test_rename_dict_entry_does_not_corrupt_the_cache_on_write_failure(tmp_path, monkeypatch):
+    """Regression guard: a write_data() failure after mutation must NOT leave
+    the shared cached object containing the renamed key — otherwise every
+    later read_data() in this process reads a desynced value until restart."""
+    import gui.docks.rename as rename_mod
+
+    path = tmp_path / "config.yaml"
+    path.write_text("cells:\n  first: {a: 1}\n  target: {b: 2}\n", encoding="utf-8")
+
+    # Warm the cache so the read_data() inside rename_dict_entry is a HIT that
+    # returns the SHARED cached object (the mutation hazard this guards).
+    rename_mod.read_data(path)
+
+    def _boom(*args, **kwargs):
+        raise OSError("simulated write failure")
+
+    monkeypatch.setattr(rename_mod, "write_data", _boom)
+
+    try:
+        rename_mod.rename_dict_entry(path, "cells", "target", "renamed")
+        assert False, "expected OSError"
+    except OSError:
+        pass
+
+    # Cache hit (mtime unchanged — nothing was written) must still show the
+    # on-disk state, not the mutated-in-memory rename.
+    cached = rename_mod.read_data(path)
+    assert list(cached["cells"].keys()) == ["first", "target"]
+    assert cached["cells"]["target"] == {"b": 2}
+
+
+def test_rename_list_entry_does_not_corrupt_the_cache_on_write_failure(tmp_path, monkeypatch):
+    """Same regression guard for the list-section rename: a failed write must
+    not leave the entry renamed inside the shared cached object."""
+    import gui.docks.rename as rename_mod
+
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "clone_placements:\n  - name: spoke_1\n    cell: ldo\n", encoding="utf-8")
+
+    rename_mod.read_data(path)  # warm the cache (HIT inside rename_list_entry)
+
+    def _boom(*args, **kwargs):
+        raise OSError("simulated write failure")
+
+    monkeypatch.setattr(rename_mod, "write_data", _boom)
+
+    try:
+        rename_mod.rename_list_entry(path, "clone_placements", "spoke_1", "spoke_1_renamed")
+        assert False, "expected OSError"
+    except OSError:
+        pass
+
+    cached = rename_mod.read_data(path)
+    assert cached["clone_placements"][0]["name"] == "spoke_1"
+    assert cached["clone_placements"][0]["cell"] == "ldo"

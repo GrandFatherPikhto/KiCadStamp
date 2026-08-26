@@ -282,7 +282,12 @@ def rename_dict_entry(path: Path, section: str, old_name: str, new_name: str) ->
     exists in THIS file's section (name_exists_in_graph above is the
     graph-wide check callers should run first — this is a local backstop,
     not a substitute for it)."""
-    data = read_data(path)
+    # deepcopy before mutating: read_data() returns the SHARED cached object
+    # (kicadstamp/utils/file_cache.py no longer deepcopies on a cache hit), so
+    # an in-place mutation would corrupt the in-process cache if write_data()
+    # failed after mutating but before persisting (see rename_references()
+    # below — it already deepcopies for the same reason).
+    data = copy.deepcopy(read_data(path))
     section_dict = data.get(section) or {}
     if old_name not in section_dict:
         raise OSError(_("{name!r} not found in {section}: of {path}")
@@ -308,7 +313,9 @@ def rename_list_entry(path: Path, section: str, old_name: str, new_name: str) ->
     rules:/coordinate_placements:
     entry matched only by its fallback, this is what actually gives it an
     explicit name: for the first time, distinct from its fallback."""
-    data = read_data(path)
+    # deepcopy before mutating — same shared-cache hazard as rename_dict_entry
+    # (see there for the rationale).
+    data = copy.deepcopy(read_data(path))
     items = data.get(section) or []
 
     match = None
