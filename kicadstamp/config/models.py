@@ -12,6 +12,7 @@ continues to work exactly as before.
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..trees import Tree
 from .points import Point
 
 
@@ -748,6 +749,11 @@ class Config:
     clone_placements: list[ClonePlacement] = field(default_factory=list)
     coordinate_placements: list[CoordinatePlacement] = field(default_factory=list)
     net_traces: list[NetTrace] = field(default_factory=list)
+    # trees: — optional curated-redraw trees (list section, Tree.name unique
+    # across the whole include graph). Loaded by config/entries.py::_load_tree
+    # (a wrapper over trees.py's tree_from_dict), serialized by
+    # sexp_format.py's special trees branch (design_2026_08_27_trees_in_config_file.md).
+    trees: list[Tree] = field(default_factory=list)
     place_components: bool = True
     skip_existing_components: bool = False
     # Free‑space search parameters — currently used only for thermal vias

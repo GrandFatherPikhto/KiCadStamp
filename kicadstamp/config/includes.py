@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 # dependency_order.py already reorders rules/clone_placements by real anchor
 # dependency at apply time.
 _LIST_SECTIONS = ('rules', 'clone_placements', 'thermal_via_arrays', 'coordinate_placements',
-                  'net_traces')
+                  'net_traces', 'trees')
 
 # Dict sections: merged key-by-key, fatal on a key defined in two different
 # files — these are meant to be genuinely separate subsystem files, so a

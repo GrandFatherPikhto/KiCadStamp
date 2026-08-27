@@ -17,6 +17,7 @@ from typing import Any
 
 from ..exceptions import ValidationError, format_fatal_error, check_unknown_keys
 from ..i18n import _
+from ..trees import Tree, tree_from_dict
 from .models import (
     ThermalViaArrayConfig, TemplateVia, TemplateComponentSlot, TemplateTrack,
     Cell, CellPlacement, ManualSpoke, Rule, ClonePlacement, CoordinatePlacement,
@@ -1164,3 +1165,56 @@ def _load_coordinate_placement(data: dict[str, Any]) -> CoordinatePlacement:
         retired=data.get('retired', False),
         skip=data.get('skip', False),
     )
+
+
+# trees: — optional curated-redraw list section (design_2026_08_27_trees_in_
+# config_file.md). The dict shape is the same plain-dict that sexp_format.py
+# / yaml.safe_load produce for the trees: section; _load_tree wraps the
+# already-tested trees.py::tree_from_dict (the dict bridge) with the config's
+# usual known-key discipline and fatal formatting.
+_TREE_KNOWN_KEYS = {"name", "anchor", "nodes"}
+_TREE_ANCHOR_KNOWN_KEYS = {"ref", "origin"}
+_TREE_NODE_KNOWN_KEYS = {"ref", "kind", "xy", "polar", "rotation", "name", "group", "children"}
+
+
+def _check_tree_node_keys(data: Any, label: str) -> None:
+    """Recursively fatal on an unknown key anywhere in a tree's node subtree
+    (nodes -> nested children) — same check_unknown_keys discipline every
+    other config record has."""
+    if not isinstance(data, dict):
+        return
+    check_unknown_keys(data, _TREE_NODE_KNOWN_KEYS,
+                       _("unknown fields in {label}").format(label=label))
+    for child in data.get("children", []) or []:
+        _check_tree_node_keys(child, f"{label} node")
+
+
+def _load_tree(data: dict[str, Any], seen_refs: set[str] | None = None) -> Tree:
+    """One trees: entry -> Tree. seen_refs (optional, shared across the whole
+    include graph by load_config) enforces node-ref uniqueness across files.
+
+    Raises ValidationError (via format_fatal_error) on any structural
+    violation — a hand-authored tree fails loudly at load, same discipline as
+    the other per-entry loaders."""
+    if not isinstance(data, dict):
+        raise ValidationError(format_fatal_error(
+            _("trees: entry must be a mapping, got {type}").format(type=type(data).__name__),
+            [_("a trees: entry is a dict with 'name'/'anchor'/'nodes'")]))
+
+    check_unknown_keys(data, _TREE_KNOWN_KEYS,
+                       _("unknown fields in trees entry {name!r}")
+                       .format(name=data.get("name", "?")))
+    anchor = data.get("anchor")
+    if isinstance(anchor, dict):
+        check_unknown_keys(anchor, _TREE_ANCHOR_KNOWN_KEYS,
+                           _("unknown fields in tree anchor {name!r}")
+                           .format(name=data.get("name", "?")))
+    for i, node in enumerate(data.get("nodes", []) or []):
+        _check_tree_node_keys(node, f"tree {data.get('name', '?')} node {i}")
+
+    try:
+        return tree_from_dict(data, seen_refs=seen_refs)
+    except ValidationError as e:
+        raise ValidationError(format_fatal_error(
+            _("invalid trees entry {name!r}").format(name=data.get("name", "?")),
+            [str(e)])) from e

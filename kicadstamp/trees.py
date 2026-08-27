@@ -157,6 +157,40 @@ def _parse_node(node, seen_refs: set[str], location: str) -> TreeNode:
     )
 
 
+def tree_from_sexp(tree_node, seen_names: set[str], seen_refs: set[str],
+                   location: str) -> Tree:
+    """Parse ONE (tree ...) node (no (kicadstamp-trees ...) wrapper) into a
+    Tree. seen_names/seen_refs seed from the CALLER so name/ref uniqueness
+    spans the whole include graph, not just one file (the config inlay calls
+    this once per tree with shared sets; load_trees seeds them empty)."""
+    name = atom(tree_node, "name")
+    if name is None:
+        _fatal(_("{location}: a tree is missing a (name ...)").format(location=location))
+    name = sval(name)
+    if name in seen_names:
+        _fatal(_("{location}: duplicate tree name {name!r} — tree names must be "
+                 "unique within one config").format(location=location, name=name))
+    seen_names.add(name)
+
+    anchor_node = child(tree_node, "anchor")
+    if anchor_node is None:
+        _fatal(_("{location}: tree {name!r} is missing an (anchor ...)")
+               .format(location=location, name=name))
+
+    top_nodes = children(tree_node, "node")
+    return Tree(
+        name=name,
+        anchor=_parse_anchor(anchor_node),
+        nodes=[_parse_node(n, seen_refs, f"{location}:tree {name!r}") for n in top_nodes],
+    )
+
+
+def tree_to_sexp(tree: Tree) -> list:
+    """Serialize one Tree into the (tree ...) s-expr node shape — the public
+    alias of _tree_to_sexp, used by sexp_format.py's trees inlay."""
+    return _tree_to_sexp(tree)
+
+
 def load_trees(path: str) -> list[Tree]:
     """Parse one `*.trees` file into a list of Tree dataclasses. Pure
     syntax: no YAML, no Config, no record lookup — see the module docstring.
@@ -172,32 +206,7 @@ def load_trees(path: str) -> list[Tree]:
     tree_nodes = children(obj, "tree")
     seen_names: set[str] = set()
     seen_refs: set[str] = set()
-    trees: list[Tree] = []
-
-    for tree_node in tree_nodes:
-        name = atom(tree_node, "name")
-        if name is None:
-            _fatal(_("{path}: a tree is missing a (name ...)")
-                   .format(path=path))
-        name = sval(name)
-        if name in seen_names:
-            _fatal(_("{path}: duplicate tree name {name!r} — tree names must be "
-                     "unique within one file").format(path=path, name=name))
-        seen_names.add(name)
-
-        anchor_node = child(tree_node, "anchor")
-        if anchor_node is None:
-            _fatal(_("{path}: tree {name!r} is missing an (anchor ...)")
-                   .format(path=path, name=name))
-
-        top_nodes = children(tree_node, "node")
-        trees.append(Tree(
-            name=name,
-            anchor=_parse_anchor(anchor_node),
-            nodes=[_parse_node(n, seen_refs, f"{path}:tree {name!r}") for n in top_nodes],
-        ))
-
-    return trees
+    return [tree_from_sexp(n, seen_names, seen_refs, path) for n in tree_nodes]
 
 
 def _node_to_sexp(node: TreeNode) -> list:
@@ -252,3 +261,124 @@ def save_trees(path: str, trees: list[Tree]) -> None:
     for tree in trees:
         obj.append(_tree_to_sexp(tree))
     save_file(path, obj)
+
+
+# ── dict bridges (for the config inlay: trees as a section of Config) ──────
+# The plain-dict shape mirrors the s-expr node shape 1:1 (design_2026_08_27_
+# trees_in_config_file.md FORK-2, Variant B): sexp_format.py delegates the
+# (trees ...) node to tree_to_sexp / tree_from_sexp, and config/entries.py's
+# _load_tree wraps tree_from_dict for the dict pipeline. Bijective, with
+# default-valued fields omitted on serialization (same no-noise principle as
+# _node_to_sexp) — tree_to_dict(tree_from_dict(d)) is the canonical form.
+
+def _anchor_to_dict(anchor: TreeAnchor) -> dict:
+    return {"origin": True} if anchor.is_origin else {"ref": anchor.ref}
+
+
+def _node_to_dict(node: TreeNode) -> dict:
+    out: dict = {"ref": node.ref}
+    if node.kind is not None:
+        out["kind"] = node.kind
+    if node.xy is not None:
+        out["xy"] = [node.xy[0], node.xy[1]]
+    elif node.polar is not None:
+        out["polar"] = [node.polar[0], node.polar[1]]
+    if node.rotation != 0.0:
+        out["rotation"] = node.rotation
+    if node.name is not None:
+        out["name"] = node.name
+    if node.group is not None:
+        out["group"] = node.group
+    if node.children:
+        out["children"] = [_node_to_dict(c) for c in node.children]
+    return out
+
+
+def tree_to_dict(tree: Tree) -> dict:
+    """Tree -> plain dict (the config-dict shape). Default-valued fields are
+    omitted (kind None, rotation 0.0, name/group None, no offset, empty
+    children) so the dict stays minimal — same principle as _node_to_sexp."""
+    out: dict = {"name": tree.name, "anchor": _anchor_to_dict(tree.anchor)}
+    if tree.nodes:
+        out["nodes"] = [_node_to_dict(n) for n in tree.nodes]
+    return out
+
+
+def _dict_offset(data: dict, key: str, location: str) -> tuple[float, float] | None:
+    """Node dict's (key, [x, y]) as a pair of floats, or None. Enforces
+    "exactly 2 numbers" — a non-numeric value is fatal."""
+    raw = data.get(key)
+    if raw is None:
+        return None
+    if not (isinstance(raw, (list, tuple)) and len(raw) == 2
+            and all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                    for v in raw)):
+        _fatal(_("node {ref!r}: {key} must be exactly two numbers")
+               .format(ref=data.get("ref"), key=key))
+    return float(raw[0]), float(raw[1])
+
+
+def _dict_node(data: dict, seen_refs: set[str], location: str) -> TreeNode:
+    """Parse one dict node (the config-dict shape), recursing into nested
+    children. seen_refs enforces the "a ref appears in at most one node"
+    invariant across the WHOLE config (shared set from the caller)."""
+    ref = data.get("ref")
+    if ref is None:
+        _fatal(_("{location}: node is missing a (ref ...)").format(location=location))
+    if ref in seen_refs:
+        _fatal(_("{location}: record {ref!r} already has a node elsewhere in this "
+                 "config — a record's position source must be exactly one")
+               .format(location=location, ref=ref))
+    seen_refs.add(ref)
+
+    xy = _dict_offset(data, "xy", location)
+    polar = _dict_offset(data, "polar", location)
+    if xy is not None and polar is not None:
+        _fatal(_("node {ref!r}: xy and polar are mutually exclusive "
+                 "(use exactly one)").format(ref=ref))
+
+    raw_kind = data.get("kind")
+    if raw_kind is not None and raw_kind not in KINDS:
+        _fatal(_("node {ref!r}: invalid kind {kind!r} — expected one of {kinds}")
+               .format(ref=ref, kind=raw_kind, kinds=", ".join(KINDS)))
+
+    raw_rotation = data.get("rotation")
+    if raw_rotation is not None and not isinstance(raw_rotation, (int, float)):
+        _fatal(_("node {ref!r}: rotation must be a number").format(ref=ref))
+
+    return TreeNode(
+        ref=ref,
+        kind=raw_kind,
+        xy=xy,
+        polar=polar,
+        rotation=float(raw_rotation) if raw_rotation is not None else 0.0,
+        name=data.get("name"),
+        group=data.get("group"),
+        children=[_dict_node(c, seen_refs, f"{location}.node") for c in data.get("children") or []],
+    )
+
+
+def tree_from_dict(data: dict, seen_refs: set[str] | None = None) -> Tree:
+    """Plain dict -> Tree, the inverse of tree_to_dict. seen_refs (optional,
+    shared across the whole config) enforces node-ref uniqueness across the
+    include graph; when None a fresh set is used (single-tree call)."""
+    if not isinstance(data, dict):
+        _fatal(_("tree must be a mapping"))
+    if seen_refs is None:
+        seen_refs = set()
+
+    name = data.get("name")
+    if name is None:
+        _fatal(_("a tree is missing a (name ...)"))
+    anchor_data = data.get("anchor") or {}
+    if anchor_data.get("origin"):
+        anchor = TreeAnchor(ref=None, is_origin=True)
+    elif anchor_data.get("ref") is not None:
+        anchor = TreeAnchor(ref=anchor_data["ref"], is_origin=False)
+    else:
+        _fatal(_("anchor must be either (ref \"...\") or (origin)"))
+    return Tree(
+        name=name,
+        anchor=anchor,
+        nodes=[_dict_node(n, seen_refs, f"tree {name!r}") for n in data.get("nodes") or []],
+    )

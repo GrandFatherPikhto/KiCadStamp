@@ -1,103 +1,116 @@
 # tests/gui/test_trees_dock.py
 """Tests for TreesDock (gui/docks/trees_dock.py) — the hand-authored s-expr
-"trees" editor (design design_2026_08_27_trees_gui_dock.md).
+"trees" editor, now editing the ROOT CONFIG's trees: section
+(design_2026_08_27_trees_in_config_file.md FORK-5): the dock follows
+root_changed (set_root_file), has no file identity of its own, and Save goes
+through the single config_writer chokepoint.
 
-Phase 1 scope: Open/New a .trees file, per-tree tabs with a read-only
-QTreeWidget render, and the static node_offset() preview. The other toolbar
-buttons are expected to stay disabled until their phase lands.
+Per-tree tabs with a read-only QTreeWidget render + the static node_offset()
+preview; structural editing; Save + dirty tracking; checkbox subtree
+selection + background curated Redraw.
 """
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QFileDialog, QMessageBox
+import yaml
 
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QMessageBox
+
+from kicadstamp.config.loader import load_config
 from kicadstamp.exceptions import ValidationError
-from kicadstamp.trees import Tree, TreeAnchor, TreeNode, load_trees
+from kicadstamp.trees import Tree, TreeAnchor, TreeNode
 
 from gui.docks.trees_dock import TreesDock
 
-# The same working example as tests/test_trees.py's GRAMMAR_EXAMPLE — two
-# trees, nested nodes, xy and polar offsets, a ref anchor and an origin anchor.
-GRAMMAR_EXAMPLE = """(kicadstamp-trees
-  (version 1)
-  (tree
-    (name "power_tree")
-    (anchor (ref "CONN_PM5V"))
-    (node
-      (ref "AMS1117_REG")
-      (kind clone)
-      (xy 5.0 2.0)
-      (rotation 0)
-      (node (ref "C_OUT") (xy 1.0 0)))
-    (node (ref "R_AROUND") (polar 3.0 45.0)))
-  (tree
-    (name "misc")
-    (anchor (origin))
-    (node (ref "R_DEBUG") (xy 100.0 50.0))))"""
+# The same working example as tests/test_trees.py's GRAMMAR_EXAMPLE, expressed
+# as the root-config dict shape (tree_to_dict output) — two trees, nested
+# nodes, xy and polar offsets, a ref anchor and an origin anchor.
+GRAMMAR_TREES = {
+    "trees": [
+        {"name": "power_tree", "anchor": {"ref": "CONN_PM5V"},
+         "nodes": [
+             {"ref": "AMS1117_REG", "kind": "clone", "xy": [5.0, 2.0],
+              "children": [{"ref": "C_OUT", "xy": [1.0, 0]}]},
+             {"ref": "R_AROUND", "polar": [3.0, 45.0]},
+         ]},
+        {"name": "misc", "anchor": {"origin": True},
+         "nodes": [{"ref": "R_DEBUG", "xy": [100.0, 50.0]}]},
+    ],
+}
+
+# A trees: section for the SAVE tests (which run _do_save's link_trees
+# round-trip). GRAMMAR_TREES references records that the throwaway root config
+# does not contain (no clone/point sections), so link_trees would legitimately
+# raise "node not found" and _do_save would open a blocking QMessageBox — see
+# design_2026_08_27_trees_in_config_file.md §5.2's Save round-trip. Nodes here
+# are all kind "external" (never resolved against config, per link_trees.py) and
+# anchors are (origin), so a Save round-trip succeeds with no extra sections.
+SAVE_TREES = {
+    "trees": [
+        {"name": "power_tree", "anchor": {"origin": True},
+         "nodes": [
+             {"ref": "AMS1117_REG", "kind": "external", "xy": [5.0, 2.0],
+              "children": [{"ref": "C_OUT", "kind": "external", "xy": [1.0, 0]}]},
+             {"ref": "R_AROUND", "kind": "external", "polar": [3.0, 45.0]},
+         ]},
+        {"name": "misc", "anchor": {"origin": True},
+         "nodes": [{"ref": "R_DEBUG", "kind": "external", "xy": [100.0, 50.0]}]},
+    ],
+}
 
 
 def _children(item):
     return [item.child(i) for i in range(item.childCount())]
 
 
-def _write(tmp_path, text, name="trees.trees"):
-    path = tmp_path / name
-    path.write_text(text, encoding="utf-8")
-    return path
-
-
-# ── New ───────────────────────────────────────────────────────────────────
-
-def test_new_creates_a_valid_empty_file(main_window, tmp_path, monkeypatch):
-    """New writes the canonical empty file (save_trees([], ...) — load_trees
-    of it must not crash and must yield zero trees, with the placeholder tab."""
-    target = tmp_path / "new.trees"
-    monkeypatch.setattr(QFileDialog, "getSaveFileName",
-                        lambda *a, **k: (str(target), "Trees (*.trees)"))
+def _dock_with(main_window, tmp_path, trees=None):
+    """A TreesDock pointed at a root config (YAML) carrying the given trees:
+    section — the current way trees get into the dock (set_root_file, no
+    Open/New of a .trees file anymore)."""
+    trees = trees if trees is not None else GRAMMAR_TREES
+    root = tmp_path / "root.yaml"
+    root.write_text(yaml.safe_dump(trees), encoding="utf-8")
     dock = TreesDock(main_window)
-    dock._on_new()
+    dock.set_root_file(root)
+    return dock, root
 
-    assert dock._trees_path == target
+
+# ── Root wiring (replaces the old Open/New of a .trees file) ───────────────
+
+def test_set_root_file_loads_trees_from_config(main_window, tmp_path):
+    """Trees come from the ROOT CONFIG's trees: section — set_root_file reads
+    them into _trees (empty when there is no root / no section)."""
+    dock, root = _dock_with(main_window, tmp_path)
+    assert [t.name for t in dock._trees] == ["power_tree", "misc"]
+    assert dock._cfg is not None
+    assert dock._root_path == root
+
+    dock2 = TreesDock(main_window)
+    dock2.set_root_file(None)  # no root -> no trees, placeholder tab
+    assert dock2._trees == []
+    assert dock2.tabs.count() == 1
+
+
+def test_set_root_file_broken_config_does_not_crash(main_window, tmp_path):
+    """A root config whose trees: section is malformed raises ValidationError
+    in load_config — the dock must not crash: trees stay empty, cfg stays None
+    (Save's link_trees round-trip is skipped until a good root loads)."""
+    root = tmp_path / "root.yaml"
+    root.write_text("trees:\n- name: t1\n  anchor: {ref: A}\n  nodes:\n  - ref: B\n    xy: 1\n",
+                    encoding="utf-8")  # xy must be exactly 2 numbers
+    dock = TreesDock(main_window)
+    dock.set_root_file(root)
     assert dock._trees == []
-    trees = load_trees(str(target))
-    assert trees == []
-    # Placeholder tab, and the dirty indicator starts clean.
-    assert dock.tabs.count() == 1
-    assert dock._dirty is False
+    assert dock._cfg is None
+    assert dock.tabs.count() == 1  # placeholder, not a crash
 
 
-# ── Open ──────────────────────────────────────────────────────────────────
-
-def test_open_invalid_file_warns_and_does_not_crash(main_window, tmp_path, monkeypatch, caplog):
-    """A .trees file that violates the grammar raises ValidationError in
-    load_trees — the dock must surface a QMessageBox, not crash, and leave
-    the previous state untouched."""
-    bad = _write(tmp_path, "(this is not valid (trees", name="bad.trees")
-    monkeypatch.setattr(QFileDialog, "getOpenFileName",
-                        lambda *a, **k: (str(bad), "Trees (*.trees)"))
-    warnings = []
-    monkeypatch.setattr(QMessageBox, "warning",
-                        lambda *a, **k: warnings.append(a) or QMessageBox.StandardButton.Ok)
-
-    dock = TreesDock(main_window)
-    dock._on_open()
-
-    assert warnings, "expected a QMessageBox.warning call"
-    assert dock._trees_path is None  # previous state untouched
-    assert dock._trees == []
-
-
-def test_open_renders_one_tab_per_tree_with_nested_structure(main_window, tmp_path, monkeypatch):
-    """Opening a file with two trees shows two tabs; the first tree's render
-    mirrors the nested grammar shape (anchor pseudo-root + nodes + child)."""
-    path = _write(tmp_path, GRAMMAR_EXAMPLE)
-    monkeypatch.setattr(QFileDialog, "getOpenFileName",
-                        lambda *a, **k: (str(path), "Trees (*.trees)"))
-
-    dock = TreesDock(main_window)
-    dock._on_open()
+def test_set_root_file_renders_one_tab_per_tree_with_nested_structure(main_window, tmp_path):
+    """Two trees -> two tabs; the first tree's render mirrors the nested
+    grammar shape (anchor pseudo-root + nodes + child)."""
+    dock, _root = _dock_with(main_window, tmp_path)
 
     assert dock.tabs.count() == 2
     assert dock.tabs.tabText(0) == "power_tree"
@@ -105,85 +118,56 @@ def test_open_renders_one_tab_per_tree_with_nested_structure(main_window, tmp_pa
 
     tree_widget = dock.tabs.widget(0)
     tops = _children(tree_widget.invisibleRootItem())
-    # Pseudo-root anchor at the top; its children are the two top-level nodes.
     assert len(tops) == 1
     assert "CONN_PM5V" in tops[0].text(0)
     nodes = _children(tops[0])
     assert len(nodes) == 2
     assert nodes[0].text(0) == "AMS1117_REG (clone)"
     assert nodes[1].text(0) == "R_AROUND"
-    # The nested child of AMS1117_REG.
     ams_children = _children(nodes[0])
     assert [c.text(0) for c in ams_children] == ["C_OUT"]
 
 
 # ── Static preview ────────────────────────────────────────────────────────
 
-def test_static_preview_xy_node(main_window, tmp_path, monkeypatch):
-    path = _write(tmp_path, GRAMMAR_EXAMPLE)
-    monkeypatch.setattr(QFileDialog, "getOpenFileName",
-                        lambda *a, **k: (str(path), "Trees (*.trees)"))
-    dock = TreesDock(main_window)
-    dock._on_open()
-
+def test_static_preview_xy_node(main_window, tmp_path):
+    dock, _root = _dock_with(main_window, tmp_path)
     tree_widget = dock.tabs.widget(0)
     nodes = _children(_children(tree_widget.invisibleRootItem())[0])
     tree_widget.setCurrentItem(nodes[0])  # AMS1117_REG (xy 5.0 2.0)
-
     text = dock.status_label.text()
-    assert "AMS1117_REG" in text
-    assert "xy=" in text
-    assert "5.000" in text
-    assert "2.000" in text
+    assert "AMS1117_REG" in text and "xy=" in text
+    assert "5.000" in text and "2.000" in text
 
 
-def test_static_preview_polar_node(main_window, tmp_path, monkeypatch):
-    path = _write(tmp_path, GRAMMAR_EXAMPLE)
-    monkeypatch.setattr(QFileDialog, "getOpenFileName",
-                        lambda *a, **k: (str(path), "Trees (*.trees)"))
-    dock = TreesDock(main_window)
-    dock._on_open()
-
+def test_static_preview_polar_node(main_window, tmp_path):
+    dock, _root = _dock_with(main_window, tmp_path)
     tree_widget = dock.tabs.widget(0)
     nodes = _children(_children(tree_widget.invisibleRootItem())[0])
     tree_widget.setCurrentItem(nodes[1])  # R_AROUND (polar 3.0 45.0)
-
     text = dock.status_label.text()
-    assert "R_AROUND" in text
-    assert "r=" in text
-    assert "3.000" in text
-    assert "45.000" in text
+    assert "R_AROUND" in text and "r=" in text
+    assert "3.000" in text and "45.000" in text
 
 
-# ── Toolbar skeleton / root wiring ────────────────────────────────────────
+# ── Toolbar ───────────────────────────────────────────────────────────────
 
-def test_toolbar_buttons_enabled_by_phase(main_window):
-    """All toolbar actions are enabled by Phase 4 (Open/New from 1, Add/Rename
-    tree + Save from 2/3, Redraw from 4)."""
+def test_toolbar_buttons_enabled(main_window):
+    """No Open/New buttons (trees live in the root config, RootMetadataDock
+    owns the root); Add/Rename tree + Save + Redraw are enabled."""
     dock = TreesDock(main_window)
     assert dock.add_tree_button.isEnabled() is True
     assert dock.rename_tree_button.isEnabled() is True
     assert dock.save_button.isEnabled() is True
     assert dock.redraw_button.isEnabled() is True
-    assert dock.open_button.isEnabled() is True
-    assert dock.new_button.isEnabled() is True
+    assert not hasattr(dock, "open_button")
+    assert not hasattr(dock, "new_button")
 
 
 # ── Phase 2: structural editing ───────────────────────────────────────────
 
-def _dock_with(main_window, tmp_path, monkeypatch, text=GRAMMAR_EXAMPLE):
-    path = _write(tmp_path, text)
-    monkeypatch.setattr(QFileDialog, "getOpenFileName",
-                        lambda *a, **k: (str(path), "Trees (*.trees)"))
-    dock = TreesDock(main_window)
-    dock._on_open()
-    return dock, path
-
-
-def test_add_child_mutates_node_children_and_dirty(main_window, tmp_path, monkeypatch):
-    """Add child appends to the parent node's children, marks dirty and
-    rebuilds the widget tree (Phase 2 mutation logic)."""
-    dock, _path = _dock_with(main_window, tmp_path, monkeypatch)
+def test_add_child_mutates_node_children_and_dirty(main_window, tmp_path):
+    dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
     parent = tree.nodes[0]  # AMS1117_REG
     before = len(parent.children)
@@ -196,21 +180,15 @@ def test_add_child_mutates_node_children_and_dirty(main_window, tmp_path, monkey
 
     assert parent.children[before] is new_node
     assert dock._dirty is True
-    # The rebuilt tab shows the new child under AMS1117_REG.
     tree_widget = dock._current_tree_widget()
-    tops = _children(tree_widget.invisibleRootItem())
-    nodes = _children(tops[0])
-    ams_children = _children(nodes[0])
-    assert any(c.text(0) == "NEW_CHILD" for c in ams_children)
+    nodes = _children(_children(tree_widget.invisibleRootItem())[0])
+    assert any(c.text(0) == "NEW_CHILD" for c in _children(nodes[0]))
 
 
-def test_delete_node_removes_subtree_and_marks_dirty(main_window, tmp_path, monkeypatch):
-    """Delete removes the node from its parent's list (whole subtree goes
-    with it), marks dirty, rebuilds."""
-    dock, _path = _dock_with(main_window, tmp_path, monkeypatch)
+def test_delete_node_removes_subtree_and_marks_dirty(main_window, tmp_path):
+    dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
-    # Delete the top-level R_AROUND node.
-    target = tree.nodes[1]
+    target = tree.nodes[1]  # R_AROUND
     tree.nodes.remove(target)
     dock._mark_dirty()
     dock._rebuild_tabs()
@@ -218,16 +196,12 @@ def test_delete_node_removes_subtree_and_marks_dirty(main_window, tmp_path, monk
     assert target not in tree.nodes
     assert dock._dirty is True
     tree_widget = dock._current_tree_widget()
-    tops = _children(tree_widget.invisibleRootItem())
-    nodes = _children(tops[0])
+    nodes = _children(_children(tree_widget.invisibleRootItem())[0])
     assert [n.text(0) for n in nodes] == ["AMS1117_REG (clone)"]
 
 
-def test_move_into_own_descendant_is_forbidden(main_window, tmp_path, monkeypatch):
-    """FORK-C structural invariant: moving a node into its own descendant is
-    forbidden — _collect_subtree must include the whole subtree, so the move
-    candidates exclude it."""
-    dock, _path = _dock_with(main_window, tmp_path, monkeypatch)
+def test_move_into_own_descendant_is_forbidden(main_window, tmp_path):
+    dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
     ams = tree.nodes[0]         # AMS1117_REG
     c_out = ams.children[0]     # C_OUT
@@ -235,7 +209,6 @@ def test_move_into_own_descendant_is_forbidden(main_window, tmp_path, monkeypatc
     forbidden = dock._collect_subtree(ams)
     assert dock._in_list(c_out, forbidden)
     assert dock._in_list(ams, forbidden)
-    # C_OUT (a descendant) is not a legal move candidate for AMS1117_REG.
     candidates = []
     for top in tree.nodes:
         dock._collect_move_candidates(top, forbidden, candidates)
@@ -244,11 +217,8 @@ def test_move_into_own_descendant_is_forbidden(main_window, tmp_path, monkeypatc
 
 
 def _context_menu_actions(dock, item, monkeypatch):
-    """Runs _on_context_menu for `item` with QMenu.exec no-oped (so the menu
-    is never actually shown) and captures the real QAction per label so a
-    test can .trigger() it — same pattern as test_config_tree.py's helper of
-    the same name, added after the 2026-08-14 lambda-capture regression there
-    showed that label-only assertions miss actions that are never wired up."""
+    """Runs _on_context_menu for `item` with QMenu.exec no-oped and captures
+    the real QAction per label (lambda-capture regression safety)."""
     import gui.docks.trees_dock as td_mod
     monkeypatch.setattr(td_mod.QMenu, "exec", lambda self, *a, **k: None)
     captured = []
@@ -266,20 +236,10 @@ def _context_menu_actions(dock, item, monkeypatch):
 
 
 def test_context_menu_on_anchor_offers_add_node(main_window, tmp_path, monkeypatch):
-    """Regression (2026-08-27): the anchor pseudo-root's context menu only
-    offered "Set anchor…" — an empty or freshly-opened tree had no way to
-    receive its first node through the GUI at all, since _add_node_flow was
-    defined but never wired into any menu. Right-clicking the anchor must
-    also offer "Add node", and triggering it must append to tree.nodes."""
-    empty = _write(tmp_path, """(kicadstamp-trees
-  (version 1)
-  (tree
-    (name "empty_tree")
-    (anchor (origin))))""", name="empty.trees")
-    monkeypatch.setattr(QFileDialog, "getOpenFileName",
-                        lambda *a, **k: (str(empty), "Trees (*.trees)"))
-    dock = TreesDock(main_window)
-    dock._on_open()
+    """The anchor pseudo-root's context menu offers "Add node" (wired), and
+    triggering it appends to tree.nodes (regression 2026-08-27)."""
+    empty = {"trees": [{"name": "empty_tree", "anchor": {"origin": True}, "nodes": []}]}
+    dock, _root = _dock_with(main_window, tmp_path, empty)
     tree = dock._current_tree()
     assert tree.nodes == []
 
@@ -297,26 +257,20 @@ def test_context_menu_on_anchor_offers_add_node(main_window, tmp_path, monkeypat
     assert dock._dirty is True
 
 
-def test_rename_tree_enforces_unique_names(main_window, tmp_path, monkeypatch):
-    """Renaming a tree to an existing name is refused (kept unique) — the
-    dialog path is mocked, the dock's uniqueness check is exercised."""
-    dock, _path = _dock_with(main_window, tmp_path, monkeypatch)
+def test_rename_tree_enforces_unique_names(main_window, tmp_path):
+    dock, _root = _dock_with(main_window, tmp_path)
     assert dock._current_tree().name == "power_tree"
-    # Simulate the _on_rename_tree uniqueness check directly: renaming to the
-    # other tree's name must be rejected.
     tree = dock._current_tree()
     other_names = {t.name for t in dock._trees if t is not tree}
     assert "misc" in other_names
     tree.name = "misc"
     assert any(t.name == tree.name for t in dock._trees if t is not tree)  # collision
-    # Undo the manual rename so the test is self-contained.
-    tree.name = "power_tree"
+    tree.name = "power_tree"  # undo, self-contained
 
 
-# ── Phase 3: Save + dirty tracking ────────────────────────────────────────
+# ── Phase 3: Save + dirty tracking (via config_writer into the root) ──────
 
 def _make_dirty(dock):
-    """Bring the dock into a dirty state (a structural change) and rebuild."""
     dock._trees.append(Tree(name="extra", anchor=TreeAnchor(ref=None, is_origin=True),
                             nodes=[]))
     dock._mark_dirty()
@@ -324,38 +278,30 @@ def _make_dirty(dock):
 
 
 def test_save_backs_up_before_writing_and_clears_dirty(main_window, tmp_path, monkeypatch):
-    """_do_save: the .bak is created BEFORE the write (its content is the OLD
-    file), and a successful save clears dirty + persists the new tree list."""
-    dock, path = _dock_with(main_window, tmp_path, monkeypatch)
+    """_do_save: the root config (.bak) is created BEFORE the write (its
+    content is the OLD root), and a successful save clears dirty + persists
+    the new tree list into the root's trees: section. Uses SAVE_TREES so the
+    link_trees round-trip succeeds (external nodes — no records needed)."""
+    dock, root = _dock_with(main_window, tmp_path, SAVE_TREES)
     _make_dirty(dock)
 
-    old_text = path.read_text(encoding="utf-8")
+    old_text = root.read_text(encoding="utf-8")
     dock._do_save()
 
-    # A .bak exists and holds the PRE-save content (backup-before-write).
-    baks = list(tmp_path.glob("trees.trees.bak.*"))
+    baks = list(tmp_path.glob("root.yaml.bak.*"))
     assert baks, "expected a timestamped backup"
     assert baks[0].read_text(encoding="utf-8") == old_text
-    # The saved file now round-trips to the edited tree list; dirty cleared.
     assert dock._dirty is False
-    saved = load_trees(str(path))
-    assert [t.name for t in saved] == ["power_tree", "misc", "extra"]
+    cfg, _ = load_config(str(root))
+    assert [t.name for t in cfg.trees] == ["power_tree", "misc", "extra"]
 
 
 def test_save_roundtrip_failure_warns_but_leaves_backup(main_window, tmp_path, monkeypatch):
-    """A link_trees round-trip failure after save is reported, the file IS
+    """A link_trees round-trip failure after save is reported, the root IS
     written (by design), and the fresh .bak is the recovery point."""
-    dock, path = _dock_with(main_window, tmp_path, monkeypatch)
-
-    # _do_save only runs link_trees when a root config is loaded (self._cfg
-    # is not None) — give the dock a root so the round-trip link is attempted.
-    root = tmp_path / "root.yaml"
-    root.write_text("cells: {}\n", encoding="utf-8")
-    dock.set_root_file(root)
+    dock, root = _dock_with(main_window, tmp_path)
     assert dock._cfg is not None
 
-    # Force a round-trip link failure: we mock link_trees to raise instead of
-    # building a real config mismatch (simpler, still exercises the save path).
     warnings = []
     monkeypatch.setattr(QMessageBox, "warning",
                         lambda *a, **k: warnings.append(a) or QMessageBox.StandardButton.Ok)
@@ -369,14 +315,13 @@ def test_save_roundtrip_failure_warns_but_leaves_backup(main_window, tmp_path, m
     dock._do_save()
 
     assert warnings, "expected a warning for the round-trip failure"
-    assert list(tmp_path.glob("trees.trees.bak.*"))
-    # The file is still written (expected, not a bug).
-    assert load_trees(str(path))
+    assert list(tmp_path.glob("root.yaml.bak.*"))
+    cfg, _ = load_config(str(root))  # still written
+    assert [t.name for t in cfg.trees] == ["power_tree", "misc", "extra"]
 
 
-def test_dirty_indicator_reflects_mark_dirty(main_window, tmp_path, monkeypatch):
-    """_mark_dirty shows the ● indicator; a successful save clears it."""
-    dock, _path = _dock_with(main_window, tmp_path, monkeypatch)
+def test_dirty_indicator_reflects_mark_dirty(main_window, tmp_path):
+    dock, _root = _dock_with(main_window, tmp_path, SAVE_TREES)
     assert dock.dirty_label.text() == ""
     _make_dirty(dock)
     assert "●" in dock.dirty_label.text()
@@ -384,16 +329,19 @@ def test_dirty_indicator_reflects_mark_dirty(main_window, tmp_path, monkeypatch)
     assert dock.dirty_label.text() == ""
 
 
+def test_save_without_root_is_a_noop(main_window):
+    dock = TreesDock(main_window)
+    dock.set_root_file(None)
+    dock._do_save()  # must not crash, must not write anywhere
+    assert dock._dirty is False
+
+
 # ── Phase 4: checkbox selection + Redraw ─────────────────────────────────
 
 def test_redraw_selected_collects_checked_refs_and_calls_worker(
         main_window, tmp_path, monkeypatch):
-    """_on_redraw_selected builds the payload (checked refs of the current
-    tree) and dispatches it through start_long_op with the worker adapter —
-    mocked, no real worker thread in a unit test."""
-    dock, _path = _dock_with(main_window, tmp_path, monkeypatch)
+    dock, _root = _dock_with(main_window, tmp_path)
 
-    # Check AMS1117_REG and R_AROUND (both in the "power_tree" tab).
     ams_item = dock._node_items["AMS1117_REG"]
     ams_item.setCheckState(0, Qt.CheckState.Checked)
     r_item = dock._node_items["R_AROUND"]
@@ -415,9 +363,7 @@ def test_redraw_selected_collects_checked_refs_and_calls_worker(
 
 
 def test_redraw_selected_no_selection_shows_hint(main_window, tmp_path, monkeypatch):
-    """With nothing checked, _on_redraw_selected does not dispatch a worker —
-    it shows a status hint instead."""
-    dock, _path = _dock_with(main_window, tmp_path, monkeypatch)
+    dock, _root = _dock_with(main_window, tmp_path)
     called = []
     import gui.docks.trees_dock as td_mod
     monkeypatch.setattr(td_mod, "start_long_op", lambda *a, **k: called.append(a) or object())

@@ -58,6 +58,7 @@ from .entries import (
     _load_template_track,
     _load_template_via,
     _load_thermal_via_array,
+    _load_tree,
     _point_is_footprint_eligible,
 )
 from .includes import _load_config_file, resolve_includes
@@ -247,6 +248,19 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
 
     clone_placements = [_load_clone_placement(cp) for cp in data.get('clone_placements', [])]
 
+    # trees: — optional curated-redraw list section (design_2026_08_27_trees_in_
+    # config_file.md). A single seen_refs set is shared across ALL trees of the
+    # whole include graph, so the "a record's ref appears in at most one node"
+    # invariant (trees.py's rule 2) holds across files, not just per file.
+    tree_refs: set[str] = set()
+    trees = [_load_tree(t, seen_refs=tree_refs) for t in data.get('trees', [])]
+    _check_duplicate_names(
+        trees, lambda t: t.name, "trees",
+        _("every trees entry needs a unique name — curated redraw cannot tell "
+          "same-named trees apart otherwise (a duplicate name may also arrive via "
+          "include: from another file)"))
+    logger.debug(_("Config loaded: trees={trees}").format(trees=len(trees)))
+
     # Cross‑validation of layer/mirror
     for cp in clone_placements:
         cell = cells.get(cp.cell)
@@ -385,6 +399,7 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
         clone_placements=clone_placements,
         coordinate_placements=coordinate_placements,
         net_traces=net_traces,
+        trees=trees,
         place_components=data.get('place_components', True),
         skip_existing_components=data.get('skip_existing_components', False),
         via_keepout_clearance_mm=data.get('via_keepout_clearance_mm', 0.2),

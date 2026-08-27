@@ -35,6 +35,7 @@ import sexpdata
 from ..cloner.sexp import sym, sval
 from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
+from ..trees import tree_from_dict, tree_from_sexp, tree_to_dict, tree_to_sexp
 from .includes import _DICT_SECTIONS, _LIST_SECTIONS
 from .models import (
     Cell,
@@ -102,10 +103,20 @@ _SHEET_TEMPLATE_FIELD_TYPE = {
     "coordinate_placements": ("list_record", CoordinatePlacement),
 }
 
+# trees: — a list section (config/includes.py's _LIST_SECTIONS) whose nodes
+# are NOT generic dataclass records: TreeNode is self-referencing, so the
+# generic schema-aware machinery is deliberately NOT extended for it. Instead
+# the (trees ...) node is delegated wholesale to trees.py's own grammar
+# (tree_to_sexp / tree_from_sexp), see design_2026_08_27_trees_in_config_file.md
+# FORK-2 Variant B. Config.trees: list[Tree] IS a dataclass field (so the
+# loader/validation pipeline sees it), but the converter handles it as a
+# special section, not via _field_type/_LIST_SECTION_CLASS.
+_SPECIAL_SECTIONS = ("trees",)
+
 # The section sets are authoritative in config/includes.py — assert the
 # converter's class maps cover exactly them, so a section added there is
 # never silently skipped here (the converter would fatal on it instead).
-assert set(_LIST_SECTION_CLASS) == set(_LIST_SECTIONS)
+assert set(_LIST_SECTION_CLASS) | set(_SPECIAL_SECTIONS) == set(_LIST_SECTIONS)
 assert set(_DICT_SECTION_CLASS) | set(_FREE_DICT_SECTIONS) == set(_DICT_SECTIONS)
 
 
@@ -406,6 +417,28 @@ def _include_to_sexp(entries):
     return node
 
 
+def _trees_to_sexp(value) -> list:
+    """dict -> s-expr: (trees (tree ...) (tree ...)). value is the config-dict
+    shape (list of plain dicts, each tree_to_dict's output); each dict is
+    delegated to trees.py's own grammar via tree_from_dict -> tree_to_sexp
+    (FORK-2 Variant B — the generic machinery never sees TreeNode)."""
+    return [sym("trees"), *[tree_to_sexp(tree_from_dict(d)) for d in value]]
+
+
+def _trees_from_sexp(node) -> list:
+    """s-expr -> dict: children of (trees ...) are (tree ...) nodes, each
+    parsed by trees.py's grammar and converted to the config-dict shape via
+    tree_to_dict. seen_names/seen_refs are shared across ALL trees in the
+    section, so uniqueness holds for the whole config (same invariant the
+    loader enforces via _load_tree's shared seen_refs)."""
+    seen_names: set[str] = set()
+    seen_refs: set[str] = set()
+    out = []
+    for tree_node in node[1:]:
+        out.append(tree_to_dict(tree_from_sexp(tree_node, seen_names, seen_refs, "<trees>")))
+    return out
+
+
 def _root_child_to_sexp(key: str, value):
     if key in _LIST_SECTION_CLASS:
         dc = _LIST_SECTION_CLASS[key]
@@ -416,6 +449,8 @@ def _root_child_to_sexp(key: str, value):
         return _dict_section_to_sexp(key, None, value)
     if key == "include":
         return _include_to_sexp(value)
+    if key in _SPECIAL_SECTIONS:
+        return _trees_to_sexp(value)
     if key in _hints(Config):  # root scalar Config field (layer, ...)
         if _is_default_value(Config, key, value):
             # a default-valued root scalar is omitted entirely
@@ -765,6 +800,8 @@ def sexp_to_dict(text: str) -> dict:
             out[key] = _parse_dict_section(child, key, path)
         elif key == "include":
             out[key] = _parse_include(child, path)
+        elif key in _SPECIAL_SECTIONS:
+            out[key] = _trees_from_sexp(child)
         elif key in _hints(Config):
             out[key] = _parse_field(child, _field_type(Config, key), path)
         else:
@@ -813,6 +850,13 @@ def _strip_defaults(data: dict) -> dict:
             out[key] = {n: strip_record(dc, entry) for n, entry in value.items()}
         elif key in _FREE_DICT_SECTIONS:
             out[key] = dict(value)
+        elif key in _SPECIAL_SECTIONS:
+            # trees: — normalizing round-trip via the dict bridge, so a
+            # default-valued node field (kind None/rotation 0.0/...) is
+            # stripped exactly as the s-expr writer omits it. MUST be before
+            # _hints(Config) — Config.trees would otherwise route Tree into
+            # the generic strip_record and produce a half-dataclass result.
+            out[key] = [tree_to_dict(tree_from_dict(d)) for d in value]
         elif key in _hints(Config):
             if _is_default_value(Config, key, value):
                 continue

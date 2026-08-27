@@ -280,7 +280,8 @@ def disable_include(path: Path, target: Path) -> bool:
 # blindly in that case leaves the including file unloadable next time
 # anything reads it.
 INCLUDABLE_KEYS = frozenset(
-    {"rules", "clone_placements", "cells", "points", "extract_profiles", "clone_profiles", "include"})
+    {"rules", "clone_placements", "cells", "points", "extract_profiles", "clone_profiles",
+     "trees", "include"})
 
 
 def _load_data_tolerant(path: Path) -> dict:

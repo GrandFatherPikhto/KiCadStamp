@@ -1,35 +1,35 @@
 # gui/docks/trees_dock.py
 """TreesDock — hand-authored s-expr "trees" editor (design
-techdocs/handoff/deepseek/design_2026_08_27_trees_gui_dock.md).
+techdocs/handoff/deepseek/design_2026_08_27_trees_gui_dock.md, then moved
+into the root config as the trees: section — design_2026_08_27_trees_in_
+config_file.md, FORK-5).
 
 Unlike AnchorTreeDock (read-only automatic anchor graph over the config),
-this dock edits the OPTIONAL manual `.trees` layer: read-write, its own
-file on disk, per-tree tabs, structural editing (Phase 2), Save + dirty
-tracking (Phase 3), checkbox subtree selection + background curated Redraw
-through run_curated_tree_redraw_worker (Phase 4).
-
-Phase 1 scope: Open/New a .trees file, render each Tree as a tab with a
-read-only QTreeWidget, and a static node_offset() preview in the status
-line. The other toolbar buttons are visible but disabled until their phase
-lands (the toolbar skeleton is not hidden piecemeal).
+this dock edits the OPTIONAL manual trees: section of the ROOT config
+(design_2026_08_27_trees_in_config_file.md): it follows the root via
+root_changed (like ConfigTreeDock/AnchorTreeDock), has no file identity of
+its own, per-tree tabs, structural editing, Save + dirty tracking through
+the single config_writer chokepoint, checkbox subtree selection + background
+curated Redraw through run_curated_tree_redraw_worker.
 """
 import logging
 from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (QComboBox, QDialog, QDockWidget, QFileDialog,
+from PyQt6.QtWidgets import (QComboBox, QDialog, QDockWidget,
                              QFormLayout, QHBoxLayout, QInputDialog, QLabel,
                              QLineEdit, QMenu, QMessageBox, QPushButton,
                              QTabWidget, QTreeWidget, QTreeWidgetItem,
                              QVBoxLayout, QWidget)
 
 from kicadstamp.anchor_graph import build_records
-from kicadstamp.config import load_config
+from kicadstamp.config import load_config, load_tree
+from kicadstamp.config_writer import read_data, write_data
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
 from kicadstamp.link_trees import _PLACEABLE_KINDS, link_trees
-from kicadstamp.trees import KINDS, Tree, TreeAnchor, TreeNode, load_trees, save_trees
+from kicadstamp.trees import KINDS, Tree, TreeAnchor, TreeNode, tree_to_dict
 
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
@@ -53,17 +53,18 @@ _KIND_TAGS = {
 
 
 class TreesDock(QDockWidget):
-    """QDockWidget hosting the hand-authored s-expr "trees" editor (design
-    techdocs/handoff/deepseek/design_2026_08_27_trees_gui_dock.md). Owns a
-    toolbar, the per-tree tab widget and the status line; dock_hub adds and
-    tabifies it like the other tree docks."""
+    """QDockWidget hosting the hand-authored trees editor for the root
+    config's trees: section (design_2026_08_27_trees_in_config_file.md). Owns
+    a toolbar, the per-tree tab widget and the status line; dock_hub adds and
+    tabifies it like the other tree docks. No file identity of its own — the
+    trees live in the root config (cfg.trees), read via root_changed and
+    saved through config_writer."""
 
     def __init__(self, main_window):
         super().__init__(_("Trees"), main_window)
         self._main_window = main_window
-        self._trees_path: Optional[Path] = None
         self._trees: list[Tree] = []
-        self._root_path: Optional[Path] = None   # for link_trees, via root_changed
+        self._root_path: Optional[Path] = None   # for link_trees + Save, via root_changed
         self._cfg = None
         self._ctx = None
         self._dirty: bool = False                # used from Phase 2, field kept from the start
@@ -78,15 +79,9 @@ class TreesDock(QDockWidget):
         layout.setContentsMargins(4, 4, 4, 4)
         self.setWidget(container)
 
-        # ── Toolbar (skeleton visible from Phase 1; non-Phase-1 buttons are
-        #    disabled until their phase lands) ────────────────────────────
+        # ── Toolbar (Add/Rename tree + Save + Redraw; no Open/New — the trees
+        #    live in the root config, which RootMetadataDock owns) ─────────
         toolbar = QHBoxLayout()
-        self.open_button = QPushButton(_("Open .trees…"))
-        self.open_button.clicked.connect(self._on_open)
-        toolbar.addWidget(self.open_button)
-        self.new_button = QPushButton(_("New .trees…"))
-        self.new_button.clicked.connect(self._on_new)
-        toolbar.addWidget(self.new_button)
         self.add_tree_button = QPushButton(_("Add tree…"))
         self.add_tree_button.setEnabled(True)
         self.add_tree_button.clicked.connect(self._on_add_tree)
@@ -123,22 +118,32 @@ class TreesDock(QDockWidget):
 
     def set_root_file(self, path: Optional[Path]) -> None:
         """Slot — RootMetadataDock.root_changed (wired in gui/dock_hub.py).
-        Refreshes _root_path + the cfg/ctx used for link_trees at Save. Does
-        NOT touch _trees_path/_trees — the .trees file is opened explicitly
-        and does not depend on the root changing (design doc §2)."""
+        The trees live in the ROOT CONFIG's trees: section (design_2026_08_27_
+        trees_in_config_file.md FORK-5): this refreshes _root_path, loads the
+        config (cfg/ctx for link_trees at Save) and reads self._trees = the
+        section's trees. Empty when there is no root yet or the section is
+        absent. Same pattern as ConfigTreeDock.set_root_file."""
         self._root_path = path
         self._cfg = None
         self._ctx = None
+        self._trees = []
         if path is None:
+            self._dirty = False
+            self._rebuild_tabs()
+            self._update_toolbar_state()
             return
         try:
             self._cfg, self._ctx = load_config(str(path))
+            self._trees = list(self._cfg.trees)
         except ValidationError as e:
             # A broken root config must not crash the trees dock — cfg stays
-            # None and Save's link_trees round-trip is skipped until a good
-            # root is loaded.
+            # None, trees empty, and Save's link_trees round-trip is skipped
+            # until a good root is loaded.
             logger.warning(_("Trees: root config failed to load: {error}")
                            .format(error=e))
+        self._dirty = False
+        self._rebuild_tabs()
+        self._update_toolbar_state()
 
     def apply_highlight(self) -> None:
         """Re-apply the highlight stylesheet — same consumer shape as the
@@ -148,34 +153,22 @@ class TreesDock(QDockWidget):
             if isinstance(tree, QTreeWidget):
                 tree.setStyleSheet(highlight_stylesheet_for("QTreeView::item:selected"))
 
-    # ── File operations (Phase 1) ────────────────────────────────────────
-
-    def _default_dir(self) -> str:
-        if self._root_path is not None:
-            return str(self._root_path.parent)
-        return "."
-
-    def _default_new_name(self) -> str:
-        if self._root_path is not None:
-            return f"{self._root_path.stem}.trees"
-        return "trees.trees"
-
     def _confirm_discard_changes(self) -> bool:
         """True to proceed (either nothing to lose, or the user confirmed
-        discarding). Asked BEFORE replacing the current file/tree — the
-        "lose unsaved changes" guard for Open/New/close (design §7)."""
+        discarding). Asked before discarding unsaved tree edits (close guard) —
+        "lose unsaved changes" prompt, Save goes through the same _do_save."""
         if not self._dirty:
             return True
         ret = QMessageBox.question(
             self, _("Unsaved changes"),
-            _("Save changes to {path}?").format(path=self._trees_path),
+            _("Save changes to {path}?").format(path=self._root_path),
             QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard
             | QMessageBox.StandardButton.Cancel)
         if ret == QMessageBox.StandardButton.Cancel:
             return False
         if ret == QMessageBox.StandardButton.Save:
             self._do_save()
-            return not self._dirty  # save failed -> keep the current file
+            return not self._dirty  # save failed -> keep the current state
         return True  # Discard
 
     def closeEvent(self, event) -> None:
@@ -184,46 +177,6 @@ class TreesDock(QDockWidget):
             super().closeEvent(event)
         else:
             event.ignore()
-
-    def _on_open(self) -> None:
-        if not self._confirm_discard_changes():
-            return
-        chosen, _f = QFileDialog.getOpenFileName(
-            self, _("Open Trees file"), self._default_dir(), "Trees (*.trees)")
-        if not chosen:
-            return
-        try:
-            trees = load_trees(chosen)
-        except Exception as e:  # noqa: BLE001 — a user-chosen .trees file can be
-            # broken at the s-expr parse level (sexpdata's Expect* exceptions) OR
-            # at the grammar level (ValidationError from trees.py); both are
-            # "this file is malformed", both must become a warning, never a crash.
-            QMessageBox.warning(self, _("Open Trees file"), str(e))
-            return
-        self._trees_path = Path(chosen)
-        self._trees = trees
-        self._dirty = False
-        self._rebuild_tabs()
-        self._update_toolbar_state()
-
-    def _on_new(self) -> None:
-        if not self._confirm_discard_changes():
-            return
-        chosen, _f = QFileDialog.getSaveFileName(
-            self, _("New Trees file"), str(Path(self._default_dir()) / self._default_new_name()),
-            "Trees (*.trees)")
-        if not chosen:
-            return
-        path = Path(chosen)
-        # save_trees(path, []) writes the canonical empty
-        # (kicadstamp-trees (version 1)) — reuse the serializer, not hand
-        # text, so an empty tree list round-trips through our own writer.
-        save_trees(str(path), [])
-        self._trees_path = path
-        self._trees = []
-        self._dirty = False
-        self._rebuild_tabs()
-        self._update_toolbar_state()
 
     # ── Tab building + rendering ─────────────────────────────────────────
 
@@ -324,18 +277,23 @@ class TreesDock(QDockWidget):
         self.redraw_button.setEnabled(True)
 
     def _do_save(self) -> None:
-        """Phase 3 Save: BACKUP unconditionally BEFORE writing (entity_delete's
-        timestamped backup_file — never overwrites an earlier backup), then
-        save_trees, then round-trip through load_trees + link_trees to surface
-        a grammar/link violation. A round-trip failure leaves the file already
+        """Save the trees: section into the ROOT config through the single
+        config_writer chokepoint (design_2026_08_27_trees_in_config_file.md
+        §5.2): BACKUP the write target (the root config file) BEFORE writing
+        (entity_delete's timestamped backup_file — never overwrites an earlier
+        backup), then write_data(root, {**read_data(root), "trees": [...]}) —
+        the whole section is replaced, every other root key is preserved. Then
+        round-trip through read_data -> load_tree + link_trees to surface a
+        grammar/link violation. A round-trip failure leaves the file already
         written (by design) but the fresh .bak is the recovery point — show the
         message, do not roll back."""
-        if self._trees_path is None:
-            return  # Save unavailable without an open/created file
-        backup_file(self._trees_path)
-        save_trees(str(self._trees_path), self._trees)
+        if self._root_path is None:
+            return  # Save unavailable without a root config
+        backup_file(self._root_path)
+        trees_dict = [tree_to_dict(t) for t in self._trees]
+        write_data(self._root_path, {**read_data(self._root_path), "trees": trees_dict})
         try:
-            reloaded = load_trees(str(self._trees_path))
+            reloaded = [load_tree(t) for t in trees_dict]
             if self._cfg is not None:
                 link_trees(self._cfg, reloaded)
         except ValidationError as e:
