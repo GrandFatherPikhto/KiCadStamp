@@ -97,6 +97,53 @@ def test_new_root_dialog_cancelled_leaves_root_untouched(main_window, tmp_path, 
     assert dock._path == root
 
 
+# .sexp root (parallel config format, 2026-08-27)
+
+def test_new_root_sexp_creates_empty_kicadstamp_config(main_window, tmp_path, monkeypatch):
+    """A brand-new .sexp root starts with the (kicadstamp-config) template —
+    a perfectly valid empty config, the s-expr analog of YAML's '{}'."""
+    new_root = tmp_path / "brand_new.sexp"
+    assert not new_root.exists()
+
+    dock = RootMetadataDock(main_window)
+    monkeypatch.setattr(root_metadata_mod.QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (str(new_root), "")))
+    dock._on_new_root()
+
+    assert new_root.exists()
+    text = new_root.read_text(encoding="utf-8")
+    assert text.strip().startswith("(kicadstamp-config")
+    assert dock._path == new_root
+    # and the template is a loadable empty config
+    from kicadstamp.config.loader import load_config
+    cfg, _ = load_config(str(new_root))
+    assert cfg is not None
+
+
+def test_open_root_sexp_via_dialog(main_window, tmp_path, monkeypatch):
+    """Open Root accepts .sexp files (filter now includes them)."""
+    root = tmp_path / "root.sexp"
+    root.write_text("(kicadstamp-config\n  (layer \"B.Cu\"))\n", encoding="utf-8")
+
+    dock = RootMetadataDock(main_window)
+    monkeypatch.setattr(root_metadata_mod.QFileDialog, "getOpenFileName",
+                        staticmethod(lambda *a, **k: (str(root), "")))
+    dock._on_open_root()
+
+    assert dock._path == root
+    assert settings.state.get("last_root_file") == str(root)
+
+
+def test_default_new_name_uses_root_stem_with_sexp_extension(main_window, tmp_path):
+    dock = RootMetadataDock(main_window)
+    dock._path = tmp_path / "3ch-awg-tia.yaml"
+    assert dock._default_new_name() == "3ch-awg-tia.sexp"
+
+    # no root open yet -> generic 'config.sexp'
+    dock2 = RootMetadataDock(main_window)
+    assert dock2._default_new_name() == "config.sexp"
+
+
 def test_set_root_file_emits_root_changed(main_window, tmp_path):
     """root_changed (moved here 2026-08-11, was ConfigTreeDock's own
     root_file_changed) is the signal every other dock's set_root_path

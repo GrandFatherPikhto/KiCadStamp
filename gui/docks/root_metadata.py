@@ -324,10 +324,18 @@ class RootMetadataDock(QWidget):
         old root_path property had)."""
         return self._path
 
+    def _default_new_name(self) -> str:
+        """Default filename for the New Root dialog — the current root's stem
+        with the parallel .sexp extension (2026-08-27: .sexp is now a first-
+        class root format, so a fresh root defaults to it; the Open/New
+        filters accept both YAML and s-expr)."""
+        stem = self._path.stem if self._path else "config"
+        return f"{stem}.sexp"
+
     def _on_open_root(self) -> None:
         chosen, _filter = QFileDialog.getOpenFileName(
             self, _("Open Root file"), str(self._path.parent if self._path else ""),
-            "YAML files (*.yaml *.yml)")
+            "Config files (*.yaml *.yml *.sexp)")
         if not chosen:
             return
         self.set_root_file(Path(chosen))
@@ -335,15 +343,20 @@ class RootMetadataDock(QWidget):
     def _on_new_root(self) -> None:
         """Save-mode dialog (not Open) lets a not-yet-existing filename be
         typed — a brand new root starts out as an empty, perfectly valid
-        config (every Config field is optional/defaulted)."""
+        config (every Config field is optional/defaulted). The empty template
+        is format-aware: YAML gets '{}\n', s-expr gets '(kicadstamp-config)'."""
+        default_dir = str(self._path.parent if self._path else "")
         chosen, _filter = QFileDialog.getSaveFileName(
-            self, _("New Root file"), str(self._path.parent if self._path else ""),
-            "YAML files (*.yaml *.yml)")
+            self, _("New Root file"), str(Path(default_dir) / self._default_new_name()),
+            "Config files (*.yaml *.yml *.sexp)")
         if not chosen:
             return
         chosen_path = Path(chosen)
         if not chosen_path.exists():
-            chosen_path.write_text("{}\n", encoding="utf-8")
+            if chosen_path.suffix.lower() == ".sexp":
+                chosen_path.write_text("(kicadstamp-config)\n", encoding="utf-8")
+            else:
+                chosen_path.write_text("{}\n", encoding="utf-8")
         self.set_root_file(chosen_path)
 
     def _on_recent_selected(self, index: int) -> None:
