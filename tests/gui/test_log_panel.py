@@ -252,3 +252,14 @@ def test_append_line_does_not_scroll_when_autoscroll_disabled(log_dock):
     scrollbar.setValue(0)
     log_dock.append_line("one more line", logging.INFO)
     assert scrollbar.value() == 0
+
+
+def test_text_view_has_no_minimum_height_floor(log_dock):
+    """The dock's splitter must be able to shrink the log to (near) nothing —
+    QPlainTextEdit already scrolls its own content (own viewport/scrollbar,
+    setMaximumBlockCount caps growth), so its default minimumSizeHint must
+    not floor the dock height (handoff log_dock_min_height: Denis wants to
+    nearly fully collapse the log, it already mirrors to the console). A
+    structural check — real splitter geometry is a visual thing, verified
+    live."""
+    assert log_dock.text.minimumHeight() == 0

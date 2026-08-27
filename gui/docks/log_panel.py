@@ -125,6 +125,17 @@ class LogDock(QDockWidget):
         self.text = QPlainTextEdit()
         self.text.setReadOnly(True)
         self.text.setMaximumBlockCount(10000)  # cap growth over a long-running session
+        self.text.setMinimumHeight(0)  # 2026-08-27: QPlainTextEdit already scrolls
+                                       # its own content (own viewport/scrollbar) —
+                                       # no reason for its default minimumSizeHint to
+                                       # floor how small the dock can shrink (Denis:
+                                       # wants near-full collapse; the log already
+                                       # mirrors to the console it was launched from).
+                                       # Deliberately NOT a QScrollArea wrap — that
+                                       # widget has its own scrolling; wrapping again
+                                       # would be the nested-scroll/squish anti-pattern
+                                       # avoided for the other docks in the
+                                       # detail_panel.py QScrollArea handoff.
         layout.addWidget(self.text, 1)
 
         find_row = QHBoxLayout()
