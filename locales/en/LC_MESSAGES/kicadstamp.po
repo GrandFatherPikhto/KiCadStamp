@@ -1227,6 +1227,10 @@ msgstr ""
 msgid "Delete tree {name!r}? This cannot be undone (until you Save)."
 msgstr ""
 
+#: kicadstamp/trees.py
+msgid "anchor: (origin) and (external) are mutually exclusive"
+msgstr ""
+
 #: gui/docks/config_tree.py:545
 msgid ""
 "{name!r} is still referenced by:\n"

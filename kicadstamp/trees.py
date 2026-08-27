@@ -43,6 +43,9 @@ _OFFSET_KEYS = ("xy", "polar")
 class TreeAnchor:
     ref: str | None        # None only if is_origin
     is_origin: bool
+    is_external: bool = False   # "this ref is a live-board refdes, never a
+                                # config record" — symmetric to kind="external"
+                                # on TreeNode (the anchor's own collision shield)
 
 
 @dataclass
@@ -107,15 +110,21 @@ def _parse_rotation(node) -> float:
 
 
 def _parse_anchor(anchor_node) -> TreeAnchor:
-    """(anchor (ref "...")) -> ref anchor; (anchor (origin)) -> origin anchor.
+    """(anchor (ref "...")) -> ref anchor; (anchor (origin)) -> origin anchor;
+    (anchor (ref "...") (external)) -> live-board-only refdes anchor (NEVER
+    resolved against config — a config record sharing the name is ignored).
     Anything else is fatal. ref is NOT validated for uniqueness against
     nodes — an anchor is a base, not something the tree places (rule 2)."""
-    if child(anchor_node, "origin") is not None:
-        return TreeAnchor(ref=None, is_origin=True)
+    is_origin = child(anchor_node, "origin") is not None
+    is_external = child(anchor_node, "external") is not None
+    if is_origin and is_external:
+        _fatal(_("anchor: (origin) and (external) are mutually exclusive"))
+    if is_origin:
+        return TreeAnchor(ref=None, is_origin=True, is_external=False)
     ref = atom(anchor_node, "ref")
     if ref is None:
         _fatal(_("anchor must be either (ref \"...\") or (origin)"))
-    return TreeAnchor(ref=ref, is_origin=False)
+    return TreeAnchor(ref=ref, is_origin=False, is_external=is_external)
 
 
 def _parse_node(node, seen_refs: set[str], location: str) -> TreeNode:
@@ -236,10 +245,14 @@ def _node_to_sexp(node: TreeNode) -> list:
 
 
 def _anchor_to_sexp(anchor: TreeAnchor) -> list:
-    """(ref "...") for a ref anchor, (origin) for an origin anchor."""
+    """(ref "...") for a ref anchor, (origin) for an origin anchor. An
+    external (live-board-only) ref anchor also emits (external)."""
     if anchor.is_origin:
         return [sym("anchor"), [sym("origin")]]
-    return [sym("anchor"), [sym("ref"), anchor.ref]]
+    out = [sym("anchor"), [sym("ref"), anchor.ref]]
+    if anchor.is_external:
+        out.append([sym("external")])
+    return out
 
 
 def _tree_to_sexp(tree: Tree) -> list:
@@ -272,7 +285,12 @@ def save_trees(path: str, trees: list[Tree]) -> None:
 # _node_to_sexp) — tree_to_dict(tree_from_dict(d)) is the canonical form.
 
 def _anchor_to_dict(anchor: TreeAnchor) -> dict:
-    return {"origin": True} if anchor.is_origin else {"ref": anchor.ref}
+    if anchor.is_origin:
+        return {"origin": True}
+    out: dict = {"ref": anchor.ref}
+    if anchor.is_external:
+        out["external"] = True
+    return out
 
 
 def _node_to_dict(node: TreeNode) -> dict:
@@ -371,10 +389,13 @@ def tree_from_dict(data: dict, seen_refs: set[str] | None = None) -> Tree:
     if name is None:
         _fatal(_("a tree is missing a (name ...)"))
     anchor_data = data.get("anchor") or {}
+    if anchor_data.get("origin") and anchor_data.get("external"):
+        _fatal(_("anchor: (origin) and (external) are mutually exclusive"))
     if anchor_data.get("origin"):
-        anchor = TreeAnchor(ref=None, is_origin=True)
+        anchor = TreeAnchor(ref=None, is_origin=True, is_external=False)
     elif anchor_data.get("ref") is not None:
-        anchor = TreeAnchor(ref=anchor_data["ref"], is_origin=False)
+        anchor = TreeAnchor(ref=anchor_data["ref"], is_origin=False,
+                            is_external=bool(anchor_data.get("external")))
     else:
         _fatal(_("anchor must be either (ref \"...\") or (origin)"))
     return Tree(

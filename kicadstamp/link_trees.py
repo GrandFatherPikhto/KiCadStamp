@@ -128,12 +128,16 @@ def _resolve_node_ref(node: TreeNode, by_key: dict[str, Record],
 def _resolve_anchor_ref(anchor: TreeAnchor,
                         by_name: dict[str, list[Record]]) -> tuple[Record | None, bool]:
     """Resolve a tree anchor's ref -> (record, is_external). is_origin never
-    resolves (no base, not "external"). Zero matches is SILENTLY external —
-    an anchor may legitimately point at a live component outside the config
-    (asymmetry with nodes, which have no kind to hint and no external marker
-    on the anchor)."""
+    resolves (no base, not "external"). An explicit external marker (the
+    anchor's (external) child) is ALWAYS external — never touches config, so
+    a name collision with a config record is impossible (the fix for
+    note_2026_08_28_tree_anchor_name_collision). Zero matches is SILENTLY
+    external — a legacy fallback for anchors pointing at a live component
+    outside the config (kept for backward compatibility)."""
     if anchor.is_origin:
         return None, False
+    if anchor.is_external:
+        return None, True
     candidates = by_name.get(anchor.ref, [])
     if not candidates:
         return None, True

@@ -83,6 +83,33 @@ def test_anchor_ref_vs_origin_are_distinguished(tmp_path):
     assert trees[1].anchor.is_origin is True and trees[1].anchor.ref is None
 
 
+def test_anchor_external_marker_is_parsed(tmp_path):
+    """(anchor (ref "...") (external)) -> a live-board-only refdes anchor:
+    is_external True, is_origin False — the anchor's OWN collision shield,
+    symmetric to TreeNode's kind="external" (note_2026_08_28_...)."""
+    text = """(kicadstamp-trees
+  (tree
+    (name "t")
+    (anchor (ref "U_FPGA") (external))
+    (node (ref "R1") (xy 1.0 2.0))))"""
+    a = load_trees(_write(tmp_path, text))[0].anchor
+    assert a.ref == "U_FPGA"
+    assert a.is_origin is False
+    assert a.is_external is True
+
+
+def test_anchor_origin_external_mutually_exclusive(tmp_path):
+    """(origin) and (external) on one anchor is contradictory — fatal, never
+    a silent pick (same discipline as the rest of the grammar)."""
+    text = """(kicadstamp-trees
+  (tree
+    (name "t")
+    (anchor (origin) (external))
+    (node (ref "R1") (xy 1.0 2.0))))"""
+    with pytest.raises(ValidationError, match="mutually exclusive"):
+        load_trees(_write(tmp_path, text))
+
+
 def test_default_name_and_group_are_none(tmp_path):
     """name/group are optional UI labels — absent means None (not "")."""
     trees = load_trees(_write(tmp_path, GRAMMAR_EXAMPLE))
@@ -316,6 +343,20 @@ def test_save_trees_roundtrip_ref_anchor(tmp_path):
                        nodes=[_node_obj(ref="R1", xy=(1.0, 2.0))])]
     path = tmp_path / "rt.trees"
     save_trees(str(path), trees)
+    assert load_trees(str(path)) == trees
+
+
+def test_save_trees_roundtrip_external_anchor(tmp_path):
+    """An external (live-board-only) anchor serializes as (anchor (ref ...)
+    (external)) and round-trips to the same TreeAnchor — the collision shield
+    must survive save -> load (note_2026_08_28_tree_anchor_name_collision)."""
+    trees = [_tree_obj(name="t1",
+                       anchor=TreeAnchor(ref="U_FPGA", is_origin=False,
+                                         is_external=True),
+                       nodes=[_node_obj(ref="R1", xy=(1.0, 2.0))])]
+    path = tmp_path / "rt.trees"
+    save_trees(str(path), trees)
+    assert "(external)" in path.read_text(encoding="utf-8")
     assert load_trees(str(path)) == trees
 
 

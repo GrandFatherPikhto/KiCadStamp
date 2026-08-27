@@ -199,6 +199,44 @@ def test_anchor_origin_never_resolves(tmp_path):
     assert a.is_origin is True
 
 
+def test_anchor_external_marker_bypasses_config_collision(tmp_path):
+    """The collision shield (note_2026_08_28_tree_anchor_name_collision): an
+    anchor marked (external) whose ref ALSO names a real config record must
+    resolve as external — NEVER as that record. This is the live "fpga" case:
+    a stale coordinate_placement named "fpga" must not hijack a live-FPGA
+    anchor just because the names collide. is_external wins over by_name."""
+    cfg = _cfg(coordinate_placements=[
+        CoordinatePlacement(cluster="FPGA", role="FPGA", name="fpga"),
+    ])
+    trees = _tree(
+        '(tree (name "10CL06") (anchor (ref "fpga") (external))\n'
+        '      (node (ref "CL_B") (xy 1 2)))',
+        tmp_path=tmp_path)
+    linked = link_trees(cfg, trees)[0]
+    a = linked.anchor
+    assert a.record is None
+    assert a.is_external is True
+    assert a.is_origin is False
+
+
+def test_anchor_external_marker_without_marker_still_collides(tmp_path):
+    """Regression contrast: the SAME ref WITHOUT the (external) marker is the
+    old behavior — it resolves to the config record (the bug this shield
+    fixes). Guards against the fix silently weakening normal resolution."""
+    cfg = _cfg(coordinate_placements=[
+        CoordinatePlacement(cluster="FPGA", role="FPGA", name="fpga"),
+    ])
+    trees = _tree(
+        '(tree (name "10CL06") (anchor (ref "fpga"))\n'
+        '      (node (ref "CL_B") (xy 1 2)))',
+        tmp_path=tmp_path)
+    linked = link_trees(cfg, trees)[0]
+    a = linked.anchor
+    assert a.record is not None
+    assert a.record.name == "fpga"
+    assert a.is_external is False
+
+
 # ── FORK-1: inline-anchor conflict on a tree-placed record ────────────────
 
 def test_fork1_inline_anchor_ref_is_fatal(tmp_path):

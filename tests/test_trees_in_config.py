@@ -70,6 +70,17 @@ def test_tree_to_dict_omits_defaults():
     assert tree_from_dict(d) == t
 
 
+def test_anchor_external_dict_roundtrip():
+    """An external anchor round-trips through the dict bridge (FORK-2 Variant
+    B) — tree_to_dict emits external: true, tree_from_dict reads it back, so
+    the collision shield survives the config inlay (note_2026_08_28_...)."""
+    t = Tree(name="t", anchor=TreeAnchor(ref="U_FPGA", is_origin=False,
+                                         is_external=True), nodes=[])
+    d = tree_to_dict(t)
+    assert d["anchor"] == {"ref": "U_FPGA", "external": True}
+    assert tree_from_dict(d) == t
+
+
 def test_tree_from_sexp_matches_load_trees():
     """tree_from_sexp on one (tree ...) node gives the same Tree that
     load_trees yields for the same node inside a file."""

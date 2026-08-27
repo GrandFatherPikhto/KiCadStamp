@@ -201,7 +201,12 @@ relative to the tree's own anchor. The toolbar offers **Add tree…**, **Rename 
 tree…** (the whole-tree counterpart of a node's "Delete node", confirmed with Yes/No — No by
 default), plus **Save** and **Redraw selected**. Structural editing happens through each node's
 context menu (Add child / Add sibling / Reread current position / Edit node… / Delete node / Rename…
-/ Move to…); the tree anchor pseudo-root's menu carries **Add node** and **Set anchor…**. Node
+/ Move to…); the tree anchor pseudo-root's menu carries **Add node** and **Set anchor…**. The
+**Set anchor…** dialog picks between **Origin (board 0,0)**, **Config record** (a name from the
+config, resolved at Save) and **External refdes** (a live-board component outside the config) — the
+external choice is stored with an explicit `external` marker so it is NEVER resolved against a
+config record name: a refdes that happens to match a config record (e.g. a stale
+`coordinate_placement` named `"fpga"`) cannot hijack the anchor (2026-08-28). Node
 offsets are typed by hand or read from the live board via **Read current position** in the
 Add/Edit-node dialog — a passive live-board read that never validates the whole tree's FORK-1
 invariant, so an unrelated existing node with a conflicting inline anchor does not block it. Nothing

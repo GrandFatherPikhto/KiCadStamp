@@ -258,6 +258,29 @@ def test_context_menu_on_anchor_offers_add_node(main_window, tmp_path, monkeypat
     assert dock._dirty is True
 
 
+def test_anchor_dialog_external_mode_carries_is_external(main_window):
+    """The "External refdes" mode of _AnchorDialog must STORE is_external=True
+    — otherwise the resolver cannot tell "external" from "config record" and
+    the name collision returns (note_2026_08_28_tree_anchor_name_collision)."""
+    from gui.docks.trees_dock import _AnchorDialog
+    dlg = _AnchorDialog(main_window, ["CL_A", "CL_B"])
+    dlg.mode_combo.setCurrentIndex(2)  # "External refdes" (0=Origin, 1=Config record)
+    dlg.ref_combo.setCurrentText("fpga")  # editable combo — free text is allowed
+    dlg._accept()
+    assert dlg._result == TreeAnchor(ref="fpga", is_origin=False, is_external=True)
+
+
+def test_anchor_dialog_record_mode_stays_non_external(main_window):
+    """Contrast: the "Config record" mode must NOT set is_external — a normal
+    record anchor resolves against the config (guards the same regression)."""
+    from gui.docks.trees_dock import _AnchorDialog
+    dlg = _AnchorDialog(main_window, ["CL_A", "CL_B"])
+    dlg.mode_combo.setCurrentIndex(1)  # "Config record"
+    dlg.ref_combo.setCurrentText("CL_A")
+    dlg._accept()
+    assert dlg._result == TreeAnchor(ref="CL_A", is_origin=False, is_external=False)
+
+
 def test_rename_tree_enforces_unique_names(main_window, tmp_path):
     dock, _root = _dock_with(main_window, tmp_path)
     assert dock._current_tree().name == "power_tree"

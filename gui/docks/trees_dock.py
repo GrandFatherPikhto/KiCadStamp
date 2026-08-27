@@ -1015,7 +1015,9 @@ class _NodeDialog(QDialog):
 
 class _AnchorDialog(QDialog):
     """Modal dialog for picking a tree anchor: (origin) / config record ref /
-    free-text external refdes (design §4)."""
+    free-text external refdes (design §4). "External refdes" is STORED as an
+    is_external anchor — the resolver then never matches it against a config
+    record name (collision impossible; note_2026_08_28_tree_anchor_name_collision)."""
 
     def __init__(self, parent, ref_candidates: list[str]):
         super().__init__(parent)
@@ -1053,13 +1055,16 @@ class _AnchorDialog(QDialog):
     def _accept(self) -> None:
         mode = self.mode_combo.currentData()
         if mode == "origin":
-            self._result = TreeAnchor(ref=None, is_origin=True)
+            self._result = TreeAnchor(ref=None, is_origin=True, is_external=False)
         else:
             ref = self.ref_combo.currentText().strip()
             if not ref:
                 QMessageBox.warning(self, _("Set anchor"), _("Ref is required."))
                 return
-            self._result = TreeAnchor(ref=ref, is_origin=False)
+            # "external" mode = live-board refdes, never a config record name —
+            # carry it as is_external so the resolver can't hit a name collision.
+            self._result = TreeAnchor(ref=ref, is_origin=False,
+                                      is_external=(mode == "external"))
         self.accept()
 
     @staticmethod
