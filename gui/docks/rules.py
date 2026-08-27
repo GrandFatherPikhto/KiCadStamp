@@ -225,6 +225,9 @@ class RuleDock(QWidget):
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText(_("optional — defaults to net for --only"))
         rule_form.addRow(_("Name:"), self.name_edit)
+        self.comment_edit = QLineEdit()
+        self.comment_edit.setPlaceholderText(_("optional free-form note"))
+        rule_form.addRow(_("Comment:"), self.comment_edit)
         net_page_layout.addLayout(rule_form)
         checks_row = QHBoxLayout()
         self.retired_checkbox = QCheckBox(_("Retired"))
@@ -697,6 +700,9 @@ class RuleDock(QWidget):
         name = self.name_edit.text().strip()
         if name:
             entry["name"] = name
+        comment = self.comment_edit.text().strip()
+        if comment:
+            entry["comment"] = comment
 
         origin_fields, err = self.origin_widget.build()
         if err:
@@ -940,6 +946,7 @@ class RuleDock(QWidget):
         self._path = self._root_path
         self.net_edit.setCurrentText("")
         self.name_edit.setText("")
+        self.comment_edit.setText("")
         self.origin_widget.clear()
         self.retired_checkbox.setChecked(False)
         self.skip_checkbox.setChecked(False)
@@ -967,6 +974,7 @@ class RuleDock(QWidget):
             self._path = file_path
         self.net_edit.setCurrentText(str(entry.get("net", "")))
         self.name_edit.setText(str(entry.get("name") or ""))
+        self.comment_edit.setText(str(entry.get("comment") or ""))
 
         if "anchor_point" in entry:
             self.origin_widget.load(mode="point", point=str(entry["anchor_point"]))

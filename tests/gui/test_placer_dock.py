@@ -129,6 +129,24 @@ def test_build_entry_dict_absolute_xy_round_trips_through_loader(main_window, tm
     assert cp.xy == (10.5, -3.2)
 
 
+def test_comment_round_trips_through_placer_form(main_window, tmp_path):
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock.cluster_edit.setCurrentText("Channel_2_PI_Filter")
+    dock.x_edit.setText("10.5")
+    dock.y_edit.setText("-3.2")
+    dock.placer_comment_edit.setText("a clone note")
+
+    entry = dock._build_entry_dict()
+    assert entry["comment"] == "a clone note"
+
+    dock.load_placement(entry)
+    assert dock.placer_comment_edit.text() == "a clone note"
+
+    # new_placement (the Cell-mode clear path) wipes it.
+    dock.new_placement(dock._placer_path)
+    assert dock.placer_comment_edit.text() == ""
+
+
 def test_cell_mode_sheet_field_round_trips(main_window, tmp_path):
     """2026-08-15: the own sheet: field on the Cell mode's Source tab —
     build()/load() round-trip through PlacerDock keeps it, and new_placement()

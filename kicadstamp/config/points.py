@@ -58,3 +58,5 @@ class Point:
     anchor_origin: str | None = None  # 'grid' | 'drill'
     shift_x_mm: float = 0.0
     shift_y_mm: float = 0.0
+    # Optional free-form note shown in the GUI (handoff_2026_08_27_entity_comment_field.md).
+    comment: str | None = None

@@ -64,6 +64,8 @@ class ThermalViaArrayConfig:
     diameter_mm: float = 0.5
     name: str | None = None
     skip: bool = False
+    # Optional free-form note shown in the GUI (handoff_2026_08_27_entity_comment_field.md).
+    comment: str | None = None
 
 
 def thermal_via_array_effective_name(tva: "ThermalViaArrayConfig") -> str | None:
@@ -163,6 +165,8 @@ class CoordinatePlacement:
     anchor_point: str | None = None
     retired: bool = False
     skip: bool = False
+    # Optional free-form note shown in the GUI (handoff_2026_08_27_entity_comment_field.md).
+    comment: str | None = None
 
 
 def coordinate_placement_effective_name(cp: "CoordinatePlacement") -> str:
@@ -410,6 +414,8 @@ class Cell:
     anchor_xy: tuple[float, float] | None = None
     anchor_role: str | None = None
     anchor_pad: str | None = None
+    # Optional free-form note shown in the GUI (handoff_2026_08_27_entity_comment_field.md).
+    comment: str | None = None
 
 
 @dataclass
@@ -515,6 +521,8 @@ class Rule:
     name: str | None = None
     retired: bool = False
     skip: bool = False
+    # Optional free-form note shown in the GUI (handoff_2026_08_27_entity_comment_field.md).
+    comment: str | None = None
 
 
 def rule_effective_name(rule: "Rule") -> str:
@@ -572,6 +580,8 @@ class NetTrace:
     vias: list[TemplateVia] = field(default_factory=list)
     retired: bool = False
     skip: bool = False
+    # Optional free-form note shown in the GUI (handoff_2026_08_27_entity_comment_field.md).
+    comment: str | None = None
 
 
 def net_trace_effective_name(nt: "NetTrace") -> str:
@@ -727,6 +737,8 @@ class ClonePlacement:
     # resolved by selection. by_selection: true + non‑empty nets is fatal at load
     # (contradiction: nets has no meaning in selection mode).
     by_selection: bool = False
+    # Optional free-form note shown in the GUI (handoff_2026_08_27_entity_comment_field.md).
+    comment: str | None = None
 
 
 def clone_placement_effective_name(clone: "ClonePlacement") -> str:

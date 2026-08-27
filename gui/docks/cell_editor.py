@@ -149,6 +149,9 @@ class CellDock(QWidget):
         head_form.addRow(_("Name:"), self.name_edit)
         self.layer_combo = _layer_combo(_LAYER_ITEMS)
         head_form.addRow(_("Layer:"), self.layer_combo)
+        self.comment_edit = QLineEdit()
+        self.comment_edit.setPlaceholderText(_("optional free-form note"))
+        head_form.addRow(_("Comment:"), self.comment_edit)
         layout.addLayout(head_form)
 
         anchor_form = QFormLayout()
@@ -1137,6 +1140,9 @@ class CellDock(QWidget):
             "tracks": list(self._tracks),
             "clone_placements": list(self._nested),
         }
+        comment = self.comment_edit.text().strip()
+        if comment:
+            entry["comment"] = comment
 
         mode = self.anchor_mode_combo.currentIndex()
         if mode == 1:
@@ -1204,6 +1210,7 @@ class CellDock(QWidget):
         (2026-08-21), so the passed path is ignored."""
         self._path = self._root_path
         self.name_edit.setText("")
+        self.comment_edit.setText("")
         self.layer_combo.setCurrentIndex(0)
         self.anchor_mode_combo.setCurrentIndex(0)
         self.anchor_x_edit.setText("")
@@ -1249,6 +1256,7 @@ class CellDock(QWidget):
         if self._root_path is not None:
             entry = collect_section_entries(self._root_path, "cells").get(name) or {}
         self.name_edit.setText(name)
+        self.comment_edit.setText(str(entry.get("comment") or ""))
         self.layer_combo.setCurrentIndex(self._findable(self.layer_combo, entry.get("layer", "F.Cu")))
 
         if "anchor_xy" in entry:

@@ -47,6 +47,31 @@ def test_build_entry_dict_anchor_ref_mode(main_window, tmp_path):
     assert tva.anchor_ref == "U3"
 
 
+def test_build_entry_dict_includes_comment(main_window, tmp_path):
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock.name_edit.setText("fpga_thermal")
+    dock.pad_edit.setText("1")
+    dock.anchor_ref_edit.setText("U3")
+    dock.comment_edit.setText("a tva note")
+
+    entry = dock._build_entry_dict()
+    assert entry["comment"] == "a tva note"
+
+
+def test_comment_saves_and_loads_back(main_window, tmp_path):
+    dock, target_file = _make_dock(main_window, tmp_path)
+    dock.name_edit.setText("fpga_thermal")
+    dock.pad_edit.setText("1")
+    dock.anchor_ref_edit.setText("U3")
+    dock.comment_edit.setText("a tva note")
+
+    dock._on_save()
+    saved = yaml.safe_load(target_file.read_text())
+    assert saved["thermal_via_arrays"][0]["comment"] == "a tva note"
+    dock.load_entry(saved["thermal_via_arrays"][0])
+    assert dock.comment_edit.text() == "a tva note"
+
+
 def test_anchor_ref_and_role_together_is_blocked(main_window, tmp_path, caplog):
     dock, _ = _make_dock(main_window, tmp_path)
     dock.name_edit.setText("X")

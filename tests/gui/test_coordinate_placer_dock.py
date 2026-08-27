@@ -155,6 +155,19 @@ def test_build_entry_dict_coordinate_cartesian_round_trips(main_window, tmp_path
     assert cp.rotation_deg == 0.0
 
 
+def test_comment_round_trips_through_coordinate_form(main_window, tmp_path):
+    dock, target_file = _make_dock(main_window, tmp_path)
+    form = _new_coordinate(dock, target_file)
+    _fill_cartesian(form)
+    form.comment_edit.setText("a coord note")
+
+    entry = dock._build_entry_dict()
+    assert entry["comment"] == "a coord note"
+
+    dock.load_placement(entry)
+    assert dock.coordinate_form.comment_edit.text() == "a coord note"
+
+
 def test_build_entry_dict_coordinate_polar_round_trips(main_window, tmp_path):
     dock, target_file = _make_dock(main_window, tmp_path)
     form = _new_coordinate(dock, target_file)

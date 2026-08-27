@@ -461,6 +461,34 @@ def test_build_cell_dict_with_anchor_role(main_window, tmp_path):
     assert entry["anchor_pad"] == "1"
 
 
+# ── comment field (handoff_2026_08_27_entity_comment_field.md) ────────────
+
+def test_build_cell_dict_includes_comment(main_window, tmp_path):
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock.name_edit.setText("t")
+    dock.comment_edit.setText("a cell note")
+    dock.comp_role_edit.setCurrentText("A")
+    dock._on_add_component()
+
+    name, entry = dock._build_cell_dict()
+    assert name == "t"
+    assert entry["comment"] == "a cell note"
+
+
+def test_comment_saves_and_loads_back(main_window, tmp_path):
+    dock, target = _make_dock(main_window, tmp_path, {"cells": {"t": {"components": []}}})
+    dock.name_edit.setText("t")
+    dock.comment_edit.setText("a cell note")
+    dock.comp_role_edit.setCurrentText("A")
+    dock._on_add_component()
+
+    dock._on_save()
+
+    assert _read_yaml(target)["cells"]["t"]["comment"] == "a cell note"
+    dock.load_entry("t")
+    assert dock.comment_edit.text() == "a cell note"
+
+
 def test_anchor_role_combo_is_a_closed_picker_not_a_free_text_field(main_window, tmp_path):
     """Regression (found live 2026-08-06, Denis: clicked Role a couple
     times on a freshly-added, still-componentless cell — GUI froze).

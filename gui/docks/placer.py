@@ -308,6 +308,8 @@ class _CoordinatePlacementForm(QWidget):
         configure_searchable(self.role_combo)
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText(_("cluster/role"))
+        self.comment_edit = QLineEdit()
+        self.comment_edit.setPlaceholderText(_("optional free-form note"))
         # Own-identity sheet (2026-08-15): OPTIONAL narrowing of Cluster+Role
         # to one physical instance when the same sheet is cloned/reused and
         # Cluster alone is identical across copies (Denis, live: AD_DAC/IC2).
@@ -496,6 +498,9 @@ class _CoordinatePlacementForm(QWidget):
         sheet = self.sheet_edit.currentText().strip()
         if sheet:
             entry["sheet"] = sheet
+        comment = self.comment_edit.text().strip()
+        if comment:
+            entry["comment"] = comment
 
         rotation, err = self._parse_float(self.rotation_edit, _("Rotation"))
         if err:
@@ -597,6 +602,7 @@ class _CoordinatePlacementForm(QWidget):
         self.cluster_combo.setCurrentText(str(entry.get("cluster", "")))
         self.role_combo.setCurrentText(str(entry.get("role", "")))
         self.name_edit.setText(str(entry.get("name") or ""))
+        self.comment_edit.setText(str(entry.get("comment") or ""))
         self.sheet_edit.setCurrentText(str(entry.get("sheet") or ""))
         rotation = entry.get("rotation_deg")
         self.rotation_edit.setText("" if rotation is None else str(rotation))
@@ -652,6 +658,7 @@ class _CoordinatePlacementForm(QWidget):
         self.cluster_combo.setCurrentText("")
         self.role_combo.setCurrentText("")
         self.name_edit.setText("")
+        self.comment_edit.setText("")
         self.sheet_edit.setCurrentText("")
         self.rotation_edit.setText("")
         self.x_edit.setText("")
@@ -813,6 +820,9 @@ class PlacerDock(QWidget):
         self.placer_name_edit.setPlaceholderText(
             _("same as Cluster unless changed (identity for Save/--only)"))
         form.addRow(_("Name:"), self.placer_name_edit)
+        self.placer_comment_edit = QLineEdit()
+        self.placer_comment_edit.setPlaceholderText(_("optional free-form note"))
+        form.addRow(_("Comment:"), self.placer_comment_edit)
         source_page_layout.addWidget(self._name_row)
         # Auto-fill on the PLACEMENT's Cluster COMMIT (plan 2026-08-13, p.2;
         # re-tied to cluster_edit 2026-08-14, split anchor_cluster: the
@@ -857,6 +867,7 @@ class PlacerDock(QWidget):
         coordinate_identity_form.addRow(_("Cluster:"), self.coordinate_form.cluster_combo)
         coordinate_identity_form.addRow(_("Role:"), self.coordinate_form.role_combo)
         coordinate_identity_form.addRow(_("Name:"), self.coordinate_form.name_edit)
+        coordinate_identity_form.addRow(_("Comment:"), self.coordinate_form.comment_edit)
         source_page_layout.addWidget(self._coordinate_identity_row)
         source_page_layout.addStretch(1)
         self._tabs.addTab(source_page, _("Source"))
@@ -1596,6 +1607,10 @@ class PlacerDock(QWidget):
         sheet = self.sheet_edit.currentText().strip()
         if sheet:
             entry["sheet"] = sheet
+        # Optional free-form note — only written when non-empty.
+        comment = self.placer_comment_edit.text().strip()
+        if comment:
+            entry["comment"] = comment
 
         origin_fields, err = self.origin_widget.build()
         if err:
@@ -2350,6 +2365,7 @@ class PlacerDock(QWidget):
         # Placer name: same "blank form wants auto-fill" reset as Cluster
         # (2026-08-15, plan clone_placement_placer_name_split).
         self.placer_name_edit.setText("")
+        self.placer_comment_edit.setText("")
         self._placer_name_dirty = False
         # A brand new (unsaved) placement has no prior identity — _do_save()
         # must just append, not try to remove an old entry
@@ -2418,6 +2434,7 @@ class PlacerDock(QWidget):
         # on it must not drag Placer name along (2026-08-15, plan
         # clone_placement_placer_name_split).
         self.placer_name_edit.setText(str(entry.get("name") or ""))
+        self.placer_comment_edit.setText(str(entry.get("comment") or ""))
         self._placer_name_dirty = True
         # Remember what identity this form loaded — _do_save() removes the old
         # entry when the about-to-be-saved identity differs (rename via the

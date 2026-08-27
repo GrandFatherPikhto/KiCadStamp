@@ -413,13 +413,23 @@ class ConfigTreeDock(QDockWidget):
             # way (the plan deliberately doesn't touch _on_clicked).
             section_item.setData(0, Qt.ItemDataRole.UserRole, ("category", section))
             for name, payload in self._entries(raw, section):
-                leaf = QTreeWidgetItem(section_item, [name])
+                # entry's comment marker. NOTE: `payload` is NOT always the
+                # record dict — for the dict-sections (cells/points, keyed by
+                # name) _entries() yields the NAME as payload, so the comment
+                # must come from raw.get(name); list-sections (rules/
+                # clone_placements/...) already yield the full record dict.
+                entry_data = raw.get(name) if isinstance(raw, dict) else payload
+                comment = entry_data.get('comment') if isinstance(entry_data, dict) else None
+                label = f"📝 {name}" if comment else name
+                leaf = QTreeWidgetItem(section_item, [label])
                 # Always set, not just for _CLICKABLE_SECTIONS — the
                 # context menu's Rename action (2026-08-04) needs to
                 # identify a leaf's section regardless of whether left-click
                 # routes it anywhere yet (Rules/Points/Clone profiles have
                 # no edit form, but a bare rename doesn't need one).
                 leaf.setData(0, Qt.ItemDataRole.UserRole, ("leaf", section, payload))
+                if comment:
+                    leaf.setToolTip(0, comment)
                 if section == "cells" and isinstance(raw, dict):
                     self._add_nested_cell_children(leaf, raw.get(name) or {})
         for child in node.children:

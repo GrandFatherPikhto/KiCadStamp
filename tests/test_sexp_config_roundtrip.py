@@ -197,6 +197,48 @@ def test_net_traces_section():
     })
 
 
+def test_comment_field_roundtrip_all_sections():
+    """comment is a plain optional str field on all 7 top-level entities — the
+    schema-aware converter must pick it up automatically (NO sexp_format.py
+    changes, handoff_2026_08_27_entity_comment_field.md §3), round-trip a
+    non-None comment as a quoted string, and omit the None default (same
+    per-field rule as every other optional field)."""
+    data = {
+        "cells": {
+            "dac_buf": {"layer": "B.Cu", "comment": "cell note"},
+        },
+        "points": {
+            "ldo_vin": {"anchor_role": "LDO1", "comment": "point note"},
+        },
+        "rules": [
+            {"net": "+3V3", "anchor_role": "FPGA", "comment": "rule note"},
+        ],
+        "clone_placements": [
+            {"cluster": "CH0", "cell": "dac_buf", "xy": [0.0, 0.0],
+             "comment": "clone note"},
+        ],
+        "coordinate_placements": [
+            {"cluster": "CH0", "role": "R_FILT", "x_mm": 1.0, "y_mm": 2.0,
+             "rotation_deg": 0.0, "comment": "coord note"},
+        ],
+        "thermal_via_arrays": [
+            {"name": "ad9707", "anchor_role": "AD9707", "comment": "tva note"},
+        ],
+        "net_traces": [
+            {"net": "+3V3", "anchor_role": "FPGA", "comment": "trace note"},
+        ],
+    }
+    back = _roundtrip(data)
+    # non-None comments survive verbatim in every section ...
+    assert back["cells"]["dac_buf"]["comment"] == "cell note"
+    assert back["points"]["ldo_vin"]["comment"] == "point note"
+    assert back["rules"][0]["comment"] == "rule note"
+    assert back["clone_placements"][0]["comment"] == "clone note"
+    assert back["coordinate_placements"][0]["comment"] == "coord note"
+    assert back["thermal_via_arrays"][0]["comment"] == "tva note"
+    assert back["net_traces"][0]["comment"] == "trace note"
+
+
 # ── all 5 dict sections ────────────────────────────────────────────────────
 
 def test_cells_section():

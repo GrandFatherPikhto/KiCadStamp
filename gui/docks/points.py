@@ -123,6 +123,12 @@ class PointsDock(QWidget):
         name_form.addRow(_("Name:"), self.name_edit)
         layout.addLayout(name_form)
 
+        comment_form = QFormLayout()
+        self.comment_edit = QLineEdit()
+        self.comment_edit.setPlaceholderText(_("optional free-form note"))
+        comment_form.addRow(_("Comment:"), self.comment_edit)
+        layout.addLayout(comment_form)
+
         self.origin_widget = AnchorOriginWidget(
             modes=["xy", "anchor", "point", "board_origin"],
             anchor_fields=["sheet", "pad", "cluster"], shift=True)
@@ -242,6 +248,10 @@ class PointsDock(QWidget):
                 entry["shift_x_mm"] = origin_fields["shift_x"]
             if origin_fields["shift_y"]:
                 entry["shift_y_mm"] = origin_fields["shift_y"]
+
+        comment = self.comment_edit.text().strip()
+        if comment:
+            entry["comment"] = comment
 
         return name, entry
 
@@ -397,6 +407,7 @@ class PointsDock(QWidget):
         if self._root_path is not None:
             entry = collect_section_entries(self._root_path, "points").get(name) or {}
         self.name_edit.setText(name)
+        self.comment_edit.setText(str(entry.get("comment") or ""))
 
         shift_x = entry.get("shift_x_mm") or None
         shift_y = entry.get("shift_y_mm") or None

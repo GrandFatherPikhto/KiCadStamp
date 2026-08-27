@@ -271,6 +271,7 @@ def _load_cell(name: str, data: dict[str, Any]) -> Cell:
         anchor_pad=anchor_pad,
         clone_placements=clone_placements,
         layer=layer,
+        comment=data.get('comment'),
     )
 
 
@@ -354,6 +355,7 @@ def _load_cell_placement(cell_name: str, data: dict[str, Any]) -> CellPlacement:
 _POINT_KNOWN_KEYS = {
     'anchor_ref', 'anchor_role', 'anchor_sheet', 'anchor_cluster', 'anchor_pad',
     'anchor_point', 'xy', 'anchor_origin', 'shift_x_mm', 'shift_y_mm',
+    'comment',
 }
 _BOARD_ORIGIN_KINDS = {'grid', 'drill'}
 
@@ -445,6 +447,7 @@ def _load_point(name: str, data: dict[str, Any]) -> Point:
         anchor_origin=anchor_origin,
         shift_x_mm=shift_x_mm,
         shift_y_mm=shift_y_mm,
+        comment=data.get('comment'),
     )
 
 
@@ -577,6 +580,7 @@ def _load_manual_spoke(data: dict[str, Any], rule_label: str) -> ManualSpoke:
 _RULE_KNOWN_KEYS = {
     'net', 'spokes', 'anchor_ref', 'anchor_role', 'anchor_sheet',
     'anchor_cluster', 'anchor_point', 'name', 'sheet', 'retired', 'skip',
+    'comment',
 }
 
 
@@ -629,12 +633,13 @@ def _load_rule(rule_data: dict[str, Any]) -> Rule:
                sheet=sheet,
                name=rule_data.get('name'),
                retired=rule_data.get('retired', False),
-               skip=rule_data.get('skip', False))
+               skip=rule_data.get('skip', False),
+               comment=rule_data.get('comment'))
 
 
 _NET_TRACE_KNOWN_KEYS = {
     'net', 'anchor_role', 'anchor_sheet', 'anchor_cluster', 'anchor_pad',
-    'tracks', 'vias', 'retired', 'skip',
+    'tracks', 'vias', 'retired', 'skip', 'comment',
 }
 
 
@@ -704,13 +709,14 @@ def _load_net_trace(data: dict[str, Any]) -> NetTrace:
         vias=vias,
         retired=data.get('retired', False),
         skip=data.get('skip', False),
+        comment=data.get('comment'),
     )
 
 
 _THERMAL_VIA_ARRAY_KNOWN_KEYS = {
     'retired', 'anchor_ref', 'anchor_role', 'anchor_sheet', 'anchor_cluster',
     'anchor_point', 'pad', 'net', 'rows', 'cols', 'margin_mm', 'pattern',
-    'drill_mm', 'diameter_mm', 'name', 'skip',
+    'drill_mm', 'diameter_mm', 'name', 'skip', 'comment',
 }
 
 
@@ -719,7 +725,7 @@ _CLONE_PLACEMENT_KNOWN_KEYS = {
     'nets', 'params', 'net_overrides', 'retired', 'skip', 'ignore_selection',
     'anchor_ref', 'anchor_pad', 'anchor_role', 'anchor_sheet', 'anchor_cluster',
     'anchor_point', 'layer', 'mirror', 'refs', 'by_selection',
-    'sheet', 'name',
+    'sheet', 'name', 'comment',
     'radius_mm', 'angle_deg',
     'side',  # deprecated – recognised separately to give a migration message
     'origin_x_mm', 'origin_y_mm',  # deprecated – recognised to give a migration message
@@ -898,6 +904,7 @@ def _load_clone_placement(data: dict[str, Any]) -> ClonePlacement:
         mirror=bool(data.get('mirror', False)),
         refs=data.get('refs', {}) or {},
         by_selection=by_selection,
+        comment=data.get('comment'),
     )
 
 
@@ -949,6 +956,7 @@ def _load_thermal_via_array(tva_data: dict[str, Any]) -> ThermalViaArrayConfig:
         diameter_mm=tva_data.get('diameter_mm', 0.5),
         name=tva_data.get('name'),
         skip=tva_data.get('skip', False),
+        comment=tva_data.get('comment'),
     )
 
 
@@ -956,7 +964,7 @@ _COORDINATE_PLACEMENT_KNOWN_KEYS = {
     'cluster', 'role', 'name', 'sheet', 'x_mm', 'y_mm', 'center_x_mm', 'center_y_mm',
     'radius_mm', 'angle_deg', 'rotation_deg', 'anchor', 'anchor_pad',
     'anchor_ref', 'anchor_role', 'anchor_sheet', 'anchor_cluster', 'anchor_point',
-    'retired', 'skip',
+    'retired', 'skip', 'comment',
 }
 
 
@@ -1164,6 +1172,7 @@ def _load_coordinate_placement(data: dict[str, Any]) -> CoordinatePlacement:
         anchor_point=anchor_point,
         retired=data.get('retired', False),
         skip=data.get('skip', False),
+        comment=data.get('comment'),
     )
 
 

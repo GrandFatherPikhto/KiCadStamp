@@ -33,7 +33,7 @@ import yaml
 from kipy.errors import ApiError
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QHBoxLayout, QLabel,
-                             QPushButton, QVBoxLayout, QWidget)
+                             QLineEdit, QPushButton, QVBoxLayout, QWidget)
 
 from kicadstamp.apply_pipeline import ApplyPipeline
 from kicadstamp.config import Config, RuntimeContext, load_config, load_net_trace
@@ -89,6 +89,9 @@ class NetTraceDock(QWidget):
         configure_searchable(self.net_edit)
         self.net_edit.setPlaceholderText(_("net name (from the whole board's copper)"))
         form.addRow(_("Net:"), self.net_edit)
+        self.comment_edit = QLineEdit()
+        self.comment_edit.setPlaceholderText(_("optional free-form note"))
+        form.addRow(_("Comment:"), self.comment_edit)
         layout.addLayout(form)
 
         # Anchor block — NetTrace is anchor-role-only: no ref/xy/point mode.
@@ -203,6 +206,9 @@ class NetTraceDock(QWidget):
             entry["anchor_pad"] = anchor["pad"]
         if "cluster" in anchor:
             entry["anchor_cluster"] = anchor["cluster"]
+        comment = self.comment_edit.text().strip()
+        if comment:
+            entry["comment"] = comment
         if self.retired_checkbox.isChecked():
             entry["retired"] = True
         if self.skip_checkbox.isChecked():
@@ -222,6 +228,7 @@ class NetTraceDock(QWidget):
         if file_path is not None:
             self._path = file_path
         self.net_edit.setCurrentText(str(entry.get("net", "")))
+        self.comment_edit.setText(str(entry.get("comment") or ""))
         self.anchor_widget.load(
             mode="anchor", role=str(entry.get("anchor_role", "")),
             sheet=str(entry.get("anchor_sheet", "")),

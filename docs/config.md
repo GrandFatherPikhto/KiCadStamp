@@ -147,6 +147,8 @@ cells:
   this field) — never read by `clone_position_calculator.py` or any resolver, purely so a human (or
   the editor) can see what the original extractor anchored to instead of it being an untracked fact.
   Mutually exclusive; `anchor_role` must name one of this cell's own `components:`.
+- `comment:` — optional free-form note shown in the GUI's Cell editor and as a marker on the config
+  tree leaf. A plain schema field (survives YAML/s-expr round-trips), NOT a YAML `#` comment.
 - Every `components:` entry **requires** a non-empty `role:` — a missing/`null` role used to either
   crash with a bare `KeyError` or silently propagate into placement as a confusing runtime "role None
   is in cell but not found anywhere on board"; now a clear load-time error (found live 2026-08-06).
@@ -272,6 +274,7 @@ rules:
 | `name` | Optional, for `--only`. Defaults to `net` (see `rule_effective_name`). **Not** a grouping mechanism — don't reuse one `name:` across several rules to bundle them for `--only`; use a shared `Cluster` (`anchor_cluster`/`spoke.cluster`) instead. Two rules that resolve to the same effective name is a fatal load error. |
 | `retired` | Default `false`. `true` = "does not exist on the board" — prunes this rule's via/track registry entries. Always wins over `--only`/`--cluster`. |
 | `skip` | Default `false`. `true` = "leave alone this run" — narrows work like `--only`/`--cluster` would, but inline, without protecting/pruning the registry either way. |
+| `comment` | Optional. Free-form note shown in the GUI — a plain schema field, not a YAML comment. |
 
 **`ManualSpoke` (one entry of `spokes:`) fields:**
 
@@ -354,6 +357,7 @@ clone_placements:
 | `ignore_selection` | Default `false`. Per-item counterpart of the CLI's `--no-selection`: treats the live GUI selection as empty for THIS placement's own resolution, regardless of the global flag — OR-composes with it. |
 | `layer` | `F.Cu`\|`B.Cu`\|unset (inherit the cell's own layer, place verbatim). |
 | `mirror` | Default `false`. Mirrors the whole construction — contradiction with `layer` (mirror without a layer change, or vice versa) is a fatal load error, since it would be physically meaningless. |
+| `comment` | Optional. Free-form note shown in the GUI — a plain schema field, not a YAML comment. |
 
 **Deprecated, fatal on load:** `origin_x_mm`/`origin_y_mm` (renamed to `xy: [x, y]`), `side` (replaced
 by explicit `layer:`+`mirror:`).
@@ -463,6 +467,7 @@ for `--only` and the registry identity `f"thermal:{name}"`) and must be **unique
 | `drill_mm`/`diameter_mm` | Via dimensions. |
 | `retired` | Default `false`. Same "does not exist" meaning as elsewhere. |
 | `skip` | Default `false`. Same "leave alone this run" meaning as elsewhere. |
+| `comment` | Optional. Free-form note shown in the GUI — a plain schema field, not a YAML comment. |
 
 **Deprecated, fatal on load:** the old singular `thermal_via_array:` (a mapping, not a list — rename to
 `thermal_via_arrays:` and wrap the block in a YAML list), `target_ref` (renamed to `anchor_ref`), the old
@@ -523,6 +528,8 @@ net_traces:
   The net is ALWAYS written explicitly on each element (there is no enclosing
   Rule to inherit a net from).
 - **`retired`/`skip`** — the same convention as every other section.
+- **`comment`** — optional free-form note shown in the GUI (a plain schema
+  field, not a YAML comment).
 - **`--only=<net>`** selects exactly one record for a Redraw; the registry
   gives idempotency (a repeat run with an unmoved anchor creates 0 new items).
 
@@ -572,6 +579,7 @@ anchor dependency is.
 | `xy` | A literal, absolute board coordinate — no live anchor at all. **(0, 0) here is the drawing sheet's corner, not any physical board reference** — see `anchor_origin` below for that. |
 | `anchor_origin` | `'grid'` (Place > Set Grid Origin, visual only — no exported file uses it) or `'drill'` (Place > Drill/Place Origin, the auxiliary axis — drill/position files are always relative to it, Gerbers optionally via their own plot-dialog option). Read LIVE via kipy, not a config literal. |
 | `shift_x_mm`/`shift_y_mm` | Board-absolute mm shift layered on top of `anchor_ref`/`anchor_role`/`anchor_point`/`anchor_origin` (not on `xy:` — fatal if both are set, just edit the literal coordinate instead). |
+| `comment` | Optional. Free-form note shown in the GUI — a plain schema field, not a YAML comment. |
 
 Exactly one of `{anchor_ref or anchor_role, anchor_point, xy, anchor_origin}` must be the base —
 fatal at load otherwise. `Rule`/`ThermalViaArrayConfig`'s own `anchor_point:` requires the referenced

@@ -195,6 +195,23 @@ def test_load_entry_fills_form(main_window, tmp_path):
     assert not dock.skip_checkbox.isChecked()
 
 
+def test_comment_saves_and_loads_back(main_window, tmp_path):
+    dock, target = _make_dock(main_window, tmp_path, data={
+        "net_traces": [{"net": "/Channel_0/DAC_DB2", "anchor_role": "FPGA",
+                        "tracks": [], "vias": []}],
+    })
+    dock.load_entry({"net": "/Channel_0/DAC_DB2", "anchor_role": "FPGA",
+                     "tracks": [], "vias": []})
+    dock.comment_edit.setText("a trace note")
+
+    dock._on_save()
+
+    data = _read_yaml(target)
+    assert data["net_traces"][0]["comment"] == "a trace note"
+    dock.load_entry(data["net_traces"][0])
+    assert dock.comment_edit.text() == "a trace note"
+
+
 # ── Save ─────────────────────────────────────────────────────────────────────
 
 def test_save_updates_anchor_retired_and_preserves_geometry(main_window, tmp_path, caplog):

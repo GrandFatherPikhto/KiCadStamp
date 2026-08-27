@@ -100,6 +100,9 @@ class ThermalViaArrayDock(QWidget):
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText(_("name (used by --only, must be unique)"))
         form.addRow(_("Name:"), self.name_edit)
+        self.comment_edit = QLineEdit()
+        self.comment_edit.setPlaceholderText(_("optional free-form note"))
+        form.addRow(_("Comment:"), self.comment_edit)
         layout.addLayout(form)
 
         self.origin_widget = AnchorOriginWidget(modes=["anchor", "point"], anchor_fields=["sheet", "cluster"])
@@ -247,6 +250,9 @@ class ThermalViaArrayDock(QWidget):
             return None
 
         entry: Dict[str, Any] = {"name": name, "pad": pad}
+        comment = self.comment_edit.text().strip()
+        if comment:
+            entry["comment"] = comment
 
         origin_fields, err = self.origin_widget.build()
         if err:
@@ -419,6 +425,7 @@ class ThermalViaArrayDock(QWidget):
         project root file (2026-08-21), so the passed path is ignored."""
         self._path = self._root_path
         self.name_edit.setText("")
+        self.comment_edit.setText("")
         self.origin_widget.clear()
         self.pad_edit.setText("")
         self.net_edit.setCurrentText("GND")
@@ -447,6 +454,7 @@ class ThermalViaArrayDock(QWidget):
         if file_path is not None:
             self._path = file_path
         self.name_edit.setText(str(entry.get("name", "")))
+        self.comment_edit.setText(str(entry.get("comment") or ""))
         self.pad_edit.setText(str(entry.get("pad", "")))
         self.net_edit.setCurrentText(str(entry.get("net", "GND")))
 

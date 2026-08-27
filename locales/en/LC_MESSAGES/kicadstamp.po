@@ -547,6 +547,18 @@ msgstr ""
 msgid "Name:"
 msgstr ""
 
+#: gui/docks/cell_editor.py:154 gui/docks/net_trace.py:94
+#: gui/docks/placer.py:825 gui/docks/placer.py:870
+#: gui/docks/points.py:129 gui/docks/rules.py:230 gui/docks/thermal_via.py:105
+msgid "Comment:"
+msgstr ""
+
+#: gui/docks/cell_editor.py:153 gui/docks/net_trace.py:93
+#: gui/docks/placer.py:312 gui/docks/placer.py:824
+#: gui/docks/points.py:128 gui/docks/rules.py:229 gui/docks/thermal_via.py:104
+msgid "optional free-form note"
+msgstr ""
+
 #: gui/docks/cell_editor.py:131 gui/docks/cell_editor.py:224
 #: gui/docks/cell_editor.py:322 gui/docks/cell_editor.py:394
 #: gui/docks/placer.py:438 gui/docks/root_metadata.py:159

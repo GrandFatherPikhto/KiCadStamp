@@ -1361,3 +1361,61 @@ def test_f2_shortcut_is_widget_scoped(main_window, tmp_path):
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
     assert dock._rename_shortcut.context() == config_tree_mod.Qt.ShortcutContext.WidgetWithChildrenShortcut
+
+
+# ── comment marker (handoff_2026_08_27_entity_comment_field.md §5) ─────────
+
+def test_cell_leaf_with_comment_shows_glyph_and_tooltip(main_window, tmp_path):
+    """comment on a DICT-section (cells) entry: _entries() yields the bare
+    name as payload, so the marker must come from raw.get(name) — the exact
+    regression the handoff flagged (payload is a str, not the record dict)."""
+    root = tmp_path / "root.yaml"
+    root.write_text(
+        "cells:\n  noted:\n    comment: a cell note\n    components: []\n",
+        encoding="utf-8")
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    leaf = _find(dock.tree.topLevelItem(0), "Cells").child(0)
+    assert leaf.text(0) == "📝 noted"
+    assert leaf.toolTip(0) == "a cell note"
+
+
+def test_cell_leaf_without_comment_is_plain(main_window, tmp_path):
+    root = tmp_path / "root.yaml"
+    root.write_text("cells:\n  plain:\n    components: []\n", encoding="utf-8")
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    leaf = _find(dock.tree.topLevelItem(0), "Cells").child(0)
+    assert leaf.text(0) == "plain"
+    assert leaf.toolTip(0) == ""
+
+
+def test_rules_leaf_with_comment_shows_glyph_and_tooltip(main_window, tmp_path):
+    """comment on a LIST-section (rules) entry: _entries() yields the full
+    record dict as payload, so the marker comes straight from it."""
+    root = tmp_path / "root.yaml"
+    root.write_text(
+        "rules:\n  - net: '+3V3'\n    anchor_ref: U1\n"
+        "    comment: a rule note\n    spokes: []\n",
+        encoding="utf-8")
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    leaf = _find(dock.tree.topLevelItem(0), "Rules").child(0)
+    assert leaf.text(0) == "📝 +3V3"
+    assert leaf.toolTip(0) == "a rule note"
+
+
+def test_rules_leaf_without_comment_is_plain(main_window, tmp_path):
+    root = tmp_path / "root.yaml"
+    root.write_text(
+        "rules:\n  - net: '+3V3'\n    anchor_ref: U1\n    spokes: []\n",
+        encoding="utf-8")
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    leaf = _find(dock.tree.topLevelItem(0), "Rules").child(0)
+    assert leaf.text(0) == "+3V3"
+    assert leaf.toolTip(0) == ""

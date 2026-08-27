@@ -213,6 +213,37 @@ def test_save_overwrites_an_existing_point_by_name(main_window, tmp_path, caplog
     assert any("Overwrote" in r.message for r in caplog.records)
 
 
+# ── comment field (handoff_2026_08_27_entity_comment_field.md) ────────────
+
+def test_build_entry_includes_comment(main_window, tmp_path):
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock.name_edit.setText("origin")
+    dock.origin_mode_combo.setCurrentIndex(0)
+    dock.x_edit.setText("1.0")
+    dock.y_edit.setText("2.0")
+    dock.comment_edit.setText("a point note")
+
+    name, entry = dock._build_entry()
+    assert name == "origin"
+    assert entry == {"xy": [1.0, 2.0], "comment": "a point note"}
+
+
+def test_comment_saves_and_loads_back(main_window, tmp_path):
+    dock, target = _make_dock(main_window, tmp_path, {"points": {"origin": {"xy": [0, 0]}}})
+    dock.name_edit.setText("origin")
+    dock.origin_mode_combo.setCurrentIndex(0)
+    dock.x_edit.setText("5.0")
+    dock.y_edit.setText("6.0")
+    dock.comment_edit.setText("a point note")
+
+    dock._on_save()
+
+    assert _read_yaml(target)["points"]["origin"] == \
+        {"xy": [5.0, 6.0], "comment": "a point note"}
+    dock.load_entry("origin")
+    assert dock.comment_edit.text() == "a point note"
+
+
 def test_save_without_a_file_picked_shows_error(main_window, caplog):
     dock = PointsDock(main_window)
     dock.name_edit.setText("origin")

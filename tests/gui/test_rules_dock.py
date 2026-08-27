@@ -389,6 +389,37 @@ def test_save_overwrites_by_name_or_net(main_window, tmp_path, caplog):
     assert any("Overwrote" in r.message for r in caplog.records)
 
 
+# ── comment field (handoff_2026_08_27_entity_comment_field.md) ────────────
+
+def test_build_rule_dict_includes_comment(main_window, tmp_path):
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock.net_edit.setCurrentText("+3V3")
+    dock.origin_mode_combo.setCurrentIndex(0)
+    dock.anchor_role_edit.setCurrentText("FPGA")
+    dock.comment_edit.setText("a rule note")
+
+    entry = dock._build_rule_dict()
+    assert entry == {"net": "+3V3", "spokes": [], "anchor_role": "FPGA",
+                     "comment": "a rule note"}
+
+
+def test_comment_saves_and_loads_back(main_window, tmp_path):
+    dock, target = _make_dock(main_window, tmp_path, {"rules": [
+        {"net": "+3V3", "anchor_role": "FPGA", "spokes": []},
+    ]})
+    dock.net_edit.setCurrentText("+3V3")
+    dock.origin_mode_combo.setCurrentIndex(0)
+    dock.anchor_role_edit.setCurrentText("FPGA")
+    dock.comment_edit.setText("a rule note")
+
+    dock._on_save()
+
+    data = _read_yaml(target)
+    assert data["rules"][0]["comment"] == "a rule note"
+    dock.load_entry(data["rules"][0])
+    assert dock.comment_edit.text() == "a rule note"
+
+
 def test_save_rejects_a_rule_without_any_anchor(main_window, tmp_path, caplog):
     dock, target = _make_dock(main_window, tmp_path)
     dock.net_edit.setCurrentText("+3V3")
