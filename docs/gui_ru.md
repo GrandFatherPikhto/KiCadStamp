@@ -193,6 +193,23 @@ plan_2026_08_15_graph_changed_broadcast.md).
 Статическое разрешение анкоров — в [`kicadstamp/anchor_graph.py`](kicadstamp/anchor_graph.py), общий
 каскад — в [`gui/docks/cascade.py`](gui/docks/cascade.py).
 
+## Trees
+
+Таб **Trees** (табифицирован с Config tree и Anchor tree, та же левая группа) — ручной редактор
+опциональной секции `trees:` root-конфига (в отличие от Anchor tree, которая — автоматическое
+read-only представление анкорного графа конфига). Одна вкладка на дерево, каждая — вложенный
+список узлов относительно собственного якоря дерева. Тулбар: **Add tree…**, **Rename tree…** и
+**Delete tree…** (удаляет текущее дерево целиком — аналог "Delete node" для всего дерева, с
+подтверждением Yes/No, дефолт No), плюс **Save** и **Redraw selected**. Структурное
+редактирование — через контекстное меню узла (Add child / Add sibling / Reread current position /
+Edit node… / Delete node / Rename… / Move to…); в меню anchor-псевдокорня — **Add node** и **Set
+anchor…**. Смещения узлов вводятся вручную или считываются с живой платы кнопкой **Read current
+position** в диалоге Add/Edit node — это пассивное чтение живой позиции, которое НЕ валидирует
+инвариант FORK-1 всего дерева, поэтому посторонний существующий узел с конфликтующим инлайн-anchor
+его не блокирует. Ничего не пишется на диск до **Save**, который заменяет всю секцию `trees:`
+root-конфига через единый config_writer (сначала делается свежий `.bak`); линковка и валидация
+выполняются при Save через `kicadstamp.link_trees`.
+
 ## Detail dock
 
 Extract/Placer/Project/Thermal via/Points/Rules/Net traces/Cells/Settings ниже — всё это табы

@@ -1295,6 +1295,19 @@ msgstr "{file}: {entries}"
 msgid "Delete {name!r}"
 msgstr "Удалить {name!r}"
 
+#: gui/docks/trees_dock.py:209
+msgid "Delete tree…"
+msgstr "Удалить дерево…"
+
+#: gui/docks/trees_dock.py:754
+msgid "Delete tree"
+msgstr "Удалить дерево"
+
+#: gui/docks/trees_dock.py:755
+#, python-brace-format
+msgid "Delete tree {name!r}? This cannot be undone (until you Save)."
+msgstr "Удалить дерево {name!r}? Это действие нельзя отменить (пока не нажмёте Save)."
+
 #: gui/docks/config_tree.py:545
 msgid ""
 "{name!r} is still referenced by:\n"

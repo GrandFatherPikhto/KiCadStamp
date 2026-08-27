@@ -154,10 +154,11 @@ def test_static_preview_polar_node(main_window, tmp_path):
 
 def test_toolbar_buttons_enabled(main_window):
     """No Open/New buttons (trees live in the root config, RootMetadataDock
-    owns the root); Add/Rename tree + Save + Redraw are enabled."""
+    owns the root); Add/Rename/Delete tree + Save + Redraw are enabled."""
     dock = TreesDock(main_window)
     assert dock.add_tree_button.isEnabled() is True
     assert dock.rename_tree_button.isEnabled() is True
+    assert dock.delete_tree_button.isEnabled() is True
     assert dock.save_button.isEnabled() is True
     assert dock.redraw_button.isEnabled() is True
     assert not hasattr(dock, "open_button")
@@ -266,6 +267,61 @@ def test_rename_tree_enforces_unique_names(main_window, tmp_path):
     tree.name = "misc"
     assert any(t.name == tree.name for t in dock._trees if t is not tree)  # collision
     tree.name = "power_tree"  # undo, self-contained
+
+
+# ── Whole-tree Delete (2026-08-27) ────────────────────────────────────────
+
+def test_delete_tree_removes_from_list_and_marks_dirty(main_window, tmp_path, monkeypatch):
+    """Confirming the Delete tree… toolbar button removes the CURRENT tree
+    from self._trees, marks the dock dirty and rebuilds one fewer tab (the
+    deletion itself writes nothing — Save persists it, like Add/Rename)."""
+    dock, _root = _dock_with(main_window, tmp_path)  # power_tree + misc
+    assert len(dock._trees) == 2
+    assert dock.tabs.count() == 2
+    dock.tabs.setCurrentIndex(0)  # power_tree
+
+    import gui.docks.trees_dock as td_mod
+    monkeypatch.setattr(td_mod.QMessageBox, "question",
+                        lambda *a, **k: QMessageBox.StandardButton.Yes)
+    dock.delete_tree_button.click()
+
+    assert [t.name for t in dock._trees] == ["misc"]
+    assert dock._dirty is True
+    assert dock.tabs.count() == 1
+    assert dock.tabs.tabText(0) == "misc"
+
+
+def test_delete_tree_cancel_keeps_it(main_window, tmp_path, monkeypatch):
+    """Declining (confirm=No) keeps the tree and does NOT touch _dirty (still
+    False — a cancelled deletion must not mark unsaved state)."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    assert dock._dirty is False
+
+    import gui.docks.trees_dock as td_mod
+    monkeypatch.setattr(td_mod.QMessageBox, "question",
+                        lambda *a, **k: QMessageBox.StandardButton.No)
+    dock.delete_tree_button.click()
+
+    assert [t.name for t in dock._trees] == ["power_tree", "misc"]
+    assert dock._dirty is False
+    assert dock.tabs.count() == 2
+
+
+def test_delete_tree_no_current_tree_is_noop(main_window, monkeypatch):
+    """With no trees loaded (placeholder tab) the button must not crash and
+    must not even open a confirmation dialog."""
+    dock = TreesDock(main_window)
+    dock.set_root_file(None)
+    assert dock._trees == []
+
+    import gui.docks.trees_dock as td_mod
+    called = []
+    monkeypatch.setattr(td_mod.QMessageBox, "question",
+                        lambda *a, **k: called.append(a) or QMessageBox.StandardButton.Yes)
+    dock.delete_tree_button.click()
+
+    assert called == []
+    assert dock._dirty is False
 
 
 # ── Phase 3: Save + dirty tracking (via config_writer into the root) ──────

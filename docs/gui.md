@@ -192,6 +192,23 @@ usual way. The static anchor resolution lives in
 [`kicadstamp/anchor_graph.py`](kicadstamp/anchor_graph.py) and the shared cascade in
 [`gui/docks/cascade.py`](gui/docks/cascade.py).
 
+## Trees
+
+The **Trees** tab (tabbed with the Config tree and Anchor tree, same left group) is a hand-authored
+editor for the OPTIONAL `trees:` section of the ROOT config — unlike the Anchor tree, which is an
+automatic read-only view of the config's anchor graph. One tab per tree, each a nested node list
+relative to the tree's own anchor. The toolbar offers **Add tree…**, **Rename tree…** and **Delete
+tree…** (the whole-tree counterpart of a node's "Delete node", confirmed with Yes/No — No by
+default), plus **Save** and **Redraw selected**. Structural editing happens through each node's
+context menu (Add child / Add sibling / Reread current position / Edit node… / Delete node / Rename…
+/ Move to…); the tree anchor pseudo-root's menu carries **Add node** and **Set anchor…**. Node
+offsets are typed by hand or read from the live board via **Read current position** in the
+Add/Edit-node dialog — a passive live-board read that never validates the whole tree's FORK-1
+invariant, so an unrelated existing node with a conflicting inline anchor does not block it. Nothing
+reaches the disk until **Save**, which replaces the whole root `trees:` section through the single
+config_writer chokepoint (a fresh `.bak` is made first); linking/validation runs at Save via
+`kicadstamp.link_trees`.
+
 ## Detail dock
 
 Extract/Placer/Project/Thermal via/Points/Rules/Net traces/Cells/Settings below all live as tabs

@@ -220,6 +220,10 @@ class TreesDock(QDockWidget):
         self.rename_tree_button.setEnabled(True)
         self.rename_tree_button.clicked.connect(self._on_rename_tree)
         toolbar.addWidget(self.rename_tree_button)
+        self.delete_tree_button = QPushButton(_("Delete tree…"))
+        self.delete_tree_button.setEnabled(True)
+        self.delete_tree_button.clicked.connect(self._on_delete_tree)
+        toolbar.addWidget(self.delete_tree_button)
         self.save_button = QPushButton(_("Save"))
         self.save_button.setEnabled(True)
         self.save_button.clicked.connect(self._do_save)
@@ -748,6 +752,27 @@ class TreesDock(QDockWidget):
                                 _("A tree named {name!r} already exists.").format(name=new_name))
             return
         tree.name = new_name
+        self._mark_dirty()
+        self._rebuild_tabs()
+
+    def _on_delete_tree(self) -> None:
+        """Remove the CURRENT tree from self._trees entirely — the whole-tree
+        counterpart of the per-node "Delete node" context-menu action. Like
+        Add/Rename, nothing is written until Save: the deletion is just part of
+        the unsaved state, and _do_save persists it (plus the .bak backup).
+        Confirmed via QMessageBox with No as the safe default button."""
+        tree = self._current_tree()
+        if tree is None:
+            return
+        ret = QMessageBox.question(
+            self, _("Delete tree"),
+            _("Delete tree {name!r}? This cannot be undone (until you Save).")
+            .format(name=tree.name),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if ret != QMessageBox.StandardButton.Yes:
+            return
+        self._trees.remove(tree)
         self._mark_dirty()
         self._rebuild_tabs()
 
