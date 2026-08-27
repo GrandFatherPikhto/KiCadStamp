@@ -1,4 +1,6 @@
 # tests/gui/test_detail_panel.py
+from PyQt6.QtWidgets import QFrame, QScrollArea
+
 from gui.docks.cell_editor import CellDock
 from gui.docks.configurator import ConfiguratorDock
 from gui.docks.detail_panel import DetailDock
@@ -193,3 +195,30 @@ def test_tab_bar_has_highlight_stylesheet(main_window):
     Detail dock's active-tab highlight is applied at construction."""
     dock = DetailDock(main_window)
     assert "selected" in dock.tab_bar.styleSheet()
+
+
+# ── QScrollArea wrap (2026-08-27, handoff detail_dock_scroll_area) ────────
+
+def test_stack_is_wrapped_in_a_scroll_area(main_window):
+    """The form-heavy pages must scroll instead of stretching the dock:
+    self.stack now lives inside a QScrollArea (same object, same API — only
+    its parent widget changed), setWidgetResizable so the content stretches
+    to the viewport width, and NoFrame so no extra border shows inside the
+    dock."""
+    dock = DetailDock(main_window)
+    assert isinstance(dock.scroll_area, QScrollArea)
+    assert dock.scroll_area.widget() is dock.stack
+    assert dock.scroll_area.widgetResizable() is True
+    assert dock.scroll_area.frameShape() == QFrame.Shape.NoFrame
+
+
+def test_tab_bar_stays_outside_the_scroll_area(main_window):
+    """The tab bar is a sibling of the scroll area inside the container's
+    layout, NOT a child of the scroll area — it must stay fixed at the top and
+    never scroll away with the stack. The stack itself lives inside the scroll
+    area through its internal viewport (QScrollArea.setWidget reparents the
+    widget to the viewport, not the area itself), so check ancestry."""
+    dock = DetailDock(main_window)
+    assert dock.tab_bar.parent() is not dock.scroll_area
+    assert dock.scroll_area.isAncestorOf(dock.stack)
+    assert dock.scroll_area.widget() is dock.stack

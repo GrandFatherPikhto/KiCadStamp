@@ -47,7 +47,8 @@ load_entry() -> show_X() where the tab index doesn't change, so
 QTabBar.currentChanged never fires — _update_title() is therefore called
 unconditionally by show_X(), not only via that signal).
 """
-from PyQt6.QtWidgets import (QDockWidget, QStackedWidget, QTabBar, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QFrame, QDockWidget, QScrollArea, QStackedWidget,
+                             QTabBar, QVBoxLayout, QWidget)
 
 from kicadstamp.i18n import _
 
@@ -119,7 +120,25 @@ class DetailDock(QDockWidget):
         self.stack.addWidget(self.net_trace_panel)
         self.stack.addWidget(self.cells_panel)
         self.stack.addWidget(self.configurator_panel)
-        layout.addWidget(self.stack)
+        # QScrollArea (2026-08-27, handoff detail_dock_scroll_area): the dock
+        # hosts 9 form-heavy panels as pages of ONE QStackedWidget, so whichever
+        # panel has the most fields dictates the whole dock's sizeHint and the
+        # dock (and with it the main window) can't be shrunk below that panel's
+        # content height. Wrap the STACK (and only the stack) in a scroll area
+        # so the form scrolls instead of stretching the dock; the tab bar stays
+        # outside, fixed at the top. self.stack stays the same object with the
+        # same API (count/currentWidget/setCurrentIndex/addWidget) — only its
+        # parent widget changes, so every existing dock.stack.* call site keeps
+        # working unmodified.
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidget(self.stack)
+        self.scroll_area.setWidgetResizable(True)   # content stretches to the
+                                                    # viewport width; the scroll
+                                                    # area itself doesn't demand
+                                                    # space for the whole content
+        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)  # no extra border
+                                                              # inside the dock
+        layout.addWidget(self.scroll_area, 1)       # was layout.addWidget(self.stack)
 
         self.tab_bar.currentChanged.connect(self.stack.setCurrentIndex)
         self.tab_bar.currentChanged.connect(self._update_title)
