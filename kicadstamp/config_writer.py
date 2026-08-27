@@ -19,6 +19,8 @@ from typing import Any, Callable, Dict, Optional
 
 import yaml
 
+from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
+from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
 from kicadstamp.utils.file_cache import cached_file_read, invalidate_graph_path, invalidate_path
 from kicadstamp.utils.yaml_loader import safe_load
@@ -62,19 +64,23 @@ def _read_data(path: Path) -> dict:
 
     def _uncached_read(p: Path) -> dict:
         with open(p, "r", encoding="utf-8") as f:
+            suffix = p.suffix.lower()
             try:
-                return (json.load(f) if p.suffix.lower() == ".json"
-                        else safe_load(f)) or {}
-            except (json.JSONDecodeError, yaml.YAMLError) as e:
+                if suffix == ".json":
+                    return json.load(f) or {}
+                if suffix == ".sexp":
+                    return sexp_to_dict(f.read()) or {}
+                return safe_load(f) or {}
+            except (json.JSONDecodeError, yaml.YAMLError, ValidationError) as e:
+                kind = "JSON" if suffix == ".json" else ("s-expr" if suffix == ".sexp" else "YAML")
                 raise OSError(_("{path} is not valid {kind}: {error}").format(
-                    path=path, kind="JSON" if p.suffix.lower() == ".json" else "YAML",
-                    error=e)) from e
+                    path=path, kind=kind, error=e)) from e
 
     return cached_file_read(path, _uncached_read)
 
 
 def _write_data(path: Path, data: dict) -> None:
-    """Write merged content back in the same format (YAML/JSON by file
+    """Write merged content back in the same format (YAML/JSON/s-expr by file
     extension) it was read in. Every GUI dock write path
     (merge_write/add_list_entry/upsert_*/_remove_entry) funnels through
     this ONE physical-write chokepoint, which is why invalidate_path() AND
@@ -86,8 +92,11 @@ def _write_data(path: Path, data: dict) -> None:
     graph-level result cache (see kicadstamp/utils/file_cache.py's
     invalidate_path()/invalidate_graph_path() docstrings)."""
     with open(path, "w", encoding="utf-8") as f:
-        if path.suffix.lower() == ".json":
+        suffix = path.suffix.lower()
+        if suffix == ".json":
             json.dump(data, f, indent=2, ensure_ascii=False, sort_keys=False)
+        elif suffix == ".sexp":
+            f.write(dict_to_sexp(data))
         else:
             yaml.dump(data, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
     invalidate_path(path)
