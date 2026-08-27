@@ -148,6 +148,16 @@ class MainWindow(QMainWindow):
         # (see DockHub.restore_tree_mode()).
         self._dock_hub.restore_tree_mode()
 
+        # View menu (2026-08-27, handoff sync_skip_message_and_view_menu): the
+        # app had no menu bar at all, so a closed dock had no way back short of
+        # restarting. Every QDockWidget ships a ready-made toggleViewAction()
+        # (checkable, self-tracks shown/hidden) — wire one per real top-level
+        # dock (DockHub.docks), see gui/dock_hub.py for why DetailDock's
+        # internal panels are excluded.
+        view_menu = self.menuBar().addMenu(_("View"))
+        for dock in self._dock_hub.docks:
+            view_menu.addAction(dock.toggleViewAction())
+
         # One persistent worker thread for both poll ticks (see
         # PollWorkerHandle's docstring for why this must NOT be a fresh
         # QThread per tick like start_long_op — GIL/Qt-mutex deadlock found

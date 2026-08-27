@@ -603,21 +603,24 @@ class MainWindow(QMainWindow):
         """Worker thread: board IPC only — never touches a widget. Same
         has_field skip-guard as _run_stage (a field that vanished from a
         footprint between the diff being computed and this running is skipped,
-        not a fatal abort of the whole batch)."""
+        not a fatal abort of the whole batch). Skips are split by CAUSE so the
+        finish handler can explain each properly: "not_found" = the refdes is
+        not on the live board right now (renamed/deleted since the last poll);
+        "missing_field" = the footprint exists but has no such field (the far
+        more common case — the field is in the schematic but was never created
+        on the board footprint)."""
         adapter = self.connection.board.adapter
-        result = {"error": None, "skipped": []}
+        result = {"error": None, "not_found": [], "missing_field": []}
         updates = []
-        skipped = []
         for ref, field, old_value in payload["edits"]:
             fp = adapter.get_footprint(ref)
             if fp is None:
-                skipped.append(f"{ref} ({field})")
+                result["not_found"].append(f"{ref} ({field})")
                 continue
             if adapter.has_field(fp, field):
                 updates.append((fp, field, old_value))
             else:
-                skipped.append(f"{ref} ({field})")
-        result["skipped"] = skipped
+                result["missing_field"].append(f"{ref} ({field})")
         if updates:
             touched = len({id(u[0]) for u in updates})
             try:
@@ -631,12 +634,24 @@ class MainWindow(QMainWindow):
         if result["error"]:
             QMessageBox.critical(self, _("Could not sync fields"), result["error"])
             return
-        skipped = result.get("skipped") or []
-        if skipped:
+        # Two DIFFERENT, correctly-worded warnings — the field-missing case
+        # (the overwhelmingly common one) reuses Stage's exact wording, so the
+        # two flows agree on what to do (Ensure fields / add by hand + Update
+        # PCB from Schematic), while a genuinely-missing ref is its own thing.
+        missing_field = result.get("missing_field") or []
+        if missing_field:
             QMessageBox.warning(
                 self, _("Some fields were skipped"),
-                _("These targets could not be resolved on the live board — nothing "
-                  "was written for them:\n{refs}").format(refs="\n".join(skipped)))
+                _("These targets have no such field on their footprint yet — nothing "
+                  "was written for them (use Ensure fields... below, or add the field "
+                  "by hand, then Update PCB from Schematic):\n{refs}")
+                .format(refs="\n".join(missing_field)))
+        not_found = result.get("not_found") or []
+        if not_found:
+            QMessageBox.warning(
+                self, _("Some targets were not found"),
+                _("These refs are not currently on the live board — nothing was "
+                  "written for them:\n{refs}").format(refs="\n".join(not_found)))
         # Same "Pending changes never sees a write until told" fix as Stage
         # (2026-08-03) — the automatic poll tick never refreshes on its own
         # once already connected.

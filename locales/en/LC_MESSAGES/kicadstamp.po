@@ -324,6 +324,19 @@ msgid "Could not sync fields"
 msgstr ""
 
 #: gui/fieldstool_window.py
+msgid "Some targets were not found"
+msgstr ""
+
+#: gui/fieldstool_window.py
+#, python-brace-format
+msgid "These refs are not currently on the live board — nothing was written for them:\n{refs}"
+msgstr ""
+
+#: gui/main_window.py
+msgid "View"
+msgstr ""
+
+#: gui/fieldstool_window.py
 #, python-brace-format
 msgid "These targets could not be resolved on the live board — nothing was written for them:\n{refs}"
 msgstr ""

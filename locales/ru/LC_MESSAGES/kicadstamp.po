@@ -359,6 +359,19 @@ msgid "Could not sync fields"
 msgstr "Не удалось синхронизировать поля"
 
 #: gui/fieldstool_window.py
+msgid "Some targets were not found"
+msgstr "Некоторые цели не найдены"
+
+#: gui/fieldstool_window.py
+#, python-brace-format
+msgid "These refs are not currently on the live board — nothing was written for them:\n{refs}"
+msgstr "Эти refdes сейчас нет на живой плате — для них ничего не записано:\n{refs}"
+
+#: gui/main_window.py
+msgid "View"
+msgstr "Вид"
+
+#: gui/fieldstool_window.py
 #, python-brace-format
 msgid "These targets could not be resolved on the live board — nothing was written for them:\n{refs}"
 msgstr "Эти цели не удалось найти на живой плате — для них ничего не записано:\n{refs}"

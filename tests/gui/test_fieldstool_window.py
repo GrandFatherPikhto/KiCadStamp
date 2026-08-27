@@ -684,3 +684,44 @@ def test_sync_from_schematic_confirm_cancelled_writes_nothing(
     fieldstool_window._on_sync_from_schematic()
 
     assert board.adapter.calls == []
+
+
+def test_sync_skip_reports_missing_field_separately(
+        fieldstool_window, tmp_path, monkeypatch):
+    """A target whose footprint EXISTS but has no such field lands in
+    result['missing_field'] (NOT a generic 'skipped') — the finish handler
+    then explains the real, far more common cause: the field is in the
+    schematic but was never created on the board footprint (Ensure fields /
+    add by hand + Update PCB from Schematic)."""
+    root = _write_root(tmp_path, symbol_block(["R1", "R2"], role="OLD"))
+    fieldstool_window._set_root_sheet(root)
+    board = _connect_board(fieldstool_window, monkeypatch,
+                           missing_fields={("R2", "Role")})
+
+    result = fieldstool_window._run_sync_from_schematic(
+        {"edits": [("R1", "Role", "OLD"), ("R2", "Role", "OLD")]})
+
+    assert result["missing_field"] == ["R2 (Role)"]
+    assert result["not_found"] == []
+    updates, _description = board.adapter.calls[0]
+    assert {u[0].ref for u in updates} == {"R1"}
+
+
+def test_sync_skip_reports_not_found_ref_separately(
+        fieldstool_window, tmp_path, monkeypatch):
+    """A ref not on the live board AT ALL (get_footprint -> None) lands in
+    result['not_found'] — a genuinely different failure, worded differently
+    in the finish handler."""
+    root = _write_root(tmp_path, symbol_block(["R1", "R2"], role="OLD"))
+    fieldstool_window._set_root_sheet(root)
+    board = _connect_board(fieldstool_window, monkeypatch)
+    orig_get = board.adapter.get_footprint
+    board.adapter.get_footprint = lambda ref: None if ref == "R2" else orig_get(ref)
+
+    result = fieldstool_window._run_sync_from_schematic(
+        {"edits": [("R1", "Role", "OLD"), ("R2", "Role", "OLD")]})
+
+    assert result["not_found"] == ["R2 (Role)"]
+    assert result["missing_field"] == []
+    updates, _description = board.adapter.calls[0]
+    assert {u[0].ref for u in updates} == {"R1"}

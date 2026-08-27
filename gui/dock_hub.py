@@ -126,6 +126,20 @@ class DockHub:
         main_window.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.log_dock)
         main_window.tabifyDockWidget(self.pending_dock, self.log_dock)
 
+        # All real TOP-LEVEL QDockWidgets (2026-08-27, handoff
+        # sync_skip_message_and_view_menu): MainWindow's View menu wires each
+        # one's ready-made toggleViewAction() so a closed dock can be brought
+        # back without restarting. Deliberately NOT DetailDock's internal
+        # panels (extract_dock/placer_dock/... are plain QWidgets switched by
+        # its own tab bar — not independently closable/dockable, no
+        # toggleViewAction of their own). Order matches construction above
+        # (already grouped by area: Left / right / bottom).
+        self.docks = [
+            self.tree_dock, self.config_tree_dock, self.anchor_tree_dock,
+            self.trees_dock, self.pending_dock, self.fieldstool_dock,
+            self.detail_dock, self.log_dock,
+        ]
+
         self._wire()
 
     def restore_tree_mode(self) -> None:

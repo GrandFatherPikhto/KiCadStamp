@@ -83,3 +83,41 @@ def test_restore_state_false_returns_logs_and_falls_through(
     real_main_window._restore_window_state()  # must not raise
 
     assert "did not apply" in caplog.text
+
+
+# ── View menu (2026-08-27, handoff sync_skip_message_and_view_menu) ───────
+
+def _view_menu(real_main_window):
+    """The single top-level "View" menu (the app had no menu bar before this
+    feature)."""
+    view_menus = [a for a in real_main_window.menuBar().actions()
+                  if a.text() == "View"]
+    assert len(view_menus) == 1
+    return view_menus[0].menu()
+
+
+def test_view_menu_has_one_checkable_action_per_dock(real_main_window):
+    """One checkable toggleViewAction per real top-level dock — the only way
+    to bring back a closed dock (the app previously had no menu bar at all).
+    Count must match DockHub.docks (8), NOT DetailDock's internal panels."""
+    menu = _view_menu(real_main_window)
+    actions = menu.actions()
+    assert len(actions) == len(real_main_window._dock_hub.docks) == 8
+    assert all(a.isCheckable() for a in actions)
+
+
+def test_view_menu_toggle_shows_and_hides_a_dock(real_main_window):
+    """toggleViewAction self-tracks shown/hidden: hiding a dock unchecks its
+    action, triggering the action on a hidden dock brings it back. Uses
+    isHidden() rather than isVisible() — the real main window is never shown()
+    in offscreen tests, so isVisible() would be False for every dock."""
+    log_dock = real_main_window._dock_hub.log_dock
+    log_action = next(a for a in _view_menu(real_main_window).actions()
+                      if a.text() == log_dock.windowTitle())
+
+    log_dock.hide()
+    assert log_action.isChecked() is False
+    assert log_dock.isHidden() is True
+
+    log_action.trigger()
+    assert log_dock.isHidden() is False
