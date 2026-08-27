@@ -113,7 +113,8 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (QAbstractItemView, QDockWidget, QFileDialog,
                               QInputDialog, QMenu, QMessageBox, QTreeWidget,
-                              QTreeWidgetItem, QVBoxLayout, QWidget)
+                              QTreeWidgetItem, QTreeWidgetItemIterator,
+                              QVBoxLayout, QWidget)
 
 from kicadstamp.config.includes import IncludeTreeNode, walk_include_tree
 from kicadstamp.exceptions import ValidationError
@@ -160,6 +161,12 @@ _ADD_ACTION_BY_SECTION = {
     "rules": (_("Add rule..."), "add_rule_requested"),
     "extract_profiles": (_("Add extract profile..."), "add_extract_profile_requested"),
 }
+
+# Leaf-label marker for an entry carrying a comment — a single source of truth,
+# used BOTH when building the leaf label (_build_file_item) and when stripping
+# it back to recover the entry's name (_item_identity, for selection restore).
+# One copy of the glyph string, so the two can never drift apart.
+_COMMENT_GLYPH = "📝 "
 
 
 class ConfigTreeDock(QDockWidget):
@@ -318,6 +325,74 @@ class ConfigTreeDock(QDockWidget):
         self._root_path = path
         self.refresh()
 
+    # ── Selection capture/restore around refresh() (2026-08-27) ──────────
+    #
+    # Every dock's saved signal feeds into refresh() (gui/dock_hub.py), which
+    # does tree.clear() + a full rebuild — without capture the selection was
+    # dropped on EVERY Save anywhere in the app (Denis: "теряется выделенный
+    # компонент... при экстракте или размещении"). Identity is rebuilt from
+    # the parent chain + the item's own label — the 3-element UserRole tuples
+    # ("file"/"category"/"leaf") are NOT widened (several call sites
+    # destructure them by fixed arity: _on_clicked, _on_context_menu,
+    # _on_rename/_on_delete, _on_export).
+
+    def _item_identity(self, item: QTreeWidgetItem) -> Optional[tuple]:
+        """A rebuild-stable identity for `item`, or None for a kind this can't
+        identify (shouldn't happen for file/category/leaf — the 3 kinds this
+        tree ever builds). Walks the parent chain: item's own data alone is
+        not enough for a leaf/category — the owning file's path is needed
+        too (same name/section can exist in several files)."""
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if data is None:
+            return None
+        kind = data[0]
+        if kind == "file":
+            return ("file", data[1])          # data[1] is the file's own Path
+        if kind == "category":
+            file_item = item.parent()
+            file_data = file_item.data(0, Qt.ItemDataRole.UserRole) if file_item else None
+            if file_data is None:
+                return None
+            return ("category", file_data[1], data[1])   # (file path, section)
+        if kind == "leaf":
+            section_item = item.parent()
+            file_item = section_item.parent() if section_item else None
+            file_data = file_item.data(0, Qt.ItemDataRole.UserRole) if file_item else None
+            if file_data is None:
+                return None
+            label = item.text(0)
+            name = (label[len(_COMMENT_GLYPH):] if label.startswith(_COMMENT_GLYPH)
+                    else label)
+            return ("leaf", file_data[1], data[1], name)  # (file path, section, name)
+        return None
+
+    def _capture_selection(self) -> list:
+        """Rebuild-stable identities of the currently selected items — the
+        only thing refresh() may safely remember across tree.clear()."""
+        return [ident for item in self.tree.selectedItems()
+                if (ident := self._item_identity(item)) is not None]
+
+    def _restore_selection(self, identities: list) -> None:
+        """Best-effort: an identity that no longer exists (renamed/deleted
+        entry) is simply not re-selected, never an error. Scrolls to the first
+        match only (matches this tree's existing single-focus navigation, even
+        though selectedItems() elsewhere allows multi-select)."""
+        if not identities:
+            return
+        wanted = set(identities)
+        first_match = None
+        it = QTreeWidgetItemIterator(self.tree)
+        while it.value():
+            item = it.value()
+            ident = self._item_identity(item)
+            if ident is not None and ident in wanted:
+                item.setSelected(True)
+                if first_match is None:
+                    first_match = item
+            it += 1
+        if first_match is not None:
+            self.tree.scrollToItem(first_match)
+
     def refresh(self) -> None:
         """Public — also called by PlacerDock's saved signal (see
         gui/dock_hub.py) so a successful Save shows up here without
@@ -334,6 +409,7 @@ class ConfigTreeDock(QDockWidget):
         if os.environ.get("KICADSTAMP_PROFILE_TREE") == "1":
             self._refresh_profiled()
             return
+        selection = self._capture_selection()
         self.tree.clear()
         if self._root_path is None:
             return
@@ -344,6 +420,7 @@ class ConfigTreeDock(QDockWidget):
             return
         self._build_file_item(self.tree.invisibleRootItem(), node, parent_path=None)
         self.tree.expandAll()
+        self._restore_selection(selection)
 
     def _refresh_profiled(self) -> None:
         """See the TEMPORARY note on refresh() — same body, instrumented.
@@ -358,6 +435,7 @@ class ConfigTreeDock(QDockWidget):
         profiler = cProfile.Profile()
         profiler.enable()
         t0 = time.perf_counter()
+        selection = self._capture_selection()
         self.tree.clear()
         if self._root_path is None:
             profiler.disable()
@@ -372,6 +450,7 @@ class ConfigTreeDock(QDockWidget):
         self._build_file_item(self.tree.invisibleRootItem(), node, parent_path=None)
         t2 = time.perf_counter()
         self.tree.expandAll()
+        self._restore_selection(selection)
         t3 = time.perf_counter()
         # repaint() is a SYNCHRONOUS immediate repaint (unlike update(), which
         # just schedules one for later) — without this, a deferred paint cost
@@ -420,7 +499,7 @@ class ConfigTreeDock(QDockWidget):
                 # clone_placements/...) already yield the full record dict.
                 entry_data = raw.get(name) if isinstance(raw, dict) else payload
                 comment = entry_data.get('comment') if isinstance(entry_data, dict) else None
-                label = f"📝 {name}" if comment else name
+                label = f"{_COMMENT_GLYPH}{name}" if comment else name
                 leaf = QTreeWidgetItem(section_item, [label])
                 # Always set, not just for _CLICKABLE_SECTIONS — the
                 # context menu's Rename action (2026-08-04) needs to

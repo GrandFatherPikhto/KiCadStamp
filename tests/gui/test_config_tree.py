@@ -1419,3 +1419,85 @@ def test_rules_leaf_without_comment_is_plain(main_window, tmp_path):
     leaf = _find(dock.tree.topLevelItem(0), "Rules").child(0)
     assert leaf.text(0) == "+3V3"
     assert leaf.toolTip(0) == ""
+
+
+# ── Selection survives refresh() (2026-08-27) ─────────────────────────────
+
+def test_selection_survives_refresh_for_leaf(main_window, tmp_path):
+    """A selected leaf stays selected after refresh() rebuilds the tree —
+    every dock's saved signal feeds refresh() (gui/dock_hub.py), which used
+    to drop the selection on EVERY Save (handoff config_tree_preserve_
+    selection)."""
+    root = tmp_path / "root.yaml"
+    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    leaf = _find(dock.tree.topLevelItem(0), "Cells").child(0)
+    leaf.setSelected(True)
+    assert dock.tree.selectedItems()
+
+    dock.refresh()
+
+    selected = dock.tree.selectedItems()
+    assert len(selected) == 1
+    assert selected[0].text(0) == "one_role"
+
+
+def test_selection_survives_refresh_for_file_and_category(main_window, tmp_path):
+    """File and category nodes survive refresh() too — exercising all 3
+    _item_identity branches (file / category / leaf), not only the leaf."""
+    root = tmp_path / "root.yaml"
+    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    file_item = dock.tree.topLevelItem(0)
+    cells_item = _find(file_item, "Cells")
+    file_item.setSelected(True)
+    cells_item.setSelected(True)
+    assert len(dock.tree.selectedItems()) == 2
+
+    dock.refresh()
+
+    selected_texts = sorted(i.text(0) for i in dock.tree.selectedItems())
+    assert selected_texts == ["Cells", "root.yaml"]
+
+
+def test_selection_survives_refresh_for_commented_leaf(main_window, tmp_path):
+    """The comment glyph is stripped back to the entry name when recovering
+    identity (the label is "📝 noted", the identity must match "noted" after
+    the rebuild) — exercises _COMMENT_GLYPH handling in _item_identity."""
+    root = tmp_path / "root.yaml"
+    root.write_text("cells:\n  noted:\n    comment: a note\n    components: []\n",
+                    encoding="utf-8")
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    leaf = _find(dock.tree.topLevelItem(0), "Cells").child(0)
+    assert leaf.text(0) == "📝 noted"
+    leaf.setSelected(True)
+
+    dock.refresh()
+
+    selected = dock.tree.selectedItems()
+    assert len(selected) == 1
+    assert selected[0].text(0) == "📝 noted"
+
+
+def test_selection_degrades_gracefully_when_entry_deleted(main_window, tmp_path):
+    """Best-effort contract: an identity that no longer exists (the entry was
+    deleted/renamed in the underlying file before refresh) is simply not
+    re-selected — never a crash, selection ends up empty."""
+    root = tmp_path / "root.yaml"
+    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    leaf = _find(dock.tree.topLevelItem(0), "Cells").child(0)
+    leaf.setSelected(True)
+
+    root.write_text("cells:\n  other:\n    components: []\n", encoding="utf-8")
+    dock.refresh()  # must not raise
+
+    assert dock.tree.selectedItems() == []
