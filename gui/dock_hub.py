@@ -32,6 +32,7 @@ from kicadstamp.logging_setup import get_log_listener
 
 from .docks.anchor_tree import AnchorTreeDock
 from .docks.config_tree import ConfigTreeDock
+from .docks.trees_dock import TreesDock
 from .docks.detail_panel import DetailDock
 from .docks.fieldstool_dock import FieldsToolDock
 from .docks.log_panel import LogDock
@@ -64,6 +65,13 @@ class DockHub:
         self.anchor_tree_dock = AnchorTreeDock(main_window)
         main_window.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.anchor_tree_dock)
         main_window.tabifyDockWidget(self.config_tree_dock, self.anchor_tree_dock)
+
+        # Hand-authored s-expr "trees" editor (2026-08-27, design
+        # design_2026_08_27_trees_gui_dock.md) — tabbed with the Config/Anchor
+        # trees so the user finds "tree" in one place.
+        self.trees_dock = TreesDock(main_window)
+        main_window.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.trees_dock)
+        main_window.tabifyDockWidget(self.anchor_tree_dock, self.trees_dock)
 
         # ── bottom: Pending changes (constructed here — shared between
         # RoleClusterTreeDock's live-board writes and fieldstool's own
@@ -155,6 +163,7 @@ class DockHub:
         # points it at.
         self.root_metadata_dock.root_changed.connect(self.config_tree_dock.set_root_file)
         self.root_metadata_dock.root_changed.connect(self.anchor_tree_dock.set_root_file)
+        self.root_metadata_dock.root_changed.connect(self.trees_dock.set_root_file)
         self.root_metadata_dock.root_changed.connect(self.rules_dock.set_root_path)
         self.root_metadata_dock.root_changed.connect(self.net_trace_dock.set_root_path)
         self.root_metadata_dock.root_changed.connect(self.placer_dock.set_root_path)
@@ -194,6 +203,7 @@ class DockHub:
         # the equivalent ConfigTreeDock-owned case this mirrors).
         self.config_tree_dock.set_root_file(self.root_metadata_dock.root_path)
         self.anchor_tree_dock.set_root_file(self.root_metadata_dock.root_path)
+        self.trees_dock.set_root_file(self.root_metadata_dock.root_path)
         self.rules_dock.set_root_path(self.root_metadata_dock.root_path)
         self.placer_dock.set_root_path(self.root_metadata_dock.root_path)
         self.thermal_via_dock.set_root_path(self.root_metadata_dock.root_path)
@@ -346,6 +356,7 @@ class DockHub:
         self.detail_dock.apply_highlight()
         self.config_tree_dock.apply_highlight()
         self.anchor_tree_dock.apply_highlight()
+        self.trees_dock.apply_highlight()
         self.tree_dock.apply_highlight()
 
     # ── delegates MainWindow's poll/timer logic drives ────────────────────

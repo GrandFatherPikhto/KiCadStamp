@@ -100,3 +100,14 @@ def run_curated_tree_redraw(config_path: str, cfg, ctx, trees: list[Tree],
         logger.warning(warning)
     results = run_cascade(config_path, cfg, ctx, names)
     return results, warnings
+
+
+def run_curated_tree_redraw_worker(payload: dict) -> tuple:
+    """start_long_op worker entry point for the trees dock — thin adapter
+    over run_curated_tree_redraw (plain data in, plain data out, no widget
+    access), symmetric to run_cascade_worker. The dock keeps the trees
+    (plain dataclasses, not QObjects) in the payload so the worker thread can
+    link/plan/run without touching the UI."""
+    return run_curated_tree_redraw(
+        payload["config_path"], payload["cfg"], payload["ctx"], payload["trees"],
+        payload["tree_name"], payload["selected_refs"])
