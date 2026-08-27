@@ -125,17 +125,23 @@ class LogDock(QDockWidget):
         self.text = QPlainTextEdit()
         self.text.setReadOnly(True)
         self.text.setMaximumBlockCount(10000)  # cap growth over a long-running session
-        self.text.setMinimumHeight(0)  # 2026-08-27: QPlainTextEdit already scrolls
-                                       # its own content (own viewport/scrollbar) —
-                                       # no reason for its default minimumSizeHint to
-                                       # floor how small the dock can shrink (Denis:
-                                       # wants near-full collapse; the log already
-                                       # mirrors to the console it was launched from).
-                                       # Deliberately NOT a QScrollArea wrap — that
-                                       # widget has its own scrolling; wrapping again
-                                       # would be the nested-scroll/squish anti-pattern
-                                       # avoided for the other docks in the
-                                       # detail_panel.py QScrollArea handoff.
+        # 2026-08-27: QPlainTextEdit already scrolls its own content (own
+        # viewport/scrollbar) — no reason for its default minimumSizeHint to floor
+        # how small the dock can shrink (Denis: wants near-full collapse; the log
+        # already mirrors to the console it was launched from). Deliberately NOT a
+        # QScrollArea wrap — that widget has its own scrolling; wrapping again
+        # would be the nested-scroll/squish anti-pattern avoided for the other
+        # docks in the detail_panel.py QScrollArea handoff.
+        #
+        # setMinimumHeight(1), NOT 0 (handoff log_dock_min_height_fix2): Qt
+        # treats an explicit minimum of exactly 0 as "unset" (the same sentinel as
+        # never calling setMinimumHeight at all), so the layout silently keeps
+        # falling back to minimumSizeHint() and setMinimumHeight(0) changes
+        # nothing — verified live, a minimal QPlainTextEdit-in-QVBoxLayout's
+        # effective layout minimum stays at its natural size with 0 but drops
+        # measurably with 1. 1 is the smallest value Qt actually honors as an
+        # explicit override.
+        self.text.setMinimumHeight(1)
         layout.addWidget(self.text, 1)
 
         find_row = QHBoxLayout()

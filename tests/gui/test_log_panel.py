@@ -254,12 +254,13 @@ def test_append_line_does_not_scroll_when_autoscroll_disabled(log_dock):
     assert scrollbar.value() == 0
 
 
-def test_text_view_has_no_minimum_height_floor(log_dock):
-    """The dock's splitter must be able to shrink the log to (near) nothing —
-    QPlainTextEdit already scrolls its own content (own viewport/scrollbar,
-    setMaximumBlockCount caps growth), so its default minimumSizeHint must
-    not floor the dock height (handoff log_dock_min_height: Denis wants to
-    nearly fully collapse the log, it already mirrors to the console). A
-    structural check — real splitter geometry is a visual thing, verified
-    live."""
-    assert log_dock.text.minimumHeight() == 0
+def test_text_view_minimum_height_is_explicitly_overridden(log_dock):
+    """1, not 0 (handoff log_dock_min_height_fix2): Qt treats an explicit
+    minimumHeight of exactly 0 as "unset" — the same sentinel as never
+    calling setMinimumHeight at all — and silently falls back to
+    minimumSizeHint(), so a naive setMinimumHeight(0) is a no-op that
+    changes nothing about how small the dock can actually shrink. Found
+    live: a minimal QPlainTextEdit-in-QVBoxLayout's effective layout
+    minimum stays at its natural size with 0, drops measurably with 1. 1 is
+    the smallest value Qt actually honors as an explicit override."""
+    assert log_dock.text.minimumHeight() == 1
