@@ -214,6 +214,15 @@ reaches the disk until **Save**, which replaces the whole root `trees:` section 
 config_writer chokepoint (a fresh `.bak` is made first); linking/validation runs at Save via
 `kicadstamp.link_trees`.
 
+Adding a node whose record still carries its own inline anchor (`anchor_ref`/`anchor_role`/
+`anchor_point`/`anchor_origin`) is always allowed — **Save never blocks on it** (FORK-1 no longer
+runs at link/Save time; it only matters at the moment of an actual redraw). **Redraw selected** on
+such a node skips it with an explicit warning — the tree would otherwise fight the record's own
+inline anchor for the same position — and still walks it as a live base for its children. To let the
+tree own the position, remove the inline anchor from the record: that removal is the conscious
+migration decision. This is what lets you add e.g. a channel's `CH0/1/2_DAC_BUF` to the `fpga` tree
+purely to document/read it while it still moves through its own `anchor_role` via the regular Apply.
+
 ## Detail dock
 
 Extract/Placer/Project/Thermal via/Points/Rules/Net traces/Cells/Settings below all live as tabs

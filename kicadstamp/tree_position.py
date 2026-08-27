@@ -26,7 +26,7 @@ from .i18n import _
 from .domain.geometry import Vector2
 from .geometry.clone_geometry import clone_shift_mm
 from .geometry.spoke_layout import local_to_absolute
-from .link_trees import LinkedNode, LinkedTree
+from .link_trees import LinkedNode, LinkedTree, inline_anchor_field
 from .placement.services.clone_position_calculator import ClonePositionCalculator
 from .placement.services.component_resolver import (
     ComponentResolver,
@@ -141,10 +141,20 @@ def resolve_record_rotation_deg(adapter, cfg, rec: Record, sheet_names) -> float
     if kind == "clone":
         return rec.obj.rotation_deg
     if kind == "coordinate":
-        # tree-placed records never carry an inline anchor (FORK-1, see
-        # link_trees.py _check_fork1_inline_conflict) -> always the absolute
-        # branch of resolve_target_position, which already returns rotation.
-        _, rotation_deg = resolve_target_position(rec.obj)
+        cp = rec.obj
+        # Anchor-relative mode — a coordinate-kind record may LEGALLY carry an
+        # inline anchor now that FORK-1 lives at redraw-select time
+        # (plan_2026_08_28_fork1_move_to_redraw_time.md), so it can be used as
+        # a tree base. Its rotation is rotation_deg if set, else angle_deg in
+        # polar-offset mode, else 0.0 — the SAME rule the move builder applies
+        # at plan time (build_coordinate_moves) and the same anchor-awareness
+        # resolve_record_live_position's coordinate branch already has.
+        if _has_external_anchor(cp):
+            return (cp.rotation_deg if cp.rotation_deg is not None
+                    else (cp.angle_deg if cp.radius_mm is not None else 0.0))
+        # Absolute mode — resolve_target_position already returns the rotation
+        # for both Cartesian and fixed-centre polar.
+        _, rotation_deg = resolve_target_position(cp)
         return rotation_deg
     if kind == "rule":
         resolver = ComponentResolver(adapter, cfg, sheet_names)
@@ -183,10 +193,19 @@ def curated_redraw_plan(linked_tree: LinkedTree, selected_refs: set[str]
     """DFS over the linked tree, parent strictly before child. A node emits
     into `names` (as record.name — record.name == node.ref by construction of
     link_trees's index) ONLY if record is not None and record.kind != "point"
-    (external AND point nodes are walked — needed as a live base for
-    children's position resolve — but never emit a name: apply_only_filter
-    has no "points" support at all, see apply_pipeline.py, and external isn't
-    a config record to redraw).
+    AND its record does not carry an inline anchor (external AND point nodes
+    are walked — needed as a live base for children's position resolve — but
+    never emit a name: apply_only_filter has no "points" support at all, see
+    apply_pipeline.py, and external isn't a config record to redraw).
+
+    FORK-1 lives HERE now, not in link_trees.py: a SELECTED node whose record
+    already carries an inline anchor (anchor_ref/anchor_role/anchor_point/
+    anchor_origin) is walked as a live base but never emitted — warned, not
+    fataled, since Save/Load never blocks on this anymore
+    (plan_2026_08_28_fork1_move_to_redraw_time.md). Presence in the tree is
+    not "ownership" — ownership is the act of actually redrawing a selected
+    node; the warning says what to do to transfer ownership (remove the
+    inline anchor from the record).
 
     Warning: a selected node whose parent (another node, OR the tree's own
     anchor) is NOT in the selection — covers both plain nesting and the
@@ -217,7 +236,15 @@ def curated_redraw_plan(linked_tree: LinkedTree, selected_refs: set[str]
                 .format(ref=ref, parent=parent_label))
         if (is_selected and linked_node.record is not None
                 and linked_node.record.kind != "point"):
-            names.append(linked_node.record.name)
+            conflict_field = inline_anchor_field(linked_node.record)
+            if conflict_field is not None:
+                warnings.append(
+                    _("Node {ref!r} already has an inline anchor ({field}) — not "
+                      "redrawn from this tree; remove it from the record to let "
+                      "the tree own this position")
+                    .format(ref=ref, field=conflict_field))
+            else:
+                names.append(linked_node.record.name)
         for child in linked_node.children:
             walk(child, parent_in_sel=is_selected, parent_label=ref)
 

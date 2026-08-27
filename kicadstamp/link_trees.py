@@ -4,7 +4,12 @@
 The pure-syntax loader (kicadstamp/trees.py) does not know YAML; this module
 is the linking pass that connects each tree node/anchor `ref` to the actual
 config record. Design: techdocs/handoff/deepseek/design_2026_08_26_link_trees.md
-(all forks resolved, only FORK-1's inline-anchor half is in scope here).
+(all forks resolved). FORK-1's inline-anchor check is NOT part of linking
+anymore — it moved to redraw-select time
+(plan_2026_08_28_fork1_move_to_redraw_time.md): a node whose record carries an
+inline anchor is perfectly legal at link/Save time; the conflict only matters
+when the tree actually redraws a SELECTED node. link_trees only exposes the
+inline_anchor_field() helper for that redraw-time consultation.
 
 Output is WRAPPERS (LinkedTree/LinkedNode/LinkedAnchor), not mutations of the
 Tree/TreeNode/TreeAnchor dataclasses — same normalization pattern as
@@ -20,9 +25,10 @@ Resolution rules (all fatal via ValidationError, formatted AFTER _()):
   - anchor otherwise: auto-search; 1 match -> record; 0 -> SILENT external
     (anchors may legally point at live-board components, mirroring the
     never-statically-validated anchor_ref); 2+ -> fatal
-  - FORK-1: fatal if a resolved node record carries its own inline
-    anchor_ref/anchor_role/anchor_point/anchor_origin (read from rec.obj —
-    anchor_origin is a Point-only field not copied onto Record)
+  - NOT checked here: inline anchor on a resolved node record (FORK-1) — see
+    the module docstring; the conflict is only consulted at redraw-select time
+    via inline_anchor_field() (tree_position.curated_redraw_plan), never at
+    link/Save time.
 """
 from dataclasses import dataclass
 
@@ -148,27 +154,28 @@ def _resolve_anchor_ref(anchor: TreeAnchor,
     return candidates[0], False
 
 
-def _check_fork1_inline_conflict(node: TreeNode, record: Record | None) -> None:
-    """FORK-1 (inline-anchor half): a tree-placed record must not ALSO carry
-    its own inline anchor — two sources of truth on one record's position.
-    Reads from rec.obj via getattr: Record itself does not carry anchor_origin
-    (a Point-only field), so a point node with anchor_origin would silently
-    pass unless we read the original dataclass (design §4 fact-check B).
-    Nodes only — a tree anchor is a base, not something the tree "places"."""
+def inline_anchor_field(record: Record | None) -> str | None:
+    """First inline-anchor field name set on record.obj, or None — the same
+    _INLINE_ANCHOR_FIELDS check FORK-1 used to run at link-time. Now consulted
+    at redraw-select-time only (curated_redraw_plan), never at link/Save time:
+    presence in a tree is not "ownership" — ownership is the act of actually
+    redrawing a SELECTED node (plan_2026_08_28_fork1_move_to_redraw_time.md,
+    supersedes design_2026_08_28_tree_node_reference_scope.md's is_reference
+    approach). Reads from rec.obj via getattr: Record itself does not carry
+    anchor_origin (a Point-only field), so a point record with anchor_origin
+    would silently pass unless we read the original dataclass."""
     if record is None:
-        return
+        return None
     for field in _INLINE_ANCHOR_FIELDS:
         if getattr(record.obj, field, None) is not None:
-            _fatal(_("Node {ref!r} is placed by a tree but its own config record "
-                     "already has an inline anchor ({field})")
-                   .format(ref=node.ref, field=field))
+            return field
+    return None
 
 
 def _link_node(node: TreeNode, by_key: dict[str, Record],
                by_name: dict[str, list[Record]]) -> LinkedNode:
     """Recursively wrap one TreeNode (and its children) into a LinkedNode."""
     record, is_external = _resolve_node_ref(node, by_key, by_name)
-    _check_fork1_inline_conflict(node, record)
     return LinkedNode(
         node=node,
         record=record,

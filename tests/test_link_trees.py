@@ -12,7 +12,7 @@ from kicadstamp.config import (
     Config, ClonePlacement, CoordinatePlacement, NetTrace, Point, Rule,
 )
 from kicadstamp.exceptions import ValidationError
-from kicadstamp.link_trees import link_trees
+from kicadstamp.link_trees import inline_anchor_field, link_trees
 from kicadstamp.trees import load_trees
 
 
@@ -237,38 +237,28 @@ def test_anchor_external_marker_without_marker_still_collides(tmp_path):
     assert a.is_external is False
 
 
-# ── FORK-1: inline-anchor conflict on a tree-placed record ────────────────
+# ── FORK-1 moved to redraw-select time (plan_2026_08_28_fork1_move_to_redraw_
+# time.md): link_trees NEVER fatals on a node whose record carries an inline
+# anchor — presence in a tree is not "ownership"; the conflict only matters
+# when the tree actually redraws a SELECTED node
+# (tree_position.curated_redraw_plan, via inline_anchor_field). ─────────────
 
-def test_fork1_inline_anchor_ref_is_fatal(tmp_path):
+def test_link_trees_never_fatals_on_inline_anchor_ref(tmp_path):
     cfg = _cfg(clone_placements=[
         ClonePlacement(cluster="CL_A", cell="c", xy=(0.0, 0.0), anchor_ref="IC1"),
     ])
     trees = _tree(
         '(tree (name "t") (anchor (origin))\n'
-        '      (node (ref "CL_A") (xy 1 2)))',
+        '      (node (ref "CL_A") (kind clone) (xy 1 2)))',
         tmp_path=tmp_path)
-    with pytest.raises(ValidationError, match="inline anchor"):
-        link_trees(cfg, trees)
+    n = link_trees(cfg, trees)[0].nodes[0]
+    assert n.record is not None
 
 
-def test_fork1_inline_anchor_role_is_fatal(tmp_path):
-    cfg = _cfg(rules=[
-        Rule(net="GND", spokes=[], anchor_role="MCU"),
-    ])
-    trees = _tree(
-        '(tree (name "t") (anchor (origin))\n'
-        '      (node (ref "GND") (xy 1 2)))',
-        tmp_path=tmp_path)
-    with pytest.raises(ValidationError, match="inline anchor"):
-        link_trees(cfg, trees)
-
-
-def test_fork1_clone_with_inline_anchor_role_still_fatal(tmp_path):
-    """Regression guard 2026-08-27: the GUI live-read no longer runs
-    link_trees (trees_dock._linked_base_for), but the REAL apply/redraw path
-    (tree_position.py / run_curated_tree_redraw) still FORK-1-rejects a clone
-    record that carries its own legacy anchor_role while placed by a tree —
-    Denis's live CH0_DAC_BUF case, now rejected only where it matters."""
+def test_link_trees_never_fatals_on_inline_anchor_role(tmp_path):
+    """Denis's live CH0_DAC_BUF case: the record keeps its legacy anchor_role
+    for the regular planner Apply/Redraw; adding it to a tree must not be
+    blocked at Save/Load anymore."""
     cfg = _cfg(clone_placements=[
         ClonePlacement(cluster="DAC_BUF", cell="c", xy=(0.0, 0.0),
                        name="CH0_DAC_BUF", anchor_role="FPGA"),
@@ -277,11 +267,11 @@ def test_fork1_clone_with_inline_anchor_role_still_fatal(tmp_path):
         '(tree (name "10CL06") (anchor (origin))\n'
         '      (node (ref "CH0_DAC_BUF") (kind clone) (xy 1 2)))',
         tmp_path=tmp_path)
-    with pytest.raises(ValidationError, match="inline anchor"):
-        link_trees(cfg, trees)
+    n = link_trees(cfg, trees)[0].nodes[0]
+    assert n.record is not None
 
 
-def test_fork1_inline_anchor_point_is_fatal(tmp_path):
+def test_link_trees_never_fatals_on_inline_anchor_point(tmp_path):
     cfg = _cfg(coordinate_placements=[
         CoordinatePlacement(cluster="CP_C", role="CP_R", anchor_point="pnt"),
     ])
@@ -291,14 +281,13 @@ def test_fork1_inline_anchor_point_is_fatal(tmp_path):
         '(tree (name "t") (anchor (origin))\n'
         '      (node (ref "CP_C/CP_R") (kind coordinate) (xy 1 2)))',
         tmp_path=tmp_path)
-    with pytest.raises(ValidationError, match="inline anchor"):
-        link_trees(cfg, trees)
+    n = link_trees(cfg, trees)[0].nodes[0]
+    assert n.record is not None
 
 
-def test_fork1_anchor_origin_reads_from_obj(tmp_path):
-    """anchor_origin is a Point-only field NOT copied onto Record — it must be
-    read from rec.obj (getattr), or a point node with anchor_origin would pass
-    the FORK-1 check silently."""
+def test_link_trees_never_fatals_on_anchor_origin(tmp_path):
+    """anchor_origin is a Point-only field NOT copied onto Record — previously
+    FORK-1 had to read it via getattr to reject it; now it is simply legal."""
     cfg = _cfg(points={
         "pnt": Point(name="pnt", anchor_origin="grid"),
     })
@@ -306,20 +295,34 @@ def test_fork1_anchor_origin_reads_from_obj(tmp_path):
         '(tree (name "t") (anchor (origin))\n'
         '      (node (ref "pnt") (kind point) (xy 1 2)))',
         tmp_path=tmp_path)
-    with pytest.raises(ValidationError, match="inline anchor"):
-        link_trees(cfg, trees)
+    n = link_trees(cfg, trees)[0].nodes[0]
+    assert n.record is not None
 
 
-def test_fork1_node_without_inline_anchor_is_fine(tmp_path):
-    """A record with NO inline anchor (absolute xy placement) placed by a tree
-    is the LEGAL case the tree layer exists to cover — not fatal."""
+def test_inline_anchor_field_returns_first_conflict(tmp_path):
+    """inline_anchor_field() surfaces WHICH inline-anchor field a record
+    carries — the data curated_redraw_plan warns about at redraw time."""
+    cfg = _cfg(clone_placements=[
+        ClonePlacement(cluster="CL_A", cell="c", xy=(0.0, 0.0),
+                       anchor_role="FPGA", anchor_sheet="FPGA"),
+    ])
+    trees = _tree(
+        '(tree (name "t") (anchor (origin))\n'
+        '      (node (ref "CL_A") (kind clone) (xy 1 2)))',
+        tmp_path=tmp_path)
+    record = link_trees(cfg, trees)[0].nodes[0].record
+    assert inline_anchor_field(record) == "anchor_role"
+
+
+def test_inline_anchor_field_none_without_conflict(tmp_path):
     cfg = _cfg()  # CL_A has no inline anchor
     trees = _tree(
         '(tree (name "t") (anchor (origin))\n'
-        '      (node (ref "CL_A") (xy 1 2)))',
+        '      (node (ref "CL_A") (kind clone) (xy 1 2)))',
         tmp_path=tmp_path)
-    linked = link_trees(cfg, trees)[0]
-    assert linked.nodes[0].record is not None
+    record = link_trees(cfg, trees)[0].nodes[0].record
+    assert inline_anchor_field(record) is None
+    assert inline_anchor_field(None) is None
 
 
 # ── structure ─────────────────────────────────────────────────────────────

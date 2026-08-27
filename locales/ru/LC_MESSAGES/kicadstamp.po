@@ -7946,3 +7946,12 @@ msgstr ""
 "Когда включено, Rename в дереве конфигурации показывает диалог подтверждения "
 "после переименования. Снимите, чтобы переименовывать молча — "
 "строка с итогом всё равно попадёт в Log."
+
+#: kicadstamp/tree_position.py (FORK-1 at redraw-select time, 2026-08-28)
+msgid ""
+"Node {ref!r} already has an inline anchor ({field}) — not "
+"redrawn from this tree; remove it from the record to let "
+"the tree own this position"
+msgstr ""
+"Узел {ref!r} уже имеет inline-якорь ({field}) — из этого дерева не "
+"перерисовывается; уберите его из записи, чтобы дерево владело этой позицией"

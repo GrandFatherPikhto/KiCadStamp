@@ -22,6 +22,7 @@ own "build Records directly" pattern) — DFS order, per-kind name emission
 import pytest
 
 from kicadstamp.anchor_graph import Record
+from kicadstamp.config import ClonePlacement, CoordinatePlacement
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.geometry.spoke_layout import local_to_absolute
 from kicadstamp.link_trees import LinkedAnchor, LinkedNode, LinkedTree
@@ -366,13 +367,16 @@ def test_rotation_clone_reads_rotation_deg_straight_from_record():
 
 def test_rotation_coordinate_via_resolve_target_position(monkeypatch):
     """coordinate's rotation comes from resolve_target_position's already-
-    returned second value (tree-placed records never carry an inline anchor
-    per FORK-1, so it is always the absolute branch)."""
+    returned second value (ABSOLUTE mode — anchor-relative rotation is covered
+    by test_dispatch_coordinate_rotation_anchor_relative_uses_rotation_rule,
+    since FORK-1 moved to redraw-select time)."""
     import kicadstamp.tree_position as tp
 
+    monkeypatch.setattr(tp, "_has_external_anchor", lambda cp: False)
     monkeypatch.setattr(tp, "resolve_target_position",
                         lambda cp: (Vector2.from_xy(1, 1), 90.0))
-    rec = _record("coordinate", "CP1")
+    cp = CoordinatePlacement(cluster="CP1", role="R", x_mm=1.0, y_mm=1.0)
+    rec = _record("coordinate", "CP1", obj=cp)
     assert tp.resolve_record_rotation_deg(None, "cfg", rec, "sheets") == 90.0
 
 
@@ -610,3 +614,92 @@ def test_plan_no_selection_emits_nothing():
     names, warnings = curated_redraw_plan(tree, set())
     assert names == []
     assert warnings == []
+
+
+# ── FORK-1 at redraw-select time (plan_2026_08_28_fork1_move_to_redraw_time.md) ──
+
+def _record_with_inline_anchor(kind, name, field="anchor_role", value="FPGA"):
+    """A Record whose obj carries an inline anchor (as a real config record
+    would) — the redraw-time FORK-1 conflict state. Uses ClonePlacement, which
+    already has every _INLINE_ANCHOR_FIELDS attribute."""
+    obj = ClonePlacement(cluster=name, cell="c", xy=(0.0, 0.0))
+    setattr(obj, field, value)
+    return _record(kind, name, obj=obj)
+
+
+def test_plan_selected_node_with_inline_anchor_skipped_with_warning():
+    """A SELECTED node whose record carries an inline anchor is NOT emitted
+    (the tree never redraws a record two mechanisms could fight over) but IS
+    walked as a live base for its children; an explicit warning explains how
+    to transfer ownership — not fatal (FORK-1 lives here now, not at
+    Save/Load)."""
+    child = _linked_node("R_OUT", record=_record("clone", "R_OUT"))
+    conflict_node = _linked_node(
+        "CH2_DAC_BUF",
+        record=_record_with_inline_anchor("clone", "CH2_DAC_BUF"),
+        children=[child])
+    anchor = LinkedAnchor(anchor=TreeAnchor(ref=None, is_origin=True),
+                          record=None, is_origin=True, is_external=False)
+    tree = LinkedTree(name="t", anchor=anchor, nodes=[conflict_node])
+
+    names, warnings = curated_redraw_plan(tree, {"CH2_DAC_BUF", "R_OUT"})
+    assert names == ["R_OUT"]                        # child still redraws
+    assert "CH2_DAC_BUF" not in names                # conflict node never emits
+    assert any("already has an inline anchor" in w for w in warnings)
+
+
+def test_plan_conflict_node_unselected_no_warning():
+    """An unselected conflict node emits nothing and warns nothing — the
+    conflict only matters at the moment of an actual redraw."""
+    conflict_node = _linked_node(
+        "CH2_DAC_BUF", record=_record_with_inline_anchor("clone", "CH2_DAC_BUF"))
+    anchor = LinkedAnchor(anchor=TreeAnchor(ref=None, is_origin=True),
+                          record=None, is_origin=True, is_external=False)
+    tree = LinkedTree(name="t", anchor=anchor, nodes=[conflict_node])
+
+    names, warnings = curated_redraw_plan(tree, set())
+    assert names == []
+    assert warnings == []
+
+
+def test_plan_node_without_inline_anchor_emits_normally():
+    """The main path is unchanged: a selected node whose record has no inline
+    anchor emits into `names` as usual."""
+    node = _linked_node("CL_A", record=_record("clone", "CL_A"))
+    anchor = LinkedAnchor(anchor=TreeAnchor(ref=None, is_origin=True),
+                          record=None, is_origin=True, is_external=False)
+    tree = LinkedTree(name="t", anchor=anchor, nodes=[node])
+
+    names, warnings = curated_redraw_plan(tree, {"CL_A"})
+    assert names == ["CL_A"]
+    assert warnings == []
+
+
+# ── §4: coordinate-kind base rotation no longer trusts the old FORK-1 guarantee ──
+
+def test_dispatch_coordinate_rotation_anchor_relative_uses_rotation_rule(monkeypatch):
+    """FORK-1 moved to redraw-select time, so a coordinate-kind record used as
+    a BASE may legally carry an inline anchor (anchor-relative mode). Its
+    rotation must follow the SAME rule the move builder applies at plan time
+    (rotation_deg if set, else angle_deg in polar-offset, else 0.0) — NOT the
+    absolute-only resolve_target_position (which reads None/absent absolute
+    fields and would assert or return a wrong None)."""
+    import kicadstamp.tree_position as tp
+
+    # Cartesian-offset anchor-relative, no explicit rotation -> default 0.0.
+    cp = CoordinatePlacement(cluster="CP", role="R", anchor_role="FPGA",
+                             x_mm=5.0, y_mm=2.0, rotation_deg=None)
+    rec = _record("coordinate", "CP/R", obj=cp)
+    assert tp.resolve_record_rotation_deg("adapter", "cfg", rec, "sheets") == 0.0
+
+    # Polar-offset anchor-relative, no explicit rotation -> angle_deg.
+    cp2 = CoordinatePlacement(cluster="CP2", role="R", anchor_role="FPGA",
+                              radius_mm=3.0, angle_deg=45.0, rotation_deg=None)
+    rec2 = _record("coordinate", "CP2/R", obj=cp2)
+    assert tp.resolve_record_rotation_deg("adapter", "cfg", rec2, "sheets") == 45.0
+
+    # Explicit rotation_deg wins regardless of the offset mode.
+    cp3 = CoordinatePlacement(cluster="CP3", role="R", anchor_role="FPGA",
+                              x_mm=1.0, y_mm=1.0, rotation_deg=90.0)
+    rec3 = _record("coordinate", "CP3/R", obj=cp3)
+    assert tp.resolve_record_rotation_deg("adapter", "cfg", rec3, "sheets") == 90.0

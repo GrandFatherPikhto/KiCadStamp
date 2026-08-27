@@ -8033,3 +8033,10 @@ msgid ""
 "dialog after the entry is renamed. Uncheck to rename silently — "
 "the summary line still goes to the Log."
 msgstr ""
+
+#: kicadstamp/tree_position.py (FORK-1 at redraw-select time, 2026-08-28)
+msgid ""
+"Node {ref!r} already has an inline anchor ({field}) — not "
+"redrawn from this tree; remove it from the record to let "
+"the tree own this position"
+msgstr ""
