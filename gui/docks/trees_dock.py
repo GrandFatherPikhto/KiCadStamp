@@ -136,18 +136,40 @@ def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
     parent_ref, parent_record, parent_is_origin = _linked_base_for(cfg, tree, parent_node)
     child_record, _is_external = _resolve_probe_ref(cfg, ref, kind)
 
-    if parent_is_origin:
-        # The tree's own (origin) anchor — an absolute base at board (0,0),
-        # rotation 0.0. resolve_base_live_position/resolve_base_rotation_deg
-        # never see it (they'd treat ref=None as a live external read).
-        parent_pos = _ORIGIN
-        parent_deg = 0.0
-    else:
-        parent_pos = resolve_base_live_position(adapter, cfg, parent_ref, parent_record, {}, sheet_names)
-        parent_deg = resolve_base_rotation_deg(adapter, cfg, parent_ref, parent_record, sheet_names)
+    try:
+        if parent_is_origin:
+            # The tree's own (origin) anchor — an absolute base at board (0,0),
+            # rotation 0.0. resolve_base_live_position/resolve_base_rotation_deg
+            # never see it (they'd treat ref=None as a live external read).
+            parent_pos = _ORIGIN
+            parent_deg = 0.0
+        else:
+            parent_pos = resolve_base_live_position(adapter, cfg, parent_ref, parent_record, {}, sheet_names)
+            parent_deg = resolve_base_rotation_deg(adapter, cfg, parent_ref, parent_record, sheet_names)
 
-    child_pos = resolve_base_live_position(adapter, cfg, ref, child_record, {}, sheet_names)
-    child_deg = resolve_base_rotation_deg(adapter, cfg, ref, child_record, sheet_names)
+        child_pos = resolve_base_live_position(adapter, cfg, ref, child_record, {}, sheet_names)
+        child_deg = resolve_base_rotation_deg(adapter, cfg, ref, child_record, sheet_names)
+    except KeyError as e:
+        # ClonePositionCalculator._resolve_anchor's anchor_point branch does a
+        # bare resolved_points[...] lookup that ONLY works when the caller (the
+        # real apply pipeline) has pre-populated the dict in dependency order
+        # (dependency_order.py). This ad-hoc GUI live read always passes {} —
+        # surface it as a clear ValidationError (which _on_read_position and
+        # _reread_node_flow already catch and turn into a warning) instead of
+        # an uncaught KeyError escaping into a Qt slot.
+        point = e.args[0] if e.args else str(e)
+        guilty: Optional[str] = None
+        for r, rec in ((parent_ref, parent_record), (ref, child_record)):
+            if rec is not None and getattr(rec.obj, "anchor_point", None) == point:
+                guilty = r
+                break
+        if guilty is None:
+            guilty = ref
+        raise ValidationError(_(
+            "Record {ref!r} is anchored via anchor_point ({point!r}), which a "
+            "live read cannot resolve outside the full apply pipeline — apply "
+            "the record once first, or anchor it by ref/role instead").format(
+                ref=guilty, point=point)) from e
 
     offset_mm = ((child_pos.x - parent_pos.x) / MM, (child_pos.y - parent_pos.y) / MM)
     rotation = (relative_rotation_deg(child_deg, parent_deg)

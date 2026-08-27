@@ -2267,6 +2267,11 @@ msgstr ""
 msgid "Couldn't locate node {ref!r} in the linked tree"
 msgstr ""
 
+#: gui/docks/trees_dock.py
+#, python-brace-format
+msgid "Record {ref!r} is anchored via anchor_point ({point!r}), which a live read cannot resolve outside the full apply pipeline — apply the record once first, or anchor it by ref/role instead"
+msgstr ""
+
 #: gui/docks/rules.py:395 gui/docks/thermal_via.py:266
 msgid "Pad is required."
 msgstr ""

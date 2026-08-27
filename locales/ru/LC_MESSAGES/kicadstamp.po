@@ -2407,6 +2407,11 @@ msgstr "Редактировать узел"
 msgid "Couldn't locate node {ref!r} in the linked tree"
 msgstr "Не удалось найти узел {ref!r} в связанном дереве"
 
+#: gui/docks/trees_dock.py
+#, python-brace-format
+msgid "Record {ref!r} is anchored via anchor_point ({point!r}), which a live read cannot resolve outside the full apply pipeline — apply the record once first, or anchor it by ref/role instead"
+msgstr "Запись {ref!r} привязана через anchor_point ({point!r}), который вне полного apply-пайплайна живым чтением не разрешить — сначала примени запись один раз, либо привяжи по ref/role"
+
 #: gui/docks/rules.py:395 gui/docks/thermal_via.py:266
 msgid "Pad is required."
 msgstr "Требуется пад."

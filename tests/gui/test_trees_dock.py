@@ -597,3 +597,89 @@ def test_edit_node_flow_copies_fields_onto_existing_in_place(main_window, tmp_pa
     assert node.name == "new_label"
     assert node.group == "g"
     assert dock._dirty is True
+
+
+# ── clone + anchor_point: the KeyError regression (2026-08-27) ────────────
+
+# A root config whose only clone_placement is anchored via anchor_point to a
+# real points: entry. Such a record cannot be live-resolved by the ad-hoc GUI
+# read (ClonePositionCalculator._resolve_anchor requires resolved_points
+# pre-populated by the real apply pipeline) — it must warn, never crash.
+ANCHOR_POINT_CFG = {
+    "points": {"Origin": {"anchor_ref": "CONN"}},
+    "clone_placements": [
+        {"name": "CL_AP", "cluster": "c", "cell": "t", "xy": [1.0, 2.0],
+         "anchor_point": "Origin"},
+    ],
+    "trees": [
+        {"name": "t1", "anchor": {"origin": True}, "nodes": []},
+    ],
+}
+
+# The same clone+anchor_point record as the tree's own REF-ANCHOR, with a
+# normal node under it — for the Reread path (an anchor is not FORK-1-checked,
+# so it CAN legitimately reference a clone+anchor_point record).
+ANCHOR_POINT_ANCHOR_CFG = {
+    "points": {"Origin": {"anchor_ref": "CONN"}},
+    "clone_placements": [
+        {"name": "CL_AP", "cluster": "c", "cell": "t", "xy": [1.0, 2.0],
+         "anchor_point": "Origin"},
+        {"name": "CL_OK", "cluster": "c2", "cell": "t", "xy": [5.0, 5.0]},
+    ],
+    "trees": [
+        {"name": "t1", "anchor": {"ref": "CL_AP"},
+         "nodes": [{"ref": "CL_OK"}]},
+    ],
+}
+
+
+def test_read_position_clone_anchor_point_shows_warning_not_crash(
+        main_window, tmp_path, monkeypatch):
+    """A clone-kind ref anchored via anchor_point cannot be live-resolved
+    outside the full apply pipeline (ClonePositionCalculator._resolve_anchor
+    requires resolved_points pre-populated by dependency_order.py) — this
+    must surface as a warning, never an uncaught KeyError. Does NOT mock
+    _resolve_live_offset — exercises the REAL resolution path."""
+    import gui.docks.trees_dock as td_mod
+    dock, _root = _dock_with(main_window, tmp_path, ANCHOR_POINT_CFG)
+    tree = dock._current_tree()
+
+    warnings = []
+    monkeypatch.setattr(td_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or None)
+    dlg = _build_dialog(dock, tree, None)
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("clone"))
+    dlg.ref_combo.setCurrentText("CL_AP")
+
+    dlg._on_read_position()  # must not raise
+
+    assert warnings
+    assert "anchor_point" in str(warnings[0])
+    assert dlg.offset_widget.x_edit.text() == ""
+    assert dlg.offset_widget.y_edit.text() == ""
+    assert dlg.rotation_edit.text() == ""
+
+
+def test_reread_node_flow_clone_anchor_point_anchor_shows_warning_not_crash(
+        main_window, tmp_path, monkeypatch):
+    """The tree's own ref-anchor resolving to a clone+anchor_point record hits
+    the same un-resolvable live read on Reread — a warning, and the node is
+    left untouched (no partial write, not dirty). Same real-path (no
+    _resolve_live_offset mock)."""
+    import gui.docks.trees_dock as td_mod
+    main_window.connection.board = _FakeBoard()
+    dock, _root = _dock_with(main_window, tmp_path, ANCHOR_POINT_ANCHOR_CFG)
+    tree = dock._current_tree()
+    node = tree.nodes[0]  # CL_OK
+    node.rotation = 3.0
+    before = (node.xy, node.polar, node.rotation)
+
+    warnings = []
+    monkeypatch.setattr(td_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or None)
+    dock._reread_node_flow(tree, node)  # must not raise
+
+    assert warnings
+    assert "anchor_point" in str(warnings[0])
+    assert (node.xy, node.polar, node.rotation) == before
+    assert dock._dirty is False
