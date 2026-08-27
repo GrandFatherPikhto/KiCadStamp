@@ -1514,6 +1514,49 @@ def test_finish_autofill_nets_narrows_params_combo(main_window, tmp_path):
     assert dock._param_narrowing == {"PWR_IN": ["+1V2"]}
     combo = dock._param_edits["PWR_IN"]
     assert [combo.itemText(i) for i in range(combo.count())] == ["+1V2"]
+    # 2026-08-27: the sole candidate is not just listed but SELECTED — the
+    # whole point of the Params auto-fill fix (previously only the item list
+    # narrowed; the combo's current value stayed blank).
+    assert combo.currentText() == "+1V2"
+
+
+def test_rebuild_param_rows_autofills_single_narrowed_candidate(main_window, tmp_path):
+    """2026-08-27: picking a Cell with nothing previously entered auto-fills a
+    Params combo whose narrowing resolved to exactly one candidate — same
+    "fill only blank" discipline as the Nets table. A param with no narrowing
+    is untouched."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)  # params PWR_IN/PWR_OUT
+    dock._param_narrowing = {"PWR_IN": ["+1V2"]}
+
+    dock._rebuild_param_rows()
+
+    assert dock._param_edits["PWR_IN"].currentText() == "+1V2"
+    assert dock._param_edits["PWR_OUT"].currentText() == ""
+
+
+def test_rebuild_param_rows_preserves_previous_value(main_window, tmp_path):
+    """2026-08-27: a value the user already entered survives the Cell switch —
+    the auto-fill must never overwrite it (previous always wins, as it does
+    for the Nets table)."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock._param_narrowing = {"PWR_IN": ["+1V2"]}
+    dock._param_edits["PWR_IN"].setCurrentText("+3V3")
+
+    dock._rebuild_param_rows()
+
+    assert dock._param_edits["PWR_IN"].currentText() == "+3V3"
+
+
+def test_rebuild_param_rows_ambiguous_not_autofilled(main_window, tmp_path):
+    """2026-08-27: two candidates (still ambiguous) -> the combo stays blank;
+    never guess — the same discipline as the Nets table leaving an ambiguous
+    role for manual entry."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock._param_narrowing = {"PWR_IN": ["+1V2", "+3V3"]}
+
+    dock._rebuild_param_rows()
+
+    assert dock._param_edits["PWR_IN"].currentText() == ""
 
 
 def test_param_placeholder_not_exactly_one_role_stays_unnarrowed(main_window, tmp_path):

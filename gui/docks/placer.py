@@ -1258,6 +1258,18 @@ class PlacerDock(QWidget):
         self.net_overrides_table.set_key_choices(self._known_nets)
         self.net_overrides_table.set_value_choices(self._known_nets)
 
+    @staticmethod
+    def _autofill_single_candidate(combo: QComboBox, candidates: List[str]) -> None:
+        """If narrowing has resolved to exactly one candidate and the combo is
+        currently blank, select it — the same "never overwrite a value the user
+        already has" discipline as the Nets table's own auto-fill (only ROLES
+        currently blank get filled, see _finish_autofill_nets's `filled = {role:
+        net for role, net in suggestions.items() if not data.get(role,
+        "").strip()}`). More than one candidate (still ambiguous) or zero ->
+        leave the combo as-is, never guess."""
+        if not combo.currentText().strip() and len(candidates) == 1:
+            combo.setCurrentText(candidates[0])
+
     def _rebuild_param_rows(self) -> None:
         cell_data = self._cell_data(self._selected_cell)
         placeholders = sorted(self._discover_placeholders(cell_data))
@@ -1277,6 +1289,8 @@ class PlacerDock(QWidget):
             edit.lineEdit().setPlaceholderText(_("literal net for {{{name}}}").format(name=name))
             edit.addItems(self._param_narrowing.get(name, self._known_nets))
             edit.setCurrentText(previous.get(name, ""))
+            if not previous.get(name, "").strip():
+                self._autofill_single_candidate(edit, self._param_narrowing.get(name, []))
             self._params_layout.addWidget(edit, row, 1)
             self._param_edits[name] = edit
 
@@ -1477,6 +1491,7 @@ class PlacerDock(QWidget):
                 self._param_narrowing[key] = [v for v in values if not (v in seen or seen.add(v))]
         for name, combo in self._param_edits.items():
             set_combo_items(combo, self._param_narrowing.get(name, self._known_nets))
+            self._autofill_single_candidate(combo, self._param_narrowing.get(name, []))
         data = self.nets_table.to_dict()
         filled = {role: net for role, net in suggestions.items()
                   if not data.get(role, "").strip()}

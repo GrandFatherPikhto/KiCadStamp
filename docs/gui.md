@@ -417,7 +417,10 @@ the tabs — they act on the whole placement, not one tab.
       instances, identical Cluster/Role written on the sheet FILE) narrows to the right instance
       instead of falling back to the full board net list. Empty/unknown `sheet_names` (no Placer file
       picked, or `schematic_dir` unresolved) is a silent no-op — the same full-list fallback as
-      before, never a wrong guess.
+      before, never a wrong guess. Since 2026-08-27, when a Params combo's narrowing resolves to
+      exactly ONE candidate the value is selected automatically (only while the field is still
+      blank — never overwriting a value the user already entered; a still-ambiguous 2+ candidate
+      list is left blank, the same no-guess discipline as the Nets rows).
   - **Net overrides tab** (added 2026-08-06) — resolved net → final override name, applied AFTER
     Params/net_template substitution (see `resolve_net` in [docs/config.md](config.md)). Both columns
     autocomplete from the live board's actual net names.
