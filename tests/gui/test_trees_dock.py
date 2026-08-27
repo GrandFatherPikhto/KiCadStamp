@@ -22,7 +22,7 @@ from kicadstamp.config.loader import load_config
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode
 
-from gui.docks.trees_dock import TreesDock
+from gui.docks.trees_dock import TreesDock, _NodeDialog
 
 # The same working example as tests/test_trees.py's GRAMMAR_EXAMPLE, expressed
 # as the root-config dict shape (tree_to_dict output) — two trees, nested
@@ -250,7 +250,7 @@ def test_context_menu_on_anchor_offers_add_node(main_window, tmp_path, monkeypat
 
     new_node = TreeNode(ref="FIRST_NODE", kind=None, xy=(0.0, 0.0), polar=None,
                         rotation=0.0, name=None, group=None)
-    monkeypatch.setattr(dock, "_prompt_node", lambda title: new_node)
+    monkeypatch.setattr(dock, "_prompt_node", lambda *a, **k: new_node)
     actions["Add node"].trigger()
 
     assert tree.nodes == [new_node]
@@ -372,3 +372,228 @@ def test_redraw_selected_no_selection_shows_hint(main_window, tmp_path, monkeypa
 
     assert not called
     assert "Nothing selected" in dock.status_label.text()
+
+
+# ── Read current position / Reread / Edit node (2026-08-27) ───────────────
+
+class _FakeBoard:
+    """A connection.board stand-in with a live .adapter — enough for
+    _live_adapter() to return a non-None adapter in the reread/edit paths."""
+
+    def __init__(self):
+        self.adapter = object()
+
+
+def _build_dialog(dock, tree, parent_node, existing=None, title="Add child"):
+    """A _NodeDialog wired the same way _prompt_node wires it (cfg + a live
+    adapter + the parent context), so the button's resolution can be tested
+    directly without driving the modal exec()."""
+    return _NodeDialog(
+        dock, dock._all_ref_candidates(), dock._used_refs(), title,
+        cfg=dock._cfg, adapter=object(), sheet_names={},
+        tree=tree, parent_node=parent_node, existing=existing)
+
+
+def test_context_menu_on_node_offers_reread_and_edit(main_window, tmp_path, monkeypatch):
+    """The node context menu now carries the two new actions alongside the
+    existing Add child/Add sibling/Delete/Rename/Move block. Offscreen item
+    geometry can be degenerate, so force `_on_context_menu` to the node branch
+    by stubbing itemAt to return the node item."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree_widget = dock._current_tree_widget()
+    ams_item = dock._node_items["AMS1117_REG"]
+    monkeypatch.setattr(tree_widget, "itemAt", lambda pos: ams_item)
+    actions = dict(_context_menu_actions(dock, ams_item, monkeypatch))
+    assert "Reread current position" in actions
+    assert "Edit node…" in actions
+    assert "Add child" in actions
+    assert "Add sibling" in actions
+    assert "Delete node" in actions
+    assert "Rename…" in actions
+    assert "Move to…" in actions
+
+
+def test_node_dialog_read_position_fills_xy_and_rotation(main_window, tmp_path, monkeypatch):
+    """"Считать текущее положение" fills offset (Cartesian) + relative
+    rotation from the live resolution relative to a known parent."""
+    import gui.docks.trees_dock as td_mod
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    parent = tree.nodes[0]  # AMS1117_REG
+
+    monkeypatch.setattr(td_mod, "_resolve_live_offset",
+                        lambda *a, **k: ((10.0, 5.0), 90.0))
+    dlg = _build_dialog(dock, tree, parent)
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("clone"))
+    dlg.ref_combo.setCurrentText("C_OUT")
+    assert dlg.read_position_button.isEnabled() is True
+
+    dlg._on_read_position()
+
+    assert dlg.offset_widget.x_edit.text() == "10.000"
+    assert dlg.offset_widget.y_edit.text() == "5.000"
+    assert dlg.rotation_edit.text() == "90.000"
+    assert dlg.read_status_label.text() == ""
+
+
+def test_node_dialog_read_position_point_kind_rotation_left_blank(
+        main_window, tmp_path, monkeypatch):
+    """A point-kind child has no rotation concept -> xy still fills, rotation
+    stays blank, and a one-line status appears under the button (never a
+    fabricated 0)."""
+    import gui.docks.trees_dock as td_mod
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    parent = tree.nodes[0]
+
+    monkeypatch.setattr(td_mod, "_resolve_live_offset",
+                        lambda *a, **k: ((3.0, 7.0), None))
+    dlg = _build_dialog(dock, tree, parent)
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("point"))
+    dlg.ref_combo.setCurrentText("PNT")
+
+    dlg._on_read_position()
+
+    assert dlg.offset_widget.x_edit.text() == "3.000"
+    assert dlg.offset_widget.y_edit.text() == "7.000"
+    assert dlg.rotation_edit.text() == ""
+    assert "rotation not available" in dlg.read_status_label.text()
+
+
+def test_node_dialog_read_position_warns_when_no_live_connection(
+        main_window, tmp_path, monkeypatch):
+    """adapter is None (not connected) -> a warning, and nothing is written
+    to the offset fields (no silent partial state)."""
+    import gui.docks.trees_dock as td_mod
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+
+    warnings = []
+    monkeypatch.setattr(td_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or None)
+    dlg = _NodeDialog(dock, dock._all_ref_candidates(), dock._used_refs(),
+                      "Add child", cfg=dock._cfg, adapter=None,
+                      sheet_names={}, tree=tree, parent_node=None)
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("clone"))
+    dlg.ref_combo.setCurrentText("C_OUT")
+    dlg._on_read_position()
+
+    assert warnings
+    assert dlg.offset_widget.x_edit.text() == ""
+    assert dlg.rotation_edit.text() == ""
+
+
+def test_reread_node_flow_overwrites_xy_rotation_and_marks_dirty(
+        main_window, tmp_path, monkeypatch):
+    """"Reread current position" overwrites an existing node's xy/rotation in
+    place and marks the dock dirty (no confirmation)."""
+    import gui.docks.trees_dock as td_mod
+    main_window.connection.board = _FakeBoard()
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    node = tree.nodes[0]  # AMS1117_REG, xy (5.0, 2.0), rotation 0.0
+    node.rotation = 1.0
+
+    monkeypatch.setattr(td_mod, "_resolve_live_offset",
+                        lambda *a, **k: ((1.0, 2.0), 45.0))
+    dock._reread_node_flow(tree, node)
+
+    assert node.xy == (1.0, 2.0)
+    assert node.polar is None
+    assert node.rotation == 45.0
+    assert dock._dirty is True
+
+
+def test_reread_node_flow_resolution_failure_leaves_node_untouched(
+        main_window, tmp_path, monkeypatch):
+    """Error path (a ref that can't currently be resolved live) leaves the
+    node's old values intact — no partial write — and does not mark dirty."""
+    import gui.docks.trees_dock as td_mod
+    main_window.connection.board = _FakeBoard()
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    node = tree.nodes[0]
+    node.rotation = 12.0
+    before = (node.xy, node.polar, node.rotation)
+
+    warnings = []
+    monkeypatch.setattr(td_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or None)
+
+    def _boom(*a, **k):
+        raise ValidationError("ref not on board")
+    monkeypatch.setattr(td_mod, "_resolve_live_offset", _boom)
+
+    dock._reread_node_flow(tree, node)
+
+    assert (node.xy, node.polar, node.rotation) == before
+    assert dock._dirty is False
+    assert warnings
+
+
+def test_edit_dialog_prefilled_and_own_ref_not_rejected(main_window, tmp_path, monkeypatch):
+    """Editing a node WITHOUT changing its ref must not trip the "ref already
+    used" check against itself (the §4 exclusion fix)."""
+    import gui.docks.trees_dock as td_mod
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    node = tree.nodes[0]  # AMS1117_REG
+
+    monkeypatch.setattr(td_mod.QMessageBox, "warning", lambda *a, **k: None)
+    dlg = _build_dialog(dock, tree, dock._find_parent(tree, node),
+                        existing=node, title="Edit node")
+
+    # Pre-filled from `existing`:
+    assert dlg.kind_combo.currentData() == "clone"
+    assert dlg.ref_combo.currentText() == "AMS1117_REG"
+    assert dlg.offset_widget.x_edit.text() == "5.0"
+    assert dlg.offset_widget.y_edit.text() == "2.0"
+    assert dlg.rotation_edit.text() == "0.0"
+
+    built = dlg.build_node()
+    assert built is not None
+    assert built.ref == "AMS1117_REG"
+
+
+def test_edit_dialog_different_already_used_ref_still_rejected(
+        main_window, tmp_path, monkeypatch):
+    """Regression guard: the existing-ref exclusion must NOT let a DIFFERENT
+    already-used ref through — this is exactly the boundary a naive
+    `existing.ref` exclusion could get backwards."""
+    import gui.docks.trees_dock as td_mod
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    node = tree.nodes[0]   # AMS1117_REG
+    other = tree.nodes[1]  # R_AROUND
+
+    warnings = []
+    monkeypatch.setattr(td_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or None)
+    dlg = _build_dialog(dock, tree, dock._find_parent(tree, node),
+                        existing=node, title="Edit node")
+    dlg.ref_combo.setCurrentText(other.ref)  # R_AROUND — used by another node
+
+    assert dlg.build_node() is None
+    assert warnings
+
+
+def test_edit_node_flow_copies_fields_onto_existing_in_place(main_window, tmp_path, monkeypatch):
+    """_edit_node_flow mutates the EXISTING node (doesn't swap identity) and
+    marks the dock dirty."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    node = tree.nodes[0]
+    node.rotation = 1.0
+
+    built = TreeNode(ref="AMS1117_REG", kind="clone", xy=(9.0, 8.0), polar=None,
+                     rotation=77.0, name="new_label", group="g")
+    monkeypatch.setattr(dock, "_prompt_node", lambda *a, **k: built)
+    dock._edit_node_flow(tree, node)
+
+    assert node.ref == "AMS1117_REG"
+    assert node.xy == (9.0, 8.0)
+    assert node.polar is None
+    assert node.rotation == 77.0
+    assert node.name == "new_label"
+    assert node.group == "g"
+    assert dock._dirty is True

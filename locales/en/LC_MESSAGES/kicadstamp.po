@@ -2234,6 +2234,39 @@ msgstr ""
 msgid "Redraw selected spoke"
 msgstr ""
 
+#: gui/docks/trees_dock.py
+msgid "Read current position"
+msgstr ""
+
+#: gui/docks/trees_dock.py
+msgid "No live board connection — connect KiCad first."
+msgstr ""
+
+#: gui/docks/trees_dock.py
+msgid "No root config loaded — cannot resolve the record."
+msgstr ""
+
+#: gui/docks/trees_dock.py
+msgid "rotation not available for this record kind"
+msgstr ""
+
+#: gui/docks/trees_dock.py
+msgid "Reread current position"
+msgstr ""
+
+#: gui/docks/trees_dock.py
+msgid "Edit node…"
+msgstr ""
+
+#: gui/docks/trees_dock.py
+msgid "Edit node"
+msgstr ""
+
+#: gui/docks/trees_dock.py
+#, python-brace-format
+msgid "Couldn't locate node {ref!r} in the linked tree"
+msgstr ""
+
 #: gui/docks/rules.py:395 gui/docks/thermal_via.py:266
 msgid "Pad is required."
 msgstr ""

@@ -347,6 +347,141 @@ def test_base_position_real_record_delegates_to_dispatcher(monkeypatch):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# resolve_record_rotation_deg / resolve_base_rotation_deg — rotation twin of
+# the position dispatcher above (same thin-kind-dispatcher discipline; rule/
+# external are the ONLY kinds that touch the live board for rotation)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_rotation_clone_reads_rotation_deg_straight_from_record():
+    """clone's CURRENT rotation already lives in config (ClonePlacement.
+    rotation_deg) — no adapter call needed at all (None adapter must work)."""
+    import kicadstamp.tree_position as tp
+
+    class _Obj:
+        rotation_deg = 42.0
+
+    rec = _record("clone", "CL_A", obj=_Obj())
+    assert tp.resolve_record_rotation_deg(None, "cfg", rec, "sheets") == 42.0
+
+
+def test_rotation_coordinate_via_resolve_target_position(monkeypatch):
+    """coordinate's rotation comes from resolve_target_position's already-
+    returned second value (tree-placed records never carry an inline anchor
+    per FORK-1, so it is always the absolute branch)."""
+    import kicadstamp.tree_position as tp
+
+    monkeypatch.setattr(tp, "resolve_target_position",
+                        lambda cp: (Vector2.from_xy(1, 1), 90.0))
+    rec = _record("coordinate", "CP1")
+    assert tp.resolve_record_rotation_deg(None, "cfg", rec, "sheets") == 90.0
+
+
+def test_rotation_rule_via_live_footprint_angle(monkeypatch):
+    """rule has no rotation field of its own — read the anchor footprint's
+    LIVE angle_deg (the genuinely-live branch)."""
+    import kicadstamp.tree_position as tp
+
+    class _FakeFp:
+        angle_deg = 33.0
+
+    class _FakeResolver:
+        def __init__(self, adapter, cfg, sheet_names):
+            self.args = (adapter, cfg, sheet_names)
+
+        def resolve_anchor_fp(self, anchor_ref, anchor_role, anchor_sheet,
+                              anchor_cluster, label=""):
+            assert (anchor_ref, anchor_role, anchor_sheet, anchor_cluster) == \
+                ("U1", None, None, None)
+            assert label == "R1"
+            return _FakeFp()
+
+    monkeypatch.setattr(tp, "ComponentResolver", _FakeResolver)
+
+    rec = Record(kind="rule", obj=object(), name="R1", sheet=None,
+                 anchor_ref="U1", anchor_role=None, anchor_sheet=None,
+                 anchor_cluster=None, anchor_point=None, params={})
+    assert tp.resolve_record_rotation_deg("adapter", "cfg", rec, "sheets") == 33.0
+
+
+def test_rotation_point_returns_none():
+    """point has no rotation concept by design (config/points.py) — None, not
+    a fabricated 0 (the caller must treat None as "not available")."""
+    import kicadstamp.tree_position as tp
+    rec = _record("point", "PNT")
+    assert tp.resolve_record_rotation_deg(None, "cfg", rec, "sheets") is None
+
+
+def test_rotation_unreachable_kind_raises_assertion_error():
+    """Same defense in depth as the position dispatcher: net_trace/thermal_via
+    must never reach the rotation dispatcher — fail loudly, not silently 0."""
+    import kicadstamp.tree_position as tp
+    rec = _record("thermal_via", "TVA1")
+    with pytest.raises(AssertionError, match="thermal_via"):
+        tp.resolve_record_rotation_deg(None, "cfg", rec, "sheets")
+
+
+def test_base_rotation_external_uses_footprint_angle(monkeypatch):
+    """record is None -> external ref, live footprint's own angle_deg — the
+    kind dispatcher must NOT be called at all."""
+    import kicadstamp.tree_position as tp
+
+    calls = []
+
+    def _fake_by_ref(adapter, ref, label):
+        calls.append((adapter, ref, label))
+
+        class _Fp:
+            angle_deg = 12.5
+        return _Fp()
+
+    monkeypatch.setattr(tp, "resolve_footprint_by_ref", _fake_by_ref)
+
+    def _boom(*a, **k):
+        raise AssertionError("must not be called for an external ref")
+    monkeypatch.setattr(tp, "resolve_record_rotation_deg", _boom)
+
+    assert tp.resolve_base_rotation_deg("adapter", "cfg", "FPGA1", None, "sheets") == 12.5
+    assert calls == [("adapter", "FPGA1", "FPGA1")]
+
+
+def test_base_rotation_real_record_delegates_to_dispatcher(monkeypatch):
+    """record is not None -> resolve_record_rotation_deg (thin delegation)."""
+    import kicadstamp.tree_position as tp
+
+    rec = _record("clone", "CL_A")
+    calls = []
+
+    def _fake_dispatch(adapter, cfg, r, sheet_names):
+        calls.append((adapter, cfg, r, sheet_names))
+        return 7.0
+
+    monkeypatch.setattr(tp, "resolve_record_rotation_deg", _fake_dispatch)
+    assert tp.resolve_base_rotation_deg("adapter", "cfg", "CL_A", rec, "sheets") == 7.0
+    assert calls == [("adapter", "cfg", rec, "sheets")]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# relative_rotation_deg — the (a - b + 180) % 360 - 180 normalization
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_relative_rotation_deg_simple():
+    import kicadstamp.tree_position as tp
+    assert tp.relative_rotation_deg(30.0, 10.0) == 20.0
+
+
+def test_relative_rotation_deg_wraps_negative():
+    """350 vs 10: 350 - 10 = 340 -> wraps to -20 (short way round the circle)."""
+    import kicadstamp.tree_position as tp
+    assert tp.relative_rotation_deg(350.0, 10.0) == pytest.approx(-20.0)
+
+
+def test_relative_rotation_deg_wraps_positive():
+    """10 vs 350: 10 - 350 = -340 -> wraps to +20."""
+    import kicadstamp.tree_position as tp
+    assert tp.relative_rotation_deg(10.0, 350.0) == pytest.approx(20.0)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # curated_redraw_plan — DFS order, name emission (Q3), warnings (Q4)
 # ═══════════════════════════════════════════════════════════════════════════
 

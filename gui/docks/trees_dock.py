@@ -23,13 +23,28 @@ from PyQt6.QtWidgets import (QComboBox, QDialog, QDockWidget,
                              QTabWidget, QTreeWidget, QTreeWidgetItem,
                              QVBoxLayout, QWidget)
 
-from kicadstamp.anchor_graph import build_records
+from kicadstamp.anchor_graph import Record, build_records
 from kicadstamp.config import load_config, load_tree
 from kicadstamp.config_writer import read_data, write_data
+from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
-from kicadstamp.link_trees import _PLACEABLE_KINDS, link_trees
+from kicadstamp.link_trees import (
+    LinkedNode,
+    LinkedTree,
+    _PLACEABLE_KINDS,
+    _build_by_key_index,
+    _build_by_name_index,
+    _resolve_node_ref,
+    link_trees,
+)
+from kicadstamp.tree_position import (
+    resolve_base_live_position,
+    resolve_base_rotation_deg,
+    relative_rotation_deg,
+)
 from kicadstamp.trees import KINDS, Tree, TreeAnchor, TreeNode, tree_to_dict
+from kicadstamp.utils.units import MM
 
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
@@ -50,6 +65,94 @@ _KIND_TAGS = {
     "point": _("point"),
     "external": _("external"),
 }
+
+_ORIGIN = Vector2.from_xy(0, 0)
+
+
+def _resolve_probe_ref(cfg, ref: str, kind: str | None) -> tuple[Record | None, bool]:
+    """Same resolution rules as a real tree node — reused via link_trees's own
+    private index builders (already partially imported here), not
+    reimplemented. Returns (record, is_external); record is None only when
+    is_external. Raises ValidationError on 0/2+ matches (not found /
+    ambiguous), exactly like a real node — the dialog catches it and shows a
+    warning instead of letting it propagate (never silently guess)."""
+    records = build_records(cfg)
+    by_key = _build_by_key_index(records)
+    by_name = _build_by_name_index(records)
+    probe = TreeNode(ref=ref, kind=kind, xy=None, polar=None, rotation=0.0,
+                     name=None, group=None, children=[])
+    return _resolve_node_ref(probe, by_key, by_name)
+
+
+def _find_linked_node(linked: LinkedTree, node: TreeNode) -> Optional[LinkedNode]:
+    """DFS by node identity — the LinkedNode wrapping `node`, or None."""
+    def walk(linked_node: LinkedNode) -> Optional[LinkedNode]:
+        if linked_node.node is node:
+            return linked_node
+        for child in linked_node.children:
+            found = walk(child)
+            if found is not None:
+                return found
+        return None
+
+    for top in linked.nodes:
+        found = walk(top)
+        if found is not None:
+            return found
+    return None
+
+
+def _linked_base_for(cfg, tree: Tree,
+                     parent_node: Optional[TreeNode]) -> tuple[str | None, Record | None, bool]:
+    """(ref, record, is_origin) for the base a new/edited node is relative to
+    — either the tree's own anchor (parent_node is None) or another node's own
+    resolved record (record None for an external node). Raises ValidationError
+    if link_trees fails on the tree's current state (e.g. a broken existing
+    node) — the caller reports it instead of crashing over an unrelated tree
+    problem."""
+    linked = link_trees(cfg, [tree])[0]
+    if parent_node is None:
+        anchor = linked.anchor
+        return anchor.anchor.ref, anchor.record, anchor.is_origin
+    found = _find_linked_node(linked, parent_node)
+    if found is None:
+        raise ValidationError(_("Couldn't locate node {ref!r} in the linked tree")
+                              .format(ref=parent_node.ref))
+    return found.node.ref, found.record, False
+
+
+def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
+                         parent_node: Optional[TreeNode], ref: str, kind: str | None
+                         ) -> tuple[tuple[float, float], Optional[float]]:
+    """((offset_x_mm, offset_y_mm), relative_rotation_deg | None) for the
+    "would-be" child `ref`/`kind` relative to `parent_node` (None = the tree's
+    own anchor). Reuses the EXACT link_trees resolution rules via
+    _resolve_probe_ref/_linked_base_for and the existing tree_position
+    resolvers — nothing duplicated here. Rotation is None when either side has
+    no rotation concept (point kind) — the caller must leave the field blank,
+    never write a fake 0. Raises ValidationError on any resolution failure (ref
+    not found/ambiguous, adapter not connected, ref missing on the live board,
+    broken tree state via link_trees)."""
+    parent_ref, parent_record, parent_is_origin = _linked_base_for(cfg, tree, parent_node)
+    child_record, _is_external = _resolve_probe_ref(cfg, ref, kind)
+
+    if parent_is_origin:
+        # The tree's own (origin) anchor — an absolute base at board (0,0),
+        # rotation 0.0. resolve_base_live_position/resolve_base_rotation_deg
+        # never see it (they'd treat ref=None as a live external read).
+        parent_pos = _ORIGIN
+        parent_deg = 0.0
+    else:
+        parent_pos = resolve_base_live_position(adapter, cfg, parent_ref, parent_record, {}, sheet_names)
+        parent_deg = resolve_base_rotation_deg(adapter, cfg, parent_ref, parent_record, sheet_names)
+
+    child_pos = resolve_base_live_position(adapter, cfg, ref, child_record, {}, sheet_names)
+    child_deg = resolve_base_rotation_deg(adapter, cfg, ref, child_record, sheet_names)
+
+    offset_mm = ((child_pos.x - parent_pos.x) / MM, (child_pos.y - parent_pos.y) / MM)
+    rotation = (relative_rotation_deg(child_deg, parent_deg)
+                if parent_deg is not None and child_deg is not None else None)
+    return offset_mm, rotation
 
 
 class TreesDock(QDockWidget):
@@ -367,6 +470,10 @@ class TreesDock(QDockWidget):
                 lambda: self._add_child_flow(tree, node))
             menu.addAction(_("Add sibling")).triggered.connect(
                 lambda: self._add_sibling_flow(tree, node))
+            menu.addAction(_("Reread current position")).triggered.connect(
+                lambda: self._reread_node_flow(tree, node))
+            menu.addAction(_("Edit node…")).triggered.connect(
+                lambda: self._edit_node_flow(tree, node))
             menu.addAction(_("Delete node")).triggered.connect(
                 lambda: self._delete_node_flow(tree, node))
             menu.addAction(_("Rename…")).triggered.connect(
@@ -385,15 +492,36 @@ class TreesDock(QDockWidget):
 
     # ── Node dialog helpers ──────────────────────────────────────────────
 
-    def _prompt_node(self, title: str) -> Optional[TreeNode]:
-        """Open the node-add dialog; return the built TreeNode or None."""
-        dialog = _NodeDialog(self, self._all_ref_candidates(), self._used_refs(), title)
+    def _live_adapter(self):
+        """The live KiCad board adapter (or None when not connected) — the
+        same main_window.connection.board.adapter access pattern every other
+        dock uses (PlacerDock, RoleClusterTreeDock, ...)."""
+        board = getattr(self._main_window.connection, "board", None)
+        return getattr(board, "adapter", None)
+
+    def _prompt_node(self, title: str, tree: Tree,
+                     parent_node: Optional[TreeNode] = None,
+                     existing: Optional[TreeNode] = None) -> Optional[TreeNode]:
+        """Open the node dialog (add, or edit when `existing` is set) and
+        return the built TreeNode, or None on cancel. `tree` + `parent_node`
+        (None = the tree's own anchor) give the dialog the parent context it
+        needs for the "Read current position" button; `existing` pre-fills the
+        form and relaxes the "ref already used" check to exclude itself."""
+        dialog = _NodeDialog(
+            self, self._all_ref_candidates(), self._used_refs(), title,
+            cfg=self._cfg,
+            adapter=self._live_adapter(),
+            sheet_names=self._ctx.sheet_names if self._ctx is not None else {},
+            tree=tree,
+            parent_node=parent_node,
+            existing=existing,
+        )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return None
         return dialog.build_node()
 
     def _add_child_flow(self, tree: Tree, parent: TreeNode) -> None:
-        node = self._prompt_node(_("Add child"))
+        node = self._prompt_node(_("Add child"), tree, parent_node=parent)
         if node is not None:
             parent.children.append(node)
             self._mark_dirty()
@@ -401,7 +529,7 @@ class TreesDock(QDockWidget):
 
     def _add_sibling_flow(self, tree: Tree, sibling: TreeNode) -> None:
         parent = self._find_parent(tree, sibling)
-        node = self._prompt_node(_("Add sibling"))
+        node = self._prompt_node(_("Add sibling"), tree, parent_node=parent)
         if node is None:
             return
         if parent is None:
@@ -412,7 +540,7 @@ class TreesDock(QDockWidget):
         self._rebuild_tabs()
 
     def _add_node_flow(self, tree: Tree) -> None:
-        node = self._prompt_node(_("Add node"))
+        node = self._prompt_node(_("Add node"), tree, parent_node=None)
         if node is not None:
             tree.nodes.append(node)
             self._mark_dirty()
@@ -455,6 +583,54 @@ class TreesDock(QDockWidget):
             node.name = new_name.strip()
             self._mark_dirty()
             self._rebuild_tabs()
+
+    def _reread_node_flow(self, tree: Tree, node: TreeNode) -> None:
+        """Recompute the node's xy/polar/rotation from its CURRENT live
+        position relative to its parent (the same §3+§4 resolution the dialog
+        button uses, no dialog), overwriting in place. No confirmation — same
+        precedent as "Delete node" (undo is "don't Save"). On resolution
+        failure the node is left untouched and the underlying message is shown
+        as a warning."""
+        adapter = self._live_adapter()
+        if adapter is None:
+            QMessageBox.warning(
+                self, _("Reread current position"),
+                _("No live board connection — connect KiCad first."))
+            return
+        try:
+            offset_mm, rotation = _resolve_live_offset(
+                self._cfg, adapter,
+                self._ctx.sheet_names if self._ctx is not None else {},
+                tree, self._find_parent(tree, node), node.ref, node.kind)
+        except ValidationError as e:
+            QMessageBox.warning(self, _("Reread current position"), str(e))
+            return
+        node.xy = (offset_mm[0], offset_mm[1])
+        node.polar = None
+        if rotation is not None:
+            node.rotation = rotation
+        self._mark_dirty()
+        self._rebuild_tabs()
+
+    def _edit_node_flow(self, tree: Tree, node: TreeNode) -> None:
+        """The first general node editor: the Add dialog reused with
+        existing=node, then the built fields copied onto the EXISTING node in
+        place (mutate, don't swap identity — other structures may hold a
+        reference, e.g. _node_items)."""
+        built = self._prompt_node(_("Edit node"), tree,
+                                  parent_node=self._find_parent(tree, node),
+                                  existing=node)
+        if built is None:
+            return
+        node.ref = built.ref
+        node.kind = built.kind
+        node.xy = built.xy
+        node.polar = built.polar
+        node.rotation = built.rotation
+        node.name = built.name
+        node.group = built.group
+        self._mark_dirty()
+        self._rebuild_tabs()
 
     def _set_anchor_flow(self, tree: Tree) -> None:
         anchor = _AnchorDialog.prompt(self, self._all_ref_candidates())
@@ -594,16 +770,27 @@ class TreesDock(QDockWidget):
 
 
 class _NodeDialog(QDialog):
-    """Modal dialog for adding a node: ref + kind + offset (xy/polar via
-    AnchorOriginWidget) + rotation/name/group. Parent of the new node is
-    decided by the context-menu action that opened it, not here (design §3)."""
+    """Modal dialog for adding/editing a node: ref + kind + offset (xy/polar
+    via AnchorOriginWidget) + rotation/name/group, plus a "Read current
+    position" button that fills offset/rotation from the LIVE board relative
+    to the parent base (the parent is decided by the context-menu action that
+    opened it, not here — design §3). `existing` switches to EDIT mode:
+    every field is pre-filled and the "ref already used" check excludes the
+    node's own ref."""
 
     def __init__(self, parent, ref_candidates: list[str], used_refs: set[str],
-                 title: str):
+                 title: str, cfg=None, adapter=None, sheet_names=None,
+                 tree=None, parent_node=None, existing=None):
         super().__init__(parent)
         self.setWindowTitle(title)
         self._ref_candidates = ref_candidates
         self._used_refs = used_refs
+        self._cfg = cfg
+        self._adapter = adapter
+        self._sheet_names = sheet_names if sheet_names is not None else {}
+        self._tree = tree
+        self._parent_node = parent_node
+        self._existing = existing
 
         form = QFormLayout(self)
 
@@ -629,6 +816,17 @@ class _NodeDialog(QDialog):
         self.rotation_edit.setPlaceholderText(_("0"))
         form.addRow(_("Rotation (deg):"), self.rotation_edit)
 
+        # "Read current position" — resolves the typed/picked ref's CURRENT
+        # live position/rotation relative to the parent base and fills the
+        # offset + rotation fields. Enabled only once ref + an explicit kind
+        # are set (a live read must not silently guess the record's section).
+        self.read_position_button = QPushButton(_("Read current position"))
+        self.read_position_button.clicked.connect(self._on_read_position)
+        form.addRow(self.read_position_button)
+        self.read_status_label = QLabel("")
+        self.read_status_label.setWordWrap(True)
+        form.addRow("", self.read_status_label)
+
         self.name_edit = QLineEdit()
         form.addRow(_("Name (optional):"), self.name_edit)
         self.group_edit = QLineEdit()
@@ -643,7 +841,81 @@ class _NodeDialog(QDialog):
         buttons.addWidget(cancel_button)
         form.addRow(buttons)
 
+        self.ref_combo.currentTextChanged.connect(self._update_read_button_state)
+        self.kind_combo.currentIndexChanged.connect(self._update_read_button_state)
+
+        if existing is not None:
+            self._prefill(existing)   # calls _on_kind_changed() itself (kind
+                                      # must be set BEFORE the ref combo is
+                                      # repopulated; external clears its items)
+        else:
+            self._on_kind_changed()
+        self._update_read_button_state()
+
+    def _prefill(self, existing: TreeNode) -> None:
+        """Edit mode: populate every field from an existing node. Called
+        BEFORE _on_kind_changed() so the ref combo is repopulated for the
+        pre-filled kind (external clears its candidates)."""
+        kind_idx = self.kind_combo.findData(existing.kind)
+        if kind_idx >= 0:
+            self.kind_combo.setCurrentIndex(kind_idx)
         self._on_kind_changed()
+        self.ref_combo.setCurrentText(existing.ref)
+        if existing.xy is not None:
+            self.offset_widget.load(x=existing.xy[0], y=existing.xy[1])
+        elif existing.polar is not None:
+            self.offset_widget.load(polar=True, radius=existing.polar[0],
+                                    angle=existing.polar[1])
+        else:
+            self.offset_widget.load()
+        self.rotation_edit.setText(str(existing.rotation))
+        self.name_edit.setText(existing.name or "")
+        self.group_edit.setText(existing.group or "")
+
+    def _update_read_button_state(self) -> None:
+        """Button enabled only once BOTH a ref and an explicit kind are set —
+        a live position read needs the record's section to resolve against."""
+        has_ref = bool(self.ref_combo.currentText().strip())
+        has_kind = self.kind_combo.currentData() is not None
+        self.read_position_button.setEnabled(has_ref and has_kind)
+
+    def _on_read_position(self) -> None:
+        """Resolve the typed/picked ref's current live position/rotation
+        relative to the parent base and fill offset + rotation. Any resolution
+        failure (no live connection, ref not on the board, ambiguous, broken
+        tree state) is shown as a warning — never a silent partial write, never
+        an uncaught exception in a GUI callback."""
+        self.read_status_label.setText("")
+        ref = self.ref_combo.currentText().strip()
+        kind = self.kind_combo.currentData()
+        if not ref:
+            return
+        if self._adapter is None:
+            QMessageBox.warning(
+                self, _("Read current position"),
+                _("No live board connection — connect KiCad first."))
+            return
+        if self._cfg is None or self._tree is None:
+            QMessageBox.warning(
+                self, _("Read current position"),
+                _("No root config loaded — cannot resolve the record."))
+            return
+        try:
+            offset_mm, rotation = _resolve_live_offset(
+                self._cfg, self._adapter, self._sheet_names,
+                self._tree, self._parent_node, ref, kind)
+        except ValidationError as e:
+            QMessageBox.warning(self, _("Read current position"), str(e))
+            return
+        # Fill the Cartesian offset only — the offset widget's own xy/polar
+        # toggle is the user's choice (never guess polar from a flat delta).
+        self.offset_widget.x_edit.setText(f"{offset_mm[0]:.3f}")
+        self.offset_widget.y_edit.setText(f"{offset_mm[1]:.3f}")
+        if rotation is None:
+            self.read_status_label.setText(
+                _("rotation not available for this record kind"))
+        else:
+            self.rotation_edit.setText(f"{rotation:.3f}")
 
     def _on_kind_changed(self) -> None:
         """kind == "external" -> ref is a free-text external refdes (the combo
@@ -667,7 +939,14 @@ class _NodeDialog(QDialog):
         if not ref:
             QMessageBox.warning(self, _("Add node"), _("Ref is required."))
             return None
-        if ref in self._used_refs:
+        used_refs = self._used_refs
+        if self._existing is not None:
+            # Editing a node without changing its ref must not trip the
+            # uniqueness check against itself (compare to the set MINUS the
+            # node's own ref — the naive "exclude by value" could otherwise be
+            # got backwards and let a DIFFERENT node's ref through).
+            used_refs = {r for r in used_refs if r != self._existing.ref}
+        if ref in used_refs:
             QMessageBox.warning(
                 self, _("Add node"),
                 _("Record {ref!r} already has a node in this file — a record's "

@@ -127,6 +127,57 @@ def resolve_base_live_position(adapter, cfg, ref: str, record: Record | None,
     return resolve_record_live_position(adapter, cfg, record, resolved_points, sheet_names)
 
 
+def resolve_record_rotation_deg(adapter, cfg, rec: Record, sheet_names) -> float | None:
+    """Kind dispatcher for a record's CURRENT rotation — NOT computed from a
+    live footprint reading for clone/coordinate (they already store it
+    explicitly in config, with well-established "relative to what" semantics
+    per their own docstrings — see config/models.py ClonePlacement/
+    CoordinatePlacement). Only rule/external genuinely need a LIVE read
+    (their own record has no rotation field at all). point -> None (no
+    rotation concept by design, config/points.py). Returns None when the
+    kind has no rotation concept — the caller must treat None as "not
+    available", never silently 0."""
+    kind = rec.kind
+    if kind == "clone":
+        return rec.obj.rotation_deg
+    if kind == "coordinate":
+        # tree-placed records never carry an inline anchor (FORK-1, see
+        # link_trees.py _check_fork1_inline_conflict) -> always the absolute
+        # branch of resolve_target_position, which already returns rotation.
+        _, rotation_deg = resolve_target_position(rec.obj)
+        return rotation_deg
+    if kind == "rule":
+        resolver = ComponentResolver(adapter, cfg, sheet_names)
+        fp = resolver.resolve_anchor_fp(
+            rec.anchor_ref, rec.anchor_role, rec.anchor_sheet, rec.anchor_cluster,
+            label=rec.name)
+        return fp.angle_deg
+    if kind == "point":
+        return None
+    raise AssertionError(f"unreachable record kind for rotation: {kind!r}")
+
+
+def resolve_base_rotation_deg(adapter, cfg, ref: str, record: Record | None,
+                              sheet_names) -> float | None:
+    """Entry point for a BASE's rotation (tree anchor, or a parent/child node).
+    record is None -> external ref, live footprint's own angle_deg. record is
+    not None -> resolve_record_rotation_deg(...). is_origin (record=None AND
+    ref=None, the tree's own (origin) anchor) is the caller's job to special-
+    case as 0.0 BEFORE calling this — mirrors resolve_base_live_position's own
+    convention (origin is handled by the caller, see _link_tree's anchor)."""
+    if record is None:
+        fp = resolve_footprint_by_ref(adapter, ref, ref)
+        return fp.angle_deg
+    return resolve_record_rotation_deg(adapter, cfg, record, sheet_names)
+
+
+def relative_rotation_deg(child_deg: float, parent_deg: float) -> float:
+    """Relative rotation of a child angle w.r.t. a parent angle, normalized to
+    (-180, 180] — the SAME (a - b + 180) % 360 - 180 normalization already
+    used by position_tracker.py:48 and channel_copy.py:394, not reinvented."""
+    return (child_deg - parent_deg + 180.0) % 360.0 - 180.0
+
+
 def curated_redraw_plan(linked_tree: LinkedTree, selected_refs: set[str]
                         ) -> tuple[list[str], list[str]]:  # (names, warnings)
     """DFS over the linked tree, parent strictly before child. A node emits
