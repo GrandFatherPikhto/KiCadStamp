@@ -25,7 +25,7 @@ from kicadstamp.trees import (
     tree_to_sexp,
 )
 
-from tools.trees_to_config import migrate
+from tools.trees_to_config import main, migrate
 
 # ── trees.py dict bridges (FORK-2 Variant B) ───────────────────────────────
 
@@ -247,3 +247,39 @@ def test_migrator_missing_trees_file_raises(tmp_path):
     root.write_text(dict_to_sexp({}), encoding="utf-8")
     with pytest.raises(FileNotFoundError, match="not found"):
         migrate(root, [tmp_path / "nope.trees"])
+
+
+def test_migrator_self_verify_catches_duplicate_tree_name(tmp_path, monkeypatch, capsys):
+    """Two old .trees files sharing a tree name: main() must NOT report
+    success (non-zero), because the merged root config fails load_config()
+    (duplicate name across the merged trees: section). Root is still written
+    and a backup exists — the self-verify does not roll back (recovery is the
+    .bak from backup_file()), matching tools/sexp_config_convert.py's "never
+    silently report success on a broken result" discipline."""
+    old_a = tmp_path / "a.trees"
+    save_trees(str(old_a), [_sample_tree()])  # name="power_tree"
+
+    # Same tree name, but node refs unique within the merge — so the failure
+    # is the duplicate-NAME check, not a node-ref collision.
+    twin = Tree(name="power_tree", anchor=TreeAnchor(ref="CONN_OTHER", is_origin=False),
+                nodes=[TreeNode(ref="N_OTHER", kind=None, xy=(0.0, 0.0), polar=None,
+                                rotation=0.0, name=None, group=None, children=[])])
+    old_b = tmp_path / "b.trees"
+    save_trees(str(old_b), [twin])
+
+    root = tmp_path / "root.sexp"
+    root.write_text(dict_to_sexp({"layer": "B.Cu"}), encoding="utf-8")
+
+    monkeypatch.setattr(sys, "argv",
+                        ["trees_to_config", str(root), str(old_a), str(old_b)])
+    assert main() == 1
+
+    # No rollback: the (broken) root is still written ...
+    assert root.exists()
+    # ... but the pre-migration root was backed up for recovery.
+    assert list(tmp_path.glob("root.sexp.bak.*"))
+
+    err = capsys.readouterr().err
+    assert "fails to load" in err
+    assert "duplicate" in err
+    assert "backup" in err

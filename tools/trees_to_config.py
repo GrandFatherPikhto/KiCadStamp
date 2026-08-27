@@ -23,7 +23,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root on path
 
+from kicadstamp.config.loader import load_config
 from kicadstamp.config_writer import read_data, write_data
+from kicadstamp.exceptions import ValidationError
 from kicadstamp.trees import load_trees, tree_to_dict
 from gui.docks.entity_delete import backup_file
 
@@ -53,7 +55,7 @@ def main() -> int:
 
     try:
         trees = migrate(root, [Path(t) for t in args.trees])
-    except (OSError, ValueError, Exception) as e:  # noqa: BLE001 — load_trees raises ValidationError
+    except Exception as e:  # noqa: BLE001 — load_trees raises ValidationError
         print(f"[error] failed to read trees file(s): {e}", file=sys.stderr)
         return 1
 
@@ -64,6 +66,22 @@ def main() -> int:
     data = read_data(root)
     data["trees"] = trees
     write_data(root, data)
+
+    # Self-verify: the written root config must actually load — catches e.g.
+    # a duplicate tree name/ref introduced by merging several .trees files
+    # (each old file only checked uniqueness within itself). Same "never
+    # silently report success on a broken result" discipline as
+    # tools/sexp_config_convert.py. Does NOT roll back — the .bak from
+    # backup_file() above is the recovery point, same as that tool's
+    # self-verify failure path.
+    try:
+        load_config(str(root))
+    except ValidationError as e:
+        print(f"[error] migration wrote {root}, but it now fails to load: {e}",
+              file=sys.stderr)
+        print(f"        a backup of the pre-migration root is next to {root} "
+              f"(.bak.<timestamp>)", file=sys.stderr)
+        return 1
 
     print(f"written {len(trees)} tree(s) into trees: of {root}")
     for tf in args.trees:
