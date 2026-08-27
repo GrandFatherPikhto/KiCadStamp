@@ -42,13 +42,27 @@ def selection_signature(items) -> tuple:
 @dataclass
 class Selected:
     """One footprint matched by Board.select() — plus the raw fp handle as
-    an escape hatch to call any KiCadBoardAdapter method directly."""
+    an escape hatch to call any KiCadBoardAdapter method directly.
+
+    role/cluster are the field VALUES (None when the field is missing OR
+    empty — adapter.get_field_value returns None for both, see its own
+    docstring). role_field_exists/cluster_field_exists are the separate
+    "does the footprint have this field AT ALL" facts, read via
+    adapter.has_field() — Pending changes needs them to avoid treating a
+    physically-absent field as a diff to apply (see
+    handoff_2026_08_27_pending_exclude_missing_board_fields). Default True
+    so any manually-constructed Selected (tests, other callers) that
+    doesn't care about this scenario is unaffected."""
     ref: str
     role: str | None
     cluster: str | None
     sheet: list[str | None]     # full resolve_sheet_path_names() chain
     nets: dict[str, str]           # pad number -> net name
     fp: Footprint = field(repr=False)
+    # Default True (the trailing default fields — kept AFTER the required
+    # ones so a manually-constructed Selected without them is unaffected).
+    role_field_exists: bool = True
+    cluster_field_exists: bool = True
 
 
 class Selection(list):
@@ -96,6 +110,8 @@ class Board:
         self._footprints: list[Footprint] = []
         self._role_cache: dict[str, str | None] = {}
         self._cluster_cache: dict[str, str | None] = {}
+        self._role_exists_cache: dict[str, bool] = {}
+        self._cluster_exists_cache: dict[str, bool] = {}
         self._nets_cache: dict[str, dict[str, str]] = {}
         self._sheet_cache: dict[str, list[str | None]] = {}
 
@@ -127,6 +143,8 @@ class Board:
         self._footprints = self.adapter.get_footprints()
         self._role_cache.clear()
         self._cluster_cache.clear()
+        self._role_exists_cache.clear()
+        self._cluster_exists_cache.clear()
         self._nets_cache.clear()
         self._sheet_cache.clear()
 
@@ -145,6 +163,22 @@ class Board:
         if ref not in self._cluster_cache:
             self._cluster_cache[ref] = self.adapter.get_field_value(fp, CLUSTER_FIELD_NAME)
         return self._cluster_cache[ref]
+
+    def _role_exists(self, fp: Footprint) -> bool:
+        """Does this footprint have the Role field AT ALL (vs. the value
+        being None/empty) — adapter.has_field() on the SAME fp object the
+        value read already has, no extra IPC (see Selected's docstring on
+        why the exists-fact is needed separately from the value)."""
+        ref = self._ref(fp)
+        if ref not in self._role_exists_cache:
+            self._role_exists_cache[ref] = self.adapter.has_field(fp, ROLE_FIELD_NAME)
+        return self._role_exists_cache[ref]
+
+    def _cluster_exists(self, fp: Footprint) -> bool:
+        ref = self._ref(fp)
+        if ref not in self._cluster_exists_cache:
+            self._cluster_exists_cache[ref] = self.adapter.has_field(fp, CLUSTER_FIELD_NAME)
+        return self._cluster_exists_cache[ref]
 
     def _nets(self, fp: Footprint) -> dict[str, str]:
         ref = self._ref(fp)
@@ -190,8 +224,11 @@ class Board:
             fp_nets = self._nets(fp)
             if net is not None and net not in fp_nets.values():
                 continue
-            result.append(Selected(ref=fp_ref, role=fp_role, cluster=fp_cluster,
-                                    sheet=fp_sheet, nets=fp_nets, fp=fp))
+            result.append(Selected(
+                ref=fp_ref, role=fp_role, cluster=fp_cluster,
+                role_field_exists=self._role_exists(fp),
+                cluster_field_exists=self._cluster_exists(fp),
+                sheet=fp_sheet, nets=fp_nets, fp=fp))
         return result
 
     def select_items(self, net: str | None = None, role: str | None = None,

@@ -126,9 +126,9 @@ def compute_pending_edits(components, snapshot, path_index=None) -> List[Pending
             if inst is None:
                 continue
             handled.add(i)
-            if (s.role or "") != (inst.role or ""):
+            if (s.role or "") != (inst.role or "") and s.role_field_exists:
                 edits.append(PendingEdit(inst.ref, "Role", inst.role or "", s.role or ""))
-            if (s.cluster or "") != (inst.cluster or ""):
+            if (s.cluster or "") != (inst.cluster or "") and s.cluster_field_exists:
                 edits.append(PendingEdit(inst.ref, "Cluster", inst.cluster or "", s.cluster or ""))
     for i, s in enumerate(snapshot):
         if i in handled:
@@ -146,9 +146,16 @@ def compute_pending_edits(components, snapshot, path_index=None) -> List[Pending
                 mismatched=True,
             ))
             continue
-        if (s.role or "") != (c.role or ""):
+        # 2026-08-27 (handoff pending_exclude_missing_board_fields): only emit a
+        # diff when the board footprint HAS the field at all — a physically
+        # absent field (role_field_exists/cluster_field_exists False) is not a
+        # pending change, it's "not comparable yet" (same "only refs present on
+        # BOTH sides are comparable" principle this function's docstring states,
+        # extended from ref-level to field-level). The field's VALUE may still
+        # be None/empty (exists but cleared) — that is a real diff, kept.
+        if (s.role or "") != (c.role or "") and s.role_field_exists:
             edits.append(PendingEdit(s.ref, "Role", c.role or "", s.role or ""))
-        if (s.cluster or "") != (c.cluster or ""):
+        if (s.cluster or "") != (c.cluster or "") and s.cluster_field_exists:
             edits.append(PendingEdit(s.ref, "Cluster", c.cluster or "", s.cluster or ""))
     return sorted(edits, key=lambda e: (e.ref, e.field))
 

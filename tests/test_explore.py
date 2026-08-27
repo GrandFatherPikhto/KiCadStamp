@@ -20,11 +20,17 @@ def _make_pad(number, net_name):
     return pad
 
 
-def _make_fp(ref, role=None, cluster=None, nets=None, sheet_uuid=None):
+def _make_fp(ref, role=None, cluster=None, nets=None, sheet_uuid=None,
+             has_role=True, has_cluster=True):
     fp = Footprint(ref=ref, uuid=f"uuid-{ref}", position=Vector2.from_xy(0, 0),
                    angle_deg=0.0, layer=BoardLayer.BL_F_Cu)
     fp._role = role
     fp._cluster = cluster
+    # "does the footprint have this field AT ALL" — the flag explore.py's
+    # _role_exists/_cluster_exists reads via adapter.has_field (defaults True,
+    # so callers that don't care about this scenario are unaffected).
+    fp._has_role_field = has_role
+    fp._has_cluster_field = has_cluster
     fp._pads = [_make_pad(str(i + 1), n) for i, n in enumerate(nets or [])]
     fp.sheet_path_uuids = (
         (sheet_uuid, f"{ref}-own-uuid") if sheet_uuid is not None else ()
@@ -50,6 +56,10 @@ def _adapter_for(fps, vias=None, tracks=None):
     adapter.get_field_value.side_effect = lambda fp, name: (
         fp._role if name == ROLE_FIELD_NAME else
         fp._cluster if name == CLUSTER_FIELD_NAME else None
+    )
+    adapter.has_field.side_effect = lambda fp, name: (
+        fp._has_role_field if name == ROLE_FIELD_NAME else
+        fp._has_cluster_field if name == CLUSTER_FIELD_NAME else False
     )
     adapter.get_footprint_pads.side_effect = lambda fp: list(fp._pads)
     adapter.get_vias.return_value = vias or []
@@ -224,3 +234,34 @@ def test_selection_signature_mixed_and_stable():
 
 def test_selection_signature_empty():
     assert selection_signature([]) == ()
+
+
+# ── role_field_exists / cluster_field_exists (2026-08-27, handoff
+#    pending_exclude_missing_board_fields) ─────────────────────────────────
+
+def test_select_distinguishes_missing_field_from_empty_value():
+    """A footprint WITHOUT the Cluster field at all vs one that HAS it but
+    empty: Selected.cluster_field_exists must distinguish the two, while
+    .cluster stays None for BOTH (adapter.get_field_value returns None for
+    both — the reason Pending changes needs the extra exists-fact)."""
+    no_field = _make_fp("C1", has_cluster=False)
+    empty_field = _make_fp("C2", cluster=None)  # field present, value empty
+    board, _ = _board([no_field, empty_field])
+
+    by_ref = {s.ref: s for s in board.select()}
+    assert by_ref["C1"].cluster is None
+    assert by_ref["C1"].cluster_field_exists is False
+    assert by_ref["C2"].cluster is None
+    assert by_ref["C2"].cluster_field_exists is True
+    # Role present on both (default True) — untouched by this scenario
+    assert by_ref["C1"].role_field_exists is True
+    assert by_ref["C2"].role_field_exists is True
+
+
+def test_select_reports_missing_role_field():
+    no_field = _make_fp("C1", has_role=False)
+    board, _ = _board([no_field])
+    s = board.select()[0]
+    assert s.role is None
+    assert s.role_field_exists is False
+    assert s.cluster_field_exists is True

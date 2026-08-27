@@ -29,12 +29,19 @@ def _component(ref, role, cluster, divergent=False, symbol_uuids=()):
                               block_start=0, divergent=divergent, symbol_uuids=symbol_uuids)
 
 
-def _selected(ref, role, cluster, last=None, path=None):
+def _selected(ref, role, cluster, last=None, path=None,
+              role_field_exists=True, cluster_field_exists=True):
     """last: single symbol uuid (identity check); path: full chain (full-path
-    join). path wins; last=None and path=None -> no fp at all."""
+    join). path wins; last=None and path=None -> no fp at all.
+    role_field_exists/cluster_field_exists default True (a physically-absent
+    board field is the 2026-08-27 handoff pending_exclude_missing_board_fields
+    scenario — the tests that don't exercise it leave the defaults)."""
     uuids = path if path is not None else ([last] if last else None)
     fp = _FakeFp(uuids) if uuids is not None else None
-    return Selected(ref=ref, role=role, cluster=cluster, sheet=[], nets={}, fp=fp)
+    return Selected(ref=ref, role=role, cluster=cluster,
+                    role_field_exists=role_field_exists,
+                    cluster_field_exists=cluster_field_exists,
+                    sheet=[], nets={}, fp=fp)
 
 
 # ── compute_pending_edits — no Qt dependency, testable without a QApplication ──
@@ -302,3 +309,30 @@ def test_sync_button_enabled_only_when_non_mismatched_edit_exists(qapp, main_win
                     PendingEdit("R2", "Role", "A", "B", mismatched=True)])
     assert dock.sync_button.isEnabled() is True       # at least one ordinary
     assert dock.apply_button.isEnabled() is True
+
+
+# ── Missing board field (2026-08-27, handoff pending_exclude_missing_board_fields) ──
+
+def test_field_missing_on_board_emits_no_edit():
+    """Board footprint WITHOUT the Cluster field at all -> no diff: the
+    component simply isn't comparable on that field yet (same "only refs
+    present on BOTH sides are comparable" principle, field-level). Not a
+    diff, not a mismatch — just nothing."""
+    comps = [_component("R1", "ROLE_A", "CL_A")]
+    snapshot = [_selected("R1", "ROLE_A", None, cluster_field_exists=False)]
+
+    edits = compute_pending_edits(comps, snapshot)
+
+    assert edits == []
+
+
+def test_field_present_but_empty_still_emits_edit():
+    """Contrast / regression guard: the field EXISTS but the value is
+    empty — a real diff, exactly as before. Only a physically-ABSENT field
+    is excluded."""
+    comps = [_component("R1", "ROLE_A", "CL_A")]
+    snapshot = [_selected("R1", "ROLE_A", None, cluster_field_exists=True)]
+
+    edits = compute_pending_edits(comps, snapshot)
+
+    assert edits == [PendingEdit("R1", "Cluster", "CL_A", "")]

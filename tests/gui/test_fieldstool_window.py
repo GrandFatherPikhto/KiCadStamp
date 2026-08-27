@@ -25,8 +25,14 @@ def _write_root(tmp_path, *blocks):
     return root
 
 
-def _selected(ref, role, cluster):
-    return Selected(ref=ref, role=role, cluster=cluster, sheet=[], nets={}, fp=None)
+def _selected(ref, role, cluster, role_field_exists=True, cluster_field_exists=True):
+    """role_field_exists/cluster_field_exists — a physically-absent board
+    field (2026-08-27 handoff pending_exclude_missing_board_fields); default
+    True so callers not exercising that scenario are unaffected."""
+    return Selected(ref=ref, role=role, cluster=cluster,
+                    role_field_exists=role_field_exists,
+                    cluster_field_exists=cluster_field_exists,
+                    sheet=[], nets={}, fp=None)
 
 
 class _FakeAdapter:
@@ -725,3 +731,20 @@ def test_sync_skip_reports_not_found_ref_separately(
     assert result["missing_field"] == []
     updates, _description = board.adapter.calls[0]
     assert {u[0].ref for u in updates} == {"R1"}
+
+
+def test_pending_excludes_a_board_field_that_does_not_exist(
+        fieldstool_window, tmp_path):
+    """End-to-end (handoff pending_exclude_missing_board_fields): a schematic
+    Cluster with no corresponding field on the board footprint must not
+    appear as a pending edit at all — the whole path from the live snapshot
+    to the table produces no such row."""
+    root = _write_root(tmp_path, symbol_block(["R1"], role="OLD", cluster="CL_A"))
+    fieldstool_window._set_root_sheet(root)
+    # Board footprint has the Role but NOT the Cluster field (physically
+    # absent) — without the exists-guard this would be a pending Cluster diff
+    # ("board: ''") that can never resolve itself.
+    fieldstool_window.set_live_snapshot([
+        _selected("R1", "OLD", None, cluster_field_exists=False)])
+
+    assert fieldstool_window.pending_dock.table.rowCount() == 0
