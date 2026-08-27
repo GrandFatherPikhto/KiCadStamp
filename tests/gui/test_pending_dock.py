@@ -283,3 +283,22 @@ def test_table_minimum_height_is_explicitly_overridden(qapp, main_window):
     LogDock) can shrink freely."""
     dock = PendingChangesDock(main_window)
     assert dock.table.minimumHeight() == 1
+
+
+def test_sync_button_enabled_only_when_non_mismatched_edit_exists(qapp, main_window):
+    """"Sync from schematic" (2026-08-27) is a separate enablement from
+    Apply: only non-mismatched edits have something safe to sync (a
+    mismatched row's refdes means a DIFFERENT symbol on the two sides —
+    writing there would hit the wrong component)."""
+    dock = PendingChangesDock(main_window)
+    assert dock.sync_button.isEnabled() is False      # empty list
+    assert dock.apply_button.isEnabled() is False
+
+    dock.set_edits([PendingEdit("R1", "Role", "OLD", "NEW", mismatched=True)])
+    assert dock.sync_button.isEnabled() is False      # all mismatched
+    assert dock.apply_button.isEnabled() is True      # Apply still enabled (it drops mismatched)
+
+    dock.set_edits([PendingEdit("R1", "Role", "OLD", "NEW"),
+                    PendingEdit("R2", "Role", "A", "B", mismatched=True)])
+    assert dock.sync_button.isEnabled() is True       # at least one ordinary
+    assert dock.apply_button.isEnabled() is True

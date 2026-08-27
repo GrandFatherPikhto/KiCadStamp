@@ -53,7 +53,7 @@ library (parsing, splicing, safety guards) stays independent, in
 kicadstamp/ — fieldstool_cli.py uses that directly, without any of this.
 """
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFileDialog,
@@ -206,6 +206,7 @@ class MainWindow(QMainWindow):
             self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.pending_dock)
         self.pending_dock.on_apply_clicked = self._on_apply
         self.pending_dock.on_ensure_fields_clicked = self._on_ensure_fields
+        self.pending_dock.on_sync_clicked = self._on_sync_from_schematic
 
         self.setCentralWidget(central)
 
@@ -539,6 +540,111 @@ class MainWindow(QMainWindow):
 
     def _on_stage_failed(self, message: str) -> None:
         QMessageBox.critical(self, _("Could not set fields"), message)
+
+    # ── Sync from schematic (2026-08-27) ───────────────────────────────────
+    #
+    # "Sync from schematic..." writes each pending edit's SCHEMATIC value
+    # (PendingEdit.old_value) back onto the LIVE board — the automated
+    # equivalent of the module docstring's own recommended "revert the field's
+    # value on the board itself (Ctrl+Z in KiCad)" workaround, for when that's
+    # inconvenient (other unrelated board edits made since). Structurally a
+    # mirror of the Stage flow (_on_stage/_run_stage/_finish_stage) — same
+    # connection/long-op guards, same has_field skip-per-field discipline,
+    # same on_board_written hook — so Pending changes' diff picks up the write
+    # on the next poll tick without a forced extra round-trip. No new persisted
+    # state: a live IPC write, immediately followed by the diff recomputing
+    # itself against the now-matching board.
+
+    def _on_sync_from_schematic(self) -> None:
+        """Sync handler — writes the SCHEMATIC's current value back onto the
+        live board for every non-mismatched pending edit. Mismatched edits
+        (refdes/symbol mismatch) are never touched — same exclusion
+        edits_to_fields_cfg() already applies for Apply, for the same reason
+        (the refdes doesn't identify the same symbol on both sides)."""
+        syncable = [e for e in self._pending_edits if not e.mismatched]
+        if not syncable:
+            return
+        if not self.connection.is_connected:
+            QMessageBox.warning(self, _("Not connected"), _("Connect to KiCad first."))
+            return
+        if self.connection.long_op_active:
+            return
+        if not self._confirm_sync(syncable):
+            return
+        payload = {"edits": [(e.ref, e.field, e.old_value) for e in syncable]}
+        self._active_sync_op = start_long_op(
+            self.connection, (self.pending_dock.sync_button,),
+            self._run_sync_from_schematic, self._finish_sync_from_schematic,
+            self._on_sync_from_schematic_failed, payload)
+
+    def _confirm_sync(self, edits: List[PendingEdit]) -> bool:
+        """Same height-capped QListWidget summary pattern as _confirm_apply
+        (Apply), direction reversed: board's CURRENT value -> what's about to
+        be written (the schematic's value)."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle(_("Confirm sync from schematic"))
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel(
+            _("About to write {count} field(s) on the LIVE BOARD, reverting "
+              "them to match the schematic:").format(count=len(edits))))
+        summary_list = QListWidget()
+        for e in edits:
+            summary_list.addItem(f"{e.ref}.{e.field}: {e.new_value!r} -> {e.old_value!r}")
+        summary_list.setMaximumHeight(300)
+        layout.addWidget(summary_list)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        return dialog.exec() == QDialog.DialogCode.Accepted
+
+    def _run_sync_from_schematic(self, payload: dict) -> dict:
+        """Worker thread: board IPC only — never touches a widget. Same
+        has_field skip-guard as _run_stage (a field that vanished from a
+        footprint between the diff being computed and this running is skipped,
+        not a fatal abort of the whole batch)."""
+        adapter = self.connection.board.adapter
+        result = {"error": None, "skipped": []}
+        updates = []
+        skipped = []
+        for ref, field, old_value in payload["edits"]:
+            fp = adapter.get_footprint(ref)
+            if fp is None:
+                skipped.append(f"{ref} ({field})")
+                continue
+            if adapter.has_field(fp, field):
+                updates.append((fp, field, old_value))
+            else:
+                skipped.append(f"{ref} ({field})")
+        result["skipped"] = skipped
+        if updates:
+            touched = len({id(u[0]) for u in updates})
+            try:
+                adapter.set_field_values_bulk(
+                    updates, _("Sync {count} field(s) from schematic").format(count=touched))
+            except ValidationError as e:
+                return {"error": str(e)}
+        return result
+
+    def _finish_sync_from_schematic(self, result: dict) -> None:
+        if result["error"]:
+            QMessageBox.critical(self, _("Could not sync fields"), result["error"])
+            return
+        skipped = result.get("skipped") or []
+        if skipped:
+            QMessageBox.warning(
+                self, _("Some fields were skipped"),
+                _("These targets could not be resolved on the live board — nothing "
+                  "was written for them:\n{refs}").format(refs="\n".join(skipped)))
+        # Same "Pending changes never sees a write until told" fix as Stage
+        # (2026-08-03) — the automatic poll tick never refreshes on its own
+        # once already connected.
+        if self.on_board_written:
+            self.on_board_written()
+
+    def _on_sync_from_schematic_failed(self, message: str) -> None:
+        QMessageBox.critical(self, _("Could not sync fields"), message)
 
     # ── Live connection (Stage writes Role/Cluster to the board; Apply writes
     #    the schematic — see module docstring) ───────────────────────────────

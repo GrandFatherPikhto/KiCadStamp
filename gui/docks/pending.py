@@ -191,6 +191,7 @@ class PendingChangesDock(QDockWidget):
         self._main_window = main_window
         self.on_apply_clicked = None  # Callable[[], None], set by MainWindow
         self.on_ensure_fields_clicked = None  # Callable[[], None], set by MainWindow
+        self.on_sync_clicked = None  # Callable[[], None], set by MainWindow (2026-08-27)
 
         container = QWidget()
         layout = QVBoxLayout(container)
@@ -231,6 +232,16 @@ class PendingChangesDock(QDockWidget):
         self.ensure_fields_button.clicked.connect(
             lambda: self.on_ensure_fields_clicked and self.on_ensure_fields_clicked())
         button_row.addWidget(self.ensure_fields_button)
+        # "Sync from schematic" (2026-08-27, handoff pending_sync_from_
+        # schematic): writes each pending edit's SCHEMATIC value back onto
+        # the LIVE board — the automated equivalent of the module docstring's
+        # recommended "revert the field on the board (Ctrl+Z in KiCad)"
+        # workaround. Enabled only when at least one NON-mismatched edit
+        # exists (mismatched edits have nothing safe to sync — see set_edits).
+        self.sync_button = QPushButton(_("Sync from schematic..."))
+        self.sync_button.clicked.connect(
+            lambda: self.on_sync_clicked and self.on_sync_clicked())
+        button_row.addWidget(self.sync_button)
         layout.addLayout(button_row)
 
         self.setWidget(container)
@@ -254,4 +265,12 @@ class PendingChangesDock(QDockWidget):
                 self.table.setItem(row, 1, QTableWidgetItem(e.field))
                 self.table.setItem(row, 2, QTableWidgetItem(e.old_value))
                 self.table.setItem(row, 3, QTableWidgetItem(e.new_value))
+        # Apply: any pending edit at all (including mismatched, whose row is
+        # shown but which Apply drops — Apply's own enablement is unchanged).
+        # Sync from schematic: only NON-mismatched edits have something safe
+        # to sync (a mismatched row's refdes means a DIFFERENT symbol on the
+        # two sides — writing the schematic value there would hit the wrong
+        # component). Distinct conditions — do not reuse one for the other.
+        syncable = [e for e in edits if not e.mismatched]
         self.apply_button.setEnabled(bool(edits))
+        self.sync_button.setEnabled(bool(syncable))

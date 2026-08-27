@@ -12,6 +12,7 @@ from unittest.mock import Mock
 from PyQt6.QtWidgets import QDialog, QListWidget
 
 from gui import fieldstool_window as fieldstool_window_mod
+from gui.docks.pending import PendingEdit
 from kicadstamp.explore import Selected
 from kicadstamp.schematic_editing import EditReport
 from tests.fieldstool_fixtures import sch_file, symbol_block
@@ -591,3 +592,95 @@ def test_push_selection_to_board_gated_during_long_op(fieldstool_window):
     fieldstool_window.connection.long_op_active = False
     fieldstool_window._push_selection_to_board(["R1", "R2"])
     assert select_calls == [["R1", "R2"]]
+
+
+# ── Sync from schematic (2026-08-27) ──────────────────────────────────────
+
+def test_sync_from_schematic_writes_old_value_to_the_live_board(
+        fieldstool_window, tmp_path, monkeypatch):
+    """The SCHEMATIC value (PendingEdit.old_value — "OLD"), NOT the board's
+    current one ("NEW"), is written back over IPC — the whole point of
+    "Sync from schematic"."""
+    root = _write_root(tmp_path, symbol_block(["R1"], role="OLD"))
+    fieldstool_window._set_root_sheet(root)
+    board = _connect_board(fieldstool_window, monkeypatch)
+    fieldstool_window._pending_edits = [PendingEdit("R1", "Role", "OLD", "NEW")]
+    monkeypatch.setattr(fieldstool_window, "_confirm_sync", lambda edits: True)
+
+    fieldstool_window._on_sync_from_schematic()
+
+    updates, _description = board.adapter.calls[0]
+    assert (board.adapter._fps["R1"], "Role", "OLD") in updates
+
+
+def test_sync_from_schematic_skips_mismatched_edits(
+        fieldstool_window, tmp_path, monkeypatch):
+    """A mismatched edit (refdes/symbol mismatch) is never written — same
+    exclusion Apply's own edits_to_fields_cfg() applies — only the ordinary
+    edit reaches the adapter."""
+    root = _write_root(tmp_path, symbol_block(["R1", "R2"], role="OLD"))
+    fieldstool_window._set_root_sheet(root)
+    board = _connect_board(fieldstool_window, monkeypatch)
+    fieldstool_window._pending_edits = [
+        PendingEdit("R1", "Role", "OLD", "NEW"),
+        PendingEdit("R2", "Role", "A", "B", mismatched=True),
+    ]
+    monkeypatch.setattr(fieldstool_window, "_confirm_sync", lambda edits: True)
+
+    fieldstool_window._on_sync_from_schematic()
+
+    updates, _description = board.adapter.calls[0]
+    assert (board.adapter._fps["R1"], "Role", "OLD") in updates
+    # R2 (mismatched) was never even requested from the adapter — its
+    # footprint is not in _fps at all, and certainly not in the updates.
+    assert "R2" not in board.adapter._fps
+    assert {u[0].ref for u in updates} == {"R1"}
+
+
+def test_sync_from_schematic_fires_on_board_written_callback(
+        fieldstool_window, tmp_path, monkeypatch):
+    """Same "Pending changes never sees a write until told" fix as Stage — a
+    successful sync calls on_board_written so the diff refreshes against the
+    now-matching board."""
+    root = _write_root(tmp_path, symbol_block(["R1"], role="OLD"))
+    fieldstool_window._set_root_sheet(root)
+    _connect_board(fieldstool_window, monkeypatch)
+    fieldstool_window._pending_edits = [PendingEdit("R1", "Role", "OLD", "NEW")]
+    monkeypatch.setattr(fieldstool_window, "_confirm_sync", lambda edits: True)
+    calls = []
+    fieldstool_window.on_board_written = lambda: calls.append(1)
+
+    fieldstool_window._on_sync_from_schematic()
+
+    assert calls == [1]
+
+
+def test_sync_from_schematic_requires_connection(
+        fieldstool_window, tmp_path, monkeypatch):
+    """Not connected -> a warning, nothing is written (and no long op is
+    started)."""
+    root = _write_root(tmp_path, symbol_block(["R1"], role="OLD"))
+    fieldstool_window._set_root_sheet(root)
+    warnings = []
+    monkeypatch.setattr(fieldstool_window_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or None)
+    fieldstool_window._pending_edits = [PendingEdit("R1", "Role", "OLD", "NEW")]
+
+    fieldstool_window._on_sync_from_schematic()
+
+    assert warnings
+    assert fieldstool_window._pending_edits  # unchanged, nothing written
+
+
+def test_sync_from_schematic_confirm_cancelled_writes_nothing(
+        fieldstool_window, tmp_path, monkeypatch):
+    """A cancelled confirmation dialog aborts before any IPC write."""
+    root = _write_root(tmp_path, symbol_block(["R1"], role="OLD"))
+    fieldstool_window._set_root_sheet(root)
+    board = _connect_board(fieldstool_window, monkeypatch)
+    fieldstool_window._pending_edits = [PendingEdit("R1", "Role", "OLD", "NEW")]
+    monkeypatch.setattr(fieldstool_window, "_confirm_sync", lambda edits: False)
+
+    fieldstool_window._on_sync_from_schematic()
+
+    assert board.adapter.calls == []

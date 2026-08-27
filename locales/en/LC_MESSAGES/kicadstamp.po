@@ -306,6 +306,33 @@ msgstr ""
 msgid "Some fields were skipped"
 msgstr ""
 
+#: gui/docks/pending.py gui/fieldstool_window.py
+msgid "Sync from schematic..."
+msgstr ""
+
+#: gui/fieldstool_window.py
+msgid "Confirm sync from schematic"
+msgstr ""
+
+#: gui/fieldstool_window.py
+#, python-brace-format
+msgid "About to write {count} field(s) on the LIVE BOARD, reverting them to match the schematic:"
+msgstr ""
+
+#: gui/fieldstool_window.py
+msgid "Could not sync fields"
+msgstr ""
+
+#: gui/fieldstool_window.py
+#, python-brace-format
+msgid "These targets could not be resolved on the live board — nothing was written for them:\n{refs}"
+msgstr ""
+
+#: gui/fieldstool_window.py
+#, python-brace-format
+msgid "Sync {count} field(s) from schematic"
+msgstr ""
+
 #: gui/fieldstool_window.py:534
 msgid ""
 "These targets have no such field on their footprint yet — nothing was "
