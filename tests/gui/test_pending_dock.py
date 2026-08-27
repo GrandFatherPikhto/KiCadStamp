@@ -270,3 +270,16 @@ def test_path_index_cluster_diff_also_emitted():
     edits = compute_pending_edits(comps, snapshot, path_index)
 
     assert edits == [PendingEdit("C110", "Cluster", "CL_A", "CL_B")]
+
+
+def test_table_minimum_height_is_explicitly_overridden(qapp, main_window):
+    """1, not 0 (handoff pending_dock_min_height / log_dock_min_height_fix2):
+    Qt treats an explicit minimumHeight of exactly 0 as "unset" — the same
+    sentinel as never calling setMinimumHeight at all — so it silently falls
+    back to QTableWidget's much larger minimumSizeHint and changes nothing.
+    Verified live: the container's effective layout minimum stays 110px at
+    baseline and with 0, drops to 41px with 1. 1 is the smallest value Qt
+    actually honors as an explicit override, so the dock (tabified with
+    LogDock) can shrink freely."""
+    dock = PendingChangesDock(main_window)
+    assert dock.table.minimumHeight() == 1

@@ -201,6 +201,20 @@ class PendingChangesDock(QDockWidget):
             [_("Ref"), _("Field"), _("Schematic (current)"), _("Board (new)")])
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        # 2026-08-27 (handoff pending_dock_min_height): the dock is tabified
+        # with LogDock (gui/dock_hub.py) — without an explicit minimum this
+        # QTableWidget's default minimumSizeHint floored how small the dock
+        # could shrink (Denis: "панель log/pending changes нельзя
+        # переразмерить"). setMinimumHeight(1), NOT 0 — same Qt gotcha as
+        # LogDock.text (log_dock_min_height_fix2): an explicit minimum of
+        # exactly 0 is Qt's "unset" sentinel and changes nothing; verified
+        # live, the container's effective layout minimum stays 110px at
+        # baseline AND with setMinimumHeight(0), drops to 41px with
+        # setMinimumHeight(1) — the smallest value Qt actually honors as an
+        # override. QTableWidget already scrolls its own content (own
+        # viewport/scrollbar) — no QScrollArea wrap, same principle as the
+        # other docks.
+        self.table.setMinimumHeight(1)
         layout.addWidget(self.table)
 
         button_row = QHBoxLayout()
