@@ -71,11 +71,12 @@ also early-exits entirely when neither the raw selection nor the cached
 snapshot changed since the last tick, so ExtractDock's per-selection widget
 rebuilds (aliases, origin combos, button state) aren't churned for nothing.
 """
+import base64
 import logging
 from typing import Optional
 
 from kicadstamp.domain.board import Footprint
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import QByteArray, Qt, QTimer
 from PyQt6.QtWidgets import (QApplication, QLabel, QMainWindow, QMenu,
                               QPushButton, QSystemTrayIcon)
 
@@ -93,6 +94,11 @@ logger = logging.getLogger(__name__)
 
 POLL_INTERVAL_MS = 2000
 SELECTION_POLL_INTERVAL_MS = 400
+
+# Bump this if a FUTURE dock-layout change should make an old saved layout
+# intentionally stale — restoreState() then just returns False and Qt falls
+# back to whatever DockHub laid out by default (never a crash).
+_DOCK_STATE_VERSION = 1
 
 
 class MainWindow(QMainWindow):
@@ -231,10 +237,35 @@ class MainWindow(QMainWindow):
         base64 to fit in JSON at all) or QSettings — same reason the rest of
         this GUI's persistence is plain JSON: staying human-readable/
         inspectable in one place beats using the platform-native mechanism
-        for just this one thing."""
+        for just this one thing.
+
+        Dock/splitter/tab/floating layout (2026-08-27) is the deliberate
+        exception — see _persist_settings's comment on "dock_state" below.
+        Must run AFTER DockHub has added every dock (already true: this
+        method is called at the end of __init__, well after
+        self._dock_hub = DockHub(...) — restoreState() silently no-ops on a
+        dock that doesn't exist yet)."""
         geometry = settings.state.get("window_geometry")
         if geometry and all(k in geometry for k in ("x", "y", "width", "height")):
             self.setGeometry(geometry["x"], geometry["y"], geometry["width"], geometry["height"])
+
+        # Dock/splitter/tab/floating layout (2026-08-27). A missing key
+        # (first run) or a corrupt/undecodable value (hand-edited file, a
+        # version bump, a future binary-format change) must NEVER prevent the
+        # window from opening — log and fall through to DockHub's own default
+        # layout, same "never let saved state crash startup" discipline as
+        # window_geometry's defensive `if geometry and all(...)` above.
+        raw = settings.state.get("dock_state")
+        if raw:
+            try:
+                blob = QByteArray(base64.b64decode(raw))
+            except (ValueError, TypeError) as e:
+                logger.warning("Failed to decode saved dock_state, ignoring: %s", e)
+            else:
+                if not self.restoreState(blob, _DOCK_STATE_VERSION):
+                    logger.info("Saved dock layout did not apply (version/dock-set "
+                                "mismatch) — using the default layout")
+
         # The checkboxes now live in the Settings tab (ConfiguratorDock,
         # moved here 2026-08-15) — setChecked triggers its
         # always_on_top_toggled/tray_enabled_toggled signals, which DockHub
@@ -250,6 +281,18 @@ class MainWindow(QMainWindow):
         rect = self.geometry()
         settings.state.set("window_geometry", {"x": rect.x(), "y": rect.y(),
                                                "width": rect.width(), "height": rect.height()})
+        # Dock/splitter/tab/floating layout (2026-08-27) — Qt's own
+        # saveState(), base64 into the SAME plain-JSON gui_state.json. A
+        # DELIBERATE exception to this file's "everything human-readable"
+        # principle (see _restore_window_state's docstring on
+        # window_geometry): saveState()'s payload is a rich, versioned Qt
+        # blob covering dock positions, splitter ratios, tab order and
+        # floating state — hand-rolling that into plain ints the way
+        # window_geometry does would be a lot of fragile bespoke code for
+        # something nobody hand-edits anyway (unlike window x/y, which people
+        # DO sometimes fix by hand to rescue an off-screen window).
+        dock_state = bytes(self.saveState(_DOCK_STATE_VERSION))
+        settings.state.set("dock_state", base64.b64encode(dock_state).decode("ascii"))
         # Checkboxes moved to the Settings tab 2026-08-15 — read their
         # state back through the ConfiguratorDock (see gui/docks/
         # configurator.py).
