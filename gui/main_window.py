@@ -98,7 +98,11 @@ SELECTION_POLL_INTERVAL_MS = 400
 # Bump this if a FUTURE dock-layout change should make an old saved layout
 # intentionally stale — restoreState() then just returns False and Qt falls
 # back to whatever DockHub laid out by default (never a crash).
-_DOCK_STATE_VERSION = 1
+# Version 2 (2026-08-27, handoff sync_skip_message_and_view_menu §0): v1
+# blobs were saved WITHOUT per-dock objectName(), so Qt could not reliably
+# identify which dock a layout entry belonged to — such a blob is useless/
+# potentially confusing, and a bump makes restoreState() ignore it cleanly.
+_DOCK_STATE_VERSION = 2
 
 
 class MainWindow(QMainWindow):

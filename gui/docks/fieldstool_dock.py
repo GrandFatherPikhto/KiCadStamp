@@ -52,6 +52,11 @@ class FieldsToolDock(QDockWidget):
 
     def __init__(self, main_window, connection, pending_dock: Optional[PendingChangesDock] = None):
         super().__init__(_("fieldstool"), main_window)
+        # Stable QDockWidget identity for QMainWindow.saveState()/restoreState()
+        # (handoff sync_skip_message_and_view_menu §0) — without a unique
+        # objectName Qt cannot reliably map a saved layout blob back to this
+        # dock between runs.
+        self.setObjectName("fieldstool_dock")
         # The main GUI's OWN BoardConnection (one kipy client, one REQ
         # socket): one connection + one polling loop instead of two
         # independent ones (see module docstring).

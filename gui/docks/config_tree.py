@@ -260,6 +260,11 @@ class ConfigTreeDock(QDockWidget):
 
     def __init__(self, main_window):
         super().__init__(_("Config"), main_window)
+        # Stable QDockWidget identity for QMainWindow.saveState()/restoreState()
+        # (handoff sync_skip_message_and_view_menu §0) — without a unique
+        # objectName Qt cannot reliably map a saved layout blob back to this
+        # dock between runs.
+        self.setObjectName("config_tree_dock")
         self._main_window = main_window
         self._root_path: Optional[Path] = None
 

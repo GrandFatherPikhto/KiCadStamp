@@ -97,6 +97,11 @@ class LogDock(QDockWidget):
 
     def __init__(self, main_window, verbose: bool = False):
         super().__init__(_("Log"), main_window)
+        # Stable QDockWidget identity for QMainWindow.saveState()/restoreState()
+        # (handoff sync_skip_message_and_view_menu §0) — without a unique
+        # objectName Qt cannot reliably map a saved layout blob back to this
+        # dock between runs.
+        self.setObjectName("log_dock")
         self._main_window = main_window
 
         container = QWidget()

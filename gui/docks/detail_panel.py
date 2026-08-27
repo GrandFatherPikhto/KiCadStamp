@@ -69,6 +69,11 @@ _ROOT, _EXTRACT, _PLACER, _THERMAL_VIA, _POINTS, _RULES, _NET_TRACE, _CELLS, _SE
 class DetailDock(QDockWidget):
     def __init__(self, main_window, connection=None):
         super().__init__(_("Detail"), main_window)
+        # Stable QDockWidget identity for QMainWindow.saveState()/restoreState()
+        # (handoff sync_skip_message_and_view_menu §0) — without a unique
+        # objectName Qt cannot reliably map a saved layout blob back to this
+        # dock between runs.
+        self.setObjectName("detail_dock")
 
         container = QWidget()
         layout = QVBoxLayout(container)

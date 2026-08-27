@@ -110,6 +110,11 @@ class RoleClusterTreeDock(QDockWidget):
 
     def __init__(self, main_window, connection=None):
         super().__init__(_("Components"), main_window)
+        # Stable QDockWidget identity for QMainWindow.saveState()/restoreState()
+        # (handoff sync_skip_message_and_view_menu §0) — without a unique
+        # objectName Qt cannot reliably map a saved layout blob back to this
+        # dock between runs.
+        self.setObjectName("tree_dock")
         self._main_window = main_window
         # Injected BoardConnection — falls back to the owning window's when
         # not passed explicitly (keeps direct-construction callers, e.g.

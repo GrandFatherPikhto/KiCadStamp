@@ -121,3 +121,25 @@ def test_view_menu_toggle_shows_and_hides_a_dock(real_main_window):
 
     log_action.trigger()
     assert log_dock.isHidden() is False
+
+
+def test_save_restore_state_preserves_a_hidden_dock(real_main_window):
+    """REAL (unmocked) saveState()/restoreState() round-trip — the whole
+    point of dock-layout persistence (a8a5d1b) actually working. With a
+    stable objectName on every real dock (§0 of handoff
+    sync_skip_message_and_view_menu), a dock hidden before saveState stays
+    hidden after restoreState. Without the names Qt SILENTLY fails to
+    identify the dock (restoreState still returns True but restores
+    nothing), so this test guards the names, not just the call."""
+    log_dock = real_main_window._dock_hub.log_dock
+    # every real top-level dock carries a stable objectName
+    assert all(d.objectName() for d in real_main_window._dock_hub.docks)
+
+    log_dock.hide()
+    state = real_main_window.saveState(_DOCK_STATE_VERSION)
+    log_dock.show()
+    assert log_dock.isHidden() is False
+
+    ok = real_main_window.restoreState(state, _DOCK_STATE_VERSION)
+    assert ok is True
+    assert log_dock.isHidden() is True

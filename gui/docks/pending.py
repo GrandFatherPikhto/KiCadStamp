@@ -188,6 +188,11 @@ class PendingChangesDock(QDockWidget):
 
     def __init__(self, main_window):
         super().__init__(_("Pending changes"), main_window)
+        # Stable QDockWidget identity for QMainWindow.saveState()/restoreState()
+        # (handoff sync_skip_message_and_view_menu §0) — without a unique
+        # objectName Qt cannot reliably map a saved layout blob back to this
+        # dock between runs.
+        self.setObjectName("pending_dock")
         self._main_window = main_window
         self.on_apply_clicked = None  # Callable[[], None], set by MainWindow
         self.on_ensure_fields_clicked = None  # Callable[[], None], set by MainWindow

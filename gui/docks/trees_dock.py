@@ -187,6 +187,11 @@ class TreesDock(QDockWidget):
 
     def __init__(self, main_window):
         super().__init__(_("Trees"), main_window)
+        # Stable QDockWidget identity for QMainWindow.saveState()/restoreState()
+        # (handoff sync_skip_message_and_view_menu §0) — without a unique
+        # objectName Qt cannot reliably map a saved layout blob back to this
+        # dock between runs.
+        self.setObjectName("trees_dock")
         self._main_window = main_window
         self._trees: list[Tree] = []
         self._root_path: Optional[Path] = None   # for link_trees + Save, via root_changed
