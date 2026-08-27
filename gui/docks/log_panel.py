@@ -103,10 +103,19 @@ class LogDock(QDockWidget):
         layout = QVBoxLayout(container)
         layout.setContentsMargins(4, 4, 4, 4)
 
-        top_row = QHBoxLayout()
+        # ONE toolbar row (2026-08-27, handoff log_dock_single_row_toolbar):
+        # LogDock used to stack two always-visible rows (Verbose/Auto-scroll/
+        # Clear, then Find/Prev/Next) above and below the text view — after
+        # e587cdc/22b6af2 removed the false minimum floor on the text view
+        # itself, that second row became the dominant remaining floor on how
+        # small the dock (tabified with PendingChangesDock) can shrink.
+        # Merged into a single QHBoxLayout — same widgets, same signal wiring,
+        # only the layout structure changes. The Find line edit is now the one
+        # stretchy element (more useful than a bare spacer).
+        row = QHBoxLayout()
         self.verbose_checkbox = QCheckBox(_("Verbose"))
         self.verbose_checkbox.toggled.connect(self._on_verbose_toggled)
-        top_row.addWidget(self.verbose_checkbox)
+        row.addWidget(self.verbose_checkbox)
         # Auto-scroll (2026-08-15, plan_2026_08_15_log_dock_autoscroll.md):
         # QPlainTextEdit only auto-scrolls when the view was already at the
         # bottom before appending — once the user scrolls up to read history,
@@ -115,12 +124,23 @@ class LogDock(QDockWidget):
         # Qt's plain "don't yank the reader" behavior.
         self.autoscroll_checkbox = QCheckBox(_("Auto-scroll"))
         self.autoscroll_checkbox.setChecked(True)
-        top_row.addWidget(self.autoscroll_checkbox)
-        top_row.addStretch(1)
+        row.addWidget(self.autoscroll_checkbox)
+
+        self.find_edit = QLineEdit()
+        self.find_edit.setPlaceholderText(_("Find..."))
+        self.find_edit.returnPressed.connect(lambda: self._find(backward=False))
+        row.addWidget(self.find_edit, 1)
+        find_prev_button = QPushButton(_("Prev"))
+        find_prev_button.clicked.connect(lambda: self._find(backward=True))
+        row.addWidget(find_prev_button)
+        find_next_button = QPushButton(_("Next"))
+        find_next_button.clicked.connect(lambda: self._find(backward=False))
+        row.addWidget(find_next_button)
+
         clear_button = QPushButton(_("Clear"))
         clear_button.clicked.connect(lambda: self.text.clear())
-        top_row.addWidget(clear_button)
-        layout.addLayout(top_row)
+        row.addWidget(clear_button)
+        layout.addLayout(row)
 
         self.text = QPlainTextEdit()
         self.text.setReadOnly(True)
@@ -143,19 +163,6 @@ class LogDock(QDockWidget):
         # explicit override.
         self.text.setMinimumHeight(1)
         layout.addWidget(self.text, 1)
-
-        find_row = QHBoxLayout()
-        self.find_edit = QLineEdit()
-        self.find_edit.setPlaceholderText(_("Find..."))
-        self.find_edit.returnPressed.connect(lambda: self._find(backward=False))
-        find_row.addWidget(self.find_edit, 1)
-        find_prev_button = QPushButton(_("Prev"))
-        find_prev_button.clicked.connect(lambda: self._find(backward=True))
-        find_row.addWidget(find_prev_button)
-        find_next_button = QPushButton(_("Next"))
-        find_next_button.clicked.connect(lambda: self._find(backward=False))
-        find_row.addWidget(find_next_button)
-        layout.addLayout(find_row)
 
         self.setWidget(container)
 

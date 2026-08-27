@@ -264,3 +264,19 @@ def test_text_view_minimum_height_is_explicitly_overridden(log_dock):
     minimum stays at its natural size with 0, drops measurably with 1. 1 is
     the smallest value Qt actually honors as an explicit override."""
     assert log_dock.text.minimumHeight() == 1
+
+
+def test_single_toolbar_row(log_dock):
+    """LogDock's container layout has EXACTLY ONE nested QHBoxLayout — it
+    used to stack two always-visible rows (Verbose/Auto-scroll/Clear, then
+    Find/Prev/Next), and after the minimum-height fixes that second row was
+    the dominant remaining floor on how small the dock (tabified with
+    PendingChangesDock) could shrink (handoff log_dock_single_row_toolbar).
+    Structural check distinguishing "one row" from "two rows", not just on
+    the eye."""
+    from PyQt6.QtWidgets import QHBoxLayout
+
+    layout = log_dock.widget().layout()
+    rows = [layout.itemAt(i).layout() for i in range(layout.count())]
+    hrows = [r for r in rows if isinstance(r, QHBoxLayout)]
+    assert len(hrows) == 1
