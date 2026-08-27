@@ -35,7 +35,7 @@ import yaml
 from kicadstamp.config.includes import (
     _DICT_SECTIONS,
     _LIST_SECTIONS,
-    _load_yaml_file,
+    _load_config_file,
     resolve_includes,
     walk_include_tree,
 )
@@ -94,7 +94,7 @@ def flatten_config(root: str, output: Optional[str] = None,
 
     # Same first step load_config() performs: read the root YAML, then resolve
     # the whole include: graph into one merged dict.
-    data = cached_file_read(root_path, _load_yaml_file)
+    data = cached_file_read(root_path, _load_config_file)
     merged = resolve_includes(str(root_path), data)
 
     # Serialize the merged content. Empty sections (resolve_includes()

@@ -60,7 +60,7 @@ from .entries import (
     _load_thermal_via_array,
     _point_is_footprint_eligible,
 )
-from .includes import _load_yaml_file, resolve_includes
+from .includes import _load_config_file, resolve_includes
 from .sheet_templates import expand_sheet_templates
 from .models import (
     ThermalViaArrayConfig, CoordinatePlacement, NetTrace, Config,
@@ -106,7 +106,7 @@ def load_config(path: str) -> tuple[Config, RuntimeContext]:
 
 def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
     logger.info(_("Loading configuration from {path}").format(path=path))
-    data = cached_file_read(Path(path), _load_yaml_file)
+    data = cached_file_read(Path(path), _load_config_file)
     data = resolve_includes(path, data)
     # sheet_templates: expansion (2026-08-16) — must run after include
     # resolution (a template can live in an included subsystem file) and

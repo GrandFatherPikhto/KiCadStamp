@@ -17,6 +17,7 @@ from typing import Any
 import yaml
 
 from kicadstamp.config.includes import resolve_includes
+from kicadstamp.config.sexp_format import sexp_to_dict
 from kicadstamp.utils.yaml_loader import safe_load
 from kicadstamp.exceptions import PlacerError, check_unknown_keys
 from kicadstamp.kicad.interfaces import IBoardAdapter
@@ -77,7 +78,10 @@ def load_profile(profiles_path: str, top_key: str, profile_name: str,
     if not p.exists():
         raise PlacerError(_("[error] profiles file {path!r} not found").format(path=profiles_path))
     with open(p, "r", encoding="utf-8") as f:
-        data = safe_load(f) or {}
+        if p.suffix.lower() == ".sexp":
+            data = sexp_to_dict(f.read()) or {}
+        else:
+            data = safe_load(f) or {}
     data = resolve_includes(str(p), data)
     profiles = data.get(top_key, {})
     if profile_name not in profiles:

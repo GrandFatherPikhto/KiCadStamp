@@ -49,13 +49,25 @@ _LIST_SECTIONS = ('rules', 'clone_placements', 'thermal_via_arrays', 'coordinate
 _DICT_SECTIONS = ('cells', 'points', 'extract_profiles', 'clone_profiles', 'sheet_templates')
 
 
-def _load_yaml_file(path: Path) -> dict:
-    """open(path) + yaml.safe_load(f) or {} — the raw YAML read shared by
+def _load_config_file(path: Path) -> dict:
+    """open(path) + parse by file extension — the raw config read shared by
     _resolve/_walk below and load_config() in loader.py (which reuses this
     exact loader so all three share ONE cache entry per file, not three
-    independent ones). Always a dict, never None (a YAML file whose content
-    is empty/scalar-null becomes {}) — cached_file_read requires that."""
+    independent ones). Always a dict, never None (a config whose content is
+    empty/scalar-null becomes {}) — cached_file_read requires that.
+
+    Format is selected by extension (parallel .sexp config format, 2026-08-27):
+    '.sexp' -> sexp_to_dict (kicadstamp/config/sexp_format.py), anything else
+    -> safe_load (YAML, the default). A mixed include: graph may therefore
+    mix .yaml and .sexp files freely — each file parses by its own suffix.
+
+    sexp_to_dict is imported here (function-level), not at module top: it
+    would create a circular import (sexp_format.py imports _LIST_SECTIONS/
+    _DICT_SECTIONS from this module at its own module level)."""
     with open(path, 'r', encoding='utf-8') as f:
+        if Path(path).suffix.lower() == '.sexp':
+            from .sexp_format import sexp_to_dict
+            return sexp_to_dict(f.read()) or {}
         return safe_load(f) or {}
 
 
@@ -178,7 +190,7 @@ def _resolve(path: str, data: dict[str, Any], ancestors: set[Path], resolved: se
             continue
         resolved.add(include_path)
 
-        include_data = cached_file_read(include_path, _load_yaml_file)
+        include_data = cached_file_read(include_path, _load_config_file)
         include_merged = _resolve(str(include_path), include_data, ancestors | {include_path},
                                   resolved, is_root=False)
 
@@ -233,7 +245,7 @@ class IncludeTreeNode:
 
 
 def _walk(path: str, ancestors: set[Path]) -> IncludeTreeNode:
-    data = cached_file_read(Path(path), _load_yaml_file)
+    data = cached_file_read(Path(path), _load_config_file)
     if not isinstance(data, dict):
         raise ValidationError(format_fatal_error(
             _("{file!r}: top level must be a YAML mapping, got {type}").format(
