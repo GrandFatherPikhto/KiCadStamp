@@ -55,7 +55,6 @@ class LinkedNode:
     record: Record | None          # None ONLY when node.kind == "external"
     is_external: bool
     children: list["LinkedNode"]
-    is_reference: bool = False     # tree documents/reads, does not own position
 
 
 @dataclass
@@ -155,12 +154,7 @@ def _check_fork1_inline_conflict(node: TreeNode, record: Record | None) -> None:
     Reads from rec.obj via getattr: Record itself does not carry anchor_origin
     (a Point-only field), so a point node with anchor_origin would silently
     pass unless we read the original dataclass (design §4 fact-check B).
-    Nodes only — a tree anchor is a base, not something the tree "places".
-    A reference node is EXEMPT: it never claims the record's position, so an
-    inline anchor is not a second source of truth (design_2026_08_28_
-    tree_node_reference_scope.md)."""
-    if node.is_reference:
-        return
+    Nodes only — a tree anchor is a base, not something the tree "places"."""
     if record is None:
         return
     for field in _INLINE_ANCHOR_FIELDS:
@@ -179,7 +173,6 @@ def _link_node(node: TreeNode, by_key: dict[str, Record],
         node=node,
         record=record,
         is_external=is_external,
-        is_reference=node.is_reference,
         children=[_link_node(c, by_key, by_name) for c in node.children],
     )
 

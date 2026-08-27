@@ -678,65 +678,6 @@ def test_edit_node_flow_copies_fields_onto_existing_in_place(main_window, tmp_pa
     assert dock._dirty is True
 
 
-# ── reference-only node flag (design_2026_08_28_tree_node_reference_scope.md) ──
-
-def test_add_dialog_reference_defaults_unchecked(main_window, tmp_path):
-    """Adding a node: the "Reference only" checkbox defaults unchecked
-    (authoritative) — backward compatibility, no behavior change by default."""
-    dock, _root = _dock_with(main_window, tmp_path)
-    tree = dock._current_tree()
-    dlg = _build_dialog(dock, tree, None)
-    assert dlg.reference_checkbox.isChecked() is False
-
-
-def test_edit_dialog_reference_prefilled_and_built(main_window, tmp_path):
-    """The "Reference only" checkbox is prefilled from the existing node and
-    carried into the built TreeNode (edit mode: the node's own ref is allowed)."""
-    dock, _root = _dock_with(main_window, tmp_path)
-    tree = dock._current_tree()
-    node = tree.nodes[0]  # AMS1117_REG
-    node.is_reference = True
-
-    dlg = _build_dialog(dock, tree, dock._find_parent(tree, node),
-                        existing=node, title="Edit node")
-    assert dlg.reference_checkbox.isChecked() is True
-    built = dlg.build_node()
-    assert built is not None
-    assert built.is_reference is True
-
-    # unchecked -> authoritative
-    dlg.reference_checkbox.setChecked(False)
-    assert dlg.build_node().is_reference is False
-
-
-def test_edit_node_flow_copies_reference_flag(main_window, tmp_path, monkeypatch):
-    """_edit_node_flow copies the is_reference flag onto the existing node
-    (it already copies every other field in place)."""
-    dock, _root = _dock_with(main_window, tmp_path)
-    tree = dock._current_tree()
-    node = tree.nodes[0]
-    node.is_reference = False
-    built = TreeNode(ref=node.ref, kind=node.kind, xy=node.xy, polar=node.polar,
-                     rotation=node.rotation, name=node.name, group=node.group,
-                     is_reference=True)
-    monkeypatch.setattr(dock, "_prompt_node", lambda *a, **k: built)
-    dock._edit_node_flow(tree, node)
-    assert node.is_reference is True
-
-
-def test_render_node_marks_reference(main_window, tmp_path):
-    """A reference node is visually marked in the rendered tree (↩), like the
-    anchor's "⚓" — without breaking the existing render for normal nodes."""
-    dock, _root = _dock_with(main_window, tmp_path)
-    tree = dock._current_tree()
-    tree.nodes[0].is_reference = True
-    dock._rebuild_tabs()
-    item = dock._node_items["AMS1117_REG"]
-    assert "↩" in item.text(0)
-    # normal node untouched
-    assert "↩" not in dock._node_items["R_AROUND"].text(0)
-
-
 # ── clone + anchor_point: the KeyError regression (2026-08-27) ────────────
 
 # A root config whose only clone_placement is anchored via anchor_point to a
