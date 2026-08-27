@@ -416,7 +416,11 @@ class TreesDock(QDockWidget):
             menu.addAction(_("Move to…")).triggered.connect(
                 lambda: self._move_node_flow(tree, node))
         else:
-            # Anchor pseudo-root: set the tree anchor.
+            # Anchor pseudo-root: set the tree anchor, or add its first/next
+            # top-level node (the only way a tree gets nodes at all — there
+            # is no TreeNode to right-click until one exists).
+            menu.addAction(_("Add node")).triggered.connect(
+                lambda: self._add_node_flow(tree))
             menu.addAction(_("Set anchor…")).triggered.connect(
                 lambda: self._set_anchor_flow(tree))
         menu.exec(tree_widget.viewport().mapToGlobal(pos))

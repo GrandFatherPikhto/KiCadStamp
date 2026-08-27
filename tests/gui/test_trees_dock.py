@@ -243,6 +243,60 @@ def test_move_into_own_descendant_is_forbidden(main_window, tmp_path, monkeypatc
     assert not any(c is ams for _label, c in candidates)
 
 
+def _context_menu_actions(dock, item, monkeypatch):
+    """Runs _on_context_menu for `item` with QMenu.exec no-oped (so the menu
+    is never actually shown) and captures the real QAction per label so a
+    test can .trigger() it — same pattern as test_config_tree.py's helper of
+    the same name, added after the 2026-08-14 lambda-capture regression there
+    showed that label-only assertions miss actions that are never wired up."""
+    import gui.docks.trees_dock as td_mod
+    monkeypatch.setattr(td_mod.QMenu, "exec", lambda self, *a, **k: None)
+    captured = []
+    original_add_action = td_mod.QMenu.addAction
+
+    def _record(self, text, *a, **k):
+        action = original_add_action(self, text, *a, **k)
+        captured.append((text, action))
+        return action
+
+    monkeypatch.setattr(td_mod.QMenu, "addAction", _record)
+    tree_widget = dock._current_tree_widget()
+    dock._on_context_menu(tree_widget.visualItemRect(item).center())
+    return captured
+
+
+def test_context_menu_on_anchor_offers_add_node(main_window, tmp_path, monkeypatch):
+    """Regression (2026-08-27): the anchor pseudo-root's context menu only
+    offered "Set anchor…" — an empty or freshly-opened tree had no way to
+    receive its first node through the GUI at all, since _add_node_flow was
+    defined but never wired into any menu. Right-clicking the anchor must
+    also offer "Add node", and triggering it must append to tree.nodes."""
+    empty = _write(tmp_path, """(kicadstamp-trees
+  (version 1)
+  (tree
+    (name "empty_tree")
+    (anchor (origin))))""", name="empty.trees")
+    monkeypatch.setattr(QFileDialog, "getOpenFileName",
+                        lambda *a, **k: (str(empty), "Trees (*.trees)"))
+    dock = TreesDock(main_window)
+    dock._on_open()
+    tree = dock._current_tree()
+    assert tree.nodes == []
+
+    anchor_item = _children(dock._current_tree_widget().invisibleRootItem())[0]
+    actions = dict(_context_menu_actions(dock, anchor_item, monkeypatch))
+    assert "Add node" in actions
+    assert "Set anchor…" in actions
+
+    new_node = TreeNode(ref="FIRST_NODE", kind=None, xy=(0.0, 0.0), polar=None,
+                        rotation=0.0, name=None, group=None)
+    monkeypatch.setattr(dock, "_prompt_node", lambda title: new_node)
+    actions["Add node"].trigger()
+
+    assert tree.nodes == [new_node]
+    assert dock._dirty is True
+
+
 def test_rename_tree_enforces_unique_names(main_window, tmp_path, monkeypatch):
     """Renaming a tree to an existing name is refused (kept unique) — the
     dialog path is mocked, the dock's uniqueness check is exercised."""
