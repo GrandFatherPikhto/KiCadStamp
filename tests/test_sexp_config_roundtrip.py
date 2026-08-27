@@ -284,6 +284,20 @@ def test_sheet_templates_section():
     })
 
 
+def test_nested_dict_in_free_form_root_field():
+    """Free-form root fields (outside the Config dataclass, e.g. fieldstool's
+    fields:/renames:) may hold NESTED dict values — {"R1": {"Role": "X"}}.
+    A nested dict serializes as recursive key-value pairs under its key and
+    must round-trip unambiguously (fix from handoff_2026_08_27_
+    sexp_config_fixes.md §2, which schematic_set_fields/rename_fields need
+    against a .sexp root)."""
+    _roundtrip({
+        "root_sheet": "root.kicad_sch",
+        "fields": {"R1": {"Role": "X"}, "C1": {"Value": "100n"}},
+        "renames": {"Role": {"old": "A", "new": "B"}},
+    })
+
+
 # ── nested dict fields (pairs) ─────────────────────────────────────────────
 
 def test_params_with_numeric_values():

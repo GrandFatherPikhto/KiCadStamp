@@ -18,11 +18,21 @@ from .utils.yaml_loader import safe_load
 
 
 def load_fields_config(path: Path, section: str) -> tuple[str, dict[str, dict[str, str]]]:
-    """(root_sheet, section_entries) from a YAML config at `path`; raises
+    """(root_sheet, section_entries) from a config at `path` (YAML by default,
+    or the parallel .sexp format by extension — 2026-08-27); raises
     FieldsToolError if the file has no root_sheet or no non-empty `section`
-    (the two fatal conditions both callers recognize)."""
+    (the two fatal conditions both callers recognize).
+
+    sexp_to_dict is imported here (function-level), not at module top, to
+    avoid a circular import (sexp_format.py imports _LIST_SECTIONS/
+    _DICT_SECTIONS from config/includes.py at its own module level) — the
+    same reason config/includes.py::_load_config_file does it."""
     with open(path, encoding='utf-8') as f:
-        data = safe_load(f) or {}
+        if path.suffix.lower() == '.sexp':
+            from .config.sexp_format import sexp_to_dict
+            data = sexp_to_dict(f.read()) or {}
+        else:
+            data = safe_load(f) or {}
     root_sheet = data.get('root_sheet')
     if not root_sheet:
         raise FieldsToolError("config has no root_sheet")

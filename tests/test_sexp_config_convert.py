@@ -25,19 +25,24 @@ def _write(tmp_path, name, text) -> Path:
     return p
 
 
-def test_yaml_to_sexp_writes_bak_and_sexp(tmp_path):
+def test_yaml_to_sexp_first_conversion_writes_no_bak(tmp_path):
+    """A fresh conversion (no pre-existing output) writes NO .bak — the
+    input file is never modified and there is nothing at the output path to
+    lose. (The .bak only exists when it protects a pre-existing output, see
+    test_pre_existing_output_is_backed_up_before_overwrite.)"""
     p = _write(tmp_path, "cfg.yaml", "layer: B.Cu\nrules:\n- net: +3V3\n"
                                      "  spokes:\n  - pad: '1'\n    cell: c1\n")
     out = convert_file(p, to_sexp=True)
     assert out == p.with_suffix(".sexp")
     assert out.exists()
-    assert (tmp_path / "cfg.yaml.bak").exists()
+    assert not (tmp_path / "cfg.yaml.bak").exists()
+    assert not (tmp_path / "cfg.sexp.bak").exists()
     text = out.read_text(encoding="utf-8")
     assert text.strip().startswith("(kicadstamp-config")
     assert '"B.Cu"' in text
 
 
-def test_sexp_to_yaml_writes_bak_and_yaml(tmp_path):
+def test_sexp_to_yaml_first_conversion_writes_no_bak(tmp_path):
     p = _write(tmp_path, "cfg.sexp", dict_to_sexp({
         "layer": "B.Cu",
         "cells": {"a": {"layer": "B.Cu"}},
@@ -45,10 +50,47 @@ def test_sexp_to_yaml_writes_bak_and_yaml(tmp_path):
     out = convert_file(p, to_sexp=False)
     assert out == p.with_suffix(".yaml")
     assert out.exists()
-    assert (tmp_path / "cfg.sexp.bak").exists()
+    assert not (tmp_path / "cfg.sexp.bak").exists()
+    assert not (tmp_path / "cfg.yaml.bak").exists()
     data = safe_load(out.read_text(encoding="utf-8")) or {}
     assert data["layer"] == "B.Cu"
     assert data["cells"]["a"]["layer"] == "B.Cu"
+
+
+def test_pre_existing_output_is_backed_up_before_overwrite(tmp_path):
+    """Regression (found in review, 2026-08-27): convert_file() used to back
+    up the INPUT file (which it never modifies) — a pre-existing OUTPUT file
+    was silently destroyed with no recoverable backup. Now the pre-existing
+    output's OLD content must survive as <out>.bak, and the output itself
+    must hold the NEW converted content."""
+    p = _write(tmp_path, "foo.yaml", "layer: B.Cu\n")
+    old_sexp = "(kicadstamp-config\n  (layer \"F.Cu\"))\n"  # hand-written / older
+    (tmp_path / "foo.sexp").write_text(old_sexp, encoding="utf-8")
+
+    out = convert_file(p, to_sexp=True)
+
+    # old output content preserved as .bak of the OUTPUT (not the input)
+    bak = tmp_path / "foo.sexp.bak"
+    assert bak.exists()
+    assert bak.read_text(encoding="utf-8") == old_sexp
+    # input untouched, no bogus input .bak
+    assert not (tmp_path / "foo.yaml.bak").exists()
+    # output holds the NEW converted content
+    assert sexp_to_dict(out.read_text(encoding="utf-8")) == _strip_defaults(
+        safe_load(p.read_text(encoding="utf-8")) or {})
+
+
+def test_pre_existing_output_backed_up_sexp_to_yaml(tmp_path):
+    p = _write(tmp_path, "foo.sexp", dict_to_sexp({"layer": "B.Cu"}))
+    old_yaml = "layer: F.Cu\n"
+    (tmp_path / "foo.yaml").write_text(old_yaml, encoding="utf-8")
+
+    convert_file(p, to_sexp=False)
+
+    bak = tmp_path / "foo.yaml.bak"
+    assert bak.exists()
+    assert bak.read_text(encoding="utf-8") == old_yaml
+    assert not (tmp_path / "foo.sexp.bak").exists()
 
 
 def test_direction_inferred_from_extension(tmp_path):

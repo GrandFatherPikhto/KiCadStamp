@@ -270,6 +270,12 @@ def _typed_value_to_atom(value, kind: str):
 
 
 def _pair_to_sexp(key, value, value_kind: str):
+    """One key-value pair. A scalar value -> one atom; a NESTED dict value
+    (free-form sections, e.g. fieldstool's fields: {R1: {Role: X}}) ->
+    recursive child pairs after the key, so (fields ("R1" (Role "X")))
+    round-trips back to {"R1": {"Role": "X"}} unambiguously."""
+    if isinstance(value, dict):
+        return [key, *[_pair_to_sexp(k, v, "any") for k, v in value.items()]]
     return [key, _typed_value_to_atom(value, value_kind)]
 
 
@@ -602,18 +608,24 @@ def _parse_field(node, desc: tuple, path: str):
 def _parse_pairs_field(node, value_kind: str, path: str) -> dict:
     out: dict = {}
     for pair in node[1:]:
-        if not isinstance(pair, list) or len(pair) != 2:
+        if not isinstance(pair, list) or not pair:
             raise _fatal(
                 "s-expr: expected a key-value pair",
                 [_("in {path}: got {value!r}; a mapping field is a list of "
-                   "two-atom (\"key\" value) pairs").format(path=path, value=pair)])
-        key, value_atom = pair[0], pair[1]
+                   "(\"key\" value) pairs").format(path=path, value=pair)])
+        key = pair[0]
         if type(key) is not str:  # exactly str, never a Symbol
             raise _fatal(
                 "s-expr: expected a quoted string key in a pair",
                 [_("in {path}: the key of a pair must be a quoted string")
                  .format(path=path)])
-        out[key] = _atom_to_value(value_atom, value_kind, f"{path}.{key}")
+        rest = pair[1:]
+        if len(rest) == 1 and not isinstance(rest[0], list):
+            out[key] = _atom_to_value(rest[0], value_kind, f"{path}.{key}")
+        else:
+            # nested dict value (free-form, e.g. fields: {R1: {Role: X}}) —
+            # the remaining children are themselves pairs
+            out[key] = _parse_pairs_field([sym("_"), *rest], "any", f"{path}.{key}")
     return out
 
 

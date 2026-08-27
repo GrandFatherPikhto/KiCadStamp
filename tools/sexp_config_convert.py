@@ -10,7 +10,9 @@ and writes it in the OTHER format:
 
 The direction is inferred from the input file's extension, overridable with
 --to-sexp / --to-yaml. Both directions:
-  - write a .bak of the ORIGINAL input file before touching anything;
+  - back up an existing OUTPUT file before overwriting it (the input is never
+    modified, so it needs no backup — the same backup-the-write-target
+    convention as entity_delete.py::backup_file());
   - run a round-trip self-verify (the written output parsed back equals the
     original dict, default-stripped — the format omits default-valued fields)
     and only then report success, so a broken conversion never silently
@@ -73,8 +75,9 @@ def _write_dict(path: Path, data: dict) -> None:
 def convert_file(path: Path, to_sexp: Optional[bool] = None) -> Path:
     """Convert one config file to the opposite format. Returns the written
     path. `to_sexp` overrides the extension-inferred direction; None means
-    "read the extension". Always writes a .bak of the input and self-verifies
-    the output before returning (raises on a failed round-trip)."""
+    "read the extension". Backs up an existing OUTPUT file before overwriting
+    it and self-verifies the output before returning (raises on a failed
+    round-trip)."""
     if not path.exists():
         raise FileNotFoundError(f"input file not found: {path}")
 
@@ -88,9 +91,16 @@ def convert_file(path: Path, to_sexp: Optional[bool] = None) -> Path:
 
     data = _read_dict(path)
 
-    # .bak of the original input, before anything is written
-    bak_path = path.with_name(path.name + ".bak")
-    shutil.copy2(path, bak_path)
+    # Back up whatever is about to be overwritten (out_path) — NOT the input,
+    # which this function never modifies. Only when out_path already exists
+    # (a fresh conversion has nothing to lose). Matches entity_delete.py's
+    # backup_file() convention: back up the write target, unconditionally
+    # relative to its own existence, before writing.
+    if out_path.exists():
+        bak_path = out_path.with_name(out_path.name + ".bak")
+        shutil.copy2(out_path, bak_path)
+    else:
+        bak_path = None
 
     _write_dict(out_path, data)
 
