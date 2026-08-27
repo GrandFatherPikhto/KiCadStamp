@@ -739,3 +739,76 @@ def test_reread_node_flow_clone_anchor_point_anchor_shows_warning_not_crash(
     assert "anchor_point" in str(warnings[0])
     assert (node.xy, node.polar, node.rotation) == before
     assert dock._dirty is False
+
+
+# ── Denis's live case 2026-08-27: FORK-1 must not block a passive live read ──
+
+# A new (unsaved) tree that already holds CH0_DAC_BUF as a node, while the
+# record's config entry STILL carries its legacy pre-trees inline anchor
+# (anchor_role/anchor_sheet/anchor_cluster: FPGA). Adding a SECOND node
+# (CH1_DAC_BUF) and pressing "Read current position" used to fail with
+# "Node 'CH0_DAC_BUF' is placed by a tree but its own config record already
+# has an inline anchor (anchor_role)" — because _linked_base_for() ran a FULL
+# link_trees(cfg, [tree]) that FORK-1-validates EVERY node, not just the one
+# being read. The read is a passive live-board lookup, not a config-computed
+# position, so it must resolve regardless.
+DENIS_CFG = {
+    "clone_placements": [
+        {"name": "CH0_DAC_BUF", "cluster": "DAC_BUF", "cell": "dac_buf",
+         "xy": [0.0, 25.0], "anchor_role": "FPGA", "anchor_sheet": "FPGA",
+         "anchor_cluster": "FPGA"},
+        {"name": "CH1_DAC_BUF", "cluster": "DAC_BUF", "cell": "dac_buf",
+         "xy": [25.0, 0.0]},
+    ],
+    "trees": [
+        {"name": "10CL06", "anchor": {"origin": True},
+         "nodes": [{"ref": "CH0_DAC_BUF", "kind": "clone"}]},
+    ],
+}
+
+
+def test_linked_base_for_anchor_ignores_existing_node_inline_anchor(
+        main_window, tmp_path):
+    """Regression 2026-08-27: resolving the base for a NEW top-level node
+    (parent_node=None) must NOT run link_trees over the whole tree — an
+    EXISTING node whose record carries a legacy inline anchor (CH0_DAC_BUF
+    with anchor_role) used to FORK-1-fail the whole link and block the read.
+    The anchor base resolves standalone now (origin here)."""
+    import gui.docks.trees_dock as td_mod
+    dock, _root = _dock_with(main_window, tmp_path, DENIS_CFG)
+    tree = dock._current_tree()
+    assert [n.ref for n in tree.nodes] == ["CH0_DAC_BUF"]
+
+    ref, record, is_origin = td_mod._linked_base_for(dock._cfg, tree, None)
+    assert is_origin is True
+    assert ref is None
+    assert record is None
+
+
+def test_resolve_live_offset_reads_new_ref_despite_existing_node_inline_anchor(
+        main_window, tmp_path, monkeypatch):
+    """Regression 2026-08-27 (Denis's exact flow): "Read current position" for
+    CH1_DAC_BUF — a SECOND, brand-new node added to a tree that already holds
+    CH0_DAC_BUF (legacy anchor_role) — resolves through the live resolvers.
+    The unrelated node's FORK-1 conflict must not block the passive read.
+    link_trees() itself still rejects the conflict (test_link_trees.py)."""
+    import gui.docks.trees_dock as td_mod
+    from kicadstamp.domain.geometry import Vector2
+    from kicadstamp.utils.units import MM
+
+    dock, _root = _dock_with(main_window, tmp_path, DENIS_CFG)
+    tree = dock._current_tree()
+
+    monkeypatch.setattr(
+        td_mod, "resolve_base_live_position",
+        lambda adapter, cfg, ref, record, resolved_points, sheet_names:
+        Vector2.from_xy(int(10.0 * MM), int(20.0 * MM)))
+    monkeypatch.setattr(
+        td_mod, "resolve_base_rotation_deg",
+        lambda adapter, cfg, ref, record, sheet_names: 0.0)
+
+    offset_mm, rotation = td_mod._resolve_live_offset(
+        dock._cfg, object(), {}, tree, None, "CH1_DAC_BUF", "clone")
+
+    assert offset_mm == (10.0, 20.0)  # relative to the origin anchor
+    assert rotation == 0.0

@@ -225,6 +225,24 @@ def test_fork1_inline_anchor_role_is_fatal(tmp_path):
         link_trees(cfg, trees)
 
 
+def test_fork1_clone_with_inline_anchor_role_still_fatal(tmp_path):
+    """Regression guard 2026-08-27: the GUI live-read no longer runs
+    link_trees (trees_dock._linked_base_for), but the REAL apply/redraw path
+    (tree_position.py / run_curated_tree_redraw) still FORK-1-rejects a clone
+    record that carries its own legacy anchor_role while placed by a tree —
+    Denis's live CH0_DAC_BUF case, now rejected only where it matters."""
+    cfg = _cfg(clone_placements=[
+        ClonePlacement(cluster="DAC_BUF", cell="c", xy=(0.0, 0.0),
+                       name="CH0_DAC_BUF", anchor_role="FPGA"),
+    ])
+    trees = _tree(
+        '(tree (name "10CL06") (anchor (origin))\n'
+        '      (node (ref "CH0_DAC_BUF") (kind clone) (xy 1 2)))',
+        tmp_path=tmp_path)
+    with pytest.raises(ValidationError, match="inline anchor"):
+        link_trees(cfg, trees)
+
+
 def test_fork1_inline_anchor_point_is_fatal(tmp_path):
     cfg = _cfg(coordinate_placements=[
         CoordinatePlacement(cluster="CP_C", role="CP_R", anchor_point="pnt"),

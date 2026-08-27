@@ -30,11 +30,10 @@ from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
 from kicadstamp.link_trees import (
-    LinkedNode,
-    LinkedTree,
     _PLACEABLE_KINDS,
     _build_by_key_index,
     _build_by_name_index,
+    _resolve_anchor_ref,
     _resolve_node_ref,
     link_trees,
 )
@@ -84,41 +83,28 @@ def _resolve_probe_ref(cfg, ref: str, kind: str | None) -> tuple[Record | None, 
     return _resolve_node_ref(probe, by_key, by_name)
 
 
-def _find_linked_node(linked: LinkedTree, node: TreeNode) -> Optional[LinkedNode]:
-    """DFS by node identity — the LinkedNode wrapping `node`, or None."""
-    def walk(linked_node: LinkedNode) -> Optional[LinkedNode]:
-        if linked_node.node is node:
-            return linked_node
-        for child in linked_node.children:
-            found = walk(child)
-            if found is not None:
-                return found
-        return None
-
-    for top in linked.nodes:
-        found = walk(top)
-        if found is not None:
-            return found
-    return None
-
-
 def _linked_base_for(cfg, tree: Tree,
                      parent_node: Optional[TreeNode]) -> tuple[str | None, Record | None, bool]:
     """(ref, record, is_origin) for the base a new/edited node is relative to
     — either the tree's own anchor (parent_node is None) or another node's own
-    resolved record (record None for an external node). Raises ValidationError
-    if link_trees fails on the tree's current state (e.g. a broken existing
-    node) — the caller reports it instead of crashing over an unrelated tree
-    problem."""
-    linked = link_trees(cfg, [tree])[0]
+    resolved record (record None for an external node). Resolves the parent the
+    same lightweight way _resolve_probe_ref already resolves the child (a
+    single-ref link via link_trees's private index builders) — deliberately
+    NOT a full link_trees(cfg, [tree]) call, which would FORK-1-validate every
+    unrelated node currently in the tree just to read ONE node's live position
+    (a passive live-board read, not a config-computed position). Raises
+    ValidationError on a resolution failure — the caller reports it instead of
+    crashing over an unrelated tree problem."""
     if parent_node is None:
-        anchor = linked.anchor
-        return anchor.anchor.ref, anchor.record, anchor.is_origin
-    found = _find_linked_node(linked, parent_node)
-    if found is None:
-        raise ValidationError(_("Couldn't locate node {ref!r} in the linked tree")
-                              .format(ref=parent_node.ref))
-    return found.node.ref, found.record, False
+        anchor = tree.anchor
+        if anchor.is_origin:
+            return None, None, True
+        records = build_records(cfg)
+        by_name = _build_by_name_index(records)
+        record, _is_external = _resolve_anchor_ref(anchor, by_name)
+        return anchor.ref, record, False
+    record, _is_external = _resolve_probe_ref(cfg, parent_node.ref, parent_node.kind)
+    return parent_node.ref, record, False
 
 
 def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
@@ -131,8 +117,7 @@ def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
     resolvers — nothing duplicated here. Rotation is None when either side has
     no rotation concept (point kind) — the caller must leave the field blank,
     never write a fake 0. Raises ValidationError on any resolution failure (ref
-    not found/ambiguous, adapter not connected, ref missing on the live board,
-    broken tree state via link_trees)."""
+    not found/ambiguous, adapter not connected, ref missing on the live board)."""
     parent_ref, parent_record, parent_is_origin = _linked_base_for(cfg, tree, parent_node)
     child_record, _is_external = _resolve_probe_ref(cfg, ref, kind)
 
