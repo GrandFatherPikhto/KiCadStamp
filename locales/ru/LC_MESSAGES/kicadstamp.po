@@ -7946,3 +7946,29 @@ msgstr ""
 "Когда включено, Rename в дереве конфигурации показывает диалог подтверждения "
 "после переименования. Снимите, чтобы переименовывать молча — "
 "строка с итогом всё равно попадёт в Log."
+
+#: gui/docks/trees_dock.py (reference-only node, 2026-08-28)
+msgid "Reference only (won't be redrawn from this tree)"
+msgstr "Только reference (из этого дерева перерисовано не будет)"
+
+#: gui/docks/trees_dock.py (reference-only node, 2026-08-28)
+msgid ""
+"The tree will not own this record's position: it is only "
+"documented and read here. Its config record may keep an inline "
+"anchor, and \"Redraw selected\" will not move it."
+msgstr ""
+"Дерево не будет владеть позицией этой записи: она здесь только "
+"документируется и читается. Запись в конфиге может сохранить свой inline-якорь, "
+"а «Redraw selected» её не сдвинет."
+
+#: gui/docks/trees_dock.py (reference-only node, 2026-08-28)
+msgid "Reference only — the tree documents/reads this record, never redraws it."
+msgstr "Только reference — дерево документирует/читает эту запись и никогда её не перерисовывает."
+
+#: kicadstamp/tree_position.py (reference-only node, 2026-08-28)
+msgid "Node {ref!r} is reference-only — not redrawn from this tree"
+msgstr "Узел {ref!r} — только reference, из этого дерева не перерисовывается"
+
+#: kicadstamp/trees.py (reference-only node, 2026-08-28)
+msgid "node {ref!r}: (reference) and (kind external) are mutually exclusive"
+msgstr "узел {ref!r}: (reference) и (kind external) взаимоисключающие"

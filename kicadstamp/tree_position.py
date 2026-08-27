@@ -183,10 +183,12 @@ def curated_redraw_plan(linked_tree: LinkedTree, selected_refs: set[str]
     """DFS over the linked tree, parent strictly before child. A node emits
     into `names` (as record.name — record.name == node.ref by construction of
     link_trees's index) ONLY if record is not None and record.kind != "point"
-    (external AND point nodes are walked — needed as a live base for
-    children's position resolve — but never emit a name: apply_only_filter
-    has no "points" support at all, see apply_pipeline.py, and external isn't
-    a config record to redraw).
+    AND the node is not reference-only (external AND point nodes are walked —
+    needed as a live base for children's position resolve — but never emit a
+    name: apply_only_filter has no "points" support at all, see
+    apply_pipeline.py, and external isn't a config record to redraw; a
+    reference node is walked as a live base for its children but never emits,
+    even when selected — with an explicit warning instead of silent skipping).
 
     Warning: a selected node whose parent (another node, OR the tree's own
     anchor) is NOT in the selection — covers both plain nesting and the
@@ -217,7 +219,12 @@ def curated_redraw_plan(linked_tree: LinkedTree, selected_refs: set[str]
                 .format(ref=ref, parent=parent_label))
         if (is_selected and linked_node.record is not None
                 and linked_node.record.kind != "point"):
-            names.append(linked_node.record.name)
+            if linked_node.node.is_reference:
+                warnings.append(
+                    _("Node {ref!r} is reference-only — not redrawn from this tree")
+                    .format(ref=ref))
+            else:
+                names.append(linked_node.record.name)
         for child in linked_node.children:
             walk(child, parent_in_sel=is_selected, parent_label=ref)
 

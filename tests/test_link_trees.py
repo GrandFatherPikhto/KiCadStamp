@@ -395,3 +395,41 @@ def test_multiple_trees_linked_independently(tmp_path):
     assert [t.name for t in linked] == ["one", "two"]
     assert linked[0].nodes[0].record.name == "CL_A"
     assert linked[1].nodes[0].record.name == "CL_B"
+
+
+# ── reference nodes (design_2026_08_28_tree_node_reference_scope.md) ───────
+
+def test_fork1_skipped_for_reference_node(tmp_path):
+    """A reference node's record may carry an inline anchor (the tree only
+    documents/reads it, never owns its position) — FORK-1 must NOT fire.
+    This is Denis's live CH0/1/2_DAC_BUF case: the record keeps anchor_role,
+    the tree marks the node (reference)."""
+    cfg = _cfg(clone_placements=[
+        ClonePlacement(cluster="CL_A", cell="c", xy=(0.0, 0.0),
+                       anchor_role="ROLE_X"),
+    ])
+    trees = _tree(
+        '(tree (name "t") (anchor (origin))\n'
+        '      (node (ref "CL_A") (kind clone) (reference) (xy 1 2)))',
+        tmp_path=tmp_path)
+    linked = link_trees(cfg, trees)[0]
+    n = linked.nodes[0]
+    assert n.record is not None
+    assert n.is_reference is True
+    assert n.node.is_reference is True
+
+
+def test_fork1_still_fatal_for_authoritative_node(tmp_path):
+    """Without (reference), FORK-1 still fires for a record carrying an
+    inline anchor — the strict default is unchanged (a regression guard: the
+    exemption must be opt-in per node, not a relaxation of the check)."""
+    cfg = _cfg(clone_placements=[
+        ClonePlacement(cluster="CL_A", cell="c", xy=(0.0, 0.0),
+                       anchor_role="ROLE_X"),
+    ])
+    trees = _tree(
+        '(tree (name "t") (anchor (origin))\n'
+        '      (node (ref "CL_A") (kind clone) (xy 1 2)))',
+        tmp_path=tmp_path)
+    with pytest.raises(ValidationError, match="inline anchor"):
+        link_trees(cfg, trees)

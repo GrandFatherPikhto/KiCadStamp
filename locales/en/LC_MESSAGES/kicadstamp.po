@@ -8033,3 +8033,26 @@ msgid ""
 "dialog after the entry is renamed. Uncheck to rename silently — "
 "the summary line still goes to the Log."
 msgstr ""
+
+#: gui/docks/trees_dock.py (reference-only node, 2026-08-28)
+msgid "Reference only (won't be redrawn from this tree)"
+msgstr ""
+
+#: gui/docks/trees_dock.py (reference-only node, 2026-08-28)
+msgid ""
+"The tree will not own this record's position: it is only "
+"documented and read here. Its config record may keep an inline "
+"anchor, and \"Redraw selected\" will not move it."
+msgstr ""
+
+#: gui/docks/trees_dock.py (reference-only node, 2026-08-28)
+msgid "Reference only — the tree documents/reads this record, never redraws it."
+msgstr ""
+
+#: kicadstamp/tree_position.py (reference-only node, 2026-08-28)
+msgid "Node {ref!r} is reference-only — not redrawn from this tree"
+msgstr ""
+
+#: kicadstamp/trees.py (reference-only node, 2026-08-28)
+msgid "node {ref!r}: (reference) and (kind external) are mutually exclusive"
+msgstr ""

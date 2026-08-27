@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (QComboBox, QDialog, QDockWidget,
+from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDockWidget,
                              QFormLayout, QHBoxLayout, QInputDialog, QLabel,
                              QLineEdit, QMenu, QMessageBox, QPushButton,
                              QTabWidget, QTreeWidget, QTreeWidgetItem,
@@ -337,6 +337,12 @@ class TreesDock(QDockWidget):
             tag = _KIND_TAGS.get(node.kind)
             if tag:
                 text = f"{text} ({tag})"
+        if node.is_reference:
+            # Visual mark (like the anchor's "⚓"): reference-only nodes are
+            # documented/read but never redrawn by this tree.
+            text = f"{text} ↩"
+            item.setToolTip(0, _("Reference only — the tree documents/reads "
+                                 "this record, never redraws it."))
         item.setText(0, text)
         # Keep the TreeNode itself on the item — needed by the static preview
         # and structural editing.
@@ -645,6 +651,7 @@ class TreesDock(QDockWidget):
         node.rotation = built.rotation
         node.name = built.name
         node.group = built.group
+        node.is_reference = built.is_reference
         self._mark_dirty()
         self._rebuild_tabs()
 
@@ -869,6 +876,17 @@ class _NodeDialog(QDialog):
         self.group_edit = QLineEdit()
         form.addRow(_("Group (optional):"), self.group_edit)
 
+        # reference — tree documents/reads only, never owns the record's
+        # position (design_2026_08_28_tree_node_reference_scope.md). Default
+        # unchecked = current authoritative behavior (FORK-1 stays in force).
+        self.reference_checkbox = QCheckBox(
+            _("Reference only (won't be redrawn from this tree)"))
+        self.reference_checkbox.setToolTip(_(
+            "The tree will not own this record's position: it is only "
+            "documented and read here. Its config record may keep an inline "
+            "anchor, and \"Redraw selected\" will not move it."))
+        form.addRow("", self.reference_checkbox)
+
         buttons = QHBoxLayout()
         self.ok_button = QPushButton(_("OK"))
         self.ok_button.clicked.connect(self.accept)
@@ -908,6 +926,7 @@ class _NodeDialog(QDialog):
         self.rotation_edit.setText(str(existing.rotation))
         self.name_edit.setText(existing.name or "")
         self.group_edit.setText(existing.group or "")
+        self.reference_checkbox.setChecked(existing.is_reference)
 
     def _update_read_button_state(self) -> None:
         """Button enabled only once BOTH a ref and an explicit kind are set —
@@ -1010,7 +1029,8 @@ class _NodeDialog(QDialog):
         name = self.name_edit.text().strip() or None
         group = self.group_edit.text().strip() or None
         return TreeNode(ref=ref, kind=self.kind_combo.currentData(), xy=xy,
-                        polar=polar, rotation=rotation, name=name, group=group)
+                        polar=polar, rotation=rotation, name=name, group=group,
+                        is_reference=self.reference_checkbox.isChecked())
 
 
 class _AnchorDialog(QDialog):

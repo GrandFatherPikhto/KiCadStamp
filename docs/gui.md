@@ -214,6 +214,17 @@ reaches the disk until **Save**, which replaces the whole root `trees:` section 
 config_writer chokepoint (a fresh `.bak` is made first); linking/validation runs at Save via
 `kicadstamp.link_trees`.
 
+A node can be marked **Reference only (won't be redrawn from this tree)** in the Add/Edit-node
+dialog, shown with a `↩` suffix. A reference node is still walked as a live base for its children
+and supports **Read current position**, but the tree never owns its record's position: **Redraw
+selected** never moves it (an explicit "reference-only" warning is shown instead of silently
+skipping), and Save does NOT require its record to drop an inline anchor (FORK-1 is skipped for
+it). Use this to document/read a placement that still moves through its own inline anchor via the
+regular Apply (e.g. a channel's `CH0/1/2_DAC_BUF`), without transferring position ownership to the
+tree. `(reference)` is the s-expr form, `"reference": true` the config-dict form; it is fatal
+together with `(kind external)` (external never resolves a record, so there is nothing to
+reference).
+
 ## Detail dock
 
 Extract/Placer/Project/Thermal via/Points/Rules/Net traces/Cells/Settings below all live as tabs

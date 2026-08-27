@@ -57,6 +57,10 @@ class TreeNode:
     rotation: float
     name: str | None       # display label, default = ref
     group: str | None      # pure UI tag, does not participate in geometry
+    is_reference: bool = False  # tree only documents/reads this node, never owns
+                                # its record's position (FORK-1 skipped; not
+                                # emitted into redraw) — mirrors
+                                # TreeAnchor.is_external's default-False pattern.
     children: list["TreeNode"] = field(default_factory=list)
 
 
@@ -154,14 +158,20 @@ def _parse_node(node, seen_refs: set[str], location: str) -> TreeNode:
 
     raw_name = atom(node, "name")
     raw_group = atom(node, "group")
+    kind = _parse_kind(node)
+    is_reference = child(node, "reference") is not None
+    if is_reference and kind == "external":
+        _fatal(_("node {ref!r}: (reference) and (kind external) are mutually exclusive")
+               .format(ref=ref))
     return TreeNode(
         ref=ref,
-        kind=_parse_kind(node),
+        kind=kind,
         xy=xy,
         polar=polar,
         rotation=_parse_rotation(node),
         name=sval(raw_name) if raw_name is not None else None,
         group=sval(raw_group) if raw_group is not None else None,
+        is_reference=is_reference,
         children=parsed_children,
     )
 
@@ -239,6 +249,8 @@ def _node_to_sexp(node: TreeNode) -> list:
         out.append([sym("name"), node.name])
     if node.group is not None:
         out.append([sym("group"), node.group])
+    if node.is_reference:
+        out.append([sym("reference")])
     for child_node in node.children:
         out.append(_node_to_sexp(child_node))
     return out
@@ -307,6 +319,8 @@ def _node_to_dict(node: TreeNode) -> dict:
         out["name"] = node.name
     if node.group is not None:
         out["group"] = node.group
+    if node.is_reference:
+        out["reference"] = True
     if node.children:
         out["children"] = [_node_to_dict(c) for c in node.children]
     return out
@@ -360,6 +374,11 @@ def _dict_node(data: dict, seen_refs: set[str], location: str) -> TreeNode:
         _fatal(_("node {ref!r}: invalid kind {kind!r} — expected one of {kinds}")
                .format(ref=ref, kind=raw_kind, kinds=", ".join(KINDS)))
 
+    is_reference = bool(data.get("reference"))
+    if is_reference and raw_kind == "external":
+        _fatal(_("node {ref!r}: (reference) and (kind external) are mutually exclusive")
+               .format(ref=ref))
+
     raw_rotation = data.get("rotation")
     if raw_rotation is not None and not isinstance(raw_rotation, (int, float)):
         _fatal(_("node {ref!r}: rotation must be a number").format(ref=ref))
@@ -372,6 +391,7 @@ def _dict_node(data: dict, seen_refs: set[str], location: str) -> TreeNode:
         rotation=float(raw_rotation) if raw_rotation is not None else 0.0,
         name=data.get("name"),
         group=data.get("group"),
+        is_reference=is_reference,
         children=[_dict_node(c, seen_refs, f"{location}.node") for c in data.get("children") or []],
     )
 

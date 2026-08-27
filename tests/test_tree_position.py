@@ -54,6 +54,16 @@ def _linked_node(ref, record=None, is_external=False, children=None) -> LinkedNo
                       is_external=is_external, children=children or [])
 
 
+def _linked_reference_node(ref, record=None, children=None) -> LinkedNode:
+    """A LinkedNode whose TreeNode carries is_reference=True — the tree only
+    documents/reads the record, never owns its position (design_2026_08_28_
+    tree_node_reference_scope.md)."""
+    return LinkedNode(
+        node=TreeNode(ref=ref, kind=None, xy=None, polar=None, rotation=0.0,
+                      name=None, group=None, is_reference=True, children=[]),
+        record=record, is_external=False, is_reference=True, children=children or [])
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # node_offset / node_position — pure geometry
 # ═══════════════════════════════════════════════════════════════════════════
@@ -606,6 +616,38 @@ def test_plan_no_selection_emits_nothing():
     anchor = LinkedAnchor(anchor=TreeAnchor(ref=None, is_origin=True),
                           record=None, is_origin=True, is_external=False)
     tree = LinkedTree(name="t", anchor=anchor, nodes=[node])
+
+    names, warnings = curated_redraw_plan(tree, set())
+    assert names == []
+    assert warnings == []
+
+
+def test_plan_reference_node_selected_warns_and_not_emitted():
+    """A SELECTED reference node must not appear in `names` (the tree never
+    owns its position) and must produce an explicit warning — not silent.
+    Its authoritative child still redraws (reference-parent base scenario,
+    D3): the reference node is walked as a live base for its children."""
+    child = _linked_node("R_OUT", record=_record("clone", "R_OUT"))
+    ref_node = _linked_reference_node(
+        "CH2_DAC_BUF", record=_record("clone", "CH2_DAC_BUF"), children=[child])
+    anchor = LinkedAnchor(anchor=TreeAnchor(ref=None, is_origin=True),
+                          record=None, is_origin=True, is_external=False)
+    tree = LinkedTree(name="t", anchor=anchor, nodes=[ref_node])
+
+    names, warnings = curated_redraw_plan(tree, {"CH2_DAC_BUF", "R_OUT"})
+    assert names == ["R_OUT"]          # child still redraws
+    assert "CH2_DAC_BUF" not in names  # reference node never emits
+    assert any("reference-only" in w for w in warnings)
+
+
+def test_plan_reference_node_unselected_no_warning():
+    """An unselected reference node emits nothing and warns nothing — the
+    flag only matters when the user would otherwise expect a move."""
+    ref_node = _linked_reference_node("CH2_DAC_BUF",
+                                      record=_record("clone", "CH2_DAC_BUF"))
+    anchor = LinkedAnchor(anchor=TreeAnchor(ref=None, is_origin=True),
+                          record=None, is_origin=True, is_external=False)
+    tree = LinkedTree(name="t", anchor=anchor, nodes=[ref_node])
 
     names, warnings = curated_redraw_plan(tree, set())
     assert names == []

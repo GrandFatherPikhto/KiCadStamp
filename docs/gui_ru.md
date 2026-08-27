@@ -215,6 +215,17 @@ position** в диалоге Add/Edit node — это пассивное чте�
 root-конфига через единый config_writer (сначала делается свежий `.bak`); линковка и валидация
 выполняются при Save через `kicadstamp.link_trees`.
 
+Узел можно пометить **Reference only (won't be redrawn from this tree)** в диалоге Add/Edit node —
+визуально такой узел помечается суффиксом `↩`. Reference-узел по-прежнему ходится как живая база
+для своих потомков и поддерживает **Read current position**, но дерево НЕ владеет позицией его
+записи: **Redraw selected** его никогда не двигает (вместо молчаливого пропуска — явное
+предупреждение «reference-only»), а при Save от его записи НЕ требуется удалять inline-якорь
+(FORK-1 для него пропускается). Используйте это, чтобы документировать/читать размещение, которое
+по-прежнему двигается через свой inline-якорь обычным Apply (например, `CH0/1/2_DAC_BUF` каналов),
+не передавая дереву владение позицией. В s-expr — `(reference)`, в dict-форме конфига —
+`"reference": true`; несовместимо с `(kind external)` (external не резолвит запись — ссылаться не
+на что).
+
 ## Detail dock
 
 Extract/Placer/Project/Thermal via/Points/Rules/Net traces/Cells/Settings ниже — всё это табы

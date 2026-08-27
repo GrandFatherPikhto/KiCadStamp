@@ -9,7 +9,9 @@ pass by catching the WRONG validation error, which masks the real cause.
 import pytest
 
 from kicadstamp.exceptions import ValidationError
-from kicadstamp.trees import Tree, TreeAnchor, TreeNode, load_trees, save_trees
+from kicadstamp.trees import (
+    Tree, TreeAnchor, TreeNode, load_trees, save_trees, tree_from_dict, tree_to_dict,
+)
 
 
 def _write(tmp_path, text, name="trees.trees"):
@@ -408,3 +410,59 @@ def test_save_trees_writes_non_default_fields(tmp_path):
     assert "(rotation 90.0)" in text
     assert '(name "ext")' in text
     assert '(group "g")' in text
+
+
+# ── reference node flag (design_2026_08_28_tree_node_reference_scope.md) ────
+
+def test_node_reference_marker_is_parsed(tmp_path):
+    """(reference) on a node -> is_reference True (default False otherwise) —
+    the flag that lets a tree document/read a record without owning its
+    position."""
+    text = """(kicadstamp-trees
+  (tree
+    (name "t")
+    (anchor (origin))
+    (node (ref "R1") (kind clone) (reference) (xy 1.0 2.0))
+    (node (ref "R2") (xy 3.0 4.0))))"""
+    n1, n2 = load_trees(_write(tmp_path, text))[0].nodes
+    assert n1.is_reference is True
+    assert n2.is_reference is False
+
+
+def test_node_reference_roundtrip_sexp(tmp_path):
+    """save_trees -> load_trees preserves is_reference (round-trip contract)."""
+    text = """(kicadstamp-trees
+  (tree
+    (name "t")
+    (anchor (origin))
+    (node (ref "R1") (kind clone) (reference) (xy 1.0 2.0))))"""
+    trees = load_trees(_write(tmp_path, text))
+    assert trees[0].nodes[0].is_reference is True
+    out = tmp_path / "out.trees"
+    save_trees(str(out), trees)
+    assert load_trees(str(out)) == trees
+
+
+def test_node_reference_external_mutually_exclusive(tmp_path):
+    """(reference) + (kind external) is contradictory — external never
+    resolves a record, so there is nothing to "reference" (fatal, never a
+    silent pick)."""
+    text = """(kicadstamp-trees
+  (tree
+    (name "t")
+    (anchor (origin))
+    (node (ref "FPGA1") (kind external) (reference))))"""
+    with pytest.raises(ValidationError, match="mutually exclusive"):
+        load_trees(_write(tmp_path, text))
+
+
+def test_node_reference_dict_roundtrip():
+    """The config dict-inlay bridge (tree_to_dict/tree_from_dict) carries
+    is_reference the same way the s-expr writer does — 'reference': true."""
+    node = TreeNode(ref="R1", kind="clone", xy=None, polar=None,
+                    rotation=0.0, name=None, group=None, is_reference=True)
+    d = tree_to_dict(Tree(name="t", anchor=TreeAnchor(ref=None, is_origin=True),
+                          nodes=[node]))
+    assert d["nodes"][0]["reference"] is True
+    back = tree_from_dict(d)
+    assert back.nodes[0].is_reference is True
