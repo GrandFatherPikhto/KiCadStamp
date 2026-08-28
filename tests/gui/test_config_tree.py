@@ -9,51 +9,45 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import pytest
-import yaml
 from PyQt6.QtWidgets import QMessageBox
 
 import gui.docks.config_tree as config_tree_mod
 from gui.docks.config_tree import ConfigTreeDock
 from gui import settings
+from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 
-MINIMAL_CELL = """
-cells:
-  one_role:
-    components:
-      - role: THE_ROLE
-        offset_along_mm: 0.0
-        offset_across_mm: 0.0
-        angle_deg: 0.0
-"""
+# The component offsets are all 0.0 — the s-expr default, so they round-trip
+# OMITTED (dict_to_sexp drops default-valued fields). Keeping them out of the
+# constant makes _load(root) == MINIMAL_CELL exact (2026-08-28, .sexp migration).
+MINIMAL_CELL = {
+    "cells": {
+        "one_role": {
+            "components": [{"role": "THE_ROLE"}],
+        },
+    },
+}
 
 # A root with EVERY recognized section present (one leaf each) — used by the
 # context-menu filtering tests (2026-08-13, plan context_menu_by_section) so
 # every category/leaf exists in the same tree.
-ALL_SECTIONS_YAML = """
-cells:
-  my_cell:
-    components: []
-extract_profiles:
-  my_profile:
-    params: {}
-clone_profiles:
-  my_clone:
-    params: {}
-thermal_via_arrays:
-  - name: my_tva
-clone_placements:
-  - name: my_placement
-    cell: my_cell
-coordinate_placements:
-  - name: my_coord
-    cluster: CHAN
-    role: R
-points:
-  my_point:
-    xy: [1.0, 2.0]
-rules:
-  - net: +3V3
-"""
+ALL_SECTIONS = {
+    "cells": {"my_cell": {}},
+    "extract_profiles": {"my_profile": {"params": {}}},
+    "clone_profiles": {"my_clone": {"params": {}}},
+    "thermal_via_arrays": [{"name": "my_tva"}],
+    "clone_placements": [{"name": "my_placement", "cell": "my_cell"}],
+    "coordinate_placements": [{"name": "my_coord", "cluster": "CHAN", "role": "R"}],
+    "points": {"my_point": {"xy": [1.0, 2.0]}},
+    "rules": [{"net": "+3V3"}],
+}
+
+
+def _write(path, data) -> None:
+    path.write_text(dict_to_sexp(data), encoding="utf-8")
+
+
+def _load(path) -> dict:
+    return sexp_to_dict(path.read_text(encoding="utf-8")) or {}
 
 
 def _find(item, text):
@@ -65,52 +59,52 @@ def _find(item, text):
 
 
 def test_root_file_own_sections_shown_directly(main_window, tmp_path):
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
     root_item = dock.tree.topLevelItem(0)
-    assert root_item.text(0) == "root.yaml"
+    assert root_item.text(0) == "root.sexp"
     cells = _find(root_item, "Cells")
     assert cells.child(0).text(0) == "one_role"
 
 
 def test_included_file_becomes_a_nested_file_node_not_merged_in(main_window, tmp_path):
-    (tmp_path / "sub.yaml").write_text(MINIMAL_CELL, encoding="utf-8")
-    root = tmp_path / "root.yaml"
-    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
+    _write(tmp_path / "sub.sexp", MINIMAL_CELL)
+    root = tmp_path / "root.sexp"
+    _write(root, {"include": ["sub.sexp"]})
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
     root_item = dock.tree.topLevelItem(0)
-    assert root_item.childCount() == 1  # nothing of its own, just sub.yaml
+    assert root_item.childCount() == 1  # nothing of its own, just sub.sexp
     sub_item = root_item.child(0)
-    assert sub_item.text(0) == "sub.yaml"
+    assert sub_item.text(0) == "sub.sexp"
     assert _find(sub_item, "Cells").child(0).text(0) == "one_role"
 
 
 def test_nested_includes_recurse(main_window, tmp_path):
-    (tmp_path / "c.yaml").write_text(MINIMAL_CELL, encoding="utf-8")
-    (tmp_path / "b.yaml").write_text("include:\n  - c.yaml\n", encoding="utf-8")
-    root = tmp_path / "root.yaml"
-    root.write_text("include:\n  - b.yaml\n", encoding="utf-8")
+    _write(tmp_path / "c.sexp", MINIMAL_CELL)
+    _write(tmp_path / "b.sexp", {"include": ["c.sexp"]})
+    root = tmp_path / "root.sexp"
+    _write(root, {"include": ["b.sexp"]})
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
     b_item = dock.tree.topLevelItem(0).child(0)
-    assert b_item.text(0) == "b.yaml"
+    assert b_item.text(0) == "b.sexp"
     c_item = b_item.child(0)
-    assert c_item.text(0) == "c.yaml"
+    assert c_item.text(0) == "c.sexp"
     assert _find(c_item, "Cells").child(0).text(0) == "one_role"
 
 
 def test_clicking_a_cell_leaf_fires_cell_picked(main_window, tmp_path):
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
@@ -124,10 +118,8 @@ def test_clicking_a_cell_leaf_fires_cell_picked(main_window, tmp_path):
 
 
 def test_clicking_a_placement_leaf_fires_full_dict(main_window, tmp_path):
-    root = tmp_path / "root.yaml"
-    root.write_text(
-        "clone_placements:\n  - name: spoke_1\n    cell: ldo_adj\n    xy: [0, 0]\n",
-        encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {"clone_placements": [{"name": "spoke_1", "cell": "ldo_adj", "xy": [0, 0]}]})
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
@@ -141,8 +133,8 @@ def test_clicking_a_placement_leaf_fires_full_dict(main_window, tmp_path):
 
 
 def test_clicking_an_extract_profile_leaf_fires_profile_picked(main_window, tmp_path):
-    root = tmp_path / "root.yaml"
-    root.write_text("extract_profiles:\n  alpha:\n    params: {}\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {"extract_profiles": {"alpha": {"params": {}}}})
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
@@ -156,9 +148,8 @@ def test_clicking_an_extract_profile_leaf_fires_profile_picked(main_window, tmp_
 
 
 def test_clicking_a_rules_leaf_fires_no_signal_no_form_yet(main_window, tmp_path):
-    root = tmp_path / "root.yaml"
-    root.write_text(
-        "rules:\n  - net: '+3V3'\n    anchor_ref: U1\n    spokes: []\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {"rules": [{"net": "+3V3", "anchor_ref": "U1", "spokes": []}]})
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
@@ -175,8 +166,8 @@ def test_clicking_a_rules_leaf_fires_no_signal_no_form_yet(main_window, tmp_path
 
 
 def test_clicking_a_file_or_category_header_fires_no_signal(main_window, tmp_path):
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
@@ -196,15 +187,15 @@ def test_no_root_file_assigned_yields_an_empty_tree(main_window):
 
 
 def test_refresh_picks_up_a_change_made_on_disk(main_window, tmp_path):
-    root = tmp_path / "root.yaml"
-    root.write_text("cells: {}\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {"cells": {}})
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
     root_item = dock.tree.topLevelItem(0)
     assert root_item.childCount() == 0  # empty cells: section, nothing shown
 
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    _write(root, MINIMAL_CELL)
     dock.refresh()
 
     root_item = dock.tree.topLevelItem(0)
@@ -212,10 +203,10 @@ def test_refresh_picks_up_a_change_made_on_disk(main_window, tmp_path):
 
 
 def test_a_true_cycle_shows_as_a_single_error_item_not_a_crash(main_window, tmp_path):
-    (tmp_path / "a.yaml").write_text("include:\n  - b.yaml\n", encoding="utf-8")
-    (tmp_path / "b.yaml").write_text("include:\n  - a.yaml\n", encoding="utf-8")
-    root = tmp_path / "root.yaml"
-    root.write_text("include:\n  - a.yaml\n", encoding="utf-8")
+    _write(tmp_path / "a.sexp", {"include": ["b.sexp"]})
+    _write(tmp_path / "b.sexp", {"include": ["a.sexp"]})
+    root = tmp_path / "root.sexp"
+    _write(root, {"include": ["a.sexp"]})
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
@@ -231,8 +222,8 @@ def test_file_context_resolves_from_a_leaf_and_a_category(main_window, tmp_path)
     """_file_context_for_item must find the same file whether the click
     landed on the file header, a category under it, or a specific leaf —
     Denis: "Если выбран файл или его десцендант..." """
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
@@ -248,16 +239,16 @@ def test_file_context_resolves_from_a_leaf_and_a_category(main_window, tmp_path)
 
 
 def test_file_context_for_a_nested_included_file(main_window, tmp_path):
-    (tmp_path / "sub.yaml").write_text(MINIMAL_CELL, encoding="utf-8")
-    root = tmp_path / "root.yaml"
-    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
+    _write(tmp_path / "sub.sexp", MINIMAL_CELL)
+    root = tmp_path / "root.sexp"
+    _write(root, {"include": ["sub.sexp"]})
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
     sub_item = dock.tree.topLevelItem(0).child(0)
     file_path, parent_path = dock._file_context_for_item(sub_item)
-    assert file_path == (tmp_path / "sub.yaml").resolve()
+    assert file_path == (tmp_path / "sub.sexp").resolve()
     assert parent_path == root.resolve()
 
 
@@ -267,8 +258,8 @@ def test_add_cell_emits_request_instead_of_writing_directly(main_window, tmp_pat
     bug, see gui/docks/cell_editor.py's module docstring); now it defers to
     CellDock's own Save path, same shape as Add point/Add thermal via pad/
     Add placer above."""
-    root = tmp_path / "root.yaml"
-    root.write_text("cells: {}\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {"cells": {}})
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
@@ -278,7 +269,7 @@ def test_add_cell_emits_request_instead_of_writing_directly(main_window, tmp_pat
     dock.add_cell_requested.emit(root)
 
     assert requested == [root]
-    assert yaml.safe_load(root.read_text(encoding="utf-8")) == {"cells": {}}
+    assert _load(root) == {"cells": {}}
 
 
 def test_composite_cell_shows_nested_clone_placements_as_children(main_window, tmp_path):
@@ -286,18 +277,8 @@ def test_composite_cell_shows_nested_clone_placements_as_children(main_window, t
     internal editor was built as tabs instead (see gui/docks/cell_editor.py):
     a composite cell's nested clone_placements: show as read-only child
     nodes under its own Cells leaf."""
-    root = tmp_path / "root.yaml"
-    root.write_text("""
-cells:
-  leaf:
-    components: []
-  composite:
-    clone_placements:
-      - name: inner_cell
-        cell: leaf
-      - name: inner_role
-        role: SOME_ROLE
-""", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {"cells": {"leaf": {}, "composite": {"clone_placements": [{"name": "inner_cell", "cell": "leaf"}, {"name": "inner_role", "role": "SOME_ROLE"}]}}})
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
@@ -314,8 +295,8 @@ cells:
 def test_edit_cell_emits_name_and_file(main_window, tmp_path):
     """"Edit cell..." (context menu, 2026-08-06) — CellDock listens via
     load_entry(), see gui/dock_hub.py's _edit_cell."""
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
@@ -332,8 +313,8 @@ def test_rename_action_present_for_a_leaf_absent_for_a_category(main_window, tmp
     чтобы переименовать плэейсменты, целлы, профили извлечения и т.д.?" —
     Rename only makes sense on an actual entry, not a category header or
     the file node itself."""
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -348,8 +329,8 @@ def test_rename_action_present_for_a_leaf_absent_for_a_category(main_window, tmp
 
 
 def test_rename_cell_updates_the_dict_key_and_refreshes_the_tree(main_window, tmp_path, monkeypatch):
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -360,19 +341,16 @@ def test_rename_cell_updates_the_dict_key_and_refreshes_the_tree(main_window, tm
 
     dock._on_rename(root, "cells", "one_role")
 
-    data = yaml.safe_load(root.read_text(encoding="utf-8"))
+    data = _load(root)
     assert "renamed_cell" in data["cells"]
     assert "one_role" not in data["cells"]
     assert _find(dock.tree.topLevelItem(0), "Cells").child(0).text(0) == "renamed_cell"
 
 
 def test_rename_cell_cascades_a_reference_in_another_file(main_window, tmp_path, monkeypatch):
-    (tmp_path / "cells.yaml").write_text(MINIMAL_CELL, encoding="utf-8")
-    root = tmp_path / "root.yaml"
-    root.write_text(
-        "include:\n  - cells.yaml\n"
-        "clone_placements:\n  - name: spoke_1\n    cell: one_role\n",
-        encoding="utf-8")
+    _write(tmp_path / "cells.sexp", MINIMAL_CELL)
+    root = tmp_path / "root.sexp"
+    _write(root, {"include": ["cells.sexp"], "clone_placements": [{"name": "spoke_1", "cell": "one_role"}]})
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -382,16 +360,16 @@ def test_rename_cell_cascades_a_reference_in_another_file(main_window, tmp_path,
     monkeypatch.setattr(config_tree_mod.QMessageBox, "information",
                         staticmethod(lambda self_, title, text: shown.append(text)))
 
-    dock._on_rename(tmp_path / "cells.yaml", "cells", "one_role")
+    dock._on_rename(tmp_path / "cells.sexp", "cells", "one_role")
 
-    assert yaml.safe_load(root.read_text(encoding="utf-8"))["clone_placements"][0]["cell"] == \
+    assert _load(root)["clone_placements"][0]["cell"] == \
         "renamed_cell"
-    assert len(shown) == 1 and "root.yaml" in shown[0]  # summary names the other changed file
+    assert len(shown) == 1 and "root.sexp" in shown[0]  # summary names the other changed file
 
 
 def test_rename_declined_leaves_the_file_untouched(main_window, tmp_path, monkeypatch):
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -400,12 +378,12 @@ def test_rename_declined_leaves_the_file_untouched(main_window, tmp_path, monkey
 
     dock._on_rename(root, "cells", "one_role")
 
-    assert "one_role" in yaml.safe_load(root.read_text(encoding="utf-8"))["cells"]
+    assert "one_role" in _load(root)["cells"]
 
 
 def test_rename_collision_shows_a_warning_and_writes_nothing(main_window, tmp_path, monkeypatch):
-    root = tmp_path / "root.yaml"
-    root.write_text("cells:\n  a: {}\n  b: {}\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {"cells": {"a": {}, "b": {}}})
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -418,12 +396,12 @@ def test_rename_collision_shows_a_warning_and_writes_nothing(main_window, tmp_pa
     dock._on_rename(root, "cells", "a")
 
     assert warned == [1]
-    assert yaml.safe_load(root.read_text(encoding="utf-8"))["cells"] == {"a": {}, "b": {}}
+    assert _load(root)["cells"] == {"a": {}, "b": {}}
 
 
 def test_add_thermal_via_pad_emits_request_instead_of_writing_directly(main_window, tmp_path):
-    root = tmp_path / "root.yaml"
-    root.write_text("thermal_via_arrays: []\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {"thermal_via_arrays": []})
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
@@ -435,13 +413,12 @@ def test_add_thermal_via_pad_emits_request_instead_of_writing_directly(main_wind
     assert requested == [root]
     # nothing written — Add thermal via pad defers to ThermalViaArrayDock's
     # own Save path (2026-08-03, same reasoning as Add placer)
-    assert yaml.safe_load(root.read_text(encoding="utf-8")) == {"thermal_via_arrays": []}
+    assert _load(root) == {"thermal_via_arrays": []}
 
 
 def test_thermal_via_leaf_click_emits_thermal_via_picked(main_window, tmp_path):
-    root = tmp_path / "root.yaml"
-    root.write_text(
-        "thermal_via_arrays:\n  - name: fpga_thermal\n    pad: '1'\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {"thermal_via_arrays": [{"name": "fpga_thermal", "pad": "1"}]})
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
@@ -476,9 +453,8 @@ def test_coordinate_placements_leaf_click_emits_the_entry_dict(main_window, tmp_
     This replaces the Group 2 shape where a leaf emitted the file path (and
     a path-less leaf could emit None, crashing load_from_file's
     None.exists() — the crash this new payload is immune to by design)."""
-    root = tmp_path / "root.yaml"
-    root.write_text(
-        "coordinate_placements:\n  - cluster: X\n    role: R1\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {"coordinate_placements": [{"cluster": "X", "role": "R1"}]})
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
@@ -492,8 +468,8 @@ def test_coordinate_placements_leaf_click_emits_the_entry_dict(main_window, tmp_
 
 
 def test_add_point_emits_request_instead_of_writing_directly(main_window, tmp_path):
-    root = tmp_path / "root.yaml"
-    root.write_text("points: {}\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {"points": {}})
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
@@ -505,15 +481,15 @@ def test_add_point_emits_request_instead_of_writing_directly(main_window, tmp_pa
     assert requested == [root]
     # nothing written — Add point defers to PointsDock's own Save path,
     # same reasoning as Add thermal via pad/Add placer above.
-    assert yaml.safe_load(root.read_text(encoding="utf-8")) == {"points": {}}
+    assert _load(root) == {"points": {}}
 
 
 def test_points_leaf_click_emits_points_picked_with_the_name(main_window, tmp_path):
     """points: is a DICT section (see _entries()) — unlike
     thermal_via_picked's full-dict payload above, the click only carries
     the name; PointsDock.load_entry() re-reads the file for the data."""
-    root = tmp_path / "root.yaml"
-    root.write_text("points:\n  origin:\n    xy: [0, 0]\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {"points": {"origin": {"xy": [0, 0]}}})
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
@@ -527,8 +503,8 @@ def test_points_leaf_click_emits_points_picked_with_the_name(main_window, tmp_pa
 
 
 def test_add_rule_emits_request_instead_of_writing_directly(main_window, tmp_path):
-    root = tmp_path / "root.yaml"
-    root.write_text("rules: []\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {"rules": []})
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
@@ -540,15 +516,14 @@ def test_add_rule_emits_request_instead_of_writing_directly(main_window, tmp_pat
     assert requested == [root]
     # nothing written — Add rule defers to RuleDock's own Save path, same
     # reasoning as Add thermal via pad/Add placer/Add point above.
-    assert yaml.safe_load(root.read_text(encoding="utf-8")) == {"rules": []}
+    assert _load(root) == {"rules": []}
 
 
 def test_rule_leaf_click_emits_rule_picked(main_window, tmp_path):
     """rules: is a LIST section (see _entries()) — like thermal_via_picked,
     the payload is already the full dict."""
-    root = tmp_path / "root.yaml"
-    root.write_text(
-        "rules:\n  - net: '+3V3'\n    anchor_role: FPGA\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {"rules": [{"net": "+3V3", "anchor_role": "FPGA"}]})
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
@@ -562,8 +537,8 @@ def test_rule_leaf_click_emits_rule_picked(main_window, tmp_path):
 
 
 def test_add_placer_emits_request_instead_of_writing_directly(main_window, tmp_path):
-    root = tmp_path / "root.yaml"
-    root.write_text("clone_placements: []\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {"clone_placements": []})
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
@@ -574,13 +549,13 @@ def test_add_placer_emits_request_instead_of_writing_directly(main_window, tmp_p
 
     assert requested == [root]
     # nothing written — Add placer defers to PlacerDock's own Save path
-    assert yaml.safe_load(root.read_text(encoding="utf-8")) == {"clone_placements": []}
+    assert _load(root) == {"clone_placements": []}
 
 
 def test_add_included_file_creates_missing_file_and_wires_include(main_window, tmp_path, monkeypatch):
-    root = tmp_path / "root.yaml"
-    root.write_text("cells: {}\n", encoding="utf-8")
-    new_file = tmp_path / "power.yaml"
+    root = tmp_path / "root.sexp"
+    _write(root, {"cells": {}})
+    new_file = tmp_path / "power.sexp"
     assert not new_file.exists()
 
     dock = ConfigTreeDock(main_window)
@@ -591,15 +566,15 @@ def test_add_included_file_creates_missing_file_and_wires_include(main_window, t
     dock._add_included_file(root)
 
     assert new_file.exists()
-    assert yaml.safe_load(root.read_text(encoding="utf-8"))["include"] == ["power.yaml"]
-    assert dock.tree.topLevelItem(0).child(0).text(0) == "power.yaml"
+    assert _load(root)["include"] == ["power.sexp"]
+    assert dock.tree.topLevelItem(0).child(0).text(0) == "power.sexp"
 
 
 def test_add_included_file_rejects_a_file_with_root_only_keys(main_window, tmp_path, monkeypatch):
-    root = tmp_path / "root.yaml"
-    root.write_text("cells: {}\n", encoding="utf-8")
-    bad_file = tmp_path / "bad.yaml"
-    bad_file.write_text("layer: B.Cu\ncells: {}\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {"cells": {}})
+    bad_file = tmp_path / "bad.sexp"
+    _write(bad_file, {"layer": "B.Cu", "cells": {}})
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
@@ -610,13 +585,13 @@ def test_add_included_file_rejects_a_file_with_root_only_keys(main_window, tmp_p
                         staticmethod(lambda *a, **k: QMessageBox.StandardButton.Ok))
     dock._add_included_file(root)
 
-    assert "include" not in yaml.safe_load(root.read_text(encoding="utf-8"))
+    assert "include" not in _load(root)
 
 
 def test_remove_file_disables_include_after_confirmation(main_window, tmp_path, monkeypatch):
-    (tmp_path / "sub.yaml").write_text(MINIMAL_CELL, encoding="utf-8")
-    root = tmp_path / "root.yaml"
-    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
+    _write(tmp_path / "sub.sexp", MINIMAL_CELL)
+    root = tmp_path / "root.sexp"
+    _write(root, {"include": ["sub.sexp"]})
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
@@ -624,35 +599,35 @@ def test_remove_file_disables_include_after_confirmation(main_window, tmp_path, 
 
     monkeypatch.setattr(config_tree_mod.QMessageBox, "question",
                         staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
-    dock._remove_file(tmp_path / "sub.yaml", root)
+    dock._remove_file(tmp_path / "sub.sexp", root)
 
-    data = yaml.safe_load(root.read_text(encoding="utf-8"))
-    assert data["include"] == [{"path": "sub.yaml", "enabled": False}]
-    # walk_include_tree skips disabled includes -> sub.yaml no longer shown
+    data = _load(root)
+    assert data["include"] == [{"path": "sub.sexp", "enabled": False}]
+    # walk_include_tree skips disabled includes -> sub.sexp no longer shown
     assert dock.tree.topLevelItem(0).childCount() == 0
 
 
 def test_remove_file_declined_leaves_include_untouched(main_window, tmp_path, monkeypatch):
-    (tmp_path / "sub.yaml").write_text(MINIMAL_CELL, encoding="utf-8")
-    root = tmp_path / "root.yaml"
-    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
+    _write(tmp_path / "sub.sexp", MINIMAL_CELL)
+    root = tmp_path / "root.sexp"
+    _write(root, {"include": ["sub.sexp"]})
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
     monkeypatch.setattr(config_tree_mod.QMessageBox, "question",
                         staticmethod(lambda *a, **k: QMessageBox.StandardButton.No))
-    dock._remove_file(tmp_path / "sub.yaml", root)
+    dock._remove_file(tmp_path / "sub.sexp", root)
 
-    assert yaml.safe_load(root.read_text(encoding="utf-8"))["include"] == ["sub.yaml"]
+    assert _load(root)["include"] == ["sub.sexp"]
     assert dock.tree.topLevelItem(0).childCount() == 1
 
 
 def test_context_menu_has_no_remove_action_for_root(main_window, tmp_path, monkeypatch):
     """Root has no parent to remove itself from — the menu built for it
     must omit "Remove this file" entirely, not just disable it."""
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
@@ -727,8 +702,8 @@ def _add_labels(labels):
 ])
 def test_category_context_menu_shows_only_its_own_add_action(
         main_window, tmp_path, monkeypatch, category_label, expected_add):
-    root = tmp_path / "root.yaml"
-    root.write_text(ALL_SECTIONS_YAML, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, ALL_SECTIONS)
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -748,8 +723,8 @@ def test_category_context_menu_shows_only_its_own_add_action(
 ])
 def test_leaf_context_menu_shows_only_its_sections_add_action(
         main_window, tmp_path, monkeypatch, category_label, expected_add):
-    root = tmp_path / "root.yaml"
-    root.write_text(ALL_SECTIONS_YAML, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, ALL_SECTIONS)
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -767,8 +742,8 @@ def test_extract_profiles_category_and_leaf_show_add_extract_profile_only(
     addAction-capture session (re-patching between two calls would make the
     second capture's "original" the first patch — see _context_menu_labels'
     caller note)."""
-    root = tmp_path / "root.yaml"
-    root.write_text(ALL_SECTIONS_YAML, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, ALL_SECTIONS)
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -794,8 +769,8 @@ def test_extract_profiles_category_and_leaf_show_add_extract_profile_only(
 def test_clone_profiles_category_has_no_add_actions(main_window, tmp_path, monkeypatch):
     """clone_profiles is read-only (no GUI edit form, deliberate scope limit)
     — its category must show NO Add action at all, not even the wrong ones."""
-    root = tmp_path / "root.yaml"
-    root.write_text(ALL_SECTIONS_YAML, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, ALL_SECTIONS)
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -810,8 +785,8 @@ def test_file_header_context_menu_shows_all_seven_add_actions(
     """Denis's explicit decision: a file header (incl. the root) must still
     offer ALL the Add actions — otherwise a fresh file with no sections yet
     couldn't create its first entity."""
-    root = tmp_path / "root.yaml"
-    root.write_text(ALL_SECTIONS_YAML, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, ALL_SECTIONS)
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -827,13 +802,8 @@ def test_nested_cell_child_context_menu_shows_all_add_actions(
     """Read-only nested cell children carry no UserRole data at all — their
     section is unknown, so the Add block falls back to ALL actions (same as
     a file header)."""
-    root = tmp_path / "root.yaml"
-    root.write_text("""cells:
-  composite:
-    clone_placements:
-      - name: inner_cell
-        cell: leaf
-""", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {"cells": {"composite": {"clone_placements": [{"name": "inner_cell", "cell": "leaf"}]}}})
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -848,8 +818,8 @@ def test_nested_cell_child_context_menu_shows_all_add_actions(
 def test_add_section_for_item_leaf_category_and_file_header(main_window, tmp_path):
     """The helper driving the filtering: leaf -> its section, category -> its
     section (tagged 2026-08-13), file header -> None (all Add actions)."""
-    root = tmp_path / "root.yaml"
-    root.write_text(ALL_SECTIONS_YAML, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, ALL_SECTIONS)
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
     root_item = dock.tree.topLevelItem(0)
@@ -868,8 +838,8 @@ def test_add_action_trigger_emits_request_not_checked(main_window, tmp_path, mon
     attribute 'emit' on every "Add ..." click. The lambda now leads with
     `checked=False`; triggering the real action must fire add_cell_requested
     with the resolved file path."""
-    root = tmp_path / "root.yaml"
-    root.write_text(ALL_SECTIONS_YAML, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, ALL_SECTIONS)
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -886,8 +856,8 @@ def test_add_action_trigger_emits_request_not_checked(main_window, tmp_path, mon
 # ── Delete (2026-08-05) ───────────────────────────────────────────────────
 
 def test_delete_action_present_for_a_leaf(main_window, tmp_path, monkeypatch):
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -905,8 +875,8 @@ def test_delete_action_present_for_a_leaf(main_window, tmp_path, monkeypatch):
 
 
 def test_delete_without_references_confirms_and_removes_with_backup(main_window, tmp_path, monkeypatch):
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -917,14 +887,14 @@ def test_delete_without_references_confirms_and_removes_with_backup(main_window,
 
     dock._on_delete(root, "cells", "one_role")
 
-    assert yaml.safe_load(root.read_text(encoding="utf-8"))["cells"] == {}
-    assert list(tmp_path.glob("root.yaml.bak.*"))
+    assert _load(root)["cells"] == {}
+    assert list(tmp_path.glob("root.sexp.bak.*"))
     assert dock.tree.topLevelItem(0).childCount() == 0  # empty Cells section, no leaf shown
 
 
 def test_delete_declined_leaves_the_file_untouched(main_window, tmp_path, monkeypatch):
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -933,16 +903,14 @@ def test_delete_declined_leaves_the_file_untouched(main_window, tmp_path, monkey
 
     dock._on_delete(root, "cells", "one_role")
 
-    assert "one_role" in yaml.safe_load(root.read_text(encoding="utf-8"))["cells"]
-    assert not list(tmp_path.glob("root.yaml.bak.*"))
+    assert "one_role" in _load(root)["cells"]
+    assert not list(tmp_path.glob("root.sexp.bak.*"))
 
 
 def test_delete_with_a_reference_asks_about_cascade_and_removes_both_on_yes(
         main_window, tmp_path, monkeypatch):
-    root = tmp_path / "root.yaml"
-    root.write_text(
-        MINIMAL_CELL + "\nclone_placements:\n  - name: spoke_1\n    cell: one_role\n",
-        encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {**MINIMAL_CELL, "clone_placements": [{"name": "spoke_1", "cell": "one_role"}]})
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -955,7 +923,7 @@ def test_delete_with_a_reference_asks_about_cascade_and_removes_both_on_yes(
 
     dock._on_delete(root, "cells", "one_role")
 
-    data = yaml.safe_load(root.read_text(encoding="utf-8"))
+    data = _load(root)
     assert data["cells"] == {}
     assert data["clone_placements"] == []  # cascade removed the referencing spoke too
     assert len(shown) == 1 and "spoke_1" in shown[0]  # dialog listed the reference
@@ -963,10 +931,8 @@ def test_delete_with_a_reference_asks_about_cascade_and_removes_both_on_yes(
 
 def test_delete_with_a_reference_declined_cancels_the_whole_delete(
         main_window, tmp_path, monkeypatch):
-    root = tmp_path / "root.yaml"
-    root.write_text(
-        MINIMAL_CELL + "\nclone_placements:\n  - name: spoke_1\n    cell: one_role\n",
-        encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {**MINIMAL_CELL, "clone_placements": [{"name": "spoke_1", "cell": "one_role"}]})
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -975,10 +941,10 @@ def test_delete_with_a_reference_declined_cancels_the_whole_delete(
 
     dock._on_delete(root, "cells", "one_role")
 
-    data = yaml.safe_load(root.read_text(encoding="utf-8"))
+    data = _load(root)
     assert "one_role" in data["cells"]  # nothing removed at all
     assert data["clone_placements"][0]["cell"] == "one_role"
-    assert not list(tmp_path.glob("root.yaml.bak.*"))
+    assert not list(tmp_path.glob("root.sexp.bak.*"))
 
 
 # ── Export (2026-08-05) ──────────────────────────────────────────────────
@@ -990,8 +956,8 @@ def test_export_multi_select_enabled(main_window):
 
 
 def test_selected_export_items_ignores_file_and_category_headers(main_window, tmp_path):
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -1009,9 +975,8 @@ def test_selected_export_items_ignores_file_and_category_headers(main_window, tm
 
 
 def test_export_action_label_switches_to_plural_for_multiple_leaves(main_window, tmp_path, monkeypatch):
-    root = tmp_path / "root.yaml"
-    root.write_text(
-        "cells:\n  a: {}\n  b: {}\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {"cells": {"a": {}, "b": {}}})
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -1032,9 +997,9 @@ def test_export_action_label_switches_to_plural_for_multiple_leaves(main_window,
 
 
 def test_on_export_to_a_new_file_merges_without_prompting(main_window, tmp_path, monkeypatch):
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
-    target = tmp_path / "out.yaml"
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
+    target = tmp_path / "out.sexp"
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -1048,16 +1013,16 @@ def test_on_export_to_a_new_file_merges_without_prompting(main_window, tmp_path,
 
     dock._on_export(dock._selected_export_items())
 
-    assert "one_role" in yaml.safe_load(target.read_text(encoding="utf-8"))["cells"]
-    assert yaml.safe_load(root.read_text(encoding="utf-8")) == \
-        yaml.safe_load(MINIMAL_CELL)  # the source is untouched — pure copy
+    assert "one_role" in _load(target)["cells"]
+    assert _load(root) == \
+        MINIMAL_CELL  # the source is untouched — pure copy
 
 
 def test_on_export_to_a_non_empty_file_merges_when_merge_is_chosen(main_window, tmp_path, monkeypatch):
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
-    target = tmp_path / "out.yaml"
-    target.write_text("cells:\n  existing: {}\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
+    target = tmp_path / "out.sexp"
+    _write(target, {"cells": {"existing": {}}})
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -1077,16 +1042,16 @@ def test_on_export_to_a_non_empty_file_merges_when_merge_is_chosen(main_window, 
 
     dock._on_export(dock._selected_export_items())
 
-    data = yaml.safe_load(target.read_text(encoding="utf-8"))
+    data = _load(target)
     assert set(data["cells"].keys()) == {"existing", "one_role"}
 
 
 def test_on_export_to_a_non_empty_file_overwrites_when_overwrite_is_chosen(
         main_window, tmp_path, monkeypatch):
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
-    target = tmp_path / "out.yaml"
-    target.write_text("cells:\n  existing: {}\ninclude:\n  - somewhere.yaml\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
+    target = tmp_path / "out.sexp"
+    _write(target, {"cells": {"existing": {}}, "include": ["somewhere.sexp"]})
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -1103,16 +1068,16 @@ def test_on_export_to_a_non_empty_file_overwrites_when_overwrite_is_chosen(
 
     dock._on_export(dock._selected_export_items())
 
-    data = yaml.safe_load(target.read_text(encoding="utf-8"))
+    data = _load(target)
     assert set(data["cells"].keys()) == {"one_role"}
     assert "include" not in data
 
 
 def test_on_export_cancelled_dialog_writes_nothing(main_window, tmp_path, monkeypatch):
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
-    target = tmp_path / "out.yaml"
-    target.write_text("cells:\n  existing: {}\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
+    target = tmp_path / "out.sexp"
+    _write(target, {"cells": {"existing": {}}})
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -1127,7 +1092,7 @@ def test_on_export_cancelled_dialog_writes_nothing(main_window, tmp_path, monkey
 
     dock._on_export(dock._selected_export_items())
 
-    data = yaml.safe_load(target.read_text(encoding="utf-8"))
+    data = _load(target)
     assert data["cells"] == {"existing": {}}  # untouched — Cancel aborted the export
 
 
@@ -1135,12 +1100,8 @@ def test_clone_placement_leaf_shows_name_when_set(main_window, tmp_path):
     """A clone_placements leaf whose entry carries name shows THAT (the save/
     --only identity) in the tree — not the raw Cluster tag `cluster`. Entries
     without name fall back to cluster as before."""
-    root = tmp_path / "root.yaml"
-    root.write_text(
-        "clone_placements:\n"
-        "  - cluster: PIF_AVDD\n    name: CH0_PIF_AVDD\n    cell: ldo_adj\n    xy: [0, 0]\n"
-        "  - cluster: plain\n    cell: ldo_adj\n    xy: [0, 0]\n",
-        encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {"clone_placements": [{"cluster": "PIF_AVDD", "name": "CH0_PIF_AVDD", "cell": "ldo_adj", "xy": [0, 0]}, {"cluster": "plain", "cell": "ldo_adj", "xy": [0, 0]}]})
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -1156,8 +1117,8 @@ def test_rename_emits_graph_changed_once(main_window, tmp_path, monkeypatch):
     """A successful rename changes an entry's NAME in the graph — every other
     dock's graph-derived name combos must hear about it (via DockHub's
     broadcast), so graph_changed fires exactly once here."""
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -1174,8 +1135,8 @@ def test_rename_emits_graph_changed_once(main_window, tmp_path, monkeypatch):
 
 
 def test_delete_emits_graph_changed_once(main_window, tmp_path, monkeypatch):
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -1195,9 +1156,9 @@ def test_add_included_file_emits_graph_changed_once(main_window, tmp_path, monke
     """The exact Denis complaint (plan graph_changed_broadcast): adding a
     brand-new file to the graph must tell every OTHER dock's file combo,
     not just refresh this tree's own display."""
-    root = tmp_path / "root.yaml"
-    root.write_text("cells: {}\n", encoding="utf-8")
-    new_file = tmp_path / "power.yaml"
+    root = tmp_path / "root.sexp"
+    _write(root, {"cells": {}})
+    new_file = tmp_path / "power.sexp"
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -1212,9 +1173,9 @@ def test_add_included_file_emits_graph_changed_once(main_window, tmp_path, monke
 
 
 def test_remove_file_emits_graph_changed_once(main_window, tmp_path, monkeypatch):
-    (tmp_path / "sub.yaml").write_text(MINIMAL_CELL, encoding="utf-8")
-    root = tmp_path / "root.yaml"
-    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
+    _write(tmp_path / "sub.sexp", MINIMAL_CELL)
+    root = tmp_path / "root.sexp"
+    _write(root, {"include": ["sub.sexp"]})
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -1223,7 +1184,7 @@ def test_remove_file_emits_graph_changed_once(main_window, tmp_path, monkeypatch
     monkeypatch.setattr(config_tree_mod.QMessageBox, "question",
                         staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
 
-    dock._remove_file(tmp_path / "sub.yaml", root)
+    dock._remove_file(tmp_path / "sub.sexp", root)
 
     assert emitted == [True]
 
@@ -1233,9 +1194,9 @@ def test_export_does_not_emit_graph_changed(main_window, tmp_path, monkeypatch):
     include: (Denis: "Перенос пока не делаем") — the graph's shape does not
     change, so graph_changed must NOT fire (a second, separate
     _add_included_file() is what eventually changes the graph)."""
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
-    target = tmp_path / "out.yaml"
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
+    target = tmp_path / "out.sexp"
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -1259,8 +1220,8 @@ def test_export_does_not_emit_graph_changed(main_window, tmp_path, monkeypatch):
 def test_rename_confirmation_shown_when_enabled(main_window, tmp_path, monkeypatch):
     """Default (key absent == enabled): a successful Rename still shows the
     modal QMessageBox.information summary."""
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
     monkeypatch.setattr(config_tree_mod.QInputDialog, "getText",
@@ -1279,8 +1240,8 @@ def test_rename_confirmation_silent_when_disabled(main_window, tmp_path, monkeyp
     emitted), but the modal confirmation is NOT shown — the same summary goes
     to the Log dock instead."""
     settings.state.set("rename_confirmation_enabled", False)
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
     monkeypatch.setattr(config_tree_mod.QInputDialog, "getText",
@@ -1294,7 +1255,7 @@ def test_rename_confirmation_silent_when_disabled(main_window, tmp_path, monkeyp
     dock._on_rename(root, "cells", "one_role")
 
     assert shown == []  # no modal popup
-    assert "renamed_cell" in yaml.safe_load(root.read_text(encoding="utf-8"))["cells"]
+    assert "renamed_cell" in _load(root)["cells"]
     assert emitted == [True]  # the rest of the rename flow is untouched
     assert any("Renamed" in r.message for r in caplog.records)  # summary in the Log
 
@@ -1305,8 +1266,8 @@ def test_f2_rename_calls_on_rename_with_context_menu_args(main_window, tmp_path,
     """F2 on a selected leaf routes through _on_rename with exactly the
     (file_path, section, old_name) the context menu's "Rename..." would use —
     both go through the same _rename_target_for_item."""
-    root = tmp_path / "root.yaml"
-    root.write_text(ALL_SECTIONS_YAML, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, ALL_SECTIONS)
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
     leaf = _find(dock.tree.topLevelItem(0), "Cells").child(0)  # "my_cell"
@@ -1323,8 +1284,8 @@ def test_f2_rename_calls_on_rename_with_context_menu_args(main_window, tmp_path,
 
 
 def test_f2_rename_noop_without_selection(main_window, tmp_path, monkeypatch):
-    root = tmp_path / "root.yaml"
-    root.write_text(ALL_SECTIONS_YAML, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, ALL_SECTIONS)
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
     calls = []
@@ -1339,8 +1300,8 @@ def test_f2_rename_noop_without_selection(main_window, tmp_path, monkeypatch):
 def test_f2_rename_noop_on_non_leaf(main_window, tmp_path, monkeypatch):
     """F2 on a category header / file node is normal tree navigation — no
     rename, no error message."""
-    root = tmp_path / "root.yaml"
-    root.write_text(ALL_SECTIONS_YAML, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, ALL_SECTIONS)
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
     calls = []
@@ -1356,8 +1317,8 @@ def test_f2_rename_noop_on_non_leaf(main_window, tmp_path, monkeypatch):
 def test_f2_shortcut_is_widget_scoped(main_window, tmp_path):
     """F2 is scoped to the tree (WidgetWithChildrenShortcut), NOT the window —
     so it never steals F2 from other widgets that may gain their own shortcut."""
-    root = tmp_path / "root.yaml"
-    root.write_text(ALL_SECTIONS_YAML, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, ALL_SECTIONS)
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
     assert dock._rename_shortcut.context() == config_tree_mod.Qt.ShortcutContext.WidgetWithChildrenShortcut
@@ -1369,10 +1330,8 @@ def test_cell_leaf_with_comment_shows_glyph_and_tooltip(main_window, tmp_path):
     """comment on a DICT-section (cells) entry: _entries() yields the bare
     name as payload, so the marker must come from raw.get(name) — the exact
     regression the handoff flagged (payload is a str, not the record dict)."""
-    root = tmp_path / "root.yaml"
-    root.write_text(
-        "cells:\n  noted:\n    comment: a cell note\n    components: []\n",
-        encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {"cells": {"noted": {"comment": "a cell note"}}})
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -1382,8 +1341,8 @@ def test_cell_leaf_with_comment_shows_glyph_and_tooltip(main_window, tmp_path):
 
 
 def test_cell_leaf_without_comment_is_plain(main_window, tmp_path):
-    root = tmp_path / "root.yaml"
-    root.write_text("cells:\n  plain:\n    components: []\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {"cells": {"plain": {}}})
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -1395,11 +1354,8 @@ def test_cell_leaf_without_comment_is_plain(main_window, tmp_path):
 def test_rules_leaf_with_comment_shows_glyph_and_tooltip(main_window, tmp_path):
     """comment on a LIST-section (rules) entry: _entries() yields the full
     record dict as payload, so the marker comes straight from it."""
-    root = tmp_path / "root.yaml"
-    root.write_text(
-        "rules:\n  - net: '+3V3'\n    anchor_ref: U1\n"
-        "    comment: a rule note\n    spokes: []\n",
-        encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {"rules": [{"net": "+3V3", "anchor_ref": "U1", "comment": "a rule note", "spokes": []}]})
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -1409,10 +1365,8 @@ def test_rules_leaf_with_comment_shows_glyph_and_tooltip(main_window, tmp_path):
 
 
 def test_rules_leaf_without_comment_is_plain(main_window, tmp_path):
-    root = tmp_path / "root.yaml"
-    root.write_text(
-        "rules:\n  - net: '+3V3'\n    anchor_ref: U1\n    spokes: []\n",
-        encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {"rules": [{"net": "+3V3", "anchor_ref": "U1", "spokes": []}]})
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -1428,8 +1382,8 @@ def test_selection_survives_refresh_for_leaf(main_window, tmp_path):
     every dock's saved signal feeds refresh() (gui/dock_hub.py), which used
     to drop the selection on EVERY Save (handoff config_tree_preserve_
     selection)."""
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -1447,8 +1401,8 @@ def test_selection_survives_refresh_for_leaf(main_window, tmp_path):
 def test_selection_survives_refresh_for_file_and_category(main_window, tmp_path):
     """File and category nodes survive refresh() too — exercising all 3
     _item_identity branches (file / category / leaf), not only the leaf."""
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -1461,16 +1415,15 @@ def test_selection_survives_refresh_for_file_and_category(main_window, tmp_path)
     dock.refresh()
 
     selected_texts = sorted(i.text(0) for i in dock.tree.selectedItems())
-    assert selected_texts == ["Cells", "root.yaml"]
+    assert selected_texts == ["Cells", "root.sexp"]
 
 
 def test_selection_survives_refresh_for_commented_leaf(main_window, tmp_path):
     """The comment glyph is stripped back to the entry name when recovering
     identity (the label is "📝 noted", the identity must match "noted" after
     the rebuild) — exercises _COMMENT_GLYPH handling in _item_identity."""
-    root = tmp_path / "root.yaml"
-    root.write_text("cells:\n  noted:\n    comment: a note\n    components: []\n",
-                    encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {"cells": {"noted": {"comment": "a note"}}})
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -1489,15 +1442,15 @@ def test_selection_degrades_gracefully_when_entry_deleted(main_window, tmp_path)
     """Best-effort contract: an identity that no longer exists (the entry was
     deleted/renamed in the underlying file before refresh) is simply not
     re-selected — never a crash, selection ends up empty."""
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
     leaf = _find(dock.tree.topLevelItem(0), "Cells").child(0)
     leaf.setSelected(True)
 
-    root.write_text("cells:\n  other:\n    components: []\n", encoding="utf-8")
+    _write(root, {"cells": {"other": {}}})
     dock.refresh()  # must not raise
 
     assert dock.tree.selectedItems() == []

@@ -122,7 +122,7 @@ class AnchorTreeDock(QDockWidget):
         try:
             self._cfg, self._ctx = load_config(str(self._root_path))
             self._graph = build_anchor_graph(self._cfg)
-        except ValidationError as e:
+        except (ValidationError, OSError) as e:
             QTreeWidgetItem(self.tree, [str(e)])
             return
         self._render()

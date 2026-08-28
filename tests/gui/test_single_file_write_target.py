@@ -3,7 +3,7 @@
 flatten_and_single_file_gui): the entity docks no longer ask "which file do I
 write to" — every NEW record goes to the project ROOT file, while READING still
 sees entries from every included file of the include: graph."""
-import yaml
+from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 
 from gui.docks.cell_editor import CellDock
 from gui.docks.extract import ExtractDock
@@ -14,22 +14,22 @@ from gui.docks.thermal_via import ThermalViaArrayDock
 
 
 def _write(path, data) -> None:
-    path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    path.write_text(dict_to_sexp(data), encoding="utf-8")
 
 
 def _load(path) -> dict:
-    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return sexp_to_dict(path.read_text(encoding="utf-8")) or {}
 
 
 def _make_project(tmp_path):
     """A root file including one subsystem file with pre-existing entries."""
-    sub = tmp_path / "sub.yaml"
+    sub = tmp_path / "sub.sexp"
     _write(sub, {
         "cells": {"included_cell": {"components": [], "vias": [], "tracks": [], "layer": "F.Cu"}},
         "points": {"included_point": {"xy": [0.0, 0.0]}},
     })
-    root = tmp_path / "root.yaml"
-    _write(root, {"include": ["sub.yaml"]})
+    root = tmp_path / "root.sexp"
+    _write(root, {"include": ["sub.sexp"]})
     return root, sub
 
 

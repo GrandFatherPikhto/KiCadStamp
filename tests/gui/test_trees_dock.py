@@ -13,12 +13,11 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-import yaml
-
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QMessageBox
 
 from kicadstamp.config.loader import load_config
+from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode
 
@@ -66,12 +65,12 @@ def _children(item):
 
 
 def _dock_with(main_window, tmp_path, trees=None):
-    """A TreesDock pointed at a root config (YAML) carrying the given trees:
+    """A TreesDock pointed at a root config (s-expr) carrying the given trees:
     section — the current way trees get into the dock (set_root_file, no
     Open/New of a .trees file anymore)."""
     trees = trees if trees is not None else GRAMMAR_TREES
-    root = tmp_path / "root.yaml"
-    root.write_text(yaml.safe_dump(trees), encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    root.write_text(dict_to_sexp(trees), encoding="utf-8")
     dock = TreesDock(main_window)
     dock.set_root_file(root)
     return dock, root
@@ -97,9 +96,18 @@ def test_set_root_file_broken_config_does_not_crash(main_window, tmp_path):
     """A root config whose trees: section is malformed raises ValidationError
     in load_config — the dock must not crash: trees stay empty, cfg stays None
     (Save's link_trees round-trip is skipped until a good root loads)."""
-    root = tmp_path / "root.yaml"
-    root.write_text("trees:\n- name: t1\n  anchor: {ref: A}\n  nodes:\n  - ref: B\n    xy: 1\n",
-                    encoding="utf-8")  # xy must be exactly 2 numbers
+    root = tmp_path / "root.sexp"
+    # A tree record missing its required name: — load_config raises
+    # ValidationError on the malformed trees: section.
+    root.write_text(
+        "(kicadstamp-config\n"
+        "  (trees\n"
+        "    (tree\n"
+        "      (anchor (ref \"A\"))\n"
+        "      (nodes (node (ref \"B\") (xy 1 2)))\n"
+        "    )\n"
+        "  )\n"
+        ")\n", encoding="utf-8")
     dock = TreesDock(main_window)
     dock.set_root_file(root)
     assert dock._trees == []
@@ -367,7 +375,7 @@ def test_save_backs_up_before_writing_and_clears_dirty(main_window, tmp_path, mo
     old_text = root.read_text(encoding="utf-8")
     dock._do_save()
 
-    baks = list(tmp_path.glob("root.yaml.bak.*"))
+    baks = list(tmp_path.glob("root.sexp.bak.*"))
     assert baks, "expected a timestamped backup"
     assert baks[0].read_text(encoding="utf-8") == old_text
     assert dock._dirty is False
@@ -394,7 +402,7 @@ def test_save_roundtrip_failure_warns_but_leaves_backup(main_window, tmp_path, m
     dock._do_save()
 
     assert warnings, "expected a warning for the round-trip failure"
-    assert list(tmp_path.glob("root.yaml.bak.*"))
+    assert list(tmp_path.glob("root.sexp.bak.*"))
     cfg, _ = load_config(str(root))  # still written
     assert [t.name for t in cfg.trees] == ["power_tree", "misc", "extra"]
 

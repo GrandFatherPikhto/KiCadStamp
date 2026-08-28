@@ -420,7 +420,7 @@ class ConfigTreeDock(QDockWidget):
             return
         try:
             node = walk_include_tree(str(self._root_path))
-        except ValidationError as e:
+        except (ValidationError, OSError) as e:
             QTreeWidgetItem(self.tree, [str(e)])
             return
         self._build_file_item(self.tree.invisibleRootItem(), node, parent_path=None)
@@ -447,7 +447,7 @@ class ConfigTreeDock(QDockWidget):
             return
         try:
             node = walk_include_tree(str(self._root_path))
-        except ValidationError as e:
+        except (ValidationError, OSError) as e:
             QTreeWidgetItem(self.tree, [str(e)])
             profiler.disable()
             return
@@ -856,7 +856,13 @@ class ConfigTreeDock(QDockWidget):
             return
         target_path = Path(chosen)
         if not target_path.exists():
-            target_path.write_text("{}\n", encoding="utf-8")
+            # Format-aware empty placeholder — a new .sexp target must be a
+            # valid (kicadstamp-config), not the YAML-era "{}\n" (which would
+            # make the next read_data/merge_write fatal and the export fail).
+            if target_path.suffix.lower() == ".sexp":
+                target_path.write_text("(kicadstamp-config)\n", encoding="utf-8")
+            else:
+                target_path.write_text("{}\n", encoding="utf-8")
 
         overwrite = False
         if yaml_io.load_data(target_path):
@@ -896,7 +902,12 @@ class ConfigTreeDock(QDockWidget):
             return
         chosen_path = Path(chosen)
         if not chosen_path.exists():
-            chosen_path.write_text("{}\n", encoding="utf-8")
+            # Format-aware empty placeholder (same as _on_export): a new
+            # .sexp file must be a valid (kicadstamp-config).
+            if chosen_path.suffix.lower() == ".sexp":
+                chosen_path.write_text("(kicadstamp-config)\n", encoding="utf-8")
+            else:
+                chosen_path.write_text("{}\n", encoding="utf-8")
 
         bad_keys = non_includable_keys(chosen_path)
         if bad_keys:

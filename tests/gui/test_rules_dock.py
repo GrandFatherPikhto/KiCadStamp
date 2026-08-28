@@ -7,24 +7,36 @@ are monkeypatched with fakes that only check what RuleDock PASSES them
 config handed to the pipeline)."""
 from types import SimpleNamespace
 
-import yaml
-
 import gui.docks.rules as rules_mod
 from gui.docks.rules import RuleDock
 from kicadstamp.config import Config, RuntimeContext
+from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 
 
-def _write_yaml(path, data) -> None:
-    path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+def _fill_cell_defaults(data: dict) -> dict:
+    """s-expr omits default-valued Cell fields (layer='F.Cu', empty
+    vias/components/tracks/clone_placements lists); re-apply them so the
+    raw-dict assertions stay identical to the old yaml.safe_load reads."""
+    for entry in data.get("cells", {}).values():
+        entry.setdefault("layer", "F.Cu")
+        entry.setdefault("vias", [])
+        entry.setdefault("components", [])
+        entry.setdefault("tracks", [])
+        entry.setdefault("clone_placements", [])
+    return data
 
 
-def _read_yaml(path) -> dict:
-    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+def _write(path, data) -> None:
+    path.write_text(dict_to_sexp(data), encoding="utf-8")
+
+
+def _load(path) -> dict:
+    return _fill_cell_defaults(sexp_to_dict(path.read_text(encoding="utf-8"))) or {}
 
 
 def _make_dock(main_window, tmp_path, data=None):
-    target_file = tmp_path / "rules.yaml"
-    _write_yaml(target_file, data if data is not None else {"rules": []})
+    target_file = tmp_path / "rules.sexp"
+    _write(target_file, data if data is not None else {"rules": []})
     dock = RuleDock(main_window)
     dock.set_root_path(target_file)
     return dock, target_file
@@ -34,17 +46,17 @@ def _bulk_graph(tmp_path):
     """A project root that includes two rule files sharing net +3V3 — the
     cross-file scenario Bulk-set Cell for net exists for (a net's rules
     routinely live in different included files)."""
-    target = tmp_path / "rules.yaml"
-    target.write_text(yaml.dump({"rules": [
+    target = tmp_path / "rules.sexp"
+    _write(target, {"rules": [
         {"net": "+3V3", "anchor_role": "FPGA", "spokes": [{"pad": "17", "cell": "old_a"}]},
-    ]}, allow_unicode=True, sort_keys=False), encoding="utf-8")
-    sibling = tmp_path / "sibling.yaml"
-    sibling.write_text(yaml.dump({"rules": [
+    ]})
+    sibling = tmp_path / "sibling.sexp"
+    _write(sibling, {"rules": [
         {"net": "+3V3", "anchor_role": "FPGA", "spokes": [{"pad": "26", "cell": "old_b"}]},
         {"net": "GND", "anchor_role": "FPGA", "spokes": []},
-    ]}, allow_unicode=True, sort_keys=False), encoding="utf-8")
-    root = tmp_path / "root.yaml"
-    root.write_text("include:\n  - rules.yaml\n  - sibling.yaml\n", encoding="utf-8")
+    ]})
+    root = tmp_path / "root.sexp"
+    _write(root, {"include": ["rules.sexp", "sibling.sexp"]})
     return target, sibling, root
 
 
@@ -70,7 +82,7 @@ def test_refresh_sheet_names_populates_anchor_sheet_combo(main_window, tmp_path,
     autocompleted from the project's schematic files on root change (not
     the ~2s board poll)."""
     dock, _ = _make_dock(main_window, tmp_path)
-    dock._root_path = tmp_path / "root.yaml"
+    dock._root_path = tmp_path / "root.sexp"
     monkeypatch.setattr(rules_mod, "collect_all_sheet_names",
                         lambda root: ["Channel_0", "Channel_1"])
     dock._refresh_sheet_names()
@@ -168,7 +180,7 @@ def test_selecting_a_row_loads_it_into_the_editor(main_window, tmp_path):
         "net": "+3V3", "anchor_role": "FPGA",
         "spokes": [{"pad": "17", "cell": "cap_pair", "shift_x_mm": 1.2}],
     }]})
-    dock.load_entry(_read_yaml(dock._path)["rules"][0])
+    dock.load_entry(_load(dock._path)["rules"][0])
 
     dock.spokes_table.selectRow(0)
 
@@ -285,7 +297,7 @@ def test_selecting_a_polar_row_loads_mode_into_editor(main_window, tmp_path):
         "net": "+3V3", "anchor_role": "FPGA",
         "spokes": [{"pad": "17", "cell": "cap_pair", "radius_mm": 5.0, "angle_deg": 37.0}],
     }]})
-    dock.load_entry(_read_yaml(dock._path)["rules"][0])
+    dock.load_entry(_load(dock._path)["rules"][0])
 
     dock.spokes_table.selectRow(0)
 
@@ -304,7 +316,7 @@ def test_polar_zero_values_render_and_round_trip(main_window, tmp_path):
         "net": "+3V3", "anchor_role": "FPGA",
         "spokes": [{"pad": "17", "cell": "cap_pair", "radius_mm": 0.0, "angle_deg": 0.0}],
     }]})
-    dock.load_entry(_read_yaml(dock._path)["rules"][0])
+    dock.load_entry(_load(dock._path)["rules"][0])
 
     dock.spokes_table.selectRow(0)
 
@@ -365,11 +377,12 @@ def test_save_writes_list_section_and_preserves_other_keys(main_window, tmp_path
 
     dock._on_save()
 
-    data = _read_yaml(target)
+    data = _load(target)
     assert data["rules"] == [{
         "net": "+3V3", "anchor_role": "FPGA", "spokes": [{"pad": "17", "cell": "cap_pair"}],
     }]
-    assert data["cells"] == {"c1": {"components": []}}
+    assert data["cells"] == {"c1": {"layer": "F.Cu", "vias": [], "components": [],
+                                     "tracks": [], "clone_placements": []}}
     assert any("Wrote" in r.message for r in caplog.records)
 
 
@@ -383,7 +396,7 @@ def test_save_overwrites_by_name_or_net(main_window, tmp_path, caplog):
 
     dock._on_save()
 
-    data = _read_yaml(target)
+    data = _load(target)
     assert len(data["rules"]) == 1
     assert data["rules"][0]["anchor_role"] == "FPGA_NEW"
     assert any("Overwrote" in r.message for r in caplog.records)
@@ -414,7 +427,7 @@ def test_comment_saves_and_loads_back(main_window, tmp_path):
 
     dock._on_save()
 
-    data = _read_yaml(target)
+    data = _load(target)
     assert data["rules"][0]["comment"] == "a rule note"
     dock.load_entry(data["rules"][0])
     assert dock.comment_edit.text() == "a rule note"
@@ -428,7 +441,7 @@ def test_save_rejects_a_rule_without_any_anchor(main_window, tmp_path, caplog):
     # same as every other dock's own field-level guards.
     dock._on_save()
 
-    assert _read_yaml(target) == {"rules": []}
+    assert _load(target) == {"rules": []}
     assert any("Anchor: set Ref or Role" in r.message for r in caplog.records)
 
 
@@ -451,13 +464,13 @@ def test_spoke_field_editing_finished_autosaves(main_window, tmp_path, caplog):
         "net": "+3V3", "anchor_role": "FPGA",
         "spokes": [{"pad": "17", "cell": "cap_pair", "shift_x_mm": 1.2}],
     }]})
-    dock.load_entry(_read_yaml(dock._path)["rules"][0])
+    dock.load_entry(_load(dock._path)["rules"][0])
     dock.spokes_table.selectRow(0)
 
     dock.spoke_shift_x_edit.setText("2.5")
     dock.spoke_shift_x_edit.editingFinished.emit()
 
-    data = _read_yaml(target)
+    data = _load(target)
     assert data["rules"][0]["spokes"][0]["shift_x_mm"] == 2.5
     assert dock._spokes[0]["shift_x_mm"] == 2.5
     assert any("Spoke updated" in r.message for r in caplog.records)
@@ -469,13 +482,13 @@ def test_spoke_combo_activated_autosaves(main_window, tmp_path):
         "net": "+3V3", "anchor_role": "FPGA",
         "spokes": [{"pad": "17", "cell": "cap_pair"}],
     }]})
-    dock.load_entry(_read_yaml(dock._path)["rules"][0])
+    dock.load_entry(_load(dock._path)["rules"][0])
     dock.spokes_table.selectRow(0)
 
     dock.spoke_cell_combo.setCurrentText("other_cell")
     dock.spoke_cell_combo.activated.emit(dock.spoke_cell_combo.currentIndex())
 
-    assert _read_yaml(target)["rules"][0]["spokes"][0]["cell"] == "other_cell"
+    assert _load(target)["rules"][0]["spokes"][0]["cell"] == "other_cell"
 
 
 def test_add_spoke_persists_immediately(main_window, tmp_path):
@@ -488,7 +501,7 @@ def test_add_spoke_persists_immediately(main_window, tmp_path):
 
     dock._on_add_spoke()  # no Save pressed
 
-    assert _read_yaml(target)["rules"] == [{
+    assert _load(target)["rules"] == [{
         "net": "+3V3", "anchor_role": "FPGA", "spokes": [{"pad": "17", "cell": "cap_pair"}]}]
 
 
@@ -497,12 +510,12 @@ def test_remove_spoke_persists_immediately(main_window, tmp_path):
         "net": "+3V3", "anchor_role": "FPGA",
         "spokes": [{"pad": "17", "cell": "cap_pair"}, {"pad": "26", "cell": "cap_pair"}],
     }]})
-    dock.load_entry(_read_yaml(dock._path)["rules"][0])
+    dock.load_entry(_load(dock._path)["rules"][0])
     dock.spokes_table.selectRow(0)
 
     dock._on_remove_spoke()
 
-    assert [s["pad"] for s in _read_yaml(target)["rules"][0]["spokes"]] == ["26"]
+    assert [s["pad"] for s in _load(target)["rules"][0]["spokes"]] == ["26"]
 
 
 def test_move_spoke_persists_immediately(main_window, tmp_path):
@@ -510,12 +523,12 @@ def test_move_spoke_persists_immediately(main_window, tmp_path):
         "net": "+3V3", "anchor_role": "FPGA",
         "spokes": [{"pad": "17", "cell": "cap_pair"}, {"pad": "26", "cell": "cap_pair"}],
     }]})
-    dock.load_entry(_read_yaml(dock._path)["rules"][0])
+    dock.load_entry(_load(dock._path)["rules"][0])
     dock.spokes_table.selectRow(0)
 
     dock._on_move_spoke(1)
 
-    assert [s["pad"] for s in _read_yaml(target)["rules"][0]["spokes"]] == ["26", "17"]
+    assert [s["pad"] for s in _load(target)["rules"][0]["spokes"]] == ["26", "17"]
 
 
 def test_autosave_creating_a_new_rule_notifies_the_tree(main_window, tmp_path):
@@ -533,7 +546,7 @@ def test_autosave_creating_a_new_rule_notifies_the_tree(main_window, tmp_path):
     dock._on_add_spoke()
 
     assert fired
-    assert _read_yaml(target)["rules"] == [{
+    assert _load(target)["rules"] == [{
         "net": "+3V3", "anchor_role": "FPGA", "spokes": [{"pad": "17", "cell": "cap_pair"}]}]
 
 
@@ -545,7 +558,7 @@ def test_autosave_existing_rule_does_not_churn_the_tree(main_window, tmp_path):
         "net": "+3V3", "anchor_role": "FPGA",
         "spokes": [{"pad": "17", "cell": "cap_pair", "shift_x_mm": 1.2}],
     }]})
-    dock.load_entry(_read_yaml(dock._path)["rules"][0])
+    dock.load_entry(_load(dock._path)["rules"][0])
     dock.spokes_table.selectRow(0)
     fired = []
     dock.saved.connect(lambda: fired.append(True))
@@ -554,7 +567,7 @@ def test_autosave_existing_rule_does_not_churn_the_tree(main_window, tmp_path):
     dock.spoke_shift_x_edit.editingFinished.emit()
 
     assert not fired
-    assert _read_yaml(target)["rules"][0]["spokes"][0]["shift_x_mm"] == 2.5
+    assert _load(target)["rules"][0]["spokes"][0]["shift_x_mm"] == 2.5
 
 
 def test_autosave_failure_reports_error_never_silent(main_window, tmp_path, caplog):
@@ -564,7 +577,7 @@ def test_autosave_failure_reports_error_never_silent(main_window, tmp_path, capl
         "net": "+3V3", "anchor_role": "FPGA",
         "spokes": [{"pad": "17", "cell": "cap_pair", "shift_x_mm": 1.2}],
     }]})
-    dock.load_entry(_read_yaml(dock._path)["rules"][0])
+    dock.load_entry(_load(dock._path)["rules"][0])
     dock.spokes_table.selectRow(0)
 
     dock.origin_widget.clear()  # break the rule -> _build_rule_dict fails
@@ -573,7 +586,7 @@ def test_autosave_failure_reports_error_never_silent(main_window, tmp_path, capl
 
     assert any("Anchor: set Ref or Role" in r.message for r in caplog.records)
     # nothing was written
-    assert _read_yaml(target)["rules"][0]["spokes"][0]["shift_x_mm"] == 1.2
+    assert _load(target)["rules"][0]["spokes"][0]["shift_x_mm"] == 1.2
 
 
 # ── Bulk-set Cell for net (Stage 3, 2026-08-20) ───────────────────────────
@@ -586,7 +599,7 @@ def test_collect_rule_nets_and_rules_by_net_across_files(tmp_path):
 
     affected = collect_rules_by_net(root, "+3V3")
     assert len(affected) == 2
-    assert {p.name for p, _ in affected} == {"rules.yaml", "sibling.yaml"}
+    assert {p.name for p, _ in affected} == {"rules.sexp", "sibling.sexp"}
     assert all(r["net"] == "+3V3" for _, r in affected)
 
 
@@ -597,10 +610,11 @@ def test_bulk_set_cell_writes_all_rules_on_net_across_files(main_window, tmp_pat
 
     dock._apply_bulk_cell_set("+3V3", "new_cell")
 
-    assert _read_yaml(target)["rules"][0]["spokes"][0]["cell"] == "new_cell"
-    assert _read_yaml(sibling)["rules"][0]["spokes"][0]["cell"] == "new_cell"
-    # a rule on a DIFFERENT net is untouched
-    assert _read_yaml(sibling)["rules"][1]["spokes"] == []
+    assert _load(target)["rules"][0]["spokes"][0]["cell"] == "new_cell"
+    assert _load(sibling)["rules"][0]["spokes"][0]["cell"] == "new_cell"
+    # a rule on a DIFFERENT net is untouched (its empty spokes: is omitted by
+    # s-expr, so the assertion reads it back as the default empty list)
+    assert _load(sibling)["rules"][1].get("spokes", []) == []
     assert any("Bulk-set Cell" in r.message for r in caplog.records)
 
 
@@ -616,7 +630,7 @@ def test_bulk_set_cell_partial_failure_reported(main_window, tmp_path, caplog, m
     real_upsert = rules_mod.upsert_list_entry
 
     def flaky(path, *args, **kwargs):
-        if path.name == "sibling.yaml":
+        if path.name == "sibling.sexp":
             raise OSError("locked by another process")
         return real_upsert(path, *args, **kwargs)
 
@@ -624,10 +638,10 @@ def test_bulk_set_cell_partial_failure_reported(main_window, tmp_path, caplog, m
 
     dock._apply_bulk_cell_set("+3V3", "new_cell")
 
-    assert _read_yaml(target)["rules"][0]["spokes"][0]["cell"] == "new_cell"  # wrote
-    assert _read_yaml(sibling)["rules"][0]["spokes"][0]["cell"] == "old_b"    # failed
+    assert _load(target)["rules"][0]["spokes"][0]["cell"] == "new_cell"  # wrote
+    assert _load(sibling)["rules"][0]["spokes"][0]["cell"] == "old_b"    # failed
     assert any("FAILED" in r.message for r in caplog.records)
-    assert any("sibling.yaml" in r.message for r in caplog.records)
+    assert any("sibling.sexp" in r.message for r in caplog.records)
 
 
 def test_bulk_dialog_preview_shows_rules_and_pads(main_window, tmp_path):
@@ -640,7 +654,7 @@ def test_bulk_dialog_preview_shows_rules_and_pads(main_window, tmp_path):
 
     text = dlg.preview_label.text()
     assert "2 rule(s)" in text
-    assert "rules.yaml" in text and "sibling.yaml" in text
+    assert "rules.sexp" in text and "sibling.sexp" in text
     assert "17" in text and "26" in text
 
 
@@ -651,7 +665,7 @@ def test_bulk_set_cell_reloads_loaded_rule_if_affected(main_window, tmp_path):
     dock, target = _make_dock(main_window, tmp_path)
     target, sibling, root = _bulk_graph(tmp_path)
     dock.set_root_path(root)
-    dock.load_entry(_read_yaml(target)["rules"][0])
+    dock.load_entry(_load(target)["rules"][0])
     assert dock._spokes[0]["cell"] == "old_a"
 
     dock._apply_bulk_cell_set("+3V3", "new_cell")
@@ -713,10 +727,9 @@ def test_load_entry_point_mode(main_window, tmp_path):
 # ── set_root_path (whole-graph Cell/Point combos) ────────────────────────
 
 def test_set_root_path_populates_cell_and_point_combos(main_window, tmp_path):
-    (tmp_path / "sub.yaml").write_text(
-        "cells:\n  cap_pair: {}\npoints:\n  fpga_center: {xy: [0, 0]}\n", encoding="utf-8")
-    root = tmp_path / "root.yaml"
-    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
+    _write(tmp_path / "sub.sexp", {"cells": {"cap_pair": {}}, "points": {"fpga_center": {"xy": [0, 0]}}})
+    root = tmp_path / "root.sexp"
+    _write(root, {"include": ["sub.sexp"]})
     dock = RuleDock(main_window)
 
     dock.set_root_path(root)
@@ -817,12 +830,12 @@ def test_redraw_rule_resolves_cells_via_project_root_not_rule_file(main_window, 
     saw an empty cells:, failing every spoke's "cell not found" check even
     though the project as a whole is valid. Uses REAL load_config (not
     monkeypatched) to prove the include: graph is actually walked."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {"cells": {"cap_pair": {}}})
-    target_file = tmp_path / "rules.yaml"
-    _write_yaml(target_file, {"rules": []})
-    root_file = tmp_path / "root.yaml"
-    _write_yaml(root_file, {"include": ["cells.yaml", "rules.yaml"]})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"cells": {"cap_pair": {}}})
+    target_file = tmp_path / "rules.sexp"
+    _write(target_file, {"rules": []})
+    root_file = tmp_path / "root.sexp"
+    _write(root_file, {"include": ["cells.sexp", "rules.sexp"]})
 
     dock = RuleDock(main_window)
     dock.set_root_path(target_file)
@@ -939,4 +952,3 @@ def _combo_index_for_filename(combo, filename):
         if combo.itemData(i).name == filename:
             return i
     return -1
-

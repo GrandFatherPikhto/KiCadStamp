@@ -254,7 +254,7 @@ class TreesDock(QDockWidget):
         try:
             self._cfg, self._ctx = load_config(str(path))
             self._trees = list(self._cfg.trees)
-        except ValidationError as e:
+        except (ValidationError, OSError) as e:
             # A broken root config must not crash the trees dock — cfg stays
             # None, trees empty, and Save's link_trees round-trip is skipped
             # until a good root is loaded.

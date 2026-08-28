@@ -1,11 +1,9 @@
 # tests/gui/test_extract_dock.py
-from unittest.mock import MagicMock
-
 import json
 
-import yaml
 from kicadstamp.domain.geometry import BoardLayer
 from kicadstamp.domain.geometry import Vector2
+from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 
 from kicadstamp.config import ClonePlacement
 from kicadstamp.domain.board import Footprint, Track, Via
@@ -33,8 +31,25 @@ class FakeBoard:
     adapter = FakeAdapter()
 
 
-def _write_yaml(path, data) -> None:
-    path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+def _fill_cell_defaults(data: dict) -> dict:
+    """s-expr omits default-valued Cell fields (layer='F.Cu', empty
+    vias/components/tracks/clone_placements lists); re-apply them so the
+    raw-dict assertions stay identical to the old yaml.safe_load reads."""
+    for entry in data.get("cells", {}).values():
+        entry.setdefault("layer", "F.Cu")
+        entry.setdefault("vias", [])
+        entry.setdefault("components", [])
+        entry.setdefault("tracks", [])
+        entry.setdefault("clone_placements", [])
+    return data
+
+
+def _write(path, data) -> None:
+    path.write_text(dict_to_sexp(data), encoding="utf-8")
+
+
+def _load(path) -> dict:
+    return _fill_cell_defaults(sexp_to_dict(path.read_text(encoding="utf-8"))) or {}
 
 
 def _fake_extract(adapter, name, params=None, items=None, annotations=None, **kwargs):
@@ -71,8 +86,8 @@ def _write_registry(path, entries) -> None:
 # экстракторе net-aliases, не таблица") ──────────────────────────────────
 
 def test_net_aliases_table_has_one_row_per_distinct_net(main_window, tmp_path):
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
 
@@ -84,8 +99,8 @@ def test_net_aliases_table_has_one_row_per_distinct_net(main_window, tmp_path):
 
 
 def test_net_aliases_table_net_column_is_read_only(main_window, tmp_path):
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
 
@@ -100,8 +115,8 @@ def test_net_aliases_table_alias_and_checkbox_are_cell_widgets(main_window, tmp_
     _rule_net_checkboxes dicts as before (unchanged data flow) — verify
     they're also actually the table's own cell widgets, in the right
     columns, not just tracked separately."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
 
@@ -136,8 +151,8 @@ def test_auto_role_shows_lemma2_role_and_disables_alias(main_window, tmp_path, m
     """Plan test (a): a net that unambiguously resolves by role (lemma 2 — the
     role's only non-rule net) gets a filled Auto-role cell and a disabled Alias
     edit with an explanatory tooltip (no-override decision)."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     main_window.connection.board = _classification_board(monkeypatch, {
         "R_SERIES": {"1": {"FPGA_SIG"}, "2": {"FPGA_SIG"}},
     })
@@ -159,8 +174,8 @@ def test_auto_role_stays_empty_and_alias_active_for_fallback(main_window, tmp_pa
     """Plan test (b): a net no selected role covers (fallback) keeps an empty
     Auto-role cell and an active Alias edit — exactly the pre-change behaviour,
     since fallback nets are the only ones where an alias still means something."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     main_window.connection.board = _classification_board(monkeypatch, {
         "C_IN": {"1": {"+3V3"}, "2": {"GND"}},
     })
@@ -182,8 +197,8 @@ def test_auto_role_gnd_is_fallback_not_pretend_owned(main_window, tmp_path, monk
     """GND is an intrinsic rule net (RULE_NETS) — it must NOT read as "owned
     by a role". Without that, every rail+GND cap role would look like a "2+
     classifying nets" bridging component (plan step 5's trap)."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     main_window.connection.board = _classification_board(monkeypatch, {
         "C_IN_BULK": {"1": {"+3V3"}, "2": {"GND"}},
     })
@@ -215,8 +230,8 @@ def test_rule_net_checked_net_does_not_make_the_role_ambiguous(main_window, tmp_
     classification (template_extraction.py zeroes rule_nets before
     _suggest_net_from_role), so it must not force a net_template_role pick
     (which would seed a junk params entry)."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     main_window.connection.board = _classification_board(monkeypatch, {
         "PI_FILTER_FB": {"1": {"-2V5"}, "2": {"-2V5_DIRTY"}},
     })
@@ -243,8 +258,8 @@ def test_refresh_auto_role_cells_clears_a_stale_by_role_tooltip(main_window, tmp
     (same net NAMES, different role evidence), the Alias field is re-enabled
     AND its stale by-role tooltip is cleared — the old "your input will be
     ignored" tip must not keep lying on a now-live field."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     main_window.connection.board = _classification_board(monkeypatch, {
         "R_SERIES": {"1": {"FPGA_SIG"}, "2": {"FPGA_SIG"}},
     })
@@ -269,8 +284,8 @@ def test_refresh_auto_role_cells_ignores_a_rule_net_checked_net(main_window, tmp
     Auto-role column nor the by-role tooltip — extraction writes net: null
     for it, the role has nothing to do with it (the Alias edit was already
     correctly disabled; the column/tooltip just misled about the CAUSE)."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     main_window.connection.board = _classification_board(monkeypatch, {
         "R_SERIES": {"1": {"FPGA_SIG"}, "2": {"FPGA_SIG"}},
     })
@@ -301,8 +316,8 @@ def test_rule_net_click_immediately_clears_the_auto_role_visuals(main_window, tm
     column/tooltip SYNCHRONOUSLY on the click — not wait ~400ms for the next
     _refresh_auto_role_cells tick (the Alias edit was already cleared/disabled
     instantly, but the column kept claiming "role: X" in the meantime)."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     main_window.connection.board = _classification_board(monkeypatch, {
         "R_SERIES": {"1": {"FPGA_SIG"}, "2": {"FPGA_SIG"}},
     })
@@ -328,8 +343,8 @@ def test_rebuilt_table_row_respects_a_restored_rule_net_checkbox(main_window, tm
     previously-checked Rule net for the same net name must bring the fresh row
     in ALREADY showing no "role: X" and no by-role tooltip — not rebuild it
     from the raw classification and wait for the next tick to correct it."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     main_window.connection.board = _classification_board(monkeypatch, {
         "R_SERIES": {"1": {"FPGA_SIG"}, "2": {"FPGA_SIG"}},
     })
@@ -374,10 +389,10 @@ def test_prepare_new_profile_arms_the_extract_flow(main_window, tmp_path):
     (an extract_profiles: entry's params come from a real board selection):
     it points the dock at the profile file, pre-checks the save checkbox,
     clears + focuses the profile-key field."""
-    cells_file = tmp_path / "cells.yaml"
-    cells_file.write_text("cells: {}\n", encoding="utf-8")
-    profile_file = tmp_path / "profiles.yaml"
-    profile_file.write_text("extract_profiles: {}\n", encoding="utf-8")
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"cells": {}})
+    profile_file = tmp_path / "profiles.sexp"
+    _write(profile_file, {"extract_profiles": {}})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
     dock.save_profile_checkbox.setChecked(False)
@@ -398,10 +413,10 @@ def test_prepare_new_profile_does_not_disturb_the_cells_context(main_window, tmp
     prepare_new_profile must not change the target Cell file or the existing
     cells list content (set_profile_file's list refresh re-adds the SAME
     cells from the unchanged _target_path)."""
-    cells_file = tmp_path / "cells.yaml"
-    cells_file.write_text("cells:\n  alpha:\n    components: []\n", encoding="utf-8")
-    profile_file = tmp_path / "profiles.yaml"
-    profile_file.write_text("extract_profiles: {}\n", encoding="utf-8")
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"cells": {"alpha": {}}})
+    profile_file = tmp_path / "profiles.sexp"
+    _write(profile_file, {"extract_profiles": {}})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
 
@@ -425,8 +440,8 @@ def test_profile_key_field_has_an_explanatory_tooltip(main_window, tmp_path):
 
 
 def test_cluster_slug_default_when_nothing_matches(main_window, tmp_path):
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
 
@@ -435,8 +450,8 @@ def test_cluster_slug_default_when_nothing_matches(main_window, tmp_path):
 
 
 def test_cluster_slug_does_not_stomp_manual_typing(main_window, tmp_path):
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
 
@@ -446,8 +461,8 @@ def test_cluster_slug_does_not_stomp_manual_typing(main_window, tmp_path):
 
 
 def test_existing_cell_key_beats_raw_cluster_slug(main_window, tmp_path):
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {"cells": {
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"cells": {
         "existing_manual_name": {"vias": [], "components": [], "tracks": [], "layer": "F.Cu"},
     }})
     dock = ExtractDock(main_window)
@@ -467,14 +482,14 @@ def test_clicking_profile_pulls_aliases_role_and_origin(main_window, tmp_path, m
     now classification-driven, not alias-typing-driven (plan step 5)."""
     cells_dir = tmp_path / "templates"
     cells_dir.mkdir()
-    cells_file = cells_dir / "test.yaml"
-    _write_yaml(cells_file, {"cells": {"2v5_adj_pi_filter": {"vias": [], "components": [], "tracks": [], "layer": "F.Cu"}}})
+    cells_file = cells_dir / "test.sexp"
+    _write(cells_file, {"cells": {"2v5_adj_pi_filter": {"vias": [], "components": [], "tracks": [], "layer": "F.Cu"}}})
 
-    extractor_file = tmp_path / "test_extract.yaml"
-    _write_yaml(extractor_file, {
+    extractor_file = tmp_path / "test_extract.sexp"
+    _write(extractor_file, {
         "extract_profiles": {
             "n2v5_adj_pi_filter": {
-                "output": "templates/test.yaml",
+                "output": "templates/test.sexp",
                 "name": "2v5_adj_pi_filter",
                 "params": {"PWR_OUT": "-2V5", "PWR_IN": "-2V5_DIRTY"},
                 "origin_by_component_role": "C_IN_BYPASS",
@@ -531,12 +546,12 @@ def test_clicking_cell_cross_references_matching_profile(main_window, tmp_path):
     # root (the GUI reads the whole include: graph since the file pickers were
     # removed, 2026-08-21) — the cross-reference is name-based: a profile
     # whose entry `name:` equals the clicked cell key is pulled in.
-    root_file = tmp_path / "root.yaml"
-    _write_yaml(root_file, {
+    root_file = tmp_path / "root.sexp"
+    _write(root_file, {
         "cells": {"2v5_adj_pi_filter": {"vias": [], "components": [], "tracks": [], "layer": "F.Cu"}},
         "extract_profiles": {
             "n2v5_adj_pi_filter": {
-                "output": "templates/test.yaml",
+                "output": "templates/test.sexp",
                 "name": "2v5_adj_pi_filter",
                 "params": {"PWR_OUT": "-2V5"},
             }
@@ -559,13 +574,13 @@ def test_net_alias_positional_fallback_on_rail_swap(main_window, tmp_path):
     """A profile's params recorded against one rail ('+2V5') should still
     populate the alias rows for an analogous selection on a different
     rail ('-2V5') — no literal in common, falls back to declared order."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
-    extractor_file = tmp_path / "extractor.yaml"
-    _write_yaml(extractor_file, {
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
+    extractor_file = tmp_path / "extractor.sexp"
+    _write(extractor_file, {
         "extract_profiles": {
             "n2v5_adj_pi_filter": {
-                "output": "cells.yaml",
+                "output": "cells.sexp",
                 "params": {"PWR_IN": "+2V5", "PWR_OUT": "+2V5_DIRTY"},
             }
         }
@@ -593,8 +608,8 @@ def test_tabs_have_the_expected_labels(main_window, tmp_path):
     ONE page, not the sum of all of them. "Sub-placements" (2026-08-25) is a
     hidden-by-default tab, same as "Net template role" — it must not break the
     tab order or the "only current page sizes the window" invariant."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
 
@@ -612,8 +627,8 @@ def test_net_template_role_tab_hidden_until_classification_sees_two_nets(main_wi
     (lemma2/pad). A bridging-shaped component whose nets are all fallback
     (no role evidence) stays hidden — and typing aliases no longer triggers
     it at all, since a classified net's Alias edit is disabled anyway."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
     assert dock._tabs.isTabVisible(dock._role_net_tab_index) is False
@@ -644,8 +659,8 @@ def test_role_net_tab_appears_from_classification_without_any_alias(main_window,
     """Plan test (c) — the step-5 regression: two different nets of one role
     (on different pads) that themselves classify make the Net template role
     tab appear WITHOUT a single manually typed alias."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     main_window.connection.board = _classification_board(monkeypatch, {
         "C_IN_BULK": {"1": {"-2V5"}, "2": {"GND"}},
         "C_IN_BYPASS": {"1": {"-2V5_DIRTY"}, "2": {"GND"}},
@@ -667,8 +682,8 @@ def test_role_net_tab_appears_from_classification_without_any_alias(main_window,
 
 
 def test_net_template_role_blocks_extraction_until_resolved(main_window, tmp_path, monkeypatch, caplog):
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     main_window.connection.board = _classification_board(monkeypatch, {
         "C_IN_BULK": {"1": {"-2V5"}, "2": {"GND"}},
         "C_IN_BYPASS": {"1": {"-2V5_DIRTY"}, "2": {"GND"}},
@@ -687,13 +702,13 @@ def test_net_template_role_blocks_extraction_until_resolved(main_window, tmp_pat
     dock._raw_items = [_fake_fp("C1")]
     dock._on_extract()
     assert any("PI_FILTER_FB" in r.message for r in caplog.records)
-    assert yaml.safe_load(cells_file.read_text()) in (None, {})
+    assert _load(cells_file) in (None, {})
 
     dock._net_template_role_edits["PI_FILTER_FB"].setCurrentText("-2V5")
     # Full success-path extract: runs synchronously via the _do_extract() core
     # (the async _on_extract() path would race the read on the next line).
     dock._do_extract()
-    saved = yaml.safe_load(cells_file.read_text())
+    saved = _load(cells_file)
     assert "n2v5_adj_pi_filter" in saved["cells"]
 
 
@@ -706,8 +721,8 @@ def test_net_template_role_pick_seeds_params_for_classified_net(main_window, tmp
     explicit opt-in, so it must seed the matching param (name = role, e.g.
     {PI_FILTER_FB}) — this is separate from the no-override rule for ordinary
     lemma2/pad nets, whose Alias edits stay disabled."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     main_window.connection.board = _classification_board(monkeypatch, {
         "C_IN_BULK": {"1": {"-2V5"}, "2": {"GND"}},
         "C_IN_BYPASS": {"1": {"-2V5_DIRTY"}, "2": {"GND"}},
@@ -737,7 +752,7 @@ def test_net_template_role_pick_seeds_params_for_classified_net(main_window, tmp
 
     # And the full extract path succeeds (no blocking, no fatal).
     dock._do_extract()
-    saved = yaml.safe_load(cells_file.read_text())
+    saved = _load(cells_file)
     assert "bridging_cell" in saved["cells"]
 
 
@@ -761,8 +776,8 @@ def test_summarize_net_from_role_lists_roles_and_pads(main_window):
 
 
 def test_extract_shows_net_from_role_summary_on_success(main_window, tmp_path, monkeypatch, caplog):
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
 
@@ -786,8 +801,8 @@ def test_on_extract_dispatches_to_worker(main_window, tmp_path, monkeypatch):
     hands the plain-data payload to start_long_op with the shared connection,
     the guard widget, and the split run/finish callbacks (the result comes
     back through a queued signal, so the socket is never held by two owners)."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
     main_window.connection.board = FakeBoard()
@@ -841,8 +856,8 @@ def test_on_extract_dispatches_to_worker(main_window, tmp_path, monkeypatch):
 # ── Rule net checkbox (2026-08-05) ──────────────────────────────────────────
 
 def test_checking_rule_net_clears_and_disables_the_alias_edit(main_window, tmp_path):
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
     dock.set_board_selection([], [FakeSelected("D1", "SOME_ROLE", "X", {"1": "+3V3_VCCIO"})])
@@ -859,8 +874,8 @@ def test_checking_rule_net_clears_and_disables_the_alias_edit(main_window, tmp_p
 
 
 def test_collect_inputs_includes_checked_rule_nets(main_window, tmp_path):
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
     dock.set_board_selection([], [
@@ -878,10 +893,10 @@ def test_collect_inputs_includes_checked_rule_nets(main_window, tmp_path):
 
 
 def test_extract_persists_rule_nets_into_the_profile(main_window, tmp_path, monkeypatch):
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
-    extractor_file = tmp_path / "extractor.yaml"
-    _write_yaml(extractor_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
+    extractor_file = tmp_path / "extractor.sexp"
+    _write(extractor_file, {})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
     dock.set_root_path(extractor_file)
@@ -897,17 +912,17 @@ def test_extract_persists_rule_nets_into_the_profile(main_window, tmp_path, monk
     dock._raw_items = [_fake_fp("C1")]
     dock._do_extract()
 
-    profile = yaml.safe_load(extractor_file.read_text())["extract_profiles"]["some_profile"]
+    profile = _load(extractor_file)["extract_profiles"]["some_profile"]
     assert profile["rule_nets"] == ["+3V3_VCCIO"]
 
 
 def test_clicking_profile_re_checks_its_rule_nets(main_window, tmp_path):
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
-    extractor_file = tmp_path / "extractor.yaml"
-    _write_yaml(extractor_file, {
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
+    extractor_file = tmp_path / "extractor.sexp"
+    _write(extractor_file, {
         "extract_profiles": {
-            "some_profile": {"output": "cells.yaml", "rule_nets": ["+3V3_VCCIO"]},
+            "some_profile": {"output": "cells.sexp", "rule_nets": ["+3V3_VCCIO"]},
         }
     })
     dock = ExtractDock(main_window)
@@ -929,8 +944,8 @@ def test_clicking_profile_re_checks_its_rule_nets(main_window, tmp_path):
 # components too) ────────────────────────────────────────────────────────
 
 def test_cluster_filter_hidden_for_a_single_cluster_selection(main_window, tmp_path):
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
     main_window.show()  # isVisible() needs the whole ancestor chain shown
@@ -943,8 +958,8 @@ def test_cluster_filter_hidden_for_a_single_cluster_selection(main_window, tmp_p
 
 
 def test_cluster_filter_shown_and_defaults_to_majority_cluster(main_window, tmp_path):
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
     main_window.show()  # isVisible() needs the whole ancestor chain shown
@@ -968,8 +983,8 @@ def test_cluster_filter_excludes_other_cluster_footprints_but_keeps_vias(main_wi
     components (Cluster=PIF_P5V) — checking the filter should drop the
     Pi-filter's footprint from the extract payload, but leave a selected via
     alone (no Cluster field to filter it by, see module docstring)."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
     dock.name_edit.setText("fpga_periph")
@@ -992,8 +1007,8 @@ def test_cluster_filter_excludes_other_cluster_footprints_but_keeps_vias(main_wi
 
 
 def test_cluster_filter_unchecked_keeps_full_selection(main_window, tmp_path):
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
     dock.name_edit.setText("fpga_periph")
@@ -1014,8 +1029,8 @@ def test_cluster_filter_unchecked_keeps_full_selection(main_window, tmp_path):
 
 
 def test_cluster_filter_updates_selection_label_and_warning(main_window, tmp_path):
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
 
@@ -1041,8 +1056,8 @@ def test_cluster_filter_resets_when_selection_no_longer_spans_clusters(main_wind
     selection no longer spans multiple Clusters (e.g. the user deselected
     down to just their own components) — the checkbox/combo hide AND the
     checkbox unchecks, so a later re-selection starts from a clean state."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
     main_window.show()  # isVisible() needs the whole ancestor chain shown
@@ -1068,10 +1083,10 @@ def test_cluster_filter_resets_when_selection_no_longer_spans_clusters(main_wind
 # against the Placer file's registry.json can) ─────────────────────────────
 
 def test_registry_filter_excludes_via_already_in_placer_registry(main_window, tmp_path):
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
-    placer_file = tmp_path / "placer.yaml"
-    _write_yaml(placer_file, {"clone_placements": []})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
+    placer_file = tmp_path / "placer.sexp"
+    _write(placer_file, {"clone_placements": []})
     _write_registry(tmp_path / "placer.registry.json", {
         "pad:1|pif_p5v|C_IN_BULK|0": {
             "uuid": "via-uuid-foreign", "x_mm": 0, "y_mm": 0,
@@ -1102,10 +1117,10 @@ def test_registry_filter_excludes_via_already_in_placer_registry(main_window, tm
 
 
 def test_registry_filter_excludes_track_already_in_placer_registry(main_window, tmp_path):
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
-    placer_file = tmp_path / "placer.yaml"
-    _write_yaml(placer_file, {"clone_placements": []})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
+    placer_file = tmp_path / "placer.sexp"
+    _write(placer_file, {"clone_placements": []})
     _write_registry(tmp_path / "placer.tracks.registry.json", {
         "pad:1|pif_p5v|C_IN_BULK|0": {
             "uuid": "track-uuid-foreign", "start_x_mm": 0, "start_y_mm": 0,
@@ -1139,8 +1154,8 @@ def test_registry_filter_is_a_noop_without_a_placer_file(main_window, tmp_path):
     """No Placer file assigned -> nothing to check the registry against —
     Via/Track pass through untouched, only footprint-by-Cluster filtering
     applies (documented behaviour, not a bug)."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
     dock.name_edit.setText("fpga_periph")
@@ -1162,10 +1177,10 @@ def test_registry_filter_is_a_noop_without_a_placer_file(main_window, tmp_path):
 
 
 def test_registry_uuids_cached_until_placer_file_changes(main_window, tmp_path, monkeypatch):
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
-    placer_file = tmp_path / "placer.yaml"
-    _write_yaml(placer_file, {"clone_placements": []})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
+    placer_file = tmp_path / "placer.sexp"
+    _write(placer_file, {"clone_placements": []})
     _write_registry(tmp_path / "placer.registry.json", {})
 
     dock = ExtractDock(main_window)
@@ -1192,8 +1207,8 @@ def test_registry_uuids_cached_until_placer_file_changes(main_window, tmp_path, 
 
     assert len(calls) == 1  # second call served from cache, not re-read from disk
 
-    other_placer = tmp_path / "other_placer.yaml"
-    _write_yaml(other_placer, {"clone_placements": []})
+    other_placer = tmp_path / "other_placer.sexp"
+    _write(other_placer, {"clone_placements": []})
     _write_registry(tmp_path / "other_placer.registry.json", {})
     dock.set_root_path(other_placer)
     dock._registry_uuids()
@@ -1206,10 +1221,10 @@ def test_registry_filter_survives_a_missing_registry_file(main_window, tmp_path)
     all — must be treated as "nothing registered" (empty sets), not an
     error, so a first-ever extraction on a brand new Placer file still
     works with the Cluster filter checked."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
-    placer_file = tmp_path / "placer.yaml"
-    _write_yaml(placer_file, {"clone_placements": []})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
+    placer_file = tmp_path / "placer.sexp"
+    _write(placer_file, {"clone_placements": []})
     # deliberately no placer.registry.json / placer.tracks.registry.json
 
     dock = ExtractDock(main_window)
@@ -1237,8 +1252,8 @@ def test_registry_filter_survives_a_missing_registry_file(main_window, tmp_path)
 # "take selection as-is" — opt-in bypass of the pad-connectivity filter ─────
 
 def test_raw_selection_checkbox_defaults_off(main_window, tmp_path):
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
     dock.name_edit.setText("some_cell")
@@ -1251,8 +1266,8 @@ def test_raw_selection_checkbox_defaults_off(main_window, tmp_path):
 
 
 def test_raw_selection_checkbox_collected_when_checked(main_window, tmp_path):
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
     dock.name_edit.setText("some_cell")
@@ -1269,8 +1284,8 @@ def test_raw_selection_reaches_run_extract_to_file(main_window, tmp_path, monkey
     """The checkbox state must flow: checkbox -> _collect_extract_inputs ->
     _run_extract -> run_extract_to_file(raw_selection=...) (the worker-side
     forwarding itself is covered in tests/test_extract_writer.py)."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
     dock.name_edit.setText("some_cell")
@@ -1301,8 +1316,8 @@ def _sub_placement_dock(main_window, tmp_path, monkeypatch, clone, items):
     top of it). `items` are the resolved board items the catalog reports for
     `clone` — a placement is a candidate exactly when ALL of them are in the
     current selection."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
     monkeypatch.setattr(ExtractDock, "_sub_placement_catalog",
@@ -1430,8 +1445,8 @@ def test_run_extract_forwards_built_clone_placements(main_window, tmp_path, monk
     """The worker forwards the built CellPlacement entries into
     run_extract_to_file(clone_placements=...) — the write-through itself is
     covered in tests/test_extract_writer.py."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
     captured = {}
@@ -1469,8 +1484,8 @@ def test_build_sub_placements_xy_is_world_origin_in_new_cell_local_frame(main_wi
     mirror/layer copy one-to-one. The origin is the ONE precomputed one from
     _compute_extract_origin (passed in, not recomputed here); clone_world_origin
     is patched (its own geometry is core-tested)."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {"clone_placements": []})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"clone_placements": []})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
 
@@ -1506,8 +1521,8 @@ def test_worker_origin_computed_from_full_selection_for_role_origin(main_window,
     _compute_extract_origin uses the FULL (pre-exclusion) list, and
     _build_sub_placements consumes that SAME origin — Sub-placement xy and the
     flat geometry share one coordinate system."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {"clone_placements": []})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"clone_placements": []})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
 
@@ -1595,7 +1610,7 @@ def test_pure_composite_extract_skips_extract_fn(main_window, tmp_path, monkeypa
     dock._do_extract()
 
     assert calls == []  # extract_fn never called for a pure composite
-    data = yaml.safe_load((tmp_path / "cells.yaml").read_text(encoding="utf-8"))
+    data = _load(tmp_path / "cells.sexp")
     cell = data["cells"]["dac_buf"]
     assert cell["components"] == []
     assert cell["vias"] == []
@@ -1611,10 +1626,10 @@ def test_filtered_selection_keeps_fully_covered_placements_copper(main_window, t
     longer silently dropped — the placement became a Sub-placement candidate,
     so its own copper stays in the selection (it becomes a reference or stays
     flat per the user's checkbox, never silently stripped in between)."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
-    placer_file = tmp_path / "placer.yaml"
-    _write_yaml(placer_file, {"clone_placements": []})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
+    placer_file = tmp_path / "placer.sexp"
+    _write(placer_file, {"clone_placements": []})
     _write_registry(tmp_path / "placer.registry.json", {
         "pif|via|0|0": {"uuid": "via-uuid-pif", "x_mm": 0, "y_mm": 0,
                         "net": "+3V3", "drill_mm": 0.3, "diameter_mm": 0.6},
@@ -1623,7 +1638,7 @@ def test_filtered_selection_keeps_fully_covered_placements_copper(main_window, t
 
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
-    dock.set_root_path(placer_file)  # _placer_path -> placer.yaml (registry read)
+    dock.set_root_path(placer_file)  # _placer_path -> placer.sexp (registry read)
     # A DISTINCT target cell name keeps this placement from being a
     # self-reference (cell: pif_avdd == target), which the 2026-08-25
     # self-reference guard excludes — this test is about the registry-copper
@@ -1656,10 +1671,10 @@ def test_filtered_selection_still_drops_foreign_registry_copper(main_window, tmp
     """1б must not soften the registry filter for placements that are NOT fully
     covered (or not candidates at all) — a wholly-foreign/partially-covered
     placement's copper is still dropped the old way."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {})
-    placer_file = tmp_path / "placer.yaml"
-    _write_yaml(placer_file, {"clone_placements": []})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
+    placer_file = tmp_path / "placer.sexp"
+    _write(placer_file, {"clone_placements": []})
     _write_registry(tmp_path / "placer.registry.json", {
         "pif|via|0|0": {"uuid": "via-uuid-pif", "x_mm": 0, "y_mm": 0,
                         "net": "+3V3", "drill_mm": 0.3, "diameter_mm": 0.6},
@@ -1795,8 +1810,8 @@ def test_build_sub_placements_copies_params_nets_overrides_refs(main_window, tmp
     CellPlacement then couldn't resolve its {placeholders} on the next Redraw.
     The four fields are copied verbatim (the same cell, so the semantics
     don't change)."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {"clone_placements": []})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"clone_placements": []})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
 
@@ -1833,8 +1848,8 @@ def test_build_sub_placements_omits_empty_param_fields(main_window, tmp_path, mo
     """A plain placement (all four parametrisation fields empty) must not gain
     params: {} / nets: {} / net_overrides: {} / refs: {} noise in the written
     cell — the defaults stay omitted, same style as rotation/mirror/layer."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {"clone_placements": []})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"clone_placements": []})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
 
@@ -1870,8 +1885,8 @@ def test_build_sub_placements_copies_sheet_cluster(main_window, tmp_path, monkey
     Both fields must be copied into the new nested entry — here on a
     CROSS-sheet batch (two different sheets), where sheet: is legitimately
     kept per item (the uniform-sheet omission is covered separately)."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {"clone_placements": []})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"clone_placements": []})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
 
@@ -1904,8 +1919,8 @@ def test_build_sub_placements_copies_sheet_cluster(main_window, tmp_path, monkey
 def test_build_sub_placements_omits_sheet_when_none(main_window, tmp_path, monkeypatch):
     """clone.sheet is None must not produce a `sheet: null` key in the written
     YAML (same style as layer) — only set sheets/clusters are carried over."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {"clone_placements": []})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"clone_placements": []})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
 
@@ -1949,8 +1964,8 @@ def test_build_sub_placements_templatizes_sheet_in_nets_params(main_window, tmp_
     Channel_1 parts over. The literal sheet path segment must be written as
     {sheet}; a global rail (no sheet segment) is left untouched, and non-string
     params values are preserved as-is."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {"clone_placements": []})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"clone_placements": []})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
 
@@ -1983,8 +1998,8 @@ def test_build_sub_placements_sheet_none_copies_literally(main_window, tmp_path,
     """clone.sheet is None -> nets/params are copied verbatim, no templatizing
     attempted (the current, pre-this-fix behavior is preserved for placements
     without a sheet)."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {"clone_placements": []})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"clone_placements": []})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
 
@@ -2028,8 +2043,8 @@ def test_build_sub_placements_uniform_sheet_omits_sheet_key(main_window, tmp_pat
     Channel_1` on all five nested nodes, which muted BOTH sheet inheritance
     (cf1041a) and {sheet} templating (36ef950). When every sub-placement in
     the batch shares one non-None sheet, sheet: must be omitted everywhere."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {"clone_placements": []})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"clone_placements": []})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
 
@@ -2056,8 +2071,8 @@ def test_build_sub_placements_uniform_sheet_omits_sheet_key(main_window, tmp_pat
 def test_build_sub_placements_cross_sheet_keeps_literal_sheet(main_window, tmp_path, monkeypatch):
     """A genuine cross-sheet composite (sub-placements on DIFFERENT sheets) is
     NOT uniform — every entry keeps its own explicit sheet:, unchanged."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {"clone_placements": []})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"clone_placements": []})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
 
@@ -2083,8 +2098,8 @@ def test_build_sub_placements_cross_sheet_keeps_literal_sheet(main_window, tmp_p
 def test_build_sub_placements_mixed_sheet_none_behaves_as_before(main_window, tmp_path, monkeypatch):
     """sheet set on some, None on others -> not uniform (None in the set):
     each entry behaves exactly as before the fix."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {"clone_placements": []})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"clone_placements": []})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
 
@@ -2110,8 +2125,8 @@ def test_build_sub_placements_mixed_sheet_none_behaves_as_before(main_window, tm
 def test_build_sub_placements_single_uniform_sheet_omits(main_window, tmp_path, monkeypatch):
     """A single sub-placement with a set sheet is trivially 'uniform' (nothing
     to compare against) -> sheet: omitted, same principle as a 5-node batch."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {"clone_placements": []})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"clone_placements": []})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
 
@@ -2132,8 +2147,8 @@ def test_build_sub_placements_single_uniform_sheet_omits(main_window, tmp_path, 
 def test_build_sub_placements_single_sheet_none_no_key(main_window, tmp_path, monkeypatch):
     """A single sub-placement with sheet=None: nothing to omit additionally —
     sheet: was not written before either (the uniform logic doesn't add it)."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {"clone_placements": []})
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"clone_placements": []})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
 

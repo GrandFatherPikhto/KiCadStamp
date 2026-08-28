@@ -113,11 +113,11 @@ def test_read_data_os_error_message_names_the_broken_file(tmp_path):
 # ── add_list_entry ──────────────────────────────────────────────────────
 
 def test_add_list_entry_appends_and_dedupes(config_path):
-    config_path.write_text(_dump(config_path, {"include": ["sub/a.yaml"]}), encoding="utf-8")
+    config_path.write_text(_dump(config_path, {"include": ["sub/a.sexp"]}), encoding="utf-8")
     # a different relative spelling resolving to the same file is a no-op
-    assert add_list_entry(config_path, "include", "sub/./a.yaml") is False
-    assert add_list_entry(config_path, "include", "other.yaml") is True
-    assert _load(config_path)["include"] == ["sub/a.yaml", "other.yaml"]
+    assert add_list_entry(config_path, "include", "sub/./a.sexp") is False
+    assert add_list_entry(config_path, "include", "other.sexp") is True
+    assert _load(config_path)["include"] == ["sub/a.sexp", "other.sexp"]
 
 
 def test_add_list_entry_refuses_non_list_section(config_path):
@@ -126,7 +126,7 @@ def test_add_list_entry_refuses_non_list_section(config_path):
                     "include: is only representable in JSON")
     config_path.write_text(_dump(config_path, {"include": "not-a-list"}), encoding="utf-8")
     with pytest.raises(OSError):
-        add_list_entry(config_path, "include", "x.yaml")
+        add_list_entry(config_path, "include", "x.sexp")
 
 
 # ── upsert_clone_placement ──────────────────────────────────────────────
@@ -203,44 +203,44 @@ def test_upsert_list_entry_key_fn_matches_by_name_or_net(config_path):
 # 2026-08-03 — comment-toggle via enabled: false, not erasing the line) ───
 
 def test_add_include_appends_new_entry(config_path):
-    assert add_include(config_path, "sub.yaml") is True
-    assert _load(config_path)["include"] == ["sub.yaml"]
+    assert add_include(config_path, "sub.sexp") is True
+    assert _load(config_path)["include"] == ["sub.sexp"]
 
 
 def test_add_include_is_a_noop_when_already_enabled(config_path):
-    config_path.write_text(_dump(config_path, {"include": ["sub.yaml"]}), encoding="utf-8")
-    assert add_include(config_path, "sub.yaml") is False
-    assert _load(config_path)["include"] == ["sub.yaml"]
+    config_path.write_text(_dump(config_path, {"include": ["sub.sexp"]}), encoding="utf-8")
+    assert add_include(config_path, "sub.sexp") is False
+    assert _load(config_path)["include"] == ["sub.sexp"]
 
 
 def test_add_include_reenables_a_disabled_entry_instead_of_duplicating(config_path):
     config_path.write_text(
-        _dump(config_path, {"include": [{"path": "sub.yaml", "enabled": False}]}),
+        _dump(config_path, {"include": [{"path": "sub.sexp", "enabled": False}]}),
         encoding="utf-8")
-    assert add_include(config_path, "sub.yaml") is True
-    assert _load(config_path)["include"] == ["sub.yaml"]  # back to plain form, not duplicated
+    assert add_include(config_path, "sub.sexp") is True
+    assert _load(config_path)["include"] == ["sub.sexp"]  # back to plain form, not duplicated
 
 
 def test_disable_include_converts_string_entry_to_disabled_mapping(config_path):
     config_path.write_text(
-        _dump(config_path, {"include": ["sub.yaml", "other.yaml"]}), encoding="utf-8")
-    target = (config_path.parent / "sub.yaml").resolve()
+        _dump(config_path, {"include": ["sub.sexp", "other.sexp"]}), encoding="utf-8")
+    target = (config_path.parent / "sub.sexp").resolve()
     assert disable_include(config_path, target) is True
     data = _load(config_path)
-    assert data["include"] == [{"path": "sub.yaml", "enabled": False}, "other.yaml"]
+    assert data["include"] == [{"path": "sub.sexp", "enabled": False}, "other.sexp"]
 
 
 def test_disable_include_is_a_noop_when_already_disabled(config_path):
     config_path.write_text(
-        _dump(config_path, {"include": [{"path": "sub.yaml", "enabled": False}]}),
+        _dump(config_path, {"include": [{"path": "sub.sexp", "enabled": False}]}),
         encoding="utf-8")
-    target = (config_path.parent / "sub.yaml").resolve()
+    target = (config_path.parent / "sub.sexp").resolve()
     assert disable_include(config_path, target) is False
 
 
 def test_disable_include_returns_false_when_target_not_included(config_path):
-    config_path.write_text(_dump(config_path, {"include": ["other.yaml"]}), encoding="utf-8")
-    target = (config_path.parent / "sub.yaml").resolve()
+    config_path.write_text(_dump(config_path, {"include": ["other.sexp"]}), encoding="utf-8")
+    target = (config_path.parent / "sub.sexp").resolve()
     assert disable_include(config_path, target) is False
 
 
@@ -366,7 +366,7 @@ def test_set_file_combo_selection_selects_an_existing_item_without_duplicating(q
     from PyQt6.QtWidgets import QComboBox
     combo = QComboBox()
     combo.addItem("root.yaml", tmp_path / "root.yaml")
-    combo.addItem("sub.yaml", tmp_path / "sub.yaml")
+    combo.addItem("sub.sexp", tmp_path / "sub.sexp")
 
     set_file_combo_selection(combo, tmp_path / "root.yaml")
 
@@ -397,7 +397,7 @@ def test_set_file_combo_selection_blocks_current_index_changed(qapp, tmp_path):
     fired = []
     combo.currentIndexChanged.connect(fired.append)
 
-    set_file_combo_selection(combo, tmp_path / "x.yaml")
+    set_file_combo_selection(combo, tmp_path / "x.sexp")
 
     assert fired == []
 

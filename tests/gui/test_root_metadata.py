@@ -1,35 +1,35 @@
 # tests/gui/test_root_metadata.py
-import yaml
-
 import gui.docks.root_metadata as root_metadata_mod
 from gui import settings
 from gui.docks.root_metadata import RootMetadataDock
+from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 
-MINIMAL_CELL = """
-cells:
-  one_role:
-    components:
-      - role: THE_ROLE
-        offset_along_mm: 0.0
-        offset_across_mm: 0.0
-        angle_deg: 0.0
-"""
-
-
-def _write_yaml(path, data) -> None:
-    path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+MINIMAL_CELL = {
+    "cells": {
+        "one_role": {
+            "components": [
+                {"role": "THE_ROLE", "offset_along_mm": 0.0,
+                 "offset_across_mm": 0.0, "angle_deg": 0.0},
+            ],
+        },
+    },
+}
 
 
-def _read_yaml(path) -> dict:
-    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+def _write(path, data) -> None:
+    path.write_text(dict_to_sexp(data), encoding="utf-8")
+
+
+def _load(path) -> dict:
+    return sexp_to_dict(path.read_text(encoding="utf-8")) or {}
 
 
 # ── Root ownership: Open/New/Recent/restore (moved here 2026-08-11 from
 # ConfigTreeDock, see gui/docks/root_metadata.py's module docstring) ───────
 
 def test_open_root_via_dialog_sets_root_and_remembers_it(main_window, tmp_path, monkeypatch):
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
 
     dock = RootMetadataDock(main_window)
     monkeypatch.setattr(root_metadata_mod.QFileDialog, "getOpenFileName",
@@ -42,8 +42,8 @@ def test_open_root_via_dialog_sets_root_and_remembers_it(main_window, tmp_path, 
 
 
 def test_open_root_dialog_cancelled_leaves_root_untouched(main_window, tmp_path, monkeypatch):
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
 
     dock = RootMetadataDock(main_window)
     dock.set_root_file(root)
@@ -56,7 +56,7 @@ def test_open_root_dialog_cancelled_leaves_root_untouched(main_window, tmp_path,
 
 
 def test_new_root_creates_an_empty_file_and_opens_it(main_window, tmp_path, monkeypatch):
-    new_root = tmp_path / "brand_new.yaml"
+    new_root = tmp_path / "brand_new.sexp"
     assert not new_root.exists()
 
     dock = RootMetadataDock(main_window)
@@ -65,13 +65,13 @@ def test_new_root_creates_an_empty_file_and_opens_it(main_window, tmp_path, monk
     dock._on_new_root()
 
     assert new_root.exists()
-    assert yaml.safe_load(new_root.read_text(encoding="utf-8")) == {}
+    assert sexp_to_dict(new_root.read_text(encoding="utf-8")) == {}
     assert dock._path == new_root
 
 
 def test_new_root_does_not_overwrite_an_existing_file(main_window, tmp_path, monkeypatch):
-    existing = tmp_path / "already_here.yaml"
-    existing.write_text(MINIMAL_CELL, encoding="utf-8")
+    existing = tmp_path / "already_here.sexp"
+    _write(existing, MINIMAL_CELL)
     before = existing.read_text(encoding="utf-8")
 
     dock = RootMetadataDock(main_window)
@@ -84,8 +84,8 @@ def test_new_root_does_not_overwrite_an_existing_file(main_window, tmp_path, mon
 
 
 def test_new_root_dialog_cancelled_leaves_root_untouched(main_window, tmp_path, monkeypatch):
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
 
     dock = RootMetadataDock(main_window)
     dock.set_root_file(root)
@@ -149,8 +149,8 @@ def test_set_root_file_emits_root_changed(main_window, tmp_path):
     root_file_changed) is the signal every other dock's set_root_path
     listens to instead of file_selected — set_root_file() is its only
     source, unlike file_selected which fires on every plain tree click too."""
-    root = tmp_path / "root.yaml"
-    root.write_text("cells: {}\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {"cells": {}})
 
     dock = RootMetadataDock(main_window)
     received = []
@@ -164,10 +164,10 @@ def test_set_root_file_emits_root_changed(main_window, tmp_path):
 
 
 def test_recent_list_most_recent_first_and_deduplicated(main_window, tmp_path):
-    a = tmp_path / "a.yaml"
-    b = tmp_path / "b.yaml"
-    a.write_text("cells: {}\n", encoding="utf-8")
-    b.write_text("cells: {}\n", encoding="utf-8")
+    a = tmp_path / "a.sexp"
+    b = tmp_path / "b.sexp"
+    _write(a, {"cells": {}})
+    _write(b, {"cells": {}})
 
     dock = RootMetadataDock(main_window)
     dock.set_root_file(a)
@@ -181,21 +181,21 @@ def test_recent_list_most_recent_first_and_deduplicated(main_window, tmp_path):
 
 
 def test_selecting_a_recent_entry_reopens_it(main_window, tmp_path):
-    a = tmp_path / "a.yaml"
-    a.write_text(MINIMAL_CELL, encoding="utf-8")
+    a = tmp_path / "a.sexp"
+    _write(a, MINIMAL_CELL)
 
     dock = RootMetadataDock(main_window)
     dock.set_root_file(a)
     dock.set_root_file(None)
 
-    dock._on_recent_selected(0)  # only entry: a.yaml
+    dock._on_recent_selected(0)  # only entry: a.sexp
 
     assert dock._path == a
 
 
 def test_restores_last_root_file_on_construction(main_window, tmp_path):
-    root = tmp_path / "root.yaml"
-    root.write_text(MINIMAL_CELL, encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
     settings.state.set("last_root_file", str(root))
 
     dock = RootMetadataDock(main_window)
@@ -207,10 +207,10 @@ def test_restores_last_root_file_on_construction(main_window, tmp_path):
 # see module docstring ──────────────────────────────────────────────────
 
 def test_working_file_choices_come_from_the_whole_include_graph(main_window, tmp_path):
-    root = tmp_path / "root.yaml"
-    included = tmp_path / "power.yaml"
-    root.write_text("include:\n  - power.yaml\n", encoding="utf-8")
-    included.write_text("cells: {}\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    included = tmp_path / "power.sexp"
+    _write(root, {"include": ["power.sexp"]})
+    _write(included, {"cells": {}})
 
     dock = RootMetadataDock(main_window)
     dock.set_root_file(root)
@@ -221,10 +221,10 @@ def test_working_file_choices_come_from_the_whole_include_graph(main_window, tmp
 
 
 def test_picking_a_working_file_emits_working_file_changed(main_window, tmp_path):
-    root = tmp_path / "root.yaml"
-    included = tmp_path / "power.yaml"
-    root.write_text("include:\n  - power.yaml\n", encoding="utf-8")
-    included.write_text("cells: {}\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    included = tmp_path / "power.sexp"
+    _write(root, {"include": ["power.sexp"]})
+    _write(included, {"cells": {}})
 
     dock = RootMetadataDock(main_window)
     dock.set_root_file(root)
@@ -243,10 +243,10 @@ def test_tree_click_updates_the_combo_without_emitting_working_file_changed(main
     see gui/dock_hub.py) mirrors the tree's own selection into the combo's
     DISPLAY only — it must not re-emit working_file_changed, since the tree
     already drives every entity dock directly."""
-    root = tmp_path / "root.yaml"
-    included = tmp_path / "power.yaml"
-    root.write_text("include:\n  - power.yaml\n", encoding="utf-8")
-    included.write_text("cells: {}\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    included = tmp_path / "power.sexp"
+    _write(root, {"include": ["power.sexp"]})
+    _write(included, {"cells": {}})
 
     dock = RootMetadataDock(main_window)
     dock.set_root_file(root)
@@ -295,8 +295,8 @@ def test_fields_are_grouped_into_files_schematics_via_tabs(main_window):
 
 
 def test_populates_widgets_from_existing_scalar_keys(main_window, tmp_path):
-    path = tmp_path / "root.yaml"
-    _write_yaml(path, {
+    path = tmp_path / "root.sexp"
+    _write(path, {
         "layer": "B.Cu",
         "schematic_dir": "../sch",
         "schematic_files": ["extra1.kicad_sch", "extra2.kicad_sch"],
@@ -304,7 +304,7 @@ def test_populates_widgets_from_existing_scalar_keys(main_window, tmp_path):
         "place_components": False,
         "skip_existing_components": True,
         "via_search_n_directions": 4,
-        "cells": {"some_cell": {"components": []}},
+        "cells": {"some_cell": {}},
     })
     dock = RootMetadataDock(main_window)
     dock.set_target_file(path)
@@ -320,8 +320,8 @@ def test_populates_widgets_from_existing_scalar_keys(main_window, tmp_path):
 
 
 def test_missing_keys_show_config_defaults(main_window, tmp_path):
-    path = tmp_path / "root.yaml"
-    _write_yaml(path, {"cells": {}})
+    path = tmp_path / "root.sexp"
+    _write(path, {"cells": {}})
     dock = RootMetadataDock(main_window)
     dock.set_target_file(path)
 
@@ -333,66 +333,72 @@ def test_missing_keys_show_config_defaults(main_window, tmp_path):
 
 
 def test_save_with_nothing_changed_and_nothing_present_writes_nothing(main_window, tmp_path, caplog):
-    path = tmp_path / "root.yaml"
-    _write_yaml(path, {"cells": {"c1": {"components": []}}})
+    path = tmp_path / "root.sexp"
+    _write(path, {"cells": {"c1": {}}})
     dock = RootMetadataDock(main_window)
     dock.set_target_file(path)
     dock._on_save()
 
-    assert _read_yaml(path) == {"cells": {"c1": {"components": []}}}
+    assert _load(path) == {"cells": {"c1": {}}}
     assert any("default" in r.message for r in caplog.records)
 
 
 def test_save_writes_only_changed_field_and_preserves_other_keys(main_window, tmp_path, caplog):
-    path = tmp_path / "root.yaml"
-    _write_yaml(path, {"cells": {"c1": {"components": []}}})
+    path = tmp_path / "root.sexp"
+    _write(path, {"cells": {"c1": {}}})
     dock = RootMetadataDock(main_window)
     dock.set_target_file(path)
 
     dock._text_edits["schematic_dir"].setText("../../schematics")
     dock._on_save()
 
-    data = _read_yaml(path)
+    data = _load(path)
     assert data["schematic_dir"] == "../../schematics"
-    assert data["cells"] == {"c1": {"components": []}}
+    assert data["cells"] == {"c1": {}}
     assert any("Saved" in r.message for r in caplog.records)
 
 
-def test_save_writes_already_present_key_back_even_at_default(main_window, tmp_path):
-    path = tmp_path / "root.yaml"
-    _write_yaml(path, {"via_search_n_directions": 4})
+def test_save_writes_already_present_key_back(main_window, tmp_path):
+    """An already-present scalar key must be written back on Save — pinned on
+    a NON-default value: s-expr omits default-valued fields on serialize
+    (the YAML-era "even at default" assertion can't be observed in .sexp —
+    dict_to_sexp drops e.g. via_search_n_directions: 8 outright), so this
+    asserts the same _present_keys write-back logic at a round-trippable
+    value."""
+    path = tmp_path / "root.sexp"
+    _write(path, {"via_search_n_directions": 4})
     dock = RootMetadataDock(main_window)
     dock.set_target_file(path)
 
-    dock._int_edits["via_search_n_directions"].setText("8")  # back to Config's own default
+    dock._int_edits["via_search_n_directions"].setText("6")
     dock._on_save()
 
-    assert _read_yaml(path)["via_search_n_directions"] == 8
+    assert _load(path)["via_search_n_directions"] == 6
 
 
 def test_save_rejects_non_numeric_float_field(main_window, tmp_path, caplog):
-    path = tmp_path / "root.yaml"
-    _write_yaml(path, {})
+    path = tmp_path / "root.sexp"
+    _write(path, {})
     dock = RootMetadataDock(main_window)
     dock.set_target_file(path)
 
     dock._float_edits["via_keepout_clearance_mm"].setText("not-a-number")
     dock._on_save()
 
-    assert _read_yaml(path) == {}
+    assert _load(path) == {}
     assert any("not a number" in r.message for r in caplog.records)
 
 
 def test_save_rejects_non_integer_int_field(main_window, tmp_path, caplog):
-    path = tmp_path / "root.yaml"
-    _write_yaml(path, {})
+    path = tmp_path / "root.sexp"
+    _write(path, {})
     dock = RootMetadataDock(main_window)
     dock.set_target_file(path)
 
     dock._int_edits["via_search_n_directions"].setText("not-an-int")
     dock._on_save()
 
-    assert _read_yaml(path) == {}
+    assert _load(path) == {}
     assert any("not an integer" in r.message for r in caplog.records)
 
 
@@ -403,20 +409,20 @@ def test_save_without_a_file_picked_shows_error(main_window, caplog):
 
 
 def test_schematic_files_round_trips_as_a_list(main_window, tmp_path):
-    path = tmp_path / "root.yaml"
-    _write_yaml(path, {})
+    path = tmp_path / "root.sexp"
+    _write(path, {})
     dock = RootMetadataDock(main_window)
     dock.set_target_file(path)
 
     dock.schematic_files_list.addItems(["a.kicad_sch", "b.kicad_sch"])
     dock._on_save()
 
-    assert _read_yaml(path)["schematic_files"] == ["a.kicad_sch", "b.kicad_sch"]
+    assert _load(path)["schematic_files"] == ["a.kicad_sch", "b.kicad_sch"]
 
 
 def test_remove_schematic_file_removes_selected_item(main_window, tmp_path):
-    path = tmp_path / "root.yaml"
-    _write_yaml(path, {"schematic_files": ["a.kicad_sch", "b.kicad_sch"]})
+    path = tmp_path / "root.sexp"
+    _write(path, {"schematic_files": ["a.kicad_sch", "b.kicad_sch"]})
     dock = RootMetadataDock(main_window)
     dock.set_target_file(path)
 
@@ -428,9 +434,9 @@ def test_remove_schematic_file_removes_selected_item(main_window, tmp_path):
 
 
 def test_browse_dir_writes_path_relative_to_target_file(main_window, tmp_path, monkeypatch):
-    target = tmp_path / "sub" / "root.yaml"
+    target = tmp_path / "sub" / "root.sexp"
     target.parent.mkdir()
-    _write_yaml(target, {})
+    _write(target, {})
     picked_dir = tmp_path / "sub" / "schematics"
     picked_dir.mkdir()
 
@@ -446,9 +452,9 @@ def test_browse_dir_writes_path_relative_to_target_file(main_window, tmp_path, m
 
 
 def test_browse_file_writes_path_relative_to_target_file(main_window, tmp_path, monkeypatch):
-    target = tmp_path / "sub" / "root.yaml"
+    target = tmp_path / "sub" / "root.sexp"
     target.parent.mkdir()
-    _write_yaml(target, {})
+    _write(target, {})
     picked_file = tmp_path / "sub" / "registries" / "fpga.json"
 
     dock = RootMetadataDock(main_window)
@@ -463,9 +469,9 @@ def test_browse_file_writes_path_relative_to_target_file(main_window, tmp_path, 
 
 
 def test_add_schematic_file_writes_path_relative_to_target_file(main_window, tmp_path, monkeypatch):
-    target = tmp_path / "sub" / "root.yaml"
+    target = tmp_path / "sub" / "root.sexp"
     target.parent.mkdir()
-    _write_yaml(target, {})
+    _write(target, {})
     picked_file = tmp_path / "sub" / "extra.kicad_sch"
 
     dock = RootMetadataDock(main_window)
@@ -481,8 +487,8 @@ def test_add_schematic_file_writes_path_relative_to_target_file(main_window, tmp
 
 
 def test_add_schematic_file_does_not_duplicate(main_window, tmp_path, monkeypatch):
-    target = tmp_path / "root.yaml"
-    _write_yaml(target, {"schematic_files": ["extra.kicad_sch"]})
+    target = tmp_path / "root.sexp"
+    _write(target, {"schematic_files": ["extra.kicad_sch"]})
     picked_file = tmp_path / "extra.kicad_sch"
 
     dock = RootMetadataDock(main_window)

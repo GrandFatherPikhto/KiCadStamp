@@ -286,10 +286,27 @@ def test_extract_profiles_section_free_form():
         "extract_profiles": {
             "dac": {
                 "name": "dac",
-                "output": "cells_3ch.yaml",
+                "output": "cells_3ch.sexp",
                 "raw_selection": True,
                 "rule_nets": ["+3V3_AVDD", "+1V8"],
                 "params": {"ch": "0", "gain_db": 6},
+            },
+        },
+    })
+
+
+def test_extract_profiles_single_rule_net_round_trips_as_list():
+    """2026-08-28 (core_yaml_removal .sexp migration): a ONE-element
+    rule_nets list used to round-trip as a bare STRING — _parse_free_field
+    collapses a single atom, silently breaking single-rule-net profiles on
+    reload (same class as sheet_templates' sheets). Fixed via
+    _FREE_DICT_FIELD_TYPE's extract_profiles.rule_nets hint on both the
+    serialize and parse sides."""
+    _roundtrip({
+        "extract_profiles": {
+            "dac": {
+                "output": "cells.sexp",
+                "rule_nets": ["+3V3_VCCIO"],
             },
         },
     })

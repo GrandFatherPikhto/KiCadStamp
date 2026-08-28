@@ -127,8 +127,20 @@ def collect_graph_files(root_path: Path) -> List[Path]:
     include (the same file reachable from two branches, see its own
     docstring: "both occurrences are walked and shown independently"), so a
     rename walking every file must dedupe here or it would rewrite (and
-    report) the same file twice."""
-    node = walk_include_tree(str(root_path))
+    report) the same file twice.
+
+    Empty list on any load failure (broken/unsupported root config, e.g. a
+    stale .yaml root after the 2026-08-28 core_yaml_removal) — every dock
+    that reads the graph for display/autocomplete must tolerate a bad root
+    (2026-08-28 hardening: unguarded walk_include_tree() here let a fatal
+    ValidationError escape a Qt slot and abort the process, the same class
+    of crash the collect_all_*/collect_section_entries helpers were already
+    hardened against; see handoff_2026_08_28_core_yaml_removal_core_done.md
+    §3.5)."""
+    try:
+        node = walk_include_tree(str(root_path))
+    except (ValidationError, OSError):
+        return []
     seen: dict = {}
 
     def walk(n) -> None:

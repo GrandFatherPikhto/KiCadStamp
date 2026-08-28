@@ -60,7 +60,7 @@ def test_run_cascade_sequential_order_and_partial_failure(monkeypatch):
 
     monkeypatch.setattr(cascade_mod, "ApplyPipeline", _FakePipeline)
 
-    results = run_cascade("/root.yaml", None, None, ["A", "B", "C"])
+    results = run_cascade("/root.sexp", None, None, ["A", "B", "C"])
 
     assert calls == [["A"], ["B"], ["C"]]
     assert results == [("A", True, None), ("B", False, "boom"), ("C", True, None)]
@@ -103,7 +103,7 @@ def test_run_curated_tree_redraw_calls_run_cascade_with_plan_names(monkeypatch, 
     monkeypatch.setattr(cascade_mod, "run_cascade",
                         lambda cp, c, x, names: (calls.append(names), [])[1])
 
-    results, warnings = run_curated_tree_redraw("/root.yaml", cfg, None, trees,
+    results, warnings = run_curated_tree_redraw("/root.sexp", cfg, None, trees,
                                                 "t", selected)
 
     linked = link_trees(cfg, trees)
@@ -128,7 +128,7 @@ def test_run_curated_tree_redraw_warns_and_logs_parent_not_selected(monkeypatch,
 
     monkeypatch.setattr(cascade_mod, "run_cascade", lambda *a, **k: [])
 
-    results, warnings = run_curated_tree_redraw("/root.yaml", cfg, None, trees,
+    results, warnings = run_curated_tree_redraw("/root.sexp", cfg, None, trees,
                                                 "t", selected)
 
     assert any("CL_B" in w and "CL_A" in w for w in warnings)
@@ -148,7 +148,7 @@ def test_run_curated_tree_redraw_unknown_tree_is_fatal(monkeypatch, tmp_path):
     monkeypatch.setattr(cascade_mod, "run_cascade", lambda *a, **k: [])
 
     try:
-        run_curated_tree_redraw("/root.yaml", cfg, None, trees, "no_such_tree", {"CL_A"})
+        run_curated_tree_redraw("/root.sexp", cfg, None, trees, "no_such_tree", {"CL_A"})
         assert False, "expected ValidationError"
     except ValidationError:
         pass

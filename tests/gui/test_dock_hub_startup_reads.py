@@ -2,7 +2,7 @@
 """Regression test for the fix in
 techdocs/handoff/plan_2026_08_15_config_read_cache_startup.md: a single
 MainWindow/DockHub construction used to parse the SAME include: graph of
-YAML files ~13 times and the same *.kicad_sch files 4+ times each, because
+config files ~13 times and the same *.kicad_sch files 4+ times each, because
 none of the four independent raw open()+parse call sites
 (kicadstamp/config/includes.py's _resolve/_walk, config/loader.py's
 load_config, config_writer.py's _read_data, sheet_names.py's
@@ -23,13 +23,14 @@ from pathlib import Path
 
 from gui import settings
 from gui.dock_hub import DockHub
+from kicadstamp.config.sexp_format import dict_to_sexp
 
 # Every module with its own `cached_file_read` import binding (each consumer
 # imports it directly at module level, so each needs its own counter wrapper —
 # patching file_cache.cached_file_read itself would not affect these bindings).
 # gui.yaml_io joined this set on 2026-08-21 (plan_2026_08_21_startup_graph_level_
 # cache.md's "actual bottleneck" finding): it was the one raw reader the
-# 2026-08-15 cache missed, so RootMetadataDock re-parsed the root YAML outside
+# 2026-08-15 cache missed, so RootMetadataDock re-parsed the root config outside
 # the cache. Now that it goes through cached_file_read too, it must be counted
 # like every other reader or the root file's single parse is invisible here.
 _CACHE_CONSUMER_MODULES = (
@@ -40,27 +41,29 @@ _CACHE_CONSUMER_MODULES = (
     "kicadstamp.sheet_names",
 )
 
-# `components:` must be nested UNDER the cell key (4-space indent), same shape
-# as tests/test_config_includes.py's MINIMAL_TEMPLATE — otherwise the cell is
-# null and load_config fails validation before ever building the sheet map.
-_MINIMAL_CELL = """    components:
-      - role: {role}
-        offset_along_mm: 0.0
-        offset_across_mm: 0.0
-        angle_deg: 0.0
-"""
+
+def _cell_data(role: str) -> dict:
+    """The cells: entry body — components must be non-empty or the cell is
+    null and load_config fails validation before ever building the sheet map
+    (same shape as tests/test_config_includes.py's MINIMAL_TEMPLATE)."""
+    return {"components": [
+        {"role": role, "offset_along_mm": 0.0, "offset_across_mm": 0.0,
+         "angle_deg": 0.0},
+    ]}
+
+
+def _write(path, data) -> None:
+    path.write_text(dict_to_sexp(data), encoding="utf-8")
 
 
 def _write_test_project(tmp_path):
-    """A real, load_config()-valid multi-file project: root.yaml includes
-    sub1.yaml/sub2.yaml and points schematic_dir at a directory of .kicad_sch
+    """A real, load_config()-valid multi-file project: root.sexp includes
+    sub1.sexp/sub2.sexp and points schematic_dir at a directory of .kicad_sch
     files — the exact shape that makes every startup read path
     (walk_include_tree, collect_graph_files, read_data, collect_all_*,
     load_config) reach the SAME files over and over. Returns the root path."""
-    (tmp_path / "sub1.yaml").write_text(
-        "cells:\n  sub1_cell:\n" + _MINIMAL_CELL.format(role="R1"), encoding="utf-8")
-    (tmp_path / "sub2.yaml").write_text(
-        "cells:\n  sub2_cell:\n" + _MINIMAL_CELL.format(role="R2"), encoding="utf-8")
+    _write(tmp_path / "sub1.sexp", {"cells": {"sub1_cell": _cell_data("R1")}})
+    _write(tmp_path / "sub2.sexp", {"cells": {"sub2_cell": _cell_data("R2")}})
 
     sheets = tmp_path / "sheets"
     sheets.mkdir()
@@ -77,18 +80,13 @@ def _write_test_project(tmp_path):
         '  )\n'
         ')\n', encoding="utf-8")
 
-    root = tmp_path / "root.yaml"
-    root.write_text(
-        "layer: F.Cu\n"
-        "rules: []\n"
-        "cells: {}\n"
-        "points: {}\n"
-        "clone_placements: []\n"
-        "thermal_via_arrays: []\n"
-        "include:\n"
-        "  - sub1.yaml\n"
-        "  - sub2.yaml\n"
-        "schematic_dir: sheets\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {
+        "cells": {},
+        "points": {},
+        "include": ["sub1.sexp", "sub2.sexp"],
+        "schematic_dir": "sheets",
+    })
     return root
 
 
@@ -156,9 +154,9 @@ def _teardown_hub(hub):
 def test_dock_hub_startup_reads_each_unique_file_at_most_once(tmp_path, qapp, main_window, monkeypatch):
     """The core regression: one DockHub construction (the heart of
     MainWindow.__init__) must not parse each project file 6-13 times any
-    more. Every unique YAML/.kicad_sch file is now parsed exactly once, no
+    more. Every unique config/.kicad_sch file is now parsed exactly once, no
     matter how many of the many startup paths request it — and the cache is
-    genuinely being hit (root.yaml alone is requested many more times than it
+    genuinely being hit (root.sexp alone is requested many more times than it
     is parsed)."""
     root = _write_test_project(tmp_path)
     _seed_last_root_file(root)
@@ -168,7 +166,7 @@ def test_dock_hub_startup_reads_each_unique_file_at_most_once(tmp_path, qapp, ma
     try:
         expected = {
             str(p.resolve())
-            for p in (root, tmp_path / "sub1.yaml", tmp_path / "sub2.yaml",
+            for p in (root, tmp_path / "sub1.sexp", tmp_path / "sub2.sexp",
                       tmp_path / "sheets" / "main.kicad_sch",
                       tmp_path / "sheets" / "sub.kicad_sch")
         }
@@ -181,7 +179,7 @@ def test_dock_hub_startup_reads_each_unique_file_at_most_once(tmp_path, qapp, ma
         # no OTHER file slipped in with a multi-parse either (<=2 for any
         # legitimate surprise, per the plan's "at most one or two times"):
         assert all(n <= 2 for n in parses.values()), f"some file parsed >2x: {parses}"
-        # the cache is actually absorbing repeated requests: root.yaml alone is
+        # the cache is actually absorbing repeated requests: root.sexp alone is
         # requested by every graph walk and every dock's load_config, so the
         # request count must far exceed its single parse.
         assert requests[str(root.resolve())] > 2
@@ -233,7 +231,7 @@ def test_without_cache_same_startup_parses_each_file_many_times(tmp_path, qapp, 
     """Differential proof that the at-most-once bound above comes FROM THE
     CACHE, not from some happy accident of the test project's shape: with
     cached_file_read bypassed (every request goes straight to the loader), the
-    SAME DockHub construction parses each YAML file many times — the 6-13x
+    SAME DockHub construction parses each config file many times — the 6-13x
     redundancy the plan measured, reproduced deterministically in CI."""
     root = _write_test_project(tmp_path)
     _seed_last_root_file(root)
@@ -241,7 +239,7 @@ def test_without_cache_same_startup_parses_each_file_many_times(tmp_path, qapp, 
     requests, parses = _install_read_counters(monkeypatch, use_real_cache=False)
     hub = DockHub(main_window, connection=main_window.connection, verbose=False)
     try:
-        for p in (root, tmp_path / "sub1.yaml", tmp_path / "sub2.yaml"):
+        for p in (root, tmp_path / "sub1.sexp", tmp_path / "sub2.sexp"):
             assert parses[str(p.resolve())] > 2, \
                 f"{p.name} parsed only {parses[str(p.resolve())]}x without the cache"
         # bypassed cache means every request really re-parses:

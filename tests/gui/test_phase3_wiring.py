@@ -14,8 +14,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-import gui.docks.config_tree as config_tree_mod
 from gui.schema_model import SchematicComponent
+from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.explore import Selected
 
 from gui import settings
@@ -46,15 +46,15 @@ class _FakeSelected:
 
 # ── 3.1: role signals propagate from the Files dock to every listener ───────
 
-def _write(path):
-    path.write_text("{}\n", encoding="utf-8")
+def _write(path, data=None):
+    path.write_text(dict_to_sexp(data if data is not None else {}), encoding="utf-8")
 
 
 def test_config_tree_file_selected_does_not_retarget_entity_docks(real_main_window, tmp_path):
     """2026-08-21 (plan flatten_and_single_file_gui): the entity docks no
     longer follow tree clicks — new records always go to the project ROOT
     file, so file_selected must NOT change their write targets."""
-    target_file = tmp_path / "power.yaml"
+    target_file = tmp_path / "power.sexp"
     _write(target_file)
 
     real_main_window.config_tree_dock.file_selected.emit(target_file)
@@ -71,7 +71,7 @@ def test_root_metadata_dock_restores_last_root_after_restart(qapp, tmp_path):
     RootMetadataDock._restore_last_root() (root ownership moved here
     2026-08-11, was ConfigTreeDock's own — see gui/docks/root_metadata.py's
     module docstring)."""
-    root_file = tmp_path / "root.yaml"
+    root_file = tmp_path / "root.sexp"
     _write(root_file)
 
     data = settings.load()
@@ -98,7 +98,7 @@ def test_config_tree_picks_up_a_root_restored_before_wiring_existed(qapp, tmp_pa
     silently open with the panel/tree stuck on its placeholder despite the
     OTHER one showing the right root. DockHub._wire() must sync explicitly
     from root_metadata_dock.root_path, not rely solely on the signal."""
-    root_file = tmp_path / "root.yaml"
+    root_file = tmp_path / "root.sexp"
     _write(root_file)
 
     data = settings.load()
@@ -174,9 +174,8 @@ def test_profile_picked_fills_extract_form(real_main_window, tmp_path):
     pick_profile's docstring) — clicking an Extract-profile leaf in the real
     Config tree must reach ExtractDock's form end-to-end, not just via a
     direct pick_profile() call."""
-    extractor_file = tmp_path / "profiles.yaml"
-    extractor_file.write_text(
-        "extract_profiles:\n  alpha_profile:\n    params: {ROLE: '+3V3'}\n", encoding="utf-8")
+    extractor_file = tmp_path / "profiles.sexp"
+    _write(extractor_file, {"extract_profiles": {"alpha_profile": {"params": {"ROLE": "+3V3"}}}})
     real_main_window.extract_dock.set_root_path(extractor_file)
 
     real_main_window.config_tree_dock.profile_picked.emit("alpha_profile")
@@ -192,8 +191,8 @@ def test_points_picked_fills_points_form_and_switches_tab(real_main_window, tmp_
     tree must reach PointsDock's form end-to-end, not just via a direct
     load_entry() call, and bring the Points tab to front (2026-08-05, same
     shape as test_profile_picked_fills_extract_form above)."""
-    points_file = tmp_path / "points.yaml"
-    points_file.write_text("points:\n  origin:\n    xy: [1.0, 2.0]\n", encoding="utf-8")
+    points_file = tmp_path / "points.sexp"
+    _write(points_file, {"points": {"origin": {"xy": [1.0, 2.0]}}})
     real_main_window.config_tree_dock.set_root_file(points_file)
     # points_picked alone carries only the name (dict section — see its own
     # docstring); a real tree click fires file_selected first (setting
@@ -213,13 +212,13 @@ def test_points_saved_refreshes_config_tree_points(real_main_window, tmp_path):
     real-widget-state assertion style as
     test_placer_saved_refreshes_config_tree_placements/test_extract_saved_
     refreshes_config_tree_cells above."""
-    points_file = tmp_path / "points.yaml"
+    points_file = tmp_path / "points.sexp"
     _write(points_file)
     real_main_window.config_tree_dock.set_root_file(points_file)
     root_item = real_main_window.config_tree_dock.tree.topLevelItem(0)
     assert root_item.childCount() == 0
 
-    points_file.write_text("points:\n  origin:\n    xy: [0, 0]\n", encoding="utf-8")
+    _write(points_file, {"points": {"origin": {"xy": [0, 0]}}})
     real_main_window.points_dock.saved.emit()
 
     root_item = real_main_window.config_tree_dock.tree.topLevelItem(0)
@@ -231,7 +230,7 @@ def test_points_saved_refreshes_config_tree_points(real_main_window, tmp_path):
 def test_add_point_requested_opens_blank_points_form_and_shows_tab(real_main_window, tmp_path):
     """ConfigTreeDock's "Add point..." context-menu action -> PointsDock,
     same shape as DockHub._start_new_placement/_start_new_thermal_via."""
-    points_file = tmp_path / "points.yaml"
+    points_file = tmp_path / "points.sexp"
     _write(points_file)
     real_main_window.points_dock.name_edit.setText("stale")
 
@@ -247,8 +246,8 @@ def test_rules_dock_picks_up_a_root_restored_before_wiring_existed(qapp, tmp_pat
     listener on root_file_changed (its Cell/Point combos need the whole
     include graph, see gui/docks/rules.py's module docstring), so it needs
     the exact same explicit sync in DockHub._wire()."""
-    root_file = tmp_path / "root.yaml"
-    root_file.write_text("cells:\n  cap_pair: {}\n", encoding="utf-8")
+    root_file = tmp_path / "root.sexp"
+    _write(root_file, {"cells": {"cap_pair": {}}})
 
     data = settings.load()
     data["last_root_file"] = str(root_file)
@@ -273,10 +272,11 @@ def test_rule_picked_fills_rules_form_and_switches_tab(real_main_window, tmp_pat
     own docstring), so the payload is already the full dict — unlike
     points_picked, no set_target_file needed first just to populate the
     form."""
-    rules_file = tmp_path / "rules.yaml"
-    rules_file.write_text(
-        "rules:\n  - net: '+3V3'\n    anchor_role: FPGA\n    spokes:\n"
-        "      - pad: '17'\n        cell: cap_pair\n", encoding="utf-8")
+    rules_file = tmp_path / "rules.sexp"
+    _write(rules_file, {"rules": [
+        {"net": "+3V3", "anchor_role": "FPGA",
+         "spokes": [{"pad": "17", "cell": "cap_pair"}]},
+    ]})
     real_main_window.config_tree_dock.set_root_file(rules_file)
 
     real_main_window.config_tree_dock.rule_picked.emit(
@@ -292,13 +292,13 @@ def test_rules_saved_refreshes_config_tree_rules(real_main_window, tmp_path):
     """RuleDock -> ConfigTreeDock wiring (saved -> refresh) — same
     real-widget-state assertion style as test_points_saved_refreshes_
     config_tree_points above."""
-    rules_file = tmp_path / "rules.yaml"
+    rules_file = tmp_path / "rules.sexp"
     _write(rules_file)
     real_main_window.config_tree_dock.set_root_file(rules_file)
     root_item = real_main_window.config_tree_dock.tree.topLevelItem(0)
     assert root_item.childCount() == 0
 
-    rules_file.write_text("rules:\n  - net: '+3V3'\n    anchor_role: FPGA\n", encoding="utf-8")
+    _write(rules_file, {"rules": [{"net": "+3V3", "anchor_role": "FPGA"}]})
     real_main_window.rules_dock.saved.emit()
 
     root_item = real_main_window.config_tree_dock.tree.topLevelItem(0)
@@ -310,7 +310,7 @@ def test_rules_saved_refreshes_config_tree_rules(real_main_window, tmp_path):
 def test_add_rule_requested_opens_blank_rules_form_and_shows_tab(real_main_window, tmp_path):
     """ConfigTreeDock's "Add rule..." context-menu action -> RuleDock, same
     shape as DockHub._start_new_placement/_start_new_point."""
-    rules_file = tmp_path / "rules.yaml"
+    rules_file = tmp_path / "rules.sexp"
     _write(rules_file)
     real_main_window.rules_dock.net_edit.setCurrentText("stale")
 
@@ -325,7 +325,7 @@ def test_add_extract_profile_requested_arms_extract_and_shows_tab(real_main_wind
     plan context_menu_by_section) -> ExtractDock.prepare_new_profile — NOT a
     blank form like the other Add-actions (a profile's params come from a real
     board selection), it pre-arms the Extract flow for a profile save."""
-    profiles_file = tmp_path / "profiles.yaml"
+    profiles_file = tmp_path / "profiles.sexp"
     _write(profiles_file)
     real_main_window.extract_dock.save_profile_checkbox.setChecked(False)
     real_main_window.extract_dock.profile_key_edit.setText("stale")
@@ -350,7 +350,7 @@ def test_add_extract_profile_requested_shows_extract_before_preparing(main_windo
         hub.detail_dock.show_extract = lambda: (calls.append("show"), original_show())[1]
         hub.extract_dock.prepare_new_profile = lambda p: calls.append("prepare")
 
-        profiles_file = tmp_path / "profiles.yaml"
+        profiles_file = tmp_path / "profiles.sexp"
         _write(profiles_file)
         hub._start_new_extract_profile(profiles_file)
 
@@ -364,8 +364,8 @@ def test_file_selected_alone_shows_root_page(real_main_window, tmp_path):
     leaf signal) falls back to the Root page — Denis's chosen auto-switch
     rule for clicks the tree can't route more specifically (2026-08-03)."""
     real_main_window._dock_hub.detail_dock.show_placer()
-    target_file = tmp_path / "power.yaml"
-    target_file.write_text("{}\n", encoding="utf-8")
+    target_file = tmp_path / "power.sexp"
+    _write(target_file)
 
     real_main_window.config_tree_dock.file_selected.emit(target_file)
 
@@ -395,15 +395,15 @@ def test_placer_saved_refreshes_config_tree_placements(real_main_window, tmp_pat
     connection captures the bound method at connect() time, so patching the
     instance attribute afterwards would not be intercepted (same caveat as
     test_fieldstool_components_changed_refreshes_tree above)."""
-    placer_file = tmp_path / "placer.yaml"
+    placer_file = tmp_path / "placer.sexp"
     _write(placer_file)
     real_main_window.config_tree_dock.set_root_file(placer_file)
     root_item = real_main_window.config_tree_dock.tree.topLevelItem(0)
     assert root_item.childCount() == 0
 
-    placer_file.write_text(
-        "clone_placements:\n  - name: spoke_1\n    cell: ldo_adj\n    xy: [0, 0]\n",
-        encoding="utf-8")
+    _write(placer_file, {"clone_placements": [
+        {"name": "spoke_1", "cell": "ldo_adj", "xy": [0, 0]},
+    ]})
     real_main_window.placer_dock.saved.emit()
 
     root_item = real_main_window.config_tree_dock.tree.topLevelItem(0)
@@ -420,13 +420,13 @@ def test_extract_saved_refreshes_config_tree_cells(real_main_window, tmp_path):
     showed up in the Config tree without an unrelated action happening to
     trigger refresh() first. Same real-widget-state assertion style as
     test_placer_saved_refreshes_config_tree_placements above."""
-    cells_file = tmp_path / "cells.yaml"
+    cells_file = tmp_path / "cells.sexp"
     _write(cells_file)
     real_main_window.config_tree_dock.set_root_file(cells_file)
     root_item = real_main_window.config_tree_dock.tree.topLevelItem(0)
     assert root_item.childCount() == 0
 
-    cells_file.write_text("cells:\n  ldo_adj_2vp:\n    components: []\n", encoding="utf-8")
+    _write(cells_file, {"cells": {"ldo_adj_2vp": {}}})
     real_main_window.extract_dock.saved.emit()
 
     root_item = real_main_window.config_tree_dock.tree.topLevelItem(0)
@@ -454,7 +454,7 @@ def test_extract_dock_feeds_injected_adapter_into_extraction(main_window, tmp_pa
     injected board, not from main_window.connection (which stays board-less)."""
     import gui.docks.extract as extract_mod
 
-    cells_file = tmp_path / "cells.yaml"
+    cells_file = tmp_path / "cells.sexp"
     _write(cells_file)
 
     captured = {}
@@ -463,7 +463,10 @@ def test_extract_dock_feeds_injected_adapter_into_extraction(main_window, tmp_pa
                       net_template_role=None, annotations=None, **kwargs):
         captured["adapter"] = adapter
         captured["items"] = items
-        return {"ref": "C1"}
+        # Keyed by cell name like the real extractor — the s-expr writer
+        # validates the cell record shape, so a bare {"ref": "C1"} (tolerated
+        # by YAML) would make dict_to_sexp fatal on a str cell body.
+        return {name: {"components": [], "vias": [], "tracks": [], "layer": "F.Cu"}}
 
     monkeypatch.setattr(extract_mod, "extract_template_from_selection", _fake_extract)
 
@@ -586,7 +589,7 @@ def test_dock_hub_constructs_all_docks(main_window, tmp_path):
     composition root works without a real MainWindow too. (file_selected no
     longer retargets the entity docks — see
     test_config_tree_file_selected_does_not_retarget_entity_docks.)"""
-    target_file = tmp_path / "power.yaml"
+    target_file = tmp_path / "power.sexp"
     _write(target_file)
 
     hub = DockHub(main_window, connection=main_window.connection, verbose=False)
@@ -619,9 +622,9 @@ def test_dock_hub_wires_root_changed_to_config_tree_dock(main_window, tmp_path):
     нет"); setting the root via RootMetadataDock.set_root_file() must
     reach ConfigTreeDock in the OTHER direction now — it rebuilds its tree
     from whatever root_changed carries."""
-    included_file = tmp_path / "included.yaml"
+    included_file = tmp_path / "included.sexp"
     _write(included_file)
-    root_file = tmp_path / "root.yaml"
+    root_file = tmp_path / "root.sexp"
     _write(root_file)
 
     hub = DockHub(main_window, connection=main_window.connection, verbose=False)
@@ -640,8 +643,8 @@ def test_dock_hub_wires_root_changed_to_rules_dock(main_window, tmp_path):
     here 2026-08-11 from ConfigTreeDock's old root_file_changed) — its
     Cell/Point combos need the whole include graph starting from the
     project's root."""
-    root_file = tmp_path / "root.yaml"
-    root_file.write_text("cells:\n  cap_pair: {}\n", encoding="utf-8")
+    root_file = tmp_path / "root.sexp"
+    _write(root_file, {"cells": {"cap_pair": {}}})
 
     hub = DockHub(main_window, connection=main_window.connection, verbose=False)
     try:
@@ -659,10 +662,10 @@ def test_dock_hub_wires_root_changed_to_rules_dock(main_window, tmp_path):
 def test_dock_hub_wires_root_changed_to_points_dock(main_window, tmp_path):
     """root_changed reaches PointsDock like every other dock — and since the
     file pickers were removed (2026-08-21) its write target IS the root."""
-    sub_file = tmp_path / "sub.yaml"
-    sub_file.write_text("points: {}\n", encoding="utf-8")
-    root_file = tmp_path / "root.yaml"
-    root_file.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
+    sub_file = tmp_path / "sub.sexp"
+    _write(sub_file, {"points": {}})
+    root_file = tmp_path / "root.sexp"
+    _write(root_file, {"include": ["sub.sexp"]})
 
     hub = DockHub(main_window, connection=main_window.connection, verbose=False)
     try:
@@ -683,10 +686,10 @@ def test_dock_hub_attaches_a_file_handler_from_the_root_configs_log_file(main_wi
     log_file at all — only kicadstamp_cli.py's `apply` command honored it.
     Reused cli_common.peek_log_file() so the same log_file: now covers the
     GUI as well."""
-    root_file = tmp_path / "root.yaml"
+    root_file = tmp_path / "root.sexp"
     # peek_log_file resolves log_file: relative to the CONFIG file's own
     # directory — a plain relative path is enough here.
-    root_file.write_text("log_file: logs/run.log\n", encoding="utf-8")
+    _write(root_file, {"log_file": "logs/run.log"})
 
     root_logger = logging.getLogger()
     original_level = root_logger.level
@@ -711,18 +714,18 @@ def test_dock_hub_attaches_a_file_handler_from_the_root_configs_log_file(main_wi
 def test_dock_hub_swaps_the_file_handler_when_the_root_file_changes(main_window, tmp_path):
     first_dir = tmp_path / "first"
     first_dir.mkdir()
-    (first_dir / "root.yaml").write_text("log_file: logs/first.log\n", encoding="utf-8")
+    _write(first_dir / "root.sexp", {"log_file": "logs/first.log"})
     second_dir = tmp_path / "second"
     second_dir.mkdir()
-    (second_dir / "root.yaml").write_text("log_file: logs/second.log\n", encoding="utf-8")
+    _write(second_dir / "root.sexp", {"log_file": "logs/second.log"})
 
     hub = DockHub(main_window, connection=main_window.connection, verbose=False)
     try:
-        hub.root_metadata_dock.root_changed.emit(first_dir / "root.yaml")
+        hub.root_metadata_dock.root_changed.emit(first_dir / "root.sexp")
         first_handler = hub._log_file_handler
         assert Path(first_handler.baseFilename) == (first_dir / "logs" / "first.log").resolve()
 
-        hub.root_metadata_dock.root_changed.emit(second_dir / "root.yaml")
+        hub.root_metadata_dock.root_changed.emit(second_dir / "root.sexp")
 
         assert hub._log_file_handler is not first_handler
         assert first_handler not in logging.getLogger().handlers  # old one detached, not leaked
@@ -732,8 +735,8 @@ def test_dock_hub_swaps_the_file_handler_when_the_root_file_changes(main_window,
 
 
 def test_dock_hub_has_no_file_handler_when_root_config_has_no_log_file(main_window, tmp_path):
-    root_file = tmp_path / "root.yaml"
-    root_file.write_text("{}\n", encoding="utf-8")
+    root_file = tmp_path / "root.sexp"
+    _write(root_file, {})
 
     hub = DockHub(main_window, connection=main_window.connection, verbose=False)
     try:
@@ -760,8 +763,8 @@ def test_dock_hub_file_handler_attaches_to_the_queue_listener_when_one_is_runnin
 
     from gui import dock_hub as dock_hub_mod
 
-    root_file = tmp_path / "root.yaml"
-    root_file.write_text("log_file: logs/run.log\n", encoding="utf-8")
+    root_file = tmp_path / "root.sexp"
+    _write(root_file, {"log_file": "logs/run.log"})
 
     root = logging.getLogger()
     original_level = root.level
@@ -991,8 +994,8 @@ def test_new_cell_save_visible_in_rules_spoke_cell_combo(main_window, tmp_path):
     whole-graph cell-name combo) immediately. Before the fix it only appeared
     after switching the root away and back (same failure class as Denis's
     complaint, different trigger — the entity dock's Save, not a tree action)."""
-    root = tmp_path / "root.yaml"
-    root.write_text("cells: {}\nrules: []\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {"cells": {}, "rules": []})
     _seed_last_root(root)
 
     hub = DockHub(main_window, connection=main_window.connection, verbose=False)

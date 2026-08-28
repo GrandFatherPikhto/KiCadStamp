@@ -14,20 +14,23 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-import yaml
-
 import gui.docks.placer as placer_mod
 import kicadstamp.undo as undo_mod
 from gui.docks.placer import PlacerDock
 from kicadstamp.config import (Cell, Config, RuntimeContext, TemplateComponentSlot,
                                clone_placement_effective_name, load_clone_placement)
+from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.constants import CLUSTER_FIELD_NAME, DEFAULT_LOG_DIR, ROLE_FIELD_NAME
 from kicadstamp.exceptions import ValidationError
 from tests.gui.conftest import _pump
 
 
-def _write_yaml(path, data) -> None:
-    path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+def _write(path, data) -> None:
+    path.write_text(dict_to_sexp(data), encoding="utf-8")
+
+
+def _load(path) -> dict:
+    return sexp_to_dict(path.read_text(encoding="utf-8")) or {}
 
 
 def _make_cell_and_dock(main_window, tmp_path):
@@ -37,8 +40,8 @@ def _make_cell_and_dock(main_window, tmp_path):
     # graph, so the cells file must be part of the root's graph for the
     # cell combo/params/roles to see pi_filter. Every test that checks
     # cfg.cells monkeypatches load_config with its own fake Config below.
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {"cells": {
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"cells": {
         "pi_filter": {
             "components": [{"role": "C_IN", "offset_along_mm": 0, "offset_across_mm": 0,
                              "angle_deg": 0, "net_template": "{PWR_IN}"}],
@@ -48,8 +51,8 @@ def _make_cell_and_dock(main_window, tmp_path):
             "layer": "F.Cu",
         }
     }})
-    placer_file = tmp_path / "root.yaml"
-    _write_yaml(placer_file, {"clone_placements": [], "include": ["cells.yaml"]})
+    placer_file = tmp_path / "root.sexp"
+    _write(placer_file, {"clone_placements": [], "include": ["cells.sexp"]})
 
     dock = PlacerDock(main_window)
     dock.set_root_path(placer_file)
@@ -187,7 +190,7 @@ def test_refresh_sheet_names_populates_every_sheet_combo(main_window, tmp_path, 
     project's schematic files (RuntimeContext.sheet_names), not the ~2s
     board poll Cluster/Role ride."""
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
-    dock._root_path = tmp_path / "root.yaml"
+    dock._root_path = tmp_path / "root.sexp"
     monkeypatch.setattr(placer_mod, "collect_all_sheet_names",
                         lambda root: ["Channel_0", "Channel_1"])
     dock._refresh_sheet_names()
@@ -360,17 +363,17 @@ def test_save_upserts_by_name_without_duplicating(main_window, tmp_path):
 
     overwritten1 = dock._upsert_clone_placement(placer_file, entry)
     assert overwritten1 is False
-    saved = yaml.safe_load(placer_file.read_text())
+    saved = _load(placer_file)
     assert len(saved["clone_placements"]) == 1
 
     overwritten2 = dock._upsert_clone_placement(placer_file, entry)
     assert overwritten2 is True
-    saved2 = yaml.safe_load(placer_file.read_text())
+    saved2 = _load(placer_file)
     assert len(saved2["clone_placements"]) == 1  # no duplicate on the same name
 
     other = dict(entry, cluster="Channel_3_PI_Filter")
     dock._upsert_clone_placement(placer_file, other)
-    saved3 = yaml.safe_load(placer_file.read_text())
+    saved3 = _load(placer_file)
     assert sorted(e["cluster"] for e in saved3["clone_placements"]) == [
         "Channel_2_PI_Filter", "Channel_3_PI_Filter"]
 
@@ -1193,8 +1196,8 @@ class _FakeAutofillBoard:
 
 
 def _make_two_role_cell_and_dock(main_window, tmp_path):
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {"cells": {
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"cells": {
         "pi_filter2": {
             "components": [
                 {"role": "C_IN_BULK", "offset_along_mm": 0, "offset_across_mm": 0, "angle_deg": 0},
@@ -1203,8 +1206,8 @@ def _make_two_role_cell_and_dock(main_window, tmp_path):
             "vias": [], "tracks": [], "layer": "F.Cu",
         }
     }})
-    placer_file = tmp_path / "root2.yaml"
-    _write_yaml(placer_file, {"clone_placements": [], "include": ["cells.yaml"]})
+    placer_file = tmp_path / "root2.sexp"
+    _write(placer_file, {"clone_placements": [], "include": ["cells.sexp"]})
     dock = PlacerDock(main_window)
     dock.set_root_path(placer_file)
     dock.set_selected_cell("pi_filter2")
@@ -1299,7 +1302,7 @@ def test_collect_autofill_nets_inputs_carries_sheet_and_sheet_names(main_window,
     the placement's OWN Sheet (sheet_edit -> clone.sheet, NOT anchor_sheet) and
     the project's sheet_names from _load_target_config() — so the worker can
     narrow a reused-sheet Cluster+Role ambiguity the same way the apply-time
-    resolvers do. The fixture's real root.yaml has no schematic_dir (real load
+    resolvers do. The fixture's real root.sexp has no schematic_dir (real load
     resolves empty sheet_names) — mock the load to return a ctx WITH the map so
     the payload really carries it; the real leaf/root fallback itself is already
     covered by test_load_target_config_falls_back_to_root_sheet_names_*."""
@@ -1360,16 +1363,16 @@ def test_do_autofill_nets_narrows_by_sheet_on_reused_sheets(main_window, tmp_pat
     candidates board-wide (identical Cluster/Role, written on the sheet FILE,
     not per instance). With the placement's Sheet set, Auto-fill narrows to the
     right instance and fills instead of falling back to the full board list."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {"cells": {
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"cells": {
         "dac_buf": {
             "components": [{"role": "AD_DAC", "offset_along_mm": 0, "offset_across_mm": 0,
                             "angle_deg": 0, "net_template": "{AD_DAC_OUT}"}],
             "vias": [], "tracks": [], "layer": "F.Cu",
         }
     }})
-    placer_file = tmp_path / "root.yaml"
-    _write_yaml(placer_file, {"clone_placements": [], "include": ["cells.yaml"]})
+    placer_file = tmp_path / "root.sexp"
+    _write(placer_file, {"clone_placements": [], "include": ["cells.sexp"]})
     dock = PlacerDock(main_window)
     dock.set_root_path(placer_file)
     dock.set_selected_cell("dac_buf")
@@ -1412,8 +1415,8 @@ def test_do_autofill_nets_fills_multi_pad_role_with_net_template_pad(main_window
     carries net_template_pad now fills deterministically (that specific pad's
     net is read directly), instead of the old "exactly one non-rule net"
     skip — this is the 7/13 -> 13/13 difference reproduced on the GUI path."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {"cells": {
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"cells": {
         "ldo_cell": {
             "components": [
                 {"role": "LDO_ADJ", "net_template": "NET_{p}", "net_template_pad": "3"},
@@ -1421,8 +1424,8 @@ def test_do_autofill_nets_fills_multi_pad_role_with_net_template_pad(main_window
             "vias": [], "tracks": [], "layer": "F.Cu",
         }
     }})
-    placer_file = tmp_path / "root.yaml"
-    _write_yaml(placer_file, {"clone_placements": [], "include": ["cells.yaml"]})
+    placer_file = tmp_path / "root.sexp"
+    _write(placer_file, {"clone_placements": [], "include": ["cells.sexp"]})
     dock = PlacerDock(main_window)
     dock.set_root_path(placer_file)
     dock.set_selected_cell("ldo_cell")
@@ -1443,8 +1446,8 @@ def test_do_autofill_nets_resolves_same_as_role_via_sibling(main_window, tmp_pat
     references ANOTHER role (net_template_same_as_role) is resolved live via
     that sibling on the same cluster — cross-instance-safe for electrically
     symmetric 2-pin parts, instead of a routing-artifact pad number."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {"cells": {
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"cells": {
         "ldo_cell": {
             "components": [
                 {"role": "R_FB_BOT", "net_template": "NET_{p}"},
@@ -1454,8 +1457,8 @@ def test_do_autofill_nets_resolves_same_as_role_via_sibling(main_window, tmp_pat
             "vias": [], "tracks": [], "layer": "F.Cu",
         }
     }})
-    placer_file = tmp_path / "root.yaml"
-    _write_yaml(placer_file, {"clone_placements": [], "include": ["cells.yaml"]})
+    placer_file = tmp_path / "root.sexp"
+    _write(placer_file, {"clone_placements": [], "include": ["cells.sexp"]})
     dock = PlacerDock(main_window)
     dock.set_root_path(placer_file)
     dock.set_selected_cell("ldo_cell")
@@ -1566,8 +1569,8 @@ def test_param_placeholder_not_exactly_one_role_stays_unnarrowed(main_window, tm
     alone, so it's simply absent from _param_placeholder_roles and the combo
     keeps the full board list, same graceful degradation as everywhere else
     in this mechanism."""
-    cells_file = tmp_path / "cells.yaml"
-    _write_yaml(cells_file, {"cells": {
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"cells": {
         "sheet_cell": {
             "components": [
                 {"role": "AD_DAC", "offset_along_mm": 0, "offset_across_mm": 0,
@@ -1576,8 +1579,8 @@ def test_param_placeholder_not_exactly_one_role_stays_unnarrowed(main_window, tm
             "vias": [], "tracks": [], "layer": "F.Cu",
         }
     }})
-    placer_file = tmp_path / "root.yaml"
-    _write_yaml(placer_file, {"clone_placements": [], "include": ["cells.yaml"]})
+    placer_file = tmp_path / "root.sexp"
+    _write(placer_file, {"clone_placements": [], "include": ["cells.sexp"]})
     dock = PlacerDock(main_window)
     dock.set_root_path(placer_file)
     dock.set_selected_cell("sheet_cell")
@@ -1815,18 +1818,18 @@ def _write_schematic_dir(tmp_path, dirname, sheet_names):
 
 def test_load_target_config_falls_back_to_root_sheet_names_when_leaf_has_none(main_window, tmp_path):
     """The bug (found live 2026-08-15 on profiles/3ch-awg-tia/): the Placer
-    had components.yaml open, schematic_dir: lives only on the project ROOT
-    (3ch-awg-tia.yaml) which INCLUDES components.yaml — resolve_includes()
+    had components.sexp open, schematic_dir: lives only on the project ROOT
+    (3ch-awg-tia.sexp) which INCLUDES components.sexp — resolve_includes()
     merges downward only, so loading the leaf directly resolves an EMPTY
     sheet_names even though the root resolves real names, making Sheet
     narrowing a silent no-op at Redraw. _load_target_config() must fall back
     to the root's sheet_names when the leaf's own came up empty."""
     _write_schematic_dir(tmp_path, "sch",
                          {"11111111-1111-1111-1111-111111111111": "Channel_0"})
-    root = tmp_path / "3ch-awg-tia.yaml"
-    root.write_text("schematic_dir: sch\ninclude:\n  - components.yaml\n", encoding="utf-8")
-    leaf = tmp_path / "components.yaml"
-    leaf.write_text("clone_placements: []\n", encoding="utf-8")
+    root = tmp_path / "3ch-awg-tia.sexp"
+    _write(root, {"schematic_dir": "sch", "include": ["components.sexp"]})
+    leaf = tmp_path / "components.sexp"
+    _write(leaf, {"clone_placements": []})
 
     dock = PlacerDock(main_window)
     dock._root_path = root
@@ -1847,10 +1850,10 @@ def test_load_target_config_keeps_leafs_own_sheet_names_when_present(main_window
                          {"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa": "Channel_0"})
     _write_schematic_dir(tmp_path, "sch_root",
                          {"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb": "Root Sheet"})
-    root = tmp_path / "root.yaml"
-    root.write_text("schematic_dir: sch_root\n", encoding="utf-8")
-    leaf = tmp_path / "leaf.yaml"
-    leaf.write_text("schematic_dir: sch_leaf\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {"schematic_dir": "sch_root"})
+    leaf = tmp_path / "leaf.sexp"
+    _write(leaf, {"schematic_dir": "sch_leaf"})
 
     dock = PlacerDock(main_window)
     dock._root_path = root
@@ -1866,8 +1869,8 @@ def test_load_target_config_root_path_none_leaves_empty_sheet_names(main_window,
     """Old behavior preserved: with no root path known at all, a leaf with
     no schematic_dir keeps an empty sheet_names — no exception, no
     fallback."""
-    leaf = tmp_path / "leaf.yaml"
-    leaf.write_text("clone_placements: []\n", encoding="utf-8")
+    leaf = tmp_path / "leaf.sexp"
+    _write(leaf, {"clone_placements": []})
 
     dock = PlacerDock(main_window)
     dock._placer_path = leaf  # _root_path stays None
@@ -1888,10 +1891,10 @@ def test_load_target_config_leaf_load_error_shows_message_not_crash(main_window,
     gettext import) a LOCAL for the whole method; the except block's
     _("Failed to load Placer file: {error}") then blew up with "cannot
     access local variable '_'" before the real error could be shown."""
-    leaf = tmp_path / "leaf.yaml"
-    leaf.write_text("clone_placements: []\n", encoding="utf-8")
-    root = tmp_path / "root.yaml"
-    root.write_text("clone_placements: []\n", encoding="utf-8")
+    leaf = tmp_path / "leaf.sexp"
+    _write(leaf, {"clone_placements": []})
+    root = tmp_path / "root.sexp"
+    _write(root, {"clone_placements": []})
 
     def _failing_load(path):
         raise ValidationError(
@@ -1915,10 +1918,10 @@ def test_load_target_config_root_fallback_failure_keeps_leaf_sheet_names(main_wi
     the method must keep the leaf's (empty) sheet_names and return normally:
     no crash, no error message (the fallback must not fail Redraw). Same
     `_`-shadowing region as the leaf-load-error test above."""
-    leaf = tmp_path / "leaf.yaml"
-    leaf.write_text("clone_placements: []\n", encoding="utf-8")
-    root = tmp_path / "root.yaml"
-    root.write_text("clone_placements: []\n", encoding="utf-8")
+    leaf = tmp_path / "leaf.sexp"
+    _write(leaf, {"clone_placements": []})
+    root = tmp_path / "root.sexp"
+    _write(root, {"clone_placements": []})
     real_load_config = placer_mod.load_config
 
     def _root_only_failing_load(path):
@@ -2105,7 +2108,7 @@ def test_save_after_renaming_placer_name_removes_old_entry(main_window, tmp_path
     — the OLD entry must be gone, exactly one with the new identity remains,
     and Cluster stays untouched."""
     dock, _, placer_file = _make_cell_and_dock(main_window, tmp_path)
-    _write_yaml(placer_file, {"clone_placements": [
+    _write(placer_file, {"clone_placements": [
         {"cluster": "PIF_AVDD", "name": "CH0_PIF_AVDD", "cell": "pi_filter",
          "xy": [1.0, 1.0]},
     ]})
@@ -2114,7 +2117,7 @@ def test_save_after_renaming_placer_name_removes_old_entry(main_window, tmp_path
     dock.placer_name_edit.setText("CH1_PIF_AVDD")
     dock._do_save()
 
-    entries = yaml.safe_load(placer_file.read_text(encoding="utf-8"))["clone_placements"]
+    entries = _load(placer_file)["clone_placements"]
     assert len(entries) == 1
     assert entries[0]["name"] == "CH1_PIF_AVDD"
     assert entries[0]["cluster"] == "PIF_AVDD"  # Cluster tag untouched
@@ -2125,14 +2128,14 @@ def test_save_after_renaming_cluster_without_placer_name_removes_old_entry(main_
     the raw name, so changing Cluster in the form and saving must replace, not
     duplicate."""
     dock, _, placer_file = _make_cell_and_dock(main_window, tmp_path)
-    _write_yaml(placer_file, {"clone_placements": [
+    _write(placer_file, {"clone_placements": [
         {"cluster": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]},
     ]})
     dock.load_placement({"cluster": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]})
     dock.cluster_edit.setCurrentText("CH0_PIF_AVDD")
     dock._do_save()
 
-    entries = yaml.safe_load(placer_file.read_text(encoding="utf-8"))["clone_placements"]
+    entries = _load(placer_file)["clone_placements"]
     assert len(entries) == 1
     assert entries[0]["cluster"] == "CH0_PIF_AVDD"
 
@@ -2142,14 +2145,14 @@ def test_save_without_identity_change_still_replaces_in_place(main_window, tmp_p
     something else entirely) must keep the old replace-in-place upsert — no
     spurious delete cycles."""
     dock, _, placer_file = _make_cell_and_dock(main_window, tmp_path)
-    _write_yaml(placer_file, {"clone_placements": [
+    _write(placer_file, {"clone_placements": [
         {"cluster": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]},
     ]})
     dock.load_placement({"cluster": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]})
     dock._do_save()
     dock._do_save()
 
-    assert len(yaml.safe_load(placer_file.read_text(encoding="utf-8"))["clone_placements"]) == 1
+    assert len(_load(placer_file)["clone_placements"]) == 1
 
 
 def test_save_new_placement_does_not_trigger_delete(main_window, tmp_path, monkeypatch):
@@ -2167,7 +2170,7 @@ def test_save_new_placement_does_not_trigger_delete(main_window, tmp_path, monke
     dock._do_save()
 
     assert calls == []
-    entries = yaml.safe_load(placer_file.read_text(encoding="utf-8"))["clone_placements"]
+    entries = _load(placer_file)["clone_placements"]
     assert len(entries) == 1
     assert entries[0]["cluster"] == "PIF_AVDD"
 
@@ -2176,7 +2179,7 @@ def test_save_twice_in_a_row_after_rename_does_not_error(main_window, tmp_path):
     """Renaming then saving AGAIN without changes must not try to delete the
     already-removed old entry (identity now matches, delete path not entered)."""
     dock, _, placer_file = _make_cell_and_dock(main_window, tmp_path)
-    _write_yaml(placer_file, {"clone_placements": [
+    _write(placer_file, {"clone_placements": [
         {"cluster": "PIF_AVDD", "name": "CH0_PIF_AVDD", "cell": "pi_filter",
          "xy": [1.0, 1.0]},
     ]})
@@ -2186,7 +2189,7 @@ def test_save_twice_in_a_row_after_rename_does_not_error(main_window, tmp_path):
     dock._do_save()  # renames: removes CH0, writes CH1
     dock._do_save()  # no change: identity matches, no delete, replaces in place
 
-    entries = yaml.safe_load(placer_file.read_text(encoding="utf-8"))["clone_placements"]
+    entries = _load(placer_file)["clone_placements"]
     assert len(entries) == 1
     assert entries[0]["name"] == "CH1_PIF_AVDD"
 
@@ -2434,8 +2437,8 @@ def test_resolve_operation_log_dir_falls_back_to_root(main_window, tmp_path, mon
     """A leaf Placer file without operation_log_dir falls back to the root
     config's value (same downward-only include: merge as sheet_names)."""
     dock, _, placer_file = _make_cell_and_dock(main_window, tmp_path)
-    root = tmp_path / "root.yaml"
-    root.write_text("operation_log_dir: oplogs\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    _write(root, {"operation_log_dir": "oplogs"})
     dock._root_path = root
     dock._placer_path = placer_file
     leaf_ctx = RuntimeContext()  # leaf resolves none

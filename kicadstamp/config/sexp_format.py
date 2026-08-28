@@ -103,6 +103,19 @@ _SHEET_TEMPLATE_FIELD_TYPE = {
     "coordinate_placements": ("list_record", CoordinatePlacement),
 }
 
+# Other free-form dict sections (config/includes.py's _FREE_DICT_SECTIONS)
+# whose entries have a KNOWN list-field shape — same parse-side type-hint
+# need as sheet_templates' sheets: a one-element `rule_nets: ["+3V3"]` list
+# would otherwise round-trip as a bare STRING (_parse_free_field collapses a
+# single atom) and silently break single-rule-net profiles. config/
+# extract_writer.py writes rule_nets as a sorted list. Mirrored on the
+# serialize side in _dict_section_to_sexp.
+_FREE_DICT_FIELD_TYPE = {
+    "extract_profiles": {
+        "rule_nets": ("list_str", None),
+    },
+}
+
 # trees: — a list section (config/includes.py's _LIST_SECTIONS) whose nodes
 # are NOT generic dataclass records: TreeNode is self-referencing, so the
 # generic schema-aware machinery is deliberately NOT extended for it. Instead
@@ -394,7 +407,11 @@ def _dict_section_to_sexp(section: str, dc, data: dict):
             tag = _singular(section)
             rec = [sym(tag), name]
             for key, value in entry.items():
-                ftype = _SHEET_TEMPLATE_FIELD_TYPE.get(key) if section == "sheet_templates" else None
+                ftype = None
+                if section == "sheet_templates":
+                    ftype = _SHEET_TEMPLATE_FIELD_TYPE.get(key)
+                else:
+                    ftype = _FREE_DICT_FIELD_TYPE.get(section, {}).get(key)
                 if ftype is not None:
                     rec.append(_field_to_sexp(key, value, ftype))
                 else:
@@ -709,13 +726,13 @@ def _parse_free_record(node, path: str) -> dict:
     return out
 
 
-def _parse_sheet_template_record(node, path: str) -> dict:
-    """sheet_templates entry — sheets/clone_placements/coordinate_placements
-    have a KNOWN shape (mirror of _SHEET_TEMPLATE_FIELD_TYPE), everything else
-    stays free-form. Needed because a one-element (sheets "Channel_0") list
-    would otherwise parse as a bare STRING in _parse_free_field and silently
-    break single-sheet templates on round-trip — the serializer types the same
-    fields (see _dict_section_to_sexp); this is its parse-side counterpart."""
+def _parse_free_record_typed(node, path: str, ftype_map: dict) -> dict:
+    """A free-form record whose KNOWN list/dict fields are parsed by their
+    type hint instead of _parse_free_field's content-driven guess — the
+    parse-side counterpart of _dict_section_to_sexp's typed serialization.
+    Needed because a one-element (rule_nets "+3V3") list would otherwise
+    parse as a bare STRING and silently break single-rule-net profiles on
+    round-trip (same class as sheet_templates' sheets)."""
     out: dict = {}
     for field_node in node[1:]:
         if not isinstance(field_node, list) or not field_node:
@@ -724,12 +741,22 @@ def _parse_sheet_template_record(node, path: str) -> dict:
                 [_("in {path}: got {value!r}; every field of a record must be "
                    "a (name ...) node").format(path=path, value=field_node)])
         key = sval(field_node[0])
-        ftype = _SHEET_TEMPLATE_FIELD_TYPE.get(key)
+        ftype = ftype_map.get(key)
         if ftype is not None:
             out[key] = _parse_field(field_node, ftype, f"{path}.{key}")
         else:
             out[key] = _parse_free_field(field_node, f"{path}.{key}")
     return out
+
+
+def _parse_sheet_template_record(node, path: str) -> dict:
+    """sheet_templates entry — sheets/clone_placements/coordinate_placements
+    have a KNOWN shape (mirror of _SHEET_TEMPLATE_FIELD_TYPE), everything else
+    stays free-form. Needed because a one-element (sheets "Channel_0") list
+    would otherwise parse as a bare STRING in _parse_free_field and silently
+    break single-sheet templates on round-trip — the serializer types the same
+    fields (see _dict_section_to_sexp); this is its parse-side counterpart."""
+    return _parse_free_record_typed(node, path, _SHEET_TEMPLATE_FIELD_TYPE)
 
 
 def _parse_dict_section(node, section: str, path: str) -> dict:
@@ -760,6 +787,10 @@ def _parse_dict_section(node, section: str, path: str) -> dict:
         elif section == "sheet_templates":
             out[name] = _parse_sheet_template_record(
                 [sym(_singular(section)), *rec_node[2:]], f"{path}.{name}")
+        elif section in _FREE_DICT_FIELD_TYPE:
+            out[name] = _parse_free_record_typed(
+                [sym(_singular(section)), *rec_node[2:]], f"{path}.{name}",
+                _FREE_DICT_FIELD_TYPE[section])
         else:
             out[name] = _parse_free_record([sym(_singular(section)), *rec_node[2:]], f"{path}.{name}")
     return out

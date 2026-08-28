@@ -17,12 +17,25 @@ from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.exceptions import ValidationError
 
 
+def _fill_cell_defaults(data: dict) -> dict:
+    """s-expr omits default-valued Cell fields (layer='F.Cu', empty
+    vias/components/tracks/clone_placements lists); re-apply them so the
+    raw-dict assertions stay identical to the old yaml.safe_load reads."""
+    for entry in data.get("cells", {}).values():
+        entry.setdefault("layer", "F.Cu")
+        entry.setdefault("vias", [])
+        entry.setdefault("components", [])
+        entry.setdefault("tracks", [])
+        entry.setdefault("clone_placements", [])
+    return data
+
+
 def _write(path, data) -> None:
     path.write_text(dict_to_sexp(data), encoding="utf-8")
 
 
 def _load(path) -> dict:
-    return sexp_to_dict(path.read_text(encoding="utf-8")) or {}
+    return _fill_cell_defaults(sexp_to_dict(path.read_text(encoding="utf-8"))) or {}
 
 
 def _make_dock(main_window, tmp_path, data=None):
@@ -196,7 +209,8 @@ def test_save_writes_dict_section_and_preserves_other_keys(main_window, tmp_path
 
     data = _load(target)
     assert data["points"] == {"origin": {"xy": [1.0, 2.0]}}
-    assert data["cells"] == {"c1": {"components": []}}
+    assert data["cells"] == {"c1": {"layer": "F.Cu", "vias": [], "components": [],
+                                     "tracks": [], "clone_placements": []}}
     assert any("Wrote" in r.message for r in caplog.records)
 
 

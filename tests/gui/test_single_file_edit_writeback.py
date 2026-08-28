@@ -3,9 +3,8 @@
 that lives in a non-root included file must write the edit back to THAT file,
 not duplicate/leave the record in the root (which previously made load_config
 fatal on a duplicate dict key, or silently split a list record)."""
-import yaml
-
 from kicadstamp.config import load_config
+from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from gui.docks.cell_editor import CellDock
 from gui.docks.net_trace import NetTraceDock
 from gui.docks.placer import PlacerDock
@@ -15,20 +14,20 @@ from gui.docks.thermal_via import ThermalViaArrayDock
 
 
 def _write(path, data) -> None:
-    path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    path.write_text(dict_to_sexp(data), encoding="utf-8")
 
 
 def _load(path) -> dict:
-    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return sexp_to_dict(path.read_text(encoding="utf-8")) or {}
 
 
 class TestEditingIncludedEntryWritesBackToItsFile:
     def test_cell(self, main_window, tmp_path):
-        sub = tmp_path / "sub.yaml"
+        sub = tmp_path / "sub.sexp"
         _write(sub, {"cells": {"included_cell": {
             "components": [{"role": "A"}], "vias": [], "tracks": [], "layer": "F.Cu"}}})
-        root = tmp_path / "root.yaml"
-        _write(root, {"include": ["sub.yaml"]})
+        root = tmp_path / "root.sexp"
+        _write(root, {"include": ["sub.sexp"]})
 
         dock = CellDock(main_window)
         dock.set_root_path(root)
@@ -41,10 +40,10 @@ class TestEditingIncludedEntryWritesBackToItsFile:
         load_config(str(root))  # must not fatal
 
     def test_point(self, main_window, tmp_path):
-        sub = tmp_path / "sub.yaml"
+        sub = tmp_path / "sub.sexp"
         _write(sub, {"points": {"included_point": {"xy": [0.0, 0.0]}}})
-        root = tmp_path / "root.yaml"
-        _write(root, {"include": ["sub.yaml"]})
+        root = tmp_path / "root.sexp"
+        _write(root, {"include": ["sub.sexp"]})
 
         dock = PointsDock(main_window)
         dock.set_root_path(root)
@@ -57,10 +56,10 @@ class TestEditingIncludedEntryWritesBackToItsFile:
         load_config(str(root))
 
     def test_rule(self, main_window, tmp_path):
-        sub = tmp_path / "sub.yaml"
+        sub = tmp_path / "sub.sexp"
         _write(sub, {"rules": [{"net": "+3V3", "anchor_role": "FPGA", "spokes": []}]})
-        root = tmp_path / "root.yaml"
-        _write(root, {"include": ["sub.yaml"]})
+        root = tmp_path / "root.sexp"
+        _write(root, {"include": ["sub.sexp"]})
 
         dock = RuleDock(main_window)
         dock.set_root_path(root)
@@ -73,10 +72,10 @@ class TestEditingIncludedEntryWritesBackToItsFile:
         load_config(str(root))
 
     def test_thermal_via(self, main_window, tmp_path):
-        sub = tmp_path / "sub.yaml"
+        sub = tmp_path / "sub.sexp"
         _write(sub, {"thermal_via_arrays": [{"name": "t1", "pad": "1", "anchor_ref": "U1"}]})
-        root = tmp_path / "root.yaml"
-        _write(root, {"include": ["sub.yaml"]})
+        root = tmp_path / "root.sexp"
+        _write(root, {"include": ["sub.sexp"]})
 
         dock = ThermalViaArrayDock(main_window)
         dock.set_root_path(root)
@@ -89,10 +88,10 @@ class TestEditingIncludedEntryWritesBackToItsFile:
         load_config(str(root))
 
     def test_net_trace(self, main_window, tmp_path):
-        sub = tmp_path / "sub.yaml"
+        sub = tmp_path / "sub.sexp"
         _write(sub, {"net_traces": [{"net": "DAC_DB0", "anchor_role": "AD_DAC"}]})
-        root = tmp_path / "root.yaml"
-        _write(root, {"include": ["sub.yaml"]})
+        root = tmp_path / "root.sexp"
+        _write(root, {"include": ["sub.sexp"]})
 
         dock = NetTraceDock(main_window)
         dock.set_root_path(root)
@@ -105,12 +104,12 @@ class TestEditingIncludedEntryWritesBackToItsFile:
         load_config(str(root))
 
     def test_clone_placement(self, main_window, tmp_path):
-        sub = tmp_path / "sub.yaml"
+        sub = tmp_path / "sub.sexp"
         _write(sub, {"clone_placements": [{"cluster": "p1", "cell": "c1"}]})
-        root = tmp_path / "root.yaml"
+        root = tmp_path / "root.sexp"
         _write(root, {
             "cells": {"c1": {"components": [], "vias": [], "tracks": [], "layer": "F.Cu"}},
-            "include": ["sub.yaml"],
+            "include": ["sub.sexp"],
         })
 
         dock = PlacerDock(main_window)
