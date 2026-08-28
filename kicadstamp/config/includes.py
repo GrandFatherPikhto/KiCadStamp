@@ -22,6 +22,7 @@ parsing — resolve_includes() is called right after yaml.safe_load() in both
 load_config() and load_profile(), and everything downstream is unchanged.
 """
 import dataclasses
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -62,9 +63,11 @@ def _load_config_file(path: Path) -> dict:
 
     Format is selected by extension (2026-08-28, core_yaml_removal — YAML
     support was removed from the config graph): '.sexp' -> sexp_to_dict
-    (kicadstamp/config/sexp_format.py), anything else -> fatal — .yaml/.yml
-    with the dedicated "convert with sexp_config_convert.py" message, any
-    other extension with the unrecognized-extension message. Unlike
+    (kicadstamp/config/sexp_format.py), '.json' -> json.load (JSON was
+    previously parsed through the YAML fallback; it stays a supported config
+    format, only YAML was removed), anything else -> fatal — .yaml/.yml with
+    the dedicated "convert with sexp_config_convert.py" message, any other
+    extension with the unrecognized-extension message. Unlike
     config_writer._read_data (whose OSError wraps these for the GUI docks'
     `except OSError`), this raises the ValidationError directly — load_config
     already surfaces ValidationError for config problems, and the GUI
@@ -78,6 +81,8 @@ def _load_config_file(path: Path) -> dict:
         if suffix == '.sexp':
             from .sexp_format import sexp_to_dict
             return sexp_to_dict(f.read()) or {}
+        if suffix == '.json':
+            return json.load(f) or {}
         if suffix in ('.yaml', '.yml'):
             raise yaml_removed_config_error(path)
         raise unknown_extension_config_error(path, suffix)

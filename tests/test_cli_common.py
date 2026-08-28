@@ -9,6 +9,7 @@ import pytest
 from kipy.errors import ApiError, ApiStatusCode
 
 from kicadstamp.cli_common import api_error_message, peek_log_file, run_cli
+from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.exceptions import PlacerError, ValidationError
 
 
@@ -69,35 +70,43 @@ class TestApiErrorMessage:
 class TestPeekLogFile:
     """peek_log_file() — the CLI's cheap pre-logging read of just the config's
     log_file key (see kicadstamp_cli.py: it must NOT run a full load_config()
-    there; that single validated load belongs to the apply pipeline)."""
+    there; that single validated load belongs to the apply pipeline). Fixtures
+    are .sexp — since core_yaml_removal the root config is s-expr/.json and
+    peek_log_file dispatches on extension like every core config reader."""
 
-    def _write(self, tmp_path, text):
-        p = tmp_path / "cfg.yaml"
-        p.write_text(text, encoding="utf-8")
+    def _dump(self, data: dict) -> str:
+        return dict_to_sexp(data)
+
+    def _write(self, tmp_path, data, name="cfg.sexp"):
+        p = tmp_path / name
+        p.write_text(self._dump(data), encoding="utf-8")
         return str(p)
 
     def test_returns_log_file_resolved_relative_to_config(self, tmp_path):
-        path = self._write(tmp_path, "log_file: logs/run.log\nlayer: B.Cu\n")
+        path = self._write(tmp_path, {"log_file": "logs/run.log", "layer": "B.Cu"})
         assert peek_log_file(path) == str(tmp_path / "logs" / "run.log")
 
     def test_absolute_log_file_kept_as_is(self, tmp_path):
-        path = self._write(tmp_path, "log_file: C:/tmp/run.log\n")
+        path = self._write(tmp_path, {"log_file": "C:/tmp/run.log"})
         assert peek_log_file(path) == str(Path("C:/tmp/run.log"))
 
     def test_no_log_file_returns_none(self, tmp_path):
-        path = self._write(tmp_path, "layer: B.Cu\n")
+        path = self._write(tmp_path, {"layer": "B.Cu"})
         assert peek_log_file(path) is None
 
     def test_missing_file_returns_none_with_warning(self, tmp_path, caplog):
         with caplog.at_level(logging.WARNING):
-            result = peek_log_file(str(tmp_path / "nope.yaml"))
+            result = peek_log_file(str(tmp_path / "nope.sexp"))
         assert result is None
         assert "log_file" in caplog.text
 
-    def test_broken_yaml_returns_none_with_warning(self, tmp_path, caplog):
-        path = self._write(tmp_path, "layer: [unclosed\n")
+    def test_broken_sexp_returns_none_with_warning(self, tmp_path, caplog):
+        # Unbalanced parens -> sexp_to_dict raises -> the never-raise contract
+        # turns it into a warning + None.
+        p = tmp_path / "cfg.sexp"
+        p.write_text('(kicadstamp-config (log_file "run.log"', encoding="utf-8")
         with caplog.at_level(logging.WARNING):
-            result = peek_log_file(path)
+            result = peek_log_file(str(p))
         assert result is None
         assert "log_file" in caplog.text
 
@@ -105,5 +114,6 @@ class TestPeekLogFile:
         """Peek must be oblivious to include: — log_file is a root-file scalar;
         the full load (include resolution + validation) happens once in the
         pipeline. A broken child include must not poison the peek."""
-        path = self._write(tmp_path, "log_file: run.log\ninclude: [missing_child.yaml]\n")
+        path = self._write(tmp_path, {"log_file": "run.log",
+                                      "include": ["missing_child.sexp"]})
         assert peek_log_file(path) == str(tmp_path / "run.log")

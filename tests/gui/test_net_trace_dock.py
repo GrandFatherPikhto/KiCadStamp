@@ -14,28 +14,27 @@ techdocs/handoff/deepseek/plan_2026_08_21_net_trace_dock.md §2:
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-import yaml
-
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.domain.geometry import BoardLayer
 from kicadstamp.config import Config, RuntimeContext
+from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 
 import gui.docks.net_trace as net_trace_mod
 from gui.docks.net_trace import NetTraceDock
 from kicadstamp.utils.units import MM
 
 
-def _write_yaml(path, data) -> None:
-    path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+def _write(path, data) -> None:
+    path.write_text(dict_to_sexp(data), encoding="utf-8")
 
 
-def _read_yaml(path) -> dict:
-    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+def _load(path) -> dict:
+    return sexp_to_dict(path.read_text(encoding="utf-8")) or {}
 
 
 def _make_dock(main_window, tmp_path, data=None):
-    target_file = tmp_path / "root.yaml"
-    _write_yaml(target_file, data if data is not None else {})
+    target_file = tmp_path / "root.sexp"
+    _write(target_file, data if data is not None else {})
     dock = NetTraceDock(main_window)
     dock.set_root_path(target_file)
     return dock, target_file
@@ -139,7 +138,7 @@ def test_extract_writes_record_under_net_traces(main_window, tmp_path, caplog):
     result = dock._do_extract()
 
     assert "error" not in result
-    data = _read_yaml(target)
+    data = _load(target)
     assert len(data["net_traces"]) == 1
     entry = data["net_traces"][0]
     assert entry["net"] == "DAC_DB0"
@@ -159,7 +158,7 @@ def test_extract_no_copper_reports_error_and_leaves_file_untouched(main_window, 
 
     assert "error" in result
     assert any("no copper" in r.message for r in caplog.records)
-    assert "net_traces" not in _read_yaml(target)  # file untouched
+    assert "net_traces" not in _load(target)  # file untouched
 
 
 def test_extract_missing_anchor_reports_error(main_window, tmp_path, caplog):
@@ -172,7 +171,7 @@ def test_extract_missing_anchor_reports_error(main_window, tmp_path, caplog):
 
     assert "error" in result
     assert any("not found" in r.message for r in caplog.records)
-    assert "net_traces" not in _read_yaml(target)
+    assert "net_traces" not in _load(target)
 
 
 # ── Load entry (tree leaf click) ─────────────────────────────────────────────
@@ -206,7 +205,7 @@ def test_comment_saves_and_loads_back(main_window, tmp_path):
 
     dock._on_save()
 
-    data = _read_yaml(target)
+    data = _load(target)
     assert data["net_traces"][0]["comment"] == "a trace note"
     dock.load_entry(data["net_traces"][0])
     assert dock.comment_edit.text() == "a trace note"
@@ -235,7 +234,7 @@ def test_save_updates_anchor_retired_and_preserves_geometry(main_window, tmp_pat
 
     dock._on_save()
 
-    data = _read_yaml(target)
+    data = _load(target)
     assert len(data["net_traces"]) == 1
     entry = data["net_traces"][0]
     assert entry["anchor_cluster"] == "FPGA_PERIPH"
@@ -253,7 +252,7 @@ def test_save_requires_anchor_role(main_window, tmp_path, caplog):
     dock.anchor_widget.clear()
     dock._on_save()
     assert any("Anchor" in r.message for r in caplog.records)
-    assert "net_traces" not in _read_yaml(target)
+    assert "net_traces" not in _load(target)
 
 
 # ── Redraw ───────────────────────────────────────────────────────────────────
@@ -312,7 +311,7 @@ def test_extract_preserves_existing_retired_flag(main_window, tmp_path, caplog):
     result = dock._do_extract()
 
     assert "error" not in result
-    entry = _read_yaml(target)["net_traces"][0]
+    entry = _load(target)["net_traces"][0]
     assert entry["retired"] is True  # survived the re-extract
     assert len(entry["tracks"]) == 1  # geometry refreshed
 
@@ -345,7 +344,7 @@ def test_extract_anchor_sheet_narrows_ambiguous_role(main_window, tmp_path, monk
     result = dock._do_extract()
 
     assert "error" not in result
-    entry = _read_yaml(target)["net_traces"][0]
+    entry = _load(target)["net_traces"][0]
     assert entry["anchor_sheet"] == "Channel_1"
     # Track at absolute (110,100): relative to IC3 (Channel_1, 100,100) it is
     # along=10.0; relative to IC2 it would be 60.0 and to IC4 -40.0 — this
@@ -369,7 +368,7 @@ def test_extract_happy_path_without_sheet_still_works(main_window, tmp_path, mon
     result = dock._do_extract()
 
     assert "error" not in result
-    assert len(_read_yaml(target)["net_traces"]) == 1
+    assert len(_load(target)["net_traces"]) == 1
     assert any("Wrote net trace" in r.message for r in caplog.records)
 
 
@@ -378,8 +377,8 @@ def test_sheet_names_falls_back_to_root(main_window, tmp_path, monkeypatch):
     via the ROOT's sheet_names (schematic_dir: conventionally lives only on the
     root; resolve_includes() only merges DOWNWARD, so the leaf alone is empty)."""
     dock, root = _make_dock(main_window, tmp_path)
-    leaf = tmp_path / "leaf.yaml"
-    _write_yaml(leaf, {})
+    leaf = tmp_path / "leaf.sexp"
+    _write(leaf, {})
     calls = []
 
     def fake_load(path):

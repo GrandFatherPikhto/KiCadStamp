@@ -12,9 +12,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
-import yaml
 from kicadstamp.config import (Config, Rule, ManualSpoke, ClonePlacement, ThermalViaArrayConfig,
                               CoordinatePlacement)
+from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.apply_pipeline import (
     _split_comma_values, _matches_any_cluster, _compute_all_anchor_ids,
     drop_disabled_rules, drop_inactive_items, apply_only_filter, apply_cluster_filter,
@@ -529,8 +529,8 @@ class TestLoadProfileRootDefaults:
     extract_profiles entries stop repeating the same output: in every block."""
 
     def _write(self, tmp_path, data):
-        p = tmp_path / "profiles.yaml"
-        p.write_text(yaml.safe_dump(data), encoding="utf-8")
+        p = tmp_path / "profiles.sexp"
+        p.write_text(dict_to_sexp(data), encoding="utf-8")
         return str(p)
 
     def test_root_default_fills_missing_field(self, tmp_path):
@@ -573,11 +573,11 @@ class TestLoadProfileIncludes:
     clone_profiles are visible here too — not just rules/clone_placements."""
 
     def test_extract_profiles_from_include_are_visible(self, tmp_path):
-        (tmp_path / "sub.yaml").write_text(
-            yaml.safe_dump({"extract_profiles": {"b": {"name": "b"}}}),
+        (tmp_path / "sub.sexp").write_text(
+            dict_to_sexp({"extract_profiles": {"b": {"name": "b"}}}),
             encoding="utf-8")
-        path = tmp_path / "profiles.yaml"
-        path.write_text(yaml.safe_dump({"include": ["sub.yaml"]}), encoding="utf-8")
+        path = tmp_path / "profiles.sexp"
+        path.write_text(dict_to_sexp({"include": ["sub.sexp"]}), encoding="utf-8")
 
         prof = load_profile(str(path), "extract_profiles", "b")
         assert prof["name"] == "b"
@@ -590,11 +590,11 @@ class TestLoadProfileErrors:
 
     def test_missing_profiles_file_raises_placer_error(self):
         with pytest.raises(PlacerError, match="not found"):
-            load_profile("no_such_profiles.yaml", "extract_profiles", "a")
+            load_profile("no_such_profiles.sexp", "extract_profiles", "a")
 
     def test_missing_profile_raises_placer_error(self, tmp_path):
-        path = tmp_path / "profiles.yaml"
-        path.write_text(yaml.safe_dump({"extract_profiles": {"a": {"name": "a"}}}),
+        path = tmp_path / "profiles.sexp"
+        path.write_text(dict_to_sexp({"extract_profiles": {"a": {"name": "a"}}}),
                         encoding="utf-8")
         with pytest.raises(PlacerError, match="profile 'b' not found"):
             load_profile(str(path), "extract_profiles", "b")
@@ -610,8 +610,8 @@ class TestLoadProfileKnownKeys:
     load_profile) had no direct test until now."""
 
     def _write(self, tmp_path, data):
-        p = tmp_path / "profiles.yaml"
-        p.write_text(yaml.safe_dump(data), encoding="utf-8")
+        p = tmp_path / "profiles.sexp"
+        p.write_text(dict_to_sexp(data), encoding="utf-8")
         return str(p)
 
     def test_dash_typo_in_extract_profile_is_fatal(self, tmp_path):

@@ -9,24 +9,37 @@ validates/writes.
 from types import SimpleNamespace
 
 import pytest
-import yaml
 
 from gui.docks.cell_editor import CellDock
 from kicadstamp.config import load_template_via
+from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.exceptions import ValidationError
 
 
-def _write_yaml(path, data) -> None:
-    path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+def _fill_cell_defaults(data: dict) -> dict:
+    """s-expr omits default-valued Cell fields (layer='F.Cu', empty
+    vias/components/tracks/clone_placements lists); re-apply them so the
+    raw-dict assertions stay identical to the old yaml.safe_load reads."""
+    for entry in data.get("cells", {}).values():
+        entry.setdefault("layer", "F.Cu")
+        entry.setdefault("vias", [])
+        entry.setdefault("components", [])
+        entry.setdefault("tracks", [])
+        entry.setdefault("clone_placements", [])
+    return data
 
 
-def _read_yaml(path) -> dict:
-    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+def _write(path, data) -> None:
+    path.write_text(dict_to_sexp(data), encoding="utf-8")
+
+
+def _load(path) -> dict:
+    return _fill_cell_defaults(sexp_to_dict(path.read_text(encoding="utf-8"))) or {}
 
 
 def _make_dock(main_window, tmp_path, data=None):
-    target_file = tmp_path / "root.yaml"
-    _write_yaml(target_file, data if data is not None else {"cells": {}})
+    target_file = tmp_path / "root.sexp"
+    _write(target_file, data if data is not None else {"cells": {}})
     dock = CellDock(main_window)
     dock.set_root_path(target_file)
     return dock, target_file
@@ -484,7 +497,7 @@ def test_comment_saves_and_loads_back(main_window, tmp_path):
 
     dock._on_save()
 
-    assert _read_yaml(target)["cells"]["t"]["comment"] == "a cell note"
+    assert _load(target)["cells"]["t"]["comment"] == "a cell note"
     dock.load_entry("t")
     assert dock.comment_edit.text() == "a cell note"
 
@@ -536,7 +549,7 @@ def test_save_writes_dict_section_and_preserves_other_keys(main_window, tmp_path
 
     dock._on_save()
 
-    data = _read_yaml(target)
+    data = _load(target)
     assert data["cells"] == {"t": {"layer": "F.Cu", "components": [{"role": "A"}],
                                    "vias": [], "tracks": [], "clone_placements": []}}
     assert data["points"] == {"origin": {"xy": [0, 0]}}
@@ -551,7 +564,7 @@ def test_save_overwrites_an_existing_cell_by_name(main_window, tmp_path, caplog)
 
     dock._on_save()
 
-    assert _read_yaml(target)["cells"]["t"]["components"] == [{"role": "A"}]
+    assert _load(target)["cells"]["t"]["components"] == [{"role": "A"}]
     assert any("Overwrote" in r.message for r in caplog.records)
 
 
@@ -623,7 +636,7 @@ def test_load_entry_round_trips_everything(main_window, tmp_path):
 
     # And it round-trips back out unchanged on Save.
     dock._on_save()
-    assert _read_yaml(target)["cells"]["composite"]["anchor_role"] == "A"
+    assert _load(target)["cells"]["composite"]["anchor_role"] == "A"
 
 
 def test_load_entry_round_trips_net_from_role(main_window, tmp_path):
@@ -654,7 +667,7 @@ def test_load_entry_round_trips_net_from_role(main_window, tmp_path):
     # And it round-trips back out unchanged on Save.
     dock.name_edit.setText("composite")
     dock._on_save()
-    saved = _read_yaml(target)["cells"]["composite"]
+    saved = _load(target)["cells"]["composite"]
     assert saved["vias"] == [{"net_from_role": "LDO", "net_from_role_pad": "2"}]
     assert saved["tracks"] == [{"end_along_mm": 5.0, "net_from_role": "LDO"}]
 
@@ -682,7 +695,7 @@ def test_load_entry_round_trips_net_template_pad(main_window, tmp_path):
     # And it round-trips back out unchanged on Save.
     dock.name_edit.setText("composite")
     dock._on_save()
-    saved = _read_yaml(target)["cells"]["composite"]
+    saved = _load(target)["cells"]["composite"]
     assert saved["components"] == [{"role": "LDO_ADJ", "net_template": "NET_{p}",
                                     "net_template_pad": "3"}]
 
@@ -711,7 +724,7 @@ def test_load_entry_round_trips_same_as_role(main_window, tmp_path):
     # And it round-trips back out unchanged on Save.
     dock.name_edit.setText("composite")
     dock._on_save()
-    saved = _read_yaml(target)["cells"]["composite"]
+    saved = _load(target)["cells"]["composite"]
     assert saved["components"][1]["net_template_same_as_role"] == "R_FB_BOT"
 
 
@@ -734,8 +747,8 @@ def test_load_entry_with_no_anchor(main_window, tmp_path):
 # ── set_root_path / refresh_known_roles ──────────────────────────────────
 
 def test_set_root_path_populates_nested_cell_combo(main_window, tmp_path):
-    root = tmp_path / "root.yaml"
-    _write_yaml(root, {"cells": {"leaf": {"components": []}, "other": {"components": []}}})
+    root = tmp_path / "root.sexp"
+    _write(root, {"cells": {"leaf": {"components": []}, "other": {"components": []}}})
     dock = CellDock(main_window)
 
     dock.set_root_path(root)

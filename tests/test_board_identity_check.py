@@ -13,6 +13,7 @@ import pytest
 from unittest.mock import MagicMock
 
 from kicadstamp.config import Config, load_config
+from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.validation import (
     _path_basename_stem,
@@ -28,34 +29,36 @@ def _adapter(live: str | None) -> MagicMock:
 
 
 class TestConfigBoardNameLoad:
-    def test_board_name_is_read_from_yaml(self, tmp_path):
-        config_file = tmp_path / "test.yaml"
-        config_file.write_text(
-            "board_name: 3CH-AWG-TIA-v102\ncells: {}\n", encoding="utf-8")
+    def test_board_name_is_read_from_sexp(self, tmp_path):
+        config_file = tmp_path / "test.sexp"
+        config_file.write_text(dict_to_sexp({
+            "board_name": "3CH-AWG-TIA-v102", "cells": {}}), encoding="utf-8")
         cfg, _ = load_config(str(config_file))
         assert cfg.board_name == "3CH-AWG-TIA-v102"
 
     def test_board_name_absent_defaults_to_none(self, tmp_path):
-        config_file = tmp_path / "test.yaml"
-        config_file.write_text("cells: {}\n", encoding="utf-8")
+        config_file = tmp_path / "test.sexp"
+        config_file.write_text(dict_to_sexp({"cells": {}}), encoding="utf-8")
         cfg, _ = load_config(str(config_file))
         assert cfg.board_name is None
 
     def test_unknown_keys_validation_still_passes_with_board_name(self, tmp_path):
         """board_name is a root-level key; a typo'd root key elsewhere in the
         same file must still be caught the same way it was before this field
-        existed (per-entry unknown-key checks are untouched)."""
-        config_file = tmp_path / "test.yaml"
+        existed (per-entry unknown-key checks are untouched). Written by hand
+        (dict_to_sexp would fatal on the unknown `retierd` key at serialize
+        time — this must reach load_config's per-entry unknown-key check)."""
+        config_file = tmp_path / "test.sexp"
         config_file.write_text(
-            "board_name: 3CH-AWG-TIA-v102\n"
-            "rules:\n"
-            "- net: +3V3\n"
-            "  anchor_role: FPGA\n"
-            "  spokes:\n"
-            "  - pad: '17'\n"
-            "    cell: t\n"
-            "    retierd: false\n"
-            "cells: {}\n",
+            "(kicadstamp-config\n"
+            '  (board_name "3CH-AWG-TIA-v102")\n'
+            "  (rules\n"
+            "    (rule\n"
+            '      (net "+3V3")\n'
+            '      (anchor_role "FPGA")\n'
+            "      (spokes\n"
+            '        (spoke (pad "17") (cell "t") (retierd false)))))\n'
+            "  (cells))\n",
             encoding="utf-8")
         with pytest.raises(ValidationError, match="retierd"):
             load_config(str(config_file))

@@ -18,43 +18,34 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pytest
 
 from kicadstamp.config import load_config, TemplateVia, TemplateTrack, TemplateComponentSlot
+from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.exceptions import ValidationError
 
-MINIMAL = "layer: B.Cu\nrules: []\n"
+MINIMAL = {"layer": "B.Cu", "rules": []}
 
 
-def _via_cell_yaml(via_body: str) -> str:
-    return MINIMAL + f"""
-cells:
-  c:
-    vias:
-      - {via_body}
-"""
+def _write(tmp_path, name, data) -> Path:
+    p = tmp_path / name
+    p.write_text(dict_to_sexp(data), encoding="utf-8")
+    return p
 
 
-def _slot_cell_yaml(slot_body: str) -> str:
-    return MINIMAL + f"""
-cells:
-  c:
-    components:
-      - {slot_body}
-"""
+def _via_cell(via: dict) -> dict:
+    return {**MINIMAL, "cells": {"c": {"vias": [via]}}}
 
 
-def _track_cell_yaml(track_body: str) -> str:
-    return MINIMAL + f"""
-cells:
-  c:
-    tracks:
-      - {track_body}
-"""
+def _slot_cell(slot: dict) -> dict:
+    return {**MINIMAL, "cells": {"c": {"components": [slot]}}}
+
+
+def _track_cell(track: dict) -> dict:
+    return {**MINIMAL, "cells": {"c": {"tracks": [track]}}}
 
 
 class TestViaNetFromRole:
     def test_net_from_role_loads(self, tmp_path):
-        p = tmp_path / "t.yaml"
-        p.write_text(_via_cell_yaml(
-            "offset_along_mm: 1.0\n        net_from_role: C_IN_BULK"), encoding="utf-8")
+        p = _write(tmp_path, "t.sexp", _via_cell(
+            {"offset_along_mm": 1.0, "net_from_role": "C_IN_BULK"}))
         cfg, _ = load_config(str(p))
         v = cfg.cells["c"].vias[0]
         assert isinstance(v, TemplateVia)
@@ -63,10 +54,9 @@ class TestViaNetFromRole:
         assert v.net_from_role_pad is None
 
     def test_net_from_role_with_pad_loads(self, tmp_path):
-        p = tmp_path / "t.yaml"
-        p.write_text(_via_cell_yaml(
-            "offset_along_mm: 1.0\n        net_from_role: LDO\n        "
-            "net_from_role_pad: '1'"), encoding="utf-8")
+        p = _write(tmp_path, "t.sexp", _via_cell(
+            {"offset_along_mm": 1.0, "net_from_role": "LDO",
+             "net_from_role_pad": "1"}))
         cfg, _ = load_config(str(p))
         v = cfg.cells["c"].vias[0]
         assert v.net is None
@@ -74,26 +64,23 @@ class TestViaNetFromRole:
         assert v.net_from_role_pad == "1"
 
     def test_net_and_net_from_role_together_is_fatal(self, tmp_path):
-        p = tmp_path / "t.yaml"
-        p.write_text(_via_cell_yaml(
-            "offset_along_mm: 1.0\n        net: '{GND}'\n        "
-            "net_from_role: C_IN_BULK"), encoding="utf-8")
+        p = _write(tmp_path, "t.sexp", _via_cell(
+            {"offset_along_mm": 1.0, "net": "{GND}",
+             "net_from_role": "C_IN_BULK"}))
         with pytest.raises(ValidationError, match="net and via.net_from_role"):
             load_config(str(p))
 
     def test_net_from_role_pad_without_role_is_fatal(self, tmp_path):
-        p = tmp_path / "t.yaml"
-        p.write_text(_via_cell_yaml(
-            "offset_along_mm: 1.0\n        net_from_role_pad: '1'"), encoding="utf-8")
+        p = _write(tmp_path, "t.sexp", _via_cell(
+            {"offset_along_mm": 1.0, "net_from_role_pad": "1"}))
         with pytest.raises(ValidationError, match="without via.net_from_role"):
             load_config(str(p))
 
     def test_net_null_still_loads_rule_net_convention(self, tmp_path):
         """Regression guard: net: null (both None) must stay valid — it is the
         ManualSpoke rule-net convention (spoke_layout via.net or rule_net)."""
-        p = tmp_path / "t.yaml"
-        p.write_text(_via_cell_yaml(
-            "offset_along_mm: 1.0\n        net: null"), encoding="utf-8")
+        p = _write(tmp_path, "t.sexp", _via_cell(
+            {"offset_along_mm": 1.0}))  # net omitted == default None
         cfg, _ = load_config(str(p))
         v = cfg.cells["c"].vias[0]
         assert v.net is None
@@ -102,10 +89,9 @@ class TestViaNetFromRole:
 
 class TestTrackNetFromRole:
     def test_net_from_role_loads(self, tmp_path):
-        p = tmp_path / "t.yaml"
-        p.write_text(_track_cell_yaml(
-            "start_along_mm: 0.0\n        end_along_mm: 1.0\n        "
-            "net_from_role: C_OUT_BULK"), encoding="utf-8")
+        p = _write(tmp_path, "t.sexp", _track_cell(
+            {"start_along_mm": 0.0, "end_along_mm": 1.0,
+             "net_from_role": "C_OUT_BULK"}))
         cfg, _ = load_config(str(p))
         t = cfg.cells["c"].tracks[0]
         assert isinstance(t, TemplateTrack)
@@ -114,18 +100,16 @@ class TestTrackNetFromRole:
         assert t.net_from_role_pad is None
 
     def test_net_and_net_from_role_together_is_fatal(self, tmp_path):
-        p = tmp_path / "t.yaml"
-        p.write_text(_track_cell_yaml(
-            "start_along_mm: 0.0\n        end_along_mm: 1.0\n        "
-            "net: '+3V3'\n        net_from_role: C_OUT_BULK"), encoding="utf-8")
+        p = _write(tmp_path, "t.sexp", _track_cell(
+            {"start_along_mm": 0.0, "end_along_mm": 1.0, "net": "+3V3",
+             "net_from_role": "C_OUT_BULK"}))
         with pytest.raises(ValidationError, match="net and track.net_from_role"):
             load_config(str(p))
 
     def test_net_from_role_pad_without_role_is_fatal(self, tmp_path):
-        p = tmp_path / "t.yaml"
-        p.write_text(_track_cell_yaml(
-            "start_along_mm: 0.0\n        end_along_mm: 1.0\n        "
-            "net_from_role_pad: '2'"), encoding="utf-8")
+        p = _write(tmp_path, "t.sexp", _track_cell(
+            {"start_along_mm": 0.0, "end_along_mm": 1.0,
+             "net_from_role_pad": "2"}))
         with pytest.raises(ValidationError, match="without track.net_from_role"):
             load_config(str(p))
 
@@ -143,10 +127,9 @@ class TestTemplateComponentSlotNetTemplatePad:
         assert slot.net_template_pad is None
 
     def test_net_template_with_pad_loads(self, tmp_path):
-        p = tmp_path / "t.yaml"
-        p.write_text(_slot_cell_yaml(
-            "role: LDO_ADJ\n        net_template: 'NET_{p}'\n        net_template_pad: '3'"),
-            encoding="utf-8")
+        p = _write(tmp_path, "t.sexp", _slot_cell(
+            {"role": "LDO_ADJ", "net_template": "NET_{p}",
+             "net_template_pad": "3"}))
         cfg, _ = load_config(str(p))
         slot = cfg.cells["c"].components[0]
         assert isinstance(slot, TemplateComponentSlot)
@@ -154,16 +137,14 @@ class TestTemplateComponentSlotNetTemplatePad:
         assert slot.net_template_pad == "3"
 
     def test_net_template_without_pad_loads(self, tmp_path):
-        p = tmp_path / "t.yaml"
-        p.write_text(_slot_cell_yaml(
-            "role: LDO_ADJ\n        net_template: 'NET_{p}'"), encoding="utf-8")
+        p = _write(tmp_path, "t.sexp", _slot_cell(
+            {"role": "LDO_ADJ", "net_template": "NET_{p}"}))
         cfg, _ = load_config(str(p))
         assert cfg.cells["c"].components[0].net_template_pad is None
 
     def test_net_template_pad_without_net_template_is_fatal(self, tmp_path):
-        p = tmp_path / "t.yaml"
-        p.write_text(_slot_cell_yaml(
-            "role: LDO_ADJ\n        net_template_pad: '3'"), encoding="utf-8")
+        p = _write(tmp_path, "t.sexp", _slot_cell(
+            {"role": "LDO_ADJ", "net_template_pad": "3"}))
         with pytest.raises(ValidationError, match="without net_template in slot"):
             load_config(str(p))
 
@@ -174,70 +155,46 @@ class TestTemplateComponentSlotNetTemplatePad:
     def test_net_template_with_same_as_role_loads(self, tmp_path):
         """Round-trip: net_template_same_as_role names ANOTHER role of the SAME
         cell — needs both slots present, and must survive the loader."""
-        p = tmp_path / "t.yaml"
-        p.write_text(MINIMAL + """
-cells:
-  c:
-    components:
-      - role: R_FB_BOT
-        net_template: 'NET_{p}'
-      - role: R_FB_TOP
-        net_template: 'NET_{p}'
-        net_template_same_as_role: R_FB_BOT
-""", encoding="utf-8")
+        p = _write(tmp_path, "t.sexp", {**MINIMAL, "cells": {"c": {"components": [
+            {"role": "R_FB_BOT", "net_template": "NET_{p}"},
+            {"role": "R_FB_TOP", "net_template": "NET_{p}",
+             "net_template_same_as_role": "R_FB_BOT"},
+        ]}}})
         cfg, _ = load_config(str(p))
         by_role = {s.role: s for s in cfg.cells["c"].components}
         assert by_role["R_FB_TOP"].net_template_same_as_role == "R_FB_BOT"
         assert by_role["R_FB_BOT"].net_template_same_as_role is None
 
     def test_net_template_same_as_role_without_net_template_is_fatal(self, tmp_path):
-        p = tmp_path / "t.yaml"
-        p.write_text(MINIMAL + """
-cells:
-  c:
-    components:
-      - role: R_FB_BOT
-        net_template: 'NET_{p}'
-      - role: R_FB_TOP
-        net_template_same_as_role: R_FB_BOT
-""", encoding="utf-8")
+        p = _write(tmp_path, "t.sexp", {**MINIMAL, "cells": {"c": {"components": [
+            {"role": "R_FB_BOT", "net_template": "NET_{p}"},
+            {"role": "R_FB_TOP", "net_template_same_as_role": "R_FB_BOT"},
+        ]}}})
         with pytest.raises(ValidationError, match="without net_template in slot"):
             load_config(str(p))
 
     def test_both_pad_and_same_as_role_is_fatal(self, tmp_path):
-        p = tmp_path / "t.yaml"
-        p.write_text(MINIMAL + """
-cells:
-  c:
-    components:
-      - role: R_FB_TOP
-        net_template: 'NET_{p}'
-        net_template_pad: '2'
-        net_template_same_as_role: R_FB_BOT
-""", encoding="utf-8")
-        with pytest.raises(ValidationError, match="both net_template_pad and net_template_same_as_role"):
+        p = _write(tmp_path, "t.sexp", {**MINIMAL, "cells": {"c": {"components": [
+            {"role": "R_FB_TOP", "net_template": "NET_{p}",
+             "net_template_pad": "2", "net_template_same_as_role": "R_FB_BOT"},
+        ]}}})
+        with pytest.raises(ValidationError,
+                           match="both net_template_pad and net_template_same_as_role"):
             load_config(str(p))
 
     def test_same_as_role_naming_missing_role_is_fatal(self, tmp_path):
         """Cell-wide cross-reference check in _load_cell: the referenced role
         must exist in THIS cell."""
-        p = tmp_path / "t.yaml"
-        p.write_text(MINIMAL + """
-cells:
-  c:
-    components:
-      - role: R_FB_TOP
-        net_template: 'NET_{p}'
-        net_template_same_as_role: NOT_HERE
-""", encoding="utf-8")
+        p = _write(tmp_path, "t.sexp", {**MINIMAL, "cells": {"c": {"components": [
+            {"role": "R_FB_TOP", "net_template": "NET_{p}",
+             "net_template_same_as_role": "NOT_HERE"},
+        ]}}})
         with pytest.raises(ValidationError, match="is not a role of cell"):
             load_config(str(p))
 
     def test_net_null_still_loads(self, tmp_path):
-        p = tmp_path / "t.yaml"
-        p.write_text(_track_cell_yaml(
-            "start_along_mm: 0.0\n        end_along_mm: 1.0\n        "
-            "net: null"), encoding="utf-8")
+        p = _write(tmp_path, "t.sexp", _track_cell(
+            {"start_along_mm": 0.0, "end_along_mm": 1.0}))
         cfg, _ = load_config(str(p))
         t = cfg.cells["c"].tracks[0]
         assert t.net is None

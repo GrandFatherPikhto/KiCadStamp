@@ -22,11 +22,11 @@ import logging
 from pathlib import Path
 
 import pytest
-import yaml
 
 from kicadstamp.config import (
     Config, ClonePlacement, clone_placement_effective_name, load_clone_placement,
 )
+from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.config_writer import upsert_clone_placement
 from kicadstamp.validation import check_no_duplicate_clone_anchors
 from kicadstamp.apply_pipeline import apply_only_filter
@@ -83,11 +83,12 @@ def test_upsert_clone_placement_matches_by_name(tmp_path):
     """Same name, DIFFERENT Cluster tag -> replaces in place, no dup — the
     exact 2026-08-15 live case (PIF_AVDD kept resurrecting next to
     CH0_PIF_AVDD)."""
-    path = tmp_path / "root.yaml"
-    _write(path, "clone_placements:\n  - cluster: PIF_AVDD\n    name: CH0_PIF_AVDD\n    cell: c1\n")
+    path = tmp_path / "root.sexp"
+    _write(path, dict_to_sexp({"clone_placements": [
+        {"cluster": "PIF_AVDD", "name": "CH0_PIF_AVDD", "cell": "c1"}]}))
     assert upsert_clone_placement(
         path, {"cluster": "NEW_TAG", "name": "CH0_PIF_AVDD", "cell": "c2"}) is True
-    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    data = sexp_to_dict(path.read_text(encoding="utf-8"))
     assert len(data["clone_placements"]) == 1
     assert data["clone_placements"][0]["cluster"] == "NEW_TAG"
     assert data["clone_placements"][0]["name"] == "CH0_PIF_AVDD"
@@ -96,10 +97,11 @@ def test_upsert_clone_placement_matches_by_name(tmp_path):
 def test_upsert_clone_placement_without_name_matches_by_cluster(tmp_path):
     """Regression guard: no name anywhere -> old always-by-cluster behaviour,
     so untouched existing configs keep working."""
-    path = tmp_path / "root.yaml"
-    _write(path, "clone_placements:\n  - cluster: PIF_AVDD\n    cell: c1\n")
+    path = tmp_path / "root.sexp"
+    _write(path, dict_to_sexp({"clone_placements": [
+        {"cluster": "PIF_AVDD", "cell": "c1"}]}))
     assert upsert_clone_placement(path, {"cluster": "PIF_AVDD", "cell": "c2"}) is True
-    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    data = sexp_to_dict(path.read_text(encoding="utf-8"))
     assert len(data["clone_placements"]) == 1
     assert data["clone_placements"][0]["cell"] == "c2"
 
@@ -107,11 +109,12 @@ def test_upsert_clone_placement_without_name_matches_by_cluster(tmp_path):
 def test_upsert_clone_placement_same_cluster_different_name_appends(tmp_path):
     """Two entries may share a Cluster tag but have different name — they are
     distinct identities and must NOT collide."""
-    path = tmp_path / "root.yaml"
-    _write(path, "clone_placements:\n  - cluster: PIF_AVDD\n    name: CH0_PIF_AVDD\n    cell: c1\n")
+    path = tmp_path / "root.sexp"
+    _write(path, dict_to_sexp({"clone_placements": [
+        {"cluster": "PIF_AVDD", "name": "CH0_PIF_AVDD", "cell": "c1"}]}))
     assert upsert_clone_placement(
         path, {"cluster": "PIF_AVDD", "name": "CH1_PIF_AVDD", "cell": "c2"}) is False
-    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    data = sexp_to_dict(path.read_text(encoding="utf-8"))
     assert len(data["clone_placements"]) == 2
 
 

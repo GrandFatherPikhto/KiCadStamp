@@ -8,20 +8,19 @@ check what ThermalViaArrayDock PASSES them (config_path, only=, and that
 OTHER already-saved thermal_via_arrays entries survive into the config
 handed to the pipeline).
 """
-import yaml
-
 import gui.docks.thermal_via as thermal_via_mod
 from gui.docks.thermal_via import ThermalViaArrayDock
 from kicadstamp.config import Config, RuntimeContext, ThermalViaArrayConfig, load_thermal_via_array
+from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 
 
-def _write_yaml(path, data) -> None:
-    path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+def _write(path, data) -> None:
+    path.write_text(dict_to_sexp(data), encoding="utf-8")
 
 
 def _make_dock(main_window, tmp_path):
-    target_file = tmp_path / "root.yaml"
-    _write_yaml(target_file, {"thermal_via_arrays": []})
+    target_file = tmp_path / "root.sexp"
+    _write(target_file, {"thermal_via_arrays": []})
     dock = ThermalViaArrayDock(main_window)
     dock.set_root_path(target_file)
     return dock, target_file
@@ -66,7 +65,7 @@ def test_comment_saves_and_loads_back(main_window, tmp_path):
     dock.comment_edit.setText("a tva note")
 
     dock._on_save()
-    saved = yaml.safe_load(target_file.read_text())
+    saved = sexp_to_dict(target_file.read_text())
     assert saved["thermal_via_arrays"][0]["comment"] == "a tva note"
     dock.load_entry(saved["thermal_via_arrays"][0])
     assert dock.comment_edit.text() == "a tva note"
@@ -142,19 +141,22 @@ def test_save_upserts_by_name_without_duplicating(main_window, tmp_path, caplog)
     dock.anchor_ref_edit.setText("U3")
 
     dock._on_save()
-    saved = yaml.safe_load(target_file.read_text())
+    saved = sexp_to_dict(target_file.read_text())
     assert len(saved["thermal_via_arrays"]) == 1
     assert any("Wrote" in r.message for r in caplog.records)
 
     dock._on_save()  # same name again -> overwrite, not duplicate
-    saved2 = yaml.safe_load(target_file.read_text())
+    saved2 = sexp_to_dict(target_file.read_text())
     assert len(saved2["thermal_via_arrays"]) == 1
     assert any("Overwrote" in r.message for r in caplog.records)
 
 
 def test_save_preserves_other_keys_in_the_file(main_window, tmp_path):
-    target_file = tmp_path / "root.yaml"
-    _write_yaml(target_file, {"thermal_via_arrays": [], "cells": {"c1": {"components": []}}})
+    target_file = tmp_path / "root.sexp"
+    # components is non-empty (a default [] would be omitted by the s-expr
+    # writer) so the untouched cells section round-trips verbatim.
+    _write(target_file, {"thermal_via_arrays": [],
+                         "cells": {"c1": {"components": [{"role": "A"}]}}})
     dock = ThermalViaArrayDock(main_window)
     dock.set_root_path(target_file)
     dock.name_edit.setText("fpga_thermal")
@@ -163,8 +165,8 @@ def test_save_preserves_other_keys_in_the_file(main_window, tmp_path):
 
     dock._on_save()
 
-    saved = yaml.safe_load(target_file.read_text())
-    assert saved["cells"] == {"c1": {"components": []}}
+    saved = sexp_to_dict(target_file.read_text())
+    assert saved["cells"] == {"c1": {"components": [{"role": "A"}]}}
 
 
 def test_load_entry_round_trips_anchor_ref(main_window, tmp_path):
@@ -212,7 +214,7 @@ def test_refresh_sheet_names_populates_anchor_sheet_combo(main_window, tmp_path,
     autocompleted from the project's schematic files on root change (not
     the ~2s board poll)."""
     dock, _ = _make_dock(main_window, tmp_path)
-    dock._root_path = tmp_path / "root.yaml"
+    dock._root_path = tmp_path / "root.sexp"
     monkeypatch.setattr(thermal_via_mod, "collect_all_sheet_names",
                         lambda root: ["Channel_0", "Channel_1"])
     dock._refresh_sheet_names()
@@ -234,7 +236,7 @@ def test_new_thermal_via_resets_form(main_window, tmp_path):
     dock, target_file = _make_dock(main_window, tmp_path)
     dock.load_entry({"name": "old", "pad": "5", "anchor_ref": "U1", "rows": 8})
 
-    other_file = tmp_path / "other.yaml"
+    other_file = tmp_path / "other.sexp"
     dock.new_thermal_via(other_file)
 
     # new_thermal_via targets the project ROOT file, not the file the tree

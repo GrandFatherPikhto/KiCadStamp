@@ -20,6 +20,13 @@ from kicadstamp.domain.geometry import Vector2, Angle
 from kicadstamp.domain.geometry import BoardLayer
 
 from kicadstamp.config import Config, load_config
+from kicadstamp.config.sexp_format import dict_to_sexp
+
+
+def _write(tmp_path, name, data) -> Path:
+    p = tmp_path / name
+    p.write_text(dict_to_sexp(data), encoding="utf-8")
+    return p
 from kicadstamp.placement.executor import BatchExecutor
 from kicadstamp.placement.executor.operation_logger import OperationLogger
 from kicadstamp.placement.commands import MoveCommand
@@ -29,8 +36,8 @@ MM = 1_000_000
 
 class TestLoadConfigResolvesOperationLogDir:
     def test_absent_defaults_to_none(self, tmp_path):
-        config_file = tmp_path / "board.yaml"
-        config_file.write_text("layer: F.Cu\ncells: {}\nrules: []\n", encoding="utf-8")
+        config_file = _write(tmp_path, "board.sexp",
+                             {"layer": "F.Cu", "cells": {}, "rules": []})
         cfg, ctx = load_config(str(config_file))
         # P1-3: Config keeps the RAW value; the RESOLVED path lives on ctx.
         assert cfg.operation_log_dir is None
@@ -39,10 +46,9 @@ class TestLoadConfigResolvesOperationLogDir:
     def test_relative_resolved_against_config_file(self, tmp_path):
         """operation_log_dir is relative to the config file itself (like
         registry_path/log_file) — the single source of truth for apply/undo."""
-        config_file = tmp_path / "board.yaml"
-        config_file.write_text(
-            "layer: F.Cu\ncells: {}\nrules: []\noperation_log_dir: logs\n",
-            encoding="utf-8")
+        config_file = _write(tmp_path, "board.sexp",
+                             {"layer": "F.Cu", "cells": {}, "rules": [],
+                              "operation_log_dir": "logs"})
         cfg, ctx = load_config(str(config_file))
         # P1-3: Config keeps the RAW value; the RESOLVED path lives on ctx.
         assert cfg.operation_log_dir == "logs"
@@ -56,7 +62,7 @@ class TestOperationLoggerCreatesNestedDir:
 
     def test_nested_log_dir_is_created_recursively(self, tmp_path):
         nested = tmp_path / "profiles" / "power" / "logs" / "operational"
-        logger = OperationLogger(str(nested))
+        OperationLogger(str(nested))  # constructor creates the whole nested dir
         assert nested.is_dir()
 
     def test_write_operation_log_creates_nested_dir(self, tmp_path):

@@ -14,6 +14,7 @@ never ``sys.exit()`` — it should raise ``PlacerError``/``ValidationError``/
 ``ApiError`` and let the CLI front-end (via :func:`run_cli`) decide the
 exit code and the message.
 """
+import json
 import logging
 from pathlib import Path
 
@@ -21,7 +22,6 @@ from .exceptions import PlacerError
 from .i18n import _
 from .utils.file_cache import cached_file_read
 from .utils.paths import resolve_config_relative_path
-from .utils.yaml_loader import safe_load
 
 
 def api_error_message(e) -> str:
@@ -83,10 +83,23 @@ def run_cli(main_fn: Callable[[], None]) -> int:
 
 
 def _read_root_yaml(path: Path) -> dict:
-    """Raw root-YAML read for peek_log_file — kept separate so it can be
-    passed to cached_file_read as the miss loader."""
-    with open(path, "r", encoding="utf-8") as f:
-        return safe_load(f) or {}
+    """Raw root-config read for peek_log_file — kept separate so it can be
+    passed to cached_file_read as the miss loader. Dispatches on file
+    extension exactly like the rest of the core config graph (2026-08-28,
+    core_yaml_removal): .sexp -> s-expr, .json -> JSON. A legacy .yaml/.yml
+    root (or any other extension) is no longer a config format the core reads
+    — returns {} so peek_log_file's never-raise contract turns it into a
+    warning + None, never a silent YAML read."""
+    suffix = path.suffix.lower()
+    if suffix == ".json":
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f) or {}
+    if suffix == ".sexp":
+        from .config.sexp_format import sexp_to_dict
+
+        with open(path, "r", encoding="utf-8") as f:
+            return sexp_to_dict(f.read()) or {}
+    return {}
 
 
 def peek_log_file(config_path: str) -> str | None:
@@ -95,10 +108,12 @@ def peek_log_file(config_path: str) -> str | None:
     The CLI needs ``log_file`` BEFORE
     :func:`~kicadstamp.logging_setup.setup_logging` runs, but the full validated
     :func:`~kicadstamp.config.load_config` belongs to the apply pipeline (one
-    load, errors surfaced properly there). This reads just the root YAML's
-    ``log_file`` scalar — resolved relative to the config file's directory
-    exactly like ``load_config`` does — and never raises: a
-    missing/unreadable/broken config simply logs a warning and returns ``None``.
+    load, errors surfaced properly there). This reads just the root config's
+    ``log_file`` scalar (s-expr/.json by extension, like every core config
+    reader since core_yaml_removal) — resolved relative to the config file's
+    directory exactly like ``load_config`` does — and never raises: a
+    missing/unreadable/broken/legacy-.yaml config simply logs a warning and
+    returns ``None``.
 
     ``log_file`` is a root-file top-level key (``include:`` never contributes
     it), so a root-only read is faithful. Returns the resolved log path or

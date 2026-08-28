@@ -9,25 +9,25 @@ these tests only check what PointsDock builds/passes/shows around it.
 from types import SimpleNamespace
 
 import pytest
-import yaml
 
 import gui.docks.points as points_mod
 from gui.docks.points import PointsDock
 from kicadstamp.config import Point, load_point
+from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.exceptions import ValidationError
 
 
-def _write_yaml(path, data) -> None:
-    path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+def _write(path, data) -> None:
+    path.write_text(dict_to_sexp(data), encoding="utf-8")
 
 
-def _read_yaml(path) -> dict:
-    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+def _load(path) -> dict:
+    return sexp_to_dict(path.read_text(encoding="utf-8")) or {}
 
 
 def _make_dock(main_window, tmp_path, data=None):
-    target_file = tmp_path / "root.yaml"
-    _write_yaml(target_file, data if data is not None else {"points": {}})
+    target_file = tmp_path / "root.sexp"
+    _write(target_file, data if data is not None else {"points": {}})
     dock = PointsDock(main_window)
     dock.set_root_path(target_file)
     return dock, target_file
@@ -83,7 +83,7 @@ def test_refresh_sheet_names_populates_anchor_sheet_combo(main_window, tmp_path,
     autocompleted from the project's schematic files on root change —
     closes the module docstring's long-flagged "NOT yet a combo" note."""
     dock, _ = _make_dock(main_window, tmp_path)
-    dock._root_path = tmp_path / "root.yaml"
+    dock._root_path = tmp_path / "root.sexp"
     monkeypatch.setattr(points_mod, "collect_all_sheet_names",
                         lambda root: ["Channel_0", "Channel_1"])
     dock._refresh_sheet_names()
@@ -194,7 +194,7 @@ def test_save_writes_dict_section_and_preserves_other_keys(main_window, tmp_path
 
     dock._on_save()
 
-    data = _read_yaml(target)
+    data = _load(target)
     assert data["points"] == {"origin": {"xy": [1.0, 2.0]}}
     assert data["cells"] == {"c1": {"components": []}}
     assert any("Wrote" in r.message for r in caplog.records)
@@ -209,7 +209,7 @@ def test_save_overwrites_an_existing_point_by_name(main_window, tmp_path, caplog
 
     dock._on_save()
 
-    assert _read_yaml(target)["points"] == {"origin": {"xy": [5.0, 6.0]}}
+    assert _load(target)["points"] == {"origin": {"xy": [5.0, 6.0]}}
     assert any("Overwrote" in r.message for r in caplog.records)
 
 
@@ -238,7 +238,7 @@ def test_comment_saves_and_loads_back(main_window, tmp_path):
 
     dock._on_save()
 
-    assert _read_yaml(target)["points"]["origin"] == \
+    assert _load(target)["points"]["origin"] == \
         {"xy": [5.0, 6.0], "comment": "a point note"}
     dock.load_entry("origin")
     assert dock.comment_edit.text() == "a point note"
@@ -504,10 +504,10 @@ def test_set_root_path_point_name_autocomplete_covers_whole_graph(main_window, t
     point can live in any included file) — after the file pickers were
     removed (2026-08-21), there is no separate "target file" to scope it to."""
     dock, target = _make_dock(main_window, tmp_path, {"points": {"a": {"xy": [0, 0]}}})
-    sub = tmp_path / "sub.yaml"
-    _write_yaml(sub, {"points": {"b": {"xy": [1, 1]}}})
-    root2 = tmp_path / "root2.yaml"
-    _write_yaml(root2, {"include": ["root.yaml", "sub.yaml"]})
+    sub = tmp_path / "sub.sexp"
+    _write(sub, {"points": {"b": {"xy": [1, 1]}}})
+    root2 = tmp_path / "root2.sexp"
+    _write(root2, {"include": ["root.sexp", "sub.sexp"]})
 
     dock.set_root_path(root2)
 

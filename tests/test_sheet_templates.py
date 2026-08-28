@@ -2,7 +2,12 @@
 """Tests for kicadstamp/config/sheet_templates.py — the `sheet_templates:`
 dict section that declares a group of clone_placements/coordinate_placements
 once and instantiates it once per reused sheet instance (plan_2026_08_16_
-sheet_templates.md, Этап 0)."""
+sheet_templates.md, Этап 0).
+
+2026-08-28, core_yaml_removal: fixtures are s-expr via dict_to_sexp. (This
+file is also why sexp_format.py's _parse_dict_section applies
+_SHEET_TEMPLATE_FIELD_TYPE on the parse side too — a one-element
+sheets: [Channel_0] list would otherwise round-trip as a bare string.)"""
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -10,20 +15,30 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pytest
 
 from kicadstamp.config import load_config
+from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.config.sheet_templates import expand_sheet_templates
 from kicadstamp.exceptions import ValidationError
 
 
-def _minimal_cell(name: str = "c") -> str:
-    return f"""
-cells:
-  {name}:
-    components:
-      - role: R1
-        offset_along_mm: 0.0
-        offset_across_mm: 0.0
-        angle_deg: 0.0
-"""
+def _minimal_cell(name: str = "c") -> dict:
+    return {
+        "cells": {
+            name: {
+                "components": [{
+                    "role": "R1",
+                    "offset_along_mm": 0.0,
+                    "offset_across_mm": 0.0,
+                    "angle_deg": 0.0,
+                }],
+            },
+        },
+    }
+
+
+def _write(tmp_path, name, data) -> Path:
+    p = tmp_path / name
+    p.write_text(dict_to_sexp(data), encoding="utf-8")
+    return p
 
 
 # ── len(sheets) >= 2: identity always generated, Cluster tag untouched ───────
@@ -33,37 +48,29 @@ def test_multi_sheet_generates_identity_and_substitutes(tmp_path):
     identity fields are OVERWRITTEN with f"{sheet}_{base}"; clone name:
     (Cluster tag) is preserved as-is; sheet:/anchor_sheet: self and $SHEET in
     params:/nets: are substituted per sheet."""
-    root = tmp_path / "root.yaml"
-    root.write_text(_minimal_cell() + """
-sheet_templates:
-  channel:
-    sheets: [Channel_0, Channel_1, Channel_2]
-    coordinate_placements:
-    - cluster: OP_AMP
-      role: OP_AMP
-      name: op_amp
-      sheet: self
-      x_mm: 9.0
-      y_mm: 0.0
-      rotation_deg: 270.0
-      anchor_role: AD_DAC
-      anchor_sheet: self
-    clone_placements:
-    - cluster: PIF_AVDD
-      cell: c
-      sheet: self
-      xy: [2.0, 1.0]
-      rotation_deg: 90.0
-      anchor_role: AD_DAC
-      anchor_pad: '18'
-      anchor_cluster: AD_DAC
-      anchor_sheet: self
-      params:
-        FB_PI_FLT: /$SHEET/DAC/+3V3_AVDD
-      nets:
-        C_IN_BULK: +3V3
-        C_OUT_BULK: /$SHEET/DAC/+3V3_AVDD
-""", encoding="utf-8")
+    root = _write(tmp_path, "root.sexp", {
+        **_minimal_cell(),
+        "sheet_templates": {
+            "channel": {
+                "sheets": ["Channel_0", "Channel_1", "Channel_2"],
+                "coordinate_placements": [
+                    {"cluster": "OP_AMP", "role": "OP_AMP", "name": "op_amp",
+                     "sheet": "self", "x_mm": 9.0, "y_mm": 0.0,
+                     "rotation_deg": 270.0,
+                     "anchor_role": "AD_DAC", "anchor_sheet": "self"},
+                ],
+                "clone_placements": [
+                    {"cluster": "PIF_AVDD", "cell": "c", "sheet": "self",
+                     "xy": [2.0, 1.0], "rotation_deg": 90.0,
+                     "anchor_role": "AD_DAC", "anchor_pad": "18",
+                     "anchor_cluster": "AD_DAC", "anchor_sheet": "self",
+                     "params": {"FB_PI_FLT": "/$SHEET/DAC/+3V3_AVDD"},
+                     "nets": {"C_IN_BULK": "+3V3",
+                              "C_OUT_BULK": "/$SHEET/DAC/+3V3_AVDD"}},
+                ],
+            },
+        },
+    })
 
     cfg, _ = load_config(str(root))
 
@@ -91,19 +98,18 @@ sheet_templates:
 def test_single_sheet_identity_is_literal(tmp_path):
     """1 sheet -> identity taken literally from the template (the byte-identical
     regression contract: CH0_PIF_AVDD must survive untouched)."""
-    root = tmp_path / "root.yaml"
-    root.write_text(_minimal_cell() + """
-sheet_templates:
-  channel:
-    sheets: [Channel_0]
-    clone_placements:
-    - cluster: PIF_AVDD
-      name: CH0_PIF_AVDD
-      cell: c
-      sheet: self
-      xy: [2.0, 1.0]
-      anchor_role: AD_DAC
-""", encoding="utf-8")
+    root = _write(tmp_path, "root.sexp", {
+        **_minimal_cell(),
+        "sheet_templates": {
+            "channel": {
+                "sheets": ["Channel_0"],
+                "clone_placements": [
+                    {"cluster": "PIF_AVDD", "name": "CH0_PIF_AVDD", "cell": "c",
+                     "sheet": "self", "xy": [2.0, 1.0], "anchor_role": "AD_DAC"},
+                ],
+            },
+        },
+    })
 
     cfg, _ = load_config(str(root))
     assert len(cfg.clone_placements) == 1
@@ -116,19 +122,18 @@ sheet_templates:
 def test_single_sheet_coordinate_default_name(tmp_path):
     """1 sheet, no explicit name -> falls back to the same default the
     non-templated path uses (cluster/role), no prefix, no new default."""
-    root = tmp_path / "root.yaml"
-    root.write_text("""
-sheet_templates:
-  t:
-    sheets: [Channel_0]
-    coordinate_placements:
-    - cluster: OP_AMP
-      role: OP_AMP
-      x_mm: 9.0
-      y_mm: 0.0
-      rotation_deg: 270.0
-      anchor_role: AD_DAC
-""", encoding="utf-8")
+    root = _write(tmp_path, "root.sexp", {
+        "sheet_templates": {
+            "t": {
+                "sheets": ["Channel_0"],
+                "coordinate_placements": [
+                    {"cluster": "OP_AMP", "role": "OP_AMP",
+                     "x_mm": 9.0, "y_mm": 0.0, "rotation_deg": 270.0,
+                     "anchor_role": "AD_DAC"},
+                ],
+            },
+        },
+    })
 
     cfg, _ = load_config(str(root))
     assert len(cfg.coordinate_placements) == 1
@@ -141,20 +146,18 @@ def test_sheet_autofill_without_explicit_sheet(tmp_path):
     """§1.0 (anchor dependency tree): the own-identity `sheet` is auto-filled
     from the loop sheet name with NO `sheet:` written in the template — for
     multi-sheet (and, per the plan, for a single sheet alike)."""
-    root = tmp_path / "root.yaml"
-    root.write_text("""
-sheet_templates:
-  t:
-    sheets: [Channel_0, Channel_1]
-    coordinate_placements:
-    - cluster: OP_AMP
-      role: OP_AMP
-      name: op_amp
-      x_mm: 9.0
-      y_mm: 0.0
-      rotation_deg: 270.0
-      anchor_role: AD_DAC
-""", encoding="utf-8")
+    root = _write(tmp_path, "root.sexp", {
+        "sheet_templates": {
+            "t": {
+                "sheets": ["Channel_0", "Channel_1"],
+                "coordinate_placements": [
+                    {"cluster": "OP_AMP", "role": "OP_AMP", "name": "op_amp",
+                     "x_mm": 9.0, "y_mm": 0.0, "rotation_deg": 270.0,
+                     "anchor_role": "AD_DAC"},
+                ],
+            },
+        },
+    })
 
     cfg, _ = load_config(str(root))
     by_name = {cp.name: cp for cp in cfg.coordinate_placements}
@@ -170,19 +173,18 @@ sheet_templates:
 def test_no_autofill_of_anchor_sheet(tmp_path):
     """anchor_role: FPGA with no anchor_sheet: in the template must NOT gain
     one after expansion (only explicit 'self' is substituted)."""
-    root = tmp_path / "root.yaml"
-    root.write_text("""
-sheet_templates:
-  t:
-    sheets: [Channel_0, Channel_1]
-    coordinate_placements:
-    - cluster: FPGA
-      role: FPGA
-      x_mm: 0.0
-      y_mm: 0.0
-      rotation_deg: 0.0
-      anchor_role: FPGA
-""", encoding="utf-8")
+    root = _write(tmp_path, "root.sexp", {
+        "sheet_templates": {
+            "t": {
+                "sheets": ["Channel_0", "Channel_1"],
+                "coordinate_placements": [
+                    {"cluster": "FPGA", "role": "FPGA",
+                     "x_mm": 0.0, "y_mm": 0.0, "rotation_deg": 0.0,
+                     "anchor_role": "FPGA"},
+                ],
+            },
+        },
+    })
 
     cfg, _ = load_config(str(root))
     assert len(cfg.coordinate_placements) == 2
@@ -194,25 +196,23 @@ sheet_templates:
 # ── include: merge (fatal on duplicate template key) ─────────────────────────
 
 def test_include_merges_sheet_templates(tmp_path):
-    (tmp_path / "sub.yaml").write_text(_minimal_cell() + """
-sheet_templates:
-  from_sub:
-    sheets: [Channel_0]
-    coordinate_placements:
-    - cluster: OP_AMP
-      role: OP_AMP
-      name: sub_op_amp
-      x_mm: 1.0
-      y_mm: 0.0
-      rotation_deg: 0.0
-      anchor_role: AD_DAC
-""", encoding="utf-8")
+    _write(tmp_path, "sub.sexp", {
+        **_minimal_cell(),
+        "sheet_templates": {
+            "from_sub": {
+                "sheets": ["Channel_0"],
+                "coordinate_placements": [
+                    {"cluster": "OP_AMP", "role": "OP_AMP", "name": "sub_op_amp",
+                     "x_mm": 1.0, "y_mm": 0.0, "rotation_deg": 0.0,
+                     "anchor_role": "AD_DAC"},
+                ],
+            },
+        },
+    })
 
-    root = tmp_path / "root.yaml"
-    root.write_text("""
-include:
-  - sub.yaml
-""", encoding="utf-8")
+    root = _write(tmp_path, "root.sexp", {
+        "include": ["sub.sexp"],
+    })
 
     cfg, _ = load_config(str(root))
     names = {cp.name for cp in cfg.coordinate_placements}
@@ -220,20 +220,14 @@ include:
 
 
 def test_include_duplicate_template_key_is_fatal(tmp_path):
-    (tmp_path / "sub.yaml").write_text("""
-sheet_templates:
-  t:
-    sheets: [Channel_0]
-""", encoding="utf-8")
+    _write(tmp_path, "sub.sexp", {
+        "sheet_templates": {"t": {"sheets": ["Channel_0"]}},
+    })
 
-    root = tmp_path / "root.yaml"
-    root.write_text("""
-include:
-  - sub.yaml
-sheet_templates:
-  t:
-    sheets: [Channel_1]
-""", encoding="utf-8")
+    root = _write(tmp_path, "root.sexp", {
+        "include": ["sub.sexp"],
+        "sheet_templates": {"t": {"sheets": ["Channel_1"]}},
+    })
 
     with pytest.raises(ValidationError, match="duplicate sheet_templates key"):
         load_config(str(root))
@@ -245,30 +239,26 @@ def test_post_expansion_collision_is_fatal(tmp_path):
     """Two single-sheet templates whose literal identities collide on the same
     sheet must fall into the existing coordinate duplicate-name check with a
     readable error (nothing re-invented)."""
-    root = tmp_path / "root.yaml"
-    root.write_text("""
-sheet_templates:
-  a:
-    sheets: [Channel_0]
-    coordinate_placements:
-    - cluster: OP_AMP
-      role: OP_AMP
-      name: channel0_op_amp
-      x_mm: 9.0
-      y_mm: 0.0
-      rotation_deg: 0.0
-      anchor_role: AD_DAC
-  b:
-    sheets: [Channel_0]
-    coordinate_placements:
-    - cluster: OP_AMP
-      role: OP_AMP
-      name: channel0_op_amp
-      x_mm: 0.0
-      y_mm: 0.0
-      rotation_deg: 0.0
-      anchor_role: AD_DAC
-""", encoding="utf-8")
+    root = _write(tmp_path, "root.sexp", {
+        "sheet_templates": {
+            "a": {
+                "sheets": ["Channel_0"],
+                "coordinate_placements": [
+                    {"cluster": "OP_AMP", "role": "OP_AMP", "name": "channel0_op_amp",
+                     "x_mm": 9.0, "y_mm": 0.0, "rotation_deg": 0.0,
+                     "anchor_role": "AD_DAC"},
+                ],
+            },
+            "b": {
+                "sheets": ["Channel_0"],
+                "coordinate_placements": [
+                    {"cluster": "OP_AMP", "role": "OP_AMP", "name": "channel0_op_amp",
+                     "x_mm": 0.0, "y_mm": 0.0, "rotation_deg": 0.0,
+                     "anchor_role": "AD_DAC"},
+                ],
+            },
+        },
+    })
 
     with pytest.raises(ValidationError, match="duplicate name"):
         load_config(str(root))

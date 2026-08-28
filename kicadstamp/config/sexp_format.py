@@ -709,6 +709,29 @@ def _parse_free_record(node, path: str) -> dict:
     return out
 
 
+def _parse_sheet_template_record(node, path: str) -> dict:
+    """sheet_templates entry — sheets/clone_placements/coordinate_placements
+    have a KNOWN shape (mirror of _SHEET_TEMPLATE_FIELD_TYPE), everything else
+    stays free-form. Needed because a one-element (sheets "Channel_0") list
+    would otherwise parse as a bare STRING in _parse_free_field and silently
+    break single-sheet templates on round-trip — the serializer types the same
+    fields (see _dict_section_to_sexp); this is its parse-side counterpart."""
+    out: dict = {}
+    for field_node in node[1:]:
+        if not isinstance(field_node, list) or not field_node:
+            raise _fatal(
+                "s-expr: expected a (key ...) node in a record",
+                [_("in {path}: got {value!r}; every field of a record must be "
+                   "a (name ...) node").format(path=path, value=field_node)])
+        key = sval(field_node[0])
+        ftype = _SHEET_TEMPLATE_FIELD_TYPE.get(key)
+        if ftype is not None:
+            out[key] = _parse_field(field_node, ftype, f"{path}.{key}")
+        else:
+            out[key] = _parse_free_field(field_node, f"{path}.{key}")
+    return out
+
+
 def _parse_dict_section(node, section: str, path: str) -> dict:
     dc = _DICT_SECTION_CLASS.get(section)
     out: dict = {}
@@ -734,6 +757,9 @@ def _parse_dict_section(node, section: str, path: str) -> dict:
         if dc is not None:
             # body = [tag, *fields] — _parse_record iterates node[1:] = fields
             out[name] = _parse_record(dc, [rec_node[0], *rec_node[2:]], f"{path}.{name}")
+        elif section == "sheet_templates":
+            out[name] = _parse_sheet_template_record(
+                [sym(_singular(section)), *rec_node[2:]], f"{path}.{name}")
         else:
             out[name] = _parse_free_record([sym(_singular(section)), *rec_node[2:]], f"{path}.{name}")
     return out

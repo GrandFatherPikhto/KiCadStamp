@@ -16,34 +16,28 @@ are monkeypatched with fakes that only check what the docks PASS them, the same
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-import yaml
-
 from gui.docks.extract import ExtractDock
-from gui.docks.placer import PlacerDock
 from kicadstamp.config import (Cell, Config, RuntimeContext, TemplateComponentSlot)
+from kicadstamp.config.sexp_format import dict_to_sexp
 
 from tests.gui.test_placer_dock import _make_cell_and_dock
 
 
-def _write_yaml(path, data) -> None:
-    path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+def _write(path, data) -> None:
+    path.write_text(dict_to_sexp(data), encoding="utf-8")
 
 
-def _root_yaml(tmp_path, out, with_profile=True):
+def _root_sexp(tmp_path, out, with_profile=True):
     data = {
         "clone_placements": [{"cluster": "Ch0_PI", "cell": "pi_filter", "xy": [0.0, 0.0]}],
         "cells": {"pi_filter": {
-            "components": [{"role": "C_IN", "offset_along_mm": 0.0,
-                            "offset_across_mm": 0.0, "angle_deg": 0.0}],
-            "vias": [],
-            "tracks": [],
-            "layer": "F.Cu",
+            "components": [{"role": "C_IN"}],
         }},
     }
     if with_profile:
         data["extract_profiles"] = {"myprofile": {"output": str(out), "name": "pi_filter"}}
-    root = tmp_path / "root.yaml"
-    _write_yaml(root, data)
+    root = tmp_path / "root.sexp"
+    _write(root, data)
     return root
 
 
@@ -86,7 +80,7 @@ def test_select_on_board_calls_select_items(main_window, tmp_path, monkeypatch):
 # ── ExtractDock: Re-extract placement combo ────────────────────────────────
 
 def test_re_extract_combo_populates_for_picked_profile(main_window, tmp_path):
-    root = _root_yaml(tmp_path, tmp_path / "cells_out.yaml")
+    root = _root_sexp(tmp_path, tmp_path / "cells_out.sexp")
     dock = ExtractDock(main_window)
     dock.set_root_path(root)
 
@@ -100,7 +94,7 @@ def test_re_extract_combo_populates_for_picked_profile(main_window, tmp_path):
 
 
 def test_re_extract_combo_empty_for_unplaced_cell(main_window, tmp_path):
-    root = _root_yaml(tmp_path, tmp_path / "cells_out.yaml")
+    root = _root_sexp(tmp_path, tmp_path / "cells_out.sexp")
     dock = ExtractDock(main_window)
     dock.set_root_path(root)
 
@@ -114,7 +108,7 @@ def test_re_extract_combo_empty_for_unplaced_cell(main_window, tmp_path):
 # ── ExtractDock: re-extract passes resolver items= through ─────────────────
 
 def test_re_extract_passes_resolver_items_to_extract(main_window, tmp_path, monkeypatch):
-    root = _root_yaml(tmp_path, tmp_path / "cells_out.yaml", with_profile=False)
+    root = _root_sexp(tmp_path, tmp_path / "cells_out.sexp", with_profile=False)
     dock = ExtractDock(main_window)
     dock.set_root_path(root)
 
@@ -146,7 +140,7 @@ def test_re_extract_passes_resolver_items_to_extract(main_window, tmp_path, monk
         "placement_name": "Ch0_PI",
         "profile_key": None,
         "profile_entry": {},
-        "target_path": tmp_path / "cells_out.yaml",
+        "target_path": tmp_path / "cells_out.sexp",
     })
 
     assert result["messages"] == ["ok"]

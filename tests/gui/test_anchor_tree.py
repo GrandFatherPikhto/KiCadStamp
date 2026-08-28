@@ -10,47 +10,34 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from gui.docks.anchor_tree import AnchorTreeDock
+from kicadstamp.config.sexp_format import dict_to_sexp
 
 
 def _children(item):
     return [item.child(i) for i in range(item.childCount())]
 
 
-def _write(root: Path, yaml_text: str) -> Path:
-    root.write_text(yaml_text, encoding="utf-8")
+def _write(root: Path, data: dict) -> Path:
+    root.write_text(dict_to_sexp(data), encoding="utf-8")
     return root
 
 
 def test_fpga_example_renders_sheet_folders(main_window, tmp_path):
     """The plan's FPGA example: an external anchor_ref root with three
     same-role records under three Sheet folders, short names inside."""
-    root = _write(tmp_path / "root.yaml", """
-coordinate_placements:
-  - name: Channel_0_DAC_BUF
-    cluster: DAC_BUF
-    role: DAC_BUF
-    sheet: Channel_0
-    anchor_ref: FPGA
-    x_mm: 1.0
-    y_mm: 0.0
-    rotation_deg: 0.0
-  - name: Channel_1_DAC_BUF
-    cluster: DAC_BUF
-    role: DAC_BUF
-    sheet: Channel_1
-    anchor_ref: FPGA
-    x_mm: 2.0
-    y_mm: 0.0
-    rotation_deg: 0.0
-  - name: Channel_2_DAC_BUF
-    cluster: DAC_BUF
-    role: DAC_BUF
-    sheet: Channel_2
-    anchor_ref: FPGA
-    x_mm: 3.0
-    y_mm: 0.0
-    rotation_deg: 0.0
-""")
+    root = _write(tmp_path / "root.sexp", {
+        "coordinate_placements": [
+            {"name": "Channel_0_DAC_BUF", "cluster": "DAC_BUF", "role": "DAC_BUF",
+             "sheet": "Channel_0", "anchor_ref": "FPGA",
+             "x_mm": 1.0, "y_mm": 0.0, "rotation_deg": 0.0},
+            {"name": "Channel_1_DAC_BUF", "cluster": "DAC_BUF", "role": "DAC_BUF",
+             "sheet": "Channel_1", "anchor_ref": "FPGA",
+             "x_mm": 2.0, "y_mm": 0.0, "rotation_deg": 0.0},
+            {"name": "Channel_2_DAC_BUF", "cluster": "DAC_BUF", "role": "DAC_BUF",
+             "sheet": "Channel_2", "anchor_ref": "FPGA",
+             "x_mm": 3.0, "y_mm": 0.0, "rotation_deg": 0.0},
+        ],
+    })
 
     dock = AnchorTreeDock(main_window)
     dock.set_root_file(root)
@@ -70,32 +57,18 @@ coordinate_placements:
 def test_multi_parent_node_duplicated_under_each_parent(main_window, tmp_path):
     """§1.2: a record anchored on a role two producers both emit gets TWO
     parents, and is therefore duplicated under each of them in the tree."""
-    root = _write(tmp_path / "root.yaml", """
-cells:
-  p_cell:
-    components:
-      - role: R
-        offset_along_mm: 0.0
-        offset_across_mm: 0.0
-        angle_deg: 0.0
-  c_cell:
-    components:
-      - role: C
-        offset_along_mm: 0.0
-        offset_across_mm: 0.0
-        angle_deg: 0.0
-clone_placements:
-  - cluster: P1
-    cell: p_cell
-    xy: [0.0, 0.0]
-  - cluster: P2
-    cell: p_cell
-    xy: [0.0, 0.0]
-  - cluster: C
-    cell: c_cell
-    xy: [0.0, 0.0]
-    anchor_role: R
-""")
+    root = _write(tmp_path / "root.sexp", {
+        "cells": {
+            "p_cell": {"components": [{"role": "R"}]},
+            "c_cell": {"components": [{"role": "C"}]},
+        },
+        "clone_placements": [
+            {"cluster": "P1", "cell": "p_cell", "xy": [0.0, 0.0]},
+            {"cluster": "P2", "cell": "p_cell", "xy": [0.0, 0.0]},
+            {"cluster": "C", "cell": "c_cell", "xy": [0.0, 0.0],
+             "anchor_role": "R"},
+        ],
+    })
 
     dock = AnchorTreeDock(main_window)
     dock.set_root_file(root)
@@ -110,16 +83,13 @@ clone_placements:
 def test_broken_anchor_shows_error_node(main_window, tmp_path):
     """anchor_role into nowhere is fatal at graph build — the dock renders
     the error as a single node instead of crashing."""
-    root = _write(tmp_path / "root.yaml", """
-coordinate_placements:
-  - name: X
-    cluster: C
-    role: R
-    anchor_role: NOWHERE
-    x_mm: 1.0
-    y_mm: 0.0
-    rotation_deg: 0.0
-""")
+    root = _write(tmp_path / "root.sexp", {
+        "coordinate_placements": [
+            {"name": "X", "cluster": "C", "role": "R",
+             "anchor_role": "NOWHERE", "x_mm": 1.0, "y_mm": 0.0,
+             "rotation_deg": 0.0},
+        ],
+    })
 
     dock = AnchorTreeDock(main_window)
     dock.set_root_file(root)

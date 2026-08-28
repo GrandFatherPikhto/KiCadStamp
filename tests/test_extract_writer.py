@@ -7,21 +7,47 @@ techdocs/handoff/handoff_2026_08_05_architecture_fixes_roadmap.md).
 `extract_fn` is injectable — these tests use a capturing fake (no board, no
 Qt), mirroring how the GUI tests monkeypatch
 gui.docks.extract.extract_template_from_selection.
-"""
+
+2026-08-28, core_yaml_removal: the write helpers (merge_write/add_list_entry/
+non_includable_keys) dispatch on file extension and YAML support was removed
+from the config graph — the targets are .sexp now (the project's main format),
+read back via sexp_to_dict + a small Cell-default fill (the s-expr writer omits
+default-valued record fields, e.g. layer='F.Cu' and empty vias/components/
+tracks lists, so the dict assertions need those defaults re-applied to stay
+identical to the old yaml.safe_load reads)."""
 import json
 from pathlib import Path
 
-import pytest
-import yaml
-
+from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.exceptions import PlacerError
 from kicadstamp.extract_writer import run_extract_to_file
+
+
+def _fill_cell_defaults(data: dict) -> dict:
+    """s-expr omits default-valued record fields (design grammar §3.1); the
+    loader would re-apply the Cell defaults on parse. Re-apply them here so
+    the raw-dict assertions stay identical to the old YAML reads. clone_
+    placements is deliberately NOT filled: one test asserts its ABSENCE for a
+    cell written without Sub-placements."""
+    for entry in data.get("cells", {}).values():
+        entry.setdefault("layer", "F.Cu")
+        entry.setdefault("vias", [])
+        entry.setdefault("components", [])
+        entry.setdefault("tracks", [])
+    return data
 
 
 def _load(path: Path):
     if path.suffix.lower() == ".json":
         return json.loads(path.read_text(encoding="utf-8"))
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
+    return _fill_cell_defaults(sexp_to_dict(path.read_text(encoding="utf-8")))
+
+
+def _dump(path: Path, data: dict) -> str:
+    """Serialize a dict in the fixture's format (.json -> json, else .sexp)."""
+    if path.suffix.lower() == ".json":
+        return json.dumps(data)
+    return dict_to_sexp(data)
 
 
 class _CapturingExtract:
@@ -56,7 +82,7 @@ def _run(tmp_path, *, name="cell1", params=None, items=None, net_template_role=N
          adapter="ADAPTER", clone_placements=None):
     """Run run_extract_to_file with a fresh cells target under tmp_path and a
     default capturing extractor (unless one is supplied)."""
-    target = tmp_path / "cells.yaml"
+    target = tmp_path / "cells.sexp"
     fn = extract_fn if extract_fn is not None else _CapturingExtract()
     result = run_extract_to_file(
         adapter,
@@ -101,8 +127,13 @@ def test_overwrite_reports_overwrote(tmp_path):
 
 
 def test_preserves_unrelated_top_level_keys(tmp_path):
-    target = tmp_path / "cells.yaml"
-    target.write_text("clone_placements:\n  cp1:\n    cell: x\n", encoding="utf-8")
+    """merge_write(section='cells') must leave every OTHER top-level key
+    untouched. extract_profiles is used as the unrelated key — a free-form
+    dict section that round-trips verbatim (clone_placements is a LIST section
+    in the s-expr schema, so a dict under it would not even be representable)."""
+    target = tmp_path / "cells.sexp"
+    target.write_text(_dump(target, {"extract_profiles": {"ep1": {"output": "x"}}}),
+                      encoding="utf-8")
 
     run_extract_to_file(
         "ADAPTER", name="cell1", params=None, items=None, net_template_role=None,
@@ -111,8 +142,8 @@ def test_preserves_unrelated_top_level_keys(tmp_path):
         extract_fn=_CapturingExtract())
 
     data = _load(target)
-    assert "clone_placements" in data
-    assert data["clone_placements"]["cp1"]["cell"] == "x"
+    assert "extract_profiles" in data
+    assert data["extract_profiles"]["ep1"]["output"] == "x"
     assert "cell1" in data["cells"]
 
 
@@ -197,7 +228,7 @@ def test_empty_items_without_clone_placements_still_calls_extract_fn(tmp_path):
 
 def test_cell_write_os_error_returns_error(tmp_path):
     # A directory where the cells file should be -> merge_write raises OSError.
-    bad_target = tmp_path / "cells.yaml"
+    bad_target = tmp_path / "cells.sexp"
     bad_target.mkdir()
 
     result = run_extract_to_file(
@@ -213,7 +244,7 @@ def test_cell_write_os_error_returns_error(tmp_path):
 # ── profile write ───────────────────────────────────────────────────────
 
 def test_profile_entry_construction(tmp_path):
-    profile = tmp_path / "profiles.yaml"
+    profile = tmp_path / "profiles.sexp"
     target, result, _ = _run(
         tmp_path, save_profile=True, profile_key="prof_cell",
         params={"a": 1}, net_template_role="C1", rule_nets=["GND", "+5V"],
@@ -236,7 +267,7 @@ def test_profile_entry_construction(tmp_path):
 
 
 def test_profile_omits_defaults_when_profile_key_equals_name(tmp_path):
-    profile = tmp_path / "profiles.yaml"
+    profile = tmp_path / "profiles.sexp"
     target, _, _ = _run(tmp_path, save_profile=True, profile_key="cell1", profile_path=profile)
 
     entry = _load(profile)["extract_profiles"]["cell1"]
@@ -245,9 +276,9 @@ def test_profile_omits_defaults_when_profile_key_equals_name(tmp_path):
 
 
 def test_profile_write_os_error_returns_error(tmp_path):
-    bad_profile = tmp_path / "profiles.yaml"
+    bad_profile = tmp_path / "profiles.sexp"
     bad_profile.mkdir()
-    target = tmp_path / "cells.yaml"
+    target = tmp_path / "cells.sexp"
 
     result = run_extract_to_file(
         "ADAPTER", name="cell1", params=None, items=None, net_template_role=None,
@@ -262,22 +293,22 @@ def test_profile_write_os_error_returns_error(tmp_path):
 # ── placer include wiring ───────────────────────────────────────────────
 
 def test_placer_gets_include_entry_deduped(tmp_path):
-    placer = tmp_path / "placer.yaml"
+    placer = tmp_path / "placer.sexp"
     target, result, _ = _run(tmp_path, placer_path=placer)
 
     assert "error" not in result
     first = _load(placer)
-    assert first["include"] == ["cells.yaml"]
-    assert any("added 'cells.yaml' to include:" in m for m in result["messages"])
+    assert first["include"] == ["cells.sexp"]
+    assert any("added 'cells.sexp' to include:" in m for m in result["messages"])
 
     # Second run: same resolved target -> no duplicate entry.
     target, result, _ = _run(tmp_path, placer_path=placer)
-    assert _load(placer)["include"] == ["cells.yaml"]
-    assert not any("added 'cells.yaml' to include:" in m for m in result["messages"])
+    assert _load(placer)["include"] == ["cells.sexp"]
+    assert not any("added 'cells.sexp' to include:" in m for m in result["messages"])
 
 
 def test_placer_include_skips_self_reference(tmp_path):
-    target = tmp_path / "cells.yaml"
+    target = tmp_path / "cells.sexp"
     run_extract_to_file(
         "ADAPTER", name="cell1", params=None, items=None, net_template_role=None,
         rule_nets=None, origin_kwargs={}, target_path=target, save_profile=False,
@@ -290,9 +321,11 @@ def test_placer_include_skips_self_reference(tmp_path):
 def test_placer_profile_include_guarded_by_non_includable_keys(tmp_path):
     # Profile file carries a root-config-only key -> include: wiring is
     # skipped with an explanatory message.
-    placer = tmp_path / "placer.yaml"
-    profile = tmp_path / "profiles.yaml"
-    profile.write_text("registry_path: somewhere\ncells: {}\n", encoding="utf-8")
+    placer = tmp_path / "placer.sexp"
+    profile = tmp_path / "profiles.sexp"
+    profile.write_text(_dump(profile, {"registry_path": "somewhere",
+                                       "cells": {"cell1": {"components": []}}}),
+                       encoding="utf-8")
 
     _, result, _ = _run(
         tmp_path, save_profile=True, profile_key="cell1", profile_path=profile,
@@ -301,14 +334,15 @@ def test_placer_profile_include_guarded_by_non_includable_keys(tmp_path):
     assert "error" not in result
     # The CELL include is written first (unconditionally); only the PROFILE
     # include is guarded by the non-includable keys check.
-    assert _load(placer)["include"] == ["cells.yaml"]
+    assert _load(placer)["include"] == ["cells.sexp"]
     assert any("skipped adding to include" in m for m in result["messages"])
 
 
 def test_placer_profile_include_written_for_clean_profile(tmp_path):
-    placer = tmp_path / "placer.yaml"
-    profile = tmp_path / "profiles.yaml"
-    profile.write_text("cells: {}\n", encoding="utf-8")
+    placer = tmp_path / "placer.sexp"
+    profile = tmp_path / "profiles.sexp"
+    profile.write_text(_dump(profile, {"cells": {"cell1": {"components": []}}}),
+                       encoding="utf-8")
 
     _, result, _ = _run(
         tmp_path, save_profile=True, profile_key="cell1", profile_path=profile,
@@ -317,14 +351,14 @@ def test_placer_profile_include_written_for_clean_profile(tmp_path):
     assert "error" not in result
     # Cell include written first, then the profile include (clean profile ->
     # not guarded).
-    assert _load(placer)["include"] == ["cells.yaml", "profiles.yaml"]
+    assert _load(placer)["include"] == ["cells.sexp", "profiles.sexp"]
     assert not any("skipped adding to include" in m for m in result["messages"])
 
 
 def test_placer_wiring_os_error_appended_not_fatal(tmp_path):
     # placer_path is a directory -> add_list_entry raises OSError; the call
     # must still succeed with the message appended.
-    bad_placer = tmp_path / "placer.yaml"
+    bad_placer = tmp_path / "placer.sexp"
     bad_placer.mkdir()
 
     _, result, _ = _run(tmp_path, placer_path=bad_placer)
@@ -362,7 +396,7 @@ def test_extract_fn_receives_full_payload(tmp_path):
 def test_raw_selection_forwarded_and_persisted(tmp_path):
     """raw_selection=True flows through run_extract_to_file into the extractor
     AND into the saved extract_profiles entry (so a profile can replay it)."""
-    profile = tmp_path / "profiles.yaml"
+    profile = tmp_path / "profiles.sexp"
     fn = _CapturingExtract()
     _, result, _ = _run(
         tmp_path, save_profile=True, profile_key="cell1", profile_path=profile,
@@ -376,7 +410,7 @@ def test_raw_selection_forwarded_and_persisted(tmp_path):
 
 def test_raw_selection_default_omitted_from_profile(tmp_path):
     """raw_selection=False (default) must not seed a junk key in the profile."""
-    profile = tmp_path / "profiles.yaml"
+    profile = tmp_path / "profiles.sexp"
     _, _, _ = _run(tmp_path, save_profile=True, profile_key="cell1", profile_path=profile)
 
     entry = _load(profile)["extract_profiles"]["cell1"]

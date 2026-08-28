@@ -1,12 +1,9 @@
 # tests/test_sexp_config_loading.py
-"""Loading tests for the parallel .sexp config format: a .sexp profile (and a
-.sexp include: graph) must load into the SAME Config as the equivalent YAML,
-and broken s-expr files surface as ValidationError — never a crash.
-
-YAML remains the default format (config/includes.py::_load_config_file
-selects the parser by extension); the existing test_config_includes.py/
-test_config_models.py keep writing YAML as-is. These are the .sexp-specific
-points on top."""
+"""Loading tests for the .sexp config format (and .json, the other supported
+format): a .sexp profile (and a .sexp/.json include: graph) loads into the
+expected Config, and broken s-expr files surface as ValidationError — never
+a crash. YAML was removed from the config graph 2026-08-28 (core_yaml_removal),
+so a .yaml root is now a fatal, not the default."""
 from pathlib import Path
 
 import pytest
@@ -66,14 +63,13 @@ def _write(tmp_path, name, text) -> Path:
     return p
 
 
-def test_sexp_profile_loads_into_same_config_as_yaml(tmp_path):
-    """load_config() on a .sexp file must produce the same Config as the
-    equivalent YAML — the raw dict both formats express is identical, so the
-    whole downstream (validators, dataclasses) sees the same data."""
-    yaml_path = _write(tmp_path, "config.yaml", MINIMAL_YAML)
+def test_sexp_profile_loads(tmp_path):
+    """load_config() on a .sexp file produces the expected Config — the raw
+    dict the format expresses goes through the same downstream (validators,
+    dataclasses). (The YAML-equivalence half of this test was removed with
+    core_yaml_removal 2026-08-28 — YAML is no longer a config format.)"""
     sexp_path = _write(tmp_path, "config.sexp", MINIMAL_SEXP)
 
-    cfg_yaml, _ = load_config(str(yaml_path))
     cfg_sexp, _ = load_config(str(sexp_path))
 
     assert cfg_sexp.layer == "B.Cu"
@@ -84,14 +80,6 @@ def test_sexp_profile_loads_into_same_config_as_yaml(tmp_path):
     assert cfg_sexp.rules[0].spokes[0].shift_x_mm == 1.2
     assert cfg_sexp.cells["dac_buf"].layer == "B.Cu"
     assert cfg_sexp.cells["dac_buf"].components[0].role == "DAC_BUF"
-
-    # equality against the YAML-loaded Config: same layer, same rules count,
-    # same cell, same spoke geometry
-    assert cfg_sexp.layer == cfg_yaml.layer
-    assert cfg_sexp.place_components == cfg_yaml.place_components
-    assert len(cfg_sexp.rules) == len(cfg_yaml.rules)
-    assert len(cfg_sexp.rules[0].spokes) == len(cfg_yaml.rules[0].spokes)
-    assert cfg_sexp.cells["dac_buf"] == cfg_yaml.cells["dac_buf"]
 
 
 def test_sexp_include_graph(tmp_path):
@@ -119,16 +107,20 @@ def test_sexp_include_graph(tmp_path):
     assert [r.net for r in cfg.rules] == ["+3V3_VCCIO", "+1V2_VCCINT"]
 
 
-def test_mixed_include_graph_yaml_sexp(tmp_path):
+def test_mixed_include_graph_sexp_json(tmp_path):
     """Each file parses by its own extension — a root .sexp may include a
-    .yaml subsystem file and vice versa (the format is selected per file)."""
-    _write(tmp_path, "sub.yaml", "clone_placements:\n"
-                                 "- cluster: CH0\n  cell: dac_buf\n  xy: [0.0, 0.0]\n")
+    .json subsystem file (the format is selected per file; YAML was removed
+    2026-08-28, so a mixed graph mixes only the two supported formats)."""
+    import json
+    _write(tmp_path, "sub.json", json.dumps({
+        "clone_placements": [{"cluster": "CH0", "cell": "dac_buf",
+                              "xy": [0.0, 0.0]}],
+    }))
     _write(tmp_path, "root.sexp", dict_to_sexp({
         "clone_placements": [
             {"cluster": "ROOT", "cell": "dac_buf", "xy": [1.0, 1.0]},
         ],
-        "include": ["sub.yaml"],
+        "include": ["sub.json"],
     }))
 
     cfg, _ = load_config(str(tmp_path / "root.sexp"))
@@ -193,10 +185,9 @@ def test_load_profile_reads_sexp_profiles(tmp_path):
     assert prof["raw_selection"] is True
 
 
-def test_yaml_still_default_and_untouched(tmp_path):
-    """The existing YAML path is unchanged — safe_load is still used for
-    anything that is not .sexp."""
+def test_yaml_config_is_fatal(tmp_path):
+    """2026-08-28, core_yaml_removal: a .yaml root is no longer a config
+    format — load_config fatals with the convert-to-sexp message."""
     yaml_path = _write(tmp_path, "config.yaml", MINIMAL_YAML)
-    cfg, _ = load_config(str(yaml_path))
-    assert cfg.layer == "B.Cu"
-    assert cfg.place_components is False
+    with pytest.raises(ValidationError, match="sexp_config_convert.py"):
+        load_config(str(yaml_path))

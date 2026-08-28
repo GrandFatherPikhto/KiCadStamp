@@ -51,7 +51,7 @@ class _FakePlanner:
 def _pipeline(dry_run=True):
     cfg = Config(layer='F.Cu', cells={},
                  rules=[], clone_placements=[])
-    pipeline = ApplyPipeline("board.yaml", dry_run=dry_run, preloaded_cfg=cfg)
+    pipeline = ApplyPipeline("board.sexp", dry_run=dry_run, preloaded_cfg=cfg)
     pipeline.items = [SimpleNamespace(label="rule_A"), SimpleNamespace(label="rule_B")]
     pipeline.planner = _FakePlanner()
     return pipeline
@@ -80,7 +80,7 @@ class TestDryRunReportIsStructured:
 
 class TestRunReturnsReport:
     def test_dry_run_returns_report(self):
-        pipeline = ApplyPipeline("x.yaml", dry_run=True)
+        pipeline = ApplyPipeline("x.sexp", dry_run=True)
         with patch.object(ApplyPipeline, "_load_config"), \
              patch.object(ApplyPipeline, "_filter_config"), \
              patch.object(ApplyPipeline, "_connect_adapter"), \
@@ -93,7 +93,7 @@ class TestRunReturnsReport:
         m_dry.assert_called_once_with()
 
     def test_execute_run_returns_none(self):
-        pipeline = ApplyPipeline("x.yaml", dry_run=False)
+        pipeline = ApplyPipeline("x.sexp", dry_run=False)
         with patch.object(ApplyPipeline, "_load_config"), \
              patch.object(ApplyPipeline, "_filter_config"), \
              patch.object(ApplyPipeline, "_connect_adapter"), \
@@ -113,38 +113,38 @@ class TestRunApplyAndCmdApplyPropagateReport:
         fake = MagicMock()
         fake.run.return_value = ["report-line"]
         with patch("kicadstamp.apply_pipeline.ApplyPipeline", return_value=fake) as m_cls:
-            result = run_apply(RunOptions(config_path="x.yaml", dry_run=True))
+            result = run_apply(RunOptions(config_path="x.sexp", dry_run=True))
         assert result == ["report-line"]
         m_cls.assert_called_once()
 
     def test_cmd_apply_returns_run_apply_result(self):
         with patch("kicadstamp.apply_pipeline.run_apply", return_value=["r"]) as m:
-            result = cmd_apply(SimpleNamespace(config="c.yaml", timeout_ms=1, batch_size=2,
+            result = cmd_apply(SimpleNamespace(config="c.sexp", timeout_ms=1, batch_size=2,
                                                dry_run=True, no_collision_check=True,
                                                collision_margin=0.3))
         assert result == ["r"]
-        assert m.call_args.args[0].config_path == "c.yaml"
+        assert m.call_args.args[0].config_path == "c.sexp"
         assert m.call_args.args[0].dry_run is True
 
 
 class TestAuthorReportPlumbing:
     def test_apply_config_returns_run_apply_result(self):
         with patch("kicadstamp.author.run_apply", return_value=["report-line"]) as m:
-            result = apply_config(Config(layer='F.Cu', cells={}, rules=[]), "board.yaml",
+            result = apply_config(Config(layer='F.Cu', cells={}, rules=[]), "board.sexp",
                                   dry_run=True)
         assert result == ["report-line"]
         assert m.call_args.args[0].dry_run is True
         assert m.call_args.kwargs["cfg"] is not None
 
     def test_cli_main_prints_report_on_dry_run(self, tmp_path, capsys):
-        out = tmp_path / "gen.yaml"
+        out = tmp_path / "gen.sexp"
 
         def build():
             return []
 
         with patch("kicadstamp.author_cli.load_config", return_value=("cfg", "ctx")), \
              patch("kicadstamp.author_cli.apply_config", return_value=["line1", "line2"]) as m:
-            cli_main(build, str(out), "root.yaml", argv=["--apply", "--dry-run"])
+            cli_main(build, str(out), "root.sexp", argv=["--apply", "--dry-run"])
         captured = capsys.readouterr()
         assert "line1\nline2" in captured.out
         assert m.call_args.kwargs["dry_run"] is True
@@ -153,7 +153,7 @@ class TestAuthorReportPlumbing:
 class TestKicadstampCliPrintsReport:
     def test_apply_dry_run_prints_report(self, monkeypatch, capsys):
         from kicadstamp import cli_main
-        monkeypatch.setattr(sys, "argv", ["kicadstamp_cli.py", "apply", "cfg.yaml", "--dry-run"])
+        monkeypatch.setattr(sys, "argv", ["kicadstamp_cli.py", "apply", "cfg.sexp", "--dry-run"])
         monkeypatch.setattr(cli_main, "cmd_apply",
                             lambda args, cfg=None, ctx=None: ["rep1", "rep2"])
         code = cli_main.main()

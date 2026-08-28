@@ -5,7 +5,7 @@ tree_from_sexp), config/entries.py's _load_tree, include-graph merging of the
 trees list section, name/ref uniqueness across the whole graph, the sexp
 round-trip of the trees section, and the tools/trees_to_config.py migrator.
 
-Trees live in the SAME config file (root .yaml or .sexp, or an include:'d
+Trees live in the SAME config file (root .sexp or .json, or an include:'d
 subsystem file), not in a separate *.trees file — that is the whole point of
 the design (FORK-1/2/4/5).
 """
@@ -174,14 +174,14 @@ def test_load_config_sexp_trees(tmp_path):
     assert cfg.trees[1].anchor.is_origin is True
 
 
-def test_load_config_yaml_trees(tmp_path):
-    p = _write(tmp_path, "cfg.yaml", SEXP_WITH_TREES)  # same dict shape in YAML
-    # SEXP_WITH_TREES is s-expr text — for YAML write the same dict via yaml
-    import yaml
-    data = sexp_to_dict(SEXP_WITH_TREES)
-    p.write_text(yaml.safe_dump(data), encoding="utf-8")
-    cfg, _ = load_config(str(p))
-    assert [t.name for t in cfg.trees] == ["power_tree", "misc"]
+def test_load_config_yaml_trees_is_fatal(tmp_path):
+    """The old YAML shape of the same trees section is no longer a config the
+    core reads: a .yaml root is a fatal with the sexp_config_convert hint
+    (2026-08-28, core_yaml_removal) — never a silent YAML load."""
+    p = tmp_path / "cfg.yaml"
+    p.write_text("trees:\n  - name: power_tree\n", encoding="utf-8")
+    with pytest.raises(ValidationError, match="YAML config support has been removed"):
+        load_config(str(p))
 
 
 # ── include: merging of the trees list section (FORK-4) ────────────────────

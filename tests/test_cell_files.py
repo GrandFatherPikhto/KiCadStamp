@@ -17,42 +17,37 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from kicadstamp.config import load_config
+from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.exceptions import ValidationError
 
 
 def test_old_templates_file_key_is_fatal_with_rename_hint(tmp_path):
-    root = tmp_path / "root.yaml"
-    root.write_text("templates_file: ext.yaml\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    root.write_text(dict_to_sexp({"templates_file": "ext.yaml"}), encoding="utf-8")
 
     with pytest.raises(ValidationError, match="deprecated.*templates_file"):
         load_config(str(root))
 
 
 def test_old_template_files_key_is_fatal_with_rename_hint(tmp_path):
-    root = tmp_path / "root.yaml"
-    root.write_text("""
-template_files:
-  - ext.yaml
-""", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    root.write_text(dict_to_sexp({"template_files": ["ext.yaml"]}), encoding="utf-8")
 
     with pytest.raises(ValidationError, match="deprecated.*template_files"):
         load_config(str(root))
 
 
 def test_old_cells_file_key_is_fatal_with_rename_hint(tmp_path):
-    root = tmp_path / "root.yaml"
-    root.write_text("cells_file: ext.yaml\n", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    root.write_text(dict_to_sexp({"cells_file": "ext.yaml"}), encoding="utf-8")
 
     with pytest.raises(ValidationError, match="deprecated.*cells_file"):
         load_config(str(root))
 
 
 def test_old_cell_files_key_is_fatal_with_rename_hint(tmp_path):
-    root = tmp_path / "root.yaml"
-    root.write_text("""
-cell_files:
-  - ext.yaml
-""", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    root.write_text(dict_to_sexp({"cell_files": ["ext.yaml"]}), encoding="utf-8")
 
     with pytest.raises(ValidationError, match="deprecated.*cell_files"):
         load_config(str(root))

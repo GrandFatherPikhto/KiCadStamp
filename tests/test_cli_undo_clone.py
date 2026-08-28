@@ -14,7 +14,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pytest
 
 from kicadstamp.cli import cmd_clone_extract, cmd_undo
+from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.exceptions import PlacerError
+
+
+def _dump(data: dict) -> str:
+    """clone_profiles is a free-form dict section; write it as s-expr (the
+    profiles file is read via cli_extract.load_profile, .sexp/.json only since
+    core_yaml_removal)."""
+    return dict_to_sexp(data)
 
 
 def _clone_args(**kw):
@@ -47,31 +55,28 @@ class TestCmdCloneExtractValidation:
             cmd_clone_extract(_clone_args())
 
     def test_profile_not_found_is_fatal(self, tmp_path):
-        profiles = tmp_path / "profiles.yaml"
-        profiles.write_text(
-            "clone_profiles:\n"
-            "  ch0:\n"
-            "    net: a.net\n"
-            "    pcb: b.kicad_pcb\n"
-            "    channel: Channel_0\n"
-            "    output: o.yaml\n",
+        profiles = tmp_path / "profiles.sexp"
+        profiles.write_text(_dump({
+            "clone_profiles": {
+                "ch0": {
+                    "net": "a.net", "pcb": "b.kicad_pcb",
+                    "channel": "Channel_0", "output": "o.sexp"}}}),
             encoding="utf-8")
         with pytest.raises(PlacerError, match="not found"):
             cmd_clone_extract(_clone_args(profiles=str(profiles), profile="nope"))
 
     def test_profile_missing_required_field_is_fatal(self, tmp_path):
-        profiles = tmp_path / "profiles.yaml"
-        profiles.write_text(
-            "clone_profiles:\n"
-            "  ch0:\n"
-            "    net: a.net\n",  # pcb/channel/output missing
+        profiles = tmp_path / "profiles.sexp"
+        profiles.write_text(_dump({
+            "clone_profiles": {
+                "ch0": {"net": "a.net"}}}),  # pcb/channel/output missing
             encoding="utf-8")
         with pytest.raises(PlacerError, match="missing required field"):
             cmd_clone_extract(_clone_args(profiles=str(profiles), profile="ch0"))
 
     def test_missing_profiles_file_is_fatal(self, tmp_path):
         with pytest.raises(PlacerError, match="not found"):
-            cmd_clone_extract(_clone_args(profiles=str(tmp_path / "nope.yaml"),
+            cmd_clone_extract(_clone_args(profiles=str(tmp_path / "nope.sexp"),
                                           profile="ch0"))
 
 
@@ -93,7 +98,6 @@ class TestCmdUndoValidation:
     def test_operation_log_dir_override_used(self, monkeypatch, tmp_path):
         """--operation-log-dir must point cmd_undo at the config-bound dir
         instead of the CWD-relative logs/ (П.7)."""
-        import kicadstamp.cli as cli_mod
         import kicadstamp.undo as undo_mod
         undone = []
         # cli.py imports undo_last_operation lazily inside cmd_undo, so patch

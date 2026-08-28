@@ -11,20 +11,20 @@ never do on their own. ApplyPipeline/load_config are monkeypatched with
 fakes that only check what PlacerDock PASSES them. Save, on the other hand,
 is a pure file write and is exercised against real temp YAML.
 """
-import yaml
+from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 
 import gui.docks.placer as placer_mod
 from gui.docks.placer import PlacerDock
 from kicadstamp.config import Config, RuntimeContext, load_coordinate_placement
 
 
-def _write_yaml(path, data) -> None:
-    path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+def _write(path, data) -> None:
+    path.write_text(dict_to_sexp(data), encoding="utf-8")
 
 
 def _make_dock(main_window, tmp_path):
-    target_file = tmp_path / "root.yaml"
-    _write_yaml(target_file, {"coordinate_placements": []})
+    target_file = tmp_path / "root.sexp"
+    _write(target_file, {"coordinate_placements": []})
     dock = PlacerDock(main_window)
     dock.set_root_path(target_file)
     return dock, target_file
@@ -245,7 +245,7 @@ def test_do_save_writes_coordinate_placements_section(main_window, tmp_path, cap
 
     dock._do_save()
 
-    data = yaml.safe_load(target_file.read_text(encoding="utf-8"))
+    data = sexp_to_dict(target_file.read_text(encoding="utf-8"))
     entries = data["coordinate_placements"]
     assert len(entries) == 1
     cp = load_coordinate_placement(entries[0])
@@ -267,7 +267,7 @@ def test_do_save_overwrites_by_effective_name_not_duplicate(main_window, tmp_pat
     form.x_edit.setText("99.0")
     dock._do_save()
 
-    data = yaml.safe_load(target_file.read_text(encoding="utf-8"))
+    data = sexp_to_dict(target_file.read_text(encoding="utf-8"))
     assert len(data["coordinate_placements"]) == 1
     assert data["coordinate_placements"][0]["x_mm"] == 99.0
     assert any("Overwrote" in r.message for r in caplog.records)
@@ -275,7 +275,7 @@ def test_do_save_overwrites_by_effective_name_not_duplicate(main_window, tmp_pat
 
 def test_save_without_target_file_shows_error(main_window, tmp_path, caplog):
     dock = PlacerDock(main_window)
-    dock.new_coordinate_placement(tmp_path / "root.yaml")
+    dock.new_coordinate_placement(tmp_path / "root.sexp")
     dock._placer_path = None  # simulate a dock that never got a target file
 
     dock._do_save()
@@ -335,7 +335,7 @@ def test_run_redraw_coordinate_skips_cluster_tagging(main_window, tmp_path, monk
     monkeypatch.setattr(placer_mod, "ApplyPipeline", _FakePipeline)
     dock, _ = _make_dock(main_window, tmp_path)
 
-    result = dock._run_redraw({"placer_path": tmp_path / "root.yaml",
+    result = dock._run_redraw({"placer_path": tmp_path / "root.sexp",
                                "cfg": Config(), "ctx": RuntimeContext(),
                                "name": "FPGA_PERIPH/R18", "coordinate": True})
 
@@ -395,10 +395,10 @@ def test_do_save_survives_a_broken_legacy_entry_in_the_same_file(main_window, tm
     ValidationError there and killed the save of an unrelated record. The
     identity is now read from the raw dict (entry_effective_name), so a
     broken neighbour can't crash the save."""
-    target_file = tmp_path / "root.yaml"
+    target_file = tmp_path / "root.sexp"
     # A legacy entry the real loader would REJECT (partial polar: center_x_mm
     # set without the rest) but whose raw effective name is still readable.
-    _write_yaml(target_file, {"coordinate_placements": [
+    _write(target_file, {"coordinate_placements": [
         {"cluster": "OLD", "role": "R_LEGACY", "center_x_mm": 0.0},
     ]})
     dock = PlacerDock(main_window)
@@ -408,6 +408,6 @@ def test_do_save_survives_a_broken_legacy_entry_in_the_same_file(main_window, tm
 
     dock._do_save()
 
-    data = yaml.safe_load(target_file.read_text(encoding="utf-8"))
+    data = sexp_to_dict(target_file.read_text(encoding="utf-8"))
     roles = sorted(e.get("role") for e in data["coordinate_placements"])
     assert roles == ["R18", "R_LEGACY"]
