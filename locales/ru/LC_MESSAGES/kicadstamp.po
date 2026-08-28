@@ -8228,3 +8228,26 @@ msgstr "Сузить якорь по роли через sheet"
 #: kicadstamp/cli_main.py
 msgid "Output .sexp file to write the clone_placements: block to"
 msgstr "Выходной .sexp-файл для записи блока clone_placements:"
+
+#: kicadstamp/placement/services/clone_role_resolver.py (Phase 2 step 2.1 auto-derive, 2026-08-28)
+#, python-brace-format
+msgid "[{name}] role {role!r} -> {ref} (auto-derived: unique live instance)"
+msgstr "[{name}] роль {role!r} -> {ref} (авто-вывод: уникальный живой инстанс)"
+
+#: kicadstamp/placement/services/clone_role_resolver.py (Phase 2 step 2.1 auto-derive, 2026-08-28)
+#, python-brace-format
+msgid ""
+"role {role!r}: no explicit net (nets:/cell net_template) and no net could "
+"be derived automatically — the live board has no unique instance of this "
+"role and its candidates do not share one non-rule net; add nets: {{role: "
+"net}}, params:, a cell net_template, or check the board"
+msgstr ""
+"роль {role!r}: нет явной сети (nets:/cell net_template), и вывести сеть "
+"автоматически не удалось — на живой плате нет уникального инстанса этой "
+"роли, а её кандидаты не имеют одной общей не-rule-сети; добавьте nets: "
+"{{role: net}}, params:, cell net_template или проверьте плату"
+
+#: kicadstamp/placement/services/clone_role_resolver.py (Phase 2 step 2.1 auto-derive, 2026-08-28)
+#, python-brace-format
+msgid "[{name}] role {role!r}: expected net {net!r} (source: {source})"
+msgstr "[{name}] роль {role!r}: ожидаемая сеть {net!r} (источник: {source})"

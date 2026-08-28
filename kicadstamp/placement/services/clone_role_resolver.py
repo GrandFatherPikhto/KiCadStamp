@@ -33,6 +33,7 @@ resolution paths here (by-nets, by-selection, anchor-by-role). This module is
 now only the resolution orchestration on top of it.
 """
 import logging
+import re
 
 from ...domain.geometry import Vector2
 
@@ -41,6 +42,7 @@ from ...domain.board import Footprint
 from ...cluster_matching import cluster_prefix_match
 from ...config import Cell, CellPlacement, ClonePlacement, clone_placement_effective_name
 from ...exceptions import ValidationError, format_fatal_error
+from ...net_derive import PREFIX_REMAP, derive_role_nets
 from ...net_resolution import RULE_NETS, resolve_net, resolve_placeholder
 from .component_pool import ROLE_FIELD_NAME
 from ...constants import CLUSTER_FIELD_NAME
@@ -233,6 +235,112 @@ def candidate_nets_by_role(adapter, roles: list[str], cluster: str,
     return result
 
 
+_CHANNEL_RE = re.compile(r"^(?:/)?Channel_(\d+)(?:/.*)?$")
+
+
+def _target_channel(clone) -> str | None:
+    """The target channel implied by the placement's OWN Cluster (e.g.
+    'Channel_1' or '/Channel_1/...') — None when the cluster is not a Channel_N
+    name. Used by the prefix_remap auto-derivation (Phase 2 step 2.1)."""
+    cluster = getattr(clone, "cluster", None)
+    if not cluster:
+        return None
+    m = _CHANNEL_RE.match(cluster)
+    return f"Channel_{m.group(1)}" if m else None
+
+
+def _prefix_remap_local_net(net: str, clone) -> str | None:
+    """derive_role_nets priority 2 (prefix_remap), TwinMap.twin_net semantics,
+    applied in apply: a LITERAL local hierarchical net '/Channel_N/...' in the
+    cell is auto-remapped to the target channel '/Channel_M/...' when the
+    placement's own Cluster names a DIFFERENT Channel_M — so a cell extracted on
+    Channel_0 clones to Channel_1 without a manual {channel} param or nets:.
+    Returns the remapped net, or None when no remap applies (flat or global net,
+    same channel, non-channel cluster — never a guess)."""
+    m = re.match(r"^/(Channel_\d+)/(.*)$", net)
+    if not m:
+        return None
+    target = _target_channel(clone)
+    if target is None or target == m.group(1):
+        return None
+    return f"/{target}/" + m.group(2)
+
+
+def _role_designated_net(adapter, fp, slot) -> str | None:
+    """The role's identifying net on a live footprint — the same rule the GUI
+    auto-fill (suggest_role_nets_from_cluster) uses: net_template_pad -> that
+    pad's net; else exactly one non-rule net (lemma 2); else None (a bridging
+    role without a designated pad cannot be reduced to one net — never a
+    guess)."""
+    rule = set(RULE_NETS)
+    pad = getattr(slot, "net_template_pad", None)
+    if pad:
+        p = adapter.get_pad_by_number(fp, str(pad))
+        if p is not None and p.net_name and p.net_name not in rule:
+            return p.net_name
+        return None
+    non_rule = {p.net_name for p in adapter.get_footprint_pads(fp)
+                if p.net_name and p.net_name not in rule}
+    return next(iter(non_rule)) if len(non_rule) == 1 else None
+
+
+def _auto_derive_live_net(adapter, all_fps, role, clone, slot, sheet_names):
+    """Phase 2 step 2.1 — auto-derive the expected net of a role with NO
+    explicit source (no clone.nets[role], no cell net_template) from the LIVE
+    target board, delegating the priority rule to the Phase-0 contract
+    derive_role_nets (live_pad — the only priority with evidence available in a
+    bare apply; the source evidence for prefix_remap/kuhn lives in the cell's
+    net_template or Phase 3's two-channel verification, not here).
+
+    Evidence (never a silent guess):
+      1. a UNIQUE instance of the role on the target (Role + the placement's own
+         Cluster + sheet) — its designated net (net_template_pad, else the single
+         non-rule net, lemma 2);
+      2. else the single distinct non-rule net shared by ALL the role's
+         candidates (N identical instances on one net — the normal ambiguity
+         cascade then disambiguates them).
+
+    Returns (expected_net, direct_ref, source):
+      - (net, None, 'live_pad') — derived expected net (source is the
+        derive_role_nets provenance);
+      - (None, ref, 'live_instance') — unique instance but not reducible to one
+        net (bridging without a designated pad) — the caller maps it directly;
+      - (None, None, None) — nothing deterministic (caller's error path)."""
+    cluster = getattr(clone, "cluster", None)
+    sheet = getattr(clone, "sheet", None)
+    candidates = [fp for fp in all_fps
+                  if adapter.get_field_value(fp, ROLE_FIELD_NAME) == role
+                  and (cluster is None or cluster_prefix_match(
+                      adapter.get_field_value(fp, CLUSTER_FIELD_NAME) or '', cluster))]
+    if sheet and sheet_names and len(candidates) > 1:
+        narrowed = narrow_candidates_by_sheet(candidates, sheet, sheet_names)
+        if narrowed:
+            candidates = narrowed
+
+    if len(candidates) == 1:
+        live_net = _role_designated_net(adapter, candidates[0], slot)
+        if live_net is not None:
+            derivations = derive_role_nets(
+                roles=[role], role_source_nets={},
+                live_pad_nets={role: live_net})
+            derivation = derivations.get(role)
+            if derivation is not None:
+                return derivation.net, None, derivation.source
+        return None, candidates[0].ref, "live_instance"
+
+    shared = {n for c in candidates for n in
+              {p.net_name for p in adapter.get_footprint_pads(c)
+               if p.net_name and p.net_name not in RULE_NETS}}
+    if len(shared) == 1:
+        derivations = derive_role_nets(
+            roles=[role], role_source_nets={},
+            live_pad_nets={role: next(iter(shared))})
+        derivation = derivations.get(role)
+        if derivation is not None:
+            return derivation.net, None, derivation.source
+    return None, None, None
+
+
 def clone_uses_selection_mode(clone: ClonePlacement) -> bool:
     """
     Returns True if the clone is in "by selection" mode:
@@ -349,6 +457,19 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement | CellPlace
     PRIMARY mechanism — but current selection, if any, participates as a
     narrowing step, see below).
 
+    Expected net per role (Phase 2 step 2.1 — nets:/params:/net_overrides are
+    OPTIONAL overrides): explicit clone.nets[role] -> cell net_template
+    (resolve_net; a LITERAL local '/Channel_0/...' net is prefix-remapped to the
+    target channel, derive_role_nets priority 2) -> auto-derived from the live
+    board via derive_role_nets (priority 1, live_pad: the unique instance's
+    designated net, or the single non-rule net shared by all candidates). The
+    old fatal "in 'by nets' mode, a net is required for every role" is gone when
+    the net can be derived automatically; a unique instance that cannot be
+    reduced to one net (bridging without net_template_pad) is mapped directly.
+    Auto-derivation only produces the EXPECTED NET (a candidate filter) — the
+    instance disambiguation below stays exclusively with this cascade (Kuhn is
+    never applied to instance selection).
+
     Ambiguity resolution cascade (each step only NARROWS, never chooses for the user):
       0. clone.refs[role] — explicit override, bypassing search entirely. Breaks
          on re‑annotation (refdes is not stable) — last resort, not the main path.
@@ -431,18 +552,58 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement | CellPlace
         if role in role_to_ref:
             continue
 
+        # Expected net of the role — priority chain (Phase 2 step 2.1): explicit
+        # override clone.nets[role] -> cell net_template (with prefix_remap for a
+        # LITERAL local net) -> auto-derive from the live board (derive_role_nets,
+        # live_pad). nets:/params:/net_overrides are OPTIONAL overrides — the old
+        # fatal "a net is required for every role" is gone when the net can be
+        # derived automatically.
         if role in clone.nets:
             net_template = clone.nets[role]
+            expected_net = resolve_net(net_template, clone.params, clone.net_overrides)
+            net_source = "nets"
         elif slot.net_template is not None:
             net_template = slot.net_template
+            expected_net = resolve_net(net_template, clone.params, clone.net_overrides)
+            net_source = "net_template"
+            # prefix_remap (derive_role_nets priority 2, TwinMap.twin_net
+            # semantics): a LITERAL local hierarchical net ('/Channel_0/...') is
+            # auto-remapped to the target channel ('/Channel_1/...') when the
+            # placement's own Cluster names a different Channel_N — a cell
+            # extracted on Channel_0 clones to Channel_1 without a manual
+            # {channel} param or nets:. Only literals: a parametrized
+            # net_template is the user's explicit choice.
+            if "{" not in net_template:
+                remapped = _prefix_remap_local_net(expected_net, clone)
+                if remapped is not None:
+                    expected_net = remapped
+                    net_source = PREFIX_REMAP
         else:
-            problems.append(_("role {role!r}: no net for mapping (neither in nets "
-                              "of {name!r}, nor in cell net_template) — in 'by nets' "
-                              "mode, a net is required for every role")
-                           .format(role=role, name=clone_placement_effective_name(clone)))
-            continue
+            auto_net, auto_ref, auto_source = _auto_derive_live_net(
+                adapter, all_fps, role, clone, slot, sheet_names)
+            if auto_ref is not None:
+                # A unique instance of the role on the target that cannot be
+                # reduced to one net (bridging role without a designated pad) —
+                # map it directly, no net needed (deterministic).
+                role_to_ref[role] = auto_ref
+                logger.info(_("[{name}] role {role!r} -> {ref} (auto-derived: unique live instance)")
+                            .format(name=clone_placement_effective_name(clone),
+                                    role=role, ref=auto_ref))
+                continue
+            if auto_net is None:
+                problems.append(_("role {role!r}: no explicit net (nets:/cell net_template) "
+                                  "and no net could be derived automatically — the live board "
+                                  "has no unique instance of this role and its candidates do "
+                                  "not share one non-rule net; add nets: {{role: net}}, params:, "
+                                  "a cell net_template, or check the board")
+                                .format(role=role))
+                continue
+            expected_net = auto_net
+            net_source = auto_source
 
-        expected_net = resolve_net(net_template, clone.params, clone.net_overrides)
+        logger.debug(_("[{name}] role {role!r}: expected net {net!r} (source: {source})")
+                     .format(name=clone_placement_effective_name(clone), role=role,
+                             net=expected_net, source=net_source))
 
         candidates = fps_by_role.get(role, [])
         matched = []

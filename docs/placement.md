@@ -252,12 +252,21 @@ A façade combining all execution phases and managing logging.
 #### `services/clone_role_resolver.py`
 Resolves roles for `ClonePlacement`. Supports two modes:
 - **by selection** – reads roles from selected components. Only one such clone can be processed per run (due to KiCad's single‑selection limitation).
-- **by nets** – finds components by expected net (with placeholders). In case of ambiguity, uses cascading narrowing: explicit `refs` → selection → sheet hierarchy → **physical proximity to the anchor** (if the distance gap is sufficient, the closest candidate is chosen). This allows distinguishing electrically identical filters on a common rail. The GUI's Auto-fill/Nets/Params narrowing (PlacerDock) uses the same `sheet` dimension for its live-board candidate search since 2026-08-16.
+- **by nets** – finds components by expected net. Expected net per role (Phase 2 step 2.1): explicit
+  `nets:` → cell `net_template` (with placeholders; a literal local `/Channel_0/...` net is
+  auto-prefix-remapped to the target channel, `TwinMap.twin_net` semantics) → auto-derived from the
+  live board (`derive_role_nets`: the unique instance's single net, or the one non-rule net shared by
+  all candidates) — so `nets:`/`params:`/`net_overrides:` are OPTIONAL overrides. In case of ambiguity,
+  uses cascading narrowing: explicit `refs` → selection → sheet hierarchy → **physical proximity to
+  the anchor** (if the distance gap is sufficient, the closest candidate is chosen). This allows
+  distinguishing electrically identical filters on a common rail. The GUI's Auto-fill/Nets/Params
+  narrowing (PlacerDock) uses the same `sheet` dimension for its live-board candidate search since
+  2026-08-16.
 
 Functions:
 - `clone_uses_selection_mode(clone)` – determines the mode (considers `by_selection`, `nets`, `params`).
 - `resolve_roles_by_selection(adapter, template, clone_name)` – by selection.
-- `resolve_roles_by_nets(adapter, template, clone, anchor_position)` – by nets with anchor proximity.
+- `resolve_roles_by_nets(adapter, template, clone, anchor_position)` – by nets with anchor proximity; expected nets auto-derive from the live board when not explicit (Phase 2 step 2.1).
 - `resolve_anchor_by_role(adapter, clone)` – finds the anchor by the `Role` field (alternative to `anchor_ref`).
 
 **Used in:** `clone_position_calculator.py`.
@@ -331,7 +340,7 @@ Functions:
 
 - **Automatic refdes selection** – for `ManualSpoke` via `ComponentPool` using the `Role` field. For `ClonePlacement` – two modes (selection or nets) with disambiguation by anchor proximity (including `refs` for extreme cases).
 
-- **Section cloning** – for repeated templates, use `clone_placements` with explicit nets (`nets`/`params`) and run without selection; for one‑off instances, use selection mode (no `nets`/`params`, or with `by_selection: true`) and select components in KiCad before running.
+- **Section cloning** – for repeated templates, use `clone_placements` (expected nets auto-derive from the live board since Phase 2 step 2.1; explicit `nets`/`params` remain optional overrides) and run without selection; for one‑off instances, use selection mode (no `nets`/`params`, or with `by_selection: true`) and select components in KiCad before running.
 
 - **Tracks** – only supported in `ClonePlacement`. When extracting a template (`extract`), tracks are automatically included (if selected). When cloning, they are created together with components and vias.
 

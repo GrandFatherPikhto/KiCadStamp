@@ -322,7 +322,11 @@ clone_placements:
 - **By nets** (repeated sections — PI-filters, DAC channels), when `params`/`nets` are present: each
   role inside the cell resolves against a real net, via `nets:` (literal `role: net`) and/or
   `params:` (fills `{placeholder}`s in the cell's own `net_template:` fields, same substitution as
-  via/track `net:`). Ambiguous candidates (2+ matching the resolved net) are narrowed by
+  via/track `net:`). Since Phase 2 step 2.1 these are OPTIONAL overrides: a role with no explicit
+  net auto-derives its expected net from the live board (`derive_role_nets` — the unique instance's
+  designated net, or the single non-rule net shared by all its candidates), and a LITERAL local
+  `/Channel_0/...` `net_template` is prefix-remapped to the target channel (`TwinMap.twin_net`
+  semantics). Ambiguous candidates (2+ matching the resolved net) are narrowed by
   the placement's own `sheet` → its own `Cluster` (the placement's `name:` — NOT `anchor_sheet`/`anchor_cluster`,
   which narrow only the anchor, see "Anchored" above) → current board selection → physical proximity
   to the anchor → a fatal error, in that order — see `clone_role_resolver.py`'s docstrings for the
@@ -348,9 +352,9 @@ clone_placements:
 | `rotation_deg` | Default `0.0`. Rotates the cell's contents (anchored mode) or the whole thing (absolute mode). |
 | `anchor_ref` / `anchor_role`(+`anchor_sheet`+`anchor_cluster`) / `anchor_point` | Optional, mutually exclusive — see **Positioning** above. |
 | `anchor_pad` | Optional, only meaningful with an anchor set — narrows the anchor to a specific pad rather than the footprint's centre. |
-| `nets` | `{role: literal_net}` — by-nets role mapping. |
+| `nets` | OPTIONAL (Phase 2 step 2.1): `{role: literal_net}` — explicit by-nets role mapping; when absent the role's expected net auto-derives from the live board. |
 | `params` | `{placeholder: value}` — fills `{placeholder}`s in the cell's `net_template:`/via/track `net:` fields; presence alone (even with empty `nets`) selects by-nets mode unless `by_selection: true`. |
-| `net_overrides` | `{resolved_net: replacement_net}` — final string substitution after the rest of net resolution, for edge cases the placeholder system can't express directly. |
+| `net_overrides` | OPTIONAL (Phase 2 step 2.1): `{resolved_net: replacement_net}` — final string substitution after the rest of net resolution, for edge cases the placeholder system can't express directly. |
 | `refs` | `{role: refdes}` — explicit override, bypassing net-based search entirely; last resort when candidates are electrically indistinguishable. |
 | `retired` / `skip` | Same convention as `Rule` — see above. `retired` always wins over `--only`/`--cluster`. |
 | `by_selection` | Default `false`. Forces selection mode even when `params`/`nets` are present. |

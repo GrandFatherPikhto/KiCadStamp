@@ -17,6 +17,7 @@ from kicadstamp.placement.services.clone_role_resolver import (
     resolve_roles_by_selection, resolve_roles_by_nets, resolve_anchor_by_role,
     candidate_nets_by_role, resolve_single_role_candidate,
     suggest_role_nets_from_cluster,
+    _prefix_remap_local_net, _target_channel,
 )
 from kicadstamp.exceptions import ValidationError
 
@@ -1145,3 +1146,129 @@ class TestCandidateNetsByRole:
         result = candidate_nets_by_role(adapter, ["AD_DAC"], "DAC_BUF")
 
         assert result == {}
+
+
+class TestResolveRolesByNetsAutoDerive:
+    """Phase 2 step 2.1 — roles with NO explicit net source (no clone.nets, no
+    cell net_template) auto-derive their expected net from the live board via
+    derive_role_nets (live_pad / prefix_remap). nets:/params:/net_overrides are
+    optional overrides; the fatal "a net is required for every role" is gone
+    when the net can be derived automatically
+    (design_2026_08_28_phase2_step2_1_mini.md)."""
+
+    def _adapter(self, fps):
+        adapter = MagicMock()
+        adapter.get_footprints.return_value = fps
+        adapter.get_field_value.side_effect = _role_or_cluster
+        adapter.get_footprint_pads.side_effect = _get_pads
+        adapter.get_pad_by_number.side_effect = _get_pad_by_number
+        adapter.get_selected_items.return_value = []
+        return adapter
+
+    def test_unique_instance_single_net_live_pad(self):
+        """A role with no net source at all resolves via its unique instance's
+        single net (derive_role_nets live_pad, priority 1)."""
+        tpl = Cell(name="t", components=[TemplateComponentSlot(role="X")])
+        fps = [_make_fp("A", "X", ["NET1"], cluster="c")]
+        adapter = self._adapter(fps)
+        clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0))  # no nets/params
+        result = resolve_roles_by_nets(adapter, tpl, clone)
+        assert result == {"X": "A"}
+
+    def test_shared_single_net_across_identical_candidates(self):
+        """N identical instances on one net (e.g. +3V3 PI-filters): the single
+        shared non-rule net is the expected net (live_pad), then the normal
+        ambiguity cascade (the placement's own Cluster) disambiguates the
+        instance — Kuhn is NOT used for instance selection."""
+        tpl = Cell(name="t", components=[TemplateComponentSlot(role="CAP_IN")])
+        fps = [
+            _make_fp("C1", "CAP_IN", ["+3V3"], cluster="ch1"),
+            _make_fp("C2", "CAP_IN", ["+3V3"], cluster="ch2"),
+            _make_fp("C3", "CAP_IN", ["+3V3"], cluster="ch2"),
+        ]
+        adapter = self._adapter(fps)
+        clone = ClonePlacement(cluster="ch1", cell="t", xy=(0, 0))
+        result = resolve_roles_by_nets(adapter, tpl, clone)
+        assert result == {"CAP_IN": "C1"}
+
+    def test_literal_local_net_template_prefix_remapped(self):
+        """prefix_remap (derive_role_nets priority 2, TwinMap.twin_net
+        semantics): a LITERAL local net '/Channel_0/...' in the cell auto-remaps
+        to '/Channel_1/...' when the placement's Cluster names Channel_1 — no
+        {channel} param, no nets:."""
+        tpl = Cell(name="dac", components=[
+            TemplateComponentSlot(role="DAC_DB1_CAP", net_template="/Channel_0/DAC/DB1"),
+        ])
+        fps = [_make_fp("C50", "DAC_DB1_CAP", ["/Channel_1/DAC/DB1"], cluster="Channel_1")]
+        adapter = self._adapter(fps)
+        clone = ClonePlacement(cluster="Channel_1", cell="dac", xy=(0, 0))
+        result = resolve_roles_by_nets(adapter, tpl, clone)
+        assert result == {"DAC_DB1_CAP": "C50"}
+
+    def test_parametrized_net_template_not_remapped(self):
+        """A parametrized net_template ({channel}) is the user's explicit
+        choice — prefix_remap must NOT silently override it."""
+        tpl = Cell(name="dac", components=[
+            TemplateComponentSlot(role="DAC_DB1_CAP", net_template="/Channel_{channel}/DAC/DB1"),
+        ])
+        fps = [_make_fp("C50", "DAC_DB1_CAP", ["/Channel_0/DAC/DB1"], cluster="Channel_0")]
+        adapter = self._adapter(fps)
+        # params explicitly say channel 0; the placement Cluster is Channel_1 —
+        # the parametrized net is respected as written (no remap).
+        clone = ClonePlacement(cluster="Channel_1", cell="dac", xy=(0, 0), params={"channel": 0})
+        result = resolve_roles_by_nets(adapter, tpl, clone)
+        assert result == {"DAC_DB1_CAP": "C50"}
+
+    def test_bridging_unique_instance_without_designated_pad_maps_directly(self):
+        """A unique instance whose net cannot be reduced to one (bridging role,
+        no net_template_pad) is mapped DIRECTLY — no guessing which net is
+        'the' net (mini-design §3)."""
+        tpl = Cell(name="t", components=[TemplateComponentSlot(role="FB")])
+        fps = [_make_fp("FB1", "FB", ["+5V", "+5V_DIRTY"], cluster="c")]
+        adapter = self._adapter(fps)
+        clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0))
+        result = resolve_roles_by_nets(adapter, tpl, clone)
+        assert result == {"FB": "FB1"}
+
+    def test_bridging_unique_instance_with_designated_pad_live_pad(self):
+        """A bridging role with net_template_pad: the designated pad's net is
+        the expected net (live_pad)."""
+        tpl = Cell(name="t", components=[
+            TemplateComponentSlot(role="FB", net_template_pad="1")])
+        fps = [_make_fp("FB1", "FB", ["+5V", "+5V_DIRTY"], cluster="c")]
+        adapter = self._adapter(fps)
+        clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0))
+        result = resolve_roles_by_nets(adapter, tpl, clone)
+        assert result == {"FB": "FB1"}
+
+    def test_no_derivable_net_raises_improved_error(self):
+        """Candidates on DIFFERENT nets, no unique instance, no cluster/sheet to
+        narrow — honest error (never a silent guess)."""
+        tpl = Cell(name="t", components=[TemplateComponentSlot(role="X")])
+        fps = [_make_fp("A", "X", ["NET_A"], cluster="c"),
+               _make_fp("B", "X", ["NET_B"], cluster="c")]
+        adapter = self._adapter(fps)
+        clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0))
+        with pytest.raises(ValidationError, match="X"):
+            resolve_roles_by_nets(adapter, tpl, clone)
+
+
+class TestPrefixRemapHelpers:
+    """Unit tests for the Step 2.1 prefix_remap helpers (mini-design §2)."""
+
+    def test_target_channel(self):
+        assert _target_channel(ClonePlacement(cluster="Channel_1", cell="c", xy=(0, 0))) == "Channel_1"
+        assert _target_channel(ClonePlacement(cluster="PIF_DVDD", cell="c", xy=(0, 0))) is None
+        assert _target_channel(ClonePlacement(cluster="/Channel_2/", cell="c", xy=(0, 0))) == "Channel_2"
+
+    def test_prefix_remap_local_net(self):
+        clone = ClonePlacement(cluster="Channel_1", cell="c", xy=(0, 0))
+        assert _prefix_remap_local_net("/Channel_0/DAC/DB1", clone) == "/Channel_1/DAC/DB1"
+        # same channel — no remap
+        same = ClonePlacement(cluster="Channel_0", cell="c", xy=(0, 0))
+        assert _prefix_remap_local_net("/Channel_0/DAC/DB1", same) is None
+        # non-channel cluster — no remap
+        no_ch = ClonePlacement(cluster="PIF_DVDD", cell="c", xy=(0, 0))
+        assert _prefix_remap_local_net("/Channel_0/DAC/DB1", no_ch) is None
+        # flat net — no remap
+        assert _prefix_remap_local_net("DAC0_DB1", clone) is None
