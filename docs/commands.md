@@ -18,6 +18,20 @@ If no command is given, `apply` is assumed.
 
 Loads the configuration, connects to KiCad, performs validation, planning, and **three‑phase execution** (moves → vias → tracks).
 
+**Automatic net definition (Phase 2, 2026-08-28) — no manual nets needed.** At
+apply time a clone's role expected nets auto-derive from the live board via
+`derive_role_nets`: `live_pad` (the unique instance's designated net, or the one
+net shared by all its candidates) and `prefix_remap` (a literal `/Channel_0/...`
+`net_template` is remapped to the target channel — `TwinMap.twin_net`
+semantics). `nets:`/`params:`/`net_overrides:`/`refs:` are OPTIONAL overrides.
+The implicit mode (no `nets`/`params`/`by_selection`) auto-picks by-nets
+whenever the cell auto-derives on the board, else by-selection (Phase 2 step
+2.3); `by_selection: true` remains the explicit override. Extract already
+writes `net_from_role` / auto `net_template` / auto `{param}` patterns
+(Phase 1) and `clone-plan` auto-generates `clone_placements:` without manual
+nets (Phase 3) — see those sections. Combined, nothing in the net coordinate
+needs to be typed by hand.
+
 **Move ordering (dependency chain).** Within the moves phase, `rules`/`clone_placements` are not all
 planned from one snapshot any more — each item's anchor (`anchor_ref`/`anchor_role`) is resolved against
 the board, and if that anchor is a ref that ANOTHER item in the same run is about to place, the producer

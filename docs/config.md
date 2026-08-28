@@ -658,6 +658,12 @@ extract_profiles:
 are a fatal error (a typo'd key, e.g. `origin-by-via-net` with the wrong separator, used to be silently
 ignored). `clone_profiles:` (for `clone-extract`) accepts: `net`, `pcb`, `channel`, `output`.
 
+`params`/`net_template`/`net_template_role`/`rule_nets` are **OPTIONAL overrides**
+(Phase 1/2, 2026-08-28): via/track nets resolve from roles (`net_from_role`),
+bridging roles auto-derive their `net_template`, and `{param}` channel patterns
+are auto-discovered — these keys are only needed for rare manual exceptions
+(soft-deprecated, kept for backward compatibility).
+
 `rule_nets:` (2026-08-05, `--rule-net LITERAL`, repeatable) — a list of literal net names to write as
 `net: null` on any matching via/track instead of the literal (or an alias) — see the `vias:` note
 above on what `null` means there. Only useful for a cell meant to be placed via **`rules:`**/
