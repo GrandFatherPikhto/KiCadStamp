@@ -78,6 +78,16 @@ class PcbFootprint:
     y_mm: float
     rotation_deg: float
     layer: str
+    # Custom Role field (the same role the extract/placement pipeline reads
+    # from the live adapter) — Phase 3 step 3.1: needed to auto-generate the
+    # clone_placements role->net mapping from the file-based snapshot, without
+    # IPC. None when the footprint has no Role property (e.g. non-channel
+    # footprints, or a board not yet tagged).
+    role: str | None = None
+    # Real pad nets, in pad order ("" pads skipped? no — kept, they simply
+    # carry no net). Used to derive each role's expected net on the target
+    # channel via TwinMap.twin_net.
+    pad_nets: list[str] = field(default_factory=list)
 
     @property
     def channel_uuid(self) -> str | None:

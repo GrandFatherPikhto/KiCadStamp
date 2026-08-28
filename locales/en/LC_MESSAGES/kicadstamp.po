@@ -8151,3 +8151,91 @@ msgid ""
 "cells need none of this. Can be repeated. Fatal if the same net is also "
 "in --param/--net-template."
 msgstr ""
+
+#: kicadstamp/cloner/plan.py (Phase 3 clone-plan strings, 2026-08-28)
+#, python-brace-format
+msgid ""
+"duplicate role {role!r} on {ref} in one channel — clone-plan uses the "
+"first occurrence"
+msgstr ""
+
+#: kicadstamp/cloner/plan.py (Phase 3 clone-plan strings, 2026-08-28)
+#, python-brace-format
+msgid "no footprints for channel {channel!r} on the board"
+msgstr ""
+
+#: kicadstamp/cloner/plan.py (Phase 3 clone-plan strings, 2026-08-28)
+#, python-brace-format
+msgid "target channel {channel!r} not found; available: {avail}"
+msgstr ""
+
+#: kicadstamp/cloner/plan.py (Phase 3 clone-plan strings, 2026-08-28)
+#, python-brace-format
+msgid "net_matching {src} -> {dst}: {error}"
+msgstr ""
+
+#: kicadstamp/cloner/plan.py (Phase 3 clone-plan strings, 2026-08-28)
+#, python-brace-format
+msgid ""
+"net_matching {src} -> {dst}: electrically symmetric roles in group "
+"{roles} — any assignment is valid; disambiguate by sheet/cluster when "
+"several instances share these nets"
+msgstr ""
+
+#: kicadstamp/cli.py
+msgid ""
+"[error] need --net/--pcb/--source/--cell (and --output to write the "
+".sexp block)"
+msgstr ""
+
+#: kicadstamp/cli.py
+msgid "[error] --xy needs X,Y in mm (e.g. --xy 120.0,80.0)"
+msgstr ""
+
+#: kicadstamp/cli.py
+#, python-brace-format
+msgid "clone_placements for {channels} (cell {cell!r}) written: {output}"
+msgstr ""
+
+#: kicadstamp/cli.py
+#, python-brace-format
+msgid ""
+"clone_placements for {channels} (cell {cell!r}) — rerun with --output to "
+"write the .sexp block"
+msgstr ""
+
+#: kicadstamp/cli_main.py
+msgid "Generate a ready clone_placements: block for a channel clone (file-based, no IPC)"
+msgstr ""
+
+#: kicadstamp/cli_main.py
+msgid "Source channel, e.g. Channel_0"
+msgstr ""
+
+#: kicadstamp/cli_main.py
+msgid "Cell (template) name to clone"
+msgstr ""
+
+#: kicadstamp/cli_main.py
+msgid "Cluster tag base (default: the target channel name)"
+msgstr ""
+
+#: kicadstamp/cli_main.py
+msgid "Target channels, comma-separated (default: every other channel)"
+msgstr ""
+
+#: kicadstamp/cli_main.py
+msgid "Absolute position in mm (default: the target channel's own bbox origin)"
+msgstr ""
+
+#: kicadstamp/cli_main.py
+msgid "Anchor by Role field (survives re-annotation)"
+msgstr ""
+
+#: kicadstamp/cli_main.py
+msgid "Narrow the anchor role by sheet"
+msgstr ""
+
+#: kicadstamp/cli_main.py
+msgid "Output .sexp file to write the clone_placements: block to"
+msgstr ""

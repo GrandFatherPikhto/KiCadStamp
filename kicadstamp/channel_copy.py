@@ -50,6 +50,7 @@ from .domain.geometry import BoardLayer
 from .domain.geometry import Vector2, Angle
 
 from .cloner.models import TwinMap
+from .cloner.plan import verify_channel_net_mapping
 from .config import Config
 from .constants import (DEFAULT_BATCH_SIZE, POSITION_TOLERANCE_MM,
                         ANGLE_TOLERANCE_DEG, ROLE_FIELD_NAME)
@@ -83,6 +84,44 @@ def _channel_name_of_fp(adapter, fp) -> str | None:
         if net and net.startswith("/Channel_"):
             return net.split("/")[1]
     return None
+
+
+def _channel_uuid(fp) -> str | None:
+    """The channel sheet uuid of a footprint (path[0]) — or None."""
+    uuids = _path_uuids(fp)
+    return uuids[0] if uuids else None
+
+
+def _live_role_nets(adapter, fps: list) -> dict[str, list[str]]:
+    """{role: [pad nets in pad order]} for live footprints — the Role field +
+    real pad nets from the adapter. Feeds net_matching (Phase 3 step 3.2) with
+    the channels' role<->net evidence. First occurrence of a role wins (same
+    rule as clone-plan / extract)."""
+    out: dict[str, list[str]] = {}
+    for fp in fps:
+        role = adapter.get_field_value(fp, ROLE_FIELD_NAME)
+        if not role or role in out:
+            continue
+        nets = [getattr(p, "net_name", None) or "" for p in adapter.get_footprint_pads(fp)]
+        out[role] = [n for n in nets if n]
+    return out
+
+
+def verify_channel_copy_nets(adapter, all_fps, src_uuid: str, dst_uuid: str,
+                             src_channel: str, dst_channel: str) -> list[str]:
+    """Phase 3 step 3.2: verify the Role<->Net correspondence between the two
+    channels' LIVE footprints via net_matching (Kuhn + Tarjan SCC, Phase 0).
+    Returns diagnostics — SCC ambiguity groups, or a non-isomorphism report —
+    logged as warnings, NEVER a stop (safe-default: every member of an
+    ambiguous SCC is a formally correct answer). The copy itself still uses
+    the deterministic TwinMap.twin_net prefix remap; this is the verification
+    layer proving the remap is a real perfect matching."""
+    src_fps = [fp for fp in all_fps if _channel_uuid(fp) == src_uuid]
+    dst_fps = [fp for fp in all_fps if _channel_uuid(fp) == dst_uuid]
+    src_role_nets = _live_role_nets(adapter, src_fps)
+    dst_role_nets = _live_role_nets(adapter, dst_fps)
+    return verify_channel_net_mapping(src_role_nets, dst_role_nets,
+                                      src_channel, dst_channel)
 
 
 # ── Task 2.1: twin map from the LIVE board ───────────────────────────────────
@@ -569,6 +608,12 @@ def plan_channel_copy(adapter, *, src_uuid: str, dst_uuid: str,
                              "Rerun with --include-global to copy it too.")
                            .format(segs=report.segments, vias=report.vias,
                                    nets=", ".join(sorted(report.nets)) or "-"))
+
+    # Phase 3 step 3.2: verify the Role<->Net correspondence via net_matching
+    # (Kuhn + SCC) — SCC ambiguity is DIAGNOSTIC, never a stop.
+    for diag in verify_channel_copy_nets(adapter, all_fps, src_uuid, dst_uuid,
+                                         src_channel, dst_channel):
+        logger.warning(diag)
 
     logger.info(_("{src} -> {dst}: {moves} moves, {vias} vias, {tracks} tracks planned")
                 .format(src=src_channel, dst=dst_channel,

@@ -8108,3 +8108,100 @@ msgstr ""
 "переиспользуемых через ManualSpoke — ячейкам с net_from_role это не "
 "нужно. Можно повторять. Фатал, если та же цепь есть и в "
 "--param/--net-template."
+
+#: kicadstamp/cloner/plan.py (Phase 3 clone-plan strings, 2026-08-28)
+#, python-brace-format
+msgid ""
+"duplicate role {role!r} on {ref} in one channel — clone-plan uses the "
+"first occurrence"
+msgstr ""
+"дубликат роли {role!r} на {ref} в одном канале — clone-plan берёт "
+"первое вхождение"
+
+#: kicadstamp/cloner/plan.py (Phase 3 clone-plan strings, 2026-08-28)
+#, python-brace-format
+msgid "no footprints for channel {channel!r} on the board"
+msgstr "на плате нет футпринтов для канала {channel!r}"
+
+#: kicadstamp/cloner/plan.py (Phase 3 clone-plan strings, 2026-08-28)
+#, python-brace-format
+msgid "target channel {channel!r} not found; available: {avail}"
+msgstr "целевой канал {channel!r} не найден; доступны: {avail}"
+
+#: kicadstamp/cloner/plan.py (Phase 3 clone-plan strings, 2026-08-28)
+#, python-brace-format
+msgid "net_matching {src} -> {dst}: {error}"
+msgstr "net_matching {src} -> {dst}: {error}"
+
+#: kicadstamp/cloner/plan.py (Phase 3 clone-plan strings, 2026-08-28)
+#, python-brace-format
+msgid ""
+"net_matching {src} -> {dst}: electrically symmetric roles in group "
+"{roles} — any assignment is valid; disambiguate by sheet/cluster when "
+"several instances share these nets"
+msgstr ""
+"net_matching {src} -> {dst}: электрически симметричные роли в группе "
+"{roles} — любое назначение валидно; различайте по sheet/cluster, когда "
+"несколько инстансов делят эти сети"
+
+#: kicadstamp/cli.py
+msgid ""
+"[error] need --net/--pcb/--source/--cell (and --output to write the "
+".sexp block)"
+msgstr ""
+"[error] нужны --net/--pcb/--source/--cell (и --output для записи "
+".sexp-блока)"
+
+#: kicadstamp/cli.py
+msgid "[error] --xy needs X,Y in mm (e.g. --xy 120.0,80.0)"
+msgstr "[error] --xy требует X,Y в мм (например, --xy 120.0,80.0)"
+
+#: kicadstamp/cli.py
+#, python-brace-format
+msgid "clone_placements for {channels} (cell {cell!r}) written: {output}"
+msgstr "clone_placements для {channels} (ячейка {cell!r}) записан: {output}"
+
+#: kicadstamp/cli.py
+#, python-brace-format
+msgid ""
+"clone_placements for {channels} (cell {cell!r}) — rerun with --output to "
+"write the .sexp block"
+msgstr ""
+"clone_placements для {channels} (ячейка {cell!r}) — повторите с "
+"--output, чтобы записать .sexp-блок"
+
+#: kicadstamp/cli_main.py
+msgid "Generate a ready clone_placements: block for a channel clone (file-based, no IPC)"
+msgstr "Сгенерировать готовый блок clone_placements: для клонирования канала (файлово, без IPC)"
+
+#: kicadstamp/cli_main.py
+msgid "Source channel, e.g. Channel_0"
+msgstr "Исходный канал, например Channel_0"
+
+#: kicadstamp/cli_main.py
+msgid "Cell (template) name to clone"
+msgstr "Имя ячейки (шаблона) для клонирования"
+
+#: kicadstamp/cli_main.py
+msgid "Cluster tag base (default: the target channel name)"
+msgstr "Базовый тег Cluster (по умолчанию — имя целевого канала)"
+
+#: kicadstamp/cli_main.py
+msgid "Target channels, comma-separated (default: every other channel)"
+msgstr "Целевые каналы через запятую (по умолчанию — все остальные)"
+
+#: kicadstamp/cli_main.py
+msgid "Absolute position in mm (default: the target channel's own bbox origin)"
+msgstr "Абсолютная позиция в мм (по умолчанию — bbox-угол самого целевого канала)"
+
+#: kicadstamp/cli_main.py
+msgid "Anchor by Role field (survives re-annotation)"
+msgstr "Якорь по полю Role (переживает реаннотацию)"
+
+#: kicadstamp/cli_main.py
+msgid "Narrow the anchor role by sheet"
+msgstr "Сузить якорь по роли через sheet"
+
+#: kicadstamp/cli_main.py
+msgid "Output .sexp file to write the clone_placements: block to"
+msgstr "Выходной .sexp-файл для записи блока clone_placements:"

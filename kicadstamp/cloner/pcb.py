@@ -16,8 +16,9 @@ are made deliberately after cloning.
 import logging
 
 
-from .sexp import load_file, children, child, atom, sval, is_node
+from .sexp import load_file, children, child, atom, sval
 from .models import PcbFootprint, PcbSegment, PcbVia, ChannelPcbSnapshot
+from ..constants import ROLE_FIELD_NAME
 from ..i18n import _
 
 logger = logging.getLogger(__name__)
@@ -57,10 +58,20 @@ class PcbDocument:
         for fp in children(self.root, 'footprint'):
             at = child(fp, 'at') or [None, 0, 0]
             ref = ''
+            role = None
             for prop in children(fp, 'property'):
-                if len(prop) >= 3 and sval(prop[1]) == 'Reference':
+                if len(prop) < 3:
+                    continue
+                key = sval(prop[1])
+                if key == 'Reference':
                     ref = sval(prop[2])
-                    break
+                elif key == ROLE_FIELD_NAME:
+                    role = sval(prop[2]) or None
+            # Phase 3 step 3.1: capture each pad's real net (in pad order),
+            # for deriving the role's expected net on the target channel via
+            # TwinMap.twin_net — the file-based clone_placements auto-fill.
+            pad_nets = [self._net_ref(pad)[1] for pad in children(fp, 'pad')]
+            pad_nets = [n for n in pad_nets if n]
             out.append(PcbFootprint(
                 uuid=atom(fp, 'uuid', ''),
                 ref=ref,
@@ -70,6 +81,8 @@ class PcbDocument:
                 y_mm=_num(at[2]) if len(at) > 2 else 0.0,
                 rotation_deg=_num(at[3]) if len(at) > 3 else 0.0,
                 layer=atom(fp, 'layer', ''),
+                role=role,
+                pad_nets=pad_nets,
             ))
         return out
 

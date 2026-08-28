@@ -20,7 +20,7 @@ from unittest.mock import MagicMock
 import pytest
 from kipy.board_types import FootprintInstance, Via, Track
 from kicadstamp.domain.geometry import BoardLayer
-from kicadstamp.domain.geometry import Vector2, Angle
+from kicadstamp.domain.geometry import Vector2
 
 from kicadstamp.config import Config
 from kicadstamp.exceptions import ValidationError
@@ -41,6 +41,7 @@ from kicadstamp.channel_copy import (
     transform_angle,
     transform_layer,
     transform_point,
+    verify_channel_copy_nets,
 )
 
 # ── fixtures: a three-channel board (Channel_0/1), one "IC" and one "C" each ──
@@ -596,3 +597,40 @@ class TestHighLevel:
         adapter = _adapter(_channel_fps())
         with pytest.raises(ValidationError):
             channel_copy(adapter, src="Channel_0", dst="Channel_1", dry_run=True)
+
+
+class TestVerifyChannelCopyNets:
+    """Phase 3 step 3.2 — net_matching (Kuhn + SCC) verifies the Role<->Net
+    correspondence between the two channels' LIVE footprints. Diagnostics are
+    surfaced as warnings, NEVER a stop (safe-default thesis)."""
+
+    def _adapter_and_fps(self, c1_nets=None):
+        fps = _channel_fps()
+        if c1_nets is not None:
+            # retarget Channel_1's bypass cap onto a DIFFERENT net
+            c1 = next(fp for fp in fps if fp.ref == "C1")
+            c1._pad_nets = list(c1_nets)
+        return _adapter(fps), fps
+
+    def test_clean_channels_no_diagnostics(self):
+        adapter, fps = self._adapter_and_fps()
+        assert verify_channel_copy_nets(
+            adapter, fps, CH0, CH1, "Channel_0", "Channel_1") == []
+
+    def test_mismatched_channel_reports_diagnostic(self):
+        adapter, fps = self._adapter_and_fps(
+            c1_nets=["/Channel_1/DAC/DIFFERENT"])
+        diagnostics = verify_channel_copy_nets(
+            adapter, fps, CH0, CH1, "Channel_0", "Channel_1")
+        assert any("net_matching" in d for d in diagnostics)
+
+    def test_plan_still_executes_when_net_matching_reports(self, caplog):
+        """The mismatch is a DIAGNOSTIC, not a stop — the copy plan is still
+        built (the deterministic twin_net prefix remap governs the copper),
+        and the net_matching report is logged as a warning."""
+        adapter, fps = self._adapter_and_fps(
+            c1_nets=["/Channel_1/DAC/DIFFERENT"])
+        with caplog.at_level("WARNING"):
+            _dummy, plan = _plan_for(fps)
+        assert plan is not None
+        assert any("net_matching" in r.message for r in caplog.records)

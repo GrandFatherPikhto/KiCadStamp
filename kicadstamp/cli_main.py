@@ -20,8 +20,8 @@ from kicadstamp.i18n import setup_i18n
 setup_i18n()
 
 from kicadstamp import __version__
-from kicadstamp.cli import (cmd_channel_copy, cmd_clone_extract, cmd_extract,
-                            cmd_extract_net, cmd_flatten, cmd_undo)
+from kicadstamp.cli import (cmd_channel_copy, cmd_clone_extract, cmd_clone_plan,
+                            cmd_extract, cmd_extract_net, cmd_flatten, cmd_undo)
 from kicadstamp.cli_common import peek_log_file, run_cli
 from kicadstamp.logging_setup import setup_logging
 from kicadstamp.constants import DEFAULT_TIMEOUT_MS, DEFAULT_BATCH_SIZE
@@ -54,7 +54,7 @@ if hasattr(sys.stderr, "reconfigure"):
 # not a flag) is treated as a bare config path for 'apply' — see
 # _rewrite_bare_config_to_apply().
 _SUBCOMMANDS = ("apply", "undo", "extract", "extract-net", "clone-extract",
-                "channel-copy", "flatten")
+                "clone-plan", "channel-copy", "flatten")
 
 
 def _looks_like_misspelled_subcommand(token: str) -> bool:
@@ -156,6 +156,25 @@ def main() -> int:
                                help=_("Take net/pcb/channel/output from profile NAME in --profiles file "
                                       "(cannot combine with explicit flags)"))
     clone_extract.add_argument("-v", "--verbose", action="store_true", help=_("Verbose output"))
+
+    clone_plan = subparsers.add_parser(
+        "clone-plan",
+        help=_("Generate a ready clone_placements: block for a channel clone (file-based, no IPC)")
+    )
+    clone_plan.add_argument("--net", help=_("Path to .net file"))
+    clone_plan.add_argument("--pcb", help=_("Path to .kicad_pcb file"))
+    clone_plan.add_argument("--source", help=_("Source channel, e.g. Channel_0"))
+    clone_plan.add_argument("--cell", help=_("Cell (template) name to clone"))
+    clone_plan.add_argument("--cluster", metavar="TAG",
+                            help=_("Cluster tag base (default: the target channel name)"))
+    clone_plan.add_argument("--targets", metavar="CH,CH,...",
+                            help=_("Target channels, comma-separated (default: every other channel)"))
+    clone_plan.add_argument("--xy", metavar="X,Y",
+                            help=_("Absolute position in mm (default: the target channel's own bbox origin)"))
+    clone_plan.add_argument("--anchor-role", help=_("Anchor by Role field (survives re-annotation)"))
+    clone_plan.add_argument("--anchor-sheet", help=_("Narrow the anchor role by sheet"))
+    clone_plan.add_argument("--output", help=_("Output .sexp file to write the clone_placements: block to"))
+    clone_plan.add_argument("-v", "--verbose", action="store_true", help=_("Verbose output"))
 
     extract_parser = subparsers.add_parser("extract", help=_("Extract spoke cell from current selection"))
     extract_parser.add_argument("--name", help=_("Cell name (key in cells:)"))
@@ -298,7 +317,8 @@ def main() -> int:
         if rewritten and e.code == 2:
             print(_("Note: the first argument was taken as a config path for 'apply' "
                     "(bare-config shorthand). If you meant a subcommand, spell it exactly: "
-                    "apply, undo, extract, extract-net, clone-extract, channel-copy, flatten."),
+                    "apply, undo, extract, extract-net, clone-extract, clone-plan, "
+                    "channel-copy, flatten."),
                   file=sys.stderr)
         raise
 
@@ -325,6 +345,8 @@ def main() -> int:
             cmd_undo(args)
         elif args.command == "clone-extract":
             cmd_clone_extract(args)
+        elif args.command == "clone-plan":
+            cmd_clone_plan(args)
         elif args.command == "extract":
             cmd_extract(args)
         elif args.command == "extract-net":

@@ -46,7 +46,7 @@ def snapshot_to_dict(snap: ChannelPcbSnapshot, twin: TwinMap) -> dict[str, Any]:
                         'x1': round(bb[2], 3), 'y1': round(bb[3], 3)}
 
     for f in sorted(snap.footprints, key=lambda x: x.ref):
-        d['footprints'].append({
+        entry = {
             'ref': f.ref,
             'lib_id': f.lib_id,
             'x_mm': round(f.x_mm, 4), 'y_mm': round(f.y_mm, 4),
@@ -54,7 +54,15 @@ def snapshot_to_dict(snap: ChannelPcbSnapshot, twin: TwinMap) -> dict[str, Any]:
             'layer': f.layer,
             'uuid': f.uuid,
             'twins': twins_of(f.ref),
-        })
+        }
+        # Phase 3 step 3.1: Role + real pad nets per footprint — the file-based
+        # evidence clone-plan turns into the clone_placements role->net mapping
+        # (also handy in the snapshot itself).
+        if f.role:
+            entry['role'] = f.role
+        if f.pad_nets:
+            entry['nets'] = list(f.pad_nets)
+        d['footprints'].append(entry)
 
     for s in snap.segments:
         d['segments'].append({

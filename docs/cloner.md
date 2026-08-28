@@ -18,6 +18,7 @@ The `cloner/` module provides the `clone-extract` command for offline (no‑IPC)
 cloner/
 ├── __init__.py           # Public API export
 ├── extract.py            # Main entry point – channel extraction to YAML
+├── plan.py               # Phase 3 – auto clone_placements block + net_matching verify
 ├── models.py             # Dataclasses for all entities (components, segments, vias, twin map)
 ├── netlist.py            # .net file parsing, twin map construction
 ├── pcb.py                # .kicad_pcb parsing, channel data extraction
@@ -131,6 +132,24 @@ Ties together the netlist and board, builds the channel snapshot, and serialises
 | `snapshot_to_dict(snap, twin)` | Serialises `ChannelPcbSnapshot` and `TwinMap` into a dictionary, adding `twins` for each component. |
 | `extract_channel(net_path, pcb_path, channel, output_yaml)` | The main function called from the CLI. Performs all steps and returns the result dictionary. |
 
+### `plan.py` – Auto clone_placements block (Phase 3)
+
+**Purpose:** turns the file-based snapshot into a ready `clone_placements:` block
+for a channel clone — WITHOUT manually writing params:/nets:. Also hosts the
+net_matching verification shared with the live `channel-copy` flow.
+
+**Key Functions:**
+
+| Function | Description |
+|----------|-------------|
+| `plan_clone_placements(...)` | Generates the `clone_placements:` LIST of records (one per target channel): name/cluster/cell/xy, params `{channel: N}`, and nets `{role: net}` auto-derived from the source channel's real pad nets via `TwinMap.twin_net` — local nets prefix-remapped `/Channel_0/...` → `/Channel_N/...`, a role with exactly one global net keeps it as-is, bridging/multi-net roles are deliberately left to the cell's own auto-derived net_template (never a silent guess). |
+| `verify_channel_net_mapping(...)` | Runs net_matching (Kuhn + Tarjan SCC, Phase 0) on two channels' role↔net evidence. SCC ambiguity / non-isomorphism is returned as DIAGNOSTICS, never a stop (safe-default: every member of an ambiguous SCC is a valid answer). |
+| `clone_placements_to_dict(...)` | Wraps the generated records under the `clone_placements:` top-level key (the config list-section shape). |
+
+Per-footprint `Role` + pad nets come from the `.kicad_pcb` parser
+(`PcbFootprint.role` / `.pad_nets`, Phase 3) and are also included in the
+snapshot output.
+
 ---
 
 ## Output YAML Snapshot Format
@@ -188,9 +207,9 @@ foreign_in_bbox:
 
 ## Relationships with Other Modules
 
-The `cloner/` module is **self‑contained** and does not depend on `kicad/adapter.py`, `placement/`, or `geometry/`. It is used only in `kicadstamp_cli.py` via the `clone-extract` command.
+The `cloner/` module is **self‑contained** and does not depend on `kicad/adapter.py`, `placement/`, or `geometry/`. It is used in `kicadstamp_cli.py` via the `clone-extract` command, and `plan.py` additionally reuses the Phase 0 `net_matching` module (Kuhn+SCC) and the config s-expr converter.
 
-Its output (YAML snapshots) is intended for **manual analysis** by the developer. Based on these snapshots, configurations for `ClonePlacement` are written, specifying `params` and `nets`; they can also be used to create parameterised templates with `--net-template` and `--param` during extraction (see the `extract` command).
+Its output (YAML snapshots) is intended for **manual analysis** by the developer. The `clone-plan` command automates the next step — generating the ready `clone_placements:` block from the snapshot without hand-writing `params`/`nets` (Phase 3).
 
 ---
 
@@ -216,6 +235,30 @@ python kicadstamp_cli.py clone-extract --net project.net --pcb project.kicad_pcb
 [Channel_0] footprints: 42, segments: 156, vias: 38 -> snapshot.yaml
 ```
 
+### `clone-plan` — auto clone_placements block
+
+```bash
+python kicadstamp_cli.py clone-plan --net project.net --pcb project.kicad_pcb \
+  --source Channel_0 --cell dac --output clone_placements.sexp
+```
+
+**Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `--net` | Path to the `.net` file. |
+| `--pcb` | Path to the `.kicad_pcb` file. |
+| `--source` | Source channel (the one the cell was extracted from). |
+| `--cell` | Cell (template) name to clone. |
+| `--targets` | Target channels, comma-separated (default: every other channel). |
+| `--cluster` | Cluster tag base (default: the target channel name). |
+| `--xy` | Absolute position in mm (default: the target channel's own bbox origin). |
+| `--anchor-role` / `--anchor-sheet` | Anchor by Role field (+ sheet narrowing). |
+| `--output` | Output `.sexp` file with the `clone_placements:` block. |
+
+The output is a ready `clone_placements:` block in the **s-expr** config grammar —
+it loads into the config (apply can run it) without manual net definition.
+
 ---
 
 ## Practical Usage Example
@@ -226,7 +269,8 @@ python kicadstamp_cli.py clone-extract --net project.net --pcb project.kicad_pcb
 4. Examine the resulting YAML:
    - Verify that all components have twins in all channels (incomplete groups will be logged as warnings).
    - Pay attention to `foreign_in_bbox` – this indicates which global nets pass through this channel and will need to be consciously connected in the clone (via spoke vias or separate components).
-5. Based on the snapshot, write a template (`templates`) in your configuration file and specify `nets` for each role, using net names from the snapshot (taking hierarchical paths into account). If needed, use `--net-template` and `--param` to parameterise nets directly during extraction (see the `extract` command).
+5. Run `clone-plan` to auto-generate the `clone_placements:` block for every target channel (cluster/cell/xy + params `{channel: N}` + nets `{role: net}`), writing it straight into the s-expr config — no manual `params`/`nets`.
+6. If the role→net mapping is ambiguous (electrically symmetric roles), `clone-plan` and `channel-copy` report the SCC group as a DIAGNOSTIC warning — never a stop; disambiguate by sheet/cluster.
 
 ---
 

@@ -192,6 +192,56 @@ def cmd_clone_extract(args) -> None:
                         vias=s['vias'], output=output))
 
 
+def cmd_clone_plan(args) -> None:
+    """Generate a ready `clone_placements:` block for a channel clone (Phase 3
+    step 3.1) — file-based cloner, no IPC. Reads net + pcb, auto-derives the
+    role→net mapping via TwinMap + net_matching (SCC ambiguity = diagnostics,
+    never a stop), and writes the block to YAML (or logs it).
+
+    Thin CLI wrapper: turns argparse.Namespace into explicit arguments for
+    kicadstamp.cloner.plan.plan_clone_placements, raising PlacerError on invalid
+    input (the entry point maps it to exit code 1).
+    """
+    from kicadstamp.cloner.netlist import parse_netlist, build_twin_map
+    from kicadstamp.cloner.pcb import PcbDocument
+    from kicadstamp.cloner.plan import plan_clone_placements, clone_placements_to_dict
+    if not (args.net and args.pcb and args.source and args.cell):
+        raise PlacerError(_("[error] need --net/--pcb/--source/--cell (and --output to write the .sexp block)"))
+
+    comps, local_by_ch, _global_nets = parse_netlist(args.net)
+    twin = build_twin_map(comps, local_by_ch)
+    doc = PcbDocument(args.pcb)
+
+    targets = [t.strip() for t in (args.targets or "").split(",") if t.strip()] or None
+    xy = None
+    if args.xy:
+        try:
+            x_str, y_str = args.xy.split(",", 1)
+            xy = (float(x_str), float(y_str))
+        except ValueError:
+            raise PlacerError(_("[error] --xy needs X,Y in mm (e.g. --xy 120.0,80.0)"))
+
+    placements, diagnostics = plan_clone_placements(
+        twin=twin, doc=doc, source_channel=args.source, cell=args.cell,
+        cluster=args.cluster, xy=xy, anchor_role=args.anchor_role,
+        anchor_sheet=args.anchor_sheet, target_channels=targets)
+    for d in diagnostics:
+        logger.warning(d)
+    names = ", ".join(p.get("name") or p.get("cluster") or "?" for p in placements)
+
+    if args.output:
+        # The main config is s-expr (.sexp) — the generated block is serialized
+        # with the same dict->s-expr converter the rest of the config uses.
+        from kicadstamp.config.sexp_format import dict_to_sexp
+        with open(args.output, "w", encoding="utf-8") as f:
+            f.write(dict_to_sexp(clone_placements_to_dict(placements)))
+        logger.info(_("clone_placements for {channels} (cell {cell!r}) written: {output}")
+                    .format(channels=names, cell=args.cell, output=args.output))
+    else:
+        logger.info(_("clone_placements for {channels} (cell {cell!r}) — rerun with --output to write the .sexp block")
+                    .format(channels=names, cell=args.cell))
+
+
 def cmd_channel_copy(args) -> list[str] | None:
     """Copy a whole channel's placement (variant B) via the live twin map.
 
