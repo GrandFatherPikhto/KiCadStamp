@@ -159,11 +159,19 @@ def collect_all_point_names(root_path: Path) -> List[str]:
     gui/docks/rules.py's Point-chain combo (a Rule's own anchor_point can
     name a point declared in ANY file in the graph, points: resolving
     globally the same way cells: does — see collect_all_cell_names above,
-    same reasoning)."""
-    names: set = set()
-    for path in collect_graph_files(root_path):
-        names.update((read_data(path).get("points") or {}).keys())
-    return sorted(names)
+    same reasoning). Empty list on any load failure (broken/unsupported
+    root config) — this is combo autocomplete, not validation: a bad root
+    must never raise unhandled out of the rules dock's root_changed slot
+    (2026-08-28, core_yaml_removal — a stale .yaml path in last_root_file
+    used to crash the whole process; same pattern as collect_all_sheet_names
+    below)."""
+    try:
+        names: set = set()
+        for path in collect_graph_files(root_path):
+            names.update((read_data(path).get("points") or {}).keys())
+        return sorted(names)
+    except (ValidationError, OSError):
+        return []
 
 
 def collect_all_cell_names(root_path: Path) -> List[str]:
@@ -172,11 +180,18 @@ def collect_all_cell_names(root_path: Path) -> List[str]:
     назначать разные целлы разным спицам? Да, думаю комбобоксик"). resolve_
     includes() already treats a cells: key repeated across two files as
     FATAL (dict sections merge key-by-key), so a plain union here can never
-    silently collide — same reasoning name_exists_in_graph above relies on."""
-    names: set = set()
-    for path in collect_graph_files(root_path):
-        names.update((read_data(path).get("cells") or {}).keys())
-    return sorted(names)
+    silently collide — same reasoning name_exists_in_graph above relies on.
+    Empty list on any load failure (broken/unsupported root config) — this
+    is combo autocomplete, not validation: a bad root must never raise
+    unhandled out of the rules dock's root_changed slot (2026-08-28,
+    core_yaml_removal — same pattern as collect_all_sheet_names below)."""
+    try:
+        names: set = set()
+        for path in collect_graph_files(root_path):
+            names.update((read_data(path).get("cells") or {}).keys())
+        return sorted(names)
+    except (ValidationError, OSError):
+        return []
 
 
 def collect_section_entries(root_path: Path, section: str) -> dict:
@@ -189,11 +204,17 @@ def collect_section_entries(root_path: Path, section: str) -> dict:
     reads the whole graph instead of one hand-picked file. A duplicate name
     across two files is already fatal in resolve_includes()/load_config()
     (dict sections merge key-by-key), so a plain update() can never
-    silently collide here."""
-    merged: dict = {}
-    for path in collect_graph_files(root_path):
-        merged.update(read_data(path).get(section) or {})
-    return merged
+    silently collide here. Empty {} on any load failure (broken/unsupported
+    root config) — display/autocomplete, not validation: a bad root must
+    never crash a Qt slot (2026-08-28, core_yaml_removal; same pattern as
+    collect_all_sheet_names)."""
+    try:
+        merged: dict = {}
+        for path in collect_graph_files(root_path):
+            merged.update(read_data(path).get(section) or {})
+        return merged
+    except (ValidationError, OSError):
+        return {}
 
 
 def find_dict_entry_file(root_path: Optional[Path], section: str, name: str) -> Optional[Path]:
@@ -233,26 +254,38 @@ def collect_all_rule_nets(root_path: Path) -> List[str]:
     include: — the net picker for Rules' Bulk-set Cell dialog (2026-08-20,
     plan rule_spoke_fixes stage 3). A net's rules routinely live in DIFFERENT
     included files, so this walks the whole graph, not just the current
-    file."""
-    nets: set = set()
-    for path in collect_graph_files(root_path):
-        for rule in (read_data(path).get("rules") or []):
-            if isinstance(rule, dict) and rule.get("net"):
-                nets.add(rule["net"])
-    return sorted(nets)
+    file. Empty [] on any load failure (broken/unsupported root config) —
+    display/autocomplete, not validation: a bad root must never crash a Qt
+    slot (2026-08-28, core_yaml_removal — confirmed live: this was the
+    unguarded call that crashed the process when root_changed carried a
+    .yaml path; same pattern as collect_all_sheet_names)."""
+    try:
+        nets: set = set()
+        for path in collect_graph_files(root_path):
+            for rule in (read_data(path).get("rules") or []):
+                if isinstance(rule, dict) and rule.get("net"):
+                    nets.add(rule["net"])
+        return sorted(nets)
+    except (ValidationError, OSError):
+        return []
 
 
 def collect_rules_by_net(root_path: Path, net: str) -> List[tuple]:
     """Every (file_path, rule_dict) in the include: graph rooted at
     root_path whose rule's net: equals `net` — what the Bulk-set Cell action
     must touch: ALL of a net's spokes, even when the rules live in different
-    included files (2026-08-20, plan rule_spoke_fixes stage 3)."""
-    result: List[tuple] = []
-    for path in collect_graph_files(root_path):
-        for rule in (read_data(path).get("rules") or []):
-            if isinstance(rule, dict) and rule.get("net") == net:
-                result.append((path, rule))
-    return result
+    included files (2026-08-20, plan rule_spoke_fixes stage 3). Empty [] on
+    any load failure (broken/unsupported root config) — same no-crash
+    contract as collect_all_rule_nets (2026-08-28, core_yaml_removal)."""
+    try:
+        result: List[tuple] = []
+        for path in collect_graph_files(root_path):
+            for rule in (read_data(path).get("rules") or []):
+                if isinstance(rule, dict) and rule.get("net") == net:
+                    result.append((path, rule))
+        return result
+    except (ValidationError, OSError):
+        return []
 
 
 def collect_all_sheet_names(root_path: Path) -> List[str]:
