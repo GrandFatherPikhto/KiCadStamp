@@ -14,14 +14,16 @@ import logging
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from kicadstamp.config.includes import resolve_includes
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
-from kicadstamp.utils.yaml_loader import safe_load
-from kicadstamp.exceptions import PlacerError, check_unknown_keys
+from kicadstamp.exceptions import (
+    PlacerError,
+    check_unknown_keys,
+    unknown_extension_config_error,
+    yaml_removed_config_error,
+)
 from kicadstamp.kicad.interfaces import IBoardAdapter
-from kicadstamp.template_extraction import extract_template_from_selection, render_uncertain_comments
+from kicadstamp.template_extraction import extract_template_from_selection
 from kicadstamp.i18n import _
 
 logger = logging.getLogger(__name__)
@@ -78,10 +80,13 @@ def load_profile(profiles_path: str, top_key: str, profile_name: str,
     if not p.exists():
         raise PlacerError(_("[error] profiles file {path!r} not found").format(path=profiles_path))
     with open(p, "r", encoding="utf-8") as f:
-        if p.suffix.lower() == ".sexp":
+        suffix = p.suffix.lower()
+        if suffix == ".sexp":
             data = sexp_to_dict(f.read()) or {}
+        elif suffix in (".yaml", ".yml"):
+            raise yaml_removed_config_error(p)
         else:
-            data = safe_load(f) or {}
+            raise unknown_extension_config_error(p, suffix)
     data = resolve_includes(str(p), data)
     profiles = data.get(top_key, {})
     if profile_name not in profiles:
@@ -110,8 +115,8 @@ def extract_template(adapter: IBoardAdapter, *, name: str, output: str,
                      origin_component_pad: str | None = None,
                      raw_selection: bool = False) -> dict[str, Any]:
     """Extract a spoke cell template from the current board selection and
-    merge-write it, wrapped under a 'cells:' key, into `output` (YAML/JSON/
-    s-expr by file suffix), preserving any existing entries (including any
+    merge-write it, wrapped under a 'cells:' key, into `output` (JSON/s-expr
+    by file suffix), preserving any existing entries (including any
     OTHER top-level key the
     file already owns, e.g. extract_profiles: if `output` is also the
     Extractor file — cells_file:/cell_files: were folded into include: on
@@ -140,8 +145,9 @@ def extract_template(adapter: IBoardAdapter, *, name: str, output: str,
     )
 
     output_path = Path(output)
-    is_json = output_path.suffix.lower() == '.json'
-    is_sexp = output_path.suffix.lower() == '.sexp'
+    suffix = output_path.suffix.lower()
+    is_json = suffix == '.json'
+    is_sexp = suffix == '.sexp'
     existing = {}
     if output_path.exists():
         with open(output_path, "r", encoding="utf-8") as f:
@@ -149,8 +155,10 @@ def extract_template(adapter: IBoardAdapter, *, name: str, output: str,
                 existing = json.load(f) or {}
             elif is_sexp:
                 existing = sexp_to_dict(f.read()) or {}
+            elif suffix in (".yaml", ".yml"):
+                raise yaml_removed_config_error(output_path)
             else:
-                existing = safe_load(f) or {}
+                raise unknown_extension_config_error(output_path, suffix)
     existing_cells = existing.setdefault('cells', {})
     if name in existing_cells:
         logger.warning(_("Template {name!r} already exists in {output} — will be overwritten")
@@ -163,18 +171,17 @@ def extract_template(adapter: IBoardAdapter, *, name: str, output: str,
         if is_json:
             json.dump(existing, f, indent=2, ensure_ascii=False)
         elif is_sexp:
-            # render_uncertain_comments is a YAML-text post-processor (it
-            # splices "# field: hint" comment lines into yaml.dump output) —
-            # it has no s-expr equivalent yet, so .sexp output simply does
-            # not carry the uncertainty annotations (2026-08-28; porting the
-            # renderer to s-expr syntax is a separate, larger task, out of
-            # scope for the .sexp output fix).
+            # render_uncertain_comments was the YAML-write branch's comment
+            # post-processor (it splices "# field: hint" lines into yaml.dump
+            # output). YAML output was removed from the core (2026-08-28,
+            # core_yaml_removal) — the call is gone; the function/module stay
+            # alive (unit-tested, re-exported from template_extraction) per
+            # plan §0.5, but .sexp output carries no uncertainty annotations.
             f.write(dict_to_sexp(existing))
+        elif suffix in (".yaml", ".yml"):
+            raise yaml_removed_config_error(output_path)
         else:
-            text = yaml.dump(existing, allow_unicode=True, sort_keys=False, default_flow_style=False)
-            if annotations:
-                text = render_uncertain_comments(text, name, annotations, indent=2)
-            f.write(text)
+            raise unknown_extension_config_error(output_path, suffix)
 
     logger.info(_("✅ Template {name!r} written to {output}").format(name=name, output=output_path))
     return template_dict

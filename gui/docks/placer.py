@@ -113,7 +113,6 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-import yaml
 from kipy.errors import ApiError
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox,
@@ -1752,11 +1751,11 @@ class PlacerDock(QWidget):
                     root_cfg, root_ctx = load_config(str(self._root_path))
                     # graph cache is shared; copy ctx before writing to it
                     ctx = replace(ctx, sheet_names=root_ctx.sheet_names)
-                except (ValidationError, OSError, yaml.YAMLError):
+                except (ValidationError, OSError):
                     pass  # keep the leaf's own (empty) sheet_names — don't fail
                           # Redraw over a fallback that didn't pan out
             return cfg, ctx
-        except (ValidationError, OSError, yaml.YAMLError) as e:
+        except (ValidationError, OSError) as e:
             if not silent:
                 self._show_message(_("Failed to load Placer file: {error}").format(error=e), _ERROR_STYLE)
             return None
@@ -2088,7 +2087,7 @@ class PlacerDock(QWidget):
 
         try:
             cfg, ctx = load_config(str(self._root_path))
-        except (ValidationError, OSError, yaml.YAMLError) as e:
+        except (ValidationError, OSError) as e:
             self._show_message(
                 _("Failed to load root config: {error}").format(error=e), _ERROR_STYLE)
             return
@@ -2280,7 +2279,7 @@ class PlacerDock(QWidget):
                         _root_cfg, root_ctx = load_config(str(self._root_path))
                         if root_ctx.operation_log_dir:
                             return Path(root_ctx.operation_log_dir)
-                    except (ValidationError, OSError, yaml.YAMLError):
+                    except (ValidationError, OSError):
                         pass
         return Path(DEFAULT_LOG_DIR)
 

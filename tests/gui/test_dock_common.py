@@ -11,7 +11,6 @@ import logging
 from pathlib import Path
 
 import pytest
-import yaml
 
 from gui.docks._common import (ERROR_STYLE, SUCCESS_STYLE, WARN_STYLE,
                                add_include, add_list_entry, configure_searchable,
@@ -20,28 +19,34 @@ from gui.docks._common import (ERROR_STYLE, SUCCESS_STYLE, WARN_STYLE,
                                set_combo_items, set_file_combo_selection, show_message,
                                upsert_clone_placement, upsert_list_entry)
 import gui.docks._common as common_mod
+from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 
 
 def _load(path: Path):
     if path.suffix.lower() == ".json":
         return json.loads(path.read_text(encoding="utf-8"))
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
+    return sexp_to_dict(path.read_text(encoding="utf-8"))
 
 
-@pytest.fixture(params=[".yaml", ".json"])
+def _dump(path: Path, data: dict) -> str:
+    """Serialize a dict in the fixture's format (.json -> json, else .sexp)."""
+    if path.suffix.lower() == ".json":
+        return json.dumps(data)
+    return dict_to_sexp(data)
+
+
+@pytest.fixture(params=[".sexp", ".json"])
 def config_path(tmp_path, request):
-    """Same file path with either extension — exercises both the YAML and
-    the JSON dispatch of the merge-write helpers."""
+    """Same file path with either extension — exercises both the s-expr and
+    the JSON dispatch of the merge-write helpers (YAML support was removed
+    from the config graph, 2026-08-28, core_yaml_removal)."""
     return tmp_path / f"config{request.param}"
 
 
 # ── merge_write ─────────────────────────────────────────────────────────
 
 def test_merge_write_flat_preserves_other_keys(config_path):
-    config_path.write_text(
-        json.dumps({"old_cell": {"x": 1}}) if config_path.suffix == ".json"
-        else "old_cell:\n  x: 1\n",
-        encoding="utf-8")
+    config_path.write_text(_dump(config_path, {"old_cell": {"x": 1}}), encoding="utf-8")
     overwritten = merge_write(config_path, {"new_cell": {"x": 2}})
     assert overwritten is False
     data = _load(config_path)
@@ -50,21 +55,16 @@ def test_merge_write_flat_preserves_other_keys(config_path):
 
 
 def test_merge_write_flat_reports_overwrite(config_path):
-    config_path.write_text(
-        json.dumps({"cell": {"x": 1}}) if config_path.suffix == ".json"
-        else "cell:\n  x: 1\n",
-        encoding="utf-8")
+    config_path.write_text(_dump(config_path, {"cell": {"x": 1}}), encoding="utf-8")
     assert merge_write(config_path, {"cell": {"x": 9}}) is True
     assert _load(config_path)["cell"] == {"x": 9}
 
 
 def test_merge_write_section_merges_only_that_nested_dict(config_path):
-    config_path.write_text(
-        json.dumps({"clone_placements": [{"name": "A"}],
-                    "extract_profiles": {"p1": {"a": 1}}})
-        if config_path.suffix == ".json"
-        else "clone_placements:\n  - name: A\nextract_profiles:\n  p1:\n    a: 1\n",
-        encoding="utf-8")
+    config_path.write_text(_dump(config_path, {
+        "clone_placements": [{"name": "A"}],
+        "extract_profiles": {"p1": {"a": 1}},
+    }), encoding="utf-8")
     overwritten = merge_write(
         config_path, {"extract_profiles": {"p2": {"b": 2}}}, section="extract_profiles")
     assert overwritten is False
@@ -80,15 +80,14 @@ def test_merge_write_creates_missing_file(config_path):
 
 # ── _read_data on a malformed file ──────────────────────────────────────
 
-def test_merge_write_raises_os_error_on_malformed_yaml(tmp_path):
-    """Regression (found live 2026-08-04): a malformed target file used to
-    raise the raw yaml.YAMLError instead of OSError — every write-path
-    caller (e.g. PlacerDock._do_save) only catches OSError (per _read_data's
-    own documented contract), so the raw exception propagated uncaught out
-    of a Qt slot and PyQt6 aborted the whole GUI process over one broken
-    file."""
-    path = tmp_path / "config.yaml"
-    path.write_text("cells: [1, 2\n  a: 3\n", encoding="utf-8")
+def test_merge_write_raises_os_error_on_malformed_sexp(tmp_path):
+    """The "broken file -> OSError" invariant (found live 2026-08-04, when a
+    malformed target raised the raw parse error instead of OSError and
+    escaped every write-path caller's `except OSError`, crashing the GUI)
+    now holds for the s-expr format — YAML was removed from the config graph
+    (2026-08-28), so a malformed .sexp is the current analog."""
+    path = tmp_path / "config.sexp"
+    path.write_text("(kicadstamp-config\n", encoding="utf-8")
 
     with pytest.raises(OSError):
         merge_write(path, {"cell": {"x": 1}})
@@ -103,8 +102,8 @@ def test_merge_write_raises_os_error_on_malformed_json(tmp_path):
 
 
 def test_read_data_os_error_message_names_the_broken_file(tmp_path):
-    path = tmp_path / "config.yaml"
-    path.write_text("cells: [1, 2\n  a: 3\n", encoding="utf-8")
+    path = tmp_path / "config.sexp"
+    path.write_text("(kicadstamp-config\n", encoding="utf-8")
 
     with pytest.raises(OSError) as excinfo:
         common_mod.read_data(path)
@@ -114,10 +113,7 @@ def test_read_data_os_error_message_names_the_broken_file(tmp_path):
 # ── add_list_entry ──────────────────────────────────────────────────────
 
 def test_add_list_entry_appends_and_dedupes(config_path):
-    config_path.write_text(
-        json.dumps({"include": ["sub/a.yaml"]}) if config_path.suffix == ".json"
-        else "include:\n  - sub/a.yaml\n",
-        encoding="utf-8")
+    config_path.write_text(_dump(config_path, {"include": ["sub/a.yaml"]}), encoding="utf-8")
     # a different relative spelling resolving to the same file is a no-op
     assert add_list_entry(config_path, "include", "sub/./a.yaml") is False
     assert add_list_entry(config_path, "include", "other.yaml") is True
@@ -125,10 +121,10 @@ def test_add_list_entry_appends_and_dedupes(config_path):
 
 
 def test_add_list_entry_refuses_non_list_section(config_path):
-    config_path.write_text(
-        json.dumps({"include": "not-a-list"}) if config_path.suffix == ".json"
-        else "include: not-a-list\n",
-        encoding="utf-8")
+    if config_path.suffix == ".sexp":
+        pytest.skip("the s-expr writer normalizes include: to a list — a non-list "
+                    "include: is only representable in JSON")
+    config_path.write_text(_dump(config_path, {"include": "not-a-list"}), encoding="utf-8")
     with pytest.raises(OSError):
         add_list_entry(config_path, "include", "x.yaml")
 
@@ -137,9 +133,7 @@ def test_add_list_entry_refuses_non_list_section(config_path):
 
 def test_upsert_clone_placement_replaces_by_name_and_appends(config_path):
     config_path.write_text(
-        json.dumps({"clone_placements": [{"name": "A", "cell": "c1"}]})
-        if config_path.suffix == ".json"
-        else "clone_placements:\n  - name: A\n    cell: c1\n",
+        _dump(config_path, {"clone_placements": [{"name": "A", "cell": "c1"}]}),
         encoding="utf-8")
     assert upsert_clone_placement(config_path, {"name": "A", "cell": "c2"}) is True
     assert upsert_clone_placement(config_path, {"name": "B", "cell": "c1"}) is False
@@ -149,10 +143,10 @@ def test_upsert_clone_placement_replaces_by_name_and_appends(config_path):
 
 
 def test_upsert_clone_placement_refuses_non_list(config_path):
-    config_path.write_text(
-        json.dumps({"clone_placements": "nope"}) if config_path.suffix == ".json"
-        else "clone_placements: nope\n",
-        encoding="utf-8")
+    if config_path.suffix == ".sexp":
+        pytest.skip("the s-expr writer normalizes clone_placements: to a list — a "
+                    "non-list section is only representable in JSON")
+    config_path.write_text(_dump(config_path, {"clone_placements": "nope"}), encoding="utf-8")
     with pytest.raises(OSError):
         upsert_clone_placement(config_path, {"name": "A"})
 
@@ -162,9 +156,7 @@ def test_upsert_clone_placement_refuses_non_list(config_path):
 
 def test_upsert_list_entry_replaces_by_key_and_appends(config_path):
     config_path.write_text(
-        json.dumps({"thermal_via_arrays": [{"name": "A", "pad": "1"}]})
-        if config_path.suffix == ".json"
-        else "thermal_via_arrays:\n  - name: A\n    pad: '1'\n",
+        _dump(config_path, {"thermal_via_arrays": [{"name": "A", "pad": "1"}]}),
         encoding="utf-8")
     assert upsert_list_entry(config_path, "thermal_via_arrays", {"name": "A", "pad": "2"}) is True
     assert upsert_list_entry(config_path, "thermal_via_arrays", {"name": "B", "pad": "1"}) is False
@@ -174,10 +166,11 @@ def test_upsert_list_entry_replaces_by_key_and_appends(config_path):
 
 
 def test_upsert_list_entry_refuses_non_list(config_path):
+    if config_path.suffix == ".sexp":
+        pytest.skip("the s-expr writer normalizes thermal_via_arrays: to a list — "
+                    "a non-list section is only representable in JSON")
     config_path.write_text(
-        json.dumps({"thermal_via_arrays": "nope"}) if config_path.suffix == ".json"
-        else "thermal_via_arrays: nope\n",
-        encoding="utf-8")
+        _dump(config_path, {"thermal_via_arrays": "nope"}), encoding="utf-8")
     with pytest.raises(OSError):
         upsert_list_entry(config_path, "thermal_via_arrays", {"name": "A"})
 
@@ -189,9 +182,7 @@ def test_upsert_list_entry_key_fn_matches_by_name_or_net(config_path):
     explicit name:."""
     identity = lambda e: e.get("name") or e.get("net")  # noqa: E731
     config_path.write_text(
-        json.dumps({"rules": [{"net": "+3V3", "anchor_role": "FPGA"}]})
-        if config_path.suffix == ".json"
-        else "rules:\n  - net: +3V3\n    anchor_role: FPGA\n",
+        _dump(config_path, {"rules": [{"net": "+3V3", "anchor_role": "FPGA"}]}),
         encoding="utf-8")
 
     overwritten = upsert_list_entry(
@@ -217,19 +208,14 @@ def test_add_include_appends_new_entry(config_path):
 
 
 def test_add_include_is_a_noop_when_already_enabled(config_path):
-    config_path.write_text(
-        json.dumps({"include": ["sub.yaml"]}) if config_path.suffix == ".json"
-        else "include:\n  - sub.yaml\n",
-        encoding="utf-8")
+    config_path.write_text(_dump(config_path, {"include": ["sub.yaml"]}), encoding="utf-8")
     assert add_include(config_path, "sub.yaml") is False
     assert _load(config_path)["include"] == ["sub.yaml"]
 
 
 def test_add_include_reenables_a_disabled_entry_instead_of_duplicating(config_path):
     config_path.write_text(
-        json.dumps({"include": [{"path": "sub.yaml", "enabled": False}]})
-        if config_path.suffix == ".json"
-        else "include:\n  - path: sub.yaml\n    enabled: false\n",
+        _dump(config_path, {"include": [{"path": "sub.yaml", "enabled": False}]}),
         encoding="utf-8")
     assert add_include(config_path, "sub.yaml") is True
     assert _load(config_path)["include"] == ["sub.yaml"]  # back to plain form, not duplicated
@@ -237,10 +223,7 @@ def test_add_include_reenables_a_disabled_entry_instead_of_duplicating(config_pa
 
 def test_disable_include_converts_string_entry_to_disabled_mapping(config_path):
     config_path.write_text(
-        json.dumps({"include": ["sub.yaml", "other.yaml"]})
-        if config_path.suffix == ".json"
-        else "include:\n  - sub.yaml\n  - other.yaml\n",
-        encoding="utf-8")
+        _dump(config_path, {"include": ["sub.yaml", "other.yaml"]}), encoding="utf-8")
     target = (config_path.parent / "sub.yaml").resolve()
     assert disable_include(config_path, target) is True
     data = _load(config_path)
@@ -249,19 +232,14 @@ def test_disable_include_converts_string_entry_to_disabled_mapping(config_path):
 
 def test_disable_include_is_a_noop_when_already_disabled(config_path):
     config_path.write_text(
-        json.dumps({"include": [{"path": "sub.yaml", "enabled": False}]})
-        if config_path.suffix == ".json"
-        else "include:\n  - path: sub.yaml\n    enabled: false\n",
+        _dump(config_path, {"include": [{"path": "sub.yaml", "enabled": False}]}),
         encoding="utf-8")
     target = (config_path.parent / "sub.yaml").resolve()
     assert disable_include(config_path, target) is False
 
 
 def test_disable_include_returns_false_when_target_not_included(config_path):
-    config_path.write_text(
-        json.dumps({"include": ["other.yaml"]}) if config_path.suffix == ".json"
-        else "include:\n  - other.yaml\n",
-        encoding="utf-8")
+    config_path.write_text(_dump(config_path, {"include": ["other.yaml"]}), encoding="utf-8")
     target = (config_path.parent / "sub.yaml").resolve()
     assert disable_include(config_path, target) is False
 
@@ -270,18 +248,14 @@ def test_disable_include_returns_false_when_target_not_included(config_path):
 
 def test_non_includable_keys_flags_root_only_scalars(config_path):
     config_path.write_text(
-        json.dumps({"cells": {}, "layer": "B.Cu", "schematic_dir": "sch"})
-        if config_path.suffix == ".json"
-        else "cells: {}\nlayer: B.Cu\nschematic_dir: sch\n",
+        _dump(config_path, {"cells": {}, "layer": "B.Cu", "schematic_dir": "sch"}),
         encoding="utf-8")
     assert non_includable_keys(config_path) == {"layer", "schematic_dir"}
 
 
 def test_non_includable_keys_empty_for_a_clean_subsystem_file(config_path):
     config_path.write_text(
-        json.dumps({"cells": {}, "rules": []}) if config_path.suffix == ".json"
-        else "cells: {}\nrules: []\n",
-        encoding="utf-8")
+        _dump(config_path, {"cells": {}, "rules": []}), encoding="utf-8")
     assert non_includable_keys(config_path) == set()
 
 
@@ -433,15 +407,15 @@ def test_refresh_file_combo_choices_populates_and_preserves_current(qapp, tmp_pa
     then reflects each dock's current path back — without adding a
     duplicate of an already-listed path (findData match, not blind add)."""
     from PyQt6.QtWidgets import QComboBox
-    (tmp_path / "sub.yaml").write_text("cells: {}\n", encoding="utf-8")
-    root = tmp_path / "root.yaml"
-    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
+    (tmp_path / "sub.sexp").write_text(dict_to_sexp({"cells": {}}), encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    root.write_text(dict_to_sexp({"include": ["sub.sexp"]}), encoding="utf-8")
     combo = QComboBox()
 
     refresh_file_combo_choices((combo,), root, (root,))
 
     names = {combo.itemData(i).name for i in range(combo.count())}
-    assert names == {"root.yaml", "sub.yaml"}
+    assert names == {"root.sexp", "sub.sexp"}
     assert combo.count() == 2  # no duplicate of the already-listed root
     assert combo.currentData() == root
 
@@ -467,14 +441,14 @@ def test_refresh_file_combo_choices_drops_path_outside_new_graph(qapp, tmp_path)
     Now the helper validates each current path against the new root's file
     set and returns None for anything no longer reachable."""
     from PyQt6.QtWidgets import QComboBox
-    (tmp_path / "sub.yaml").write_text("cells: {}\n", encoding="utf-8")
-    root = tmp_path / "root.yaml"
-    root.write_text("include:\n  - sub.yaml\n", encoding="utf-8")
+    (tmp_path / "sub.sexp").write_text(dict_to_sexp({"cells": {}}), encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    root.write_text(dict_to_sexp({"include": ["sub.sexp"]}), encoding="utf-8")
     # A file in a SIBLING directory of the root — not reachable via any
-    # include: under root.yaml, exactly Denis's "old project's file".
-    stale = tmp_path / "other_project" / "components.yaml"
+    # include: under root.sexp, exactly Denis's "old project's file".
+    stale = tmp_path / "other_project" / "components.sexp"
     stale.parent.mkdir()
-    stale.write_text("cells: {}\n", encoding="utf-8")
+    stale.write_text(dict_to_sexp({"cells": {}}), encoding="utf-8")
     combo = QComboBox()
 
     corrected = refresh_file_combo_choices((combo,), root, (stale,))

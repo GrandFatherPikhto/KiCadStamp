@@ -108,13 +108,13 @@ from kicadstamp.author_cli import cli_main
 from kicadstamp.config import ClonePlacement
 
 HERE = Path(__file__).resolve().parent
-OUTPUT = HERE.parent / "generated" / "my_subsystem.yaml"
+OUTPUT = HERE.parent / "generated" / "my_subsystem.sexp"
 
 def build() -> list:
     return [ClonePlacement(...), ...]
 
 if __name__ == "__main__":
-    cli_main(build, str(OUTPUT), str(HERE.parent / "profiles/power.yaml"), description=__doc__)
+    cli_main(build, str(OUTPUT), str(HERE.parent / "profiles/power.sexp"), description=__doc__)
 ```
 
 ```bash
@@ -123,7 +123,7 @@ python boards/3ch-awg-tia/scripts/my_subsystem.py --apply --dry-run --verbose   
 python boards/3ch-awg-tia/scripts/my_subsystem.py --apply                      # writes OUTPUT, then applies it
 ```
 
-`root_config_path` (the third argument, `.../profiles/power.yaml` above) is what actually gets loaded
+`root_config_path` (the third argument, `.../profiles/power.sexp` above) is what actually gets loaded
 and applied with `--apply` — it's the one carrying `schematic_dir`/`registry_path`, and
 (via `include:`) it's expected to pick up `OUTPUT` itself, so the registry sees the FULL board config,
 not just this one script's slice (a partial `Config` built from one script alone is unsafe for
@@ -135,15 +135,15 @@ all):
 ```python
 from kicadstamp.author import dump_clone_placements, dump_rules, dump_template, apply_config
 
-dump_clone_placements(clones, "boards/3ch-awg-tia/generated/dac_channels.yaml")   # {'clone_placements': [...]}
-dump_rules(rules, "boards/3ch-awg-tia/generated/fpga_spokes.yaml")                # {'rules': [...]}
-dump_template({"my_cell": {"vias": [...], "components": [...]}}, "templates/my_cell.yaml")
+dump_clone_placements(clones, "boards/3ch-awg-tia/generated/dac_channels.sexp")   # {'clone_placements': [...]}
+dump_rules(rules, "boards/3ch-awg-tia/generated/fpga_spokes.sexp")                # {'rules': [...]}
+dump_template({"my_cell": {"vias": [...], "components": [...]}}, "templates/my_cell.sexp")
 
 # straight into the live apply pipeline, bypassing the generated-YAML step entirely:
 from kicadstamp.config import load_config
-cfg, ctx = load_config("boards/3ch-awg-tia/profiles/power.yaml")
+cfg, ctx = load_config("boards/3ch-awg-tia/profiles/power.sexp")
 cfg.clone_placements.extend(clones)
-apply_config(cfg, "boards/3ch-awg-tia/profiles/power.yaml", ctx=ctx, dry_run=True)
+apply_config(cfg, "boards/3ch-awg-tia/profiles/power.sexp", ctx=ctx, dry_run=True)
 ```
 
 `apply_config`'s `config_path` argument is **not cosmetic** — same reasoning as `root_config_path`
@@ -231,8 +231,8 @@ opening KiCad.
 python boards/3ch-awg-tia/scripts/dac_channels.py --apply
 ```
 
-`OUTPUT` (`boards/3ch-awg-tia/generated/dac_channels.yaml`) is committed — plain, diffable YAML, even
-though a Python script authored it. `boards/3ch-awg-tia/profiles/dac_channels.yaml` picks it up via
+`OUTPUT` (`boards/3ch-awg-tia/generated/dac_channels.sexp`) is committed — plain, diffable s-expr, even
+though a Python script authored it. `boards/3ch-awg-tia/profiles/dac_channels.sexp` picks it up via
 `include:`, the normal way. The script stays in the repo too, so re-running it after a real board
 change (or extending it to a 4th channel) regenerates the same file instead of hand-editing it.
 
@@ -249,13 +249,13 @@ from kicadstamp.author import dump_template
 from kicadstamp.explore import Board
 from kicadstamp.utils.units import MM
 
-board = Board.connect(config_path="boards/3ch-awg-tia/profiles/power.yaml")
+board = Board.connect(config_path="boards/3ch-awg-tia/profiles/power.sexp")
 ldo_fp = board.select(role="LDO_3V3")[0].fp
 origin_x_mm, origin_y_mm = ldo_fp.position.x / MM, ldo_fp.position.y / MM
 # ... measure other live pad positions, subtract origin ...
 
 dump_template({"p3v3_ldo_composite": {"clone_placements": [...]}},
-              "boards/3ch-awg-tia/profiles/templates/p3v3_ldo_composite.yaml")
+              "boards/3ch-awg-tia/profiles/templates/p3v3_ldo_composite.sexp")
 ```
 
 This is the general pattern for anything geometry-dependent that isn't safely derivable from YAML

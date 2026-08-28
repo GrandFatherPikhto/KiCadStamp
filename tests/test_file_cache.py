@@ -183,7 +183,7 @@ def test_write_data_delete_then_upsert_never_stale(tmp_path):
     handoff_2026_08_21_mtime_race_tests_dont_race.md)."""
     from kicadstamp import config_writer
 
-    path = tmp_path / "target.yaml"
+    path = tmp_path / "target.sexp"
     config_writer._write_data(path, {"clone_placements": [{"name": "old"}]})
     pinned_ns = os.stat(path).st_mtime_ns
     assert config_writer._read_data(path)["clone_placements"][0]["name"] == "old"

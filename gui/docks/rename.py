@@ -42,7 +42,6 @@ preservation, consistent with every other write path in this GUI.
 """
 import copy
 
-import yaml
 from pathlib import Path
 from typing import List, Optional
 
@@ -270,7 +269,7 @@ def collect_all_sheet_names(root_path: Path) -> List[str]:
     *.kicad_sch files, normally declared only in the root config itself."""
     try:
         _, ctx = load_config(str(root_path))
-    except (ValidationError, OSError, yaml.YAMLError):
+    except (ValidationError, OSError):
         return []
     return sorted(set(ctx.sheet_names.values()))
 

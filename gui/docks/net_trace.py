@@ -29,7 +29,6 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-import yaml
 from kipy.errors import ApiError
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QHBoxLayout, QLabel,
@@ -294,7 +293,7 @@ class NetTraceDock(QWidget):
                 if not candidate.exists():
                     continue
                 _cfg, ctx = load_config(str(candidate))
-            except (ValidationError, OSError, yaml.YAMLError):
+            except (ValidationError, OSError):
                 continue
             # len(), not "not ctx.sheet_names": LazySheetNameMap is always
             # truthy by design (2026-08-25) — see placer.py's _load_target_config.
@@ -319,7 +318,7 @@ class NetTraceDock(QWidget):
                 anchor_pad=payload["anchor_pad"], sheet_names=sheet_names,
                 retired=existing_retired, skip=existing_skip)
             write_net_trace(str(payload["path"]), nt)
-        except (PlacerError, ValidationError, OSError, yaml.YAMLError) as e:
+        except (PlacerError, ValidationError, OSError) as e:
             return {"error": _("Extract failed: {error}").format(error=e)}
         except Exception as e:
             logger.exception("net_trace extract failed")
@@ -426,7 +425,7 @@ class NetTraceDock(QWidget):
                 cfg, ctx = load_config(str(config_path))
             else:
                 cfg, ctx = Config(), RuntimeContext()
-        except (ValidationError, OSError, yaml.YAMLError) as e:
+        except (ValidationError, OSError) as e:
             self._show_message(_("Failed to load file: {error}").format(error=e), _ERROR_STYLE)
             return None
 

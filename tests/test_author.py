@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Tests for kicadstamp/author.py — build ClonePlacement/Rule in Python,
-dump back to YAML, or feed straight into the apply pipeline."""
+dump back to s-expr, or feed straight into the apply pipeline (2026-08-28,
+core_yaml_removal: author fragments are s-expr/.sexp now)."""
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import patch
 
-import yaml
-
 from kicadstamp.config import ClonePlacement, Config, ManualSpoke, Rule, load_config
+from kicadstamp.config.sexp_format import sexp_to_dict
 from kicadstamp.author import (_prune_defaults, apply_config, dump_clone_placements,
                                dump_rules, dump_template)
 from kicadstamp.author_cli import cli_main
@@ -54,7 +54,7 @@ class TestDumpRoundTrip:
                            params={"channel": 0},
                            xy=(0.0, 25.0), rotation_deg=270.0),
         ]
-        out = tmp_path / "generated.yaml"
+        out = tmp_path / "generated.sexp"
         dump_clone_placements(clones, str(out))
 
         cfg, _ = load_config(str(out))
@@ -76,7 +76,7 @@ class TestDumpRoundTrip:
                 spokes=[ManualSpoke(pad="17", cell="cap_pair_standard",
                                     shift_y_mm=-0.5, rotation_deg=90.0, cluster="FPGA_PWR_BANK")]),
         ]
-        out = tmp_path / "generated_rules.yaml"
+        out = tmp_path / "generated_rules.sexp"
         dump_rules(rules, str(out))
 
         cfg, _ = load_config(str(out))
@@ -89,11 +89,11 @@ class TestDumpRoundTrip:
         assert loaded.spokes[0].shift_y_mm == -0.5
         assert loaded.spokes[0].cluster == "FPGA_PWR_BANK"
 
-    def test_minimal_clone_placement_omits_defaults_in_yaml_text(self, tmp_path):
+    def test_minimal_clone_placement_omits_defaults_in_sexp_text(self, tmp_path):
         """Sanity check on the actual written text, not just the round-trip —
-        confirms the YAML stays close to hand-written minimal style."""
+        confirms the s-expr stays close to the hand-written minimal style."""
         clones = [ClonePlacement(cluster="c", cell="t", xy=(1.0, 2.0))]
-        out = tmp_path / "generated.yaml"
+        out = tmp_path / "generated.sexp"
         dump_clone_placements(clones, str(out))
         text = out.read_text(encoding="utf-8")
         assert "rotation_deg" not in text
@@ -107,7 +107,7 @@ class TestDumpRoundTrip:
         for any script-generated polar clone."""
         clones = [ClonePlacement(cluster="polar", cell="t", xy=(0.0, 0.0),
                                  radius_mm=5.0, angle_deg=37.0)]
-        out = tmp_path / "polar.yaml"
+        out = tmp_path / "polar.sexp"
         dump_clone_placements(clones, str(out))
         text = out.read_text(encoding="utf-8")
         assert "xy" not in text
@@ -184,7 +184,7 @@ class TestCliMain:
         return [ClonePlacement(cluster="c", cell="t", xy=(1.0, 2.0))]
 
     def test_without_apply_only_writes_output(self, tmp_path):
-        out = tmp_path / "generated.yaml"
+        out = tmp_path / "generated.sexp"
         with patch("kicadstamp.author_cli.load_config") as mock_load_config, \
              patch("kicadstamp.author_cli.apply_config") as mock_apply_config:
             cli_main(self._build, str(out), "root.yaml", argv=[])
@@ -198,7 +198,7 @@ class TestCliMain:
         carries sheet_names) as `_ctx` and never forward it to apply_config(), so
         anchor_sheet-based clone_placements would fatal with "sheet name dictionary
         is empty" even though sheet_names had been built correctly."""
-        out = tmp_path / "generated.yaml"
+        out = tmp_path / "generated.sexp"
         with patch("kicadstamp.author_cli.load_config") as mock_load_config, \
              patch("kicadstamp.author_cli.apply_config") as mock_apply_config:
             mock_load_config.return_value = ("cfg-sentinel", "ctx-sentinel")
@@ -209,7 +209,7 @@ class TestCliMain:
             "cfg-sentinel", "root.yaml", ctx="ctx-sentinel", dry_run=True)
 
     def test_apply_without_dry_run_forwards_dry_run_false(self, tmp_path):
-        out = tmp_path / "generated.yaml"
+        out = tmp_path / "generated.sexp"
         with patch("kicadstamp.author_cli.load_config") as mock_load_config, \
              patch("kicadstamp.author_cli.apply_config") as mock_apply_config:
             mock_load_config.return_value = ("cfg-sentinel", None)
@@ -218,7 +218,7 @@ class TestCliMain:
         assert mock_apply_config.call_args.kwargs["dry_run"] is False
 
     def test_creates_missing_parent_directories(self, tmp_path):
-        out = tmp_path / "nested" / "dir" / "generated.yaml"
+        out = tmp_path / "nested" / "dir" / "generated.sexp"
         with patch("kicadstamp.author_cli.load_config"), \
              patch("kicadstamp.author_cli.apply_config"):
             cli_main(self._build, str(out), "root.yaml", argv=[])
@@ -234,19 +234,24 @@ class TestDumpTemplate:
         template_dict = {"cap_pair_standard": {"components": [
             {"role": "C_IN_BULK", "offset_along_mm": 0.0, "offset_across_mm": 0.0, "angle_deg": 0.0},
         ]}}
-        out = tmp_path / "cell.yaml"
+        out = tmp_path / "cell.sexp"
         dump_template(template_dict, str(out))
 
-        loaded = yaml.safe_load(out.read_text(encoding="utf-8"))
-        assert loaded == {"cells": template_dict}
+        loaded = sexp_to_dict(out.read_text(encoding="utf-8"))
+        # The s-expr writer default-strips the component's 0.0 offsets — check the
+        # surviving required field (role) and the wrapped cells: key.
+        assert set(loaded["cells"]) == {"cap_pair_standard"}
+        assert loaded["cells"]["cap_pair_standard"]["components"][0]["role"] == "C_IN_BULK"
 
     def test_overwrites_rather_than_merges(self, tmp_path):
         """Unlike cmd_extract's merge-into-existing behaviour, dump_template
         always overwrites — a script regenerating its own dedicated file
         should get a clean result, not accumulate stale entries."""
-        out = tmp_path / "cell.yaml"
+        out = tmp_path / "cell.sexp"
         dump_template({"old_name": {"components": []}}, str(out))
         dump_template({"new_name": {"components": []}}, str(out))
 
-        loaded = yaml.safe_load(out.read_text(encoding="utf-8"))
-        assert loaded == {"cells": {"new_name": {"components": []}}}
+        loaded = sexp_to_dict(out.read_text(encoding="utf-8"))
+        # default-stripped canonical form (empty components: [] is omitted by the
+        # s-expr writer) — the important invariant is overwrite, not accumulate.
+        assert loaded == {"cells": {"new_name": {}}}

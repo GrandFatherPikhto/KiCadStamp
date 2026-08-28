@@ -26,10 +26,14 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from ..exceptions import ValidationError, format_fatal_error
+from ..exceptions import (
+    ValidationError,
+    format_fatal_error,
+    unknown_extension_config_error,
+    yaml_removed_config_error,
+)
 from ..i18n import _
 from ..utils.file_cache import cached_file_read, cached_graph_result
-from ..utils.yaml_loader import safe_load
 
 logger = logging.getLogger(__name__)
 
@@ -56,19 +60,27 @@ def _load_config_file(path: Path) -> dict:
     independent ones). Always a dict, never None (a config whose content is
     empty/scalar-null becomes {}) — cached_file_read requires that.
 
-    Format is selected by extension (parallel .sexp config format, 2026-08-27):
-    '.sexp' -> sexp_to_dict (kicadstamp/config/sexp_format.py), anything else
-    -> safe_load (YAML, the default). A mixed include: graph may therefore
-    mix .yaml and .sexp files freely — each file parses by its own suffix.
+    Format is selected by extension (2026-08-28, core_yaml_removal — YAML
+    support was removed from the config graph): '.sexp' -> sexp_to_dict
+    (kicadstamp/config/sexp_format.py), anything else -> fatal — .yaml/.yml
+    with the dedicated "convert with sexp_config_convert.py" message, any
+    other extension with the unrecognized-extension message. Unlike
+    config_writer._read_data (whose OSError wraps these for the GUI docks'
+    `except OSError`), this raises the ValidationError directly — load_config
+    already surfaces ValidationError for config problems, and the GUI
+    open-root flow handles it.
 
     sexp_to_dict is imported here (function-level), not at module top: it
     would create a circular import (sexp_format.py imports _LIST_SECTIONS/
     _DICT_SECTIONS from this module at its own module level)."""
     with open(path, 'r', encoding='utf-8') as f:
-        if Path(path).suffix.lower() == '.sexp':
+        suffix = Path(path).suffix.lower()
+        if suffix == '.sexp':
             from .sexp_format import sexp_to_dict
             return sexp_to_dict(f.read()) or {}
-        return safe_load(f) or {}
+        if suffix in ('.yaml', '.yml'):
+            raise yaml_removed_config_error(path)
+        raise unknown_extension_config_error(path, suffix)
 
 
 def _parse_include_entry(entry: Any, source_path: str) -> tuple[str, bool]:

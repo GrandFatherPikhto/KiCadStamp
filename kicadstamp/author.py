@@ -1,7 +1,7 @@
 # kicadstamp/author.py
 """
 author.py — build ClonePlacement/Rule in real Python (loops, computed
-values) instead of hand-writing repetitive YAML, where copy-paste mistakes
+values) instead of hand-writing repetitive config, where copy-paste mistakes
 live (wrong nets: key, duplicate anchor_pad:, wrong anchor_sheet — all hit
 live in one working session). Config/ClonePlacement/Rule (config/models.py)
 are plain dataclasses already — this module adds nothing new to them, just
@@ -10,22 +10,22 @@ two ways to get a built list somewhere useful:
   (a) apply_config() — straight into the existing apply pipeline
       (run_apply() already accepts a pre-built Config).
   (b) dump_clone_placements()/dump_rules()/dump_template() — serialize back
-      to YAML, so generated subsystem files stay diffable/reviewable in git
-      even when authored by a script.
+      to s-expr (dict_to_sexp, 2026-08-28 — was YAML; the config graph is
+      now .sexp/.json only), so generated subsystem files stay diffable/
+      reviewable in git even when authored by a script.
 
 The standard --apply/--dry-run CLI entry point wiring (c) lived here too,
 but was split out into kicadstamp/author_cli.py so this module stays a pure
 library — no argparse / sys.exit / CLI exit-code concerns.
 
-No changes to the planner/executor/registry engine or the YAML config
-format — both are strictly additive.
+No changes to the planner/executor/registry engine or the config format —
+both are strictly additive.
 """
 import dataclasses
 from typing import Any
 
-import yaml
-
 from .config import ClonePlacement, Config, Rule, RuntimeContext
+from .config.sexp_format import dict_to_sexp
 from .constants import DEFAULT_BATCH_SIZE, DEFAULT_TIMEOUT_MS
 from .apply_pipeline import RunOptions, run_apply
 
@@ -43,8 +43,8 @@ def _default_for(f: "dataclasses.Field") -> Any:
 def _prune_defaults(obj: Any) -> Any:
     """dataclass instance -> plain dict, dropping any field equal to its
     default (scalar default or default_factory() instance) — keeps
-    generated YAML close to the hand-written minimal style already used in
-    profiles/subsystems/*.yaml. Required fields (no default at all, e.g.
+    generated output close to the hand-written minimal style the s-expr
+    writer already uses. Required fields (no default at all, e.g.
     ClonePlacement.name/xy, Rule.net/spokes) are always
     kept regardless of value. Recurses into nested dataclasses and lists of
     them (only nesting that exists in these models: Rule.spokes -> List[ManualSpoke])."""
@@ -80,35 +80,37 @@ def _prune_defaults(obj: Any) -> Any:
 
 
 def dump_clone_placements(clones: list[ClonePlacement], path: str) -> None:
-    """Writes {'clone_placements': [...]} to path — a file directly usable
-    via include: (see kicadstamp/config/includes.py) or as a whole profile."""
+    """Writes {'clone_placements': [...]} to path as s-expr — a file directly
+    usable via include: (see kicadstamp/config/includes.py) or as a whole
+    profile. The caller is responsible for naming the output .sexp (the
+    config graph is s-expr/.json only since 2026-08-28)."""
     data = {"clone_placements": [_prune_defaults(c) for c in clones]}
     with open(path, "w", encoding="utf-8") as f:
-        yaml.dump(data, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
+        f.write(dict_to_sexp(data))
 
 
 def dump_rules(rules: list[Rule], path: str) -> None:
-    """Writes {'rules': [...]} to path — same include:-ready shape as
-    dump_clone_placements."""
+    """Writes {'rules': [...]} to path as s-expr — same include:-ready shape
+    as dump_clone_placements."""
     data = {"rules": [_prune_defaults(r) for r in rules]}
     with open(path, "w", encoding="utf-8") as f:
-        yaml.dump(data, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
+        f.write(dict_to_sexp(data))
 
 
 def dump_template(template_dict: dict, path: str) -> None:
     """Writes a template_extraction.extract_template_from_selection() result
     (already {name: {...}} shaped) wrapped as {'cells': {name: {...}}} to
-    path, ready for include: (cells_file:/cell_files: were folded into
-    include: 2026-08-02 — see handoff_2026_08_02_cells_include_unification.md
-    — include: expects the wrapped shape, same as an inline cells: block).
-    Same yaml.dump style as kicadstamp_cli.py's cmd_extract, minus its
-    merge-into-existing-file behaviour: this always overwrites the whole
-    file, matching dump_clone_placements/dump_rules — a script re-running
-    extract for one subsystem should produce a clean, idempotent regeneration
-    of its own dedicated file, not accumulate into a shared one. Use
-    cmd_extract/the CLI directly if you want the merge behaviour instead."""
+    path as s-expr, ready for include: (cells_file:/cell_files: were folded
+    into include: 2026-08-02 — see
+    handoff_2026_08_02_cells_include_unification.md — include: expects the
+    wrapped shape, same as an inline cells: block). Always overwrites the
+    whole file, matching dump_clone_placements/dump_rules — a script
+    re-running extract for one subsystem should produce a clean, idempotent
+    regeneration of its own dedicated file, not accumulate into a shared one.
+    Use cmd_extract/the CLI directly if you want the merge behaviour
+    instead."""
     with open(path, "w", encoding="utf-8") as f:
-        yaml.dump({"cells": template_dict}, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
+        f.write(dict_to_sexp({"cells": template_dict}))
 
 
 def apply_config(cfg: Config, config_path: str, *, ctx: RuntimeContext | None = None,

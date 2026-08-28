@@ -2966,8 +2966,17 @@ msgid "{path}: unrecognized config file extension {suffix!r}"
 msgstr "{path}: неопознанное расширение файла конфига {suffix!r}"
 
 #: kicadstamp/config_writer.py:70
-msgid "use .sexp (the project's main format), .yaml, or .json"
-msgstr "используйте .sexp (основной формат проекта), .yaml или .json"
+msgid "use .sexp (the project's main format) or .json"
+msgstr "используйте .sexp (основной формат проекта) или .json"
+
+#: kicadstamp/exceptions.py:47
+#, python-brace-format
+msgid "{path}: YAML config support has been removed — convert this file with `tools/sexp_config_convert.py` first"
+msgstr "{path}: поддержка YAML-конфига удалена — сначала сконвертируйте этот файл с помощью `tools/sexp_config_convert.py`"
+
+#: kicadstamp/exceptions.py:52
+msgid "the project's config format is s-expr (.sexp) or .json"
+msgstr "формат конфига проекта — s-expr (.sexp) или .json"
 
 #: kicadstamp/exceptions.py:50
 #, python-brace-format

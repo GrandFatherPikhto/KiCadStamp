@@ -20,7 +20,7 @@
 ```python
 from kicadstamp.explore import Board
 
-board = Board.connect(config_path="boards/3ch-awg-tia/profiles/power.yaml",
+board = Board.connect(config_path="boards/3ch-awg-tia/profiles/power.sexp",
                        schematic_dir="../../../test_boards/3CH-AWG-TIA")
 
 board.select(role="AD_DAC").show()
@@ -108,13 +108,13 @@ from kicadstamp.author_cli import cli_main
 from kicadstamp.config import ClonePlacement
 
 HERE = Path(__file__).resolve().parent
-OUTPUT = HERE.parent / "generated" / "my_subsystem.yaml"
+OUTPUT = HERE.parent / "generated" / "my_subsystem.sexp"
 
 def build() -> list:
     return [ClonePlacement(...), ...]
 
 if __name__ == "__main__":
-    cli_main(build, str(OUTPUT), str(HERE.parent / "profiles/power.yaml"), description=__doc__)
+    cli_main(build, str(OUTPUT), str(HERE.parent / "profiles/power.sexp"), description=__doc__)
 ```
 
 ```bash
@@ -123,7 +123,7 @@ python boards/3ch-awg-tia/scripts/my_subsystem.py --apply --dry-run --verbose   
 python boards/3ch-awg-tia/scripts/my_subsystem.py --apply                      # пишет OUTPUT, затем применяет
 ```
 
-`root_config_path` (третий аргумент, `.../profiles/power.yaml` выше) — то, что реально загружается и
+`root_config_path` (третий аргумент, `.../profiles/power.sexp` выше) — то, что реально загружается и
 применяется при `--apply` — именно он несёт `schematic_dir`/`registry_path`, и (через
 `include:`) от него ожидается подхватить сам `OUTPUT`, чтобы реестр видел ПОЛНЫЙ конфиг платы, а не
 срез одного этого скрипта (частичный `Config`, собранный из одного скрипта, небезопасен для вычистки
@@ -135,15 +135,15 @@ python boards/3ch-awg-tia/scripts/my_subsystem.py --apply                      #
 ```python
 from kicadstamp.author import dump_clone_placements, dump_rules, dump_template, apply_config
 
-dump_clone_placements(clones, "boards/3ch-awg-tia/generated/dac_channels.yaml")   # {'clone_placements': [...]}
-dump_rules(rules, "boards/3ch-awg-tia/generated/fpga_spokes.yaml")                # {'rules': [...]}
-dump_template({"my_cell": {"vias": [...], "components": [...]}}, "templates/my_cell.yaml")
+dump_clone_placements(clones, "boards/3ch-awg-tia/generated/dac_channels.sexp")   # {'clone_placements': [...]}
+dump_rules(rules, "boards/3ch-awg-tia/generated/fpga_spokes.sexp")                # {'rules': [...]}
+dump_template({"my_cell": {"vias": [...], "components": [...]}}, "templates/my_cell.sexp")
 
 # прямо в живой пайплайн apply, минуя шаг с генерируемым YAML вовсе:
 from kicadstamp.config import load_config
-cfg, ctx = load_config("boards/3ch-awg-tia/profiles/power.yaml")
+cfg, ctx = load_config("boards/3ch-awg-tia/profiles/power.sexp")
 cfg.clone_placements.extend(clones)
-apply_config(cfg, "boards/3ch-awg-tia/profiles/power.yaml", ctx=ctx, dry_run=True)
+apply_config(cfg, "boards/3ch-awg-tia/profiles/power.sexp", ctx=ctx, dry_run=True)
 ```
 
 Аргумент `config_path` у `apply_config` — **не косметика**, та же логика, что у `root_config_path`
@@ -178,7 +178,7 @@ YAML → загрузить настоящий корневой конфиг (к
 ```python
 from kicadstamp.explore import Board
 
-board = Board.connect(config_path="boards/3ch-awg-tia/profiles/power.yaml",
+board = Board.connect(config_path="boards/3ch-awg-tia/profiles/power.sexp",
                        schematic_dir="../../../test_boards/3CH-AWG-TIA")
 board.select(role="AD_DAC").show()
 ```
@@ -233,8 +233,8 @@ python boards/3ch-awg-tia/scripts/dac_channels.py --apply --dry-run --verbose
 python boards/3ch-awg-tia/scripts/dac_channels.py --apply
 ```
 
-`OUTPUT` (`boards/3ch-awg-tia/generated/dac_channels.yaml`) коммитится — плоский, диффабельный YAML,
-хотя его и написал Python-скрипт. `boards/3ch-awg-tia/profiles/dac_channels.yaml` подхватывает его
+`OUTPUT` (`boards/3ch-awg-tia/generated/dac_channels.sexp`) коммитится — плоский, диффабельный s-expr,
+хотя его и написал Python-скрипт. `boards/3ch-awg-tia/profiles/dac_channels.sexp` подхватывает его
 через `include:`, обычным путём. Скрипт тоже остаётся в репозитории — повторный запуск после реальной
 правки платы (или расширение до 4-го канала) перегенерирует тот же файл, а не правит его руками.
 
@@ -251,13 +251,13 @@ from kicadstamp.author import dump_template
 from kicadstamp.explore import Board
 from kicadstamp.utils.units import MM
 
-board = Board.connect(config_path="boards/3ch-awg-tia/profiles/power.yaml")
+board = Board.connect(config_path="boards/3ch-awg-tia/profiles/power.sexp")
 ldo_fp = board.select(role="LDO_3V3")[0].fp
 origin_x_mm, origin_y_mm = ldo_fp.position.x / MM, ldo_fp.position.y / MM
 # ... измерить другие живые позиции падов, вычесть origin ...
 
 dump_template({"p3v3_ldo_composite": {"clone_placements": [...]}},
-              "boards/3ch-awg-tia/profiles/templates/p3v3_ldo_composite.yaml")
+              "boards/3ch-awg-tia/profiles/templates/p3v3_ldo_composite.sexp")
 ```
 
 Это общий паттерн для всего, что зависит от геометрии и не выводится безопасно из чисел в YAML одной

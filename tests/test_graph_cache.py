@@ -13,6 +13,7 @@ from pathlib import Path
 
 from kicadstamp.config import load_config
 from kicadstamp.config.includes import walk_include_tree
+from kicadstamp.config.sexp_format import dict_to_sexp
 
 
 def _bump_mtime_forward(path: Path, seconds: float = 1.0) -> None:
@@ -36,31 +37,20 @@ def _pin_mtime(path: Path, mtime_ns: int) -> None:
 
 
 def _cell_yaml(name: str) -> str:
-    """A load_config()-valid single-cell YAML body (same minimal shape as
-    tests/gui/test_dock_hub_startup_reads.py's _MINIMAL_CELL)."""
-    return (
-        f"cells:\n"
-        f"  {name}:\n"
-        f"    components:\n"
-        f"      - role: R1\n"
-        f"        offset_along_mm: 0.0\n"
-        f"        offset_across_mm: 0.0\n"
-        f"        angle_deg: 0.0\n"
-    )
+    """A load_config()-valid single-cell s-expr body (same minimal shape as
+    tests/gui/test_dock_hub_startup_reads.py's _MINIMAL_CELL; s-expr since
+    2026-08-28, core_yaml_removal)."""
+    return dict_to_sexp({"cells": {name: {"components": [
+        {"role": "R1", "offset_along_mm": 0.0, "offset_across_mm": 0.0,
+         "angle_deg": 0.0}]}}})
 
 
-_ROOT_SKELETON = (
-    "layer: F.Cu\n"
-    "rules: []\n"
-    "cells: {}\n"
-    "points: {}\n"
-    "clone_placements: []\n"
-    "thermal_via_arrays: []\n"
-)
+_ROOT_BASE = {"layer": "F.Cu", "rules": [], "cells": {}, "points": {},
+              "clone_placements": [], "thermal_via_arrays": []}
 
 
 def _write_minimal(root: Path) -> Path:
-    root.write_text(_ROOT_SKELETON, encoding="utf-8")
+    root.write_text(dict_to_sexp(_ROOT_BASE), encoding="utf-8")
     return root
 
 
@@ -68,7 +58,7 @@ def _write_multi(root: Path, sub: Path, cell_name: str) -> None:
     """root includes sub; sub carries one cell. Same shape the GUI's per-dock
     graph walks exercise on every startup."""
     sub.write_text(_cell_yaml(cell_name), encoding="utf-8")
-    root.write_text(_ROOT_SKELETON + "include:\n  - sub.yaml\n", encoding="utf-8")
+    root.write_text(dict_to_sexp({**_ROOT_BASE, "include": ["sub.sexp"]}), encoding="utf-8")
 
 
 def test_repeat_load_config_on_unchanged_path_runs_body_once(tmp_path, monkeypatch):
@@ -79,7 +69,7 @@ def test_repeat_load_config_on_unchanged_path_runs_body_once(tmp_path, monkeypat
     tests/test_sheet_names.py."""
     from kicadstamp.config import loader as loader_mod
 
-    root = _write_minimal(tmp_path / "root.yaml")
+    root = _write_minimal(tmp_path / "root.sexp")
     calls = []
     real = loader_mod._load_config_uncached
 
@@ -101,7 +91,7 @@ def test_repeat_walk_include_tree_on_unchanged_path_runs_body_once(tmp_path, mon
     per changed graph, no matter how many docks ask for the same tree."""
     from kicadstamp.config import includes as includes_mod
 
-    root = _write_minimal(tmp_path / "root.yaml")
+    root = _write_minimal(tmp_path / "root.sexp")
     calls = []
     real = includes_mod._walk_include_tree_uncached
 
@@ -121,8 +111,8 @@ def test_edit_an_included_file_invalidates_graph_cache(tmp_path):
     """Editing ANY file of the graph — not necessarily the root — must be
     visible on the next load_config() of the same root. Proves the mtime
     re-check covers the WHOLE file set, not just the root file."""
-    root = tmp_path / "root.yaml"
-    sub = tmp_path / "sub.yaml"
+    root = tmp_path / "root.sexp"
+    sub = tmp_path / "sub.sexp"
     _write_multi(root, sub, "c1")
 
     cfg1, _ = load_config(str(root))
@@ -140,13 +130,13 @@ def test_topology_change_via_new_include_is_seen(tmp_path):
     """A topology change (an include: starting to point at a new file) is
     detected through the mtime of the already-known file carrying the
     include: line — no separate topology logic needed."""
-    root = _write_minimal(tmp_path / "root.yaml")
+    root = _write_minimal(tmp_path / "root.sexp")
     cfg1, _ = load_config(str(root))
     assert cfg1.cells == {}
 
-    b = tmp_path / "b.yaml"
+    b = tmp_path / "b.sexp"
     b.write_text(_cell_yaml("from_b"), encoding="utf-8")
-    root.write_text(_ROOT_SKELETON + "include:\n  - b.yaml\n", encoding="utf-8")
+    root.write_text(dict_to_sexp({**_ROOT_BASE, "include": ["b.sexp"]}), encoding="utf-8")
     _bump_mtime_forward(root)
 
     cfg2, _ = load_config(str(root))
@@ -165,7 +155,7 @@ def test_write_data_delete_then_upsert_never_stale_graph(tmp_path):
     handoff_2026_08_21_mtime_race_tests_dont_race.md)."""
     from kicadstamp import config_writer
 
-    root = tmp_path / "root.yaml"
+    root = tmp_path / "root.sexp"
     base = {"layer": "F.Cu", "rules": [], "points": {},
             "clone_placements": [], "thermal_via_arrays": []}
     cell_old = {"components": [{"role": "R1", "offset_along_mm": 0.0,
@@ -198,7 +188,7 @@ def test_graph_cache_returns_shared_snapshot_copy_before_mutate(tmp_path):
     into the cached snapshot."""
     from dataclasses import replace
 
-    root = _write_minimal(tmp_path / "root.yaml")
+    root = _write_minimal(tmp_path / "root.sexp")
     cfg1, _ = load_config(str(root))
     cfg2, _ = load_config(str(root))
     assert cfg1 is cfg2  # shared snapshot, not a fresh deep copy

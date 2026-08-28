@@ -38,6 +38,31 @@ class FieldsToolError(Exception):
     pass
 
 
+def yaml_removed_config_error(path) -> "ValidationError":
+    """ValidationError for a `.yaml`/`.yml` config file fed to a CORE config
+    function: YAML support was removed from the config graph (2026-08-28,
+    core_yaml_removal) — the project's config format is s-expr (.sexp) or
+    .json, and a legacy .yaml must be converted first. Shared by
+    config_writer (which wraps this in OSError for the GUI docks' `except
+    OSError` contract) and config/includes._load_config_file (which raises it
+    directly, matching load_config's ValidationError contract)."""
+    return ValidationError(format_fatal_error(
+        _("{path}: YAML config support has been removed — convert this file "
+          "with `tools/sexp_config_convert.py` first").format(path=path),
+        [_("the project's config format is s-expr (.sexp) or .json")]))
+
+
+def unknown_extension_config_error(path, suffix: str) -> "ValidationError":
+    """ValidationError for a config file whose extension is neither a
+    supported config format (.sexp/.json) nor a legacy .yaml/.yml — e.g. a
+    typo (`.sepx`) or a file with no extension at all. Same sharing story as
+    yaml_removed_config_error."""
+    return ValidationError(format_fatal_error(
+        _("{path}: unrecognized config file extension {suffix!r}")
+        .format(path=path, suffix=suffix),
+        [_("use .sexp (the project's main format) or .json")]))
+
+
 def format_fatal_error(title: str, problems: list) -> str:
     """
     Common fatal error formatter – used both in config.py (checks at YAML load)

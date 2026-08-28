@@ -851,7 +851,7 @@ class ConfigTreeDock(QDockWidget):
         перезаписать")."""
         chosen, _filter = QFileDialog.getSaveFileName(
             self, _("Export to..."), str(self._root_path.parent if self._root_path else ""),
-            "YAML (*.yaml *.yml)")
+            "Config files (*.sexp *.json)")
         if not chosen:
             return
         target_path = Path(chosen)
@@ -891,7 +891,7 @@ class ConfigTreeDock(QDockWidget):
         itself never touches disk; if the chosen path doesn't exist, an
         empty file is created here before wiring include:."""
         chosen, _filter = QFileDialog.getSaveFileName(
-            self, _("Add included file"), str(file_path.parent), "YAML (*.yaml)")
+            self, _("Add included file"), str(file_path.parent), "Config files (*.sexp *.json)")
         if not chosen:
             return
         chosen_path = Path(chosen)

@@ -53,7 +53,6 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-import yaml
 from kipy.errors import ApiError
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QHBoxLayout,
@@ -338,7 +337,7 @@ class ThermalViaArrayDock(QWidget):
                 cfg, ctx = load_config(str(self._path))
             else:
                 cfg, ctx = Config(), RuntimeContext()
-        except (ValidationError, OSError, yaml.YAMLError) as e:
+        except (ValidationError, OSError) as e:
             self._show_message(_("Failed to load file: {error}").format(error=e), _ERROR_STYLE)
             return None
 

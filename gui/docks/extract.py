@@ -144,7 +144,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import yaml
 from kicadstamp.domain.board import Footprint, Track, Via
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFormLayout,
@@ -663,7 +662,7 @@ class ExtractDock(QWidget):
                                        or track_registry_path_for_config(str(self._placer_path)))
                 via_uuids = {entry.uuid for entry in load_registry(registry_path).values()}
                 track_uuids = {entry.uuid for entry in load_track_registry(track_registry_path).values()}
-            except (ValidationError, OSError, yaml.YAMLError) as e:
+            except (ValidationError, OSError) as e:
                 logger.warning(_("Cluster filter: failed to read the Placer file's registry "
                                  "({placer}): {type}: {error} — Via/Track exclusion by registry "
                                  "skipped, footprint filtering by Cluster still applies")

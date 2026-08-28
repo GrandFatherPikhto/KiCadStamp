@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 """Format-dispatch tests for kicadstamp/config_writer.py's _read_data/_write_data
 — the single read/write chokepoint for every GUI dock (2026-08-28,
-loud-format-dispatch fix, plan_2026_08_28_config_writer_loud_format_dispatch.md):
+core_yaml_removal, plan_2026_08_28_core_yaml_removal.md):
 
-  - .json/.sexp/.yaml/.yml are named cases (the parse/write itself is
+  - .json and .sexp are the only supported config formats (parse/write
     unchanged);
-  - .yaml/.yml additionally logs a deprecation warning ONCE per resolved path
-    per process (the project's main format is s-expr; YAML is a legacy
-    fallback) — not once per read/write call;
-  - any OTHER extension (including a missing one) is a fatal ValidationError
-    naming the path and the extension, instead of a silent YAML fallback.
+  - .yaml/.yml and any OTHER extension (including a missing one) are a fatal
+    OSError — NOT a bare ValidationError — so the GUI docks' `except OSError`
+    contract holds (this was a live bug: the previous fix raised a bare
+    ValidationError that escaped Qt slots; fixed 2026-08-28, §0.5 of the
+    plan). The ValidationError is kept as __cause__ for diagnostics.
+  - .yaml/.yml get the dedicated "YAML support removed — convert with
+    sexp_config_convert.py" message; other extensions get the generic
+    unrecognized-extension message.
 
 The existing read/parse semantics live in tests/gui/test_dock_common.py
-(YAML/JSON) and tests/gui/test_sexp_config_write.py (s-expr) — this file is
-focused purely on the new dispatch/warning/fatal behavior.
+(.sexp/.json) and tests/gui/test_sexp_config_write.py (s-expr) — this file is
+focused purely on the unsupported-format fatal behavior.
 """
 import sys
 from pathlib import Path
@@ -21,70 +24,61 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
-import yaml
 
-import kicadstamp.config_writer as config_writer
 from kicadstamp.config_writer import _read_data, _write_data
 from kicadstamp.exceptions import ValidationError
 
 
-@pytest.fixture(autouse=True)
-def _fresh_yaml_warned_paths():
-    """The once-per-path warning set is process-global — each test must start
-    (and end) with it empty so "warns exactly once" assertions are about THIS
-    test's paths, not leftovers from an earlier one."""
-    config_writer._yaml_warned_paths.clear()
-    yield
-    config_writer._yaml_warned_paths.clear()
+def _yaml_removed_msg(exc):
+    return str(exc.value)
 
 
-def _yaml_warnings(caplog):
-    return [r for r in caplog.records if "reading/writing as YAML" in r.getMessage()]
+# ── .yaml/.yml — fatal OSError with the sexp_config_convert.py message ───────
 
 
-# ── .yaml/.yml — behavior unchanged, deprecation warning once per path ──────
-
-
-def test_yaml_read_warns_once_per_path(caplog, tmp_path):
+def test_yaml_read_is_os_error_with_convert_message(tmp_path):
     path = tmp_path / "cfg.yaml"
     path.write_text("cells: {}\n", encoding="utf-8")
-    _read_data(path)
-    _read_data(path)  # cache HIT — must not re-warn
-    assert len(_yaml_warnings(caplog)) == 1
+    with pytest.raises(OSError) as excinfo:
+        _read_data(path)
+    assert "sexp_config_convert.py" in _yaml_removed_msg(excinfo)
+    assert str(path) in _yaml_removed_msg(excinfo)
 
 
-def test_yaml_write_warns_once_per_path(caplog, tmp_path):
+def test_yaml_write_is_os_error_and_creates_no_file(tmp_path):
     path = tmp_path / "cfg.yaml"
-    _write_data(path, {"cells": {"a": {}}})
-    _write_data(path, {"cells": {"b": {}}})  # cache invalidated, but no re-warn
-    assert len(_yaml_warnings(caplog)) == 1
+    with pytest.raises(OSError) as excinfo:
+        _write_data(path, {"cells": {}})
+    assert "sexp_config_convert.py" in _yaml_removed_msg(excinfo)
+    assert not path.exists()
 
 
-def test_yaml_read_then_write_warns_once(caplog, tmp_path):
-    path = tmp_path / "cfg.yaml"
-    path.write_text("cells: {}\n", encoding="utf-8")
-    _read_data(path)
-    _write_data(path, {"cells": {"a": {}}})
-    assert len(_yaml_warnings(caplog)) == 1
-
-
-def test_yml_extension_recognized_as_yaml(caplog, tmp_path):
+def test_yml_extension_is_os_error(tmp_path):
     path = tmp_path / "cfg.yml"
-    path.write_text("cells:\n  a: {}\n", encoding="utf-8")
-    assert _read_data(path)["cells"]["a"] == {}
-    _write_data(path, {"cells": {"a": {}, "b": {}}})
-    assert len(_yaml_warnings(caplog)) == 1
-    data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    assert set(data["cells"]) == {"a", "b"}
+    path.write_text("cells: {}\n", encoding="utf-8")
+    with pytest.raises(OSError) as excinfo:
+        _read_data(path)
+    assert "sexp_config_convert.py" in _yaml_removed_msg(excinfo)
 
 
-# ── unknown / missing extension -> fatal ValidationError ─────────────────────
+def test_yaml_error_keeps_validation_error_as_cause(tmp_path):
+    """§0.5 of the plan: the fatal must be OSError (so `except OSError` in the
+    GUI docks catches it) with the ValidationError preserved as __cause__ for
+    diagnostics."""
+    path = tmp_path / "cfg.yaml"
+    path.write_text("cells: {}\n", encoding="utf-8")
+    with pytest.raises(OSError) as excinfo:
+        _read_data(path)
+    assert isinstance(excinfo.value.__cause__, ValidationError)
 
 
-def test_unknown_extension_read_is_fatal(tmp_path):
+# ── unknown / missing extension -> fatal OSError ─────────────────────────────
+
+
+def test_unknown_extension_read_is_os_error(tmp_path):
     path = tmp_path / "cfg.conf"
     path.write_text("cells: {}\n", encoding="utf-8")
-    with pytest.raises(ValidationError) as excinfo:
+    with pytest.raises(OSError) as excinfo:
         _read_data(path)
     msg = str(excinfo.value)
     assert str(path) in msg
@@ -92,9 +86,9 @@ def test_unknown_extension_read_is_fatal(tmp_path):
     assert "use .sexp" in msg
 
 
-def test_unknown_extension_write_is_fatal_and_creates_no_file(tmp_path):
+def test_unknown_extension_write_is_os_error_and_creates_no_file(tmp_path):
     path = tmp_path / "cfg.conf"
-    with pytest.raises(ValidationError) as excinfo:
+    with pytest.raises(OSError) as excinfo:
         _write_data(path, {"cells": {}})
     msg = str(excinfo.value)
     assert str(path) in msg
@@ -102,26 +96,25 @@ def test_unknown_extension_write_is_fatal_and_creates_no_file(tmp_path):
     assert not path.exists()  # a bad extension must not leave an empty file behind
 
 
-def test_no_extension_is_fatal(tmp_path):
+def test_no_extension_is_os_error(tmp_path):
     read_path = tmp_path / "cfg"  # no extension at all
     read_path.write_text("cells: {}\n", encoding="utf-8")
-    with pytest.raises(ValidationError):
+    with pytest.raises(OSError):
         _read_data(read_path)
 
     write_path = tmp_path / "other"  # no extension at all
-    with pytest.raises(ValidationError):
+    with pytest.raises(OSError):
         _write_data(write_path, {"cells": {}})
     assert not write_path.exists()
 
 
-# ── .sexp / .json — no warning, behavior unchanged (regression sanity) ──────
+# ── .sexp / .json — still work (regression) ─────────────────────────────────
 
 
-def test_sexp_and_json_do_not_warn(caplog, tmp_path):
+def test_sexp_and_json_work(tmp_path):
     sexp = tmp_path / "cfg.sexp"
     _write_data(sexp, {"layer": "B.Cu"})
-    _read_data(sexp)
+    assert _read_data(sexp) == {"layer": "B.Cu"}
     js = tmp_path / "cfg.json"
-    _write_data(js, {"cells": {}})
-    _read_data(js)
-    assert _yaml_warnings(caplog) == []
+    _write_data(js, {"cells": {"a": {}}})
+    assert _read_data(js) == {"cells": {"a": {}}}

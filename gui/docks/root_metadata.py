@@ -335,7 +335,7 @@ class RootMetadataDock(QWidget):
     def _on_open_root(self) -> None:
         chosen, _filter = QFileDialog.getOpenFileName(
             self, _("Open Root file"), str(self._path.parent if self._path else ""),
-            "Config files (*.yaml *.yml *.sexp)")
+            "Config files (*.sexp *.json)")
         if not chosen:
             return
         self.set_root_file(Path(chosen))
@@ -348,7 +348,7 @@ class RootMetadataDock(QWidget):
         default_dir = str(self._path.parent if self._path else "")
         chosen, _filter = QFileDialog.getSaveFileName(
             self, _("New Root file"), str(Path(default_dir) / self._default_new_name()),
-            "Config files (*.yaml *.yml *.sexp)")
+            "Config files (*.sexp *.json)")
         if not chosen:
             return
         chosen_path = Path(chosen)

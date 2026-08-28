@@ -17,13 +17,14 @@ import logging
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-import yaml
-
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
-from kicadstamp.exceptions import ValidationError, format_fatal_error
+from kicadstamp.exceptions import (
+    ValidationError,
+    unknown_extension_config_error,
+    yaml_removed_config_error,
+)
 from kicadstamp.i18n import _
 from kicadstamp.utils.file_cache import cached_file_read, invalidate_graph_path, invalidate_path
-from kicadstamp.utils.yaml_loader import safe_load
 
 logger = logging.getLogger(__name__)
 
@@ -36,38 +37,20 @@ logger = logging.getLogger(__name__)
 # this file lives one level deeper: kicadstamp/config_writer.py.
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-# Resolved paths for which the "YAML is a legacy fallback" deprecation
-# warning has already been logged in THIS process. The GUI docks read-merge-
-# write the same file many times per session, so the warning must fire once
-# per path, not per call. Deliberately NOT tied to cached_file_read's cache:
-# that cache is invalidated on every write, and "already warned" must survive
-# invalidation (otherwise the warning would return on each re-read after a
-# write in the same session). Not persisted across process restarts — the
-# goal is only to keep a single GUI session's log quiet, not to keep a
-# permanent journal.
-_yaml_warned_paths: set[Path] = set()
-
-
-def _warn_yaml_once(path: Path) -> None:
-    """Log the "YAML is a legacy fallback" deprecation warning at most once
-    per resolved path per process (2026-08-28, loud-format-dispatch fix)."""
-    resolved = path.resolve()
-    if resolved in _yaml_warned_paths:
-        return
-    _yaml_warned_paths.add(resolved)
-    logger.warning(
-        _("{path}: reading/writing as YAML — the project's main config format "
-          "is s-expr (.sexp); YAML is a legacy fallback").format(path=path))
-
-
-def _unknown_extension_error(path: Path, suffix: str) -> ValidationError:
-    """ValidationError for a config file whose extension is not one of the
-    three named formats — the previous silent YAML fallback is now an
-    explicit, loud error (2026-08-28, loud-format-dispatch fix)."""
-    return ValidationError(format_fatal_error(
-        _("{path}: unrecognized config file extension {suffix!r}")
-        .format(path=path, suffix=suffix),
-        [_("use .sexp (the project's main format), .yaml, or .json")]))
+def _raise_unsupported_config_format(path: Path, suffix: str) -> None:
+    """Raise the fatal for a config file whose format the core no longer
+    supports, wrapped in OSError with the ValidationError kept as __cause__
+    (2026-08-28 — fix for a live bug: a bare ValidationError escaped the GUI
+    docks' `except OSError` around read_data/write_data and would crash a Qt
+    slot; _read_data's docstring documents the same class of incident as
+    already hit live 2026-08-04). .yaml/.yml get the dedicated "YAML removed
+    — convert with sexp_config_convert.py" message; anything else gets the
+    generic unrecognized-extension message."""
+    if suffix in (".yaml", ".yml"):
+        cause = yaml_removed_config_error(path)
+    else:
+        cause = unknown_extension_config_error(path, suffix)
+    raise OSError(str(cause)) from cause
 
 
 def _read_data(path: Path) -> dict:
@@ -93,12 +76,12 @@ def _read_data(path: Path) -> dict:
     file that doesn't exist yet is never cached as "absent forever" and
     appears on the next call once it's created.
 
-    Format is selected by file extension (2026-08-28, loud-format-dispatch
-    fix — previously any OTHER extension silently fell through to YAML):
-    .json -> JSON, .sexp -> s-expr, .yaml/.yml -> YAML (logs a once-per-path
-    deprecation warning — the project's main format is s-expr, YAML is a
-    legacy fallback), anything else -> fatal ValidationError naming the path
-    and the unrecognized extension."""
+    Format is selected by file extension (2026-08-28, core_yaml_removal —
+    YAML support was removed from the config graph entirely): .json -> JSON,
+    .sexp -> s-expr, anything else (including legacy .yaml/.yml) -> fatal
+    OSError (ValidationError as __cause__) — .yaml/.yml with the dedicated
+    "convert with sexp_config_convert.py" message, any other extension with
+    the unrecognized-extension message."""
     if not path.exists():
         return {}
 
@@ -109,15 +92,12 @@ def _read_data(path: Path) -> dict:
         elif suffix == ".sexp":
             kind = "s-expr"
             parser = lambda f: sexp_to_dict(f.read())  # noqa: E731
-        elif suffix in (".yaml", ".yml"):
-            _warn_yaml_once(p)
-            kind, parser = "YAML", safe_load
         else:
-            raise _unknown_extension_error(p, suffix)
+            _raise_unsupported_config_format(p, suffix)
         try:
             with open(p, "r", encoding="utf-8") as f:
                 return parser(f) or {}
-        except (json.JSONDecodeError, yaml.YAMLError, ValidationError) as e:
+        except (json.JSONDecodeError, ValidationError) as e:
             raise OSError(_("{path} is not valid {kind}: {error}").format(
                 path=path, kind=kind, error=e)) from e
 
@@ -138,12 +118,10 @@ def _write_data(path: Path, data: dict) -> None:
     invalidate_path()/invalidate_graph_path() docstrings).
 
     Format is selected by file extension, symmetric to _read_data (2026-08-28,
-    loud-format-dispatch fix — previously any OTHER extension silently fell
-    through to YAML): .json -> JSON, .sexp -> s-expr, .yaml/.yml -> YAML
-    (logs a once-per-path deprecation warning), anything else -> fatal
-    ValidationError naming the path and the unrecognized extension — raised
-    BEFORE the file is opened, so a bad extension never creates an empty
-    file on disk."""
+    core_yaml_removal — YAML support removed): .json -> JSON, .sexp -> s-expr,
+    anything else -> fatal OSError (ValidationError as __cause__), raised
+    BEFORE the file is opened, so a bad extension never creates an empty file
+    on disk."""
     suffix = path.suffix.lower()
     if suffix == ".json":
         with open(path, "w", encoding="utf-8") as f:
@@ -151,12 +129,8 @@ def _write_data(path: Path, data: dict) -> None:
     elif suffix == ".sexp":
         with open(path, "w", encoding="utf-8") as f:
             f.write(dict_to_sexp(data))
-    elif suffix in (".yaml", ".yml"):
-        _warn_yaml_once(path)
-        with open(path, "w", encoding="utf-8") as f:
-            yaml.dump(data, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
     else:
-        raise _unknown_extension_error(path, suffix)
+        _raise_unsupported_config_format(path, suffix)
     invalidate_path(path)
     invalidate_graph_path(path)
 
@@ -344,14 +318,22 @@ INCLUDABLE_KEYS = frozenset(
 
 def _load_data_tolerant(path: Path) -> dict:
     """Tolerant read for non_includable_keys() below — mirrors
-    gui/yaml_io.load_data (missing/malformed file -> {}), but lives in core
-    because kicadstamp must never import from gui/."""
+    gui/yaml_io.load_data (missing/malformed/unsupported file -> {}), but
+    lives in core because kicadstamp must never import from gui/. Like
+    _read_data, only .sexp/.json are read (2026-08-28, core_yaml_removal); a
+    .yaml/.yml or any other extension is simply not a supported config format
+    and yields {}."""
     if path is None or not path.exists():
         return {}
+    suffix = path.suffix.lower()
     try:
         with open(path, "r", encoding="utf-8") as f:
-            return (json.load(f) if path.suffix.lower() == ".json" else safe_load(f)) or {}
-    except (OSError, yaml.YAMLError, json.JSONDecodeError) as e:
+            if suffix == ".json":
+                return json.load(f) or {}
+            if suffix == ".sexp":
+                return sexp_to_dict(f.read()) or {}
+            return {}
+    except (OSError, json.JSONDecodeError, ValidationError) as e:
         logger.warning("Failed to read %s: %s", path, e)
         return {}
 

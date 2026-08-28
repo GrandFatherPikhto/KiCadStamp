@@ -27,7 +27,7 @@ class TestExtractTemplateValidation:
             extract_template(
                 adapter=object(),
                 name="cell",
-                output="out.yaml",
+                output="out.sexp",
                 origin_component_pad="3",
             )
 
@@ -36,7 +36,7 @@ class TestExtractTemplateValidation:
             extract_template(
                 adapter=object(),
                 name="cell",
-                output="out.yaml",
+                output="out.sexp",
                 params={"channel": 1},
                 net_template_map={"DAC1_DB1": "DAC{channel}_DB1"},
                 origin_component_pad="3",
@@ -62,7 +62,7 @@ class TestRuleNets:
         monkeypatch.setattr(cli_extract_mod, "extract_template_from_selection", _fake)
 
         extract_template(
-            adapter=object(), name="cell", output=str(tmp_path / "out.yaml"),
+            adapter=object(), name="cell", output=str(tmp_path / "out.sexp"),
             rule_nets={"+3V3_VCCIO"},
         )
 
@@ -88,7 +88,7 @@ class TestRawSelection:
         monkeypatch.setattr(cli_extract_mod, "extract_template_from_selection", _fake)
 
         extract_template(
-            adapter=object(), name="cell", output=str(tmp_path / "out.yaml"),
+            adapter=object(), name="cell", output=str(tmp_path / "out.sexp"),
             raw_selection=True,
         )
 
@@ -104,7 +104,7 @@ class TestRawSelection:
         import kicadstamp.cli_extract as cli_extract_mod
         monkeypatch.setattr(cli_extract_mod, "extract_template_from_selection", _fake)
 
-        extract_template(adapter=object(), name="cell", output=str(tmp_path / "out.yaml"))
+        extract_template(adapter=object(), name="cell", output=str(tmp_path / "out.sexp"))
 
         assert captured["raw_selection"] is False
 
@@ -134,7 +134,7 @@ class TestCmdExtractRawSelection:
         monkeypatch.setattr(cli_extract_mod, "extract_template", _fake_extract)
 
         args = SimpleNamespace(
-            name="cell", output="out.yaml", timeout_ms=100,
+            name="cell", output="out.sexp", timeout_ms=100,
             param=None, net_template=None, net_template_role=None, rule_net=None,
             origin_by_via_net=None, origin_by_component_role=None,
             origin_by_component_pad=None, profile=None, profiles=None,
@@ -144,7 +144,7 @@ class TestCmdExtractRawSelection:
 
         assert captured["raw_selection"] is True
         assert captured["name"] == "cell"
-        assert captured["output"] == "out.yaml"
+        assert captured["output"] == "out.sexp"
 
 
 class TestExtractTemplateSexpOutput:
@@ -205,11 +205,12 @@ class TestExtractTemplateSexpOutput:
         assert "existing" in data["cells"]
         assert "cell1" in data["cells"]
 
-    def test_sexp_output_skips_render_uncertain_comments(self, monkeypatch, tmp_path):
-        """render_uncertain_comments is a YAML-text post-processor (it splices
-        "# field: hint" comment lines into yaml.dump output) — for a .sexp
-        output it must NOT be called: annotations are simply not inserted into
-        s-expr output, and the file stays a valid s-expr."""
+    def test_sexp_output_ignores_annotations(self, monkeypatch, tmp_path):
+        """render_uncertain_comments was removed from extract_template with
+        the YAML output branch (2026-08-28, core_yaml_removal — the function/
+        module stay alive elsewhere, but this write path no longer references
+        it at all). Annotations are still collected from the extractor but are
+        simply not inserted into .sexp output: the file stays a valid s-expr."""
         from kicadstamp.config.sexp_format import sexp_to_dict
 
         def _fake(adapter, name, **kwargs):
@@ -222,18 +223,9 @@ class TestExtractTemplateSexpOutput:
         import kicadstamp.cli_extract as cli_extract_mod
         monkeypatch.setattr(cli_extract_mod, "extract_template_from_selection", _fake)
 
-        calls = []
-
-        def _record_render(*args, **kwargs):
-            calls.append(args)
-            return args[0]
-
-        monkeypatch.setattr(cli_extract_mod, "render_uncertain_comments", _record_render)
-
         out = tmp_path / "out.sexp"
         extract_template(adapter=object(), name="cell1", output=str(out))
 
-        assert calls == []  # renderer never invoked on the .sexp path
         text = out.read_text(encoding="utf-8")
         assert text.lstrip().startswith("(kicadstamp-config")
         sexp_to_dict(text)  # still a valid s-expr

@@ -1,7 +1,7 @@
 # kicadstamp/flatten.py
 """
 flatten.py — one-shot consolidation of a multi-file include: project into a
-single self-contained YAML file (CLI `flatten`, see
+single self-contained s-expr file (CLI `flatten`, see
 techdocs/handoff/deepseek/plan_2026_08_21_flatten_and_single_file_gui.md).
 
 Pure file operation with no IPC: reads the root file, resolves the whole
@@ -25,12 +25,9 @@ Never deletes anything: the old subsystem files stay exactly where they were
 (removing them after verifying the merge is a deliberate manual step), and
 --output to a different path never touches the root file.
 """
-import datetime
 import logging
 from pathlib import Path
 from typing import Any, List, Optional
-
-import yaml
 
 from kicadstamp.config.includes import (
     _DICT_SECTIONS,
@@ -39,6 +36,7 @@ from kicadstamp.config.includes import (
     resolve_includes,
     walk_include_tree,
 )
+from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.i18n import _
 from kicadstamp.utils.file_cache import cached_file_read, invalidate_path
 
@@ -79,7 +77,7 @@ def flatten_config(root: str, output: Optional[str] = None,
                    dry_run: bool = False) -> List[str]:
     """Consolidate the include: project rooted at `root` into one file.
 
-    `output` — where to write the merged YAML. None (the default) overwrites
+    `output` — where to write the merged s-expr. None (the default) overwrites
     the root file in place; an explicit path writes a NEW file and leaves the
     root (and every included file) untouched. `dry_run` returns the report
     without writing anything. Returns the report lines (also returned for a
@@ -128,18 +126,14 @@ def flatten_config(root: str, output: Optional[str] = None,
         report.append(_("Would write to: {path}").format(path=target))
         return report
 
-    # Memo comment at the top of the output file — English, like every other
-    # comment in the project's generated YAML (file artifacts are not gettext
-    # strings). The yaml.dump settings match config_writer._write_data().
-    header = ("# flattened by kicadstamp flatten on {date} "
-              "from {files} file(s)\n").format(
-                  date=datetime.date.today().isoformat(), files=file_count)
-
+    # The output is always s-expr (dict_to_sexp), matching the .sexp-only
+    # config graph the input now comes from (2026-08-28, core_yaml_removal).
+    # The old YAML "# flattened by ..." memo header is dropped: the s-expr
+    # grammar has no comment syntax, and the report lines below already carry
+    # the same provenance info to the user.
     target.parent.mkdir(parents=True, exist_ok=True)
     with open(target, "w", encoding="utf-8") as f:
-        f.write(header)
-        yaml.dump(out, f, allow_unicode=True, sort_keys=False,
-                  default_flow_style=False)
+        f.write(dict_to_sexp(out))
     invalidate_path(target)
 
     report.append(_("Written to: {path}").format(path=target))
