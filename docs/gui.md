@@ -563,8 +563,8 @@ Edits a `rules:` entry (see [docs/config.md](config.md) on Rule/ManualSpoke) —
 (no `xy` mode here, unlike Points/Placer — only **Anchor (ref/role, + Sheet/Cluster)** or **Point**;
 Sheet here is the same searchable combo autocompleted from the project's schematic files, not a
 whitelist) plus an ORDERED list of spokes, each placing a Cell at a specific pad of that anchor
-with its own hand-tuned shift/rotation. Added 2026-08-05 after Denis connected `fpga_spokes.yaml`/
-`fpga_cap_pair_spoke.yaml` to a real project and hit the long-standing "Rules has no edit form" gap.
+with its own hand-tuned shift/rotation. Added 2026-08-05 after Denis connected `fpga_spokes.sexp`/
+`fpga_cap_pair_spoke.sexp` to a real project and hit the long-standing "Rules has no edit form" gap.
 
 **Net**/**Origin**/**Spoke** live in a tab widget (2026-08-05, same "a stacked `QVBoxLayout`'s
 minimum height is the SUM of every section's own" fix as Extract/Project): Net carries the rule's
@@ -697,7 +697,7 @@ This panel is in-memory only (capped, lost if the process is killed/crashes). If
 root config sets `log_file:` (see [docs/config.md](config.md)), the GUI now ALSO writes everything
 (DEBUG level, regardless of Verbose) to that file — same convention `kicadstamp_cli.py apply`
 already used, previously CLI-only (found live 2026-08-06: a `log_file:` already sitting in a
-project's root.yaml was silently never honored by the GUI). Re-attached fresh on every root-file
+project's root.sexp was silently never honored by the GUI). Re-attached fresh on every root-file
 change (Open/New/Recent), so it always points at the CURRENTLY open project.
 
 Since 2026-08-15 that root-config `log_file:` handler is attached the same queue-aware way as the

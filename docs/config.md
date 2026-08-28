@@ -8,7 +8,7 @@ Everything about **writing** a KiCadStamp config from scratch: root fields, ever
 [docs/architect.md](architect.md).
 
 Every example on this page is drawn from a real, currently-loading config —
-`boards/3ch-awg-tia/profiles/*.yaml` — not invented syntax. Field names match
+`boards/3ch-awg-tia/profiles/*.sexp` — not invented syntax. Field names match
 `kicadstamp/config/models.py` exactly as of 2026-08-01.
 
 ---
@@ -16,7 +16,7 @@ Every example on this page is drawn from a real, currently-loading config —
 ## Root fields
 
 ```yaml
-# boards/3ch-awg-tia/profiles/fpga.yaml
+# boards/3ch-awg-tia/profiles/fpga.sexp
 registry_path: registries/fpga.json
 track_registry_path: registries/fpga.tracks.registry.json
 log_file: ../logs/fpga.log
@@ -27,9 +27,9 @@ thermal_via_arrays:
   - ...
 
 include:
-  - templates/fpga_pi_filters.yaml
-  - fpga_extracts.yaml
-  - rules/fpga_spokes.yaml
+  - templates/fpga_pi_filters.sexp
+  - fpga_extracts.sexp
+  - rules/fpga_spokes.sexp
 
 clone_placements:
   ...
@@ -73,8 +73,8 @@ nesting other cells), or both at once.
 ### Leaf cell
 
 ```yaml
-# boards/3ch-awg-tia/profiles/templates/ldo_3v3.yaml — a file listed under
-# power.yaml's include: (external Cell files are wrapped in cells:, same
+# boards/3ch-awg-tia/profiles/templates/ldo_3v3.sexp — a file listed under
+# power.sexp's include: (external Cell files are wrapped in cells:, same
 # shape as an inline block, since cells_file:/cell_files: were folded into
 # include: on 2026-08-02)
 cells:
@@ -243,7 +243,7 @@ between spokes across different pads (each spoke is self-contained).
 > `cluster:` so each rule draws from its own pool.
 
 ```yaml
-# boards/3ch-awg-tia/profiles/rules/fpga_spokes.yaml
+# boards/3ch-awg-tia/profiles/rules/fpga_spokes.sexp
 rules:
 - net: +3V3_VCCIO
   name: +3V3_VCCIO       # optional — defaults to net if omitted, see below
@@ -296,7 +296,7 @@ just a name (`anchor_id` in the registry is `f"name:{name}"`), so it's the mecha
 multi-component sections (PI-filters, DAC channels, LDO subsystems) as well as one-off ones.
 
 ```yaml
-# boards/3ch-awg-tia/profiles/fpga.yaml
+# boards/3ch-awg-tia/profiles/fpga.sexp
 clone_placements:
   - name: p3v3_vccio_pi_filter
     retired: false
@@ -433,7 +433,7 @@ loaders never need to know this mechanism exists).
 ## `thermal_via_arrays:` — thermal via grids
 
 ```yaml
-# boards/3ch-awg-tia/profiles/fpga.yaml
+# boards/3ch-awg-tia/profiles/fpga.sexp
 thermal_via_arrays:
   - name: fpga_thermal
     retired: false
@@ -488,7 +488,7 @@ ONE net (no net lists inside a record — lists live in only one place in this
 project, the spokes).
 
 ```yaml
-# boards/3ch-awg-tia/profiles/net_traces.yaml  (include:'d into the config)
+# boards/3ch-awg-tia/profiles/net_traces.sexp  (include:'d into the config)
 net_traces:
   - net: DAC_DB0            # the net's name — also the --only identity
     anchor_role: FPGA       # anchor footprint by Role (whole-board search)
@@ -535,7 +535,7 @@ net_traces:
 
 Extraction is a CLI command, not the mouse-selection `extract`:
 `kicadstamp_cli.py extract-net --net DAC_DB0 --anchor-role FPGA [--anchor-pad 42]
---output <config.yaml>` appends/replaces the record under `net_traces:`.
+--output <config.sexp>` appends/replaces the record under `net_traces:`.
 
 **Design note (see `techdocs/handoff/deepseek/plan_2026_08_21_net_traces.md`):**
 deliberately NOT a `Cell`+`ClonePlacement` pair — a net trace is single-instance
@@ -548,7 +548,7 @@ field set, hence one flat record.
 ## `points:` — named, reusable anchors
 
 ```yaml
-# boards/3ch-awg-tia/profiles/points.yaml
+# boards/3ch-awg-tia/profiles/points.sexp
 points:
   p3v3_ldo_origin:
     anchor_role: C_OUT_BYPASS
@@ -592,12 +592,12 @@ it; `ClonePlacement` only ever needs a coordinate, so any Point works there, `an
 ## `include:` — splitting a profile across files
 
 ```yaml
-# boards/3ch-awg-tia/profiles/power.yaml
+# boards/3ch-awg-tia/profiles/power.sexp
 include:
-  - points.yaml
-  - power_extracts.yaml
-  - pn5v_filters.yaml
-  - p3v3_ldo.yaml
+  - points.sexp
+  - power_extracts.sexp
+  - pn5v_filters.sexp
+  - p3v3_ldo.sexp
 ```
 
 Each entry is either a bare path string, or `{path: <str>, enabled: <bool>}` to switch a whole
@@ -633,11 +633,11 @@ entries instead of retyping long flag lists. See [docs/commands.md](commands.md)
 CLI-level walkthrough; the syntax:
 
 ```yaml
-# boards/3ch-awg-tia/profiles/power_extracts.yaml
+# boards/3ch-awg-tia/profiles/power_extracts.sexp
 extract_profiles:
   p5v_pi_filter:
     name: 5v_pi_filter
-    output: boards/3ch-awg-tia/profiles/templates/power_pi_filters.yaml
+    output: boards/3ch-awg-tia/profiles/templates/power_pi_filters.sexp
     params:
       PWR_IN: '+5V_DIRTY'
       PWR_OUT: '+5V'

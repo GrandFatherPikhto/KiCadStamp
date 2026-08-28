@@ -20,7 +20,7 @@ throwaway script every time. `Board.select()` replaces that with one reusable ca
 ```python
 from kicadstamp.explore import Board
 
-board = Board.connect(config_path="boards/3ch-awg-tia/profiles/power.yaml",
+board = Board.connect(config_path="boards/3ch-awg-tia/profiles/power.sexp",
                        schematic_dir="../../../test_boards/3CH-AWG-TIA")
 
 board.select(role="AD_DAC").show()
@@ -177,7 +177,7 @@ guess at Role/Cluster/net names or assume a Role is unique:
 ```python
 from kicadstamp.explore import Board
 
-board = Board.connect(config_path="boards/3ch-awg-tia/profiles/power.yaml",
+board = Board.connect(config_path="boards/3ch-awg-tia/profiles/power.sexp",
                        schematic_dir="../../../test_boards/3CH-AWG-TIA")
 board.select(role="AD_DAC").show()
 ```

@@ -34,7 +34,7 @@ later in the chain may come out different in a real (non‑dry‑run) apply; the
 ### Syntax
 
 ```bash
-python kicadstamp_cli.py apply <config.yaml> [options]
+python kicadstamp_cli.py apply <config.sexp> [options]
 ```
 
 ### Options
@@ -73,8 +73,8 @@ file (wrap its content in a `cells:` key — the old separate `cells_file:`/`cel
 folded into `include:` on 2026-08-02, one way to split ANY section across files instead of two):
 ```yaml
 include:
-  - subsystems/ldo.yaml
-  - path: subsystems/dac_channels.yaml
+  - subsystems/ldo.sexp
+  - path: subsystems/dac_channels.sexp
     enabled: false   # whole file skipped — not even opened — while iterating on something else
 ```
 Each entry is either a path string, or `{path, enabled}` (`enabled` defaults to `true`). A duplicate
@@ -83,7 +83,7 @@ to be separate files, so a repeated name is far more likely a mistake. A file in
 reached from two different branches) is fatal too, whether or not it's a true cycle. Paths are resolved
 relative to the file that references them, not the top‑level config or the current working directory.
 
-**About the current production config:** the master config for the `3CH-AWG-TIA` board is `profiles/3ch-awg-tia.yaml` (merged `rules:`, `clone_placements:`, `thermal_via_arrays:`, with a reference to `profiles/templates/3ch-awg-tia.yaml` via `cells_file`). The file `profiles/generated/10CL006YE144C8G.yaml` written by `tools/generate_10cl006.py` is a self‑contained archival version (can be run separately, but is no longer used in `apply` for this board).
+**About the current production config:** the master config for the `3CH-AWG-TIA` board is `profiles/3ch-awg-tia.sexp` (merged `rules:`, `clone_placements:`, `thermal_via_arrays:`, with a reference to `profiles/templates/3ch-awg-tia.yaml` via `cells_file`). The file `profiles/generated/10CL006YE144C8G.yaml` written by `tools/generate_10cl006.py` is a self‑contained archival version (can be run separately, but is no longer used in `apply` for this board).
 
 **`name:` is mandatory on every `thermal_via_arrays:` entry and every
 `clone_placements:` entry, but OPTIONAL on `rules:` entries** (a rule falls back to its `net` – this was
@@ -127,7 +127,7 @@ that stay otherwise enabled.
 #### Standard run (place components, vias, and tracks)
 
 ```bash
-python kicadstamp_cli.py apply profiles/3ch-awg-tia.yaml
+python kicadstamp_cli.py apply profiles/3ch-awg-tia.sexp
 ```
 
 #### Run with verbose logging to a file
@@ -145,27 +145,27 @@ python kicadstamp_cli.py apply 10CL006YE144C8G.yaml --dry-run
 #### Process only one clone (e.g., for debugging)
 
 ```bash
-python kicadstamp_cli.py apply templates\pi_filter_vccio.yaml --only pi_filter_vccio
+python kicadstamp_cli.py apply templates\pi_filter_vccio.sexp --only pi_filter_vccio
 ```
 
 #### Isolated run of a single board section (--only)
 
 ```bash
 # Only one clone_placement, no FPGA spokes or thermal vias in the log
-python kicadstamp_cli.py apply profiles/3ch-awg-tia.yaml --only p5v_pi_filter --dry-run
+python kicadstamp_cli.py apply profiles/3ch-awg-tia.sexp --only p5v_pi_filter --dry-run
 
 # Multiple names/identities at once (a rule via its net + a named thermal_via_arrays entry), repeat flag or comma
-python kicadstamp_cli.py apply profiles/3ch-awg-tia.yaml --only +3V3_VCCIO,fpga_thermal
+python kicadstamp_cli.py apply profiles/3ch-awg-tia.sexp --only +3V3_VCCIO,fpga_thermal
 ```
 
 #### Narrow by physical instance instead of by name (--cluster)
 
 ```bash
 # Only spokes/clones/thermal-vias whose Cluster matches this channel (segment-prefix match)
-python kicadstamp_cli.py apply profiles/3ch-awg-tia.yaml --cluster Channel_0 --dry-run
+python kicadstamp_cli.py apply profiles/3ch-awg-tia.sexp --cluster Channel_0 --dry-run
 
 # Combine with --only – AND, not OR: this clone_placement, AND only within this channel
-python kicadstamp_cli.py apply profiles/3ch-awg-tia.yaml --only p5v_pi_filter --cluster Channel_0
+python kicadstamp_cli.py apply profiles/3ch-awg-tia.sexp --only p5v_pi_filter --cluster Channel_0
 ```
 
 #### Disable collision checking
@@ -255,7 +255,7 @@ python kicadstamp_cli.py extract --name pi_filter_4 --output templates/pi_filter
 
 #### Extract using a profile
 
-In `extract_profiles.yaml`:
+In `extract_profiles.sexp`:
 ```yaml
 # output: shared by every profile below – set it once here if they all write
 # to the same file; a profile that needs a different one just sets its own
@@ -278,19 +278,19 @@ extract_profiles:
 
 Run:
 ```bash
-python kicadstamp_cli.py extract --profiles extract_profiles.yaml --profile my_filter --verbose
+python kicadstamp_cli.py extract --profiles extract_profiles.sexp --profile my_filter --verbose
 ```
 
 #### Extract a template to YAML (no parametrisation)
 
 ```bash
-python kicadstamp_cli.py extract --name my_filter --output my_filter.yaml --verbose
+python kicadstamp_cli.py extract --name my_filter --output my_filter.sexp --verbose
 ```
 
 #### Add a template to an existing config (YAML)
 
 ```bash
-python kicadstamp_cli.py extract --name my_filter --output 10CL006YE144C8G.yaml --verbose
+python kicadstamp_cli.py extract --name my_filter --output 10CL006YE144C8G.sexp --verbose
 ```
 
 Note: if a template with the same name already exists, it will be overwritten.
@@ -310,7 +310,7 @@ trace follows). See `docs/config.md` → `net_traces:`.
 ```bash
 python kicadstamp_cli.py extract-net --net <NET> --anchor-role <ROLE> \
     [--anchor-sheet <SHEET>] [--anchor-cluster <CLUSTER>] [--anchor-pad <PAD>] \
-    --output <file.yaml>
+    --output <file.sexp>
 ```
 
 ### Options
@@ -333,9 +333,9 @@ python kicadstamp_cli.py extract-net --net <NET> --anchor-role <ROLE> \
 
 ```bash
 python kicadstamp_cli.py extract-net --net DAC_DB0 --anchor-role FPGA \
-    --anchor-pad 42 --output 3ch-awg-tia.yaml --verbose
+    --anchor-pad 42 --output 3ch-awg-tia.sexp --verbose
 # then, after moving the FPGA in KiCad:
-python kicadstamp_cli.py apply 3ch-awg-tia.yaml --only DAC_DB0
+python kicadstamp_cli.py apply 3ch-awg-tia.sexp --only DAC_DB0
 ```
 
 ---
@@ -347,7 +347,7 @@ Analyzes a hierarchical project (without IPC) and extracts all components, track
 ### Syntax
 
 ```bash
-python kicadstamp_cli.py clone-extract --net <file.net> --pcb <file.kicad_pcb> --channel <channel_name> --output <file.yaml> [--profiles FILE] [--profile NAME] [--verbose]
+python kicadstamp_cli.py clone-extract --net <file.net> --pcb <file.kicad_pcb> --channel <channel_name> --output <file.sexp> [--profiles FILE] [--profile NAME] [--verbose]
 ```
 
 ### Options
@@ -368,7 +368,7 @@ python kicadstamp_cli.py clone-extract --net <file.net> --pcb <file.kicad_pcb> -
 python kicadstamp_cli.py clone-extract --net my_project.net --pcb my_project.kicad_pcb --channel Channel_0 --output snapshot.yaml --verbose
 ```
 
-Using a profile (`clone_profiles.yaml`):
+Using a profile (`clone_profiles.sexp`):
 ```yaml
 clone_profiles:
   channel0:
@@ -380,7 +380,7 @@ clone_profiles:
 
 Run:
 ```bash
-python kicadstamp_cli.py clone-extract --profiles clone_profiles.yaml --profile channel0 --verbose
+python kicadstamp_cli.py clone-extract --profiles clone_profiles.sexp --profile channel0 --verbose
 ```
 
 The resulting YAML file contains a complete overview of the channel, which can be used to create a template and ClonePlacement entries.
@@ -484,7 +484,7 @@ one file.
 ### Syntax
 
 ```bash
-python kicadstamp_cli.py flatten --root <config.yaml> [--output <file.yaml>] [--dry-run]
+python kicadstamp_cli.py flatten --root <config.sexp> [--output <file.sexp>] [--dry-run]
 ```
 
 ### Options
@@ -498,7 +498,7 @@ python kicadstamp_cli.py flatten --root <config.yaml> [--output <file.yaml>] [--
 ### Notes
 
 - `flatten` never deletes the old subsystem files — after checking that the
-  merged result is correct, remove `components.yaml`/`fpga_spokes.yaml`/...
+  merged result is correct, remove `components.sexp`/`fpga_spokes.sexp`/...
   by hand.
 - If the config resolves (no missing include, no cycle, no duplicate
   dict-section key across files), there are no name collisions to handle by
@@ -510,13 +510,13 @@ python kicadstamp_cli.py flatten --root <config.yaml> [--output <file.yaml>] [--
 
 ```bash
 # See what would be consolidated, without writing
-python kicadstamp_cli.py flatten --root profiles/3ch-awg-tia.yaml --dry-run
+python kicadstamp_cli.py flatten --root profiles/3ch-awg-tia.sexp --dry-run
 
 # Write the merged result into a NEW file (the root and its includes stay untouched)
-python kicadstamp_cli.py flatten --root profiles/3ch-awg-tia.yaml --output profiles/3ch-awg-tia-flat.yaml
+python kicadstamp_cli.py flatten --root profiles/3ch-awg-tia.sexp --output profiles/3ch-awg-tia-flat.sexp
 
 # Overwrite the root file in place with the consolidated content
-python kicadstamp_cli.py flatten --root profiles/3ch-awg-tia.yaml
+python kicadstamp_cli.py flatten --root profiles/3ch-awg-tia.sexp
 ```
 
 ---
@@ -589,7 +589,7 @@ No arguments – output paths are hard‑coded inside the script (see `main()`);
 | File | Purpose |
 |------|---------|
 | `profiles/generated/10CL006YE144C8G.yaml` | Rules‑based config (`ManualSpoke`/`Rule`) – self‑contained and apply‑ready, uses the old inline (approximate) `templates:`. |
-| `profiles/generated/10CL006YE144C8G.clone_placements.yaml` | Equivalent geometry as `clone_placements:` (`ClonePlacement`). **Since 2026-07-26, `Rule`/`ManualSpoke` can also clone tracks** (see `spoke_layout.py`/`TemplateTrack`) – keeping this path around is now worthwhile for anchor resolution via `anchor_pad`/`anchor_cluster` and `{power_net}` placeholders through `params`, which `Rule` does not resolve, not for tracks. Requires template `cap_pair_standard_clone` from `profiles/templates/3ch-awg-tia.yaml` (via `cells_file`). Not automatically included – copy the block manually into `profiles/3ch-awg-tia.yaml` after verifying with `--dry-run`. |
+| `profiles/generated/10CL006YE144C8G.clone_placements.yaml` | Equivalent geometry as `clone_placements:` (`ClonePlacement`). **Since 2026-07-26, `Rule`/`ManualSpoke` can also clone tracks** (see `spoke_layout.py`/`TemplateTrack`) – keeping this path around is now worthwhile for anchor resolution via `anchor_pad`/`anchor_cluster` and `{power_net}` placeholders through `params`, which `Rule` does not resolve, not for tracks. Requires template `cap_pair_standard_clone` from `profiles/templates/3ch-awg-tia.yaml` (via `cells_file`). Not automatically included – copy the block manually into `profiles/3ch-awg-tia.sexp` after verifying with `--dry-run`. |
 | `profiles/generated/10CL006YE144C8G.cluster_table.md` | Table `net \| pad \| cluster` (`FPGA_PWR_BANK/<pad>`) – a cheat sheet for manually setting the `Cluster` field in Eeschema (Bulk Edit) for those pads for which proximity‑based resolution is not sufficient. |
 
 `anchor_cluster` in `clone_placements` is always set — since 2026-08-14 it narrows ONLY the anchor, while the narrowing of roles INSIDE the cell reads the placement's OWN Cluster (`name:`, see `docs/config.md`); in the working profiles `name:` equals `anchor_cluster`, so the two stay in sync. Even before `Cluster` is assigned in the schematic the resolver simply skips the corresponding narrowing step and falls back to the next one, so the generated file can be run with `apply --dry-run --verbose` before marking `Cluster` in Eeschema; the log will show which pads need explicit tagging.
@@ -774,7 +774,7 @@ python kicadstamp_cli.py clone-extract --help
 ### Place decoupling capacitors for an FPGA (master config for the board)
 
 ```bash
-python kicadstamp_cli.py apply profiles/3ch-awg-tia.yaml --verbose --log-file logs/placer.log
+python kicadstamp_cli.py apply profiles/3ch-awg-tia.sexp --verbose --log-file logs/placer.log
 ```
 
 ### Regenerate generated configs/cluster table for 10CL006
@@ -783,7 +783,7 @@ python kicadstamp_cli.py apply profiles/3ch-awg-tia.yaml --verbose --log-file lo
 python tools/generate_10cl006.py
 ```
 
-Then run `apply profiles/3ch-awg-tia.yaml --dry-run --verbose` to verify that the new geometry resolves as expected (see the `generate_10cl006.py` section above).
+Then run `apply profiles/3ch-awg-tia.sexp --dry-run --verbose` to verify that the new geometry resolves as expected (see the `generate_10cl006.py` section above).
 
 ### Undo placement
 
@@ -804,7 +804,7 @@ python kicadstamp_cli.py extract --name pi_filter_4 --output templates/pi_filter
 ### Apply a clone using an external template file
 
 ```bash
-python kicadstamp_cli.py apply config_with_include.yaml --only fpga_filter_1v2_vccint
+python kicadstamp_cli.py apply config_with_include.sexp --only fpga_filter_1v2_vccint
 ```
 
 ### Transform a template

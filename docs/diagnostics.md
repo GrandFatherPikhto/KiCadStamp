@@ -138,7 +138,7 @@ component and via positions fall inside the keepout. Prints detailed information
 
 **Usage:**
 ```bash
-python -m kicadstamp.diagnostics.diagnostic_keepout <config.yaml>
+python -m kicadstamp.diagnostics.diagnostic_keepout <config.sexp>
 ```
 
 **Output:**

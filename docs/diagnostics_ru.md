@@ -132,7 +132,7 @@ python -m kicadstamp.diagnostics.diagnostic_charset --verbose
 
 **Использование:**
 ```bash
-python -m kicadstamp.diagnostics.diagnostic_keepout <config.yaml>
+python -m kicadstamp.diagnostics.diagnostic_keepout <config.sexp>
 ```
 
 **Вывод:**

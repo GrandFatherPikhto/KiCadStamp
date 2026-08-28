@@ -7,7 +7,7 @@ Python вместо ручного YAML — [docs/python_ru.md](python_ru.md); �
 схемой — [docs/architect_ru.md](architect_ru.md).
 
 Каждый пример на этой странице взят из реального, реально загружающегося конфига —
-`boards/3ch-awg-tia/profiles/*.yaml`, не придуманный синтаксис. Имена полей соответствуют
+`boards/3ch-awg-tia/profiles/*.sexp`, не придуманный синтаксис. Имена полей соответствуют
 `kicadstamp/config/models.py` на 2026-08-01.
 
 ---
@@ -15,7 +15,7 @@ Python вместо ручного YAML — [docs/python_ru.md](python_ru.md); �
 ## Корневые поля
 
 ```yaml
-# boards/3ch-awg-tia/profiles/fpga.yaml
+# boards/3ch-awg-tia/profiles/fpga.sexp
 registry_path: registries/fpga.json
 track_registry_path: registries/fpga.tracks.registry.json
 log_file: ../logs/fpga.log
@@ -26,9 +26,9 @@ thermal_via_arrays:
   - ...
 
 include:
-  - templates/fpga_pi_filters.yaml
-  - fpga_extracts.yaml
-  - rules/fpga_spokes.yaml
+  - templates/fpga_pi_filters.sexp
+  - fpga_extracts.sexp
+  - rules/fpga_spokes.sexp
 
 clone_placements:
   ...
@@ -73,8 +73,8 @@ clone_placements:
 ### Лист-ячейка
 
 ```yaml
-# boards/3ch-awg-tia/profiles/templates/ldo_3v3.yaml — файл, перечисленный
-# в include: у power.yaml (внешние файлы Cell оборачиваются в cells:, та
+# boards/3ch-awg-tia/profiles/templates/ldo_3v3.sexp — файл, перечисленный
+# в include: у power.sexp (внешние файлы Cell оборачиваются в cells:, та
 # же форма, что инлайн-блок — cells_file:/cell_files: слиты в include:
 # 2026-08-02)
 cells:
@@ -249,7 +249,7 @@ top-level `clone_placement`, док пишет его ссылкой `clone_plac
 > `cluster:`, чтобы каждое правило брало компоненты из своего пула.
 
 ```yaml
-# boards/3ch-awg-tia/profiles/rules/fpga_spokes.yaml
+# boards/3ch-awg-tia/profiles/rules/fpga_spokes.sexp
 rules:
 - net: +3V3_VCCIO
   name: +3V3_VCCIO       # опционально — по умолчанию берётся net, см. ниже
@@ -302,7 +302,7 @@ rules:
 секций (pi-фильтры, DAC-каналы, LDO-подсистемы), и для одноразовых.
 
 ```yaml
-# boards/3ch-awg-tia/profiles/fpga.yaml
+# boards/3ch-awg-tia/profiles/fpga.sexp
 clone_placements:
   - name: p3v3_vccio_pi_filter
     retired: false
@@ -439,7 +439,7 @@ Expansion выполняется внутри `load_config()`, сразу пос
 ## `thermal_via_arrays:` — термо-via-сетки
 
 ```yaml
-# boards/3ch-awg-tia/profiles/fpga.yaml
+# boards/3ch-awg-tia/profiles/fpga.sexp
 thermal_via_arrays:
   - name: fpga_thermal
     retired: false
@@ -495,7 +495,7 @@ find-and-replace в старом конфиге, перепроверь исхо
 списки в этом проекте живут в единственном месте, в спицах).
 
 ```yaml
-# boards/3ch-awg-tia/profiles/net_traces.yaml  (подключить через include:)
+# boards/3ch-awg-tia/profiles/net_traces.sexp  (подключить через include:)
 net_traces:
   - net: DAC_DB0            # имя сети — оно же идентификатор для --only
     anchor_role: FPGA       # якорный футпринт по Role (поиск по всей плате)
@@ -542,7 +542,7 @@ net_traces:
 
 Извлечение — это CLI-команда, а не `extract` по выделению:
 `kicadstamp_cli.py extract-net --net DAC_DB0 --anchor-role FPGA [--anchor-pad 42]
---output <config.yaml>` — добавляет/заменяет запись под `net_traces:`.
+--output <config.sexp>` — добавляет/заменяет запись под `net_traces:`.
 
 **Замечание по дизайну (см. `techdocs/handoff/deepseek/plan_2026_08_21_net_traces.md`):**
 намеренно НЕ пара `Cell`+`ClonePlacement` — трассировка сети по построению
@@ -555,7 +555,7 @@ anchor на apply — ОДИН И ТОТ ЖЕ набор, отсюда одна 
 ## `points:` — именованные переиспользуемые якоря
 
 ```yaml
-# boards/3ch-awg-tia/profiles/points.yaml
+# boards/3ch-awg-tia/profiles/points.sexp
 points:
   p3v3_ldo_origin:
     anchor_role: C_OUT_BYPASS
@@ -600,12 +600,12 @@ clone_placements:
 ## `include:` — разбиение профиля на файлы
 
 ```yaml
-# boards/3ch-awg-tia/profiles/power.yaml
+# boards/3ch-awg-tia/profiles/power.sexp
 include:
-  - points.yaml
-  - power_extracts.yaml
-  - pn5v_filters.yaml
-  - p3v3_ldo.yaml
+  - points.sexp
+  - power_extracts.sexp
+  - pn5v_filters.sexp
+  - p3v3_ldo.sexp
 ```
 
 Каждая запись — либо строка-путь, либо `{path: <строка>, enabled: <булево>}`, чтобы выключить целый
@@ -643,11 +643,11 @@ include:
 [docs/commands_ru.md](commands_ru.md); синтаксис:
 
 ```yaml
-# boards/3ch-awg-tia/profiles/power_extracts.yaml
+# boards/3ch-awg-tia/profiles/power_extracts.sexp
 extract_profiles:
   p5v_pi_filter:
     name: 5v_pi_filter
-    output: boards/3ch-awg-tia/profiles/templates/power_pi_filters.yaml
+    output: boards/3ch-awg-tia/profiles/templates/power_pi_filters.sexp
     params:
       PWR_IN: '+5V_DIRTY'
       PWR_OUT: '+5V'

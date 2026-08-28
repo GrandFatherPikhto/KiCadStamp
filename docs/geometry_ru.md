@@ -178,7 +178,7 @@ for p in points:
 from kicadstamp.geometry.clone_geometry import apply_clone_geometry
 from kicadstamp.config import load_config
 
-cfg = load_config("config.yaml")
+cfg = load_config("config.sexp")
 template = cfg.templates["pi_filter_4"]
 clone = cfg.clone_placements[0]
 role_to_ref = {"PI_FILTER_C1": "C601", "PI_FILTER_FB": "FB601"}
