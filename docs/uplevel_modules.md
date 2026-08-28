@@ -360,7 +360,7 @@ Performs fatal checks on the configuration **before** any board modifications. C
 | `check_clone_templates_exist(cfg)` | Config-only template existence check. |
 | `check_no_duplicate_clone_anchors(cfg)` | Uniqueness of clone names and physical anchors. |
 | `check_anchor_sheet_configured(cfg, sheet_names)` | Validates `anchor_sheet` references against actual sheet names. |
-| `check_clone_nets_exist_on_board(adapter, cfg)` | Resolves via/track nets and checks against actual board nets. |
+| `check_clone_nets_exist_on_board(adapter, cfg)` | Resolves via/track nets AND each cell role's expected net (nets: / net_template, after params/net_overrides + prefix-remap — Phase 2 step 4.1) and checks against actual board nets; roles that auto-derive from the live board are not re-checked. |
 | `check_single_selection_based_clone(cfg)` | Ensures at most one clone in selection mode. |
 | `run_all_checks(adapter, cfg, sheet_names)` | Runs all checks in order. |
 

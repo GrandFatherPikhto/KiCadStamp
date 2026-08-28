@@ -8289,3 +8289,24 @@ msgid ""
 "expected net derived live (live_pad); the instance is resolved by the "
 "placement cascade, net-matching (Kuhn) is never applied to instance selection"
 msgstr ""
+
+#: kicadstamp/validation.py (Phase 2 step 4.1 role expected-net check, 2026-08-28)
+msgid "clone references a non‑existent board net"
+msgstr ""
+
+#: kicadstamp/validation.py (Phase 2 step 4.1 role expected-net check, 2026-08-28)
+#, python-brace-format
+msgid ""
+"{name!r}, {where}: expected net resolves to {final!r}, but that net does not "
+"exist on the board{suggestion}"
+msgstr ""
+
+#: kicadstamp/validation.py (Phase 2 step 4.1 role expected-net check, 2026-08-28)
+#, python-brace-format
+msgid "role {role!r} (explicit nets:)"
+msgstr ""
+
+#: kicadstamp/validation.py (Phase 2 step 4.1 role expected-net check, 2026-08-28)
+#, python-brace-format
+msgid "role {role!r} (cell net_template)"
+msgstr ""

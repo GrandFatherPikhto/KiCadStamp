@@ -172,7 +172,7 @@
    ├── check_single_selection_based_clone()
    ├── check_templates_and_pads_exist()
    ├── check_role_pool_sufficiency()
-   ├── check_clone_nets_exist_on_board()  # проверка цепей via/треков на плате
+   ├── check_clone_nets_exist_on_board()  # цепи via/треков + ожидаемые цепи ролей (nets:/net_template, Фаза 2, шаг 4.1) на плате
    │
 5. Планирование (PlacementPlanner)
    │

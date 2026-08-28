@@ -329,6 +329,85 @@ class TestCloneNetsExistOnBoard:
         with pytest.raises(ValidationError, match="VCC"):
             check_clone_nets_exist_on_board(adapter, cfg)
 
+    def test_role_net_template_missing_net_raises(self):
+        """Phase 2 step 4.1 — a cell net_template whose resolved net does not
+        exist on the board (a typo in the template literal) is caught at
+        validation, before apply."""
+        tpl = Cell(name="t", components=[
+            TemplateComponentSlot(role="X", net_template="NON_EXISTENT")])
+        clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0))
+        cfg = _cfg(rules=[], cells={"t": tpl}, clone_placements=[clone])
+        adapter = MagicMock()
+        adapter.get_all_nets.return_value = [self._make_net_mock("GND")]
+        with pytest.raises(ValidationError, match="NON_EXISTENT"):
+            check_clone_nets_exist_on_board(adapter, cfg)
+
+    def test_explicit_clone_nets_missing_net_raises(self):
+        """Phase 2 step 4.1 — an explicit clone.nets[role] override referencing
+        a non-existent net is caught at validation."""
+        tpl = Cell(name="t", components=[TemplateComponentSlot(role="X")])
+        clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0),
+                               nets={"X": "NON_EXISTENT"})
+        cfg = _cfg(rules=[], cells={"t": tpl}, clone_placements=[clone])
+        adapter = MagicMock()
+        adapter.get_all_nets.return_value = [self._make_net_mock("GND")]
+        with pytest.raises(ValidationError, match="NON_EXISTENT"):
+            check_clone_nets_exist_on_board(adapter, cfg)
+
+    def test_role_net_template_existing_passes(self):
+        tpl = Cell(name="t", components=[
+            TemplateComponentSlot(role="X", net_template="GND")])
+        clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0))
+        cfg = _cfg(rules=[], cells={"t": tpl}, clone_placements=[clone])
+        adapter = MagicMock()
+        adapter.get_all_nets.return_value = [self._make_net_mock("GND")]
+        check_clone_nets_exist_on_board(adapter, cfg)  # не должно бросить
+
+    def test_prefix_remapped_local_net_checked(self):
+        """Phase 2 step 4.1 — a LITERAL /Channel_0/... net_template is
+        prefix-remapped to the target channel; the REMAPPED net is what apply
+        uses, so THAT is what gets checked against the board."""
+        tpl = Cell(name="t", components=[
+            TemplateComponentSlot(role="DAC_DB1_CAP", net_template="/Channel_0/DAC/DB1")])
+        clone = ClonePlacement(cluster="Channel_1", cell="t", xy=(0, 0))
+        cfg = _cfg(rules=[], cells={"t": tpl}, clone_placements=[clone])
+
+        ok = MagicMock()
+        ok.get_all_nets.return_value = [self._make_net_mock("/Channel_1/DAC/DB1")]
+        check_clone_nets_exist_on_board(ok, cfg)  # remapped net exists -> passes
+
+        bad = MagicMock()
+        bad.get_all_nets.return_value = [self._make_net_mock("/Channel_1/DAC/DB0")]
+        with pytest.raises(ValidationError, match="/Channel_1/DAC/DB1"):
+            check_clone_nets_exist_on_board(bad, cfg)
+
+    def test_net_overrides_typo_caught(self):
+        """Phase 2 step 4.1 — net_overrides (a MANUAL override) participates in
+        the role expected-net check: a typo in the replacement yields a
+        non-existent net and is caught before apply."""
+        tpl = Cell(name="t", components=[
+            TemplateComponentSlot(role="X", net_template="{PWR_OUT}")])
+        clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0),
+                               params={"PWR_OUT": "+5V"},
+                               net_overrides={"+5V": "+5V_DVD"})  # typo
+        cfg = _cfg(rules=[], cells={"t": tpl}, clone_placements=[clone])
+        adapter = MagicMock()
+        adapter.get_all_nets.return_value = [self._make_net_mock("+5V")]
+        # "+" is a regex metacharacter — match the stable substring.
+        with pytest.raises(ValidationError, match="DVD"):
+            check_clone_nets_exist_on_board(adapter, cfg)
+
+    def test_auto_derived_role_without_net_source_not_checked(self):
+        """Phase 2 step 4.1 — a role with NO explicit net source auto-derives
+        from the live board (live_pad, steps 2.1/2.2) — there is no expected-net
+        template to validate, so the check passes without a board net for it."""
+        tpl = Cell(name="t", components=[TemplateComponentSlot(role="X")])
+        clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0))
+        cfg = _cfg(rules=[], cells={"t": tpl}, clone_placements=[clone])
+        adapter = MagicMock()
+        adapter.get_all_nets.return_value = [self._make_net_mock("GND")]
+        check_clone_nets_exist_on_board(adapter, cfg)  # не должно бросить
+
 
 class TestSingleSelectionBasedClone:
     def test_single_selection_passes(self):

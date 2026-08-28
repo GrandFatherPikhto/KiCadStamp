@@ -26,6 +26,7 @@ from .exceptions import ValidationError, format_fatal_error
 from .net_resolution import resolve_net
 from .placement.services.component_pool import ComponentPool
 from .placement.services.clone_role_resolver import (
+    _prefix_remap_local_net,
     clone_uses_selection_mode,
     resolve_footprint_by_role,
 )
@@ -478,9 +479,17 @@ def check_no_candidate_pool_collisions(cfg: Config) -> None:
 
 def check_clone_nets_exist_on_board(adapter: KiCadBoardAdapter, cfg: Config) -> None:
     """
-    Resolves via.net for EACH clone_placement (both spoke‑level and those nested
-    in components[i].vias — see apply_clone_geometry) and checks the result
-    against the real board nets (adapter.get_all_nets()).
+    Resolves the nets a clone's apply would USE and checks each against the real
+    board nets (adapter.get_all_nets()):
+      - via.net for EACH clone_placement (both spoke‑level and those nested in
+        components[i].vias — see apply_clone_geometry);
+      - (Phase 2 step 4.1) each cell ROLE's expected net — the net the by-nets
+        resolution would use: the explicit clone.nets[role] override or the
+        cell's net_template, resolved via params/net_overrides and then
+        prefix-remapped for a literal /Channel_N/... net (derive_role_nets
+        priority 2, TwinMap.twin_net semantics). Roles with NO explicit net
+        source auto-derive from the live board (live_pad, steps 2.1/2.2) — those
+        exist by construction and are not re-checked.
 
     Why separate from resolve_roles_by_nets: role‑to‑ref mapping already checks
     itself (candidates are searched among real pads, a non‑existent net simply
@@ -488,10 +497,12 @@ def check_clone_nets_exist_on_board(adapter: KiCadBoardAdapter, cfg: Config) -> 
     ViaCommand without such checking — a typo in net_overrides or params that
     yields a syntactically valid string (e.g. "+3V3_DVD" instead of "+3V3_DVDD")
     would quietly create a via on the wrong net, with no fatal along the way.
-    This check is that missing dictionary.
+    The role expected-net check catches the same class of typo in nets: /
+    net_template / the prefix-remap input before apply even starts.
 
     via.net=None is not checked here — that is already fatal in clone_geometry.py
-    (ClonePlacement has no default net), no need to duplicate.
+    (ClonePlacement has no default net), no need to duplicate. net_overrides
+    participate exactly as in apply (manual overrides only).
     """
     problems = []
     real_nets = {n.name for n in adapter.get_all_nets()}
@@ -513,6 +524,27 @@ def check_clone_nets_exist_on_board(adapter: KiCadBoardAdapter, cfg: Config) -> 
                         resolved=resolved, suggestion=suggestion)
             )
 
+    def _check_role_net(expected_template, clone, where: str):
+        """Check the role's EXPECTED net (the by-nets resolution target) exists
+        on the board — same typo protection as the via.net check, for the role
+        side (Phase 2 step 4.1). expected_template is the raw template
+        (clone.nets[role] or slot.net_template)."""
+        try:
+            resolved = resolve_net(expected_template, clone.params, clone.net_overrides)
+        except ValidationError:
+            return  # missing parameter — already a fatal error higher up
+        remapped = _prefix_remap_local_net(resolved, clone)
+        final = remapped if remapped is not None else resolved
+        if final not in real_nets:
+            hint = difflib.get_close_matches(final, real_nets, n=1)
+            suggestion = _(" — did you mean {suggestion!r}?").format(suggestion=hint[0]) if hint else ""
+            problems.append(
+                _("{name!r}, {where}: expected net resolves to {final!r}, "
+                  "but that net does not exist on the board{suggestion}")
+                .format(name=clone_placement_effective_name(clone), where=where,
+                        final=final, suggestion=suggestion)
+            )
+
     for clone in cfg.clone_placements:
         if clone.retired:
             continue
@@ -524,10 +556,18 @@ def check_clone_nets_exist_on_board(adapter: KiCadBoardAdapter, cfg: Config) -> 
         for slot in cell.components:
             for via in slot.vias:
                 _check_via(via, clone, _("via of role {role!r}").format(role=slot.role))
+            # Phase 2 step 4.1 — the role's expected net (explicit override or
+            # the cell's net_template), after params/net_overrides + prefix_remap.
+            if slot.role in clone.nets:
+                _check_role_net(clone.nets[slot.role], clone,
+                                _("role {role!r} (explicit nets:)").format(role=slot.role))
+            elif slot.net_template is not None:
+                _check_role_net(slot.net_template, clone,
+                                _("role {role!r} (cell net_template)").format(role=slot.role))
 
     if problems:
         raise ValidationError(format_fatal_error(
-            _("resolved via net references a non‑existent board net"),
+            _("clone references a non‑existent board net"),
             problems
         ))
     logger.debug(_("clone via.net checks against real board nets passed"))

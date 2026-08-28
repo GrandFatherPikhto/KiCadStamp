@@ -361,7 +361,7 @@
 | `check_clone_templates_exist(cfg)` | Проверка существования шаблонов (только конфиг). |
 | `check_no_duplicate_clone_anchors(cfg)` | Уникальность имён и физических якорей клонов. |
 | `check_anchor_sheet_configured(cfg, sheet_names)` | Проверяет `anchor_sheet` на соответствие реальным именам листов. |
-| `check_clone_nets_exist_on_board(adapter, cfg)` | Резолвит цепи via/треков и сверяет с реальными цепями платы. |
+| `check_clone_nets_exist_on_board(adapter, cfg)` | Резолвит цепи via/треков И ожидаемую цепь каждой роли (nets: / net_template, после params/net_overrides + prefix-remap — Фаза 2, шаг 4.1) и сверяет с реальными цепями платы; роли, авто-выводимые с живой платы, не перепроверяются. |
 | `check_single_selection_based_clone(cfg)` | Гарантирует не более одного клона в режиме «по выделению». |
 | `run_all_checks(adapter, cfg, sheet_names)` | Запускает все проверки по порядку. |
 

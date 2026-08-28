@@ -177,7 +177,7 @@ Modules that work with coordinates, independent of KiCad:
    ├── check_single_selection_based_clone()
    ├── check_templates_and_pads_exist()
    ├── check_role_pool_sufficiency()
-   ├── check_clone_nets_exist_on_board()  # resolves via/track nets against real nets
+   ├── check_clone_nets_exist_on_board()  # via/track nets + role expected nets (nets:/net_template, Phase 2 step 4.1) against real nets
    │
 5. Planning (PlacementPlanner)
    │

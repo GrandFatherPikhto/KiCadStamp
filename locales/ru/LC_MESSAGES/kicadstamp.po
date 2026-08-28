@@ -8263,3 +8263,26 @@ msgstr ""
 "— ожидаемая цепь выведена с живых падов (live_pad); инстанс резолвится "
 "каскадом размещения, net-matching (Кун) никогда не применяется к выбору "
 "инстанса"
+
+#: kicadstamp/validation.py (Phase 2 step 4.1 role expected-net check, 2026-08-28)
+msgid "clone references a non‑existent board net"
+msgstr "клон ссылается на несуществующую цепь платы"
+
+#: kicadstamp/validation.py (Phase 2 step 4.1 role expected-net check, 2026-08-28)
+#, python-brace-format
+msgid ""
+"{name!r}, {where}: expected net resolves to {final!r}, but that net does not "
+"exist on the board{suggestion}"
+msgstr ""
+"{name!r}, {where}: ожидаемая цепь резолвится в {final!r}, но такой цепи нет "
+"на плате{suggestion}"
+
+#: kicadstamp/validation.py (Phase 2 step 4.1 role expected-net check, 2026-08-28)
+#, python-brace-format
+msgid "role {role!r} (explicit nets:)"
+msgstr "роль {role!r} (явные nets:)"
+
+#: kicadstamp/validation.py (Phase 2 step 4.1 role expected-net check, 2026-08-28)
+#, python-brace-format
+msgid "role {role!r} (cell net_template)"
+msgstr "роль {role!r} (net_template ячейки)"
