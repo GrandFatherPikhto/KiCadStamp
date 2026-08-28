@@ -84,7 +84,8 @@ def _resolve_clone_components(adapter, cell: Cell, clone: ClonePlacement,
     ignore_ctx = getattr(adapter, "temporarily_ignore_selection", None)
 
     def run() -> list[Footprint]:
-        if clone_uses_selection_mode(clone):
+        if clone_uses_selection_mode(
+                clone, adapter=adapter, cell=cell, sheet_names=sheet_names):
             role_to_ref = resolve_roles_by_selection(
                 adapter, cell, clone, sheet_names=sheet_names)
         else:

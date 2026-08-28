@@ -251,12 +251,15 @@ A façade combining all execution phases and managing logging.
 
 #### `services/clone_role_resolver.py`
 Resolves roles for `ClonePlacement`. Supports two modes:
-- **by selection** – reads roles from selected components. Only one such clone can be processed per run (due to KiCad's single‑selection limitation).
+- **by selection** – reads roles from selected components. Only one such clone can be processed per run (due to KiCad's single‑selection limitation). Since Phase 2 step 2.3 this is effectively the explicit `by_selection: true` mode — an implicit clone (no `nets`/`params`) auto-picks by-nets when its cell auto-derives on the live board.
 - **by nets** – finds components by expected net. Expected net per role (Phase 2 step 2.1): explicit
   `nets:` → cell `net_template` (with placeholders; a literal local `/Channel_0/...` net is
   auto-prefix-remapped to the target channel, `TwinMap.twin_net` semantics) → auto-derived from the
   live board (`derive_role_nets`: the unique instance's single net, or the one non-rule net shared by
-  all candidates) — so `nets:`/`params:`/`net_overrides:` are OPTIONAL overrides. In case of ambiguity,
+  all candidates) — so `nets:`/`params:`/`net_overrides:` are OPTIONAL overrides. Since Phase 2 step
+  2.3 the IMPLICIT mode (no `nets`/`params`/`by_selection`) is also by-nets whenever the whole cell
+  auto-derives on the live board — mode is chosen by the availability of an unambiguous source
+  instance, not by the presence of `nets`/`params`. In case of ambiguity,
   uses cascading narrowing: explicit `refs` → selection → sheet hierarchy → **physical proximity to
   the anchor** (if the distance gap is sufficient, the closest candidate is chosen). This allows
   distinguishing electrically identical filters on a common rail. The GUI's Auto-fill/Nets/Params
@@ -271,7 +274,7 @@ Resolves roles for `ClonePlacement`. Supports two modes:
   components in apply.
 
 Functions:
-- `clone_uses_selection_mode(clone)` – determines the mode (considers `by_selection`, `nets`, `params`).
+- `clone_uses_selection_mode(clone, *, adapter, cell, sheet_names)` – determines the mode (considers `by_selection`, `nets`/`params`, and — Phase 2 step 2.3 — the availability of an unambiguous source instance on the live board: an implicit clone whose cell auto-derives is by-nets, else by-selection).
 - `resolve_roles_by_selection(adapter, template, clone_name)` – by selection.
 - `resolve_roles_by_nets(adapter, template, clone, anchor_position)` – by nets with anchor proximity; expected nets auto-derive from the live board when not explicit (Phase 2 step 2.1).
 - `resolve_anchor_by_role(adapter, clone)` – finds the anchor by the `Role` field (alternative to `anchor_ref`).

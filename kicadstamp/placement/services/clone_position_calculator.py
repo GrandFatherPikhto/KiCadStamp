@@ -293,7 +293,9 @@ class ClonePositionCalculator:
             # to coordinate_placements on 2026-08-12, Group 0); a nested
             # CellPlacement is a reusable, closed-boundary recipe with no live
             # GUI interaction concept, always resolved by nets.
-            if isinstance(placement, ClonePlacement) and clone_uses_selection_mode(placement):
+            if isinstance(placement, ClonePlacement) and clone_uses_selection_mode(
+                    placement, adapter=self.adapter, cell=cell,
+                    sheet_names=self.sheet_names):
                 role_to_ref = resolve_roles_by_selection(self.adapter, cell, placement,
                                                           anchor_position=anchor_position,
                                                           sheet_names=self.sheet_names)

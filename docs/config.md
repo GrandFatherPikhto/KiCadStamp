@@ -319,7 +319,9 @@ clone_placements:
 - **Absolute** (no anchor field set at all) — `xy:` is a required, literal board coordinate.
 
 **Role → real component — three modes:**
-- **By nets** (repeated sections — PI-filters, DAC channels), when `params`/`nets` are present: each
+- **By nets** (repeated sections — PI-filters, DAC channels), when `params`/`nets` are present, OR
+  since Phase 2 step 2.3 when the implicit mode (no `params`/`nets`/`by_selection`) can auto-derive
+  the whole cell on the live board: each
   role inside the cell resolves against a real net, via `nets:` (literal `role: net`) and/or
   `params:` (fills `{placeholder}`s in the cell's own `net_template:` fields, same substitution as
   via/track `net:`). Since Phase 2 step 2.1 these are OPTIONAL overrides: a role with no explicit
@@ -331,10 +333,11 @@ clone_placements:
   which narrow only the anchor, see "Anchored" above) → current board selection → physical proximity
   to the anchor → a fatal error, in that order — see `clone_role_resolver.py`'s docstrings for the
   exact cascade.
-- **By selection** (rare, one-off sections — a single MCU), when `params`/`nets` are absent (or
-  `by_selection: true` explicitly, if `params` is present only for via/track net resolution and would
-  otherwise be misread as "by nets" mode): roles resolve against whatever's currently selected on the
-  live board in the PCB editor.
+- **By selection** (rare, one-off sections — a single MCU): explicitly with `by_selection: true`
+  (needed when `params` is present only for via/track net resolution and would otherwise be misread
+  as "by nets" mode), or — for the implicit no-`params`/`nets` case — only when the cell CANNOT
+  auto-derive on the live board (Phase 2 step 2.3: a genuine one-off with no unambiguous source
+  instance). Roles resolve against whatever's currently selected on the live board in the PCB editor.
 - **By Cluster tag** (single component only — `cluster:` set, added 2026-08-06): the ONE component
   already tagged with that Cluster PCB field (assigned beforehand, e.g. via the GUI's Components tree
   or fieldstool) — no selection, no nets, no narrowing cascade. Zero or more than one match is fatal

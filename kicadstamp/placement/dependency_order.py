@@ -130,7 +130,8 @@ def _resolve_clone_produces(adapter: KiCadBoardAdapter, cfg: Config, clone: Clon
 
     # clone.ignore_selection must apply here too — same as in the real pass
     with adapter.temporarily_ignore_selection(clone.ignore_selection):
-        if clone_uses_selection_mode(clone):
+        if clone_uses_selection_mode(
+                clone, adapter=adapter, cell=cell, sheet_names=sheet_names or {}):
             role_to_ref = resolve_roles_by_selection(
                 adapter, cell, clone,
                 anchor_position=None,

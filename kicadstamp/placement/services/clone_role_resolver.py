@@ -362,7 +362,27 @@ def _auto_derive_live_net(adapter, all_fps, role, clone, slot, sheet_names):
     return None, None, None
 
 
-def clone_uses_selection_mode(clone: ClonePlacement) -> bool:
+def _cell_auto_derivable(adapter, all_fps, cell, clone, sheet_names) -> bool:
+    """Phase 2 step 2.3 — can the WHOLE cell be resolved by-nets AUTOMATICALLY
+    on the live target? True when EVERY cell role either carries an explicit
+    net source (net_template) or is live-derivable (unique instance per
+    Role+Cluster+sheet, or a single shared non-rule net across its candidates)
+    — i.e. an unambiguous SOURCE INSTANCE exists for every role, so an implicit
+    clone (no nets/params/by_selection) defaults to by-nets (auto) instead of
+    forcing a selection. False means the cell is a one-off that genuinely needs
+    by-selection."""
+    for slot in cell.components:
+        if slot.net_template is not None:
+            continue
+        net, direct_ref, _source = _auto_derive_live_net(
+            adapter, all_fps, slot.role, clone, slot, sheet_names)
+        if net is None and direct_ref is None:
+            return False
+    return True
+
+
+def clone_uses_selection_mode(clone: ClonePlacement, *,
+                              adapter=None, cell=None, sheet_names=None) -> bool:
     """
     Returns True if the clone is in "by selection" mode:
       - by_selection: true is explicitly set (priority — see ClonePlacement.
@@ -371,14 +391,27 @@ def clone_uses_selection_mode(clone: ClonePlacement) -> bool:
         flag, a params intended only for via resolution would silently switch
         the whole clone_placement to "by nets" mode, breaking roles resolved by
         selection), OR
-      - neither nets nor params are set (old implicit behaviour, default for
-        backward compatibility).
-    This is the single place where the decision is made — both
-    ClonePositionCalculator and validation.py must ask here, not duplicate the rule.
+      - (legacy pure path — no adapter/cell) neither nets nor params are set:
+        the old implicit default, kept for config-only callers (validation) and
+        backward compatibility; OR
+      - (Step 2.3 adaptive path — adapter+cell given) no nets/params set AND
+        the cell has NO unambiguous source instance to auto-derive from (see
+        _cell_auto_derivable) — a genuine one-off that needs a selection.
+    With auto-derivation (Phase 2 steps 2.1/2.2) the implicit mode is chosen by
+    the availability of an unambiguous source instance on the live board:
+    all-derivable -> by-nets (auto), else -> by-selection.
+    This is the single place where the decision is made —
+    ClonePositionCalculator, dependency_order, board_items_resolver and
+    validation.py must all ask here, not duplicate the rule.
     """
     if clone.by_selection:
         return True
-    return not (clone.nets or clone.params)
+    if clone.nets or clone.params:
+        return False
+    if adapter is None or cell is None:
+        return True  # legacy default for config-only callers
+    return not _cell_auto_derivable(
+        adapter, adapter.get_footprints(), cell, clone, sheet_names or {})
 
 
 def resolve_roles_by_selection(adapter, cell: Cell, clone: ClonePlacement,

@@ -533,16 +533,30 @@ def check_clone_nets_exist_on_board(adapter: KiCadBoardAdapter, cfg: Config) -> 
     logger.debug(_("clone via.net checks against real board nets passed"))
 
 
-def check_single_selection_based_clone(cfg: Config) -> None:
+def check_single_selection_based_clone(cfg: Config, adapter=None,
+                                       sheet_names=None) -> None:
     """
     In KiCad only ONE selection is present at any moment — therefore you cannot
-    process more than one ClonePlacement in "by selection" mode (no nets, no params)
-    in a single run. If more than one, fatal with a hint to either retire the
-    extras (retired: true) or run apply separately for each with --only NAME.
+    process more than one ClonePlacement in "by selection" mode in a single run.
+    If more than one, fatal with a hint to either retire the extras
+    (retired: true) or run apply separately for each with --only NAME.
+
+    Phase 2 step 2.3: when a live adapter is given, clone_uses_selection_mode is
+    asked adaptively — an implicit clone (no nets/params/by_selection) whose
+    cell auto-derives on the live board is BY-NETS and does NOT need a selection,
+    so it is not counted here (two such clones can run together). Without an
+    adapter the legacy pure default applies (implicit = by-selection) — the
+    config-only caller's view.
     """
-    selection_based = [clone_placement_effective_name(c)
-                       for c in cfg.clone_placements
-                       if not c.retired and clone_uses_selection_mode(c)]
+    sheet_names = sheet_names or {}
+    selection_based = []
+    for c in cfg.clone_placements:
+        if c.retired:
+            continue
+        cell = cfg.cells.get(c.cell)
+        if clone_uses_selection_mode(
+                c, adapter=adapter, cell=cell, sheet_names=sheet_names):
+            selection_based.append(clone_placement_effective_name(c))
     if len(selection_based) > 1:
         raise ValidationError(format_fatal_error(
             _("multiple clone_placements in 'by selection' mode in one run"),
@@ -695,7 +709,7 @@ def run_all_checks(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None) ->
     # (see check_board_identity's docstring for the real incident this guards).
     check_board_identity(cfg, adapter)
     check_config_structure(cfg, sheet_names=_sn)
-    check_single_selection_based_clone(cfg)
+    check_single_selection_based_clone(cfg, adapter=adapter, sheet_names=_sn)
     check_cells_and_pads_exist(adapter, cfg, sheet_names=_sn)
     check_role_pool_sufficiency(adapter, cfg)
     check_clone_nets_exist_on_board(adapter, cfg)
