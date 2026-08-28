@@ -1288,6 +1288,83 @@ class TestResolveRolesByNetsAutoDerive:
             resolve_roles_by_nets(adapter, tpl, clone)
 
 
+class TestResolveRolesByNetsPlaceholderFallthrough:
+    """Phase 4 step 4.3 (live probe on 3CH-AWG-TIA-v103): a cell net_template
+    with an unresolved {placeholder} (no matching params) is NOT an actionable
+    explicit net source — the resolver falls through to the live auto-derivation
+    path (derive_role_nets live_pad) instead of fataling. nets:/params:/
+    net_overrides are OPTIONAL overrides; the default path is automatic."""
+
+    def _adapter(self, fps):
+        adapter = MagicMock()
+        adapter.get_footprints.return_value = fps
+        adapter.get_field_value.side_effect = _role_or_cluster
+        adapter.get_footprint_pads.side_effect = _get_pads
+        adapter.get_pad_by_number.side_effect = _get_pad_by_number
+        adapter.get_selected_items.return_value = []
+        return adapter
+
+    def test_placeholder_net_template_without_params_falls_through_to_live_pad(self):
+        """A cell net_template '{R_LED}' with NO params previously fataled
+        ("placeholder with no parameter"); now the expected net auto-derives
+        from the live board (live_pad) and the role resolves."""
+        tpl = Cell(name="t", components=[
+            TemplateComponentSlot(role="X", net_template="{R_LED}")])
+        fps = [_make_fp("A", "X", ["NET1"], cluster="c")]
+        adapter = self._adapter(fps)
+        clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0))  # no params
+        result = resolve_roles_by_nets(adapter, tpl, clone)
+        assert result == {"X": "A"}
+
+    def test_placeholder_net_template_with_params_resolves_as_before(self):
+        """The same placeholder WITH params resolves via the net_template
+        (explicit source) — unchanged behaviour, no regression."""
+        tpl = Cell(name="t", components=[
+            TemplateComponentSlot(role="X", net_template="{R_LED}")])
+        fps = [_make_fp("A", "X", ["NET1"], cluster="c")]
+        adapter = self._adapter(fps)
+        clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0),
+                               params={"R_LED": "NET1"})
+        result = resolve_roles_by_nets(adapter, tpl, clone)
+        assert result == {"X": "A"}
+
+    def test_explicit_nets_placeholder_without_params_still_fatal(self):
+        """clone.nets[role] is an EXPLICIT per-clone override — an unresolved
+        placeholder there stays a genuine user error (fatal), never silently
+        auto-derived."""
+        tpl = Cell(name="t", components=[TemplateComponentSlot(role="X")])
+        fps = [_make_fp("A", "X", ["NET1"], cluster="c")]
+        adapter = self._adapter(fps)
+        clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0),
+                               nets={"X": "{R_LED}"})
+        with pytest.raises(ValidationError, match="placeholder"):
+            resolve_roles_by_nets(adapter, tpl, clone)
+
+    def test_literal_net_template_unaffected(self):
+        """A literal (non-placeholder) net_template resolves directly — the
+        fall-through only ever triggers on an unresolvable {placeholder}."""
+        tpl = Cell(name="t", components=[
+            TemplateComponentSlot(role="X", net_template="NET1")])
+        fps = [_make_fp("A", "X", ["NET1"], cluster="c")]
+        adapter = self._adapter(fps)
+        clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0))
+        result = resolve_roles_by_nets(adapter, tpl, clone)
+        assert result == {"X": "A"}
+
+    def test_placeholder_fallthrough_still_honest_error_when_not_derivable(self):
+        """If auto-derivation also finds nothing deterministic (candidates on
+        DIFFERENT nets), the fall-through still reports the honest "no net
+        could be derived" error — never a silent guess."""
+        tpl = Cell(name="t", components=[
+            TemplateComponentSlot(role="X", net_template="{R_LED}")])
+        fps = [_make_fp("A", "X", ["NET_A"], cluster="c"),
+               _make_fp("B", "X", ["NET_B"], cluster="c")]
+        adapter = self._adapter(fps)
+        clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0))
+        with pytest.raises(ValidationError, match="X"):
+            resolve_roles_by_nets(adapter, tpl, clone)
+
+
 class TestPrefixRemapHelpers:
     """Unit tests for the Step 2.1 prefix_remap helpers (mini-design §2)."""
 

@@ -651,27 +651,44 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement | CellPlace
         # live_pad). nets:/params:/net_overrides are OPTIONAL overrides — the old
         # fatal "a net is required for every role" is gone when the net can be
         # derived automatically.
+        expected_net: str | None = None
+        net_source: str | None = None
         if role in clone.nets:
+            # Explicit per-clone override — the user asked for THIS net, so an
+            # unresolvable placeholder here is a genuine user error (fatal,
+            # never silently auto-derived).
             net_template = clone.nets[role]
             expected_net = resolve_net(net_template, clone.params, clone.net_overrides)
             net_source = "nets"
         elif slot.net_template is not None:
             net_template = slot.net_template
-            expected_net = resolve_net(net_template, clone.params, clone.net_overrides)
-            net_source = "net_template"
-            # prefix_remap (derive_role_nets priority 2, TwinMap.twin_net
-            # semantics): a LITERAL local hierarchical net ('/Channel_0/...') is
-            # auto-remapped to the target channel ('/Channel_1/...') when the
-            # placement's own Cluster names a different Channel_N — a cell
-            # extracted on Channel_0 clones to Channel_1 without a manual
-            # {channel} param or nets:. Only literals: a parametrized
-            # net_template is the user's explicit choice.
-            if "{" not in net_template:
-                remapped = _prefix_remap_local_net(expected_net, clone)
-                if remapped is not None:
-                    expected_net = remapped
-                    net_source = PREFIX_REMAP
-        else:
+            try:
+                expected_net = resolve_net(net_template, clone.params, clone.net_overrides)
+            except ValidationError:
+                # A cell net_template with an unresolved {placeholder} (no
+                # matching params) is NOT an actionable explicit net source —
+                # no manual net coordinate was provided. Fall through to the
+                # live auto-derivation path below (Phase 2 step 2.1: nets:/
+                # params:/net_overrides are OPTIONAL overrides; the default
+                # path is automatic). Auto-derivation is deterministic, never
+                # a guess; if it also fails, the honest "no net could be
+                # derived automatically" error below reports it.
+                expected_net = None
+            if expected_net is not None:
+                net_source = "net_template"
+                # prefix_remap (derive_role_nets priority 2, TwinMap.twin_net
+                # semantics): a LITERAL local hierarchical net ('/Channel_0/...') is
+                # auto-remapped to the target channel ('/Channel_1/...') when the
+                # placement's own Cluster names a different Channel_N — a cell
+                # extracted on Channel_0 clones to Channel_1 without a manual
+                # {channel} param or nets:. Only literals: a parametrized
+                # net_template is the user's explicit choice.
+                if "{" not in net_template:
+                    remapped = _prefix_remap_local_net(expected_net, clone)
+                    if remapped is not None:
+                        expected_net = remapped
+                        net_source = PREFIX_REMAP
+        if expected_net is None:
             auto_net, auto_ref, auto_source = _auto_derive_live_net(
                 adapter, all_fps, role, clone, slot, sheet_names)
             if auto_ref is not None:

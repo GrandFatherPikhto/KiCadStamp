@@ -230,24 +230,34 @@ class TestMirrorOfCompositeCellIsRejected:
 class TestNoParamScoping:
     def test_nested_placement_does_not_inherit_parent_params(self):
         """The top-level clone's params must NOT leak into the nested
-        placement's own net_template resolution — explicit passing only."""
+        placement's own net_template resolution — explicit passing only.
+
+        Phase 4 step 4.3: an unresolvable net_template placeholder (no params)
+        now falls through to the LIVE auto-derivation path instead of fataling —
+        so the no-leak signal is no longer "raises" but "resolves from the live
+        board, not from the parent's params": the parent's {channel}=1 would
+        look for NET_1 (absent -> fatal), while the correct no-leak behavior
+        reads the live board and finds C1 on NET_2."""
         leaf = Cell(name="leaf", components=[
             TemplateComponentSlot(role="R1", offset_along_mm=0.0, offset_across_mm=0.0,
                                   angle_deg=0.0, net_template="NET_{channel}"),
         ])
         # Top has params={"channel": 1}, but "inner" does NOT pass params
-        # through — it should NOT resolve NET_1, it has no net source at all
-        # for R1 (no nets[], no params to fill net_template's placeholder).
+        # through — it has no net source of its own. C1 sits on NET_2, NOT the
+        # parent's {channel}=1 -> NET_1: if the parent's params leaked, the
+        # inner placement would look for NET_1 and fatal; the correct no-leak
+        # behavior falls through to live auto-derivation (NET_2).
         inner = CellPlacement(name="inner", cell="leaf", xy=(0.0, 0.0))
         mid = Cell(name="mid", clone_placements=[inner])
         top = ClonePlacement(cluster="top", cell="mid", xy=(0.0, 0.0), params={"channel": 1})
         cfg = Config(layer="F.Cu", cells={"leaf": leaf, "mid": mid}, clone_placements=[top])
-        c1 = _make_fp("C1", role="R1", nets=["NET_1"])
+        c1 = _make_fp("C1", role="R1", nets=["NET_2"])
         adapter = _adapter_for([c1])
         calc = ClonePositionCalculator(adapter, cfg)
 
-        with pytest.raises(ValidationError):
-            calc.compute_raw_positions([top])
+        placed, _vias, _tracks = calc.compute_raw_positions([top])
+        assert len(placed) == 1
+        assert placed[0].ref == "C1"
 
 
 class TestCellPlacementSheetInheritance:

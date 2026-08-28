@@ -513,7 +513,7 @@ def check_clone_nets_exist_on_board(adapter: KiCadBoardAdapter, cfg: Config) -> 
         try:
             resolved = resolve_net(via.net, clone.params, clone.net_overrides)
         except ValidationError:
-            return  # missing parameter — already a fatal error higher up
+            return  # missing parameter — still a fatal in the geometry layer
         if resolved not in real_nets:
             hint = difflib.get_close_matches(resolved, real_nets, n=1)
             suggestion = _(" — did you mean {suggestion!r}?").format(suggestion=hint[0]) if hint else ""
@@ -532,7 +532,12 @@ def check_clone_nets_exist_on_board(adapter: KiCadBoardAdapter, cfg: Config) -> 
         try:
             resolved = resolve_net(expected_template, clone.params, clone.net_overrides)
         except ValidationError:
-            return  # missing parameter — already a fatal error higher up
+            # Missing parameter — nothing resolved to check. For an explicit
+            # nets:[role] override this stays a fatal in resolve_roles_by_nets;
+            # for a CELL net_template it now falls through to the live
+            # auto-derivation path (Phase 4 step 4.3), which is not re-checked
+            # here (auto-derived nets exist by construction).
+            return
         remapped = _prefix_remap_local_net(resolved, clone)
         final = remapped if remapped is not None else resolved
         if final not in real_nets:

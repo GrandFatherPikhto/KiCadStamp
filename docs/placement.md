@@ -256,7 +256,9 @@ Resolves roles for `ClonePlacement`. Supports two modes:
   `nets:` → cell `net_template` (with placeholders; a literal local `/Channel_0/...` net is
   auto-prefix-remapped to the target channel, `TwinMap.twin_net` semantics) → auto-derived from the
   live board (`derive_role_nets`: the unique instance's single net, or the one non-rule net shared by
-  all candidates) — so `nets:`/`params:`/`net_overrides:` are OPTIONAL overrides. Since Phase 2 step
+  all candidates). A cell `net_template` with an unresolved `{placeholder}` (no matching `params`) is
+  NOT treated as an explicit source — it falls through to the live auto-derivation path (Phase 4 step
+  4.3) instead of fataling — so `nets:`/`params:`/`net_overrides:` are OPTIONAL overrides. Since Phase 2 step
   2.3 the IMPLICIT mode (no `nets`/`params`/`by_selection`) is also by-nets whenever the whole cell
   auto-derives on the live board — mode is chosen by the availability of an unambiguous source
   instance, not by the presence of `nets`/`params`. In case of ambiguity,
