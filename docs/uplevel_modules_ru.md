@@ -59,7 +59,7 @@
 
 | Функция | Описание |
 |---------|----------|
-| `cmd_extract(args)` | Загружает профиль/конфиг, вызывает `template_extraction.extract_template_from_selection()`, записывает результат в JSON или YAML. |
+| `cmd_extract(args)` | Загружает профиль/конфиг, вызывает `template_extraction.extract_template_from_selection()`, записывает результат в JSON, s-expr (`.sexp`) или YAML (по расширению выходного файла). |
 
 **Ключевые зависимости:**  
 `template_extraction.extract_template_from_selection`, `config.load_config`, `config.includes.load_profile`.

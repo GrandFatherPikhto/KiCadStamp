@@ -354,3 +354,106 @@ def test_reextract_keeps_retired_flag_through_write(tmp_path):
     entry = data["net_traces"][0]
     assert entry["retired"] is True  # survived the re-extract
     assert len(entry["tracks"]) == 1  # geometry refreshed
+
+
+# ── s-expr output (2026-08-28, sexp_output_writers_fix) ──────────────────────
+#
+# write_net_trace/read_net_trace_flags used to recognize ONLY ".json" and
+# silently YAML-write everything else — including a ".sexp" output path, which
+# then failed to parse as s-expr on the next load_config(). Both now dispatch
+# three ways by file suffix (.json/.sexp/YAML), symmetric to config_writer's
+# _read_data/_write_data and config/includes.py's _load_config_file.
+
+
+def test_write_net_trace_sexp_roundtrips(tmp_path):
+    """--output foo.sexp writes REAL s-expr text: sexp_to_dict reads back the
+    same net_traces record the YAML path produces (compared against the
+    default-stripped canonical form — dict_to_sexp omits fields equal to their
+    dataclass default, the same contract test_sexp_config_roundtrip asserts)."""
+    from kicadstamp.config import TemplateTrack, TemplateVia
+    from kicadstamp.config.sexp_format import _strip_defaults, sexp_to_dict
+
+    out = tmp_path / "trace.sexp"
+    nt = NetTrace(
+        net="DAC_DB0", anchor_role="FPGA", anchor_pad="42",
+        tracks=[TemplateTrack(
+            start_along_mm=1.0, start_across_mm=2.0,
+            end_along_mm=3.0, end_across_mm=4.0,
+            width_mm=0.2, net="DAC_DB0", layer="F.Cu")],
+        vias=[TemplateVia(
+            offset_along_mm=5.0, offset_across_mm=6.0,
+            net="DAC_DB0", drill_mm=0.3, diameter_mm=0.6)],
+        retired=True,
+    )
+    write_net_trace(str(out), nt)
+
+    text = out.read_text(encoding="utf-8")
+    assert text.lstrip().startswith("(kicadstamp-config")  # s-expr, not YAML
+    data = sexp_to_dict(text)
+    # _strip_defaults must see the record wrapped under its `net_traces:`
+    # section (it operates on a CONFIG dict, not a bare record — that is what
+    # applies the NetTrace/TemplateVia/TemplateTrack default-stripping the
+    # s-expr writer also performs).
+    expected = _strip_defaults({"net_traces": [net_trace_to_dict(nt)]})["net_traces"][0]
+    assert data["net_traces"][0] == expected
+
+
+def test_write_net_trace_sexp_upsert_replaces_same_net(tmp_path):
+    """The .sexp path keeps the same upsert semantics as YAML: a same-net write
+    REPLACES in place (no duplicate record), a distinct-net write appends, and
+    the file stays a parseable s-expr."""
+    from kicadstamp.config.sexp_format import sexp_to_dict
+
+    out = tmp_path / "trace.sexp"
+    write_net_trace(str(out), NetTrace(net="DAC_DB0", anchor_role="FPGA"))
+    write_net_trace(str(out), NetTrace(
+        net="DAC_DB0", anchor_role="FPGA", anchor_pad="42"))
+    write_net_trace(str(out), NetTrace(net="DAC_DB1", anchor_role="FPGA"))
+
+    data = sexp_to_dict(out.read_text(encoding="utf-8"))
+    assert [e["net"] for e in data["net_traces"]] == ["DAC_DB0", "DAC_DB1"]
+    assert data["net_traces"][0]["anchor_pad"] == "42"
+
+
+def test_read_net_trace_flags_sexp(tmp_path):
+    """read_net_trace_flags parses an existing .sexp trace file (symmetric to
+    the YAML test above) and recovers the hand-set retired:/skip: flags."""
+    from kicadstamp.config.sexp_format import dict_to_sexp
+
+    out = tmp_path / "trace.sexp"
+    out.write_text(dict_to_sexp({
+        "net_traces": [
+            {"net": "DAC_DB0", "anchor_role": "FPGA", "retired": True},
+            {"net": "DAC_DB1", "anchor_role": "FPGA", "skip": True},
+        ],
+    }), encoding="utf-8")
+
+    assert read_net_trace_flags(str(out), "DAC_DB0") == (True, False)
+    assert read_net_trace_flags(str(out), "DAC_DB1") == (False, True)
+    assert read_net_trace_flags(str(out), "DAC_DB9") == (False, False)
+
+
+def test_reextract_keeps_retired_flag_through_sexp(tmp_path):
+    """End-to-end over .sexp (the .sexp analog of the YAML test above): a
+    record marked retired: true survives a re-extract+write — geometry is
+    refreshed, the hand-set flag is NOT cleared."""
+    from kicadstamp.config.sexp_format import sexp_to_dict
+
+    fpga = _make_fp("U1", "FPGA", 50, 50)
+    adapter = _adapter(
+        [fpga],
+        [_make_track(50, 50, 55, 55, "DAC_DB0")],
+        [],
+    )
+    out = tmp_path / "trace.sexp"
+    write_net_trace(str(out), NetTrace(net="DAC_DB0", anchor_role="FPGA", retired=True))
+
+    existing_retired, _skip = read_net_trace_flags(str(out), "DAC_DB0")
+    nt = extract_net_trace(adapter, net="DAC_DB0", anchor_role="FPGA",
+                           retired=existing_retired)
+    write_net_trace(str(out), nt)
+
+    data = sexp_to_dict(out.read_text(encoding="utf-8"))
+    entry = data["net_traces"][0]
+    assert entry.get("retired") is True  # survived the re-extract
+    assert len(entry["tracks"]) == 1  # geometry refreshed

@@ -59,7 +59,7 @@ Contains `cmd_extract()` — the implementation of the `extract` command, extrac
 
 | Function | Description |
 |----------|-------------|
-| `cmd_extract(args)` | Loads profile/config, calls `template_extraction.extract_template_from_selection()`, writes output as JSON or YAML. |
+| `cmd_extract(args)` | Loads profile/config, calls `template_extraction.extract_template_from_selection()`, writes output as JSON, s-expr (`.sexp`) or YAML (by output file suffix). |
 
 **Key dependencies:**  
 `template_extraction.extract_template_from_selection`, `config.load_config`, `config.includes.load_profile`.

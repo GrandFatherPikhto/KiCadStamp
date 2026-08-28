@@ -145,3 +145,95 @@ class TestCmdExtractRawSelection:
         assert captured["raw_selection"] is True
         assert captured["name"] == "cell"
         assert captured["output"] == "out.yaml"
+
+
+class TestExtractTemplateSexpOutput:
+    """extract_template's output format is selected by file suffix — a .sexp
+    output path must produce REAL s-expr text (sexp_to_dict reads it back),
+    not silent YAML (2026-08-28, sexp_output_writers_fix)."""
+
+    @staticmethod
+    def _fake_template(adapter, name, **kwargs):
+        return {name: {"vias": [], "components": [], "tracks": [], "layer": "F.Cu"}}
+
+    def test_sexp_output_roundtrips(self, monkeypatch, tmp_path):
+        """--output foo.sexp writes s-expr that sexp_to_dict reads back into
+        the same cells: content the YAML path would produce (compared against
+        the default-stripped canonical form — the s-expr writer omits fields
+        equal to their dataclass default)."""
+        from kicadstamp.config.sexp_format import _strip_defaults, sexp_to_dict
+
+        template = {
+            "vias": [{"offset_along_mm": 1.0, "offset_across_mm": 2.0,
+                      "net": "GND", "drill_mm": 0.3, "diameter_mm": 0.6}],
+            "components": [], "tracks": [], "layer": "F.Cu",
+        }
+
+        def _fake(adapter, name, **kwargs):
+            return {name: template}
+
+        import kicadstamp.cli_extract as cli_extract_mod
+        monkeypatch.setattr(cli_extract_mod, "extract_template_from_selection", _fake)
+
+        out = tmp_path / "out.sexp"
+        extract_template(adapter=object(), name="cell1", output=str(out))
+
+        text = out.read_text(encoding="utf-8")
+        assert text.lstrip().startswith("(kicadstamp-config")  # s-expr, not YAML
+        expected = _strip_defaults({"cells": {"cell1": template}})
+        assert sexp_to_dict(text) == expected
+
+    def test_sexp_upsert_merges_two_cells(self, monkeypatch, tmp_path):
+        """A pre-existing .sexp with one cells: name + a new extract of another
+        name -> BOTH present after the write (the same merge/upsert semantics
+        that are already tested for YAML)."""
+        from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
+
+        out = tmp_path / "cells.sexp"
+        out.write_text(dict_to_sexp({
+            "cells": {"existing": {"vias": [], "components": [], "tracks": [],
+                                   "layer": "B.Cu"}},
+        }), encoding="utf-8")
+
+        import kicadstamp.cli_extract as cli_extract_mod
+        monkeypatch.setattr(cli_extract_mod, "extract_template_from_selection",
+                            self._fake_template)
+
+        extract_template(adapter=object(), name="cell1", output=str(out))
+
+        data = sexp_to_dict(out.read_text(encoding="utf-8"))
+        assert "existing" in data["cells"]
+        assert "cell1" in data["cells"]
+
+    def test_sexp_output_skips_render_uncertain_comments(self, monkeypatch, tmp_path):
+        """render_uncertain_comments is a YAML-text post-processor (it splices
+        "# field: hint" comment lines into yaml.dump output) — for a .sexp
+        output it must NOT be called: annotations are simply not inserted into
+        s-expr output, and the file stays a valid s-expr."""
+        from kicadstamp.config.sexp_format import sexp_to_dict
+
+        def _fake(adapter, name, **kwargs):
+            annotations = kwargs.get("annotations")
+            if annotations is not None:
+                annotations.append(("role", "field", "hint"))
+            return {name: {"vias": [], "components": [], "tracks": [],
+                           "layer": "F.Cu"}}
+
+        import kicadstamp.cli_extract as cli_extract_mod
+        monkeypatch.setattr(cli_extract_mod, "extract_template_from_selection", _fake)
+
+        calls = []
+
+        def _record_render(*args, **kwargs):
+            calls.append(args)
+            return args[0]
+
+        monkeypatch.setattr(cli_extract_mod, "render_uncertain_comments", _record_render)
+
+        out = tmp_path / "out.sexp"
+        extract_template(adapter=object(), name="cell1", output=str(out))
+
+        assert calls == []  # renderer never invoked on the .sexp path
+        text = out.read_text(encoding="utf-8")
+        assert text.lstrip().startswith("(kicadstamp-config")
+        sexp_to_dict(text)  # still a valid s-expr

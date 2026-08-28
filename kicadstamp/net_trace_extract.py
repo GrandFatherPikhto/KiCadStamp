@@ -30,6 +30,7 @@ from .domain.geometry import BoardLayer
 from .utils.yaml_loader import safe_load
 
 from .config import NetTrace
+from .config.sexp_format import dict_to_sexp, sexp_to_dict
 from .exceptions import ValidationError, format_fatal_error
 from .placement.services.clone_role_resolver import resolve_footprint_by_role
 from .utils.units import MM
@@ -205,13 +206,23 @@ def read_net_trace_flags(path: str, net: str) -> tuple[bool, bool]:
     `path`, or (False, False) when there is none (or the file can't be read).
     For a re-extract: refresh the geometry but never silently clear the
     hand-set retired:/skip: (review fix 2026-08-21 — see extract_net_trace's
-    retired/skip params; write_net_trace replaces the whole entry by net)."""
+    retired/skip params; write_net_trace replaces the whole entry by net).
+
+    Parses by file suffix like every other reader (config/includes.py's
+    _load_config_file / config_writer's _read_data): .sexp -> sexp_to_dict,
+    anything else -> YAML safe_load (2026-08-28 — was an unconditional
+    safe_load, so a re-extract of a .sexp trace file could never recover the
+    hand-set flags)."""
     p = Path(path)
     if not p.exists():
         return False, False
     try:
-        data = safe_load(p.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError):
+        text = p.read_text(encoding="utf-8")
+        if p.suffix.lower() == ".sexp":
+            data = sexp_to_dict(text) or {}
+        else:
+            data = safe_load(text) or {}
+    except (OSError, yaml.YAMLError, ValidationError):
         return False, False
     for e in data.get("net_traces") or []:
         if isinstance(e, dict) and e.get("net") == net:
@@ -221,16 +232,28 @@ def read_net_trace_flags(path: str, net: str) -> tuple[bool, bool]:
 
 def write_net_trace(output: str, nt: NetTrace) -> dict[str, Any]:
     """Upsert-write one NetTrace under a `net_traces:` list key in `output`
-    (YAML or JSON), preserving everything else in the file — the same
-    merge/upsert principle as extract_template: an existing entry with the
-    same net is REPLACED in place, others are appended. Returns the written
-    entry dict."""
+    (YAML, JSON or s-expr by file suffix), preserving everything else in the
+    file — the same merge/upsert principle as extract_template: an existing
+    entry with the same net is REPLACED in place, others are appended.
+    Returns the written entry dict.
+
+    Output format is selected by extension like every other reader/writer
+    (config_writer's _read_data/_write_data, config/includes.py's
+    _load_config_file): .json -> JSON, .sexp -> dict_to_sexp/sexp_to_dict,
+    anything else -> YAML (2026-08-28 — was JSON/YAML only, so a `.sexp`
+    output path silently received YAML text)."""
     output_path = Path(output)
     is_json = output_path.suffix.lower() == '.json'
+    is_sexp = output_path.suffix.lower() == '.sexp'
     existing: dict[str, Any] = {}
     if output_path.exists():
         with open(output_path, "r", encoding="utf-8") as f:
-            existing = (json.load(f) if is_json else safe_load(f)) or {}
+            if is_json:
+                existing = json.load(f) or {}
+            elif is_sexp:
+                existing = sexp_to_dict(f.read()) or {}
+            else:
+                existing = safe_load(f) or {}
 
     net_traces = existing.setdefault('net_traces', [])
     entry = net_trace_to_dict(nt)
@@ -252,6 +275,8 @@ def write_net_trace(output: str, nt: NetTrace) -> dict[str, Any]:
     with open(output_path, "w", encoding="utf-8") as f:
         if is_json:
             json.dump(existing, f, indent=2, ensure_ascii=False)
+        elif is_sexp:
+            f.write(dict_to_sexp(existing))
         else:
             f.write(yaml.dump(existing, allow_unicode=True, sort_keys=False,
                               default_flow_style=False))

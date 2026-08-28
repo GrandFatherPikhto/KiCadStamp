@@ -17,7 +17,7 @@ from typing import Any
 import yaml
 
 from kicadstamp.config.includes import resolve_includes
-from kicadstamp.config.sexp_format import sexp_to_dict
+from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.utils.yaml_loader import safe_load
 from kicadstamp.exceptions import PlacerError, check_unknown_keys
 from kicadstamp.kicad.interfaces import IBoardAdapter
@@ -110,8 +110,9 @@ def extract_template(adapter: IBoardAdapter, *, name: str, output: str,
                      origin_component_pad: str | None = None,
                      raw_selection: bool = False) -> dict[str, Any]:
     """Extract a spoke cell template from the current board selection and
-    merge-write it, wrapped under a 'cells:' key, into `output` (YAML/JSON),
-    preserving any existing entries (including any OTHER top-level key the
+    merge-write it, wrapped under a 'cells:' key, into `output` (YAML/JSON/
+    s-expr by file suffix), preserving any existing entries (including any
+    OTHER top-level key the
     file already owns, e.g. extract_profiles: if `output` is also the
     Extractor file — cells_file:/cell_files: were folded into include: on
     2026-08-02, so the on-disk shape here now matches an inline cells:
@@ -140,10 +141,16 @@ def extract_template(adapter: IBoardAdapter, *, name: str, output: str,
 
     output_path = Path(output)
     is_json = output_path.suffix.lower() == '.json'
+    is_sexp = output_path.suffix.lower() == '.sexp'
     existing = {}
     if output_path.exists():
         with open(output_path, "r", encoding="utf-8") as f:
-            existing = (json.load(f) if is_json else safe_load(f)) or {}
+            if is_json:
+                existing = json.load(f) or {}
+            elif is_sexp:
+                existing = sexp_to_dict(f.read()) or {}
+            else:
+                existing = safe_load(f) or {}
     existing_cells = existing.setdefault('cells', {})
     if name in existing_cells:
         logger.warning(_("Template {name!r} already exists in {output} — will be overwritten")
@@ -155,6 +162,14 @@ def extract_template(adapter: IBoardAdapter, *, name: str, output: str,
     with open(output_path, "w", encoding="utf-8") as f:
         if is_json:
             json.dump(existing, f, indent=2, ensure_ascii=False)
+        elif is_sexp:
+            # render_uncertain_comments is a YAML-text post-processor (it
+            # splices "# field: hint" comment lines into yaml.dump output) —
+            # it has no s-expr equivalent yet, so .sexp output simply does
+            # not carry the uncertainty annotations (2026-08-28; porting the
+            # renderer to s-expr syntax is a separate, larger task, out of
+            # scope for the .sexp output fix).
+            f.write(dict_to_sexp(existing))
         else:
             text = yaml.dump(existing, allow_unicode=True, sort_keys=False, default_flow_style=False)
             if annotations:
