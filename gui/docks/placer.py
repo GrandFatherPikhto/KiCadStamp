@@ -130,7 +130,7 @@ from kicadstamp.i18n import _
 from kicadstamp.placement.planner import PlacementPlanner
 from kicadstamp.placement.services.clone_role_resolver import (
     candidate_nets_by_role,
-    suggest_role_nets_from_cluster,
+    suggest_role_nets_live,
 )
 
 from ..ui_utils import busy
@@ -1438,8 +1438,8 @@ class PlacerDock(QWidget):
         # a reused-sheet Cluster+Role ambiguity (DAC_BUF) actually narrows.
         sheet = payload.get("sheet")
         sheet_names = payload.get("sheet_names")
-        suggestions = suggest_role_nets_from_cluster(adapter, role_hints, cluster,
-                                                     sheet=sheet, sheet_names=sheet_names)
+        suggestions = suggest_role_nets_live(adapter, role_hints, cluster,
+                                             sheet=sheet, sheet_names=sheet_names)
         # 2026-08-16 (net_template_pad): also fetch the per-role candidate
         # nets for the Net-combobox narrowing, in the SAME live-board worker
         # run (auto-fill already fires on every Cell/Cluster commit — exactly

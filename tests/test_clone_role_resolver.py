@@ -16,7 +16,7 @@ from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.placement.services.clone_role_resolver import (
     resolve_roles_by_selection, resolve_roles_by_nets, resolve_anchor_by_role,
     candidate_nets_by_role, resolve_single_role_candidate,
-    suggest_role_nets_from_cluster,
+    suggest_role_nets_from_cluster, suggest_role_nets_live,
     _prefix_remap_local_net, _target_channel,
 )
 from kicadstamp.exceptions import ValidationError
@@ -1307,3 +1307,56 @@ class TestPrefixRemapHelpers:
         assert _prefix_remap_local_net("/Channel_0/DAC/DB1", no_ch) is None
         # flat net — no remap
         assert _prefix_remap_local_net("DAC0_DB1", clone) is None
+
+
+class TestSuggestRoleNetsLive:
+    """Phase 2 step 2.4 — the GUI "Auto-fill from board" LIVE backend: the
+    hint-based suggest_role_nets_from_cluster PLUS the apply-side live_pad
+    (_auto_derive_live_net), so roles WITHOUT cell hints get their net whenever
+    the live board gives a deterministic one (a unique instance's single net, or
+    the ONE net shared by all their candidates). WYSIWYG with what apply
+    auto-derives."""
+
+    def _adapter(self, fps):
+        adapter = MagicMock()
+        adapter.get_footprints.return_value = fps
+        adapter.get_field_value.side_effect = _role_or_cluster
+        adapter.get_footprint_pads.side_effect = _get_pads
+        adapter.get_pad_by_number.side_effect = _get_pad_by_number
+        adapter.get_selected_items.return_value = []
+        return adapter
+
+    def test_shared_net_role_without_hints_is_filled_live(self):
+        """Two candidates of one role on the SAME net — the hint-based path
+        leaves them out (no single candidate), the live_pad backend fills the
+        shared net (the same case apply auto-derives)."""
+        role_hints = {"C_IN_BULK": (None, None)}
+        fps = [_make_fp("C1", "C_IN_BULK", ["+1V2"], cluster="Out_Pi_Filter_N2V5"),
+               _make_fp("C2", "C_IN_BULK", ["+1V2"], cluster="Out_Pi_Filter_N2V5")]
+        result = suggest_role_nets_live(self._adapter(fps), role_hints, "Out_Pi_Filter_N2V5")
+        assert result == {"C_IN_BULK": "+1V2"}
+
+    def test_different_net_candidates_stay_unfilled(self):
+        """Two candidates on DIFFERENT nets -> no deterministic single net ->
+        left for manual entry (never a guess)."""
+        role_hints = {"PI_FB": (None, None)}
+        fps = [_make_fp("FB1", "PI_FB", ["+1V2"], cluster="c"),
+               _make_fp("FB2", "PI_FB", ["+1V2_VCCINT"], cluster="c")]
+        result = suggest_role_nets_live(self._adapter(fps), role_hints, "c")
+        assert result == {}
+
+    def test_bridging_unique_instance_without_pad_stays_unfilled(self):
+        """A unique bridging instance (2 nets, no net_template_pad) cannot be
+        reduced to one net -> not filled (no silent guess)."""
+        role_hints = {"PI_FB": (None, None)}
+        fps = [_make_fp("FB6", "PI_FB", ["+1V2", "+1V2_VCCINT"], cluster="c")]
+        result = suggest_role_nets_live(self._adapter(fps), role_hints, "c")
+        assert result == {}
+
+    def test_hint_based_suggestion_wins_over_live(self):
+        """A role with a net_template_pad hint is filled by the hint-based path;
+        the live backend never overrides it."""
+        role_hints = {"LDO_ADJ": ("3", None)}
+        fps = [_make_fp("U2", "LDO_ADJ", ["+5V", "+5V_DIRTY", "+5V"], cluster="c")]
+        result = suggest_role_nets_live(self._adapter(fps), role_hints, "c")
+        assert result == {"LDO_ADJ": "+5V"}

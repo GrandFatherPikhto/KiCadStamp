@@ -1267,6 +1267,33 @@ def test_do_autofill_nets_leaves_ambiguous_role_for_manual_entry(main_window, tm
     assert any("PI_FB" in r.message for r in caplog.records)
 
 
+def test_do_autofill_nets_live_backend_fills_shared_net_role(main_window, tmp_path, caplog):
+    """Phase 2 step 2.4 — the Auto-fill button now uses the LIVE backend
+    (suggest_role_nets_live): a role with NO cell hints whose candidates share
+    ONE net (several C_IN_BULK on +1V2 in one PI-filter cluster) is now
+    auto-filled — the hint-based path left it out (no single candidate), the
+    apply-side live_pad fills the shared net (WYSIWYG with what apply
+    auto-derives). The user can still override the row afterwards."""
+    dock, _, _ = _make_two_role_cell_and_dock(main_window, tmp_path)
+    dock.cluster_edit.setCurrentText("Out_Pi_Filter_N2V5")
+    main_window.connection.board = _FakeAutofillBoard([
+        _FakeAutofillFootprint("C22", "C_IN_BULK", "Out_Pi_Filter_N2V5", ["+1V2"]),
+        _FakeAutofillFootprint("C23", "C_IN_BULK", "Out_Pi_Filter_N2V5", ["+1V2"]),
+        # PI_FB bridges two nets -> still left for manual entry.
+        _FakeAutofillFootprint("FB6", "PI_FB", "Out_Pi_Filter_N2V5", ["+1V2", "+1V2_VCCINT"]),
+    ])
+
+    dock._do_autofill_nets()
+
+    assert dock.nets_table.to_dict() == {"C_IN_BULK": "+1V2"}
+    assert any("PI_FB" in r.message for r in caplog.records)
+
+    # Override: the table is an override editor — the user can replace the
+    # auto-derived value.
+    dock.nets_table.load_dict({"C_IN_BULK": "+1V2_CLEAN"})
+    assert dock.nets_table.to_dict() == {"C_IN_BULK": "+1V2_CLEAN"}
+
+
 def test_finish_autofill_nets_silence_comes_from_the_result_not_a_field(main_window, tmp_path, caplog):
     """Bug 2 (handoff_2026_08_13_focus_and_autorole_bugs): quiet travels
     through the payload/result, NOT a shared dock field — a second auto-fill

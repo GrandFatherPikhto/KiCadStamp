@@ -40,7 +40,8 @@ from ...domain.geometry import Vector2
 from ...domain.board import Footprint
 
 from ...cluster_matching import cluster_prefix_match
-from ...config import Cell, CellPlacement, ClonePlacement, clone_placement_effective_name
+from ...config import Cell, CellPlacement, ClonePlacement, TemplateComponentSlot, \
+    clone_placement_effective_name
 from ...exceptions import ValidationError, format_fatal_error
 from ...net_derive import PREFIX_REMAP, derive_role_nets
 from ...net_resolution import RULE_NETS, resolve_net, resolve_placeholder
@@ -211,6 +212,44 @@ def suggest_role_nets_from_cluster(adapter, role_hints: dict[str, tuple[str | No
         non_rule = candidate_nets(adapter, fp, rule_nets)
         if len(non_rule) == 1:
             suggestions[role] = non_rule[0]
+    return suggestions
+
+
+def suggest_role_nets_live(adapter, role_hints: dict[str, tuple[str | None, str | None]],
+                           cluster: str, rule_nets: set[str] | None = None,
+                           sheet: str | None = None,
+                           sheet_names: dict[str, str] | None = None) -> dict[str, str]:
+    """Phase 2 step 2.4 — the GUI "Auto-fill from board" LIVE backend.
+
+    Combines the hint-based suggest_role_nets_from_cluster (net_template_pad /
+    net_template_same_as_role) with the APPLY-side live auto-derivation
+    (_auto_derive_live_net — derive_role_nets, live_pad), so the Nets tab shows
+    EXACTLY what apply would derive (WYSIWYG): roles without cell hints that the
+    hint-based path cannot fill now get their net from a UNIQUE instance's
+    single non-rule net, or from the ONE non-rule net shared by ALL their
+    candidates on this cluster (e.g. several C_IN_BULK on +3V3 inside one
+    PI-filter cluster — the same shared-net case the apply auto-derive
+    resolves).
+
+    Hint-based suggestions win; live_pad fills the rest. Never a guess: a role
+    is filled only when the live board gives a deterministic single net (the
+    same discipline as _auto_derive_live_net)."""
+    suggestions = suggest_role_nets_from_cluster(
+        adapter, role_hints, cluster, rule_nets=rule_nets,
+        sheet=sheet, sheet_names=sheet_names)
+    all_fps = adapter.get_footprints()
+    clone = ClonePlacement(cluster=cluster, cell="_gui_suggest", xy=(0, 0),
+                           sheet=sheet)
+    for role, (pad, same_as_role) in role_hints.items():
+        if role in suggestions:
+            continue
+        if pad is not None or same_as_role is not None:
+            continue  # the hint-based path owns those (or explicitly left them out)
+        slot = TemplateComponentSlot(role=role)
+        net, direct_ref, _source = _auto_derive_live_net(
+            adapter, all_fps, role, clone, slot, sheet_names or {})
+        if net is not None:
+            suggestions[role] = net
     return suggestions
 
 

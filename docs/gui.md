@@ -451,7 +451,14 @@ the tabs — they act on the whole placement, not one tab.
       before, never a wrong guess. Since 2026-08-27, when a Params combo's narrowing resolves to
       exactly ONE candidate the value is selected automatically (only while the field is still
       blank — never overwriting a value the user already entered; a still-ambiguous 2+ candidate
-      list is left blank, the same no-guess discipline as the Nets rows).
+      list is left blank, the same no-guess discipline as the Nets rows). Since 2026-08-28 (Phase 2
+      step 2.4) the backend is the LIVE auto-derivation (`suggest_role_nets_live`): the hint-based
+      `net_template_pad`/`net_template_same_as_role` suggestions are combined with the APPLY-side
+      `_auto_derive_live_net` (live_pad), so a role WITHOUT cell hints is also filled whenever the
+      live board gives a deterministic single net — a unique instance's one net, or the ONE net
+      shared by all its candidates on this cluster (e.g. several C_IN_BULK on +3V3 in one PI-filter).
+      The Nets table shows these auto-values and remains an OVERRIDE editor — the user can replace
+      any row.
   - **Net overrides tab** (added 2026-08-06) — resolved net → final override name, applied AFTER
     Params/net_template substitution (see `resolve_net` in [docs/config.md](config.md)). Both columns
     autocomplete from the live board's actual net names.
