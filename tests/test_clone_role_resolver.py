@@ -1252,6 +1252,41 @@ class TestResolveRolesByNetsAutoDerive:
         with pytest.raises(ValidationError, match="X"):
             resolve_roles_by_nets(adapter, tpl, clone)
 
+    def test_identical_global_net_cascade_resolves_without_kuhn(self):
+        """Phase 2 step 2.2 — the two-matchings separation (mini-design §1):
+        N identical instances on a shared GLOBAL net (+3V3) auto-derive the one
+        shared non-rule net (live_pad, shared-net path), then the INSTANCE is
+        disambiguated by the EXISTING cascade (here: current selection) —
+        Kuhn/net_matching is NEVER applied to instance selection."""
+        tpl = Cell(name="t", components=[TemplateComponentSlot(role="CAP_IN")])
+        fps = [
+            _make_fp("C1", "CAP_IN", ["+3V3"], cluster="ch1"),
+            _make_fp("C2", "CAP_IN", ["+3V3"], cluster="ch1"),
+            _make_fp("C3", "CAP_IN", ["+3V3"], cluster="ch1"),
+        ]
+        adapter = self._adapter(fps)
+        adapter.get_selected_items.return_value = [fps[1]]  # C2 is selected
+        clone = ClonePlacement(cluster="ch1", cell="t", xy=(0, 0))
+        result = resolve_roles_by_nets(adapter, tpl, clone)
+        assert result == {"CAP_IN": "C2"}
+
+    def test_indistinguishable_global_net_is_honest_fatal_not_kuhn_guess(self):
+        """Phase 2 step 2.2 — the two-matchings separation (negative): N
+        identical instances on one shared global net with NOTHING to
+        disambiguate (same cluster, no sheet, no selection, no proximity gap)
+        is an HONEST FATAL naming the ambiguity — Kuhn/net_matching is never
+        silently applied to instance selection on a global net."""
+        tpl = Cell(name="t", components=[TemplateComponentSlot(role="CAP_IN")])
+        fps = [
+            _make_fp("C1", "CAP_IN", ["+3V3"], cluster="ch1"),
+            _make_fp("C2", "CAP_IN", ["+3V3"], cluster="ch1"),
+            _make_fp("C3", "CAP_IN", ["+3V3"], cluster="ch1"),
+        ]
+        adapter = self._adapter(fps)  # no selection, no sheet, no anchor
+        clone = ClonePlacement(cluster="ch1", cell="t", xy=(0, 0))
+        with pytest.raises(ValidationError, match="CAP_IN"):
+            resolve_roles_by_nets(adapter, tpl, clone)
+
 
 class TestPrefixRemapHelpers:
     """Unit tests for the Step 2.1 prefix_remap helpers (mini-design §2)."""

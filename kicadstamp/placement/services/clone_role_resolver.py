@@ -285,12 +285,10 @@ def _role_designated_net(adapter, fp, slot) -> str | None:
 
 
 def _auto_derive_live_net(adapter, all_fps, role, clone, slot, sheet_names):
-    """Phase 2 step 2.1 — auto-derive the expected net of a role with NO
+    """Phase 2 steps 2.1/2.2 — auto-derive the expected net of a role with NO
     explicit source (no clone.nets[role], no cell net_template) from the LIVE
     target board, delegating the priority rule to the Phase-0 contract
-    derive_role_nets (live_pad — the only priority with evidence available in a
-    bare apply; the source evidence for prefix_remap/kuhn lives in the cell's
-    net_template or Phase 3's two-channel verification, not here).
+    derive_role_nets.
 
     Evidence (never a silent guess):
       1. a UNIQUE instance of the role on the target (Role + the placement's own
@@ -299,6 +297,18 @@ def _auto_derive_live_net(adapter, all_fps, role, clone, slot, sheet_names):
       2. else the single distinct non-rule net shared by ALL the role's
          candidates (N identical instances on one net — the normal ambiguity
          cascade then disambiguates them).
+
+    Step 2.2 — the TWO-MATCHINGS separation (mini-design §1, plan §2.2): this
+    helper produces only the EXPECTED NET (a candidate filter). The instance
+    disambiguation among identical candidates on a shared/global net stays
+    EXCLUSIVELY with the placement cascade (sheet -> Cluster -> selection ->
+    proximity) — Kuhn/net_matching (Role<->Net correspondence for LOCAL nets,
+    full two-cluster snapshots — Phase 3 verify_channel_net_mapping) is NEVER
+    applied to instance selection here. The Phase-0 contract's kuhn priority is
+    consumed SAFE-DEFAULT (never a stop; an ambiguous SCC group is a valid
+    answer and a diagnostic, not a fatal) wherever the caller supplies a Kuhn
+    mapping — currently the apply path has no such evidence (a ClonePlacement
+    has no source cluster; cf. design_2026_08_28_phase2_step2_1_mini.md §7).
 
     Returns (expected_net, direct_ref, source):
       - (net, None, 'live_pad') — derived expected net (source is the
@@ -332,9 +342,20 @@ def _auto_derive_live_net(adapter, all_fps, role, clone, slot, sheet_names):
               {p.net_name for p in adapter.get_footprint_pads(c)
                if p.net_name and p.net_name not in RULE_NETS}}
     if len(shared) == 1:
+        net = next(iter(shared))
+        # Step 2.2 separation note (debug — the common PI-filter/power-rail case
+        # resolves this way every apply; a warning would be noise): several
+        # identical instances share one net, the EXPECTED net is derived live,
+        # the INSTANCE is disambiguated by the cascade, never by Kuhn.
+        logger.debug(_("[{name}] role {role!r}: {count} identical candidates share "
+                       "net {net!r} — expected net derived live (live_pad); the "
+                       "instance is resolved by the placement cascade, net-matching "
+                       "(Kuhn) is never applied to instance selection")
+                     .format(name=clone_placement_effective_name(clone), role=role,
+                             count=len(candidates), net=net))
         derivations = derive_role_nets(
             roles=[role], role_source_nets={},
-            live_pad_nets={role: next(iter(shared))})
+            live_pad_nets={role: net})
         derivation = derivations.get(role)
         if derivation is not None:
             return derivation.net, None, derivation.source

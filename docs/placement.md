@@ -262,6 +262,13 @@ Resolves roles for `ClonePlacement`. Supports two modes:
   distinguishing electrically identical filters on a common rail. The GUI's Auto-fill/Nets/Params
   narrowing (PlacerDock) uses the same `sheet` dimension for its live-board candidate search since
   2026-08-16.
+- **Two matching mechanisms, never conflated** (Phase 2 step 2.2): the by-nets path NEVER applies
+  net-matching (Kuhn) to INSTANCE selection — N identical instances on a shared/global net are
+  disambiguated only by the cascade (sheet → Cluster → selection → proximity); if they are truly
+  indistinguishable it is an honest fatal, never a Kuhn guess. Kuhn/SCC (the Role↔Net correspondence
+  from `net_matching`) is a full two-cluster-snapshot mechanism used for trace-transfer verification
+  (`channel_copy`/`clone-plan`), where full snapshots exist — not for picking among identical
+  components in apply.
 
 Functions:
 - `clone_uses_selection_mode(clone)` – determines the mode (considers `by_selection`, `nets`, `params`).

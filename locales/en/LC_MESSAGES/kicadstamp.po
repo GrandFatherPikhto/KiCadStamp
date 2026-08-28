@@ -8281,3 +8281,11 @@ msgstr ""
 #, python-brace-format
 msgid "[{name}] role {role!r}: expected net {net!r} (source: {source})"
 msgstr ""
+
+#: kicadstamp/placement/services/clone_role_resolver.py (Phase 2 step 2.2 two-matchings separation, 2026-08-28)
+#, python-brace-format
+msgid ""
+"[{name}] role {role!r}: {count} identical candidates share net {net!r} — "
+"expected net derived live (live_pad); the instance is resolved by the "
+"placement cascade, net-matching (Kuhn) is never applied to instance selection"
+msgstr ""
