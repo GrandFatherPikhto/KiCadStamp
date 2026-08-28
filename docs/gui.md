@@ -216,12 +216,18 @@ config_writer chokepoint (a fresh `.bak` is made first); linking/validation runs
 
 Adding a node whose record still carries its own inline anchor (`anchor_ref`/`anchor_role`/
 `anchor_point`/`anchor_origin`) is always allowed — **Save never blocks on it** (FORK-1 no longer
-runs at link/Save time; it only matters at the moment of an actual redraw). **Redraw selected** on
-such a node skips it with an explicit warning — the tree would otherwise fight the record's own
-inline anchor for the same position — and still walks it as a live base for its children. To let the
-tree own the position, remove the inline anchor from the record: that removal is the conscious
-migration decision. This is what lets you add e.g. a channel's `CH0/1/2_DAC_BUF` to the `fpga` tree
-purely to document/read it while it still moves through its own `anchor_role` via the regular Apply.
+runs at link/Save time). **Redraw selected** (or **Redraw whole tree**) on such a node now REDRAWS
+it — with an informational, non-blocking warning: the record's own `anchor_role` keeps working for
+the regular (non-tree) Apply/Redraw exactly as before, and this tree redraw moves it only TEMPORARILY
+via a non-persistent override, never rewriting the record (2026-08-29,
+plan_2026_08_29_fork1_rigid_redraw_override.md — REVERSES the pre-2026-08-29 rule that skipped such
+nodes). So a channel's `CH0/1/2_DAC_BUF` can live in the `fpga` tree and be redrawn as a rigid group
+WITHOUT stripping its `anchor_role` first.
+
+The toolbar also offers **Redraw whole tree** — every node of the current tree in one click, with no
+manual checkbox marking — and **Anchor position** — a read-only indicator of the current tree
+anchor's live absolute position/rotation on the board (origin anchor: trivially (0,0)/0°; requires a
+live KiCad connection; "unavailable" otherwise).
 
 **Redraw selected is a rigid group** (2026-08-29, plan_2026_08_29_tree_live_rigid_redraw.md): a node
 the tree owns (no inline anchor) is placed at its LIVE-captured offset from its parent, re-projected

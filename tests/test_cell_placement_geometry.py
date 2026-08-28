@@ -498,3 +498,19 @@ class TestClonePositionOverride:
         p = placed[0]
         assert p.dest.x == 4 * MM
         assert p.dest.y == 4 * MM
+
+    def test_override_does_not_mutate_record(self):
+        """The NON-persistent guarantee (plan_2026_08_29_fork1_rigid_redraw_
+        override.md): compute_raw_positions with an override must NOT mutate
+        the shared ClonePlacement record (only an in-memory copy is made inside
+        the calculator) — the saved config keeps its anchor_role/xy/rotation
+        exactly as before, so the regular (non-tree) Apply/Redraw is unaffected."""
+        clone = ClonePlacement(cluster="c", cell="leaf", xy=(100.0, 200.0),
+                               anchor_role="FPGA", rotation_deg=30.0)
+        cfg, adapter = self._build(clone)
+        calc = ClonePositionCalculator(adapter, cfg)
+        override = PositionOverride(position=Vector2.from_xy(5 * MM, 6 * MM), rotation_deg=0.0)
+        calc.compute_raw_positions([clone], position_overrides={"c": override})
+        assert clone.anchor_role == "FPGA"
+        assert clone.xy == (100.0, 200.0)
+        assert clone.rotation_deg == 30.0

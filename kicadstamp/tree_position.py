@@ -381,20 +381,26 @@ def curated_redraw_plan(linked_tree: LinkedTree, selected_refs: set[str]
                         ) -> tuple[list[str], list[str]]:  # (names, warnings)
     """DFS over the linked tree, parent strictly before child. A node emits
     into `names` (as record.name — record.name == node.ref by construction of
-    link_trees's index) ONLY if record is not None and record.kind != "point"
-    AND its record does not carry an inline anchor (external AND point nodes
-    are walked — needed as a live base for children's position resolve — but
-    never emit a name: apply_only_filter has no "points" support at all, see
-    apply_pipeline.py, and external isn't a config record to redraw).
+    link_trees's index) if record is not None and record.kind != "point" —
+    REGARDLESS of whether its record carries an inline anchor (external AND
+    point nodes are walked — needed as a live base for children's position
+    resolve — but never emit a name: apply_only_filter has no "points" support
+    at all, see apply_pipeline.py, and external isn't a config record to
+    redraw).
 
-    FORK-1 lives HERE now, not in link_trees.py: a SELECTED node whose record
-    already carries an inline anchor (anchor_ref/anchor_role/anchor_point/
-    anchor_origin) is walked as a live base but never emitted — warned, not
-    fataled, since Save/Load never blocks on this anymore
-    (plan_2026_08_28_fork1_move_to_redraw_time.md). Presence in the tree is
-    not "ownership" — ownership is the act of actually redrawing a selected
-    node; the warning says what to do to transfer ownership (remove the
-    inline anchor from the record).
+    A SELECTED node whose record already carries an inline anchor
+    (anchor_ref/anchor_role/anchor_point/anchor_origin) is STILL emitted — it
+    gets an INFORMATIONAL (non-blocking) warning noting the record has its own
+    position mechanism, which this tree redraw temporarily overrides via the
+    NON-persistent PositionOverride (plan_2026_08_29_fork1_rigid_redraw_override.md).
+    REVERSED 2026-08-29: the pre-2026-08-29 rule skipped such nodes ("not
+    redrawn from this tree; remove the inline anchor"), justified by FORK-1's
+    "one record must not have two competing PERSISTENT position sources".
+    rigid-redraw's PositionOverride is non-persistent by construction — it
+    moves the live footprint for one redraw pass and never rewrites the saved
+    config — so the record's anchor_role keeps working for the regular
+    (non-tree) Apply/Redraw exactly as before and no persistent conflict
+    exists. link_trees.py (Save/Load) is unchanged.
 
     Warning: a selected node whose parent (another node, OR the tree's own
     anchor) is NOT in the selection — covers both plain nesting and the
@@ -428,12 +434,11 @@ def curated_redraw_plan(linked_tree: LinkedTree, selected_refs: set[str]
             conflict_field = inline_anchor_field(linked_node.record)
             if conflict_field is not None:
                 warnings.append(
-                    _("Node {ref!r} already has an inline anchor ({field}) — not "
-                      "redrawn from this tree; remove it from the record to let "
-                      "the tree own this position")
+                    _("Node {ref!r} also has its own {field} — the regular "
+                      "(non-tree) Apply/Redraw keeps using it; this tree redraw "
+                      "moves it TEMPORARILY, without touching the record")
                     .format(ref=ref, field=conflict_field))
-            else:
-                names.append(linked_node.record.name)
+            names.append(linked_node.record.name)
         for child in linked_node.children:
             walk(child, parent_in_sel=is_selected, parent_label=ref)
 

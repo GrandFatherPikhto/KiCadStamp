@@ -162,13 +162,16 @@ def test_static_preview_polar_node(main_window, tmp_path):
 
 def test_toolbar_buttons_enabled(main_window):
     """No Open/New buttons (trees live in the root config, RootMetadataDock
-    owns the root); Add/Rename/Delete tree + Save + Redraw are enabled."""
+    owns the root); Add/Rename/Delete tree + Save + Redraw selected/whole tree
+    + the read-only Anchor position indicator are enabled."""
     dock = TreesDock(main_window)
     assert dock.add_tree_button.isEnabled() is True
     assert dock.rename_tree_button.isEnabled() is True
     assert dock.delete_tree_button.isEnabled() is True
     assert dock.save_button.isEnabled() is True
     assert dock.redraw_button.isEnabled() is True
+    assert dock.redraw_whole_button.isEnabled() is True
+    assert dock.anchor_pos_button.isEnabled() is True
     assert not hasattr(dock, "open_button")
     assert not hasattr(dock, "new_button")
 
@@ -459,6 +462,59 @@ def test_redraw_selected_no_selection_shows_hint(main_window, tmp_path, monkeypa
 
     assert not called
     assert "Nothing selected" in dock.status_label.text()
+
+
+def test_collect_tree_refs_returns_all_refs_dfs():
+    """§5 (plan_2026_08_29_fork1_rigid_redraw_override.md): collect_tree_refs
+    gathers EVERY node ref of a Tree (parent-before-child DFS), independent of
+    any checkbox/UI state — the "Redraw whole tree" selection source."""
+    from gui.docks.trees_dock import collect_tree_refs
+    tree = Tree(
+        name="power_tree", anchor=TreeAnchor(ref="CONN_PM5V", is_origin=False),
+        nodes=[
+            TreeNode(ref="AMS1117_REG", kind="clone", xy=(5.0, 2.0), polar=None,
+                     rotation=0.0, name=None, group=None,
+                     children=[TreeNode(ref="C_OUT", kind=None, xy=(1.0, 0.0),
+                                        polar=None, rotation=0.0, name=None,
+                                        group=None, children=[])]),
+            TreeNode(ref="R_AROUND", kind=None, xy=None, polar=(3.0, 45.0),
+                     rotation=0.0, name=None, group=None, children=[]),
+        ])
+    assert collect_tree_refs(tree) == ["AMS1117_REG", "C_OUT", "R_AROUND"]
+
+
+def test_redraw_whole_tree_collects_all_refs_and_calls_worker(
+        main_window, tmp_path, monkeypatch):
+    """§5: "Redraw whole tree" collects ALL node refs DIRECTLY from the Tree
+    (parent-before-child, no reliance on checkbox state) and calls the same
+    run_curated_tree_redraw_worker with the full set — identical outcome to
+    manually checking every box + "Redraw selected"."""
+    dock, _root = _dock_with(main_window, tmp_path)
+
+    captured = {}
+    def fake_start(connection, widgets, worker, finish, failed, payload):
+        captured["payload"] = payload
+        return object()
+    import gui.docks.trees_dock as td_mod
+    monkeypatch.setattr(td_mod, "start_long_op", fake_start)
+
+    dock._on_redraw_whole_tree()
+
+    assert captured
+    assert captured["payload"]["tree_name"] == "power_tree"
+    assert captured["payload"]["selected_refs"] == {"AMS1117_REG", "C_OUT", "R_AROUND"}
+    assert captured["payload"]["trees"] is dock._trees
+
+
+def test_refresh_anchor_live_position_origin_shows_trivial(main_window, tmp_path):
+    """§5.1: an origin anchor is trivially (0,0)/0° — shown WITHOUT any live
+    board read (no IPC needed)."""
+    dock, _root = _dock_with(main_window, tmp_path, trees={"trees": [
+        {"name": "misc", "anchor": {"origin": True},
+         "nodes": [{"ref": "R_DEBUG", "kind": "external", "xy": [100.0, 50.0]}]}]})
+    dock._refresh_anchor_live_position()
+    assert "(0, 0) mm" in dock.anchor_pos_label.text()
+    assert "0°" in dock.anchor_pos_label.text()
 
 
 # ── Read current position / Reread / Edit node (2026-08-27) ───────────────

@@ -7995,15 +7995,46 @@ msgstr ""
 "после переименования. Снимите, чтобы переименовывать молча — "
 "строка с итогом всё равно попадёт в Log."
 
-#: kicadstamp/tree_position.py (FORK-1 at redraw-select time, 2026-08-28)
+#: kicadstamp/tree_position.py (FORK-1 at redraw-select time, 2026-08-29)
 #, python-brace-format
 msgid ""
-"Node {ref!r} already has an inline anchor ({field}) — not "
-"redrawn from this tree; remove it from the record to let "
-"the tree own this position"
+"Node {ref!r} also has its own {field} — the regular "
+"(non-tree) Apply/Redraw keeps using it; this tree redraw "
+"moves it TEMPORARILY, without touching the record"
 msgstr ""
-"Узел {ref!r} уже имеет inline-якорь ({field}) — из этого дерева не "
-"перерисовывается; уберите его из записи, чтобы дерево владело этой позицией"
+"Узел {ref!r} также имеет собственный {field} — обычный (не-деревный) "
+"Apply/Redraw продолжает им пользоваться; этот tree redraw двигает его "
+"ВРЕМЕННО, не трогая запись"
+
+#: gui/docks/trees_dock.py (Redraw whole tree, 2026-08-29)
+msgid "Redraw whole tree"
+msgstr "Перерисовать всё дерево"
+
+#: gui/docks/trees_dock.py (Anchor position indicator, 2026-08-29)
+msgid "Anchor position"
+msgstr "Позиция якоря"
+
+#: gui/docks/trees_dock.py (Anchor position indicator, 2026-08-29)
+msgid "anchor (origin): (0, 0) mm @ 0°"
+msgstr "якорь (origin): (0, 0) мм @ 0°"
+
+#: gui/docks/trees_dock.py (Anchor position indicator, 2026-08-29)
+msgid "anchor: not linked"
+msgstr "якорь: не слинкован"
+
+#: gui/docks/trees_dock.py (Anchor position indicator, 2026-08-29)
+#, python-brace-format
+msgid "anchor {ref!r}: ({x:.3f}, {y:.3f}) mm @ {rot}°"
+msgstr "якорь {ref!r}: ({x:.3f}, {y:.3f}) мм @ {rot}°"
+
+#: gui/docks/trees_dock.py (Anchor position indicator, 2026-08-29)
+#, python-brace-format
+msgid "anchor live position unavailable: {error}"
+msgstr "живая позиция якоря недоступна: {error}"
+
+#: gui/docks/trees_dock.py (Anchor position indicator, 2026-08-29)
+msgid "anchor: live position unavailable"
+msgstr "якорь: живая позиция недоступна"
 
 #: kicadstamp/net_matching.py (Phase 0 boundary messages, 2026-08-28)
 msgid "ambiguous SCC group has mismatched candidate count"

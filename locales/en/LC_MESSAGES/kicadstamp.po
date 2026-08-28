@@ -8082,12 +8082,42 @@ msgid ""
 "the summary line still goes to the Log."
 msgstr ""
 
-#: kicadstamp/tree_position.py (FORK-1 at redraw-select time, 2026-08-28)
+#: kicadstamp/tree_position.py (FORK-1 at redraw-select time, 2026-08-29)
 #, python-brace-format
 msgid ""
-"Node {ref!r} already has an inline anchor ({field}) — not "
-"redrawn from this tree; remove it from the record to let "
-"the tree own this position"
+"Node {ref!r} also has its own {field} — the regular "
+"(non-tree) Apply/Redraw keeps using it; this tree redraw "
+"moves it TEMPORARILY, without touching the record"
+msgstr ""
+
+#: gui/docks/trees_dock.py (Redraw whole tree, 2026-08-29)
+msgid "Redraw whole tree"
+msgstr ""
+
+#: gui/docks/trees_dock.py (Anchor position indicator, 2026-08-29)
+msgid "Anchor position"
+msgstr ""
+
+#: gui/docks/trees_dock.py (Anchor position indicator, 2026-08-29)
+msgid "anchor (origin): (0, 0) mm @ 0°"
+msgstr ""
+
+#: gui/docks/trees_dock.py (Anchor position indicator, 2026-08-29)
+msgid "anchor: not linked"
+msgstr ""
+
+#: gui/docks/trees_dock.py (Anchor position indicator, 2026-08-29)
+#, python-brace-format
+msgid "anchor {ref!r}: ({x:.3f}, {y:.3f}) mm @ {rot}°"
+msgstr ""
+
+#: gui/docks/trees_dock.py (Anchor position indicator, 2026-08-29)
+#, python-brace-format
+msgid "anchor live position unavailable: {error}"
+msgstr ""
+
+#: gui/docks/trees_dock.py (Anchor position indicator, 2026-08-29)
+msgid "anchor: live position unavailable"
 msgstr ""
 
 #: kicadstamp/net_matching.py (Phase 0 boundary messages, 2026-08-28)

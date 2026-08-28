@@ -805,12 +805,15 @@ def _record_with_inline_anchor(kind, name, field="anchor_role", value="FPGA"):
     return _record(kind, name, obj=obj)
 
 
-def test_plan_selected_node_with_inline_anchor_skipped_with_warning():
-    """A SELECTED node whose record carries an inline anchor is NOT emitted
-    (the tree never redraws a record two mechanisms could fight over) but IS
-    walked as a live base for its children; an explicit warning explains how
-    to transfer ownership — not fatal (FORK-1 lives here now, not at
-    Save/Load)."""
+def test_plan_selected_node_with_inline_anchor_emitted_with_warning():
+    """REVERSED 2026-08-29 (plan_2026_08_29_fork1_rigid_redraw_override.md): a
+    SELECTED node whose record carries an inline anchor IS emitted into `names`
+    — rigid-redraw's PositionOverride is NON-persistent, so the record's own
+    anchor_role keeps working for the regular (non-tree) Apply/Redraw and no
+    persistent "two sources of truth" conflict exists. The warning is
+    INFORMATIONAL, not a skip; the child still redraws (parent before child).
+    Old behaviour (pre-2026-08-29): skipped with a "remove the inline anchor"
+    warning — replaced, history preserved here and in the plan doc."""
     child = _linked_node("R_OUT", record=_record("clone", "R_OUT"))
     conflict_node = _linked_node(
         "CH2_DAC_BUF",
@@ -821,9 +824,11 @@ def test_plan_selected_node_with_inline_anchor_skipped_with_warning():
     tree = LinkedTree(name="t", anchor=anchor, nodes=[conflict_node])
 
     names, warnings = curated_redraw_plan(tree, {"CH2_DAC_BUF", "R_OUT"})
-    assert names == ["R_OUT"]                        # child still redraws
-    assert "CH2_DAC_BUF" not in names                # conflict node never emits
-    assert any("already has an inline anchor" in w for w in warnings)
+    # Parent (conflict node) emitted before its child, and the conflict node IS
+    # emitted (was skipped before 2026-08-29).
+    assert names == ["CH2_DAC_BUF", "R_OUT"]
+    assert any("also has its own" in w for w in warnings)
+    assert any("TEMPORARILY" in w for w in warnings)
 
 
 def test_plan_conflict_node_unselected_no_warning():

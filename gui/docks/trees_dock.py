@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (QComboBox, QDialog, QDockWidget,
 
 from kicadstamp.anchor_graph import Record, build_records
 from kicadstamp.config import load_config, load_tree
+from kicadstamp.kicad.adapter import KiCadBoardAdapter
 from kicadstamp.config_writer import read_data, write_data
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import ValidationError
@@ -66,6 +67,22 @@ _KIND_TAGS = {
 }
 
 _ORIGIN = Vector2.from_xy(0, 0)
+
+
+def collect_tree_refs(tree: "Tree") -> list[str]:
+    """ALL node refs of a Tree, DFS parent-before-child, regardless of any
+    checkbox state — the selection source for "Redraw whole tree"
+    (plan_2026_08_29_fork1_rigid_redraw_override.md §5): the whole operation
+    must not depend on the UI checkbox state, only on the tree structure."""
+    refs: list[str] = []
+
+    def walk(nodes: list) -> None:
+        for node in nodes:
+            refs.append(node.ref)
+            walk(node.children)
+
+    walk(tree.nodes)
+    return refs
 
 
 def _resolve_probe_ref(cfg, ref: str, kind: str | None) -> tuple[Record | None, bool]:
@@ -217,6 +234,16 @@ class TreesDock(QDockWidget):
         self.redraw_button.setEnabled(True)
         self.redraw_button.clicked.connect(self._on_redraw_selected)
         toolbar.addWidget(self.redraw_button)
+        self.redraw_whole_button = QPushButton(_("Redraw whole tree"))
+        self.redraw_whole_button.setEnabled(True)
+        self.redraw_whole_button.clicked.connect(self._on_redraw_whole_tree)
+        toolbar.addWidget(self.redraw_whole_button)
+        self.anchor_pos_button = QPushButton(_("Anchor position"))
+        self.anchor_pos_button.setEnabled(True)
+        self.anchor_pos_button.clicked.connect(self._refresh_anchor_live_position)
+        toolbar.addWidget(self.anchor_pos_button)
+        self.anchor_pos_label = QLabel("")
+        toolbar.addWidget(self.anchor_pos_label)
         self.dirty_label = QLabel("")
         toolbar.addWidget(self.dirty_label)
         toolbar.addStretch(1)
@@ -763,15 +790,14 @@ class TreesDock(QDockWidget):
 
     # ── Checkbox subtree selection + Redraw (Phase 4) ────────────────────
 
-    def _on_redraw_selected(self) -> None:
-        """Collect the checked nodes' refs and run the curated redraw for the
-        current tree in the background (start_long_op) — never blocks the UI
-        thread, same worker pattern as AnchorTreeDock's cascade."""
+    def _run_curated_redraw(self, selected_refs: set) -> None:
+        """Shared worker invocation for "Redraw selected" and "Redraw whole
+        tree" (plan_2026_08_29_fork1_rigid_redraw_override.md §5) — one
+        implementation, only the selection source differs. start_long_op keeps
+        it off the UI thread, same worker pattern as AnchorTreeDock's cascade."""
         tree_name = self._current_tree_name()
         if tree_name is None:
             return
-        selected_refs = {ref for ref, item in self._node_items.items()
-                         if item.checkState(0) == Qt.CheckState.Checked}
         if not selected_refs:
             self._show_status(_("Nothing selected — check some nodes first."))
             return
@@ -787,6 +813,64 @@ class TreesDock(QDockWidget):
             self._main_window.connection, (),
             run_curated_tree_redraw_worker, self._finish_redraw,
             self._on_redraw_failed, payload)
+
+    def _on_redraw_selected(self) -> None:
+        """Collect the CHECKED nodes' refs and run the curated redraw for the
+        current tree in the background."""
+        selected_refs = {ref for ref, item in self._node_items.items()
+                         if item.checkState(0) == Qt.CheckState.Checked}
+        self._run_curated_redraw(selected_refs)
+
+    def _on_redraw_whole_tree(self) -> None:
+        """Redraw EVERY node of the current tree in one click — the SAME
+        run_curated_tree_redraw_worker as "Redraw selected", but the refs are
+        collected DIRECTLY from the Tree structure (collect_tree_refs), not
+        from checkbox state, so no manual check-marking is needed even on a
+        multi-branch/large tree (plan_2026_08_29_fork1_rigid_redraw_override.md
+        §5)."""
+        tree = self._current_tree()
+        if tree is None:
+            return
+        self._run_curated_redraw(set(collect_tree_refs(tree)))
+
+    def _refresh_anchor_live_position(self) -> None:
+        """§5.1 (plan_2026_08_29_fork1_rigid_redraw_override.md) — a READ-ONLY
+        indicator of the current tree anchor's live absolute position/rotation,
+        via the same resolve_base_live_position / resolve_base_rotation_deg
+        rigid-redraw itself uses for the anchor. Not cached: reads the board on
+        demand (button/on-open). An origin anchor is trivially (0,0)/0°; a live
+        KiCad IPC failure just shows "unavailable" — the indicator never crashes
+        the dock."""
+        tree = self._current_tree()
+        if tree is None:
+            self.anchor_pos_label.setText("")
+            return
+        if tree.anchor.is_origin:
+            self.anchor_pos_label.setText(_("anchor (origin): (0, 0) mm @ 0°"))
+            return
+        try:
+            linked = link_trees(self._cfg, self._trees)
+            lt = next((t for t in linked if t.name == tree.name), None)
+            if lt is None:
+                self.anchor_pos_label.setText(_("anchor: not linked"))
+                return
+            adapter = KiCadBoardAdapter(timeout_ms=20000)
+            adapter.refresh_board()
+            la = lt.anchor
+            sheet_names = self._ctx.sheet_names if self._ctx else {}
+            pos = resolve_base_live_position(
+                adapter, self._cfg, la.anchor.ref, la.record, {}, sheet_names)
+            rot = resolve_base_rotation_deg(
+                adapter, self._cfg, la.anchor.ref, la.record, sheet_names)
+            rot_s = f"{rot:.1f}" if rot is not None else "—"
+            self.anchor_pos_label.setText(
+                _("anchor {ref!r}: ({x:.3f}, {y:.3f}) mm @ {rot}°")
+                .format(ref=la.anchor.ref or "(origin)", x=pos.x / MM,
+                        y=pos.y / MM, rot=rot_s))
+        except Exception as exc:  # noqa: BLE001 — read-only indicator, never crash
+            logger.warning(_("anchor live position unavailable: {error}")
+                           .format(error=exc))
+            self.anchor_pos_label.setText(_("anchor: live position unavailable"))
 
     def _finish_redraw(self, result) -> None:
         results, warnings = result
