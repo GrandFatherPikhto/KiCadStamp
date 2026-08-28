@@ -2783,6 +2783,20 @@ msgstr ""
 msgid "include: in {path} is not a list — refusing to touch it"
 msgstr ""
 
+#: kicadstamp/config_writer.py:59
+#, python-brace-format
+msgid "{path}: reading/writing as YAML — the project's main config format is s-expr (.sexp); YAML is a legacy fallback"
+msgstr ""
+
+#: kicadstamp/config_writer.py:68
+#, python-brace-format
+msgid "{path}: unrecognized config file extension {suffix!r}"
+msgstr ""
+
+#: kicadstamp/config_writer.py:70
+msgid "use .sexp (the project's main format), .yaml, or .json"
+msgstr ""
+
 #: kicadstamp/exceptions.py:50
 #, python-brace-format
 msgid "  FATAL ERROR: {title}"
