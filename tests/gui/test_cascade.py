@@ -10,10 +10,10 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from unittest.mock import MagicMock
+
 from kicadstamp.config import Config, Cell, TemplateComponentSlot, ClonePlacement
 from kicadstamp.exceptions import ValidationError
-from kicadstamp.link_trees import link_trees
-from kicadstamp.tree_position import curated_redraw_plan
 from kicadstamp.trees import load_trees
 
 import gui.docks.cascade as cascade_mod
@@ -89,9 +89,10 @@ def _load_tree(tmp_path, body):
     return load_trees(str(path))
 
 
-def test_run_curated_tree_redraw_calls_run_cascade_with_plan_names(monkeypatch, tmp_path, caplog):
+def test_run_curated_tree_redraw_runs_pipeline_per_plan_name(monkeypatch, tmp_path):
     """The shim links trees, plans the curated redraw over selected_refs, and
-    feeds exactly curated_redraw_plan's name list into run_cascade."""
+    runs ONE ApplyPipeline(--only=[name]) per plan name with a rigid-group
+    position override (plan_2026_08_29_tree_live_rigid_redraw.md §1)."""
     cfg = _curated_cfg()
     trees = _load_tree(tmp_path,
         '(tree (name "t") (anchor (origin))\n'
@@ -100,20 +101,28 @@ def test_run_curated_tree_redraw_calls_run_cascade_with_plan_names(monkeypatch, 
     selected = {"CL_B"}
 
     calls = []
-    monkeypatch.setattr(cascade_mod, "run_cascade",
-                        lambda cp, c, x, names: (calls.append(names), [])[1])
+
+    class _FakePipeline:
+        def __init__(self, config_path, preloaded_cfg=None, preloaded_ctx=None,
+                     only=None, dry_run=False, position_overrides=None):
+            calls.append((list(only or []), position_overrides))
+
+        def run(self):
+            pass
+
+    monkeypatch.setattr(cascade_mod, "ApplyPipeline", _FakePipeline)
+    monkeypatch.setattr(cascade_mod, "KiCadBoardAdapter",
+                        lambda **k: MagicMock())
 
     results, warnings = run_curated_tree_redraw("/root.sexp", cfg, None, trees,
                                                 "t", selected)
 
-    linked = link_trees(cfg, trees)
-    expected_names, expected_warnings = curated_redraw_plan(
-        next(t for t in linked if t.name == "t"), selected)
-    assert calls == [expected_names]
-    assert results == []
-    assert warnings == expected_warnings
-    # No warnings expected for an origin anchor + top-level selection.
+    # CL_B is the only selected node without an inline anchor -> one run, with
+    # a rigid-group position override (origin anchor -> CL_B's own spot).
+    assert [c[0] for c in calls] == [["CL_B"]]
+    assert calls[0][1] is not None and "CL_B" in calls[0][1]
     assert warnings == []
+    assert results == [("CL_B", True, None)]
 
 
 def test_run_curated_tree_redraw_warns_and_logs_parent_not_selected(monkeypatch, tmp_path, caplog):
@@ -126,7 +135,17 @@ def test_run_curated_tree_redraw_warns_and_logs_parent_not_selected(monkeypatch,
         '            (node (ref "CL_B") (xy 3 4))))')
     selected = {"CL_B"}  # parent CL_A not selected -> warning
 
-    monkeypatch.setattr(cascade_mod, "run_cascade", lambda *a, **k: [])
+    class _FakePipeline:
+        def __init__(self, config_path, preloaded_cfg=None, preloaded_ctx=None,
+                     only=None, dry_run=False, position_overrides=None):
+            pass
+
+        def run(self):
+            pass
+
+    monkeypatch.setattr(cascade_mod, "ApplyPipeline", _FakePipeline)
+    monkeypatch.setattr(cascade_mod, "KiCadBoardAdapter",
+                        lambda **k: MagicMock())
 
     results, warnings = run_curated_tree_redraw("/root.sexp", cfg, None, trees,
                                                 "t", selected)

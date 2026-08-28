@@ -4,13 +4,20 @@
 Two distinct concepts (design_2026_08_26_tree_position_resolution.md, Q1):
 
 1. A node's OWN position is pure composition, no adapter:
-   `node_position(node, parent_position) = parent_position + node_offset(node)`.
+   `node_position(node, parent_position, parent_rotation_deg)` = the parent's
+   position + node_offset(node) rotated into the parent's frame.
    `node_offset` maps xy -> flat (x_mm, y_mm), polar -> the rotated offset
    vector via the existing local_to_absolute primitive (origin = 0 just
    extracts the rotated offset, nothing invented). A node's own `rotation`
    never feeds this — it rotates the node's own geometry later, never the
-   offset vector, and a parent's rotation is NEVER applied to a child's
-   offset (flat shift, same as ClonePlacement.xy with an anchor).
+   offset vector. The PARENT's rotation IS applied to the child's offset
+   (the offset is expressed in the parent's LOCAL frame, same convention as
+   a ClonePlacement.xy shift inside a rotated parent frame) — REVERSED
+   2026-08-29 by Denis's explicit request
+   (plan_2026_08_29_tree_live_rigid_redraw.md §2; the pre-2026-08-29 design
+   tree_position_resolution.md §1.3 "parent rotation NEVER applied to the
+   child offset" is superseded — the old guard test was replaced by the
+   opposite guarantee).
 
 2. The LIVE position of a RECORD is only needed as a "base" (a tree anchor,
    or a parent node outside the curated selection). That is a thin kind
@@ -21,11 +28,14 @@ curated_redraw_plan() turns a LinkedTree + a set of selected refs into the
 ordered name list run_cascade can apply (parent strictly before child), plus
 the structural "parent not in selection" warnings.
 """
+import dataclasses
+import logging
+
 from .anchor_graph import Record
 from .i18n import _
 from .domain.geometry import Vector2
 from .geometry.clone_geometry import clone_shift_mm
-from .geometry.spoke_layout import local_to_absolute
+from .geometry.spoke_layout import local_to_absolute, rotate_local_offset
 from .link_trees import LinkedNode, LinkedTree, inline_anchor_field
 from .placement.services.clone_position_calculator import ClonePositionCalculator
 from .placement.services.component_resolver import (
@@ -45,6 +55,25 @@ from .utils.units import MM
 
 _ORIGIN = Vector2.from_xy(0, 0)
 
+logger = logging.getLogger(__name__)
+
+
+@dataclasses.dataclass
+class PositionOverride:
+    """Absolute placement override for ONE record during a single redraw run.
+
+    Non-persistent by construction: it replaces the record's own
+    anchor/position+rotation resolution for THIS run only — the saved config
+    is never rewritten, the record's fields (anchor_ref/anchor_role/anchor_
+    point/xy/polar/rotation_deg) are never mutated or replaced, so registry
+    identity (clone_anchor_id built from the real record fields) is preserved.
+
+    The choice of this mechanism over in-memory field substitution is
+    documented in handoff_2026_08_29_tree_live_rigid_redraw_step0.md §3-§4
+    (plan_2026_08_29_tree_live_rigid_redraw.md §3 — Option 1)."""
+    position: Vector2
+    rotation_deg: float
+
 
 def node_offset(node: TreeNode) -> Vector2:
     """Pure geometry, no adapter. xy -> flat (x_mm, y_mm) in board units;
@@ -59,11 +88,48 @@ def node_offset(node: TreeNode) -> Vector2:
     return Vector2.from_xy(0, 0)
 
 
-def node_position(node: TreeNode, parent_position: Vector2) -> Vector2:
-    """parent_position + node_offset(node). That's it — no adapter, no kind
-    dispatch, pure composition (design Q2)."""
+def node_position(node: TreeNode, parent_position: Vector2,
+                  parent_rotation_deg: float = 0.0) -> Vector2:
+    """parent_position + node_offset(node), the offset rotated into the
+    parent's frame first. Pure composition, no adapter, no kind dispatch
+    (design Q2). parent_rotation_deg — the parent's rotation, default 0.0
+    (flat composition, the original behavior). When the parent is rotated,
+    the node's offset is expressed in the parent's LOCAL (unrotated) frame —
+    the same convention apply_clone_geometry uses for a clone's xy shift
+    inside a rotated parent frame — so it is rotated by parent_rotation_deg
+    before being added, via the same rotate_local_offset primitive as the
+    live path (plan_2026_08_29_tree_live_rigid_redraw.md §2). This REVERSES
+    the pre-2026-08-29 design §1.3 ("parent rotation is NEVER applied to the
+    child offset") by Denis's explicit request — the old guard test was
+    replaced by the opposite guarantee."""
     offset = node_offset(node)
+    if parent_rotation_deg:
+        offset = rotate_local_offset(offset.x / MM, offset.y / MM, parent_rotation_deg)
     return Vector2.from_xy(parent_position.x + offset.x, parent_position.y + offset.y)
+
+
+def child_local_offset(child_pos: Vector2, parent_pos: Vector2,
+                       parent_rotation_deg: float) -> Vector2:
+    """Pure capture half of the rigid-group mechanics (plan_2026_08_29_
+    tree_live_rigid_redraw.md §1): the child's absolute offset from the
+    parent, expressed in the parent's LOCAL (unrotated) frame. Inverse of
+    child_absolute_position — together they are the "live capture -> apply
+    with rotation" round-trip: capturing at the parent's OLD rotation and
+    applying to the parent's NEW rotation re-projects the child's offset so
+    it rotates WITH the parent."""
+    delta_mm_x = (child_pos.x - parent_pos.x) / MM
+    delta_mm_y = (child_pos.y - parent_pos.y) / MM
+    return rotate_local_offset(delta_mm_x, delta_mm_y, -parent_rotation_deg)
+
+
+def child_absolute_position(parent_pos: Vector2, parent_rotation_deg: float,
+                            local_offset: Vector2) -> Vector2:
+    """Pure apply half of the rigid-group mechanics (plan §1): the child's
+    absolute position = the parent's position + local_offset rotated into the
+    parent's frame. Inverse of child_local_offset."""
+    offset = rotate_local_offset(local_offset.x / MM, local_offset.y / MM,
+                                 parent_rotation_deg)
+    return Vector2.from_xy(parent_pos.x + offset.x, parent_pos.y + offset.y)
 
 
 def resolve_record_live_position(adapter, cfg, rec: Record, resolved_points,
@@ -186,6 +252,129 @@ def relative_rotation_deg(child_deg: float, parent_deg: float) -> float:
     (-180, 180] — the SAME (a - b + 180) % 360 - 180 normalization already
     used by position_tracker.py:48 and channel_copy.py:394, not reinvented."""
     return (child_deg - parent_deg + 180.0) % 360.0 - 180.0
+
+
+@dataclasses.dataclass
+class RigidCapture:
+    """Captured rigid-group state for one selected node, taken BEFORE anything
+    moved (plan_2026_08_29_tree_live_rigid_redraw.md §1): the node's offset
+    from its parent in the parent's OLD local frame (so it can be re-projected
+    into the parent's NEW frame at apply time), plus the node's rotation
+    relative to its parent (preserved across the parent's rotation change)."""
+    local_offset: Vector2
+    relative_rotation: float
+
+
+def _tree_node_index(tree: LinkedTree) -> dict[str, LinkedNode]:
+    """node.ref -> LinkedNode for every node in the tree (trees are shallow —
+    a plain walk, no recursion concerns)."""
+    index: dict[str, LinkedNode] = {}
+
+    def walk(nodes: list[LinkedNode]) -> None:
+        for ln in nodes:
+            index[ln.node.ref] = ln
+            walk(ln.children)
+
+    walk(tree.nodes)
+    return index
+
+
+def _node_parent_map(tree: LinkedTree) -> dict[str, tuple[str | None, Record | None, bool]]:
+    """node.ref -> (parent_ref, parent_record, parent_is_anchor). The tree
+    anchor is the parent of every top-level node (parent_is_anchor=True); a
+    nested node's parent is its enclosing LinkedNode. An origin anchor has
+    parent_ref=None AND parent_record=None — its position is the absolute
+    origin (0,0) and its rotation 0.0 (callers special-case it before calling
+    resolve_base_*)."""
+    parent_map: dict[str, tuple[str | None, Record | None, bool]] = {}
+    anchor = tree.anchor
+    anchor_ref = anchor.anchor.ref
+    anchor_record = anchor.record
+    anchor_is_origin = anchor.is_origin
+
+    def walk(nodes: list[LinkedNode], parent_ref, parent_record, parent_is_anchor) -> None:
+        for ln in nodes:
+            parent_map[ln.node.ref] = (parent_ref, parent_record, parent_is_anchor)
+            walk(ln.children, ln.node.ref, ln.record, False)
+
+    walk(tree.nodes, anchor_ref, anchor_record, not anchor_is_origin)
+    return parent_map
+
+
+def _base_position_or_origin(adapter, cfg, ref, record, resolved_points, sheet_names) -> Vector2:
+    """resolve_base_live_position with the origin-anchor special case: an
+    origin anchor (ref=None AND record=None) is the absolute (0,0) point."""
+    if ref is None and record is None:
+        return _ORIGIN
+    return resolve_base_live_position(adapter, cfg, ref, record, resolved_points, sheet_names)
+
+
+def _base_rotation_or_zero(adapter, cfg, ref, record, sheet_names) -> float:
+    """resolve_base_rotation_deg with the origin-anchor special case (0.0) and
+    the None -> 0.0 assumption LOGGED (plan §1: a parent/base with no rotation
+    concept is treated as 0.0 for this composition, but the assumption is never
+    silent)."""
+    if ref is None and record is None:
+        return 0.0
+    rot = resolve_base_rotation_deg(adapter, cfg, ref, record, sheet_names)
+    if rot is None:
+        logger.debug(_("base {ref!r}: no rotation concept — assumed 0.0 for "
+                       "rigid-group composition").format(ref=ref))
+        return 0.0
+    return rot
+
+
+def capture_rigid_state(adapter, cfg, tree: LinkedTree, names: list[str], sheet_names
+                        ) -> tuple[dict[str, RigidCapture],
+                                   dict[str, tuple[str | None, Record | None, bool]]]:
+    """Capture half of the rigid-group redraw (plan_2026_08_29_
+    tree_live_rigid_redraw.md §1): for every selected node (in `names`,
+    topological order), read its CURRENT live position/rotation and its
+    parent's, BEFORE anything is moved, and store the node's offset in the
+    parent's LOCAL frame + the node's rotation relative to the parent. The
+    apply half (cascade.run_curated_tree_redraw) re-projects these into the
+    parent's NEW frame at apply time. Returns (captures, parent_map)."""
+    index = _tree_node_index(tree)
+    parent_map = _node_parent_map(tree)
+    resolved_points: dict = {}
+    captures: dict[str, RigidCapture] = {}
+    for name in names:
+        ln = index.get(name)
+        if ln is None or ln.record is None:
+            continue  # external/point never emit names; defensive only
+        try:
+            child_pos_old = resolve_base_live_position(adapter, cfg, ln.node.ref, ln.record,
+                                                       resolved_points, sheet_names)
+            child_rot_old = _base_rotation_or_zero(adapter, cfg, ln.node.ref, ln.record, sheet_names)
+            parent_ref, parent_record, _is_anchor = parent_map[name]
+            parent_pos_old = _base_position_or_origin(adapter, cfg, parent_ref, parent_record,
+                                                      resolved_points, sheet_names)
+            parent_rot_old = _base_rotation_or_zero(adapter, cfg, parent_ref, parent_record,
+                                                    sheet_names)
+        except Exception as exc:  # noqa: BLE001 — one node without a live base
+            logger.warning(_("tree redraw: node {name!r} has no resolvable live "
+                             "position ({error}) — redrawn from its own record "
+                             "fields, not rigidly").format(name=name, error=exc))
+            continue
+        captures[name] = RigidCapture(
+            local_offset=child_local_offset(child_pos_old, parent_pos_old, parent_rot_old),
+            relative_rotation=relative_rotation_deg(child_rot_old, parent_rot_old),
+        )
+    return captures, parent_map
+
+
+def apply_rigid_override(adapter, cfg, parent_ref, parent_record, capture: RigidCapture,
+                         sheet_names) -> PositionOverride:
+    """Apply half of the rigid-group redraw (plan §1): re-project the captured
+    local offset into the parent's CURRENT (post-move) frame and preserve the
+    node's rotation relative to the parent. Returns the PositionOverride to
+    feed into the ApplyPipeline."""
+    parent_pos_new = _base_position_or_origin(adapter, cfg, parent_ref, parent_record,
+                                              {}, sheet_names)
+    parent_rot_new = _base_rotation_or_zero(adapter, cfg, parent_ref, parent_record, sheet_names)
+    child_pos_new = child_absolute_position(parent_pos_new, parent_rot_new, capture.local_offset)
+    child_rot_new = parent_rot_new + capture.relative_rotation
+    return PositionOverride(position=child_pos_new, rotation_deg=child_rot_new)
 
 
 def curated_redraw_plan(linked_tree: LinkedTree, selected_refs: set[str]

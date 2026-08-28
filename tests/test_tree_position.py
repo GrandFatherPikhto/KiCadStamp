@@ -28,6 +28,10 @@ from kicadstamp.geometry.spoke_layout import local_to_absolute
 from kicadstamp.link_trees import LinkedAnchor, LinkedNode, LinkedTree
 from kicadstamp.trees import TreeAnchor, TreeNode
 from kicadstamp.tree_position import (
+    apply_rigid_override,
+    capture_rigid_state,
+    child_absolute_position,
+    child_local_offset,
     curated_redraw_plan,
     node_offset,
     node_position,
@@ -120,15 +124,189 @@ def test_node_position_is_flat_composition():
     assert pos.y == 17 * MM
 
 
-def test_node_position_parent_rotation_never_applied_to_child_offset():
-    """There is no parent-rotation parameter at all in node_position's
-    signature — this test exists as a guard: if someone "fixes" this by
-    adding rotation-composition later, they must consciously break this
-    signature/test, not silently slip it in (design §1.3, explicitly NOT a
-    CellPlacement-style rotated-local-frame composition)."""
-    import inspect
-    params = list(inspect.signature(node_position).parameters)
-    assert params == ["node", "parent_position"]
+def test_node_position_parent_rotation_applied_to_child_offset():
+    """Plan 2026-08-29 (tree_live_rigid_redraw) §2 REVERSES design
+    tree_position_resolution.md §1.3 by Denis's explicit request: the parent's
+    rotation IS applied to the child's offset (the offset is expressed in the
+    parent's LOCAL frame and rotated into the world before adding). This is
+    the replacement for the old guard
+    test_node_position_parent_rotation_never_applied_to_child_offset, which
+    asserted the OPPOSITE — history preserved here and in the plan doc."""
+    parent = Vector2.from_xy(10 * MM, 20 * MM)
+    node = _node_dc(xy=(5.0, 0.0))            # offset 5 mm along X
+    # KiCad Y-down convention: +90° maps (5,0) -> (0,-5).
+    pos = node_position(node, parent, parent_rotation_deg=90.0)
+    assert pos.x == 10 * MM
+    assert pos.y == 20 * MM - 5 * MM
+
+
+def test_node_position_flat_composition_default_rotation():
+    """parent_rotation_deg defaults to 0.0 — the original flat composition is
+    unchanged."""
+    parent = Vector2.from_xy(10 * MM, 20 * MM)
+    node = _node_dc(xy=(5.0, -3.0))
+    pos = node_position(node, parent)
+    assert pos.x == 15 * MM
+    assert pos.y == 17 * MM
+
+
+class TestRigidGroupRotationMath:
+    """Plan 2026-08-29 §1/§4 — the pure capture->apply rigid-group math:
+    child_local_offset captures the child's offset in the parent's LOCAL
+    frame; child_absolute_position re-projects it into the parent's (possibly
+    rotated) frame. Round-trip at the SAME rotation is identity; a changed
+    rotation rotates the offset WITH the parent."""
+
+    def _mm(self, x_mm, y_mm):
+        return Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
+
+    def test_round_trip_same_rotation_is_identity(self):
+        parent = self._mm(100.0, 50.0)
+        child = self._mm(110.0, 45.0)
+        local = child_local_offset(child, parent, 30.0)
+        back = child_absolute_position(parent, 30.0, local)
+        assert back.x == pytest.approx(child.x, abs=2)
+        assert back.y == pytest.approx(child.y, abs=2)
+
+    def test_rotation_applied_on_apply(self):
+        """child offset (5,0) in the parent's frame; parent rotates 0->90 —
+        the child's offset rotates WITH the parent (KiCad Y-down: +90° maps
+        (5,0)->(0,-5), so the child lands 5 mm "down" from the parent)."""
+        parent = self._mm(100.0, 50.0)
+        child = self._mm(105.0, 50.0)
+        local = child_local_offset(child, parent, 0.0)       # (5, 0) local
+        new = child_absolute_position(parent, 90.0, local)   # rotated by 90
+        assert new.x == pytest.approx(100.0 * MM, abs=2)
+        assert new.y == pytest.approx(45.0 * MM, abs=2)
+
+    def test_rotation_180_flips_offset(self):
+        parent = self._mm(0.0, 0.0)
+        child = self._mm(5.0, 0.0)
+        local = child_local_offset(child, parent, 0.0)
+        new = child_absolute_position(parent, 180.0, local)
+        assert new.x == pytest.approx(-5.0 * MM, abs=2)
+        assert new.y == pytest.approx(0.0 * MM, abs=2)
+
+    def test_rotation_270_offset(self):
+        """+270° in the KiCad Y-down convention maps (0,4) -> (-4,0)."""
+        parent = self._mm(0.0, 0.0)
+        child = self._mm(0.0, 4.0)
+        local = child_local_offset(child, parent, 0.0)       # (0, 4) local
+        new = child_absolute_position(parent, 270.0, local)  # -> (-4, 0)
+        assert new.x == pytest.approx(-4.0 * MM, abs=2)
+        assert new.y == pytest.approx(0.0 * MM, abs=2)
+
+    def test_arbitrary_angle_round_trip(self):
+        """Non-multiple-of-90 angle — the same discipline as the existing
+        polar node_offset tests. KiCad Y-down convention:
+        x' = py*sin + px*cos, y' = py*cos - px*sin."""
+        import math
+        parent = self._mm(30.0, -10.0)
+        child = self._mm(35.0, -8.0)
+        local = child_local_offset(child, parent, 33.0)
+        # round-trip at the same rotation -> identity
+        back = child_absolute_position(parent, 33.0, local)
+        assert back.x == pytest.approx(child.x, abs=3)
+        assert back.y == pytest.approx(child.y, abs=3)
+        # capture at 0 + apply at 33 == rotate the (5,2) delta by 33
+        local0 = child_local_offset(child, parent, 0.0)
+        new = child_absolute_position(parent, 33.0, local0)
+        rad = math.radians(33.0)
+        px, py = 5.0, 2.0
+        expected_x = parent.x + int((py * math.sin(rad) + px * math.cos(rad)) * MM)
+        expected_y = parent.y + int((py * math.cos(rad) - px * math.sin(rad)) * MM)
+        assert new.x == pytest.approx(expected_x, abs=3)
+        assert new.y == pytest.approx(expected_y, abs=3)
+
+
+class TestRigidGroupCaptureApply:
+    """Plan 2026-08-29 §1/§4 — the capture->apply wiring helpers:
+    _node_parent_map builds the parent index, capture_rigid_state snapshots
+    each selected node's local offset + relative rotation BEFORE any move, and
+    apply_rigid_override re-projects them into the parent's CURRENT frame at
+    apply time. Live resolvers are monkeypatched (thin dispatchers already
+    tested elsewhere in this file)."""
+
+    def _tree(self, anchor_ref="FPGA", is_origin=False):
+        anchor = LinkedAnchor(anchor=TreeAnchor(ref=anchor_ref, is_origin=is_origin),
+                              record=None, is_origin=is_origin, is_external=not is_origin)
+        child = LinkedNode(node=_node_dc(ref="D1", kind="clone"),
+                           record=_record("clone", "D1"), is_external=False, children=[])
+        return LinkedTree(name="fpga", anchor=anchor, nodes=[child])
+
+    def _monkeypatch_live(self, monkeypatch, positions, rotations):
+        import kicadstamp.tree_position as tp
+
+        def fake_pos(adapter, cfg, ref, record, resolved_points, sheet_names):
+            return positions[ref]
+
+        def fake_rot(adapter, cfg, ref, record, sheet_names):
+            return rotations[ref]
+
+        monkeypatch.setattr(tp, "resolve_base_live_position", fake_pos)
+        monkeypatch.setattr(tp, "resolve_base_rotation_deg", fake_rot)
+
+    def test_parent_map_external_anchor(self):
+        import kicadstamp.tree_position as tp
+        assert tp._node_parent_map(self._tree())["D1"] == ("FPGA", None, True)
+
+    def test_parent_map_origin_anchor(self):
+        import kicadstamp.tree_position as tp
+        assert tp._node_parent_map(self._tree(anchor_ref=None, is_origin=True))["D1"] \
+            == (None, None, False)
+
+    def test_capture_then_apply_follows_parent_translation_and_rotation(self, monkeypatch):
+        """Parent moves (100->150) AND rotates 0->90 between capture and apply:
+        the child follows — its captured local offset (5,0) re-projects to
+        (0,-5) in the parent's new frame (KiCad Y-down)."""
+        positions = {"FPGA": Vector2.from_xy(100 * MM, 50 * MM),
+                     "D1": Vector2.from_xy(105 * MM, 50 * MM)}
+        rotations = {"FPGA": 0.0, "D1": 0.0}
+        self._monkeypatch_live(monkeypatch, positions, rotations)
+
+        captures, parent_map = capture_rigid_state("adapter", "cfg", self._tree(), ["D1"], {})
+        assert parent_map["D1"] == ("FPGA", None, True)
+        cap = captures["D1"]
+        assert cap.local_offset.x == 5 * MM
+        assert cap.local_offset.y == 0
+        assert cap.relative_rotation == pytest.approx(0.0)
+
+        positions["FPGA"] = Vector2.from_xy(150 * MM, 50 * MM)
+        rotations["FPGA"] = 90.0
+        override = apply_rigid_override("adapter", "cfg", "FPGA", None, cap, {})
+        assert override.position.x == 150 * MM
+        assert override.position.y == 50 * MM - 5 * MM
+        assert override.rotation_deg == pytest.approx(90.0)
+
+    def test_child_relative_rotation_preserved(self, monkeypatch):
+        """Child's own rotation relative to the parent is preserved across the
+        parent's rotation change: child 30 vs parent 10 -> relative 20; parent
+        now 90 -> child 110."""
+        positions = {"FPGA": Vector2.from_xy(0, 0), "D1": Vector2.from_xy(5 * MM, 0)}
+        rotations = {"FPGA": 10.0, "D1": 30.0}
+        self._monkeypatch_live(monkeypatch, positions, rotations)
+
+        captures, _pm = capture_rigid_state("adapter", "cfg", self._tree(), ["D1"], {})
+        cap = captures["D1"]
+        assert cap.relative_rotation == pytest.approx(20.0)
+
+        rotations["FPGA"] = 90.0
+        override = apply_rigid_override("adapter", "cfg", "FPGA", None, cap, {})
+        assert override.rotation_deg == pytest.approx(110.0)
+
+    def test_origin_anchor_parent_is_absolute_origin(self, monkeypatch):
+        """An origin anchor (ref=None) is the absolute (0,0) point with 0.0
+        rotation — the child's offset is its own absolute position."""
+        positions = {"D1": Vector2.from_xy(7 * MM, 9 * MM)}
+        rotations = {"D1": 0.0}
+        self._monkeypatch_live(monkeypatch, positions, rotations)
+        tree = self._tree(anchor_ref=None, is_origin=True)
+
+        captures, parent_map = capture_rigid_state("adapter", "cfg", tree, ["D1"], {})
+        assert parent_map["D1"] == (None, None, False)
+        cap = captures["D1"]
+        assert cap.local_offset.x == 7 * MM
+        assert cap.local_offset.y == 9 * MM
 
 
 # ═══════════════════════════════════════════════════════════════════════════

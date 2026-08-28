@@ -3960,6 +3960,36 @@ msgstr "Redraw dependents: {name!r} — ok"
 msgid "Redraw dependents: {name!r} — FAILED: {error}"
 msgstr "Redraw dependents: {name!r} — ОШИБКА: {error}"
 
+#: gui/docks/cascade.py
+#, python-brace-format
+msgid "Tree redraw: applying {name!r}"
+msgstr "Tree redraw: применяю {name!r}"
+
+#: gui/docks/cascade.py
+#, python-brace-format
+msgid "Tree redraw: {name!r} — ok"
+msgstr "Tree redraw: {name!r} — ok"
+
+#: gui/docks/cascade.py
+#, python-brace-format
+msgid "Tree redraw: {name!r} — FAILED: {error}"
+msgstr "Tree redraw: {name!r} — ОШИБКА: {error}"
+
+#: gui/docks/cascade.py
+#, python-brace-format
+msgid "Tree redraw: {name!r} — rigid override failed ({error}); falling back to the record's own position"
+msgstr "Tree redraw: {name!r} — жёсткий override не удался ({error}); позиция берётся из собственных полей записи"
+
+#: kicadstamp/tree_position.py
+#, python-brace-format
+msgid "base {ref!r}: no rotation concept — assumed 0.0 for rigid-group composition"
+msgstr "база {ref!r}: нет понятия поворота — принято 0.0 для жёсткой композиции"
+
+#: kicadstamp/tree_position.py
+#, python-brace-format
+msgid "tree redraw: node {name!r} has no resolvable live position ({error}) — redrawn from its own record fields, not rigidly"
+msgstr "tree redraw: узел {name!r} без резолвной живой позиции ({error}) — перерисовывается из собственных полей записи, не жёстко"
+
 #: gui/docks/anchor_tree.py
 msgid "Anchor tree"
 msgstr "Дерево анкоров"

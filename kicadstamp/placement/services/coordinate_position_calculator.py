@@ -28,8 +28,12 @@ docstring for why a move is idempotent by construction, same as Rule/
 ClonePlacement's own component moves in apply_pipeline.py's Phase 1.
 """
 import logging
+from typing import TYPE_CHECKING
 
 from ...domain.geometry import Vector2, Angle
+
+if TYPE_CHECKING:
+    from ...tree_position import PositionOverride
 
 from ...domain.board import Footprint
 
@@ -217,7 +221,9 @@ def _build_footprint_index(adapter) -> dict[tuple[str, str], list[Footprint]]:
 
 
 def build_coordinate_moves(adapter, coordinate_placements: list[CoordinatePlacement],
-                           points=None, sheet_names=None) -> list[MoveCommand]:
+                           points=None, sheet_names=None,
+                           position_overrides: dict[str, "PositionOverride"] | None = None,
+                           ) -> list[MoveCommand]:
     """The whole module in one call — CoordinatePlacement entries in,
     MoveCommands out, ready for MoveExecutor.execute_moves() (no new
     executor needed, see apply_pipeline.py's Phase 0 integration).
@@ -226,7 +232,13 @@ def build_coordinate_moves(adapter, coordinate_placements: list[CoordinatePlacem
     need: points — cfg.points ({name: Point}), to resolve an anchor_point
     reference standalone (Phase 0 runs before the planner populates its
     resolved_points); sheet_names — {uuid: name}, for anchor_role narrowing.
-    Both optional — the absolute modes never touch them."""
+    Both optional — the absolute modes never touch them.
+
+    position_overrides — a tree rigid-group redraw override
+    (plan_2026_08_29_tree_live_rigid_redraw.md, handoff …step0.md §3-§4): a
+    record with an override is moved to the computed position+rotation,
+    bypassing its own anchor/absolute resolution entirely. Non-persistent —
+    only the physical move; the record's config is untouched."""
     moves = []
     # One board scan into a (Role, Cluster) index, then O(1) lookups per entry
     # (2026-08-12, Group 4) — same exact-match + fatal-if-not-unique messages
@@ -243,7 +255,11 @@ def build_coordinate_moves(adapter, coordinate_placements: list[CoordinatePlacem
         # anchor-relative narrowing below) — reused here, no new parameter.
         candidates = narrow_candidates_by_sheet(candidates, cp.sheet, sheet_names or {})
         fp = match_unique_footprint_by_fields(candidates, field_matches, label)
-        if _has_external_anchor(cp):
+        override = (position_overrides or {}).get(label)
+        if override:
+            origin = override.position
+            rotation_deg = override.rotation_deg
+        elif _has_external_anchor(cp):
             # ANCHOR-RELATIVE: target = anchor position (+ its anchor_pad) + offset.
             anchor_pos = _resolve_external_anchor(adapter, cp, points or {},
                                                   sheet_names or {}, label)

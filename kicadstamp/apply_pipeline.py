@@ -25,7 +25,8 @@ import dataclasses
 import difflib
 import logging
 
-from .config import (load_config, rule_effective_name, thermal_via_array_effective_name,
+from .config import (Config, load_config, rule_effective_name,
+                    thermal_via_array_effective_name,
                     coordinate_placement_effective_name, clone_placement_effective_name,
                     net_trace_effective_name)
 from .net_trace_planner import net_trace_anchor_id, adopt_net_trace_copper
@@ -323,6 +324,7 @@ class ApplyPipeline:
         collision_margin: float = 0.2,
         only: list[str] | None = None,
         cluster: list[str] | None = None,
+        position_overrides=None,
         preloaded_cfg=None,
         preloaded_ctx=None,
     ):
@@ -335,6 +337,12 @@ class ApplyPipeline:
         self.collision_margin = collision_margin
         self.only = only or []
         self.cluster = cluster or []
+        # Per-run absolute placement overrides keyed by record effective name
+        # (tree rigid-group redraw — plan_2026_08_29_tree_live_rigid_redraw.md;
+        # PositionOverride in kicadstamp/tree_position.py). Non-persistent:
+        # replaces the record's own position/rotation resolution for this run
+        # only; the saved config is never rewritten. None/empty = normal.
+        self.position_overrides = position_overrides or {}
 
         # Internal state
         self.cfg = preloaded_cfg
@@ -397,7 +405,8 @@ class ApplyPipeline:
                     .format(order=" -> ".join(it.label for it in self.items)))
 
     def _create_planner(self) -> None:
-        self.planner = PlacementPlanner(self.adapter, self.cfg, sheet_names=self.sheet_names)
+        self.planner = PlacementPlanner(self.adapter, self.cfg, sheet_names=self.sheet_names,
+                                        position_overrides=self.position_overrides)
 
     # ── Dry‑run ─────────────────────────────────────────────────────────────
 
@@ -412,7 +421,8 @@ class ApplyPipeline:
         """
         coordinate_moves = (build_coordinate_moves(
                                 self.adapter, self.cfg.coordinate_placements,
-                                points=self.cfg.points, sheet_names=self.sheet_names)
+                                points=self.cfg.points, sheet_names=self.sheet_names,
+                                position_overrides=self.position_overrides)
                            if self.cfg.coordinate_placements else [])
         # NOTE (2026-08-12, Group 2 review): a dry run does NOT apply Phase 0 —
         # build_coordinate_moves only COMPUTES MoveCommands, nothing moves on
@@ -500,7 +510,8 @@ class ApplyPipeline:
         if self.cfg.coordinate_placements:
             coordinate_moves = build_coordinate_moves(
                 self.adapter, self.cfg.coordinate_placements,
-                points=self.cfg.points, sheet_names=self.sheet_names)
+                points=self.cfg.points, sheet_names=self.sheet_names,
+                position_overrides=self.position_overrides)
             logger.info(_("Coordinate placements: {count} moves").format(count=len(coordinate_moves)))
             coordinate_failed = executor.execute_moves(
                 coordinate_moves,

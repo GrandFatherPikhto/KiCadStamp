@@ -25,8 +25,11 @@ from kicadstamp.anchor_graph import build_anchor_graph, redraw_records_in_order
 from kicadstamp.apply_pipeline import ApplyPipeline
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
+from kicadstamp.kicad.adapter import KiCadBoardAdapter
 from kicadstamp.link_trees import link_trees
-from kicadstamp.tree_position import curated_redraw_plan
+from kicadstamp.tree_position import (
+    apply_rigid_override, capture_rigid_state, curated_redraw_plan,
+)
 from kicadstamp.trees import Tree
 
 logger = logging.getLogger(__name__)
@@ -98,7 +101,50 @@ def run_curated_tree_redraw(config_path: str, cfg, ctx, trees: list[Tree],
     names, warnings = curated_redraw_plan(tree, selected_refs)
     for warning in warnings:
         logger.warning(warning)
-    results = run_cascade(config_path, cfg, ctx, names)
+
+    # Rigid-group redraw (plan_2026_08_29_tree_live_rigid_redraw.md §1): each
+    # selected node is placed at its LIVE-captured offset from its parent,
+    # re-projected into the parent's CURRENT (post-move) frame, so moving /
+    # rotating the anchor moves everything attached with it. The capture
+    # happens ONCE before anything moves; the apply re-reads the parent's live
+    # position/rotation at apply time (parent already redrawn earlier in this
+    # topological order, or hand-moved before Redraw — both read identically,
+    # live). Non-persistent: only the physical movement, via the calculator
+    # position_overrides (Option 1 — handoff …step0.md §3-§4).
+    adapter = KiCadBoardAdapter(timeout_ms=20000)
+    adapter.refresh_board()
+    sheet_names = ctx.sheet_names if ctx else {}
+    captures, parent_map = capture_rigid_state(adapter, cfg, tree, names, sheet_names)
+
+    results: List[Tuple[str, bool, Optional[str]]] = []
+    for name in names:
+        logger.info(_("Tree redraw: applying {name!r}").format(name=name))
+        override = None
+        cap = captures.get(name)
+        if cap is not None:
+            parent_ref, parent_record, _is_anchor = parent_map[name]
+            try:
+                override = apply_rigid_override(adapter, cfg, parent_ref, parent_record,
+                                                cap, sheet_names)
+            except Exception as e:  # noqa: BLE001 — honest fallback, never break the chain
+                logger.warning(_("Tree redraw: {name!r} — rigid override failed "
+                                 "({error}); falling back to the record's own position")
+                               .format(name=name, error=e))
+        try:
+            pipeline = ApplyPipeline(
+                config_path=config_path, preloaded_cfg=cfg, preloaded_ctx=ctx,
+                only=[name], dry_run=False,
+                position_overrides={name: override} if override else None)
+            pipeline.run()
+            results.append((name, True, None))
+            logger.info(_("Tree redraw: {name!r} — ok").format(name=name))
+        except Exception as e:  # noqa: BLE001 — a per-record failure must not abort the rest
+            logger.exception("Tree redraw: %s failed", name)
+            results.append((name, False, str(e)))
+            logger.warning(_("Tree redraw: {name!r} — FAILED: {error}").format(name=name, error=e))
+        # Sync this module's adapter with the board after the run, so the NEXT
+        # child's apply_rigid_override reads the parent's post-move position.
+        adapter.refresh_board()
     return results, warnings
 
 

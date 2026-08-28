@@ -223,6 +223,14 @@ tree own the position, remove the inline anchor from the record: that removal is
 migration decision. This is what lets you add e.g. a channel's `CH0/1/2_DAC_BUF` to the `fpga` tree
 purely to document/read it while it still moves through its own `anchor_role` via the regular Apply.
 
+**Redraw selected is a rigid group** (2026-08-29, plan_2026_08_29_tree_live_rigid_redraw.md): a node
+the tree owns (no inline anchor) is placed at its LIVE-captured offset from its parent, re-projected
+into the parent's CURRENT position/rotation — so moving/rotating the anchor (or a parent node) and
+redrawing the selected dependents moves them together, the offset rotating WITH the parent. The
+offset is read live from the board at redraw time (not from the stored `xy`/`polar`, which remain a
+fallback for a node with no live presence yet); the record's own fields are never rewritten — the
+move is applied via a per-run, non-persistent position override (Option 1, see the plan's §3/§4).
+
 ## Detail dock
 
 Extract/Placer/Project/Thermal via/Points/Rules/Net traces/Cells/Settings below all live as tabs

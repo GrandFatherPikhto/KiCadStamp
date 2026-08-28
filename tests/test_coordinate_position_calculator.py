@@ -21,6 +21,7 @@ from kicadstamp.placement.services.coordinate_position_calculator import (
     resolve_footprint_by_cluster_role, resolve_target_position,
     resolve_self_pad_anchor, build_coordinate_moves,
 )
+from kicadstamp.tree_position import PositionOverride
 from kicadstamp.utils.units import MM
 
 
@@ -263,6 +264,35 @@ def test_build_coordinate_moves_center_anchor():
     assert move.position.x == int(10.0 * MM)
     assert move.position.y == int(20.0 * MM)
     assert move.angle.degrees == 90.0
+    assert move.layer == "F.Cu"
+
+
+def test_build_coordinate_moves_override_replaces_position_and_rotation():
+    """Tree rigid-group redraw override (plan_2026_08_29_tree_live_rigid_redraw.md
+    §3 — Option 1): a CoordinatePlacement with a PositionOverride is moved to
+    the override's position/rotation, bypassing its own target resolution."""
+    fp = _make_fp("R18", role="R_SERIES", cluster="FPGA_PERIPH")
+    fp.position = Vector2.from_xy(0, 0)
+    fp.angle_deg = 0.0
+    fp.layer = "F.Cu"
+    adapter = MagicMock()
+    adapter.get_footprints.return_value = [fp]
+    adapter.get_field_value.side_effect = _role_or_cluster
+
+    cp = CoordinatePlacement(cluster="FPGA_PERIPH", role="R_SERIES", x_mm=10.0, y_mm=20.0,
+                              rotation_deg=90.0)
+    override = PositionOverride(position=Vector2.from_xy(30 * MM, 40 * MM), rotation_deg=15.0)
+
+    # effective name = "cluster/role" when no explicit `name` (see
+    # coordinate_placement_effective_name).
+    moves = build_coordinate_moves(adapter, [cp], position_overrides={"FPGA_PERIPH/R_SERIES": override})
+
+    assert len(moves) == 1
+    move = moves[0]
+    assert move.ref == "R18"
+    assert move.position.x == 30 * MM
+    assert move.position.y == 40 * MM
+    assert move.angle.degrees == 15.0
     assert move.layer == "F.Cu"
 
 

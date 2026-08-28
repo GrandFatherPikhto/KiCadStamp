@@ -21,6 +21,7 @@ from kicadstamp.exceptions import ValidationError
 from kicadstamp.geometry.spoke_layout import rotate_local_offset, local_to_absolute
 from kicadstamp.placement.services import role_narrowing
 from kicadstamp.placement.services.clone_position_calculator import ClonePositionCalculator
+from kicadstamp.tree_position import PositionOverride
 
 MM = 1_000_000
 
@@ -430,3 +431,70 @@ class TestCellPlacementSheetPlaceholder:
 
         assert len(placed) == 1
         assert placed[0].ref == "C1"
+
+
+class TestClonePositionOverride:
+    """Tree rigid-group redraw override (plan_2026_08_29_tree_live_rigid_redraw.md
+    §3 — Option 1, handoff …step0.md): a ClonePlacement with a PositionOverride
+    is placed with its cell ORIGIN exactly at override.position and world
+    rotation override.rotation_deg, bypassing the record's own
+    anchor/xy/rotation_deg resolution. Non-persistent — the shared record is
+    never mutated (only an in-memory copy inside the calculator)."""
+
+    def _build(self, clone):
+        leaf = Cell(name="leaf", components=[
+            TemplateComponentSlot(role="R1", offset_along_mm=1.0, offset_across_mm=0.0,
+                                  angle_deg=0.0)])
+        cfg = Config(layer="F.Cu", cells={"leaf": leaf}, clone_placements=[clone])
+        c1 = _make_fp("C1", role="R1", nets=["NET_A"])
+        return cfg, _adapter_for([c1])
+
+    def test_override_replaces_records_own_xy(self):
+        """Absolute clone with xy=(100,200): the override position wins — the
+        cell origin lands at the override, not at the record's own xy."""
+        clone = ClonePlacement(cluster="c", cell="leaf", xy=(100.0, 200.0))
+        cfg, adapter = self._build(clone)
+        calc = ClonePositionCalculator(adapter, cfg)
+        override = PositionOverride(position=Vector2.from_xy(5 * MM, 6 * MM), rotation_deg=0.0)
+        placed, _v, _t = calc.compute_raw_positions([clone], position_overrides={"c": override})
+        assert len(placed) == 1
+        p = placed[0]
+        assert p.ref == "C1"
+        assert p.dest.x == 6 * MM   # origin 5mm + offset 1mm
+        assert p.dest.y == 6 * MM
+
+    def test_override_rotation_rotates_cell_contents(self):
+        """The override's rotation becomes the cell's world rotation — the
+        (1mm, 0) offset rotates with it (KiCad Y-down: +90 -> (0,-1))."""
+        clone = ClonePlacement(cluster="c", cell="leaf", xy=(0.0, 0.0))
+        cfg, adapter = self._build(clone)
+        calc = ClonePositionCalculator(adapter, cfg)
+        override = PositionOverride(position=Vector2.from_xy(5 * MM, 6 * MM), rotation_deg=90.0)
+        placed, _v, _t = calc.compute_raw_positions([clone], position_overrides={"c": override})
+        p = placed[0]
+        assert p.dest.x == 5 * MM
+        assert p.dest.y == 5 * MM
+        assert p.angle_deg == pytest.approx(90.0)
+
+    def test_no_override_unchanged(self):
+        """Regression: without an override the clone resolves from its own
+        fields exactly as before (absolute xy mode)."""
+        clone = ClonePlacement(cluster="c", cell="leaf", xy=(3.0, 4.0))
+        cfg, adapter = self._build(clone)
+        calc = ClonePositionCalculator(adapter, cfg)
+        placed, _v, _t = calc.compute_raw_positions([clone])
+        p = placed[0]
+        assert p.dest.x == 4 * MM
+        assert p.dest.y == 4 * MM
+
+    def test_override_unrelated_key_ignored(self):
+        """An override keyed to a DIFFERENT record name leaves this clone on
+        its own path."""
+        clone = ClonePlacement(cluster="c", cell="leaf", xy=(3.0, 4.0))
+        cfg, adapter = self._build(clone)
+        calc = ClonePositionCalculator(adapter, cfg)
+        other = PositionOverride(position=Vector2.from_xy(50 * MM, 60 * MM), rotation_deg=0.0)
+        placed, _v, _t = calc.compute_raw_positions([clone], position_overrides={"other": other})
+        p = placed[0]
+        assert p.dest.x == 4 * MM
+        assert p.dest.y == 4 * MM

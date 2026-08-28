@@ -3701,6 +3701,36 @@ msgstr ""
 msgid "Redraw dependents: {name!r} — FAILED: {error}"
 msgstr ""
 
+#: gui/docks/cascade.py
+#, python-brace-format
+msgid "Tree redraw: applying {name!r}"
+msgstr ""
+
+#: gui/docks/cascade.py
+#, python-brace-format
+msgid "Tree redraw: {name!r} — ok"
+msgstr ""
+
+#: gui/docks/cascade.py
+#, python-brace-format
+msgid "Tree redraw: {name!r} — FAILED: {error}"
+msgstr ""
+
+#: gui/docks/cascade.py
+#, python-brace-format
+msgid "Tree redraw: {name!r} — rigid override failed ({error}); falling back to the record's own position"
+msgstr ""
+
+#: kicadstamp/tree_position.py
+#, python-brace-format
+msgid "base {ref!r}: no rotation concept — assumed 0.0 for rigid-group composition"
+msgstr ""
+
+#: kicadstamp/tree_position.py
+#, python-brace-format
+msgid "tree redraw: node {name!r} has no resolvable live position ({error}) — redrawn from its own record fields, not rigidly"
+msgstr ""
+
 #: gui/docks/anchor_tree.py
 msgid "Anchor tree"
 msgstr ""

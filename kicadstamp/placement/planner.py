@@ -4,29 +4,33 @@ import logging
 
 
 from ..domain.geometry import BoardLayer
-from ..domain.geometry import Angle, Vector2
 
 from ..config import Config
 from ..kicad.adapter import KiCadBoardAdapter
-from ..utils.units import MM
 from .services.via_planner import ViaPlanner
 from .services.manual_position_calculator import ManualPositionCalculator
 from .services.clone_position_calculator import ClonePositionCalculator
 from .services.point_resolver import resolve_point, ResolvedPoint
 from .services.position_tracker import PositionTracker
-from ..exceptions import ComponentNotFoundError, ValidationError
-from .commands import MoveCommand, ViaCommand, TrackCommand, PlacedComponentInfo
+from .commands import MoveCommand, ViaCommand, TrackCommand
 from ..i18n import _
 
 logger = logging.getLogger(__name__)
 
 
 class PlacementPlanner:
-    def __init__(self, adapter: KiCadBoardAdapter, config: Config, sheet_names=None):
+    def __init__(self, adapter: KiCadBoardAdapter, config: Config, sheet_names=None,
+                 position_overrides=None):
         _sn = sheet_names or {}
         self.adapter = adapter
         self.cfg = config
         self.sheet_names = _sn
+        # Per-run absolute placement overrides keyed by clone effective name
+        # (tree rigid-group redraw, plan_2026_08_29_tree_live_rigid_redraw.md;
+        # PositionOverride in kicadstamp/tree_position.py). Non-persistent:
+        # only this run's placement is affected, the saved config is never
+        # rewritten. None/empty = normal config-driven resolution.
+        self.position_overrides = position_overrides or {}
         # Populated as Point items are planned (see plan_item's kind == 'point'
         # branch) — a name -> ResolvedPoint cache, consulted by anchor_point:
         # on Rule/ClonePlacement/ThermalViaArrayConfig. Passed BY REFERENCE
@@ -93,7 +97,8 @@ class PlacementPlanner:
         if item.kind == 'rule':
             placed, vias, tracks = self.position_calc.compute_raw_positions([item.obj])
         else:
-            placed, vias, tracks = self.clone_calc.compute_raw_positions([item.obj])
+            placed, vias, tracks = self.clone_calc.compute_raw_positions(
+                [item.obj], position_overrides=self.position_overrides)
         self._planned.extend(placed)
         self._planned_vias.extend(vias)
         self._planned_tracks.extend(tracks)
@@ -131,7 +136,8 @@ class PlacementPlanner:
             logger.info(_("place_components=False – component moves are not planned"))
 
         if self.cfg.clone_placements:
-            clone_placed, clone_vias, clone_tracks = self.clone_calc.compute_raw_positions(self.cfg.clone_placements)
+            clone_placed, clone_vias, clone_tracks = self.clone_calc.compute_raw_positions(
+                self.cfg.clone_placements, position_overrides=self.position_overrides)
             self._planned.extend(clone_placed)
             self._planned_vias.extend(clone_vias)
             self._planned_tracks.extend(clone_tracks)

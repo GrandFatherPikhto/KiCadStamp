@@ -16,8 +16,12 @@ clone_placement_effective_name(clone), the only available identifier.
 """
 import dataclasses
 import logging
+from typing import TYPE_CHECKING
 
 from ...domain.geometry import Vector2
+
+if TYPE_CHECKING:
+    from ...tree_position import PositionOverride
 from ...domain.geometry import BoardLayer
 
 from ...config import (Config, ClonePlacement, CellPlacement, Cell,
@@ -433,6 +437,7 @@ class ClonePositionCalculator:
     def compute_raw_positions(
         self,
         clone_placements: list[ClonePlacement],
+        position_overrides: dict[str, "PositionOverride"] | None = None,
     ) -> tuple[list[PlacedComponentInfo], list[ViaCommand], list[TrackCommand]]:
         components_result: list[PlacedComponentInfo] = []
         vias_result: list[ViaCommand] = []
@@ -447,22 +452,45 @@ class ClonePositionCalculator:
             if cell is None:
                 continue
 
+            name = clone_placement_effective_name(clone)
+            override = (position_overrides or {}).get(name)
             # Resolve anchor BEFORE role resolution — needed for physical
             # proximity narrowing (resolve_roles_by_nets), and the same anchor
             # is later used in apply_clone_geometry (avoid double resolution).
-            # clone.ignore_selection — per-item counterpart of --no-selection,
-            # scoped to just this clone's own resolution (see
-            # temporarily_ignore_selection's docstring).
+            # A PositionOverride (tree rigid-group redraw, plan_2026_08_29_
+            # tree_live_rigid_redraw.md, handoff …step0.md §3-§4) REPLACES the
+            # anchor entirely — the record is placed at the computed position,
+            # not resolved from its own fields. Non-persistent: the shared
+            # record is never mutated (only an in-memory copy below), so
+            # clone_anchor_id (built from the real fields) keeps the registry
+            # identity. clone.ignore_selection — per-item counterpart of
+            # --no-selection, scoped to just this clone's own resolution.
             with self.adapter.temporarily_ignore_selection(clone.ignore_selection):
-                anchor_position = self._resolve_anchor(clone)
+                anchor_position = override.position if override else self._resolve_anchor(clone)
 
             anchor_id = clone_anchor_id(clone)
             # chain starts at the top-level cell: a clone whose cell directly
             # references itself (cell: X -> clone_placements[].cell: X) is a
             # self-cycle and must be caught on the very first recursion.
-            c, v, t = self._resolve_one_level(clone, cell, cell_name, anchor_position,
-                                              parent_rotation_deg=0.0, anchor_id=anchor_id,
-                                              chain=(cell_name,))
+            if override:
+                # Rigid placement: land the cell's ORIGIN exactly at
+                # override.position with world rotation override.rotation_deg.
+                # Neutralize the clone's own xy/polar shift and rotation_deg
+                # (in-memory copy) and carry the override rotation as the
+                # (top-level, parentless) parent-frame rotation, so
+                # apply_clone_geometry's origin = anchor + rotate(xy,
+                # parent_rot) yields override.position and rotation =
+                # parent_rot + clone.rot yields override.rotation_deg.
+                effective_clone = dataclasses.replace(
+                    clone, xy=(0.0, 0.0), radius_mm=None, angle_deg=None, rotation_deg=0.0)
+                c, v, t = self._resolve_one_level(
+                    effective_clone, cell, cell_name, anchor_position,
+                    parent_rotation_deg=override.rotation_deg, anchor_id=anchor_id,
+                    chain=(cell_name,))
+            else:
+                c, v, t = self._resolve_one_level(clone, cell, cell_name, anchor_position,
+                                                  parent_rotation_deg=0.0, anchor_id=anchor_id,
+                                                  chain=(cell_name,))
             components_result.extend(c)
             vias_result.extend(v)
             tracks_result.extend(t)
