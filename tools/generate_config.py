@@ -1,7 +1,8 @@
 # generate_config.py
 from dataclasses import dataclass
-from typing import List, Dict, Any
-import yaml
+from typing import Dict
+
+from kicadstamp.config.sexp_format import dict_to_sexp
 
 @dataclass
 class CloneParams:
@@ -77,5 +78,5 @@ config = {
     ]
 }
 
-with open("generated_config.yaml", "w", encoding="utf-8") as f:
-    yaml.dump(config, f, allow_unicode=True, sort_keys=False)
+with open("generated_config.sexp", "w", encoding="utf-8") as f:
+    f.write(dict_to_sexp(config))

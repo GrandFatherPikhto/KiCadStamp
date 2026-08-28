@@ -149,7 +149,7 @@ def main() -> int:
     clone_extract.add_argument("--net", help=_("Path to .net file"))
     clone_extract.add_argument("--pcb", help=_("Path to .kicad_pcb file"))
     clone_extract.add_argument("--channel", help=_("Channel name, e.g. Channel_0"))
-    clone_extract.add_argument("--output", help=_("YAML snapshot file"))
+    clone_extract.add_argument("--output", help=_("s-expr snapshot file"))
     clone_extract.add_argument("--profiles", metavar="FILE",
                                help=_("YAML file with named profiles for clone-extract"))
     clone_extract.add_argument("--profile", metavar="NAME",

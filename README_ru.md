@@ -216,7 +216,7 @@ python kicadstamp_cli.py undo [--verbose] [--log-file]
 ### `clone-extract` – снятие снимка канала (файловый клонер)
 
 ```bash
-python kicadstamp_cli.py clone-extract --net project.net --pcb project.kicad_pcb --channel Channel_0 --output snapshot.yaml [--verbose]
+python kicadstamp_cli.py clone-extract --net project.net --pcb project.kicad_pcb --channel Channel_0 --output snapshot.sexp [--verbose]
 ```
 
 Анализирует иерархический проект, извлекает все компоненты, дорожки и via, относящиеся к указанному каналу, и сохраняет снимок в YAML. Полезно для изучения структуры перед написанием конфига клонирования.

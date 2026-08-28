@@ -4,14 +4,14 @@ fieldstool_cli.py — bulk-edit Role/Cluster (or any custom field) directly
 in .kicad_sch, offline (no kipy, no live KiCad connection at all). Two
 subcommands:
 
-  set     refdes -> {field: value}, from YAML (ports tools/apply_role_
+  set     refdes -> {field: value}, from the config file (ports tools/apply_role_
           cluster.py's original behavior — that script is retired, see
           docs/commands_ru.md).
   rename  field -> {old_value: new_value}, applied to every symbol whose
           CURRENT value matches, project-wide — no refdes enumeration.
-          With --also-profile <root.yaml>, the SAME renames: map is also
-          applied to the profile config YAML files reachable through that
-          profile's include: graph (profiles/*.yaml) — one rename
+          With --also-profile <root.sexp>, the SAME renames: map is also
+          applied to the profile config files reachable through that
+          profile's include: graph (profiles/*.sexp) — one rename
           propagates to the schematic AND the placed config tree.
 
 Both: dry-run by default, --write to actually touch files, --allow-non-
@@ -23,10 +23,10 @@ live-IPC-only writes) even though the underlying kicadstamp.schematic_*
 modules now live in the same package.
 
 Usage:
-    python fieldstool_cli.py set roles.yaml                # dry-run
-    python fieldstool_cli.py set roles.yaml --write
-    python fieldstool_cli.py rename renames.yaml --write
-    python fieldstool_cli.py rename renames.yaml --also-profile profiles/3ch-awg-tia/3ch-awg-tia.yaml --write
+    python fieldstool_cli.py set roles.sexp               # dry-run
+    python fieldstool_cli.py set roles.sexp --write
+    python fieldstool_cli.py rename renames.sexp --write
+    python fieldstool_cli.py rename renames.sexp --also-profile profiles/3ch-awg-tia/3ch-awg-tia.sexp --write
 """
 import argparse
 import logging
@@ -116,13 +116,12 @@ def cmd_rename(args) -> int:
     has_profile = bool(args.also_profile)
     try:
         edits_by_file, file_texts, report, unmatched = plan_rename_edits(config_path)
-        prof_edits: dict = {}
-        prof_texts: dict = {}
+        prof_data: dict = {}
         prof_report = []
         prof_unmatched: list[str] = []
         if has_profile:
             _, renames_cfg = load_rename_config(config_path)
-            prof_edits, prof_texts, prof_report, prof_unmatched = plan_profile_rename_edits(
+            prof_data, prof_report, prof_unmatched = plan_profile_rename_edits(
                 Path(args.also_profile), renames_cfg)
     except FieldsToolError as e:
         sys.exit(f"[error] {e}")
@@ -150,8 +149,9 @@ def cmd_rename(args) -> int:
         print("\nDry-run — nothing written. Rerun with --write to apply.")
         return 0
 
-    # The running-KiCad guard only protects .kicad_sch edits; profile YAML files
-    # are never open in KiCad, so a profile-only run is allowed with KiCad open.
+    # The running-KiCad guard only protects .kicad_sch edits; profile config
+    # files are never open in KiCad, so a profile-only run is allowed with
+    # KiCad open.
     if report:
         try:
             check_kicad_not_running(force=args.force_with_kicad_running)
@@ -166,7 +166,7 @@ def cmd_rename(args) -> int:
             print(f"FAILED to write schematic (restored from .bak): {failed}")
             exit_code = 1
     if prof_report:
-        written, failed = write_profile_files(prof_edits, prof_texts)
+        written, failed = write_profile_files(prof_data)
         print(f"Profile files written: {len(written)}. Backups alongside them, .bak extension.")
         if failed:
             print(f"FAILED to write profile (restored from .bak): {failed}")

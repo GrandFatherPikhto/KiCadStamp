@@ -1,23 +1,23 @@
 # kicadstamp/config_rename.py
 """
 Profile-config rename tool — propagates a Role/Cluster rename into the
-profile YAML files reachable from a profile's include: graph.
+profile config files reachable from a profile's include: graph.
 
-The SAME ``renames.yaml`` config that ``schematic_rename_fields.py``
+The SAME ``renames.sexp`` config that ``schematic_rename_fields.py``
 understands (``renames: {Role: {old: new}, Cluster: {old: new}}``) drives
 this tool too: ``plan_rename_edits()`` renames the schematic side, and
 ``plan_profile_rename_edits()`` below renames the profile-config side. One
 rename, applied everywhere.
 
-Edit strategy — point-edit, never parse→dump (same reasoning as the
-schematic tool): ``profiles/*.yaml`` files are hand-written, with comments
-and personal formatting. ``yaml.safe_load()`` + ``yaml.dump()`` would
-destroy all of that (PyYAML does not round-trip comments), and
-``ruamel.yaml`` is not a project dependency. So, like
-``schematic_rename_fields.py``, we parse ONLY to FIND the fields/values
-(yaml.compose gives each scalar node's exact byte span in the original
-text), then splice the replacement as a substring edit of the original
-file text — the surrounding comments/formatting stay untouched.
+Edit strategy — dict round-trip, never point-edit: the project config format
+is s-expr now (2026-08-28, core_yaml_removal), and ``sexp_format.py`` has no
+comment syntax at all (on read or write — ``flatten.py`` already noted the
+same fact). The old byte-splicing machinery (``yaml.compose`` keeping each
+scalar node's exact byte span in the original text) existed ONLY to preserve
+hand-written YAML comments/formatting, which .sexp does not have — so it is
+gone. We parse with ``sexp_to_dict``, mutate the dict along the known schema,
+and write back with ``dict_to_sexp``. The role/cluster field table below is
+unchanged and remains the domain knowledge of "what is a role/cluster".
 
 Scope — only semantically-correct fields are edited, exactly as the
 schematic side never confuses a Role VALUE with some other string that
@@ -69,236 +69,167 @@ from __future__ import annotations
 import dataclasses
 import logging
 from pathlib import Path
-
-import yaml
+from typing import Any, Dict, List, Tuple
 
 from .exceptions import FieldsToolError, ValidationError
-from .schematic_editing import Edit, EditReport, apply_edits
+from .schematic_editing import EditReport
 from .config.includes import _parse_include_entry
-from .utils.yaml_loader import safe_load
+from .config.sexp_format import dict_to_sexp, sexp_to_dict
 
 logger = logging.getLogger(__name__)
 
 
 @dataclasses.dataclass
-class _PlanContext:
+class _Ctx:
     """Mutable per-file planning state shared by the schema walkers."""
-    text: str
     file: str
-    role_map: dict[str, str]
-    cluster_map: dict[str, str]
-    edits: list[Edit] = dataclasses.field(default_factory=list)
-    report: list[EditReport] = dataclasses.field(default_factory=list)
-    matched_role: set[str] = dataclasses.field(default_factory=set)
-    matched_cluster: set[str] = dataclasses.field(default_factory=set)
+    role_map: Dict[str, str]
+    cluster_map: Dict[str, str]
+    report: List[EditReport] = dataclasses.field(default_factory=list)
+    matched_role: set = dataclasses.field(default_factory=set)
+    matched_cluster: set = dataclasses.field(default_factory=set)
+    changed: bool = False
 
-    def rename_scalar(self, node, location: str, kind: str,
-                      rename_map: dict[str, str], matched: set[str]) -> None:
-        """Record a rename of one scalar node's value, if it matches
-        ``rename_map``. The splice preserves the original quote style: for a
-        quoted scalar only the inner text is replaced; for a plain scalar the
-        whole token is replaced. Multi-line scalars are skipped (never a
-        role/cluster identifier)."""
-        old_value = node.value
+    def _map(self, kind: str) -> Dict[str, str]:
+        return self.role_map if kind == "Role" else self.cluster_map
+
+    def _matched(self, kind: str) -> set:
+        return self.matched_role if kind == "Role" else self.matched_cluster
+
+    def rename_value(self, entry: Dict[str, Any], field: str, location: str,
+                     kind: str) -> None:
+        """Rename ``entry[field]`` in place if it is a scalar value in the
+        kind's rename map (exact-value match, never a segment prefix)."""
+        old_value = entry.get(field)
+        rename_map = self._map(kind)
         if not isinstance(old_value, str) or old_value not in rename_map:
             return
-        start, end = node.start_mark.index, node.end_mark.index
-        if node.start_mark.line != node.end_mark.line:
-            return  # multi-line scalar — not an identifier, skip
         new_value = str(rename_map[old_value])
-        if node.style in ("'", '"') and end - start >= 2:
-            repl_start, repl_end = start + 1, end - 1
-        else:
-            repl_start, repl_end = start, end
-        if self.text[repl_start:repl_end] == new_value:
-            return  # idempotent re-run — nothing to change
-        self.edits.append((repl_start, repl_end, new_value))
+        entry[field] = new_value
         self.report.append(EditReport(self.file, [location], kind, old_value,
                                       new_value, "replace"))
-        matched.add(old_value)
+        self._matched(kind).add(old_value)
+        self.changed = True
 
-
-def _scalar_items(mapping) -> dict:
-    """{key: (key_node, value_node)} for a yaml MappingNode with scalar keys."""
-    out: dict = {}
-    if not isinstance(mapping, yaml.MappingNode):
-        return out
-    for key_node, value_node in mapping.value:
-        if isinstance(key_node, yaml.ScalarNode):
-            out[key_node.value] = (key_node, value_node)
-    return out
-
-
-def _visit_value_field(mapping, field: str, location: str, kind: str,
-                       rename_map: dict, matched: set, ctx: _PlanContext) -> None:
-    items = _scalar_items(mapping)
-    pair = items.get(field)
-    if pair is None:
-        return
-    value_node = pair[1]
-    if isinstance(value_node, yaml.ScalarNode):
-        ctx.rename_scalar(value_node, f"{location}.{field}", kind, rename_map, matched)
-
-
-def _visit_key_mapping(mapping, location: str, kind: str,
-                       rename_map: dict, matched: set, ctx: _PlanContext) -> None:
-    """Rename the KEYS of a mapping (refs:/nets: are {role: ...} dicts)."""
-    if not isinstance(mapping, yaml.MappingNode):
-        return
-    for key_node, _value_node in mapping.value:
-        if isinstance(key_node, yaml.ScalarNode):
-            ctx.rename_scalar(key_node, f"{location}[{key_node.value}]", kind,
-                              rename_map, matched)
-
-
-def _visit_sequence(node, location: str, visitor, ctx: _PlanContext) -> None:
-    if not isinstance(node, yaml.SequenceNode):
-        return
-    for idx, item in enumerate(node.value):
-        visitor(item, f"{location}[{idx}]", ctx)
+    def rename_key(self, mapping: Dict[Any, Any], location: str, kind: str) -> None:
+        """Rename the KEYS of a mapping (refs:/nets: are {role: ...} dicts)."""
+        rename_map = self._map(kind)
+        for key in list(mapping.keys()):
+            if isinstance(key, str) and key in rename_map:
+                new_key = str(rename_map[key])
+                mapping[new_key] = mapping.pop(key)
+                self.report.append(EditReport(self.file, [f"{location}[{key}]"],
+                                              kind, key, new_key, "replace"))
+                self._matched(kind).add(key)
+                self.changed = True
 
 
 # ── Per-entry visitors ───────────────────────────────────────────────────────
 
-def _visit_spoke(spoke, location: str, ctx: _PlanContext) -> None:
-    _visit_value_field(spoke, "cluster", location, "Cluster",
-                       ctx.cluster_map, ctx.matched_cluster, ctx)
+def _visit_spoke(spoke: Dict[str, Any], location: str, ctx: _Ctx) -> None:
+    ctx.rename_value(spoke, "cluster", f"{location}.cluster", "Cluster")
 
 
-def _visit_rule(rule, location: str, ctx: _PlanContext) -> None:
-    _visit_value_field(rule, "anchor_role", location, "Role",
-                       ctx.role_map, ctx.matched_role, ctx)
-    _visit_value_field(rule, "anchor_cluster", location, "Cluster",
-                       ctx.cluster_map, ctx.matched_cluster, ctx)
-    items = _scalar_items(rule)
-    spokes = items.get("spokes")
-    if spokes is not None:
-        _visit_sequence(spokes[1], f"{location}.spokes", _visit_spoke, ctx)
+def _visit_rule(rule: Dict[str, Any], location: str, ctx: _Ctx) -> None:
+    ctx.rename_value(rule, "anchor_role", f"{location}.anchor_role", "Role")
+    ctx.rename_value(rule, "anchor_cluster", f"{location}.anchor_cluster", "Cluster")
+    for i, spoke in enumerate(rule.get("spokes", []) or []):
+        if isinstance(spoke, dict):
+            _visit_spoke(spoke, f"{location}.spokes[{i}]", ctx)
 
 
-def _visit_placement_kind(entry, location: str, ctx: _PlanContext) -> None:
+def _visit_placement_kind(entry: Dict[str, Any], location: str, ctx: _Ctx) -> None:
     """Shared for clone_placements / coordinate_placements entries — both now
     carry their Cluster in a separate `cluster:` field (2026-08-24 split), so
     the `name` field of neither is a Cluster and is never touched here."""
-    _visit_value_field(entry, "role", location, "Role",
-                       ctx.role_map, ctx.matched_role, ctx)
-    _visit_value_field(entry, "cluster", location, "Cluster",
-                       ctx.cluster_map, ctx.matched_cluster, ctx)
-    _visit_value_field(entry, "anchor_role", location, "Role",
-                       ctx.role_map, ctx.matched_role, ctx)
-    _visit_value_field(entry, "anchor_cluster", location, "Cluster",
-                       ctx.cluster_map, ctx.matched_cluster, ctx)
-    items = _scalar_items(entry)
-    refs = items.get("refs")
-    if refs is not None:
-        _visit_key_mapping(refs[1], f"{location}.refs", "Role",
-                           ctx.role_map, ctx.matched_role, ctx)
-    nets = items.get("nets")
-    if nets is not None:
-        _visit_key_mapping(nets[1], f"{location}.nets", "Role",
-                           ctx.role_map, ctx.matched_role, ctx)
+    ctx.rename_value(entry, "role", f"{location}.role", "Role")
+    ctx.rename_value(entry, "cluster", f"{location}.cluster", "Cluster")
+    ctx.rename_value(entry, "anchor_role", f"{location}.anchor_role", "Role")
+    ctx.rename_value(entry, "anchor_cluster", f"{location}.anchor_cluster", "Cluster")
+    for field in ("refs", "nets"):
+        mapping = entry.get(field)
+        if isinstance(mapping, dict):
+            ctx.rename_key(mapping, f"{location}.{field}", "Role")
 
 
-def _visit_clone_placement(entry, location: str, ctx: _PlanContext) -> None:
+def _visit_clone_placement(entry: Dict[str, Any], location: str, ctx: _Ctx) -> None:
     _visit_placement_kind(entry, location, ctx)
 
 
-def _visit_coordinate_placement(entry, location: str, ctx: _PlanContext) -> None:
+def _visit_coordinate_placement(entry: Dict[str, Any], location: str, ctx: _Ctx) -> None:
     _visit_placement_kind(entry, location, ctx)
 
 
-def _visit_thermal_via_array(entry, location: str, ctx: _PlanContext) -> None:
-    _visit_value_field(entry, "anchor_role", location, "Role",
-                       ctx.role_map, ctx.matched_role, ctx)
-    _visit_value_field(entry, "anchor_cluster", location, "Cluster",
-                       ctx.cluster_map, ctx.matched_cluster, ctx)
+def _visit_thermal_via_array(entry: Dict[str, Any], location: str, ctx: _Ctx) -> None:
+    ctx.rename_value(entry, "anchor_role", f"{location}.anchor_role", "Role")
+    ctx.rename_value(entry, "anchor_cluster", f"{location}.anchor_cluster", "Cluster")
 
 
-def _visit_via(via, location: str, ctx: _PlanContext) -> None:
-    _visit_value_field(via, "net_from_role", location, "Role",
-                       ctx.role_map, ctx.matched_role, ctx)
+def _visit_via(via: Dict[str, Any], location: str, ctx: _Ctx) -> None:
+    ctx.rename_value(via, "net_from_role", f"{location}.net_from_role", "Role")
 
 
-def _visit_track(track, location: str, ctx: _PlanContext) -> None:
-    _visit_value_field(track, "net_from_role", location, "Role",
-                       ctx.role_map, ctx.matched_role, ctx)
+def _visit_track(track: Dict[str, Any], location: str, ctx: _Ctx) -> None:
+    ctx.rename_value(track, "net_from_role", f"{location}.net_from_role", "Role")
 
 
-def _visit_net_trace(entry, location: str, ctx: _PlanContext) -> None:
-    _visit_value_field(entry, "anchor_role", location, "Role",
-                       ctx.role_map, ctx.matched_role, ctx)
-    _visit_value_field(entry, "anchor_cluster", location, "Cluster",
-                       ctx.cluster_map, ctx.matched_cluster, ctx)
-    items = _scalar_items(entry)
-    for field, visitor, sub in (("vias", _visit_via, "vias"),
-                                ("tracks", _visit_track, "tracks")):
-        seq = items.get(field)
-        if seq is not None:
-            _visit_sequence(seq[1], f"{location}.{sub}", visitor, ctx)
+def _visit_net_trace(entry: Dict[str, Any], location: str, ctx: _Ctx) -> None:
+    ctx.rename_value(entry, "anchor_role", f"{location}.anchor_role", "Role")
+    ctx.rename_value(entry, "anchor_cluster", f"{location}.anchor_cluster", "Cluster")
+    for i, via in enumerate(entry.get("vias", []) or []):
+        if isinstance(via, dict):
+            _visit_via(via, f"{location}.vias[{i}]", ctx)
+    for i, track in enumerate(entry.get("tracks", []) or []):
+        if isinstance(track, dict):
+            _visit_track(track, f"{location}.tracks[{i}]", ctx)
 
 
-def _visit_point(point, location: str, ctx: _PlanContext) -> None:
-    _visit_value_field(point, "anchor_role", location, "Role",
-                       ctx.role_map, ctx.matched_role, ctx)
-    _visit_value_field(point, "anchor_cluster", location, "Cluster",
-                       ctx.cluster_map, ctx.matched_cluster, ctx)
+def _visit_point(point: Dict[str, Any], location: str, ctx: _Ctx) -> None:
+    ctx.rename_value(point, "anchor_role", f"{location}.anchor_role", "Role")
+    ctx.rename_value(point, "anchor_cluster", f"{location}.anchor_cluster", "Cluster")
 
 
-def _visit_component_slot(slot, location: str, ctx: _PlanContext) -> None:
-    _visit_value_field(slot, "role", location, "Role",
-                       ctx.role_map, ctx.matched_role, ctx)
-    _visit_value_field(slot, "net_template_same_as_role", location, "Role",
-                       ctx.role_map, ctx.matched_role, ctx)
-    items = _scalar_items(slot)
-    vias = items.get("vias")
-    if vias is not None:
-        _visit_sequence(vias[1], f"{location}.vias", _visit_via, ctx)
+def _visit_component_slot(slot: Dict[str, Any], location: str, ctx: _Ctx) -> None:
+    ctx.rename_value(slot, "role", f"{location}.role", "Role")
+    ctx.rename_value(slot, "net_template_same_as_role",
+                     f"{location}.net_template_same_as_role", "Role")
+    for i, via in enumerate(slot.get("vias", []) or []):
+        if isinstance(via, dict):
+            _visit_via(via, f"{location}.vias[{i}]", ctx)
 
 
-def _visit_cell_placement(entry, location: str, ctx: _PlanContext) -> None:
+def _visit_cell_placement(entry: Dict[str, Any], location: str, ctx: _Ctx) -> None:
     # Nested CellPlacement: role:/refs:/nets:, closed boundary (no anchor_*).
-    _visit_value_field(entry, "role", location, "Role",
-                       ctx.role_map, ctx.matched_role, ctx)
-    items = _scalar_items(entry)
-    refs = items.get("refs")
-    if refs is not None:
-        _visit_key_mapping(refs[1], f"{location}.refs", "Role",
-                           ctx.role_map, ctx.matched_role, ctx)
-    nets = items.get("nets")
-    if nets is not None:
-        _visit_key_mapping(nets[1], f"{location}.nets", "Role",
-                           ctx.role_map, ctx.matched_role, ctx)
+    ctx.rename_value(entry, "role", f"{location}.role", "Role")
+    for field in ("refs", "nets"):
+        mapping = entry.get(field)
+        if isinstance(mapping, dict):
+            ctx.rename_key(mapping, f"{location}.{field}", "Role")
 
 
-def _visit_cell(cell, location: str, ctx: _PlanContext) -> None:
-    _visit_value_field(cell, "anchor_role", location, "Role",
-                       ctx.role_map, ctx.matched_role, ctx)
-    items = _scalar_items(cell)
-    components = items.get("components")
-    if components is not None:
-        _visit_sequence(components[1], f"{location}.components",
-                        _visit_component_slot, ctx)
-    for field, visitor, sub in (("vias", _visit_via, "vias"),
-                                ("tracks", _visit_track, "tracks")):
-        seq = items.get(field)
-        if seq is not None:
-            _visit_sequence(seq[1], f"{location}.{sub}", visitor, ctx)
-    nested = items.get("clone_placements")
-    if nested is not None:
-        _visit_sequence(nested[1], f"{location}.clone_placements",
-                        _visit_cell_placement, ctx)
+def _visit_cell(cell: Dict[str, Any], location: str, ctx: _Ctx) -> None:
+    ctx.rename_value(cell, "anchor_role", f"{location}.anchor_role", "Role")
+    for i, slot in enumerate(cell.get("components", []) or []):
+        if isinstance(slot, dict):
+            _visit_component_slot(slot, f"{location}.components[{i}]", ctx)
+    for i, via in enumerate(cell.get("vias", []) or []):
+        if isinstance(via, dict):
+            _visit_via(via, f"{location}.vias[{i}]", ctx)
+    for i, track in enumerate(cell.get("tracks", []) or []):
+        if isinstance(track, dict):
+            _visit_track(track, f"{location}.tracks[{i}]", ctx)
+    for i, placement in enumerate(cell.get("clone_placements", []) or []):
+        if isinstance(placement, dict):
+            _visit_cell_placement(placement, f"{location}.clone_placements[{i}]", ctx)
 
 
-def _walk_file(node, ctx: _PlanContext) -> None:
-    """Descend the composed node tree of ONE file along the known schema."""
-    if not isinstance(node, yaml.MappingNode):
-        return
-    sections = _scalar_items(node)
+def _walk_file(data: Dict[str, Any], ctx: _Ctx) -> None:
+    """Descend the parsed dict of ONE file along the known schema."""
 
     def visit_list(section: str, visitor) -> None:
-        pair = sections.get(section)
-        if pair is not None:
-            _visit_sequence(pair[1], section, visitor, ctx)
+        for i, entry in enumerate(data.get(section, []) or []):
+            if isinstance(entry, dict):
+                visitor(entry, f"{section}[{i}]", ctx)
 
     visit_list("rules", _visit_rule)
     visit_list("clone_placements", _visit_clone_placement)
@@ -306,40 +237,37 @@ def _walk_file(node, ctx: _PlanContext) -> None:
     visit_list("thermal_via_arrays", _visit_thermal_via_array)
     visit_list("net_traces", _visit_net_trace)
 
-    points = sections.get("points")
-    if points is not None and isinstance(points[1], yaml.MappingNode):
-        for key_node, value_node in points[1].value:
-            if isinstance(key_node, yaml.ScalarNode):
-                _visit_point(value_node, f"points.{key_node.value}", ctx)
-
-    cells = sections.get("cells")
-    if cells is not None and isinstance(cells[1], yaml.MappingNode):
-        for key_node, value_node in cells[1].value:
-            if isinstance(key_node, yaml.ScalarNode):
-                _visit_cell(value_node, f"cells.{key_node.value}", ctx)
+    for key, point in (data.get("points") or {}).items():
+        if isinstance(point, dict):
+            _visit_point(point, f"points.{key}", ctx)
+    for key, cell in (data.get("cells") or {}).items():
+        if isinstance(cell, dict):
+            _visit_cell(cell, f"cells.{key}", ctx)
 
 
 # ── Include-graph walk ───────────────────────────────────────────────────────
 
-def _collect_include_files(root: Path) -> dict[Path, str]:
+def _collect_include_files(root: Path) -> Dict[Path, Dict[str, Any]]:
     """Read every file reachable through include: from `root` (the file itself
-    plus all included files, recursively). Returns {path: raw_text}, deduped by
-    resolved path (diamonds are read once, same as resolve_includes). Cycles
-    are fatal. include: parsing reuses config/includes.py's entry parser."""
-    files: dict[Path, str] = {}
+    plus all included files, recursively). Returns {path: parsed dict}, deduped
+    by resolved path (diamonds are read once, same as resolve_includes). Cycles
+    are fatal. include: parsing reuses config/includes.py's entry parser.
+    s-expr has no comments/formatting to preserve, so parsing is a plain
+    sexp_to_dict (no byte-level compose needed — 2026-08-28, yaml_removal)."""
+    files: Dict[Path, Dict[str, Any]] = {}
 
-    def walk(path: Path, ancestors: set[Path]) -> None:
+    def walk(path: Path, ancestors: set) -> None:
         if path in files:
             return
         try:
             text = path.read_text(encoding="utf-8")
         except OSError as exc:
             raise FieldsToolError(f"cannot read profile file {path}: {exc}") from exc
-        files[path] = text
         try:
-            data = safe_load(text) or {}
-        except yaml.YAMLError as exc:
+            data = sexp_to_dict(text) or {}
+        except ValidationError as exc:
             raise FieldsToolError(f"cannot parse profile file {path}: {exc}") from exc
+        files[path] = data
         if not isinstance(data, dict):
             return
         for entry in data.get("include", []) or []:
@@ -365,24 +293,25 @@ def _collect_include_files(root: Path) -> dict[Path, str]:
 
 def plan_profile_rename_edits(
     profile_path: Path,
-    renames_cfg: dict[str, dict[str, str]],
-) -> tuple[dict[str, list[Edit]], dict[str, str], list[EditReport], list[str]]:
+    renames_cfg: Dict[str, Dict[str, str]],
+) -> Tuple[Dict[str, Dict[str, Any]], List[EditReport], List[str]]:
     """Plan Role/Cluster renames across a profile's whole include: graph.
 
     Args:
-        profile_path: the profile ROOT .yaml (the file load_config() would
+        profile_path: the profile ROOT .sexp (the file load_config() would
             read — include: entries are followed from it, never a bare
-            ``profiles/**/*.yaml`` glob, so other profiles' files are never
+            ``profiles/**/*.sexp`` glob, so other profiles' files are never
             touched).
-        renames_cfg: the ``renames:`` map from the shared renames.yaml config
+        renames_cfg: the ``renames:`` map from the shared renames.sexp config
             (``{Role: {old: new}, Cluster: {old: new}}``).
 
-    Returns (edits_by_file, file_texts, report, unmatched), same shape as
-    plan_rename_edits: edits_by_file maps file path -> list of byte-offset
-    Edits, file_texts holds the original text for the writer, and unmatched
-    lists rename entries that matched nothing anywhere (for the CALLER to warn
-    about — an unmatched old_value is just as likely a harmless re-run as a
-    typo; renaming is idempotent).
+    Returns (mutated_by_file, report, unmatched):
+        mutated_by_file maps file path -> the MUTATED data dict (only files
+        with at least one change are present); report lists the individual
+        renames (EditReport, same shape as the schematic side); unmatched
+        lists rename entries that matched nothing anywhere (for the CALLER to
+        warn about — an unmatched old_value is just as likely a harmless
+        re-run as a typo; renaming is idempotent).
     """
     profile_path = Path(profile_path)
     if not profile_path.is_file():
@@ -392,28 +321,21 @@ def plan_profile_rename_edits(
     cluster_map = {str(k): str(v) for k, v in (renames_cfg.get("Cluster") or {}).items()}
 
     files = _collect_include_files(profile_path)
-    edits_by_file: dict[str, list[Edit]] = {}
-    file_texts: dict[str, str] = {}
-    report: list[EditReport] = []
-    matched_role: set[str] = set()
-    matched_cluster: set[str] = set()
+    mutated_by_file: Dict[str, Dict[str, Any]] = {}
+    report: List[EditReport] = []
+    matched_role: set = set()
+    matched_cluster: set = set()
 
-    for path, text in files.items():
-        path_str = str(path)
-        file_texts[path_str] = text
-        try:
-            node = yaml.compose(text)
-        except yaml.YAMLError as exc:
-            raise FieldsToolError(f"cannot parse profile file {path}: {exc}") from exc
-        ctx = _PlanContext(text=text, file=path_str, role_map=role_map,
-                           cluster_map=cluster_map)
-        _walk_file(node, ctx)
-        edits_by_file[path_str] = ctx.edits
+    for path, data in files.items():
+        ctx = _Ctx(file=str(path), role_map=role_map, cluster_map=cluster_map)
+        _walk_file(data, ctx)
+        if ctx.changed:
+            mutated_by_file[str(path)] = data
         report.extend(ctx.report)
         matched_role |= ctx.matched_role
         matched_cluster |= ctx.matched_cluster
 
-    unmatched: list[str] = []
+    unmatched: List[str] = []
     for old_value in role_map:
         if old_value not in matched_role:
             unmatched.append(f"Role: {old_value!r}")
@@ -421,45 +343,41 @@ def plan_profile_rename_edits(
         if old_value not in matched_cluster:
             unmatched.append(f"Cluster: {old_value!r}")
 
-    return edits_by_file, file_texts, report, unmatched
+    return mutated_by_file, report, unmatched
 
 
-# ── Write pipeline (profile-specific: YAML self-verify, not sexpdata) ────────
+# ── Write pipeline (profile-specific: s-expr self-verify) ────────────────────
 
-def write_profile_files(edits_by_file: dict[str, list[Edit]],
-                        file_texts: dict[str, str]) -> tuple[list[str], list[str]]:
-    """Per file, independently: .bak -> splice -> write -> re-parse with
-    yaml.safe_load as a self-verify -> on failure, restore the original text
+def write_profile_files(mutated_by_file: Dict[str, Dict[str, Any]]) -> Tuple[List[str], List[str]]:
+    """Per file, independently: .bak -> write dict_to_sexp -> re-parse with
+    sexp_to_dict as a self-verify -> on failure, restore the original text
     and record the file as failed, then continue with the rest. Returns
     (written, failed)."""
-    written: list[str] = []
-    failed: list[str] = []
-    for file, edits in edits_by_file.items():
-        if not edits:
-            continue
-        original = file_texts[file]
+    written: List[str] = []
+    failed: List[str] = []
+    for file, data in mutated_by_file.items():
+        with open(file, encoding="utf-8") as fh:
+            original = fh.read()
         bak_path = file + ".bak"
         with open(bak_path, "w", encoding="utf-8", newline="") as fh:
             fh.write(original)
-        new_text = apply_edits(original, edits)
-        with open(file, "w", encoding="utf-8", newline="") as fh:
-            fh.write(new_text)
         try:
-            with open(file, encoding="utf-8") as fh:
-                safe_load(fh)
+            new_text = dict_to_sexp(data)
+            sexp_to_dict(new_text)  # self-verify before touching the target
         except Exception as exc:
-            logger.error("%s: result does not parse as YAML (%s: %s) — restoring from %s",
+            logger.error("%s: result does not serialize/parse as s-expr (%s: %s) — "
+                         "restoring from %s",
                          file, type(exc).__name__, exc, bak_path)
-            with open(file, "w", encoding="utf-8", newline="") as fh:
-                fh.write(original)
             failed.append(file)
             continue
+        with open(file, "w", encoding="utf-8", newline="") as fh:
+            fh.write(new_text)
         written.append(file)
-        logger.info("%s: written, backup at %s, yaml.safe_load self-verify OK", file, bak_path)
+        logger.info("%s: written, backup at %s, sexp_to_dict self-verify OK", file, bak_path)
     return written, failed
 
 
-def print_profile_report(report: list[EditReport], write_mode: bool) -> None:
+def print_profile_report(report: List[EditReport], write_mode: bool) -> None:
     print(f"\n=== PROFILE {'WRITE' if write_mode else 'DRY-RUN'}: {len(report)} edit(s) ===")
     for r in sorted(report, key=lambda r: (r.file, r.refs)):
         loc = ",".join(r.refs)

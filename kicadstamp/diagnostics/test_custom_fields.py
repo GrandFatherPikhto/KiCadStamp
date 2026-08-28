@@ -7,15 +7,15 @@ then rotate and mirror relative to the new origin.
 
 import argparse
 import math
-import yaml
 from typing import Any
 
+from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.i18n import _
 
 
 def load_template(input_path: str) -> dict[str, Any]:
     with open(input_path, 'r', encoding='utf-8') as f:
-        data = yaml.safe_load(f)
+        data = sexp_to_dict(f.read()) or {}
     if 'templates' in data:
         name = next(iter(data['templates']))
         return {'name': name, 'template': data['templates'][name]}
@@ -25,8 +25,7 @@ def load_template(input_path: str) -> dict[str, Any]:
 
 def save_template(output_path: str, name: str, template: dict[str, Any]):
     with open(output_path, 'w', encoding='utf-8') as f:
-        yaml.dump({'templates': {name: template}}, f,
-                  allow_unicode=True, sort_keys=False, default_flow_style=False)
+        f.write(dict_to_sexp({'templates': {name: template}}))
 
 
 def rotate_coords(along: float, across: float, angle_deg: float) -> tuple[float, float]:

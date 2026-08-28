@@ -1,6 +1,6 @@
 # kicadstamp/cloner/extract.py
 """
-extract-channel: snapshot of a channel in YAML — components with positions,
+extract-channel: snapshot of a channel in s-expr — components with positions,
 tracks, vias, twin map, and summary. This is the cloner's "eyes": before any
 recording it shows exactly what will be cloned and what will be left behind
 (foreign copper of global nets inside the channel bounds).
@@ -9,8 +9,7 @@ recording it shows exactly what will be cloned and what will be left behind
 import logging
 from typing import Any
 
-import yaml
-
+from ..config.sexp_format import dict_to_sexp
 from .netlist import parse_netlist, build_twin_map
 from .pcb import PcbDocument
 from .models import TwinMap, ChannelPcbSnapshot
@@ -90,7 +89,7 @@ def snapshot_to_dict(snap: ChannelPcbSnapshot, twin: TwinMap) -> dict[str, Any]:
 
 
 def extract_channel(net_path: str, pcb_path: str, channel: str,
-                    output_yaml: str) -> dict[str, Any]:
+                    output: str) -> dict[str, Any]:
     comps, local_by_ch, _global_nets = parse_netlist(net_path)
     twin = build_twin_map(comps, local_by_ch)
     if channel not in twin.channels:
@@ -101,7 +100,7 @@ def extract_channel(net_path: str, pcb_path: str, channel: str,
     snap = doc.snapshot_channel(channel, twin.channels[channel].sheet_uuid)
     d = snapshot_to_dict(snap, twin)
 
-    with open(output_yaml, 'w', encoding='utf-8') as f:
-        yaml.safe_dump(d, f, allow_unicode=True, sort_keys=False, width=100)
-    logger.info(_("Snapshot of {channel} written: {output}").format(channel=channel, output=output_yaml))
+    with open(output, 'w', encoding='utf-8') as f:
+        f.write(dict_to_sexp(d))
+    logger.info(_("Snapshot of {channel} written: {output}").format(channel=channel, output=output))
     return d

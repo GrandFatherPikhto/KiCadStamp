@@ -197,7 +197,7 @@ python kicadstamp_cli.py undo [--verbose] [--log-file]
 ### `clone-extract` – snapshot a channel (file‑based cloner)
 
 ```bash
-python kicadstamp_cli.py clone-extract --net project.net --pcb project.kicad_pcb --channel Channel_0 --output snapshot.yaml [--verbose]
+python kicadstamp_cli.py clone-extract --net project.net --pcb project.kicad_pcb --channel Channel_0 --output snapshot.sexp [--verbose]
 ```
 
 ---

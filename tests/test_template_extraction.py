@@ -385,19 +385,27 @@ class TestRuleNets:
 class TestRenderUncertainComments:
     """render_uncertain_comments — текстовая пост-обработка yaml.dump()
     вывода cmd_extract: закомментированная строка-подсказка после блока
-    компонента с нужной ролью, см. handoff про auto-guess extract."""
+    компонента с нужной ролью, см. handoff про auto-guess extract.
 
-    @staticmethod
-    def _dump(data):
-        import yaml
-        return yaml.dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False)
+    Sample text is hardcoded (the same YAML PyYAML's dump would produce) —
+    2026-08-28, yaml_removal_tooling removed the `import yaml` from the
+    tests; render_uncertain_comments itself stays alive as a kept module
+    (CORE plan §0.5.2)."""
 
     def test_inserts_comment_after_matching_role_block(self):
-        data = {"my_tpl": {"components": [
-            {"role": "A", "offset_along_mm": 1.0, "angle_deg": 0.0},
-            {"role": "B", "offset_along_mm": 2.0, "angle_deg": 90.0},
-        ], "vias": [], "tracks": [], "layer": "F.Cu"}}
-        text = self._dump(data)
+        text = (
+            "my_tpl:\n"
+            "  components:\n"
+            "  - role: A\n"
+            "    offset_along_mm: 1.0\n"
+            "    angle_deg: 0.0\n"
+            "  - role: B\n"
+            "    offset_along_mm: 2.0\n"
+            "    angle_deg: 90.0\n"
+            "  vias: []\n"
+            "  tracks: []\n"
+            "  layer: F.Cu\n"
+        )
         annotations = [("B", "net_template", "could not determine automatically")]
 
         out = render_uncertain_comments(text, "my_tpl", annotations)
@@ -416,13 +424,24 @@ class TestRenderUncertainComments:
         assert comment_idx < vias_idx
 
     def test_same_role_in_different_template_is_not_touched(self):
-        data = {
-            "tpl_one": {"components": [{"role": "X", "offset_along_mm": 0.0, "angle_deg": 0.0}],
-                        "vias": [], "tracks": [], "layer": "F.Cu"},
-            "tpl_two": {"components": [{"role": "X", "offset_along_mm": 0.0, "angle_deg": 0.0}],
-                        "vias": [], "tracks": [], "layer": "F.Cu"},
-        }
-        text = self._dump(data)
+        text = (
+            "tpl_one:\n"
+            "  components:\n"
+            "  - role: X\n"
+            "    offset_along_mm: 0.0\n"
+            "    angle_deg: 0.0\n"
+            "  vias: []\n"
+            "  tracks: []\n"
+            "  layer: F.Cu\n"
+            "tpl_two:\n"
+            "  components:\n"
+            "  - role: X\n"
+            "    offset_along_mm: 0.0\n"
+            "    angle_deg: 0.0\n"
+            "  vias: []\n"
+            "  tracks: []\n"
+            "  layer: F.Cu\n"
+        )
         annotations = [("X", "net_template", "hint for tpl_two only")]
 
         out = render_uncertain_comments(text, "tpl_two", annotations)
@@ -435,13 +454,20 @@ class TestRenderUncertainComments:
         assert not (one_start < comment_idx < two_start)
 
     def test_no_annotations_returns_text_unchanged(self):
-        text = self._dump({"t": {"components": [], "vias": [], "tracks": [], "layer": "F.Cu"}})
+        text = "t:\n  components: []\n  vias: []\n  tracks: []\n  layer: F.Cu\n"
         assert render_uncertain_comments(text, "t", []) == text
 
     def test_unknown_role_is_silently_skipped(self):
-        data = {"t": {"components": [{"role": "A", "offset_along_mm": 0.0, "angle_deg": 0.0}],
-                       "vias": [], "tracks": [], "layer": "F.Cu"}}
-        text = self._dump(data)
+        text = (
+            "t:\n"
+            "  components:\n"
+            "  - role: A\n"
+            "    offset_along_mm: 0.0\n"
+            "    angle_deg: 0.0\n"
+            "  vias: []\n"
+            "  tracks: []\n"
+            "  layer: F.Cu\n"
+        )
         out = render_uncertain_comments(text, "t", [("NOT_PRESENT", "net_template", "hint")])
         assert out == text
 

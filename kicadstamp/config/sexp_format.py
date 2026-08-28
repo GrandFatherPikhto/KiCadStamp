@@ -294,12 +294,19 @@ def _typed_value_to_atom(value, kind: str):
 
 
 def _pair_to_sexp(key, value, value_kind: str):
-    """One key-value pair. A scalar value -> one atom; a NESTED dict value
-    (free-form sections, e.g. fieldstool's fields: {R1: {Role: X}}) ->
-    recursive child pairs after the key, so (fields ("R1" (Role "X")))
-    round-trips back to {"R1": {"Role": "X"}} unambiguously."""
+    """One key-value pair. A scalar value -> one quoted-key atom; a NESTED
+    dict value (free-form sections, e.g. fieldstool's fields: {R1: {Role: X}})
+    -> quoted key + recursive child pairs, so (fields ("R1" (Role "X")))
+    round-trips back to {"R1": {"Role": "X"}} unambiguously; a LIST value
+    (free-form, e.g. the cloner snapshot's foreign_in_bbox.segment_nets) ->
+    BARE key + atoms, so (segment_nets "GND" "B.Cu") round-trips back to
+    ["GND", "B.Cu"] — the bare key keeps it distinct from a quoted-key pair,
+    which must be ("key" value) with a single value (a quoted-key node with
+    extra atoms stays malformed/fatal, see _parse_pairs_field)."""
     if isinstance(value, dict):
         return [key, *[_pair_to_sexp(k, v, "any") for k, v in value.items()]]
+    if isinstance(value, list):
+        return [sym(key), *[_typed_value_to_atom(x, "any") for x in value]]
     return [key, _typed_value_to_atom(value, value_kind)]
 
 
@@ -666,17 +673,21 @@ def _parse_pairs_field(node, value_kind: str, path: str) -> dict:
                 [_("in {path}: got {value!r}; a mapping field is a list of "
                    "(\"key\" value) pairs").format(path=path, value=pair)])
         key = pair[0]
-        if type(key) is not str:  # exactly str, never a Symbol
-            raise _fatal(
-                "s-expr: expected a quoted string key in a pair",
-                [_("in {path}: the key of a pair must be a quoted string")
-                 .format(path=path)])
+        if type(key) is not str:  # bare-Symbol key -> free-form sub-field
+            # (a LIST value inside a free-form dict, e.g. the cloner snapshot's
+            # foreign_in_bbox.segment_nets — the parse-side counterpart of
+            # _pair_to_sexp's bare-key list branch). Parsed like any free-form
+            # field: multiple atoms -> list, single atom -> scalar, none -> [].
+            out[sval(key)] = _parse_free_field(pair, f"{path}.{sval(key)}")
+            continue
         rest = pair[1:]
         if len(rest) == 1 and not isinstance(rest[0], list):
             out[key] = _atom_to_value(rest[0], value_kind, f"{path}.{key}")
         else:
             # nested dict value (free-form, e.g. fields: {R1: {Role: X}}) —
-            # the remaining children are themselves pairs
+            # the remaining children are themselves pairs; a quoted-key pair
+            # with extra bare atoms falls through here and fatal's on the
+            # non-pair child (test_fatal_wrong_pair_shape).
             out[key] = _parse_pairs_field([sym("_"), *rest], "any", f"{path}.{key}")
     return out
 
@@ -707,10 +718,15 @@ def _parse_free_field(node, path: str) -> Any:
         if len(children) == 1:
             return _atom_to_value(children[0], "any", path)
         return [_atom_to_value(x, "any", path) for x in children]
-    # every child is a node: pairs (quoted key first) -> dict, else records
-    if all(isinstance(x, list) and x and type(x[0]) is str for x in children):
-        return _parse_pairs_field(node, "any", path)
-    return [_parse_free_record(x, path) for x in children]
+    # Every child is a node. Quoted-key pairs (or a MIX of quoted-key pairs
+    # and bare-key free-form sub-fields — a free-form dict that also carries
+    # list values, e.g. the cloner snapshot's foreign_in_bbox) -> a dict via
+    # _parse_pairs_field; all-bare-key record nodes -> a list of dicts (e.g.
+    # footprints: (footprint ...) (footprint ...)).
+    if all(isinstance(x, list) and x for x in children):
+        if any(type(x[0]) is str for x in children):
+            return _parse_pairs_field(node, "any", path)
+        return [_parse_free_record(x, path) for x in children]
 
 
 def _parse_free_record(node, path: str) -> dict:

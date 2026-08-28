@@ -34,22 +34,22 @@ already routed, nets are already derivable from Role+Cluster, no hand-typed
 net list needed.
 
 Inputs:
-  --templates <dir>       cell YAML files (profiles/*/templates/*.yaml)
+  --templates <dir>       cell config files (profiles/*/templates/*.sexp)
   --netlist <file>        optional: KiCad .net file (full graph, needs Cluster)
   --board                 optional: build the graph live via kipy instead of
                           --netlist (also runs the geometry fake-run, see below)
-  --profile <file>        optional: profile YAML with clone_placements
+  --profile <file>        optional: profile config with clone_placements
                           (template -> params + anchor_cluster)
   --rule-nets GND,...     rule nets (default: GND)
   --json <file>           optional: write machine-readable report
 
 Run (offline, from a .net export):
     python -m kicadstamp.diagnostics.net_from_role_audit \
-        --templates <dir> --netlist <proj>.net --profile power.yaml
+        --templates <dir> --netlist <proj>.net --profile power.sexp
 
 Run (live, no .net export needed):
     python -m kicadstamp.diagnostics.net_from_role_audit \
-        --templates <dir> --profile power.yaml --board
+        --templates <dir> --profile power.sexp --board
 """
 from __future__ import annotations
 
@@ -61,7 +61,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import yaml  # noqa: E402
+from kicadstamp.config.sexp_format import sexp_to_dict  # noqa: E402
 
 from kicadstamp.cloner.sexp import child, children, atom, load_file, sval  # noqa: E402
 import sexpdata  # noqa: E402
@@ -200,8 +200,8 @@ def load_cells(templates_dir: str) -> dict[str, dict]:
     legacy flat layout (cell_name: {...} directly at the file's top level,
     still found in old worktrees/snapshots) — a file can use either."""
     cells: dict[str, dict] = {}
-    for path in sorted(Path(templates_dir).glob("*.yaml")):
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    for path in sorted(Path(templates_dir).glob("*.sexp")):
+        data = sexp_to_dict(path.read_text(encoding="utf-8")) or {}
         candidates = list((data.get("cells") or {}).items()) + list(data.items())
         for name, cell in candidates:
             if isinstance(cell, dict) and ("components" in cell or "vias" in cell):
@@ -218,7 +218,7 @@ def load_placements_by_template(profile_path: str | None) -> dict[str, list[dict
     carry no params: at all in this project)."""
     if not profile_path:
         return {}
-    data = yaml.safe_load(Path(profile_path).read_text(encoding="utf-8")) or {}
+    data = sexp_to_dict(Path(profile_path).read_text(encoding="utf-8")) or {}
     out: dict[str, list[dict]] = defaultdict(list)
     for key, entry in (data.get("extract_profiles") or {}).items():
         if not isinstance(entry, dict):
@@ -247,7 +247,7 @@ def _clone_placements_from_profile(profile_path: str | None) -> list[dict]:
     anchor_role/anchor_pad/rotation of each placement to resolve the origin)."""
     if not profile_path:
         return []
-    data = yaml.safe_load(Path(profile_path).read_text(encoding="utf-8")) or {}
+    data = sexp_to_dict(Path(profile_path).read_text(encoding="utf-8")) or {}
     return list(data.get("clone_placements", []) or [])
 
 
@@ -705,13 +705,13 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--templates", required=True,
-                    help="directory with cell YAML files (templates/*.yaml)")
+                    help="directory with cell config files (templates/*.sexp)")
     ap.add_argument("--netlist", default=None,
                     help="optional: KiCad .net file (offline role/net graph; "
                          "if omitted and --board is given, the graph is built "
                          "live from the board instead)")
     ap.add_argument("--profile", default=None,
-                    help="optional: profile YAML (clone_placements -> params+cluster)")
+                    help="optional: profile config (clone_placements -> params+cluster)")
     ap.add_argument("--rule-nets", default="GND", help="comma-separated rule nets")
     ap.add_argument("--no-geometry", action="store_true",
                     help="disable geometry tiebreak (pick nearest component by "

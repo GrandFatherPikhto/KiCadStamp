@@ -13,15 +13,16 @@ import os
 from pathlib import Path
 
 import pytest
-import yaml
+
+from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 
 from kicadstamp.utils.file_cache import cached_file_read, invalidate_path
 
 
-def _yaml_loader(path):
-    """A loader that returns a fresh dict from the YAML at `path` — the same
-    `yaml.safe_load(...) or {}` contract the real callers use (never None)."""
-    return yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+def _sexp_loader(path):
+    """A loader that returns a fresh dict from the s-expr at `path` — the same
+    `sexp_to_dict(...) or {}` contract the real callers use (never None)."""
+    return sexp_to_dict(Path(path).read_text(encoding="utf-8")) or {}
 
 
 def _bump_mtime_forward(path: Path, seconds: float = 1.0) -> None:
@@ -45,8 +46,8 @@ def _pin_mtime(path: Path, mtime_ns: int) -> None:
 
 
 def test_repeat_read_on_unchanged_file_calls_loader_once(tmp_path):
-    path = tmp_path / "conf.yaml"
-    path.write_text("a: 1\n", encoding="utf-8")
+    path = tmp_path / "conf.sexp"
+    path.write_text(dict_to_sexp({"a": 1}), encoding="utf-8")
     calls = []
 
     def loader(p):
@@ -61,13 +62,13 @@ def test_repeat_read_on_unchanged_file_calls_loader_once(tmp_path):
 
 
 def test_changed_file_is_reread(tmp_path):
-    path = tmp_path / "conf.yaml"
-    path.write_text("value: 1\n", encoding="utf-8")
+    path = tmp_path / "conf.sexp"
+    path.write_text(dict_to_sexp({"value": 1}), encoding="utf-8")
     calls = []
 
     def loader(p):
         calls.append(p)
-        return _yaml_loader(p)
+        return _sexp_loader(p)
 
     assert cached_file_read(path, loader) == {"value": 1}
     assert len(calls) == 1
@@ -75,7 +76,7 @@ def test_changed_file_is_reread(tmp_path):
     # External hand-edit: new content + a bumped mtime (a changed mtime is a
     # cache miss on its own — that's how external edits are picked up with no
     # explicit invalidate() call anywhere).
-    path.write_text("value: 2\n", encoding="utf-8")
+    path.write_text(dict_to_sexp({"value": 2}), encoding="utf-8")
     _bump_mtime_forward(path)
     assert cached_file_read(path, loader) == {"value": 2}
     assert len(calls) == 2
@@ -87,14 +88,14 @@ def test_returned_dict_is_safe_to_mutate(tmp_path):
     view (the real callers build shallow top-level copies that still alias
     nested objects, so this is the guarantee that makes auditing every
     downstream mutator unnecessary)."""
-    path = tmp_path / "conf.yaml"
-    path.write_text("items:\n  a: 1\n", encoding="utf-8")
+    path = tmp_path / "conf.sexp"
+    path.write_text(dict_to_sexp({"items": {"a": 1}}), encoding="utf-8")
 
-    first = cached_file_read(path, _yaml_loader)
+    first = cached_file_read(path, _sexp_loader)
     first["items"]["a"] = 999
     first["new_key"] = "mutated"
 
-    second = cached_file_read(path, _yaml_loader)
+    second = cached_file_read(path, _sexp_loader)
     assert second["items"]["a"] == 1
     assert "new_key" not in second
 
@@ -103,7 +104,7 @@ def test_missing_file_calls_loader_directly_and_is_not_cached_as_absent(tmp_path
     """A missing file is handled by loader(path) directly, uncached — so a
     file that doesn't exist yet is never cached "as absent forever" and
     becomes visible on the next call once it's created."""
-    path = tmp_path / "absent.yaml"
+    path = tmp_path / "absent.sexp"
     calls = []
 
     def loader(p):
@@ -116,7 +117,7 @@ def test_missing_file_calls_loader_directly_and_is_not_cached_as_absent(tmp_path
         cached_file_read(path, loader)
     assert len(calls) == 1
 
-    path.write_text("seen: true\n", encoding="utf-8")
+    path.write_text(dict_to_sexp({"seen": True}), encoding="utf-8")
     assert cached_file_read(path, loader) == {"seen": True}
     assert len(calls) == 2  # re-parsed from scratch, never cached while absent
 
@@ -125,8 +126,8 @@ def test_invalidate_path_forces_reread_without_mtime_change(tmp_path):
     """invalidate_path() must work independent of mtime at all — read to fill
     the cache, invalidate with NO content/mtime change on disk, read again:
     the loader must run a second time."""
-    path = tmp_path / "conf.yaml"
-    path.write_text("a: 1\n", encoding="utf-8")
+    path = tmp_path / "conf.sexp"
+    path.write_text(dict_to_sexp({"a": 1}), encoding="utf-8")
     calls = []
 
     def loader(p):
@@ -142,15 +143,15 @@ def test_invalidate_path_forces_reread_without_mtime_change(tmp_path):
 
 
 def test_invalidate_path_on_never_cached_path_is_noop(tmp_path):
-    invalidate_path(tmp_path / "never.yaml")  # must not raise
+    invalidate_path(tmp_path / "never.sexp")  # must not raise
 
 
 def test_two_loaders_for_same_path_share_one_cache_entry(tmp_path):
     """The whole point of a single shared cache: config_writer's _read_data
     and config/includes' _load_yaml_file read the SAME file with different
     loader functions, and must still parse it once, not once per reader."""
-    path = tmp_path / "conf.yaml"
-    path.write_text("a: 1\n", encoding="utf-8")
+    path = tmp_path / "conf.sexp"
+    path.write_text(dict_to_sexp({"a": 1}), encoding="utf-8")
     calls = []
 
     def loader_a(p):

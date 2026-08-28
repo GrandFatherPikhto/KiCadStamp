@@ -4,7 +4,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
-import yaml
+from kicadstamp.config.sexp_format import dict_to_sexp
 
 from kicadstamp.exceptions import FieldsToolError
 from kicadstamp.schematic_rename_fields import plan_rename_edits
@@ -12,8 +12,8 @@ from tests.fieldstool_fixtures import sch_file, symbol_block
 
 
 def _write_config(tmp_path, root_sheet, renames):
-    config = tmp_path / "config.yaml"
-    config.write_text(yaml.safe_dump({"root_sheet": root_sheet, "renames": renames}), encoding="utf-8")
+    config = tmp_path / "config.sexp"
+    config.write_text(dict_to_sexp({"root_sheet": root_sheet, "renames": renames}), encoding="utf-8")
     return config
 
 
@@ -95,8 +95,8 @@ def test_plan_rename_no_conflict_possible_unlike_set(tmp_path):
 
 
 def test_plan_rename_missing_root_sheet_key_is_fatal(tmp_path):
-    config = tmp_path / "config.yaml"
-    config.write_text(yaml.safe_dump({"renames": {"Role": {"A": "B"}}}), encoding="utf-8")
+    config = tmp_path / "config.sexp"
+    config.write_text(dict_to_sexp({"renames": {"Role": {"A": "B"}}}), encoding="utf-8")
     with pytest.raises(FieldsToolError, match="root_sheet"):
         plan_rename_edits(config)
 

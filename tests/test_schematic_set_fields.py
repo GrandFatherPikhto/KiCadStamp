@@ -4,7 +4,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
-import yaml
+from kicadstamp.config.sexp_format import dict_to_sexp
 
 from kicadstamp.exceptions import FieldsToolError
 from kicadstamp.schematic_set_fields import (plan_ensure_fields_for_root, plan_set_edits,
@@ -13,8 +13,8 @@ from tests.fieldstool_fixtures import sch_file, symbol_block
 
 
 def _write_config(tmp_path, root_sheet, fields):
-    config = tmp_path / "config.yaml"
-    config.write_text(yaml.safe_dump({"root_sheet": root_sheet, "fields": fields}), encoding="utf-8")
+    config = tmp_path / "config.sexp"
+    config.write_text(dict_to_sexp({"root_sheet": root_sheet, "fields": fields}), encoding="utf-8")
     return config
 
 
@@ -102,8 +102,8 @@ def test_plan_set_edits_for_root_matches_config_based_planning(tmp_path):
 
 
 def test_plan_set_missing_root_sheet_key_is_fatal(tmp_path):
-    config = tmp_path / "config.yaml"
-    config.write_text(yaml.safe_dump({"fields": {"R1": {"Role": "X"}}}), encoding="utf-8")
+    config = tmp_path / "config.sexp"
+    config.write_text(dict_to_sexp({"fields": {"R1": {"Role": "X"}}}), encoding="utf-8")
     with pytest.raises(FieldsToolError, match="root_sheet"):
         plan_set_edits(config)
 

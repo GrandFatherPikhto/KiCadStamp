@@ -6,12 +6,13 @@ transform_template.py — преобразование шаблона спицы
 """
 import argparse
 import math
-import yaml
 from typing import Dict, Any, Optional, Tuple
+
+from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 
 def load_template(input_path: str) -> Dict[str, Any]:
     with open(input_path, 'r', encoding='utf-8') as f:
-        data = yaml.safe_load(f)
+        data = sexp_to_dict(f.read()) or {}
     if 'templates' in data:
         name = next(iter(data['templates']))
         return {'name': name, 'template': data['templates'][name]}
@@ -20,8 +21,7 @@ def load_template(input_path: str) -> Dict[str, Any]:
 
 def save_template(output_path: str, name: str, template: Dict[str, Any]):
     with open(output_path, 'w', encoding='utf-8') as f:
-        yaml.dump({'templates': {name: template}}, f,
-                  allow_unicode=True, sort_keys=False, default_flow_style=False)
+        f.write(dict_to_sexp({'templates': {name: template}}))
 
 def rotate_coords(along: float, across: float, angle_deg: float) -> Tuple[float, float]:
     rad = math.radians(angle_deg)

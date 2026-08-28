@@ -4,7 +4,7 @@
 
 The `cloner/` module provides the `clone-extract` command for offline (no‑IPC) analysis of hierarchical KiCad projects. It is designed for:
 
-- **Taking channel snapshots** – extracting all components, tracks, and vias belonging to a specific channel instance (e.g., `Channel_0`) into a readable YAML file.
+- **Taking channel snapshots** – extracting all components, tracks, and vias belonging to a specific channel instance (e.g., `Channel_0`) into a readable s-expr file.
 - **Building a twin map** – automatically determining the correspondence of components and nets between different instances of the same hierarchical sheet (template).
 - **Visualising “foreign” copper** – identifying global nets (power, ground) that pass through the channel boundaries, so that the designer can consciously handle them when cloning.
 
@@ -17,7 +17,7 @@ The `cloner/` module provides the `clone-extract` command for offline (no‑IPC)
 ```
 cloner/
 ├── __init__.py           # Public API export
-├── extract.py            # Main entry point – channel extraction to YAML
+├── extract.py            # Main entry point – channel extraction to s-expr
 ├── plan.py               # Phase 3 – auto clone_placements block + net_matching verify
 ├── models.py             # Dataclasses for all entities (components, segments, vias, twin map)
 ├── netlist.py            # .net file parsing, twin map construction
@@ -114,7 +114,7 @@ Parses the `.kicad_pcb` file, extracts all footprints, segments, and vias, and t
 ### `extract.py` – Orchestration and Serialisation
 
 **Purpose:**  
-Ties together the netlist and board, builds the channel snapshot, and serialises it to YAML. This is the main entry point for the `clone-extract` command.
+Ties together the netlist and board, builds the channel snapshot, and serialises it to s-expr. This is the main entry point for the `clone-extract` command.
 
 **Algorithm:**
 
@@ -122,7 +122,7 @@ Ties together the netlist and board, builds the channel snapshot, and serialises
 2. Check that the requested channel exists in the map.
 3. Load the board (`PcbDocument`) and obtain the channel snapshot (`snapshot_channel`).
 4. For each footprint in the snapshot, compute twin refdes in other channels (via `TwinMap.twin_ref`).
-5. Convert the snapshot and twin map into a Python dictionary ready for YAML (coordinates rounded to 4 decimals).
+5. Convert the snapshot and twin map into a Python dictionary ready for s-expr (coordinates rounded to 4 decimals).
 6. Write the result to the output file.
 
 **Functions:**
@@ -130,7 +130,7 @@ Ties together the netlist and board, builds the channel snapshot, and serialises
 | Function | Description |
 |----------|-------------|
 | `snapshot_to_dict(snap, twin)` | Serialises `ChannelPcbSnapshot` and `TwinMap` into a dictionary, adding `twins` for each component. |
-| `extract_channel(net_path, pcb_path, channel, output_yaml)` | The main function called from the CLI. Performs all steps and returns the result dictionary. |
+| `extract_channel(net_path, pcb_path, channel, output)` | The main function called from the CLI. Performs all steps and returns the result dictionary. |
 
 ### `plan.py` – Auto clone_placements block (Phase 3)
 
@@ -152,55 +152,66 @@ snapshot output.
 
 ---
 
-## Output YAML Snapshot Format
+## Output s-expr Snapshot Format
 
-```yaml
-channel: Channel_0
-channel_sheet_uuid: 12345678-1234-1234-1234-123456789abc
-summary:
-  footprints: 42
-  segments: 156
-  vias: 38
-  foreign_segments_in_bbox: 12
-  foreign_vias_in_bbox: 4
-bbox_mm:
-  x0: 50.0
-  y0: 60.0
-  x1: 80.0
-  y1: 90.0
-
-footprints:
-  - ref: C601
-    lib_id: "Capacitor_SMD:C_0402_1005Metric"
-    x_mm: 52.34
-    y_mm: 64.56
-    rotation_deg: 0.0
-    layer: F.Cu
-    uuid: "abc-123..."
-    twins:
-      Channel_1: C1601
-      Channel_2: C1101
-
-segments:
-  - start: [52.0, 65.0]
-    end: [53.0, 66.0]
-    width_mm: 0.2
-    layer: F.Cu
-    net: /Channel_0/DAC_Signal
-    uuid: "def-456..."
-
-vias:
-  - at: [52.5, 65.5]
-    size_mm: 0.6
-    drill_mm: 0.3
-    layers: [F.Cu, B.Cu]
-    net: GND
-    uuid: "ghi-789..."
-
-foreign_in_bbox:
-  note: "Global net copper inside the channel boundaries: not included in the clone; channel connections to global rails should be handled deliberately."
-  segment_nets: [GND, +3V3]
-  via_nets: [GND]
+```sexp
+(kicadstamp-config
+  (channel "Channel_0")
+  (channel_sheet_uuid "12345678-1234-1234-1234-123456789abc")
+  (summary
+    ("footprints" 42)
+    ("segments" 156)
+    ("vias" 38)
+    ("foreign_segments_in_bbox" 12)
+    ("foreign_vias_in_bbox" 4)
+  )
+  (bbox_mm
+    ("x0" 50.0)
+    ("y0" 60.0)
+    ("x1" 80.0)
+    ("y1" 90.0)
+  )
+  (footprints
+    (footprint
+      (ref "C601")
+      (lib_id "Capacitor_SMD:C_0402_1005Metric")
+      (x_mm 52.34)
+      (y_mm 64.56)
+      (rotation_deg 0.0)
+      (layer "F.Cu")
+      (uuid "abc-123...")
+      (twins
+        ("Channel_1" "C1601")
+        ("Channel_2" "C1101")
+      )
+    )
+  )
+  (segments
+    (segment
+      (start 52.0 65.0)
+      (end 53.0 66.0)
+      (width_mm 0.2)
+      (layer "F.Cu")
+      (net "/Channel_0/DAC_Signal")
+      (uuid "def-456...")
+    )
+  )
+  (vias
+    (via
+      (at 52.5 65.5)
+      (size_mm 0.6)
+      (drill_mm 0.3)
+      (layers "F.Cu" "B.Cu")
+      (net "GND")
+      (uuid "ghi-789...")
+    )
+  )
+  (foreign_in_bbox
+    ("note" "Global net copper inside the channel boundaries: not included in the clone; channel connections to global rails should be handled deliberately.")
+    (segment_nets "GND" "+3V3")
+    (via_nets "GND")
+  )
+)
 ```
 
 ---
@@ -209,14 +220,14 @@ foreign_in_bbox:
 
 The `cloner/` module is **self‑contained** and does not depend on `kicad/adapter.py`, `placement/`, or `geometry/`. It is used in `kicadstamp_cli.py` via the `clone-extract` command, and `plan.py` additionally reuses the Phase 0 `net_matching` module (Kuhn+SCC) and the config s-expr converter.
 
-Its output (YAML snapshots) is intended for **manual analysis** by the developer. The `clone-plan` command automates the next step — generating the ready `clone_placements:` block from the snapshot without hand-writing `params`/`nets` (Phase 3).
+Its output (s-expr snapshots) is intended for **manual analysis** by the developer. The `clone-plan` command automates the next step — generating the ready `clone_placements:` block from the snapshot without hand-writing `params`/`nets` (Phase 3).
 
 ---
 
 ## CLI Usage
 
 ```bash
-python kicadstamp_cli.py clone-extract --net project.net --pcb project.kicad_pcb --channel Channel_0 --output snapshot.yaml
+python kicadstamp_cli.py clone-extract --net project.net --pcb project.kicad_pcb --channel Channel_0 --output snapshot.sexp
 ```
 
 **Parameters:**
@@ -226,13 +237,13 @@ python kicadstamp_cli.py clone-extract --net project.net --pcb project.kicad_pcb
 | `--net` | Path to the `.net` file (exported from Eeschema). |
 | `--pcb` | Path to the `.kicad_pcb` file. |
 | `--channel` | Channel name to extract (e.g., `Channel_0`). |
-| `--output` | Path to the output YAML file. |
+| `--output` | Path to the output s-expr file. |
 | `-v, --verbose` | Verbose logging. |
 
 **Example output:**
 
 ```
-[Channel_0] footprints: 42, segments: 156, vias: 38 -> snapshot.yaml
+[Channel_0] footprints: 42, segments: 156, vias: 38 -> snapshot.sexp
 ```
 
 ### `clone-plan` — auto clone_placements block
@@ -266,7 +277,7 @@ it loads into the config (apply can run it) without manual net definition.
 1. **Export the netlist** from Eeschema (`File → Export → Netlist...`) and choose the `KiCad` format.
 2. Ensure you have the board file (`.kicad_pcb`).
 3. Run `clone-extract` for one of the channels to see which components and nets are present and who their twins are in other channels.
-4. Examine the resulting YAML:
+4. Examine the resulting s-expr:
    - Verify that all components have twins in all channels (incomplete groups will be logged as warnings).
    - Pay attention to `foreign_in_bbox` – this indicates which global nets pass through this channel and will need to be consciously connected in the clone (via spoke vias or separate components).
 5. Run `clone-plan` to auto-generate the `clone_placements:` block for every target channel (cluster/cell/xy + params `{channel: N}` + nets `{role: net}`), writing it straight into the s-expr config — no manual `params`/`nets`.

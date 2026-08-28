@@ -363,7 +363,7 @@ python kicadstamp_cli.py clone-extract --net <файл.net> --pcb <файл.kica
 ### Пример
 
 ```bash
-python kicadstamp_cli.py clone-extract --net my_project.net --pcb my_project.kicad_pcb --channel Channel_0 --output snapshot.yaml --verbose
+python kicadstamp_cli.py clone-extract --net my_project.net --pcb my_project.kicad_pcb --channel Channel_0 --output snapshot.sexp --verbose
 ```
 
 С использованием профиля (`clone_profiles.sexp`):
@@ -373,7 +373,7 @@ clone_profiles:
     net: my_project.net
     pcb: my_project.kicad_pcb
     channel: Channel_0
-    output: snapshot.yaml
+    output: snapshot.sexp
 ```
 
 Запуск:

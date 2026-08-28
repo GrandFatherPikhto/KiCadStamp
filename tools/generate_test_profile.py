@@ -1,5 +1,5 @@
 # tools/generate_test_profile.py
-"""Generate profiles/tests/test.yaml — a synthetic, large but VALID KiCadStamp
+"""Generate profiles/tests/test.sexp — a synthetic, large but VALID KiCadStamp
 config for reproducible GUI-startup profiling, independent of any real board.
 
 Run from the repo root:
@@ -7,14 +7,14 @@ Run from the repo root:
 
 The output passes kicadstamp.config.load_config() (it has no include:/schematic
 references, so no .kicad_sch files are read — the cost it exercises is the
-YAML parse + schema validation + tree building, which scale with entry count).
+s-expr parse + schema validation + tree building, which scale with entry count).
 
 Sizes are constants below; edit and re-run to change the shape.
 """
 import argparse
 from pathlib import Path
 
-import yaml
+from kicadstamp.config.sexp_format import dict_to_sexp
 
 # Default entry counts — large enough to be a few thousand YAML lines and
 # several hundred config records, small enough to parse in a second.
@@ -106,7 +106,7 @@ def build(n_rules, n_clones, n_coords, n_thermals, n_cells) -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Generate profiles/tests/test.yaml")
+    parser = argparse.ArgumentParser(description="Generate profiles/tests/test.sexp")
     parser.add_argument("--rules", type=int, default=N_RULES)
     parser.add_argument("--clones", type=int, default=N_CLONES)
     parser.add_argument("--coords", type=int, default=N_COORDS)
@@ -115,16 +115,16 @@ def main() -> int:
     parser.add_argument("--schematic-dir", default=None,
                         help="Optional schematic_dir: to point at a real KiCad "
                              "schematic tree so the profile also exercises the "
-                             "sheet-name map (sexpdata) parse, not just YAML.")
+                             "sheet-name map (sexpdata) parse, not just s-expr.")
     args = parser.parse_args()
 
-    out = Path("profiles/tests/test.yaml")
+    out = Path("profiles/tests/test.sexp")
     out.parent.mkdir(parents=True, exist_ok=True)
     data = build(args.rules, args.clones, args.coords, args.thermals, args.cells)
     if args.schematic_dir:
         data["schematic_dir"] = args.schematic_dir
     with open(out, "w", encoding="utf-8") as f:
-        yaml.dump(data, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
+        f.write(dict_to_sexp(data))
     print(f"Wrote {out} ({len(data['rules'])} rules, {len(data['clone_placements'])} "
           f"clone_placements, {len(data['coordinate_placements'])} coordinate_placements, "
           f"{len(data['thermal_via_arrays'])} thermal_via_arrays, {len(data['cells'])} cells)")

@@ -4,14 +4,14 @@ generate_10cl006.py — config generator for 10CL006YE144C8G, one
 data source (BANKS/CLUSTER_MAP) into three derived artefacts:
 
   1. rules‑based config (ManualSpoke) — as before, apply‑ready,
-     profiles/generated/10CL006YE144C8G.yaml.
+     profiles/generated/10CL006YE144C8G.sexp.
   2. clone_placements‑based config (ClonePlacement) — same geometry,
      but via cloning, because Rule/ManualSpoke cannot clone tracks
      (see discussion) —
-     profiles/generated/10CL006YE144C8G.clone_placements.yaml.
+     profiles/generated/10CL006YE144C8G.clone_placements.sexp.
      Not automatically included (no include mechanism in configs) —
      the clone_placements: block is copied manually into
-     profiles/3ch-awg-tia.yaml after dry‑run testing.
+     profiles/3ch-awg-tia.sexp after dry‑run testing.
   3. pad -> cluster table (for manual Cluster field assignment in
      Eeschema Bulk Edit, if proximity‑based resolution is insufficient
      for some spokes) — previously a separate script
@@ -22,13 +22,13 @@ IMPORTANT about the template: rules use the templates_file template
 "cap_pair_standard" (net: null on common vias — inherits rule.net, only
 Rule can do that), clone_placements use "cap_pair_standard_clone"
 (net: "{power_net}" — resolved via params, only ClonePlacement can do that).
-These are TWO SEPARATE entries in profiles/templates/3ch-awg-tia.yaml,
+These are TWO SEPARATE entries in profiles/templates/3ch-awg-tia.sexp,
 deliberately not one — Rule does not resolve "{placeholder}" at all, while
 ClonePlacement fatally fails on vias without a net. They are used in parallel
 (rules are still production, clone_placements are for testing).
 """
 from dataclasses import asdict
-import yaml
+from kicadstamp.config.sexp_format import dict_to_sexp
 import sys
 from pathlib import Path
 
@@ -118,7 +118,7 @@ def build_cluster_table():
     rows = []
     for net, spokes_table in BANKS.items():
         cluster_prefix = CLUSTER_MAP[net]
-        for pad, *_ in spokes_table:
+        for pad, *_rest in spokes_table:
             rows.append((net, pad, f"{cluster_prefix}/{pad}"))
     return rows
 
@@ -140,7 +140,7 @@ def build_clone_placements():
     ambiguity in the dry‑run need explicit tagging.
 
     Requires cap_pair_standard_clone (not cap_pair_standard!) in
-    profiles/templates/3ch-awg-tia.yaml — there common vias/tracks are on
+    profiles/templates/3ch-awg-tia.sexp — there common vias/tracks are on
     "{power_net}", resolved via params below.
     """
     placements = []
@@ -166,9 +166,9 @@ def build_clone_placements():
     return placements
 
 
-def write_yaml(data, path):
+def write_sexp(data, path):
     with open(path, "w", encoding="utf-8") as f:
-        yaml.dump(data, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
+        f.write(dict_to_sexp(data))
     print(_("Generated: {path}").format(path=path))
 
 
@@ -186,10 +186,10 @@ def main():
 
     # This inline templates: is the old approximate one (manually tuned
     # coordinates, before a real extract from the live board existed). The real,
-    # board‑extracted template lives in profiles/templates/3ch-awg-tia.yaml
+    # board‑extracted template lives in profiles/templates/3ch-awg-tia.sexp
     # (cap_pair_standard / cap_pair_standard_clone) and is used through
-    # templates_file in profiles/3ch-awg-tia.yaml — this inline one is kept only
-    # for backward compatibility with profiles/generated/10CL006YE144C8G.yaml,
+    # templates_file in profiles/3ch-awg-tia.sexp — this inline one is kept only
+    # for backward compatibility with profiles/generated/10CL006YE144C8G.sexp,
     # if anyone still runs it separately.
     templates = {
         "cap_pair_standard": {
@@ -218,11 +218,11 @@ def main():
         "templates": templates,
         "rules": [asdict(r) for r in build_rules()],
     }
-    write_yaml(rules_config, "profiles/generated/10CL006YE144C8G.yaml")
+    write_sexp(rules_config, "profiles/generated/10CL006YE144C8G.sexp")
 
     # --- 2. clone_placements‑based config (new) ---
     clone_config = {"clone_placements": [asdict(c) for c in build_clone_placements()]}
-    write_yaml(clone_config, "profiles/generated/10CL006YE144C8G.clone_placements.yaml")
+    write_sexp(clone_config, "profiles/generated/10CL006YE144C8G.clone_placements.sexp")
 
     # --- 3. pad -> cluster table (merged from generate_cluster_table.py) ---
     rows = build_cluster_table()

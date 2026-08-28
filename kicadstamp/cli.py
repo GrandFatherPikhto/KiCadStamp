@@ -157,7 +157,7 @@ def cmd_extract_net(args) -> None:
 
 
 def cmd_clone_extract(args) -> None:
-    """Snapshot a channel to YAML (file-based cloner, no IPC).
+    """Snapshot a channel to s-expr (file-based cloner, no IPC).
 
     Thin CLI wrapper: turns argparse.Namespace into explicit arguments for
     kicadstamp.cloner.extract.extract_channel, raising PlacerError on invalid

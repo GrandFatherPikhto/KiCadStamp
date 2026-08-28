@@ -15,7 +15,7 @@ from kicadstamp.placement.commands import ViaCommand
 from kicadstamp.registry import PlacementRegistry, registry_path_for_config
 
 TEST_BOARD_PATH = Path("test_boards/10CL006YE144C8G.kicad_pcb")
-TEST_CONFIG_PATH = Path("kicadstamp_templates_example.yaml")
+TEST_CONFIG_PATH = Path("kicadstamp_templates_example.sexp")
 
 
 def pytest_configure(config):
