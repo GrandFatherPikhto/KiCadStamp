@@ -6712,11 +6712,6 @@ msgid "rules {a!r} and {b!r} on net {net!r} both consume role {role!r} from the 
 msgstr ""
 
 #: kicadstamp/validation.py
-#, python-brace-format
-msgid " (cluster {cluster!r})"
-msgstr ""
-
-#: kicadstamp/validation.py
 msgid " (no cluster)"
 msgstr ""
 
@@ -8035,8 +8030,64 @@ msgid ""
 msgstr ""
 
 #: kicadstamp/tree_position.py (FORK-1 at redraw-select time, 2026-08-28)
+#, python-brace-format
 msgid ""
 "Node {ref!r} already has an inline anchor ({field}) — not "
 "redrawn from this tree; remove it from the record to let "
 "the tree own this position"
+msgstr ""
+
+#: kicadstamp/net_matching.py (Phase 0 boundary messages, 2026-08-28)
+msgid "ambiguous SCC group has mismatched candidate count"
+msgstr ""
+
+#: kicadstamp/net_matching.py (Phase 0 boundary messages, 2026-08-28)
+#, python-brace-format
+msgid ""
+"group {group} has {n} left nodes but {m} candidate right nodes "
+"({cands}) — a perfect-matching SCC must have exactly one candidate "
+"per left node; this is a caller bug"
+msgstr ""
+
+#: kicadstamp/net_matching.py (Phase 0 boundary messages, 2026-08-28)
+msgid "global nets must be pre-matched by name before net matching"
+msgstr ""
+
+#: kicadstamp/net_matching.py (Phase 0 boundary messages, 2026-08-28)
+#, python-brace-format
+msgid ""
+"template global nets {t} and target global nets {g} differ — "
+"match anchors by name first"
+msgstr ""
+
+#: kicadstamp/net_matching.py (Phase 0 boundary messages, 2026-08-28)
+msgid "symmetric-role marking must match across template and target"
+msgstr ""
+
+#: kicadstamp/net_matching.py (Phase 0 boundary messages, 2026-08-28)
+#, python-brace-format
+msgid ""
+"template {t} vs target {g} — the same role must be marked "
+"symmetric (or not) on both sides"
+msgstr ""
+
+#: kicadstamp/net_matching.py (Phase 0 boundary messages, 2026-08-28)
+msgid "template and target are not isomorphic under the given role bijection"
+msgstr ""
+
+#: kicadstamp/net_matching.py (Phase 0 boundary messages, 2026-08-28)
+msgid ""
+"no perfect matching exists — some template net has no compatible "
+"candidate in the target cluster; check the role/pin topology"
+msgstr ""
+
+#: kicadstamp/net_matching.py (Phase 0 boundary messages, 2026-08-28)
+msgid "unique matching fails full edge validation"
+msgstr ""
+
+#: kicadstamp/net_matching.py (Phase 0 boundary messages, 2026-08-28)
+msgid ""
+"the matching is unique by the color/structure proof but does not "
+"preserve edges — the narrowing rule is too coarse, not a real "
+"symmetry (bug in the signature, not the graph)"
 msgstr ""

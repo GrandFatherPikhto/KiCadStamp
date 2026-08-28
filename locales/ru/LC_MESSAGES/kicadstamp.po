@@ -7133,11 +7133,6 @@ msgid "rules {a!r} and {b!r} on net {net!r} both consume role {role!r} from the 
 msgstr "правила {a!r} и {b!r} на сети {net!r} обе потребляют роль {role!r} из одного и того же пула компонентов{cluster_hint}"
 
 #: kicadstamp/validation.py
-#, python-brace-format
-msgid " (cluster {cluster!r})"
-msgstr " (кластер {cluster!r})"
-
-#: kicadstamp/validation.py
 msgid " (no cluster)"
 msgstr " (без кластера)"
 
@@ -7948,6 +7943,7 @@ msgstr ""
 "строка с итогом всё равно попадёт в Log."
 
 #: kicadstamp/tree_position.py (FORK-1 at redraw-select time, 2026-08-28)
+#, python-brace-format
 msgid ""
 "Node {ref!r} already has an inline anchor ({field}) — not "
 "redrawn from this tree; remove it from the record to let "
@@ -7955,3 +7951,70 @@ msgid ""
 msgstr ""
 "Узел {ref!r} уже имеет inline-якорь ({field}) — из этого дерева не "
 "перерисовывается; уберите его из записи, чтобы дерево владело этой позицией"
+
+#: kicadstamp/net_matching.py (Phase 0 boundary messages, 2026-08-28)
+msgid "ambiguous SCC group has mismatched candidate count"
+msgstr "неоднозначная SCC-группа имеет несовпадающее число кандидатов"
+
+#: kicadstamp/net_matching.py (Phase 0 boundary messages, 2026-08-28)
+#, python-brace-format
+msgid ""
+"group {group} has {n} left nodes but {m} candidate right nodes "
+"({cands}) — a perfect-matching SCC must have exactly one candidate "
+"per left node; this is a caller bug"
+msgstr ""
+"группа {group} имеет {n} левых узлов, но {m} правых узлов-кандидатов "
+"({cands}) — у SCC полного паросочетания должен быть ровно один кандидат "
+"на левый узел; это ошибка вызывающего"
+
+#: kicadstamp/net_matching.py (Phase 0 boundary messages, 2026-08-28)
+msgid "global nets must be pre-matched by name before net matching"
+msgstr "глобальные сети должны быть предварительно сопоставлены по имени до сопоставления"
+
+#: kicadstamp/net_matching.py (Phase 0 boundary messages, 2026-08-28)
+#, python-brace-format
+msgid ""
+"template global nets {t} and target global nets {g} differ — "
+"match anchors by name first"
+msgstr ""
+"глобальные сети шаблона {t} и цели {g} различаются — "
+"сначала сопоставьте якоря по имени"
+
+#: kicadstamp/net_matching.py (Phase 0 boundary messages, 2026-08-28)
+msgid "symmetric-role marking must match across template and target"
+msgstr "маркировка симметричных ролей должна совпадать у шаблона и цели"
+
+#: kicadstamp/net_matching.py (Phase 0 boundary messages, 2026-08-28)
+#, python-brace-format
+msgid ""
+"template {t} vs target {g} — the same role must be marked "
+"symmetric (or not) on both sides"
+msgstr ""
+"шаблон {t} против цели {g} — одна и та же роль должна быть помечена "
+"симметричной (или нет) с обеих сторон"
+
+#: kicadstamp/net_matching.py (Phase 0 boundary messages, 2026-08-28)
+msgid "template and target are not isomorphic under the given role bijection"
+msgstr "шаблон и цель не изоморфны при заданной биекции ролей"
+
+#: kicadstamp/net_matching.py (Phase 0 boundary messages, 2026-08-28)
+msgid ""
+"no perfect matching exists — some template net has no compatible "
+"candidate in the target cluster; check the role/pin topology"
+msgstr ""
+"полного паросочетания не существует — у какой-то сети шаблона нет "
+"совместимого кандидата в целевом кластере; проверьте топологию ролей/выводов"
+
+#: kicadstamp/net_matching.py (Phase 0 boundary messages, 2026-08-28)
+msgid "unique matching fails full edge validation"
+msgstr "уникальное паросочетание не проходит полную валидацию рёбер"
+
+#: kicadstamp/net_matching.py (Phase 0 boundary messages, 2026-08-28)
+msgid ""
+"the matching is unique by the color/structure proof but does not "
+"preserve edges — the narrowing rule is too coarse, not a real "
+"symmetry (bug in the signature, not the graph)"
+msgstr ""
+"паросочетание уникально по цвето-структурному доказательству, но не "
+"сохраняет рёбра — правило сужения слишком грубое, это не реальная "
+"симметрия (ошибка сигнатуры, а не графа)"

@@ -251,6 +251,43 @@ Provides three‑layer net name resolution for `ClonePlacement`. Allows substitu
 
 ---
 
+## 12a. `net_matching.py` + `net_derive.py` – automatic net coordinate (Phase 0)
+
+**Purpose:** the "net is a computed function" foundation
+(`plan_2026_08_28_auto_nets_full_automation.md`, Phase 0). Two PURE modules —
+no adapter, no YAML, no live board:
+
+- `net_matching.py` — Role↔Net correspondence between a template cluster and a
+  target cluster under a fixed role bijection: Weisfeiler-Leman color
+  refinement to a fixed point, one global perfect matching (Kuhn), uniqueness
+  proof via Tarjan SCC over the swap graph. Genuine ambiguity arises exactly
+  where a role is physically symmetric (`symmetric_roles` — the production
+  split of `net_template_pad` vs `net_template_same_as_role`). By the proven
+  safe-default, EVERY member of an ambiguous SCC is a valid answer, so the
+  matching Kuhn built is a valid automatic answer and the SCC report is a
+  diagnostic layer, not a hard human stop. Errors are `ValidationError` via
+  `format_fatal_error` (never a bare `RuntimeError`, never a silent guess).
+- `net_derive.py` — `derive_role_nets()` turns a cell's roles + the
+  source/known net evidence into `{role: NetDerivation(net, source)}` by three
+  priorities: `live_pad` (net already known on the target) → `prefix_remap`
+  (hierarchical `/Channel_0/` → `/Channel_1/`, `TwinMap.twin_net` semantics) →
+  `kuhn`/`kuhn_scc_group`. The provenance value lets Phase 2 diagnostics say
+  WHERE each net came from. Global nets are deliberately out of scope here
+  (deferred to the Phase 2 mini-design).
+
+**Main entry points:**
+
+| Function | Description |
+|----------|-------------|
+| `match_template_to_target(template, target)` | Returns `(mapping, ambiguous_groups)` — the global Kuhn matching plus the formal ambiguity proof (SCC groups), or a `ValidationError` on non-isomorphism. |
+| `derive_role_nets(roles, role_source_nets, ...)` | `{role: NetDerivation}` by the three-priority rule; roles with no applicable priority are absent (caller's fallback). |
+
+**Planned consumers (Phase 2):** placement role→net auto-derivation
+(`resolve_roles_by_nets` without manual `nets:`), extract auto `net_from_role`,
+and the net part of trace transfer between symmetric clusters.
+
+---
+
 ## 13. `registry.py` – Placement Registries for Vias and Tracks
 
 **Purpose:**  
