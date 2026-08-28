@@ -141,6 +141,73 @@ def resolve_net_from_role(role: str, pad: str | None, role_to_ref: dict[str, str
     ))
 
 
+def discover_net_template_pattern(literals: list[str]) -> tuple[str, str, str] | None:
+    """Discover a single-token {param} pattern from >= 2 net names that differ
+    by EXACTLY ONE path segment (plan_2026_08_28_auto_nets_full_automation.md,
+    Phase 1 step 1.3). Returns (pattern, param_name, param_value) where pattern
+    resolves back to `literal` with the discovered value; None when no such
+    pattern exists.
+
+    Limiter (review 2026-08-28, "не гадать молча"): the pattern is ONLY derived
+    when (a) every input splits into the SAME number of segments AND exactly ONE
+    segment position differs (all other segments equal across every input), AND
+    (b) the resulting pattern round-trips via resolve_net with the discovered
+    value. Otherwise None — the caller keeps the literal.
+
+    Segment = path component split on '/'. Within the varying segment, only the
+    differing CORE is replaced (common prefix/suffix preserved): the example
+    ["/Channel_0/DAC/DB0", "/Channel_1/DAC/DB0"] ->
+    ("/Channel_{channel}/DAC/DB0", "channel", "0"). The param VALUE is the
+    differing core ("0"), which the apply side supplies.
+    """
+    if len(literals) < 2:
+        return None
+    split = [lit.split("/") for lit in literals]
+    n_seg = len(split[0])
+    if any(len(s) != n_seg for s in split):
+        return None
+    differing: set[int] = set()
+    for pos in range(n_seg):
+        values = {s[pos] for s in split}
+        if len(values) > 1:
+            differing.add(pos)
+    if len(differing) != 1:
+        return None  # (a) — exactly one segment position must differ
+    pos = differing.pop()
+
+    # Within the varying segment, find the common prefix/suffix across all
+    # instances and replace ONLY the differing core with {param}.
+    segs = [s[pos] for s in split]
+    first, rest = segs[0], segs[1:]
+    prefix_len = 0
+    while prefix_len < len(first) and all(r.startswith(first[:prefix_len + 1]) for r in rest):
+        prefix_len += 1
+    suffix_len = 0
+    while suffix_len < len(first) - prefix_len and all(
+            r.endswith(first[len(first) - suffix_len - 1:]) for r in rest):
+        suffix_len += 1
+    prefix, suffix = first[:prefix_len], first[len(first) - suffix_len:]
+    core = first[prefix_len:len(first) - suffix_len]
+    if not core:
+        return None  # segments only differ by length — no clean token
+    # Derive the placeholder name from the common prefix's alphabetic core
+    # ("Channel_" -> "channel"); fall back to "param".
+    name_core = "".join(ch for ch in prefix if ch.isalpha())
+    param_name = name_core.lower() if name_core else "param"
+    value = core
+
+    parts = list(split[0])
+    parts[pos] = prefix + "{" + param_name + "}" + suffix
+    # "/".join already reproduces the leading slash of a hierarchical net (the
+    # empty first segment joins to a leading "/") — no extra slash added.
+    pattern = "/".join(parts)
+
+    # (b) — the pattern must round-trip with the discovered value.
+    if resolve_net(pattern, {param_name: value}, {}) != literals[0]:
+        return None
+    return pattern, param_name, value
+
+
 def parametrize_net(literal_net: str, net_template_map: dict[str, str],
                      params: dict[str, Any]) -> str:
     """

@@ -452,6 +452,26 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement | CellPlace
             if expected_net in nets_on_fp:
                 matched.append(fp)
 
+        # Bridging-role narrowing by the DESIGNATED PAD (Phase 1 step 1.2,
+        # review 2026-08-28): a bridging role has TWO different nets on its
+        # pads and net_template_pad marks which pad carries the designated
+        # net. When several candidates carry the designated net (e.g. a
+        # shared power rail routed onto a DIFFERENT pad number per instance),
+        # narrow to candidates whose pad with that number also carries the
+        # designated net. STRICTLY a secondary discriminator — it only ever
+        # NARROWS, never turns a match into a miss: if the pad check yields
+        # an empty set (pad numbering is unreliable for electrically
+        # symmetric parts), keep the primary net-value results and let the
+        # normal ambiguity cascade decide.
+        if len(matched) > 1 and getattr(slot, "net_template_pad", None):
+            pad_narrowed = [
+                fp for fp in matched
+                if any(p.number == slot.net_template_pad and p.net_name == expected_net
+                       for p in adapter.get_footprint_pads(fp))
+            ]
+            if pad_narrowed:
+                matched = pad_narrowed
+
         if not candidates:
             problems.append(_("role {role!r}: NO component with this role on the board at all "
                               "(check the Role field in the schematic, and that Update PCB from Schematic was run)")

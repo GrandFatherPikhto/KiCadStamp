@@ -207,7 +207,7 @@ Creates a spoke template from the current selection in the PCB editor. Each sele
 ### Syntax
 
 ```bash
-python kicadstamp_cli.py extract --name <template_name> --output <file> [--timeout-ms] [--verbose] [--log-file] [--param KEY=VALUE] [--net-template LITERAL=PATTERN] [--origin-by-via-net NET] [--origin-by-component-role ROLE] [--origin-by-component-pad PAD] [--raw-selection] [--profiles FILE] [--profile NAME]
+python kicadstamp_cli.py extract --name <template_name> --output <file> [--timeout-ms] [--verbose] [--log-file] [--param KEY=VALUE] [--net-template LITERAL=PATTERN] [--net-template-role ROLE=LITERAL] [--rule-net LITERAL] [--origin-by-via-net NET] [--origin-by-component-role ROLE] [--origin-by-component-pad PAD] [--raw-selection] [--profiles FILE] [--profile NAME]
 ```
 
 ### Options
@@ -219,8 +219,10 @@ python kicadstamp_cli.py extract --name <template_name> --output <file> [--timeo
 | `--timeout-ms` | IPC timeout in milliseconds (default: `20000`). |
 | `--verbose` | Enable verbose output. |
 | `--log-file` | Save logs to a file. |
-| `--param KEY=VALUE` | Sets a parameter for verifying `--net-template` (e.g., `channel=1`). Not written to the template, only used for round‑trip validation. Can be repeated. |
-| `--net-template LITERAL=PATTERN` | Replaces a real net name with a pattern containing placeholders (e.g., `DAC1_DB1=DAC{channel}_DB1`). Can be repeated. |
+| `--param KEY=VALUE` | Sets a parameter for verifying `--net-template` (e.g., `channel=1`). Not written to the template, only used for round‑trip validation. Can be repeated. **Optional now** — via/track nets resolve from roles (`net_from_role`) and channel patterns are auto‑discovered, so `params` is only needed when you still override nets via `--net-template`. |
+| `--net-template LITERAL=PATTERN` | Replaces a real net name with a pattern containing placeholders (e.g., `DAC1_DB1=DAC{channel}_DB1`). Can be repeated. **Optional now** — bridging roles auto‑derive `net_template` and channel patterns are auto‑discovered; kept as an explicit override. |
+| `--net-template-role ROLE=LITERAL` | For bridging roles (ferrite/inductor/fuse between two rails) — overrides WHICH net is the role's `net_template` (e.g., `PI_FILTER_FB=+5V_DIRTY`). **Optional now**: extract auto‑derives a designated `net_template` for bridging roles; this flag only changes the designated net. Fatal if the role does not actually have that net on its pads, or if the literal is not registered in `--net-template`/`params`. |
+| `--rule-net LITERAL` | Writes this via/track net as `null` instead of its literal name (e.g., `+3V3`) — at apply time a ManualSpoke‑placed cell's via/track with `net: null` inherits the enclosing Rule's own net, making the cell reusable across Rules on different nets. Only needed for ManualSpoke‑reused cells — `net_from_role` cells need none of this. Can be repeated. Fatal if the same net is also in `--param`/`--net-template`. |
 | `--origin-by-via-net NET` | Sets the template origin to the position of the via with the specified net (instead of the bbox lower‑left corner). Fatal if no such via exists or if there is more than one. Mutually exclusive with `--origin-by-component-role` (you can specify only one origin method). |
 | `--origin-by-component-role ROLE` | Sets the origin to the position of the component with the specified role. Mutually exclusive with `--origin-by-via-net`. |
 | `--origin-by-component-pad PAD` | Refines `--origin-by-component-role`: origin is the position of the specific pad of that component, not its centre. Without `--origin-by-component-role` it is fatal (you can only specify a pad for an already specified role). |
@@ -230,7 +232,7 @@ python kicadstamp_cli.py extract --name <template_name> --output <file> [--timeo
 
 **Important:** Before running, select the desired components, vias, and tracks in the PCB editor. Roles must be unique. The output (YAML or JSON) is written wrapped under a `cells:` key, ready to be listed directly under `include:` in the main configuration.
 
-**Uncertain `net_template`:** when a component's pads match more than one net from `--net-template`/`net_template` (e.g. an inductor/ferrite bead bridging two rails), `net_template` cannot be set automatically — a warning is logged, and (YAML output only, not JSON) a commented placeholder line is written right after that component's block, e.g. `# net_template: could not determine automatically — ...`, so the gap is visible in the file itself, not only in the log. Resolve it either by editing the line manually or via `--net-template-role ROLE=<net>` on the next run.
+**Automatic net definition (Phase 1, 2026-08-28):** a via/track whose net maps unambiguously to one selected role is written as `net_from_role` (with `net_from_role_pad` for multi‑net roles) — the net resolves live at apply time, so `--param`/`--net-template` are not needed for the common case. For a via/track net from a different channel instance, a single‑token `{param}` pattern is auto‑discovered across the same role's instances (guarded: only when exactly one path segment differs and the pattern round‑trips; otherwise the literal is kept — never guess silently). Bridging roles (two different nets on the pads — inductor/ferrite/fuse between rails) auto‑derive a designated `net_template` + `net_template_pad` without `--net-template-role`. When one of the manual flags is now redundant, extract logs a warning so you can drop it — the flags remain fully supported as explicit overrides (backward compatibility). The old fallback still exists for the rare case where a bridging role's nets are not in any map: `net_template` stays empty, a warning is logged, and (YAML output only) a commented `# net_template: could not determine automatically — ...` placeholder line is written right after that component's block.
 
 **Inside a profile** (`extract_profiles:` in the `--profiles` file): `output:` can be set once at the file's
 root – a shared default for every profile, a specific profile only needs to set its own if it writes

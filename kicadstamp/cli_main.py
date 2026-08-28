@@ -169,17 +169,23 @@ def main() -> int:
     extract_parser.add_argument("--verbose", action="store_true", help=_("Verbose output"))
     extract_parser.add_argument("--log-file", help=_("File to save logs"))
     extract_parser.add_argument("--param", action="append", metavar="KEY=VALUE",
-                                help=_("Parameter for --net-template verification (e.g. channel=1); "
-                                       "can be repeated; not written to the cell, only round-trip check"))
+                                help=_("Parameter for --net-template round-trip verification (e.g. channel=1); "
+                                       "can be repeated; not written to the cell, only round-trip check. "
+                                       "OPTIONAL now — via/track nets resolve from roles (net_from_role) and "
+                                       "channel patterns are auto-discovered, so params are only needed when "
+                                       "you still override nets via --net-template"))
     extract_parser.add_argument("--net-template", action="append", metavar="LITERAL=PATTERN",
                                 help=_("Mapping real net -> pattern with {placeholder} "
                                        "(e.g. 'DAC1_DB1=DAC{channel}_DB1'); can be repeated; "
-                                       "fills net_template for roles and parametrizes via.net at extraction"))
+                                       "fills net_template for roles and parametrizes via.net at extraction. "
+                                       "OPTIONAL now — bridging roles auto-derive net_template and channel "
+                                       "patterns are auto-discovered; kept as an explicit override"))
     extract_parser.add_argument("--net-template-role", action="append", metavar="ROLE=LITERAL",
                                 help=_("For components with multiple nets from --net-template on pads "
-                                       "(ferrite/inductor/fuse between two rails) – explicitly tells "
-                                       "which net is the role's net_template (e.g. 'PI_FILTER_FB=+5V_DIRTY'); "
-                                       "without this such roles get empty net_template and need manual edit. "
+                                       "(ferrite/inductor/fuse between two rails) – override WHICH net is "
+                                       "the role's net_template (e.g. 'PI_FILTER_FB=+5V_DIRTY'). OPTIONAL now: "
+                                       "extract auto-derives a designated net_template for bridging roles; "
+                                       "this flag only changes the designated net. "
                                        "Fatal if the role does not actually have that net on its pads, "
                                        "or if the literal is not registered in --net-template/params."))
     extract_parser.add_argument("--rule-net", action="append", metavar="LITERAL",
@@ -187,8 +193,9 @@ def main() -> int:
                                        "(e.g. '+3V3') — at apply time a ManualSpoke-placed cell's via/"
                                        "track with net: null inherits the enclosing Rule's own net "
                                        "(spoke_layout.py's 'via.net or rule_net'), so this makes the "
-                                       "cell reusable across Rules on different nets. Can be repeated. "
-                                       "Fatal if the same net is also in --param/--net-template."))
+                                       "cell reusable across Rules on different nets. Only needed for "
+                                       "ManualSpoke-reused cells — net_from_role cells need none of this. "
+                                       "Can be repeated. Fatal if the same net is also in --param/--net-template."))
     extract_parser.add_argument("--raw-selection", action="store_true",
                                 help=_("Take the current selection as tracks/vias as-is, without the "
                                        "pad-connectivity filter (every selected track/via goes into the "

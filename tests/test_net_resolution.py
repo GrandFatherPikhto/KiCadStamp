@@ -5,7 +5,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
-from kicadstamp.net_resolution import resolve_net, resolve_placeholder, resolve_net_from_role
+from kicadstamp.net_resolution import (
+    discover_net_template_pattern, resolve_net, resolve_placeholder, resolve_net_from_role,
+)
 from kicadstamp.exceptions import ValidationError
 
 
@@ -161,3 +163,58 @@ class TestResolveNetFromRole:
         with pytest.raises(ValidationError, match="not exactly one"):
             resolve_net_from_role("CAP", None, {"CAP": "C1"}, adapter,
                                   rule_nets={"GND", "+3V3"})
+
+
+class TestDiscoverNetTemplatePattern:
+    """Phase 1 step 1.3 — single-token {param} pattern discovery across
+    cluster instances, with the (a)/(b) limiter (never guess silently)."""
+
+    def test_hierarchical_channel_pattern(self):
+        found = discover_net_template_pattern(
+            ["/Channel_0/DAC/DB0", "/Channel_1/DAC/DB0"])
+        assert found is not None
+        pattern, param_name, value = found
+        assert pattern == "/Channel_{channel}/DAC/DB0"
+        assert param_name == "channel"
+        # Sub-token refinement: only the differing CORE is the value; the
+        # common "Channel_" prefix stays in the pattern, not the value.
+        assert value == "0"
+        # Round-trip: applying the discovered value yields the first literal.
+        assert resolve_net(pattern, {param_name: value}, {}) == "/Channel_0/DAC/DB0"
+        # The other instance resolves with its own core value.
+        assert resolve_net(pattern, {param_name: "1"}, {}) == "/Channel_1/DAC/DB0"
+
+    def test_three_instances_still_one_token(self):
+        found = discover_net_template_pattern(
+            ["/Channel_0/OpAmp/X", "/Channel_1/OpAmp/X", "/Channel_2/OpAmp/X"])
+        assert found is not None
+        pattern, _, _ = found
+        assert pattern == "/Channel_{channel}/OpAmp/X"
+
+    def test_less_than_two_literals_returns_none(self):
+        assert discover_net_template_pattern(["/Channel_0/DAC/DB0"]) is None
+        assert discover_net_template_pattern([]) is None
+
+    def test_multiple_differing_segments_returns_none(self):
+        """Two logical nets mixed in one set -> more than one varying segment
+        -> no pattern (a bridging role's two nets must not fake a pattern)."""
+        assert discover_net_template_pattern(
+            ["/Channel_0/A", "/Channel_0/B", "/Channel_1/A", "/Channel_1/B"]) is None
+
+    def test_differing_segment_count_returns_none(self):
+        assert discover_net_template_pattern(
+            ["/Channel_0/X", "/Channel_0/DAC/X"]) is None
+
+    def test_flat_non_hierarchical_single_token(self):
+        found = discover_net_template_pattern(["DAC0_DB1", "DAC1_DB1"])
+        assert found is not None
+        pattern, param_name, value = found
+        # "DAC0_DB1".split('/') == ["DAC0_DB1"]; one differing segment. The
+        # common "DAC" prefix and "_DB1" suffix (both instances share the
+        # underscore) stay in the pattern; the value is only the differing
+        # core ("0" / "1").
+        assert pattern == "DAC{dac}_DB1"
+        assert param_name == "dac"
+        assert value == "0"
+        assert resolve_net(pattern, {param_name: value}, {}) == "DAC0_DB1"
+        assert resolve_net(pattern, {param_name: "1"}, {}) == "DAC1_DB1"

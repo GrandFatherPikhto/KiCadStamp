@@ -332,6 +332,84 @@ class TestResolveRolesByNets:
         result = resolve_roles_by_nets(adapter, tpl, clone)
         assert result == {"PI_FB": "FB10"}
 
+    def test_bridging_role_matches_by_auto_derived_net_template(self):
+        """Phase 1 step 1.2 round-trip: extract auto-derives a designated
+        net_template (+ net_template_pad) for a bridging role — 2 DIFFERENT
+        nets on its pads — WITHOUT --net-template-role. resolve_roles_by_nets
+        must then resolve that role from the auto-derived net_template alone
+        (no manual clone.nets), picking the instance on the designated net."""
+        tpl = Cell(name="t", components=[
+            TemplateComponentSlot(role="PI_FILTER_FB", net_template="{PWR_OUT}",
+                                  net_template_pad="1"),
+        ])
+        fps = [
+            _make_fp("FB1", "PI_FILTER_FB", ["+5V", "+5V_DIRTY"]),
+            _make_fp("FB2", "PI_FILTER_FB", ["+3V3", "+3V3_DIRTY"]),
+        ]
+        adapter = MagicMock()
+        adapter.get_footprints.return_value = fps
+        adapter.get_field_value.side_effect = _role_or_cluster
+        adapter.get_footprint_pads.side_effect = _get_pads
+        adapter.get_selected_items.return_value = []
+
+        # params supply the value the auto-derived {PWR_OUT} designates; no
+        # clone.nets at all — the whole manual net definition is gone.
+        clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0),
+                               params={"PWR_OUT": "+5V"})
+        result = resolve_roles_by_nets(adapter, tpl, clone)
+        assert result == {"PI_FILTER_FB": "FB1"}
+
+    def test_bridging_role_narrowed_by_designated_pad_when_rail_shared(self):
+        """Review 2026-08-28 resolver change: BOTH candidates carry the
+        designated net (+5V) but on DIFFERENT pad numbers — matching by the
+        single expected net alone would be ambiguous/fatal. With
+        net_template_pad (auto-derived by extract for a bridging role), the
+        resolver narrows to the candidate whose pad with that number carries
+        the designated net."""
+        tpl = Cell(name="t", components=[
+            TemplateComponentSlot(role="PI_FILTER_FB", net_template="{PWR_OUT}",
+                                  net_template_pad="1"),
+        ])
+        fps = [
+            _make_fp("FB1", "PI_FILTER_FB", ["+5V", "+5V_DIRTY"]),    # pad1 = +5V
+            _make_fp("FB2", "PI_FILTER_FB", ["+5V_CLEAN", "+5V"]),    # pad2 = +5V
+        ]
+        adapter = MagicMock()
+        adapter.get_footprints.return_value = fps
+        adapter.get_field_value.side_effect = _role_or_cluster
+        adapter.get_footprint_pads.side_effect = _get_pads
+        adapter.get_selected_items.return_value = []
+
+        clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0),
+                               params={"PWR_OUT": "+5V"})
+        result = resolve_roles_by_nets(adapter, tpl, clone)
+        assert result == {"PI_FILTER_FB": "FB1"}
+
+    def test_bridging_role_unreliable_pad_never_picks_wrong_single(self):
+        """Guard: pad numbering is unreliable for electrically symmetric
+        parts, so the designated-pad check must only ever NARROW. When it
+        yields empty (net_template_pad points to a pad that carries the
+        designated net nowhere), the primary net-value match is kept — both
+        candidates stay ambiguous and it is FATAL, never a wrong single pick."""
+        tpl = Cell(name="t", components=[
+            TemplateComponentSlot(role="PI_FILTER_FB", net_template="{PWR_OUT}",
+                                  net_template_pad="9"),  # exists nowhere
+        ])
+        fps = [
+            _make_fp("FB1", "PI_FILTER_FB", ["+5V", "+5V_DIRTY"]),
+            _make_fp("FB2", "PI_FILTER_FB", ["+5V_CLEAN", "+5V"]),
+        ]
+        adapter = MagicMock()
+        adapter.get_footprints.return_value = fps
+        adapter.get_field_value.side_effect = _role_or_cluster
+        adapter.get_footprint_pads.side_effect = _get_pads
+        adapter.get_selected_items.return_value = []
+
+        clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0),
+                               params={"PWR_OUT": "+5V"})
+        with pytest.raises(ValidationError, match="PI_FILTER_FB"):
+            resolve_roles_by_nets(adapter, tpl, clone)
+
     def test_internal_role_narrowing_uses_placement_sheet(self):
         """Split 2026-08-15: ambiguous roles INSIDE the cell are narrowed by
         the placement's OWN sheet (clone.sheet), NOT by anchor_sheet (which

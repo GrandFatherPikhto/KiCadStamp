@@ -49,7 +49,7 @@ from .domain.board import Footprint, Via, Track
 from .constants import ROLE_FIELD_NAME
 from .exceptions import ValidationError, format_fatal_error
 from .kicad.adapter import KiCadBoardAdapter
-from .net_resolution import parametrize_net
+from .net_resolution import discover_net_template_pattern, parametrize_net
 from .net_from_role_resolver import classify_net
 from .utils.units import MM
 from .i18n import _
@@ -106,6 +106,47 @@ def _suggest_net_from_role(role_nets, net, rule_nets, points, components):
     except ValidationError:
         return None, None
     return role, pad
+
+
+def _auto_net_pattern_map(adapter, selection_role_nets: dict[str, dict[str, set[str]]],
+                          rule_nets: set[str]) -> dict[str, str]:
+    """Phase 1 step 1.3: auto-discover {param} net patterns from the SAME roles'
+    nets across OTHER board instances (one full-board scan, grouped by role).
+
+    Returns {literal_net: pattern} for every discoverable single-token pattern
+    (e.g. /Channel_0/DAC/DB0 -> /Channel_{channel}/DAC/DB0), or {} when none.
+    GUARDED (never guesses — plan rule): discover_net_template_pattern's limiter
+    (a) exactly one differing segment AND (b) round-trip via parametrize_net
+    must both hold; otherwise the net stays literal. Rule nets are never
+    considered (they need no role)."""
+    out: dict[str, str] = {}
+    if not selection_role_nets:
+        return out
+    try:
+        all_fps = adapter.get_footprints() if hasattr(adapter, "get_footprints") else []
+    except Exception:
+        return out
+    # Collect per-role nets across the whole board (selection included).
+    role_literals: dict[str, set[str]] = {}
+    for fp in all_fps:
+        role = adapter.get_field_value(fp, ROLE_FIELD_NAME)
+        if role is None or role not in selection_role_nets:
+            continue
+        try:
+            pads = adapter.get_footprint_pads(fp)
+        except TypeError:
+            continue
+        for p in pads:
+            if p.net_name and p.net_name not in rule_nets:
+                role_literals.setdefault(role, set()).add(p.net_name)
+    for role, literals in role_literals.items():
+        found = discover_net_template_pattern(sorted(literals))
+        if found is None:
+            continue
+        pattern, _param_name, _value = found
+        for lit in sorted(literals):
+            out[lit] = pattern
+    return out
 
 
 def extract_template_from_selection(
@@ -306,6 +347,16 @@ def extract_template_from_selection(
     # this pass — acceptable: falls through to net_template_pad or the
     # existing "fill in manually" warning, same graceful degradation as
     # today, never worse.
+    # Soft-deprecation accounting (Phase 1 step 1.4, plan rule: the manual
+    # flags stay as optional overrides — backward compatible — but a notice
+    # fires in the log when they are REDUNDANT given the new auto-derivation;
+    # never guess silently, but don't silently keep telling the user to type
+    # what is now automatic either). net_template_map_used = the explicit
+    # --net-template/--param map actually parametrized at least one via/track;
+    # component_net_template_used = at least one component's net_template came
+    # from that map (single-net role or bridging designated net).
+    net_template_map_used = False
+    component_net_template_used = False
     lemma2_role_nets: dict[str, str] = {}
     components = []
     for fp in footprints:
@@ -341,6 +392,18 @@ def extract_template_from_selection(
                        "if it equals a parameter value) — otherwise there is no pattern to build")
                      .format(literal=literal)]
                 ))
+            component_net_template_used = True
+            # Phase 1 step 1.4 soft-deprecation: for a bridging role (2+ nets
+            # from net_template_map on its pads) whose explicit literal equals
+            # the auto-derived DESIGNATED net, --net-template-role changed
+            # nothing — extract now sets net_template without it.
+            mapped = [n for n in fp_nets if n in net_template_map]
+            if len(mapped) > 1 and literal == mapped[0]:
+                logger.warning(_("--net-template-role for role {role!r} = {literal!r} is "
+                                 "redundant — it equals the auto-derived designated net, "
+                                 "extract now sets net_template for bridging roles without "
+                                 "this flag")
+                               .format(role=role, literal=literal))
             slot["net_template"] = parametrize_net(literal, net_template_map, params)
             # Prefer a same-net lemma-2-safe sibling ALREADY classified this
             # pass (net_template_same_as_role — cross-instance-safe, pad-number
@@ -358,6 +421,7 @@ def extract_template_from_selection(
             fp_nets = sorted({p.net_name for p in fp_pads if p.net_name})
             mapped = [n for n in fp_nets if n in net_template_map]
             if len(mapped) == 1:
+                component_net_template_used = True
                 slot["net_template"] = parametrize_net(mapped[0], net_template_map, params)
                 # lemma-2-safe role — record for LATER same-net siblings, do
                 # NOT record net_template_pad/net_template_same_as_role for
@@ -368,16 +432,33 @@ def extract_template_from_selection(
                 # they never needed, which then broke on a different instance).
                 lemma2_role_nets[role] = mapped[0]
             elif len(mapped) > 1:
-                hint = _("could not determine automatically — {count} matching nets on pads "
-                         "({nets}) — fill in manually or use --net-template-role {role}=<net>") \
-                    .format(count=len(mapped), nets=mapped, role=role)
-                logger.warning(_("  {ref} (role {role}): {count} nets from --net-template on pads "
-                                 "({nets}) — net_template not set, fill it manually in the "
-                                 "resulting YAML, or use --net-template-role {role}=<net> in advance")
-                               .format(ref=fp.ref, role=role,
-                                       count=len(mapped), nets=mapped))
-                if annotations is not None:
-                    annotations.append((role, "net_template", hint))
+                # Bridging role (ferrite/inductor/fuse between two rails): two
+                # DIFFERENT nets on its pads. Auto-derive a DESIGNATED net
+                # (deterministic: first in sorted order) + its pad, so
+                # net_template is set WITHOUT --net-template-role
+                # (plan_2026_08_28_auto_nets_full_automation.md, Phase 1 step
+                # 1.2). BOTH nets are still captured on the copper — each
+                # via/track touching this role gets net_from_role(+pad) via the
+                # auto-suggestion below; net_template here is only the
+                # by-nets/GUI "identifying" net. The pad number is safe for
+                # fixed-pinout bridging parts (pad->net is deterministic across
+                # instances); a symmetric bridging part would instead want
+                # net_template_same_as_role.
+                designated = mapped[0]
+                component_net_template_used = True
+                slot["net_template"] = parametrize_net(designated, net_template_map, params)
+                same_as = next((r for r, n in lemma2_role_nets.items() if n == designated), None)
+                if same_as is not None:
+                    slot["net_template_same_as_role"] = same_as
+                else:
+                    pad_num = next((p.number for p in fp_pads if p.net_name == designated), None)
+                    if pad_num is not None:
+                        slot["net_template_pad"] = str(pad_num)
+                logger.debug(_("  {ref} (role {role}): bridging — {count} nets on pads, "
+                               "net_template set to designated {designated!r} without "
+                               "--net-template-role")
+                             .format(ref=fp.ref, role=role, count=len(mapped),
+                                     designated=designated))
         components.append(slot)
         logger.debug(_("  {ref} (role {role}): along={along}, across={across}, angle={angle}{layer}{net}")
                      .format(ref=fp.ref, role=role,
@@ -390,6 +471,11 @@ def extract_template_from_selection(
     # track loops; empty when the selection has no role/net evidence, in which
     # case extract behaves exactly as before.
     selection_role_nets = _selection_role_nets(adapter, footprints)
+
+    # Phase 1 step 1.3: auto {param} patterns from the same roles' nets across
+    # OTHER instances (guarded — never guesses; only used when a via/track net
+    # is not classifiable to a role and not already in net_template_map).
+    auto_patterns = _auto_net_pattern_map(adapter, selection_role_nets, rule_nets)
 
     spoke_vias = []
     for v in vias:
@@ -411,7 +497,10 @@ def extract_template_from_selection(
             if role_net is not None:
                 via_net = None
             elif net_template_map:
+                net_template_map_used = True
                 via_net = parametrize_net(via_net, net_template_map, params)
+            elif via_net in auto_patterns:
+                via_net = auto_patterns[via_net]
         entry = {
             "offset_along_mm": along_mm,
             "offset_across_mm": across_mm,
@@ -447,7 +536,10 @@ def extract_template_from_selection(
             if role_net is not None:
                 track_net = None
             elif net_template_map:
+                net_template_map_used = True
                 track_net = parametrize_net(track_net, net_template_map, params)
+            elif track_net in auto_patterns:
+                track_net = auto_patterns[track_net]
         entry = {
             "start_along_mm": start_along_mm,
             "start_across_mm": start_across_mm,
@@ -469,6 +561,15 @@ def extract_template_from_selection(
                              net=role_net or track_net,
                              layer=_(", layer={layer}").format(layer=entry['layer']) if 'layer' in entry else ""))
 
+    # Phase 1 step 1.4 soft-deprecation: the explicit map was provided but not
+    # used anywhere — net_from_role and auto-patterns covered every net, so the
+    # user can drop --net-template/--param. Only an informational notice: the
+    # flags keep working as overrides (backward compatibility).
+    if net_template_map and not net_template_map_used and not component_net_template_used:
+        logger.warning(_("--net-template/--param was not needed — every via/track net was "
+                         "resolved from a role (net_from_role) or auto-parametrized, and no "
+                         "component net_template came from the map; you can drop these flags "
+                         "(net definition is automatic now)"))
     logger.info(_("Extracted cell {name!r}: {comp} components, {vias} spoke‑level vias, {tracks} tracks")
                 .format(name=name, comp=len(components), vias=len(spoke_vias), tracks=len(spoke_tracks)))
     result = {"vias": spoke_vias, "components": components, "tracks": spoke_tracks, "layer": tpl_layer_str}

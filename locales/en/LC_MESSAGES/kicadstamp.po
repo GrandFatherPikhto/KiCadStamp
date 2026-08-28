@@ -8091,3 +8091,63 @@ msgid ""
 "preserve edges — the narrowing rule is too coarse, not a real "
 "symmetry (bug in the signature, not the graph)"
 msgstr ""
+
+#: kicadstamp/template_extraction.py (Phase 1 step 1.4 soft-deprecation notices, 2026-08-28)
+#: kicadstamp/cli_main.py
+#: kicadstamp/cli_extract.py
+#: kicadstamp/net_matching.py
+#, python-brace-format
+msgid ""
+"--net-template-role for role {role!r} = {literal!r} is redundant — it "
+"equals the auto-derived designated net, extract now sets net_template "
+"for bridging roles without this flag"
+msgstr ""
+
+#: kicadstamp/template_extraction.py (Phase 1 step 1.4 soft-deprecation notices, 2026-08-28)
+msgid ""
+"--net-template/--param was not needed — every via/track net was "
+"resolved from a role (net_from_role) or auto-parametrized, and no "
+"component net_template came from the map; you can drop these flags "
+"(net definition is automatic now)"
+msgstr ""
+
+#: kicadstamp/cli_main.py
+msgid ""
+"Parameter for --net-template round-trip verification (e.g. channel=1); "
+"can be repeated; not written to the cell, only round-trip check. "
+"OPTIONAL now — via/track nets resolve from roles (net_from_role) and "
+"channel patterns are auto-discovered, so params are only needed when "
+"you still override nets via --net-template"
+msgstr ""
+
+#: kicadstamp/cli_main.py
+#, python-brace-format
+msgid ""
+"Mapping real net -> pattern with {placeholder} (e.g. "
+"'DAC1_DB1=DAC{channel}_DB1'); can be repeated; fills net_template for "
+"roles and parametrizes via.net at extraction. OPTIONAL now — bridging "
+"roles auto-derive net_template and channel patterns are "
+"auto-discovered; kept as an explicit override"
+msgstr ""
+
+#: kicadstamp/cli_main.py
+msgid ""
+"For components with multiple nets from --net-template on pads "
+"(ferrite/inductor/fuse between two rails) – override WHICH net is the "
+"role's net_template (e.g. 'PI_FILTER_FB=+5V_DIRTY'). OPTIONAL now: "
+"extract auto-derives a designated net_template for bridging roles; this "
+"flag only changes the designated net. Fatal if the role does not "
+"actually have that net on its pads, or if the literal is not registered "
+"in --net-template/params."
+msgstr ""
+
+#: kicadstamp/cli_main.py
+msgid ""
+"Write this via/track net as null instead of its literal name (e.g. "
+"'+3V3') — at apply time a ManualSpoke-placed cell's via/track with net: "
+"null inherits the enclosing Rule's own net (spoke_layout.py's 'via.net "
+"or rule_net'), so this makes the cell reusable across Rules on "
+"different nets. Only needed for ManualSpoke-reused cells — net_from_role "
+"cells need none of this. Can be repeated. Fatal if the same net is also "
+"in --param/--net-template."
+msgstr ""

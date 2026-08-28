@@ -226,7 +226,11 @@ class TestNetTemplateAutoDetect:
         assert "net_template_pad" not in comp
         assert "net_template_same_as_role" not in comp
 
-    def test_two_matching_nets_leaves_net_template_unset_with_warning(self, caplog):
+    def test_two_matching_nets_auto_derive_designated_net_template(self, caplog):
+        """Bridging role (2 DIFFERENT nets on pads — ferrite/inductor/fuse between
+        two rails): Phase 1 step 1.2 auto-derives the slot's net_template WITHOUT
+        --net-template-role. Designated net = first in sorted mapped order
+        (here "+5V"), its pad recorded (pad 2), NO warning, NO annotation."""
         fb = _make_fp("FB1", 0, 0, 0, "PI_FILTER_FB", pad_nets=["+5V_DIRTY", "+5V"])
         adapter = _make_adapter([fb])
 
@@ -235,15 +239,11 @@ class TestNetTemplateAutoDetect:
             net_template_map={"+5V_DIRTY": "{PWR_IN}", "+5V": "{PWR_OUT}"},
         )
         comp = result["t"]["components"][0]
-        assert "net_template" not in comp
-        # A genuinely ambiguous net_template (2+ matching nets) is NOT resolved
-        # by a pad number — no net_template_pad may appear there (2026-08-16).
-        assert "net_template_pad" not in comp
-        # Message text is translated (see kicadstamp/i18n.py) — match either
-        # locale the project ships (en/ru), not just the raw English msgid.
-        assert "nets from --net-template" in caplog.text or "цепей из --net-template" in caplog.text
+        assert comp["net_template"] == "{PWR_OUT}"   # designated = sorted[0] = "+5V"
+        assert comp["net_template_pad"] == "2"       # "+5V" sits on pad 2
+        assert "nets from --net-template" not in caplog.text
 
-    def test_two_matching_nets_appends_annotation_when_requested(self):
+    def test_two_matching_nets_auto_derive_leaves_no_annotation(self):
         fb = _make_fp("FB1", 0, 0, 0, "PI_FILTER_FB", pad_nets=["+5V_DIRTY", "+5V"])
         adapter = _make_adapter([fb])
         annotations = []
@@ -254,12 +254,8 @@ class TestNetTemplateAutoDetect:
             annotations=annotations,
         )
         comp = result["t"]["components"][0]
-        assert "net_template" not in comp
-        assert len(annotations) == 1
-        role, field, hint = annotations[0]
-        assert role == "PI_FILTER_FB"
-        assert field == "net_template"
-        assert "+5V" in hint and "+5V_DIRTY" in hint
+        assert comp["net_template"] == "{PWR_OUT}"
+        assert annotations == []   # auto-resolved — nothing for the human to fill
 
     def test_single_matching_net_leaves_annotations_empty(self):
         cap = _make_fp("C1", 0, 0, 0, "C_IN_BULK", pad_nets=["+5V_DIRTY", "GND"])
@@ -811,3 +807,112 @@ class TestExplicitOriginParam:
         extract_template_from_selection(
             _make_adapter([xtal]), "t", origin=Vector2.from_xy(5 * MM, 5 * MM))
         assert calls == []
+
+
+class TestAutoNetPattern:
+    """Phase 1 step 1.3 — auto {param} pattern discovery WIRED into extract
+    (kicadstamp/template_extraction.py, _auto_net_pattern_map): a via/track on
+    a DIFFERENT channel instance's net, when no --net-template-map is given, is
+    auto-parametrized from a pattern discovered across the SAME role's instances
+    on the whole board. Guarded: when no single-token pattern exists the literal
+    is kept (never guess silently), and net_from_role always wins over the
+    auto pattern."""
+
+    def test_via_net_auto_parametrized_from_other_instances(self):
+        sel = _make_fp("U_DAC1", 0, 0, 0, "DAC_ADC", pad_nets=["/Channel_0/DAC/DB0"])
+        other1 = _make_fp("U_DAC2", 10, 0, 0, "DAC_ADC", pad_nets=["/Channel_1/DAC/DB0"])
+        other2 = _make_fp("U_DAC3", 20, 0, 0, "DAC_ADC", pad_nets=["/Channel_2/DAC/DB0"])
+        via = _make_via(1, 1, "/Channel_1/DAC/DB0")
+        adapter = _make_adapter([sel], [via])
+        adapter.get_footprints.return_value = [sel, other1, other2]
+
+        result = extract_template_from_selection(adapter, "cell_dac")
+        v = result["cell_dac"]["vias"][0]
+        # /Channel_1/DAC/DB0 is NOT on the selected instance's pads -> not
+        # classifiable to a role, no net_template_map -> auto pattern.
+        assert v["net"] == "/Channel_{channel}/DAC/DB0"
+        assert "net_from_role" not in v
+
+    def test_net_from_role_still_wins_over_auto_pattern(self):
+        sel = _make_fp("U_DAC1", 0, 0, 0, "DAC_ADC", pad_nets=["/Channel_0/DAC/DB0"])
+        other = _make_fp("U_DAC2", 10, 0, 0, "DAC_ADC", pad_nets=["/Channel_1/DAC/DB0"])
+        via = _make_via(1, 1, "/Channel_0/DAC/DB0")  # the SELECTED instance's net
+        adapter = _make_adapter([sel], [via])
+        adapter.get_footprints.return_value = [sel, other]
+
+        result = extract_template_from_selection(adapter, "cell_dac")
+        v = result["cell_dac"]["vias"][0]
+        # /Channel_0/DAC/DB0 IS the selected instance's pad net -> classified
+        # to the role FIRST (net_from_role), never the auto pattern.
+        assert v["net"] is None
+        assert v["net_from_role"] == "DAC_ADC"
+
+    def test_no_single_token_pattern_keeps_literal(self):
+        # Nets differ in TWO segment positions (channel AND leaf) -> no
+        # single-token pattern exists -> the literal is kept, no guessing.
+        sel = _make_fp("U_MIX1", 0, 0, 0, "MIX", pad_nets=["/Channel_0/A"])
+        other1 = _make_fp("U_MIX2", 10, 0, 0, "MIX", pad_nets=["/Channel_1/A"])
+        other2 = _make_fp("U_MIX3", 20, 0, 0, "MIX", pad_nets=["/Channel_0/B"])
+        other3 = _make_fp("U_MIX4", 30, 0, 0, "MIX", pad_nets=["/Channel_1/B"])
+        via = _make_via(1, 1, "/Channel_1/B")
+        adapter = _make_adapter([sel], [via])
+        adapter.get_footprints.return_value = [sel, other1, other2, other3]
+
+        result = extract_template_from_selection(adapter, "cell_mix")
+        v = result["cell_mix"]["vias"][0]
+        assert v["net"] == "/Channel_1/B"
+        assert "net_from_role" not in v
+
+
+class TestSoftDeprecationNotices:
+    """Phase 1 step 1.4 — the manual extract flags stay as optional overrides
+    (backward compatibility), but a WARNING notice fires when they are REDUNDANT
+    given the new auto-derivation (net_from_role / auto-pattern / auto-derived
+    bridging designated net)."""
+
+    def test_net_template_unused_emits_notice(self, caplog):
+        cap = _make_fp("C1", 0.0, 0.0, 0.0, "C_OUT_BULK", pad_nets=["+3V3", "GND"])
+        via = _make_via(0.0, -2.0, "+3V3")
+        adapter = _make_adapter([cap], [via])
+        # The map describes a net that appears NOWHERE in the selection — the
+        # whole selection is covered by net_from_role, so --net-template/--param
+        # was redundant.
+        extract_template_from_selection(
+            adapter, "t", net_template_map={"+1V8": "{VOUT}"}, rule_nets={"GND"})
+        assert "not needed" in caplog.text
+
+    def test_net_template_used_no_notice(self, caplog):
+        cap = _make_fp("C1", 0.0, 0.0, 0.0, "C_OUT_BULK", pad_nets=["+3V3", "GND"])
+        via = _make_via(0.0, -2.0, "+1V8")   # not on any selected role's pads
+        adapter = _make_adapter([cap], [via])
+        extract_template_from_selection(
+            adapter, "t", params={"VOUT": "+1V8"},
+            net_template_map={"+1V8": "{VOUT}"}, rule_nets={"GND"})
+        # +1V8 is parametrized from the map -> the map was genuinely used.
+        assert "not needed" not in caplog.text
+
+    def test_net_template_role_matching_designated_emits_notice(self, caplog):
+        fb = _make_fp("FB1", 0.0, 0.0, 0.0, "PI_FILTER_FB",
+                      pad_nets=["+5V", "+5V_DIRTY"])
+        adapter = _make_adapter([fb])
+        # Explicit choice == the auto-derived designated net (+5V) -> the flag
+        # changed nothing.
+        extract_template_from_selection(
+            adapter, "t", params={"PWR_OUT": "+5V", "PWR_IN": "+5V_DIRTY"},
+            net_template_map={"+5V": "{PWR_OUT}", "+5V_DIRTY": "{PWR_IN}"},
+            net_template_role={"PI_FILTER_FB": "+5V"})
+        assert "redundant" in caplog.text
+
+    def test_net_template_role_override_no_notice(self, caplog):
+        fb = _make_fp("FB1", 0.0, 0.0, 0.0, "PI_FILTER_FB",
+                      pad_nets=["+5V", "+5V_DIRTY"])
+        adapter = _make_adapter([fb])
+        # The user overrides the designated net to a DIFFERENT one -> not
+        # redundant -> no notice, and net_template follows the override.
+        result = extract_template_from_selection(
+            adapter, "t", params={"PWR_OUT": "+5V", "PWR_IN": "+5V_DIRTY"},
+            net_template_map={"+5V": "{PWR_OUT}", "+5V_DIRTY": "{PWR_IN}"},
+            net_template_role={"PI_FILTER_FB": "+5V_DIRTY"})
+        assert "redundant" not in caplog.text
+        comp = result["t"]["components"][0]
+        assert comp["net_template"] == "{PWR_IN}"
