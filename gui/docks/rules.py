@@ -89,17 +89,20 @@ from typing import Any, Dict, List, Optional
 from kipy.errors import ApiError
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog, QFormLayout,
-                              QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton,
-                              QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
+                              QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox,
+                              QPushButton, QTableWidget, QTableWidgetItem, QTabWidget,
+                              QVBoxLayout, QWidget)
 
 from kicadstamp.apply_pipeline import ApplyPipeline
 from kicadstamp.config import (Config, RuntimeContext, load_config, load_manual_spoke,
                                load_rule, rule_effective_name)
 from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.i18n import _
+from kicadstamp.utils.units import MM
 
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
+from .live_position import read_anchor_live
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       configure_searchable, display_path, parse_float_field,
                       set_combo_items, set_mode_pair_enabled, show_message,
@@ -249,6 +252,19 @@ class RuleDock(QWidget):
         self.anchor_sheet_edit = self.origin_widget.anchor_sheet_edit
         self.anchor_cluster_edit = self.origin_widget.anchor_cluster_edit
         self.point_edit = self.origin_widget.point_edit
+        # "Read current position" (design 2026_08_29_config_tree_read_live_
+        # position.md §1.4) — the rule has NO position field of its own (its
+        # position = anchor + per-spoke shifts), so this is an INFORMATIONAL
+        # readout of the anchor's live position/rotation (also an ambiguity
+        # check), not a field fill.
+        origin_readout_row = QHBoxLayout()
+        self.read_position_button = QPushButton(_("Read current position"))
+        self.read_position_button.clicked.connect(self._on_origin_read_position)
+        origin_readout_row.addWidget(self.read_position_button)
+        origin_page_layout.addLayout(origin_readout_row)
+        self.anchor_position_label = QLabel("")
+        self.anchor_position_label.setWordWrap(True)
+        origin_page_layout.addWidget(self.anchor_position_label)
         origin_page_layout.addStretch(1)
         self._tabs.addTab(origin_page, _("Origin"))
 
@@ -411,6 +427,48 @@ class RuleDock(QWidget):
         collect_all_sheet_names, gui/docks/rename.py)."""
         names = collect_all_sheet_names(self._root_path) if self._root_path is not None else []
         self.origin_widget.set_known_sheets(names)
+
+    def _on_origin_read_position(self) -> None:
+        """Origin tab's "Read current position" — an INFORMATIONAL readout of
+        the rule anchor's live position/rotation (design
+        2026_08_29_config_tree_read_live_position.md §1.4). The rule itself has
+        no position field in the config (its position = anchor + per-spoke
+        shifts), so nothing is filled into the config — only a label is shown,
+        and the resolution doubles as an ambiguity check (fatal on 0/2+, same
+        "never guess" principle). Failures are warnings, the label is left as
+        it was."""
+        board = self._main_window.connection.board
+        if board is None or getattr(board, "adapter", None) is None:
+            QMessageBox.warning(
+                self, _("Read current position"),
+                _("No live board connection — connect KiCad first."))
+            return
+        fields, err = self.origin_widget.build()
+        if err:
+            QMessageBox.warning(self, _("Read current position"), err)
+            return
+        # Points live in the project root's include graph — load the same way
+        # the redraw preview path does (root first, fall back to own path).
+        config_path = self._root_path if self._root_path is not None else self._path
+        cfg, ctx = Config(), RuntimeContext()
+        if config_path is not None and config_path.exists():
+            try:
+                cfg, ctx = load_config(str(config_path))
+            except (ValidationError, OSError) as e:
+                QMessageBox.warning(self, _("Read current position"), str(e))
+                return
+        sheet_names = ctx.sheet_names if ctx is not None else {}
+        try:
+            read = read_anchor_live(board.adapter, fields, cfg.points,
+                                    sheet_names, _("rule anchor"))
+        except ValidationError as e:
+            QMessageBox.warning(self, _("Read current position"), str(e))
+            return
+        rot_s = f"{read.rotation_deg:.1f}" if read.rotation_deg is not None else "—"
+        ref = fields.get("ref") or fields.get("role") or fields.get("point") or "?"
+        self.anchor_position_label.setText(
+            _("anchor {ref!r}: ({x:.3f}, {y:.3f}) mm @ {rot}°").format(
+                ref=ref, x=read.position.x / MM, y=read.position.y / MM, rot=rot_s))
 
     def refresh_known_roles(self, snapshot) -> None:
         """Same "populate from the live board" pattern as PlacerDock's own
