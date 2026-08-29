@@ -14,7 +14,7 @@ for ClonePlacement (TemplatePlacer), unlike spoke_layout.py:
 from ..domain.geometry import Vector2
 
 from ..config import (ClonePlacement, Cell, TemplateVia, TemplateTrack,
-                      clone_placement_effective_name)
+                      TemplateComponentSlot, clone_placement_effective_name)
 from ..exceptions import ValidationError, format_fatal_error
 from ..net_resolution import resolve_net
 from ..utils.units import MM
@@ -136,6 +136,59 @@ def clone_shift_mm(clone) -> tuple[float, float]:
         v = rotate_local_offset(radius_mm, 0.0, getattr(clone, "angle_deg", 0.0))
         return (v.x / MM, v.y / MM)
     return (clone.xy[0], clone.xy[1])
+
+
+def clone_rotation_from_component(fp_angle_deg: float, slot_angle_deg: float,
+                                  mirror: bool) -> float:
+    """The placement's own rotation_deg recovered from a single live component
+    (inverse of apply_clone_geometry's comp_angle). Not mirrored:
+    fp_angle = slot_angle + rotation. Mirrored: fp_angle =
+    (180 - (slot_angle + rotation)) % 360, so rotation =
+    ((180 - fp_angle) % 360) - slot_angle. Normalized to (-180, 180] — the
+    same (x + 180) % 360 - 180 convention as relative_rotation_deg
+    (tree_position.py) — so the GUI fills a human-readable angle. Pure math,
+    no adapter."""
+    if mirror:
+        rotation = ((180.0 - fp_angle_deg) % 360.0) - slot_angle_deg
+    else:
+        rotation = fp_angle_deg - slot_angle_deg
+    return (rotation + 180.0) % 360.0 - 180.0
+
+
+def clone_origin_from_component(fp_position: Vector2, fp_angle_deg: float,
+                                slot: TemplateComponentSlot,
+                                mirror: bool) -> tuple[Vector2, float]:
+    """Inverse of apply_clone_geometry's component mapping: given ONE live
+    component's absolute position/angle (as the board reports it now) and its
+    cell slot, recover the cell's world origin (local (0,0)) and the
+    placement's own rotation_deg. Returns (origin, placement_rotation_deg).
+
+    Forward (apply_clone_geometry, `place`/`comp_angle`):
+      rotated  = rotate_local_offset(slot.offset_along, slot.offset_across,
+                                     rotation_deg)
+      p        = origin + rotated
+      if mirror: p = _mirror_x(origin, p) = (2*origin.x - p.x, p.y)
+      fp_angle = (slot.angle_deg + rotation_deg) or
+                 (180 - (slot.angle_deg + rotation_deg)) % 360 when mirrored.
+
+    Inverse:
+      rotation_deg = clone_rotation_from_component(fp_angle_deg, ...)
+      origin.x = fp_position.x - rotated.x          (not mirrored)
+                 fp_position.x + rotated.x          (mirrored — X flips)
+      origin.y = fp_position.y - rotated.y          (both cases)
+
+    Used by the GUI "Read current position" for a ClonePlacement (the cell
+    origin is not stored anywhere on the board — it must be re-derived from a
+    placed component). Pure math, no adapter; unit-tested including the
+    mirror case. The caller picks WHICH component: cell.anchor_role's slot if
+    set, else the first cell slot."""
+    rotation_deg = clone_rotation_from_component(fp_angle_deg, slot.angle_deg, mirror)
+    rotated = rotate_local_offset(slot.offset_along_mm, slot.offset_across_mm, rotation_deg)
+    if mirror:
+        origin = Vector2.from_xy(fp_position.x + rotated.x, fp_position.y - rotated.y)
+    else:
+        origin = Vector2.from_xy(fp_position.x - rotated.x, fp_position.y - rotated.y)
+    return origin, rotation_deg
 
 
 def clone_layout_origin(clone: ClonePlacement,

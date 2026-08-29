@@ -7,7 +7,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pytest
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.config import ClonePlacement, Cell, TemplateVia, TemplateTrack, TemplateComponentSlot
-from kicadstamp.geometry.clone_geometry import apply_clone_geometry, clone_layout_origin, clone_shift_mm
+from kicadstamp.geometry.clone_geometry import (
+    apply_clone_geometry, clone_layout_origin, clone_shift_mm,
+    clone_origin_from_component, clone_rotation_from_component,
+)
 from kicadstamp.geometry.spoke_layout import local_to_absolute, rotate_local_offset
 from kicadstamp.exceptions import ValidationError
 
@@ -347,3 +350,74 @@ class TestCloneLayoutOrigin:
         layout = apply_clone_geometry(clone, _pi_filter_template(), {},
                                       anchor_position=anchor)
         assert clone_layout_origin(clone, anchor) == layout.origin
+
+
+class TestCloneOriginFromComponent:
+    """Inverse of apply_clone_geometry's component mapping (design
+    2026-08-29_config_tree_read_live_position.md §3.2): given ONE live
+    component's absolute position/angle and its cell slot, recover the cell's
+    world origin and the placement's own rotation_deg. Used by the GUI "Read
+    current position" for a ClonePlacement — the cell origin is not stored on
+    the board, it must be re-derived from a placed component."""
+
+    def _roundtrip(self, clone, mirror=False, parent_rotation_deg=0.0):
+        """apply_clone_geometry -> pick CAP_IN component -> recover origin +
+        rotation via clone_origin_from_component -> assert they match."""
+        tpl = _pi_filter_template()
+        layout = apply_clone_geometry(
+            clone, tpl, {"CAP_IN": "C10", "CAP_OUT": "C11"},
+            mirror=mirror, parent_rotation_deg=parent_rotation_deg)
+        slot = next(s for s in tpl.components if s.role == "CAP_IN")
+        fp = next(c for c in layout.components if c.role == "CAP_IN")
+        origin, rotation = clone_origin_from_component(
+            fp.position, fp.angle_deg, slot, mirror)
+        expected_rotation = parent_rotation_deg + clone.rotation_deg
+        assert origin == layout.origin
+        assert rotation == expected_rotation
+
+    def test_no_mirror_roundtrip(self):
+        self._roundtrip(ClonePlacement(cluster="f", cell="pi_filter",
+                                       xy=(12.5, -7.0), rotation_deg=90.0))
+
+    def test_mirror_roundtrip(self):
+        self._roundtrip(ClonePlacement(cluster="f", cell="pi_filter",
+                                       xy=(12.5, -7.0), rotation_deg=0.0),
+                        mirror=True)
+
+    def test_mirror_with_rotation_roundtrip(self):
+        self._roundtrip(ClonePlacement(cluster="f", cell="pi_filter",
+                                       xy=(12.5, -7.0), rotation_deg=33.0),
+                        mirror=True)
+
+    def test_nested_parent_rotation_roundtrip(self):
+        """A nested CellPlacement inside a rotated parent frame: rotation_deg
+        the recovered placement rotation is parent + own, matching
+        apply_clone_geometry's comp_angle/place composition."""
+        self._roundtrip(ClonePlacement(cluster="f", cell="pi_filter",
+                                       xy=(1.0, 2.0), rotation_deg=45.0),
+                        parent_rotation_deg=90.0)
+
+    def test_slot_with_nonzero_angle_roundtrip(self):
+        """CAP_OUT's slot angle is 180 — the angle inversion must still recover
+        the placement rotation exactly."""
+        tpl = _pi_filter_template()
+        clone = ClonePlacement(cluster="f", cell="pi_filter",
+                               xy=(3.0, 4.0), rotation_deg=15.0)
+        layout = apply_clone_geometry(clone, tpl,
+                                      {"CAP_IN": "C10", "CAP_OUT": "C11"})
+        slot = next(s for s in tpl.components if s.role == "CAP_OUT")
+        fp = next(c for c in layout.components if c.role == "CAP_OUT")
+        origin, rotation = clone_origin_from_component(
+            fp.position, fp.angle_deg, slot, mirror=False)
+        assert origin == layout.origin
+        assert rotation == clone.rotation_deg
+
+    def test_rotation_inversion_mirror_formula(self):
+        """Direct check of the mirror angle inversion:
+        fp_angle = (180 - (slot_angle + rotation)) % 360, so
+        rotation = ((180 - fp_angle) % 360) - slot_angle."""
+        assert clone_rotation_from_component(180.0, 0.0, mirror=True) == 0.0
+        assert clone_rotation_from_component(90.0, 0.0, mirror=True) == 90.0
+        assert clone_rotation_from_component(45.0, 0.0, mirror=True) == 135.0
+        assert clone_rotation_from_component(30.0, 20.0, mirror=False) == 10.0
+        assert clone_rotation_from_component(200.0, 30.0, mirror=True) == -50.0
