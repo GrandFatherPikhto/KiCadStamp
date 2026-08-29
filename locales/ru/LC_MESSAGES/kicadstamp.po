@@ -2435,6 +2435,23 @@ msgstr "Перерисовать выбранную спицу"
 msgid "Read current position"
 msgstr "Считать текущее положение"
 
+#: gui/docks/placer.py
+msgid "Cluster and Role are required to read the component's position."
+msgstr "Для чтения позиции компонента нужны Cluster и Role."
+
+#: gui/docks/placer.py
+msgid "Cluster name and a Cell are required to read the cell's position."
+msgstr "Для чтения позиции ячейки нужны имя Cluster и Cell."
+
+#: gui/docks/placer.py
+#, python-brace-format
+msgid "Read current position: ({x:.3f}, {y:.3f}) mm"
+msgstr "Текущее положение: ({x:.3f}, {y:.3f}) мм"
+
+#: gui/docks/rules.py
+msgid "rule anchor"
+msgstr "якорь правила"
+
 #: gui/docks/trees_dock.py
 msgid "No live board connection — connect KiCad first."
 msgstr "Нет соединения с платой — сначала подключись к KiCad."

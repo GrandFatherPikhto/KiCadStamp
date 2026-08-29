@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 
 from kicadstamp.config import (
     Config, ManualSpoke, Cell,
-    TemplateComponentSlot, TemplateVia, Rule, ClonePlacement
+    TemplateComponentSlot, TemplateTrack, TemplateVia, Rule, ClonePlacement
 )
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.validation import (
@@ -20,6 +20,8 @@ from kicadstamp.validation import (
     check_single_selection_based_clone,
     check_config_structure,
     check_no_candidate_pool_collisions,
+    check_bridging_pad_hints_are_self_consistent,
+    check_bridging_pad_hints_consistent_in_cell,
 )
 
 
@@ -565,3 +567,84 @@ class TestCandidatePoolCollisions:
         cfg = self._cfg(rules)
         with pytest.raises(ValidationError, match="compete for the same component pool"):
             check_config_structure(cfg)
+
+
+class TestBridgingPadHintsSelfConsistent:
+    """Self-verifying net_template_pad invariant (plan
+    2026_08_29_bridging_pad_connectivity_guard.md §1): a net_template_pad hint
+    must agree with the cell's OWN copper connectivity + the clone's params —
+    the pad it names must NOT share a copper node with a role resolving to a
+    DIFFERENT net (that would make one physical node "want" two nets)."""
+
+    @staticmethod
+    def _bridging_cell(net_template_pad=None):
+        """A two-role bridging cell: R_SIG pad "1" is an isolated signal stub;
+        R_SIG pad "2" shares a copper node with R_RAIL pad "2" at (3, 0)."""
+        return Cell(name="br", components=[
+            TemplateComponentSlot(role="R_SIG", net_template="{R_SIG}",
+                                  net_template_pad=net_template_pad),
+            TemplateComponentSlot(role="R_RAIL", net_template="{RAIL}"),
+        ], tracks=[
+            TemplateTrack(start_along_mm=0.0, start_across_mm=0.0,
+                          end_along_mm=1.0, end_across_mm=0.0,
+                          net_from_role="R_SIG", net_from_role_pad="1"),
+            TemplateTrack(start_along_mm=2.0, start_across_mm=0.0,
+                          end_along_mm=3.0, end_across_mm=0.0,
+                          net_from_role="R_SIG", net_from_role_pad="2"),
+            TemplateTrack(start_along_mm=3.0, start_across_mm=0.0,
+                          end_along_mm=4.0, end_across_mm=0.0,
+                          net_from_role="R_RAIL", net_from_role_pad="2"),
+        ])
+
+    @staticmethod
+    def _cfg(net_template_pad=None):
+        cell = TestBridgingPadHintsSelfConsistent._bridging_cell(net_template_pad)
+        clone = ClonePlacement(
+            cluster="c", cell="br", xy=(0.0, 0.0),
+            params={"R_SIG": "/SIG", "RAIL": "+3V3"})
+        return Config(cells={"br": cell}, clone_placements=[clone])
+
+    def test_correct_hint_passes(self):
+        """net_template_pad="1": R_SIG pad "1" is isolated (no other role in
+        its copper node) -> nothing to conflict -> passes."""
+        check_bridging_pad_hints_are_self_consistent(self._cfg(net_template_pad="1"))
+
+    def test_wrong_hint_is_fatal_naming_both_nets_and_roles(self):
+        """net_template_pad="2": R_SIG pad "2" shares the node with R_RAIL pad
+        "2" (resolves to +3V3, R_SIG resolves to /SIG) -> the hint points at
+        the WRONG pad -> fatal naming both roles and both nets."""
+        with pytest.raises(ValidationError) as exc_info:
+            check_bridging_pad_hints_are_self_consistent(self._cfg(net_template_pad="2"))
+        msg = str(exc_info.value)
+        # Names/nets appear with !r quoting in the diagnostic.
+        assert "'R_SIG'" in msg and "'R_RAIL'" in msg
+        assert "'/SIG'" in msg and "'+3V3'" in msg
+        assert "'br'" in msg and "'c'" in msg
+        assert "(3.000, 0.000)" in msg  # the junction coordinate as the "why"
+
+    def test_no_hint_is_noop(self):
+        """A role WITHOUT net_template_pad is never touched by this check."""
+        check_bridging_pad_hints_are_self_consistent(self._cfg())
+
+    def test_unresolvable_placeholder_is_skipped_not_fatal(self):
+        """R_RAIL's {RAIL} has no param in the clone -> its net is not
+        determinable -> skipped (not an error), so the check passes even though
+        R_SIG pad "2" shares the node with it."""
+        cell = self._bridging_cell(net_template_pad="2")
+        clone = ClonePlacement(cluster="c", cell="br", xy=(0.0, 0.0),
+                               params={"R_SIG": "/SIG"})
+        check_bridging_pad_hints_consistent_in_cell(cell, clone.params, clone.net_overrides)
+
+    def test_run_all_checks_wires_the_bridging_pad_check(self, monkeypatch):
+        """The check is part of run_all_checks (fires on every ApplyPipeline
+        redraw) — verified by patching it on an empty config where every other
+        check is a no-op."""
+        import kicadstamp.validation as v
+        cfg = Config(cells={}, clone_placements=[], rules=[], coordinate_placements=[])
+        adapter = MagicMock()
+        adapter.get_board_filename.return_value = None
+        called = []
+        monkeypatch.setattr(v, "check_bridging_pad_hints_are_self_consistent",
+                            lambda c: called.append(c))
+        v.run_all_checks(adapter, cfg)
+        assert called == [cfg]

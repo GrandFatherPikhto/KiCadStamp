@@ -428,3 +428,53 @@ def test_extract_error_returns_error_dict(tmp_path):
     _, result, _ = _run(tmp_path, extract_fn=fn)
 
     assert result == {"error": "no such role"}
+
+
+# ── net_template_pad self-verification hook (plan 2026_08_29_bridging_pad_ ──
+#    connectivity_guard.md §2.3): a just-extracted cell's hints are verified
+#    against its own copper connectivity BEFORE merge_write, so a conflict
+#    returns {"error": ...} and never leaves a partial write behind.
+
+
+def test_extract_bridging_pad_hint_conflict_returns_error_no_write(tmp_path):
+    """An artificial conflict — net_template_pad="2" on R_SIG, whose pad "2"
+    shares a copper node with R_RAIL pad "2" (which resolves to +3V3, while
+    R_SIG resolves to /SIG) — must surface as {"error": ...} naming both roles
+    and must NOT write the cell (the check runs before merge_write)."""
+    template = {
+        "components": [
+            {"role": "R_SIG", "net_template": "{R_SIG}", "net_template_pad": "2"},
+            {"role": "R_RAIL", "net_template": "{RAIL}"},
+        ],
+        "vias": [],
+        "tracks": [
+            {"start_along_mm": 0.0, "start_across_mm": 0.0,
+             "end_along_mm": 1.0, "end_across_mm": 0.0,
+             "net_from_role": "R_SIG", "net_from_role_pad": "1"},
+            {"start_along_mm": 2.0, "start_across_mm": 0.0,
+             "end_along_mm": 3.0, "end_across_mm": 0.0,
+             "net_from_role": "R_SIG", "net_from_role_pad": "2"},
+            {"start_along_mm": 3.0, "start_across_mm": 0.0,
+             "end_along_mm": 4.0, "end_across_mm": 0.0,
+             "net_from_role": "R_RAIL", "net_from_role_pad": "2"},
+        ],
+        "layer": "F.Cu",
+    }
+    target, result, _ = _run(
+        tmp_path, params={"R_SIG": "/SIG", "RAIL": "+3V3"},
+        extract_fn=_CapturingExtract(template=template))
+
+    assert "error" in result
+    assert "'R_SIG'" in result["error"] and "'R_RAIL'" in result["error"]
+    assert "'/SIG'" in result["error"] and "'+3V3'" in result["error"]
+    # The check runs BEFORE merge_write — a failed extract writes nothing.
+    assert not target.exists()
+
+
+def test_extract_without_hint_writes_normally(tmp_path):
+    """A cell with no net_template_pad is unaffected by the new hook — the
+    default capturing extractor's empty template still extracts fine."""
+    target, result, _ = _run(tmp_path)
+    assert "error" not in result
+    assert target.exists()
+    assert "cell1" in _load(target)["cells"]

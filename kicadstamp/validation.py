@@ -20,6 +20,10 @@ from .config import (
     Config, Rule, ManualSpoke, clone_placement_effective_name,
     coordinate_placement_effective_name, rule_effective_name,
 )
+from .geometry.cell_copper_connectivity import (
+    cell_copper_components, component_containing, component_role_pads,
+    component_shared_point,
+)
 from .geometry.clone_geometry import clone_shift_mm
 from .kicad.adapter import KiCadBoardAdapter
 from .exceptions import ValidationError, format_fatal_error
@@ -736,6 +740,110 @@ def check_board_identity(cfg: Config, adapter: KiCadBoardAdapter) -> None:
         ))
 
 
+def _bridging_pad_hint_problems(cell, params=None, net_overrides=None) -> list[str]:
+    """Collect the per-cell conflict diagnostics of the self-verifying
+    `net_template_pad` invariant (plan 2026_08_29_bridging_pad_connectivity_
+    guard.md §1) — returns the problem strings, does NOT raise, so both the
+    single-cell (extract hook) and the config-level (run_all_checks) wrappers
+    share one collector.
+
+    For a role R with net_template_pad=N, take the copper component containing
+    (R, N) (cell_copper_components). For EVERY OTHER tag (R2, P2) in that same
+    component whose net_template RESOLVES literally through resolve_net (an
+    unresolvable {placeholder} is skipped — not determinable, not an error),
+    compare with R's own net (resolve_net on R's net_template, same params/
+    net_overrides). If they DIFFER — one physical copper node "wants" two
+    different nets, i.e. the pad hint points at the wrong pad — record a
+    diagnostic with the junction coordinate as the "why".
+
+    params/net_overrides — the literal substitutions the hint was extracted
+    with (a ClonePlacement's params/net_overrides, or the extract's own params
+    when no clone_placement exists yet — this is why the signature takes them
+    directly, not a ClonePlacement). Roles without net_template_pad are never
+    touched (only an explicitly placed hint is in scope; manual entry stays
+    manual)."""
+    components = cell_copper_components(cell)
+    by_role = {slot.role: slot for slot in cell.components}
+    problems = []
+    for slot in cell.components:
+        if slot.net_template_pad is None or slot.net_template is None:
+            continue
+        comp = component_containing(components, slot.role, slot.net_template_pad)
+        if comp is None:
+            continue  # no copper tagged (role, pad) — nothing to chase
+        try:
+            role_net = resolve_net(slot.net_template, params or {}, net_overrides or {})
+        except ValidationError:
+            continue  # own net not determinable from these params — skip
+        for (r2, p2) in component_role_pads(comp):
+            if r2 is None or p2 is None:
+                continue
+            if (r2, p2) == (slot.role, slot.net_template_pad):
+                continue
+            slot2 = by_role.get(r2)
+            if slot2 is None or slot2.net_template is None:
+                continue
+            try:
+                net2 = resolve_net(slot2.net_template, params or {}, net_overrides or {})
+            except ValidationError:
+                continue  # the neighbour's net is not determinable — skip
+            if net2 == role_net:
+                continue
+            try:
+                joint = component_shared_point(
+                    comp, (slot.role, slot.net_template_pad), (r2, p2))
+                joint_txt = _("at ({x:.3f}, {y:.3f}) mm").format(x=joint[0], y=joint[1])
+            except AssertionError:
+                joint_txt = ""
+            problems.append(
+                _("cell {cell!r}, role {role!r} pad {pad!r}: conflicts with "
+                  "role {other!r} pad {other_pad!r} — the same copper node "
+                  "carries net {net_a!r} and net {net_b!r}{joint}")
+                .format(cell=cell.name, role=slot.role, pad=slot.net_template_pad,
+                        other=r2, other_pad=p2, net_a=role_net, net_b=net2,
+                        joint=(" " + joint_txt) if joint_txt else ""))
+    return problems
+
+
+def check_bridging_pad_hints_consistent_in_cell(cell, params=None,
+                                                net_overrides=None) -> None:
+    """Single-cell wrapper of the self-verifying `net_template_pad` invariant:
+    raise a fatal ValidationError when the cell's hints contradict its own
+    copper connectivity under the given params/net_overrides. This is the
+    public per-cell entry point — used by the extract hook
+    (extract_writer.py) for a just-extracted cell that has no clone_placement
+    yet. Roles without net_template_pad are never touched."""
+    problems = _bridging_pad_hint_problems(cell, params, net_overrides)
+    if problems:
+        raise ValidationError(format_fatal_error(
+            _("net_template_pad hint(s) contradict the cell's own copper connectivity"),
+            problems))
+
+
+def check_bridging_pad_hints_are_self_consistent(cfg) -> None:
+    """Config-level wrapper: run the per-cell invariant for EVERY
+    clone_placement (its cell + params/net_overrides), consolidating ALL
+    problems (with their per-cell details) into one fatal — the usual style
+    here. Config-only and cheap — wired into run_all_checks right after
+    check_config_structure, so ANY redraw through ApplyPipeline (Placer/
+    Rules/Thermal via/Net trace/Cascade) self-verifies the hints instead of
+    relying on a remembered "re-extracted" flag. Trees dock's rigid-redraw is
+    deliberately NOT covered: it never re-derives role→net (pure geometry
+    move), so there is no risk to check."""
+    problems = []
+    for clone in cfg.clone_placements:
+        cell = cfg.cells.get(clone.cell)
+        if cell is None:
+            continue  # check_clone_cells_exist already fatals on this
+        for problem in _bridging_pad_hint_problems(cell, clone.params, clone.net_overrides):
+            problems.append(_("clone {name!r}: {msg}").format(
+                name=clone_placement_effective_name(clone), msg=problem))
+    if problems:
+        raise ValidationError(format_fatal_error(
+            _("net_template_pad hint(s) contradict the cell's own copper connectivity"),
+            problems))
+
+
 def run_all_checks(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None) -> None:
     """Runs all checks in order — from cheap to more comprehensive.
 
@@ -754,6 +862,7 @@ def run_all_checks(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None) ->
     # (see check_board_identity's docstring for the real incident this guards).
     check_board_identity(cfg, adapter)
     check_config_structure(cfg, sheet_names=_sn)
+    check_bridging_pad_hints_are_self_consistent(cfg)
     check_single_selection_based_clone(cfg, adapter=adapter, sheet_names=_sn)
     check_cells_and_pads_exist(adapter, cfg, sheet_names=_sn)
     check_role_pool_sufficiency(adapter, cfg)

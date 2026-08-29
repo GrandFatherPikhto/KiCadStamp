@@ -25,10 +25,12 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from kicadstamp.config.entries import _load_cell
 from kicadstamp.config_writer import add_list_entry, display_path, merge_write, non_includable_keys
 from kicadstamp.exceptions import PlacerError
 from kicadstamp.i18n import _
 from kicadstamp.template_extraction import extract_template_from_selection
+from kicadstamp.validation import check_bridging_pad_hints_consistent_in_cell
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +95,22 @@ def run_extract_to_file(adapter, *, name: str, params, items, net_template_role,
         cell_dict = template_dict.get(name)
         if isinstance(cell_dict, dict):
             cell_dict["clone_placements"] = clone_placements
+
+    # Self-verify the just-extracted cell's net_template_pad hints against its
+    # OWN copper connectivity (plan 2026_08_29_bridging_pad_connectivity_guard.md
+    # §2.3): a hint must not point at a pad that shares a copper node with a
+    # role resolving to a DIFFERENT net. Run BEFORE merge_write — a conflict
+    # must not leave a partial write behind. The cell is reconstructed through
+    # the SAME loader production uses (_load_cell, no hand-parsing), and hints
+    # are resolved with the same params this extract used; a freshly extracted
+    # cell has no clone_placement yet, so net_overrides are empty.
+    cell_dict = template_dict.get(name)
+    if isinstance(cell_dict, dict):
+        try:
+            cell = _load_cell(name, cell_dict)
+            check_bridging_pad_hints_consistent_in_cell(cell, params or {}, {})
+        except PlacerError as e:
+            return {"error": str(e)}
 
     try:
         cell_overwritten = merge_write(

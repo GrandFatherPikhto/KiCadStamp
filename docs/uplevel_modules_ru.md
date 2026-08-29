@@ -363,6 +363,7 @@
 | `check_anchor_sheet_configured(cfg, sheet_names)` | Проверяет `anchor_sheet` на соответствие реальным именам листов. |
 | `check_clone_nets_exist_on_board(adapter, cfg)` | Резолвит цепи via/треков И ожидаемую цепь каждой роли (nets: / net_template, после params/net_overrides + prefix-remap — Фаза 2, шаг 4.1) и сверяет с реальными цепями платы; роли, авто-выводимые с живой платы, не перепроверяются. |
 | `check_single_selection_based_clone(cfg)` | Гарантирует не более одного клона в режиме «по выделению». |
+| `check_bridging_pad_hints_are_self_consistent(cfg)` | Только конфиг: каждый хинт `net_template_pad` должен согласовываться с собственной связностью меди ячейки — пэд не должен делить узел меди с ролью, резолвящейся в другую цепь (самопроверка при каждом redraw и при каждом extract ячейки). |
 | `run_all_checks(adapter, cfg, sheet_names)` | Запускает все проверки по порядку. |
 
 **Используется в:** `apply_pipeline.py` (перед планированием).

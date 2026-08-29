@@ -362,6 +362,7 @@ Performs fatal checks on the configuration **before** any board modifications. C
 | `check_anchor_sheet_configured(cfg, sheet_names)` | Validates `anchor_sheet` references against actual sheet names. |
 | `check_clone_nets_exist_on_board(adapter, cfg)` | Resolves via/track nets AND each cell role's expected net (nets: / net_template, after params/net_overrides + prefix-remap — Phase 2 step 4.1) and checks against actual board nets; roles that auto-derive from the live board are not re-checked. |
 | `check_single_selection_based_clone(cfg)` | Ensures at most one clone in selection mode. |
+| `check_bridging_pad_hints_are_self_consistent(cfg)` | Config-only: every `net_template_pad` hint must agree with the cell's own copper connectivity — the pad it names must not share a copper node with a role resolving to a different net (self-verifies on every redraw, and on every extract of the cell). |
 | `run_all_checks(adapter, cfg, sheet_names)` | Runs all checks in order. |
 
 **Used in:** `apply_pipeline.py` (before planning).

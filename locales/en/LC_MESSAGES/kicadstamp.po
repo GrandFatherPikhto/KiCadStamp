@@ -2295,6 +2295,23 @@ msgstr ""
 msgid "Read current position"
 msgstr ""
 
+#: gui/docks/placer.py
+msgid "Cluster and Role are required to read the component's position."
+msgstr ""
+
+#: gui/docks/placer.py
+msgid "Cluster name and a Cell are required to read the cell's position."
+msgstr ""
+
+#: gui/docks/placer.py
+#, python-brace-format
+msgid "Read current position: ({x:.3f}, {y:.3f}) mm"
+msgstr ""
+
+#: gui/docks/rules.py
+msgid "rule anchor"
+msgstr ""
+
 #: gui/docks/trees_dock.py
 msgid "No live board connection — connect KiCad first."
 msgstr ""

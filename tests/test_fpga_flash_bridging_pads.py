@@ -31,7 +31,6 @@ Scope: tests + reusable connectivity helper ONLY. The profile config and the
 resolver/config engine are used as-is, never modified.
 """
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -43,6 +42,10 @@ from kicadstamp.config import load_config
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.domain.board import Footprint
 from kicadstamp.domain.geometry import BoardLayer, Vector2
+from kicadstamp.geometry.cell_copper_connectivity import (
+    cell_copper_components, component_containing, component_role_pads,
+    component_shared_point,
+)
 from kicadstamp.net_resolution import resolve_net
 from kicadstamp.placement.services.clone_role_resolver import suggest_role_nets_from_cluster
 
@@ -54,101 +57,11 @@ _CLUSTER = "FPGA_FLASH"
 _RAIL_NET = "+3V3_FLASH"
 
 
-# ---------------------------------------------------------------------------
-# 3.1 Reusable copper connectivity (tracks + vias of one Cell)
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class _CopperSegment:
-    """One cell copper element (a track or via) with its role/pad tag and the
-    endpoint coordinates that participate in connectivity."""
-
-    kind: str  # 'track' | 'via'
-    role: str | None  # net_from_role
-    pad: str | None  # net_from_role_pad
-    points: tuple[tuple[float, float], ...]
-
-
-class _UnionFind:
-    """Minimal union-find used by cell_copper_components."""
-
-    def __init__(self, n: int):
-        self._parent = list(range(n))
-        self._rank = [0] * n
-
-    def find(self, x: int) -> int:
-        while self._parent[x] != x:
-            self._parent[x] = self._parent[self._parent[x]]
-            x = self._parent[x]
-        return x
-
-    def union(self, a: int, b: int) -> None:
-        ra, rb = self.find(a), self.find(b)
-        if ra == rb:
-            return
-        if self._rank[ra] < self._rank[rb]:
-            ra, rb = rb, ra
-        self._parent[rb] = ra
-        if self._rank[ra] == self._rank[rb]:
-            self._rank[ra] += 1
-
-
-def cell_copper_components(cell, eps: float = 1e-3) -> list[list[_CopperSegment]]:
-    """Connected components of a Cell's copper (all tracks + vias), union-find.
-
-    Two segments are CONNECTED when they share an endpoint coordinate within
-    `eps` mm: track start/end and via offset, all in the cell's local
-    along/across frame. The extracted profile stores exact coordinates (e.g.
-    (3.5875, -1.905) repeated to the 4th decimal), so the default eps=1e-3
-    merges exact joints and nothing else.
-
-    Returns a list of components; each component is a list of _CopperSegment
-    (kind, role, pad, points). Segments with no net_from_role are tagged
-    (None, None). Reusable for ANY cell of any profile — this is what later
-    bridging-role checks build on."""
-    segments: list[_CopperSegment] = []
-    for t in cell.tracks:
-        segments.append(_CopperSegment(
-            "track", t.net_from_role, t.net_from_role_pad,
-            ((t.start_along_mm, t.start_across_mm),
-             (t.end_along_mm, t.end_across_mm)),
-        ))
-    for v in cell.vias:
-        segments.append(_CopperSegment(
-            "via", v.net_from_role, v.net_from_role_pad,
-            ((v.offset_along_mm, v.offset_across_mm),),
-        ))
-
-    uf = _UnionFind(len(segments))
-    # Bucket every endpoint coordinate onto the eps grid, then union all
-    # segments whose endpoints land in the same bucket (exact joints merge).
-    buckets: dict[tuple[int, int], list[int]] = {}
-    for i, seg in enumerate(segments):
-        for (x, y) in seg.points:
-            buckets.setdefault((round(x / eps), round(y / eps)), []).append(i)
-    for bucket in buckets.values():
-        for other in bucket[1:]:
-            uf.union(bucket[0], other)
-
-    groups: dict[int, list[_CopperSegment]] = {}
-    for i, seg in enumerate(segments):
-        groups.setdefault(uf.find(i), []).append(seg)
-    return list(groups.values())
-
-
-def component_role_pads(component: list[_CopperSegment]) -> set[tuple[str | None, str | None]]:
-    """The distinct (role, pad) tags present in one copper component."""
-    return {(seg.role, seg.pad) for seg in component}
-
-
-def component_containing(components, role: str, pad: str):
-    """The first copper component containing any segment tagged (role, pad),
-    else None."""
-    for comp in components:
-        if any(seg.role == role and seg.pad == pad for seg in comp):
-            return comp
-    return None
+# The copper-connectivity helpers (cell_copper_components, component_containing,
+# component_role_pads, component_shared_point) moved to core 2026-08-29
+# (kicadstamp/geometry/cell_copper_connectivity.py, plan
+# 2026_08_29_bridging_pad_connectivity_guard.md §2.1) — they are imported at
+# the top of this file, no longer duplicated here.
 
 
 def _rail_family_roles(cell) -> set[str]:
@@ -159,17 +72,9 @@ def _rail_family_roles(cell) -> set[str]:
 
 
 def _shared_point_between(component, role: str, pad: str, other_tag) -> tuple[float, float]:
-    """The exact (along, across) coordinate where the (role, pad) segments and
-    the (other_role, other_pad) segments of ONE component meet — the physical
-    joint that makes them a single copper node."""
-    pts_a = {pt for seg in component
-             if (seg.role, seg.pad) == (role, pad) for pt in seg.points}
-    pts_b = {pt for seg in component
-             if (seg.role, seg.pad) == other_tag for pt in seg.points}
-    common = pts_a & pts_b
-    assert len(common) == 1, \
-        f"expected exactly one shared point between ({role}, {pad}) and {other_tag}, got {sorted(common)}"
-    return next(iter(common))
+    """Thin wrapper over component_shared_point (core, moved 2026-08-29) — kept
+    so the H1-H4 assertion call sites stay unchanged."""
+    return component_shared_point(component, (role, pad), other_tag)
 
 
 def signal_pad_for_role(components, cell, role: str) -> str | None:
