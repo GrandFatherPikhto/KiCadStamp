@@ -136,6 +136,19 @@ class KiCadBoardAdapter(IBoardAdapter):
             return None
         return self._board.name
 
+    def get_version(self) -> str | None:
+        """KiCad version as reported by the live IPC connection, or None when
+        it cannot be queried.
+
+        Mirrors the same query the constructor already runs for its startup
+        log line (see __init__); exposed read-only so MCP callers can show
+        which KiCad they are talking to."""
+        try:
+            return self._kicad.get_version()
+        except Exception:
+            logger.debug(_("Could not query KiCad version"), exc_info=True)
+            return None
+
     def close(self) -> None:
         """Explicitly closes the underlying kipy client's pynng socket
         instead of leaving that to the garbage collector. Found live

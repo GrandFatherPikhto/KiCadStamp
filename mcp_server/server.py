@@ -2,9 +2,8 @@
 """MCP server for KiCadStamp — protocol layer (stdio transport).
 
 Registers the MCP tools that let Claude Code / Demon inspect and drive the
-live KiCad board, then runs the stdio transport (local, no network). Tools
-are registered in later steps of plan_2026_08_29_kicad_mcp_server_execution.md;
-this Step 1 skeleton starts a server that lists zero tools.
+live KiCad board, then runs the stdio transport (local, no network). See the
+design document techdocs/handoff/deepseek/design_2026_08_29_kicad_mcp_server.md.
 
 Layer rules (design doc §2.1): server.py and tools.py are the only modules
 that import the MCP SDK; handlers.py and connection.py stay SDK-free.
@@ -12,7 +11,13 @@ that import the MCP SDK; handlers.py and connection.py stay SDK-free.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from contextlib import asynccontextmanager
+
 from mcp.server.mcpserver import MCPServer
+
+from .connection import ConnectionManager
+from .tools import register_tools
 
 _SERVER_NAME = "kicadstamp"
 _SERVER_DESCRIPTION = (
@@ -22,18 +27,33 @@ _SERVER_DESCRIPTION = (
 _SERVER_VERSION = "0.1.0"
 
 
-def build_server() -> MCPServer:
+def _make_lifespan(manager: ConnectionManager):
+    """Async context manager that closes the shared adapter on shutdown."""
+
+    @asynccontextmanager
+    async def lifespan(server):
+        yield None
+        manager.close()
+
+    return lifespan
+
+
+def build_server(adapter_factory: Callable[[int], object] | None = None) -> MCPServer:
     """Create the MCPServer instance with all registered tools.
 
-    Kept as a separate function (not created at import) so tests can build a
-    fresh server per test and so main() can call setup_i18n() first.
+    :param adapter_factory: injected by tests to substitute a fake adapter;
+        defaults to the real KiCadBoardAdapter (see ConnectionManager).
+    Kept separate from import so main() can call setup_i18n() first and tests
+    can build a fresh server per test.
     """
+    manager = ConnectionManager(adapter_factory=adapter_factory)
     server = MCPServer(
         name=_SERVER_NAME,
         description=_SERVER_DESCRIPTION,
         version=_SERVER_VERSION,
+        lifespan=_make_lifespan(manager),
     )
-    # Tools are added in later steps (read tools -> apply_config -> raw move).
+    register_tools(server, manager)
     return server
 
 
