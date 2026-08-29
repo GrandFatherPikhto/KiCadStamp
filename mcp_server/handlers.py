@@ -149,13 +149,20 @@ def apply_config(config_path: str, *, dry_run: bool = False,
         only=only,
         cluster=cluster,
     )
+    # Temporarily lower the ROOT logger level to INFO: module loggers under
+    # kicadstamp.* inherit the effective level from root, so with the default
+    # WARNING the pipeline's INFO messages would be dropped before reaching
+    # the collector (the very messages the CLI prints).
     collector = _CollectHandler()
     root = logging.getLogger()
+    previous_level = root.level
+    root.setLevel(logging.INFO)
     root.addHandler(collector)
     try:
         report = run_apply(options)
     finally:
         root.removeHandler(collector)
+        root.setLevel(previous_level)
 
     if report is not None:  # dry run -> the planned report
         return "\n".join(report)

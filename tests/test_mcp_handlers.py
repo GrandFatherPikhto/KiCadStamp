@@ -1,12 +1,18 @@
 # tests/test_mcp_handlers.py
-"""Unit tests for mcp_server/handlers.py — READ tools, no live KiCad.
+"""Unit tests for mcp_server/handlers.py — READ tools + validated apply, no
+live KiCad.
 
-Handlers take a "live adapter" argument; tests inject a fake adapter built on
-the real domain DTOs (Footprint/Pad/Net/Via/Track/Vector2). Covers board
-identity, ref filtering, nm->mm conversion and layer strings, the missing-ref
-path, selection kind mapping and net listing.
+Read handlers take a "live adapter" argument; tests inject a fake adapter
+built on the real domain DTOs (Footprint/Pad/Net/Via/Track/Vector2). The
+apply_config handler runs the existing run_apply path, which is monkeypatched
+here so no IPC is ever reached.
 """
+import logging
+
+import pytest
+
 from kicadstamp.domain.board import Footprint, Net, Pad, Track, Via
+from kicadstamp.exceptions import ValidationError
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 
 from mcp_server import handlers
@@ -159,3 +165,53 @@ def test_get_selection_empty():
 def test_list_nets_sorted():
     adapter = FakeAdapter(nets=[Net(name="GND"), Net(name="+3V3"), Net(name="+3V3")])
     assert handlers.list_nets(adapter) == ["+3V3", "GND"]
+
+
+# --- apply_config (validated write) -----------------------------------------
+
+def test_apply_config_dry_run_returns_report_and_passes_arguments(monkeypatch):
+    captured = {}
+
+    def fake_run_apply(options):
+        captured["options"] = options
+        return ["=== DRY RUN ===", "Moves: none", "Vias: none"]
+
+    monkeypatch.setattr("kicadstamp.apply_pipeline.run_apply", fake_run_apply)
+    result = handlers.apply_config(
+        "profiles/3ch-awg-tia-v103-test/3ch-awg-tia.sexp",
+        dry_run=True, only=["A"], cluster=["C"], no_selection=True,
+        timeout_ms=15000, batch_size=5, no_collision_check=True,
+        collision_margin=0.5,
+    )
+    assert result == "=== DRY RUN ===\nMoves: none\nVias: none"
+    opts = captured["options"]
+    assert opts.config_path == "profiles/3ch-awg-tia-v103-test/3ch-awg-tia.sexp"
+    assert opts.dry_run is True
+    assert opts.only == ["A"]
+    assert opts.cluster == ["C"]
+    assert opts.no_selection is True
+    assert opts.timeout_ms == 15000
+    assert opts.batch_size == 5
+    assert opts.no_collision_check is True
+    assert opts.collision_margin == 0.5
+
+
+def test_apply_config_real_run_captures_log_lines(monkeypatch):
+    def fake_run_apply(options):
+        logging.getLogger("kicadstamp.apply_pipeline").info(
+            "All operations completed successfully")
+        return None
+
+    monkeypatch.setattr("kicadstamp.apply_pipeline.run_apply", fake_run_apply)
+    result = handlers.apply_config("profiles/3ch-awg-tia-v103-test/3ch-awg-tia.sexp")
+    assert "All operations completed successfully" in result
+    assert "INFO" not in result  # plain lines, no level prefix
+
+
+def test_apply_config_propagates_fatal_validation_error(monkeypatch):
+    def fake_run_apply(options):
+        raise ValidationError("connected board does not match this config")
+
+    monkeypatch.setattr("kicadstamp.apply_pipeline.run_apply", fake_run_apply)
+    with pytest.raises(ValidationError, match="connected board does not match"):
+        handlers.apply_config("profiles/x.sexp")
