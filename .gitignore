@@ -78,9 +78,6 @@ fp-info-cache
 *.json
 # Атомарная запись gui_state.json: временный файл из os.replace (gui/settings.py)
 *.json.tmp
-# MCP server config is a team tool config (not internal docs) — commit it
-# despite the *.json rule above.
-!.mcp.json
 *.log
 
 arch/
@@ -117,3 +114,5 @@ zip_project.yaml
 messages.pot
 gdb/**
 *.tar.xz
+
+.mcp.json
