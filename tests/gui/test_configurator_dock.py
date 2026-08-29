@@ -200,3 +200,29 @@ def test_rename_confirmation_state_restored_on_recreation(main_window, qapp):
     settings.state.set("rename_confirmation_enabled", False)
     dock = ConfiguratorDock(main_window, connection=main_window.connection)
     assert not dock.rename_confirmation_checkbox.isChecked()
+
+
+# ── MCP server ────────────────────────────────────────────────────────────
+
+def test_raw_write_checkbox_defaults_to_off(main_window, qapp):
+    """No key stored yet == the raw MCP write toggle is OFF, and construction
+    does not write the key (same pattern as rename_confirmation)."""
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    assert not dock.raw_write_checkbox.isChecked()
+    assert settings.state.get("mcp_allow_raw_write") is None
+
+
+def test_toggling_raw_write_persists(main_window, qapp):
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    dock.raw_write_checkbox.setChecked(True)
+    assert settings.state.get("mcp_allow_raw_write") is True
+    dock.raw_write_checkbox.setChecked(False)
+    assert settings.state.get("mcp_allow_raw_write") is False
+
+
+def test_raw_write_state_restored_on_recreation(main_window, qapp):
+    """The setting survives a dock rebuild (read back from settings.state at
+    construction), matching every other key on this page."""
+    settings.state.set("mcp_allow_raw_write", True)
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    assert dock.raw_write_checkbox.isChecked()

@@ -11,7 +11,17 @@ import asyncio
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
-from mcp_server.server import build_server
+from mcp_server.server import _raw_write_enabled, build_server
+
+
+@pytest.fixture(autouse=True)
+def _isolate_gui_settings(tmp_path, monkeypatch):
+    """Point the MCP server's raw-write gate at a throwaway gui_state.json so
+    no test depends on (or touches) the developer's real one — the same
+    discipline as tests/gui/conftest.py's isolated_settings."""
+    from gui import settings as gui_settings
+
+    monkeypatch.setattr(gui_settings, "SETTINGS_PATH", tmp_path / "gui_state.json")
 
 
 class _FakeAdapter:
@@ -80,6 +90,25 @@ def test_raw_tool_registered_when_env_flag_set(monkeypatch):
     monkeypatch.setenv("KICADSTAMP_MCP_ALLOW_RAW_WRITE", "1")
     names = _tool_names(build_server())
     assert "kicad_raw_move_footprint" in names
+
+
+def test_raw_tool_registered_when_gui_setting_enabled(monkeypatch):
+    """The Settings tab's checkbox (gui_state.json's mcp_allow_raw_write) also
+    enables the raw tool — the headless server reads the GUI store."""
+    monkeypatch.delenv("KICADSTAMP_MCP_ALLOW_RAW_WRITE", raising=False)
+    from gui import settings
+
+    settings.state.set("mcp_allow_raw_write", True)
+    names = _tool_names(build_server())
+    assert "kicad_raw_move_footprint" in names
+
+
+def test_raw_write_enabled_helper_prefers_env_over_gui(monkeypatch):
+    monkeypatch.setenv("KICADSTAMP_MCP_ALLOW_RAW_WRITE", "1")
+    from gui import settings
+
+    settings.state.set("mcp_allow_raw_write", False)
+    assert _raw_write_enabled() is True
 
 
 # --- input schemas (inferred from tool signatures) ---------------------------

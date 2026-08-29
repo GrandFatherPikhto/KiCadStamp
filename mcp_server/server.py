@@ -38,6 +38,24 @@ def _make_lifespan(manager: ConnectionManager):
     return lifespan
 
 
+def _raw_write_enabled() -> bool:
+    """Raw write tools are OFF by default. They are registered when EITHER the
+    ``KICADSTAMP_MCP_ALLOW_RAW_WRITE=1`` env var is set OR the GUI's Settings
+    tab enabled them (``gui_state.json`` key ``mcp_allow_raw_write``, see
+    gui/docks/configurator.py). The GUI path lets the Settings dock control the
+    headless MCP server without an env var; any failure to read the GUI store
+    just means "not enabled".
+    """
+    if os.environ.get("KICADSTAMP_MCP_ALLOW_RAW_WRITE") == "1":
+        return True
+    try:
+        from gui import settings
+
+        return bool(settings.state.get("mcp_allow_raw_write", False))
+    except Exception:
+        return False
+
+
 def build_server(adapter_factory: Callable[[int], object] | None = None) -> MCPServer:
     """Create the MCPServer instance with all registered tools.
 
@@ -60,8 +78,8 @@ def build_server(adapter_factory: Callable[[int], object] | None = None) -> MCPS
     )
     register_tools(server, manager)
     # Raw write tools are OFF by default — they only exist when the operator
-    # opts in explicitly on the test polygon (design doc §4).
-    if os.environ.get("KICADSTAMP_MCP_ALLOW_RAW_WRITE") == "1":
+    # opts in explicitly (env var or the Settings tab, see _raw_write_enabled).
+    if _raw_write_enabled():
         register_raw_tools(server, manager)
     return server
 

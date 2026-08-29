@@ -8393,3 +8393,20 @@ msgstr "KiCad отклонил перемещение {ref!r} — плата н�
 #, python-brace-format
 msgid "footprint {ref!r} not found on the board"
 msgstr "футпринт {ref!r} не найден на плате"
+
+# GUI Settings tab (gui/docks/configurator.py) — MCP server section, added 2026-08-29.
+#: gui/docks/configurator.py
+msgid "MCP server"
+msgstr "MCP-сервер"
+
+#: gui/docks/configurator.py
+msgid "Allow raw MCP write tools (kicad_raw_move_footprint)"
+msgstr "Разрешить raw-инструменты MCP (kicad_raw_move_footprint)"
+
+#: gui/docks/configurator.py
+msgid "When checked, the MCP server (kicadstamp-mcp) registers the raw, high-risk kicad_raw_move_footprint tool — direct kipy writes bypassing the validated config layer, guarded by board identity. Takes effect when the MCP server next starts. Same effect as the KICADSTAMP_MCP_ALLOW_RAW_WRITE=1 environment variable."
+msgstr "Если включено, MCP-сервер (kicadstamp-mcp) регистрирует высокорисковый raw-инструмент kicad_raw_move_footprint — прямые записи через kipy в обход validated-слоя, защищённые проверкой платы. Действует при следующем запуске MCP-сервера. Эквивалент переменной окружения KICADSTAMP_MCP_ALLOW_RAW_WRITE=1."
+
+#: gui/docks/configurator.py
+msgid "MCP server: kicadstamp-mcp over stdio. Register it in the client's Settings tab, or via the repo's .mcp.json."
+msgstr "MCP-сервер: kicadstamp-mcp через stdio. Зарегистрируйте его в табе «Настройки» клиента или через .mcp.json в корне репозитория."

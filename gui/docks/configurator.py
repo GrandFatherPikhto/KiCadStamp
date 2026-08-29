@@ -171,6 +171,32 @@ class ConfiguratorDock(QWidget):
         config_tree_layout.addWidget(self.rename_confirmation_checkbox)
         layout.addWidget(config_tree_group)
 
+        # ── MCP server ─────────────────────────────────────────────────────
+        # The headless MCP server (kicadstamp-mcp, stdio) reads its raw-write
+        # gate from gui_state.json (this checkbox) OR the
+        # KICADSTAMP_MCP_ALLOW_RAW_WRITE=1 env var — so the Settings tab can
+        # control the spawned server without an env var.
+        mcp_group = QGroupBox(_("MCP server"))
+        mcp_layout = QVBoxLayout(mcp_group)
+        self.raw_write_checkbox = QCheckBox(
+            _("Allow raw MCP write tools (kicad_raw_move_footprint)"))
+        self.raw_write_checkbox.setToolTip(
+            _("When checked, the MCP server (kicadstamp-mcp) registers the raw, "
+              "high-risk kicad_raw_move_footprint tool — direct kipy writes "
+              "bypassing the validated config layer, guarded by board identity. "
+              "Takes effect when the MCP server next starts. Same effect as the "
+              "KICADSTAMP_MCP_ALLOW_RAW_WRITE=1 environment variable."))
+        self.raw_write_checkbox.setChecked(
+            settings.state.get("mcp_allow_raw_write", False))
+        self.raw_write_checkbox.toggled.connect(self._on_raw_write_toggled)
+        mcp_layout.addWidget(self.raw_write_checkbox)
+        mcp_info = QLabel(
+            _("MCP server: kicadstamp-mcp over stdio. Register it in the "
+              "client's Settings tab, or via the repo's .mcp.json."))
+        mcp_info.setWordWrap(True)
+        mcp_layout.addWidget(mcp_info)
+        layout.addWidget(mcp_group)
+
         layout.addStretch(1)
 
     # ── Highlight ────────────────────────────────────────────────────────
@@ -204,6 +230,11 @@ class ConfiguratorDock(QWidget):
 
     def _on_rename_confirmation_toggled(self, checked: bool) -> None:
         settings.state.set("rename_confirmation_enabled", checked)
+
+    # ── MCP server ────────────────────────────────────────────────────────
+
+    def _on_raw_write_toggled(self, checked: bool) -> None:
+        settings.state.set("mcp_allow_raw_write", checked)
 
     # ── Connection timeout ───────────────────────────────────────────────
 
