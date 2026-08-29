@@ -8364,3 +8364,32 @@ msgstr "роль {role!r} (явные nets:)"
 #, python-brace-format
 msgid "role {role!r} (cell net_template)"
 msgstr "роль {role!r} (net_template ячейки)"
+
+# MCP server (mcp_server/) — added 2026-08-29. Tool names/descriptions stay
+# English (machine interface); only logs/results are localised.
+#: mcp_server/connection.py
+msgid "KiCad connection dropped during an MCP call; reconnecting once"
+msgstr "Соединение с KiCad оборвалось во время MCP-вызова; переподключаюсь один раз"
+
+#: mcp_server/handlers.py
+msgid "apply completed"
+msgstr "применение завершено"
+
+#: mcp_server/handlers.py
+#, python-brace-format
+msgid "footprint {ref!r} not found on the board (connected board: {board!r})"
+msgstr "футпринт {ref!r} не найден на плате (подключена плата: {board!r})"
+
+#: mcp_server/handlers.py
+#, python-brace-format
+msgid "raw move {ref}"
+msgstr "сырое перемещение {ref}"
+
+#: mcp_server/handlers.py
+msgid "KiCad rejected the move of {ref!r} — the board was not modified"
+msgstr "KiCad отклонил перемещение {ref!r} — плата не изменена"
+
+#: mcp_server/tools.py
+#, python-brace-format
+msgid "footprint {ref!r} not found on the board"
+msgstr "футпринт {ref!r} не найден на плате"

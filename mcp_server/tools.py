@@ -16,6 +16,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from kicadstamp.exceptions import PlacerError
+from kicadstamp.i18n import _
 
 from . import handlers
 from .connection import ConnectionManager
@@ -98,7 +99,7 @@ def register_tools(server: MCPServer, manager: ConnectionManager) -> None:
     def _get_footprint(ref: str) -> dict:
         result = manager.execute(lambda a: handlers.get_footprint(a, ref=ref))
         if result is None:
-            raise ValueError(f"footprint {ref!r} not found on the board")
+            raise ValueError(_("footprint {ref!r} not found on the board").format(ref=ref))
         return result
 
     @server.tool(name="kicadstamp_get_selection", description=_DESC_GET_SELECTION)

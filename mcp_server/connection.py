@@ -30,6 +30,8 @@ from typing import TYPE_CHECKING, TypeVar
 if TYPE_CHECKING:
     from kicadstamp.kicad.adapter import KiCadBoardAdapter
 
+from kicadstamp.i18n import _
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
@@ -125,7 +127,7 @@ class ConnectionManager:
             try:
                 return fn(adapter)
             except _reconnectable_errors():
-                logger.warning("KiCad connection dropped during an MCP call; reconnecting once")
+                logger.warning(_("KiCad connection dropped during an MCP call; reconnecting once"))
                 adapter.close()
                 self._adapter = None
                 fresh = self._ensure_open()

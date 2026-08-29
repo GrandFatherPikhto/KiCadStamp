@@ -14,6 +14,7 @@ from typing import Any
 
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.domain.board import Footprint, Track, Via
+from kicadstamp.i18n import _
 from kicadstamp.utils.layers import layer_to_str
 
 # Domain Vector2 positions are in board units (nm), i.e. 1e-6 of a mm.
@@ -168,7 +169,7 @@ def apply_config(config_path: str, *, dry_run: bool = False,
         return "\n".join(report)
     if collector.lines:
         return "\n".join(collector.lines)
-    return "apply completed"
+    return _("apply completed")
 
 
 # --- Raw write (high risk, env-gated) ---------------------------------------
@@ -199,7 +200,8 @@ def raw_move_footprint(adapter, ref: str, x_mm: float, y_mm: float,
     fp = adapter.get_footprint(ref)
     if fp is None:
         raise ValueError(
-            f"footprint {ref!r} not found on the board (connected board: {board!r})")
+            _("footprint {ref!r} not found on the board (connected board: {board!r})")
+            .format(ref=ref, board=board))
 
     old = {
         "x_mm": round(_mm(fp.position.x), 3),
@@ -212,10 +214,11 @@ def raw_move_footprint(adapter, ref: str, x_mm: float, y_mm: float,
     if rotation_deg is not None:
         fp.angle_deg = rotation_deg
     ok = adapter.commit_with_retry(
-        f"raw move {ref}", lambda: adapter.update_items([fp]))
+        _("raw move {ref}").format(ref=ref), lambda: adapter.update_items([fp]))
     if not ok:
         raise RuntimeError(
-            f"KiCad rejected the move of {ref!r} — the board was not modified")
+            _("KiCad rejected the move of {ref!r} — the board was not modified")
+            .format(ref=ref))
 
     adapter.refresh_board()
     moved = adapter.get_footprint(ref)

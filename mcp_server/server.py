@@ -18,7 +18,6 @@ from contextlib import asynccontextmanager
 from mcp.server.mcpserver import MCPServer
 
 from .connection import ConnectionManager
-from .tools import register_raw_tools, register_tools
 
 _SERVER_NAME = "kicadstamp"
 _SERVER_DESCRIPTION = (
@@ -47,6 +46,11 @@ def build_server(adapter_factory: Callable[[int], object] | None = None) -> MCPS
     Kept separate from import so main() can call setup_i18n() first and tests
     can build a fresh server per test.
     """
+    # tools/handlers bind `_` at import time — import them lazily so main()'s
+    # setup_i18n() runs first (P1-1 pattern) and so importing server.py never
+    # pulls in handlers/kipy at module level.
+    from .tools import register_raw_tools, register_tools
+
     manager = ConnectionManager(adapter_factory=adapter_factory)
     server = MCPServer(
         name=_SERVER_NAME,
