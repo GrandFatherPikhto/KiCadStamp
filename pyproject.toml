@@ -32,16 +32,22 @@ diagnostics = [
     "rich==15.0.0",
     "watchdog==6.0.0",
 ]
+# MCP server (mcp_server/) — optional: only needed to run the stdio MCP server,
+# not for GUI/CLI/tests. mcp 2.x renamed FastMCP to MCPServer (verified 2026-08-29).
+mcp = [
+    "mcp==2.1.1",
+]
 
 [project.scripts]
 kicadstamp = "kicadstamp.cli_main:main"
 kicadstamp-gui = "kicadstamp.gui_main:main"
+kicadstamp-mcp = "mcp_server.server:main"
 
 [tool.setuptools.dynamic]
 version = { attr = "kicadstamp._version.__version__" }
 
 [tool.setuptools.packages.find]
-include = ["kicadstamp*", "gui*"]
+include = ["kicadstamp*", "gui*", "mcp_server*"]
 
 [tool.setuptools.package-data]
 # Locales stay at the repo-root locales/ for now (source checkout layout);
