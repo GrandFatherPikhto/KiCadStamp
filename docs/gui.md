@@ -214,6 +214,15 @@ reaches the disk until **Save**, which replaces the whole root `trees:` section 
 config_writer chokepoint (a fresh `.bak` is made first); linking/validation runs at Save via
 `kicadstamp.link_trees`.
 
+The Add/Edit-node dialog's **Ref:** combo is **Kind**-filtered: choosing a concrete **Kind**
+(`clone`/`rule`/`coordinate`/`point`) lists only that section's record names, while **auto** shows
+all placeable names — a name unique to one section plainly, and a name shared by 2+ sections once
+per section prefixed `{kind}:{name}` (e.g. `rule:X`, `clone:X`). Picking such a prefixed entry
+auto-sets the **Kind** to that section and keeps the clean name — a node left in auto with a
+colliding ref would be fatal at link time ("0 or 2+ matches"). **External** keeps the combo
+free-text for a live-board refdes (2026-08-29,
+plan_2026_08_29_trees_node_kind_filtered_combo.md).
+
 Adding a node whose record still carries its own inline anchor (`anchor_ref`/`anchor_role`/
 `anchor_point`/`anchor_origin`) is always allowed — **Save never blocks on it** (FORK-1 no longer
 runs at link/Save time). **Redraw selected** (or **Redraw whole tree**) on such a node now REDRAWS

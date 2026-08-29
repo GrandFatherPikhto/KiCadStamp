@@ -484,15 +484,30 @@ class TreesDock(QDockWidget):
         for child in node.children:
             TreesDock._collect_refs(child, into)
 
-    def _all_ref_candidates(self) -> list[str]:
-        """Refs offered in the node dialog's combo: the 4 placeable kinds'
-        record names from build_records(cfg), deduped, sorted. None when no
-        root config is loaded (dialog still works via free text)."""
+    def _all_ref_candidates(self) -> list[tuple[str, str]]:
+        """Kind-aware ref candidates for the node dialog: (kind, name) pairs
+        for the 4 placeable kinds' record names from build_records(cfg), in
+        build_records' stable section order, NOT deduped by name — two sections
+        may share a name (record_key distinguishes them), and the dialog's auto
+        mode shows such collisions prefixed (plan_2026_08_29_trees_node_kind_
+        filtered_combo.md). Empty when no root config is loaded (dialog still
+        works via free text / external)."""
         if self._cfg is None:
             return []
-        names = {r.name for r in build_records(self._cfg)
-                 if r.kind in _PLACEABLE_KINDS}
-        return sorted(names)
+        return [(r.kind, r.name) for r in build_records(self._cfg)
+                if r.kind in _PLACEABLE_KINDS]
+
+    def _all_ref_names(self) -> list[str]:
+        """Plain unique ref names for the ANCHOR dialog — an anchor auto-
+        resolves by name (a section collision is fatal there, see link_trees),
+        so a colliding name must appear once, not once per section."""
+        seen: set[str] = set()
+        names: list[str] = []
+        for _kind, name in self._all_ref_candidates():
+            if name not in seen:
+                seen.add(name)
+                names.append(name)
+        return names
 
     def _on_context_menu(self, pos) -> None:
         tree_widget = self._current_tree_widget()
@@ -676,7 +691,7 @@ class TreesDock(QDockWidget):
         self._rebuild_tabs()
 
     def _set_anchor_flow(self, tree: Tree) -> None:
-        anchor = _AnchorDialog.prompt(self, self._all_ref_candidates())
+        anchor = _AnchorDialog.prompt(self, self._all_ref_names())
         if anchor is not None:
             tree.anchor = anchor
             self._mark_dirty()
@@ -742,7 +757,7 @@ class TreesDock(QDockWidget):
             QMessageBox.warning(self, _("Add tree"),
                                 _("A tree named {name!r} already exists.").format(name=name))
             return
-        anchor = _AnchorDialog.prompt(self, self._all_ref_candidates())
+        anchor = _AnchorDialog.prompt(self, self._all_ref_names())
         if anchor is None:
             return
         self._trees.append(Tree(name=name, anchor=anchor, nodes=[]))
@@ -899,7 +914,7 @@ class _NodeDialog(QDialog):
     every field is pre-filled and the "ref already used" check excludes the
     node's own ref."""
 
-    def __init__(self, parent, ref_candidates: list[str], used_refs: set[str],
+    def __init__(self, parent, ref_candidates: list[tuple[str, str]], used_refs: set[str],
                  title: str, cfg=None, adapter=None, sheet_names=None,
                  tree=None, parent_node=None, existing=None):
         super().__init__(parent)
@@ -927,6 +942,10 @@ class _NodeDialog(QDialog):
         # live), free-typed for external; used refs get a "(used)" marker.
         self.ref_combo = QComboBox()
         configure_searchable(self.ref_combo)
+        # Picking a PREFIXED collision entry in auto mode auto-specializes the
+        # Kind (see _on_ref_selected) — a node with kind=None and a colliding
+        # ref would be fatal at link_trees ("0 or 2+ matches").
+        self.ref_combo.currentIndexChanged.connect(self._on_ref_selected)
         form.addRow(_("Ref:"), self.ref_combo)
 
         # offset block — xy/polar only, reused from the shared widget (design §3).
@@ -1038,20 +1057,67 @@ class _NodeDialog(QDialog):
         else:
             self.rotation_edit.setText(f"{rotation:.3f}")
 
+    def _set_ref_items(self, items: list[tuple[str, Optional[str], str]]) -> None:
+        """Repopulate ref_combo with (display_text, kind, name) triples,
+        preserving the current text and blocking signals (the same
+        preserve-current-text rule as set_combo_items) plus per-item itemData
+        for the auto-mode Kind specialization. A None `kind` means "plain auto
+        entry" — picking it must NOT touch the Kind combo; a concrete kind
+        means a PREFIXED collision entry — picking it auto-specializes."""
+        current_text = self.ref_combo.currentText()
+        self.ref_combo.blockSignals(True)
+        self.ref_combo.clear()
+        for text, kind, name in items:
+            self.ref_combo.addItem(text, (kind, name))
+        self.ref_combo.setCurrentText(current_text)
+        self.ref_combo.blockSignals(False)
+
     def _on_kind_changed(self) -> None:
-        """kind == "external" -> ref is a free-text external refdes (the combo
-        is already searchable/editable, so just clear its candidates and hint);
-        otherwise -> the placeable record names, filtered by kind if set."""
+        """kind == "external" -> ref is a free-text external refdes (combo
+        cleared, hint shown); kind is None (auto) -> ALL placeable names — one
+        unique to a section shown plain, one shared by 2+ sections shown once
+        per section as {kind}:{name}; a concrete kind -> only that section's
+        names, plain (plan_2026_08_29_trees_node_kind_filtered_combo.md)."""
         kind = self.kind_combo.currentData()
         if kind == "external":
             self.ref_combo.clear()
             self.ref_combo.setPlaceholderText(_("external refdes (live board)"))
             return
-        names = list(self._ref_candidates)
-        if kind in _PLACEABLE_KINDS:
-            names = [n for n in names]
-        set_combo_items(self.ref_combo, names)
+        if kind is None:
+            section_count: dict[str, int] = {}
+            for _k, name in self._ref_candidates:
+                section_count[name] = section_count.get(name, 0) + 1
+            items = []
+            for k, name in self._ref_candidates:
+                if section_count[name] > 1:
+                    items.append((f"{k}:{name}", k, name))
+                else:
+                    items.append((name, None, name))
+        else:
+            items = [(name, kind, name)
+                     for k, name in self._ref_candidates if k == kind]
+        self._set_ref_items(items)
         self.ref_combo.setPlaceholderText(_("record name (from config)"))
+
+    def _on_ref_selected(self, index: int) -> None:
+        """Auto-specialize the Kind when the user picks a PREFIXED collision
+        entry in auto mode (itemData = (kind, name) with a concrete kind):
+        switch the Kind combo to that section (its change handler repopulates
+        the ref list for it) and put the CLEAN name in the ref combo — a node
+        with kind=None and a colliding ref would be fatal at link_trees ("0 or
+        2+ matches"), so picking one must carry the explicit kind along. Plain
+        entries carry (None, name) and leave the Kind untouched."""
+        data = self.ref_combo.itemData(index)
+        if data is None:
+            return
+        kind, name = data
+        if kind is None:
+            return
+        kind_idx = self.kind_combo.findData(kind)
+        if kind_idx < 0:
+            return
+        self.kind_combo.setCurrentIndex(kind_idx)
+        self.ref_combo.setCurrentText(name)
 
     def build_node(self) -> Optional[TreeNode]:
         """Collect + validate the form into a TreeNode, or None (invalid —

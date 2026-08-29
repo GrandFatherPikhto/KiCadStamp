@@ -899,3 +899,176 @@ def test_resolve_live_offset_reads_new_ref_despite_existing_node_inline_anchor(
 
     assert offset_mm == (10.0, 20.0)  # relative to the origin anchor
     assert rotation == 0.0
+
+
+# ── Kind-filtered "Ref:" combo (plan_2026_08_29_trees_node_kind_filtered_combo.md) ──
+
+# A root config with records in all 4 placeable sections, INCLUDING a name
+# collision between sections (SHARED exists as BOTH a clone and a rule) — the
+# case the node dialog's auto mode must show prefixed ({kind}:{name}).
+KIND_FILTER_CFG = {
+    "clone_placements": [
+        {"name": "CL_A", "cluster": "c", "cell": "t", "xy": [1.0, 2.0]},
+        {"name": "SHARED", "cluster": "c2", "cell": "t", "xy": [3.0, 4.0]},
+    ],
+    "rules": [
+        {"name": "R_B", "net": "+3V3", "anchor_role": "FPGA", "spokes": []},
+        {"name": "SHARED", "net": "+5V", "anchor_role": "FPGA", "spokes": []},
+    ],
+    "coordinate_placements": [
+        {"name": "COORD_C", "cluster": "CHAN", "role": "R",
+         "x_mm": 1.0, "y_mm": 2.0, "rotation_deg": 0.0},
+    ],
+    "points": {"PNT_D": {"xy": [2.0, 2.0]}},
+    "trees": [
+        {"name": "t1", "anchor": {"origin": True}, "nodes": []},
+    ],
+}
+
+
+def _combo_texts(combo):
+    return [combo.itemText(i) for i in range(combo.count())]
+
+
+def test_all_ref_candidates_returns_kind_name_pairs(main_window, tmp_path):
+    """_all_ref_candidates now returns (kind, name) pairs in build_records'
+    stable section order, WITHOUT dedup by name — a name shared by two sections
+    appears once per section (record_key distinguishes them)."""
+    dock, _root = _dock_with(main_window, tmp_path, KIND_FILTER_CFG)
+    assert dock._all_ref_candidates() == [
+        ("clone", "CL_A"), ("clone", "SHARED"),
+        ("rule", "R_B"), ("rule", "SHARED"),
+        ("coordinate", "COORD_C"), ("point", "PNT_D"),
+    ]
+
+
+def test_all_ref_candidates_empty_without_root(main_window):
+    """No root config -> no candidates (and no crash) — the anchor/name helper
+    dedups a colliding name to a single entry."""
+    dock = TreesDock(main_window)
+    dock.set_root_file(None)
+    assert dock._all_ref_candidates() == []
+    assert dock._all_ref_names() == []
+
+
+def test_all_ref_names_dedups_cross_section_collision(main_window, tmp_path):
+    """The ANCHOR dialog consumes plain names and an anchor auto-resolves by
+    name (a section collision is fatal there) — so SHARED appears once."""
+    dock, _root = _dock_with(main_window, tmp_path, KIND_FILTER_CFG)
+    assert dock._all_ref_names() == ["CL_A", "SHARED", "R_B", "COORD_C", "PNT_D"]
+
+
+def test_node_dialog_kind_rule_lists_only_rules(main_window, tmp_path):
+    """Kind = rule -> the "Ref:" combo carries ONLY rule names (plain), and
+    build_node() yields an explicitly-typed rule node."""
+    dock, _root = _dock_with(main_window, tmp_path, KIND_FILTER_CFG)
+    tree = dock._current_tree()
+    dlg = _build_dialog(dock, tree, None)
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("rule"))
+
+    assert _combo_texts(dlg.ref_combo) == ["R_B", "SHARED"]
+    assert dlg.ref_combo.itemData(0) == ("rule", "R_B")
+
+    dlg.ref_combo.setCurrentText("R_B")
+    dlg.offset_widget.x_edit.setText("1.0")
+    dlg.offset_widget.y_edit.setText("2.0")
+    built = dlg.build_node()
+    assert built is not None
+    assert built.ref == "R_B"
+    assert built.kind == "rule"
+
+
+def test_node_dialog_kind_clone_lists_only_clones(main_window, tmp_path):
+    """Kind = clone -> only clone_placements names (plain) — never a rule or a
+    coordinate/point leaking in."""
+    dock, _root = _dock_with(main_window, tmp_path, KIND_FILTER_CFG)
+    tree = dock._current_tree()
+    dlg = _build_dialog(dock, tree, None)
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("clone"))
+
+    assert _combo_texts(dlg.ref_combo) == ["CL_A", "SHARED"]
+
+
+def test_node_dialog_auto_unique_plain_collisions_prefixed(main_window, tmp_path):
+    """Kind = auto -> names unique to one section shown plain; a name shared by
+    2+ sections shown once PER section as {kind}:{name}. itemData carries the
+    (kind | None, name) pair the selection handler needs."""
+    dock, _root = _dock_with(main_window, tmp_path, KIND_FILTER_CFG)
+    tree = dock._current_tree()
+    dlg = _build_dialog(dock, tree, None)
+
+    assert dlg.kind_combo.currentData() is None  # auto by default
+    assert _combo_texts(dlg.ref_combo) == [
+        "CL_A", "clone:SHARED", "R_B", "rule:SHARED", "COORD_C", "PNT_D",
+    ]
+    assert dlg.ref_combo.itemData(0) == (None, "CL_A")
+    assert dlg.ref_combo.itemData(1) == ("clone", "SHARED")
+    assert dlg.ref_combo.itemData(3) == ("rule", "SHARED")
+    assert dlg.ref_combo.itemData(5) == (None, "PNT_D")
+
+
+def test_node_dialog_auto_pick_collision_specializes_kind(main_window, tmp_path):
+    """Picking a PREFIXED collision entry in auto mode must auto-set the Kind
+    to that section and put the CLEAN name in the ref combo — a node with
+    kind=None and a colliding ref would be fatal at link_trees ("0 or 2+
+    matches"), so the pick carries the explicit kind along."""
+    dock, _root = _dock_with(main_window, tmp_path, KIND_FILTER_CFG)
+    tree = dock._current_tree()
+    dlg = _build_dialog(dock, tree, None)
+    assert dlg.kind_combo.currentData() is None
+
+    collision_idx = _combo_texts(dlg.ref_combo).index("clone:SHARED")
+    dlg.ref_combo.setCurrentIndex(collision_idx)
+
+    assert dlg.kind_combo.currentData() == "clone"
+    assert dlg.ref_combo.currentText() == "SHARED"
+
+
+def test_node_dialog_auto_pick_plain_keeps_auto(main_window, tmp_path):
+    """Picking a plain (unique) entry in auto mode must NOT touch the Kind —
+    only prefixed collision entries specialize it."""
+    dock, _root = _dock_with(main_window, tmp_path, KIND_FILTER_CFG)
+    tree = dock._current_tree()
+    dlg = _build_dialog(dock, tree, None)
+
+    plain_idx = _combo_texts(dlg.ref_combo).index("CL_A")
+    dlg.ref_combo.setCurrentIndex(plain_idx)
+
+    assert dlg.kind_combo.currentData() is None
+    assert dlg.ref_combo.currentText() == "CL_A"
+
+
+def test_node_dialog_external_clears_ref_combo(main_window, tmp_path):
+    """Kind = external -> the combo is emptied (free-text live refdes) with a
+    hint — regardless of what records the config carries."""
+    dock, _root = _dock_with(main_window, tmp_path, KIND_FILTER_CFG)
+    tree = dock._current_tree()
+    dlg = _build_dialog(dock, tree, None)
+    assert dlg.ref_combo.count() > 0
+
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("external"))
+
+    assert dlg.ref_combo.count() == 0
+    assert "external" in dlg.ref_combo.placeholderText()
+
+
+def test_node_dialog_edit_kind_none_collision_ref_stays_clean(main_window, tmp_path):
+    """Round-trip edit of a node whose kind=None and ref is a cross-section
+    collision (SHARED): the dialog opens in auto mode and the ref stays the
+    CLEAN name (not prefixed), so saving keeps the node valid."""
+    dock, _root = _dock_with(main_window, tmp_path, KIND_FILTER_CFG)
+    tree = dock._current_tree()
+    node = TreeNode(ref="SHARED", kind=None, xy=None, polar=None, rotation=0.0,
+                    name=None, group=None)
+
+    dlg = _build_dialog(dock, tree, None, existing=node, title="Edit node")
+
+    assert dlg.kind_combo.currentData() is None  # auto
+    assert dlg.ref_combo.currentText() == "SHARED"  # clean, not "clone:SHARED"
+
+    dlg.offset_widget.x_edit.setText("5.0")
+    dlg.offset_widget.y_edit.setText("6.0")
+    built = dlg.build_node()
+    assert built is not None
+    assert built.ref == "SHARED"
+    assert built.kind is None
