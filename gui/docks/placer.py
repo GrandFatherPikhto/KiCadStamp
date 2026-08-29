@@ -122,7 +122,8 @@ from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox,
                               QTabWidget, QVBoxLayout, QWidget)
 
 from kicadstamp.apply_pipeline import ApplyPipeline
-from kicadstamp.config import (Config, RuntimeContext, clone_placement_effective_name,
+from kicadstamp.config import (ClonePlacement, Config, RuntimeContext,
+                               clone_placement_effective_name,
                                coordinate_placement_effective_name, load_clone_placement,
                                load_config, load_coordinate_placement)
 from kicadstamp.constants import CLUSTER_FIELD_NAME, DEFAULT_LOG_DIR
@@ -139,7 +140,8 @@ from kicadstamp.utils.units import MM
 from ..ui_utils import busy
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
-from .live_position import LiveRead, read_anchor_live, read_coordinate_live
+from .live_position import (LiveRead, read_anchor_live, read_clone_origin_live,
+                            read_coordinate_live)
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       WARN_STYLE as _WARN_STYLE, configure_searchable, display_path,
                       parse_float_field, set_combo_items, set_mode_pair_enabled,
@@ -1050,6 +1052,12 @@ class PlacerDock(QWidget):
         self.layer_combo = QComboBox()
         self.layer_combo.addItems([_("(cell default)"), "F.Cu", "B.Cu"])
         extra_form.addRow(_("Layer:"), self.layer_combo)
+        # "Read current position" (design 2026_08_29_config_tree_read_live_
+        # position.md §1.2/§3.2): fill the cell ORIGIN + rotation from the
+        # live board, re-derived from a placed component of the cell.
+        self.read_position_button = QPushButton(_("Read current position"))
+        self.read_position_button.clicked.connect(self._on_clone_read_position)
+        extra_form.addRow(self.read_position_button)
         origin_page_layout.addLayout(extra_form)
         self.mirror_checkbox = QCheckBox(_("Mirror"))
         origin_page_layout.addWidget(self.mirror_checkbox)
@@ -2098,6 +2106,110 @@ class PlacerDock(QWidget):
                         board.adapter, anchor_fields, cfg.points, sheet_names, label)
                     anchor_position = anchor_read.position
                 form.write_live_position(read, anchor_position=anchor_position)
+            except ValidationError as e:
+                QMessageBox.warning(self, _("Read current position"), str(e))
+                return
+            self._show_message(
+                _("Read current position: ({x:.3f}, {y:.3f}) mm").format(
+                    x=read.position.x / MM, y=read.position.y / MM),
+                _SUCCESS_STYLE)
+
+    def _build_clone_for_read(self) -> Optional[ClonePlacement]:
+        """A ClonePlacement built from the CURRENT form's identity + nets +
+        mirror, WITHOUT the origin/rotation/layer validation (those fields are
+        empty before the first "Read current position", and read_clone_origin_
+        live only needs cell/nets/cluster/mirror to resolve the cell's
+        components). xy is a dummy (0,0) — never read by the live read."""
+        cluster = self.cluster_edit.currentText().strip()
+        if not cluster or not self._selected_cell:
+            return None
+        params = {name: edit.currentText().strip() for name, edit in self._param_edits.items()
+                  if edit.currentText().strip()}
+        sheet = self.sheet_edit.currentText().strip() or None
+        return ClonePlacement(
+            cluster=cluster, cell=self._selected_cell, xy=(0.0, 0.0),
+            sheet=sheet, mirror=self.mirror_checkbox.isChecked(),
+            params=params, nets=self.nets_table.to_dict(),
+            net_overrides=self.net_overrides_table.to_dict(),
+            refs=self.refs_table.to_dict())
+
+    def _write_clone_live_origin(self, read: LiveRead,
+                                 anchor_position: Optional[Vector2] = None) -> None:
+        """Write a clone's live cell-origin read into the Origin tab, in its
+        CURRENT mode: "xy" -> the absolute origin (Cartesian x/y or polar
+        radius/angle); "anchor"/"point" -> the origin as the SHIFT from the
+        resolved anchor (anchor_position, computed by the dock). Rotation is
+        written whenever the read has one. 3-decimal rounding, same as
+        TreesDock."""
+        ow = self.origin_widget
+        x_mm = read.position.x / MM
+        y_mm = read.position.y / MM
+        is_polar = ow._polar_combo is not None and ow._polar_combo.currentIndex() == 1
+        mode = ow.mode
+        if mode == "xy":
+            if is_polar:
+                ow.radius_edit.setText(f"{math.hypot(x_mm, y_mm):.3f}")
+                ow.angle_edit.setText(f"{math.degrees(math.atan2(y_mm, x_mm)):.3f}")
+            else:
+                ow.x_edit.setText(f"{x_mm:.3f}")
+                ow.y_edit.setText(f"{y_mm:.3f}")
+        else:  # anchor / point — the origin as a shift from the anchor
+            if anchor_position is None:
+                return
+            sx = x_mm - anchor_position.x / MM
+            sy = y_mm - anchor_position.y / MM
+            if is_polar:
+                ow.radius_edit.setText(f"{math.hypot(sx, sy):.3f}")
+                ow.angle_edit.setText(f"{math.degrees(math.atan2(sy, sx)):.3f}")
+            else:
+                ow.shift_x_edit.setText(f"{sx:.3f}")
+                ow.shift_y_edit.setText(f"{sy:.3f}")
+        if read.rotation_deg is not None:
+            self.rotation_edit.setText(f"{read.rotation_deg:.3f}")
+
+    def _on_clone_read_position(self) -> None:
+        """Cell mode's "Read current position" — the "ячейка" case (design
+        2026_08_29_config_tree_read_live_position.md §1.2/§3.2): re-derive the
+        cell's CURRENT origin from a placed component on the live board and
+        fill the Origin tab (absolute xy, or the shift from the resolved anchor
+        in anchor/point mode) + rotation. Reads the CURRENT form's
+        identity/nets without requiring the origin fields to be filled first.
+        Failures are warnings, fields untouched — never a silent partial write."""
+        with busy(self._action_buttons()):
+            board = self._main_window.connection.board
+            if board is None or getattr(board, "adapter", None) is None:
+                QMessageBox.warning(
+                    self, _("Read current position"),
+                    _("No live board connection — connect KiCad first."))
+                return
+            if self._placer_path is None:
+                QMessageBox.warning(self, _("Read current position"),
+                                    _("Set the project root first."))
+                return
+            clone = self._build_clone_for_read()
+            if clone is None:
+                QMessageBox.warning(
+                    self, _("Read current position"),
+                    _("Cluster name and a Cell are required to read the cell's position."))
+                return
+            loaded = self._load_target_config(silent=True)
+            if loaded is None:
+                return
+            cfg, ctx = loaded
+            sheet_names = ctx.sheet_names if ctx is not None else {}
+            try:
+                read = read_clone_origin_live(board.adapter, cfg, clone, sheet_names)
+                anchor_position: Optional[Vector2] = None
+                if self.origin_widget.mode in ("anchor", "point"):
+                    fields, err = self.origin_widget.build()
+                    if err:
+                        QMessageBox.warning(self, _("Read current position"), err)
+                        return
+                    anchor_read = read_anchor_live(
+                        board.adapter, fields, cfg.points, sheet_names,
+                        clone_placement_effective_name(clone))
+                    anchor_position = anchor_read.position
+                self._write_clone_live_origin(read, anchor_position=anchor_position)
             except ValidationError as e:
                 QMessageBox.warning(self, _("Read current position"), str(e))
                 return

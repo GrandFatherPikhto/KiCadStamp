@@ -45,6 +45,19 @@ def _set_identity(form, cluster="FPGA_FLASH", role="R_CLK"):
     form.role_combo.setCurrentText(role)
 
 
+def _make_clone_dock(main_window, tmp_path):
+    """A PlacerDock in Cell (ClonePlacement) mode with a selected cell and a
+    cluster — rooted at a minimal valid root.sexp."""
+    placer_file = tmp_path / "root.sexp"
+    placer_file.write_text(dict_to_sexp({"clone_placements": [], "cells": {}}),
+                           encoding="utf-8")
+    dock = PlacerDock(main_window)
+    dock.set_root_path(placer_file)
+    dock._selected_cell = "pi_filter"
+    dock.cluster_edit.setCurrentText("FPGA_FLASH")
+    return dock, placer_file
+
+
 def test_coordinate_read_position_fills_xy_and_rotation(main_window, tmp_path, monkeypatch):
     """Cartesian mode: the live (Role, Cluster) read fills x/y + rotation."""
     dock, _ = _make_coordinate_dock(main_window, tmp_path)
@@ -157,3 +170,86 @@ def test_coordinate_read_position_requires_cluster_and_role(main_window, tmp_pat
     dock._on_coordinate_read_position()
     assert warnings
     assert form.x_edit.text() == ""
+
+
+# ── ClonePlacement (Cell mode) — the cell ORIGIN re-derived from the board ──
+
+
+def test_clone_read_position_fills_origin_and_rotation(main_window, tmp_path, monkeypatch):
+    """Cartesian origin (Origin tab, mode "xy"): the cell's origin + rotation
+    are filled from the live read."""
+    dock, _ = _make_clone_dock(main_window, tmp_path)
+    main_window.connection.board = _FakeBoard()
+    monkeypatch.setattr(placer_mod, "read_clone_origin_live", lambda *a, **k: LiveRead(
+        position=Vector2.from_xy(int(10.0 * MM), int(20.0 * MM)),
+        rotation_deg=45.0, footprint=None))
+
+    dock._on_clone_read_position()
+
+    assert dock.origin_widget.x_edit.text() == "10.000"
+    assert dock.origin_widget.y_edit.text() == "20.000"
+    assert dock.rotation_edit.text() == "45.000"
+
+
+def test_clone_read_position_anchor_writes_shift(main_window, tmp_path, monkeypatch):
+    """Origin tab in anchor mode: the origin is written as the SHIFT from the
+    anchor's live position (origin (12,20) vs anchor (10,20) -> shift (2,0))."""
+    dock, _ = _make_clone_dock(main_window, tmp_path)
+    main_window.connection.board = _FakeBoard()
+    dock.origin_widget.load(mode="anchor", ref="U3")
+    monkeypatch.setattr(placer_mod, "read_clone_origin_live", lambda *a, **k: LiveRead(
+        position=Vector2.from_xy(int(12.0 * MM), int(20.0 * MM)),
+        rotation_deg=0.0, footprint=None))
+    monkeypatch.setattr(placer_mod, "read_anchor_live", lambda *a, **k: LiveRead(
+        position=Vector2.from_xy(int(10.0 * MM), int(20.0 * MM)),
+        rotation_deg=0.0, footprint=None))
+
+    dock._on_clone_read_position()
+
+    assert dock.origin_widget.shift_x_edit.text() == "2.000"
+    assert dock.origin_widget.shift_y_edit.text() == "0.000"
+    assert dock.rotation_edit.text() == "0.000"
+
+
+def test_clone_read_position_warns_when_no_live_connection(main_window, tmp_path, monkeypatch):
+    """No live board connection -> a warning, and nothing is written."""
+    dock, _ = _make_clone_dock(main_window, tmp_path)
+    warnings = []
+    monkeypatch.setattr(placer_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or None)
+    dock._on_clone_read_position()
+    assert warnings
+    assert dock.origin_widget.x_edit.text() == ""
+    assert dock.rotation_edit.text() == ""
+
+
+def test_clone_read_position_resolution_failure_leaves_untouched(main_window, tmp_path, monkeypatch):
+    """A resolution fatal -> warning, Origin fields untouched."""
+    dock, _ = _make_clone_dock(main_window, tmp_path)
+    main_window.connection.board = _FakeBoard()
+
+    def _boom(*a, **k):
+        raise ValidationError("no component resolved")
+    monkeypatch.setattr(placer_mod, "read_clone_origin_live", _boom)
+    warnings = []
+    monkeypatch.setattr(placer_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or None)
+    dock._on_clone_read_position()
+
+    assert warnings
+    assert "no component resolved" in str(warnings[0])
+    assert dock.origin_widget.x_edit.text() == ""
+    assert dock.rotation_edit.text() == ""
+
+
+def test_clone_read_position_requires_cluster_and_cell(main_window, tmp_path, monkeypatch):
+    """Missing cluster or cell -> warning, no resolution attempt."""
+    dock, _ = _make_clone_dock(main_window, tmp_path)
+    main_window.connection.board = _FakeBoard()
+    dock.cluster_edit.setCurrentText("")
+    warnings = []
+    monkeypatch.setattr(placer_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or None)
+    dock._on_clone_read_position()
+    assert warnings
+    assert dock.origin_widget.x_edit.text() == ""
