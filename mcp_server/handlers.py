@@ -169,3 +169,61 @@ def apply_config(config_path: str, *, dry_run: bool = False,
     if collector.lines:
         return "\n".join(collector.lines)
     return "apply completed"
+
+
+# --- Raw write (high risk, env-gated) ---------------------------------------
+
+def raw_move_footprint(adapter, ref: str, x_mm: float, y_mm: float,
+                       rotation_deg: float | None = None,
+                       expected_board_name: str | None = None) -> dict[str, Any]:
+    """RAW (high-risk) write: move one footprint by ref to an absolute
+    position/rotation, bypassing the validated config layer entirely.
+
+    The board-identity guard runs BEFORE any write: when *expected_board_name*
+    is given and the board open in KiCad differs, nothing is written and a
+    clear fatal is raised (the same protection the apply path already has —
+    raw must not be a hole in it). The connected board is ALWAYS included in
+    the result, so the caller always sees which board was touched.
+
+    Returns ``{board, ref, old, new}`` where old/new are
+    ``{x_mm, y_mm, rotation_deg, layer}``.
+    """
+    from kicadstamp.config import Config
+    from kicadstamp.domain.geometry import Vector2
+    from kicadstamp.validation import check_board_identity
+
+    board = adapter.get_board_filename()
+    if expected_board_name is not None:
+        check_board_identity(Config(board_name=expected_board_name), adapter)
+
+    fp = adapter.get_footprint(ref)
+    if fp is None:
+        raise ValueError(
+            f"footprint {ref!r} not found on the board (connected board: {board!r})")
+
+    old = {
+        "x_mm": round(_mm(fp.position.x), 3),
+        "y_mm": round(_mm(fp.position.y), 3),
+        "rotation_deg": round(fp.angle_deg, 2),
+        "layer": layer_to_str(fp.layer),
+    }
+
+    fp.position = Vector2.from_xy_mm(x_mm, y_mm)
+    if rotation_deg is not None:
+        fp.angle_deg = rotation_deg
+    ok = adapter.commit_with_retry(
+        f"raw move {ref}", lambda: adapter.update_items([fp]))
+    if not ok:
+        raise RuntimeError(
+            f"KiCad rejected the move of {ref!r} — the board was not modified")
+
+    adapter.refresh_board()
+    moved = adapter.get_footprint(ref)
+    new = {
+        "x_mm": round(_mm(moved.position.x), 3) if moved else round(x_mm, 3),
+        "y_mm": round(_mm(moved.position.y), 3) if moved else round(y_mm, 3),
+        "rotation_deg": (round(moved.angle_deg, 2) if moved
+                         else (rotation_deg if rotation_deg is not None else old["rotation_deg"])),
+        "layer": layer_to_str(moved.layer) if moved else old["layer"],
+    }
+    return {"board": board, "ref": ref, "old": old, "new": new}

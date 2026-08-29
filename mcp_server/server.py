@@ -11,13 +11,14 @@ that import the MCP SDK; handlers.py and connection.py stay SDK-free.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 
 from mcp.server.mcpserver import MCPServer
 
 from .connection import ConnectionManager
-from .tools import register_tools
+from .tools import register_raw_tools, register_tools
 
 _SERVER_NAME = "kicadstamp"
 _SERVER_DESCRIPTION = (
@@ -54,6 +55,10 @@ def build_server(adapter_factory: Callable[[int], object] | None = None) -> MCPS
         lifespan=_make_lifespan(manager),
     )
     register_tools(server, manager)
+    # Raw write tools are OFF by default — they only exist when the operator
+    # opts in explicitly on the test polygon (design doc §4).
+    if os.environ.get("KICADSTAMP_MCP_ALLOW_RAW_WRITE") == "1":
+        register_raw_tools(server, manager)
     return server
 
 

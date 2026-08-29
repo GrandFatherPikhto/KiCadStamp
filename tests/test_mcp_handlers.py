@@ -46,6 +46,7 @@ class FakeAdapter:
         self._fields = fields or {}
         self._board_name = board_name
         self._version = version
+        self.updated: list = []  # every update_items() push, for assertions
 
     def get_board_filename(self):
         return self._board_name
@@ -70,6 +71,20 @@ class FakeAdapter:
 
     def get_all_nets(self):
         return list(self._nets)
+
+    def update_items(self, items):
+        for dto in items:
+            for i, stored in enumerate(self._fps):
+                if stored.ref == dto.ref:
+                    self._fps[i] = dto  # store the mutated DTO
+        self.updated.append(items)
+
+    def refresh_board(self):
+        pass
+
+    def commit_with_retry(self, description, work_fn, retries=1):
+        work_fn()
+        return True
 
 
 # --- identity ---------------------------------------------------------------
@@ -215,3 +230,38 @@ def test_apply_config_propagates_fatal_validation_error(monkeypatch):
     monkeypatch.setattr("kicadstamp.apply_pipeline.run_apply", fake_run_apply)
     with pytest.raises(ValidationError, match="connected board does not match"):
         handlers.apply_config("profiles/x.sexp")
+
+
+# --- raw_move_footprint (high-risk write) ------------------------------------
+
+def test_raw_move_footprint_moves_and_reports_old_new():
+    adapter = FakeAdapter(footprints=[_fp("R1", x_mm=1.0, y_mm=2.0, angle=0.0)])
+    result = handlers.raw_move_footprint(adapter, "R1", x_mm=10.0, y_mm=20.0,
+                                         rotation_deg=45.0)
+    assert result["board"] == "test_board.kicad_pcb"
+    assert result["old"] == {"x_mm": 1.0, "y_mm": 2.0, "rotation_deg": 0.0, "layer": "F.Cu"}
+    assert result["new"] == {"x_mm": 10.0, "y_mm": 20.0, "rotation_deg": 45.0, "layer": "F.Cu"}
+    assert len(adapter.updated) == 1  # exactly one push
+
+
+def test_raw_move_footprint_missing_ref_raises():
+    adapter = FakeAdapter(footprints=[_fp("R1")])
+    with pytest.raises(ValueError, match="not found"):
+        handlers.raw_move_footprint(adapter, "R999", x_mm=0.0, y_mm=0.0)
+
+
+def test_raw_move_footprint_guard_blocks_on_wrong_board():
+    adapter = FakeAdapter(footprints=[_fp("R1")], board_name="test_board.kicad_pcb")
+    with pytest.raises(ValidationError):
+        handlers.raw_move_footprint(adapter, "R1", x_mm=5.0, y_mm=5.0,
+                                    expected_board_name="OTHER_BOARD")
+    assert adapter.updated == []  # nothing was written
+
+
+def test_raw_move_footprint_guard_passes_on_matching_board():
+    adapter = FakeAdapter(footprints=[_fp("R1")], board_name="test_board.kicad_pcb")
+    result = handlers.raw_move_footprint(adapter, "R1", x_mm=5.0, y_mm=5.0,
+                                         expected_board_name="test_board.kicad_pcb")
+    assert result["new"]["x_mm"] == 5.0
+    assert result["new"]["y_mm"] == 5.0
+    assert len(adapter.updated) == 1
