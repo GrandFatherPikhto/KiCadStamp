@@ -783,6 +783,23 @@ def _bridging_pad_hint_problems(cell, params=None, net_overrides=None) -> list[s
             slot2 = by_role.get(r2)
             if slot2 is None or slot2.net_template is None:
                 continue
+            # slot2's OWN net_template only describes ITS designated pad — a
+            # DIFFERENT pad of the SAME multi-pad part (an IC's other pins,
+            # or another bridging role's non-designated pad) legitimately
+            # carries an unrelated net and must NOT be compared (found live
+            # 2026-08-29: OP_AMP's net_template_pad="7" describes its OUTPUT
+            # pin only, so OP_AMP pad "2" — a different pin — is unrelated;
+            # R_OA_OUT_P_PROT's net_template_same_as_role="PES_D_OUT_P" is the
+            # SAME kind of single-pad designation, no explicit pad number
+            # stored, so ANY of its pads other than the one this cell's own
+            # geometry happens to tag is equally undeterminable here — treat
+            # a role with EITHER hint as "bridging, pad not confirmed" and
+            # skip it; only a plain lemma-2 role (neither hint set) has a
+            # net_template that legitimately covers every one of its pads).
+            if slot2.net_template_pad is not None and slot2.net_template_pad != p2:
+                continue
+            if slot2.net_template_same_as_role is not None:
+                continue
             try:
                 net2 = resolve_net(slot2.net_template, params or {}, net_overrides or {})
             except ValidationError:
