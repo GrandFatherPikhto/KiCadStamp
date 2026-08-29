@@ -20,29 +20,41 @@ ROOT = Path(__file__).parent.parent
 IGNORE_DIRS = [".*", "._", "files", "old", "arch", "test_sample", "venv"]
 
 
-def run(cmd):
-    print(f"Running: {' '.join(cmd)}")
-    subprocess.run(cmd, cwd=str(ROOT), check=True)
+def pybabel(args):
+    """Run the babel CLI through THIS interpreter (sys.executable), never a
+    PATH-resolved ``pybabel`` binary.
+
+    FIXED 2026-08-29: ``subprocess.run(["pybabel", ...])`` resolved to the
+    system /usr/bin/pybabel (2.10.3), whose ``--ignore-dirs`` mishandled the
+    space-separated patterns — a full run then scanned ``.venv`` and
+    ``tools/old`` and polluted the catalog with site-packages junk. Running the
+    interpreter's own babel (``babel.messages.frontend``) pins the version and
+    behaviour to what ``pip install babel`` put in the venv, so ``--ignore-dirs``
+    is honoured as documented.
+    """
+    return subprocess.run([sys.executable, "-m", "babel.messages.frontend", *args],
+                          cwd=str(ROOT), check=True)
 
 
 def main():
     # 1. Извлечение строк в .pot
-    # --ignore-dirs принимает ОДНУ строку с шаблонами через пробел, не повторяемый флаг
-    run(["pybabel", "extract", "-F", "babel.cfg",
-         "--ignore-dirs", " ".join(IGNORE_DIRS),
-         "-o", "messages.pot", "."])
+    pybabel(["extract", "-F", "babel.cfg",
+             "--ignore-dirs", " ".join(IGNORE_DIRS),
+             "-o", "messages.pot", "."])
 
     # 2. Обновление/создание .po для каждого языка
     for lang in ("en", "ru"):
         po_file = ROOT / "locales" / lang / "LC_MESSAGES" / "kicadstamp.po"
         if po_file.exists():
-            run(["pybabel", "update", "-i", "messages.pot", "-d", "locales", "-l", lang, "-D", "kicadstamp"])
+            pybabel(["update", "-i", "messages.pot", "-d", "locales",
+                     "-l", lang, "-D", "kicadstamp"])
         else:
-            run(["pybabel", "init", "-i", "messages.pot", "-d", "locales", "-l", lang, "-D", "kicadstamp"])
+            pybabel(["init", "-i", "messages.pot", "-d", "locales",
+                     "-l", lang, "-D", "kicadstamp"])
 
     # 3. Компиляция .mo
     for lang in ("en", "ru"):
-        run(["pybabel", "compile", "-d", "locales", "-l", lang, "-D", "kicadstamp"])
+        pybabel(["compile", "-d", "locales", "-l", lang, "-D", "kicadstamp"])
 
     # 4. Удаление временного .pot
     (ROOT / "messages.pot").unlink(missing_ok=True)
