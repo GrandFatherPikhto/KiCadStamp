@@ -109,6 +109,7 @@ clone source, matched by effective name.
 """
 from dataclasses import replace
 import logging
+import math
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -125,6 +126,7 @@ from kicadstamp.config import (Config, RuntimeContext, clone_placement_effective
                                coordinate_placement_effective_name, load_clone_placement,
                                load_config, load_coordinate_placement)
 from kicadstamp.constants import CLUSTER_FIELD_NAME, DEFAULT_LOG_DIR
+from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.i18n import _
 from kicadstamp.placement.planner import PlacementPlanner
@@ -132,10 +134,12 @@ from kicadstamp.placement.services.clone_role_resolver import (
     candidate_nets_by_role,
     suggest_role_nets_live,
 )
+from kicadstamp.utils.units import MM
 
 from ..ui_utils import busy
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
+from .live_position import LiveRead, read_anchor_live, read_coordinate_live
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       WARN_STYLE as _WARN_STYLE, configure_searchable, display_path,
                       parse_float_field, set_combo_items, set_mode_pair_enabled,
@@ -413,6 +417,13 @@ class _CoordinatePlacementForm(QWidget):
         self.rotation_edit.setPlaceholderText(_("= angle (polar) or 0"))
         form.addRow(_("Rotation °:"), self.rotation_edit)
 
+        # "Read current position" (design 2026_08_29_config_tree_read_live_
+        # position.md §1.1): fill the position/rotation fields from the live
+        # (Role, Cluster) component on the board, expressed in the form's
+        # CURRENT mode. PlacerDock wires the click (it owns the adapter).
+        self.read_position_button = QPushButton(_("Read current position"))
+        form.addRow(self.read_position_button)
+
         self.retired_checkbox = QCheckBox(_("Retired"))
         form.addRow(self.retired_checkbox)
         self.skip_checkbox = QCheckBox(_("Skip"))
@@ -679,6 +690,55 @@ class _CoordinatePlacementForm(QWidget):
         self.skip_checkbox.setChecked(False)
         self._update_mode()
 
+    # ── Read current position (design 2026_08_29_config_tree_read_live_ ──
+    #    position.md §3.1) — write a live read into the CURRENT mode ─────
+
+    @staticmethod
+    def _read_float_or_zero(edit: QLineEdit) -> float:
+        """Best-effort read of a numeric field for a DEFAULT (blank/invalid ->
+        0.0) — used for the fixed polar centre, where an absent value is a
+        legitimate "board origin" default, not a user error."""
+        try:
+            return float(edit.text().strip())
+        except ValueError:
+            return 0.0
+
+    def write_live_position(self, read: LiveRead,
+                            anchor_position: Optional[Vector2] = None) -> None:
+        """Fill the position/rotation fields from a live read, expressed in
+        the form's CURRENT position mode:
+          - Cartesian absolute: x/y = the read position;
+          - polar-around-centre: radius/angle from the form's fixed centre;
+          - anchor-relative: the offset from the resolved anchor
+            (anchor_position — required in this mode, computed by the dock).
+        Rotation is written whenever the read carries one (a point-relative
+        read has none). Values rounded to 3 decimals, same as TreesDock."""
+        x_mm = read.position.x / MM
+        y_mm = read.position.y / MM
+        mode = self.mode_combo.currentIndex()
+        if mode == 0:  # Cartesian absolute
+            self.x_edit.setText(f"{x_mm:.3f}")
+            self.y_edit.setText(f"{y_mm:.3f}")
+        elif mode == 1:  # polar around a fixed centre
+            cx = self._read_float_or_zero(self.center_x_edit)
+            cy = self._read_float_or_zero(self.center_y_edit)
+            dx, dy = x_mm - cx, y_mm - cy
+            self.radius_edit.setText(f"{math.hypot(dx, dy):.3f}")
+            self.angle_edit.setText(f"{math.degrees(math.atan2(dy, dx)):.3f}")
+        else:  # anchor-relative — needs the anchor's live position
+            if anchor_position is None:
+                return
+            ox = x_mm - anchor_position.x / MM
+            oy = y_mm - anchor_position.y / MM
+            if self._offset_combo.currentIndex() == 1:  # polar offset
+                self._offset_radius_edit.setText(f"{math.hypot(ox, oy):.3f}")
+                self._offset_angle_edit.setText(f"{math.degrees(math.atan2(oy, ox)):.3f}")
+            else:
+                self._offset_x_edit.setText(f"{ox:.3f}")
+                self._offset_y_edit.setText(f"{oy:.3f}")
+        if read.rotation_deg is not None:
+            self.rotation_edit.setText(f"{read.rotation_deg:.3f}")
+
 
 class PlacerDock(QWidget):
     """A page inside DetailDock's stack (gui/docks/detail_panel.py) — used
@@ -765,6 +825,8 @@ class PlacerDock(QWidget):
         # half is added to the Coordinate tab later (2026-08-13, plan
         # coordinate_identity_on_source_tab).
         self.coordinate_form = _CoordinatePlacementForm()
+        self.coordinate_form.read_position_button.clicked.connect(
+            self._on_coordinate_read_position)
 
         source_page = QWidget()
         source_page_layout = QVBoxLayout(source_page)
@@ -1986,6 +2048,63 @@ class PlacerDock(QWidget):
                     if self.is_coordinate else clone_placement_effective_name(placement))
             self._show_message(_("Selected {count} item(s) on the board for {name!r}.")
                                .format(count=len(items), name=name), _SUCCESS_STYLE)
+
+    def _on_coordinate_read_position(self) -> None:
+        """Coordinate form's "Read current position" — resolve the CURRENT
+        form's (Role, Cluster) to its live component and fill the position/
+        rotation fields in the form's current mode (design
+        2026_08_29_config_tree_read_live_position.md §3.1). Reads the form's
+        identity fields directly (cluster/role/sheet) — NOT form.build(), which
+        would require the position fields to already be filled. Short
+        synchronous board reads wrapped in busy(), same as Select-on-board.
+        Never a silent partial write: any failure is a warning, fields
+        untouched."""
+        with busy(self._action_buttons()):
+            board = self._main_window.connection.board
+            if board is None or getattr(board, "adapter", None) is None:
+                QMessageBox.warning(
+                    self, _("Read current position"),
+                    _("No live board connection — connect KiCad first."))
+                return
+            form = self.coordinate_form
+            cluster = form.cluster_combo.currentText().strip()
+            role = form.role_combo.currentText().strip()
+            if not cluster or not role:
+                QMessageBox.warning(
+                    self, _("Read current position"),
+                    _("Cluster and Role are required to read the component's position."))
+                return
+            if self._placer_path is None:
+                QMessageBox.warning(self, _("Read current position"),
+                                    _("Set the project root first."))
+                return
+            loaded = self._load_target_config(silent=True)
+            if loaded is None:
+                return
+            cfg, ctx = loaded
+            sheet_names = ctx.sheet_names if ctx is not None else {}
+            label = f"{cluster}/{role}"
+            try:
+                sheet = form.sheet_edit.currentText().strip() or None
+                read = read_coordinate_live(
+                    board.adapter, cluster, role, sheet, sheet_names, label)
+                anchor_position: Optional[Vector2] = None
+                if form.mode_combo.currentIndex() == 2:  # anchor-relative
+                    anchor_fields, err = form._anchor_widget.build()
+                    if err:
+                        QMessageBox.warning(self, _("Read current position"), err)
+                        return
+                    anchor_read = read_anchor_live(
+                        board.adapter, anchor_fields, cfg.points, sheet_names, label)
+                    anchor_position = anchor_read.position
+                form.write_live_position(read, anchor_position=anchor_position)
+            except ValidationError as e:
+                QMessageBox.warning(self, _("Read current position"), str(e))
+                return
+            self._show_message(
+                _("Read current position: ({x:.3f}, {y:.3f}) mm").format(
+                    x=read.position.x / MM, y=read.position.y / MM),
+                _SUCCESS_STYLE)
 
     def _start_redraw_op(self, payload: Dict[str, Any]) -> None:
         self._active_op = start_long_op(
