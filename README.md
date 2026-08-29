@@ -298,6 +298,7 @@ Detailed documentation is in the `docs/` folder:
 - [Geometry utilities](./docs/geometry.md)
 - [KiCad adapter](./docs/kicad.md)
 - [Using kipy](./docs/kipy.md)
+- [MCP server](./docs/mcp.md)
 - [Placement planning and execution](./docs/placement.md)
 - [YAML configuration reference](./docs/config.md)
 - [Coding placement in Python: explore/author](./docs/python.md)
