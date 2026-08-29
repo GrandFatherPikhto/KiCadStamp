@@ -652,7 +652,9 @@ def test_net_template_role_tab_hidden_until_classification_sees_two_nets(main_wi
         [FakeSelected("FB6", "PI_FILTER_FB", "X", {"1": "-2V5", "2": "-2V5_DIRTY"}, fp=object())])
     assert dock._tabs.isTabVisible(dock._role_net_tab_index) is True
     assert "PI_FILTER_FB" in dock._net_template_role_edits
-    assert dock._net_template_role_edits["PI_FILTER_FB"].currentText() == ""
+    # The -2V5 alias typed above (PWR_IN) makes it the backend-designated net
+    # (present in net_template_map) -> the combo starts prefilled with it.
+    assert dock._net_template_role_edits["PI_FILTER_FB"].currentText() == "-2V5"
 
 
 def test_role_net_tab_appears_from_classification_without_any_alias(main_window, tmp_path, monkeypatch):
@@ -682,6 +684,12 @@ def test_role_net_tab_appears_from_classification_without_any_alias(main_window,
 
 
 def test_net_template_role_blocks_extraction_until_resolved(main_window, tmp_path, monkeypatch, caplog):
+    """The empty-value block is NOT removed by the prefill feature — it stays
+    as the guard for an explicit manual clear. With a param present the combo
+    STARTS prefilled (see test_net_template_role_rows_prefilled_...), so the
+    blocking path is now exercised by clearing the field by hand (plan
+    2026-08-29 §2 / §4.3: "очистили руками → блокирует", not "изначально
+    пусто → блокирует")."""
     cells_file = tmp_path / "cells.sexp"
     _write(cells_file, {})
     main_window.connection.board = _classification_board(monkeypatch, {
@@ -697,19 +705,105 @@ def test_net_template_role_blocks_extraction_until_resolved(main_window, tmp_pat
         [_fake_fp("FB6")],
         [FakeSelected("FB6", "PI_FILTER_FB", "X", {"1": "-2V5", "2": "-2V5_DIRTY"}, fp=object())])
     assert "PI_FILTER_FB" in dock._net_template_role_edits
+    # A param for -2V5 exists -> the row starts prefilled with the backend's
+    # designated net (first sorted pad net present in net_template_map).
+    dock._net_alias_edits["-2V5"].setText("PI_FILTER_FB")
+    dock._net_template_role_edits = {}
+    dock._update_net_template_role_rows()
+    assert dock._net_template_role_edits["PI_FILTER_FB"].currentText() == "-2V5"
 
+    # The user explicitly clears the field by hand -> the block still fires.
+    dock._net_template_role_edits["PI_FILTER_FB"].setCurrentText("")
     dock.name_edit.setText("n2v5_adj_pi_filter")
     dock._raw_items = [_fake_fp("C1")]
     dock._on_extract()
     assert any("PI_FILTER_FB" in r.message for r in caplog.records)
     assert _load(cells_file) in (None, {})
 
+    # Re-pick (as the user would) -> extraction passes.
     dock._net_template_role_edits["PI_FILTER_FB"].setCurrentText("-2V5")
     # Full success-path extract: runs synchronously via the _do_extract() core
     # (the async _on_extract() path would race the read on the next line).
     dock._do_extract()
     saved = _load(cells_file)
     assert "n2v5_adj_pi_filter" in saved["cells"]
+
+
+def test_net_template_role_rows_prefilled_and_extract_passes_without_clicks(main_window, tmp_path, monkeypatch):
+    """Plan 2026-08-29 §2/§4.3 (new test): every ambiguous role's combo STARTS
+    selected with the same deterministic default the backend would write
+    WITHOUT --net-template-role — the first (by sort) of the role's pad nets
+    present in net_template_map (derived from the current aliases), NOT
+    classifying[0] (which, on the live fpga_supp case, would pick a net that
+    has no param and fatal on "...not in net_template_map" — see §3). With a
+    param present, extraction passes with ZERO clicks on these combos."""
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
+    main_window.connection.board = _classification_board(monkeypatch, {
+        "C_IN_BULK": {"1": {"-2V5"}, "2": {"GND"}},
+        "C_IN_BYPASS": {"1": {"-2V5_DIRTY"}, "2": {"GND"}},
+        "PI_FILTER_FB": {"1": {"-2V5"}, "2": {"-2V5_DIRTY"}},
+    })
+    monkeypatch.setattr(extract_mod, "extract_template_from_selection", _fake_extract)
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+
+    dock.set_board_selection(
+        [_fake_fp("FB6")],
+        [FakeSelected("FB6", "PI_FILTER_FB", "X", {"1": "-2V5", "2": "-2V5_DIRTY"}, fp=object())])
+    assert "PI_FILTER_FB" in dock._net_template_role_edits
+    # Without a param there is no backend default yet -> stays empty (the
+    # block remains the honest fallback, nothing to prefill).
+    assert dock._net_template_role_edits["PI_FILTER_FB"].currentText() == ""
+
+    # Give -2V5 a param (as a profile/typed alias would) -> rebuild rows:
+    # the combo now starts on -2V5, the backend's designated net.
+    dock._net_alias_edits["-2V5"].setText("PI_FILTER_FB")
+    dock._net_template_role_edits = {}
+    dock._update_net_template_role_rows()
+    assert dock._net_template_role_edits["PI_FILTER_FB"].currentText() == "-2V5"
+    assert set(dock._net_template_role_edits["PI_FILTER_FB"].itemText(i)
+               for i in range(dock._net_template_role_edits["PI_FILTER_FB"].count())) >= {"", "-2V5", "-2V5_DIRTY"}
+
+    # Extraction passes WITHOUT a single click on the combo (no _on_extract
+    # block, cell written on the first try).
+    dock.name_edit.setText("n2v5_adj_pi_filter")
+    dock._raw_items = [_fake_fp("C1")]
+    dock._do_extract()
+    saved = _load(cells_file)
+    assert "n2v5_adj_pi_filter" in saved["cells"]
+
+
+def test_net_template_role_user_change_beats_default(main_window, tmp_path, monkeypatch):
+    """Plan 2026-08-29 §4.3 (new test): the combo is prefilled but stays
+    editable — a user picking a different net sends THAT value to extraction,
+    not the default."""
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
+    main_window.connection.board = _classification_board(monkeypatch, {
+        "C_IN_BULK": {"1": {"-2V5"}, "2": {"GND"}},
+        "C_IN_BYPASS": {"1": {"-2V5_DIRTY"}, "2": {"GND"}},
+        "PI_FILTER_FB": {"1": {"-2V5"}, "2": {"-2V5_DIRTY"}},
+    })
+    monkeypatch.setattr(extract_mod, "extract_template_from_selection", _fake_extract)
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+
+    dock.set_board_selection(
+        [_fake_fp("FB6")],
+        [FakeSelected("FB6", "PI_FILTER_FB", "X", {"1": "-2V5", "2": "-2V5_DIRTY"}, fp=object())])
+    dock._net_alias_edits["-2V5"].setText("PWR_IN")
+    dock._net_template_role_edits = {}
+    dock._update_net_template_role_rows()
+    assert dock._net_template_role_edits["PI_FILTER_FB"].currentText() == "-2V5"  # default
+
+    # User overrides the default with the other rail.
+    dock._net_template_role_edits["PI_FILTER_FB"].setCurrentText("-2V5_DIRTY")
+    dock.name_edit.setText("bridging_cell")
+    dock._raw_items = [_fake_fp("C1")]
+    payload = dock._collect_extract_inputs()
+    assert payload["net_template_role"] == {"PI_FILTER_FB": "-2V5_DIRTY"}
+    assert payload["params"]["PI_FILTER_FB"] == "-2V5_DIRTY"
 
 
 def test_net_template_role_pick_seeds_params_for_classified_net(main_window, tmp_path, monkeypatch):

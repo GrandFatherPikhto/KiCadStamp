@@ -1163,12 +1163,38 @@ class ExtractDock(QWidget):
         non-trivial point): a role whose nets do NOT classify at all (all
         fallback) is NOT ambiguous — there is nothing to pick.
 
+        Each ambiguous role's combo now STARTS pre-filled with the same
+        deterministic default the backend writes WITHOUT --net-template-role
+        (plan_2026_08_29_extract_net_template_role_prefill.md §2/§3). That
+        default is the first (by sort) of the role's pad nets PRESENT IN
+        net_template_map (template_extraction.py:422 `mapped`) — NOT
+        classifying[0]: the two filters differ. On the live fpga_supp case
+        CH0_R_TERM_N classifies both '/Channel_0/DAC_CLK_N' and
+        '/FPGA/DAC0_CLK_OUT_N', but only the latter carries a param, so the
+        backend picks the latter; prefilling '/Channel_0/DAC_CLK_N' would LIE
+        and worse, fatal on "...not in net_template_map". The default is
+        built from the CURRENT aliases, exactly as the extractor derives
+        net_template_map from params. The empty-value block at extract time
+        stays: it only fires when the user explicitly clears a combo (or
+        there is genuinely no param for any of the role's nets).
+
         footprints — the (possibly Cluster-filtered) selection, the same list
         _rebuild_net_aliases just classified; falls back to the unfiltered
         _selected_footprints for direct callers."""
         if footprints is None:
             footprints = self._selected_footprints
+        # net_template_map exactly as extract_template_from_selection() builds
+        # it from params (lines 242-251): every aliased net literal -> {alias}.
+        # The backend's `mapped` filter is membership in THIS map, so the
+        # prefill must use the same map or it will not match what the backend
+        # actually writes without the flag.
+        net_template_map: Dict[str, str] = {}
+        for net, edit in self._net_alias_edits.items():
+            alias = edit.text().strip()
+            if alias:
+                net_template_map.setdefault(net, f"{{{alias}}}")
         ambiguous: Dict[str, List[str]] = {}
+        defaults: Dict[str, str] = {}
         for s in footprints:
             if not s.role:
                 continue
@@ -1186,6 +1212,14 @@ class ExtractDock(QWidget):
                 and not self._is_rule_net_checked(n))
             if len(classifying) >= 2:
                 ambiguous[s.role] = classifying
+                # Deterministic default = the backend's no-flag designated net:
+                # first (by sort) pad net that is in net_template_map. If the
+                # classifier does not cover it (a fallback net with an alias),
+                # add it as the combo's extra candidate so the prefill is
+                # selectable and really matches the backend.
+                mapped = [n for n in sorted(distinct_nets) if n in net_template_map]
+                if mapped:
+                    defaults[s.role] = mapped[0]
 
         if set(ambiguous) == set(self._net_template_role_edits):
             return
@@ -1203,7 +1237,12 @@ class ExtractDock(QWidget):
             combo = QComboBox()
             combo.addItem("")
             combo.addItems(nets)
-            combo.setCurrentText(previous.get(role, ""))
+            default = defaults.get(role, "")
+            if default and default not in nets:
+                combo.addItem(default)  # backend-designated net the classifier
+                                        # missed (fallback with an alias) —
+                                        # keep the prefill selectable
+            combo.setCurrentText(previous.get(role) or default)
             self._role_net_layout.addWidget(combo, row, 1)
             self._net_template_role_edits[role] = combo
 
