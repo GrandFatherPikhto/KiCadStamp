@@ -8404,8 +8404,8 @@ msgid "Allow raw MCP write tools (kicad_raw_move_footprint)"
 msgstr "Разрешить raw-инструменты MCP (kicad_raw_move_footprint)"
 
 #: gui/docks/configurator.py
-msgid "When checked, the MCP server (kicadstamp-mcp) registers the raw, high-risk kicad_raw_move_footprint tool — direct kipy writes bypassing the validated config layer, guarded by board identity. Takes effect when the MCP server next starts. Same effect as the KICADSTAMP_MCP_ALLOW_RAW_WRITE=1 environment variable."
-msgstr "Если включено, MCP-сервер (kicadstamp-mcp) регистрирует высокорисковый raw-инструмент kicad_raw_move_footprint — прямые записи через kipy в обход validated-слоя, защищённые проверкой платы. Действует при следующем запуске MCP-сервера. Эквивалент переменной окружения KICADSTAMP_MCP_ALLOW_RAW_WRITE=1."
+msgid "When checked, the MCP server (kicadstamp-mcp) registers the raw, high-risk kicad_raw_move_footprint tool — direct kipy writes bypassing the validated config layer. Every call requires the expected board name (expected_board_name) and refuses to write when a different board is open in KiCad. Takes effect when the MCP server next starts. Same effect as the KICADSTAMP_MCP_ALLOW_RAW_WRITE=1 environment variable."
+msgstr "Если включено, MCP-сервер (kicadstamp-mcp) регистрирует высокорисковый raw-инструмент kicad_raw_move_footprint — прямые записи через kipy в обход validated-слоя. Каждый вызов требует ожидаемое имя платы (expected_board_name) и отказывает в записи, если открыта другая плата. Действует при следующем запуске MCP-сервера. Эквивалент переменной окружения KICADSTAMP_MCP_ALLOW_RAW_WRITE=1."
 
 #: gui/docks/configurator.py
 msgid "MCP server: kicadstamp-mcp over stdio. Register it in the client's Settings tab, or via the repo's .mcp.json."

@@ -234,9 +234,18 @@ def test_apply_config_propagates_fatal_validation_error(monkeypatch):
 
 # --- raw_move_footprint (high-risk write) ------------------------------------
 
+def test_raw_move_footprint_requires_expected_board():
+    """The board-identity guard is MANDATORY — expected_board_name is a
+    required argument, so a raw write can never silently skip the check."""
+    adapter = FakeAdapter(footprints=[_fp("R1")])
+    with pytest.raises(TypeError):
+        handlers.raw_move_footprint(adapter, "R1", x_mm=10.0, y_mm=20.0)
+
+
 def test_raw_move_footprint_moves_and_reports_old_new():
     adapter = FakeAdapter(footprints=[_fp("R1", x_mm=1.0, y_mm=2.0, angle=0.0)])
     result = handlers.raw_move_footprint(adapter, "R1", x_mm=10.0, y_mm=20.0,
+                                         expected_board_name="test_board.kicad_pcb",
                                          rotation_deg=45.0)
     assert result["board"] == "test_board.kicad_pcb"
     assert result["old"] == {"x_mm": 1.0, "y_mm": 2.0, "rotation_deg": 0.0, "layer": "F.Cu"}
@@ -247,7 +256,8 @@ def test_raw_move_footprint_moves_and_reports_old_new():
 def test_raw_move_footprint_missing_ref_raises():
     adapter = FakeAdapter(footprints=[_fp("R1")])
     with pytest.raises(ValueError, match="not found"):
-        handlers.raw_move_footprint(adapter, "R999", x_mm=0.0, y_mm=0.0)
+        handlers.raw_move_footprint(adapter, "R999", x_mm=0.0, y_mm=0.0,
+                                    expected_board_name="test_board.kicad_pcb")
 
 
 def test_raw_move_footprint_guard_blocks_on_wrong_board():

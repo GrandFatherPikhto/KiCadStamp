@@ -36,7 +36,10 @@ register it:
    root). This is a per-user, client-side setting.
 2. **Repo-scoped `.mcp.json`** (auto-discovered by clients that support it) —
    the committed file at the repo root already points at
-   `.venv/bin/python -m mcp_server.server`.
+   `.venv/bin/python -m mcp_server.server`. **Windows note:** that path is
+   Linux-specific (`.venv/bin/python`); on Windows register the server via the
+   client's Settings tab with `.venv\Scripts\python.exe -m mcp_server.server`
+   (or the `kicadstamp-mcp` console script).
 
 ## Tools (first iteration)
 
@@ -48,7 +51,7 @@ register it:
 | `kicadstamp_get_selection` | low | What the PCB editor currently has selected (groups expanded) |
 | `kicadstamp_list_nets` | low | All board net names |
 | `kicadstamp_apply_config` | low (validated) | Run the existing validated apply pipeline on a `.sexp`/`.json` profile; `dry_run` only plans |
-| `kicad_raw_move_footprint` | **high (raw)** | Move one footprint by ref directly over kipy; off by default |
+| `kicad_raw_move_footprint` | **high (raw)** | Move one footprint by ref directly over kipy; off by default; requires `expected_board_name` (mandatory board-identity guard) |
 
 Tool names and descriptions are English only (machine interface); server log
 messages and results follow the project's bilingual gettext setup.
@@ -63,8 +66,10 @@ messages and results follow the project's bilingual gettext setup.
   `gui_state.json`) or the `KICADSTAMP_MCP_ALLOW_RAW_WRITE=1` environment
   variable (env wins).
 - Every raw write runs the **board-identity guard** first (`check_board_identity`)
-  and always reports the connected board — the raw path is not a hole in the
-  protection the apply path already has.
+  — the tool requires the `expected_board_name` parameter (mandatory, not
+  optional) and refuses to write when a different board is open; the connected
+  board is always reported. The raw path is not a hole in the protection the
+  apply path already has.
 - The server does **not** add its own approval layer: a raw tool's risk is
   stated in its description and the host's permission gate decides.
 

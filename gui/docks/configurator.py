@@ -183,8 +183,10 @@ class ConfiguratorDock(QWidget):
         self.raw_write_checkbox.setToolTip(
             _("When checked, the MCP server (kicadstamp-mcp) registers the raw, "
               "high-risk kicad_raw_move_footprint tool — direct kipy writes "
-              "bypassing the validated config layer, guarded by board identity. "
-              "Takes effect when the MCP server next starts. Same effect as the "
+              "bypassing the validated config layer. Every call requires the "
+              "expected board name (expected_board_name) and refuses to write "
+              "when a different board is open in KiCad. Takes effect when the "
+              "MCP server next starts. Same effect as the "
               "KICADSTAMP_MCP_ALLOW_RAW_WRITE=1 environment variable."))
         self.raw_write_checkbox.setChecked(
             settings.state.get("mcp_allow_raw_write", False))

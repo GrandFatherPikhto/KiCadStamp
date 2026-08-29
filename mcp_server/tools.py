@@ -136,10 +136,11 @@ _DESC_RAW_MOVE_FOOTPRINT = (
     "RAW (high-risk) write — bypasses the validated config layer entirely. "
     "Moves one footprint by ref to an absolute position/rotation directly over "
     "kipy, without registry/FORK-1/dependency-order protection. Only registered "
-    "when KICADSTAMP_MCP_ALLOW_RAW_WRITE=1. Runs the board-identity guard "
-    "before writing: pass expected_board_name to refuse the write when a "
-    "different board is open in KiCad; the connected board is always reported. "
-    "Confirm carefully — the host's permission gate decides."
+    "when KICADSTAMP_MCP_ALLOW_RAW_WRITE=1. The board-identity guard ALWAYS "
+    "runs before writing: expected_board_name (REQUIRED) is the board you "
+    "expect to be open, and the write is refused when a different board is "
+    "open in KiCad; the connected board is always reported. Confirm carefully "
+    "— the host's permission gate decides."
 )
 
 
@@ -149,8 +150,8 @@ def register_raw_tools(server: MCPServer, manager: ConnectionManager) -> None:
     @server.tool(name="kicad_raw_move_footprint", description=_DESC_RAW_MOVE_FOOTPRINT)
     @_tool_error
     def _raw_move_footprint(ref: str, x_mm: float, y_mm: float,
-                            rotation_deg: float | None = None,
-                            expected_board_name: str | None = None) -> dict:
+                            expected_board_name: str,
+                            rotation_deg: float | None = None) -> dict:
         return manager.execute(lambda a: handlers.raw_move_footprint(
             a, ref=ref, x_mm=x_mm, y_mm=y_mm,
-            rotation_deg=rotation_deg, expected_board_name=expected_board_name))
+            expected_board_name=expected_board_name, rotation_deg=rotation_deg))

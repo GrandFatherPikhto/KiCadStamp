@@ -175,16 +175,17 @@ def apply_config(config_path: str, *, dry_run: bool = False,
 # --- Raw write (high risk, env-gated) ---------------------------------------
 
 def raw_move_footprint(adapter, ref: str, x_mm: float, y_mm: float,
-                       rotation_deg: float | None = None,
-                       expected_board_name: str | None = None) -> dict[str, Any]:
+                       expected_board_name: str,
+                       rotation_deg: float | None = None) -> dict[str, Any]:
     """RAW (high-risk) write: move one footprint by ref to an absolute
     position/rotation, bypassing the validated config layer entirely.
 
-    The board-identity guard runs BEFORE any write: when *expected_board_name*
-    is given and the board open in KiCad differs, nothing is written and a
-    clear fatal is raised (the same protection the apply path already has —
-    raw must not be a hole in it). The connected board is ALWAYS included in
-    the result, so the caller always sees which board was touched.
+    The board-identity guard ALWAYS runs BEFORE any write (MANDATORY, not
+    optional): *expected_board_name* is the board the caller expects to be
+    open, and if the board actually open in KiCad differs, nothing is written
+    and a clear fatal is raised — the same protection the apply path already
+    has, so the raw path is not a hole in it. The connected board is ALWAYS
+    included in the result too, so the caller sees which board was touched.
 
     Returns ``{board, ref, old, new}`` where old/new are
     ``{x_mm, y_mm, rotation_deg, layer}``.
@@ -194,8 +195,7 @@ def raw_move_footprint(adapter, ref: str, x_mm: float, y_mm: float,
     from kicadstamp.validation import check_board_identity
 
     board = adapter.get_board_filename()
-    if expected_board_name is not None:
-        check_board_identity(Config(board_name=expected_board_name), adapter)
+    check_board_identity(Config(board_name=expected_board_name), adapter)
 
     fp = adapter.get_footprint(ref)
     if fp is None:
