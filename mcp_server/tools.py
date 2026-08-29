@@ -10,10 +10,35 @@ failures. Registered onto the MCPServer by server.build_server().
 
 from __future__ import annotations
 
+from functools import wraps
+
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
+
+from kicadstamp.exceptions import PlacerError
 
 from . import handlers
 from .connection import ConnectionManager
+
+
+def _tool_error(fn):
+    """Convert deliberate user-facing failures into MCP ``ToolError``.
+
+    PlacerError (base of ValidationError/BoardNotFoundError/... — every fatal
+    the project raises deliberately with an informative message) and ValueError
+    (e.g. "footprint not found") become a clean error result for the host
+    instead of mcp's "unexpected crash" wrapper. Anything else is a real bug
+    and propagates unchanged so it stays distinguishable as a crash.
+    """
+
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except (PlacerError, ValueError) as exc:
+            raise ToolError(str(exc)) from exc
+
+    return wrapper
 
 # Tool names/descriptions stay English (machine interface for LLM clients) —
 # i18n policy agreed in design doc §2.4.
@@ -59,14 +84,17 @@ def register_tools(server: MCPServer, manager: ConnectionManager) -> None:
     """
 
     @server.tool(name="kicadstamp_get_board_identity", description=_DESC_GET_BOARD_IDENTITY)
+    @_tool_error
     def _get_board_identity() -> dict:
         return manager.execute(handlers.get_board_identity)
 
     @server.tool(name="kicadstamp_list_footprints", description=_DESC_LIST_FOOTPRINTS)
+    @_tool_error
     def _list_footprints(ref_prefix: str | None = None) -> list[dict]:
         return manager.execute(lambda a: handlers.list_footprints(a, ref_prefix=ref_prefix))
 
     @server.tool(name="kicadstamp_get_footprint", description=_DESC_GET_FOOTPRINT)
+    @_tool_error
     def _get_footprint(ref: str) -> dict:
         result = manager.execute(lambda a: handlers.get_footprint(a, ref=ref))
         if result is None:
@@ -74,16 +102,19 @@ def register_tools(server: MCPServer, manager: ConnectionManager) -> None:
         return result
 
     @server.tool(name="kicadstamp_get_selection", description=_DESC_GET_SELECTION)
+    @_tool_error
     def _get_selection() -> list[dict]:
         return manager.execute(handlers.get_selection)
 
     @server.tool(name="kicadstamp_list_nets", description=_DESC_LIST_NETS)
+    @_tool_error
     def _list_nets() -> list[str]:
         return manager.execute(handlers.list_nets)
 
     # Validated write — opens its OWN apply pipeline (own kipy socket), so it
     # does not go through the shared manager.
     @server.tool(name="kicadstamp_apply_config", description=_DESC_APPLY_CONFIG)
+    @_tool_error
     def _apply_config(config_path: str, dry_run: bool = False,
                       only: list[str] | None = None,
                       cluster: list[str] | None = None,
@@ -115,6 +146,7 @@ def register_raw_tools(server: MCPServer, manager: ConnectionManager) -> None:
     """Register the raw (env-gated) write tools onto *server*."""
 
     @server.tool(name="kicad_raw_move_footprint", description=_DESC_RAW_MOVE_FOOTPRINT)
+    @_tool_error
     def _raw_move_footprint(ref: str, x_mm: float, y_mm: float,
                             rotation_deg: float | None = None,
                             expected_board_name: str | None = None) -> dict:
