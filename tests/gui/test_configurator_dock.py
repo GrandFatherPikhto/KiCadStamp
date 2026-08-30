@@ -7,6 +7,7 @@ smoke test across all three consumer widgets."""
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QKeySequence
 
+from gui import hotkeys
 from gui import settings
 from gui.docks.config_tree import ConfigTreeDock
 from gui.docks.configurator import ConfiguratorDock
@@ -279,3 +280,35 @@ def test_hotkeys_refresh_picks_up_actions_registered_later(main_window, qapp):
     dock.refresh_hotkeys()
     assert action_id in dock.hotkey_edits
     assert dock.hotkey_edits[action_id].keySequence() == QKeySequence("Ctrl+Shift+Q")
+
+
+def test_hotkeys_refresh_removes_previous_rows(main_window, qapp):
+    """refresh_hotkeys() must actually DELETE the previous rows' widgets, not
+    just rebuild the hotkey_edits dict. Each row is added via addLayout (not
+    addWidget), so a naive `item.widget()` cleanup returns None for the row and
+    never fires — every rebuild (and this method runs TWICE per startup:
+    ConfiguratorDock.__init__ + DockHub after _wire) would leave the old
+    QKeySequenceEdit/QLabel as orphan children that stack over the rebuilt
+    rows (regression for the review finding on 2b87f66)."""
+    from PyQt6.QtCore import QEvent
+    from PyQt6.QtWidgets import QKeySequenceEdit
+
+    # Deterministic: the module-level registry accumulates across tests in
+    # this file (and earlier files register root_metadata.* actions).
+    hotkeys.HOTKEY_ACTIONS.clear()
+    hotkeys._LIVE_ACTIONS.clear()
+
+    build_action(main_window, "test.a", "Action A", "Ctrl+A", None)
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    assert len(dock.findChildren(QKeySequenceEdit)) == 1
+
+    build_action(main_window, "test.b", "Action B", "Ctrl+B", None)
+    dock.refresh_hotkeys()
+    # Deliver the deleteLater() DeferredDelete events so the old row is gone —
+    # processEvents() does NOT deliver DeferredDelete at the outermost loop
+    # level, only sendPostedEvents(DeferredDelete) does (verified against the
+    # repro from the 2b87f66 review).
+    qapp.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+    assert set(dock.hotkey_edits) == {"test.a", "test.b"}
+    assert len(dock.findChildren(QKeySequenceEdit)) == 2  # old row deleted

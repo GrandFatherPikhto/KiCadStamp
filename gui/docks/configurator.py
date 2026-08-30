@@ -280,8 +280,24 @@ class ConfiguratorDock(QWidget):
         parent.addAction regardless, but without this refresh it would silently
         be missing from the rebinding UI)."""
         self.hotkey_edits = {}
+        # Each row is added via addLayout(row) (see the build loop below), so a
+        # taken item wraps a SUB-layout, not a widget — item.widget() is None
+        # for it and a naive `widget.deleteLater()` silently never fires,
+        # leaving the old QLabel/QKeySequenceEdit alive as orphans that
+        # re-appear stacked over the rebuilt rows (found in review — this
+        # method runs TWICE per startup: ConfiguratorDock.__init__ + DockHub).
+        # So: descend into the sub-layout, delete its widgets, then delete the
+        # sub-layout itself; a direct child widget (if any) is deleted too.
         while self._hotkeys_layout.count():
             item = self._hotkeys_layout.takeAt(0)
+            sub_layout = item.layout()
+            if sub_layout is not None:
+                while sub_layout.count():
+                    sub_item = sub_layout.takeAt(0)
+                    sub_widget = sub_item.widget()
+                    if sub_widget is not None:
+                        sub_widget.deleteLater()
+                sub_layout.deleteLater()
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()
