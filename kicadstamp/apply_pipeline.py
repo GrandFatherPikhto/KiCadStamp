@@ -28,12 +28,13 @@ import logging
 from .config import (Config, load_config, rule_effective_name,
                     thermal_via_array_effective_name,
                     coordinate_placement_effective_name, clone_placement_effective_name,
-                    net_trace_effective_name)
+                    net_trace_effective_name, entity_effective_name)
 from .net_trace_planner import net_trace_anchor_id, adopt_net_trace_copper
 from .runtime_context import RuntimeContext
 from .kicad.adapter import KiCadBoardAdapter
 from .placement.planner import PlacementPlanner
 from .placement.dependency_order import resolve_execution_order
+from .placement.entity_placement import materialize_entity_placements
 from .placement.services.clone_position_calculator import (
     clone_anchor_id,
     entity_anchor_id,
@@ -190,12 +191,17 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
                       and coordinate_placement_effective_name(cp) in requested]
     matched_nets = [nt for nt in cfg.net_traces
                     if not nt.retired and net_trace_effective_name(nt) in requested]
+    # entities: — selected by Entity.name (Entity/Placement split, phase 4.1);
+    # a matching entity is kept so its tree node materializes as a placement.
+    matched_entities = [e for e in cfg.entities
+                        if not e.retired and entity_effective_name(e) in requested]
 
     found_names = ({rule_effective_name(r) for r in matched_rules}
                    | {clone_placement_effective_name(c) for c in matched_clones}
                    | {thermal_via_array_effective_name(t) for t in matched_tvas}
                    | {coordinate_placement_effective_name(cp) for cp in matched_coords}
-                   | {net_trace_effective_name(nt) for nt in matched_nets})
+                   | {net_trace_effective_name(nt) for nt in matched_nets}
+                   | {entity_effective_name(e) for e in matched_entities})
     missing = requested - found_names
     if missing:
         all_names = sorted(
@@ -205,6 +211,7 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
             | {coordinate_placement_effective_name(cp) for cp in cfg.coordinate_placements
                if not cp.retired}
             | {net_trace_effective_name(nt) for nt in cfg.net_traces if not nt.retired}
+            | {entity_effective_name(e) for e in cfg.entities if not e.retired}
         )
         lines = []
         for name in sorted(missing):
@@ -212,25 +219,28 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
             hint = (_(" (maybe you meant {suggestion!r}?)").format(suggestion=suggestion[0])
                     if suggestion else "")
             lines.append(_("  {name!r} — not found among rules, clone_placements, "
-                           "thermal_via_arrays, coordinate_placements, or net_traces{hint}")
-                         .format(name=name, hint=hint))
+                           "thermal_via_arrays, coordinate_placements, net_traces, "
+                           "or entities{hint}").format(name=name, hint=hint))
         raise PlacerError(_("[error] --only: names not found:\n{lines}\nAvailable: {all}")
                           .format(lines="\n".join(lines), all=all_names))
 
     l.info(_("--only {requested}: rules={rules}, clone_placements={clones}, "
               "thermal_via_arrays={thermal}, coordinate_placements={coords}, "
-              "net_traces={nets} (everything else is ignored in this run)")
+              "net_traces={nets}, entities={entities} (everything else is ignored "
+              "in this run)")
             .format(requested=sorted(requested),
                     rules=[rule_effective_name(r) for r in matched_rules],
                     clones=[clone_placement_effective_name(c) for c in matched_clones],
                     thermal=[thermal_via_array_effective_name(t) for t in matched_tvas],
                     coords=[coordinate_placement_effective_name(cp) for cp in matched_coords],
-                    nets=[net_trace_effective_name(nt) for nt in matched_nets]))
+                    nets=[net_trace_effective_name(nt) for nt in matched_nets],
+                    entities=[entity_effective_name(e) for e in matched_entities]))
     return dataclasses.replace(cfg, rules=matched_rules,
                                clone_placements=matched_clones,
                                thermal_via_arrays=matched_tvas,
                                coordinate_placements=matched_coords,
-                               net_traces=matched_nets)
+                               net_traces=matched_nets,
+                               entities=matched_entities)
 
 
 def apply_cluster_filter(cfg, cluster_paths: list[str], _logger=None) -> "Config":
@@ -256,6 +266,11 @@ def apply_cluster_filter(cfg, cluster_paths: list[str], _logger=None) -> "Config
                       if not cp.retired and _matches_any_cluster(cp.cluster, cluster_paths)]
     matched_nets = [nt for nt in cfg.net_traces
                     if not nt.retired and _matches_any_cluster(nt.anchor_cluster, cluster_paths)]
+    # entities: — selected by Entity.cluster (the tag written on footprints at
+    # apply, same physical-instance axis as the other sections).
+    matched_entities = [e for e in cfg.entities
+                        if not e.retired and e.cluster is not None
+                        and _matches_any_cluster(e.cluster, cluster_paths)]
 
     narrowed_rules = []
     for r in cfg.rules:
@@ -267,26 +282,28 @@ def apply_cluster_filter(cfg, cluster_paths: list[str], _logger=None) -> "Config
                      .format(name=rule_effective_name(r), paths=cluster_paths))
 
     if (not narrowed_rules and not matched_clones and not matched_tvas
-            and not matched_coords and not matched_nets):
+            and not matched_coords and not matched_nets and not matched_entities):
         raise PlacerError(_("[error] --cluster {paths}: matched nothing among rules' spokes, "
                             "clone_placements, thermal_via_arrays, coordinate_placements, "
-                            "or net_traces")
+                            "net_traces, or entities")
                           .format(paths=cluster_paths))
 
     l.info(_("--cluster {paths}: rules={rules} (spokes narrowed), "
               "clone_placements={clones}, thermal_via_arrays={thermal}, "
-              "coordinate_placements={coords}, net_traces={nets}")
+              "coordinate_placements={coords}, net_traces={nets}, entities={entities}")
             .format(paths=cluster_paths,
                     rules=[rule_effective_name(r) for r in narrowed_rules],
                     clones=[c.name for c in matched_clones],
                     thermal=[thermal_via_array_effective_name(t) for t in matched_tvas],
                     coords=[coordinate_placement_effective_name(cp) for cp in matched_coords],
-                    nets=[net_trace_effective_name(nt) for nt in matched_nets]))
+                    nets=[net_trace_effective_name(nt) for nt in matched_nets],
+                    entities=[entity_effective_name(e) for e in matched_entities]))
     return dataclasses.replace(cfg, rules=narrowed_rules,
                                clone_placements=matched_clones,
                                thermal_via_arrays=matched_tvas,
                                coordinate_placements=matched_coords,
-                               net_traces=matched_nets)
+                               net_traces=matched_nets,
+                               entities=matched_entities)
 
 
 # ── Compute helper ────────────────────────────────────────────────────────────
@@ -407,6 +424,17 @@ class ApplyPipeline:
         run_all_checks(self.adapter, self.cfg, sheet_names=self.sheet_names)
 
     def _resolve_order(self) -> None:
+        # Entity placements (Entity/Placement split, phase 4.1): entities carry
+        # no position — they are placed via their trees: node. Materialize each
+        # kind="placement" node into a TRANSIENT absolute ClonePlacement so the
+        # existing clone planning machinery applies it (no config rewrite).
+        materialized = materialize_entity_placements(
+            self.adapter, self.cfg, sheet_names=self.sheet_names)
+        if materialized:
+            logger.info(_("Materialized {count} entity placement(s) from trees "
+                          "into the apply plan").format(count=len(materialized)))
+            self.cfg = dataclasses.replace(
+                self.cfg, clone_placements=list(self.cfg.clone_placements) + materialized)
         logger.info(_("Resolving item execution order (dependency chain — see dependency_order.py)..."))
         self.items = resolve_execution_order(self.adapter, self.cfg, sheet_names=self.sheet_names)
         logger.info(_("Execution order: {order}")

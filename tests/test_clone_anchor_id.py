@@ -4,8 +4,11 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from kicadstamp.config import ClonePlacement
-from kicadstamp.placement.services.clone_position_calculator import clone_anchor_id
+from kicadstamp.config import ClonePlacement, Entity
+from kicadstamp.placement.services.clone_position_calculator import (
+    clone_anchor_id,
+    entity_anchor_id,
+)
 
 
 def _clone(**kwargs):
@@ -96,3 +99,19 @@ class TestCloneAnchorId:
         b = clone_anchor_id(_clone(anchor_role="CONN_PM5V", anchor_pad="1",
                                    xy=(5.0, 0.0)))
         assert a == b
+
+
+class TestEntityAnchorId:
+    """entity_anchor_id (Entity/Placement split, phase 3.1): an Entity's
+    registry id is the "name:" branch — Entity carries no anchor fields by
+    design, so there are no physical-binding branches, only the name."""
+
+    def test_entity_id_is_name_branch(self):
+        assert entity_anchor_id(Entity(name="CH0_DAC_BUF", cell="c")) == "name:CH0_DAC_BUF"
+
+    def test_entity_id_stable_across_instances(self):
+        """The id depends only on the (required, unique) name — two identical
+        entities produce the same id, matching the materialized clone's
+        name:-branch (clone.name == entity.name, phase 4.1)."""
+        assert entity_anchor_id(Entity(name="E", cell="c")) == \
+            entity_anchor_id(Entity(name="E", cell="c"))
