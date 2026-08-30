@@ -32,6 +32,10 @@ from ..tree_position import (
     resolve_base_rotation_deg,
 )
 from ..utils.units import MM
+from .services.component_resolver import (
+    ComponentResolver,
+    resolve_anchor_pad_position,
+)
 
 if TYPE_CHECKING:
     from ..config import Config
@@ -48,18 +52,33 @@ def _anchor_base(adapter: "KiCadBoardAdapter", cfg: "Config",
     (origin) -> the board origin (0,0), rotation 0.
     (ref ...) -> the referenced record's / live footprint's current position
     and rotation (external refdes handled by resolve_base_*).
-    (role ...)/(point ...) anchors are not live-resolvable for entity
-    materialization yet (cross-entity / role anchoring lands in Phase 4.2) —
-    raise a clear error instead of guessing."""
+    (role ...) -> the Role-matching footprint's current position and rotation,
+    resolved LIVE via ComponentResolver (Phase 4.2 — the SAME logic as
+    resolve_record_live_position's kind == "rule" branch, tree_position.py);
+    anchor_sheet/anchor_cluster narrow the same ambiguity cascade, anchor_pad
+    moves the base onto that specific pad.
+    (point ...) anchors are not live-resolvable for entity materialization
+    yet — raise a clear error instead of guessing."""
     anchor = linked_tree.anchor
     if anchor.is_origin:
         return _ORIGIN, 0.0
-    if anchor.anchor.role is not None or anchor.anchor.point is not None:
+    if anchor.anchor.role is not None:
+        resolver = ComponentResolver(adapter, cfg, sheet_names)
+        fp = resolver.resolve_anchor_fp(
+            None, anchor.anchor.role, anchor.anchor.anchor_sheet,
+            anchor.anchor.anchor_cluster,
+            label=_("tree {name!r} anchor").format(name=linked_tree.name))
+        pos = (resolve_anchor_pad_position(
+                   adapter, fp, anchor.anchor.anchor_pad,
+                   _("tree {name!r} anchor").format(name=linked_tree.name))
+               if anchor.anchor.anchor_pad else fp.position)
+        return pos, fp.angle_deg
+    if anchor.anchor.point is not None:
         raise ValidationError(format_fatal_error(
-            _("tree anchor (role ...)/(point ...) is not wired for entity "
-              "placement materialization yet"),
-            [_("entity placements under a role/point tree anchor are Phase 4.2; "
-               "use an (origin) or (ref ...) anchor for now")]))
+            _("tree anchor (point ...) is not wired for entity placement "
+              "materialization yet"),
+            [_("entity placements under a point tree anchor are a future phase; "
+               "use an (origin), (ref ...) or (role ...) anchor for now")]))
     pos = resolve_base_live_position(adapter, cfg, anchor.anchor.ref,
                                      anchor.record, {}, sheet_names)
     rot = resolve_base_rotation_deg(adapter, cfg, anchor.anchor.ref,
@@ -120,13 +139,15 @@ def materialize_entity_placements(adapter: "KiCadBoardAdapter", cfg: "Config",
     resolve_base_* — so an entity placement under a component ref anchor
     follows the anchor's current position, matching the curated-redraw model.
 
-    Per-tree tolerance (bug #4, 2026-08-30): a tree whose anchor is
-    (role ...)/(point ...) is not materializable until Phase 4.2 — that error
-    is LOCAL to that tree (warning + skip), never fatal for the whole run.
-    A real profile may have 21 of 22 trees role-anchored; without this,
-    Apply/Redraw died before materializing ANY entity placement. This is the
-    same per-item tolerance the Extract dock's Sub-placements catalog already
-    applies at the call level (gui/docks/extract.py).
+    Per-tree tolerance (bug #4, 2026-08-30): a tree whose anchor is not
+    resolvable (a (point ...) anchor — still unwired — or an unresolvable
+    role/ref) is LOCAL to that tree (warning + skip), never fatal for the
+    whole run. A real profile may have 21 of 22 trees role-anchored; without
+    this tolerance Apply/Redraw died before materializing ANY entity
+    placement. (role ...) anchors are LIVE-resolved since Phase 4.2 — only
+    (point ...) remains unwired. This is the same per-item tolerance the
+    Extract dock's Sub-placements catalog already applies at the call level
+    (gui/docks/extract.py).
     """
     if not cfg.entities or not cfg.trees:
         return []

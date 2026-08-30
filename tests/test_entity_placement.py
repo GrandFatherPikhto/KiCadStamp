@@ -8,11 +8,14 @@ into a transient absolute ClonePlacement so the existing clone planning
 machinery applies it unchanged.
 """
 import logging
+from unittest.mock import MagicMock
 
 import pytest
+from kipy.board_types import FootprintInstance
 
 from kicadstamp.apply_pipeline import apply_cluster_filter, apply_only_filter
 from kicadstamp.config import Cell, ClonePlacement, Config, Entity, Rule
+from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.placement.entity_placement import materialize_entity_placements
 from kicadstamp.placement.services.clone_position_calculator import entity_anchor_id
@@ -83,22 +86,107 @@ def test_nested_node_rotation_accumulates():
     assert len(by_name["E2"].xy) == 2
 
 
-def test_role_anchor_tree_is_skipped_locally_not_fatal(caplog):
-    """Bug #4 (2026-08-30): a (role ...)/(point ...) tree anchor is not
-    live-resolvable for entity materialization yet (Phase 4.2) — that is LOCAL
-    to the tree: warn + skip it, NEVER fatal for the whole run (a real profile
-    has 21 of 22 trees role-anchored, so the old global raise blocked Apply/
-    Redraw entirely). A single role-anchored tree with nothing else yields no
-    materialized clones, not a ValidationError."""
+def test_point_anchor_tree_is_skipped_locally_not_fatal(caplog):
+    """Bug #4 / Phase 4.2: a (point ...) tree anchor is NOT live-resolvable
+    for entity materialization (point anchors are a future phase) — that is
+    LOCAL to the tree: warn + skip it, NEVER fatal for the whole run. A single
+    point-anchored tree with nothing else yields no materialized clones, not a
+    ValidationError."""
     cfg = _cfg(
         [Entity(name="E1", cell="c")],
-        [Tree(name="t", anchor=TreeAnchor(role="FPGA"),
+        [Tree(name="t", anchor=TreeAnchor(point="Origin"),
               nodes=[_node(ref="E1", xy=(1.0, 0.0))])])
     with caplog.at_level(logging.WARNING,
                          logger="kicadstamp.placement.entity_placement"):
         clones = materialize_entity_placements(None, cfg, {})
     assert clones == []
     assert "skipped" in caplog.text
+
+
+def test_role_anchor_tree_materializes_on_resolved_footprint():
+    """Phase 4.2: a (role ...) tree anchor is resolved LIVE via
+    ComponentResolver (same logic as Rule.anchor_role) — the placement-node
+    materializes at the matched footprint's current position + node offset,
+    NOT skipped/fatal. anchor_sheet/anchor_cluster narrow the same cascade."""
+    fpga = MagicMock(spec=FootprintInstance)
+    fpga.ref = "IC1"
+    fpga._role = "FPGA"
+    fpga.position = Vector2.from_xy_mm(30.0, 40.0)
+    fpga.angle_deg = 0.0
+    adapter = MagicMock()
+    adapter.get_footprints.return_value = [fpga]
+    adapter.get_field_value.side_effect = (
+        lambda fp, name: getattr(fp, "_role", None) if name == "Role" else None)
+    adapter.get_selected_items.return_value = []
+
+    cfg = _cfg(
+        [Entity(name="E1", cell="c")],
+        [Tree(name="t", anchor=TreeAnchor(role="FPGA", anchor_sheet="FPGA",
+                                          anchor_cluster="FPGA"),
+              nodes=[_node(ref="E1", xy=(1.0, 2.0))])])
+    clones = materialize_entity_placements(adapter, cfg, {})
+    assert len(clones) == 1
+    c = clones[0]
+    assert c.name == "E1"
+    # node offset (1,2) added to IC1's live position (30,40).
+    assert c.xy[0] == pytest.approx(31.0)
+    assert c.xy[1] == pytest.approx(42.0)
+    assert c.rotation_deg == pytest.approx(0.0)
+
+
+def test_role_anchor_tree_uses_anchor_rotation_as_parent_rotation():
+    """The role anchor's live rotation feeds the node's parent frame: node
+    offset (1,0) is rotated by the anchor's 90° (KiCad Y-down -> (0,-1)),
+    and the clone inherits the anchor rotation (90 + node 0)."""
+    fpga = MagicMock(spec=FootprintInstance)
+    fpga.ref = "IC1"
+    fpga._role = "FPGA"
+    fpga.position = Vector2.from_xy_mm(30.0, 40.0)
+    fpga.angle_deg = 90.0
+    adapter = MagicMock()
+    adapter.get_footprints.return_value = [fpga]
+    adapter.get_field_value.side_effect = (
+        lambda fp, name: getattr(fp, "_role", None) if name == "Role" else None)
+    adapter.get_selected_items.return_value = []
+
+    cfg = _cfg(
+        [Entity(name="E1", cell="c")],
+        [Tree(name="t", anchor=TreeAnchor(role="FPGA"),
+              nodes=[_node(ref="E1", xy=(1.0, 0.0))])])
+    clones = materialize_entity_placements(adapter, cfg, {})
+    assert len(clones) == 1
+    c = clones[0]
+    assert c.xy[0] == pytest.approx(30.0)  # (1,0) rotated by 90 -> (0,-1)
+    assert c.xy[1] == pytest.approx(39.0)
+    assert c.rotation_deg == pytest.approx(90.0)
+
+
+def test_role_anchor_tree_with_anchor_pad_uses_pad_position():
+    """anchor_pad moves the base onto the matched footprint's specific pad
+    (resolve_anchor_pad_position), not the footprint origin."""
+    fpga = MagicMock(spec=FootprintInstance)
+    fpga.ref = "IC1"
+    fpga._role = "FPGA"
+    fpga.position = Vector2.from_xy_mm(30.0, 40.0)
+    fpga.angle_deg = 0.0
+    fpga._pads = [MagicMock(number="A1", net_name="X",
+                            position=Vector2.from_xy_mm(31.0, 40.0))]
+    adapter = MagicMock()
+    adapter.get_footprints.return_value = [fpga]
+    adapter.get_field_value.side_effect = (
+        lambda fp, name: getattr(fp, "_role", None) if name == "Role" else None)
+    adapter.get_selected_items.return_value = []
+    adapter.get_pad_by_number.side_effect = lambda fp, num: next(
+        (p for p in getattr(fp, "_pads", []) if p.number == num), None)
+
+    cfg = _cfg(
+        [Entity(name="E1", cell="c")],
+        [Tree(name="t", anchor=TreeAnchor(role="FPGA", anchor_pad="A1"),
+              nodes=[_node(ref="E1", xy=(0.0, 0.0))])])
+    clones = materialize_entity_placements(adapter, cfg, {})
+    assert len(clones) == 1
+    assert clones[0].xy[0] == pytest.approx(31.0)
+    assert clones[0].xy[1] == pytest.approx(40.0)
 
 
 def test_apply_only_filter_keeps_entities_intact_and_recognizes_name():
@@ -165,18 +253,18 @@ def test_apply_cluster_filter_does_not_fatal_when_only_entities_match():
         apply_cluster_filter(cfg, ["NO_SUCH_CLUSTER"])
 
 
-def test_role_anchor_tree_skipped_but_neighbor_origin_tree_materialized(caplog):
-    """Bug #4 gate scenario (2026-08-30): ONE origin tree (materializable
-    entity E1) next to a role-anchored tree (not materializable yet) — the
-    origin tree's placement survives, the role tree is skipped with a warning,
-    the call never fatal."""
+def test_point_anchor_tree_skipped_but_neighbor_origin_tree_materialized(caplog):
+    """Bug #4 gate scenario: ONE origin tree (materializable entity E1) next
+    to a point-anchored tree (still unwired for materialization) — the origin
+    tree's placement survives, the point tree is skipped with a warning, the
+    call never fatal. (Role trees are wired since Phase 4.2; point is not.)"""
     cfg = Config(
         cells={"c": _cell("c")},
         entities=[Entity(name="E1", cell="c", cluster="CH0"),
                   Entity(name="E2", cell="c", cluster="CH1")],
         trees=[
             _origin_tree([_node(ref="E1", xy=(1.0, 0.0))]),
-            Tree(name="role_tree", anchor=TreeAnchor(role="FPGA"),
+            Tree(name="point_tree", anchor=TreeAnchor(point="Origin"),
                  nodes=[_node(ref="E2", xy=(5.0, 0.0))]),
         ],
     )
@@ -185,16 +273,39 @@ def test_role_anchor_tree_skipped_but_neighbor_origin_tree_materialized(caplog):
         clones = materialize_entity_placements(None, cfg, {})
     assert [c.name for c in clones] == ["E1"]
     assert "skipped" in caplog.text
-    assert "role_tree" in caplog.text
+    assert "point_tree" in caplog.text
 
 
-def test_real_profile_role_anchor_trees_do_not_fatal_whole_run():
-    """Bug #4 on the REAL converted profile (22 trees, 21 role-anchored,
-    1 ref/live): materialization must NOT fatal as a whole — the role trees
-    are skipped with a warning, the ref tree's entity placements still
-    materialize. Guarded by profile presence (profiles/ is gitignored)."""
+def _real_profile_adapter():
+    """A live-like mock adapter for the real-profile gate: IC1 has Role=FPGA
+    at (42, 17) mm — the FPGA_WITH_SUPP role anchor resolves to it — and the
+    fpga tree's external (ref "FPGA_WITH_SUPP") anchor reads a live footprint
+    at the origin. Roles not on the mock board (CONN_PM5V/AD_DAC/OP_AMP/MCU/
+    ...) resolve to nothing, so those role trees are skipped locally (never
+    fatal)."""
+    ic1 = MagicMock(spec=FootprintInstance)
+    ic1.ref = "IC1"
+    ic1._role = "FPGA"
+    ic1.position = Vector2.from_xy_mm(42.0, 17.0)
+    ic1.angle_deg = 0.0
+    ref_fp = MagicMock(spec=FootprintInstance)
+    ref_fp.ref = "FPGA_WITH_SUPP"
+    ref_fp.position = Vector2.from_xy_mm(0.0, 0.0)
+    ref_fp.angle_deg = 0.0
+
+    adapter = MagicMock()
+    all_fps = [ic1, ref_fp]
+    adapter.get_footprints.return_value = all_fps
+    adapter.get_footprint.side_effect = lambda ref: next(
+        (f for f in all_fps if f.ref == ref), None)
+    adapter.get_field_value.side_effect = (
+        lambda fp, name: getattr(fp, "_role", None) if name == "Role" else None)
+    adapter.get_selected_items.return_value = []
+    return adapter
+
+
+def _real_profile_cfg():
     from pathlib import Path
-    from unittest.mock import MagicMock
 
     from kicadstamp.config import load_config
 
@@ -204,16 +315,48 @@ def test_real_profile_role_anchor_trees_do_not_fatal_whole_run():
         pytest.skip("real profile not present (profiles/ is gitignored)")
     cfg, _ctx = load_config(str(profile))
     assert len(cfg.trees) == 22
-    # A MagicMock adapter supplies the fpga tree's LIVE anchor reads — the
-    # point of this test is that the 21 role trees are skipped, not that a
-    # real board is connected.
-    clones = materialize_entity_placements(MagicMock(), cfg, {})
+    return cfg
+
+
+def test_real_profile_role_anchor_trees_do_not_fatal_whole_run():
+    """Bug #4 on the REAL converted profile (22 trees, 21 role-anchored,
+    1 ref/live): materialization must NOT fatal as a whole — role trees whose
+    role is absent from the board are skipped with a warning, the fpga (ref)
+    tree's entity placements still materialize, and (Phase 4.2) the
+    role-anchored FPGA_WITH_SUPP tree materializes instead of being skipped.
+    Guarded by profile presence (profiles/ is gitignored)."""
+    cfg = _real_profile_cfg()
+    # The 21 role trees resolve through ComponentResolver now — a bare
+    # MagicMock would crash (get_footprints() is not iterable), so use the
+    # live-like mock board with Role=FPGA -> IC1.
+    clones = materialize_entity_placements(_real_profile_adapter(), cfg, {})
     names = [c.name for c in clones]
     # the fpga (ref/coordinate) tree's placement nodes materialized:
     assert "FPGA_FLASH" in names
+    # Phase 4.2: the role-anchored FPGA_WITH_SUPP tree materializes too.
+    assert "FPGA_WITH_SUPP" in names
     # the fpga tree's RULE nodes were NOT materialized (only kind "placement"):
     for rule_name in ("+3V3_VCCIO", "+1V2_VCCINT", "+1V2_VCCD_PLL", "+2V5_VCCA"):
         assert rule_name not in names
+
+
+def test_real_profile_role_anchor_tree_materializes_at_ic1_live_position():
+    """Phase 4.2 gate, explicit + live-like: materialize_entity_placements()
+    on the REAL profile must return a materialized clone with
+    name == "FPGA_WITH_SUPP" whose position == the LIVE Role=FPGA footprint
+    (IC1) position + the node offset (xy 0,0) — found BY NAME and checked
+    against the expected position, not merely "did not crash"."""
+    cfg = _real_profile_cfg()
+    clones = materialize_entity_placements(_real_profile_adapter(), cfg, {})
+    by_name = {c.name: c for c in clones}
+
+    # The role-anchored FPGA_WITH_SUPP tree materializes on the LIVE IC1:
+    assert "FPGA_WITH_SUPP" in by_name
+    c = by_name["FPGA_WITH_SUPP"]
+    # node xy (0,0) -> the clone lands exactly on IC1's live position (mm).
+    assert c.xy[0] == pytest.approx(42.0)
+    assert c.xy[1] == pytest.approx(17.0)
+    assert c.rotation_deg == pytest.approx(0.0)
 
 
 def _mixed_tree_cfg():
