@@ -26,6 +26,7 @@ from kicadstamp.config.sexp_format import (
     sexp_to_dict,
 )
 from kicadstamp.exceptions import ValidationError
+from kicadstamp.trees import _parse_anchor, tree_from_dict
 from kicadstamp.utils.yaml_loader import safe_load
 
 PROFILES_ROOT = Path(__file__).resolve().parents[1] / "profiles"
@@ -237,6 +238,79 @@ def test_comment_field_roundtrip_all_sections():
     assert back["coordinate_placements"][0]["comment"] == "coord note"
     assert back["thermal_via_arrays"][0]["comment"] == "tva note"
     assert back["net_traces"][0]["comment"] == "trace note"
+
+
+# ── entities: (Entity/Placement split, 2026-08-30) ─────────────────────────
+
+def test_entities_section():
+    """entities: — the "what" of a placement, with NO position fields.
+    name/cell required; nets/params/net_overrides/refs are dicts; flags and
+    layer/mirror optional. No positional keys (xy/anchor_*/rotation_deg/
+    radius_mm/angle_deg) exist on the record, so none are serialized."""
+    _roundtrip({
+        "entities": [
+            {
+                "name": "CH0_DAC_BUF", "cell": "dac_buf",
+                "nets": {"VIN": "+5V"},
+                "params": {"CH": "0"},
+                "net_overrides": {"VIN": "+3V3"},
+                "cluster": "CH0", "sheet": "Channel_0",
+                "retired": True, "skip": True, "ignore_selection": True,
+                "refs": {"C_IN_BULK": "C20"},
+                "layer": "B.Cu", "mirror": True,
+                "comment": "entity note",
+            },
+        ],
+    })
+
+
+def test_trees_section_v2_anchors():
+    """trees: with the v2 anchor grammar (origin / ref+external /
+    role+sheet+cluster+pad / point) and clone-kind nodes — the Entity/
+    Placement position storage. NOTE: the node kind rename clone -> placement
+    lands in Phase 3.3 (it ripples into build_records/link_trees); the
+    anchors here are already the v2 grammar."""
+    _roundtrip({
+        "trees": [
+            {"name": "origin_tree", "anchor": {"origin": True},
+             "nodes": [{"ref": "E1", "kind": "clone", "xy": [5.0, 2.0]}]},
+            {"name": "role_tree",
+             "anchor": {"role": "FPGA", "sheet": "Channel_0",
+                        "cluster": "CH0", "pad": "A1"},
+             "nodes": [{"ref": "E2", "kind": "clone", "polar": [3.0, 45.0],
+                        "rotation": 90.0,
+                        "children": [{"ref": "E3", "kind": "clone",
+                                      "xy": [1.0, 1.0]}]}]},
+            {"name": "ext_tree", "anchor": {"ref": "CONN_PM5V", "external": True},
+             "nodes": [{"ref": "E4", "kind": "clone", "xy": [1.0, 0.0]}]},
+            {"name": "point_tree", "anchor": {"point": "P1"},
+             "nodes": []},
+        ],
+    })
+
+
+def test_anchor_external_with_role_or_point_is_fatal():
+    """Regression for the anchor-grammar fix (2026-08-30): (external) is a
+    REF-anchor modifier only. role/point anchors carrying external must be a
+    hard ValidationError on BOTH the s-expr and the dict path — never a
+    silent drop (tree_to_dict(tree_from_dict(d)) must behave identically to
+    the s-expr path)."""
+    import sexpdata
+    for bad in [
+        {"role": "FPGA", "external": True},
+        {"point": "P1", "external": True},
+    ]:
+        with pytest.raises(ValidationError):
+            tree_from_dict({"name": "T", "anchor": bad, "nodes": []})
+        with pytest.raises(ValidationError):
+            _parse_anchor(sexpdata.loads(
+                "(anchor (role \"R\") (external))" if "role" in bad
+                else "(anchor (point \"P\") (external))"))
+    # ref+external stays legal on both paths
+    tree = tree_from_dict({"name": "T", "anchor": {"ref": "C9", "external": True}, "nodes": []})
+    assert tree.anchor.ref == "C9" and tree.anchor.is_external
+    parsed = _parse_anchor(sexpdata.loads('(anchor (ref "C9") (external))'))
+    assert parsed.ref == "C9" and parsed.is_external
 
 
 # ── all 5 dict sections ────────────────────────────────────────────────────
