@@ -484,7 +484,11 @@ def test_compact_field_minimums_shrink_form_and_preserve_growth(qapp):
     qapp.processEvents()
     after = form.minimumSize().width()
     assert after < before  # the stylesheet min-width overrides the floor
-    assert after < 130  # near the absolute minimum (labels + frames only)
+    # Relative, not a hardcoded pixel count: the offscreen platform's font
+    # substitution (and thus exact widths) differs across OSes, but the
+    # stylesheet should still collapse the form to well under its floored
+    # size on any of them.
+    assert after < before * 0.7
 
     # growth is untouched: a wide host still stretches the fields (no
     # adjustSize() here — it pins the host to its sizeHint and masks growth)
