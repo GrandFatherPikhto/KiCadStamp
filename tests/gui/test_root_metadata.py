@@ -1,7 +1,11 @@
 # tests/gui/test_root_metadata.py
 import gui.docks.root_metadata as root_metadata_mod
+from PyQt6.QtGui import QKeySequence
+
 from gui import settings
-from gui.docks.root_metadata import RootMetadataDock
+from gui.docks.root_metadata import (ACTION_ADD_SCH, ACTION_NEW, ACTION_OPEN,
+                                     ACTION_REMOVE_SCH, ACTION_SAVE,
+                                     RootMetadataDock)
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 
 MINIMAL_CELL = {
@@ -528,3 +532,108 @@ def test_browse_without_a_file_picked_shows_error(main_window, caplog):
     dock = RootMetadataDock(main_window)
     dock._browse_dir(dock._text_edits["schematic_dir"], "Schematic dir")
     assert any("Open or create a project" in r.message for r in caplog.records)
+
+
+# ── QAction hotkeys (2026-08-30, plan dock_toolbars_menus_hotkeys Этап 1) ──
+
+def test_creates_actions_with_stable_ids_and_defaults(main_window):
+    """Every action-bearing button (Open/New/Save/Add.../Remove) got a QAction
+    with the stable action_id + default shortcut — the buttons adopt them via
+    setDefaultAction (one action = button + hotkey)."""
+    dock = RootMetadataDock(main_window)
+    expected = {
+        ACTION_OPEN: ("Open Root file...", "Ctrl+O"),
+        ACTION_NEW: ("New Root file...", "Ctrl+N"),
+        ACTION_SAVE: ("Save", "Ctrl+S"),
+        ACTION_ADD_SCH: ("Add...", "Ctrl+Shift+A"),
+        ACTION_REMOVE_SCH: ("Remove", "Ctrl+Shift+R"),
+    }
+    window_actions = {a.objectName(): a for a in main_window.actions()}
+    for action_id, (label, shortcut) in expected.items():
+        action = window_actions[action_id]
+        assert action.text() == label
+        assert action.shortcut() == QKeySequence(shortcut)
+    # the buttons stay as they were (this step only ADDS the action + hotkey)
+    assert dock.save_button.text() == "Save"
+
+
+def test_action_triggers_reach_the_same_slots(main_window, monkeypatch):
+    """The QAction's triggered handler is the same slot the old button used to
+    call — triggering the action must reach the dock's method (button and
+    hotkey are two views of ONE action, not a duplicated copy).
+
+    The slots are patched on the CLASS BEFORE constructing the dock: PyQt
+    captures the bound method at connect() time, so patching the instance
+    afterwards would leave the action wired to the real _on_open_root — which
+    opens a modal QFileDialog and hangs the offscreen test."""
+    calls = []
+    monkeypatch.setattr(root_metadata_mod.RootMetadataDock, "_on_open_root",
+                        lambda self: calls.append("open"))
+    monkeypatch.setattr(root_metadata_mod.RootMetadataDock, "_on_new_root",
+                        lambda self: calls.append("new"))
+    monkeypatch.setattr(root_metadata_mod.RootMetadataDock, "_on_save",
+                        lambda self: calls.append("save"))
+    monkeypatch.setattr(root_metadata_mod.RootMetadataDock, "_add_schematic_file",
+                        lambda self: calls.append("add"))
+    monkeypatch.setattr(root_metadata_mod.RootMetadataDock, "_remove_schematic_file",
+                        lambda self: calls.append("remove"))
+
+    dock = RootMetadataDock(main_window)
+    dock.action_open.trigger()
+    dock.action_new.trigger()
+    dock.action_save.trigger()
+    dock.action_add_schematic_file.trigger()
+    dock.action_remove_schematic_file.trigger()
+    assert calls == ["open", "new", "save", "add", "remove"]
+
+
+def test_custom_binding_from_settings_applies_on_next_open(main_window):
+    """A stored override in gui_state.json["hotkeys"] is applied when the dock
+    is next constructed (plan gate: "кастомный биндинг из settings.state
+    применяется при следующем открытии")."""
+    settings.state.set("hotkeys", {ACTION_SAVE: "Ctrl+Alt+S"})
+    dock = RootMetadataDock(main_window)
+    assert dock.action_save.shortcut() == QKeySequence("Ctrl+Alt+S")
+    # other actions are untouched
+    assert dock.action_open.shortcut() == QKeySequence("Ctrl+O")
+
+
+# ── Unsaved-changes guard + File > Close (plan Этап 1b) ──────────────────
+
+def test_editing_a_field_marks_dirty(main_window, tmp_path):
+    path = tmp_path / "root.sexp"
+    _write(path, {"cells": {}})
+    dock = RootMetadataDock(main_window)
+    dock.set_root_file(path)
+    assert not dock._dirty
+    dock._text_edits["schematic_dir"].setText("../../sch")
+    assert dock._dirty
+    dock._on_save()
+    assert not dock._dirty  # a successful save clears it
+
+
+def test_confirm_discard_passes_when_clean(main_window, tmp_path):
+    """Not dirty -> no dialog, True immediately (the close guard)."""
+    path = tmp_path / "root.sexp"
+    _write(path, {"cells": {}})
+    dock = RootMetadataDock(main_window)
+    dock.set_root_file(path)
+    assert dock._confirm_discard_changes() is True
+
+
+def test_close_project_respects_discard_guard(main_window, tmp_path, monkeypatch):
+    """File > Close: a refused unsaved-changes guard keeps the project open; a
+    confirmed one drops the root via set_root_file(None)."""
+    path = tmp_path / "root.sexp"
+    _write(path, {"cells": {}})
+    dock = RootMetadataDock(main_window)
+    dock.set_root_file(path)
+    dock._text_edits["schematic_dir"].setText("changed")  # dirty
+
+    monkeypatch.setattr(dock, "_confirm_discard_changes", lambda: False)
+    dock.close_project()
+    assert dock._path == path  # guard refused -> project stays open
+
+    monkeypatch.setattr(dock, "_confirm_discard_changes", lambda: True)
+    dock.close_project()
+    assert dock._path is None  # confirmed -> project closed

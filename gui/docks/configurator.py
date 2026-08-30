@@ -37,16 +37,20 @@ into connection.timeout_ms, which BoardConnection reads by reference on every
 connect(), so it takes effect on the NEXT connection without disturbing any
 open one.
 """
+from functools import partial
+from typing import Dict
+
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (QCheckBox, QColorDialog, QGroupBox, QHBoxLayout,
-                             QLabel, QPushButton, QRadioButton, QSpinBox,
-                             QVBoxLayout, QWidget)
+                             QKeySequenceEdit, QLabel, QPushButton, QRadioButton,
+                             QSpinBox, QVBoxLayout, QWidget)
 
 from kicadstamp.constants import DEFAULT_TIMEOUT_MS
 from kicadstamp.i18n import _
 
 from .. import settings
+from ..hotkeys import get_shortcut, registered_hotkeys, set_shortcut
 from ._common import DEFAULT_HIGHLIGHT_COLOR
 
 # Sensible bounds for the connection timeout spinbox, in milliseconds.
@@ -171,6 +175,27 @@ class ConfiguratorDock(QWidget):
         config_tree_layout.addWidget(self.rename_confirmation_checkbox)
         layout.addWidget(config_tree_group)
 
+        # ── Hotkeys (2026-08-30, plan dock_toolbars_menus_hotkeys Этап 1) ──
+        # One QKeySequenceEdit per registered QAction-based hotkey (see
+        # gui/hotkeys.py): rebinding writes gui_state.json["hotkeys"] and
+        # re-applies to the live action immediately. The list is whatever
+        # docks have registered so far (root_metadata is the Этап-1 pilot).
+        hotkeys_group = QGroupBox(_("Hotkeys"))
+        hotkeys_layout = QVBoxLayout(hotkeys_group)
+        self.hotkey_edits: Dict[str, QKeySequenceEdit] = {}
+        for action_id, label, _default in registered_hotkeys():
+            row = QHBoxLayout()
+            label_widget = QLabel(label)
+            label_widget.setWordWrap(True)
+            row.addWidget(label_widget, 1)
+            edit = QKeySequenceEdit(get_shortcut(action_id))
+            edit.setMaximumWidth(160)
+            edit.editingFinished.connect(partial(self._on_hotkey_edited, action_id, edit))
+            self.hotkey_edits[action_id] = edit
+            row.addWidget(edit)
+            hotkeys_layout.addLayout(row)
+        layout.addWidget(hotkeys_group)
+
         # ── MCP server ─────────────────────────────────────────────────────
         # The headless MCP server (kicadstamp-mcp, stdio) reads its raw-write
         # gate from gui_state.json (this checkbox) OR the
@@ -247,3 +272,12 @@ class ConfiguratorDock(QWidget):
         # the next connection attempt without touching any open one.
         if self._connection is not None:
             self._connection.timeout_ms = value
+
+    # ── Hotkeys (2026-08-30, plan dock_toolbars_menus_hotkeys Этап 1) ──────
+
+    def _on_hotkey_edited(self, action_id: str, edit: QKeySequenceEdit) -> None:
+        """A QKeySequenceEdit's editingFinished handler — persists the new
+        binding to gui_state.json["hotkeys"] and re-applies it to the live
+        QAction via gui.hotkeys.set_shortcut (an empty sequence clears the
+        override, back to the code default)."""
+        set_shortcut(action_id, edit.keySequence().toString())

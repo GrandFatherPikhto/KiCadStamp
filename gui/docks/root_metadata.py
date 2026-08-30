@@ -79,13 +79,14 @@ from typing import Dict, Optional
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFormLayout,
                               QHBoxLayout, QLabel, QLineEdit, QListWidget,
-                              QListWidgetItem, QPushButton, QTabWidget,
-                              QVBoxLayout, QWidget)
+                              QListWidgetItem, QMessageBox, QPushButton,
+                              QTabWidget, QVBoxLayout, QWidget)
 
 from kicadstamp.config.models import Config
 from kicadstamp.i18n import _
 
 from .. import settings, yaml_io
+from ..hotkeys import build_action
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       display_path, merge_write, show_message)
 from .rename import collect_graph_files
@@ -96,6 +97,17 @@ logger = logging.getLogger(__name__)
 # here 2026-08-11 from ConfigTreeDock along with Open/New/Recent themselves
 # (see this module's own docstring, "Root ownership moved here").
 _RECENT_LIMIT = 10
+
+# Stable QAction ids for this dock's hotkeys (2026-08-30, plan
+# dock_toolbars_menus_hotkeys Этап 1) — deliberately NOT derived from the
+# label text: i18n changes the text, the id must stay stable because it is the
+# key under which the user's per-action override lives in
+# gui_state.json["hotkeys"] and the id the Settings-tab reassignment UI lists.
+ACTION_OPEN = "root_metadata.open"
+ACTION_NEW = "root_metadata.new"
+ACTION_SAVE = "root_metadata.save"
+ACTION_ADD_SCH = "root_metadata.add_schematic_file"
+ACTION_REMOVE_SCH = "root_metadata.remove_schematic_file"
 
 # Config's own field defaults — single source of truth, read via
 # dataclasses instead of duplicated literals here (default_factory fields,
@@ -172,7 +184,25 @@ class RootMetadataDock(QWidget):
     mirrors the tree's current selection into this combobox's display
     without re-broadcasting (the tree already drives every entity dock
     directly, see dock_hub.py), so only an actual combobox pick emits
-    working_file_changed."""
+    working_file_changed.
+
+    Hotkeys (2026-08-30, plan dock_toolbars_menus_hotkeys Этап 1 — this is
+    the PILOT dock for the whole mechanism): the Open/New/Save/Add.../Remove
+    buttons got a parallel QAction each (build_action in gui/hotkeys.py) —
+    the action carries a stable action_id ("root_metadata.*", see the ACTION_*
+    constants), a default shortcut and the SAME slot the button already calls
+    (the button itself is left untouched this step, per the plan). Shortcuts
+    are active app-wide (actions are added on the main window), rebindable in
+    the Settings tab (ConfiguratorDock), stored in gui_state.json["hotkeys"].
+    The same actions are reused by MainWindow's File menu (Open/New — one
+    action, two places).
+
+    File > Close (Этап 1b) is a NEW root-dock operation this panel had no API
+    for: close_project() drops the project via set_root_file(None), guarded by
+    an unsaved-changes prompt (_confirm_discard_changes) built on a _dirty
+    flag set by every field edit (_connect_dirty_signals). Only this dock's
+    own edits are tracked so far — a project-wide "any dock dirty" guard is a
+    follow-up."""
 
     # Fired only when the PROJECT'S root file itself changes (Open/New/
     # Recent/restore-on-startup — set_root_file()'s every caller). Replaces
@@ -192,14 +222,29 @@ class RootMetadataDock(QWidget):
         self._main_window = main_window
         self._path: Optional[Path] = None
         self._present_keys: set = set()
+        # Unsaved-changes flag for the File > Close guard (2026-08-30, plan
+        # dock_toolbars_menus_hotkeys Этап 1b) — set by _mark_dirty on any
+        # field edit, cleared by set_target_file/_on_save. Wired to the
+        # widgets AFTER the initial restore (see _connect_dirty_signals).
+        self._dirty: bool = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
 
         open_row = QHBoxLayout()
+        # QAction-based hotkeys (2026-08-30, plan dock_toolbars_menus_hotkeys
+        # Этап 1): each action-bearing button gets a QAction (stable action_id,
+        # default shortcut, the same slot the button already calls — the plan
+        # explicitly allows "дублировать вызов callback'а", the button itself
+        # is left untouched on this step). Actions are parented to / added on
+        # the MAIN WINDOW so their shortcuts stay active from any dock tab.
+        self.action_open = build_action(
+            self._main_window, ACTION_OPEN, _("Open Root file..."), "Ctrl+O", self._on_open_root)
         open_button = QPushButton(_("Open Root file..."))
         open_button.clicked.connect(self._on_open_root)
         open_row.addWidget(open_button)
+        self.action_new = build_action(
+            self._main_window, ACTION_NEW, _("New Root file..."), "Ctrl+N", self._on_new_root)
         new_button = QPushButton(_("New Root file..."))
         new_button.clicked.connect(self._on_new_root)
         open_row.addWidget(new_button)
@@ -269,8 +314,12 @@ class RootMetadataDock(QWidget):
         self.schematic_files_list.setMaximumHeight(80)
         sf_layout.addWidget(self.schematic_files_list)
         sf_buttons = QHBoxLayout()
+        self.action_add_schematic_file = build_action(
+            self._main_window, ACTION_ADD_SCH, _("Add..."), "Ctrl+Shift+A", self._add_schematic_file)
         sf_add_button = QPushButton(_("Add..."))
         sf_add_button.clicked.connect(self._add_schematic_file)
+        self.action_remove_schematic_file = build_action(
+            self._main_window, ACTION_REMOVE_SCH, _("Remove"), "Ctrl+Shift+R", self._remove_schematic_file)
         sf_remove_button = QPushButton(_("Remove"))
         sf_remove_button.clicked.connect(self._remove_schematic_file)
         sf_buttons.addWidget(sf_add_button)
@@ -294,6 +343,8 @@ class RootMetadataDock(QWidget):
         self._tabs.addTab(schematics_page, _("Schematics"))
         self._tabs.addTab(via_page, _("Via"))
 
+        self.action_save = build_action(
+            self._main_window, ACTION_SAVE, _("Save"), "Ctrl+S", self._on_save)
         self.save_button = QPushButton(_("Save"))
         self.save_button.clicked.connect(self._on_save)
         layout.addWidget(self.save_button)
@@ -312,6 +363,10 @@ class RootMetadataDock(QWidget):
 
         self._reload_recent_combo()
         self._restore_last_root()
+
+        # Unsaved-changes flag wiring LAST (after the initial restore, so
+        # loading a project never marks it dirty) — see _connect_dirty_signals.
+        self._connect_dirty_signals()
 
     # ── Root ownership (Open/New/Recent — moved here 2026-08-11 from
     # ConfigTreeDock, see module docstring) ─────────────────────────────
@@ -448,18 +503,21 @@ class RootMetadataDock(QWidget):
         """Repopulates this panel's own root-only fields from `path`. Called
         internally by set_root_file() above on every root change (Open/New/
         Recent/restore) — kept as a separate public method since tests
-        exercise it directly without going through a real QFileDialog."""
+        exercise it directly without going through a real QFileDialog.
+        Ends with _dirty = False: a (re)loaded file is by definition saved,
+        regardless of the field-edit signals _populate fired along the way."""
         self._show_message("")
         self._path = path
         if path is None:
             self.target_label.setText(_("No project file open"))
             self._present_keys = set()
             self._populate({})
-            return
-        self.target_label.setText(display_path(path))
-        data = yaml_io.load_data(path)
-        self._present_keys = set(data.keys())
-        self._populate(data)
+        else:
+            self.target_label.setText(display_path(path))
+            data = yaml_io.load_data(path)
+            self._present_keys = set(data.keys())
+            self._populate(data)
+        self._dirty = False
 
     def _populate(self, data: dict) -> None:
         self.layer_combo.setCurrentText(data.get("layer", _DEFAULTS["layer"]))
@@ -609,5 +667,66 @@ class RootMetadataDock(QWidget):
             return
 
         self._present_keys |= set(updates)
+        # A successful write is by definition saved — clears the File > Close
+        # unsaved-changes flag (2026-08-30, plan Этап 1b).
+        self._dirty = False
         self._show_message(
             _("Saved root metadata to {path}").format(path=display_path(self._path)), _SUCCESS_STYLE)
+
+    # ── Unsaved-changes guard + File > Close (2026-08-30, plan
+    # dock_toolbars_menus_hotkeys Этап 1b) ───────────────────────────────
+
+    def _mark_dirty(self) -> None:
+        """Central dirty setter — every field-edit signal calls this (see
+        _connect_dirty_signals), so the File > Close guard can never miss an
+        unsaved change. Same pattern as TreesDock._mark_dirty."""
+        self._dirty = True
+
+    def _connect_dirty_signals(self) -> None:
+        """Wire every editable field to _mark_dirty. Called LAST in __init__
+        (after _restore_last_root), so loading a project never marks it dirty;
+        any later set_target_file() repopulation is followed by _dirty = False
+        at its end."""
+        self.layer_combo.currentTextChanged.connect(self._mark_dirty)
+        for edit in self._text_edits.values():
+            edit.textChanged.connect(self._mark_dirty)
+        for check in self._bool_checks.values():
+            check.toggled.connect(self._mark_dirty)
+        for edit in self._float_edits.values():
+            edit.textChanged.connect(self._mark_dirty)
+        for edit in self._int_edits.values():
+            edit.textChanged.connect(self._mark_dirty)
+        model = self.schematic_files_list.model()
+        model.dataChanged.connect(self._mark_dirty)
+        model.rowsInserted.connect(self._mark_dirty)
+        model.rowsRemoved.connect(self._mark_dirty)
+
+    def _confirm_discard_changes(self) -> bool:
+        """True to proceed (either nothing to lose, or the user confirmed
+        discarding) — the same unsaved-changes close guard TreesDock uses
+        (gui/docks/trees_dock.py), for this dock's own root-settings edits.
+        Called by close_project() (File > Close); tracking other docks'
+        per-entity unsaved state is a follow-up (see plan Этап 1b)."""
+        if not self._dirty:
+            return True
+        ret = QMessageBox.question(
+            self, _("Unsaved changes"),
+            _("Save the current project's root settings?"),
+            QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel)
+        if ret == QMessageBox.StandardButton.Cancel:
+            return False
+        if ret == QMessageBox.StandardButton.Save:
+            self._on_save()
+            return not self._dirty  # save failed -> keep the current state
+        return True  # Discard
+
+    def close_project(self) -> None:
+        """File > Close (2026-08-30, plan Этап 1b) — a NEW operation the root
+        dock previously had no API for (it could Open/New/Recent, never
+        "close the current project"): with unsaved field edits, ask first (see
+        _confirm_discard_changes), then drop the project root via
+        set_root_file(None) — every other dock follows through root_changed
+        (gui/dock_hub.py)."""
+        if self._confirm_discard_changes():
+            self.set_root_file(None)

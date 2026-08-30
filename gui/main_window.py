@@ -73,13 +73,16 @@ rebuilds (aliases, origin combos, button state) aren't churned for nothing.
 """
 import base64
 import logging
+from pathlib import Path
 from typing import Optional
 
 from kicadstamp.domain.board import Footprint
 from PyQt6.QtCore import QByteArray, Qt, QTimer
+from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (QApplication, QLabel, QMainWindow, QMenu,
                               QPushButton, QSystemTrayIcon)
 
+from kicadstamp.config_writer import display_path
 from kicadstamp.explore import selection_signature
 from kicadstamp.i18n import _
 
@@ -151,6 +154,37 @@ class MainWindow(QMainWindow):
         # dock's lazy lookup — only possible now that _dock_hub is bound
         # (see DockHub.restore_tree_mode()).
         self._dock_hub.restore_tree_mode()
+
+        # File menu (2026-08-30, plan dock_toolbars_menus_hotkeys Этап 1b) —
+        # by FUNCTION, not per-dock (the plan's resolved open question 1).
+        # Open/New REUSE the RootMetadataDock's own QActions (gui/hotkeys.py
+        # build_action) — one action is both the dock-button hotkey and the
+        # menu entry, never a second copy of the same operation. Close is a
+        # NEW root-dock operation (close_project, guarded by the same
+        # unsaved-changes prompt TreesDock uses). Quit reuses self._quit
+        # (already the tray menu's handler).
+        file_menu = self.menuBar().addMenu(_("&File"))
+        root_dock = self.root_metadata_dock
+        file_menu.addAction(root_dock.action_open)
+        file_menu.addAction(root_dock.action_new)
+
+        # Recent — a submenu rebuilt on every aboutToShow from the SAME
+        # settings.state["recent_root_files"] source the RootMetadataDock
+        # Recent combo reads (see _rebuild_recent_menu).
+        self.recent_menu = file_menu.addMenu(_("Recent"))
+        self.recent_menu.aboutToShow.connect(self._rebuild_recent_menu)
+
+        self.close_action = QAction(_("Close"), self)
+        self.close_action.triggered.connect(root_dock.close_project)
+        file_menu.addAction(self.close_action)
+
+        file_menu.addSeparator()
+        self.quit_action = QAction(_("&Quit"), self)
+        # lambda, not a direct connect: self._quit resolves at trigger time,
+        # so tests (and any future rebinding) can patch it — same pattern as
+        # the status-bar action_button above.
+        self.quit_action.triggered.connect(lambda: self._quit())
+        file_menu.addAction(self.quit_action)
 
         # View menu (2026-08-27, handoff sync_skip_message_and_view_menu): the
         # app had no menu bar at all, so a closed dock had no way back short of
@@ -384,6 +418,21 @@ class MainWindow(QMainWindow):
         the status-bar button."""
         self.bring_to_front()
         self._dock_hub.open_fieldstool()
+
+    def _rebuild_recent_menu(self) -> None:
+        """File > Recent (2026-08-30, plan dock_toolbars_menus_hotkeys Этап
+        1b) — rebuilt on every aboutToShow from
+        settings.state["recent_root_files"], the SAME source the
+        RootMetadataDock Recent combo reads, so it never goes stale after a
+        project switch. Each entry reuses the dock's set_root_file (the same
+        target the combo's _on_recent_selected reaches), not a duplicated
+        copy of the open logic."""
+        self.recent_menu.clear()
+        for path_str in settings.state.get("recent_root_files", []):
+            action = self.recent_menu.addAction(display_path(Path(path_str)))
+            action.setData(path_str)
+            action.triggered.connect(
+                lambda _checked=False, p=path_str: self.root_metadata_dock.set_root_file(Path(p)))
 
     def _show_kicad_processes(self) -> None:
         """Status-bar button — opens the manual KiCad-process picker (see

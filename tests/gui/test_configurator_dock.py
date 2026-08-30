@@ -5,13 +5,15 @@ always-on-top/tray checkbox relocation, highlight mode/color persistence
 (QColorDialog mocked), connection-timeout persistence, and the highlight
 smoke test across all three consumer widgets."""
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QKeySequence
 
 from gui import settings
 from gui.docks.config_tree import ConfigTreeDock
 from gui.docks.configurator import ConfiguratorDock
 from gui.docks.detail_panel import DetailDock
 from gui.docks.role_cluster_tree import RoleClusterTreeDock
+
+from gui.hotkeys import build_action
 
 import gui.docks.configurator as configurator_mod
 
@@ -226,3 +228,35 @@ def test_raw_write_state_restored_on_recreation(main_window, qapp):
     settings.state.set("mcp_allow_raw_write", True)
     dock = ConfiguratorDock(main_window, connection=main_window.connection)
     assert dock.raw_write_checkbox.isChecked()
+
+
+# ── Hotkeys (2026-08-30, plan dock_toolbars_menus_hotkeys Этап 1) ────────
+
+def test_hotkeys_section_has_one_edit_per_registered_action(main_window, qapp):
+    """The Settings tab lists one QKeySequenceEdit per registered QAction —
+    the reassignment UI surface for the hotkey infrastructure."""
+    build_action(main_window, "test.hotkey", "Test hotkey", "Ctrl+Shift+Q", None)
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    assert "test.hotkey" in dock.hotkey_edits
+    edit = dock.hotkey_edits["test.hotkey"]
+    assert edit.keySequence() == QKeySequence("Ctrl+Shift+Q")
+
+
+def test_hotkey_edit_shows_stored_override(main_window, qapp):
+    """A stored override is reflected into the QKeySequenceEdit at
+    construction (the whole point of persisting it)."""
+    build_action(main_window, "test.hotkey", "Test hotkey", "Ctrl+Shift+Q", None)
+    settings.state.set("hotkeys", {"test.hotkey": "Ctrl+Alt+H"})
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    assert dock.hotkey_edits["test.hotkey"].keySequence() == QKeySequence("Ctrl+Alt+H")
+
+
+def test_editing_hotkey_persists_override(main_window, qapp):
+    """Rebinding in the Settings tab writes gui_state.json["hotkeys"] and
+    re-applies to the live action (set_shortcut's live re-apply)."""
+    build_action(main_window, "test.hotkey", "Test hotkey", "Ctrl+Shift+Q", None)
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    edit = dock.hotkey_edits["test.hotkey"]
+    edit.setKeySequence(QKeySequence("Ctrl+Alt+R"))
+    dock._on_hotkey_edited("test.hotkey", edit)
+    assert settings.state.get("hotkeys") == {"test.hotkey": "Ctrl+Alt+R"}

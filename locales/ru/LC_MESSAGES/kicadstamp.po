@@ -603,6 +603,30 @@ msgstr "Показать/Скрыть"
 msgid "Quit"
 msgstr "Выход"
 
+#: gui/main_window.py
+msgid "&File"
+msgstr "&Файл"
+
+#: gui/main_window.py
+msgid "Recent"
+msgstr "Недавние"
+
+#: gui/main_window.py
+msgid "&Quit"
+msgstr "&Выход"
+
+#: gui/docks/configurator.py
+msgid "Hotkeys"
+msgstr "Горячие клавиши"
+
+#: gui/docks/root_metadata.py
+msgid "Unsaved changes"
+msgstr "Несохранённые изменения"
+
+#: gui/docks/root_metadata.py
+msgid "Save the current project's root settings?"
+msgstr "Сохранить настройки текущего проекта?"
+
 #: gui/main_window.py:385
 #, python-brace-format
 msgid "Connected — {count} components"

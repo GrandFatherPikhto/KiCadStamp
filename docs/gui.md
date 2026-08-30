@@ -40,6 +40,10 @@ useless); a fast timer (~400ms) tracks the board's own selection and reflects it
 tree. Rebuilding the full snapshot happens only on an explicit action — the status-bar button
 (**Reconnect** while disconnected, **Refresh** while connected).
 
+The window has a **menu bar** with two top-level menus built by FUNCTION, not per dock: **File**
+(Open/New/Recent/Close/Quit — see [docs/hotkeys.md](hotkeys.md)) and **View** (2026-08-27, one
+checkable entry per top-level dock, so a closed dock can be brought back without restarting).
+
 ## Components tree
 
 Two data sources, one tree, toggled by the **Not yet applied** checkbox:
@@ -287,6 +291,11 @@ use), this tab just adds GUI editing on top of a few more keys.
   (`_CONNECT_TIMEOUT_GRACE_S`, pynng-safety's `_CLOSE_TIMEOUT_S`, the single-instance ping) are
   deliberately NOT exposed — one of them literally just closed a live GUI freeze (see
   `handoff_2026_08_15_pynng_close_timeout.md`).
+- **Hotkeys** (2026-08-30, plan `dock_toolbars_menus_hotkeys` Этап 1) — one key-sequence editor per
+  QAction-based hotkey (so far the Project dock's five: Open/New/Save/Add.../Remove — see
+  `gui/hotkeys.py`). Rebinding writes `gui_state.json["hotkeys"]` as `{action_id: shortcut}` and
+  re-applies to the live action immediately; an empty editor restores the code default. The full
+  list lives in [docs/hotkeys.md](hotkeys.md).
 
 ## Extract
 

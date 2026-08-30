@@ -562,6 +562,30 @@ msgstr ""
 msgid "Quit"
 msgstr ""
 
+#: gui/main_window.py
+msgid "&File"
+msgstr ""
+
+#: gui/main_window.py
+msgid "Recent"
+msgstr ""
+
+#: gui/main_window.py
+msgid "&Quit"
+msgstr ""
+
+#: gui/docks/configurator.py
+msgid "Hotkeys"
+msgstr ""
+
+#: gui/docks/root_metadata.py
+msgid "Unsaved changes"
+msgstr ""
+
+#: gui/docks/root_metadata.py
+msgid "Save the current project's root settings?"
+msgstr ""
+
 #: gui/main_window.py:385
 #, python-brace-format
 msgid "Connected — {count} components"

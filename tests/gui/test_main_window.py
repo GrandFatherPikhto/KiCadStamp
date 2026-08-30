@@ -143,3 +143,98 @@ def test_save_restore_state_preserves_a_hidden_dock(real_main_window):
     ok = real_main_window.restoreState(state, _DOCK_STATE_VERSION)
     assert ok is True
     assert log_dock.isHidden() is True
+
+
+# ── File menu (2026-08-30, plan dock_toolbars_menus_hotkeys Этап 1b) ─────
+
+def _file_menu(real_main_window):
+    """The single top-level "&File" menu (plan: menuBar by FUNCTION — File
+    by function, not one menu per dock)."""
+    file_menus = [a for a in real_main_window.menuBar().actions()
+                  if a.text() == "&File"]
+    assert len(file_menus) == 1
+    return file_menus[0].menu()
+
+
+def test_file_menu_has_open_new_recent_close_quit(real_main_window):
+    """&File contains Open/New (reusing the root dock's own actions), a
+    Recent submenu, Close and &Quit."""
+    menu = _file_menu(real_main_window)
+    texts = [a.text() for a in menu.actions()]
+    assert "Open Root file..." in texts
+    assert "New Root file..." in texts
+    assert "Close" in texts
+    assert "&Quit" in texts
+    assert any(a.text() == "Recent" and a.menu() is not None for a in menu.actions())
+
+
+def test_file_menu_open_reuses_root_metadata_action(real_main_window):
+    """Open/New are the SAME QAction objects the root dock's buttons use —
+    one action is the button hotkey AND the menu entry (no duplicated copy)."""
+    menu = _file_menu(real_main_window)
+    open_action = next(a for a in menu.actions() if a.text() == "Open Root file...")
+    new_action = next(a for a in menu.actions() if a.text() == "New Root file...")
+    assert open_action is real_main_window.root_metadata_dock.action_open
+    assert new_action is real_main_window.root_metadata_dock.action_new
+
+
+def test_file_menu_recent_builds_from_recent_root_files(real_main_window, tmp_path):
+    """Recent is rebuilt from settings.state["recent_root_files"] (the same
+    source as the dock's combo); triggering an entry opens it via the dock's
+    set_root_file."""
+    a = tmp_path / "a.sexp"
+    b = tmp_path / "b.sexp"
+    a.write_text("(kicadstamp-config)\n", encoding="utf-8")
+    b.write_text("(kicadstamp-config)\n", encoding="utf-8")
+    settings.state.set("recent_root_files", [str(b), str(a)])
+
+    real_main_window._rebuild_recent_menu()
+    entries = real_main_window.recent_menu.actions()
+    assert [e.text() for e in entries] == [str(b), str(a)]
+
+    entries[0].trigger()
+    assert real_main_window.root_metadata_dock._path == b
+
+
+def test_file_menu_close_calls_set_root_file_none(real_main_window, monkeypatch):
+    """File > Close routes through RootMetadataDock.close_project, which drops
+    the project root via set_root_file(None). Patching set_root_file records
+    the call (a runtime lookup inside close_project — the Qt signal itself
+    holds the pre-patch bound close_project, so that one is NOT patchable)."""
+    calls = []
+    monkeypatch.setattr(real_main_window.root_metadata_dock, "set_root_file",
+                        lambda path: calls.append(path))
+    close_action = next(a for a in _file_menu(real_main_window).actions()
+                        if a.text() == "Close")
+    close_action.trigger()
+    assert calls == [None]
+
+
+def test_file_menu_close_guard_respects_unsaved_changes(real_main_window, tmp_path, monkeypatch):
+    """Close routes through RootMetadataDock's unsaved-changes guard — a
+    refused guard keeps the project open; a confirmed one drops the root."""
+    root = tmp_path / "root.sexp"
+    root.write_text("(kicadstamp-config)\n", encoding="utf-8")
+    real_main_window.root_metadata_dock.set_root_file(root)
+    real_main_window.root_metadata_dock._text_edits["schematic_dir"].setText("x")  # dirty
+
+    close_action = next(a for a in _file_menu(real_main_window).actions()
+                        if a.text() == "Close")
+    monkeypatch.setattr(real_main_window.root_metadata_dock,
+                        "_confirm_discard_changes", lambda: False)
+    close_action.trigger()
+    assert real_main_window.root_metadata_dock._path == root
+
+    monkeypatch.setattr(real_main_window.root_metadata_dock,
+                        "_confirm_discard_changes", lambda: True)
+    close_action.trigger()
+    assert real_main_window.root_metadata_dock._path is None
+
+
+def test_file_menu_quit_calls_quit(real_main_window, monkeypatch):
+    calls = []
+    monkeypatch.setattr(real_main_window, "_quit", lambda: calls.append(True))
+    quit_action = next(a for a in _file_menu(real_main_window).actions()
+                       if a.text() == "&Quit")
+    quit_action.trigger()
+    assert calls == [True]
