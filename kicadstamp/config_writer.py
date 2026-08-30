@@ -325,28 +325,41 @@ def upsert_entity_placement(path: Path, entity_name: str, origin: Dict[str, Any]
     node = _entity_origin_to_node(entity_name, origin, rotation)
     changed = False
 
-    def _remove_node(tree_dict: dict) -> bool:
-        """Recursively drop every node whose ref == entity_name from a tree's
-        node list (top-level or nested); True if anything was removed."""
-        nodes = tree_dict.get("nodes")
-        if not isinstance(nodes, list):
-            return False
+    def _prune_nodes(nodes: list) -> tuple[list, bool]:
+        """Recursively drop every node whose ref == entity_name from `nodes`
+        (a tree's "nodes" list, or a node's own "children" list on deeper
+        levels — the grammar stores child nodes under "children", NOT "nodes",
+        see trees.py::_node_to_dict). Returns (kept, removed); recurses into
+        each KEPT node's own children. A tree's top-level list is "nodes", so
+        the caller passes tree["nodes"] here and this same helper handles the
+        nested "children" key on every level — no guessing by key name."""
         kept = []
         removed = False
         for n in nodes:
-            if isinstance(n, dict) and n.get("ref") == entity_name:
+            if not isinstance(n, dict):
+                kept.append(n)
+                continue
+            if n.get("ref") == entity_name:
                 removed = True
                 continue
-            if isinstance(n, dict) and _remove_node(n):
-                removed = True
+            children = n.get("children")
+            if isinstance(children, list):
+                new_children, child_removed = _prune_nodes(children)
+                if child_removed:
+                    n["children"] = new_children
+                    removed = True
             kept.append(n)
-        if removed:
-            tree_dict["nodes"] = kept
-        return removed
+        return kept, removed
 
     for tree_dict in trees:
-        if isinstance(tree_dict, dict) and _remove_node(tree_dict):
-            changed = True
+        if not isinstance(tree_dict, dict):
+            continue
+        nodes = tree_dict.get("nodes")
+        if isinstance(nodes, list):
+            new_nodes, tree_removed = _prune_nodes(nodes)
+            if tree_removed:
+                tree_dict["nodes"] = new_nodes
+                changed = True
 
     target = next((td for td in trees
                    if isinstance(td, dict) and td.get("anchor") == anchor), None)

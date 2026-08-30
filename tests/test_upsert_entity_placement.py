@@ -132,3 +132,51 @@ def test_non_list_trees_section_is_os_error(tmp_path):
     path.write_text(json.dumps({"trees": "nope"}), encoding="utf-8")
     with pytest.raises(OSError):
         upsert_entity_placement(path, "E1", {"mode": "xy", "x": 0.0, "y": 0.0})
+
+
+def test_moves_nested_node_to_matching_anchor_tree(tmp_path):
+    """Regression (2026-08-30, Claude repro): _remove_node used to recurse
+    into "nodes" for CHILD nodes too, but the grammar stores children under
+    "children" (trees.py::_node_to_dict) — so a NESTED placement node was
+    never found, the old copy stayed, and the write hit the link_trees
+    "already has a node elsewhere" fatal. A nested Entity must be moved
+    cleanly out of its parent to the matching-anchor tree, no fatal."""
+    path = tmp_path / "root.sexp"
+    _write(path, {"trees": [
+        {"name": "t1", "anchor": {"origin": True},
+         "nodes": [{"ref": "PARENT", "kind": "clone", "xy": [0.0, 0.0],
+                    "children": [{"ref": "E1", "kind": "placement", "xy": [1.0, 2.0]}]}]},
+    ]})
+    upsert_entity_placement(path, "E1", {"mode": "xy", "x": 10.0, "y": 20.0})
+    trees = _load(path)["trees"]
+    tree, node = _find(trees, "E1")
+    assert tree["anchor"] == {"origin": True}
+    assert node["xy"] == [10.0, 20.0]
+    # E1 is a TOP-LEVEL node now — the old nested copy is gone
+    assert node in tree["nodes"]
+    parent = next(t for t in trees if t["name"] == "t1")["nodes"][0]
+    assert "E1" not in str(parent.get("children"))
+
+
+def test_removes_deeply_nested_node(tmp_path):
+    """Two levels of nesting: the recursive prune must walk node.children on
+    every level, not just the tree's own nodes list."""
+    path = tmp_path / "root.sexp"
+    _write(path, {"trees": [
+        {"name": "t1", "anchor": {"origin": True},
+         "nodes": [{"ref": "GP", "kind": "clone", "xy": [0.0, 0.0],
+                    "children": [{"ref": "PARENT", "kind": "clone", "xy": [1.0, 1.0],
+                                  "children": [{"ref": "E1", "kind": "placement",
+                                                "xy": [2.0, 2.0]}]}]}]},
+    ]})
+    upsert_entity_placement(path, "E1", {"mode": "xy", "x": 5.0, "y": 6.0})
+    trees = _load(path)["trees"]
+    _, node = _find(trees, "E1")
+    assert node["xy"] == [5.0, 6.0]
+    # exactly ONE copy remains, as a top-level node; nothing nested holds E1
+    t1 = next(t for t in trees if t["name"] == "t1")
+    e1_top = [n for n in t1["nodes"] if n.get("ref") == "E1"]
+    assert len(e1_top) == 1
+    assert e1_top[0]["xy"] == [5.0, 6.0]
+    assert not any("E1" in str(n.get("children")) for n in t1["nodes"]
+                   if isinstance(n.get("children"), list))
