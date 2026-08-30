@@ -593,6 +593,59 @@ def net_trace_effective_name(nt: "NetTrace") -> str:
 
 
 @dataclass
+class Entity:
+    """Entity: the "what" of a placement — everything about one physical
+    instance EXCEPT its position, which lives ONLY in a trees: node (see
+    techdocs/handoff/deepseek/design_2026_08_30_entity_placement_grammar.md).
+
+    Replaces ClonePlacement's electrical side (cell/nets/params/
+    net_overrides) AND its instantiation identity (cluster/sheet/refs/
+    layer/mirror/flags), but carries NO position fields at all:
+    xy/anchor_*/rotation are forbidden here by design. A Placement IS the
+    tree node referencing this entity by name (TreeNode.kind "placement",
+    TreeNode.ref == this entity's name).
+
+    name — REQUIRED, unique across the whole include graph — the --only /
+    registry identity (replaces ClonePlacement's effective name).
+
+    cell — REQUIRED, a reference to a cells: entry (like ClonePlacement.cell).
+
+    cluster — the physical Cluster TAG written onto the board's components
+    at Apply (formerly ClonePlacement.cluster). Optional here so an entity
+    may exist "not placed" (no tree node) without a tag.
+
+    by_selection/refs — per-instantiation role-resolution controls
+    (formerly ClonePlacement.by_selection/refs): by_selection: true resolves
+    roles by the live board selection; refs pins role -> ref explicitly.
+
+    layer/mirror — physical placement facts/ops (formerly ClonePlacement.
+    layer/mirror): a mirror without a layer change is physically meaningless
+    and fatal at load (see config/entries.py).
+    """
+    name: str
+    cell: str
+    nets: dict[str, str] = field(default_factory=dict)
+    params: dict[str, Any] = field(default_factory=dict)
+    net_overrides: dict[str, str] = field(default_factory=dict)
+    cluster: str | None = None
+    sheet: str | None = None
+    retired: bool = False
+    skip: bool = False
+    ignore_selection: bool = False
+    by_selection: bool = False
+    refs: dict[str, str] = field(default_factory=dict)
+    layer: str | None = None
+    mirror: bool = False
+    comment: str | None = None
+
+
+def entity_effective_name(entity: "Entity") -> str:
+    """Single point for reading the --only/registry identity of an Entity —
+    just entity.name (required and unique by a load-time check)."""
+    return entity.name
+
+
+@dataclass
 class ClonePlacement:
     """
     Applying a cell at a new location (TemplatePlacer/Cloner) — unlike
@@ -758,6 +811,10 @@ class Config:
     points: dict[str, Point] = field(default_factory=dict)
     thermal_via_arrays: list[ThermalViaArrayConfig] = field(default_factory=list)
     rules: list[Rule] = field(default_factory=list)
+    # entities: — NEW section (design_2026_08_30_entity_placement_grammar.md):
+    # the "what" of a placement, WITHOUT position (position lives only in a
+    # trees: node). Loaded by config/entries.py::_load_entity.
+    entities: list[Entity] = field(default_factory=list)
     clone_placements: list[ClonePlacement] = field(default_factory=list)
     coordinate_placements: list[CoordinatePlacement] = field(default_factory=list)
     net_traces: list[NetTrace] = field(default_factory=list)
