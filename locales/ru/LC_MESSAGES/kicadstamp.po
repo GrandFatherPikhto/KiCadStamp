@@ -10178,6 +10178,10 @@ msgstr "Сгенерировано: {path}"
 msgid "Total spokes: {count}"
 msgstr "Всего спиц: {count}"
 
+#, python-brace-format
+msgid "Entity materialization: tree {tree!r} skipped — {error}"
+msgstr "Материализация entity: дерево {tree!r} пропущено — {error}"
+
 #~ msgid ""
 #~ "Process only rules/clone_placements/thermal_via_array "
 #~ "with this name (can be repeated). "

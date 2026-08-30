@@ -7,6 +7,8 @@ An Entity carries no position — its position comes from a trees: node
 into a transient absolute ClonePlacement so the existing clone planning
 machinery applies it unchanged.
 """
+import logging
+
 import pytest
 
 from kicadstamp.apply_pipeline import apply_cluster_filter, apply_only_filter
@@ -81,15 +83,22 @@ def test_nested_node_rotation_accumulates():
     assert len(by_name["E2"].xy) == 2
 
 
-def test_role_anchor_not_wired_raises():
-    """role/point tree anchors are not live-resolvable for entity
-    materialization yet (phase 4.2) — a clear error, never a silent guess."""
+def test_role_anchor_tree_is_skipped_locally_not_fatal(caplog):
+    """Bug #4 (2026-08-30): a (role ...)/(point ...) tree anchor is not
+    live-resolvable for entity materialization yet (Phase 4.2) — that is LOCAL
+    to the tree: warn + skip it, NEVER fatal for the whole run (a real profile
+    has 21 of 22 trees role-anchored, so the old global raise blocked Apply/
+    Redraw entirely). A single role-anchored tree with nothing else yields no
+    materialized clones, not a ValidationError."""
     cfg = _cfg(
         [Entity(name="E1", cell="c")],
         [Tree(name="t", anchor=TreeAnchor(role="FPGA"),
               nodes=[_node(ref="E1", xy=(1.0, 0.0))])])
-    with pytest.raises(ValidationError, match="role"):
-        materialize_entity_placements(None, cfg, {})
+    with caplog.at_level(logging.WARNING,
+                         logger="kicadstamp.placement.entity_placement"):
+        clones = materialize_entity_placements(None, cfg, {})
+    assert clones == []
+    assert "skipped" in caplog.text
 
 
 def test_apply_only_filter_keeps_entities_intact_and_recognizes_name():
@@ -154,6 +163,57 @@ def test_apply_cluster_filter_does_not_fatal_when_only_entities_match():
     assert {e.name for e in filtered.entities} == {"E1"}
     with pytest.raises(PlacerError):
         apply_cluster_filter(cfg, ["NO_SUCH_CLUSTER"])
+
+
+def test_role_anchor_tree_skipped_but_neighbor_origin_tree_materialized(caplog):
+    """Bug #4 gate scenario (2026-08-30): ONE origin tree (materializable
+    entity E1) next to a role-anchored tree (not materializable yet) — the
+    origin tree's placement survives, the role tree is skipped with a warning,
+    the call never fatal."""
+    cfg = Config(
+        cells={"c": _cell("c")},
+        entities=[Entity(name="E1", cell="c", cluster="CH0"),
+                  Entity(name="E2", cell="c", cluster="CH1")],
+        trees=[
+            _origin_tree([_node(ref="E1", xy=(1.0, 0.0))]),
+            Tree(name="role_tree", anchor=TreeAnchor(role="FPGA"),
+                 nodes=[_node(ref="E2", xy=(5.0, 0.0))]),
+        ],
+    )
+    with caplog.at_level(logging.WARNING,
+                         logger="kicadstamp.placement.entity_placement"):
+        clones = materialize_entity_placements(None, cfg, {})
+    assert [c.name for c in clones] == ["E1"]
+    assert "skipped" in caplog.text
+    assert "role_tree" in caplog.text
+
+
+def test_real_profile_role_anchor_trees_do_not_fatal_whole_run():
+    """Bug #4 on the REAL converted profile (22 trees, 21 role-anchored,
+    1 ref/live): materialization must NOT fatal as a whole — the role trees
+    are skipped with a warning, the ref tree's entity placements still
+    materialize. Guarded by profile presence (profiles/ is gitignored)."""
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
+    from kicadstamp.config import load_config
+
+    profile = (Path(__file__).resolve().parents[1]
+               / "profiles" / "3ch-awg-tia-v103" / "3ch-awg-tia.sexp")
+    if not profile.exists():
+        pytest.skip("real profile not present (profiles/ is gitignored)")
+    cfg, _ctx = load_config(str(profile))
+    assert len(cfg.trees) == 22
+    # A MagicMock adapter supplies the fpga tree's LIVE anchor reads — the
+    # point of this test is that the 21 role trees are skipped, not that a
+    # real board is connected.
+    clones = materialize_entity_placements(MagicMock(), cfg, {})
+    names = [c.name for c in clones]
+    # the fpga (ref/coordinate) tree's placement nodes materialized:
+    assert "FPGA_FLASH" in names
+    # the fpga tree's RULE nodes were NOT materialized (only kind "placement"):
+    for rule_name in ("+3V3_VCCIO", "+1V2_VCCINT", "+1V2_VCCD_PLL", "+2V5_VCCA"):
+        assert rule_name not in names
 
 
 def _mixed_tree_cfg():

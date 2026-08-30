@@ -9230,6 +9230,10 @@ msgstr ""
 msgid "Total spokes: {count}"
 msgstr ""
 
+#, python-brace-format
+msgid "Entity materialization: tree {tree!r} skipped — {error}"
+msgstr ""
+
 #~ msgid ""
 #~ "Process only rules/clone_placements/thermal_via_array "
 #~ "with this name (can be repeated). "

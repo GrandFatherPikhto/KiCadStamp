@@ -119,6 +119,14 @@ def materialize_entity_placements(adapter: "KiCadBoardAdapter", cfg: "Config",
     anchor (origin / ref) is read LIVE from the board via tree_position's
     resolve_base_* — so an entity placement under a component ref anchor
     follows the anchor's current position, matching the curated-redraw model.
+
+    Per-tree tolerance (bug #4, 2026-08-30): a tree whose anchor is
+    (role ...)/(point ...) is not materializable until Phase 4.2 — that error
+    is LOCAL to that tree (warning + skip), never fatal for the whole run.
+    A real profile may have 21 of 22 trees role-anchored; without this,
+    Apply/Redraw died before materializing ANY entity placement. This is the
+    same per-item tolerance the Extract dock's Sub-placements catalog already
+    applies at the call level (gui/docks/extract.py).
     """
     if not cfg.entities or not cfg.trees:
         return []
@@ -126,6 +134,13 @@ def materialize_entity_placements(adapter: "KiCadBoardAdapter", cfg: "Config",
     linked = link_trees(cfg, cfg.trees)
     out: list[ClonePlacement] = []
     for tree in linked:
-        anchor_pos, anchor_rot = _anchor_base(adapter, cfg, tree, sheet_names)
-        _walk(tree.nodes, anchor_pos, anchor_rot, out)
+        try:
+            anchor_pos, anchor_rot = _anchor_base(adapter, cfg, tree, sheet_names)
+            tree_clones: list[ClonePlacement] = []
+            _walk(tree.nodes, anchor_pos, anchor_rot, tree_clones)
+        except ValidationError as e:
+            logger.warning(_("Entity materialization: tree {tree!r} skipped — "
+                             "{error}").format(tree=tree.name, error=e))
+            continue
+        out.extend(tree_clones)
     return out
