@@ -458,35 +458,40 @@ def test_refresh_file_combo_choices_drops_path_outside_new_graph(qapp, tmp_path)
     assert combo.currentData() is None
 
 
-def test_compact_combo_minimum_reduces_form_width_and_preserves_growth(qapp):
-    """2026-08-30, Denis: combos' minimum width equals their WIDEST item
-    (QLineEdit's minimum is already small), which floors narrow docks. The
-    app-wide FIELD_MIN_WIDTH_QSS must let a form shrink to the compact combo
-    width — while the combo still grows when the dock widens."""
-    from PyQt6.QtWidgets import QComboBox, QFormLayout, QWidget
+def test_compact_field_minimums_shrink_form_and_preserve_growth(qapp):
+    """2026-08-30, Denis: a combo's minimum width equals its WIDEST item,
+    which floored narrow docks — and the dock must shrink to the ABSOLUTE
+    minimum ("пусть пользователь решает, какую длину дока ставить"). The
+    app-wide FIELD_MIN_WIDTH_QSS (min-width: 0) must let a form shrink to
+    just its labels, while the fields still grow when the dock widens."""
+    from PyQt6.QtWidgets import QComboBox, QFormLayout, QLineEdit, QWidget
 
-    from gui.docks._common import COMPACT_COMBO_MIN_WIDTH_PX, FIELD_MIN_WIDTH_QSS
+    from gui.docks._common import FIELD_MIN_WIDTH_QSS
 
     host = QWidget()
     form = QFormLayout(host)
     combo = QComboBox()
     combo.addItems(["Absolute XY", "Anchor (ref/role)", "Point", "Board origin"])
+    line_edit = QLineEdit()
+    line_edit.setPlaceholderText("cell name (key under cells:)")
     form.addRow("Origin:", combo)
-    host.adjustSize()
+    form.addRow("Cell name:", line_edit)
     qapp.processEvents()
     before = form.minimumSize().width()
-    assert before > COMPACT_COMBO_MIN_WIDTH_PX  # the widest item floors it
+    assert before > 150  # ~211px: the widest item + text fields floor it
 
     host.setStyleSheet(FIELD_MIN_WIDTH_QSS)  # widget-level, no global leak
-    host.adjustSize()
     qapp.processEvents()
     after = form.minimumSize().width()
     assert after < before  # the stylesheet min-width overrides the floor
+    assert after < 130  # near the absolute minimum (labels + frames only)
 
-    # growth is untouched: a wide host still stretches the combo
+    # growth is untouched: a wide host still stretches the fields (no
+    # adjustSize() here — it pins the host to its sizeHint and masks growth)
     host.resize(600, 120)
     qapp.processEvents()
-    assert combo.width() > COMPACT_COMBO_MIN_WIDTH_PX
+    assert combo.width() > 200
+    assert line_edit.width() > 200
 
 
 def test_apply_compact_field_minimums_is_idempotent(qapp):

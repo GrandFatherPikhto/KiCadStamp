@@ -260,24 +260,29 @@ def highlight_stylesheet_for(selector: str) -> str:
 
 # 2026-08-30 (Denis, live): QComboBox's minimum width equals its WIDEST item's
 # text (QComboBox::minimumSizeHint is content-sized), so a combo with a long
-# item — e.g. "Anchor (ref/role)" — floors a narrow dock even though it can
-# grow when the dock widens. A `min-width` stylesheet overrides that minimum
-# for the LAYOUT (Qt still reports the content minimumSizeHint, but layouts
-# honour the stylesheet min-width — verified empirically: a form's minimum
-# dropped from ~191px to ~139px with min-width:72px, growth untouched). Single
-# tunable knob for every combo in the app; QLineEdit already has a small
-# minimumSizeHint (~40px), so only combos need the override.
-COMPACT_COMBO_MIN_WIDTH_PX = 72
-FIELD_MIN_WIDTH_QSS = f"QComboBox {{ min-width: {COMPACT_COMBO_MIN_WIDTH_PX}px; }}"
+# item — e.g. "Anchor (ref/role)" — floored a narrow dock. Follow-up: "пусть
+# пользователь решает, какую длину дока ставить" — the dock must shrink to
+# the ABSOLUTE minimum, so the floor is 0: every input widget may compress to
+# just its own frame/arrow, growth on widening is untouched (a `min-width`
+# stylesheet overrides the content minimum for the LAYOUT — verified: a
+# two-field form's minimum dropped from ~211px to ~89px with min-width:0,
+# fields still stretch to 553px at a 600px dock).
+FIELD_MIN_WIDTH_PX = 0
+FIELD_MIN_WIDTH_QSS = (
+    "QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox { "
+    f"min-width: {FIELD_MIN_WIDTH_PX}px; }}"
+)
 
 
 def apply_compact_field_minimums(app) -> None:
     """Apply the app-wide "compact field minimums" stylesheet (2026-08-30):
-    every QComboBox may shrink to COMPACT_COMBO_MIN_WIDTH_PX instead of its
-    widest item, so docks with long-item combos can be narrowed. Idempotent —
-    an existing app stylesheet is preserved and the rule is appended once.
-    `app` is anything with styleSheet()/setStyleSheet() (QApplication at
-    startup; a QWidget works too — used by tests to avoid global state)."""
+    every input widget (combo/line edit/spin box) may shrink to
+    FIELD_MIN_WIDTH_PX — 0 = no forced width floor, so every dock can be
+    compressed to whatever the user wants; growth on widening is untouched.
+    Idempotent — an existing app stylesheet is preserved and the rule is
+    appended once. `app` is anything with styleSheet()/setStyleSheet()
+    (QApplication at startup; a QWidget works too — used by tests to avoid
+    global state)."""
     existing = app.styleSheet()
     if FIELD_MIN_WIDTH_QSS not in existing:
         app.setStyleSheet((existing + "\n" + FIELD_MIN_WIDTH_QSS).strip())
