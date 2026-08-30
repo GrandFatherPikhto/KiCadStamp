@@ -19,6 +19,7 @@ from pathlib import Path
 from .config import (
     Config, Rule, ManualSpoke, clone_placement_effective_name,
     coordinate_placement_effective_name, rule_effective_name,
+    entity_effective_name,
 )
 from .geometry.cell_copper_connectivity import (
     cell_copper_components, component_containing, component_role_pads,
@@ -208,6 +209,27 @@ def check_clone_cells_exist(cfg: Config) -> None:
             problems
         ))
     logger.debug(_("Clone cell existence checks passed"))
+
+
+def check_entity_cells_exist(cfg: Config) -> None:
+    """Every Entity must reference an existing cell — pure config check, no
+    live board (an Entity is the "what" of a former ClonePlacement and cell is
+    REQUIRED on it, see Entity's docstring in config/models.py). Mirrors
+    check_clone_cells_exist; the two coexist because the Entity/Placement
+    split is additive until the release cutover."""
+    problems = []
+    for ent in cfg.entities:
+        if ent.retired:
+            continue
+        if ent.cell not in cfg.cells:
+            problems.append(_("entity {name!r}: cell {cell!r} not found in cells")
+                            .format(name=entity_effective_name(ent), cell=ent.cell))
+    if problems:
+        raise ValidationError(format_fatal_error(
+            _("entity references a non‑existent cell"),
+            problems
+        ))
+    logger.debug(_("Entity cell existence checks passed"))
 
 
 def check_no_cell_definition_cycles(cfg: Config) -> None:
@@ -644,6 +666,7 @@ def check_config_structure(cfg: Config, sheet_names=None) -> None:
     """
     _sn = sheet_names or {}
     check_clone_cells_exist(cfg)
+    check_entity_cells_exist(cfg)
     check_no_cell_definition_cycles(cfg)
     check_no_duplicate_clone_anchors(cfg)
     check_anchor_sheet_configured(cfg, sheet_names=_sn)
