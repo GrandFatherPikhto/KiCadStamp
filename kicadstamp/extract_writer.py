@@ -26,7 +26,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from kicadstamp.config.entries import _load_cell
-from kicadstamp.config_writer import add_list_entry, display_path, merge_write, non_includable_keys
+from kicadstamp.config_writer import (
+    add_list_entry, display_path, merge_write, non_includable_keys, upsert_entity,
+)
 from kicadstamp.exceptions import PlacerError
 from kicadstamp.i18n import _
 from kicadstamp.template_extraction import extract_template_from_selection
@@ -117,6 +119,19 @@ def run_extract_to_file(adapter, *, name: str, params, items, net_template_role,
             target_path, {"cells": template_dict}, section="cells")
     except OSError as e:
         return {"error": _("Write failed: {error}").format(error=e)}
+
+    # Entity (Entity/Placement split, phase 5.1): Extract creates ONLY an
+    # Entity — the "what" referencing the just-written cell, carrying the
+    # extract's params (net placeholders). NO position and NO auto tree: a
+    # placement comes from a trees: node, added separately via tree-building
+    # by selection (§7/§9.1 — never "two actions in one click").
+    entity_entry = {"name": name, "cell": name}
+    if params:
+        entity_entry["params"] = params
+    try:
+        upsert_entity(target_path, entity_entry)
+    except OSError as e:
+        return {"error": _("Entity write failed: {error}").format(error=e)}
 
     messages = [_("{action} {name!r} in {path}").format(
         action=_("Overwrote") if cell_overwritten else _("Wrote"),

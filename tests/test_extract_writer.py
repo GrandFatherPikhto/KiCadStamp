@@ -107,6 +107,33 @@ def test_writes_cell_and_reports_wrote(tmp_path):
     assert data["cells"]["cell1"]["layer"] == "F.Cu"
 
 
+def test_extract_writes_entity_with_params_and_no_position(tmp_path):
+    """Entity/Placement split (phase 5.1): Extract creates ONLY an Entity
+    referencing the just-written cell, carrying the extract params — with NO
+    position fields (xy/anchor_*/rotation are forbidden on an Entity; a
+    placement comes from a trees: node added separately by selection)."""
+    target, result, _ = _run(tmp_path, params={"CH": "0"})
+
+    assert "error" not in result
+    data = _load(target)
+    assert data["entities"] == [{"name": "cell1", "cell": "cell1",
+                                 "params": {"CH": "0"}}]
+    assert all(not any(k in e for k in
+                       ("xy", "anchor_ref", "anchor_role", "rotation_deg"))
+               for e in data["entities"])
+
+
+def test_extract_re_run_replaces_entity_in_place(tmp_path):
+    """Re-extracting the same name must upsert (replace in place), not append
+    a second entity (identity = Entity.name)."""
+    _run(tmp_path, params={"CH": "0"})
+    target, result, _ = _run(tmp_path, params={"CH": "1"})
+    assert "error" not in result
+    data = _load(target)
+    assert data["entities"] == [{"name": "cell1", "cell": "cell1",
+                                 "params": {"CH": "1"}}]
+
+
 def test_success_returns_the_raw_template_dict(tmp_path):
     """Added so the GUI can summarize net_from_role auto-classification
     (see ExtractDock._summarize_net_from_role) without re-running the
