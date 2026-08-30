@@ -62,8 +62,13 @@ from .points import PointsDock
 from .root_metadata import RootMetadataDock
 from .rules import RuleDock
 from .thermal_via import ThermalViaArrayDock
+from .tools import ToolsDock
 
-_ROOT, _EXTRACT, _PLACER, _THERMAL_VIA, _POINTS, _RULES, _NET_TRACE, _CELLS, _SETTINGS = range(9)
+_ROOT, _EXTRACT, _PLACER, _THERMAL_VIA, _POINTS, _RULES, _NET_TRACE, _CELLS = range(8)
+# Tools (2026-08-30, Entity/Placement split phase 5.2 stage 3): the Entity's
+# electrical fields (Nets/Net overrides/Refs), moved out of PlacerDock.
+_TOOLS = 8
+_SETTINGS = 9
 
 
 class _StackedPages(QStackedWidget):
@@ -118,6 +123,11 @@ class DetailDock(QDockWidget):
         self.tab_bar.addTab(_("Rules"))
         self.tab_bar.addTab(_("Net traces"))
         self.tab_bar.addTab(_("Cells"))
+        # Tools (2026-08-30, phase 5.2 stage 3): the Entity's electrical
+        # fields (Nets/Net overrides/Refs) — see gui/docks/tools.py. Inserted
+        # BEFORE Settings so Settings stays last (its own "added last"
+        # convention is preserved).
+        self.tab_bar.addTab(_("Tools"))
         # Settings (2026-08-15, plan configurator_panel) — GUI/app settings
         # for this machine (always-on-top, tray, highlight color, connection
         # timeout), deliberately NOT project config — see
@@ -139,6 +149,7 @@ class DetailDock(QDockWidget):
         self.net_trace_panel = NetTraceDock(main_window, connection=connection)
         self.cells_panel = CellDock(main_window)
         self.configurator_panel = ConfiguratorDock(main_window, connection=connection)
+        self.tools_panel = ToolsDock(main_window)
         self.stack.addWidget(self.root_panel)
         self.stack.addWidget(self.extract_panel)
         self.stack.addWidget(self.placer_panel)
@@ -147,6 +158,9 @@ class DetailDock(QDockWidget):
         self.stack.addWidget(self.rules_panel)
         self.stack.addWidget(self.net_trace_panel)
         self.stack.addWidget(self.cells_panel)
+        # Tools BEFORE Settings — the stack order must match the tab-bar
+        # order exactly (setCurrentIndex drives stack.setCurrentIndex).
+        self.stack.addWidget(self.tools_panel)
         self.stack.addWidget(self.configurator_panel)
         # The stack sits DIRECTLY in the dock layout (2026-08-30, Denis:
         # "убираем скроллы внутри доков"). The 2026-08-27 QScrollArea wrap was
@@ -179,6 +193,7 @@ class DetailDock(QDockWidget):
         _RULES: _("Rules"),
         _NET_TRACE: _("Net traces"),
         _CELLS: _("Cells"),
+        _TOOLS: _("Tools"),
         _SETTINGS: _("Settings"),
     }
 
@@ -205,6 +220,8 @@ class DetailDock(QDockWidget):
             return self.net_trace_panel.net_edit.currentText().strip()
         if index == _CELLS:
             return self.cells_panel.name_edit.text().strip()
+        if index == _TOOLS:
+            return self.tools_panel.target_combo.currentText().strip()
         return ""
 
     def _update_title(self) -> None:
@@ -259,6 +276,11 @@ class DetailDock(QDockWidget):
 
     def show_cells(self) -> None:
         self._show(_CELLS)
+
+    def show_tools(self) -> None:
+        """Same pattern as the other show_X() pages — the Tools tab (ToolsDock,
+        the Entity's electrical fields, 2026-08-30 phase 5.2 stage 3)."""
+        self._show(_TOOLS)
 
     def show_settings(self) -> None:
         """Same pattern as the other show_X() pages — the Settings tab

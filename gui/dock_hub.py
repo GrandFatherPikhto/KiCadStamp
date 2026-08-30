@@ -120,6 +120,9 @@ class DockHub:
         # MainWindow reads its checkboxes back through this alias (see
         # _restore_window_state/_persist_settings/closeEvent there).
         self.configurator_dock = self.detail_dock.configurator_panel
+        # Tools tab (ToolsDock, 2026-08-30 phase 5.2 stage 3) — the Entity's
+        # electrical fields, moved out of PlacerDock.
+        self.tools_dock = self.detail_dock.tools_panel
 
         # ── bottom: Pending changes, Log ────────────────────────────────────
         main_window.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.pending_dock)
@@ -208,6 +211,9 @@ class DockHub:
         self.root_metadata_dock.root_changed.connect(
             partial(self._safe_call, "cells_dock.set_root_path",
                     self.cells_dock.set_root_path))
+        self.root_metadata_dock.root_changed.connect(
+            partial(self._safe_call, "tools_dock.set_root_path",
+                    self.tools_dock.set_root_path))
         # PointsDock's own target-file combo (added 2026-08-13, plan
         # tree_to_combo_file_pickers — the only dock that had no
         # set_root_path at all before) needs the same whole include graph,
@@ -266,6 +272,8 @@ class DockHub:
                         self.thermal_via_dock.set_root_path,
                         self.root_metadata_dock.root_path)
         self._safe_call("cells_dock.set_root_path", self.cells_dock.set_root_path,
+                        self.root_metadata_dock.root_path)
+        self._safe_call("tools_dock.set_root_path", self.tools_dock.set_root_path,
                         self.root_metadata_dock.root_path)
         self._safe_call("points_dock.set_root_path", self.points_dock.set_root_path,
                         self.root_metadata_dock.root_path)
@@ -352,6 +360,9 @@ class DockHub:
         self.rules_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
         self.net_trace_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
         self.cells_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
+        self.tools_dock.saved.connect(self.config_tree_dock.refresh)
+        self.tools_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
+        self.tools_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.placer_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.thermal_via_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.extract_dock.saved.connect(self._refresh_graph_dependent_choices)
@@ -556,6 +567,7 @@ class DockHub:
         self.placer_dock.set_root_path(root_path)
         self.thermal_via_dock.set_root_path(root_path)
         self.cells_dock.set_root_path(root_path)
+        self.tools_dock.set_root_path(root_path)
         self.points_dock.set_root_path(root_path)
         self.extract_dock.set_root_path(root_path)
         self.root_metadata_dock.refresh_working_file_choices()

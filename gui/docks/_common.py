@@ -22,7 +22,11 @@ from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QComboBox, QCompleter, QLineEdit
+from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QCompleter,
+                             QHBoxLayout, QHeaderView, QLineEdit, QPushButton,
+                             QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+
+from kicadstamp.i18n import _
 
 from kicadstamp.config_writer import (
     read_data, write_data, add_include, add_list_entry, disable_include,
@@ -284,3 +288,111 @@ def apply_compact_field_minimums(app) -> None:
     existing = app.styleSheet()
     if FIELD_MIN_WIDTH_QSS not in existing:
         app.setStyleSheet((existing + "\n" + FIELD_MIN_WIDTH_QSS).strip())
+
+
+class KeyValueTableEditor(QWidget):
+    """One small dict[str, str]-editing block — read-only table + a
+    key/value row with Add/update + Remove selected, same "table below,
+    editing goes through the row" discipline as RuleDock's spokes editor/
+    CellDock's per-tab editors, just for a plain string->string mapping
+    instead of a richer dataclass. Used by PlacerDock's Nets/Net overrides/
+    Refs tabs (2026-08-06, Denis: "в пласере точно надо... таблицей (может
+    быть даже с изменяемыми полями)") and by the ToolsDock (Entity/Placement
+    split, phase 5.2 stage 3) — ClonePlacement/Entity nets/net_overrides/refs
+    had NO GUI at all before this (explicitly flagged "Scope NOT covered" in
+    placer.py's own docstring); one reusable class instead of tripling the
+    same table+row+Add/Remove wiring three times over. Moved from placer.py
+    to _common.py (2026-08-30) so ToolsDock shares it; placer.py aliases it
+    as `_KeyValueTableEditor` for its existing call sites/tests.
+    Key/value combos are searchable and editable (configure_searchable) —
+    set_key_choices()/set_value_choices() feed them known roles/nets, same
+    picker-not-whitelist convention as every other combo here."""
+
+    def __init__(self, key_label: str, value_label: str,
+                 key_placeholder: str = "", value_placeholder: str = "",
+                 parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self._data: dict = {}
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self.table = QTableWidget(0, 2)
+        self.table.setHorizontalHeaderLabels([key_label, value_label])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.itemSelectionChanged.connect(self._on_selection_changed)
+        layout.addWidget(self.table)
+
+        row = QHBoxLayout()
+        self.key_edit = QComboBox()
+        configure_searchable(self.key_edit)
+        self.key_edit.lineEdit().setPlaceholderText(key_placeholder)
+        row.addWidget(self.key_edit)
+        self.value_edit = QComboBox()
+        configure_searchable(self.value_edit)
+        self.value_edit.lineEdit().setPlaceholderText(value_placeholder)
+        row.addWidget(self.value_edit)
+        self.add_button = QPushButton(_("Add / update"))
+        self.add_button.clicked.connect(self._on_add_or_update)
+        row.addWidget(self.add_button)
+        self.remove_button = QPushButton(_("Remove selected"))
+        self.remove_button.clicked.connect(self._on_remove)
+        row.addWidget(self.remove_button)
+        layout.addLayout(row)
+
+    def _on_selection_changed(self) -> None:
+        rows = self.table.selectionModel().selectedRows()
+        if not rows:
+            return
+        self.key_edit.setCurrentText(self.table.item(rows[0].row(), 0).text())
+        self.value_edit.setCurrentText(self.table.item(rows[0].row(), 1).text())
+
+    def _on_add_or_update(self) -> None:
+        key = self.key_edit.currentText().strip()
+        value = self.value_edit.currentText().strip()
+        if not key or not value:
+            return
+        self._data[key] = value
+        self._refresh()
+
+    def _on_remove(self) -> None:
+        rows = self.table.selectionModel().selectedRows()
+        if not rows:
+            return
+        key = self.table.item(rows[0].row(), 0).text()
+        self._data.pop(key, None)
+        self._refresh()
+        self.key_edit.setCurrentText("")
+        self.value_edit.setCurrentText("")
+
+    def _refresh(self) -> None:
+        self.table.setRowCount(len(self._data))
+        for row, (key, value) in enumerate(sorted(self._data.items())):
+            self.table.setItem(row, 0, QTableWidgetItem(key))
+            self.table.setItem(row, 1, QTableWidgetItem(value))
+
+    def to_dict(self) -> dict:
+        return dict(self._data)
+
+    def load_dict(self, data: Optional[dict]) -> None:
+        self._data = dict(data or {})
+        self._refresh()
+        self.key_edit.setCurrentText("")
+        self.value_edit.setCurrentText("")
+
+    def set_key_choices(self, items: list) -> None:
+        set_combo_items(self.key_edit, items)
+
+    def set_value_choices(self, items: list) -> None:
+        set_combo_items(self.value_edit, items)
+
+    def set_value_choices_for_key(self, key: str, items: list) -> None:
+        """Narrow value_edit's choices to `items` while key_edit currently
+        shows `key` — falls back to the full/default set otherwise. Caller
+        wires this to key_edit's own signal; the widget itself stays a dumb
+        dict editor, no board/candidate knowledge here."""
+        if self.key_edit.currentText().strip() == key:
+            set_combo_items(self.value_edit, items)

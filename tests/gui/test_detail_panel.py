@@ -10,6 +10,7 @@ from gui.docks.points import PointsDock
 from gui.docks.root_metadata import RootMetadataDock
 from gui.docks.rules import RuleDock
 from gui.docks.thermal_via import ThermalViaArrayDock
+from gui.docks.tools import ToolsDock
 
 
 def test_pages_are_the_expected_panel_types(main_window):
@@ -23,11 +24,13 @@ def test_pages_are_the_expected_panel_types(main_window):
     assert isinstance(dock.net_trace_panel, NetTraceDock)
     assert isinstance(dock.cells_panel, CellDock)
     assert isinstance(dock.configurator_panel, ConfiguratorDock)
+    assert isinstance(dock.tools_panel, ToolsDock)
     # Coordinate placements merged into PlacerDock (2026-08-12, Group 1) —
-    # no separate Coordinate panel/tab anymore. Settings is the 8th tab
+    # no separate Coordinate panel/tab anymore. Settings is the 9th tab
     # (2026-08-15, plan configurator_panel); Net traces (2026-08-21, plan
-    # net_trace_dock) sits between Rules and Cells.
-    assert dock.stack.count() == 9
+    # net_trace_dock) sits between Rules and Cells; Tools (2026-08-30,
+    # phase 5.2 stage 3) sits between Cells and Settings.
+    assert dock.stack.count() == 10
 
 
 def test_project_tab_is_shown_first(main_window):
@@ -179,13 +182,22 @@ def test_manual_tab_click_also_updates_the_title(main_window):
     assert dock.windowTitle() == "Detail — Rules: my_rule"
 
 
+def test_show_tools_switches_tab_and_stack(main_window):
+    """Tools (2026-08-30, phase 5.2 stage 3) — the Entity's electrical
+    fields, between Cells and Settings."""
+    dock = DetailDock(main_window)
+    dock.show_tools()
+    assert dock.tab_bar.currentIndex() == 8
+    assert dock.stack.currentWidget() is dock.tools_panel
+
+
 def test_show_settings_switches_tab_and_stack(main_window):
-    """Settings is the 9th tab (2026-08-15 plan configurator_panel, +1 for
-    Net traces 2026-08-21) — its show_X() page-switch follows the same
-    pattern as every other page."""
+    """Settings is the 10th tab (2026-08-15 plan configurator_panel, +1 for
+    Net traces 2026-08-21, +1 for Tools 2026-08-30) — its show_X() page-switch
+    follows the same pattern as every other page."""
     dock = DetailDock(main_window)
     dock.show_settings()
-    assert dock.tab_bar.currentIndex() == 8
+    assert dock.tab_bar.currentIndex() == 9
     assert dock.stack.currentWidget() is dock.configurator_panel
 
 

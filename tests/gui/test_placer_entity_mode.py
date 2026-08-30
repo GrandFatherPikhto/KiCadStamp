@@ -104,15 +104,16 @@ def test_entity_is_the_third_source_mode(main_window, tmp_path):
     assert not dock.is_coordinate
     _switch_to_entity(dock)
     assert dock.is_entity
-    # Entity row replaces the Cell/name rows; the electrical tabs stay (they
-    # carry Entity fields), the Coordinate tab does not.
+    # Entity row replaces the Cell/name rows; the Coordinate tab does not.
+    # Phase 5.2 stage 3: Nets/Net overrides/Refs moved to the Tools dock, so
+    # they're hidden in Entity mode; the Origin tab (the trees: node) stays.
     assert dock._entity_row.isHidden() is False
     assert dock._cell_row.isHidden() is True
     assert dock._name_row.isHidden() is True
     assert dock._coordinate_identity_row.isHidden() is True
-    assert dock._tabs.isTabVisible(dock._nets_tab_index)
-    assert dock._tabs.isTabVisible(dock._net_overrides_tab_index)
-    assert dock._tabs.isTabVisible(dock._refs_tab_index)
+    assert not dock._tabs.isTabVisible(dock._nets_tab_index)
+    assert not dock._tabs.isTabVisible(dock._net_overrides_tab_index)
+    assert not dock._tabs.isTabVisible(dock._refs_tab_index)
     assert dock._tabs.isTabVisible(dock._origin_tab_index)
     assert not dock._tabs.isTabVisible(dock._coordinate_tab_index)
 
