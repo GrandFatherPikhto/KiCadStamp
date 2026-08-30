@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from kicadstamp.anchor_graph import build_anchor_graph, redraw_records_in_order
 from kicadstamp.apply_pipeline import ApplyPipeline
-from kicadstamp.exceptions import ValidationError
+from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.i18n import _
 from kicadstamp.kicad.adapter import KiCadBoardAdapter
 from kicadstamp.link_trees import link_trees
@@ -65,7 +65,14 @@ def run_cascade(config_path: str, cfg, ctx,
             pipeline.run()
             results.append((name, True, None))
             logger.info(_("Redraw dependents: {name!r} — ok").format(name=name))
-        except Exception as e:  # noqa: BLE001 — a per-record failure must not abort the rest
+        except PlacerError as e:
+            # ValidationError/PlacerError family — already a well-formatted,
+            # expected "fatal at the boundary" message (format_fatal_error); no
+            # traceback needed (a per-record failure must not abort the rest).
+            results.append((name, False, str(e)))
+            logger.warning(_("Redraw dependents: {name!r} — FAILED: {error}")
+                           .format(name=name, error=e))
+        except Exception as e:  # noqa: BLE001 — genuinely unexpected, keep the traceback
             logger.exception("Redraw dependents: %s failed", name)
             results.append((name, False, str(e)))
             logger.warning(_("Redraw dependents: {name!r} — FAILED: {error}")
@@ -139,7 +146,13 @@ def run_curated_tree_redraw(config_path: str, cfg, ctx, trees: list[Tree],
             pipeline.run()
             results.append((name, True, None))
             logger.info(_("Tree redraw: {name!r} — ok").format(name=name))
-        except Exception as e:  # noqa: BLE001 — a per-record failure must not abort the rest
+        except PlacerError as e:
+            # ValidationError/PlacerError family — already a well-formatted,
+            # expected "fatal at the boundary" message (format_fatal_error); no
+            # traceback needed (a per-record failure must not abort the rest).
+            results.append((name, False, str(e)))
+            logger.warning(_("Tree redraw: {name!r} — FAILED: {error}").format(name=name, error=e))
+        except Exception as e:  # noqa: BLE001 — genuinely unexpected, keep the traceback
             logger.exception("Tree redraw: %s failed", name)
             results.append((name, False, str(e)))
             logger.warning(_("Tree redraw: {name!r} — FAILED: {error}").format(name=name, error=e))
@@ -213,7 +226,13 @@ def run_curated_forest_redraw(config_path: str, cfg, ctx, trees: list[Tree],
             pipeline.run()
             results.append((name, True, None))
             logger.info(_("Forest redraw: {name!r} — ok").format(name=name))
-        except Exception as e:  # noqa: BLE001 — a per-record failure must not abort the rest
+        except PlacerError as e:
+            # ValidationError/PlacerError family — already a well-formatted,
+            # expected "fatal at the boundary" message (format_fatal_error); no
+            # traceback needed (a per-record failure must not abort the rest).
+            results.append((name, False, str(e)))
+            logger.warning(_("Forest redraw: {name!r} — FAILED: {error}").format(name=name, error=e))
+        except Exception as e:  # noqa: BLE001 — genuinely unexpected, keep the traceback
             logger.exception("Forest redraw: %s failed", name)
             results.append((name, False, str(e)))
             logger.warning(_("Forest redraw: {name!r} — FAILED: {error}").format(name=name, error=e))

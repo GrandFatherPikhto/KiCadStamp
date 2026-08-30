@@ -6,6 +6,7 @@ topological order (cascade_records) and sequential --only application with
 per-record status (run_cascade) — the §2.3/§2.5 behaviour, against a mocked
 ApplyPipeline (no live board).
 """
+import logging
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -13,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from unittest.mock import MagicMock
 
 from kicadstamp.config import Config, Cell, TemplateComponentSlot, ClonePlacement
-from kicadstamp.exceptions import ValidationError
+from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.trees import load_trees
 
 import gui.docks.cascade as cascade_mod
@@ -210,3 +211,82 @@ def test_run_curated_forest_redraw_cross_tree_order(monkeypatch, tmp_path):
     # t2 is anchored on CL_A (a selected node of t1) -> CL_A applied first
     assert [c[0] for c in calls] == ["CL_A", "CL_B"]
     assert results == [("CL_A", True, None), ("CL_B", True, None)]
+
+
+def _raising_pipeline(raised):
+    """A fake ApplyPipeline whose run() always raises `raised` — for the
+    per-record failure-path tests (no live board)."""
+
+    class _FakePipeline:
+        def __init__(self, config_path, preloaded_cfg=None, preloaded_ctx=None,
+                     only=None, dry_run=False, position_overrides=None):
+            pass
+
+        def run(self):
+            raise raised
+
+    return _FakePipeline
+
+
+def test_run_cascade_placer_error_no_traceback_unexpected_keeps_it(monkeypatch, caplog):
+    """2026-08-30: the ValidationError/PlacerError family is ALREADY a
+    well-formatted "fatal at the boundary" message (format_fatal_error) — it
+    must be logged as a plain WARNING with NO traceback (logger.exception would
+    add ~20 lines of noise per record). A genuinely unexpected Exception keeps
+    the traceback as before. The per-record result is identical in both
+    branches."""
+    # PlacerError path (a BARE PlacerError — the base of ValidationError/
+    # ComponentNotFoundError/...) -> warning only, no exc_info
+    monkeypatch.setattr(cascade_mod, "ApplyPipeline",
+                        _raising_pipeline(PlacerError("expected")))
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        results = run_cascade("/root.sexp", None, None, ["A"])
+    assert results == [("A", False, "expected")]
+    assert any("FAILED" in r.getMessage() for r in caplog.records)
+    assert not any(r.exc_info for r in caplog.records), \
+        "PlacerError must NOT log a traceback (logger.exception)"
+
+    # Plain Exception path -> logger.exception (exc_info set), same result
+    monkeypatch.setattr(cascade_mod, "ApplyPipeline",
+                        _raising_pipeline(RuntimeError("boom")))
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        results = run_cascade("/root.sexp", None, None, ["A"])
+    assert results == [("A", False, "boom")]
+    assert any(r.exc_info for r in caplog.records), \
+        "an unexpected Exception must keep the traceback (logger.exception)"
+
+
+def test_curated_redraws_keep_placer_error_traceback_split(monkeypatch, tmp_path, caplog):
+    """The same no-traceback-for-PlacerError / traceback-for-Exception split
+    holds in run_curated_tree_redraw and run_curated_forest_redraw (their
+    except blocks are identical to run_cascade's)."""
+    cfg = _curated_cfg()
+    trees = _load_tree(tmp_path,
+        '(tree (name "t") (anchor (origin))\n'
+        '      (node (ref "CL_A") (xy 1 2))\n'
+        '      (node (ref "CL_B") (xy 3 4)))')
+    monkeypatch.setattr(cascade_mod, "KiCadBoardAdapter", lambda **k: MagicMock())
+
+    # tree redraw: a bare PlacerError -> warning, no traceback
+    monkeypatch.setattr(cascade_mod, "ApplyPipeline",
+                        _raising_pipeline(PlacerError("expected")))
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        results, _warnings = run_curated_tree_redraw(
+            "/root.sexp", cfg, None, trees, "t", {"CL_B"})
+    assert results == [("CL_B", False, "expected")]
+    assert not any(r.exc_info for r in caplog.records), \
+        "tree redraw: PlacerError must NOT log a traceback"
+
+    # forest redraw: unexpected Exception -> traceback
+    monkeypatch.setattr(cascade_mod, "ApplyPipeline",
+                        _raising_pipeline(RuntimeError("boom")))
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        results, _warnings = run_curated_forest_redraw(
+            "/root.sexp", cfg, None, trees, {"CL_B"})
+    assert results and results[0] == ("CL_B", False, "boom")
+    assert any(r.exc_info for r in caplog.records), \
+        "forest redraw: an unexpected Exception must keep the traceback"
