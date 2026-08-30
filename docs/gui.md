@@ -128,6 +128,11 @@ A tree mirroring the actual `include:` file graph from a single root config file
 sections (Cells/Clone placements/Thermal via arrays/Points/Rules/Extract profiles/Clone profiles)
 and its own included files, recursively.
 
+Since 2026-08-30 (Entity/Placement split, phase 5.6) each file node also shows **Entities** and
+**Trees** categories. Clicking an **Entities** leaf switches the Placer dock into Entity mode with
+that Entity loaded (`set_selected_entity`); the **Trees** category is navigation-only — editing
+lives in the Trees dock.
+
 Right-click any entry for:
 - **Rename...** — renames the entry; for Cells/Points, also rewrites every reference to it
   (`cell:`/`anchor_point:`) anywhere in the whole include: graph, not just the file it's declared in.
@@ -226,6 +231,11 @@ auto-sets the **Kind** to that section and keeps the clean name — a node left 
 colliding ref would be fatal at link time ("0 or 2+ matches"). **External** keeps the combo
 free-text for a live-board refdes (2026-08-29,
 plan_2026_08_29_trees_node_kind_filtered_combo.md).
+
+Since 2026-08-30 (phase 5.5) the Add-node dialog auto-numbers a NEW node's ref when the typed ref is
+not one of the config's placeable record names AND is already used by another node somewhere in the
+trees: `_unique_ref` appends `_1`/`_2`/… so the tree never saves a duplicate ref (which would be
+fatal at link time).
 
 Adding a node whose record still carries its own inline anchor (`anchor_ref`/`anchor_role`/
 `anchor_point`/`anchor_origin`) is always allowed — **Save never blocks on it** (FORK-1 no longer
@@ -544,6 +554,42 @@ Not covered by the GUI yet (still reachable by hand-editing the saved YAML): `by
 searchable combo sourced from the project's schematic files (see
 plan_2026_08_15_sheet_combo_everywhere.md), including ClonePlacement's Origin tab and
 ThermalViaArrayConfig's anchor (both had the field in the model, only the form never reached it).
+
+## Entity mode (PlacerDock, 2026-08-30)
+
+The Entity/Placement split (phase 5.2) added an **Entity** source to the Placer dock. Picking an
+Entity (from the whole `include:` graph) loads the `entities:` record into the form — **Source**
+edits the "what" (Cell/Nets/Params/Cluster/Sheet/... — electrical and identity fields; there is NO
+position section here, an Entity never carries `xy`/anchor/rotation), and the **Origin** tab edits
+the position, which is written into the `trees:` node that places this Entity.
+
+- **Save (Entity)** — validates and writes the `entities:` record through `upsert_entity` into the
+  file the Entity actually lives in (an Entity in an included file is updated in place, never
+  duplicated into the root). The merge preserves the electrical fields (`nets`/`net_overrides`/
+  `refs`) even when the form cleared them (2026-08-30 merge-preserve fix).
+- **Origin (Entity)** — the same position widget as the ClonePlacement path (Absolute XY / Anchor /
+  Point). Saving calls `upsert_entity_placement` (`kicadstamp/config_writer.py`): it finds the tree
+  whose anchor matches the picked origin (or creates a single-node tree named after the Entity) and
+  writes/updates the `kind "placement"` node whose `ref` is the Entity name. A status label reports
+  "Placed under tree …" or "Not placed — set an origin to place it." (no tree node yet = legitimately
+  not placed).
+- **Tabs** — in Entity mode the Placer's Nets/Net overrides/Refs tabs are hidden (they moved to the
+  **Tools** page, next section); the legacy Cell/ClonePlacement mode keeps them.
+
+## Tools (Nets / Net overrides / Refs, 2026-08-30)
+
+Phase 5.3 moved the Entity's three electrical editors OUT of the Placer dock into a new **Tools**
+page (a tab in the Detail dock's stack, inserted right before Settings).
+
+- **Nets** — `role → net` (Params stays in the Placer's Source tab — both feed the same by-nets
+  role resolution).
+- **Net overrides** — `resolved net → override`.
+- **Refs** — `role → explicit refdes`.
+
+The page is Entity-targeted exactly like the Placer's Entity mode: pick an Entity (graph-wide), edit
+the three dicts, **Save** validates through `load_entity` and writes back via the same merge-safe
+`upsert_entity` into the Entity's own file — so the Tools page and the Placer's Source/Origin edit
+the same record without clobbering each other.
 
 ## Project
 

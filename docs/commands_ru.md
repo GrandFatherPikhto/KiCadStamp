@@ -777,6 +777,37 @@ python tools/update_i18n.py
 # ✅ Переводы обновлены.
 ```
 
+### `convert_placements.py` – миграция `clone_placements:` в Entity + деревья размещений (2026-08-30)
+
+Переписывает легаси-секцию `clone_placements:` `.sexp`-профиля в новую модель Entity/Placement: по
+одной записи `(entity ...)` на каждый бывший клон (электрика + идентичность, БЕЗ позиции) плюс
+одно-узловое дерево размещения на каждую entity (анкор + узел из бывших `anchor_*`/`xy`/polar
+клона). Уже существующие узлы `trees:` с `kind "clone"`, чей ref теперь стал Entity, в том же
+прогоне переписываются в `kind "placement"`, чтобы `link_trees` продолжал работать. Терпим к
+частично конвертированным профилям (дедуп entity по имени, пропуск деревьев для уже размещённых
+ref).
+
+#### Синтаксис
+
+```bash
+python tools/convert_placements.py <profile.sexp>
+```
+
+#### Безопасность
+
+- **Запускать на КОПИИ живого профиля** — скрипт переписывает файл на месте.
+- Перед записью рядом с оригиналом создаётся `.bak` с датой-временем (повторный запуск никогда не
+  затирает более ранний бэкап).
+- Секция `clone_placements:` в итоге пуста; сводка на выходе:
+  `<n> clone_placements, <m> entities, <k> trees`.
+
+#### Пример
+
+```bash
+python tools/convert_placements.py profiles/3ch-awg-tia-v103/3ch-awg-tia.sexp
+# converted profiles/3ch-awg-tia-v103/3ch-awg-tia.sexp: 0 clone_placements, 30 entities, 22 trees
+```
+
 ---
 
 ## Диагностические команды (для отладки и тестирования)

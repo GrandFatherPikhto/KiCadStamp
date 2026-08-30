@@ -42,6 +42,8 @@ clone_placements:
 | `include` | список | Другие YAML-файлы для подключения — см. **`include:`** ниже. |
 | `rules` | список | Правила ManualSpoke — см. **`rules:`** ниже. |
 | `clone_placements` | список | Размещения TemplatePlacer — см. **`clone_placements:`** ниже. |
+| `entities` | список | Записи Entity — «что» размещения, БЕЗ позиции — см. **`entities:`** ниже. |
+| `trees` | список | Деревья размещений — ЕДИНСТВЕННОЕ место, где может жить позиция — см. **`trees:`** ниже. |
 | `thermal_via_arrays` | список | Любое число термо-via-сеток, каждая с собственным именем/якорем — см. **`thermal_via_arrays:`** ниже. |
 | `place_components` | булево | По умолчанию `true`. `false` — перемещать/создавать via и треки, но не трогать позиции компонентов. |
 | `skip_existing_components` | булево | По умолчанию `false`. Пропускать компоненты (и их via/треки), уже стоящие в целевой позиции — дешёвая идемпотентность для повторных прогонов. |
@@ -297,6 +299,11 @@ rules:
 
 ## `clone_placements:` — ClonePlacement (TemplatePlacer)
 
+> **Миграция (2026-08-30):** `clone_placements:` — это ЛЕГАСИ-путь размещений, живёт ещё во время
+> миграции, чтобы живые профили продолжали работать. Новые профили используют `entities:` + `trees:`
+> (см. ниже); [`tools/convert_placements.py`](../tools/convert_placements.py) конвертирует легаси-профиль
+> (запускать на КОПИИ — сначала создаётся `.bak` с датой-временем).
+
 Применяет `Cell` в новом месте — в отличие от `rules:` (якорь всегда пад ИС), якорь тут — просто имя
 (`anchor_id` в реестре — `f"name:{name}"`), так что это механизм и для повторяющихся многокомпонентных
 секций (pi-фильтры, DAC-каналы, LDO-подсистемы), и для одноразовых.
@@ -376,6 +383,86 @@ clone_placements:
 
 **Устарело, фатал при загрузке:** `origin_x_mm`/`origin_y_mm` (переименованы в `xy: [x, y]`), `side`
 (заменён на явные `layer:`+`mirror:`).
+
+---
+
+## `entities:` — «что» размещения, без позиции
+
+С 2026-08-30 семейство бывш. `clone_placements:` делится на ДВА понятия (действующая грамматика:
+[`techdocs/handoff/deepseek/design_2026_08_30_entity_placement_grammar.md`](../techdocs/handoff/deepseek/design_2026_08_30_entity_placement_grammar.md)):
+
+1. **`Entity`** (эта секция) — всё о вещи, КРОМЕ того, где она стоит: `cell` (форма),
+   `nets`/`params`/`net_overrides` (электрика) и идентичность инстанцирования
+   (`cluster`/`sheet`/`retired`/`skip`/`ignore_selection`/`by_selection`/`refs`/`layer`/`mirror`/
+   `comment`). **Поля позиции (`xy`/`anchor_*`/`rotation`) у Entity запрещены — фатал при загрузке,
+   а не молчаливое игнорирование.**
+2. **Размещение = узел `trees:`** — см. **`trees:`** ниже. `node.ref` для `kind "placement"` резолвится
+   в `Entity.name`; позиция узла (`xy`/polar/`rotation`) — это то, где стоит Entity.
+
+То есть «Entity, на которую не ссылается ни один узел дерева» — это легальная, явно *не размещённая*
+сущность.
+
+```sexp
+(entities
+  (entity
+    (name "DAC_BUF_CH0")                    ; ОБЯЗАТЕЛЬНО — уникально во всём include-графе;
+                                            ;   идентичность для --only / реестра
+    (cell "dac_buf")                        ; ОБЯЗАТЕЛЬНО — ссылка на cells:
+    (nets (ROLE1 "NET1") (ROLE2 "NET2"))    ; опц. role -> net
+    (params ("{PH}" "value"))               ; опц. значения {placeholder}
+    (net_overrides (ROLE "NET"))            ; опц. финальное переименование
+    (cluster "CH0")                         ; тег Cluster, пишется на плату при Apply
+    (sheet "Channel_0")                     ; опц. — собственная идентичность для сужения ролей
+    (retired true) (skip true) (ignore_selection true) ; опц., по умолчанию false
+    (by_selection true)                     ; опц. per-instance резолв по выделению
+    (refs (ROLE "R1"))                      ; опц. per-instance role -> ref
+    (layer "F.Cu")                          ; опц.; mirror — только вместе со сменой слоя
+    (mirror true)
+    (comment "note")))
+```
+
+| Поле | Смысл |
+|---|---|
+| `name` | ОБЯЗАТЕЛЬНО — уникально во всём include-графе; идентичность для `--only`/реестра (заменяет эффективное имя `ClonePlacement`). |
+| `cell` | ОБЯЗАТЕЛЬНО — ссылка на `cells:` (форма для размещения). |
+| `nets` | Опц. `{role: буквальная_цепь}` — тот же маппинг ролей по сетям, что и `ClonePlacement.nets`. |
+| `params` | Опц. `{placeholder: значение}` — заполняет `{placeholder}` в `net_template:`/via/track полях `net:` ячейки. |
+| `net_overrides` | Опц. `{резолвленная_цепь: замена}` — финальная подмена после остального резолва цепей. |
+| `cluster` | Опц. (в отличие от `ClonePlacement`) — тег Cluster, пишется на плату при Apply; entity может существовать «не размещённой» (без узла дерева) и без тега. |
+| `sheet` | Опц. собственный лист — сужает неоднозначные Cluster+Role внутри ячейки между переиспользуемыми листами. |
+| `retired` / `skip` | Опц., по умолчанию `false` — та же конвенция, что у `Rule`. |
+| `ignore_selection` | Опц., по умолчанию `false` — поэлементный аналог `--no-selection`. |
+| `by_selection` | Опц., по умолчанию `false` — per-instance резолв ролей по выделению. |
+| `refs` | Опц. `{role: refdes}` — per-instance явное переопределение, минуя поиск по цепям. |
+| `layer` / `mirror` | Опц. — та же перекрёстная проверка, что у `ClonePlacement` (mirror без смены слоя, или наоборот — фатал при загрузке). |
+| `comment` | Опц. свободная заметка, видна в GUI. |
+
+---
+
+## `trees:` — ЕДИНСТВЕННОЕ место, где может жить позиция
+
+С 2026-08-30 секция `trees:`, которую редактирует TreesDock, — это также **хранилище размещений**
+для entity: узел с `kind "placement"`, чей `ref` — это `Entity.name`, И ЕСТЬ размещение этой entity —
+«где стоит» = `позиция родителя + офсет узла`, ровно семантика `node_position`
+(`kicadstamp/tree_position.py`). Отдельной секции `placements:` НЕТ.
+
+```sexp
+(tree (name "dac_buf_ch0")
+  (anchor (origin))                            ; абсолют, или:
+  ; (anchor (ref "CONN_PM5V"))                 ;   по refdes (external = только живая плата)
+  ; (anchor (role "FPGA") (sheet "...") (cluster "...") (pad "A1"))
+  ; (anchor (point "P1"))
+  (node (ref "DAC_BUF_CH0") (kind placement) (xy 10.0 20.0) (rotation 90.0)
+        (children ...)))                       ; вложенные узлы образуют жёсткую группу
+```
+
+- `kind "clone"` переименован в `kind "placement"`; при загрузке `"clone"` по-прежнему принимается как
+  алиас `"placement"` на время миграции. Виды узлов `rule`/`coordinate`/`point`/`external` не меняются.
+- `node.ref` для `kind "placement"` резолвится в `Entity.name`, а не в старый список `clone_placements:`.
+- Плоское одиночное размещение = дерево с одним узлом под `(anchor (origin))` или
+  компонентным/точечным якорем.
+- Правило «один ref не более чем в одном узле» означает, что Entity всегда 1:1 со своим узлом дерева —
+  Entity не может стоять в двух местах.
 
 ---
 

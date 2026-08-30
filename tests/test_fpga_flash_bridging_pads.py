@@ -132,18 +132,20 @@ def _get_pad_by_number(fp, num):
 
 
 # ---------------------------------------------------------------------------
-# Fixture: the loaded cell + its FPGA_FLASH clone_placement (config-only)
+# Fixture: the loaded cell + its FPGA_FLASH Entity (config-only)
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture(scope="module")
 def fpga_flash():
-    """(cell, clone) for Cell fpga_flash and the FPGA_FLASH clone_placement,
-    loaded through the real load_config — no live board, no IPC."""
+    """(cell, entity) for Cell fpga_flash and the FPGA_FLASH Entity, loaded
+    through the real load_config — no live board, no IPC. The live profile is
+    on the Entity/Placement model since 2026-08-30 (Denis converted it), so the
+    record is read from cfg.entities by name, not from cfg.clone_placements."""
     cfg, _ctx = load_config(str(_PROFILE))
     cell = cfg.cells[_CELL_NAME]
-    clone = next(cp for cp in cfg.clone_placements if cp.cluster == _CLUSTER)
-    return cell, clone
+    entity = next(e for e in cfg.entities if e.name == _CLUSTER)
+    return cell, entity
 
 
 # ---------------------------------------------------------------------------
@@ -175,7 +177,7 @@ class TestHypothesesH1ToH4:
         segment — and specifically the predicted neighbour, joined at the
         predicted coordinate. If this fails, Denis's prediction was wrong and
         the ACTUAL connectivity wins."""
-        cell, _clone = fpga_flash
+        cell, _entity = fpga_flash
         components = cell_copper_components(cell)
         rail_roles = _rail_family_roles(cell)
 
@@ -230,12 +232,12 @@ class TestHypothesisH5:
 
     def test_no_sibling_role_resolves_to_either_signal_net(self, fpga_flash):
         """Every role OTHER than R_FL_HOLD/R_FL_WP themselves: its own net
-        (net_template resolved via params, else the clone_placement nets entry)
+        (net_template resolved via params, else the entity nets entry)
         must differ from both signal nets — otherwise same_as_role WOULD be
         fillable and H5 would be rejected."""
-        cell, clone = fpga_flash
-        params = clone.params
-        signal_nets = {r: clone.nets[r] for r in ("R_FL_HOLD", "R_FL_WP")}
+        cell, entity = fpga_flash
+        params = entity.params
+        signal_nets = {r: entity.nets[r] for r in ("R_FL_HOLD", "R_FL_WP")}
 
         for slot in cell.components:
             if slot.role in signal_nets:
@@ -243,7 +245,7 @@ class TestHypothesisH5:
             if slot.net_template is not None:
                 own_net = resolve_net(slot.net_template, params, {})
             else:
-                own_net = clone.nets.get(slot.role)
+                own_net = entity.nets.get(slot.role)
             for role, signal_net in signal_nets.items():
                 assert own_net != signal_net, (
                     f"H5 REJECTED: role {slot.role!r} resolves to the signal net "
@@ -256,13 +258,13 @@ class TestHypothesisH5:
         C_OUT_BYPASS}, each resolving via params to +3V3_FLASH — the RAIL,
         which is the WRONG side for same_as_role of R_FL_HOLD/R_FL_WP (their
         identifying net is the signal)."""
-        cell, clone = fpga_flash
+        cell, entity = fpga_flash
         rail_roles = _rail_family_roles(cell)
         assert rail_roles == {"FLASH", "R_PIF", "C_OUT_BULK", "C_OUT_BYPASS"}
         for role in sorted(rail_roles):
             slot = next(s for s in cell.components if s.role == role)
-            assert resolve_net(slot.net_template, clone.params, {}) == _RAIL_NET
-        assert _RAIL_NET not in (clone.nets["R_FL_HOLD"], clone.nets["R_FL_WP"])
+            assert resolve_net(slot.net_template, entity.params, {}) == _RAIL_NET
+        assert _RAIL_NET not in (entity.nets["R_FL_HOLD"], entity.nets["R_FL_WP"])
 
 
 # ---------------------------------------------------------------------------
@@ -275,7 +277,7 @@ class TestSuggestRoleNetsEndToEnd:
     shape the live board presents today: R_FL_HOLD/R_FL_WP as bridging
     footprints with the signal pad (discovered in 3.2) carrying /FPGA/FL_HOLD
     or /FPGA/FL_WP and the other pad on +3V3_FLASH. With the pad hint it must
-    return EXACTLY the ground-truth net from the clone_placement nets: block —
+    return EXACTLY the ground-truth net from the entity nets: block —
     proving the whole path (pad discovery + existing engine, unchanged) really
     produces the correct answer."""
 
@@ -288,7 +290,7 @@ class TestSuggestRoleNetsEndToEnd:
         return adapter
 
     def test_pad_hint_yields_the_ground_truth_signal_nets(self, fpga_flash):
-        cell, clone = fpga_flash
+        cell, entity = fpga_flash
         components = cell_copper_components(cell)
         signal_pads = {role: signal_pad_for_role(components, cell, role)
                        for role in ("R_FL_HOLD", "R_FL_WP")}
@@ -305,9 +307,9 @@ class TestSuggestRoleNetsEndToEnd:
         ]
         hints = {role: (pad, None) for role, pad in signal_pads.items()}
         result = suggest_role_nets_from_cluster(self._adapter(footprints), hints, _CLUSTER)
-        # Ground truth: the clone_placement nets: block (lines ~390-399).
-        assert result == {"R_FL_HOLD": clone.nets["R_FL_HOLD"],
-                          "R_FL_WP": clone.nets["R_FL_WP"]}
+        # Ground truth: the entity nets: block.
+        assert result == {"R_FL_HOLD": entity.nets["R_FL_HOLD"],
+                          "R_FL_WP": entity.nets["R_FL_WP"]}
         assert result == {"R_FL_HOLD": "/FPGA/FL_HOLD", "R_FL_WP": "/FPGA/FL_WP"}
 
 
@@ -342,7 +344,7 @@ class TestHypothesisH6:
         symmetric 2-pin parts: both pads have their own copper in the cell and
         are NOT shorted together (bridging), and the designated net of each
         role is a signal net (neither the rail nor GND)."""
-        cell, clone = fpga_flash
+        cell, entity = fpga_flash
         components = cell_copper_components(cell)
         for role in ("R_FL_HOLD", "R_FL_WP"):
             comp_1 = component_containing(components, role, "1")
@@ -352,9 +354,9 @@ class TestHypothesisH6:
             # Different copper components => the two pads are NOT shorted in
             # the extracted cell (a bridging part, not a jumper).
             assert component_role_pads(comp_1) != component_role_pads(comp_2)
-            # The role's designated net (clone_placement nets:) is the signal,
+            # The role's designated net (entity nets:) is the signal,
             # i.e. neither the rail the other pad is on, nor a rule net.
-            assert clone.nets[role] not in (_RAIL_NET, "GND")
+            assert entity.nets[role] not in (_RAIL_NET, "GND")
 
     @pytest.mark.skip(reason=(
         "Re-verify the signal-pad numbering of R_FL_HOLD/R_FL_WP if Cell "

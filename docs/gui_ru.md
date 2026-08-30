@@ -129,6 +129,11 @@ PCB-only и тихо затиралась собственным «Update PCB fr
 узел показывает свои собственные секции (Cells/Clone placements/Thermal via arrays/Points/Rules/
 Extract profiles/Clone profiles) и свои include-файлы, рекурсивно.
 
+С 2026-08-30 (сплит Entity/Placement, фаза 5.6) каждый файловый узел также показывает категории
+**Entities** и **Trees**. Клик по листу **Entities** переключает док Placer в Entity-режим с
+загруженной этой Entity (`set_selected_entity`); категория **Trees** — только навигационная:
+редактирование живёт в доке Trees.
+
 Правый клик по любой записи даёт:
 - **Rename...** — переименовывает запись; для Cells/Points ещё и переписывает каждую ссылку на
   неё (`cell:`/`anchor_point:`) по всему графу include:, а не только в файле, где запись объявлена.
@@ -228,6 +233,11 @@ root-конфига через единый config_writer (сначала дел
 имя — узел, оставленный в auto с коллизионным ref, был бы фатален при линковке («0 или 2+
 совпадения»). **External** оставляет комбобокс свободным текстом для живого refdes платы
 (2026-08-29, plan_2026_08_29_trees_node_kind_filtered_combo.md).
+
+С 2026-08-30 (фаза 5.5) диалог добавления узла авто-нумерует ref НОВОГО узла, когда набранный ref —
+не одно из размещаемых имён конфига И уже используется другим узлом где-то в деревьях:
+`_unique_ref` дописывает `_1`/`_2`/…, чтобы дерево никогда не сохраняло дубликат ref (иначе фатал
+при link-времени).
 
 Добавить узел, чья запись всё ещё несёт собственный inline-якорь
 (`anchor_ref`/`anchor_role`/`anchor_point`/`anchor_origin`), можно всегда — **Save никогда на этом
@@ -558,6 +568,42 @@ Redraw/Save и строка сообщения остаются вне табо�
 каждое поле Sheet — поисковый комбобокс из schematic-файлов проекта (см.
 plan_2026_08_15_sheet_combo_everywhere.md), включая Origin у ClonePlacement и anchor у
 ThermalViaArrayConfig (у обоих поле было в модели, до формы оно просто не дотягивалось).
+
+## Entity-режим (PlacerDock, 2026-08-30)
+
+Сплит Entity/Placement (фаза 5.2) добавил в док Placer источник **Entity**. Выбор Entity (из всего
+`include:`-графа) загружает запись `entities:` в форму — **Source** правит «что» (Cell/Nets/Params/
+Cluster/Sheet/... — электрика и идентичность; секции позиции тут НЕТ, Entity никогда не несёт
+`xy`/anchor/rotation), а таб **Origin** правит позицию, которая пишется в узел `trees:`, размещающий
+эту Entity.
+
+- **Save (Entity)** — валидирует и пишет запись `entities:` через `upsert_entity` в тот файл, где
+  Entity реально живёт (Entity во включённом файле обновляется на месте, никогда не дублируется в
+  корень). Merge сохраняет электрические поля (`nets`/`net_overrides`/`refs`), даже если форма их
+  очистила (фикс merge-preserve, 2026-08-30).
+- **Origin (Entity)** — тот же виджет позиции, что и в пути ClonePlacement (Absolute XY / Anchor /
+  Point). При сохранении вызывается `upsert_entity_placement` (`kicadstamp/config_writer.py`): он
+  находит дерево, чей анкор совпадает с выбранным началом координат (или создаёт одно-узловое
+  дерево с именем Entity) и пишет/обновляет узел `kind "placement"`, чей `ref` — имя Entity. Метка
+  статуса сообщает «Placed under tree …» или «Not placed — set an origin to place it.» (нет узла
+  дерева = легально не размещено).
+- **Табы** — в Entity-режиме табы Placer Nets/Net overrides/Refs скрыты (переехали на страницу
+  **Tools**, следующий раздел); легаси-режим Cell/ClonePlacement их сохраняет.
+
+## Tools (Nets / Net overrides / Refs, 2026-08-30)
+
+Фаза 5.3 вынесла три электрических редактора Entity ИЗ дока Placer на новую страницу **Tools**
+(таб в стеке Detail dock, вставлен сразу перед Settings).
+
+- **Nets** — `role → net` (Params остаётся на табе Source у Placer — оба питают один и тот же шаг
+  by-nets резолва ролей).
+- **Net overrides** — `резолвленная цепь → override`.
+- **Refs** — `role → явный refdes`.
+
+Страница ориентирована на Entity ровно как Entity-режим Placer: выберите Entity (по всему графу),
+правьте три словаря, **Save** валидирует через `load_entity` и пишет обратно тем же merge-safe
+`upsert_entity` в файл самой Entity — так что страница Tools и Source/Origin у Placer правят одну
+и ту же запись, не затирая друг друга.
 
 ## Project
 

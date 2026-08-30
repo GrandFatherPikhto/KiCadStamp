@@ -15,6 +15,34 @@ The `placement/` directory contains the core logic for placing components, creat
 
 All services use the `kicad/adapter.py` adapter, the `geometry/` utilities, and the `config/` configuration package.
 
+## Entity and Placement (2026-08-30) — what vs. where
+
+Since 2026-08-30 the former `ClonePlacement` family splits into TWO concepts (authoritative grammar:
+`techdocs/handoff/deepseek/design_2026_08_30_entity_placement_grammar.md`):
+
+1. **`Entity`** (config section `entities:`) — everything about a thing EXCEPT where it stands:
+   `cell` (form), `nets`/`params`/`net_overrides` (electrics) and the instantiation identity
+   (`cluster`/`sheet`/flags/`layer`/`mirror`/`refs`). **It carries no position fields at all** —
+   `xy`/`anchor_*`/`rotation` are forbidden on an Entity.
+2. **Placement = a `trees:` node** (`TreeNode`, `kind "placement"`) — the node's `ref` is the
+   `Entity.name`, and its `xy`/polar/`rotation` (resolved as `parent_position + node offset`, see
+   `kicadstamp/tree_position.py::node_position`) is where that Entity stands.
+
+Trees are the ONLY store of positions; there is no separate `placements:` section. A flat single
+placement is a one-node tree under `(anchor (origin))` or a component/point anchor. `kind "clone"`
+was renamed to `kind "placement"` (`"clone"` still loads as an alias during the migration), and
+`node.ref` for `kind "placement"` resolves to `Entity.name` instead of the old `clone_placements:` list.
+
+At apply time `materialize_entity_placements` (`kicadstamp/placement/entity_placement.py`) walks the
+linked trees and produces transient absolute `ClonePlacement`s (Entity fields + live-resolved absolute
+position) that feed the SAME planner/executor pipeline as legacy `clone_placements:` — so the
+Entity/Placement split is purely a data-model refactor: the execution machinery is unchanged.
+
+**Migrating a legacy profile:** `tools/convert_placements.py` rewrites `clone_placements:` into
+`entities:` + placement trees in place (run on a COPY — it writes a timestamped `.bak` first), and
+rewrites pre-existing `kind "clone"` tree nodes to `kind "placement"`. See
+[docs/commands.md](commands.md) and [docs/config.md](config.md).
+
 ### `channel-copy` (variant Б, live) — the fourth placement path
 
 Alongside the three config-driven placement types above there is

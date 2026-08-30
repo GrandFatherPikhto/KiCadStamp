@@ -676,6 +676,36 @@ python tools/update_i18n.py
 # ✅ Translations updated.
 ```
 
+### `convert_placements.py` – migrate `clone_placements:` to Entity + placement trees (2026-08-30)
+
+Rewrites the legacy `clone_placements:` section of a `.sexp` profile into the new Entity/Placement
+model: one `(entity ...)` record per former clone (electrical + identity fields, NO position) plus a
+single-node placement tree per entity (anchor + node built from the clone's former
+`anchor_*`/`xy`/polar). Pre-existing `trees:` nodes with `kind "clone"` whose ref is now an Entity
+are rewritten to `kind "placement"` in the same run, so `link_trees` keeps working. Tolerant of
+partially-converted profiles (dedups entities by name, skips trees for already-placed refs).
+
+#### Syntax
+
+```bash
+python tools/convert_placements.py <profile.sexp>
+```
+
+#### Safety
+
+- **Run on a COPY of a live profile** — the tool rewrites the file in place.
+- Before writing, it makes a timestamped `.bak` next to the original (a repeated run never
+  overwrites an earlier backup).
+- The `clone_placements:` section ends up empty; the output summary is
+  `<n> clone_placements, <m> entities, <k> trees`.
+
+#### Example
+
+```bash
+python tools/convert_placements.py profiles/3ch-awg-tia-v103/3ch-awg-tia.sexp
+# converted profiles/3ch-awg-tia-v103/3ch-awg-tia.sexp: 0 clone_placements, 30 entities, 22 trees
+```
+
 ---
 
 ## Diagnostic commands (debugging and testing)

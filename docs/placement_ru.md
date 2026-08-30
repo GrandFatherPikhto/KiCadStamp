@@ -15,6 +15,36 @@
 
 Все сервисы используют адаптер `kicad/adapter.py`, геометрические утилиты `geometry/` и пакет конфигурации `config/`.
 
+## Entity и Placement (2026-08-30) — «что» vs. «где»
+
+С 2026-08-30 семейство бывш. `ClonePlacement` делится на ДВА понятия (действующая грамматика:
+`techdocs/handoff/deepseek/design_2026_08_30_entity_placement_grammar.md`):
+
+1. **`Entity`** (секция конфига `entities:`) — всё о вещи, КРОМЕ того, где она стоит: `cell` (форма),
+   `nets`/`params`/`net_overrides` (электрика) и идентичность инстанцирования
+   (`cluster`/`sheet`/флаги/`layer`/`mirror`/`refs`). **Полей позиции у неё нет в принципе** —
+   `xy`/`anchor_*`/`rotation` у Entity запрещены.
+2. **Размещение = узел `trees:`** (`TreeNode`, `kind "placement"`) — `ref` узла — это `Entity.name`,
+   а его `xy`/polar/`rotation` (резолвится как `позиция родителя + офсет узла`, см.
+   `kicadstamp/tree_position.py::node_position`) — это то, где стоит эта Entity.
+
+Деревья — ЕДИНСТВЕННОЕ хранилище позиций; отдельной секции `placements:` НЕТ. Плоское одиночное
+размещение — это дерево из одного узла под `(anchor (origin))` или компонентным/точечным якорем.
+`kind "clone"` переименован в `kind "placement"` (`"clone"` по-прежнему грузится как алиас во время
+миграции), а `node.ref` для `kind "placement"` резолвится в `Entity.name` вместо старого списка
+`clone_placements:`.
+
+На apply-времени `materialize_entity_placements` (`kicadstamp/placement/entity_placement.py`) проходит
+по связанным деревьям и создаёт временные абсолютные `ClonePlacement` (поля Entity + живьём
+резолвленная абсолютная позиция), которые питают ТУ ЖЕ цепочку planner/executor, что и легаси
+`clone_placements:` — то есть сплит Entity/Placement — чисто рефакторинг модели данных: механизм
+исполнения не меняется.
+
+**Миграция легаси-профиля:** `tools/convert_placements.py` переписывает `clone_placements:` в
+`entities:` + деревья размещений на месте (запускать на КОПИИ — сначала создаётся `.bak` с
+датой-временем) и переписывает уже существующие узлы `kind "clone"` в `kind "placement"`. См.
+[docs/commands_ru.md](commands_ru.md) и [docs/config_ru.md](config_ru.md).
+
 ### `channel-copy` (вариант Б, живая плата) — четвёртый путь расстановки
 
 Наряду с тремя конфиг-управляемыми типами расстановки выше есть

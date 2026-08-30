@@ -10,7 +10,7 @@ machinery applies it unchanged.
 import pytest
 
 from kicadstamp.apply_pipeline import apply_cluster_filter, apply_only_filter
-from kicadstamp.config import Cell, ClonePlacement, Config, Entity
+from kicadstamp.config import Cell, ClonePlacement, Config, Entity, Rule
 from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.placement.entity_placement import materialize_entity_placements
 from kicadstamp.placement.services.clone_position_calculator import entity_anchor_id
@@ -154,3 +154,58 @@ def test_apply_cluster_filter_does_not_fatal_when_only_entities_match():
     assert {e.name for e in filtered.entities} == {"E1"}
     with pytest.raises(PlacerError):
         apply_cluster_filter(cfg, ["NO_SUCH_CLUSTER"])
+
+
+def _mixed_tree_cfg():
+    """The REAL fpga-tree shape (bug #3, 2026-08-30): ONE tree mixes a
+    kind="placement" node (an Entity) with a kind="rule" node (a rules: entry)
+    — a neighbor section of the SAME tree."""
+    return Config(
+        cells={"c": _cell("c")},
+        entities=[Entity(name="E1", cell="c", cluster="CH0")],
+        rules=[Rule(name="R1", net="+3V3_VCCIO", spokes=[])],
+        trees=[Tree(name="t", anchor=TreeAnchor(is_origin=True),
+                    nodes=[_node(ref="E1", xy=(1.0, 0.0)),
+                           _node(ref="R1", kind="rule", xy=(2.0, 0.0))])],
+    )
+
+
+def test_only_on_placement_narrows_neighbor_rule_section():
+    """Real-profile bug #3 (2026-08-30): --only on a placement node narrows a
+    NEIGHBOR section (rules:) of the SAME tree. Materializing from the narrowed
+    cfg would fatal on the rule node (link_trees "Node ... not found in config")
+    — the OLD apply_pipeline behavior; the fix materializes from the FULL cfg,
+    which resolves the rule node and still yields only the placement."""
+    cfg = _mixed_tree_cfg()
+    narrowed = apply_only_filter(cfg, ["E1"])
+    assert narrowed.rules == []                        # the neighbor section narrowed
+    assert {e.name for e in narrowed.entities} == {"E1"}
+    with pytest.raises(ValidationError, match="not found in config"):
+        materialize_entity_placements(None, narrowed, {})
+    clones = materialize_entity_placements(None, cfg, {})
+    assert [c.name for c in clones] == ["E1"]
+
+
+def test_resolve_order_materializes_from_full_cfg_not_only_narrowed():
+    """Pipeline-level regression (bug #3): _resolve_order() must pass the FULL
+    (pre-filter) config to materialize_entity_placements, not the
+    --only-narrowed self.cfg — otherwise link_trees fatals on the first
+    rule/coordinate/... node of the same tree whose section --only filtered
+    away (TreesDock-Redraw ran --only per single node and died on all 13
+    fpga-tree nodes)."""
+    from unittest.mock import patch
+
+    from kicadstamp.apply_pipeline import ApplyPipeline
+
+    cfg = _mixed_tree_cfg()
+    pipeline = ApplyPipeline("board.sexp", preloaded_cfg=cfg, only=["E1"])
+    pipeline.adapter = None
+    pipeline._load_config()
+    pipeline._filter_config()
+    # the bug's precondition: the neighbor (rule) section IS narrowed away
+    assert pipeline.cfg.rules == []
+    assert pipeline._full_cfg is cfg                   # the full cfg is preserved
+    with patch("kicadstamp.apply_pipeline.resolve_execution_order", return_value=[]):
+        pipeline._resolve_order()                      # must not fatal
+    names = [c.name for c in pipeline.cfg.clone_placements]
+    assert "E1" in names

@@ -43,6 +43,8 @@ clone_placements:
 | `include` | list | Other YAML files to merge in — see **`include:`** below. |
 | `rules` | list | ManualSpoke rules — see **`rules:`** below. |
 | `clone_placements` | list | TemplatePlacer placements — see **`clone_placements:`** below. |
+| `entities` | list | Entity records — the "what" of a placement, WITHOUT any position — see **`entities:`** below. |
+| `trees` | list | Placement trees — the ONLY place a position can live — see **`trees:`** below. |
 | `thermal_via_arrays` | list | Any number of thermal via grids, each independently named/anchored — see **`thermal_via_arrays:`** below. |
 | `place_components` | bool | Default `true`. `false` moves/creates vias and tracks but leaves component positions untouched. |
 | `skip_existing_components` | bool | Default `false`. Skip components (and their vias/tracks) already at the target position — cheap idempotency for re-runs. |
@@ -291,6 +293,11 @@ rules:
 
 ## `clone_placements:` — ClonePlacement (TemplatePlacer)
 
+> **Migration (2026-08-30):** `clone_placements:` is the LEGACY placement path, still alive during
+> the migration so live profiles keep working. New-style profiles use `entities:` + `trees:` instead
+> (see below); [`tools/convert_placements.py`](../tools/convert_placements.py) converts a legacy
+> profile (run it on a COPY — it writes a timestamped `.bak` first).
+
 Applies a `Cell` at a new location — unlike `rules:` (anchor is always an IC pad), the anchor here is
 just a name (`anchor_id` in the registry is `f"name:{name}"`), so it's the mechanism for repeated
 multi-component sections (PI-filters, DAC channels, LDO subsystems) as well as one-off ones.
@@ -368,6 +375,84 @@ clone_placements:
 
 **Deprecated, fatal on load:** `origin_x_mm`/`origin_y_mm` (renamed to `xy: [x, y]`), `side` (replaced
 by explicit `layer:`+`mirror:`).
+
+---
+
+## `entities:` — the "what" of a placement, without position
+
+Since 2026-08-30 the former `clone_placements:` family splits into TWO concepts (authoritative
+grammar: [`techdocs/handoff/deepseek/design_2026_08_30_entity_placement_grammar.md`](../techdocs/handoff/deepseek/design_2026_08_30_entity_placement_grammar.md)):
+
+1. **`Entity`** (this section) — everything about a thing EXCEPT where it stands: `cell` (form),
+   `nets`/`params`/`net_overrides` (electrics) and the instantiation identity
+   (`cluster`/`sheet`/`retired`/`skip`/`ignore_selection`/`by_selection`/`refs`/`layer`/`mirror`/
+   `comment`). **Position fields (`xy`/`anchor_*`/`rotation`) are forbidden on an Entity — a load-time
+   fatal, not a silent ignore.**
+2. **Placement = a `trees:` node** — see **`trees:`** below. `node.ref` for `kind "placement"` resolves
+   into `Entity.name`; the node's `xy`/polar/`rotation` is where the Entity stands.
+
+So "an Entity no tree node references" is a legitimate, explicitly *not placed* entity.
+
+```sexp
+(entities
+  (entity
+    (name "DAC_BUF_CH0")                    ; REQUIRED — unique across the include graph;
+                                            ;   the --only / registry identity
+    (cell "dac_buf")                        ; REQUIRED — reference into cells:
+    (nets (ROLE1 "NET1") (ROLE2 "NET2"))    ; optional role -> net
+    (params ("{PH}" "value"))               ; optional {placeholder} values
+    (net_overrides (ROLE "NET"))            ; optional final rename
+    (cluster "CH0")                         ; Cluster TAG written onto the board at Apply
+    (sheet "Channel_0")                     ; optional — own identity for role narrowing
+    (retired true) (skip true) (ignore_selection true) ; optional, default false
+    (by_selection true)                     ; optional per-instance selection resolution
+    (refs (ROLE "R1"))                      ; optional per-instance role -> ref
+    (layer "F.Cu")                          ; optional; mirror only together with a layer change
+    (mirror true)
+    (comment "note")))
+```
+
+| Field | Meaning |
+|---|---|
+| `name` | REQUIRED — unique across the whole include graph; the `--only`/registry identity (replaces `ClonePlacement`'s effective name). |
+| `cell` | REQUIRED — reference into `cells:` (the form to place). |
+| `nets` | Optional `{role: literal_net}` — the same by-nets role mapping as `ClonePlacement.nets`. |
+| `params` | Optional `{placeholder: value}` — fills `{placeholder}`s in the cell's `net_template:`/via/track `net:` fields. |
+| `net_overrides` | Optional `{resolved_net: replacement_net}` — final substitution after the rest of net resolution. |
+| `cluster` | Optional (unlike `ClonePlacement`) — the Cluster TAG written onto the board at Apply; an entity may exist "not placed" (no tree node) without a tag. |
+| `sheet` | Optional own-identity sheet — narrows ambiguous Cluster+Role inside the cell across reused sheets. |
+| `retired` / `skip` | Optional, default `false` — same convention as `Rule`. |
+| `ignore_selection` | Optional, default `false` — per-item counterpart of `--no-selection`. |
+| `by_selection` | Optional, default `false` — per-instance selection-based role resolution. |
+| `refs` | Optional `{role: refdes}` — per-instance explicit override, bypasses net-based search. |
+| `layer` / `mirror` | Optional — same cross-validation as `ClonePlacement` (mirror without a layer change, or vice versa, is a fatal load error). |
+| `comment` | Optional free-form note shown in the GUI. |
+
+---
+
+## `trees:` — the ONLY place a position can live
+
+Since 2026-08-30 the `trees:` section the TreesDock edits is also the **placement store** for
+entities: a node with `kind "placement"` whose `ref` is an `Entity.name` IS that entity's placement —
+"where it stands" is `parent_position + node offset`, exactly the semantics of `node_position`
+(`kicadstamp/tree_position.py`). There is no separate `placements:` section.
+
+```sexp
+(tree (name "dac_buf_ch0")
+  (anchor (origin))                            ; absolute, or:
+  ; (anchor (ref "CONN_PM5V"))                 ;   by refdes (external = live-board-only)
+  ; (anchor (role "FPGA") (sheet "...") (cluster "...") (pad "A1"))
+  ; (anchor (point "P1"))
+  (node (ref "DAC_BUF_CH0") (kind placement) (xy 10.0 20.0) (rotation 90.0)
+        (children ...)))                       ; nested nodes form a rigid group
+```
+
+- `kind "clone"` was renamed to `kind "placement"`; on load `"clone"` is still accepted as an alias
+  for `"placement"` during the migration. `rule`/`coordinate`/`point`/`external` node kinds are unchanged.
+- `node.ref` for `kind "placement"` resolves to `Entity.name`, not the old `clone_placements:` list.
+- A flat single placement = a tree with one node under `(anchor (origin))` or a component/point anchor.
+- The one-ref-per-node tree rule means an Entity is always 1:1 with its tree node — an Entity cannot
+  stand in two places.
 
 ---
 

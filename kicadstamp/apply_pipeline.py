@@ -395,6 +395,13 @@ class ApplyPipeline:
 
         # Internal state
         self.cfg = preloaded_cfg
+        # Bug #3 fix (2026-08-30): the FULL, pre-filter config. _filter_config()
+        # replaces self.cfg with the --only/--cluster-narrowed copy, but
+        # _resolve_order()'s entity materialization must run over the WHOLE
+        # config — a tree mixes placement and rule/coordinate/... nodes, and
+        # link_trees fatals on any node whose section --only narrowed away.
+        # Captured here (and refreshed in _load_config) BEFORE any narrowing.
+        self._full_cfg = preloaded_cfg
         self.ctx: RuntimeContext | None = preloaded_ctx
         # Cached sheet-name map ({} when there is no ctx) — computed once instead
         # of repeating `self.ctx.sheet_names if self.ctx else {}` in every step.
@@ -415,6 +422,9 @@ class ApplyPipeline:
             logger.info(_("Loading config: {config}").format(config=self.config_path))
             self.cfg, self.ctx = load_config(self.config_path)
             self.sheet_names = self.ctx.sheet_names if self.ctx else {}
+            # Bug #3 fix — the FULL config must be captured here, before
+            # _filter_config() narrows self.cfg (see __init__).
+            self._full_cfg = self.cfg
 
     def _filter_config(self) -> None:
         # Structural checks (duplicate clone identity, cell‑definition cycles,
@@ -452,15 +462,19 @@ class ApplyPipeline:
         # no position — they are placed via their trees: node. Materialize each
         # kind="placement" node into a TRANSIENT absolute ClonePlacement so the
         # existing clone planning machinery applies it (no config rewrite).
-        # Materialization runs over the FULL cfg (entities/trees are NOT cut
-        # by --only/--cluster — see _filter_materialized_entities); the
-        # --only/--cluster narrowing happens on the materialized clones.
+        # Materialization runs over the FULL cfg (self._full_cfg, bug #3 fix):
+        # a tree mixes placement and rule/coordinate/thermal_via/net_trace
+        # nodes, and link_trees resolves EVERY node's ref — passing the
+        # --only/--cluster-NARROWED self.cfg would fatal on the first node
+        # whose section got filtered away (TreesDock-Redraw: all 13 fpga-tree
+        # nodes). The narrowing happens on the materialized clones instead
+        # (_filter_materialized_entities), exactly as before.
         # self.only/self.cluster are the RAW CLI lists (action="append"), where
         # one element may be comma-separated ("--only a,b") — split them the
         # same way the regular filters do, or "--only E1,E2" would silently
         # produce an empty materialized list (quiet data loss, 4.1-fix 2).
         materialized = _filter_materialized_entities(
-            materialize_entity_placements(self.adapter, self.cfg,
+            materialize_entity_placements(self.adapter, self._full_cfg,
                                           sheet_names=self.sheet_names),
             _split_comma_values(self.only), _split_comma_values(self.cluster))
         if materialized:
