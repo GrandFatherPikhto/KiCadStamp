@@ -191,17 +191,19 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
                       and coordinate_placement_effective_name(cp) in requested]
     matched_nets = [nt for nt in cfg.net_traces
                     if not nt.retired and net_trace_effective_name(nt) in requested]
-    # entities: — selected by Entity.name (Entity/Placement split, phase 4.1);
-    # a matching entity is kept so its tree node materializes as a placement.
-    matched_entities = [e for e in cfg.entities
-                        if not e.retired and entity_effective_name(e) in requested]
 
+    # entities: — recognized by name here (so --only E1 does not fatal), but
+    # deliberately NOT cut out of cfg.entities: materialization in
+    # _resolve_order runs link_trees over the FULL trees/entities and would
+    # fatal on any tree node whose entity was filtered away. The --only
+    # narrowing of ENTITY placements happens on the materialized clones
+    # (phase 4.1 fix, see _filter_materialized_entities).
     found_names = ({rule_effective_name(r) for r in matched_rules}
                    | {clone_placement_effective_name(c) for c in matched_clones}
                    | {thermal_via_array_effective_name(t) for t in matched_tvas}
                    | {coordinate_placement_effective_name(cp) for cp in matched_coords}
                    | {net_trace_effective_name(nt) for nt in matched_nets}
-                   | {entity_effective_name(e) for e in matched_entities})
+                   | {entity_effective_name(e) for e in cfg.entities if not e.retired})
     missing = requested - found_names
     if missing:
         all_names = sorted(
@@ -226,21 +228,18 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
 
     l.info(_("--only {requested}: rules={rules}, clone_placements={clones}, "
               "thermal_via_arrays={thermal}, coordinate_placements={coords}, "
-              "net_traces={nets}, entities={entities} (everything else is ignored "
-              "in this run)")
+              "net_traces={nets} (everything else is ignored in this run)")
             .format(requested=sorted(requested),
                     rules=[rule_effective_name(r) for r in matched_rules],
                     clones=[clone_placement_effective_name(c) for c in matched_clones],
                     thermal=[thermal_via_array_effective_name(t) for t in matched_tvas],
                     coords=[coordinate_placement_effective_name(cp) for cp in matched_coords],
-                    nets=[net_trace_effective_name(nt) for nt in matched_nets],
-                    entities=[entity_effective_name(e) for e in matched_entities]))
+                    nets=[net_trace_effective_name(nt) for nt in matched_nets]))
     return dataclasses.replace(cfg, rules=matched_rules,
                                clone_placements=matched_clones,
                                thermal_via_arrays=matched_tvas,
                                coordinate_placements=matched_coords,
-                               net_traces=matched_nets,
-                               entities=matched_entities)
+                               net_traces=matched_nets)
 
 
 def apply_cluster_filter(cfg, cluster_paths: list[str], _logger=None) -> "Config":
@@ -266,11 +265,16 @@ def apply_cluster_filter(cfg, cluster_paths: list[str], _logger=None) -> "Config
                       if not cp.retired and _matches_any_cluster(cp.cluster, cluster_paths)]
     matched_nets = [nt for nt in cfg.net_traces
                     if not nt.retired and _matches_any_cluster(nt.anchor_cluster, cluster_paths)]
-    # entities: — selected by Entity.cluster (the tag written on footprints at
-    # apply, same physical-instance axis as the other sections).
-    matched_entities = [e for e in cfg.entities
-                        if not e.retired and e.cluster is not None
-                        and _matches_any_cluster(e.cluster, cluster_paths)]
+    # entities: — NOT narrowed here (materialization in _resolve_order runs
+    # link_trees over the full trees/entities and must not see a filtered-out
+    # entity's tree node); the --cluster narrowing of entity placements
+    # happens on the materialized clones (_filter_materialized_entities). We
+    # only need to know whether any entity's cluster hits, so a --cluster that
+    # selects exclusively entities does not fatal as "matched nothing".
+    entity_cluster_hit = any(
+        not e.retired and e.cluster is not None
+        and _matches_any_cluster(e.cluster, cluster_paths)
+        for e in cfg.entities)
 
     narrowed_rules = []
     for r in cfg.rules:
@@ -282,7 +286,7 @@ def apply_cluster_filter(cfg, cluster_paths: list[str], _logger=None) -> "Config
                      .format(name=rule_effective_name(r), paths=cluster_paths))
 
     if (not narrowed_rules and not matched_clones and not matched_tvas
-            and not matched_coords and not matched_nets and not matched_entities):
+            and not matched_coords and not matched_nets and not entity_cluster_hit):
         raise PlacerError(_("[error] --cluster {paths}: matched nothing among rules' spokes, "
                             "clone_placements, thermal_via_arrays, coordinate_placements, "
                             "net_traces, or entities")
@@ -290,20 +294,18 @@ def apply_cluster_filter(cfg, cluster_paths: list[str], _logger=None) -> "Config
 
     l.info(_("--cluster {paths}: rules={rules} (spokes narrowed), "
               "clone_placements={clones}, thermal_via_arrays={thermal}, "
-              "coordinate_placements={coords}, net_traces={nets}, entities={entities}")
+              "coordinate_placements={coords}, net_traces={nets}")
             .format(paths=cluster_paths,
                     rules=[rule_effective_name(r) for r in narrowed_rules],
                     clones=[c.name for c in matched_clones],
                     thermal=[thermal_via_array_effective_name(t) for t in matched_tvas],
                     coords=[coordinate_placement_effective_name(cp) for cp in matched_coords],
-                    nets=[net_trace_effective_name(nt) for nt in matched_nets],
-                    entities=[entity_effective_name(e) for e in matched_entities]))
+                    nets=[net_trace_effective_name(nt) for nt in matched_nets]))
     return dataclasses.replace(cfg, rules=narrowed_rules,
                                clone_placements=matched_clones,
                                thermal_via_arrays=matched_tvas,
                                coordinate_placements=matched_coords,
-                               net_traces=matched_nets,
-                               entities=matched_entities)
+                               net_traces=matched_nets)
 
 
 # ── Compute helper ────────────────────────────────────────────────────────────
@@ -325,6 +327,28 @@ def _compute_all_anchor_ids(cfg) -> set[str]:
     # 'net:' prefix — see the startswith list there).
     ids |= {net_trace_anchor_id(nt) for nt in cfg.net_traces if not nt.retired}
     return ids
+
+
+def _filter_materialized_entities(clones, only: list[str] | None,
+                                  cluster: list[str] | None) -> list:
+    """Apply --only/--cluster to materialized Entity placements (phase 4.1
+    fix). Entity placements are materialized from the FULL cfg (link_trees
+    runs over ALL trees/entities — see materialize_entity_placements), so
+    --only/--cluster must NOT cut cfg.entities in apply_only_filter/
+    apply_cluster_filter first (that would make link_trees fatal on a tree
+    node whose entity was filtered away). Instead the materialized clones are
+    narrowed HERE by the same axes as regular clone_placements:
+    --only by the clone's effective name (== Entity.name), --cluster by the
+    clone's cluster tag (== Entity.cluster)."""
+    if not clones:
+        return clones
+    if only:
+        wanted = set(only)
+        clones = [c for c in clones
+                  if clone_placement_effective_name(c) in wanted]
+    if cluster:
+        clones = [c for c in clones if _matches_any_cluster(c.cluster, cluster)]
+    return clones
 
 
 # ── Pipeline ──────────────────────────────────────────────────────────────────
@@ -428,8 +452,13 @@ class ApplyPipeline:
         # no position — they are placed via their trees: node. Materialize each
         # kind="placement" node into a TRANSIENT absolute ClonePlacement so the
         # existing clone planning machinery applies it (no config rewrite).
-        materialized = materialize_entity_placements(
-            self.adapter, self.cfg, sheet_names=self.sheet_names)
+        # Materialization runs over the FULL cfg (entities/trees are NOT cut
+        # by --only/--cluster — see _filter_materialized_entities); the
+        # --only/--cluster narrowing happens on the materialized clones.
+        materialized = _filter_materialized_entities(
+            materialize_entity_placements(self.adapter, self.cfg,
+                                          sheet_names=self.sheet_names),
+            self.only, self.cluster)
         if materialized:
             logger.info(_("Materialized {count} entity placement(s) from trees "
                           "into the apply plan").format(count=len(materialized)))
