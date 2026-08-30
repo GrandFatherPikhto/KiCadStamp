@@ -66,6 +66,25 @@ from .thermal_via import ThermalViaArrayDock
 _ROOT, _EXTRACT, _PLACER, _THERMAL_VIA, _POINTS, _RULES, _NET_TRACE, _CELLS, _SETTINGS = range(9)
 
 
+class _StackedPages(QStackedWidget):
+    """QStackedWidget whose size hints track ONLY the current page.
+
+    2026-08-30 (Denis, live): the stack lives inside a single QScrollArea
+    (setWidgetResizable) and switching to a SMALLER page left the scroll area
+    reserving space for the largest-ever-shown page — the scroll "вылезает за
+    рамки" even when the current tab fits entirely. Overriding BOTH hints to
+    the current widget makes the scroll area's minimum size follow the page
+    you are actually on, never a historical maximum."""
+
+    def sizeHint(self):
+        page = self.currentWidget()
+        return page.sizeHint() if page is not None else super().sizeHint()
+
+    def minimumSizeHint(self):
+        page = self.currentWidget()
+        return page.minimumSizeHint() if page is not None else super().minimumSizeHint()
+
+
 class DetailDock(QDockWidget):
     def __init__(self, main_window, connection=None):
         super().__init__(_("Detail"), main_window)
@@ -106,7 +125,10 @@ class DetailDock(QDockWidget):
         self.tab_bar.addTab(_("Settings"))
         layout.addWidget(self.tab_bar)
 
-        self.stack = QStackedWidget()
+        # _StackedPages, not a stock QStackedWidget (2026-08-30): the size
+        # hints must follow the CURRENT page so the wrapping scroll area never
+        # keeps a larger page's space — see _StackedPages.
+        self.stack = _StackedPages()
         self.root_panel = RootMetadataDock(main_window)
         self.extract_panel = ExtractDock(main_window, connection=connection)
         self.placer_panel = PlacerDock(main_window)
@@ -147,6 +169,7 @@ class DetailDock(QDockWidget):
 
         self.tab_bar.currentChanged.connect(self.stack.setCurrentIndex)
         self.tab_bar.currentChanged.connect(self._update_title)
+        self.tab_bar.currentChanged.connect(self._on_page_changed)
 
         self.setWidget(container)
         self._update_title()
@@ -168,6 +191,15 @@ class DetailDock(QDockWidget):
         _CELLS: _("Cells"),
         _SETTINGS: _("Settings"),
     }
+
+    def _on_page_changed(self, index: int) -> None:
+        """Force the scroll area to re-measure after a page switch (2026-08-30,
+        Denis: the scroll overflowed even on a page that fits — the QScrollArea
+        kept the largest-ever-shown page's size). Runs AFTER
+        stack.setCurrentIndex (connection order), so the stack is already on
+        the new page when the hints are re-read."""
+        self.stack.adjustSize()
+        self.scroll_area.updateGeometry()
 
     def _current_entity_name(self) -> str:
         """Best-effort "what's loaded on the current page right now",

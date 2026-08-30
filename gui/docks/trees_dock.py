@@ -20,8 +20,8 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QComboBox, QDialog, QDockWidget,
                              QFormLayout, QHBoxLayout, QInputDialog, QLabel,
                              QLineEdit, QMenu, QMessageBox, QPushButton,
-                             QTabWidget, QTreeWidget, QTreeWidgetItem,
-                             QVBoxLayout, QWidget)
+                             QSizePolicy, QTabWidget, QToolButton,
+                             QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from kicadstamp.anchor_graph import Record, build_records
 from kicadstamp.config import load_config, load_tree
@@ -214,19 +214,28 @@ class TreesDock(QDockWidget):
 
         # ── Toolbar (Add/Rename tree + Save + Redraw; no Open/New — the trees
         #    live in the root config, which RootMetadataDock owns) ─────────
+        # 2026-08-30 (Denis, live): the dock could not be narrowed after being
+        # widened — seven QPushButtons in one QHBoxLayout never shrink below
+        # their sizeHint(), so the whole row was the dock's real width floor
+        # (the QTreeWidget setMinimumWidth(1) fix alone wasn't the place). The
+        # tree-management actions move into a "⋯" overflow menu; Save + the
+        # two Redraw actions stay as visible text buttons. The moved buttons
+        # STAY as QPushButton attributes (tests/other code click them
+        # directly) — the menu actions just re-trigger the same buttons.
         toolbar = QHBoxLayout()
         self.add_tree_button = QPushButton(_("Add tree…"))
         self.add_tree_button.setEnabled(True)
         self.add_tree_button.clicked.connect(self._on_add_tree)
-        toolbar.addWidget(self.add_tree_button)
         self.rename_tree_button = QPushButton(_("Rename tree…"))
         self.rename_tree_button.setEnabled(True)
         self.rename_tree_button.clicked.connect(self._on_rename_tree)
-        toolbar.addWidget(self.rename_tree_button)
         self.delete_tree_button = QPushButton(_("Delete tree…"))
         self.delete_tree_button.setEnabled(True)
         self.delete_tree_button.clicked.connect(self._on_delete_tree)
-        toolbar.addWidget(self.delete_tree_button)
+        self.anchor_pos_button = QPushButton(_("Anchor position"))
+        self.anchor_pos_button.setEnabled(True)
+        self.anchor_pos_button.clicked.connect(self._refresh_anchor_live_position)
+
         self.save_button = QPushButton(_("Save"))
         self.save_button.setEnabled(True)
         self.save_button.clicked.connect(self._do_save)
@@ -239,13 +248,30 @@ class TreesDock(QDockWidget):
         self.redraw_whole_button.setEnabled(True)
         self.redraw_whole_button.clicked.connect(self._on_redraw_whole_tree)
         toolbar.addWidget(self.redraw_whole_button)
-        self.anchor_pos_button = QPushButton(_("Anchor position"))
-        self.anchor_pos_button.setEnabled(True)
-        self.anchor_pos_button.clicked.connect(self._refresh_anchor_live_position)
-        toolbar.addWidget(self.anchor_pos_button)
+        # "⋯" overflow (2026-08-30): the tree-management + anchor actions live
+        # here so the row stays narrow; each item re-fires its own button so
+        # the handlers (and the buttons' enabled-state API) stay untouched.
+        self.more_button = QToolButton()
+        self.more_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.more_button.setText(_("⋯"))
+        self.more_button.setToolTip(_("More tree actions…"))
+        self.more_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        more_menu = QMenu(self)
+        more_menu.addAction(_("Add tree…"), lambda: self.add_tree_button.click())
+        more_menu.addAction(_("Rename tree…"), lambda: self.rename_tree_button.click())
+        more_menu.addAction(_("Delete tree…"), lambda: self.delete_tree_button.click())
+        more_menu.addAction(_("Anchor position"), lambda: self.anchor_pos_button.click())
+        self.more_button.setMenu(more_menu)
+        toolbar.addWidget(self.more_button)
+        # Labels must never floor the dock width (their text can be wide, e.g.
+        # a live anchor position) — Ignored lets them shrink below the text.
         self.anchor_pos_label = QLabel("")
+        self.anchor_pos_label.setSizePolicy(QSizePolicy.Policy.Ignored,
+                                            QSizePolicy.Policy.Preferred)
         toolbar.addWidget(self.anchor_pos_label)
         self.dirty_label = QLabel("")
+        self.dirty_label.setSizePolicy(QSizePolicy.Policy.Ignored,
+                                       QSizePolicy.Policy.Preferred)
         toolbar.addWidget(self.dirty_label)
         toolbar.addStretch(1)
         layout.addLayout(toolbar)

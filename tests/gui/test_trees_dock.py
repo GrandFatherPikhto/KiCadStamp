@@ -203,6 +203,51 @@ def test_toolbar_buttons_enabled(main_window):
     assert not hasattr(dock, "new_button")
 
 
+def _toolbar_layout(dock):
+    """The toolbar QHBoxLayout — the first item of the container's QVBoxLayout."""
+    return dock.widget().layout().itemAt(0).layout()
+
+
+def test_toolbar_moves_secondary_actions_into_an_overflow_menu(main_window):
+    """2026-08-30, Denis: TreesDock couldn't be narrowed after being widened —
+    seven QPushButtons in one row never shrink below their sizeHint (the real
+    width floor; the QTreeWidget setMinimumWidth(1) fix wasn't the place). The
+    tree-management actions move into a "⋯" menu, leaving only the primary
+    buttons + the menu trigger in the visible row."""
+    dock = TreesDock(main_window)
+    toolbar = _toolbar_layout(dock)
+    visible = [toolbar.itemAt(i).widget() for i in range(toolbar.count())
+               if toolbar.itemAt(i).widget() is not None]
+    assert dock.save_button in visible
+    assert dock.redraw_button in visible
+    assert dock.redraw_whole_button in visible
+    # the secondary actions are reachable only through the "⋯" menu
+    for button in (dock.add_tree_button, dock.rename_tree_button,
+                   dock.delete_tree_button, dock.anchor_pos_button):
+        assert button not in visible
+    assert dock.more_button in visible
+    menu = dock.more_button.menu()
+    assert menu is not None
+    texts = [a.text() for a in menu.actions()]
+    assert "Add tree…" in texts
+    assert "Rename tree…" in texts
+    assert "Delete tree…" in texts
+    assert "Anchor position" in texts
+
+
+def test_more_menu_action_re_triggers_the_wrapped_button(main_window, monkeypatch):
+    """The "⋯" menu's actions re-fire their own (hidden) QPushButton, so the
+    existing handler/API wiring is untouched. `click` is patched at call time
+    (the menu lambda resolves the attribute then), proving the routing."""
+    dock = TreesDock(main_window)
+    clicked = []
+    monkeypatch.setattr(dock.add_tree_button, "click", lambda: clicked.append("add"))
+    menu = dock.more_button.menu()
+    action = next(a for a in menu.actions() if a.text() == "Add tree…")
+    action.trigger()
+    assert clicked == ["add"]
+
+
 # ── Phase 2: structural editing ───────────────────────────────────────────
 
 def test_add_child_mutates_node_children_and_dirty(main_window, tmp_path):

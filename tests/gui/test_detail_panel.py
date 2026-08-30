@@ -222,3 +222,29 @@ def test_tab_bar_stays_outside_the_scroll_area(main_window):
     assert dock.tab_bar.parent() is not dock.scroll_area
     assert dock.scroll_area.isAncestorOf(dock.stack)
     assert dock.scroll_area.widget() is dock.stack
+
+
+def test_stack_size_hints_follow_the_current_page(main_window):
+    """_StackedPages (2026-08-30): the stack's size hints track the CURRENT
+    page only, so the wrapping scroll area never reserves a larger page's
+    space after switching to a smaller one (Denis: scroll "вылезает за рамки"
+    even when the current tab fits)."""
+    dock = DetailDock(main_window)
+    dock.tab_bar.setCurrentIndex(1)  # Extract
+    assert dock.stack.sizeHint() == dock.stack.currentWidget().sizeHint()
+    assert dock.stack.minimumSizeHint() == dock.stack.currentWidget().minimumSizeHint()
+
+
+def test_page_switch_recomputes_the_scroll_area(main_window, monkeypatch):
+    """Same bug: switching pages must force the stack/scroll area to re-measure
+    the now-current page — a plain setCurrentIndex leaves the scroll area
+    holding the largest-ever-shown page's geometry. Runs AFTER the index change
+    (connection order), so the stack is already on the new page."""
+    dock = DetailDock(main_window)
+    calls = []
+    monkeypatch.setattr(dock.stack, "adjustSize", lambda: calls.append("adjustSize"))
+    monkeypatch.setattr(dock.scroll_area, "updateGeometry",
+                        lambda: calls.append("updateGeometry"))
+    dock.tab_bar.setCurrentIndex(2)  # Placer
+    assert "adjustSize" in calls
+    assert "updateGeometry" in calls
