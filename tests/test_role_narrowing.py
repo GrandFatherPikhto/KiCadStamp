@@ -64,3 +64,33 @@ def test_noop_when_sheet_names_empty():
     candidate's path resolves, so the helper must NOT wipe the list."""
     fps = [_make_fp("IC2", "sheet-0"), _make_fp("IC3", "sheet-1")]
     assert narrow_candidates_by_sheet(fps, "Channel_0", {}) is fps
+
+
+def test_narrow_ambiguous_candidates_reads_entity_cluster_and_sheet():
+    """Entity/Placement split (2026-08-30): _narrow_ambiguous_candidates must
+    read the placement's OWN cluster/sheet from an Entity — Entity carries
+    cluster/sheet as per-instance identity (the same fields ClonePlacement had),
+    so the shared narrowing cascade is Entity-ready via getattr, with no
+    signature change. Both candidates share the sheet; only Entity.cluster
+    (CH0) disambiguates."""
+    from kicadstamp.config import Entity
+    from kicadstamp.constants import CLUSTER_FIELD_NAME
+    from kicadstamp.placement.services.role_narrowing import (
+        _narrow_ambiguous_candidates,
+    )
+
+    fp_ch0 = _make_fp("IC2", "sheet-0")
+    fp_ch1 = _make_fp("IC3", "sheet-0")
+    adapter = MagicMock()
+    adapter.get_field_value.side_effect = (
+        lambda fp, field_name, default=None:
+            ("CH0" if fp.ref == "IC2" else "CH1")
+            if field_name == CLUSTER_FIELD_NAME else default)
+
+    entity = Entity(name="CH0_DAC_BUF", cell="dac_buf",
+                    cluster="CH0", sheet="Channel_0")
+    narrowed, note = _narrow_ambiguous_candidates(
+        [fp_ch0, fp_ch1], entity, adapter,
+        selected_refs=set(), anchor_position=None,
+        clone_name="CH0_DAC_BUF", role="DAC_BUF", sheet_names=_SHEET_NAMES)
+    assert [fp.ref for fp in narrowed] == ["IC2"]
