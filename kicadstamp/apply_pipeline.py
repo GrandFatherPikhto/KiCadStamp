@@ -455,10 +455,14 @@ class ApplyPipeline:
         # Materialization runs over the FULL cfg (entities/trees are NOT cut
         # by --only/--cluster — see _filter_materialized_entities); the
         # --only/--cluster narrowing happens on the materialized clones.
+        # self.only/self.cluster are the RAW CLI lists (action="append"), where
+        # one element may be comma-separated ("--only a,b") — split them the
+        # same way the regular filters do, or "--only E1,E2" would silently
+        # produce an empty materialized list (quiet data loss, 4.1-fix 2).
         materialized = _filter_materialized_entities(
             materialize_entity_placements(self.adapter, self.cfg,
                                           sheet_names=self.sheet_names),
-            self.only, self.cluster)
+            _split_comma_values(self.only), _split_comma_values(self.cluster))
         if materialized:
             logger.info(_("Materialized {count} entity placement(s) from trees "
                           "into the apply plan").format(count=len(materialized)))

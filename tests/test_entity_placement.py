@@ -137,6 +137,12 @@ def test_filter_materialized_entities_by_only_and_cluster():
     assert {c.name for c in materialized} == {"E1", "E2"}
     assert [c.name for c in _filter_materialized_entities(materialized, ["E1"], None)] == ["E1"]
     assert [c.name for c in _filter_materialized_entities(materialized, None, ["CH1"])] == ["E2"]
+    # raw CLI lists may carry comma-separated values ("--only a,b") — the
+    # caller must split them (_split_comma_values) before narrowing, or the
+    # result is silently empty (4.1-fix 2 regression).
+    from kicadstamp.apply_pipeline import _split_comma_values
+    assert [c.name for c in _filter_materialized_entities(
+        materialized, _split_comma_values(["E1,E2"]), None)] == ["E1", "E2"]
 
 
 def test_apply_cluster_filter_does_not_fatal_when_only_entities_match():
