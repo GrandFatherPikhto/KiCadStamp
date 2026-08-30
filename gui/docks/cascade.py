@@ -29,6 +29,7 @@ from kicadstamp.kicad.adapter import KiCadBoardAdapter
 from kicadstamp.link_trees import link_trees
 from kicadstamp.tree_position import (
     apply_rigid_override, capture_rigid_state, curated_redraw_plan,
+    curated_redraw_plan_forest,
 )
 from kicadstamp.trees import Tree
 
@@ -157,3 +158,72 @@ def run_curated_tree_redraw_worker(payload: dict) -> tuple:
     return run_curated_tree_redraw(
         payload["config_path"], payload["cfg"], payload["ctx"], payload["trees"],
         payload["tree_name"], payload["selected_refs"])
+
+
+def run_curated_forest_redraw(config_path: str, cfg, ctx, trees: list[Tree],
+                              selected_refs: set[str]
+                              ) -> tuple[List[Tuple[str, bool, Optional[str]]], List[str]]:
+    """Multi-tree curated redraw (plan 4.2 / design §6): plans selected nodes
+    across ALL trees in the global FOREST order (curated_redraw_plan_forest —
+    parent before child within each tree, plus cross-tree anchor edges: a tree
+    whose anchor points at a selected node of another tree orders that node
+    first). Rigid-group state is captured per tree (capture_rigid_state) and
+    each node is applied in the global order with its parent read LIVE at
+    apply time (apply_rigid_override + non-persistent PositionOverride) —
+    the same non-destructive mechanism as the single-tree
+    run_curated_tree_redraw, so anchors never snap to config unless applied.
+
+    Returns (run_cascade-style per-name results, the plan's warnings)."""
+    linked = link_trees(cfg, trees)
+    names, warnings = curated_redraw_plan_forest(linked, selected_refs)
+    for warning in warnings:
+        logger.warning(warning)
+
+    adapter = KiCadBoardAdapter(timeout_ms=20000)
+    adapter.refresh_board()
+    sheet_names = ctx.sheet_names if ctx else {}
+
+    captures: Dict[str, Any] = {}
+    parent_map: Dict[str, Any] = {}
+    for tree in linked:
+        tree_captures, tree_parent_map = capture_rigid_state(
+            adapter, cfg, tree, names, sheet_names)
+        captures.update(tree_captures)
+        parent_map.update(tree_parent_map)
+
+    results: List[Tuple[str, bool, Optional[str]]] = []
+    for name in names:
+        logger.info(_("Forest redraw: applying {name!r}").format(name=name))
+        override = None
+        cap = captures.get(name)
+        if cap is not None:
+            parent_ref, parent_record, _is_anchor = parent_map[name]
+            try:
+                override = apply_rigid_override(adapter, cfg, parent_ref,
+                                                parent_record, cap, sheet_names)
+            except Exception as e:  # noqa: BLE001 — honest fallback, never break the chain
+                logger.warning(_("Forest redraw: {name!r} — rigid override failed "
+                                 "({error}); falling back to the record's own position")
+                               .format(name=name, error=e))
+        try:
+            pipeline = ApplyPipeline(
+                config_path=config_path, preloaded_cfg=cfg, preloaded_ctx=ctx,
+                only=[name], dry_run=False,
+                position_overrides={name: override} if override else None)
+            pipeline.run()
+            results.append((name, True, None))
+            logger.info(_("Forest redraw: {name!r} — ok").format(name=name))
+        except Exception as e:  # noqa: BLE001 — a per-record failure must not abort the rest
+            logger.exception("Forest redraw: %s failed", name)
+            results.append((name, False, str(e)))
+            logger.warning(_("Forest redraw: {name!r} — FAILED: {error}").format(name=name, error=e))
+        adapter.refresh_board()
+    return results, warnings
+
+
+def run_curated_forest_redraw_worker(payload: dict) -> tuple:
+    """start_long_op worker entry point for a multi-tree redraw — thin adapter
+    over run_curated_forest_redraw (plain data in, plain data out)."""
+    return run_curated_forest_redraw(
+        payload["config_path"], payload["cfg"], payload["ctx"], payload["trees"],
+        payload["selected_refs"])

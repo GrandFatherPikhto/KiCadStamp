@@ -17,7 +17,9 @@ from kicadstamp.exceptions import ValidationError
 from kicadstamp.trees import load_trees
 
 import gui.docks.cascade as cascade_mod
-from gui.docks.cascade import cascade_records, run_cascade, run_curated_tree_redraw
+from gui.docks.cascade import (
+    cascade_records, run_cascade, run_curated_forest_redraw, run_curated_tree_redraw,
+)
 
 
 def _chain_cfg():
@@ -171,3 +173,40 @@ def test_run_curated_tree_redraw_unknown_tree_is_fatal(monkeypatch, tmp_path):
         assert False, "expected ValidationError"
     except ValidationError:
         pass
+
+
+# ── run_curated_forest_redraw: multi-tree redraw in forest order (plan 4.2) ─
+
+def test_run_curated_forest_redraw_cross_tree_order(monkeypatch, tmp_path):
+    """Multi-tree redraw plans across ALL trees in the global forest order: a
+    tree whose ANCHOR points at a selected node of another tree applies that
+    node FIRST (cross-tree edge), before its own top-level node."""
+    cfg = _curated_cfg()
+    t1 = tmp_path / "t1.trees"
+    t1.write_text(_tree_text('(tree (name "t1") (anchor (origin))\n'
+                             '      (node (ref "CL_A") (xy 1 2)))'), encoding="utf-8")
+    t2 = tmp_path / "t2.trees"
+    t2.write_text(_tree_text('(tree (name "t2") (anchor (ref "CL_A"))\n'
+                             '      (node (ref "CL_B") (xy 3 4)))'), encoding="utf-8")
+    trees = load_trees(str(t1)) + load_trees(str(t2))
+    selected = {"CL_A", "CL_B"}
+
+    calls = []
+
+    class _FakePipeline:
+        def __init__(self, config_path, preloaded_cfg=None, preloaded_ctx=None,
+                     only=None, dry_run=False, position_overrides=None):
+            calls.append(list(only or []))
+
+        def run(self):
+            pass
+
+    monkeypatch.setattr(cascade_mod, "ApplyPipeline", _FakePipeline)
+    monkeypatch.setattr(cascade_mod, "KiCadBoardAdapter", lambda **k: MagicMock())
+
+    results, warnings = run_curated_forest_redraw("/root.sexp", cfg, None,
+                                                  trees, selected)
+
+    # t2 is anchored on CL_A (a selected node of t1) -> CL_A applied first
+    assert [c[0] for c in calls] == ["CL_A", "CL_B"]
+    assert results == [("CL_A", True, None), ("CL_B", True, None)]
