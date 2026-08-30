@@ -19,12 +19,14 @@ from .models import (
     ClonePlacement,
     CoordinatePlacement,
     NetTrace,
+    Entity,
     Config,
     rule_effective_name,
     thermal_via_array_effective_name,
     coordinate_placement_effective_name,
     clone_placement_effective_name,
     net_trace_effective_name,
+    entity_effective_name,
 )
 from .points import Point
 from ..runtime_context import RuntimeContext
@@ -42,6 +44,7 @@ from .loader import (
     _load_thermal_via_array,
     _load_coordinate_placement,
     _load_net_trace,
+    _load_entity,
     _load_tree,
     _check_layer_value,
 )
@@ -57,6 +60,9 @@ load_template_track = _load_template_track
 load_cell_placement = _load_cell_placement
 # load_net_trace (2026-08-21) — same pattern, for a future net_traces GUI dock.
 load_net_trace = _load_net_trace
+# load_entity (2026-08-30, Entity/Placement split) — same pattern, for the
+# future Entities dock / PlacerDock Source tab.
+load_entity = _load_entity
 # load_tree (2026-08-27, trees-in-config) — same pattern, for the TreesDock's
 # Save round-trip validation of a single tree against the root config.
 load_tree = _load_tree

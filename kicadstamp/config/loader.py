@@ -50,6 +50,7 @@ from .entries import (
     _load_cell_placement,
     _load_clone_placement,
     _load_coordinate_placement,
+    _load_entity,
     _load_manual_spoke,
     _load_net_trace,
     _load_point,
@@ -67,6 +68,7 @@ from .models import (
     ThermalViaArrayConfig, CoordinatePlacement, NetTrace, Config,
     rule_effective_name, coordinate_placement_effective_name,
     clone_placement_effective_name, net_trace_effective_name,
+    entity_effective_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -248,6 +250,19 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
 
     clone_placements = [_load_clone_placement(cp) for cp in data.get('clone_placements', [])]
 
+    # entities: — NEW section (design_2026_08_30_entity_placement_grammar.md):
+    # the "what" of a placement, WITHOUT position (position lives only in a
+    # trees: node, kind "placement"). Same duplicate-name discipline as the
+    # other list sections: --only and trees: node refs cannot tell same-named
+    # entities apart otherwise.
+    entities = [_load_entity(e_data) for e_data in data.get('entities', [])]
+    _check_duplicate_names(
+        entities, entity_effective_name, "entities",
+        _("every entities entry needs a unique name: — --only and trees: node "
+          "refs (kind 'placement') cannot tell same-named entities apart "
+          "otherwise"))
+    logger.debug(_("Config loaded: entities={entities}").format(entities=len(entities)))
+
     # trees: — optional curated-redraw list section (design_2026_08_27_trees_in_
     # config_file.md). A single seen_refs set is shared across ALL trees of the
     # whole include graph, so the "a record's ref appears in at most one node"
@@ -286,6 +301,37 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
                    "flipped footprints on non‑flipped sites are nonsense; add mirror: true, "
                    "or remove the layer override").format(
                        cell=cp.cell, cell_layer=cell.layer, place_layer=placement_layer)]
+            ))
+
+    # Same layer/mirror cross-validation for entities: — an Entity is the
+    # "what" of a former ClonePlacement, so it inherits the exact same
+    # physical rule (mirror without a layer change / layer change without
+    # mirror is nonsense). Missing cell is skipped here (structural cell
+    # existence is a validation.py concern, mirroring the clone path).
+    for ent in entities:
+        cell = cells.get(ent.cell)
+        if cell is None:
+            continue
+        placement_layer = ent.layer if ent.layer is not None else cell.layer
+        layer_changed = placement_layer != cell.layer
+        if ent.mirror and not layer_changed:
+            raise ValidationError(format_fatal_error(
+                _("mirror without layer change in entity {name!r}").format(
+                    name=entity_effective_name(ent)),
+                [_("cell {cell!r} is on {cell_layer}, entity layer is {place_layer} – "
+                   "mirror without changing side is physically meaningless: either set layer "
+                   "to {opposite}, or remove mirror").format(
+                       cell=ent.cell, cell_layer=cell.layer, place_layer=placement_layer,
+                       opposite='B.Cu' if cell.layer == 'F.Cu' else 'F.Cu')]
+            ))
+        if layer_changed and not ent.mirror:
+            raise ValidationError(format_fatal_error(
+                _("layer changed without mirror in entity {name!r}").format(
+                    name=entity_effective_name(ent)),
+                [_("cell {cell!r} is on {cell_layer}, entity layer is {place_layer} – "
+                   "flipped footprints on non‑flipped sites are nonsense; add mirror: true, "
+                   "or remove the layer override").format(
+                       cell=ent.cell, cell_layer=cell.layer, place_layer=placement_layer)]
             ))
 
     # Cross-validation of anchor_point references — every value must name an
@@ -396,6 +442,7 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
         points=points,
         thermal_via_arrays=thermal_vias,
         rules=rules,
+        entities=entities,
         clone_placements=clone_placements,
         coordinate_placements=coordinate_placements,
         net_traces=net_traces,

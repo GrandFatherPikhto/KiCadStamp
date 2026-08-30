@@ -21,7 +21,7 @@ from ..trees import Tree, tree_from_dict
 from .models import (
     ThermalViaArrayConfig, TemplateVia, TemplateComponentSlot, TemplateTrack,
     Cell, CellPlacement, ManualSpoke, Rule, ClonePlacement, CoordinatePlacement,
-    NetTrace,
+    NetTrace, Entity,
 )
 from .points import Point
 
@@ -730,6 +730,91 @@ _CLONE_PLACEMENT_KNOWN_KEYS = {
     'side',  # deprecated – recognised separately to give a migration message
     'origin_x_mm', 'origin_y_mm',  # deprecated – recognised to give a migration message
 }
+
+
+# Positional keys that are FORBIDDEN on an Entity by construction — an Entity
+# is the "what" of a placement and carries NO position (position lives only in
+# a trees: node, kind "placement", or a tree anchor; see
+# design_2026_08_30_entity_placement_grammar.md). Their presence is a hard
+# load-time fatal, not a silent ignore: it means the author put a position on
+# the wrong object.
+_ENTITY_FORBIDDEN_KEYS = (
+    'xy', 'anchor_ref', 'anchor_role', 'anchor_point',
+    'anchor_sheet', 'anchor_cluster', 'anchor_pad',
+    'rotation_deg', 'radius_mm', 'angle_deg',
+)
+
+_ENTITY_KNOWN_KEYS = {
+    'name', 'cell', 'nets', 'params', 'net_overrides',
+    'cluster', 'sheet', 'retired', 'skip', 'ignore_selection',
+    'by_selection', 'refs', 'layer', 'mirror', 'comment',
+}
+
+
+def _load_entity(data: dict[str, Any]) -> Entity:
+    """One entities: entry — the "what" of a placement, WITHOUT position
+    (see Entity's docstring in config/models.py). Loader mirrors
+    _load_clone_placement's per-field discipline: name/cell required,
+    unknown keys fatal, positional keys fatal, by_selection+nets fatal,
+    layer value checked."""
+    name = data.get('name')
+    if not name:
+        raise ValidationError(format_fatal_error(
+            _("entity without name"),
+            [_("every entities entry needs a name: — the identity for --only/"
+               "registry and the reference a trees: node (kind 'placement') "
+               "points at via its ref")]))
+    check_unknown_keys(data, _ENTITY_KNOWN_KEYS,
+                       _("unknown fields in entity {name!r}").format(name=name))
+
+    cell = data.get('cell')
+    if not cell:
+        raise ValidationError(format_fatal_error(
+            _("entity {name!r} without cell").format(name=name),
+            [_("cell: <name from cells:> is REQUIRED — an Entity is a configured "
+               "use of a Cell (the reusable form library), exactly like "
+               "ClonePlacement.cell")]))
+
+    for forbidden in _ENTITY_FORBIDDEN_KEYS:
+        if forbidden in data:
+            raise ValidationError(format_fatal_error(
+                _("positional field {field!r} in entity {name!r}").format(
+                    field=forbidden, name=name),
+                [_("an Entity carries NO position — position lives only in a "
+                   "trees: node (kind 'placement') or in a tree anchor. Move "
+                   "{field!r} to the tree node / anchor grammar instead")
+                 .format(field=forbidden)]))
+
+    nets = data.get('nets', {}) or {}
+    by_selection = bool(data.get('by_selection', False))
+    if by_selection and nets:
+        raise ValidationError(format_fatal_error(
+            _("by_selection: true with non-empty nets in entity {name!r}").format(name=name),
+            [_("nets is an explicit role->net mapping for 'by nets' mode; in "
+               "selection mode roles are resolved by mouse selection, not by "
+               "nets — nets is meaningless here. Either remove nets, or remove "
+               "by_selection: true")]))
+
+    layer = data.get('layer')
+    _check_layer_value(layer, _("in entity {name!r}").format(name=name))
+
+    return Entity(
+        name=name,
+        cell=cell,
+        nets=nets,
+        params=data.get('params', {}) or {},
+        net_overrides=data.get('net_overrides', {}) or {},
+        cluster=data.get('cluster'),
+        sheet=data.get('sheet'),
+        retired=data.get('retired', False),
+        skip=data.get('skip', False),
+        ignore_selection=data.get('ignore_selection', False),
+        by_selection=by_selection,
+        refs=data.get('refs', {}) or {},
+        layer=layer,
+        mirror=bool(data.get('mirror', False)),
+        comment=data.get('comment'),
+    )
 
 
 def _load_clone_placement(data: dict[str, Any]) -> ClonePlacement:
