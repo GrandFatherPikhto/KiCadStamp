@@ -47,8 +47,8 @@ load_entry() -> show_X() where the tab index doesn't change, so
 QTabBar.currentChanged never fires — _update_title() is therefore called
 unconditionally by show_X(), not only via that signal).
 """
-from PyQt6.QtWidgets import (QFrame, QDockWidget, QScrollArea, QStackedWidget,
-                             QTabBar, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QDockWidget, QStackedWidget, QTabBar, QVBoxLayout,
+                             QWidget)
 
 from kicadstamp.i18n import _
 
@@ -69,12 +69,13 @@ _ROOT, _EXTRACT, _PLACER, _THERMAL_VIA, _POINTS, _RULES, _NET_TRACE, _CELLS, _SE
 class _StackedPages(QStackedWidget):
     """QStackedWidget whose size hints track ONLY the current page.
 
-    2026-08-30 (Denis, live): the stack lives inside a single QScrollArea
-    (setWidgetResizable) and switching to a SMALLER page left the scroll area
-    reserving space for the largest-ever-shown page — the scroll "вылезает за
-    рамки" even when the current tab fits entirely. Overriding BOTH hints to
-    the current widget makes the scroll area's minimum size follow the page
-    you are actually on, never a historical maximum."""
+    2026-08-30 (Denis, live): a stock QStackedWidget's size hints follow the
+    LARGEST-ever page, so with the stack inside a QScrollArea the scroll
+    overflowed even on a page that fit, and (since the scroll area was
+    removed the same day — "убираем скроллы внутри доков") the dock itself
+    would stay sized to the tallest page. Overriding BOTH hints to the
+    current widget makes the dock follow the page you are actually on, never
+    a historical maximum."""
 
     def sizeHint(self):
         page = self.currentWidget()
@@ -126,8 +127,8 @@ class DetailDock(QDockWidget):
         layout.addWidget(self.tab_bar)
 
         # _StackedPages, not a stock QStackedWidget (2026-08-30): the size
-        # hints must follow the CURRENT page so the wrapping scroll area never
-        # keeps a larger page's space — see _StackedPages.
+        # hints follow the CURRENT page, so the dock sizes to the page you are
+        # actually on — see _StackedPages.
         self.stack = _StackedPages()
         self.root_panel = RootMetadataDock(main_window)
         self.extract_panel = ExtractDock(main_window, connection=connection)
@@ -147,29 +148,18 @@ class DetailDock(QDockWidget):
         self.stack.addWidget(self.net_trace_panel)
         self.stack.addWidget(self.cells_panel)
         self.stack.addWidget(self.configurator_panel)
-        # QScrollArea (2026-08-27, handoff detail_dock_scroll_area): the dock
-        # hosts 9 form-heavy panels as pages of ONE QStackedWidget, so whichever
-        # panel has the most fields dictates the whole dock's sizeHint and the
-        # dock (and with it the main window) can't be shrunk below that panel's
-        # content height. Wrap the STACK (and only the stack) in a scroll area
-        # so the form scrolls instead of stretching the dock; the tab bar stays
-        # outside, fixed at the top. self.stack stays the same object with the
-        # same API (count/currentWidget/setCurrentIndex/addWidget) — only its
-        # parent widget changes, so every existing dock.stack.* call site keeps
-        # working unmodified.
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setWidget(self.stack)
-        self.scroll_area.setWidgetResizable(True)   # content stretches to the
-                                                    # viewport width; the scroll
-                                                    # area itself doesn't demand
-                                                    # space for the whole content
-        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)  # no extra border
-                                                              # inside the dock
-        layout.addWidget(self.scroll_area, 1)       # was layout.addWidget(self.stack)
+        # The stack sits DIRECTLY in the dock layout (2026-08-30, Denis:
+        # "убираем скроллы внутри доков"). The 2026-08-27 QScrollArea wrap was
+        # removed: _StackedPages already makes the dock follow the CURRENT page
+        # (not the tallest one), and the app-wide `* { min-width: 0 }` stylesheet
+        # (see _common.apply_compact_field_minimums) lets every page/tab shrink
+        # to its absolute minimum — so nothing overflows off-screen anymore and
+        # no scrollbar is needed. self.stack keeps the same API
+        # (count/currentWidget/setCurrentIndex/addWidget) for every call site.
+        layout.addWidget(self.stack, 1)
 
         self.tab_bar.currentChanged.connect(self.stack.setCurrentIndex)
         self.tab_bar.currentChanged.connect(self._update_title)
-        self.tab_bar.currentChanged.connect(self._on_page_changed)
 
         self.setWidget(container)
         self._update_title()
@@ -191,15 +181,6 @@ class DetailDock(QDockWidget):
         _CELLS: _("Cells"),
         _SETTINGS: _("Settings"),
     }
-
-    def _on_page_changed(self, index: int) -> None:
-        """Force the scroll area to re-measure after a page switch (2026-08-30,
-        Denis: the scroll overflowed even on a page that fits — the QScrollArea
-        kept the largest-ever-shown page's size). Runs AFTER
-        stack.setCurrentIndex (connection order), so the stack is already on
-        the new page when the hints are re-read."""
-        self.stack.adjustSize()
-        self.scroll_area.updateGeometry()
 
     def _current_entity_name(self) -> str:
         """Best-effort "what's loaded on the current page right now",

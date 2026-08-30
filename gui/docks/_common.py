@@ -258,31 +258,29 @@ def highlight_stylesheet_for(selector: str) -> str:
             "color: palette(highlighted-text); }")
 
 
-# 2026-08-30 (Denis, live): QComboBox's minimum width equals its WIDEST item's
-# text (QComboBox::minimumSizeHint is content-sized), so a combo with a long
-# item — e.g. "Anchor (ref/role)" — floored a narrow dock. Follow-up: "пусть
-# пользователь решает, какую длину дока ставить" — the dock must shrink to
-# the ABSOLUTE minimum, so the floor is 0: every input widget may compress to
-# just its own frame/arrow, growth on widening is untouched (a `min-width`
-# stylesheet overrides the content minimum for the LAYOUT — verified: a
-# two-field form's minimum dropped from ~211px to ~89px with min-width:0,
-# fields still stretch to 553px at a 600px dock).
+# 2026-08-30 (Denis, live): a dock's widgets floored its minimum width —
+# QComboBox's minimum equaled its WIDEST item, tables/trees carried their
+# column content widths, QTabWidget its pages, buttons their text — so a
+# dock (and a tab inside it) could not be shrunk, and in the old QScrollArea
+# wrap the content "улетало за край экрана". Follow-up: "пусть пользователь
+# решает, какую длину дока ставить" — the dock must shrink to the ABSOLUTE
+# minimum. A `* { min-width: 0 }` stylesheet zeroes the width floor of EVERY
+# widget for the LAYOUT (Qt still reports content-based minimumSizeHints,
+# but layouts honour the stylesheet min-width — verified: PlacerDock's
+# minimum dropped 596px -> 393px, TreesDock -> 135px, ConfigTree -> 52px),
+# while growth on widening is untouched. The user sizes the dock by hand.
 FIELD_MIN_WIDTH_PX = 0
-FIELD_MIN_WIDTH_QSS = (
-    "QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox { "
-    f"min-width: {FIELD_MIN_WIDTH_PX}px; }}"
-)
+FIELD_MIN_WIDTH_QSS = "* { min-width: 0; }"
 
 
 def apply_compact_field_minimums(app) -> None:
-    """Apply the app-wide "compact field minimums" stylesheet (2026-08-30):
-    every input widget (combo/line edit/spin box) may shrink to
-    FIELD_MIN_WIDTH_PX — 0 = no forced width floor, so every dock can be
-    compressed to whatever the user wants; growth on widening is untouched.
-    Idempotent — an existing app stylesheet is preserved and the rule is
-    appended once. `app` is anything with styleSheet()/setStyleSheet()
-    (QApplication at startup; a QWidget works too — used by tests to avoid
-    global state)."""
+    """Apply the app-wide "everything may shrink to the absolute minimum"
+    stylesheet (2026-08-30): `* { min-width: 0 }` removes the width floor of
+    every widget, so every dock/tab can be compressed to whatever the user
+    wants; growth on widening is untouched. Idempotent — an existing app
+    stylesheet is preserved and the rule is appended once. `app` is anything
+    with styleSheet()/setStyleSheet() (QApplication at startup; a QWidget
+    works too — used by tests to avoid global state)."""
     existing = app.styleSheet()
     if FIELD_MIN_WIDTH_QSS not in existing:
         app.setStyleSheet((existing + "\n" + FIELD_MIN_WIDTH_QSS).strip())

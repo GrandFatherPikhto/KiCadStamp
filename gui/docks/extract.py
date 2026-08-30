@@ -423,8 +423,13 @@ class ExtractDock(QWidget):
 
         self._role_net_section = QWidget()
         role_net_section_layout = QVBoxLayout(self._role_net_section)
-        role_net_section_layout.addWidget(
-            QLabel(_("Net template role (bridging component — pick which aliased net is the template):")))
+        # wordWrap (2026-08-30): a long descriptive label without wrapping
+        # floored this whole tab at ~475px — `* { min-width: 0 }` does NOT
+        # override QLabel's content minimum, so the label must wrap instead.
+        role_net_hint = QLabel(_("Net template role (bridging component — pick "
+                                  "which aliased net is the template):"))
+        role_net_hint.setWordWrap(True)
+        role_net_section_layout.addWidget(role_net_hint)
         self._role_net_layout = QGridLayout()
         self._role_net_layout.setContentsMargins(0, 0, 0, 0)
         role_net_section_layout.addLayout(self._role_net_layout)
@@ -446,9 +451,13 @@ class ExtractDock(QWidget):
         # least one candidate.
         self._sub_placement_section = QWidget()
         sub_placement_section_layout = QVBoxLayout(self._sub_placement_section)
-        sub_placement_section_layout.addWidget(QLabel(
+        # wordWrap — same 2026-08-30 long-label floor fix as the role-net
+        # hint above (this one was the ~671px floor of the whole Extract tab).
+        sub_placement_hint = QLabel(
             _("Sub-placements (existing placements fully covered by this "
-              "selection — referenced via clone_placements, not copied):")))
+              "selection — referenced via clone_placements, not copied):"))
+        sub_placement_hint.setWordWrap(True)
+        sub_placement_section_layout.addWidget(sub_placement_hint)
         self._sub_placements_table = QTableWidget(0, 4)
         self._sub_placements_table.setHorizontalHeaderLabels(
             [_("Include"), _("Placement"), _("Cell"), _("Matched")])
