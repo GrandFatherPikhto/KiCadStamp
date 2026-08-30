@@ -9,7 +9,7 @@ tests/test_anchor_graph.py, per design_2026_08_26_link_trees.md's test plan.
 import pytest
 
 from kicadstamp.config import (
-    Config, ClonePlacement, CoordinatePlacement, NetTrace, Point, Rule,
+    Config, ClonePlacement, CoordinatePlacement, Entity, NetTrace, Point, Rule,
 )
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.link_trees import inline_anchor_field, link_trees
@@ -88,6 +88,52 @@ def test_node_auto_search_single_match(tmp_path):
     assert n.record is not None
     assert n.record.kind == "clone"
     assert n.is_external is False
+
+
+# ── Entity linking (Entity/Placement split, 2026-08-30, Phase 3.3) ──────────
+
+def test_node_placement_kind_links_to_entity(tmp_path):
+    """A tree node with kind "placement" resolves its ref against cfg.entities
+    (record kind "placement" in build_records), not the old clone index."""
+    cfg = _cfg(entities=[Entity(name="ENT_A", cell="c")])
+    trees = _tree(
+        '(tree (name "t") (anchor (origin))\n'
+        '      (node (ref "ENT_A") (kind placement) (xy 1 2)))',
+        tmp_path=tmp_path)
+    linked = link_trees(cfg, trees)[0]
+    n = linked.nodes[0]
+    assert n.record is not None
+    assert n.record.kind == "placement"
+    assert n.record.name == "ENT_A"
+    assert isinstance(n.record.obj, Entity)
+    assert n.is_external is False
+
+
+def test_node_auto_search_links_to_entity(tmp_path):
+    """No kind -> auto-search now scans entities (placement is in
+    _PLACEABLE_KINDS)."""
+    cfg = _cfg(entities=[Entity(name="ENT_A", cell="c")])
+    trees = _tree(
+        '(tree (name "t") (anchor (origin))\n'
+        '      (node (ref "ENT_A") (xy 1 2)))',
+        tmp_path=tmp_path)
+    linked = link_trees(cfg, trees)[0]
+    assert linked.nodes[0].record.kind == "placement"
+
+
+def test_anchor_ref_links_to_entity(tmp_path):
+    """A tree anchor by ref may resolve to an Entity record (the cross-tree /
+    entity-as-base case)."""
+    cfg = _cfg(entities=[Entity(name="ENT_A", cell="c")])
+    trees = _tree(
+        '(tree (name "t") (anchor (ref "ENT_A"))\n'
+        '      (node (ref "ENT_A") (kind placement) (xy 1 2)))',
+        tmp_path=tmp_path)
+    linked = link_trees(cfg, trees)[0]
+    a = linked.anchor
+    assert a.record is not None
+    assert a.record.kind == "placement"
+    assert not a.is_external
 
 
 def test_node_auto_search_zero_matches_is_fatal(tmp_path):

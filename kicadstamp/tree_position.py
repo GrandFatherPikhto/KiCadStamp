@@ -153,6 +153,16 @@ def resolve_record_live_position(adapter, cfg, rec: Record, resolved_points,
         return Vector2.from_xy(base.x + int(shift_x_mm * MM),
                                base.y + int(shift_y_mm * MM))
 
+    if kind == "placement":
+        # Entity records carry NO position by design (design_2026_08_30_entity_
+        # placement_grammar.md §3). Their live position as a tree base/anchor is
+        # resolved from the TREE (anchor / parent node offset) at Phase 4 —
+        # never from the record. Reaching this branch means a caller asked for
+        # a record-only live position of an Entity, which is not wired yet.
+        raise AssertionError(
+            "entity placement live position is resolved from the tree at apply "
+            "time (phase 4); the Entity record itself carries no anchor/xy")
+
     if kind == "point":
         resolved = resolve_point_chain(adapter, cfg.points, rec.name, sheet_names)
         return resolved.position
@@ -206,6 +216,11 @@ def resolve_record_rotation_deg(adapter, cfg, rec: Record, sheet_names) -> float
     kind = rec.kind
     if kind == "clone":
         return rec.obj.rotation_deg
+    if kind == "placement":
+        # Entity has no rotation concept of its own (rotation lives in the tree
+        # node) — same "not available" convention as point records; the caller
+        # treats None as "assume 0.0 for composition" (never silently 0).
+        return None
     if kind == "coordinate":
         cp = rec.obj
         # Anchor-relative mode — a coordinate-kind record may LEGALLY carry an

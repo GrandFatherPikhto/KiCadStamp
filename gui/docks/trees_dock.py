@@ -60,6 +60,7 @@ logger = logging.getLogger(__name__)
 # leaf — trees need it).
 _KIND_TAGS = {
     "clone": _("clone"),
+    "placement": _("placement"),
     "rule": _("rule"),
     "coordinate": _("coordinate"),
     "point": _("point"),

@@ -44,6 +44,7 @@ from .config import (
     Config,
     clone_placement_effective_name,
     coordinate_placement_effective_name,
+    entity_effective_name,
     net_trace_effective_name,
     rule_effective_name,
     thermal_via_array_effective_name,
@@ -61,7 +62,7 @@ class Record:
     one config record" shape for every concrete type. `obj` is the original
     dataclass; the anchor fields are flattened onto the Record so the graph
     builder does not branch on type except where a type genuinely differs."""
-    kind: str                     # 'clone' | 'rule' | 'coordinate' | 'net_trace' | 'thermal_via' | 'point'
+    kind: str                     # 'clone' | 'placement' | 'rule' | 'coordinate' | 'net_trace' | 'thermal_via' | 'point'
     obj: Any
     name: str                     # human-readable --only identity (see below)
     sheet: str | None             # own-identity sheet (None where absent)
@@ -142,6 +143,15 @@ def build_records(cfg: Config) -> list[Record]:
             continue
         records.append(_record(
             "clone", c, clone_placement_effective_name(c), c.sheet, c.params))
+    # entities: — NEW (Entity/Placement split, 2026-08-30): the "what" of a
+    # placement without position. kind "placement" is what trees: node refs
+    # (kind "placement") resolve to; position comes from the tree at apply
+    # time (Phase 4), so entity records are graph ROOTS here (no anchor).
+    for e in cfg.entities:
+        if e.retired:
+            continue
+        records.append(_record(
+            "placement", e, entity_effective_name(e), e.sheet, e.params))
     for r in cfg.rules:
         if r.retired:
             continue
@@ -184,11 +194,14 @@ def _record_produces(cfg: Config, rec: Record) -> list[tuple[str | None, str, st
         under several clusters, one entry per spoke)
       - coordinate_placement -> its own cluster/role/sheet fields
     """
-    if rec.kind == "clone":
+    if rec.kind in ("clone", "placement"):
+        # Both legacy clone_placements and the new Entity records produce the
+        # roles of their referenced cell (same .cell/.cluster/.sheet fields on
+        # both — an Entity is the "what" of a former ClonePlacement).
         cell = cfg.cells.get(rec.obj.cell)
         if cell is None:
-            logger.debug(_("clone_placement {name!r}: cell {cell!r} not found, produces nothing")
-                         .format(name=rec.name, cell=rec.obj.cell))
+            logger.debug(_("clone_placement/entity {name!r}: cell {cell!r} not found, "
+                           "produces nothing").format(name=rec.name, cell=rec.obj.cell))
             return []
         return [(rec.obj.cluster, slot.role, rec.sheet) for slot in cell.components]
 

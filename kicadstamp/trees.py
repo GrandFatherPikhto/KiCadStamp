@@ -34,7 +34,11 @@ from .i18n import _
 
 # Valid node kinds (syntactic whitelist; cross-referencing against Config
 # records is link_trees' job).
-KINDS = ("clone", "rule", "coordinate", "point", "external")
+# "placement" — the Entity/Placement split's kind for Entity-nodes (2026-08-30,
+# design_2026_08_30_entity_placement_grammar.md §2.2). "clone" is KEPT alongside
+# during the migration so legacy clone_placement-referencing trees keep working;
+# the release cutover (Phase 6 converter) rewrites "clone" -> "placement".
+KINDS = ("clone", "placement", "rule", "coordinate", "point", "external")
 
 _OFFSET_KEYS = ("xy", "polar")
 

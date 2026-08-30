@@ -266,23 +266,21 @@ def test_entities_section():
 
 def test_trees_section_v2_anchors():
     """trees: with the v2 anchor grammar (origin / ref+external /
-    role+sheet+cluster+pad / point) and clone-kind nodes — the Entity/
-    Placement position storage. NOTE: the node kind rename clone -> placement
-    lands in Phase 3.3 (it ripples into build_records/link_trees); the
-    anchors here are already the v2 grammar."""
+    role+sheet+cluster+pad / point) and kind "placement" nodes (the
+    Entity/Placement position storage, Phase 3.3)."""
     _roundtrip({
         "trees": [
             {"name": "origin_tree", "anchor": {"origin": True},
-             "nodes": [{"ref": "E1", "kind": "clone", "xy": [5.0, 2.0]}]},
+             "nodes": [{"ref": "E1", "kind": "placement", "xy": [5.0, 2.0]}]},
             {"name": "role_tree",
              "anchor": {"role": "FPGA", "sheet": "Channel_0",
                         "cluster": "CH0", "pad": "A1"},
-             "nodes": [{"ref": "E2", "kind": "clone", "polar": [3.0, 45.0],
+             "nodes": [{"ref": "E2", "kind": "placement", "polar": [3.0, 45.0],
                         "rotation": 90.0,
-                        "children": [{"ref": "E3", "kind": "clone",
+                        "children": [{"ref": "E3", "kind": "placement",
                                       "xy": [1.0, 1.0]}]}]},
             {"name": "ext_tree", "anchor": {"ref": "CONN_PM5V", "external": True},
-             "nodes": [{"ref": "E4", "kind": "clone", "xy": [1.0, 0.0]}]},
+             "nodes": [{"ref": "E4", "kind": "placement", "xy": [1.0, 0.0]}]},
             {"name": "point_tree", "anchor": {"point": "P1"},
              "nodes": []},
         ],
