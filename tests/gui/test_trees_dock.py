@@ -269,6 +269,36 @@ def test_add_child_mutates_node_children_and_dirty(main_window, tmp_path):
     assert any(c.text(0) == "NEW_CHILD" for c in _children(nodes[0]))
 
 
+def test_unique_ref_auto_numbers_a_collision():
+    """Phase 5.5 auto-numbering: ref_1, ref_2, ... for the first free variant."""
+    assert TreesDock._unique_ref("R1", set()) == "R1"
+    assert TreesDock._unique_ref("R1", {"R1"}) == "R1_1"
+    assert TreesDock._unique_ref("R1", {"R1", "R1_1"}) == "R1_2"
+    assert TreesDock._unique_ref("R1", {"OTHER"}) == "R1"
+
+
+def test_add_node_auto_numbers_a_free_typed_colliding_ref(main_window, tmp_path, monkeypatch):
+    """Phase 5.5: a NEW node whose free-typed ref (an external/refdes name,
+    not a placeable record) collides with an existing node is auto-numbered
+    (ref_1), so the next Save doesn't fatal with link_trees' "already has a
+    node elsewhere". Placeable records keep the strict "(used)" check."""
+    from PyQt6.QtWidgets import QDialog
+
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()  # power_tree: AMS1117_REG, R_AROUND
+    built = TreeNode(ref="R_AROUND", kind="external", xy=(1.0, 1.0), polar=None,
+                     rotation=0.0, name=None, group=None)
+    monkeypatch.setattr(_NodeDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
+    monkeypatch.setattr(_NodeDialog, "build_node", lambda self: built)
+
+    dock._add_node_flow(tree)
+
+    refs = [n.ref for n in tree.nodes]
+    assert "R_AROUND" in refs      # the original node stays
+    assert "R_AROUND_1" in refs    # the new collision is auto-numbered
+    assert refs.count("R_AROUND_1") == 1
+
+
 def test_delete_node_removes_subtree_and_marks_dirty(main_window, tmp_path):
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()

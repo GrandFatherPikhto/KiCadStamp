@@ -141,6 +141,11 @@ _SECTION_LABELS = {
     "points": _("Points"),
     "extract_profiles": _("Extract profiles"),
     "clone_profiles": _("Clone profiles"),
+    # Entity/Placement split (phase 5.6): entities are the new "what" records,
+    # trees are their placement storage — both shown as categories (Trees is
+    # navigation-only; the TreesDock owns editing).
+    "entities": _("Entities"),
+    "trees": _("Trees"),
 }
 
 # Section -> (menu label, signal name) for the context menu's "Add ..."
@@ -247,6 +252,9 @@ class ConfigTreeDock(QDockWidget):
     # see module docstring for why this replaces the three independent
     # FilePickerDock role signals.
     file_selected = pyqtSignal(object)
+    # Entity leaf click (phase 5.6): emitted with the Entity's NAME so
+    # PlacerDock's Entity source can load it (see placer.set_selected_entity).
+    entity_picked = pyqtSignal(str)
     # Fired AFTER a ConfigTreeDock action actually changed the include:
     # graph's file set or an entry's name (_on_rename/_on_delete/
     # _add_included_file/_remove_file) — DockHub listens to refresh every
@@ -601,6 +609,16 @@ class ConfigTreeDock(QDockWidget):
             self.rule_picked.emit(ref)
         elif section == "net_traces":
             self.net_trace_picked.emit(ref)
+        elif section == "entities":
+            # The payload is the full entity dict (list section) — emit the
+            # NAME (phase 5.6), Placer's Entity source selects by name.
+            name = ref.get("name") if isinstance(ref, dict) else ref
+            if name:
+                self.entity_picked.emit(name)
+        elif section == "trees":
+            # Trees are edited in the TreesDock (its own QDockWidget) — a
+            # leaf click here is navigation only for now.
+            pass
 
     # ── Context menu (right-click anywhere under a file) ────────────────
 

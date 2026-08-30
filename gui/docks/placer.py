@@ -1344,6 +1344,17 @@ class PlacerDock(QWidget):
         # a Cell while an Anchor cluster is already set is a commit event.
         self._maybe_autofill_nets()
 
+    def set_selected_entity(self, name: str) -> None:
+        """ConfigTreeDock's Entities leaf click (phase 5.6): switch to Entity
+        mode and load the picked Entity into the form — the same path as
+        picking it in the Entity combo."""
+        if not name:
+            return
+        if not self.is_entity:
+            self.cell_mode_combo.setCurrentIndex(2)  # -> Entity (signal toggles)
+            self._on_cell_mode_changed()
+        self.entity_combo.setCurrentText(name)
+
     def set_cluster_name(self, name: str) -> None:
         """Called by RoleClusterTreeDock's cluster_picked signal when a
         Cluster group node is clicked there — requested alongside the

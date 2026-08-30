@@ -618,7 +618,28 @@ class TreesDock(QDockWidget):
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return None
-        return dialog.build_node()
+        node = dialog.build_node()
+        # Phase 5.5 auto-numbering: a NEW node whose free-typed ref (not a
+        # placeable record — those are shown "(used)" and stay strict) collides
+        # with an existing node is auto-numbered (ref_1, ref_2, ...) so the
+        # next Save doesn't fatal with link_trees' "already has a node
+        # elsewhere". Add-mode only: editing a node must never rename it.
+        if existing is None:
+            placeable = {name for _kind, name in self._all_ref_candidates()}
+            if node.ref not in placeable:
+                node.ref = self._unique_ref(node.ref, self._used_refs())
+        return node
+
+    @staticmethod
+    def _unique_ref(base: str, used: set) -> str:
+        """The first free auto-numbered variant of a colliding ref: base if
+        free, else base_1, base_2, ... (phase 5.5 auto-numbering)."""
+        if base not in used:
+            return base
+        i = 1
+        while f"{base}_{i}" in used:
+            i += 1
+        return f"{base}_{i}"
 
     def _add_child_flow(self, tree: Tree, parent: TreeNode) -> None:
         node = self._prompt_node(_("Add child"), tree, parent_node=parent)

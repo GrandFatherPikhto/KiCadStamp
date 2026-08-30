@@ -784,7 +784,23 @@ class ExtractDock(QWidget):
                     track_registry_path = (ctx.track_registry_path
                                            or track_registry_path_for_config(
                                                str(self._placer_path)))
-                    for clone in cfg.clone_placements:
+                    # Phase 5.4 (Entity-only extract): an Entity placed via a
+                    # trees: node IS a placement too — materialize it into a
+                    # transient absolute ClonePlacement (phase 4.1) so the
+                    # Sub-placements feature sees Entity placements alongside
+                    # legacy clones. A role/point tree anchor is not
+                    # materializable yet — fall back to clones-only with a
+                    # warning rather than dropping the whole catalog.
+                    clones = list(cfg.clone_placements)
+                    try:
+                        from kicadstamp.placement.entity_placement import (
+                            materialize_entity_placements)
+                        clones += materialize_entity_placements(
+                            adapter, cfg, ctx.sheet_names)
+                    except Exception as e:
+                        logger.warning(_("Sub-placements: entity materialization "
+                                         "skipped ({error})").format(error=e))
+                    for clone in clones:
                         try:
                             items = resolve_clone_board_items(
                                 adapter, cfg, ctx, clone,

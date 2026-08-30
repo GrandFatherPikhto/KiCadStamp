@@ -536,6 +536,29 @@ def test_rule_leaf_click_emits_rule_picked(main_window, tmp_path):
     assert picked == [{"net": "+3V3", "anchor_role": "FPGA"}]
 
 
+def test_entities_and_trees_categories_with_entity_click(main_window, tmp_path):
+    """Phase 5.6: the config tree shows Entities + Trees categories, and
+    clicking an Entity leaf emits entity_picked with the Entity's NAME (so
+    Placer's Entity source can load it)."""
+    root = tmp_path / "root.sexp"
+    _write(root, {
+        "entities": [{"name": "E1", "cell": "my_cell"}],
+        "trees": [{"name": "t1", "anchor": {"origin": True},
+                   "nodes": [{"ref": "E1", "kind": "placement", "xy": [1.0, 1.0]}]}],
+    })
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+    # both new categories are present (_find raises if missing)
+    entities_cat = _find(dock.tree.topLevelItem(0), "Entities")
+    _find(dock.tree.topLevelItem(0), "Trees")
+
+    picked = []
+    dock.entity_picked.connect(picked.append)
+    leaf = entities_cat.child(0)
+    dock._on_clicked(leaf, 0)
+    assert picked == ["E1"]
+
+
 def test_add_placer_emits_request_instead_of_writing_directly(main_window, tmp_path):
     root = tmp_path / "root.sexp"
     _write(root, {"clone_placements": []})

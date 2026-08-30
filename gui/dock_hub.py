@@ -312,6 +312,9 @@ class DockHub:
         self.tree_dock.cluster_picked.connect(self.placer_dock.set_cluster_name)
         self.config_tree_dock.cell_picked.connect(self.placer_dock.set_selected_cell)
         self.config_tree_dock.cell_picked.connect(self.detail_dock.show_placer)
+        # Entities leaf (phase 5.6): load into Placer's Entity source.
+        self.config_tree_dock.entity_picked.connect(self.placer_dock.set_selected_entity)
+        self.config_tree_dock.entity_picked.connect(self.detail_dock.show_placer)
         self.config_tree_dock.placement_picked.connect(self.placer_dock.load_placement)
         self.config_tree_dock.placement_picked.connect(self.detail_dock.show_placer)
         self.config_tree_dock.profile_picked.connect(self.extract_dock.pick_profile)

@@ -1446,6 +1446,38 @@ def test_sub_placements_candidate_detected_when_fully_covered(main_window, tmp_p
     assert dock._sub_placements_table.item(0, 3).text() == "1 component(s), 2 via/track(s)"
 
 
+def test_sub_placement_catalog_includes_materialized_entities(main_window, tmp_path, monkeypatch):
+    """Phase 5.4 (Entity-only extract): an Entity placed via a trees: node IS
+    a placement — the Sub-placements catalog materializes it (transient
+    absolute ClonePlacement) alongside the legacy clones."""
+    from types import SimpleNamespace
+
+    root = tmp_path / "root.sexp"
+    _write(root, {
+        "cells": {"pif": {"components": [], "vias": [], "tracks": [], "layer": "F.Cu"}},
+        "entities": [{"name": "CH0_PIF", "cell": "pif", "cluster": "CH0"}],
+        "trees": [{"name": "CH0_PIF", "anchor": {"origin": True},
+                   "nodes": [{"ref": "CH0_PIF", "kind": "placement", "xy": [5.0, 2.0]}]}],
+        "clone_placements": [{"cluster": "LEGACY", "name": "LEGACY", "cell": "pif",
+                              "xy": [1.0, 1.0]}],
+    })
+    dock = ExtractDock(main_window)
+    dock.set_root_path(root)
+    dock._connection = SimpleNamespace(board=SimpleNamespace(adapter=FakeAdapter()))
+    entity_clone = ClonePlacement(cluster="CH0_PIF", name="CH0_PIF", cell="pif", xy=(5.0, 2.0))
+    monkeypatch.setattr(
+        "kicadstamp.placement.entity_placement.materialize_entity_placements",
+        lambda adapter, cfg, sheet_names=None: [entity_clone])
+    monkeypatch.setattr(
+        "kicadstamp.placement.services.board_items_resolver.resolve_clone_board_items",
+        lambda *a, **k: [])
+
+    catalog = dock._sub_placement_catalog()
+    names = [c.name or c.cluster for c, _ in catalog]
+    assert "CH0_PIF" in names  # the materialized Entity placement
+    assert "LEGACY" in names   # the legacy clone is still present
+
+
 def test_sub_placements_partial_coverage_is_not_a_candidate(main_window, tmp_path, monkeypatch):
     """Selection holds only PART of PIF_AVDD (e.g. the area-select missed one
     resistor) -> NOT a candidate, old behavior (no surprises on a partial
