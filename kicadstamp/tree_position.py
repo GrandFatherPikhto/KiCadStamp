@@ -32,6 +32,7 @@ import dataclasses
 import logging
 
 from .anchor_graph import Record
+from .exceptions import ValidationError, format_fatal_error
 from .i18n import _
 from .domain.geometry import Vector2
 from .geometry.clone_geometry import clone_shift_mm
@@ -460,4 +461,96 @@ def curated_redraw_plan(linked_tree: LinkedTree, selected_refs: set[str]
     for top in linked_tree.nodes:
         walk(top, parent_in_sel=anchor_in_sel, parent_label=anchor_label)
 
+    return names, warnings
+
+
+def _forest_index(linked_trees: list[LinkedTree]):
+    """Combine every tree's node index and parent map into one forest-wide
+    index: {ref: LinkedNode} and {ref: parent_ref}. A top-level node's parent
+    is its TREE ANCHOR's ref (None for an origin anchor); a nested node's
+    parent is its enclosing node's ref. Because the anchor ref is the parent
+    of the top-level nodes, a tree whose anchor points at a node of ANOTHER
+    tree gets a cross-tree edge for free — the unified forest parent map is
+    what plan 3.2 (§9.3 cross-tree anchoring) needs."""
+    node_index: dict[str, LinkedNode] = {}
+    parent_map: dict[str, str | None] = {}
+    for tree in linked_trees:
+        anchor_ref = tree.anchor.anchor.ref
+
+        def walk(nodes: list[LinkedNode], parent_ref: str | None) -> None:
+            for ln in nodes:
+                node_index[ln.node.ref] = ln
+                parent_map[ln.node.ref] = parent_ref
+                walk(ln.children, ln.node.ref)
+
+        walk(tree.nodes, anchor_ref)
+    return node_index, parent_map
+
+
+def curated_redraw_plan_forest(linked_trees: list[LinkedTree],
+                               selected_refs: set[str]) -> tuple[list[str], list[str]]:
+    """Global curated-redraw order over a FOREST of linked trees, with
+    cross-tree anchor edges (plan 3.2 / design_2026_08_30_entity_placement_
+    grammar.md §6).
+
+    Within each tree a parent is strictly before its child (the per-tree
+    rule), and every tree's top-level nodes are ordered after their TREE
+    ANCHOR's record when that anchor is itself a SELECTED placement node —
+    possibly in ANOTHER tree (cross-tree anchoring, §9.3). Because the anchor
+    ref is the parent of the top-level nodes in _forest_index, both the
+    within-tree and the cross-tree edges are expressed by one unified parent
+    map, and the result is a single Kahn's topological order over the whole
+    forest. External/origin/point anchors contribute no edge (read live).
+
+    Returns (names, warnings): names is the global application order (each
+    node's record.name == its ref, by link_trees's index construction);
+    point/external nodes are walked as bases but never emitted (same rule as
+    curated_redraw_plan). Raises ValidationError on a cross-tree cycle (two
+    trees whose anchors point into each other's selected nodes)."""
+    node_index, parent_map = _forest_index(linked_trees)
+
+    selected: dict[str, LinkedNode] = {}
+    for ref, ln in node_index.items():
+        if ref in selected_refs and ln.record is not None \
+                and ln.record.kind != "point":
+            selected[ref] = ln
+
+    # parent -> children edges (within-tree AND cross-tree anchor), indegrees
+    children: dict[str, list[str]] = {}
+    indeg: dict[str, int] = {ref: 0 for ref in selected}
+    for ref in selected:
+        p = parent_map.get(ref)
+        if p is not None and p in selected:
+            children.setdefault(p, []).append(ref)
+            indeg[ref] += 1
+
+    # warnings: a selected node whose parent/anchor is not redrawn (read live)
+    warnings: list[str] = []
+    for ref in selected:
+        p = parent_map.get(ref)
+        parent_label = p if p is not None else "(origin)"
+        if p is None or p not in selected:
+            warnings.append(
+                _("Node {ref!r} will be redrawn from the current position of "
+                  "{parent!r} (not in selection); if {parent!r} moved, {ref!r} "
+                  "will land from the old point")
+                .format(ref=ref, parent=parent_label))
+
+    # Kahn's algorithm (deterministic: lexicographic queue)
+    queue = sorted(ref for ref in selected if indeg[ref] == 0)
+    names: list[str] = []
+    while queue:
+        ref = queue.pop(0)
+        names.append(ref)
+        for child in children.get(ref, []):
+            indeg[child] -= 1
+            if indeg[child] == 0:
+                queue.append(child)
+                queue.sort()
+    if len(names) != len(selected):
+        remaining = sorted(set(selected) - set(names))
+        raise ValidationError(format_fatal_error(
+            _("cross-tree anchor cycle in curated redraw forest"),
+            [_("these nodes form a cycle through tree anchors: {items}")
+             .format(items=", ".join(remaining))]))
     return names, warnings

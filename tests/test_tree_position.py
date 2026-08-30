@@ -33,6 +33,7 @@ from kicadstamp.tree_position import (
     child_absolute_position,
     child_local_offset,
     curated_redraw_plan,
+    curated_redraw_plan_forest,
     node_offset,
     node_position,
     resolve_record_live_position,
@@ -57,6 +58,18 @@ def _record(kind, name, obj=None) -> Record:
 def _linked_node(ref, record=None, is_external=False, children=None) -> LinkedNode:
     return LinkedNode(node=_node_dc(ref=ref), record=record,
                       is_external=is_external, children=children or [])
+
+
+def _linked_tree(name, anchor_ref=None, is_origin=False, nodes=None) -> LinkedTree:
+    """A hand-built LinkedTree. origin anchor -> record None; ref anchor ->
+    a synthetic placement Record (so cross-tree anchor edges resolve)."""
+    anchor = LinkedAnchor(
+        anchor=TreeAnchor(ref=anchor_ref, is_origin=is_origin),
+        record=(_record("placement", anchor_ref) if anchor_ref and not is_origin else None),
+        is_origin=is_origin,
+        is_external=anchor_ref is None and not is_origin,
+    )
+    return LinkedTree(name=name, anchor=anchor, nodes=nodes or [])
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -886,3 +899,64 @@ def test_dispatch_coordinate_rotation_anchor_relative_uses_rotation_rule(monkeyp
                               x_mm=1.0, y_mm=1.0, rotation_deg=90.0)
     rec3 = _record("coordinate", "CP3/R", obj=cp3)
     assert tp.resolve_record_rotation_deg("adapter", "cfg", rec3, "sheets") == 90.0
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# curated_redraw_plan_forest — global order over a FOREST of trees
+# (plan 3.2, design §6: cross-tree anchor edges)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_forest_parent_before_child_across_trees():
+    """Two independent origin-anchored trees: parent-before-child holds within
+    each, and both trees' orders merge (no cross-tree edge)."""
+    t1 = _linked_tree("t1", is_origin=True, nodes=[
+        _linked_node("A", record=_record("placement", "A"),
+                     children=[_linked_node("A1", record=_record("placement", "A1"))])])
+    t2 = _linked_tree("t2", is_origin=True, nodes=[
+        _linked_node("B", record=_record("placement", "B"),
+                     children=[_linked_node("B1", record=_record("placement", "B1"))])])
+    names, warnings = curated_redraw_plan_forest([t1, t2], {"A", "A1", "B", "B1"})
+    assert names.index("A") < names.index("A1")
+    assert names.index("B") < names.index("B1")
+    assert set(names) == {"A", "A1", "B", "B1"}
+
+
+def test_forest_cross_tree_anchor_edge():
+    """Tree A is anchored on node X of tree B (cross-tree anchoring, §9.3):
+    X must be applied before A's top-level node — the unified forest parent
+    map expresses the cross edge via A's anchor ref."""
+    t_b = _linked_tree("tB", is_origin=True, nodes=[
+        _linked_node("X", record=_record("placement", "X"),
+                     children=[_linked_node("X1", record=_record("placement", "X1"))])])
+    # tA's anchor ref == "X" (a selected node in tB)
+    t_a = _linked_tree("tA", anchor_ref="X", nodes=[
+        _linked_node("A1", record=_record("placement", "A1"))])
+    names, warnings = curated_redraw_plan_forest([t_b, t_a], {"X", "X1", "A1"})
+    assert names.index("X") < names.index("A1")
+    assert names.index("X") < names.index("X1")
+    assert set(names) == {"X", "X1", "A1"}
+
+
+def test_forest_point_and_external_not_emitted():
+    """point/external nodes are walked as bases (parents) but never emitted
+    into names — same rule as the per-tree curated_redraw_plan."""
+    t = _linked_tree("t", is_origin=True, nodes=[
+        _linked_node("PT", record=_record("point", "PT"),
+                     children=[_linked_node("A1", record=_record("placement", "A1"))]),
+        _linked_node("EXT", is_external=True,
+                     children=[_linked_node("B1", record=_record("placement", "B1"))]),
+    ])
+    names, warnings = curated_redraw_plan_forest([t], {"A1", "B1"})
+    assert set(names) == {"A1", "B1"}
+
+
+def test_forest_cross_tree_cycle_is_fatal():
+    """Two trees whose anchors point into each other's selected nodes form a
+    cycle — must fail loudly (Kahn leaves them unreachable), not silently."""
+    t_a = _linked_tree("tA", anchor_ref="B1", nodes=[
+        _linked_node("A1", record=_record("placement", "A1"))])
+    t_b = _linked_tree("tB", anchor_ref="A1", nodes=[
+        _linked_node("B1", record=_record("placement", "B1"))])
+    from kicadstamp.exceptions import ValidationError
+    with pytest.raises(ValidationError, match="cycle"):
+        curated_redraw_plan_forest([t_a, t_b], {"A1", "B1"})
