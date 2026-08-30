@@ -29,6 +29,7 @@ from kicadstamp.i18n import _
 from kicadstamp.logging_setup import setup_logging
 
 from gui.app_icon import build_app_icon
+from gui.docks._common import apply_compact_field_minimums
 from gui.main_window import MainWindow
 from gui.single_instance import SingleInstanceGuard
 
@@ -49,6 +50,11 @@ def main():
     listener = setup_logging(verbose=args.verbose)
 
     app = QApplication(sys.argv)
+
+    # 2026-08-30 (Denis): combos' minimum width == their widest item, which
+    # floored narrow docks. App-wide compact field minimums — growth on
+    # widening is untouched (see _common.apply_compact_field_minimums).
+    apply_compact_field_minimums(app)
 
     # Default icon for every window this app creates (taskbar/alt-tab/window
     # manager decorations) — the real kicadstamp.ico, base64-embedded into

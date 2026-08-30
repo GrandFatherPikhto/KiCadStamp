@@ -456,3 +456,51 @@ def test_refresh_file_combo_choices_drops_path_outside_new_graph(qapp, tmp_path)
     assert corrected == [None]
     assert combo.count() == 2  # only the graph's own files — no phantom item
     assert combo.currentData() is None
+
+
+def test_compact_combo_minimum_reduces_form_width_and_preserves_growth(qapp):
+    """2026-08-30, Denis: combos' minimum width equals their WIDEST item
+    (QLineEdit's minimum is already small), which floors narrow docks. The
+    app-wide FIELD_MIN_WIDTH_QSS must let a form shrink to the compact combo
+    width — while the combo still grows when the dock widens."""
+    from PyQt6.QtWidgets import QComboBox, QFormLayout, QWidget
+
+    from gui.docks._common import COMPACT_COMBO_MIN_WIDTH_PX, FIELD_MIN_WIDTH_QSS
+
+    host = QWidget()
+    form = QFormLayout(host)
+    combo = QComboBox()
+    combo.addItems(["Absolute XY", "Anchor (ref/role)", "Point", "Board origin"])
+    form.addRow("Origin:", combo)
+    host.adjustSize()
+    qapp.processEvents()
+    before = form.minimumSize().width()
+    assert before > COMPACT_COMBO_MIN_WIDTH_PX  # the widest item floors it
+
+    host.setStyleSheet(FIELD_MIN_WIDTH_QSS)  # widget-level, no global leak
+    host.adjustSize()
+    qapp.processEvents()
+    after = form.minimumSize().width()
+    assert after < before  # the stylesheet min-width overrides the floor
+
+    # growth is untouched: a wide host still stretches the combo
+    host.resize(600, 120)
+    qapp.processEvents()
+    assert combo.width() > COMPACT_COMBO_MIN_WIDTH_PX
+
+
+def test_apply_compact_field_minimums_is_idempotent(qapp):
+    """The app-startup helper preserves an existing app stylesheet and adds
+    the compact-combo rule exactly once. A QWidget stands in for the app so
+    the shared QApplication's global stylesheet is not mutated."""
+    from PyQt6.QtWidgets import QWidget
+
+    from gui.docks._common import FIELD_MIN_WIDTH_QSS, apply_compact_field_minimums
+
+    host = QWidget()
+    host.setStyleSheet("QWidget { color: #000; }")
+    apply_compact_field_minimums(host)
+    assert FIELD_MIN_WIDTH_QSS in host.styleSheet()
+    assert "color: #000" in host.styleSheet()  # existing rules preserved
+    apply_compact_field_minimums(host)
+    assert host.styleSheet().count(FIELD_MIN_WIDTH_QSS) == 1

@@ -256,3 +256,28 @@ def highlight_stylesheet_for(selector: str) -> str:
                 "color: palette(highlighted-text); }")
     return (f"{selector} {{ background: palette(highlight); "
             "color: palette(highlighted-text); }")
+
+
+# 2026-08-30 (Denis, live): QComboBox's minimum width equals its WIDEST item's
+# text (QComboBox::minimumSizeHint is content-sized), so a combo with a long
+# item — e.g. "Anchor (ref/role)" — floors a narrow dock even though it can
+# grow when the dock widens. A `min-width` stylesheet overrides that minimum
+# for the LAYOUT (Qt still reports the content minimumSizeHint, but layouts
+# honour the stylesheet min-width — verified empirically: a form's minimum
+# dropped from ~191px to ~139px with min-width:72px, growth untouched). Single
+# tunable knob for every combo in the app; QLineEdit already has a small
+# minimumSizeHint (~40px), so only combos need the override.
+COMPACT_COMBO_MIN_WIDTH_PX = 72
+FIELD_MIN_WIDTH_QSS = f"QComboBox {{ min-width: {COMPACT_COMBO_MIN_WIDTH_PX}px; }}"
+
+
+def apply_compact_field_minimums(app) -> None:
+    """Apply the app-wide "compact field minimums" stylesheet (2026-08-30):
+    every QComboBox may shrink to COMPACT_COMBO_MIN_WIDTH_PX instead of its
+    widest item, so docks with long-item combos can be narrowed. Idempotent —
+    an existing app stylesheet is preserved and the rule is appended once.
+    `app` is anything with styleSheet()/setStyleSheet() (QApplication at
+    startup; a QWidget works too — used by tests to avoid global state)."""
+    existing = app.styleSheet()
+    if FIELD_MIN_WIDTH_QSS not in existing:
+        app.setStyleSheet((existing + "\n" + FIELD_MIN_WIDTH_QSS).strip())
