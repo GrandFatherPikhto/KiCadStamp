@@ -43,6 +43,7 @@ from .models import (
     ClonePlacement,
     Config,
     CoordinatePlacement,
+    Entity,
     ManualSpoke,
     NetTrace,
     Rule,
@@ -68,6 +69,7 @@ _TAG_BY_CLASS = {
     Cell: "cell",
     Rule: "rule",
     ClonePlacement: "clone_placement",
+    Entity: "entity",
     CoordinatePlacement: "coordinate_placement",
     ThermalViaArrayConfig: "thermal_via_array",
     NetTrace: "net_trace",
@@ -82,6 +84,7 @@ _LIST_SECTION_CLASS = {
     "thermal_via_arrays": ThermalViaArrayConfig,
     "coordinate_placements": CoordinatePlacement,
     "net_traces": NetTrace,
+    "entities": Entity,
 }
 
 # dict sections with a real dataclass (record name in the first position).

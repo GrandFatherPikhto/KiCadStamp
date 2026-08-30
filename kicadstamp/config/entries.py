@@ -1267,7 +1267,10 @@ def _load_coordinate_placement(data: dict[str, Any]) -> CoordinatePlacement:
 # already-tested trees.py::tree_from_dict (the dict bridge) with the config's
 # usual known-key discipline and fatal formatting.
 _TREE_KNOWN_KEYS = {"name", "anchor", "nodes"}
-_TREE_ANCHOR_KNOWN_KEYS = {"ref", "origin"}
+# Anchor grammar v2 (design_2026_08_30_entity_placement_grammar.md §2.2.3):
+# origin / ref(+external) / role(+sheet/cluster/pad) / point.
+_TREE_ANCHOR_KNOWN_KEYS = {"ref", "origin", "external", "role", "point",
+                           "sheet", "cluster", "pad"}
 _TREE_NODE_KNOWN_KEYS = {"ref", "kind", "xy", "polar", "rotation", "name", "group", "children"}
 
 

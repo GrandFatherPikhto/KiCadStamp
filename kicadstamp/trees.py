@@ -41,11 +41,28 @@ _OFFSET_KEYS = ("xy", "polar")
 
 @dataclass
 class TreeAnchor:
-    ref: str | None        # None only if is_origin
-    is_origin: bool
-    is_external: bool = False   # "this ref is a live-board refdes, never a
-                                # config record" — symmetric to kind="external"
-                                # on TreeNode (the anchor's own collision shield)
+    """A tree's position base — EXACTLY ONE of:
+      - is_origin=True  -> (anchor (origin)): the absolute board origin (0,0)
+      - ref set         -> (anchor (ref "...")): a config record name (an
+                           Entity for kind "placement") or a live refdes
+      - role set        -> (anchor (role "...") [(sheet ...) (cluster ...)
+                           (pad ...)]): anchor by the Role custom field on a
+                           live component (subsumes ClonePlacement's role-based
+                           anchor); sheet/cluster narrow ambiguity, pad moves
+                           the anchor point to a specific pad
+      - point set       -> (anchor (point "...")): a points: entry name
+    is_external=True marks a ref anchor as live-board-only (never resolved
+    against config) — symmetric to kind="external" on TreeNode (the anchor's
+    own collision shield).
+    """
+    ref: str | None = None        # None unless a ref anchor
+    is_origin: bool = False
+    is_external: bool = False   # only meaningful for a ref anchor
+    role: str | None = None
+    anchor_sheet: str | None = None
+    anchor_cluster: str | None = None
+    anchor_pad: str | None = None
+    point: str | None = None
 
 
 @dataclass
@@ -109,22 +126,49 @@ def _parse_rotation(node) -> float:
     return float(raw)
 
 
+def _opt_sval(value) -> str | None:
+    """sval() that tolerates None — for optional quoted-string anchor fields
+    (sheet/cluster/pad)."""
+    return sval(value) if value is not None else None
+
+
 def _parse_anchor(anchor_node) -> TreeAnchor:
-    """(anchor (ref "...")) -> ref anchor; (anchor (origin)) -> origin anchor;
-    (anchor (ref "...") (external)) -> live-board-only refdes anchor (NEVER
-    resolved against config — a config record sharing the name is ignored).
-    Anything else is fatal. ref is NOT validated for uniqueness against
-    nodes — an anchor is a base, not something the tree places (rule 2)."""
+    """(anchor (origin)) -> origin anchor;
+    (anchor (ref "...") [(external)]) -> ref anchor (external = live-board-only
+    refdes, NEVER resolved against config);
+    (anchor (role "...") [(sheet ...) (cluster ...) (pad ...)]) -> role-based
+    anchor by the Role custom field on a live component;
+    (anchor (point "...")) -> points: entry anchor.
+    Exactly one base kind is required (fatal otherwise). ref/role/point are NOT
+    validated for uniqueness against nodes — an anchor is a base, not something
+    the tree places (rule 2)."""
     is_origin = child(anchor_node, "origin") is not None
     is_external = child(anchor_node, "external") is not None
-    if is_origin and is_external:
-        _fatal(_("anchor: (origin) and (external) are mutually exclusive"))
-    if is_origin:
-        return TreeAnchor(ref=None, is_origin=True, is_external=False)
     ref = atom(anchor_node, "ref")
-    if ref is None:
-        _fatal(_("anchor must be either (ref \"...\") or (origin)"))
-    return TreeAnchor(ref=ref, is_origin=False, is_external=is_external)
+    role = atom(anchor_node, "role")
+    point = atom(anchor_node, "point")
+    mode_count = sum(1 for m in (is_origin, ref is not None,
+                                 role is not None, point is not None) if m)
+    if mode_count != 1:
+        _fatal(_("anchor must specify exactly one of (origin), (ref \"...\"), "
+                 "(role \"...\"), (point \"...\")"))
+    if is_origin:
+        if is_external:
+            _fatal(_("anchor: (origin) and (external) are mutually exclusive"))
+        return TreeAnchor(ref=None, is_origin=True, is_external=False)
+    if ref is not None:
+        return TreeAnchor(ref=sval(ref), is_origin=False, is_external=is_external)
+    if point is not None:
+        return TreeAnchor(point=sval(point), is_origin=False)
+    if is_external:
+        _fatal(_("anchor: (external) is only valid with a (ref \"...\") anchor"))
+    return TreeAnchor(
+        role=sval(role),
+        is_origin=False,
+        anchor_sheet=_opt_sval(atom(anchor_node, "sheet")),
+        anchor_cluster=_opt_sval(atom(anchor_node, "cluster")),
+        anchor_pad=_opt_sval(atom(anchor_node, "pad")),
+    )
 
 
 def _parse_node(node, seen_refs: set[str], location: str) -> TreeNode:
@@ -245,13 +289,25 @@ def _node_to_sexp(node: TreeNode) -> list:
 
 
 def _anchor_to_sexp(anchor: TreeAnchor) -> list:
-    """(ref "...") for a ref anchor, (origin) for an origin anchor. An
-    external (live-board-only) ref anchor also emits (external)."""
+    """Serialize one anchor node: (origin), (ref ...) [(external)],
+    (role ...) (+ sheet/cluster/pad), or (point ...)."""
     if anchor.is_origin:
         return [sym("anchor"), [sym("origin")]]
-    out = [sym("anchor"), [sym("ref"), anchor.ref]]
-    if anchor.is_external:
-        out.append([sym("external")])
+    out = [sym("anchor")]
+    if anchor.ref is not None:
+        out.append([sym("ref"), anchor.ref])
+        if anchor.is_external:
+            out.append([sym("external")])
+    elif anchor.point is not None:
+        out.append([sym("point"), anchor.point])
+    else:
+        out.append([sym("role"), anchor.role])
+        if anchor.anchor_sheet is not None:
+            out.append([sym("sheet"), anchor.anchor_sheet])
+        if anchor.anchor_cluster is not None:
+            out.append([sym("cluster"), anchor.anchor_cluster])
+        if anchor.anchor_pad is not None:
+            out.append([sym("pad"), anchor.anchor_pad])
     return out
 
 
@@ -285,11 +341,23 @@ def save_trees(path: str, trees: list[Tree]) -> None:
 # _node_to_sexp) — tree_to_dict(tree_from_dict(d)) is the canonical form.
 
 def _anchor_to_dict(anchor: TreeAnchor) -> dict:
+    """Mirror of _anchor_to_sexp in plain-dict shape (the config inlay)."""
     if anchor.is_origin:
         return {"origin": True}
-    out: dict = {"ref": anchor.ref}
-    if anchor.is_external:
-        out["external"] = True
+    if anchor.ref is not None:
+        out: dict = {"ref": anchor.ref}
+        if anchor.is_external:
+            out["external"] = True
+        return out
+    if anchor.point is not None:
+        return {"point": anchor.point}
+    out: dict = {"role": anchor.role}
+    if anchor.anchor_sheet is not None:
+        out["sheet"] = anchor.anchor_sheet
+    if anchor.anchor_cluster is not None:
+        out["cluster"] = anchor.anchor_cluster
+    if anchor.anchor_pad is not None:
+        out["pad"] = anchor.anchor_pad
     return out
 
 
@@ -389,15 +457,26 @@ def tree_from_dict(data: dict, seen_refs: set[str] | None = None) -> Tree:
     if name is None:
         _fatal(_("a tree is missing a (name ...)"))
     anchor_data = data.get("anchor") or {}
-    if anchor_data.get("origin") and anchor_data.get("external"):
-        _fatal(_("anchor: (origin) and (external) are mutually exclusive"))
+    anchor_modes = [k for k in ("origin", "ref", "role", "point")
+                    if anchor_data.get(k) is not None]
+    if len(anchor_modes) != 1:
+        _fatal(_("anchor must specify exactly one of origin/ref/role/point"))
     if anchor_data.get("origin"):
-        anchor = TreeAnchor(ref=None, is_origin=True, is_external=False)
+        if anchor_data.get("external"):
+            _fatal(_("anchor: origin and external are mutually exclusive"))
+        anchor = TreeAnchor(is_origin=True)
     elif anchor_data.get("ref") is not None:
-        anchor = TreeAnchor(ref=anchor_data["ref"], is_origin=False,
+        anchor = TreeAnchor(ref=anchor_data["ref"],
                             is_external=bool(anchor_data.get("external")))
+    elif anchor_data.get("point") is not None:
+        anchor = TreeAnchor(point=anchor_data["point"])
     else:
-        _fatal(_("anchor must be either (ref \"...\") or (origin)"))
+        anchor = TreeAnchor(
+            role=anchor_data["role"],
+            anchor_sheet=anchor_data.get("sheet"),
+            anchor_cluster=anchor_data.get("cluster"),
+            anchor_pad=anchor_data.get("pad"),
+        )
     return Tree(
         name=name,
         anchor=anchor,
