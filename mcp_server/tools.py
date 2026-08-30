@@ -65,6 +65,28 @@ _DESC_GET_SELECTION = (
 _DESC_LIST_NETS = (
     "List all board net names. Read-only, validated."
 )
+_DESC_GET_ITEMS_BY_UUID = (
+    "Resolve a list of board item uuids to detailed records (tracks, vias, "
+    "footprints). Each requested uuid appears exactly once in the result: "
+    "found items get their full detail (kind, net, layer, mm coordinates); "
+    "items not on the board return {'kind': None, 'found': False} — never "
+    "raising and never silently skipping. Prefer this over listing the whole "
+    "board when the uuids already come from kicadstamp_get_selection. "
+    "Read-only, validated."
+)
+_DESC_LIST_TRACKS = (
+    "List track segments with optional net and/or layer filters (e.g. "
+    "net='GND', layer='F.Cu'; layer matches the string layer name). On a "
+    "large board this can be large — prefer the net/layer filters, or "
+    "kicadstamp_get_items_by_uuid when you already have uuids from "
+    "kicadstamp_get_selection. Read-only, validated."
+)
+_DESC_LIST_VIAS = (
+    "List vias with an optional net filter (e.g. net='GND'). On a large "
+    "board this can be large — prefer the net filter, or "
+    "kicadstamp_get_items_by_uuid when you already have uuids from "
+    "kicadstamp_get_selection. Read-only, validated."
+)
 _DESC_APPLY_CONFIG = (
     "Apply a KiCadStamp placement config through the existing VALIDATED path — "
     "the same as the CLI 'apply' and the GUI Redraw: full pre-validation "
@@ -111,6 +133,21 @@ def register_tools(server: MCPServer, manager: ConnectionManager) -> None:
     @_tool_error
     def _list_nets() -> list[str]:
         return manager.execute(handlers.list_nets)
+
+    @server.tool(name="kicadstamp_get_items_by_uuid", description=_DESC_GET_ITEMS_BY_UUID)
+    @_tool_error
+    def _get_items_by_uuid(uuids: list[str]) -> list[dict]:
+        return manager.execute(lambda a: handlers.get_items_by_uuid(a, uuids=uuids))
+
+    @server.tool(name="kicadstamp_list_tracks", description=_DESC_LIST_TRACKS)
+    @_tool_error
+    def _list_tracks(net: str | None = None, layer: str | None = None) -> list[dict]:
+        return manager.execute(lambda a: handlers.list_tracks(a, net=net, layer=layer))
+
+    @server.tool(name="kicadstamp_list_vias", description=_DESC_LIST_VIAS)
+    @_tool_error
+    def _list_vias(net: str | None = None) -> list[dict]:
+        return manager.execute(lambda a: handlers.list_vias(a, net=net))
 
     # Validated write — opens its OWN apply pipeline (own kipy socket), so it
     # does not go through the shared manager.

@@ -50,6 +50,9 @@ register it:
 | `kicadstamp_get_footprint` | low | One footprint in detail: pads (number/net/position) and the nets on them |
 | `kicadstamp_get_selection` | low | What the PCB editor currently has selected (groups expanded) |
 | `kicadstamp_list_nets` | low | All board net names |
+| `kicadstamp_get_items_by_uuid` | low | Resolve board item uuids (tracks/vias/footprints) to detailed records; each requested uuid appears exactly once, missing ones report `found: false` |
+| `kicadstamp_list_tracks` | low | Track segments with optional `net`/`layer` filters (e.g. `net='GND'`); prefer filters or `get_items_by_uuid` on large boards |
+| `kicadstamp_list_vias` | low | Vias with optional `net` filter (e.g. `net='GND'`); prefer the filter or `get_items_by_uuid` on large boards |
 | `kicadstamp_apply_config` | low (validated) | Run the existing validated apply pipeline on a `.sexp`/`.json` profile; `dry_run` only plans |
 | `kicad_raw_move_footprint` | **high (raw)** | Move one footprint by ref directly over kipy; off by default; requires `expected_board_name` (mandatory board-identity guard) |
 

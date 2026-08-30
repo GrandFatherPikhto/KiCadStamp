@@ -38,7 +38,8 @@ class FakeAdapter:
     """Minimal adapter stand-in implementing exactly what handlers use."""
 
     def __init__(self, footprints=(), nets=(), selected=(), pads_by_ref=None,
-                 fields=None, board_name="test_board.kicad_pcb", version="10.0.6"):
+                 fields=None, board_name="test_board.kicad_pcb", version="10.0.6",
+                 tracks=(), vias=()):
         self._fps = list(footprints)
         self._nets = list(nets)
         self._selected = list(selected)
@@ -46,6 +47,8 @@ class FakeAdapter:
         self._fields = fields or {}
         self._board_name = board_name
         self._version = version
+        self._tracks = list(tracks)
+        self._vias = list(vias)
         self.updated: list = []  # every update_items() push, for assertions
 
     def get_board_filename(self):
@@ -71,6 +74,12 @@ class FakeAdapter:
 
     def get_all_nets(self):
         return list(self._nets)
+
+    def get_tracks(self):
+        return list(self._tracks)
+
+    def get_vias(self):
+        return list(self._vias)
 
     def update_items(self, items):
         for dto in items:
@@ -180,6 +189,102 @@ def test_get_selection_empty():
 def test_list_nets_sorted():
     adapter = FakeAdapter(nets=[Net(name="GND"), Net(name="+3V3"), Net(name="+3V3")])
     assert handlers.list_nets(adapter) == ["+3V3", "GND"]
+
+
+# --- tracks / vias ----------------------------------------------------------
+
+def _track(uuid, net, layer, x1_mm, y1_mm, x2_mm, y2_mm, width_mm=0.25):
+    return Track(
+        uuid=uuid,
+        start=Vector2(x=round(x1_mm * 1e6), y=round(y1_mm * 1e6)),
+        end=Vector2(x=round(x2_mm * 1e6), y=round(y2_mm * 1e6)),
+        net_name=net,
+        width_mm=width_mm,
+        layer=layer,
+    )
+
+
+def _via(uuid, net, x_mm, y_mm, drill_mm=0.3, diameter_mm=0.6):
+    return Via(uuid=uuid, position=Vector2(x=round(x_mm * 1e6), y=round(y_mm * 1e6)),
+               net_name=net, drill_mm=drill_mm, diameter_mm=diameter_mm)
+
+
+def test_list_tracks_filters_by_net_and_layer():
+    t_f = _track("t-f", "GND", BoardLayer.BL_F_Cu, 0, 0, 1, 0)
+    t_b = _track("t-b", "+3V3", BoardLayer.BL_B_Cu, 0, 0, 0, 1, width_mm=0.5)
+    adapter = FakeAdapter(tracks=[t_f, t_b])
+    assert handlers.list_tracks(adapter) == [handlers._track_brief(t_f),
+                                             handlers._track_brief(t_b)]
+    assert handlers.list_tracks(adapter, net="GND") == [handlers._track_brief(t_f)]
+    assert handlers.list_tracks(adapter, layer="B.Cu") == [handlers._track_brief(t_b)]
+    assert handlers.list_tracks(adapter, net="GND", layer="B.Cu") == []
+
+
+def test_list_tracks_converts_units_and_layer():
+    t = _track("t-1", "GND", BoardLayer.BL_F_Cu, 1.5, 2.5, 3.5, 4.5, width_mm=0.2)
+    entry = handlers.list_tracks(FakeAdapter(tracks=[t]))[0]
+    assert entry == {
+        "uuid": "t-1",
+        "kind": "track",
+        "net": "GND",
+        "layer": "F.Cu",
+        "width_mm": 0.2,
+        "start_x_mm": 1.5,
+        "start_y_mm": 2.5,
+        "end_x_mm": 3.5,
+        "end_y_mm": 4.5,
+    }
+
+
+def test_list_vias_filters_by_net():
+    v_gnd = _via("v-1", "GND", 1.0, 2.0)
+    v_3v3 = _via("v-2", "+3V3", 3.0, 4.0)
+    adapter = FakeAdapter(vias=[v_gnd, v_3v3])
+    assert handlers.list_vias(adapter) == [handlers._via_brief(v_gnd),
+                                           handlers._via_brief(v_3v3)]
+    assert handlers.list_vias(adapter, net="GND") == [handlers._via_brief(v_gnd)]
+    assert handlers.list_vias(adapter, net="NOPE") == []
+
+
+def test_list_vias_converts_units():
+    v = _via("v-1", "GND", 1.5, 2.5, drill_mm=0.3, diameter_mm=0.6)
+    entry = handlers.list_vias(FakeAdapter(vias=[v]))[0]
+    assert entry == {
+        "uuid": "v-1",
+        "kind": "via",
+        "net": "GND",
+        "x_mm": 1.5,
+        "y_mm": 2.5,
+        "drill_mm": 0.3,
+        "diameter_mm": 0.6,
+    }
+
+
+# --- get_items_by_uuid ------------------------------------------------------
+
+def test_get_items_by_uuid_resolves_tracks_vias_footprints():
+    fp = _fp("U1")
+    via = _via("v-1", "GND", 1.0, 2.0)
+    track = _track("t-1", "GND", BoardLayer.BL_F_Cu, 0, 0, 1, 1)
+    adapter = FakeAdapter(footprints=[fp], tracks=[track], vias=[via])
+    result = handlers.get_items_by_uuid(adapter, ["t-1", "v-1", "uuid-U1", "ghost"])
+    assert result == [
+        handlers._track_brief(track),
+        handlers._via_brief(via),
+        {**handlers._fp_brief(adapter, fp), "kind": "footprint", "uuid": "uuid-U1"},
+        {"uuid": "ghost", "kind": None, "found": False},
+    ]
+
+
+def test_get_items_by_uuid_missing_uuids_report_found_false_without_raising():
+    assert handlers.get_items_by_uuid(FakeAdapter(), ["a", "b"]) == [
+        {"uuid": "a", "kind": None, "found": False},
+        {"uuid": "b", "kind": None, "found": False},
+    ]
+
+
+def test_get_items_by_uuid_empty_uuids_returns_empty_list():
+    assert handlers.get_items_by_uuid(FakeAdapter(), []) == []
 
 
 # --- apply_config (validated write) -----------------------------------------

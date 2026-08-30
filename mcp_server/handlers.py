@@ -101,6 +101,95 @@ def get_selection(adapter) -> list[dict[str, Any]]:
     return result
 
 
+def _track_brief(track: Track) -> dict[str, Any]:
+    """The compact track record shared by list_tracks/get_items_by_uuid."""
+    return {
+        "uuid": track.uuid,
+        "kind": "track",
+        "net": track.net_name,
+        "layer": layer_to_str(track.layer),
+        "width_mm": round(track.width_mm, 3),
+        "start_x_mm": round(_mm(track.start.x), 3),
+        "start_y_mm": round(_mm(track.start.y), 3),
+        "end_x_mm": round(_mm(track.end.x), 3),
+        "end_y_mm": round(_mm(track.end.y), 3),
+    }
+
+
+def _via_brief(via: Via) -> dict[str, Any]:
+    """The compact via record shared by list_vias/get_items_by_uuid."""
+    return {
+        "uuid": via.uuid,
+        "kind": "via",
+        "net": via.net_name,
+        "x_mm": round(_mm(via.position.x), 3),
+        "y_mm": round(_mm(via.position.y), 3),
+        "drill_mm": round(via.drill_mm, 3),
+        "diameter_mm": round(via.diameter_mm, 3),
+    }
+
+
+def get_items_by_uuid(adapter, uuids: list[str]) -> list[dict[str, Any]]:
+    """Resolve board item uuids to detailed records (tracks/vias/footprints).
+
+    Each requested uuid appears in the result EXACTLY once: found items get
+    their full detail, missing ones ``{"uuid", "kind": None, "found": False}``
+    instead of raising or silently skipping — that is the signal "a registry
+    record is no longer on the board" used during investigations. Prefer this
+    over list_tracks/list_vias when the uuids already come from get_selection.
+    """
+    by_uuid: dict[str, Any] = {}
+    for item in adapter.get_tracks():
+        by_uuid[item.uuid] = item
+    for item in adapter.get_vias():
+        by_uuid[item.uuid] = item
+    for item in adapter.get_footprints():
+        by_uuid[item.uuid] = item
+
+    result: list[dict[str, Any]] = []
+    for uuid in uuids:
+        item = by_uuid.get(uuid)
+        if item is None:
+            result.append({"uuid": uuid, "kind": None, "found": False})
+        elif isinstance(item, Track):
+            result.append(_track_brief(item))
+        elif isinstance(item, Via):
+            result.append(_via_brief(item))
+        else:
+            result.append({**_fp_brief(adapter, item), "kind": "footprint",
+                           "uuid": item.uuid})
+    return result
+
+
+def list_tracks(adapter, net: str | None = None,
+                layer: str | None = None) -> list[dict[str, Any]]:
+    """One entry per track; optionally filtered by net name and/or layer
+    (string layer name, e.g. 'F.Cu'/'B.Cu' — the same layer_to_str as
+    footprints).
+
+    On a large board this can be large — prefer the net/layer filters, or
+    get_items_by_uuid when you already have uuids from get_selection.
+    """
+    result: list[dict[str, Any]] = []
+    for track in adapter.get_tracks():
+        if net is not None and track.net_name != net:
+            continue
+        if layer is not None and layer_to_str(track.layer) != layer:
+            continue
+        result.append(_track_brief(track))
+    return result
+
+
+def list_vias(adapter, net: str | None = None) -> list[dict[str, Any]]:
+    """One entry per via; optionally filtered by net name.
+
+    On a large board this can be large — prefer the net filter, or
+    get_items_by_uuid when you already have uuids from get_selection.
+    """
+    return [_via_brief(via) for via in adapter.get_vias()
+            if net is None or via.net_name == net]
+
+
 def list_nets(adapter) -> list[str]:
     """All board net names, sorted and deduplicated."""
     return sorted({net.name for net in adapter.get_all_nets()})

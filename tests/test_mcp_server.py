@@ -11,6 +11,9 @@ import asyncio
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
+from kicadstamp.domain.board import Footprint, Track, Via
+from kicadstamp.domain.geometry import BoardLayer, Vector2
+
 from mcp_server.server import _raw_write_enabled, build_server
 
 
@@ -27,9 +30,13 @@ def _isolate_gui_settings(tmp_path, monkeypatch):
 class _FakeAdapter:
     """Minimal adapter stand-in injected into the ConnectionManager factory."""
 
-    def __init__(self, name="fake.kicad_pcb", version="10.0.6"):
+    def __init__(self, name="fake.kicad_pcb", version="10.0.6",
+                 footprints=(), tracks=(), vias=()):
         self._name = name
         self._version = version
+        self._footprints = list(footprints)
+        self._tracks = list(tracks)
+        self._vias = list(vias)
 
     def refresh_board(self):
         pass
@@ -41,10 +48,16 @@ class _FakeAdapter:
         return self._version
 
     def get_footprints(self):
-        return []
+        return list(self._footprints)
 
     def get_footprint(self, ref):
-        return None
+        return next((f for f in self._footprints if f.ref == ref), None)
+
+    def get_tracks(self):
+        return list(self._tracks)
+
+    def get_vias(self):
+        return list(self._vias)
 
     def get_field_value(self, fp, name):
         return None
@@ -81,7 +94,9 @@ def test_read_and_apply_tools_registered_by_default(monkeypatch):
     names = _tool_names(build_server())
     for expected in ("kicadstamp_get_board_identity", "kicadstamp_list_footprints",
                      "kicadstamp_get_footprint", "kicadstamp_get_selection",
-                     "kicadstamp_list_nets", "kicadstamp_apply_config"):
+                     "kicadstamp_list_nets", "kicadstamp_get_items_by_uuid",
+                     "kicadstamp_list_tracks", "kicadstamp_list_vias",
+                     "kicadstamp_apply_config"):
         assert expected in names
     assert "kicad_raw_move_footprint" not in names  # raw is OFF by default
 
@@ -124,6 +139,20 @@ def test_input_schemas():
     assert "ref_prefix" in list_fp.get("properties", {})
     assert "ref_prefix" not in list_fp.get("required", [])
 
+    by_uuid = _input_schema(tools["kicadstamp_get_items_by_uuid"])
+    assert "uuids" in by_uuid.get("required", [])
+    assert "uuids" in by_uuid.get("properties", {})
+
+    list_tracks = _input_schema(tools["kicadstamp_list_tracks"])
+    assert "net" in list_tracks.get("properties", {})
+    assert "layer" in list_tracks.get("properties", {})
+    assert "net" not in list_tracks.get("required", [])
+    assert "layer" not in list_tracks.get("required", [])
+
+    list_vias = _input_schema(tools["kicadstamp_list_vias"])
+    assert "net" in list_vias.get("properties", {})
+    assert "net" not in list_vias.get("required", [])
+
 
 # --- tools -> handlers dispatch (through a fake adapter) ---------------------
 
@@ -155,3 +184,75 @@ def test_dispatch_apply_config_dry_run(monkeypatch):
                                 {"config_path": "profiles/x.sexp", "dry_run": True})
     assert is_error is not True
     assert "DRY RUN" in text
+
+
+def _routing_adapter(footprints=()):
+    """Board with one F.Cu track on GND, one B.Cu track on +3V3 and one via."""
+    track_f = Track(uuid="t-f", start=Vector2(0, 0), end=Vector2(1_000_000, 0),
+                    net_name="GND", width_mm=0.25, layer=BoardLayer.BL_F_Cu)
+    track_b = Track(uuid="t-b", start=Vector2(0, 0), end=Vector2(0, 1_000_000),
+                    net_name="+3V3", width_mm=0.5, layer=BoardLayer.BL_B_Cu)
+    via = Via(uuid="v-1", position=Vector2(0, 0), net_name="GND",
+              drill_mm=0.3, diameter_mm=0.6)
+    return _FakeAdapter(footprints=footprints, tracks=[track_f, track_b],
+                        vias=[via])
+
+
+# --- tracks / vias / get_items_by_uuid --------------------------------------
+
+def test_dispatch_get_items_by_uuid_mixed_found_and_missing():
+    fp = Footprint(ref="U1", uuid="fp-u1", position=Vector2(0, 0),
+                   angle_deg=0.0, layer=BoardLayer.BL_F_Cu, value="MCU")
+    server = build_server(adapter_factory=lambda ms: _routing_adapter([fp]))
+    is_error, text = _call_text(server, "kicadstamp_get_items_by_uuid",
+                                {"uuids": ["t-f", "v-1", "fp-u1", "ghost"]})
+    assert is_error is not True
+    # every requested uuid appears exactly once, in request order
+    assert text.count('"uuid"') == 4
+    assert '"t-f"' in text and '"kind": "track"' in text
+    assert '"v-1"' in text and '"kind": "via"' in text
+    assert '"fp-u1"' in text and '"kind": "footprint"' in text
+    assert '"ghost"' in text and '"kind": null' in text and '"found": false' in text
+
+
+def test_dispatch_get_items_by_uuid_all_missing():
+    server = build_server(adapter_factory=lambda ms: _FakeAdapter())
+    is_error, text = _call_text(server, "kicadstamp_get_items_by_uuid",
+                                {"uuids": ["a", "b"]})
+    assert is_error is not True
+    assert '"uuid": "a"' in text and '"uuid": "b"' in text
+    assert text.count('"found": false') == 2
+
+
+def test_dispatch_list_tracks_filters_by_net_and_layer():
+    server = build_server(adapter_factory=lambda ms: _routing_adapter())
+    is_error, text = _call_text(server, "kicadstamp_list_tracks",
+                                {"net": "GND", "layer": "F.Cu"})
+    assert is_error is not True
+    assert '"t-f"' in text
+    assert '"t-b"' not in text
+
+
+def test_dispatch_list_tracks_no_match_returns_empty_list():
+    server = build_server(adapter_factory=lambda ms: _routing_adapter())
+    is_error, text = _call_text(server, "kicadstamp_list_tracks", {"net": "NOPE"})
+    assert is_error is not True
+    # the empty list serialises to an empty content text (exact [] is asserted
+    # at the handler level in test_mcp_handlers.py)
+    assert text == ""
+
+
+def test_dispatch_list_vias_filters_by_net():
+    server = build_server(adapter_factory=lambda ms: _routing_adapter())
+    is_error, text = _call_text(server, "kicadstamp_list_vias", {"net": "GND"})
+    assert is_error is not True
+    assert '"v-1"' in text and '"kind": "via"' in text
+
+
+def test_dispatch_list_vias_no_match_returns_empty_list():
+    server = build_server(adapter_factory=lambda ms: _routing_adapter())
+    is_error, text = _call_text(server, "kicadstamp_list_vias", {"net": "NOPE"})
+    assert is_error is not True
+    # the empty list serialises to an empty content text (exact [] is asserted
+    # at the handler level in test_mcp_handlers.py)
+    assert text == ""
