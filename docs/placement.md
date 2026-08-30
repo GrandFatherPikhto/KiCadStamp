@@ -38,6 +38,12 @@ linked trees and produces transient absolute `ClonePlacement`s (Entity fields + 
 position) that feed the SAME planner/executor pipeline as legacy `clone_placements:` — so the
 Entity/Placement split is purely a data-model refactor: the execution machinery is unchanged.
 
+A tree's `(anchor (ref ...))` may itself point at an Entity (a placement node of ANOTHER tree) —
+since an Entity carries no position, the anchor base is then resolved RECURSIVELY: the placing tree's
+own anchor base (origin/ref/role/another Entity ref — recursion, cycle-guarded) + that node's offset.
+An Entity referenced by no placement node, by more than one, or through a chain that loops into a
+cycle is a CONFIG error — fatal, never silently skipped.
+
 **Migrating a legacy profile:** `tools/convert_placements.py` rewrites `clone_placements:` into
 `entities:` + placement trees in place (run on a COPY — it writes a timestamped `.bak` first), and
 rewrites pre-existing `kind "clone"` tree nodes to `kind "placement"`. See

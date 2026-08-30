@@ -8530,6 +8530,46 @@ msgid ""
 "(origin) or (ref ...) anchor for now"
 msgstr ""
 
+#: kicadstamp/placement/entity_placement.py:145
+#, python-brace-format
+msgid "internal error: Entity-anchored tree resolved without the tree forest"
+msgstr ""
+
+#: kicadstamp/placement/entity_placement.py:152
+msgid "tree anchor cycle through Entity placements"
+msgstr ""
+
+#: kicadstamp/placement/entity_placement.py:153
+#, python-brace-format
+msgid ""
+"the tree-anchor chain loops back through Entity placements: {chain}"
+msgstr ""
+
+#: kicadstamp/placement/entity_placement.py:160
+#, python-brace-format
+msgid ""
+"Entity {name!r} is not placed in any tree — nothing to read live"
+msgstr ""
+
+#: kicadstamp/placement/entity_placement.py:162
+#, python-brace-format
+msgid ""
+"a (ref ...) tree anchor points at Entity {name!r}, but no (kind placement) "
+"node places it; add a placement node for the Entity, or use an (external) "
+"anchor for a live-board refdes"
+msgstr ""
+
+#: kicadstamp/placement/entity_placement.py:168
+#, python-brace-format
+msgid "Entity {name!r} is placed in more than one tree node"
+msgstr ""
+
+#: kicadstamp/placement/entity_placement.py:171
+msgid ""
+"trees rule 2 (a flat record ref may appear in at most one node) is violated "
+"— an Entity can stand in only one place"
+msgstr ""
+
 #: kicadstamp/placement/planner.py:61
 #, python-brace-format
 msgid "Planner initialised: layer={layer}, anchors in rules: {anchors}"

@@ -412,3 +412,167 @@ def test_resolve_order_materializes_from_full_cfg_not_only_narrowed():
         pipeline._resolve_order()                      # must not fatal
     names = [c.name for c in pipeline.cfg.clone_placements]
     assert "E1" in names
+
+
+# ---------------------------------------------------------------------------
+# Phase 4.1 live: a tree anchored on an ENTITY (ref -> record.kind placement)
+# resolves RECURSIVELY through the tree that places that Entity.
+# ---------------------------------------------------------------------------
+
+
+def test_ref_anchor_on_entity_recurses_through_placing_tree():
+    """A tree anchored with (ref "E1") where E1 is an Entity placed by ANOTHER
+    tree: the anchor base = the placing tree's anchor base + E1's node offset
+    (the same composition _walk applies). No adapter needed — the chain is
+    origin -> E1 node -> E2 node. (No (external) on the anchor: the ref must
+    resolve to the Entity, not to a live footprint.)"""
+    cfg = Config(
+        cells={"c": _cell("c")},
+        entities=[Entity(name="E1", cell="c", cluster="CH0"),
+                  Entity(name="E2", cell="c", cluster="CH1")],
+        trees=[
+            # the tree that PLACES E1 (origin anchor, E1 node at (5,0))
+            Tree(name="root", anchor=TreeAnchor(is_origin=True),
+                 nodes=[_node(ref="E1", xy=(5.0, 0.0))]),
+            # a tree anchored on the E1 ENTITY (ref, NOT external) — recursion
+            Tree(name="sub", anchor=TreeAnchor(ref="E1"),
+                 nodes=[_node(ref="E2", xy=(2.0, 0.0))]),
+        ],
+    )
+    clones = materialize_entity_placements(None, cfg, {})
+    by_name = {c.name: c for c in clones}
+    assert set(by_name) == {"E1", "E2"}
+    assert by_name["E1"].xy == pytest.approx((5.0, 0.0))
+    # E2 = E1's absolute position (5,0) + E2's own offset (2,0)
+    assert by_name["E2"].xy == pytest.approx((7.0, 0.0))
+
+
+def test_ref_anchor_entity_recursion_accumulates_rotation():
+    """The found node's rotation propagates into the referring tree's anchor
+    frame, exactly as _walk accumulates it: E2's rotation = E1 node rotation
+    (90), and E2's offset (2,0) is rotated into that 90° parent frame."""
+    cfg = Config(
+        cells={"c": _cell("c")},
+        entities=[Entity(name="E1", cell="c"), Entity(name="E2", cell="c")],
+        trees=[
+            Tree(name="root", anchor=TreeAnchor(is_origin=True),
+                 nodes=[_node(ref="E1", xy=(5.0, 0.0), rotation=90.0)]),
+            Tree(name="sub", anchor=TreeAnchor(ref="E1"),
+                 nodes=[_node(ref="E2", xy=(2.0, 0.0))]),
+        ],
+    )
+    clones = materialize_entity_placements(None, cfg, {})
+    by_name = {c.name: c for c in clones}
+    assert by_name["E2"].rotation_deg == pytest.approx(90.0)
+    # (2,0) rotated into the 90° parent frame -> (0,-2) (KiCad Y-down)
+    assert by_name["E2"].xy[0] == pytest.approx(5.0)
+    assert by_name["E2"].xy[1] == pytest.approx(-2.0)
+
+
+def test_ref_anchor_on_unplaced_entity_is_fatal():
+    """A tree anchored on an Entity that NO tree node places (the Entity is in
+    config but has no placement) is a CONFIG error — fatal, never a skip."""
+    cfg = Config(
+        cells={"c": _cell("c")},
+        entities=[Entity(name="E1", cell="c")],
+        trees=[Tree(name="t", anchor=TreeAnchor(ref="E1"), nodes=[])],
+    )
+    with pytest.raises(ValidationError, match="not placed in any tree"):
+        materialize_entity_placements(None, cfg, {})
+
+
+def test_ref_anchor_on_entity_in_two_trees_is_fatal():
+    """Defensive: an Entity referenced by TWO placement nodes (impossible in a
+    parser-valid config — trees rule 2 — but reachable when building Config
+    directly) is fatal, never silently choosing one."""
+    cfg = Config(
+        cells={"c": _cell("c")},
+        entities=[Entity(name="E1", cell="c")],
+        trees=[
+            Tree(name="a", anchor=TreeAnchor(is_origin=True),
+                 nodes=[_node(ref="E1", xy=(1.0, 0.0))]),
+            Tree(name="b", anchor=TreeAnchor(is_origin=True),
+                 nodes=[_node(ref="E1", xy=(2.0, 0.0))]),
+            Tree(name="t", anchor=TreeAnchor(ref="E1"), nodes=[]),
+        ],
+    )
+    with pytest.raises(ValidationError, match="more than one"):
+        materialize_entity_placements(None, cfg, {})
+
+
+def test_entity_ref_anchor_cycle_is_fatal():
+    """Two trees anchored on each other's placed Entity (A anchors on an Entity
+    placed in B, B anchors on an Entity placed in A) is a CYCLE — fatal, never
+    an infinite recursion."""
+    cfg = Config(
+        cells={"c": _cell("c")},
+        entities=[Entity(name="EA", cell="c"), Entity(name="EB", cell="c")],
+        trees=[
+            Tree(name="ta", anchor=TreeAnchor(ref="EB"),
+                 nodes=[_node(ref="EA", xy=(0.0, 0.0))]),
+            Tree(name="tb", anchor=TreeAnchor(ref="EA"),
+                 nodes=[_node(ref="EB", xy=(0.0, 0.0))]),
+        ],
+    )
+    with pytest.raises(ValidationError, match="cycle"):
+        materialize_entity_placements(None, cfg, {})
+
+
+def _real_profile_cfg_fpga_anchor_no_external():
+    """Real profile with the fpga tree's (external) anchor marker STRIPPED —
+    the anchor (ref "FPGA_WITH_SUPP") then resolves to the Entity (kind
+    "placement") instead of a live footprint, exercising the RECURSIVE
+    Entity-ref path (the gate scenario from the plan)."""
+    from kicadstamp.trees import Tree, TreeAnchor
+
+    cfg = _real_profile_cfg()
+    fpga = cfg.trees[0]
+    assert fpga.name == "fpga"
+    cfg.trees[0] = Tree(name=fpga.name,
+                        anchor=TreeAnchor(ref="FPGA_WITH_SUPP", is_external=False),
+                        nodes=fpga.nodes)
+    return cfg
+
+
+def test_real_profile_fpga_tree_anchored_on_entity_recurses_to_ic1():
+    """Gate: the fpga tree with (anchor (ref "FPGA_WITH_SUPP")) WITHOUT
+    (external) resolves recursively — the Entity FPGA_WITH_SUPP is placed by
+    the role-anchored FPGA_WITH_SUPP tree, so the fpga anchor base = live IC1
+    (42,17) + the FPGA_WITH_SUPP node offset (0,0); every fpga child is offset
+    from that base."""
+    cfg = _real_profile_cfg_fpga_anchor_no_external()
+    clones = materialize_entity_placements(_real_profile_adapter(), cfg, {})
+    by_name = {c.name: c for c in clones}
+
+    # FPGA_WITH_SUPP itself materializes at the live IC1 (42,17).
+    assert by_name["FPGA_WITH_SUPP"].xy[0] == pytest.approx(42.0)
+    assert by_name["FPGA_WITH_SUPP"].xy[1] == pytest.approx(17.0)
+
+    # fpga children, all offset from (42,17):
+    assert by_name["CH0_DAC_BUF"].xy[0] == pytest.approx(42.0)
+    assert by_name["CH0_DAC_BUF"].xy[1] == pytest.approx(42.0)      # 17+25
+    assert by_name["CH0_DAC_BUF"].rotation_deg == pytest.approx(-90.0)
+    assert by_name["CH1_DAC_BUF"].xy[0] == pytest.approx(67.0)      # 42+25
+    assert by_name["CH1_DAC_BUF"].xy[1] == pytest.approx(17.0)
+    assert by_name["FPGA_FLASH"].xy[0] == pytest.approx(22.0)       # 42-20
+    assert by_name["FPGA_FLASH"].xy[1] == pytest.approx(7.0)        # 17-10
+
+
+def test_real_profile_entity_ref_anchor_follows_moved_ic1():
+    """Gate, live-move: with the fpga tree anchored on the FPGA_WITH_SUPP
+    Entity (recursion), moving (mock) IC1 recalculates BOTH the FPGA_WITH_SUPP
+    placement AND every fpga child from the NEW position — the entity-ref anchor
+    is read live, not a captured coordinate."""
+    cfg = _real_profile_cfg_fpga_anchor_no_external()
+    adapter = _real_profile_adapter()
+    ic1 = adapter.get_footprints.return_value[0]        # IC1 (Role=FPGA)
+    ic1.position = Vector2.from_xy_mm(50.0, 30.0)
+    clones = materialize_entity_placements(adapter, cfg, {})
+    by_name = {c.name: c for c in clones}
+
+    assert by_name["FPGA_WITH_SUPP"].xy[0] == pytest.approx(50.0)
+    assert by_name["FPGA_WITH_SUPP"].xy[1] == pytest.approx(30.0)
+    assert by_name["CH0_DAC_BUF"].xy[0] == pytest.approx(50.0)
+    assert by_name["CH0_DAC_BUF"].xy[1] == pytest.approx(55.0)      # 30+25
+    assert by_name["FPGA_FLASH"].xy[0] == pytest.approx(30.0)       # 50-20
+    assert by_name["FPGA_FLASH"].xy[1] == pytest.approx(20.0)       # 30-10

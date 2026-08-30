@@ -454,6 +454,14 @@ entities: a node with `kind "placement"` whose `ref` is an `Entity.name` IS that
 - The one-ref-per-node tree rule means an Entity is always 1:1 with its tree node — an Entity cannot
   stand in two places.
 
+**An `(anchor (ref ...))` may point at an Entity** — the tree is then anchored on ANOTHER tree's
+placement node (cross-tree entity anchoring, since Phase 4.1 live). Because an Entity carries no
+position of its own, such an anchor base is resolved RECURSIVELY at materialization: find the
+(single) tree whose `kind "placement"` node references that Entity, resolve ITS anchor base
+(origin/ref/role/another Entity ref — recursion), then compose that node's own offset on top. The
+recursion is cycle-guarded; an Entity with no placement node, one referenced by more than one node,
+or a chain that loops back into itself is a CONFIG error (fatal, never silently skipped).
+
 ---
 
 ## `sheet_templates:` — declaring a group once, instantiating per sheet

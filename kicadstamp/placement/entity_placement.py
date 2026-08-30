@@ -14,6 +14,18 @@ rotation), so its registry anchor id is the "name:" branch ==
 entity_anchor_id(clone.name == entity.name) — exactly the id wired into
 known_anchor_ids in phase 3.1.
 
+A tree ANCHOR may itself point at an Entity (anchor (ref ...) resolving to a
+record.kind == "placement") — the tree is then anchored on another tree's
+placement node. Because an Entity carries no position, such an anchor base is
+resolved RECURSIVELY: find the (single) tree whose placement node references
+that Entity, resolve ITS anchor base (origin/ref/role/Entity-again), and
+compose the found node's own offset on top (the same composition _walk()
+uses). The recursion is cycle-guarded (a set of visited Entity names): an
+Entity with no placement node, one referenced by more than one node, or a
+chain that loops into a cycle is a CONFIG error — fatal for the whole run,
+never a per-tree skip (that skip is reserved for live-board conditions like a
+point/unresolvable-role anchor).
+
 Materialization is purely in-memory: the saved config is never rewritten,
 and legacy clone_placements/rules/coordinate_placements are untouched. With
 no entities and/or no trees the result is empty (all real profiles today).
@@ -25,7 +37,7 @@ from ..config import ClonePlacement, Entity
 from ..domain.geometry import Vector2
 from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
-from ..link_trees import LinkedTree, link_trees
+from ..link_trees import LinkedNode, LinkedTree, link_trees
 from ..tree_position import (
     node_position,
     resolve_base_live_position,
@@ -46,12 +58,57 @@ logger = logging.getLogger(__name__)
 _ORIGIN = Vector2.from_xy(0, 0)
 
 
+class _EntityAnchorError(ValidationError):
+    """A fatal Entity ref-anchor config error (the ref'd Entity is not placed
+    in any tree, is placed in more than one node, or the entity-anchor chain
+    loops into a cycle). Deliberately a ValidationError SUBCLASS so
+    materialize_entity_placements can re-raise it (a real config bug, fatal
+    for the whole run) instead of the per-tree live-board skip it applies to a
+    point/unresolvable-role anchor."""
+
+
+def _find_entity_node(forest: list[LinkedTree], entity_name: str
+                      ) -> list[tuple[LinkedTree, list[LinkedNode]]]:
+    """Every (tree, [LinkedNode path from the tree's top level to the node])
+    where a kind="placement" node places entity_name (node.ref == entity.name,
+    record resolved to an Entity). The path is the node chain from the tree's
+    root down to the found node, so the caller composes the node's absolute
+    position with the SAME node_position/node.rotation accumulation _walk()
+    uses — correct for a nested node too. At most one match in a valid config
+    (trees rule 2 / link_trees guarantee ref uniqueness); the caller treats
+    2+ as fatal (defensive)."""
+    matches: list[tuple[LinkedTree, list[LinkedNode]]] = []
+    for tree in forest:
+        def walk(nodes: list[LinkedNode], path: list[LinkedNode]) -> None:
+            for ln in nodes:
+                node_path = path + [ln]
+                if (ln.node.kind == "placement" and ln.record is not None
+                        and ln.record.kind == "placement"
+                        and ln.record.name == entity_name):
+                    matches.append((tree, node_path))
+                walk(ln.children, node_path)
+        walk(tree.nodes, [])
+    return matches
+
+
 def _anchor_base(adapter: "KiCadBoardAdapter", cfg: "Config",
-                 linked_tree: LinkedTree, sheet_names: dict) -> tuple[Vector2, float]:
+                 linked_tree: LinkedTree, sheet_names: dict,
+                 forest: list[LinkedTree] | None = None,
+                 visited: set[str] | None = None) -> tuple[Vector2, float]:
     """(position_nm, rotation_deg) for a tree's anchor base.
     (origin) -> the board origin (0,0), rotation 0.
     (ref ...) -> the referenced record's / live footprint's current position
-    and rotation (external refdes handled by resolve_base_*).
+    and rotation (external refdes handled by resolve_base_*). When the ref
+    resolves to an ENTITY (record.kind == "placement"), the Entity carries NO
+    position by design — its position comes from the tree that PLACES it (a
+    node with node.ref == entity.name, kind "placement"). Such an anchor is
+    therefore resolved RECURSIVELY: find that tree, resolve ITS anchor base
+    (origin / ref / role / an Entity ref again — recursion), then compose the
+    found node's offset (node_position/node.rotation — the same composition
+    _walk() applies) on top. `forest` is the whole linked-trees forest (to
+    search for the placing node); `visited` holds the Entity names on the
+    current resolution chain so a cycle (tree A anchored on an Entity of tree
+    B, B on an Entity of A) is a clear FATAL, not an infinite loop.
     (role ...) -> the Role-matching footprint's current position and rotation,
     resolved LIVE via ComponentResolver (Phase 4.2 — the SAME logic as
     resolve_record_live_position's kind == "rule" branch, tree_position.py);
@@ -79,6 +136,48 @@ def _anchor_base(adapter: "KiCadBoardAdapter", cfg: "Config",
               "materialization yet"),
             [_("entity placements under a point tree anchor are a future phase; "
                "use an (origin), (ref ...) or (role ...) anchor for now")]))
+    if anchor.record is not None and anchor.record.kind == "placement":
+        # ref anchor resolved to an Entity: the Entity's live position comes
+        # from the tree that places it — find that tree, resolve its anchor
+        # base RECURSIVELY, then compose the found node's own offset.
+        if forest is None:
+            raise _EntityAnchorError(format_fatal_error(
+                _("internal error: Entity-anchored tree resolved without the "
+                  "tree forest"),
+                []))
+        entity_name = anchor.record.name
+        chain = visited if visited is not None else set()
+        if entity_name in chain:
+            raise _EntityAnchorError(format_fatal_error(
+                _("tree anchor cycle through Entity placements"),
+                [_("the tree-anchor chain loops back through Entity "
+                   "placements: {chain}").format(
+                       chain=", ".join(sorted(chain | {entity_name})))]))
+        chain = chain | {entity_name}
+        matches = _find_entity_node(forest, entity_name)
+        if not matches:
+            raise _EntityAnchorError(format_fatal_error(
+                _("Entity {name!r} is not placed in any tree — nothing to "
+                  "read live").format(name=entity_name),
+                [_("a (ref ...) tree anchor points at Entity {name!r}, but no "
+                   "(kind placement) node places it; add a placement node for "
+                   "the Entity, or use an (external) anchor for a live-board "
+                   "refdes").format(name=entity_name)]))
+        if len(matches) > 1:
+            raise _EntityAnchorError(format_fatal_error(
+                _("Entity {name!r} is placed in more than one tree node")
+                .format(name=entity_name),
+                [_("trees rule 2 (a flat record ref may appear in at most one "
+                   "node) is violated — an Entity can stand in only one "
+                   "place")]))
+        target_tree, node_path = matches[0]
+        base_pos, base_rot = _anchor_base(adapter, cfg, target_tree, sheet_names,
+                                          forest=forest, visited=chain)
+        pos, rot = base_pos, base_rot
+        for ln in node_path:
+            pos = node_position(ln.node, pos, rot)
+            rot = rot + ln.node.rotation
+        return pos, rot
     pos = resolve_base_live_position(adapter, cfg, anchor.anchor.ref,
                                      anchor.record, {}, sheet_names)
     rot = resolve_base_rotation_deg(adapter, cfg, anchor.anchor.ref,
@@ -135,9 +234,13 @@ def materialize_entity_placements(adapter: "KiCadBoardAdapter", cfg: "Config",
     ref resolves to an Entity) into a transient absolute ClonePlacement.
 
     Purely in-memory; empty when there are no entities or no trees. The tree
-    anchor (origin / ref) is read LIVE from the board via tree_position's
-    resolve_base_* — so an entity placement under a component ref anchor
-    follows the anchor's current position, matching the curated-redraw model.
+    anchor (origin / ref / role) is read LIVE from the board via tree_position
+    resolve_base_* / ComponentResolver — so an entity placement under a
+    component ref anchor follows the anchor's current position, matching the
+    curated-redraw model. A ref anchor that resolves to an ENTITY (kind
+    "placement") is resolved RECURSIVELY through the tree that places that
+    Entity (_anchor_base, cycle-guarded) — a tree can anchor on another tree's
+    placement node (cross-tree entity anchoring).
 
     Per-tree tolerance (bug #4, 2026-08-30): a tree whose anchor is not
     resolvable (a (point ...) anchor — still unwired — or an unresolvable
@@ -148,6 +251,11 @@ def materialize_entity_placements(adapter: "KiCadBoardAdapter", cfg: "Config",
     (point ...) remains unwired. This is the same per-item tolerance the
     Extract dock's Sub-placements catalog already applies at the call level
     (gui/docks/extract.py).
+
+    EXCEPTION to the tolerance: an Entity ref-anchor whose Entity is not
+    placed in any tree, is placed in more than one node, or whose entity-anchor
+    chain forms a CYCLE is a CONFIG error — re-raised (_EntityAnchorError),
+    fatal for the whole run, never silently skipped.
     """
     if not cfg.entities or not cfg.trees:
         return []
@@ -156,9 +264,16 @@ def materialize_entity_placements(adapter: "KiCadBoardAdapter", cfg: "Config",
     out: list[ClonePlacement] = []
     for tree in linked:
         try:
-            anchor_pos, anchor_rot = _anchor_base(adapter, cfg, tree, sheet_names)
+            anchor_pos, anchor_rot = _anchor_base(
+                adapter, cfg, tree, sheet_names, forest=linked)
             tree_clones: list[ClonePlacement] = []
             _walk(tree.nodes, anchor_pos, anchor_rot, tree_clones)
+        except _EntityAnchorError:
+            # A ref anchor resolving to an Entity that is not placed / placed
+            # twice / in a cycle is a CONFIG bug — fatal for the whole run,
+            # never a local per-tree skip (a skip would silently drop the whole
+            # tree's placement and mask the config error).
+            raise
         except ValidationError as e:
             logger.warning(_("Entity materialization: tree {tree!r} skipped — "
                              "{error}").format(tree=tree.name, error=e))
