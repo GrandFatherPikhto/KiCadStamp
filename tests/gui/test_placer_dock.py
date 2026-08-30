@@ -638,10 +638,12 @@ def test_cell_source_mode_stays_visible_and_is_the_default(main_window, tmp_path
         # RuleDock's own tests already use for the same reason).
         return w.isVisibleTo(w.parentWidget())
 
-    assert dock.cell_mode_combo.count() == 2  # Cell + Single component
+    # Cell + Single component + Entity (2026-08-30, phase 5.2 redesign).
+    assert dock.cell_mode_combo.count() == 3
     assert dock.cell_mode_combo.currentIndex() == 0
     assert visible(dock._cell_row)
     assert visible(dock._name_row)
+    assert not visible(dock._entity_row)  # Entity picker hidden in Cell mode
     assert not visible(dock._coordinate_identity_row)  # Single-component identity (2026-08-13)
     assert visible(dock._params_container)
     assert dock._tabs.isTabVisible(dock._nets_tab_index)

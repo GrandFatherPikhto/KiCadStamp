@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import QComboBox, QCompleter, QLineEdit
 from kicadstamp.config_writer import (
     read_data, write_data, add_include, add_list_entry, disable_include,
     display_path, merge_write, non_includable_keys, upsert_clone_placement,
-    upsert_list_entry)
+    upsert_entity, upsert_list_entry)
 
 from .. import settings
 

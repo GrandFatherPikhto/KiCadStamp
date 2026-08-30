@@ -122,10 +122,11 @@ from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox,
                               QTabWidget, QVBoxLayout, QWidget)
 
 from kicadstamp.apply_pipeline import ApplyPipeline
-from kicadstamp.config import (ClonePlacement, Config, RuntimeContext,
+from kicadstamp.config import (ClonePlacement, Config, Entity, RuntimeContext,
                                clone_placement_effective_name,
-                               coordinate_placement_effective_name, load_clone_placement,
-                               load_config, load_coordinate_placement)
+                               coordinate_placement_effective_name,
+                               entity_effective_name, load_clone_placement,
+                               load_config, load_coordinate_placement, load_entity)
 from kicadstamp.constants import CLUSTER_FIELD_NAME, DEFAULT_LOG_DIR
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import PlacerError, ValidationError
@@ -145,7 +146,8 @@ from .live_position import (LiveRead, read_anchor_live, read_clone_origin_live,
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       WARN_STYLE as _WARN_STYLE, configure_searchable, display_path,
                       parse_float_field, set_combo_items, set_mode_pair_enabled,
-                      show_message, upsert_clone_placement, upsert_list_entry)
+                      show_message, upsert_clone_placement, upsert_entity,
+                      upsert_list_entry)
 from .cascade import cascade_records, run_cascade_worker
 from .entity_delete import delete_entry
 from .rename import (collect_all_cell_names, collect_all_point_names,
@@ -809,6 +811,10 @@ class PlacerDock(QWidget):
         # the CURRENT identity) appends a duplicate instead of replacing it
         # (2026-08-15, plan placer_form_save_renames_not_duplicates).
         self._loaded_clone_identity: Optional[str] = None
+        # The same "form-level rename must delete the old record" identity,
+        # for Entity mode (2026-08-30, Entity/Placement split, phase 5.2) —
+        # see _loaded_clone_identity and _do_save_entity.
+        self._loaded_entity_identity: Optional[str] = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -838,7 +844,11 @@ class PlacerDock(QWidget):
         # ClonePlacement (template cloning, cell: required), "Single
         # component" = CoordinatePlacement (no cell:, Cluster+Role match).
         # _on_cell_mode_changed switches which form field set is shown.
-        self.cell_mode_combo.addItems([_("Cell"), _("Single component")])
+        # Entity/Placement split (2026-08-30, phase 5.2): "Entity" is the new
+        # source — a pick from cfg.entities (the "what"), placed via its trees:
+        # node (Origin tab). "Cell" (legacy ClonePlacement) and "Single
+        # component" (CoordinatePlacement) stay until the release cutover.
+        self.cell_mode_combo.addItems([_("Cell"), _("Single component"), _("Entity")])
         self.cell_mode_combo.currentIndexChanged.connect(self._on_cell_mode_changed)
         source_form.addRow(_("Source:"), self.cell_mode_combo)
         source_page_layout.addLayout(source_form)
@@ -862,6 +872,19 @@ class PlacerDock(QWidget):
         self.cell_combo.currentTextChanged.connect(self.set_selected_cell)
         cell_form.addRow(_("Cell:"), self.cell_combo)
         source_page_layout.addWidget(self._cell_row)
+
+        # Entity row (Entity/Placement split, phase 5.2): pick an Entity — its
+        # cell/cluster/sheet/name/comment come FROM the record; the form's
+        # Nets/Overrides/Refs/Origin tabs edit the rest (Entity fields + the
+        # tree node). Hidden for Cell / Single-component modes.
+        self._entity_row = QWidget()
+        entity_form = QFormLayout(self._entity_row)
+        entity_form.setContentsMargins(0, 0, 0, 0)
+        self.entity_combo = QComboBox()
+        self.entity_combo.setPlaceholderText(_("pick an Entity"))
+        self.entity_combo.currentTextChanged.connect(self._on_entity_picked)
+        entity_form.addRow(_("Entity:"), self.entity_combo)
+        source_page_layout.addWidget(self._entity_row)
 
         self._name_row = QWidget()
         form = QFormLayout(self._name_row)
@@ -1111,6 +1134,14 @@ class PlacerDock(QWidget):
         cell_mode_combo.currentIndex() == 1 checks collapsed into one name."""
         return self.cell_mode_combo.currentIndex() == 1
 
+    @property
+    def is_entity(self) -> bool:
+        """True when the Source combo is on "Entity" mode (2026-08-30,
+        Entity/Placement split, phase 5.2): the form edits an Entity record
+        (name + cell + electrical/identity fields, NO position — that lives
+        only in the trees: node)."""
+        return self.cell_mode_combo.currentIndex() == 2
+
     def _on_cell_mode_changed(self) -> None:
         """Source-mode toggle (2026-08-12, Group 1): the merged dock edits
         BOTH ClonePlacement (cell:, template cloning) and CoordinatePlacement
@@ -1118,12 +1149,15 @@ class PlacerDock(QWidget):
         one the loaded/new entry is. Cell mode shows the clone field set
         (cell picker + name + Params/Nets/Overrides/Refs/Origin tabs);
         Single-component mode shows the _CoordinatePlacementForm's
-        Cluster/Role/position block instead. Kept as a method because the
-        combo signal and new_placement/new_coordinate_placement/
-        load_placement still call it."""
+        Cluster/Role/position block instead; Entity mode (2026-08-30) shows
+        the Entity picker and the same electrical tabs. Kept as a method
+        because the combo signal and new_placement/
+        new_coordinate_placement/load_placement still call it."""
         is_coordinate = self.is_coordinate
-        self._cell_row.setVisible(not is_coordinate)
-        self._name_row.setVisible(not is_coordinate)
+        is_entity = self.is_entity
+        self._cell_row.setVisible(not is_coordinate and not is_entity)
+        self._name_row.setVisible(not is_coordinate and not is_entity)
+        self._entity_row.setVisible(is_entity)
         self._coordinate_identity_row.setVisible(is_coordinate)
         self._tabs.setTabVisible(self._nets_tab_index, not is_coordinate)
         self._tabs.setTabVisible(self._net_overrides_tab_index, not is_coordinate)
@@ -1136,6 +1170,71 @@ class PlacerDock(QWidget):
     def _refresh_cell_choices(self) -> None:
         names = collect_all_cell_names(self._root_path) if self._root_path is not None else []
         set_combo_items(self.cell_combo, names)
+
+    def _refresh_entity_choices(self) -> None:
+        """Every entities: record name reachable from root_path via include:
+        (2026-08-30, Entity/Placement split, phase 5.2) — the Source combo of
+        Entity mode. Graph-wide like collect_all_cell_names: an Entity lives
+        wherever its record does, possibly in any included file. Empty list
+        on a broken/unsupported root config — combo autocomplete, not
+        validation (same 2026-08-28 hardening as the collect_all_* helpers)."""
+        names: List[str] = []
+        if self._root_path is not None:
+            try:
+                cfg, _ctx = load_config(str(self._root_path))
+            except (ValidationError, OSError):
+                cfg = None
+            if cfg is not None:
+                names = [entity_effective_name(e) for e in cfg.entities]
+        set_combo_items(self.entity_combo, sorted(names))
+
+    def _load_entity_data(self, name: str) -> Optional[Entity]:
+        """The Entity record named `name`, graph-wide (phase 5.2) — one
+        load_config() of the root resolves the whole include graph. None on
+        a broken config or an unknown name."""
+        if not name or self._root_path is None:
+            return None
+        try:
+            cfg, _ctx = load_config(str(self._root_path))
+        except (ValidationError, OSError):
+            return None
+        for entity in cfg.entities:
+            if entity_effective_name(entity) == name:
+                return entity
+        return None
+
+    def _on_entity_picked(self, name: str) -> None:
+        """Entity mode's pick (phase 5.2): load the picked record's own
+        electrical/identity fields into the form so a Save re-writes the
+        same record. Position deliberately NOT loaded — an Entity never
+        carries a position (that is the trees: node's job)."""
+        name = (name or "").strip()
+        if not name:
+            return
+        entity = self._load_entity_data(name)
+        if entity is None:
+            return
+        self._selected_cell = entity.cell
+        # Params rows follow the CELL's {placeholders} — rebuild them for the
+        # entity's cell, then fill the entity's own values into the rows.
+        self._rebuild_param_rows()
+        self._rebuild_cell_role_choices()
+        self.cluster_edit.setCurrentText(entity.cluster or "")
+        self.placer_name_edit.setText(entity.name)
+        self.placer_comment_edit.setText(entity.comment or "")
+        self.sheet_edit.setCurrentText(entity.sheet or "")
+        self.layer_combo.setCurrentIndex({"F.Cu": 1, "B.Cu": 2}.get(entity.layer, 0))
+        self.mirror_checkbox.setChecked(entity.mirror)
+        params = entity.params or {}
+        for key, edit in self._param_edits.items():
+            edit.setCurrentText(str(params.get(key, "")))
+        self.nets_table.load_dict(entity.nets or {})
+        self.net_overrides_table.load_dict(entity.net_overrides or {})
+        self.refs_table.load_dict(entity.refs or {})
+        # Remember the identity the form loaded — _do_save_entity removes the
+        # old record when the about-to-be-saved name differs (rename via the
+        # combo), mirroring the clone path's _loaded_clone_identity.
+        self._loaded_entity_identity = entity.name
 
     def _cell_data(self, name: Optional[str]) -> dict:
         """Full cells: entry dict for `name`, read from the WHOLE include
@@ -1158,6 +1257,7 @@ class PlacerDock(QWidget):
         self._cells_path = path
         self._placer_path = path
         self._refresh_cell_choices()
+        self._refresh_entity_choices()
         self._refresh_point_names()
         self._refresh_sheet_names()
 
@@ -1659,7 +1759,10 @@ class PlacerDock(QWidget):
 
     def _build_entry_dict(self) -> Optional[Dict[str, Any]]:
         # Source-mode branch (2026-08-12, Group 1): Single component =
-        # CoordinatePlacement form, Cell = the clone path below.
+        # CoordinatePlacement form, Cell = the clone path below. Entity
+        # (2026-08-30, phase 5.2) builds a NO-position Entity record.
+        if self.is_entity:
+            return self._build_entity_dict()
         if self.is_coordinate:
             entry, err = self.coordinate_form.build()
             if err:
@@ -1751,6 +1854,58 @@ class PlacerDock(QWidget):
             entry["mirror"] = True
 
         params = {name: edit.currentText().strip() for name, edit in self._param_edits.items()
+                  if edit.currentText().strip()}
+        if params:
+            entry["params"] = params
+        nets = self.nets_table.to_dict()
+        if nets:
+            entry["nets"] = nets
+        net_overrides = self.net_overrides_table.to_dict()
+        if net_overrides:
+            entry["net_overrides"] = net_overrides
+        refs = self.refs_table.to_dict()
+        if refs:
+            entry["refs"] = refs
+
+        return entry
+
+    def _build_entity_dict(self) -> Optional[Dict[str, Any]]:
+        """Entity mode's Save payload (2026-08-30, Entity/Placement split,
+        phase 5.2): an Entity record — name + cell + electrical/identity
+        fields, and NO position at all (position lives only in the trees:
+        node; config/entries.py makes every positional key fatal on an
+        Entity by design). The cell comes from the picked record, not the
+        (hidden-in-this-mode) cell picker."""
+        name = self.entity_combo.currentText().strip()
+        if not name:
+            self._show_message(_("Entity name is required."), _ERROR_STYLE)
+            return None
+        if not self._selected_cell:
+            self._show_message(
+                _("Pick an Entity first (its Cell comes from the record)."),
+                _ERROR_STYLE)
+            return None
+        entry: Dict[str, Any] = {"name": name, "cell": self._selected_cell}
+
+        cluster = self.cluster_edit.currentText().strip()
+        if cluster:
+            entry["cluster"] = cluster
+        sheet = self.sheet_edit.currentText().strip()
+        if sheet:
+            entry["sheet"] = sheet
+        comment = self.placer_comment_edit.text().strip()
+        if comment:
+            entry["comment"] = comment
+
+        layer_idx = self.layer_combo.currentIndex()
+        if layer_idx == 1:
+            entry["layer"] = "F.Cu"
+        elif layer_idx == 2:
+            entry["layer"] = "B.Cu"
+        if self.mirror_checkbox.isChecked():
+            entry["mirror"] = True
+
+        params = {key: edit.currentText().strip() for key, edit in self._param_edits.items()
                   if edit.currentText().strip()}
         if params:
             entry["params"] = params
@@ -2419,6 +2574,9 @@ class PlacerDock(QWidget):
         if self._placer_path is None:
             self._show_message(_("Set the project root first."), _ERROR_STYLE)
             return
+        if self.is_entity:
+            self._do_save_entity(entry)
+            return
         if self.is_coordinate:
             self._do_save_coordinate(entry)
             return
@@ -2451,6 +2609,42 @@ class PlacerDock(QWidget):
 
         self._show_message(
             _("{action} {name!r} in {path}").format(
+                action=_("Overwrote") if overwritten else _("Wrote"),
+                name=new_identity, path=display_path(self._placer_path)),
+            _SUCCESS_STYLE)
+        self.saved.emit()
+
+    def _do_save_entity(self, entry: Dict[str, Any]) -> None:
+        """Entity mode's save (2026-08-30, phase 5.2): validate through
+        load_entity() (which fatals on any positional key — an Entity never
+        carries a position), then upsert into entities: by name."""
+        try:
+            load_entity(entry)  # validate before writing anything
+        except ValidationError as e:
+            self._show_message(str(e), _ERROR_STYLE)
+            return
+
+        # Renamed via the Entity combo directly — upsert alone would append
+        # a duplicate under the new name, leaving the old record behind
+        # (same mechanism as the clone path's rename, 2026-08-15).
+        new_identity = entry["name"]
+        if (self._loaded_entity_identity is not None
+                and self._loaded_entity_identity != new_identity):
+            try:
+                delete_entry(None, self._placer_path, "entities",
+                             self._loaded_entity_identity, cascade=False)
+            except OSError:
+                pass  # already gone (e.g. saved twice in a row) — nothing to clean up
+            self._loaded_entity_identity = new_identity
+
+        try:
+            overwritten = upsert_entity(self._placer_path, entry)
+        except OSError as e:
+            self._show_message(_("Write failed: {error}").format(error=e), _ERROR_STYLE)
+            return
+
+        self._show_message(
+            _("{action} entity {name!r} in {path}").format(
                 action=_("Overwrote") if overwritten else _("Wrote"),
                 name=new_identity, path=display_path(self._placer_path)),
             _SUCCESS_STYLE)
@@ -2616,6 +2810,7 @@ class PlacerDock(QWidget):
         # must just append, not try to remove an old entry
         # (2026-08-15, plan placer_form_save_renames_not_duplicates).
         self._loaded_clone_identity = None
+        self._loaded_entity_identity = None
         self.sheet_edit.setCurrentText("")
         self.origin_widget.clear()
         self.rotation_edit.setText("")
@@ -2765,6 +2960,8 @@ class PlacerDock(QWidget):
         """Best-effort "what's loaded in the form right now", for
         DetailDock's window title — the clone name in Cell mode, the
         coordinate effective name in Single-component mode."""
+        if self.is_entity:
+            return self.entity_combo.currentText().strip()
         if self.is_coordinate:
             return self.coordinate_form.name_edit.text().strip() \
                 or self.coordinate_form.cluster_combo.currentText().strip()
