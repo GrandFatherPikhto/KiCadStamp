@@ -146,6 +146,15 @@ class DockHub:
 
         self._wire()
 
+        # Hotkeys list in the Settings tab (ConfiguratorDock.refresh_hotkeys)
+        # must reflect EVERY dock's actions, so refresh it once all docks are
+        # constructed — ConfiguratorDock is built mid-way through this
+        # __init__ (before ToolsDock), and LogDock only at line ~129 above, so
+        # without this a late dock's hotkey would work (parent.addAction) but
+        # silently never appear in Settings for rebinding. Idempotent; safe to
+        # call again later if a dock ever registers hotkeys dynamically.
+        self.configurator_dock.refresh_hotkeys()
+
     def restore_tree_mode(self) -> None:
         """Restores the Components tree's "Not yet applied" (schematic)
         mode. Deliberately NOT part of __init__: restoring it rebuilds the

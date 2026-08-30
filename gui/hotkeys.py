@@ -4,12 +4,15 @@ QAction-based hotkey infrastructure (2026-08-30, plan
 techdocs/handoff/deepseek/plan_2026_08_30_dock_toolbars_menus_hotkeys.md,
 Этап 1).
 
-A dock button that should get a hotkey now creates a QAction (label, default
-QKeySequence, callback — the same slot the button used to call) instead of a
-bare `QPushButton.clicked.connect(...)` (see gui/docks/root_metadata.py, the
-Этап-1 pilot dock). The button itself can stay — `QPushButton.setDefaultAction`
-makes it adopt the action's text and re-fire the action on click — the point
-of this step is to ADD the QAction + shortcut, not to remove buttons.
+A dock button that should get a hotkey gets a PARALLEL QAction (label, default
+QKeySequence, callback — the same slot the button already calls) alongside its
+existing `QPushButton.clicked.connect(...)` (see gui/docks/root_metadata.py,
+the Этап-1 pilot dock). The button itself is left untouched — this step only
+ADDS the QAction + shortcut, it does not remove or rewire buttons. (PyQt6.11
+has NO QPushButton.setDefaultAction, so a button cannot simply adopt the
+action; keeping the button's own clicked connection is the plan-sanctioned
+"дублировать вызов callback'а" — one QAction still serves the hotkey and,
+from Этап 1b, the File-menu entry.)
 
 One QAction is the SINGLE source for the three presentations the plan's Этап 2
 wants — hotkey, dock-local menu entry, toolbar entry: the same action can be

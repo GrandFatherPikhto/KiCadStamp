@@ -260,3 +260,22 @@ def test_editing_hotkey_persists_override(main_window, qapp):
     edit.setKeySequence(QKeySequence("Ctrl+Alt+R"))
     dock._on_hotkey_edited("test.hotkey", edit)
     assert settings.state.get("hotkeys") == {"test.hotkey": "Ctrl+Alt+R"}
+
+
+def test_hotkeys_refresh_picks_up_actions_registered_later(main_window, qapp):
+    """The Hotkeys list is REBUILDABLE — an action registered AFTER the
+    ConfiguratorDock was constructed (e.g. LogDock's, built later in DockHub)
+    appears after refresh_hotkeys(), so dock construction order does not decide
+    what is rebindable in Settings (the fix from review of handoff
+    2026_08_30_hotkeys_pilot_and_file_menu_done).
+
+    Uses a UNIQUE action id (not the shared "test.hotkey" the earlier tests in
+    this file register) so "not registered yet" genuinely means it: the module
+    level gui.hotkeys registry accumulates across tests here."""
+    action_id = "test.late_registered"
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    assert action_id not in dock.hotkey_edits  # not registered yet
+    build_action(main_window, action_id, "Late hotkey", "Ctrl+Shift+Q", None)
+    dock.refresh_hotkeys()
+    assert action_id in dock.hotkey_edits
+    assert dock.hotkey_edits[action_id].keySequence() == QKeySequence("Ctrl+Shift+Q")

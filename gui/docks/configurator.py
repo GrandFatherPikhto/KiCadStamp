@@ -178,23 +178,19 @@ class ConfiguratorDock(QWidget):
         # ── Hotkeys (2026-08-30, plan dock_toolbars_menus_hotkeys Этап 1) ──
         # One QKeySequenceEdit per registered QAction-based hotkey (see
         # gui/hotkeys.py): rebinding writes gui_state.json["hotkeys"] and
-        # re-applies to the live action immediately. The list is whatever
-        # docks have registered so far (root_metadata is the Этап-1 pilot).
+        # re-applies to the live action immediately. The list is populated by
+        # refresh_hotkeys() — called here (whatever is registered so far) AND
+        # by DockHub AFTER every dock is constructed, so dock construction
+        # order NEVER drops an action from this list: a dock built late (e.g.
+        # LogDock, created after ConfiguratorDock — see gui/dock_hub.py) would
+        # otherwise work as a hotkey but silently stay unrebindable here
+        # (found in review of handoff 2026_08_30_hotkeys_pilot_and_file_menu).
         hotkeys_group = QGroupBox(_("Hotkeys"))
         hotkeys_layout = QVBoxLayout(hotkeys_group)
         self.hotkey_edits: Dict[str, QKeySequenceEdit] = {}
-        for action_id, label, _default in registered_hotkeys():
-            row = QHBoxLayout()
-            label_widget = QLabel(label)
-            label_widget.setWordWrap(True)
-            row.addWidget(label_widget, 1)
-            edit = QKeySequenceEdit(get_shortcut(action_id))
-            edit.setMaximumWidth(160)
-            edit.editingFinished.connect(partial(self._on_hotkey_edited, action_id, edit))
-            self.hotkey_edits[action_id] = edit
-            row.addWidget(edit)
-            hotkeys_layout.addLayout(row)
+        self._hotkeys_layout = hotkeys_layout
         layout.addWidget(hotkeys_group)
+        self.refresh_hotkeys()
 
         # ── MCP server ─────────────────────────────────────────────────────
         # The headless MCP server (kicadstamp-mcp, stdio) reads its raw-write
@@ -274,6 +270,32 @@ class ConfiguratorDock(QWidget):
             self._connection.timeout_ms = value
 
     # ── Hotkeys (2026-08-30, plan dock_toolbars_menus_hotkeys Этап 1) ──────
+
+    def refresh_hotkeys(self) -> None:
+        """Rebuild the Hotkeys group from the current gui.hotkeys registry —
+        idempotent. Called at construction (whatever is registered so far) and
+        AGAIN by DockHub once EVERY dock is built, so dock construction order
+        never decides which actions are rebindable here (a dock created after
+        this panel — e.g. LogDock — must still appear; its hotkey works via
+        parent.addAction regardless, but without this refresh it would silently
+        be missing from the rebinding UI)."""
+        self.hotkey_edits = {}
+        while self._hotkeys_layout.count():
+            item = self._hotkeys_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        for action_id, label, _default in registered_hotkeys():
+            row = QHBoxLayout()
+            label_widget = QLabel(label)
+            label_widget.setWordWrap(True)
+            row.addWidget(label_widget, 1)
+            edit = QKeySequenceEdit(get_shortcut(action_id))
+            edit.setMaximumWidth(160)
+            edit.editingFinished.connect(partial(self._on_hotkey_edited, action_id, edit))
+            self.hotkey_edits[action_id] = edit
+            row.addWidget(edit)
+            self._hotkeys_layout.addLayout(row)
 
     def _on_hotkey_edited(self, action_id: str, edit: QKeySequenceEdit) -> None:
         """A QKeySequenceEdit's editingFinished handler — persists the new
