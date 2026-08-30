@@ -127,22 +127,45 @@ def test_preserves_other_sections():
 
 
 def test_round_trip_file_loads_and_passes_entity_cell_check(tmp_path):
-    """Plan §6.2's gate: the converted file must LOAD (load_config) and pass
-    the Entity-cell existence check."""
+    """Plan §6.2's gate: the converted file must LOAD (load_config), pass the
+    Entity-cell check, AND link_trees (the step Apply/Redraw actually runs —
+    a load-only check missed the "clone"->"placement" rewrite gap)."""
     path = tmp_path / "root.sexp"
     _write(path, {
         "cells": {"pi_filter": {"components": [], "vias": [], "tracks": [],
                                 "layer": "F.Cu"}},
         "clone_placements": [{"cluster": "PIF_AVDD", "cell": "pi_filter",
                               "xy": [10.0, 20.0]}],
+        "trees": [{"name": "pre", "anchor": {"origin": True},
+                   "nodes": [{"ref": "PIF_AVDD", "kind": "clone", "xy": [0.0, 0.0]}]}],
     })
     convert_placements_file(path)
     cfg, _ctx = load_config(str(path))
     assert [entity_effective_name(e) for e in cfg.entities] == ["PIF_AVDD"]
     assert cfg.trees[0].anchor.is_origin
-    assert cfg.trees[0].nodes[0].xy == (10.0, 20.0)
     assert cfg.clone_placements == []
     check_entity_cells_exist(cfg)
+    # the real Apply/Redraw gate: link_trees must resolve cleanly (the
+    # pre-existing "clone" node was rewritten to "placement").
+    from kicadstamp.link_trees import link_trees
+    linked = link_trees(cfg, cfg.trees)
+    assert linked, "link_trees must resolve the converted trees"
+    assert linked[0].nodes[0].node.kind == "placement"
+
+
+def test_convert_placements_file_creates_a_timestamped_backup(tmp_path):
+    """A real conversion rewrites the input — the original must survive as a
+    timestamped .bak next to it."""
+    path = tmp_path / "root.sexp"
+    _write(path, {
+        "clone_placements": [{"cluster": "E1", "cell": "c", "xy": [0.0, 0.0]}],
+    })
+    original = path.read_text(encoding="utf-8")
+    convert_placements_file(path)
+    backups = list(tmp_path.glob("root.sexp.bak.*"))
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == original
+    assert sexp_to_dict(path.read_text(encoding="utf-8"))["clone_placements"] == []
 
 
 def test_second_run_is_idempotent():
@@ -155,14 +178,15 @@ def test_second_run_is_idempotent():
 
 
 def test_partially_converted_profile_no_duplicate_refs():
-    """A transitional profile that already has SOME trees: nodes must not get
-    duplicate node refs (the link_trees "one node per ref" invariant): an
-    Entity whose name already exists is skipped, a tree is only created for a
-    ref that is not already placed."""
+    """A transitional profile that already has SOME trees: nodes (kind "clone",
+    as every pre-migration node is) must not get duplicate node refs (the
+    link_trees "one node per ref" invariant): an Entity whose name already
+    exists is skipped, a tree is only created for a ref that is not already
+    placed, and the pre-existing "clone" node is rewritten to "placement"."""
     out = convert_clone_placements_to_entities({
         "entities": [{"name": "ALREADY", "cell": "c"}],
         "trees": [{"name": "old", "anchor": {"origin": True},
-                   "nodes": [{"ref": "PLACED", "kind": "placement",
+                   "nodes": [{"ref": "PLACED", "kind": "clone",
                               "xy": [1.0, 1.0]}]}],
         "clone_placements": [
             {"cluster": "ALREADY", "cell": "c", "xy": [0.0, 0.0]},   # entity exists -> skip
@@ -174,3 +198,29 @@ def test_partially_converted_profile_no_duplicate_refs():
     assert len(out["trees"]) == 2  # old + FRESH
     refs = {n["ref"] for t in out["trees"] for n in t.get("nodes", [])}
     assert refs == {"PLACED", "FRESH"}
+    # the pre-existing "clone" node now points at an Entity -> rewritten
+    old_tree = next(t for t in out["trees"] if t["name"] == "old")
+    assert old_tree["nodes"][0]["kind"] == "placement"
+
+
+def test_existing_clone_nodes_rewritten_to_placement():
+    """Phase 6.2 cutover: pre-migration tree nodes with kind "clone" whose ref
+    is now an Entity are rewritten to "placement" — otherwise Apply/Redraw's
+    link_trees would fail to resolve them after clone_placements is cleared."""
+    out = convert_clone_placements_to_entities({
+        "clone_placements": [
+            {"cluster": "E1", "cell": "c", "xy": [1.0, 1.0]},
+            {"cluster": "E2", "cell": "c", "xy": [2.0, 2.0]},
+        ],
+        "trees": [
+            {"name": "pre", "anchor": {"origin": True},
+             "nodes": [{"ref": "E1", "kind": "clone", "xy": [0.0, 0.0]}]},
+            # a non-entity ref (no matching clone) keeps its kind
+            {"name": "legacy", "anchor": {"origin": True},
+             "nodes": [{"ref": "OTHER", "kind": "clone", "xy": [0.0, 0.0]}]},
+        ],
+    })
+    pre = next(t for t in out["trees"] if t["name"] == "pre")
+    legacy = next(t for t in out["trees"] if t["name"] == "legacy")
+    assert pre["nodes"][0]["kind"] == "placement"   # ref is now an Entity
+    assert legacy["nodes"][0]["kind"] == "clone"     # not an Entity -> untouched

@@ -98,6 +98,21 @@ def _collect_node_refs(nodes: Any) -> set:
     return refs
 
 
+def _rewrite_clone_kinds(nodes: Any, entity_names: set) -> None:
+    """Phase 6.2 cutover: legacy tree nodes with kind "clone" whose ref is NOW
+    an Entity are rewritten to kind "placement". Trees built before the
+    Entity/Placement split reference clone_placements (kind "clone"); once the
+    converter clears clone_placements, link_trees would fail to resolve those
+    nodes (the ref is an Entity, but kind "clone" asks for the clone section).
+    In-place over the config dict; recurses into node children."""
+    for node in nodes or []:
+        if not isinstance(node, dict):
+            continue
+        if node.get("kind") == "clone" and node.get("ref") in entity_names:
+            node["kind"] = "placement"
+        _rewrite_clone_kinds(node.get("children"), entity_names)
+
+
 def convert_clone_placements_to_entities(data: Dict[str, Any]) -> Dict[str, Any]:
     """Migrate a config DICT in place-style: every clone_placements: entry
     becomes an Entity + a one-node tree; the clone list is cleared. Every
@@ -108,7 +123,10 @@ def convert_clone_placements_to_entities(data: Dict[str, Any]) -> Dict[str, Any]
     Entity whose name already exists is not duplicated, and a tree is only
     created for a ref that is not ALREADY placed by a trees: node — so the
     result never violates the link_trees "a ref appears in at most one node"
-    invariant (found on the live 3ch-awg-tia-v103 copy, 2026-08-30)."""
+    invariant (found on the live 3ch-awg-tia-v103 copy, 2026-08-30). Existing
+    tree nodes that reference a now-Entity ref are rewritten kind "clone" ->
+    "placement" (see _rewrite_clone_kinds) so Apply/Redraw's link_trees
+    resolves them."""
     out: Dict[str, Any] = dict(data)
     clones: List[Dict[str, Any]] = [
         c for c in (out.get("clone_placements") or []) if isinstance(c, dict)]
@@ -132,20 +150,39 @@ def convert_clone_placements_to_entities(data: Dict[str, Any]) -> Dict[str, Any]
         if name not in existing_refs:
             trees.append(_clone_to_tree(clone))
             existing_refs.add(name)
+    # Cutover: rewrite legacy "clone" nodes whose ref is now an Entity name.
+    all_entity_names = existing_entities
+    for tree in trees:
+        if isinstance(tree, dict):
+            _rewrite_clone_kinds(tree.get("nodes"), all_entity_names)
     out["entities"] = entities
     out["trees"] = trees
     out["clone_placements"] = []
     return out
 
 
+def _backup(path: Path) -> None:
+    """Timestamped copy of `path` next to itself (e.g. root.sexp.bak.20260830_
+    180605) — a real conversion run rewrites the input, and the original must
+    never be lost (same backup-the-write-target convention as
+    entity_delete.backup_file / tools/sexp_config_convert.py)."""
+    import shutil
+    from datetime import datetime
+
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    shutil.copy2(path, path.with_name(f"{path.name}.bak.{stamp}"))
+
+
 def convert_placements_file(path: Path) -> Dict[str, Any]:
     """Read a config file (.sexp/.json), migrate clone_placements -> Entity +
-    tree, write back. Returns the new config dict. Raises OSError on a
-    non-readable/non-writable file (same contract as config_writer)."""
+    tree, write back (after a timestamped .bak of the input). Returns the new
+    config dict. Raises OSError on a non-readable/non-writable file (same
+    contract as config_writer)."""
     from kicadstamp.config_writer import read_data, write_data
 
     data = read_data(path)
     converted = convert_clone_placements_to_entities(data)
+    _backup(path)
     write_data(path, converted)
     return converted
 
