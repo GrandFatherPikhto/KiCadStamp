@@ -2661,11 +2661,14 @@ class PlacerDock(QWidget):
 
         # Merge-preserve (2026-08-30, phase 5.2 stage 3): the form no longer
         # carries nets/net_overrides/refs (they moved to the Tools dock), and
-        # upsert replaces the WHOLE record — so load the existing raw dict
-        # and let the form's keys override it; everything else (nets/refs/
-        # flags) is preserved. Write to the file the Entity actually lives
-        # in, so an Entity in an included file is updated in place, never
-        # duplicated into the root.
+        # upsert replaces the WHOLE record — so load the existing raw dict,
+        # preserve from it ONLY the fields ToolsDock owns, and let the form's
+        # payload override. A field the user CLEARED in the form (absent from
+        # the payload, since _build_entity_dict omits falsy optionals) must
+        # be CLEARED on disk, not resurrected from the old record by a
+        # full-dict merge (2026-08-30 review fix). Write to the file the
+        # Entity actually lives in, so an Entity in an included file is
+        # updated in place, never duplicated into the root.
         target_path = self._placer_path
         existing_file = find_list_entry_file(
             self._root_path, "entities", {"name": new_identity})
@@ -2677,7 +2680,9 @@ class PlacerDock(QWidget):
                 existing_data = {}
             for existing_entry in existing_data.get("entities") or []:
                 if isinstance(existing_entry, dict) and existing_entry.get("name") == new_identity:
-                    entry = {**existing_entry, **entry}
+                    preserved = {k: v for k, v in existing_entry.items()
+                                 if k in ("nets", "net_overrides", "refs")}
+                    entry = {**preserved, **entry}
                     break
 
         try:

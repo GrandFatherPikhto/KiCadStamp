@@ -338,3 +338,31 @@ def test_entity_save_moves_node_to_matching_anchor_tree(main_window, tmp_path):
     assert _contains_node(point_tree, "E1")
     flat = next(t for t in trees if t.get("anchor") == {"origin": True})
     assert not _contains_node(flat, "E1")  # moved, not duplicated
+
+
+def test_entity_save_clears_fields_removed_in_the_form(main_window, tmp_path):
+    """2026-08-30 review fix: the merge must preserve from disk ONLY the
+    fields ToolsDock owns (nets/net_overrides/refs) — a field the user
+    CLEARED in the form (absent from the payload, since _build_entity_dict
+    omits falsy optionals) must be cleared on disk, not resurrected from the
+    old record by a full-dict merge."""
+    dock, root_file = _make_entity_dock(main_window, tmp_path, entities=[
+        # mirror: True requires a layer (loader cross-check) or the config
+        # won't LOAD at all and the entity picker stays empty.
+        {"name": "E1", "cell": "pi_filter", "cluster": "CH0",
+         "comment": "old note", "mirror": True, "layer": "B.Cu",
+         "nets": {"C_IN": "+3V3"}},
+    ])
+    _switch_to_entity(dock)
+    dock.entity_combo.setCurrentText("E1")  # loads cluster/comment/mirror/nets
+    dock.cluster_edit.setCurrentText("")
+    dock.placer_comment_edit.setText("")
+    dock.mirror_checkbox.setChecked(False)
+    dock._do_save()
+    data = _load(root_file)
+    by_name = {e["name"]: e for e in data["entities"]}
+    e1 = by_name["E1"]
+    assert "cluster" not in e1  # cleared, not resurrected
+    assert "comment" not in e1  # cleared, not resurrected
+    assert "mirror" not in e1   # cleared, not resurrected
+    assert e1["nets"] == {"C_IN": "+3V3"}  # Tools-owned field preserved
