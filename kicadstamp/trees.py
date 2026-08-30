@@ -156,12 +156,17 @@ def _parse_anchor(anchor_node) -> TreeAnchor:
         if is_external:
             _fatal(_("anchor: (origin) and (external) are mutually exclusive"))
         return TreeAnchor(ref=None, is_origin=True, is_external=False)
+    # (external) is a REF-anchor modifier only: a role/point anchor is never a
+    # config record, so "external" on it would be silently meaningless. Checked
+    # HERE (before the ref/point/role branches) so a (point ...) (external) or
+    # (role ...) (external) combination is a hard fatal on BOTH paths, never a
+    # silent drop.
+    if is_external and ref is None:
+        _fatal(_("anchor: (external) is only valid with a (ref \"...\") anchor"))
     if ref is not None:
         return TreeAnchor(ref=sval(ref), is_origin=False, is_external=is_external)
     if point is not None:
         return TreeAnchor(point=sval(point), is_origin=False)
-    if is_external:
-        _fatal(_("anchor: (external) is only valid with a (ref \"...\") anchor"))
     return TreeAnchor(
         role=sval(role),
         is_origin=False,
@@ -468,15 +473,21 @@ def tree_from_dict(data: dict, seen_refs: set[str] | None = None) -> Tree:
     elif anchor_data.get("ref") is not None:
         anchor = TreeAnchor(ref=anchor_data["ref"],
                             is_external=bool(anchor_data.get("external")))
-    elif anchor_data.get("point") is not None:
-        anchor = TreeAnchor(point=anchor_data["point"])
     else:
-        anchor = TreeAnchor(
-            role=anchor_data["role"],
-            anchor_sheet=anchor_data.get("sheet"),
-            anchor_cluster=anchor_data.get("cluster"),
-            anchor_pad=anchor_data.get("pad"),
-        )
+        # (external) is a REF-anchor modifier only — a role/point anchor is
+        # never a config record, so "external" on it would be silently
+        # meaningless. Hard fatal, mirroring the s-expr path (_parse_anchor).
+        if anchor_data.get("external"):
+            _fatal(_("anchor: external is only valid with a ref anchor"))
+        if anchor_data.get("point") is not None:
+            anchor = TreeAnchor(point=anchor_data["point"])
+        else:
+            anchor = TreeAnchor(
+                role=anchor_data["role"],
+                anchor_sheet=anchor_data.get("sheet"),
+                anchor_cluster=anchor_data.get("cluster"),
+                anchor_pad=anchor_data.get("pad"),
+            )
     return Tree(
         name=name,
         anchor=anchor,
