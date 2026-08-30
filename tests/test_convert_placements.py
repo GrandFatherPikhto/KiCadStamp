@@ -9,9 +9,10 @@ from pathlib import Path
 
 from kicadstamp.config import entity_effective_name, load_config
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
-from kicadstamp.convert_placements import (
-    convert_clone_placements_to_entities, convert_placements_file)
 from kicadstamp.validation import check_entity_cells_exist
+
+from tools.convert_placements import (
+    convert_clone_placements_to_entities, convert_placements_file)
 
 
 def _write(path: Path, data: dict) -> None:

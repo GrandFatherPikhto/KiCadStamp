@@ -1,4 +1,5 @@
-# kicadstamp/convert_placements.py
+#!/usr/bin/env python3
+# tools/convert_placements.py
 """One-time migration: legacy `clone_placements:` -> `Entity` + a one-node
 placement tree (Entity/Placement split, design_2026_08_30_entity_placement_
 grammar.md §9, plan §6.2).
@@ -17,10 +18,15 @@ left untouched. Idempotent-friendly: re-running on an already-converted file
 finds no clones and only (re)writes the unchanged sections.
 
 Run on a COPY of a live profile:
-    python -m kicadstamp.convert_placements <path-to-.sexp>
+    tools/convert_placements.py profiles/3ch-awg-tia-v103/3ch-awg-tia.sexp
+      # -> converts a COPY of the live profile in place (clone_placements ->
+      #    Entity + placement trees)
 """
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root on path
 
 
 def _clone_effective_name(clone: Dict[str, Any]) -> str:
