@@ -1,10 +1,11 @@
 # kicadstamp/placement/services/manual_position_calculator.py
 
 import logging
+from typing import TYPE_CHECKING
 
-from ...domain.geometry import BoardLayer
+from ...domain.geometry import BoardLayer, Vector2, Angle
 
-from ...config import Config, Rule
+from ...config import Config, Rule, rule_effective_name
 from ...kicad.adapter import KiCadBoardAdapter
 from ...exceptions import ValidationError, format_fatal_error
 from ...geometry.spoke_layout import apply_spoke_geometry
@@ -15,7 +16,12 @@ from .component_resolver import ComponentResolver, resolve_anchor_identity
 from .component_pool import ComponentPool
 from ...i18n import _
 
+if TYPE_CHECKING:
+    from ...tree_position import PositionOverride
+
 logger = logging.getLogger(__name__)
+
+_ORIGIN = Vector2.from_xy(0, 0)
 
 
 def resolve_rule_anchor_ref(adapter: KiCadBoardAdapter, cfg: Config, rule: Rule,
@@ -86,6 +92,21 @@ def rule_anchor_ids(rule: Rule) -> set[str]:
     return {f"pad:{spoke.pad}" for spoke in rule.spokes if not spoke.retired}
 
 
+def reproject_pad_for_override(pad_pos: Vector2, fp, override: "PositionOverride") -> Vector2:
+    """Re-project a pad's LIVE absolute position into the override anchor
+    frame (tree rigid-group redraw, plan_2026_08_29_tree_live_rigid_redraw.md):
+    the rule's anchor footprint is treated as sitting at override.position with
+    override.rotation_deg instead of its live fp.position/angle_deg — the SAME
+    "REPLACES the anchor entirely" semantics ClonePositionCalculator applies to
+    a ClonePlacement. pad_pos = fp.position + R(fp.angle_deg)@local, so
+    local = R(-fp.angle_deg)@(pad_pos - fp.position); under the override the
+    pad lands at override.position + R(override.rotation_deg)@local.
+    Non-persistent: fp/record are never mutated, only the returned geometry is
+    re-projected (registry identity, built from the real fields, is untouched)."""
+    local = (pad_pos - fp.position).rotate(Angle.from_degrees(-fp.angle_deg), _ORIGIN)
+    return override.position + local.rotate(Angle.from_degrees(override.rotation_deg), _ORIGIN)
+
+
 class ManualPositionCalculator:
     """
     Manual positioning of components and vias via spoke cells.
@@ -106,12 +127,26 @@ class ManualPositionCalculator:
     def compute_raw_positions(
         self,
         rules: list[Rule],
+        position_overrides: dict[str, "PositionOverride"] | None = None,
     ) -> tuple[list[PlacedComponentInfo], list[ViaCommand], list[TrackCommand]]:
         components_result: list[PlacedComponentInfo] = []
         vias_result: list[ViaCommand] = []
         tracks_result: list[TrackCommand] = []
 
         for rule in rules:
+            # --- PositionOverride (tree rigid-group redraw): REPLACES the
+            # anchor entirely — the rule's anchor footprint is treated as
+            # sitting at override.position/rotation_deg instead of resolving
+            # its own anchor_ref/anchor_role/anchor_point (same semantics as
+            # ClonePositionCalculator, see clone_position_calculator.py:470+).
+            # The identity (target_fp, the registry's 'pad:' keys) is still
+            # resolved from the real fields; only the spoke geometry is
+            # re-projected (reproject_pad_for_override). Non-persistent: the
+            # shared record is never mutated. Bug #5 (2026-08-30): previously
+            # position_overrides was never forwarded here, so tree-redrawn
+            # rule-nodes silently ignored the override and resolved through
+            # their own anchor_role.
+            override = (position_overrides or {}).get(rule_effective_name(rule))
             # --- Resolve anchor (anchor_ref / anchor_role / anchor_point) ---
             if rule.anchor_point is not None:
                 # Guaranteed already resolved — dependency_order.py orders
@@ -177,6 +212,15 @@ class ManualPositionCalculator:
                     )
                     continue
 
+                # Tree rigid-redraw override (bug #5): when present, the spoke's
+                # anchor pad is re-projected onto the override anchor frame
+                # (override.position/rotation_deg) instead of the footprint's
+                # live pad position — see reproject_pad_for_override. The shared
+                # record is never mutated; only this run's geometry is affected.
+                pad_position = pad.position
+                if override is not None:
+                    pad_position = reproject_pad_for_override(pad.position, target_fp, override)
+
                 # Select pool by spoke cluster — by construction pools_by_cluster
                 # already contains the key spoke.cluster (see clusters_needed above)
                 # for any non-retired spoke; if it ever stops being true, let it fail
@@ -187,7 +231,7 @@ class ManualPositionCalculator:
                 # Consume pool by roles
                 role_to_ref = consume_role_to_ref(pool, cell, spoke.pad)
 
-                layout = apply_spoke_geometry(pad.position, spoke, cell, rule.net, role_to_ref)
+                layout = apply_spoke_geometry(pad_position, spoke, cell, rule.net, role_to_ref)
                 anchor_id = f"pad:{spoke.pad}"
 
                 # Spoke‑level vias

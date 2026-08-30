@@ -960,3 +960,124 @@ def test_forest_cross_tree_cycle_is_fatal():
     from kicadstamp.exceptions import ValidationError
     with pytest.raises(ValidationError, match="cycle"):
         curated_redraw_plan_forest([t_a, t_b], {"A1", "B1"})
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Bug #5: a tree rigid-redraw PositionOverride must reach RULE nodes too —
+# not just placement/clone nodes (the "spokes"). Before the fix, plan_item's
+# rule branch never forwarded position_overrides to ManualPositionCalculator,
+# so a tree-redrawn rule resolved through its own anchor_role/anchor_ref and
+# silently ignored the tree-computed position.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_mixed_tree_rule_override_lands_on_override_not_own_anchor(monkeypatch):
+    """Bug #5 gate: a MIXED tree (placement node + rule node) rigid-group
+    redraw. capture_rigid_state + apply_rigid_override produce a
+    PositionOverride for the RULE node; ApplyPipeline(position_overrides=...)
+    forwards it through PlacementPlanner.plan_item to ManualPositionCalculator,
+    and the rule lands on the override position — NOT on the position its own
+    anchor (an fpga at (100,100)) resolves to."""
+    import kicadstamp.tree_position as tp
+    from unittest.mock import MagicMock
+
+    from kipy.board_types import FootprintInstance, Pad
+
+    from kicadstamp.apply_pipeline import ApplyPipeline
+    from kicadstamp.config import (Cell, Config, ManualSpoke, Rule,
+                                   TemplateComponentSlot)
+    from kicadstamp.placement.dependency_order import Item
+
+    # ── 1. Mixed tree: origin anchor -> placement node + rule node ──
+    anchor = LinkedAnchor(anchor=TreeAnchor(ref=None, is_origin=True),
+                          record=None, is_origin=True, is_external=False)
+    placement_node = LinkedNode(
+        node=_node_dc(ref="CL_A", kind="placement"),
+        record=_record("placement", "CL_A"), is_external=False, children=[])
+    rule_node = LinkedNode(
+        node=_node_dc(ref="RULE_N", kind="rule"),
+        record=_record("rule", "RULE_N"), is_external=False, children=[])
+    tree = LinkedTree(name="t", anchor=anchor, nodes=[placement_node, rule_node])
+
+    # ── 2. Capture rigid state BEFORE any move (live resolvers mocked) ──
+    positions = {"CL_A": Vector2.from_xy(5 * MM, 0),
+                 "RULE_N": Vector2.from_xy(10 * MM, 0)}
+    rotations = {"CL_A": 0.0, "RULE_N": 0.0}
+
+    def fake_pos(adapter, cfg, ref, record, resolved_points, sheet_names):
+        return positions[ref]
+
+    def fake_rot(adapter, cfg, ref, record, sheet_names):
+        return rotations[ref]
+
+    monkeypatch.setattr(tp, "resolve_base_live_position", fake_pos)
+    monkeypatch.setattr(tp, "resolve_base_rotation_deg", fake_rot)
+
+    captures, parent_map = capture_rigid_state("adapter", "cfg", tree,
+                                               ["CL_A", "RULE_N"], {})
+    assert parent_map["RULE_N"] == (None, None, False)  # origin anchor
+    # Origin anchor -> the override is simply the node's own absolute offset.
+    override = apply_rigid_override("adapter", "cfg", None, None,
+                                    captures["RULE_N"], {})
+    assert override.position.x == 10 * MM
+    assert override.position.y == 0
+    assert override.rotation_deg == pytest.approx(0.0)
+
+    # ── 3. Config: the rule's OWN anchor is an fpga at (100, 100) ──
+    def _pad(number, net_name, x_mm=0.0, y_mm=0.0):
+        pad = MagicMock(spec=Pad)
+        pad.number = number
+        pad.net_name = net_name
+        pad.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
+        return pad
+
+    def _fp(ref, role, x_mm=0.0, y_mm=0.0, pads=()):
+        fp = MagicMock(spec=FootprintInstance)
+        fp.ref = ref
+        fp._role = role
+        fp.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
+        fp.angle_deg = 0.0
+        fp._pads = list(pads)
+        return fp
+
+    # Anchor fpga at (100,100) with its spoke pad at (101,100) — WITHOUT the
+    # override the rule would land there (its own anchor_role).
+    fpga = _fp("FPGA1", "R_FPGA", x_mm=100.0, y_mm=100.0,
+               pads=[_pad("1", "RULE_N", x_mm=101.0, y_mm=100.0)])
+    # The cell's component pool: one component with Role=R1 on net RULE_N.
+    comp = _fp("C1", "R1", pads=[_pad("1", "RULE_N")])
+
+    adapter = MagicMock()
+    all_fps = [fpga, comp]
+    adapter.get_footprints.return_value = all_fps
+    adapter.get_footprint.side_effect = lambda ref: next(
+        (f for f in all_fps if f.ref == ref), None)
+    adapter.get_field_value.side_effect = (
+        lambda fp, name: getattr(fp, "_role", None) if name == "Role" else None)
+    adapter.get_footprint_pads.side_effect = lambda fp: list(getattr(fp, "_pads", []))
+    adapter.get_pad_by_number.side_effect = lambda fp, num: next(
+        (p for p in getattr(fp, "_pads", []) if p.number == num), None)
+    adapter.get_selected_items.return_value = []
+
+    cell = Cell(name="tpl", layer="F.Cu",
+                components=[TemplateComponentSlot(role="R1", offset_along_mm=0.0,
+                                                  offset_across_mm=0.0, angle_deg=0.0)])
+    rule = Rule(net="RULE_N", anchor_role="R_FPGA",
+                spokes=[ManualSpoke(pad="1", cell="tpl")])
+    cfg = Config(layer="F.Cu", cells={"tpl": cell}, rules=[rule])
+
+    # ── 4. ApplyPipeline with the override (bug #5 path) ──
+    pipeline = ApplyPipeline("board.yaml", preloaded_cfg=cfg,
+                             position_overrides={"RULE_N": override})
+    pipeline.adapter = adapter
+    pipeline._create_planner()
+    assert pipeline.planner.position_overrides == {"RULE_N": override}
+
+    # ── 5. Plan the rule item -> must land on the override, not (100,100) ──
+    pipeline.planner.begin_planning()
+    item = Item(kind="rule", obj=rule, label="rule 'RULE_N'",
+                anchor_ref="FPGA1", produces=set())
+    moves = pipeline.planner.plan_item(item)
+    assert len(moves) == 1
+    # Override origin (10,0) + the pad's +x 1mm local offset -> (11,0).
+    assert moves[0].position.x == 11 * MM
+    assert moves[0].position.y == 0

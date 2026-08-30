@@ -95,7 +95,13 @@ class PlacementPlanner:
             self.resolved_points[item.obj.name] = resolved
             return []
         if item.kind == 'rule':
-            placed, vias, tracks = self.position_calc.compute_raw_positions([item.obj])
+            # Bug #5 (2026-08-30): position_overrides MUST be forwarded to the
+            # ManualPositionCalculator too — a tree rigid-group redraw override
+            # replaces the rule's anchor entirely (same semantics as clones), so
+            # a tree-redrawn rule-node follows the tree position instead of its
+            # own anchor_role.
+            placed, vias, tracks = self.position_calc.compute_raw_positions(
+                [item.obj], position_overrides=self.position_overrides)
         else:
             placed, vias, tracks = self.clone_calc.compute_raw_positions(
                 [item.obj], position_overrides=self.position_overrides)
