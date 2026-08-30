@@ -333,10 +333,25 @@ class TreesDock(QDockWidget):
         self.tabs.clear()
         self._node_items = {}
         if not self._trees:
-            self.tabs.addTab(QTreeWidget(), _("(no trees)"))
+            placeholder = QTreeWidget()
+            # Explicit minimum width (2026-08-30, Denis: TreesDock can't be
+            # narrowed after being widened once) — QTreeWidget's natural
+            # minimumSizeHint() floors the dock's width the same way
+            # QPlainTextEdit's floored LogDock's height (commit 9d8ddff).
+            # Same proven value: 1, NOT 0 — Qt treats an explicit minimum of
+            # exactly 0 as "unset" and silently falls back to minimumSizeHint()
+            # (see tests/gui/test_log_panel.py::
+            # test_text_view_minimum_height_is_explicitly_overridden).
+            placeholder.setMinimumWidth(1)
+            self.tabs.addTab(placeholder, _("(no trees)"))
             return
         for tree in self._trees:
             tree_widget = QTreeWidget()
+            # Same 2026-08-30 width-floor fix as the placeholder above: the
+            # tree scrolls long node refs (e.g. Entity names) horizontally on
+            # its own, so it must never force the dock wider than the layout
+            # wants. 1, not 0 (see the placeholder comment / log_panel test).
+            tree_widget.setMinimumWidth(1)
             tree_widget.setHeaderHidden(True)
             tree_widget.setStyleSheet(highlight_stylesheet_for("QTreeView::item:selected"))
             tree_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)

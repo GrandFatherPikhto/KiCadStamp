@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QMessageBox
+from PyQt6.QtWidgets import QMessageBox, QTreeWidget
 
 from kicadstamp.config.loader import load_config
 from kicadstamp.config.sexp_format import dict_to_sexp
@@ -90,6 +90,33 @@ def test_set_root_file_loads_trees_from_config(main_window, tmp_path):
     dock2.set_root_file(None)  # no root -> no trees, placeholder tab
     assert dock2._trees == []
     assert dock2.tabs.count() == 1
+
+
+def test_tree_widgets_have_an_explicit_minimum_width_floor(main_window, tmp_path):
+    """2026-08-30, Denis: TreesDock couldn't be narrowed after being widened
+    once — each QTreeWidget's natural minimumSizeHint() floored the dock's
+    width, the same class of bug as LogDock's QPlainTextEdit height (commit
+    9d8ddff), only horizontal. Every tab's tree widget must carry an explicit
+    minimumWidth of 1 — NOT 0, which Qt treats as "unset" and silently falls
+    back to minimumSizeHint() (see
+    test_text_view_minimum_height_is_explicitly_overridden in test_log_panel)."""
+    dock, _ = _dock_with(main_window, tmp_path)  # two real trees
+    assert dock.tabs.count() == 2
+    for i in range(dock.tabs.count()):
+        widget = dock.tabs.widget(i)
+        assert isinstance(widget, QTreeWidget)
+        assert widget.minimumWidth() == 1
+
+
+def test_placeholder_tree_widget_has_an_explicit_minimum_width_floor(main_window, tmp_path):
+    """The "(no trees)" placeholder gets the same explicit width override, for
+    consistency with a real tree's tab (set_root_file(None) -> placeholder)."""
+    dock = TreesDock(main_window)
+    dock.set_root_file(None)
+    assert dock.tabs.count() == 1
+    widget = dock.tabs.widget(0)
+    assert isinstance(widget, QTreeWidget)
+    assert widget.minimumWidth() == 1
 
 
 def test_set_root_file_broken_config_does_not_crash(main_window, tmp_path):
