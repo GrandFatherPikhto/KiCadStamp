@@ -243,6 +243,15 @@ def upsert_clone_placement(path: Path, entry: Dict[str, Any]) -> bool:
                              key_fn=lambda e: e.get("name") or e.get("cluster"))
 
 
+def upsert_entity(path: Path, entry: Dict[str, Any]) -> bool:
+    """entities:-specific upsert (Entity/Placement split, 2026-08-30) — see
+    upsert_list_entry, the general form this delegates to. Identity is
+    `name` (REQUIRED on every Entity, see config/entries.py::_load_entity),
+    so a renamed entry replaces its old record in place instead of
+    appending a duplicate."""
+    return upsert_list_entry(path, "entities", entry, key_fn=lambda e: e.get("name"))
+
+
 def _include_entry_target(entry: Any, base_dir: Path) -> Optional[Path]:
     """Resolved path an include: entry (string or {path:, enabled:} dict)
     points at, or None for a malformed entry — shared by add_include()/
