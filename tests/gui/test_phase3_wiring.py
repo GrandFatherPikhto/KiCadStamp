@@ -679,6 +679,49 @@ def test_dock_hub_wires_root_changed_to_points_dock(main_window, tmp_path):
         _teardown_hub(hub)
 
 
+# ── GUI robustness: a BROKEN root config must never crash the window ────────
+
+def _write_broken_root(tmp_path):
+    """A root config that parses but FAILS semantically at dock refresh: a
+    missing schematic_dir makes RulesDock._refresh_sheet_names ->
+    collect_all_sheet_names -> build_sheet_name_map raise ValidationError."""
+    root_file = tmp_path / "root.sexp"
+    _write(root_file, {"schematic_dir": "no_such_schematic_dir"})
+    return root_file
+
+
+def test_dock_hub_starts_even_with_a_broken_restored_root(main_window, tmp_path, caplog):
+    """GUI must ALWAYS start (task 2026-08-30): a restored last_root_file that
+    is broken (missing schematic_dir) used to crash DockHub construction via
+    the un-guarded initial sync in _wire(). Now every root notification runs
+    through _safe_call, so the ValidationError is LOGGED and the window stays
+    open with the root path set."""
+    root_file = _write_broken_root(tmp_path)
+    _seed_last_root(root_file)
+
+    hub = DockHub(main_window, connection=main_window.connection, verbose=False)
+    try:
+        # construction succeeded — the failure was logged, never raised
+        assert any("failed on the current root config" in r.message
+                   for r in caplog.records)
+    finally:
+        _teardown_hub(hub)
+
+
+def test_dock_hub_manual_broken_root_change_is_logged_not_raised(main_window, tmp_path, caplog):
+    """The same guard covers a MANUAL root change (Open/Recent) in an already
+    running GUI: emitting root_changed with a broken config must not raise."""
+    root_file = _write_broken_root(tmp_path)
+
+    hub = DockHub(main_window, connection=main_window.connection, verbose=False)
+    try:
+        hub.root_metadata_dock.root_changed.emit(root_file)
+        assert any("failed on the current root config" in r.message
+                   for r in caplog.records)
+    finally:
+        _teardown_hub(hub)
+
+
 def test_dock_hub_attaches_a_file_handler_from_the_root_configs_log_file(main_window, tmp_path):
     """2026-08-06, found live — Denis had log_file: already set in his
     root.yaml, assumed (reasonably) it already covered GUI runs too, but

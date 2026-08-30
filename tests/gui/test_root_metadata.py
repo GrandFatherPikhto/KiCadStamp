@@ -477,8 +477,8 @@ def test_add_schematic_file_writes_path_relative_to_target_file(main_window, tmp
     dock = RootMetadataDock(main_window)
     dock.set_target_file(target)
     monkeypatch.setattr(
-        "gui.docks.root_metadata.QFileDialog.getOpenFileName",
-        staticmethod(lambda *a, **k: (str(picked_file), "")))
+        "gui.docks.root_metadata.QFileDialog.getOpenFileNames",
+        staticmethod(lambda *a, **k: ([str(picked_file)], "")))
 
     dock._add_schematic_file()
 
@@ -494,12 +494,34 @@ def test_add_schematic_file_does_not_duplicate(main_window, tmp_path, monkeypatc
     dock = RootMetadataDock(main_window)
     dock.set_target_file(target)
     monkeypatch.setattr(
-        "gui.docks.root_metadata.QFileDialog.getOpenFileName",
-        staticmethod(lambda *a, **k: (str(picked_file), "")))
+        "gui.docks.root_metadata.QFileDialog.getOpenFileNames",
+        staticmethod(lambda *a, **k: ([str(picked_file)], "")))
 
     dock._add_schematic_file()
 
     assert dock.schematic_files_list.count() == 1
+
+
+def test_add_schematic_file_multiselect_adds_all_no_duplicates(main_window, tmp_path, monkeypatch):
+    """Task 2026-08-30: Add... uses getOpenFileNames, so several .kicad_sch
+    can be picked in one dialog; each is added relative to the target, and a
+    path already in the list is skipped (no duplicates)."""
+    target = tmp_path / "root.sexp"
+    _write(target, {"schematic_files": ["a.kicad_sch"]})
+    picked = [str(tmp_path / "b.kicad_sch"), str(tmp_path / "a.kicad_sch"),
+              str(tmp_path / "c.kicad_sch")]
+
+    dock = RootMetadataDock(main_window)
+    dock.set_target_file(target)
+    monkeypatch.setattr(
+        "gui.docks.root_metadata.QFileDialog.getOpenFileNames",
+        staticmethod(lambda *a, **k: (picked, "")))
+
+    dock._add_schematic_file()
+
+    assert [dock.schematic_files_list.item(i).text()
+            for i in range(dock.schematic_files_list.count())] \
+        == ["a.kicad_sch", "b.kicad_sch", "c.kicad_sch"]
 
 
 def test_browse_without_a_file_picked_shows_error(main_window, caplog):

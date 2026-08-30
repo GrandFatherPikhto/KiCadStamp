@@ -79,7 +79,8 @@ from typing import Dict, Optional
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFormLayout,
                               QHBoxLayout, QLabel, QLineEdit, QListWidget,
-                              QPushButton, QTabWidget, QVBoxLayout, QWidget)
+                              QListWidgetItem, QPushButton, QTabWidget,
+                              QVBoxLayout, QWidget)
 
 from kicadstamp.config.models import Config
 from kicadstamp.i18n import _
@@ -393,8 +394,13 @@ class RootMetadataDock(QWidget):
         root_changed to every other dock (see gui/dock_hub.py)."""
         if path is not None:
             self._remember_recent(path)
-        self.set_target_file(path)
-        self.refresh_working_file_choices()
+        try:
+            self.set_target_file(path)
+            self.refresh_working_file_choices()
+        except Exception:  # noqa: BLE001 — a broken root must never crash the GUI
+            logger.exception("GUI: could not load root config %s — root stays "
+                             "set; fix the config or pick another via Open/New "
+                             "(window stays open)", path)
         self.root_changed.emit(path)
 
     # ── Working file (2026-08-11, separate from Root — see module
@@ -461,6 +467,7 @@ class RootMetadataDock(QWidget):
             self._text_edits[key].setText(data.get(key) or "")
         self.schematic_files_list.clear()
         self.schematic_files_list.addItems(data.get("schematic_files") or [])
+        self._make_schematic_items_editable()
         for key, _label in _BOOL_FIELDS:
             self._bool_checks[key].setChecked(bool(data.get(key, _DEFAULTS[key])))
         for key, _label in _FLOAT_FIELDS:
@@ -507,21 +514,33 @@ class RootMetadataDock(QWidget):
     # ── Add/Remove for the schematic_files list ─────────────────────────
 
     def _add_schematic_file(self) -> None:
+        """Multiselect Add... (task 2026-08-30): getOpenFileNames lets the user
+        pick several .kicad_sch at once; each is added with the same relative-
+        path, no-duplicates rule as the old single-file picker."""
         if self._path is None:
             self._show_message(_("Open or create a project (root) file first."), _ERROR_STYLE)
             return
-        chosen, _filter = QFileDialog.getOpenFileName(
-            self, _("Add schematic file"), str(self._path.parent),
+        chosen, _filter = QFileDialog.getOpenFileNames(
+            self, _("Add schematic file(s)"), str(self._path.parent),
             "KiCad Schematic (*.kicad_sch);;All files (*)")
-        if not chosen:
-            return
-        rel = self._relative_to_target(chosen)
-        if not self.schematic_files_list.findItems(rel, Qt.MatchFlag.MatchExactly):
-            self.schematic_files_list.addItem(rel)
+        for path in chosen:
+            rel = self._relative_to_target(path)
+            if not self.schematic_files_list.findItems(rel, Qt.MatchFlag.MatchExactly):
+                item = QListWidgetItem(rel)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
+                self.schematic_files_list.addItem(item)
 
     def _remove_schematic_file(self) -> None:
         for item in self.schematic_files_list.selectedItems():
             self.schematic_files_list.takeItem(self.schematic_files_list.row(item))
+
+    def _make_schematic_items_editable(self) -> None:
+        """Inline-editable list items (task 2026-08-30): the user can type/
+        paste a schematic path directly into the list, not only pick one via
+        the Add... dialog."""
+        for i in range(self.schematic_files_list.count()):
+            item = self.schematic_files_list.item(i)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
 
     # ── Save ──────────────────────────────────────────────────────────────
 

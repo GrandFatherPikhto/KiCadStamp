@@ -22,6 +22,7 @@ working unchanged; they are plain QWidgets now, not QDockWidgets in their
 own right.
 """
 import logging
+from functools import partial
 from pathlib import Path
 from typing import Optional
 
@@ -175,30 +176,60 @@ class DockHub:
         # rules.py's module docstring), which starts from the project's
         # root, not whatever file each dock's own set_target_file above
         # points it at.
-        self.root_metadata_dock.root_changed.connect(self.config_tree_dock.set_root_file)
-        self.root_metadata_dock.root_changed.connect(self.anchor_tree_dock.set_root_file)
-        self.root_metadata_dock.root_changed.connect(self.trees_dock.set_root_file)
-        self.root_metadata_dock.root_changed.connect(self.rules_dock.set_root_path)
-        self.root_metadata_dock.root_changed.connect(self.net_trace_dock.set_root_path)
-        self.root_metadata_dock.root_changed.connect(self.placer_dock.set_root_path)
-        self.root_metadata_dock.root_changed.connect(self.thermal_via_dock.set_root_path)
-        self.root_metadata_dock.root_changed.connect(self.cells_dock.set_root_path)
+        # EVERY root_changed consumer is guarded through _safe_call: a dock's
+        # set_root_path/set_root_file may raise on a BROKEN root config (e.g.
+        # a missing schematic_dir — RulesDock._refresh_sheet_names ->
+        # build_sheet_name_map fatals). The GUI must ALWAYS start and stay
+        # open: the error is logged (Log dock), the root path stays set, the
+        # user fixes the config or picks another via Open/New. Applies to
+        # both the restore-on-startup path and a manual Open/Recent in a
+        # running GUI (both go through root_changed below).
+        self.root_metadata_dock.root_changed.connect(
+            partial(self._safe_call, "config_tree_dock.set_root_file",
+                    self.config_tree_dock.set_root_file))
+        self.root_metadata_dock.root_changed.connect(
+            partial(self._safe_call, "anchor_tree_dock.set_root_file",
+                    self.anchor_tree_dock.set_root_file))
+        self.root_metadata_dock.root_changed.connect(
+            partial(self._safe_call, "trees_dock.set_root_file",
+                    self.trees_dock.set_root_file))
+        self.root_metadata_dock.root_changed.connect(
+            partial(self._safe_call, "rules_dock.set_root_path",
+                    self.rules_dock.set_root_path))
+        self.root_metadata_dock.root_changed.connect(
+            partial(self._safe_call, "net_trace_dock.set_root_path",
+                    self.net_trace_dock.set_root_path))
+        self.root_metadata_dock.root_changed.connect(
+            partial(self._safe_call, "placer_dock.set_root_path",
+                    self.placer_dock.set_root_path))
+        self.root_metadata_dock.root_changed.connect(
+            partial(self._safe_call, "thermal_via_dock.set_root_path",
+                    self.thermal_via_dock.set_root_path))
+        self.root_metadata_dock.root_changed.connect(
+            partial(self._safe_call, "cells_dock.set_root_path",
+                    self.cells_dock.set_root_path))
         # PointsDock's own target-file combo (added 2026-08-13, plan
         # tree_to_combo_file_pickers — the only dock that had no
         # set_root_path at all before) needs the same whole include graph,
         # same root_changed source as the four above.
-        self.root_metadata_dock.root_changed.connect(self.points_dock.set_root_path)
+        self.root_metadata_dock.root_changed.connect(
+            partial(self._safe_call, "points_dock.set_root_path",
+                    self.points_dock.set_root_path))
         # Extract's own Cell file/Profile file combos (added 2026-08-06,
         # Denis: "имя файла, куда пишем extract и cell... тоже, выпадашками"
         # — un-couples them from always following the same file_selected
         # click) need the whole include graph too, same reasoning as above.
-        self.root_metadata_dock.root_changed.connect(self.extract_dock.set_root_path)
+        self.root_metadata_dock.root_changed.connect(
+            partial(self._safe_call, "extract_dock.set_root_path",
+                    self.extract_dock.set_root_path))
         # fieldstool's root_sheet (added 2026-08-07, see config/models.py's
         # Config.root_sheet docstring) — same root_changed source, so
         # opening/switching a project automatically re-points fieldstool's
         # schematic-vs-board diff instead of silently keeping the previous
         # project's manually-picked root sheet.
-        self.root_metadata_dock.root_changed.connect(self.fieldstool_dock.set_root_path)
+        self.root_metadata_dock.root_changed.connect(
+            partial(self._safe_call, "fieldstool_dock.set_root_path",
+                    self.fieldstool_dock.set_root_path))
         # log_file: (Config.log_file, root-file top-level key) — 2026-08-06,
         # found live: Denis had it set in root.yaml already, assumed
         # (reasonably) it already covered GUI runs too, but the GUI's own
@@ -215,18 +246,39 @@ class DockHub:
         # current, or a restored project silently opens with the Config
         # tree empty / Rules' Cell combo empty (found live 2026-08-05 for
         # the equivalent ConfigTreeDock-owned case this mirrors).
-        self.config_tree_dock.set_root_file(self.root_metadata_dock.root_path)
-        self.anchor_tree_dock.set_root_file(self.root_metadata_dock.root_path)
-        self.trees_dock.set_root_file(self.root_metadata_dock.root_path)
-        self.rules_dock.set_root_path(self.root_metadata_dock.root_path)
-        self.placer_dock.set_root_path(self.root_metadata_dock.root_path)
-        self.thermal_via_dock.set_root_path(self.root_metadata_dock.root_path)
-        self.cells_dock.set_root_path(self.root_metadata_dock.root_path)
-        self.points_dock.set_root_path(self.root_metadata_dock.root_path)
-        self.extract_dock.set_root_path(self.root_metadata_dock.root_path)
-        self.net_trace_dock.set_root_path(self.root_metadata_dock.root_path)
-        self.fieldstool_dock.set_root_path(self.root_metadata_dock.root_path)
-        self._on_root_file_changed_for_logging(self.root_metadata_dock.root_path)
+        # The initial sync runs through the SAME _safe_call guard as the
+        # root_changed connections above — on startup the restored root may
+        # be broken, and any dock must fail loudly-but-harmlessly (log only)
+        # instead of crashing DockHub.__init__/MainWindow.__init__.
+        self._safe_call("config_tree_dock.set_root_file",
+                        self.config_tree_dock.set_root_file,
+                        self.root_metadata_dock.root_path)
+        self._safe_call("anchor_tree_dock.set_root_file",
+                        self.anchor_tree_dock.set_root_file,
+                        self.root_metadata_dock.root_path)
+        self._safe_call("trees_dock.set_root_file", self.trees_dock.set_root_file,
+                        self.root_metadata_dock.root_path)
+        self._safe_call("rules_dock.set_root_path", self.rules_dock.set_root_path,
+                        self.root_metadata_dock.root_path)
+        self._safe_call("placer_dock.set_root_path", self.placer_dock.set_root_path,
+                        self.root_metadata_dock.root_path)
+        self._safe_call("thermal_via_dock.set_root_path",
+                        self.thermal_via_dock.set_root_path,
+                        self.root_metadata_dock.root_path)
+        self._safe_call("cells_dock.set_root_path", self.cells_dock.set_root_path,
+                        self.root_metadata_dock.root_path)
+        self._safe_call("points_dock.set_root_path", self.points_dock.set_root_path,
+                        self.root_metadata_dock.root_path)
+        self._safe_call("extract_dock.set_root_path", self.extract_dock.set_root_path,
+                        self.root_metadata_dock.root_path)
+        self._safe_call("net_trace_dock.set_root_path", self.net_trace_dock.set_root_path,
+                        self.root_metadata_dock.root_path)
+        self._safe_call("fieldstool_dock.set_root_path",
+                        self.fieldstool_dock.set_root_path,
+                        self.root_metadata_dock.root_path)
+        self._safe_call("_on_root_file_changed_for_logging",
+                        self._on_root_file_changed_for_logging,
+                        self.root_metadata_dock.root_path)
         # file_selected fires BEFORE the more specific cell_picked/
         # placement_picked/profile_picked signal on a leaf click (see
         # config_tree.py's _on_clicked) — so this fallback runs first and
@@ -552,6 +604,20 @@ class DockHub:
         if listener is not None and handler in listener.handlers:
             listener.handlers = tuple(
                 h for h in listener.handlers if h is not handler)
+
+    def _safe_call(self, what: str, fn, *args) -> None:
+        """Run a dock's root-notification callable safely: a BROKEN root
+        config must never crash the GUI — on startup (restore) or on a manual
+        Open/Recent. The error goes to the log only (Log dock picks it up);
+        the root path stays set so the user can fix the config or choose
+        another via Open/New. Central guard for every root_changed consumer
+        and for _wire()'s initial sync (task: GUI must always start even with
+        a broken root config)."""
+        try:
+            fn(*args)
+        except Exception:  # noqa: BLE001 — any dock computation must not kill the GUI
+            logging.exception("GUI: %s failed on the current root config (root "
+                              "file may be broken) — window stays open", what)
 
     def _on_root_file_changed_for_logging(self, path) -> None:
         """Attaches a FileHandler using the CURRENT root config's own
