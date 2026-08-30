@@ -1,9 +1,14 @@
 # tests/gui/test_placer_entity_mode.py
 """
 PlacerDock Entity source mode (2026-08-30, Entity/Placement split, phase
-5.2 redesign, Stage 1): the "Entity" Source pick edits an Entity record —
-name + cell + electrical/identity fields, NO position (that lives only in
-the trees: node; config/entries.py fatals on any positional key by design).
+5.2 redesign): the "Entity" Source pick edits an Entity record — name +
+cell + electrical/identity fields, NO position (that lives only in the
+trees: node; config/entries.py fatals on any positional key by design).
+
+Stage 1 = the Entity record itself (pick + save, no position). Stage 2 =
+the Origin tab now edits the Entity's trees: node (its PLACEMENT): picking
+a placed Entity loads the node's position, saving writes/updates it, a
+blank origin leaves the Entity "не размещено".
 
 Headless like the rest of test_placer_dock.py: these tests exercise the
 combo population from the include graph, the pick-into-form load, the
@@ -12,12 +17,9 @@ path against real config files on disk — never touching a live board.
 """
 from pathlib import Path
 
-import pytest
-
 from gui.docks.placer import PlacerDock
 from kicadstamp.config import load_entity
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
-from kicadstamp.exceptions import ValidationError
 
 
 def _write(path: Path, data: dict) -> None:
@@ -28,10 +30,11 @@ def _load(path: Path) -> dict:
     return sexp_to_dict(path.read_text(encoding="utf-8")) or {}
 
 
-def _make_entity_dock(main_window, tmp_path, entities=None, cells=None):
-    """Root config with an included cells file + an entities: section — the
-    same include-graph shape the real project uses (an Entity lives wherever
-    its record does, possibly in an included file)."""
+def _make_entity_dock(main_window, tmp_path, entities=None, cells=None, trees=None):
+    """Root config with an included cells file + an entities: section (and an
+    optional trees: section for the stage-2 placement-node tests) — the same
+    include-graph shape the real project uses (an Entity lives wherever its
+    record does, possibly in an included file)."""
     cells_file = tmp_path / "cells.sexp"
     _write(cells_file, {"cells": cells or {
         "pi_filter": {
@@ -42,8 +45,7 @@ def _make_entity_dock(main_window, tmp_path, entities=None, cells=None):
             "layer": "F.Cu",
         }
     }})
-    root_file = tmp_path / "root.sexp"
-    _write(root_file, {
+    root_data = {
         "clone_placements": [],
         "include": ["cells.sexp"],
         "entities": entities or [
@@ -51,7 +53,11 @@ def _make_entity_dock(main_window, tmp_path, entities=None, cells=None):
              "nets": {"C_IN": "+3V3"}, "refs": {"C_IN": "C5"}},
             {"name": "E2", "cell": "pi_filter"},
         ],
-    })
+    }
+    if trees is not None:
+        root_data["trees"] = trees
+    root_file = tmp_path / "root.sexp"
+    _write(root_file, root_data)
     dock = PlacerDock(main_window)
     dock.set_root_path(root_file)
     return dock, root_file
@@ -59,6 +65,34 @@ def _make_entity_dock(main_window, tmp_path, entities=None, cells=None):
 
 def _switch_to_entity(dock) -> None:
     dock.cell_mode_combo.setCurrentIndex(2)
+
+
+def _contains_node(tree_dict, ref) -> bool:
+    """True if `tree_dict` holds a node with ref == ref (recursive)."""
+    for n in tree_dict.get("nodes") or []:
+        if n.get("ref") == ref:
+            return True
+        if _contains_node(n, ref):
+            return True
+    return False
+
+
+def _find_node_in_trees(trees, ref):
+    """The node dict with ref == ref across every tree, or None."""
+    for tree in trees:
+        def walk(nodes):
+            for n in nodes or []:
+                if n.get("ref") == ref:
+                    return n
+                hit = walk(n.get("children") or [])
+                if hit:
+                    return hit
+            return None
+
+        hit = walk(tree.get("nodes"))
+        if hit:
+            return hit
+    return None
 
 
 # ── Source mode toggle ────────────────────────────────────────────────────
@@ -204,3 +238,102 @@ def test_current_entity_name_reflects_entity_mode(main_window, tmp_path):
 def test_current_entity_name_falls_back_to_clone_name_outside_entity_mode(main_window, tmp_path):
     dock, _ = _make_entity_dock(main_window, tmp_path)
     assert dock.current_entity_name == ""  # blank clone Cluster in Cell mode
+
+
+# ── Stage 2: Origin tab = the Entity's trees: node ─────────────────────────
+
+def test_entity_pick_loads_placed_node_origin(main_window, tmp_path):
+    """A placed Entity (its trees: node exists) loads the node's position
+    into the Origin tab — Origin edits the tree node, not an Entity field."""
+    dock, _ = _make_entity_dock(main_window, tmp_path, trees=[
+        {"name": "flat", "anchor": {"origin": True},
+         "nodes": [{"ref": "E1", "kind": "placement", "xy": [5.0, 2.0]}]},
+    ])
+    _switch_to_entity(dock)
+    dock.entity_combo.setCurrentText("E1")
+    assert dock.origin_widget.mode == "xy"
+    assert float(dock.x_edit.text()) == 5.0
+    assert float(dock.y_edit.text()) == 2.0
+    assert "Placed" in dock._placement_status_label.text()
+
+
+def test_entity_pick_unplaced_clears_origin(main_window, tmp_path):
+    """An Entity with no trees: node is legally "не размещено" — the Origin
+    position widgets are cleared and the status label says so."""
+    dock, _ = _make_entity_dock(main_window, tmp_path)
+    _switch_to_entity(dock)
+    dock.entity_combo.setCurrentText("E2")  # no node anywhere
+    assert dock.origin_widget.mode == "xy"
+    assert dock.x_edit.text() == ""
+    assert dock.y_edit.text() == ""
+    assert "Not placed" in dock._placement_status_label.text()
+
+
+def test_entity_save_writes_placement_node(main_window, tmp_path):
+    """Setting an origin and saving writes the Entity's trees: node (kind
+    placement) under a matching (origin)-anchored tree."""
+    dock, root_file = _make_entity_dock(main_window, tmp_path)
+    _switch_to_entity(dock)
+    dock.entity_combo.setCurrentText("E2")  # unplaced
+    dock.x_edit.setText("10")
+    dock.y_edit.setText("20")
+    dock._do_save()
+    data = _load(root_file)
+    trees = data.get("trees") or []
+    node = _find_node_in_trees(trees, "E2")
+    assert node is not None
+    assert node["kind"] == "placement"
+    assert node["xy"] == [10.0, 20.0]
+    flat = next(t for t in trees if _contains_node(t, "E2"))
+    assert flat["anchor"] == {"origin": True}
+
+
+def test_entity_save_blank_origin_skips_node_write(main_window, tmp_path):
+    """An Entity saved with a blank Origin tab stays unplaced — no node is
+    written (deleting a node to unplace is TreesDock's job)."""
+    dock, root_file = _make_entity_dock(main_window, tmp_path)
+    _switch_to_entity(dock)
+    dock.entity_combo.setCurrentText("E2")
+    dock._do_save()
+    data = _load(root_file)
+    assert _find_node_in_trees(data.get("trees") or [], "E2") is None
+
+
+def test_entity_save_updates_existing_node_position(main_window, tmp_path):
+    dock, root_file = _make_entity_dock(main_window, tmp_path, trees=[
+        {"name": "flat", "anchor": {"origin": True},
+         "nodes": [{"ref": "E1", "kind": "placement", "xy": [5.0, 2.0]}]},
+    ])
+    _switch_to_entity(dock)
+    dock.entity_combo.setCurrentText("E1")  # loads 5.0, 2.0
+    dock.x_edit.setText("7")
+    dock.y_edit.setText("8")
+    dock.rotation_edit.setText("90")
+    dock._do_save()
+    data = _load(root_file)
+    trees = data.get("trees") or []
+    assert len(trees) == 1  # still one tree, not a duplicate
+    node = _find_node_in_trees(trees, "E1")
+    assert node["xy"] == [7.0, 8.0]
+    assert node["rotation"] == 90.0
+
+
+def test_entity_save_moves_node_to_matching_anchor_tree(main_window, tmp_path):
+    """Changing the Origin's anchor MOVES the node to the tree whose anchor
+    matches — the position source stays exactly one (link_trees invariant)."""
+    dock, root_file = _make_entity_dock(main_window, tmp_path, trees=[
+        {"name": "flat", "anchor": {"origin": True},
+         "nodes": [{"ref": "E1", "kind": "placement", "xy": [5.0, 2.0]}]},
+    ])
+    _switch_to_entity(dock)
+    dock.entity_combo.setCurrentText("E1")
+    dock.origin_widget.origin_mode_combo.setCurrentIndex(
+        dock.origin_widget._modes.index("point"))
+    dock.point_edit.setCurrentText("P1")
+    dock._do_save()
+    data = _load(root_file)
+    trees = data.get("trees") or []
+    point_tree = next(t for t in trees if t.get("anchor") == {"point": "P1"})
+    assert _contains_node(point_tree, "E1")
+    flat = next(t for t in trees if t.get("anchor") == {"origin": True})
+    assert not _contains_node(flat, "E1")  # moved, not duplicated

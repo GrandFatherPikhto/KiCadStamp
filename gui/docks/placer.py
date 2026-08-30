@@ -147,7 +147,7 @@ from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STY
                       WARN_STYLE as _WARN_STYLE, configure_searchable, display_path,
                       parse_float_field, set_combo_items, set_mode_pair_enabled,
                       show_message, upsert_clone_placement, upsert_entity,
-                      upsert_list_entry)
+                      upsert_entity_placement, upsert_list_entry)
 from .cascade import cascade_records, run_cascade_worker
 from .entity_delete import delete_entry
 from .rename import (collect_all_cell_names, collect_all_point_names,
@@ -1084,6 +1084,14 @@ class PlacerDock(QWidget):
         origin_page_layout.addLayout(extra_form)
         self.mirror_checkbox = QCheckBox(_("Mirror"))
         origin_page_layout.addWidget(self.mirror_checkbox)
+        # Entity mode's placement status (phase 5.2, stage 2): "placed under
+        # tree X" vs "не размещено" — the Origin tab edits the Entity's trees:
+        # node, and an Entity with no node is a legal unplaced record. Hidden
+        # in Cell / Single-component modes (only _on_cell_mode_changed touches
+        # this label).
+        self._placement_status_label = QLabel("")
+        self._placement_status_label.setVisible(False)
+        origin_page_layout.addWidget(self._placement_status_label)
         origin_page_layout.addStretch(1)
         self._origin_tab_index = self._tabs.addTab(origin_page, _("Origin"))
 
@@ -1159,6 +1167,7 @@ class PlacerDock(QWidget):
         self._name_row.setVisible(not is_coordinate and not is_entity)
         self._entity_row.setVisible(is_entity)
         self._coordinate_identity_row.setVisible(is_coordinate)
+        self._placement_status_label.setVisible(is_entity)
         self._tabs.setTabVisible(self._nets_tab_index, not is_coordinate)
         self._tabs.setTabVisible(self._net_overrides_tab_index, not is_coordinate)
         self._tabs.setTabVisible(self._refs_tab_index, not is_coordinate)
@@ -1235,6 +1244,115 @@ class PlacerDock(QWidget):
         # old record when the about-to-be-saved name differs (rename via the
         # combo), mirroring the clone path's _loaded_clone_identity.
         self._loaded_entity_identity = entity.name
+        # Phase 5.2 stage 2: load the Entity's placement node (trees:) into
+        # the Origin tab — or show "не размещено" when it has no node.
+        self._load_entity_node_origin(entity)
+
+    def _find_entity_node(self, name: str) -> Optional[tuple]:
+        """(tree, node) for the trees: node that PLACES `name` — a recursive
+        search across every tree in the whole include graph (a node can be a
+        top-level node or nested under a parent). None when the Entity is
+        unplaced ("не размещено" is legal — an Entity without a node)."""
+        if not name or self._root_path is None:
+            return None
+        try:
+            cfg, _ctx = load_config(str(self._root_path))
+        except (ValidationError, OSError):
+            return None
+        for tree in cfg.trees:
+            hit = self._search_node(tree.nodes, name)
+            if hit is not None:
+                return tree, hit
+        return None
+
+    @staticmethod
+    def _search_node(nodes, name: str):
+        """DFS for a TreeNode whose ref == name, or None."""
+        for node in nodes:
+            if node.ref == name:
+                return node
+            child = PlacerDock._search_node(node.children, name)
+            if child is not None:
+                return child
+        return None
+
+    def _load_entity_node_origin(self, entity: Entity) -> None:
+        """Load the Entity's placement node into the Origin tab (phase 5.2,
+        stage 2) — mirror of _build_entity_node_dict. The tree ANCHOR decides
+        the widget mode (origin -> xy absolute; ref/role -> anchor; point ->
+        point); the node's xy/polar becomes the offset/shift. An unplaced
+        Entity clears the position widgets and says so."""
+        found = self._find_entity_node(entity.name)
+        if found is None:
+            self.origin_widget.clear()
+            self.rotation_edit.setText("")
+            self._placement_status_label.setText(
+                _("Not placed — set an origin to place it."))
+            return
+        tree, node = found
+        anchor = tree.anchor
+        polar = node.polar is not None
+        if polar:
+            radius, angle = node.polar
+        else:
+            xy = node.xy or (0.0, 0.0)
+        if anchor.is_origin:
+            if polar:
+                self.origin_widget.load(mode="xy", polar=True, radius=radius, angle=angle)
+            else:
+                self.origin_widget.load(mode="xy", x=xy[0], y=xy[1])
+        elif anchor.point is not None:
+            if polar:
+                self.origin_widget.load(mode="point", point=anchor.point,
+                                        polar=True, radius=radius, angle=angle)
+            else:
+                self.origin_widget.load(mode="point", point=anchor.point,
+                                        shift_x=xy[0], shift_y=xy[1])
+        else:  # ref/role anchor
+            if polar:
+                self.origin_widget.load(
+                    mode="anchor", ref=anchor.ref or "", role=anchor.role or "",
+                    sheet=anchor.anchor_sheet or "", pad=anchor.anchor_pad or "",
+                    cluster=anchor.anchor_cluster or "",
+                    polar=True, radius=radius, angle=angle)
+            else:
+                self.origin_widget.load(
+                    mode="anchor", ref=anchor.ref or "", role=anchor.role or "",
+                    sheet=anchor.anchor_sheet or "", pad=anchor.anchor_pad or "",
+                    cluster=anchor.anchor_cluster or "",
+                    shift_x=xy[0], shift_y=xy[1])
+        self.rotation_edit.setText(str(node.rotation))
+        self._placement_status_label.setText(
+            _("Placed under tree {tree!r}.").format(tree=tree.name))
+
+    def _build_entity_node_dict(self) -> Optional[Dict[str, Any]]:
+        """Entity mode's OPTIONAL placement payload (phase 5.2, stage 2):
+        the Origin tab's position as the generic AnchorOriginWidget fields.
+        None when the position part is blank — the Entity stays/keeps its
+        current placement ("не размещено" is legal); nothing is written.
+        Returns fields + shows the validation error when the position is
+        filled but invalid."""
+        origin = self.origin_widget
+        polar = (origin._polar_combo is not None
+                 and origin._polar_combo.currentIndex() == 1)
+        mode = origin.mode
+        if mode == "xy":
+            if polar:
+                if not (origin.radius_edit.text().strip()
+                        or origin.angle_edit.text().strip()):
+                    return None
+            elif not (self.x_edit.text().strip() or self.y_edit.text().strip()):
+                return None
+        elif mode == "anchor" and not (self.anchor_ref_edit.text().strip()
+                                       or self.anchor_role_edit.currentText().strip()):
+            return None
+        elif mode == "point" and not self.point_edit.currentText().strip():
+            return None
+        fields, err = origin.build()
+        if err:
+            self._show_message(err, _ERROR_STYLE)
+            return None
+        return fields
 
     def _cell_data(self, name: Optional[str]) -> dict:
         """Full cells: entry dict for `name`, read from the WHOLE include
@@ -2643,6 +2761,23 @@ class PlacerDock(QWidget):
             self._show_message(_("Write failed: {error}").format(error=e), _ERROR_STYLE)
             return
 
+        # Phase 5.2 stage 2: the Origin tab edits the Entity's trees: node —
+        # write it when a position was actually given (blank origin -> no
+        # change, so an unplaced Entity stays unplaced; removing a node to
+        # unplace is TreesDock's job). Written AFTER the entity so a failed
+        # entity write never leaves a dangling placement behind.
+        node_fields = self._build_entity_node_dict()
+        if node_fields is not None:
+            rotation = self._parse_float(self.rotation_edit, _("Rotation"), default=0.0)
+            if rotation is None:
+                return
+            try:
+                upsert_entity_placement(self._placer_path, new_identity,
+                                        node_fields, rotation)
+            except OSError as e:
+                self._show_message(_("Write failed: {error}").format(error=e), _ERROR_STYLE)
+                return
+
         self._show_message(
             _("{action} entity {name!r} in {path}").format(
                 action=_("Overwrote") if overwritten else _("Wrote"),
@@ -2811,6 +2946,7 @@ class PlacerDock(QWidget):
         # (2026-08-15, plan placer_form_save_renames_not_duplicates).
         self._loaded_clone_identity = None
         self._loaded_entity_identity = None
+        self._placement_status_label.setText("")
         self.sheet_edit.setCurrentText("")
         self.origin_widget.clear()
         self.rotation_edit.setText("")

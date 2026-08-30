@@ -252,6 +252,118 @@ def upsert_entity(path: Path, entry: Dict[str, Any]) -> bool:
     return upsert_list_entry(path, "entities", entry, key_fn=lambda e: e.get("name"))
 
 
+def _entity_origin_to_anchor(origin: Dict[str, Any]) -> dict:
+    """Origin-tab generic fields -> a trees: anchor dict (v2 grammar):
+    xy -> (origin); point -> (point ...); anchor -> (ref ...)/(role ...)
+    with the optional sheet/cluster/pad narrowing. Same mapping as the
+    ClonePlacement path's _build_entry_dict, only the output lands on the
+    TREE (Entity carries no position fields by design)."""
+    mode = origin.get("mode")
+    if mode == "xy":
+        return {"origin": True}
+    if mode == "point":
+        return {"point": origin["point"]}
+    # mode == "anchor"
+    if origin.get("ref"):
+        out: dict = {"ref": origin["ref"]}
+    else:
+        out = {"role": origin["role"]}
+        if origin.get("sheet"):
+            out["sheet"] = origin["sheet"]
+        if origin.get("cluster"):
+            out["cluster"] = origin["cluster"]
+        if origin.get("pad"):
+            out["pad"] = origin["pad"]
+    return out
+
+
+def _entity_origin_to_node(entity_name: str, origin: Dict[str, Any], rotation: float) -> dict:
+    """Origin-tab generic fields -> a trees: node dict (kind "placement").
+    Absolute mode writes node.xy (or polar); Anchor/Point mode writes the
+    SHIFT into node.xy (ClonePlacement's "xy carries the shift" convention —
+    see placer.py::_build_entry_dict), so the node is exactly the "position
+    source" the Entity/Placement split assigns to trees."""
+    out: dict = {"ref": entity_name, "kind": "placement"}
+    if "radius" in origin:  # polar (absolute OR anchor/point polar offset)
+        out["polar"] = [origin["radius"], origin["angle"]]
+    elif origin.get("mode") == "xy":
+        out["xy"] = [origin["x"], origin["y"]]
+    else:  # anchor/point: node.xy carries the flat shift
+        out["xy"] = [origin.get("shift_x", 0.0), origin.get("shift_y", 0.0)]
+    if rotation:
+        out["rotation"] = rotation
+    return out
+
+
+def upsert_entity_placement(path: Path, entity_name: str, origin: Dict[str, Any],
+                            rotation: float = 0.0) -> bool:
+    """Write/update the trees: node that PLACES `entity_name` (kind
+    "placement") — PlacerDock's "save Origin = write node.xy/node.anchor"
+    step (phase 5.2, stage 2). `origin` is the AnchorOriginWidget.build()
+    generic shape (mode xy/anchor/point + x/y or radius/angle or
+    shift_x/shift_y + ref/role/sheet/pad/cluster/point); the tree ANCHOR is
+    derived from the mode and the node offset from the position.
+
+    Rules (position lives ONLY in trees, so the write must keep the
+    link_trees "a ref appears in at most one node" invariant):
+      - the node is first removed from wherever it currently sits (top-level
+        or nested), then placed under the tree whose anchor EQUALS the
+        requested one — changing the anchor mode MOVES the node
+      - if no tree has that exact anchor yet, a single-node tree named after
+        the entity is appended
+      - every other root key / tree / node is preserved untouched.
+
+    Returns whether anything changed. Raises OSError on a non-list trees:
+    section or a write failure (same contract as upsert_entity)."""
+    data = copy.deepcopy(_read_data(path))
+    trees = data.setdefault("trees", [])
+    if not isinstance(trees, list):
+        raise OSError(_("trees: in {path} is not a list — refusing to touch it")
+                      .format(path=path))
+
+    anchor = _entity_origin_to_anchor(origin)
+    node = _entity_origin_to_node(entity_name, origin, rotation)
+    changed = False
+
+    def _remove_node(tree_dict: dict) -> bool:
+        """Recursively drop every node whose ref == entity_name from a tree's
+        node list (top-level or nested); True if anything was removed."""
+        nodes = tree_dict.get("nodes")
+        if not isinstance(nodes, list):
+            return False
+        kept = []
+        removed = False
+        for n in nodes:
+            if isinstance(n, dict) and n.get("ref") == entity_name:
+                removed = True
+                continue
+            if isinstance(n, dict) and _remove_node(n):
+                removed = True
+            kept.append(n)
+        if removed:
+            tree_dict["nodes"] = kept
+        return removed
+
+    for tree_dict in trees:
+        if isinstance(tree_dict, dict) and _remove_node(tree_dict):
+            changed = True
+
+    target = next((td for td in trees
+                   if isinstance(td, dict) and td.get("anchor") == anchor), None)
+    if target is None:
+        trees.append({"name": entity_name, "anchor": anchor, "nodes": [node]})
+        changed = True
+    else:
+        nodes = target.setdefault("nodes", [])
+        if node not in nodes:
+            nodes.append(node)
+            changed = True
+
+    if changed:
+        _write_data(path, data)
+    return changed
+
+
 def _include_entry_target(entry: Any, base_dir: Path) -> Optional[Path]:
     """Resolved path an include: entry (string or {path:, enabled:} dict)
     points at, or None for a malformed entry — shared by add_include()/
