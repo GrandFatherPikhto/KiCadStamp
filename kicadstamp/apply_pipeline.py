@@ -34,7 +34,10 @@ from .runtime_context import RuntimeContext
 from .kicad.adapter import KiCadBoardAdapter
 from .placement.planner import PlacementPlanner
 from .placement.dependency_order import resolve_execution_order
-from .placement.services.clone_position_calculator import clone_anchor_id
+from .placement.services.clone_position_calculator import (
+    clone_anchor_id,
+    entity_anchor_id,
+)
 from .placement.services.via_planner import thermal_anchor_id
 from .placement.services.manual_position_calculator import rule_anchor_ids
 from .placement.services.coordinate_position_calculator import build_coordinate_moves
@@ -292,6 +295,11 @@ def _compute_all_anchor_ids(cfg) -> set[str]:
     """Build the FULL set of anchor IDs (before --only/--cluster narrow)
     for registry.reconcile()'s known_anchor_ids protection."""
     ids = {clone_anchor_id(c) for c in cfg.clone_placements if not c.retired}
+    # entities: — registry protection by Entity.name (phase 3.1): an entity's
+    # name: anchor id joins known_anchor_ids so a --only-filtered run never
+    # prunes copper belonging to an entity outside the selection. No physical
+    # vias/tracks exist yet (apply is Phase 4), so this is future-proofing.
+    ids |= {entity_anchor_id(e) for e in cfg.entities if not e.retired}
     for r in cfg.rules:
         ids |= rule_anchor_ids(r)
     ids |= {thermal_anchor_id(t) for t in cfg.thermal_via_arrays if not t.retired}

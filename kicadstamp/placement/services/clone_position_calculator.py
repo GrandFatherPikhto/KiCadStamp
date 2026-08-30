@@ -24,8 +24,9 @@ if TYPE_CHECKING:
     from ...tree_position import PositionOverride
 from ...domain.geometry import BoardLayer
 
-from ...config import (Config, ClonePlacement, CellPlacement, Cell,
-                       TemplateComponentSlot, clone_placement_effective_name)
+from ...config import (Config, ClonePlacement, CellPlacement, Cell, Entity,
+                       TemplateComponentSlot, clone_placement_effective_name,
+                       entity_effective_name)
 from ...exceptions import ValidationError, format_fatal_error
 from ...kicad.adapter import KiCadBoardAdapter
 from ...geometry.clone_geometry import apply_clone_geometry, clone_shift_mm
@@ -120,6 +121,19 @@ def clone_anchor_id(clone: ClonePlacement) -> str:
         return (f"role:{clone.anchor_role}:{clone.anchor_sheet or ''}:{clone.anchor_cluster or ''}"
                 f":{clone.anchor_pad or ''}:{ox:.4f}:{oy:.4f}")
     return f"name:{clone_placement_effective_name(clone)}"
+
+
+def entity_anchor_id(entity: "Entity") -> str:
+    """Registry identity of an Entity (Entity/Placement split, 2026-08-30,
+    phase 3.1) — the "name:" branch of clone_anchor_id, moved onto Entity.name.
+
+    An Entity carries NO anchor fields by design (position lives in a trees:
+    node, applied at Phase 4), so the physical-binding branches of
+    clone_anchor_id (anchor:/role:/point:) have no analogue here — the only
+    stable, rename-safe identifier an Entity has is its name, exactly like an
+    absolute-coordinate ClonePlacement's name: fallback. Name is REQUIRED and
+    unique per load, so this key never collides."""
+    return f"name:{entity_effective_name(entity)}"
 
 
 class ClonePositionCalculator:
