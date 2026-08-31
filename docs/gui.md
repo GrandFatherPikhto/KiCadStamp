@@ -156,7 +156,11 @@ action (cells → Add cell, extract_profiles → Add extract profile, ...); Clon
 fresh file with no sections yet couldn't create its first entity). "Add extract profile..." isn't a
 blank form like the other Add-actions (an extract profile's params come from a real board selection)
 — it points the Extract dock at the file, pre-checks "Also save as extract_profile" and focuses the
-profile-key field, so the profile is saved as a side effect of the next real Extract.
+profile-key field, so the profile is saved as a side effect of the next real Extract. Since 2026-08-31
+the selected Cluster auto-fills BOTH the Cell name and the Profile key (the matching profile key when
+one exists, otherwise the Cluster's slug — never stomping a typed value), and when the selection spans
+several Clusters the "Keep only one Cluster" filter is auto-checked (its combo already defaults to the
+Cluster with the most components), so a "New Extract" immediately narrows to the user's own Cluster.
 
 Clicking any node also switches the Detail dock to that node's own panel (Rule → Rules, file →
 Project, ...). Since 2026-08-21 the entity docks no longer ask **which file to write to** — every

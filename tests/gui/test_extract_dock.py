@@ -435,6 +435,60 @@ def test_prepare_new_profile_does_not_disturb_the_cells_context(main_window, tmp
     assert dock.profile_key_edit.text() == ""
 
 
+def test_prepare_new_profile_auto_checks_cluster_filter_when_selection_spans_clusters(main_window, tmp_path):
+    """2026-08-31, "Add extract profile...": when the current selection swept
+    up several Clusters, "Add extract profile..." auto-checks "Keep only one
+    Cluster" — the combo already defaults to the majority Cluster, so checking
+    the box immediately narrows the upcoming extract to it and drops the
+    foreign Clusters swept in by the area-select."""
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
+    profile_file = tmp_path / "profiles.sexp"
+    _write(profile_file, {"extract_profiles": {}})
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+
+    dock.set_board_selection(
+        [_fake_fp("R18"), _fake_fp("R19"), _fake_fp("C5")],
+        [
+            FakeSelected("R18", "R_SERIES", "FPGA_PERIPH", {}),
+            FakeSelected("R19", "R_SERIES", "FPGA_PERIPH", {}),
+            FakeSelected("C5", "C_IN_BULK", "PIF_P5V", {}),
+        ])
+    assert dock.cluster_filter_checkbox.isChecked() is False
+    assert dock.cluster_filter_combo.currentData() == "FPGA_PERIPH"
+
+    dock.prepare_new_profile(profile_file)
+
+    assert dock.cluster_filter_checkbox.isChecked() is True
+    assert dock.cluster_filter_combo.currentData() == "FPGA_PERIPH"
+    # Checking the filter narrows the selection down to the one kept Cluster
+    # (FPGA_PERIPH), so the profile key auto-fills from THAT cluster's slug —
+    # the "auto-check + auto-key from cluster" pair working together, exactly
+    # the "New Extract" behaviour Denis asked for.
+    assert dock.profile_key_edit.text() == "fpga_periph"
+
+
+def test_prepare_new_profile_leaves_cluster_filter_alone_for_single_cluster(main_window, tmp_path):
+    """With nothing to filter (one Cluster, or none), "Add extract profile..."
+    must not touch the checkbox — checking it would hide no foreign Clusters
+    and would silently survive into a later multi-Cluster selection."""
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
+    profile_file = tmp_path / "profiles.sexp"
+    _write(profile_file, {"extract_profiles": {}})
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+
+    dock.set_board_selection([_fake_fp("R18")],
+                             [FakeSelected("R18", "R_SERIES", "FPGA_PERIPH", {})])
+    assert dock.cluster_filter_checkbox.isChecked() is False
+
+    dock.prepare_new_profile(profile_file)
+
+    assert dock.cluster_filter_checkbox.isChecked() is False
+
+
 def test_profile_key_field_has_an_explanatory_tooltip(main_window, tmp_path):
     """Denis, live 2026-08-06: "я постоянно забываю" what Profile key even
     is — a hover reminder beats asking again next time."""
@@ -474,6 +528,47 @@ def test_existing_cell_key_beats_raw_cluster_slug(main_window, tmp_path):
 
     dock.set_board_selection([], [FakeSelected("D1", "SOME_ROLE", "Existing Manual Name", {"1": "+3V3"})])
     assert dock.name_edit.text() == "existing_manual_name"
+
+
+def test_cluster_slug_fills_profile_key_when_no_matching_profile(main_window, tmp_path):
+    """2026-08-31, "Add extract profile...": when the selection is a single
+    Cluster matching no existing extract_profiles key, the profile key
+    auto-fills from the Cluster's slug — exactly like the Cell name already
+    did — so a brand-new profile doesn't start from a blank key the user
+    has to invent."""
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+
+    dock.set_board_selection([], [FakeSelected("D1", "SOME_ROLE", "PWR/DAC0", {"1": "+3V3"})])
+
+    assert dock.name_edit.text() == "pwr_dac0"
+    assert dock.profile_key_edit.text() == "pwr_dac0"
+
+
+def test_matching_profile_key_beats_raw_cluster_slug(main_window, tmp_path):
+    """An existing extract_profiles key wins over the raw full Cluster slug —
+    matched via the last '/'-segment ("dac0"), the same hierarchy the Cell
+    name already uses (an existing key reflects the naming actually chosen
+    last time; here it also proves the matched key beats the candidates[0]
+    raw-slug fallback)."""
+    root_file = tmp_path / "root.sexp"
+    _write(root_file, {
+        "extract_profiles": {
+            "dac0": {
+                "output": "cells.sexp",
+                "params": {"VIN": "+3V3"},
+            }
+        },
+    })
+    dock = ExtractDock(main_window)
+    dock.set_root_path(root_file)
+
+    dock.set_board_selection([], [FakeSelected("D1", "SOME_ROLE", "PWR/DAC0", {"1": "+3V3"})])
+
+    assert dock.profile_key_edit.text() == "dac0"
+    assert dock._net_alias_edits["+3V3"].text() == "VIN"
 
 
 def test_clicking_profile_pulls_aliases_role_and_origin(main_window, tmp_path, monkeypatch):
@@ -525,11 +620,12 @@ def test_clicking_profile_pulls_aliases_role_and_origin(main_window, tmp_path, m
     dock.set_board_selection([], sel)
 
     # Cluster slug ("out_pi_filter_n2v5") matches neither cell nor profile
-    # key -> Cell name only got the raw-slug fallback, Profile key (which
-    # has no such fallback) stayed empty; confirming the auto-match-by-key
-    # path is a no-op here before the click.
+    # key -> BOTH fields got the raw-slug fallback (2026-08-31, "Add extract
+    # profile...": the profile key auto-fills from the selected cluster, the
+    # same as the Cell name always has). No profile entry is pulled in yet —
+    # confirming the auto-match-by-key path is a no-op here before the click.
     assert dock.name_edit.text() == "out_pi_filter_n2v5"
-    assert dock.profile_key_edit.text() == ""
+    assert dock.profile_key_edit.text() == "out_pi_filter_n2v5"
 
     item = dock.profiles_list.findItems("n2v5_adj_pi_filter", Qt.MatchFlag.MatchExactly)[0]
     dock.profiles_list.itemClicked.emit(item)
@@ -575,6 +671,36 @@ def test_clicking_cell_cross_references_matching_profile(main_window, tmp_path):
 
     assert dock.name_edit.text() == "2v5_adj_pi_filter"
     assert dock.profile_key_edit.text() == "n2v5_adj_pi_filter"
+    assert dock._net_alias_edits["-2V5"].text() == "PWR_OUT"
+
+
+def test_clicking_cell_does_not_stomp_a_manually_typed_profile_key(main_window, tmp_path):
+    """The cross-reference pull respects a key the user actually typed: a cell
+    click fills the field only when it's empty or holds an AUTO-suggestion
+    (2026-08-31, "Add extract profile...": the new cluster-slug autofill must
+    not silently swallow a manually typed profile key). The aliases still get
+    pulled from the cross-referenced profile either way."""
+    root_file = tmp_path / "root.sexp"
+    _write(root_file, {
+        "cells": {"2v5_adj_pi_filter": {"vias": [], "components": [], "tracks": [], "layer": "F.Cu"}},
+        "extract_profiles": {
+            "n2v5_adj_pi_filter": {
+                "output": "templates/test.sexp",
+                "name": "2v5_adj_pi_filter",
+                "params": {"PWR_OUT": "-2V5"},
+            }
+        },
+    })
+
+    dock = ExtractDock(main_window)
+    dock.set_root_path(root_file)
+    dock.profile_key_edit.setText("my_custom_key")
+    dock.set_board_selection([], [FakeSelected("C22", "C_OUT_BULK", "Anything", {"1": "-2V5"})])
+
+    item = dock.cells_list.findItems("2v5_adj_pi_filter", Qt.MatchFlag.MatchExactly)[0]
+    dock.cells_list.itemClicked.emit(item)
+
+    assert dock.profile_key_edit.text() == "my_custom_key"
     assert dock._net_alias_edits["-2V5"].text() == "PWR_OUT"
 
 

@@ -242,6 +242,13 @@ class ExtractDock(QWidget):
         self._net_auto_roles: Dict[str, Tuple[str, Optional[str]]] = {}
         self._net_template_role_edits: Dict[str, QComboBox] = {}
         self._last_autofill_key: Optional[Tuple[frozenset, Optional[Path], Optional[Path]]] = None
+        # True while profile_key_edit holds an AUTO-suggestion (cluster slug or
+        # auto-matched profile key) rather than something the user typed or
+        # picked — lets an explicit click (cell cross-reference, profile pick)
+        # override the suggestion without ever stomping a manually typed key
+        # (2026-08-31, "Add extract profile...": the key now auto-fills from
+        # the selected cluster, so the distinction matters again).
+        self._profile_key_autofilled: bool = False
         # (via_uuids, track_uuids) already in the Placer file's registry —
         # see _registry_uuids()'s own docstring for why this is cached
         # instead of re-reading the Placer file's whole include: graph on
@@ -573,6 +580,10 @@ class ExtractDock(QWidget):
         profile_key_label.setToolTip(profile_key_tooltip)
         profile_form.addRow(profile_key_label, self.profile_key_edit)
         layout.addLayout(profile_form)
+        # Any real keystroke in the key field marks it as user-owned, so a
+        # later cell/profile click never overrides it with an auto-suggestion.
+        self.profile_key_edit.textEdited.connect(
+            lambda _text: setattr(self, "_profile_key_autofilled", False))
 
         self.extract_button = QPushButton(_("Extract to file"))
         self.extract_button.setEnabled(False)
@@ -1060,11 +1071,19 @@ class ExtractDock(QWidget):
         self._refresh_existing_lists()
         self.save_profile_checkbox.setChecked(True)
         self.profile_key_edit.clear()
+        self._profile_key_autofilled = False  # fresh flow; re-derived from the selection below
         self.profile_key_edit.setFocus()
         self._show_message(
             _("Select footprints/vias/tracks on the board, type a profile key above, then "
               "Extract — the profile is saved as a side effect of a real extraction."),
             _WARN_STYLE)
+        # Auto-check the "Keep only one Cluster" filter when the area-select
+        # swept up several Clusters (2026-08-31, "Add extract profile..."): the
+        # combo already defaults to the Cluster with the most components in the
+        # selection, so checking the box immediately narrows extraction to it
+        # and drops the foreign Clusters.
+        if len({s.cluster for s in self._selected_footprints if s.cluster}) > 1:
+            self.cluster_filter_checkbox.setChecked(True)
 
     @staticmethod
     def _slugify(text: str) -> str:
@@ -1145,7 +1164,15 @@ class ExtractDock(QWidget):
             if matched_profile:
                 if not self.profile_key_edit.text().strip():
                     self.profile_key_edit.setText(matched_profile)
+                    self._profile_key_autofilled = True
                 self._apply_profile_entry(matched_profile)
+            elif not self.profile_key_edit.text().strip():
+                # No existing profile yet — the Cluster's slug is still a
+                # perfectly good default key, same as the Cell name
+                # (2026-08-31, "Add extract profile...": the profile key
+                # auto-fills from the selected cluster).
+                self.profile_key_edit.setText(candidates[0])
+                self._profile_key_autofilled = True
 
         self._select_list_item(self.cells_list, matched_cell)
         self._select_list_item(self.profiles_list, matched_profile)
@@ -1250,8 +1277,15 @@ class ExtractDock(QWidget):
         self.name_edit.setText(cell_name)
         profile_key = self._find_profile_key_for_cell(cell_name)
         if profile_key is not None:
-            if not self.profile_key_edit.text().strip():
+            # An explicit cell click overrides an AUTO-suggestion (cluster
+            # slug / auto-matched key) but never a key the user actually typed
+            # or picked themselves (2026-08-31: the new cluster-slug autofill
+            # used to leave this field non-empty, silently killing the cross-
+            # reference for cells whose profile key differs).
+            if (not self.profile_key_edit.text().strip()
+                    or self._profile_key_autofilled):
                 self.profile_key_edit.setText(profile_key)
+                self._profile_key_autofilled = False  # now an explicit pick
             self._apply_profile_entry(profile_key)
         entry = (self._graph_section_entry("extract_profiles", profile_key)
                  if profile_key is not None else {})
@@ -1267,6 +1301,7 @@ class ExtractDock(QWidget):
         08-03, GUI tree roadmap Этап 1) can route into the same behavior
         without duplicating it."""
         self.profile_key_edit.setText(profile_key)
+        self._profile_key_autofilled = False  # explicit pick, not an auto-suggestion
         self._apply_profile_entry(profile_key)
         entry = self._graph_section_entry("extract_profiles", profile_key)
         self._set_re_extract_target((entry.get("name") or profile_key) if entry else profile_key,
@@ -2070,6 +2105,7 @@ class ExtractDock(QWidget):
             # picked an existing profile/Cell there.
             self.name_edit.clear()
             self.profile_key_edit.clear()
+            self._profile_key_autofilled = False
         messages = result["messages"]
         annotations = result["annotations"]
         net_from_role_summary = self._summarize_net_from_role(result.get("template_dict") or {})
