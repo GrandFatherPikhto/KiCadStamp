@@ -47,7 +47,7 @@ clone_placements:
 | `trees` | list | Placement trees — the ONLY place a position can live — see **`trees:`** below. |
 | `thermal_via_arrays` | list | Any number of thermal via grids, each independently named/anchored — see **`thermal_via_arrays:`** below. |
 | `place_components` | bool | Default `true`. `false` moves/creates vias and tracks but leaves component positions untouched. |
-| `skip_existing_components` | bool | Default `false`. Skip components (and their vias/tracks) already at the target position — cheap idempotency for re-runs. |
+| `skip_existing_components` | bool | Default `false`. Skip components (and their vias/tracks) already at the target position — cheap idempotency for re-runs. Note (2026-08-31): the TRACK positional pre-check runs regardless of this flag — it only skips a planned track that already exists at the exact position/net/width/layer, so it can never remove copper, only prevent literal duplicates. |
 | `via_keepout_clearance_mm`, `via_search_step_mm`, `via_search_max_radius_mm`, `via_search_n_directions` | numbers | Free-space search parameters, used only by thermal via placement. |
 | `schematic_dir` | string | Folder with the project's `*.kicad_sch` files, for `anchor_sheet` resolution. Relative to this YAML file's own location, like `registry_path`. |
 | `schematic_files` | list of strings | Extra `.kicad_sch` files outside `schematic_dir` (e.g. the root sheet, if it lives elsewhere). |

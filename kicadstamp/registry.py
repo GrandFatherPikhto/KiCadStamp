@@ -438,9 +438,15 @@ def filter_existing_tracks(to_create: list[TrackCommand], live_tracks) -> list[T
     track, see plan_2026_08_16_position_based_copper_idempotency.md).
 
     Skips any command whose geometry+net+width+layer already exists among the
-    live tracks (manually drawn, created by another mechanism, or a previous
-    run's channel-copy). SKIP-ONLY: never removes and never adopts foreign
-    copper into the registry. Returns the filtered list, logs a skip counter."""
+    live tracks (manually drawn, created by another mechanism, a previous
+    run's channel-copy, or — since 2026-08-31, plan
+    2026_08_31_duplicate_tracks_after_tree_redraw — the SAME cell placed
+    twice under DIFFERENT registry keys, e.g. a legacy clone_placement AND an
+    Entity materialized from a tree: their tracks are positionally identical
+    but keyed ``point:/role:`` vs ``name:``, so the registry path alone cannot
+    dedupe them). Run unconditionally by ApplyPipeline (Phase 3). SKIP-ONLY:
+    never removes and never adopts foreign copper into the registry. Returns
+    the filtered list, logs a skip counter."""
     if not to_create:
         return to_create
     kept: list[TrackCommand] = []

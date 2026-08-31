@@ -670,14 +670,20 @@ class ApplyPipeline:
         # Batch deletion — same single-IPC rationale as the via path above.
         if tracks_to_delete:
             self.adapter.remove_by_ids(tracks_to_delete)
-        if self.cfg.skip_existing_components:
-            # Positional pre-check of tracks — unregistered-copper idempotency
-            # (analog of the via pre-check). STRICTLY AFTER reconcile(), on its
-            # to_create list: a pre-reconcile skip would drop the key from
-            # seen_keys and make prune delete the REGISTERED tool track (see
-            # plan_2026_08_16_position_based_copper_idempotency.md). Skip-only —
-            # never removes/adopts foreign copper.
-            tracks_to_create = filter_existing_tracks(tracks_to_create, live_tracks)
+        # Positional pre-check of tracks — unregistered-copper idempotency
+        # (analog of the via pre-check). Run UNCONDITIONALLY (2026-08-31,
+        # plan_2026_08_31_duplicate_tracks_after_tree_redraw): a repeated redraw
+        # of the same cell through two different mechanisms (a legacy
+        # clone_placement AND an Entity materialized from a tree) plans the
+        # SAME physical tracks under DIFFERENT registry keys (point:/role:/name:
+        # anchors), so the registry path alone cannot recognise them as already
+        # placed — the pre-check is the only cross-key dedup. STRICTLY AFTER
+        # reconcile(), on its to_create list: a pre-reconcile skip would drop
+        # the key from seen_keys and make prune delete the REGISTERED tool
+        # track (see plan_2026_08_16_position_based_copper_idempotency.md).
+        # Skip-only — never removes/adopts foreign copper, so it can only
+        # prevent a literal duplicate, never remove needed copper.
+        tracks_to_create = filter_existing_tracks(tracks_to_create, live_tracks)
         logger.info(_("Planned tracks: {total}, actually to create (registry filtered already "
                        "correctly placed): {to_create}")
                     .format(total=len(all_tracks), to_create=len(tracks_to_create)))

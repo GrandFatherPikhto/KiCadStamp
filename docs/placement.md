@@ -11,7 +11,7 @@ The `placement/` directory contains the core logic for placing components, creat
 2. **Execution** – applies moves, creates vias, and creates tracks on the board via the KiCad adapter, split into **three phases** (moves first, then vias, then tracks), with a mandatory board reload between phases.
 3. **Logging and undo** – saves operation information as JSON for the `undo` command (including tracks).
 4. **Collision checking** – simplified overlap checking for components (optional); track collisions are **not checked** (rely on KiCad DRC).
-5. **Idempotency** – skips already‑existing vias, tracks, and components already in place (via `skip_existing_components` and the placement registries for vias and tracks).
+5. **Idempotency** – skips already‑existing vias, tracks, and components already in place (via `skip_existing_components` and the placement registries for vias and tracks). Since 2026-08-31 the TRACK positional pre-check (`filter_existing_tracks`, see `kicadstamp/registry.py`) runs **unconditionally** in Phase 3 (not only under `skip_existing_components`): it is skip‑only (never deletes/adopts foreign copper), so a repeated redraw of the same cell through two different mechanisms — e.g. a legacy `clone_placement` AND an Entity materialized from a tree — no longer stacks literal duplicates under different registry keys.
 
 All services use the `kicad/adapter.py` adapter, the `geometry/` utilities, and the `config/` configuration package.
 
