@@ -269,6 +269,44 @@ class TestNetTemplateAutoDetect:
         )
         assert annotations == []
 
+    def test_single_non_rule_net_sets_net_template_literal_without_map(self):
+        """plan_2026_08_31_extract_auto_nets_hide_tabs.md: a single-net role
+        whose (only non-rule) net is NOT aliased in net_template_map still gets
+        net_template — the literal net. Before the fix such a role got NO
+        net_template (e.g. C_IN_BULK/C_IN_BYPASS in the fpga_flash cell), which
+        left the cell incomplete and made apply/redraw depend on live output.
+        lemma-2-safe: no net_template_pad / net_template_same_as_role."""
+        cap = _make_fp("C1", 0, 0, 0, "C_IN_BULK", pad_nets=["+3V3", "GND"])
+        adapter = _make_adapter([cap])
+        result = extract_template_from_selection(adapter, "t")
+        comp = result["t"]["components"][0]
+        assert comp["net_template"] == "+3V3"
+        assert "net_template_pad" not in comp
+        assert "net_template_same_as_role" not in comp
+
+    def test_bridging_role_sets_designated_net_template_literal_without_map(self):
+        """A bridging role whose BOTH pad nets are role-classified (not aliased)
+        still gets net_template — designated = first in sorted non-rule order.
+        (The open plan_2026_08_31_net_template_role_bridging_no_default.md: the
+        old code required the nets to be in net_template_map, so an
+        aliases-less bridging role got NO net_template.)"""
+        fb = _make_fp("FB1", 0, 0, 0, "PI_FILTER_FB", pad_nets=["+5V", "+3V3"])
+        adapter = _make_adapter([fb])
+        result = extract_template_from_selection(adapter, "t")
+        comp = result["t"]["components"][0]
+        # sorted(["+5V", "+3V3"]) -> ["+3V3", "+5V"]; designated = "+3V3"
+        assert comp["net_template"] == "+3V3"
+        assert comp["net_template_pad"] == "2"   # +3V3 sits on pad 2
+
+    def test_rule_net_only_role_gets_no_net_template(self):
+        """A role whose only pad net is a rule net (GND) has no non-rule net —
+        net_template stays absent (no evidence to derive from)."""
+        cap = _make_fp("C1", 0, 0, 0, "C_GND", pad_nets=["GND"])
+        adapter = _make_adapter([cap])
+        result = extract_template_from_selection(adapter, "t")
+        comp = result["t"]["components"][0]
+        assert "net_template" not in comp
+
 
 class TestNetTemplateRole:
     """net_template_role — явное указание, какую из нескольких цепей на

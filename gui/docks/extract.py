@@ -171,7 +171,7 @@ from kicadstamp.template_extraction import (
     _suggest_net_from_role as suggest_net_from_role,
 )
 
-from .. import yaml_io
+from .. import settings, yaml_io
 from ..worker import start_long_op
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       WARN_STYLE as _WARN_STYLE, configure_searchable,
@@ -321,6 +321,24 @@ class ExtractDock(QWidget):
         # EXACTLY as selected — no pad-connectivity check at all. Opt-in only,
         # the filter remains the default; useful for via/copper arrays with no
         # anchor component in the selection, or a quick draft capture.
+        # Advanced net settings (plan_2026_08_31_extract_auto_nets_hide_tabs.md):
+        # nets are derived automatically at extract, so the manual override tabs
+        # ('Net aliases', 'Net template role') are hidden by default; this
+        # checkbox reveals them for manual overrides (aliases/--net-template/
+        # --net-template-role still work, just out of the default flow).
+        self._show_advanced_net_settings = bool(
+            settings.state.get("extract_show_advanced_net_settings", False))
+        self.advanced_net_settings_checkbox = QCheckBox(
+            _("Show advanced net settings (aliases, net template role)"))
+        self.advanced_net_settings_checkbox.setToolTip(
+            _("By default nets are derived automatically at extract. Check to "
+              "reveal the 'Net aliases' and 'Net template role' tabs for manual "
+              "overrides."))
+        self.advanced_net_settings_checkbox.setChecked(self._show_advanced_net_settings)
+        self.advanced_net_settings_checkbox.toggled.connect(
+            self._on_advanced_net_settings_toggled)
+        layout.addWidget(self.advanced_net_settings_checkbox)
+
         self.raw_selection_checkbox = QCheckBox(_("Take selection as-is (skip connectivity filter)"))
         self.raw_selection_checkbox.setToolTip(
             _("By default extract keeps only tracks/vias whose connected copper reaches a pad of "
@@ -451,7 +469,7 @@ class ExtractDock(QWidget):
         # from opening an inline text editor on top of it.
         self.nets_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         aliases_page_layout.addWidget(self.nets_table, 1)
-        self._tabs.addTab(aliases_page, _("Net aliases"))
+        self._aliases_tab_index = self._tabs.addTab(aliases_page, _("Net aliases"))
 
         self._role_net_section = QWidget()
         role_net_section_layout = QVBoxLayout(self._role_net_section)

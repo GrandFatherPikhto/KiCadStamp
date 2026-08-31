@@ -49,7 +49,7 @@ from .domain.board import Footprint, Via, Track
 from .constants import ROLE_FIELD_NAME
 from .exceptions import ValidationError, format_fatal_error
 from .kicad.adapter import KiCadBoardAdapter
-from .net_resolution import discover_net_template_pattern, parametrize_net
+from .net_resolution import RULE_NETS, discover_net_template_pattern, parametrize_net
 from .net_from_role_resolver import classify_net
 from .utils.units import MM
 from .i18n import _
@@ -430,13 +430,25 @@ def extract_template_from_selection(
                 pad_num = next((p.number for p in fp_pads if p.net_name == literal), None)
                 if pad_num is not None:
                     slot["net_template_pad"] = str(pad_num)
-        elif net_template_map:
+        else:
+            # No explicit --net-template-role: auto-derive net_template from the
+            # role's own pad nets (plan_2026_08_31_extract_auto_nets_hide_tabs.md).
+            # A net present in net_template_map is parametrized (cross-cluster
+            # portable); otherwise the LITERAL net is used (fine for a global
+            # rail like +3V3 — apply's live auto-derivation covers exotic
+            # cross-cluster cases). Only NON-rule nets count as "the role's
+            # nets" (a lone GND is not single-net evidence, and a signal+GND
+            # pad set is single-net, not bridging).
             fp_pads = adapter.get_footprint_pads(fp)
             fp_nets = sorted({p.net_name for p in fp_pads if p.net_name})
             mapped = [n for n in fp_nets if n in net_template_map]
-            if len(mapped) == 1:
-                component_net_template_used = True
-                slot["net_template"] = parametrize_net(mapped[0], net_template_map, params)
+            candidates = mapped or [n for n in fp_nets
+                                    if n not in rule_nets and n not in RULE_NETS]
+            if len(candidates) == 1:
+                net = candidates[0]
+                if mapped:
+                    component_net_template_used = True
+                slot["net_template"] = parametrize_net(net, net_template_map, params)
                 # lemma-2-safe role — record for LATER same-net siblings, do
                 # NOT record net_template_pad/net_template_same_as_role for
                 # ITSELF: a role with exactly one non-rule net needs neither
@@ -444,8 +456,8 @@ def extract_template_from_selection(
                 # here even when redundant AND, worse, unsafe: C_ADJ_BULK/
                 # R_FB_BOT both hit exactly this branch and got a pad number
                 # they never needed, which then broke on a different instance).
-                lemma2_role_nets[role] = mapped[0]
-            elif len(mapped) > 1:
+                lemma2_role_nets[role] = net
+            elif len(candidates) > 1:
                 # Bridging role (ferrite/inductor/fuse between two rails): two
                 # DIFFERENT nets on its pads. Auto-derive a DESIGNATED net
                 # (deterministic: first in sorted order) + its pad, so
@@ -458,8 +470,9 @@ def extract_template_from_selection(
                 # fixed-pinout bridging parts (pad->net is deterministic across
                 # instances); a symmetric bridging part would instead want
                 # net_template_same_as_role.
-                designated = mapped[0]
-                component_net_template_used = True
+                designated = candidates[0]
+                if mapped:
+                    component_net_template_used = True
                 slot["net_template"] = parametrize_net(designated, net_template_map, params)
                 same_as = next((r for r, n in lemma2_role_nets.items() if n == designated), None)
                 if same_as is not None:
@@ -471,7 +484,7 @@ def extract_template_from_selection(
                 logger.debug(_("  {ref} (role {role}): bridging — {count} nets on pads, "
                                "net_template set to designated {designated!r} without "
                                "--net-template-role")
-                             .format(ref=fp.ref, role=role, count=len(mapped),
+                             .format(ref=fp.ref, role=role, count=len(candidates),
                                      designated=designated))
         components.append(slot)
         logger.debug(_("  {ref} (role {role}): along={along}, across={across}, angle={angle}{layer}{net}")
