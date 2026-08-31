@@ -666,6 +666,20 @@ class PlacerDock(QWidget):
         self._placer_path: Optional[Path] = None
         self._root_path: Optional[Path] = None
         self._selected_cell: Optional[str] = None
+        # Live board selection (2026-08-31, plan placer_source_tab_gaps P.1)
+        # — pushed every selection-watch tick via DockHub.set_board_selection,
+        # same (raw_items, selected_footprints) shape as ExtractDock's own
+        # set_board_selection. Drives the Cell-mode Cluster auto-fill (only
+        # the selected footprints' Cluster field is actually read here).
+        self._raw_items: List[Any] = []
+        self._selected_footprints: List[Any] = []
+        # Selection-signature guard for _autofill_cluster_from_selection — a
+        # tick whose cluster-relevant state (selected Cluster-set / dirty
+        # flag / current field text) is unchanged is a no-op, so the ~400ms
+        # selection-watch tick can't churn the auto-fill for nothing (same
+        # "don't redo work on an unchanged tick" idea as ExtractDock's
+        # _last_autofill_key).
+        self._last_selection_cluster_signature: Optional[tuple] = None
         self._param_edits: Dict[str, QComboBox] = {}
         self._known_nets: List[str] = []
         # 2026-08-16 (net_template_pad): role -> narrowed Net-combobox choices,
@@ -1402,6 +1416,61 @@ class PlacerDock(QWidget):
         clone_placement_placer_name_split)."""
         self._placer_name_dirty = True
 
+    def set_board_selection(self, raw_items: List[Any],
+                            selected_footprints: List[Any]) -> None:
+        """Called every selection-watch tick (DockHub.set_board_selection,
+        2026-08-31, plan placer_source_tab_gaps P.1) — the live board
+        selection drives the Cell-mode Cluster auto-fill, mirroring
+        ExtractDock's set_board_selection/_autofill_from_cluster. PlacerDock
+        only reads the selected footprints' Cluster field here (raw_items is
+        kept for signature symmetry with ExtractDock's own hook)."""
+        self._raw_items = raw_items
+        self._selected_footprints = selected_footprints
+        self._autofill_cluster_from_selection()
+
+    def _autofill_cluster_from_selection(self) -> None:
+        """Cell-mode Cluster auto-fill from the CURRENT board selection
+        (2026-08-31, plan placer_source_tab_gaps P.1; Денис: selected a whole
+        Cluster's components on the board, expected its name to fill itself
+        into the Source tab's Cluster field, like ExtractDock does for Cell
+        names). If the selected footprints all carry ONE non-empty Cluster,
+        fill it into cluster_edit — but ONLY while the field is blank and not
+        user-owned (_cluster_identity_dirty), the same "never overwrite what
+        is already there" rule as set_cluster_name and ExtractDock's own
+        _autofill_from_cluster. An empty/mixed selection silently does
+        nothing.
+
+        On a successful fill also runs _maybe_autofill_nets(): once Cell and
+        Cluster are both set, the full Nets/Params auto-fill pipeline should
+        fire silently, exactly as if the user had committed the Cluster by
+        hand (the field is marked user-owned so a later tick/selection can't
+        clobber it — same reasoning as set_cluster_name)."""
+        if self.is_coordinate or self.is_entity:
+            return
+        # getattr guard (same defensive style as ExtractDock's own
+        # getattr(s, "sheet", None) on the same selection-watch input): the
+        # DockHub wiring test passes plain strings through set_board_selection,
+        # and a stray non-Selected entry must simply be skipped, not crash.
+        clusters = frozenset(getattr(s, "cluster", None) for s in self._selected_footprints
+                             if getattr(s, "cluster", None))
+        signature = (clusters, self._cluster_identity_dirty,
+                     self.cluster_edit.currentText().strip())
+        if signature == self._last_selection_cluster_signature:
+            return
+        self._last_selection_cluster_signature = signature
+        if len(clusters) != 1:
+            return
+        if self._cluster_identity_dirty or self.cluster_edit.currentText().strip():
+            return
+        cluster = next(iter(clusters))
+        self.cluster_edit.setCurrentText(cluster)
+        # A board-selection fill is as much a "the user owns this field now"
+        # commit as a typed/picked one (set_cluster_name does the same) — a
+        # later tick or tree-click must not silently swap the identity out
+        # from under the in-progress edit.
+        self._cluster_identity_dirty = True
+        self._maybe_autofill_nets()
+
     def refresh_known_roles(self, snapshot) -> None:
         """Populates the Cluster/anchor Role/anchor Cluster combos with
         distinct values already used on the board — "если выбираем по
@@ -1493,6 +1562,16 @@ class PlacerDock(QWidget):
             edit.setCurrentText(previous.get(name, ""))
             if not previous.get(name, "").strip():
                 self._autofill_single_candidate(edit, self._param_narrowing.get(name, []))
+            # 2026-08-31 (plan placer_source_tab_gaps P.3): a placeholder with
+            # NO narrowing looks identical to "auto-fill just hasn't fired yet"
+            # — but for a COMPOUND net_template (e.g. '/{SHEET}/DAC/+3V3_AVDD')
+            # it is a permanent, documented limitation, not a transient state.
+            # Say so on the field so it doesn't read as a silent breakage.
+            if name not in self._param_narrowing:
+                edit.setToolTip(
+                    _("Cannot auto-fill {{{name}}}: no cell role's net_template is "
+                      "exactly '{{{name}}}' — only bare placeholders are narrowed. "
+                      "Pick the net by hand.").format(name=name))
             self._params_layout.addWidget(edit, row, 1)
             self._param_edits[name] = edit
 
@@ -2245,6 +2324,21 @@ class PlacerDock(QWidget):
             self._show_message(_("Selected {count} item(s) on the board for {name!r}.")
                                .format(count=len(items), name=name), _SUCCESS_STYLE)
 
+    @staticmethod
+    def _anchor_origin_filled(aw: AnchorOriginWidget) -> Tuple[bool, bool]:
+        """(anchor_set_filled, point_set_filled) for an AnchorOriginWidget —
+        the "Read current position" auto-switch (2026-08-31, plan
+        placer_source_tab_gaps P.2) needs this: Денис filled the Origin tab's
+        anchor/point identity fields but left the mode combo on the default
+        Absolute (xy), and the read silently wrote ABSOLUTE coordinates while
+        ignoring the filled anchor. "Filled" mirrors build()'s own acceptance:
+        anchor = Ref OR Role non-blank (they are mutually exclusive in
+        build()), point = Point non-blank."""
+        ref = aw.anchor_ref_edit.text().strip() if aw.anchor_ref_edit is not None else ""
+        role = aw.anchor_role_edit.currentText().strip() if aw.anchor_role_edit is not None else ""
+        point = aw.point_edit.currentText().strip() if aw.point_edit is not None else ""
+        return (bool(ref or role), bool(point))
+
     def _on_coordinate_read_position(self) -> None:
         """Coordinate form's "Read current position" — resolve the CURRENT
         form's (Role, Cluster) to its live component and fill the position/
@@ -2280,6 +2374,15 @@ class PlacerDock(QWidget):
             cfg, ctx = loaded
             sheet_names = ctx.sheet_names if ctx is not None else {}
             label = f"{cluster}/{role}"
+            # 2026-08-31 (plan placer_source_tab_gaps P.2): the SAME class of
+            # bug as the clone case — anchor fields filled but the mode combo
+            # still on an ABSOLUTE mode (0 Cartesian / 1 Polar) silently
+            # ignored them and wrote absolute coordinates. Auto-switch to the
+            # anchor-relative mode (index 2) when unambiguous.
+            anchor_filled, point_filled = self._anchor_origin_filled(form._anchor_widget)
+            if form.mode_combo.currentIndex() != 2 and (anchor_filled or point_filled) \
+                    and not (anchor_filled and point_filled):
+                form.mode_combo.setCurrentIndex(2)
             try:
                 sheet = form.sheet_edit.currentText().strip() or None
                 read = read_coordinate_live(
@@ -2385,6 +2488,23 @@ class PlacerDock(QWidget):
                 return
             cfg, ctx = loaded
             sheet_names = ctx.sheet_names if ctx is not None else {}
+            # 2026-08-31 (plan placer_source_tab_gaps P.2): Денис filled the
+            # Origin tab's anchor/point identity fields but left the mode combo
+            # on the default Absolute (xy) — the read used to silently write
+            # ABSOLUTE coordinates and ignore the filled anchor (numbers like
+            # (64.074, -47.592), not the small offset expected next to the
+            # FPGA anchor). Auto-switch the mode to the filled anchor/point set
+            # (silent, no dialog — chosen UX 2026-08-31); only when
+            # unambiguous: both filled stays as-is, build() would reject the
+            # mixed state anyway.
+            if self.origin_widget.mode == "xy":
+                anchor_filled, point_filled = self._anchor_origin_filled(self.origin_widget)
+                if anchor_filled and not point_filled:
+                    self.origin_widget.origin_mode_combo.setCurrentIndex(
+                        self.origin_widget._modes.index("anchor"))
+                elif point_filled and not anchor_filled:
+                    self.origin_widget.origin_mode_combo.setCurrentIndex(
+                        self.origin_widget._modes.index("point"))
             try:
                 read = read_clone_origin_live(board.adapter, cfg, clone, sheet_names)
                 anchor_position: Optional[Vector2] = None
@@ -2877,6 +2997,11 @@ class PlacerDock(QWidget):
         # cluster_field_autofill_not_hard_overwrite) — reset the "user-owned"
         # flag so the next tree-click auto-fill works again.
         self._cluster_identity_dirty = False
+        # Same for the board-selection auto-fill's signature guard
+        # (2026-08-31, plan placer_source_tab_gaps P.1): a fresh blank form
+        # must re-autofill even when the board selection hasn't changed since
+        # the last tick.
+        self._last_selection_cluster_signature = None
         # Placer name: same "blank form wants auto-fill" reset as Cluster
         # (2026-08-15, plan clone_placement_placer_name_split).
         self.placer_name_edit.setText("")

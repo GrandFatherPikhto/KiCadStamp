@@ -1552,6 +1552,122 @@ def test_finish_autofill_nets_narrows_params_combo(main_window, tmp_path):
     assert combo.currentText() == "+1V2"
 
 
+def test_fpga_flash_shape_bare_placeholders_narrow_and_fill(main_window, tmp_path):
+    """2026-08-31, plan placer_source_tab_gaps P.3 — reproduction of the live
+    Cell "fpga_flash" shape (read from the LIVE profile 3ch-awg-tia-v103-01
+    via diagnostics/diag_placer_params_fpga_flash.py): every parameter-bearing
+    component's net_template is a BARE '{KEY}' (not a compound template), so
+    _param_placeholder_roles MUST be built and the Params tab MUST narrow +
+    fill. Regression for Denis's "Params (placeholder -> literal net) не
+    работает" report — locks in that a bare {KEY} with net_template_pad
+    (the fpga_flash pattern) is auto-filled from the live board."""
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"cells": {
+        "fpga_flash": {
+            "components": [
+                {"role": "R_PIF", "offset_along_mm": 0, "offset_across_mm": 0,
+                 "angle_deg": 0, "net_template": "{FLASH}", "net_template_pad": "2"},
+                {"role": "FLASH", "offset_along_mm": 0, "offset_across_mm": 0,
+                 "angle_deg": 0, "net_template": "{FLASH}", "net_template_pad": "8"},
+                {"role": "R_FL_HOLD", "offset_along_mm": 0, "offset_across_mm": 0,
+                 "angle_deg": 0, "net_template": "{R_FL_HOLD}", "net_template_pad": "1"},
+                {"role": "C_OUT_BULK", "offset_along_mm": 0, "offset_across_mm": 0,
+                 "angle_deg": 0, "net_template": "{FLASH}"},
+                {"role": "R_FL_WP", "offset_along_mm": 0, "offset_across_mm": 0,
+                 "angle_deg": 0, "net_template": "{R_FL_WP}", "net_template_pad": "1"},
+                {"role": "C_OUT_BYPASS", "offset_along_mm": 0, "offset_across_mm": 0,
+                 "angle_deg": 0, "net_template": "{FLASH}"},
+            ],
+            "vias": [], "tracks": [], "layer": "F.Cu",
+        }
+    }})
+    placer_file = tmp_path / "root.sexp"
+    _write(placer_file, {"clone_placements": [], "include": ["cells.sexp"]})
+    dock = PlacerDock(main_window)
+    dock.set_root_path(placer_file)
+    dock.set_selected_cell("fpga_flash")
+    dock.cluster_edit.setCurrentText("FPGA_FLASH")
+    main_window.connection.board = _FakeAutofillBoard([
+        _FakeAutofillFootprint("U_FL", "FLASH", "FPGA_FLASH",
+                               ["GND"] * 7 + ["+3V3_FLASH"]),
+        _FakeAutofillFootprint("R_PIF", "R_PIF", "FPGA_FLASH",
+                               ["+3V3_FLASH", "+3V3_FLASH", "GND"]),
+        _FakeAutofillFootprint("R_FL_HOLD", "R_FL_HOLD", "FPGA_FLASH",
+                               ["/FPGA/FL_HOLD", "+3V3_FLASH"]),
+        _FakeAutofillFootprint("R_FL_WP", "R_FL_WP", "FPGA_FLASH",
+                               ["/FPGA/FL_WP", "+3V3_FLASH"]),
+        _FakeAutofillFootprint("C1", "C_OUT_BULK", "FPGA_FLASH",
+                               ["+3V3_FLASH", "GND"]),
+        _FakeAutofillFootprint("C2", "C_OUT_BYPASS", "FPGA_FLASH",
+                               ["+3V3_FLASH", "GND"]),
+    ])
+
+    payload = dock._collect_autofill_nets_inputs()
+    assert payload is not None
+    # The bare-{KEY} gate fired for all three params, exactly as the live
+    # profile's data says it should.
+    assert dock._param_placeholder_roles == {
+        "FLASH": ["R_PIF", "FLASH", "C_OUT_BULK", "C_OUT_BYPASS"],
+        "R_FL_HOLD": ["R_FL_HOLD"],
+        "R_FL_WP": ["R_FL_WP"],
+    }
+
+    result = dock._run_autofill_nets(payload)
+    dock._finish_autofill_nets(result)
+
+    assert dock._param_narrowing == {
+        "FLASH": ["+3V3_FLASH"],
+        "R_FL_HOLD": ["/FPGA/FL_HOLD"],
+        "R_FL_WP": ["/FPGA/FL_WP"],
+    }
+    assert dock._param_edits["FLASH"].currentText() == "+3V3_FLASH"
+    assert dock._param_edits["R_FL_HOLD"].currentText() == "/FPGA/FL_HOLD"
+    assert dock._param_edits["R_FL_WP"].currentText() == "/FPGA/FL_WP"
+
+
+def test_compound_net_template_param_not_narrowed(main_window, tmp_path):
+    """2026-08-31, plan placer_source_tab_gaps P.3 (negative): a COMPOUND
+    net_template like '/{SHEET}/DAC/+3V3_AVDD' must NOT be reverse-mapped to a
+    single net — _param_placeholder_roles is deliberately built only from
+    net_templates that are EXACTLY '{KEY}'. The Params row still appears
+    (discover_placeholders walks the whole string) but is never narrowed to a
+    candidate, so it stays on the full board list, blank — documented
+    limitation, behavior unchanged."""
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"cells": {
+        "compound_cell": {
+            "components": [
+                {"role": "DAC", "offset_along_mm": 0, "offset_across_mm": 0,
+                 "angle_deg": 0, "net_template": "/{SHEET}/DAC/+3V3_AVDD"},
+            ],
+            "vias": [], "tracks": [], "layer": "F.Cu",
+        }
+    }})
+    placer_file = tmp_path / "root.sexp"
+    _write(placer_file, {"clone_placements": [], "include": ["cells.sexp"]})
+    dock = PlacerDock(main_window)
+    dock.set_root_path(placer_file)
+    dock._known_nets = ["+3V3_AVDD", "GND"]
+    dock.set_selected_cell("compound_cell")
+    dock.cluster_edit.setCurrentText("DAC_BUF")
+    main_window.connection.board = _FakeAutofillBoard([
+        _FakeAutofillFootprint("IC1", "DAC", "DAC_BUF", ["+3V3_AVDD", "GND"]),
+    ])
+
+    payload = dock._collect_autofill_nets_inputs()
+    assert payload is not None
+    # fullmatch on the compound string fails -> the placeholder is NOT in the
+    # narrowable map, even though the Params row for {SHEET} exists.
+    assert dock._param_placeholder_roles == {}
+    assert "SHEET" in dock._param_edits  # the row exists (discover_placeholders)
+
+    result = dock._run_autofill_nets(payload)
+    dock._finish_autofill_nets(result)
+
+    assert "SHEET" not in dock._param_narrowing
+    assert dock._param_edits["SHEET"].currentText() == ""
+
+
 def test_rebuild_param_rows_autofills_single_narrowed_candidate(main_window, tmp_path):
     """2026-08-27: picking a Cell with nothing previously entered auto-fills a
     Params combo whose narrowing resolved to exactly one candidate — same
@@ -2486,3 +2602,84 @@ def test_resolve_operation_log_dir_defaults_to_default_log_dir(main_window, tmp_
                         lambda silent=False: (Config(), RuntimeContext()))
 
     assert dock._resolve_operation_log_dir() == Path(DEFAULT_LOG_DIR)
+
+
+# ── 2026-08-31 (plan placer_source_tab_gaps P.1): Cluster auto-fill from
+# the CURRENT board selection ────────────────────────────────────────────
+# Денис selected a whole Cluster's components on the board and expected its
+# name to fill itself into the Source tab's Cluster field (like ExtractDock
+# does for Cell names). DockHub.set_board_selection now also feeds PlacerDock;
+# _autofill_cluster_from_selection fills cluster_edit only when Cell mode,
+# the selection is one non-empty Cluster and the field is blank + not
+# user-owned (never overwrite), then triggers the Nets/Params pipeline.
+
+
+def _p1_selected(cluster):
+    return SimpleNamespace(cluster=cluster)
+
+
+def test_set_board_selection_autofills_cluster_from_single_cluster(main_window, tmp_path):
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    assert dock.cluster_edit.currentText() == ""
+
+    dock.set_board_selection([], [_p1_selected("FPGA_FLASH"),
+                                  _p1_selected("FPGA_FLASH")])
+
+    assert dock.cluster_edit.currentText() == "FPGA_FLASH"
+    assert dock._cluster_identity_dirty is True  # field is now user-owned
+
+
+def test_set_board_selection_mixed_clusters_leaves_blank(main_window, tmp_path):
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+
+    dock.set_board_selection([], [_p1_selected("FPGA_FLASH"),
+                                  _p1_selected("DAC_BUF")])
+
+    assert dock.cluster_edit.currentText() == ""
+    assert dock._cluster_identity_dirty is False
+
+
+def test_set_board_selection_no_cluster_selection_leaves_blank(main_window, tmp_path):
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+
+    dock.set_board_selection([], [_p1_selected(None), _p1_selected(None)])
+
+    assert dock.cluster_edit.currentText() == ""
+    assert dock._cluster_identity_dirty is False
+
+
+def test_set_board_selection_never_overwrites_typed_cluster(main_window, tmp_path):
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock.cluster_edit.setCurrentText("MY_TYPED_CLUSTER")
+    dock._cluster_identity_dirty = True
+
+    dock.set_board_selection([], [_p1_selected("FPGA_FLASH")])
+
+    assert dock.cluster_edit.currentText() == "MY_TYPED_CLUSTER"
+
+
+def test_set_board_selection_cell_mode_only(main_window, tmp_path):
+    """Single-component and Entity modes must NOT touch the (hidden) Cell-mode
+    cluster_edit."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    dock.cell_mode_combo.setCurrentIndex(1)  # Single component
+    dock.set_board_selection([], [_p1_selected("FPGA_FLASH")])
+    assert dock.cluster_edit.currentText() == ""
+
+    dock.cell_mode_combo.setCurrentIndex(2)  # Entity
+    dock.set_board_selection([], [_p1_selected("FPGA_FLASH")])
+    assert dock.cluster_edit.currentText() == ""
+
+
+def test_set_board_selection_autofill_triggers_nets_pipeline(main_window, tmp_path, monkeypatch):
+    """Once Cell + Cluster are both present, the auto-fill pipeline fires
+    silently (same as a hand commit of the Cluster field)."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    calls = []
+    monkeypatch.setattr(dock, "_maybe_autofill_nets",
+                        lambda: calls.append(True))
+
+    dock.set_board_selection([], [_p1_selected("FPGA_FLASH")])
+
+    assert dock.cluster_edit.currentText() == "FPGA_FLASH"
+    assert calls == [True]

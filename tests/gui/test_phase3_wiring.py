@@ -951,10 +951,16 @@ def test_dock_hub_delegates_route_to_the_right_docks(real_main_window, monkeypat
     assert highlighted == [{"R1"}]
 
     board_selected = []
+    placer_selected = []
     monkeypatch.setattr(hub.extract_dock, "set_board_selection",
                         lambda items, sel: board_selected.append((items, sel)))
+    # 2026-08-31 (plan placer_source_tab_gaps P.1): the selection-watch tick
+    # now also reaches PlacerDock (its Cell-mode Cluster auto-fill).
+    monkeypatch.setattr(hub.placer_dock, "set_board_selection",
+                        lambda items, sel: placer_selected.append((items, sel)))
     hub.set_board_selection(["raw"], ["sel"])
     assert board_selected == [(["raw"], ["sel"])]
+    assert placer_selected == [(["raw"], ["sel"])]
 
     shown, raised = [], []
     monkeypatch.setattr(hub.fieldstool_dock, "setVisible", lambda v: shown.append(v))

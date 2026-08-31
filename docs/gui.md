@@ -463,6 +463,11 @@ the tabs — they act on the whole placement, not one tab.
   also what gets clicked from the Components tree, see above). Since 2026-08-15 it is no longer the
   save identity — that moved to **Placer name** below. Hidden in Cluster *source* mode (see above) —
   the picked Existing Cluster value is reused as the name instead, nothing left to ask for here.
+  Since 2026-08-31 (plan placer_source_tab_gaps P.1) it ALSO auto-fills from the CURRENT board
+  selection, like ExtractDock does for Cell names: select a whole Cluster's components on the live
+  board and its name fills into this field — only in Cell mode, only while the field is blank and
+  not user-owned (never overwriting a typed/picked value), and then silently triggers the
+  Nets/Params auto-fill pipeline.
 - **Placer name** (added 2026-08-15) — the placement's SAVE/`--only` identity (the optional
   `placer_name:` key in `clone_placements:`), separate from the Cluster tag: this is what
   `upsert_clone_placement` matches on to "replace this saved entry" vs "append a new one", and what
@@ -519,7 +524,10 @@ the tabs — they act on the whole placement, not one tab.
       live board gives a deterministic single net — a unique instance's one net, or the ONE net
       shared by all its candidates on this cluster (e.g. several C_IN_BULK on +3V3 in one PI-filter).
       The Nets table shows these auto-values and remains an OVERRIDE editor — the user can replace
-      any row.
+      any row. A Params row that stays blank may be a deliberate limitation, not a stale auto-fill
+      (2026-08-31, plan placer_source_tab_gaps P.3): a placeholder is only narrowable through a role
+      whose `net_template:` is EXACTLY `{KEY}` — a compound template like `/…/…/+3V3` can't be
+      reverse-mapped to one net, so that field shows a tooltip explaining it must be picked by hand.
   - **Net overrides tab** (added 2026-08-06) — resolved net → final override name, applied AFTER
     Params/net_template substitution (see `resolve_net` in [docs/config.md](config.md)). Both columns
     autocomplete from the live board's actual net names.
@@ -538,6 +546,11 @@ the tabs — they act on the whole placement, not one tab.
   - *Point* — position relative to a named `points:` entry, autocompleted from the whole project
     (every `points:` key reachable via `include:`, not just this file's own).
   - Anchor/Point modes also take a flat XY **shift**.
+  - **Read current position** — fills the current live origin/rotation. Since 2026-08-31 (plan
+    placer_source_tab_gaps P.2), if the Anchor/Point identity fields are filled but the mode combo
+    is still on the default Absolute (XY), the mode is auto-switched to the filled Anchor/Point set
+    (silently, no dialog) so the read expresses the origin as the SHIFT from that anchor instead of
+    silently writing absolute coordinates.
 - **Rotation / Layer / Mirror** — as in `ClonePlacement`'s own fields (see
   [docs/config.md](config.md)).
 - **Redraw** — builds the placement, validates it, and actually runs it against the live board

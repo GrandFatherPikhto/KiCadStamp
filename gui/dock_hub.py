@@ -481,9 +481,13 @@ class DockHub:
         self.tree_dock.highlight_board_selection(refs)
 
     def set_board_selection(self, items, selected) -> None:
-        """Push the live selection into ExtractDock (its aliases/origin
-        combos and button state depend on what's currently selected)."""
+        """Push the live selection into the docks that react to it:
+        ExtractDock (its aliases/origin combos and button state depend on
+        what's currently selected) and PlacerDock (2026-08-31, plan
+        placer_source_tab_gaps P.1 — its Cell-mode Cluster auto-fill reads
+        the current selection's Cluster)."""
         self.extract_dock.set_board_selection(items, selected)
+        self.placer_dock.set_board_selection(items, selected)
 
     def push_fieldstool_selection(self, refs) -> None:
         """Live board selection -> embedded fieldstool's target label (Phase

@@ -253,3 +253,118 @@ def test_clone_read_position_requires_cluster_and_cell(main_window, tmp_path, mo
     dock._on_clone_read_position()
     assert warnings
     assert dock.origin_widget.x_edit.text() == ""
+
+
+# ── 2026-08-31 (plan placer_source_tab_gaps P.2): auto-switch Origin mode ──
+# The Origin tab's anchor/point identity fields used to be silently IGNORED
+# when the mode combo was left on the default Absolute (xy) — "Read current
+# position" wrote ABSOLUTE coordinates with no warning (Денис live repro:
+# numbers like (64.074, -47.592) instead of the small offset next to the FPGA
+# anchor). The fix auto-switches the mode to the filled anchor/point set.
+
+
+def test_clone_read_position_anchor_fields_filled_mode_xy_auto_switches(main_window, tmp_path, monkeypatch):
+    """Regression: anchor Role filled + mode still "xy" -> the mode combo
+    silently switches to "anchor" and the origin is written as the SHIFT from
+    the anchor (not absolute)."""
+    dock, _ = _make_clone_dock(main_window, tmp_path)
+    main_window.connection.board = _FakeBoard()
+    ow = dock.origin_widget
+    ow.anchor_role_edit.setCurrentText("FPGA")  # fill anchor, leave mode "xy"
+    assert ow.mode == "xy"
+    monkeypatch.setattr(placer_mod, "read_clone_origin_live", lambda *a, **k: LiveRead(
+        position=Vector2.from_xy(int(12.0 * MM), int(20.0 * MM)),
+        rotation_deg=0.0, footprint=None))
+    monkeypatch.setattr(placer_mod, "read_anchor_live", lambda *a, **k: LiveRead(
+        position=Vector2.from_xy(int(10.0 * MM), int(20.0 * MM)),
+        rotation_deg=0.0, footprint=None))
+
+    dock._on_clone_read_position()
+
+    assert ow.mode == "anchor"
+    assert ow.shift_x_edit.text() == "2.000"
+    assert ow.shift_y_edit.text() == "0.000"
+    assert dock.rotation_edit.text() == "0.000"
+
+
+def test_clone_read_position_point_fields_filled_mode_xy_auto_switches(main_window, tmp_path, monkeypatch):
+    """Same auto-switch for the Point identity set."""
+    dock, _ = _make_clone_dock(main_window, tmp_path)
+    main_window.connection.board = _FakeBoard()
+    ow = dock.origin_widget
+    ow.point_edit.setCurrentText("P_ORIGIN")  # fill point, leave mode "xy"
+    assert ow.mode == "xy"
+    monkeypatch.setattr(placer_mod, "read_clone_origin_live", lambda *a, **k: LiveRead(
+        position=Vector2.from_xy(int(12.0 * MM), int(20.0 * MM)),
+        rotation_deg=0.0, footprint=None))
+    monkeypatch.setattr(placer_mod, "read_anchor_live", lambda *a, **k: LiveRead(
+        position=Vector2.from_xy(int(10.0 * MM), int(20.0 * MM)),
+        rotation_deg=0.0, footprint=None))
+
+    dock._on_clone_read_position()
+
+    assert ow.mode == "point"
+    assert ow.shift_x_edit.text() == "2.000"
+    assert ow.shift_y_edit.text() == "0.000"
+
+
+def test_clone_read_position_blank_anchor_mode_xy_still_absolute(main_window, tmp_path, monkeypatch):
+    """Regression: blank anchor fields + mode "xy" -> absolute coordinates
+    written exactly as before, zero interference from the auto-switch."""
+    dock, _ = _make_clone_dock(main_window, tmp_path)
+    main_window.connection.board = _FakeBoard()
+    assert dock.origin_widget.mode == "xy"
+    monkeypatch.setattr(placer_mod, "read_clone_origin_live", lambda *a, **k: LiveRead(
+        position=Vector2.from_xy(int(12.0 * MM), int(20.0 * MM)),
+        rotation_deg=45.0, footprint=None))
+
+    dock._on_clone_read_position()
+
+    assert dock.origin_widget.mode == "xy"
+    assert dock.origin_widget.x_edit.text() == "12.000"
+    assert dock.origin_widget.y_edit.text() == "20.000"
+    assert dock.rotation_edit.text() == "45.000"
+
+
+def test_coordinate_read_position_anchor_filled_absolute_mode_auto_switches(main_window, tmp_path, monkeypatch):
+    """The coordinate form's same class of bug: anchor widget filled but the
+    mode combo still on an ABSOLUTE mode (0 Cartesian) -> auto-switch to the
+    anchor-relative mode (2) and write the offset."""
+    dock, _ = _make_coordinate_dock(main_window, tmp_path)
+    main_window.connection.board = _FakeBoard()
+    form = dock.coordinate_form
+    _set_identity(form)
+    form._anchor_widget.load(mode="anchor", ref="U3")  # fill anchor, leave mode 0
+    assert form.mode_combo.currentIndex() == 0
+    monkeypatch.setattr(placer_mod, "read_coordinate_live", lambda *a, **k: LiveRead(
+        position=Vector2.from_xy(int(12.0 * MM), int(20.0 * MM)),
+        rotation_deg=0.0, footprint=None))
+    monkeypatch.setattr(placer_mod, "read_anchor_live", lambda *a, **k: LiveRead(
+        position=Vector2.from_xy(int(10.0 * MM), int(20.0 * MM)),
+        rotation_deg=0.0, footprint=None))
+
+    dock._on_coordinate_read_position()
+
+    assert form.mode_combo.currentIndex() == 2
+    assert form._offset_x_edit.text() == "2.000"
+    assert form._offset_y_edit.text() == "0.000"
+
+
+def test_coordinate_read_position_blank_anchor_absolute_still_absolute(main_window, tmp_path, monkeypatch):
+    """Regression: blank anchor widget + mode 0 -> absolute coordinates as
+    before, no auto-switch."""
+    dock, _ = _make_coordinate_dock(main_window, tmp_path)
+    main_window.connection.board = _FakeBoard()
+    form = dock.coordinate_form
+    _set_identity(form)
+    assert form.mode_combo.currentIndex() == 0
+    monkeypatch.setattr(placer_mod, "read_coordinate_live", lambda *a, **k: LiveRead(
+        position=Vector2.from_xy(int(12.5 * MM), int(-7.0 * MM)),
+        rotation_deg=90.0, footprint=None))
+
+    dock._on_coordinate_read_position()
+
+    assert form.mode_combo.currentIndex() == 0
+    assert form.x_edit.text() == "12.500"
+    assert form.y_edit.text() == "-7.000"
+    assert form.rotation_edit.text() == "90.000"
