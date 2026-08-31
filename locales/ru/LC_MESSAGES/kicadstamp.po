@@ -10930,3 +10930,169 @@ msgstr "Материализация entity: дерево {tree!r} пропущ�
 #~ msgid "Net trace file:"
 #~ msgstr "Файл трассировки сети:"
 
+#: gui/docks/profile_import.py
+msgid "Browse..."
+msgstr "Обзор..."
+
+#: gui/docks/profile_import.py
+msgid "Type"
+msgstr "Тип"
+
+#: gui/docks/profile_import.py
+msgid "Name"
+msgstr "Имя"
+
+#: gui/docks/profile_import.py
+msgid "Info"
+msgstr "Сведения"
+
+#: gui/docks/profile_import.py
+msgid "Import"
+msgstr "Импорт"
+
+#: gui/main_window.py
+msgid "Edit"
+msgstr "Правка"
+
+#: gui/docks/profile_import.py
+msgid "Import failed"
+msgstr "Ошибка импорта"
+
+#: gui/docks/profile_import.py
+msgid "Import from profile..."
+msgstr "Импорт из профиля..."
+
+#: gui/main_window.py
+msgid "&Import from profile..."
+msgstr "&Импорт из профиля..."
+
+#: gui/docks/profile_import.py
+#, python-brace-format
+msgid "Imported {kind} {name!r}"
+msgstr "Импортировано: {kind} {name!r}"
+
+#: gui/docks/profile_import.py
+#, python-brace-format
+msgid "Imported {kind} {name!r} with dependencies: {deps}"
+msgstr "Импортировано: {kind} {name!r} с зависимостями: {deps}"
+
+#: gui/docks/profile_import.py
+msgid "No importable entries (Cell/Entity/Rule) in this file."
+msgstr "В этом файле нет записей для импорта (Cell/Entity/Rule)."
+
+#: kicadstamp/config/profile_copy.py
+msgid "Rule"
+msgstr "Правило"
+
+#: kicadstamp/config/profile_copy.py
+msgid "cell"
+msgstr "ячейка"
+
+#: kicadstamp/config/profile_copy.py
+msgid "entity"
+msgstr "сущность"
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "cell {name!r} not found in import source"
+msgstr "ячейка {name!r} не найдена в источнике импорта"
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "point {name!r} not found in import source"
+msgstr "точка {name!r} не найдена в источнике импорта"
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "entity {name!r} not found in import source"
+msgstr "сущность {name!r} не найдена в источнике импорта"
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "rule {name!r} not found in import source"
+msgstr "правило {name!r} не найдено в источнике импорта"
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "{label} {name!r} already exists in the target profile"
+msgstr "{label} {name!r} уже существует в целевом профиле"
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "cell {dep!r} referenced by {name!r} is missing from the import source"
+msgstr "ячейка {dep!r}, на которую ссылается {name!r}, отсутствует в источнике импорта"
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "point {dep!r} chained from {name!r} is missing from the import source"
+msgstr "точка {dep!r}, на которую цепочкой ссылается {name!r}, отсутствует в источнике импорта"
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "known cells in the source: {names}"
+msgstr "известные ячейки в источнике: {names}"
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "known points in the source: {names}"
+msgstr "известные точки в источнике: {names}"
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "known entities in the source: {names}"
+msgstr "известные сущности в источнике: {names}"
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "known rules in the source: {names}"
+msgstr "известные правила в источнике: {names}"
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "Import source {path!r} not found"
+msgstr "Источник импорта {path!r} не найден"
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "Cannot read import source {path!r}: {error}"
+msgstr "Не удаётся прочитать источник импорта {path!r}: {error}"
+
+#: kicadstamp/config/profile_copy.py
+msgid "a broken source profile cannot be imported — fix the source, or import an ancestor cell whose closure is complete"
+msgstr "битый исходный профиль нельзя импортировать — исправьте источник или импортируйте ячейку-предка с полным набором зависимостей"
+
+#: kicadstamp/config/profile_copy.py
+msgid "a broken source profile cannot be imported — fix the source first"
+msgstr "битый исходный профиль нельзя импортировать — сначала исправьте источник"
+
+#: kicadstamp/config/profile_copy.py
+msgid "an existing entry with this name is already reachable in the target's include: graph — import was refused, nothing was written. Rename or delete the existing entry, or pick a different source entry"
+msgstr "запись с таким именем уже достижима в include:-графе целевого профиля — импорт отклонён, ничего не записано. Переименуйте или удалите существующую запись либо выберите другую запись источника"
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "{n} components"
+msgstr "компонентов: {n}"
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "{n} nested cells"
+msgstr "вложенных ячеек: {n}"
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "cell {cell}"
+msgstr "ячейка {cell}"
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "{n} spokes"
+msgstr "спиц: {n}"
+
+#: kicadstamp/config/profile_copy.py
+msgid "pick an existing config file (.sexp or .json) to import from"
+msgstr "выберите существующий конфигурационный файл (.sexp или .json) для импорта"
+
+#: kicadstamp/config/profile_copy.py
+msgid "check that the file is a valid .sexp or .json config"
+msgstr "проверьте, что файл — корректный конфиг .sexp или .json"

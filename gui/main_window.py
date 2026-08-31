@@ -90,6 +90,7 @@ from . import settings
 from .connection import BoardConnection
 from .dock_hub import DockHub
 from .app_icon import build_app_icon
+from .docks.profile_import import run_import_dialog
 from .kicad_processes_dialog import KicadProcessesDialog
 from .worker import PollWorkerHandle
 
@@ -185,6 +186,17 @@ class MainWindow(QMainWindow):
         # the status-bar action_button above.
         self.quit_action.triggered.connect(lambda: self._quit())
         file_menu.addAction(self.quit_action)
+
+        # Edit menu (2026-08-31, plan copy_cell_entity_from_profile) — by
+        # function like File, not per-dock. Import from profile... copies one
+        # Cell/Entity/Rule from ANOTHER profile into the current project BY
+        # VALUE (independent copy, no include: link) — the picker dialog is
+        # gui/docks/profile_import.py, and it needs the current project root
+        # (owned by RootMetadataDock) to write the copy into.
+        edit_menu = self.menuBar().addMenu(_("Edit"))
+        self.import_from_profile_action = QAction(_("&Import from profile..."), self)
+        self.import_from_profile_action.triggered.connect(lambda: run_import_dialog(self))
+        edit_menu.addAction(self.import_from_profile_action)
 
         # View menu (2026-08-27, handoff sync_skip_message_and_view_menu): the
         # app had no menu bar at all, so a closed dock had no way back short of

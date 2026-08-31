@@ -10514,3 +10514,169 @@ msgstr ""
 #~ msgid "Net trace file:"
 #~ msgstr ""
 
+#: gui/docks/profile_import.py
+msgid "Browse..."
+msgstr ""
+
+#: gui/docks/profile_import.py
+msgid "Type"
+msgstr ""
+
+#: gui/docks/profile_import.py
+msgid "Name"
+msgstr ""
+
+#: gui/docks/profile_import.py
+msgid "Info"
+msgstr ""
+
+#: gui/docks/profile_import.py
+msgid "Import"
+msgstr ""
+
+#: gui/main_window.py
+msgid "Edit"
+msgstr ""
+
+#: gui/docks/profile_import.py
+msgid "Import failed"
+msgstr ""
+
+#: gui/docks/profile_import.py
+msgid "Import from profile..."
+msgstr ""
+
+#: gui/main_window.py
+msgid "&Import from profile..."
+msgstr ""
+
+#: gui/docks/profile_import.py
+#, python-brace-format
+msgid "Imported {kind} {name!r}"
+msgstr ""
+
+#: gui/docks/profile_import.py
+#, python-brace-format
+msgid "Imported {kind} {name!r} with dependencies: {deps}"
+msgstr ""
+
+#: gui/docks/profile_import.py
+msgid "No importable entries (Cell/Entity/Rule) in this file."
+msgstr ""
+
+#: kicadstamp/config/profile_copy.py
+msgid "Rule"
+msgstr ""
+
+#: kicadstamp/config/profile_copy.py
+msgid "cell"
+msgstr ""
+
+#: kicadstamp/config/profile_copy.py
+msgid "entity"
+msgstr ""
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "cell {name!r} not found in import source"
+msgstr ""
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "point {name!r} not found in import source"
+msgstr ""
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "entity {name!r} not found in import source"
+msgstr ""
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "rule {name!r} not found in import source"
+msgstr ""
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "{label} {name!r} already exists in the target profile"
+msgstr ""
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "cell {dep!r} referenced by {name!r} is missing from the import source"
+msgstr ""
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "point {dep!r} chained from {name!r} is missing from the import source"
+msgstr ""
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "known cells in the source: {names}"
+msgstr ""
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "known points in the source: {names}"
+msgstr ""
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "known entities in the source: {names}"
+msgstr ""
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "known rules in the source: {names}"
+msgstr ""
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "Import source {path!r} not found"
+msgstr ""
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "Cannot read import source {path!r}: {error}"
+msgstr ""
+
+#: kicadstamp/config/profile_copy.py
+msgid "a broken source profile cannot be imported — fix the source, or import an ancestor cell whose closure is complete"
+msgstr ""
+
+#: kicadstamp/config/profile_copy.py
+msgid "a broken source profile cannot be imported — fix the source first"
+msgstr ""
+
+#: kicadstamp/config/profile_copy.py
+msgid "an existing entry with this name is already reachable in the target's include: graph — import was refused, nothing was written. Rename or delete the existing entry, or pick a different source entry"
+msgstr ""
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "{n} components"
+msgstr ""
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "{n} nested cells"
+msgstr ""
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "cell {cell}"
+msgstr ""
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "{n} spokes"
+msgstr ""
+
+#: kicadstamp/config/profile_copy.py
+msgid "pick an existing config file (.sexp or .json) to import from"
+msgstr ""
+
+#: kicadstamp/config/profile_copy.py
+msgid "check that the file is a valid .sexp or .json config"
+msgstr ""
