@@ -293,6 +293,25 @@ def test_profile_entry_construction(tmp_path):
     assert any("profile 'prof_cell' in" in m for m in result["messages"])
 
 
+def test_profile_entry_persists_origin_cluster_and_sheet(tmp_path):
+    """2026-08-31 (Origin 'By component role' — no Cluster/Sheet): the new
+    origin refinements are written into the extract_profile recipe through the
+    same origin_* -> origin_by_* mapping as role/pad/via."""
+    profile = tmp_path / "profiles.sexp"
+    target, result, _ = _run(
+        tmp_path, save_profile=True, profile_key="fpga_profile",
+        origin_kwargs={"origin_component_role": "FPGA",
+                       "origin_component_cluster": "FPGA/MAIN",
+                       "origin_component_sheet": "Channel_1"},
+        profile_path=profile)
+
+    assert "error" not in result
+    entry = _load(profile)["extract_profiles"]["fpga_profile"]
+    assert entry["origin_by_component_role"] == "FPGA"
+    assert entry["origin_by_component_cluster"] == "FPGA/MAIN"
+    assert entry["origin_by_component_sheet"] == "Channel_1"
+
+
 def test_profile_omits_defaults_when_profile_key_equals_name(tmp_path):
     profile = tmp_path / "profiles.sexp"
     target, _, _ = _run(tmp_path, save_profile=True, profile_key="cell1", profile_path=profile)

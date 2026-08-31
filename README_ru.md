@@ -196,14 +196,16 @@ python kicadstamp_cli.py apply config.yaml [options]
 ### `extract` – извлечь шаблон из выделения (расширенный)
 
 ```bash
-python kicadstamp_cli.py extract --name имя_шаблона --output config.yaml [--verbose] [--log-file] [--param KEY=VALUE] [--net-template ЛИТЕРАЛ=ПАТТЕРН] [--origin-by-via-net NET] [--origin-by-component-role ROLE]
+python kicadstamp_cli.py extract --name имя_шаблона --output config.yaml [--verbose] [--log-file] [--param KEY=VALUE] [--net-template ЛИТЕРАЛ=ПАТТЕРН] [--origin-by-via-net NET] [--origin-by-component-role ROLE] [--origin-by-component-cluster CLUSTER] [--origin-by-component-sheet SHEET]
 ```
 
 Новые опции:
 - `--param KEY=VALUE` – задаёт параметр для проверки `--net-template` (например, `channel=1`). В шаблон не пишется, нужен только для верификации.
 - `--net-template ЛИТЕРАЛ=ПАТТЕРН` – заменяет реальную цепь на паттерн с плейсхолдером (например, `DAC1_DB1=DAC{channel}_DB1`). Можно указывать несколько раз.
 - `--origin-by-via-net NET` – задаёт origin шаблона по позиции via с указанной цепью (вместо левого нижнего угла bbox). Фатально, если такой via нет или она не единственна.
-- `--origin-by-component-role ROLE` – задаёт origin по позиции компонента с указанной ролью.
+- `--origin-by-component-role ROLE` – задаёт origin по позиции компонента с указанной ролью. Фатально, если несколько выделенных компонентов имеют эту роль и ни один не выбран явно (неоднозначность).
+- `--origin-by-component-cluster CLUSTER` – уточняет `--origin-by-component-role`: сужает кандидатов с этой ролью до данного Cluster (совпадение по префиксу сегмента). Фатально, если после сужения осталось несколько кандидатов.
+- `--origin-by-component-sheet SHEET` – уточняет `--origin-by-component-role`: сужает кандидатов с этой ролью до данного листа схемы (без имён листов — no-op: отдельная команда не имеет конфига; предпочтительнее `--origin-by-component-cluster`).
 
 **Важно:** расширение `--output` определяет формат: `.json` → JSON, иначе YAML. Файл записывается обёрнутым в ключ `cells:`, готовый к тому, чтобы просто перечислить его в `include:`.
 

@@ -230,6 +230,24 @@ def main() -> int:
                                 help=_("Refine --origin-by-component-role: origin is the position of "
                                        "the specific pad of that component, not its centre. "
                                        "Fatal without --origin-by-component-role."))
+    # 2026-08-31 (Origin "By component role" — no Cluster/Sheet): two optional
+    # refinements of --origin-by-component-role for when several SELECTED
+    # components share the role (same role in different Clusters/Channels).
+    # Cluster reads the board Cluster field directly and always narrows; Sheet
+    # needs schematic sheet_names (Config.sheet_names), which the standalone
+    # extract command has no config for — it is accepted but only narrows when
+    # the role is unambiguous without it (prefer --origin-by-component-cluster,
+    # same guidance as extract-net's --anchor-sheet/--anchor-cluster).
+    extract_parser.add_argument("--origin-by-component-cluster", metavar="CLUSTER",
+                                help=_("Refine --origin-by-component-role: narrow the same-role "
+                                       "candidates to this Cluster (prefix match, as the role-anchor "
+                                       "resolver uses). Fatal if several candidates remain even after "
+                                       "narrowing."))
+    extract_parser.add_argument("--origin-by-component-sheet", metavar="SHEET",
+                                help=_("Refine --origin-by-component-role: narrow the same-role "
+                                       "candidates to this schematic sheet (no-op without schematic "
+                                       "sheet_names — the standalone extract command has no config, "
+                                       "prefer --origin-by-component-cluster)."))
 
     extract_net_parser = subparsers.add_parser(
         "extract-net",

@@ -11230,3 +11230,39 @@ msgstr "авто-якорю нужен РОВНО один компонент б
 #, python-brace-format
 msgid "tree {name!r} auto-anchor"
 msgstr "авто-якорь дерева {name!r}"
+
+# 2026-08-31 — Origin "By component role" Cluster/Sheet + name reset
+#: gui/docks/extract.py
+msgid "Narrows an ambiguous Origin role to one Cluster (prefix match, same as the role-anchor resolver). Optional."
+msgstr "Сужает неоднозначную роль Origin до одного Cluster (совпадение по префиксу, как в резолвере ролевого якоря). Необязательно."
+
+#: gui/docks/extract.py
+msgid "Narrows an ambiguous Origin role to one schematic sheet. Optional."
+msgstr "Сужает неоднозначную роль Origin до одного листа схемы. Необязательно."
+
+#: gui/docks/extract.py
+#, python-brace-format
+msgid "Origin by component sheet: failed to load sheet names from {placer}: {type}: {error} — sheet narrowing skipped"
+msgstr "Origin по компоненту с листом: не удалось загрузить имена листов из {placer}: {type}: {error} — сужение по листу пропущено"
+
+#: kicadstamp/template_selection.py
+msgid "extract origin"
+msgstr "начало отсчёта экстракта"
+
+#: kicadstamp/template_selection.py
+#, python-brace-format
+msgid "--origin-by-component-role {role!r} is ambiguous"
+msgstr "--origin-by-component-role {role!r} неоднозначен"
+
+#: kicadstamp/template_selection.py
+#, python-brace-format
+msgid "selection contains {count} components with role {role!r}: {refs} — set the Origin Cluster and/or Sheet to pick one"
+msgstr "в выделении {count} компонентов с ролью {role!r}: {refs} — укажите Cluster и/или Sheet в Origin, чтобы выбрать один"
+
+#: kicadstamp/cli_main.py
+msgid "Refine --origin-by-component-role: narrow the same-role candidates to this Cluster (prefix match, as the role-anchor resolver uses). Fatal if several candidates remain even after narrowing."
+msgstr "Уточнение --origin-by-component-role: сузить кандидатов с этой ролью до данного Cluster (совпадение по префиксу, как в резолвере ролевого якоря). Фатально, если после сужения осталось несколько кандидатов."
+
+#: kicadstamp/cli_main.py
+msgid "Refine --origin-by-component-role: narrow the same-role candidates to this schematic sheet (no-op without schematic sheet_names — the standalone extract command has no config, prefer --origin-by-component-cluster)."
+msgstr "Уточнение --origin-by-component-role: сузить кандидатов с этой ролью до данного листа схемы (без имён листов — no-op: отдельная команда extract не имеет конфига, предпочтительнее --origin-by-component-cluster)."

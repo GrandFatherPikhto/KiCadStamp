@@ -174,7 +174,8 @@ from kicadstamp.template_extraction import (
 from .. import yaml_io
 from ..worker import start_long_op
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
-                      WARN_STYLE as _WARN_STYLE, set_combo_items, show_message)
+                      WARN_STYLE as _WARN_STYLE, configure_searchable,
+                      set_combo_items, show_message)
 from .rename import collect_section_entries
 
 logger = logging.getLogger(__name__)
@@ -370,6 +371,37 @@ class ExtractDock(QWidget):
         role_row.addWidget(self.origin_pad_edit)
         origin_page_layout.addWidget(self._origin_role_row)
         self._origin_role_row.setVisible(False)
+
+        # 2026-08-31 (Origin "By component role" — no Cluster/Sheet): two
+        # OPTIONAL refinements of the role origin — narrow the same-role
+        # candidates when several SELECTED components share the role (same
+        # role in different Clusters/Channels), via the same sheet -> Cluster
+        # cascade the role-anchor resolver uses (role_narrowing, the logic
+        # ComponentResolver.resolve_anchor_fp relies on). Searchable/editable
+        # combos populated from the current selection (_update_origin_choices);
+        # a value not in the list can still be typed (the resolver then
+        # fatals with an actionable "ambiguous" message if it doesn't pin the
+        # role down to one component). A SECOND row so the Role/Pad row above
+        # stays readable.
+        self._origin_role_narrow_row = QWidget()
+        role_narrow_row = QHBoxLayout(self._origin_role_narrow_row)
+        role_narrow_row.setContentsMargins(0, 0, 0, 0)
+        self.origin_cluster_combo = QComboBox()
+        configure_searchable(self.origin_cluster_combo)
+        self.origin_cluster_combo.setToolTip(
+            _("Narrows an ambiguous Origin role to one Cluster (prefix match, "
+              "same as the role-anchor resolver). Optional."))
+        role_narrow_row.addWidget(QLabel(_("Cluster:")))
+        role_narrow_row.addWidget(self.origin_cluster_combo, 1)
+        self.origin_sheet_combo = QComboBox()
+        configure_searchable(self.origin_sheet_combo)
+        self.origin_sheet_combo.setToolTip(
+            _("Narrows an ambiguous Origin role to one schematic sheet. "
+              "Optional."))
+        role_narrow_row.addWidget(QLabel(_("Sheet:")))
+        role_narrow_row.addWidget(self.origin_sheet_combo, 1)
+        origin_page_layout.addWidget(self._origin_role_narrow_row)
+        self._origin_role_narrow_row.setVisible(False)
 
         self._origin_via_row = QWidget()
         via_row = QHBoxLayout(self._origin_via_row)
@@ -905,6 +937,7 @@ class ExtractDock(QWidget):
     def _on_origin_mode_changed(self) -> None:
         mode = self.origin_mode_combo.currentIndex()
         self._origin_role_row.setVisible(mode == 1)
+        self._origin_role_narrow_row.setVisible(mode == 1)
         self._origin_via_row.setVisible(mode == 2)
 
     def _update_origin_choices(self, filtered_selection=None) -> None:
@@ -919,6 +952,18 @@ class ExtractDock(QWidget):
                                  else self._filtered_selection())
         roles = sorted({s.role for s in footprints if s.role})
         set_combo_items(self.origin_role_combo, roles)
+
+        # 2026-08-31 (Origin "By component role" — no Cluster/Sheet): the
+        # Cluster/Sheet refinements are sourced from the CURRENT selection
+        # too — the origin must live in it. Clusters straight from the
+        # Cluster field; Sheets from each Selected's resolved sheet-instance
+        # path (Selected.sheet — a getattr guard keeps the FakeSelected test
+        # doubles, which carry no sheet, working).
+        clusters = sorted({s.cluster for s in footprints if s.cluster})
+        set_combo_items(self.origin_cluster_combo, clusters)
+        sheets = sorted({seg for s in footprints
+                         for seg in (getattr(s, "sheet", None) or ()) if seg})
+        set_combo_items(self.origin_sheet_combo, sheets)
 
         via_nets = sorted({item.net_name for item in raw_items
                             if isinstance(item, Via) and item.net_name})
@@ -1133,6 +1178,15 @@ class ExtractDock(QWidget):
                 origin_pad = profile_entry.get("origin_by_component_pad")
                 if origin_pad:
                     self.origin_pad_edit.setText(str(origin_pad))
+                # 2026-08-31 (Origin "By component role" — no Cluster/Sheet):
+                # pull the saved Cluster/Sheet refinements too, so clicking a
+                # profile re-fills the whole role-origin (not just role+pad).
+                origin_cluster = profile_entry.get("origin_by_component_cluster")
+                if origin_cluster:
+                    self.origin_cluster_combo.setCurrentText(str(origin_cluster))
+                origin_sheet = profile_entry.get("origin_by_component_sheet")
+                if origin_sheet:
+                    self.origin_sheet_combo.setCurrentText(str(origin_sheet))
             elif origin_via:
                 self.origin_mode_combo.setCurrentIndex(2)
                 self.origin_via_net_combo.setCurrentText(origin_via)
@@ -1600,7 +1654,7 @@ class ExtractDock(QWidget):
 
         origin_kwargs: Dict[str, str] = {}
         origin_mode = self.origin_mode_combo.currentIndex()
-        if origin_mode == 1:  # component role (+ optional pad)
+        if origin_mode == 1:  # component role (+ optional pad, Cluster, Sheet)
             role = self.origin_role_combo.currentText().strip()
             if not role:
                 self._show_message(_("Origin: pick a component role."), _ERROR_STYLE)
@@ -1609,6 +1663,17 @@ class ExtractDock(QWidget):
             pad = self.origin_pad_edit.text().strip()
             if pad:
                 origin_kwargs["origin_component_pad"] = pad
+            # 2026-08-31 (Origin "By component role" — no Cluster/Sheet):
+            # optional narrowing keys — resolved by the same sheet -> Cluster
+            # cascade the role-anchor resolver uses (see _find_origin), so an
+            # ambiguous role (same role in different Clusters/Channels) picks
+            # the right component instead of failing as ambiguous.
+            cluster = self.origin_cluster_combo.currentText().strip()
+            if cluster:
+                origin_kwargs["origin_component_cluster"] = cluster
+            sheet = self.origin_sheet_combo.currentText().strip()
+            if sheet:
+                origin_kwargs["origin_component_sheet"] = sheet
         elif origin_mode == 2:  # via net
             net = self.origin_via_net_combo.currentText().strip()
             if not net:
@@ -1653,6 +1718,14 @@ class ExtractDock(QWidget):
             "net_template_role": net_template_role,
             "raw_selection": self.raw_selection_checkbox.isChecked(),
             "sub_placements": sub_placements,
+            # 2026-08-31 (name-not-reset-between-extracts): the normal
+            # "Add extract" flow clears name_edit/profile_key_edit after a
+            # SUCCESSFUL extract (_finish_extract), so the NEXT extract starts
+            # from the current Cluster's autofill hint, not the previous
+            # extract's name. Re-extract deliberately has no such marker — the
+            # user explicitly picked an existing profile/Cell there and the
+            # normal fields must not be cleared.
+            "reset_name_after_success": True,
             "board": board,
         }
 
@@ -1675,7 +1748,7 @@ class ExtractDock(QWidget):
             clone_placements, sub_err = self._build_sub_placements(payload, origin)
             if clone_placements is None:
                 return {"error": sub_err}
-        return run_extract_to_file(
+        result = run_extract_to_file(
             payload["board"].adapter,
             name=payload["name"],
             params=payload["params"],
@@ -1692,6 +1765,13 @@ class ExtractDock(QWidget):
             extract_fn=extract_template_from_selection,
             origin=origin,
             clone_placements=clone_placements)
+        # 2026-08-31 (name-not-reset-between-extracts): carry the normal-extract
+        # reset marker into the result so _finish_extract (UI thread) can clear
+        # name_edit/profile_key_edit on SUCCESS only. Re-extract's payload has no
+        # such marker, so it never clears the normal fields.
+        if not result.get("error") and payload.get("reset_name_after_success"):
+            result["reset_name_after_success"] = True
+        return result
 
     def _compute_extract_origin(self, payload: Dict[str, Any]) -> Tuple[Optional[Any], Optional[str]]:
         """Worker thread: the ONE origin for the whole Extract, derived from the
@@ -1716,13 +1796,34 @@ class ExtractDock(QWidget):
             # be present (they require non-empty board items in the selection).
             return None, None
         origin_kwargs = payload.get("origin_kwargs") or {}
+        sheet_names: Dict[str, str] = {}
+        if origin_kwargs.get("origin_component_sheet"):
+            # 2026-08-31 (Origin "By component role" — no Cluster/Sheet):
+            # Sheet narrowing needs Config.sheet_names (uuid -> human-readable
+            # path), loaded from the Placer/root config exactly like
+            # _build_sub_placements does. Loaded ONLY when actually needed —
+            # the common bbox/via/role-only origins skip the config read
+            # entirely. A load failure -> empty map (sheet narrowing no-ops,
+            # Cluster narrowing — a board field — still applies).
+            placer = payload.get("placer_path")
+            if placer is not None:
+                try:
+                    _cfg, _ctx = load_config(str(placer))
+                    sheet_names = _ctx.sheet_names or {}
+                except Exception as e:
+                    logger.warning(_("Origin by component sheet: failed to load sheet names "
+                                     "from {placer}: {type}: {error} — sheet narrowing skipped")
+                                   .format(placer=placer, type=type(e).__name__, error=e))
         try:
             origin = _find_origin(
                 footprints, vias,
                 origin_kwargs.get("origin_via_net"),
                 origin_kwargs.get("origin_component_role"),
                 origin_kwargs.get("origin_component_pad"),
-                adapter)
+                adapter,
+                origin_component_cluster=origin_kwargs.get("origin_component_cluster"),
+                origin_component_sheet=origin_kwargs.get("origin_component_sheet"),
+                sheet_names=sheet_names)
         except ValidationError as e:
             return None, str(e)
         return origin, None
@@ -1899,6 +2000,18 @@ class ExtractDock(QWidget):
         if result.get("error"):
             self._show_message(result["error"], _ERROR_STYLE)
             return
+        if result.get("reset_name_after_success"):
+            # 2026-08-31 (name-not-reset-between-extracts): a successful NORMAL
+            # extract clears Cell name / Profile key so the NEXT "Add extract"
+            # session starts from the CURRENT Cluster's autofill hint, not the
+            # previous extract's name. _autofill_from_cluster only fills an
+            # empty field (typed-value protection inside one extract stays
+            # untouched); _last_autofill_key is reset by _refresh_existing_lists
+            # below, so the next selection-watch tick re-derives the default.
+            # Re-extract (no marker) never reaches this — the user explicitly
+            # picked an existing profile/Cell there.
+            self.name_edit.clear()
+            self.profile_key_edit.clear()
         messages = result["messages"]
         annotations = result["annotations"]
         net_from_role_summary = self._summarize_net_from_role(result.get("template_dict") or {})

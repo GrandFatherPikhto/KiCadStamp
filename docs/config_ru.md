@@ -760,7 +760,8 @@ extract_profiles:
 ```
 
 Записи `extract_profiles:` принимают: `name`, `output`, `params`, `net_template`, `net_template_role`,
-`rule_nets`, `origin_by_via_net`, `origin_by_component_role`, `origin_by_component_pad` — неизвестные
+`rule_nets`, `origin_by_via_net`, `origin_by_component_role`, `origin_by_component_pad`,
+`origin_by_component_cluster`, `origin_by_component_sheet` — неизвестные
 ключи фатальны (опечатанный ключ, например `origin-by-via-net` с неверным разделителем, раньше тихо
 игнорировался). `clone_profiles:` (для `clone-extract`) принимает: `net`, `pcb`, `channel`, `output`.
 

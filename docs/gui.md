@@ -345,7 +345,8 @@ actually apply.
   `pwr_dac0`), if nothing's been extracted from this Cluster before; if an existing Cells/
   Extractor key already matches, that wins instead. Never overwrites something you've typed.
 - **Origin** — Bounding box (default, lower-left corner of the selection) / Component role (+
-  optional pad) / Via net.
+  optional pad, and — 2026-08-31 — optional **Cluster**/ **Sheet** to narrow an ambiguous role
+  that lives in several Clusters/Channels) / Via net.
 - **Net aliases** — a `QTableWidget` (2026-08-06, previously a hand-rolled grid — Denis: "у нас в
   экстракторе net-aliases, не таблица"), one row per net found on the selected components' pads.
   Rows themselves aren't user-added/removed — the net set is dictated entirely by the current board

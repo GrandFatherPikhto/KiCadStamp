@@ -157,6 +157,8 @@ def extract_template_from_selection(
     origin_via_net: str | None = None,
     origin_component_role: str | None = None,
     origin_component_pad: str | None = None,
+    origin_component_cluster: str | None = None,
+    origin_component_sheet: str | None = None,
     net_template_role: dict[str, str] | None = None,
     rule_nets: set[str] | None = None,
     items: list[Any] | None = None,
@@ -195,6 +197,16 @@ def extract_template_from_selection(
     ONLY a refinement of origin_component_role (see --origin-by-component-pad):
     without it origin is the component centre, with it the position of the
     specific pad (same principle as anchor_pad in ClonePlacement).
+
+    origin_component_cluster/origin_component_sheet — OPTIONAL refinements of
+    origin_component_role (2026-08-31): when several SELECTED components share
+    the role (same role in different Clusters/Channels), they narrow the
+    candidates via the same sheet -> Cluster cascade the role-anchor resolver
+    uses (see _find_origin / _narrow_by_sheet_cluster_selection). Sheet
+    narrowing needs Config.sheet_names, which this core function does not
+    carry — it is a no-op here (the GUI pre-resolves the origin with
+    sheet_names; the CLI has no config anyway). Cluster narrowing reads the
+    board Cluster field directly and always applies.
 
     net_template_role — OPTIONAL, {role: literal_net} (see
     --net-template-role in CLI). Needed only for components with MULTIPLE nets
@@ -311,7 +323,9 @@ def extract_template_from_selection(
         # Caller (CLI/scripts) didn't pre-resolve the origin — the default
         # path: derive it from the selection ourselves, exactly as always.
         origin = _find_origin(footprints, vias, origin_via_net, origin_component_role,
-                              origin_component_pad, adapter)
+                              origin_component_pad, adapter,
+                              origin_component_cluster=origin_component_cluster,
+                              origin_component_sheet=origin_component_sheet)
         origin_desc = (_("via on net {net!r}") if origin_via_net
                        else _("component with role {role!r}") if origin_component_role
                        else _("bbox of selection (lower‑left corner)"))

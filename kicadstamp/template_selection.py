@@ -28,6 +28,14 @@ from .kicad.adapter import KiCadBoardAdapter
 from .utils.units import MM
 from .i18n import _
 
+# 2026-08-31 (Origin "By component role" — no Cluster/Sheet): the SAME
+# sheet -> Cluster -> selection narrowing cascade the role-anchor resolver
+# uses (ComponentResolver.resolve_anchor_fp -> resolve_footprint_by_role)
+# is reused verbatim for extract-origin disambiguation instead of writing a
+# parallel implementation. role_narrowing does not import template_* (no
+# import cycle) — verified 2026-08-31.
+from .placement.services.role_narrowing import _narrow_by_sheet_cluster_selection
+
 logger = logging.getLogger(__name__)
 
 
@@ -218,7 +226,10 @@ def _bbox_origin(footprints: list[Footprint], vias: list[Via]) -> Vector2:
 def _find_origin(footprints: list[Footprint], vias: list[Via],
                  origin_via_net: str | None, origin_component_role: str | None,
                  origin_component_pad: str | None,
-                 adapter: KiCadBoardAdapter) -> Vector2:
+                 adapter: KiCadBoardAdapter,
+                 origin_component_cluster: str | None = None,
+                 origin_component_sheet: str | None = None,
+                 sheet_names: dict[str, str] | None = None) -> Vector2:
     """
     Default origin is bbox (see _bbox_origin). If origin_via_net or
     origin_component_role is set, origin is taken from the specific element
@@ -228,7 +239,20 @@ def _find_origin(footprints: list[Footprint], vias: list[Via],
     origin_component_role (without it it is meaningless — fatal in CLI):
     without it origin is the component centre, with it the position of the
     specific pad (same principle as anchor_pad in ClonePlacement).
-    Fatal if the element is not found or (for via_net) ambiguous — no guessing.
+    Fatal if the element is not found or ambiguous — no guessing.
+
+    origin_component_cluster/origin_component_sheet — OPTIONAL refinements of
+    origin_component_role (2026-08-31): when several SELECTED components share
+    the role (e.g. the same role in different Clusters/Channels), narrow the
+    candidates by the same sheet -> Cluster -> selection cascade the role-anchor
+    resolver uses (role_narrowing._narrow_by_sheet_cluster_selection — the exact
+    logic ComponentResolver.resolve_anchor_fp / resolve_footprint_by_role rely
+    on, not a parallel implementation). Without them, several same-role
+    candidates are FATAL (ambiguous) — previously the first one was picked
+    silently, which is exactly the "origin by role can't choose the right
+    component" bug this fixes. Sheet narrowing needs `sheet_names`
+    (Config.sheet_names); None/empty — that step is a no-op (Cluster narrowing
+    reads the board Cluster field directly and needs no sheet_names).
     """
     if origin_via_net is not None:
         candidates = [v for v in vias if v.net_name == origin_via_net]
@@ -250,24 +274,43 @@ def _find_origin(footprints: list[Footprint], vias: list[Via],
         return candidates[0].position
 
     if origin_component_role is not None:
-        for fp in footprints:
-            if adapter.get_field_value(fp, ROLE_FIELD_NAME) == origin_component_role:
-                if origin_component_pad is None:
-                    return fp.position
-                pad = adapter.get_pad_by_number(fp, origin_component_pad)
-                if pad is None:
-                    raise ValidationError(format_fatal_error(
-                        _("--origin-by-component-pad {pad!r} not found").format(pad=origin_component_pad),
-                        [_("component with role {role!r} ({ref}) has no pad {pad!r} — "
-                           "pad numbers are strings as in KiCad").format(
-                               role=origin_component_role, ref=fp.ref,
-                               pad=origin_component_pad)]
-                    ))
-                return pad.position
-        raise ValidationError(format_fatal_error(
-            _("--origin-by-component-role {role!r} not found in selection").format(role=origin_component_role),
-            [_("among {count} selected components, none has role {role!r}").format(
-                count=len(footprints), role=origin_component_role)]
-        ))
+        candidates = [fp for fp in footprints
+                      if adapter.get_field_value(fp, ROLE_FIELD_NAME) == origin_component_role]
+        if not candidates:
+            raise ValidationError(format_fatal_error(
+                _("--origin-by-component-role {role!r} not found in selection").format(role=origin_component_role),
+                [_("among {count} selected components, none has role {role!r}").format(
+                    count=len(footprints), role=origin_component_role)]
+            ))
+        if origin_component_cluster or origin_component_sheet:
+            # Every candidate is already in the selection, so the selection step
+            # of the shared cascade is a no-op here; it still reuses the exact
+            # sheet/Cluster matching (cluster_prefix_match / _fp_on_sheet) the
+            # role-anchor resolver uses, so both surfaces behave identically.
+            candidates = _narrow_by_sheet_cluster_selection(
+                candidates, adapter, {fp.ref for fp in footprints},
+                origin_component_sheet, origin_component_cluster,
+                sheet_names or {}, _("extract origin"), origin_component_role)
+        if len(candidates) > 1:
+            refs = sorted(fp.ref for fp in candidates)
+            raise ValidationError(format_fatal_error(
+                _("--origin-by-component-role {role!r} is ambiguous").format(role=origin_component_role),
+                [_("selection contains {count} components with role {role!r}: {refs} — "
+                   "set the Origin Cluster and/or Sheet to pick one").format(
+                       count=len(candidates), role=origin_component_role, refs=", ".join(refs))]
+            ))
+        fp = candidates[0]
+        if origin_component_pad is None:
+            return fp.position
+        pad = adapter.get_pad_by_number(fp, origin_component_pad)
+        if pad is None:
+            raise ValidationError(format_fatal_error(
+                _("--origin-by-component-pad {pad!r} not found").format(pad=origin_component_pad),
+                [_("component with role {role!r} ({ref}) has no pad {pad!r} — "
+                   "pad numbers are strings as in KiCad").format(
+                       role=origin_component_role, ref=fp.ref,
+                       pad=origin_component_pad)]
+            ))
+        return pad.position
 
     return _bbox_origin(footprints, vias)

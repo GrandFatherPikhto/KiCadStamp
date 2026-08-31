@@ -33,7 +33,8 @@ logger = logging.getLogger(__name__)
 # known_keys param. Field names read from the profile dict: cmd_extract's
 # --profile branch (name/output/params/net_template/net_template_role/
 # origin_by_via_net/origin_by_component_role/origin_by_component_pad/
-# raw_selection) and clone-extract's --profile branch (net/pcb/channel/output).
+# origin_by_component_cluster/origin_by_component_sheet/raw_selection) and
+# clone-extract's --profile branch (net/pcb/channel/output).
 #
 # Public names (no underscore prefix): cli.py and the tests consume these
 # across the module boundary, and the project rule is that private names do
@@ -44,6 +45,7 @@ logger = logging.getLogger(__name__)
 EXTRACT_PROFILE_KNOWN_KEYS = {
     'name', 'output', 'params', 'net_template', 'net_template_role', 'rule_nets',
     'origin_by_via_net', 'origin_by_component_role', 'origin_by_component_pad',
+    'origin_by_component_cluster', 'origin_by_component_sheet',
     'raw_selection',
 }
 CLONE_EXTRACT_PROFILE_KNOWN_KEYS = {'net', 'pcb', 'channel', 'output'}
@@ -113,6 +115,8 @@ def extract_template(adapter: IBoardAdapter, *, name: str, output: str,
                      origin_via_net: str | None = None,
                      origin_component_role: str | None = None,
                      origin_component_pad: str | None = None,
+                     origin_component_cluster: str | None = None,
+                     origin_component_sheet: str | None = None,
                      raw_selection: bool = False) -> dict[str, Any]:
     """Extract a spoke cell template from the current board selection and
     merge-write it, wrapped under a 'cells:' key, into `output` (JSON/s-expr
@@ -138,6 +142,8 @@ def extract_template(adapter: IBoardAdapter, *, name: str, output: str,
         origin_via_net=origin_via_net,
         origin_component_role=origin_component_role,
         origin_component_pad=origin_component_pad,
+        origin_component_cluster=origin_component_cluster,
+        origin_component_sheet=origin_component_sheet,
         net_template_role=net_template_role or {},
         rule_nets=rule_nets or set(),
         annotations=annotations,

@@ -221,7 +221,7 @@ Creates a spoke template from the current selection in the PCB editor. Each sele
 ### Syntax
 
 ```bash
-python kicadstamp_cli.py extract --name <template_name> --output <file> [--timeout-ms] [--verbose] [--log-file] [--param KEY=VALUE] [--net-template LITERAL=PATTERN] [--net-template-role ROLE=LITERAL] [--rule-net LITERAL] [--origin-by-via-net NET] [--origin-by-component-role ROLE] [--origin-by-component-pad PAD] [--raw-selection] [--profiles FILE] [--profile NAME]
+python kicadstamp_cli.py extract --name <template_name> --output <file> [--timeout-ms] [--verbose] [--log-file] [--param KEY=VALUE] [--net-template LITERAL=PATTERN] [--net-template-role ROLE=LITERAL] [--rule-net LITERAL] [--origin-by-via-net NET] [--origin-by-component-role ROLE] [--origin-by-component-pad PAD] [--origin-by-component-cluster CLUSTER] [--origin-by-component-sheet SHEET] [--raw-selection] [--profiles FILE] [--profile NAME]
 ```
 
 ### Options
@@ -240,6 +240,8 @@ python kicadstamp_cli.py extract --name <template_name> --output <file> [--timeo
 | `--origin-by-via-net NET` | Sets the template origin to the position of the via with the specified net (instead of the bbox lower‑left corner). Fatal if no such via exists or if there is more than one. Mutually exclusive with `--origin-by-component-role` (you can specify only one origin method). |
 | `--origin-by-component-role ROLE` | Sets the origin to the position of the component with the specified role. Mutually exclusive with `--origin-by-via-net`. |
 | `--origin-by-component-pad PAD` | Refines `--origin-by-component-role`: origin is the position of the specific pad of that component, not its centre. Without `--origin-by-component-role` it is fatal (you can only specify a pad for an already specified role). |
+| `--origin-by-component-cluster CLUSTER` | Refines `--origin-by-component-role`: narrow the same-role candidates to this Cluster (segment-prefix match, the same matching the role-anchor resolver uses). Fatal if several candidates remain even after narrowing. |
+| `--origin-by-component-sheet SHEET` | Refines `--origin-by-component-role`: narrow the same-role candidates to this schematic sheet (no-op without schematic sheet names — the standalone command has no config; prefer `--origin-by-component-cluster`). |
 | `--raw-selection` | Take the current selection as tracks/vias **as-is**, without the pad-connectivity filter — every selected track/via goes into the cell with no "connected to a kept footprint's pad" check. Off by default (the filter stays the default behaviour); opt in when you know all the selected copper is yours (e.g. a via array with no anchor component in the selection). |
 | `--profiles FILE` | YAML file with named profiles for `extract`. |
 | `--profile NAME` | Use a profile from the `--profiles` file instead of explicit flags (cannot be combined with `--name`, `--output`, `--param`, `--net-template`, `--raw-selection`, `--origin-by-*` – either everything from the profile or all explicit flags). |

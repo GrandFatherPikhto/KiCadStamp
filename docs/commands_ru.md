@@ -222,7 +222,7 @@ python kicadstamp_cli.py undo --verbose
 ### Синтаксис
 
 ```bash
-python kicadstamp_cli.py extract --name <имя_шаблона> --output <файл> [--timeout-ms] [--verbose] [--log-file] [--param KEY=VALUE] [--net-template ЛИТЕРАЛ=ПАТТЕРН] [--net-template-role РОЛЬ=ЛИТЕРАЛ] [--rule-net ЛИТЕРАЛ] [--origin-by-via-net NET] [--origin-by-component-role ROLE] [--origin-by-component-pad PAD] [--raw-selection] [--profiles FILE] [--profile NAME]
+python kicadstamp_cli.py extract --name <имя_шаблона> --output <файл> [--timeout-ms] [--verbose] [--log-file] [--param KEY=VALUE] [--net-template ЛИТЕРАЛ=ПАТТЕРН] [--net-template-role РОЛЬ=ЛИТЕРАЛ] [--rule-net ЛИТЕРАЛ] [--origin-by-via-net NET] [--origin-by-component-role ROLE] [--origin-by-component-pad PAD] [--origin-by-component-cluster CLUSTER] [--origin-by-component-sheet SHEET] [--raw-selection] [--profiles FILE] [--profile NAME]
 ```
 
 ### Опции
@@ -241,6 +241,8 @@ python kicadstamp_cli.py extract --name <имя_шаблона> --output <фай
 | `--origin-by-via-net NET` | Задаёт origin шаблона по позиции via с указанной цепью (вместо левого нижнего угла bbox). Фатально, если такой via нет или она не единственна. Взаимоисключающе с `--origin-by-component-role` (можно указать только один способ задания origin). |
 | `--origin-by-component-role ROLE` | Задаёт origin по позиции компонента с указанной ролью. Взаимоисключающе с `--origin-by-via-net`. |
 | `--origin-by-component-pad PAD` | Уточняет `--origin-by-component-role`: origin — позиция конкретного пада компонента, а не его центр. Без `--origin-by-component-role` — фатал (уточнять пад можно только у уже указанной роли). |
+| `--origin-by-component-cluster CLUSTER` | Уточняет `--origin-by-component-role`: сужает кандидатов с этой ролью до данного Cluster (совпадение по префиксу сегмента — то же сопоставление, что использует резолвер ролевого якоря). Фатально, если после сужения осталось несколько кандидатов. |
+| `--origin-by-component-sheet SHEET` | Уточняет `--origin-by-component-role`: сужает кандидатов с этой ролью до данного листа схемы (без имён листов — no-op: отдельная команда не имеет конфига; предпочтительнее `--origin-by-component-cluster`). |
 | `--raw-selection` | Взять текущее выделение как треки/via **как есть**, без pad-connectivity фильтра — каждый выделенный трек/via попадёт в ячейку без проверки «связи с падом оставленного футпринта». По умолчанию выключено (фильтр остаётся дефолтным поведением); включайте, когда точно знаете, что вся выделенная медь ваша (например, массив via без якорного компонента в выделении). |
 | `--profiles FILE` | YAML-файл с именованными профилями для `extract`. |
 | `--profile NAME` | Использовать профиль из файла `--profiles` вместо явных флагов (нельзя сочетать с `--name`, `--output`, `--param`, `--net-template`, `--raw-selection`, `--origin-by-*` — либо всё из профиля, либо всё явными флагами). |

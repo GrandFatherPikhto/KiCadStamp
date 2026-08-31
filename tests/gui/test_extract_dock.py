@@ -6,6 +6,7 @@ from kicadstamp.domain.geometry import Vector2
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 
 from kicadstamp.config import ClonePlacement
+from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.domain.board import Footprint, Track, Via
 from PyQt6.QtCore import Qt
 
@@ -2290,3 +2291,196 @@ def test_build_sub_placements_single_sheet_none_no_key(main_window, tmp_path, mo
 
     assert err is None
     assert "sheet" not in entries[0]
+
+
+# ── 2026-08-31: name-not-reset-between-extracts (Задание 1) ──────────────
+
+def test_successful_extract_resets_name_and_profile_key_for_next_extract(main_window, tmp_path, monkeypatch):
+    """2026-08-31 (name-not-reset-between-extracts): after a SUCCESSFUL normal
+    Extract, Cell name / Profile key are cleared so the NEXT extract starts
+    from the CURRENT Cluster's autofill hint, not the previous extract's name.
+    Two sequential extracts on different Clusters: the second gets its own
+    Cluster slug (not the first's tail)."""
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+    main_window.connection.board = FakeBoard()
+    monkeypatch.setattr(extract_mod, "extract_template_from_selection", _fake_extract)
+
+    # First extract: selection on Cluster PWR/DAC0 -> autofill "pwr_dac0".
+    dock.set_board_selection([], [FakeSelected("D1", "SOME_ROLE", "PWR/DAC0", {"1": "+3V3"})])
+    assert dock.name_edit.text() == "pwr_dac0"
+    dock._raw_items = [_fake_fp("D1")]
+    dock._do_extract()
+
+    # Success cleared the fields for the next extract session.
+    assert dock.name_edit.text() == ""
+    assert dock.profile_key_edit.text() == ""
+
+    # Second extract: a NEW selection on a DIFFERENT Cluster -> the autofill
+    # picks THIS cluster's slug, not the previous extract's name.
+    dock._raw_items = [_fake_fp("U1")]
+    dock.set_board_selection([], [FakeSelected("U1", "FPGA", "FPGA/MAIN", {"1": "GND"})])
+    assert dock.name_edit.text() == "fpga_main"
+
+
+def test_finish_extract_without_reset_marker_keeps_name_fields(main_window, tmp_path):
+    """Re-extract shares _finish_extract but its result carries no
+    reset_name_after_success marker — the normal name/profile fields must NOT
+    be cleared there (the user explicitly picked an existing profile/Cell)."""
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+    dock.name_edit.setText("typed_name")
+    dock.profile_key_edit.setText("typed_profile")
+    dock._finish_extract({"messages": ["ok"], "annotations": [], "template_dict": {}})
+    assert dock.name_edit.text() == "typed_name"
+    assert dock.profile_key_edit.text() == "typed_profile"
+
+
+# ── 2026-08-31: Origin "By component role" Cluster/Sheet (Задание 2) ─────
+
+def test_collect_extract_inputs_role_origin_includes_cluster_and_sheet(main_window, tmp_path):
+    """Origin 'By component role' now also carries the optional Cluster/Sheet
+    refinements into origin_kwargs, so the worker narrows an ambiguous role the
+    same way the role-anchor resolver does."""
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+    main_window.connection.board = FakeBoard()
+    dock.name_edit.setText("some_cell")
+    dock._raw_items = [_fake_fp("C1")]
+    dock.origin_mode_combo.setCurrentIndex(1)
+    dock.origin_role_combo.setCurrentText("FPGA")
+    dock.origin_cluster_combo.setCurrentText("FPGA/MAIN")
+    dock.origin_sheet_combo.setCurrentText("Channel_1")
+    payload = dock._collect_extract_inputs()
+    assert payload["origin_kwargs"] == {
+        "origin_component_role": "FPGA",
+        "origin_component_cluster": "FPGA/MAIN",
+        "origin_component_sheet": "Channel_1",
+    }
+
+
+def test_update_origin_choices_populates_cluster_and_sheet_combos(main_window, tmp_path):
+    """The Cluster/Sheet origin combos are populated from the CURRENT selection
+    (the origin must live in it) — Cluster from the Cluster field, Sheet from
+    each Selected's resolved sheet-instance path (getattr guard keeps the
+    sheet-less FakeSelected doubles working)."""
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+    sel = FakeSelected("D1", "SOME_ROLE", "PWR/DAC0", {"1": "+3V3"})
+    sel.sheet = ["Channel_0", "Root"]
+    dock.set_board_selection([], [sel])
+    assert [dock.origin_cluster_combo.itemText(i)
+            for i in range(dock.origin_cluster_combo.count())] == ["PWR/DAC0"]
+    assert [dock.origin_sheet_combo.itemText(i)
+            for i in range(dock.origin_sheet_combo.count())] == ["Channel_0", "Root"]
+
+
+def test_clicking_profile_pulls_origin_cluster_and_sheet(main_window, tmp_path):
+    """Clicking an existing profile re-fills the WHOLE role origin — the saved
+    Cluster/Sheet refinements alongside role/pad (2026-08-31)."""
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"extract_profiles": {
+        "fpga_profile": {
+            "name": "fpga_cell",
+            "origin_by_component_role": "FPGA",
+            "origin_by_component_cluster": "FPGA/MAIN",
+            "origin_by_component_sheet": "Channel_1",
+        },
+    }})
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+    dock._refresh_existing_lists()
+    dock.pick_profile("fpga_profile")
+    assert dock.origin_mode_combo.currentIndex() == 1
+    assert dock.origin_role_combo.currentText() == "FPGA"
+    assert dock.origin_cluster_combo.currentText() == "FPGA/MAIN"
+    assert dock.origin_sheet_combo.currentText() == "Channel_1"
+
+
+def test_compute_extract_origin_role_narrows_by_cluster(main_window, tmp_path):
+    """2026-08-31: with several same-role components in different Clusters,
+    Origin 'By component role' + Cluster resolves the right one instead of
+    failing as ambiguous (mock adapter, same shape as the existing
+    full-selection origin test)."""
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"clone_placements": []})
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+
+    class _RoleAwareBoard:
+        class _Adapter:
+            def get_field_value(self, fp, name):
+                if name == ROLE_FIELD_NAME:
+                    return getattr(fp, "_role", None)
+                if name == CLUSTER_FIELD_NAME:
+                    return getattr(fp, "_cluster", None)
+                return None
+        adapter = _Adapter()
+
+    fp0 = _fake_fp("U1")
+    fp0._role = "FPGA"
+    fp0._cluster = "CH0"
+    fp0.position = Vector2.from_xy(1_000_000, 2_000_000)
+    fp1 = _fake_fp("U2")
+    fp1._role = "FPGA"
+    fp1._cluster = "CH1"
+    fp1.position = Vector2.from_xy(3_000_000, 4_000_000)
+    payload = {
+        "board": _RoleAwareBoard(),
+        "full_raw_items": [fp0, fp1],
+        "raw_items": [fp0, fp1],
+        "origin_kwargs": {"origin_component_role": "FPGA",
+                          "origin_component_cluster": "CH1"},
+        "placer_path": cells_file,
+        "sub_placements": [],
+    }
+    origin, err = dock._compute_extract_origin(payload)
+    assert err is None
+    assert origin == fp1.position
+
+
+def test_compute_extract_origin_role_ambiguous_without_narrowing(main_window, tmp_path):
+    """Same-role candidates in different Clusters and NO Cluster/Sheet ->
+    FATAL ambiguous (previously the first was silently taken)."""
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"clone_placements": []})
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+
+    class _RoleAwareBoard:
+        class _Adapter:
+            def get_field_value(self, fp, name):
+                if name == ROLE_FIELD_NAME:
+                    return getattr(fp, "_role", None)
+                if name == CLUSTER_FIELD_NAME:
+                    return getattr(fp, "_cluster", None)
+                return None
+        adapter = _Adapter()
+
+    fp0 = _fake_fp("U1")
+    fp0._role = "FPGA"
+    fp0._cluster = "CH0"
+    fp0.position = Vector2.from_xy(1_000_000, 2_000_000)
+    fp1 = _fake_fp("U2")
+    fp1._role = "FPGA"
+    fp1._cluster = "CH1"
+    fp1.position = Vector2.from_xy(3_000_000, 4_000_000)
+    payload = {
+        "board": _RoleAwareBoard(),
+        "full_raw_items": [fp0, fp1],
+        "raw_items": [fp0, fp1],
+        "origin_kwargs": {"origin_component_role": "FPGA"},
+        "placer_path": cells_file,
+        "sub_placements": [],
+    }
+    origin, err = dock._compute_extract_origin(payload)
+    assert err is not None
+    assert "ambiguous" in err

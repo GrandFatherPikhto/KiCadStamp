@@ -10814,3 +10814,39 @@ msgstr ""
 #, python-brace-format
 msgid "tree {name!r} auto-anchor"
 msgstr ""
+
+# 2026-08-31 — Origin "By component role" Cluster/Sheet + name reset
+#: gui/docks/extract.py
+msgid "Narrows an ambiguous Origin role to one Cluster (prefix match, same as the role-anchor resolver). Optional."
+msgstr ""
+
+#: gui/docks/extract.py
+msgid "Narrows an ambiguous Origin role to one schematic sheet. Optional."
+msgstr ""
+
+#: gui/docks/extract.py
+#, python-brace-format
+msgid "Origin by component sheet: failed to load sheet names from {placer}: {type}: {error} — sheet narrowing skipped"
+msgstr ""
+
+#: kicadstamp/template_selection.py
+msgid "extract origin"
+msgstr ""
+
+#: kicadstamp/template_selection.py
+#, python-brace-format
+msgid "--origin-by-component-role {role!r} is ambiguous"
+msgstr ""
+
+#: kicadstamp/template_selection.py
+#, python-brace-format
+msgid "selection contains {count} components with role {role!r}: {refs} — set the Origin Cluster and/or Sheet to pick one"
+msgstr ""
+
+#: kicadstamp/cli_main.py
+msgid "Refine --origin-by-component-role: narrow the same-role candidates to this Cluster (prefix match, as the role-anchor resolver uses). Fatal if several candidates remain even after narrowing."
+msgstr ""
+
+#: kicadstamp/cli_main.py
+msgid "Refine --origin-by-component-role: narrow the same-role candidates to this schematic sheet (no-op without schematic sheet_names — the standalone extract command has no config, prefer --origin-by-component-cluster)."
+msgstr ""

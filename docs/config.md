@@ -747,7 +747,8 @@ extract_profiles:
 ```
 
 `extract_profiles:` entries accept: `name`, `output`, `params`, `net_template`, `net_template_role`,
-`rule_nets`, `origin_by_via_net`, `origin_by_component_role`, `origin_by_component_pad` — unknown keys
+`rule_nets`, `origin_by_via_net`, `origin_by_component_role`, `origin_by_component_pad`,
+`origin_by_component_cluster`, `origin_by_component_sheet` — unknown keys
 are a fatal error (a typo'd key, e.g. `origin-by-via-net` with the wrong separator, used to be silently
 ignored). `clone_profiles:` (for `clone-extract`) accepts: `net`, `pcb`, `channel`, `output`.
 

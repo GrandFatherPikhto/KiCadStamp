@@ -179,14 +179,16 @@ Options:
 ### `extract` – extract template from selection (enhanced)
 
 ```bash
-python kicadstamp_cli.py extract --name template_name --output config.yaml [--verbose] [--log-file] [--param KEY=VALUE] [--net-template LITERAL=PATTERN] [--origin-by-via-net NET] [--origin-by-component-role ROLE]
+python kicadstamp_cli.py extract --name template_name --output config.yaml [--verbose] [--log-file] [--param KEY=VALUE] [--net-template LITERAL=PATTERN] [--origin-by-via-net NET] [--origin-by-component-role ROLE] [--origin-by-component-cluster CLUSTER] [--origin-by-component-sheet SHEET]
 ```
 
 New options:
 - `--param KEY=VALUE` – parameter for `--net-template` verification (e.g., `channel=1`), not written to template.
 - `--net-template LITERAL=PATTERN` – replace a real net with a pattern containing placeholders (e.g., `DAC1_DB1=DAC{channel}_DB1`). Can be repeated.
 - `--origin-by-via-net NET` – set origin to the position of a via on the specified net (instead of bbox). Fatal if the net is missing or ambiguous.
-- `--origin-by-component-role ROLE` – set origin to the position of a component with the specified role.
+- `--origin-by-component-role ROLE` – set origin to the position of a component with the specified role. Fatal if several selected components share the role and none is singled out (ambiguous).
+- `--origin-by-component-cluster CLUSTER` – refine `--origin-by-component-role`: narrow the same-role candidates to this Cluster (segment-prefix match). Fatal if several candidates remain even after narrowing.
+- `--origin-by-component-sheet SHEET` – refine `--origin-by-component-role`: narrow the same-role candidates to this schematic sheet (no-op without schematic sheet names — the standalone command has no config; prefer `--origin-by-component-cluster`).
 
 **Important:** The `--output` extension determines format: `.json` → JSON, otherwise YAML. The file is written wrapped under a `cells:` key, ready to be listed directly under `include:`.
 

@@ -109,6 +109,38 @@ class TestRawSelection:
         assert captured["raw_selection"] is False
 
 
+class TestOriginComponentClusterSheet:
+    """origin_by_component_cluster/origin_by_component_sheet (2026-08-31,
+    Origin 'By component role' — no Cluster/Sheet): profile known keys (so a
+    --profile re-run does not reject a saved cluster/sheet-narrowed recipe)
+    and a passthrough down to extract_template_from_selection()."""
+
+    def test_cluster_and_sheet_are_known_extract_profile_keys(self):
+        assert 'origin_by_component_cluster' in EXTRACT_PROFILE_KNOWN_KEYS
+        assert 'origin_by_component_sheet' in EXTRACT_PROFILE_KNOWN_KEYS
+
+    def test_cluster_and_sheet_forwarded_to_extract_template_from_selection(self, monkeypatch, tmp_path):
+        captured = {}
+
+        def _fake(adapter, name, **kwargs):
+            captured.update(kwargs)
+            return {name: {"vias": [], "components": [], "tracks": [], "layer": "F.Cu"}}
+
+        import kicadstamp.cli_extract as cli_extract_mod
+        monkeypatch.setattr(cli_extract_mod, "extract_template_from_selection", _fake)
+
+        extract_template(
+            adapter=object(), name="cell", output=str(tmp_path / "out.sexp"),
+            origin_component_role="FPGA",
+            origin_component_cluster="FPGA/MAIN",
+            origin_component_sheet="Channel_1",
+        )
+
+        assert captured["origin_component_role"] == "FPGA"
+        assert captured["origin_component_cluster"] == "FPGA/MAIN"
+        assert captured["origin_component_sheet"] == "Channel_1"
+
+
 class TestCmdExtractRawSelection:
     """argparse --raw-selection reaches cmd_extract and is threaded through
     the thin CLI wrapper down to the library core."""
@@ -137,7 +169,8 @@ class TestCmdExtractRawSelection:
             name="cell", output="out.sexp", timeout_ms=100,
             param=None, net_template=None, net_template_role=None, rule_net=None,
             origin_by_via_net=None, origin_by_component_role=None,
-            origin_by_component_pad=None, profile=None, profiles=None,
+            origin_by_component_pad=None, origin_by_component_cluster=None,
+            origin_by_component_sheet=None, profile=None, profiles=None,
             raw_selection=True,
         )
         cli_mod.cmd_extract(args)
