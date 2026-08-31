@@ -8947,12 +8947,11 @@ msgstr ""
 msgid "Entity {name!r} is not placed in any tree — nothing to read live"
 msgstr ""
 
-#: kicadstamp/placement/entity_placement.py:229
+#: kicadstamp/placement/entity_placement.py:266
 #, python-brace-format
 msgid ""
-"a (ref ...) tree anchor points at Entity {name!r}, but no (kind "
-"placement) node places it; add a placement node for the Entity, or use an"
-" (external) anchor for a live-board refdes"
+"no (kind placement) node places Entity {name!r}; add a placement node for "
+"it, or read a record that is actually placed by a tree"
 msgstr ""
 
 #: kicadstamp/placement/entity_placement.py:235

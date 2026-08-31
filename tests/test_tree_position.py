@@ -22,12 +22,20 @@ own "build Records directly" pattern) — DFS order, per-kind name emission
 import pytest
 
 from kicadstamp.anchor_graph import Record
-from kicadstamp.config import ClonePlacement, CoordinatePlacement
+from kicadstamp.config import (
+    Cell,
+    ClonePlacement,
+    Config,
+    CoordinatePlacement,
+    Entity,
+    TemplateComponentSlot,
+)
+from kicadstamp.constants import ROLE_FIELD_NAME
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.geometry.spoke_layout import local_to_absolute
 from kicadstamp.link_trees import LinkedAnchor, LinkedNode, LinkedTree
-from kicadstamp.trees import TreeAnchor, TreeNode
+from kicadstamp.trees import Tree, TreeAnchor, TreeNode
 from kicadstamp.tree_position import (
     apply_rigid_override,
     capture_rigid_state,
@@ -38,6 +46,7 @@ from kicadstamp.tree_position import (
     node_offset,
     node_position,
     resolve_record_live_position,
+    resolve_record_rotation_deg,
 )
 from kicadstamp.utils.units import MM
 
@@ -494,18 +503,130 @@ def test_dispatch_unreachable_kind_raises_assertion_error():
         resolve_record_live_position("adapter", "cfg", rec, "points", "sheets")
 
 
-def test_dispatch_placement_raises_validation_error_not_assertion():
-    """Bug gate (2026-08-31, plan read_position_entity_parent_crash): an Entity
-    (record kind "placement") carries NO record-level position — its live
-    position is resolved from the TREE at apply time (Phase 4). Asking for a
-    record-only live position of one must raise the USER-FACING ValidationError
-    (the GUI Read-position handlers turn it into a QMessageBox warning), NEVER
-    an AssertionError that escapes a GUI callback uncaught. The same kind is
-    the ONLY such place: the sibling rotation dispatcher (resolve_record_
-    rotation_deg) already honestly returns None for placement."""
+def _role_adapter(role="FPGA", x=30.0, y=40.0, angle=0.0):
+    """Adapter with one footprint carrying Role=FPGA at (x,y)/angle — enough
+    for the auto-anchor live resolution (the same shape test_entity_placement's
+    _role_adapter builds: get_field_value returns the Role field)."""
+    from unittest.mock import MagicMock
+
+    from kipy.board_types import FootprintInstance
+
+    fp = MagicMock(spec=FootprintInstance)
+    fp.ref = "IC1"
+    fp._role = role
+    fp.position = Vector2.from_xy_mm(x, y)
+    fp.angle_deg = angle
+    adapter = MagicMock()
+    adapter.get_footprints.return_value = [fp]
+    adapter.get_field_value.side_effect = (
+        lambda f, name: getattr(f, "_role", None) if name == ROLE_FIELD_NAME else None)
+    adapter.get_selected_items.return_value = []
+    return adapter
+
+
+def _auto_fpga_cfg(with_child=False):
+    """Denis's real-profile shape (plan_2026_08_31_read_position_entity_parent_
+    live_resolve.md): a tree "fpga" with an is_auto anchor (derived from the
+    root Entity's cell zero slot role "FPGA"), placing the fpga Entity at node
+    offset (1,2)/rotation 45, optionally with a nested child placement node."""
+    cell = Cell(name="fpga", components=[TemplateComponentSlot(role="FPGA")])
+    root = _node_dc(ref="fpga", kind="placement", xy=(1.0, 2.0), rotation=45.0)
+    if with_child:
+        root.children = [_node_dc(ref="child", kind="placement", xy=(3.0, 0.0))]
+    return Config(
+        cells={"fpga": cell},
+        entities=[Entity(name="fpga", cell="fpga"),
+                  Entity(name="child", cell="c")],
+        trees=[Tree(name="fpga", anchor=TreeAnchor(is_auto=True), nodes=[root])],
+    )
+
+
+def test_dispatch_placement_resolves_live_from_auto_anchor_tree():
+    """A placement record's live position/rotation IS resolvable — from the
+    TREE that places it (plan_2026_08_31_read_position_entity_parent_live_
+    resolve.md). Denis's case: the fpga tree with an is_auto anchor on role
+    "FPGA" at node offset (1,2)/rotation 45. fpga's live position = the live
+    Role=FPGA footprint (30,40) + the node offset (1,2) (base rotation 0, so
+    flat) = (31,42); its rotation = base 0 + node 45 = 45. This is the exact
+    live-preview "Read current position" must now give for an Entity parent
+    instead of the old artificial fatal."""
+    cfg = _auto_fpga_cfg()
+    adapter = _role_adapter()
+    rec = _record("placement", "fpga")
+    pos = resolve_record_live_position(adapter, cfg, rec, {}, {})
+    assert pos.x == pytest.approx(31.0 * MM, abs=2)
+    assert pos.y == pytest.approx(42.0 * MM, abs=2)
+    assert resolve_record_rotation_deg(adapter, cfg, rec, {}) == pytest.approx(45.0)
+
+
+def test_dispatch_placement_child_resolves_through_parent_tree():
+    """A NESTED placement record resolves through the SAME recursive tree walk
+    the parent does: child = fpga node's resolved live position (31,42) + the
+    child's own node offset (3,0) — the parent Entity's live position IS the
+    child's base (the "child reads its Entity-parent" scenario the GUI read
+    wires up). The fpga node's rotation is pinned to 0 for a flat, hand-
+    checkable sum: base (30,40) + fpga (1,2) + child (3,0) = (34,42)."""
+    cfg = _auto_fpga_cfg(with_child=True)
+    cfg.trees[0].nodes[0].rotation = 0.0   # keep the child offset flat
+    rec = _record("placement", "child")
+    pos = resolve_record_live_position(_role_adapter(), cfg, rec, {}, {})
+    assert pos.x == pytest.approx(34.0 * MM, abs=2)
+    assert pos.y == pytest.approx(42.0 * MM, abs=2)
+
+
+def test_dispatch_placement_not_placed_raises_entity_anchor_error():
+    """Regression (the old crash-plan gate, kept): an Entity with NO placement
+    node anywhere (its record is in config, no tree places it) stays FATAL
+    with the same _EntityAnchorError the materializer raises — the honest
+    unresolvable case, just rarer now that a resolvable Entity parent really
+    resolves. Surfaces as the user-facing ValidationError the GUI read turns
+    into a QMessageBox warning; the rotation twin raises identically."""
+    cfg = Config(cells={"c": Cell(name="c")},
+                 entities=[Entity(name="ENT_A", cell="c")],
+                 trees=[])
     rec = _record("placement", "ENT_A")
-    with pytest.raises(ValidationError, match="entity placement live position"):
-        resolve_record_live_position("adapter", "cfg", rec, "points", "sheets")
+    with pytest.raises(ValidationError, match="not placed in any tree"):
+        resolve_record_live_position(None, cfg, rec, {}, {})
+    with pytest.raises(ValidationError, match="not placed in any tree"):
+        resolve_record_rotation_deg(None, cfg, rec, {})
+
+
+def test_dispatch_placement_placed_twice_raises_entity_anchor_error():
+    """Regression: an Entity placed by 2+ placement nodes (impossible in a
+    parser-valid config — trees rule 2) stays fatal with the same "more than
+    one" error, never silently choosing one."""
+    cfg = Config(
+        cells={"c": Cell(name="c")},
+        entities=[Entity(name="ENT_A", cell="c")],
+        trees=[
+            Tree(name="a", anchor=TreeAnchor(is_origin=True),
+                 nodes=[_node_dc(ref="ENT_A", kind="placement")]),
+            Tree(name="b", anchor=TreeAnchor(is_origin=True),
+                 nodes=[_node_dc(ref="ENT_A", kind="placement")]),
+        ],
+    )
+    rec = _record("placement", "ENT_A")
+    with pytest.raises(ValidationError, match="more than one"):
+        resolve_record_live_position(None, cfg, rec, {}, {})
+
+
+def test_dispatch_placement_entity_anchor_cycle_raises():
+    """Regression: a tree anchored on an Entity whose placing tree anchors back
+    (a cycle through Entity placements) stays fatal with the same "cycle"
+    error — the cycle-guard is NOT regressed by the new live resolution."""
+    cfg = Config(
+        cells={"c": Cell(name="c")},
+        entities=[Entity(name="EA", cell="c"), Entity(name="EB", cell="c")],
+        trees=[
+            Tree(name="ta", anchor=TreeAnchor(ref="EB"),
+                 nodes=[_node_dc(ref="EA", kind="placement")]),
+            Tree(name="tb", anchor=TreeAnchor(ref="EA"),
+                 nodes=[_node_dc(ref="EB", kind="placement")]),
+        ],
+    )
+    rec = _record("placement", "EA")
+    with pytest.raises(ValidationError, match="cycle"):
+        resolve_record_live_position(None, cfg, rec, {}, {})
 
 
 # ═══════════════════════════════════════════════════════════════════════════

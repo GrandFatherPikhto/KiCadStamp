@@ -1330,9 +1330,12 @@ ANCHOR_POINT_ANCHOR_CFG = {
 
 # A tree whose PARENT node is a kind="placement" record (an Entity). An Entity
 # carries NO record-level position — its live position is resolved from the
-# TREE at apply time (Phase 4). Bug 2026-08-31: the GUI "Read current position"
-# used to raise an uncaught AssertionError here (resolve_record_live_position's
-# placement branch) instead of the user-facing ValidationError.
+# TREE that places it. Here t1 (origin anchor) places BOTH ENT_A and ENT_B at
+# node offset 0, so the parent's live position fully resolves (the absolute
+# origin) — "Read current position" for ENT_B under the ENT_A parent fills the
+# offset instead of warning (plan_2026_08_31_read_position_entity_parent_live_
+# resolve.md). Before that plan the placement branch artificially refused ANY
+# Entity parent (the old crash-plan AssertionError -> ValidationError).
 ENTITY_PARENT_CFG = {
     "entities": [
         {"name": "ENT_A", "cell": "c"},
@@ -1342,6 +1345,25 @@ ENTITY_PARENT_CFG = {
         {"name": "t1", "anchor": {"origin": True},
          "nodes": [{"ref": "ENT_A", "kind": "placement",
                     "children": [{"ref": "ENT_B", "kind": "placement"}]}]},
+    ],
+}
+
+# A tree whose (ref "ENT_A") ANCHOR resolves to an Entity that NO tree node
+# PLACES (the Entity exists in config, the anchor references it, but no
+# kind="placement" node anywhere references ENT_A) — a genuinely unresolvable
+# Entity parent. The live read must keep failing with the materializer's own
+# "not placed in any tree" text as a warning (fields untouched), never a silent
+# guess or a crash.
+UNPLACED_ENTITY_PARENT_CFG = {
+    "entities": [
+        {"name": "ENT_A", "cell": "c"},
+    ],
+    "clone_placements": [
+        {"name": "CL_X", "cluster": "c", "cell": "t", "xy": [5.0, 5.0]},
+    ],
+    "trees": [
+        {"name": "t1", "anchor": {"ref": "ENT_A"},
+         "nodes": [{"ref": "CL_X"}]},
     ],
 }
 
@@ -1400,15 +1422,15 @@ def test_reread_node_flow_clone_anchor_point_anchor_resolves_on_demand(
     assert dock._dirty is True
 
 
-def test_node_dialog_read_position_entity_parent_warns_not_crash(
+def test_node_dialog_read_position_entity_parent_resolves_offset(
         main_window, tmp_path, monkeypatch):
-    """Bug gate (2026-08-31, plan read_position_entity_parent_crash): the
-    parent is an Entity (kind "placement"), which has NO record-level live
-    position — resolve_record_live_position must raise the user-facing
-    ValidationError (NOT the old uncaught AssertionError), _on_read_position
-    turns it into a QMessageBox warning, and the offset/rotation fields stay
-    untouched. Exercises the REAL _resolve_live_offset path (no mock) — the
-    dialog must not raise."""
+    """plan_2026_08_31_read_position_entity_parent_live_resolve.md: an Entity
+    PARENT placed by a resolvable tree (here: the origin-anchored t1, so its
+    live position is the absolute origin + the node offset 0) NOW RESOLVES —
+    the read fills the offset instead of warning. Both ENT_A (the parent) and
+    ENT_B (the child) are placed by t1 at node offset 0 -> offset (0,0),
+    rotation 0. Exercises the REAL _resolve_live_offset path (no mock); the
+    dialog must not raise and must not warn."""
     import gui.docks.trees_dock as td_mod
     dock, _root = _dock_with(main_window, tmp_path, ENTITY_PARENT_CFG)
     tree = dock._current_tree()
@@ -1421,10 +1443,38 @@ def test_node_dialog_read_position_entity_parent_warns_not_crash(
     dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("placement"))
     dlg.ref_combo.setCurrentText("ENT_B")
 
-    dlg._on_read_position()  # must NOT raise (the AssertionError used to escape)
+    dlg._on_read_position()  # must not raise (the old AssertionError used to escape)
+
+    assert not warnings
+    assert dlg.offset_widget.x_edit.text() == "0.000"
+    assert dlg.offset_widget.y_edit.text() == "0.000"
+    assert dlg.rotation_edit.text() == "0.000"
+
+
+def test_node_dialog_read_position_unplaced_entity_parent_warns(
+        main_window, tmp_path, monkeypatch):
+    """Regression: an Entity PARENT that NO tree places (the config tree anchors
+    on it via (ref ...) but no kind="placement" node references it anywhere) is
+    genuinely not live-resolvable — the read shows the materializer's own
+    _EntityAnchorError text ("not placed in any tree") as a QMessageBox warning
+    and leaves the offset/rotation fields untouched. The fatal is preserved for
+    the truly unresolvable case; only the resolvable-Entity-parent case no
+    longer warns (see the resolvable test above)."""
+    import gui.docks.trees_dock as td_mod
+    dock, _root = _dock_with(main_window, tmp_path, UNPLACED_ENTITY_PARENT_CFG)
+    tree = dock._current_tree()
+
+    warnings = []
+    monkeypatch.setattr(td_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or None)
+    dlg = _build_dialog(dock, tree, None)  # parent = the tree's (ref "ENT_A") anchor
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("clone"))
+    dlg.ref_combo.setCurrentText("CL_X")
+
+    dlg._on_read_position()  # must not raise
 
     assert warnings
-    assert any("entity placement live position" in str(w[2]) for w in warnings)
+    assert any("not placed in any tree" in str(w[2]) for w in warnings)
     assert dlg.offset_widget.x_edit.text() == ""
     assert dlg.offset_widget.y_edit.text() == ""
     assert dlg.rotation_edit.text() == ""

@@ -206,49 +206,82 @@ def _anchor_base(adapter: "KiCadBoardAdapter", cfg: "Config",
     if anchor.record is not None and anchor.record.kind == "placement":
         # ref anchor resolved to an Entity: the Entity's live position comes
         # from the tree that places it — find that tree, resolve its anchor
-        # base RECURSIVELY, then compose the found node's own offset.
+        # base RECURSIVELY, then compose the found node's own offset. This
+        # branch is EXACTLY resolve_entity_live_position (the public entry
+        # point the tree_position live-read of an Entity shares), so delegate
+        # to it — one source of truth for the entity-ref recursion.
         if forest is None:
             raise _EntityAnchorError(format_fatal_error(
                 _("internal error: Entity-anchored tree resolved without the "
                   "tree forest"),
                 []))
-        entity_name = anchor.record.name
-        chain = visited if visited is not None else set()
-        if entity_name in chain:
-            raise _EntityAnchorError(format_fatal_error(
-                _("tree anchor cycle through Entity placements"),
-                [_("the tree-anchor chain loops back through Entity "
-                   "placements: {chain}").format(
-                       chain=", ".join(sorted(chain | {entity_name})))]))
-        chain = chain | {entity_name}
-        matches = _find_entity_node(forest, entity_name)
-        if not matches:
-            raise _EntityAnchorError(format_fatal_error(
-                _("Entity {name!r} is not placed in any tree — nothing to "
-                  "read live").format(name=entity_name),
-                [_("a (ref ...) tree anchor points at Entity {name!r}, but no "
-                   "(kind placement) node places it; add a placement node for "
-                   "the Entity, or use an (external) anchor for a live-board "
-                   "refdes").format(name=entity_name)]))
-        if len(matches) > 1:
-            raise _EntityAnchorError(format_fatal_error(
-                _("Entity {name!r} is placed in more than one tree node")
-                .format(name=entity_name),
-                [_("trees rule 2 (a flat record ref may appear in at most one "
-                   "node) is violated — an Entity can stand in only one "
-                   "place")]))
-        target_tree, node_path = matches[0]
-        base_pos, base_rot = _anchor_base(adapter, cfg, target_tree, sheet_names,
-                                          forest=forest, visited=chain)
-        pos, rot = base_pos, base_rot
-        for ln in node_path:
-            pos = node_position(ln.node, pos, rot)
-            rot = rot + ln.node.rotation
-        return pos, rot
+        return resolve_entity_live_position(
+            adapter, cfg, anchor.record.name, sheet_names,
+            forest=forest, visited=visited)
     pos = resolve_base_live_position(adapter, cfg, anchor.anchor.ref,
                                      anchor.record, {}, sheet_names)
     rot = resolve_base_rotation_deg(adapter, cfg, anchor.anchor.ref,
                                     anchor.record, sheet_names) or 0.0
+    return pos, rot
+
+
+def resolve_entity_live_position(adapter: "KiCadBoardAdapter", cfg: "Config",
+                                 entity_name: str, sheet_names: dict,
+                                 forest: list[LinkedTree] | None = None,
+                                 visited: set[str] | None = None
+                                 ) -> tuple[Vector2, float]:
+    """(position_nm, rotation_deg) of an Entity record itself — the SAME
+    recursive resolution _anchor_base's Entity-ref branch applies when an
+    Entity is a TREE ANCHOR, exposed as a standalone entry point for a caller
+    that wants the Entity's OWN live position (tree_position's
+    resolve_record_live_position/resolve_record_rotation_deg kind ==
+    "placement" branches).
+
+    An Entity carries no position by design (design_2026_08_30_entity_
+    placement_grammar.md §3); its live position comes from the (single) tree
+    that places it: find that tree (_find_entity_node), resolve ITS anchor
+    base RECURSIVELY (_anchor_base), then compose the found node's node-path
+    offset/rotation on top (the same node_position accumulation _walk()
+    applies). `forest` defaults to the whole config forest
+    (link_trees(cfg, cfg.trees)); `visited` holds the Entity names already on
+    the current resolution chain so a cycle (a tree anchored on an Entity
+    whose placing tree anchors back) is a clear _EntityAnchorError fatal,
+    never an infinite loop. An Entity with no placement node, one referenced
+    by 2+ nodes, or a cyclic chain raises the SAME _EntityAnchorError as
+    _anchor_base — the caller must decide how to surface it (fatal for the
+    materializer, a ValidationError warning for the GUI read)."""
+    if forest is None:
+        forest = link_trees(cfg, cfg.trees)
+    chain = visited if visited is not None else set()
+    if entity_name in chain:
+        raise _EntityAnchorError(format_fatal_error(
+            _("tree anchor cycle through Entity placements"),
+            [_("the tree-anchor chain loops back through Entity "
+               "placements: {chain}").format(
+                   chain=", ".join(sorted(chain | {entity_name})))]))
+    chain = chain | {entity_name}
+    matches = _find_entity_node(forest, entity_name)
+    if not matches:
+        raise _EntityAnchorError(format_fatal_error(
+            _("Entity {name!r} is not placed in any tree — nothing to "
+              "read live").format(name=entity_name),
+            [_("no (kind placement) node places Entity {name!r}; add a "
+               "placement node for it, or read a record that is actually "
+               "placed by a tree").format(name=entity_name)]))
+    if len(matches) > 1:
+        raise _EntityAnchorError(format_fatal_error(
+            _("Entity {name!r} is placed in more than one tree node")
+            .format(name=entity_name),
+            [_("trees rule 2 (a flat record ref may appear in at most one "
+               "node) is violated — an Entity can stand in only one "
+               "place")]))
+    target_tree, node_path = matches[0]
+    base_pos, base_rot = _anchor_base(adapter, cfg, target_tree, sheet_names,
+                                      forest=forest, visited=chain)
+    pos, rot = base_pos, base_rot
+    for ln in node_path:
+        pos = node_position(ln.node, pos, rot)
+        rot = rot + ln.node.rotation
     return pos, rot
 
 

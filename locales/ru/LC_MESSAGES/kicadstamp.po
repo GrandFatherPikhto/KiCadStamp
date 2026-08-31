@@ -9856,16 +9856,14 @@ msgstr "цепочка якорей деревьев замыкается чер
 msgid "Entity {name!r} is not placed in any tree — nothing to read live"
 msgstr "Entity {name!r} не размещена ни в одном дереве — нечего читать живьём"
 
-#: kicadstamp/placement/entity_placement.py:229
+#: kicadstamp/placement/entity_placement.py:266
 #, python-brace-format
 msgid ""
-"a (ref ...) tree anchor points at Entity {name!r}, but no (kind "
-"placement) node places it; add a placement node for the Entity, or use an"
-" (external) anchor for a live-board refdes"
+"no (kind placement) node places Entity {name!r}; add a placement node for "
+"it, or read a record that is actually placed by a tree"
 msgstr ""
-"якорь дерева (ref ...) указывает на Entity {name!r}, но ни один узел "
-"(kind placement) её не размещает; добавьте узел размещения для Entity или"
-" используйте якорь (external) для refdes только с живой платы"
+"ни один узел (kind placement) не размещает Entity {name!r}; добавьте узел "
+"размещения для неё или читайте запись, которую реально размещает дерево"
 
 #: kicadstamp/placement/entity_placement.py:235
 #, python-brace-format

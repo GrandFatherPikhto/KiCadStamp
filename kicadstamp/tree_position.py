@@ -137,6 +137,9 @@ def resolve_record_live_position(adapter, cfg, rec: Record, resolved_points,
                                  sheet_names) -> Vector2:
     """Thin kind dispatcher, called ONLY for a base with a real record:
       - "clone": ClonePositionCalculator._resolve_anchor() + clone_shift_mm()
+      - "placement": resolve_entity_live_position() — the tree that places the
+        Entity + its recursive anchor base + the node-path offset
+        (plan_2026_08_31_read_position_entity_parent_live_resolve.md)
       - "point": resolve_point_chain()
       - "rule": ComponentResolver.resolve_anchor_fp() -> fp.position (or
         resolve_anchor_pad_position() if anchor_pad set)
@@ -156,17 +159,22 @@ def resolve_record_live_position(adapter, cfg, rec: Record, resolved_points,
 
     if kind == "placement":
         # Entity records carry NO position by design (design_2026_08_30_entity_
-        # placement_grammar.md §3). Their live position as a tree base/anchor is
-        # resolved from the TREE (anchor / parent node offset) at Phase 4 —
-        # never from the record. Reaching this branch means a caller asked for
-        # a record-only live position of an Entity, which is not wired yet — a
-        # LONG-KNOWN LIMITATION, so it must surface as the user-facing
-        # ValidationError (the GUI "Read current position" handlers turn it into
-        # a QMessageBox warning), NOT an AssertionError that escapes a GUI
-        # callback uncaught (plan_2026_08_31_read_position_entity_parent_crash.md).
-        raise ValidationError(
-            "entity placement live position is resolved from the tree at apply "
-            "time (phase 4); the Entity record itself carries no anchor/xy")
+        # placement_grammar.md §3) — but their live position IS resolvable from
+        # the TREE that places them (a single kind="placement" node), with the
+        # SAME recursive anchor-base + node-path composition the apply-time
+        # materializer uses. Delegate to entity_placement's public entry point;
+        # the LOCAL import breaks the otherwise-circular dependency
+        # (entity_placement.py imports tree_position.py at module level) on the
+        # NEW side — a runtime-only soft edge, the standard Python idiom for a
+        # rarely-hit cycle (plan_2026_08_31_read_position_entity_parent_live_
+        # resolve.md). 0/2+ placements or an entity-anchor cycle raise the same
+        # _EntityAnchorError (a ValidationError) the materializer raises — the
+        # GUI "Read current position" handlers still turn it into a QMessageBox
+        # warning, they just fire much less often now that a resolvable Entity
+        # parent (as in Denis's fpga tree) really resolves.
+        from .placement.entity_placement import resolve_entity_live_position
+        pos, _rot = resolve_entity_live_position(adapter, cfg, rec.name, sheet_names)
+        return pos
 
     if kind == "point":
         resolved = resolve_point_chain(adapter, cfg.points, rec.name, sheet_names)
@@ -213,19 +221,28 @@ def resolve_record_rotation_deg(adapter, cfg, rec: Record, sheet_names) -> float
     live footprint reading for clone/coordinate (they already store it
     explicitly in config, with well-established "relative to what" semantics
     per their own docstrings — see config/models.py ClonePlacement/
-    CoordinatePlacement). Only rule/external genuinely need a LIVE read
-    (their own record has no rotation field at all). point -> None (no
-    rotation concept by design, config/points.py). Returns None when the
-    kind has no rotation concept — the caller must treat None as "not
-    available", never silently 0."""
+    CoordinatePlacement). rule/external and placement genuinely need a LIVE
+    read: rule/external's own record has no rotation field at all; a
+    placement (Entity) has no rotation of its own either — its rotation
+    lives in the tree node, so it is resolved from the placing tree's
+    node-path accumulation (resolve_entity_live_position, symmetric with the
+    position twin). point -> None (no rotation concept by design,
+    config/points.py). Returns None when the kind has no rotation concept —
+    the caller must treat None as "not available", never silently 0."""
     kind = rec.kind
     if kind == "clone":
         return rec.obj.rotation_deg
     if kind == "placement":
-        # Entity has no rotation concept of its own (rotation lives in the tree
-        # node) — same "not available" convention as point records; the caller
-        # treats None as "assume 0.0 for composition" (never silently 0).
-        return None
+        # An Entity's own rotation, like its position, is resolved from the
+        # tree that places it (the node-path rotation accumulation) — the SAME
+        # live resolution as the position twin, so a rotated Entity parent now
+        # yields a real relative rotation instead of the old "no concept" None
+        # (which callers had to assume as 0.0). Local import for the same
+        # cycle-break reason as the position branch. 0/2+ placements or an
+        # entity-anchor cycle raise the same _EntityAnchorError.
+        from .placement.entity_placement import resolve_entity_live_position
+        _pos, rot = resolve_entity_live_position(adapter, cfg, rec.name, sheet_names)
+        return rot
     if kind == "coordinate":
         cp = rec.obj
         # Anchor-relative mode — a coordinate-kind record may LEGALLY carry an
