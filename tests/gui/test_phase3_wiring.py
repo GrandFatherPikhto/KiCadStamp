@@ -394,6 +394,25 @@ def test_successful_extract_auto_closes_the_dialog(real_main_window):
     assert hub.extract_dialog.isVisible() is False
 
 
+def test_profile_reextract_requested_runs_without_dialog(real_main_window, tmp_path):
+    """Config-tree "Re-read..." (profile_reextract_requested, 2026-08-31) ->
+    ExtractDock.re_extract_profile — runs straight from the tree and does NOT
+    open the Extract dialog (Denis: "тут никакого диалога не надо"). The
+    signal's slot is the real handler (a pre-bound method, so it cannot be
+    monkeypatched via the instance): with no placement for the profile the
+    re-read picks the profile and just reports in the Log."""
+    extractor_file = tmp_path / "profiles.sexp"
+    _write(extractor_file, {"extract_profiles": {"alpha_profile": {"params": {"ROLE": "+3V3"}}}})
+    real_main_window.extract_dock.set_root_path(extractor_file)
+
+    real_main_window.config_tree_dock.profile_reextract_requested.emit("alpha_profile")
+
+    # The real handler ran (picked the profile -> re-extract target set), and
+    # NO dialog was opened.
+    assert real_main_window.extract_dock._re_extract_cell_name == "alpha_profile"
+    assert real_main_window._dock_hub.extract_dialog.isVisible() is False
+
+
 def test_file_selected_alone_shows_root_page(real_main_window, tmp_path):
     """A plain file/category click (file_selected fires with no matching
     leaf signal) falls back to the Root page — Denis's chosen auto-switch

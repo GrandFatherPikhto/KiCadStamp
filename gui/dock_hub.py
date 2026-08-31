@@ -326,6 +326,10 @@ class DockHub:
         self.config_tree_dock.placement_picked.connect(self.detail_dock.show_placer)
         self.config_tree_dock.profile_picked.connect(self.extract_dock.pick_profile)
         self.config_tree_dock.profile_picked.connect(self._open_extract_dialog)
+        # "Re-read..." on an extract_profiles leaf (2026-08-31): re-extract
+        # straight from the tree, NO dialog — ExtractDock.re_extract_profile.
+        self.config_tree_dock.profile_reextract_requested.connect(
+            self.extract_dock.re_extract_profile)
         self.config_tree_dock.thermal_via_picked.connect(self.thermal_via_dock.load_entry)
         self.config_tree_dock.thermal_via_picked.connect(self.detail_dock.show_thermal_via)
         # Coordinate placements (2026-08-12, Group 1): a normal named-records

@@ -146,3 +146,74 @@ def test_re_extract_passes_resolver_items_to_extract(main_window, tmp_path, monk
     assert result["messages"] == ["ok"]
     assert captured["name"] == "pi_filter"
     assert captured["items"] == [fp]
+
+
+# ── 2026-08-31: Config-tree "Re-read..." (profile context menu, no dialog) ───
+
+def test_re_extract_profile_runs_when_single_placement(main_window, tmp_path, monkeypatch):
+    """Config-tree "Re-read..." on an extract_profiles leaf (Denis: "перечитать
+    расположение дорожек, виа и компонент в кластере", no dialog) — the profile
+    is picked (re-extract target set) and re-extract runs directly when the cell
+    is placed by exactly one clone_placement."""
+    root = _root_sexp(tmp_path, tmp_path / "cells_out.sexp")
+    dock = ExtractDock(main_window)
+    dock.set_root_path(root)
+
+    called = []
+    monkeypatch.setattr(dock, "_on_re_extract", lambda: called.append(True))
+
+    dock.re_extract_profile("myprofile")
+
+    assert called == [True]
+    assert dock._re_extract_cell_name == "pi_filter"
+
+
+def test_re_extract_profile_reports_when_unplaced(main_window, tmp_path, monkeypatch):
+    """No clone_placement owns the profile's cell -> a Log message, no re-extract
+    (nothing to guess)."""
+    data = {
+        "clone_placements": [{"cluster": "Ch0_PI", "cell": "pi_filter", "xy": [0.0, 0.0]}],
+        "extract_profiles": {"myprofile": {"output": str(tmp_path / "cells_out.sexp"), "name": "other_cell"}},
+    }
+    root = tmp_path / "root.sexp"
+    _write(root, data)
+    dock = ExtractDock(main_window)
+    dock.set_root_path(root)
+
+    called = []
+    monkeypatch.setattr(dock, "_on_re_extract", lambda: called.append(True))
+    messages = []
+    monkeypatch.setattr(dock, "_show_message", lambda text, style="": messages.append(text))
+
+    dock.re_extract_profile("myprofile")
+
+    assert called == []
+    assert dock.re_extract_placement_combo.count() == 0
+    assert messages  # a warning went to the Log
+
+
+def test_re_extract_profile_reports_when_ambiguous(main_window, tmp_path, monkeypatch):
+    """Two placements own the cell -> a Log message pointing at the dialog's
+    Re-extract to pick one — nothing guessed silently."""
+    data = {
+        "clone_placements": [
+            {"cluster": "Ch0_PI", "cell": "pi_filter", "xy": [0.0, 0.0]},
+            {"cluster": "Ch1_PI", "cell": "pi_filter", "xy": [0.0, 0.0]},
+        ],
+        "extract_profiles": {"myprofile": {"output": str(tmp_path / "cells_out.sexp"), "name": "pi_filter"}},
+    }
+    root = tmp_path / "root.sexp"
+    _write(root, data)
+    dock = ExtractDock(main_window)
+    dock.set_root_path(root)
+
+    called = []
+    monkeypatch.setattr(dock, "_on_re_extract", lambda: called.append(True))
+    messages = []
+    monkeypatch.setattr(dock, "_show_message", lambda text, style="": messages.append(text))
+
+    dock.re_extract_profile("myprofile")
+
+    assert called == []
+    assert dock.re_extract_placement_combo.count() == 2
+    assert messages  # a warning went to the Log

@@ -1330,6 +1330,29 @@ class ExtractDock(QWidget):
         self._set_re_extract_target((entry.get("name") or profile_key) if entry else profile_key,
                                     profile_key, entry)
 
+    def re_extract_profile(self, profile_key: str) -> None:
+        """Config-tree "Re-read..." delegate (2026-08-31, Denis: "перечитать
+        расположение дорожек, виа и компонент в кластере" прямо из контекстного
+        меню профиля, без диалога): re-captures the live components/vias/tracks
+        of the placement that owns this profile's cell. Picks the profile (that
+        sets the re-extract target and repopulates the placement combo), then
+        runs re-extract when the cell is placed by EXACTLY one clone_placement;
+        a missing/ambiguous placement is reported in the Log instead of
+        guessing."""
+        self.pick_profile(profile_key)
+        count = self.re_extract_placement_combo.count()
+        if count == 1:
+            self._on_re_extract()
+        elif count == 0:
+            self._show_message(
+                _("Profile {key!r} isn't placed on the board yet — no clone_placement "
+                  "owns its cell, nothing to re-read.").format(key=profile_key), _WARN_STYLE)
+        else:
+            self._show_message(
+                _("Cell of profile {key!r} is placed by {count} placements — open the "
+                  "Extract dialog's Re-extract to pick one.").format(key=profile_key, count=count),
+                _WARN_STYLE)
+
     def _update_net_template_role_rows(self, footprints=None) -> None:
         """A role needs an explicit net_template_role pick exactly when 2+ of
         ITS pads' DISTINCT nets themselves classify by role (lemma2/pad, see

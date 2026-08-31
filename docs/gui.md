@@ -351,7 +351,10 @@ writes it into the Cells file — the GUI equivalent of `kicadstamp_cli.py extra
 this is a standalone **dialog** (not a Detail-dock page): open it from the Config tree's context
 menu with **New Extract...** (plain capture) or **Add extract profile...** (profile-save armed), or
 by clicking an `extract_profiles` leaf. It's non-modal (keep selecting on the board while it's open)
-and auto-closes after a successful Extract.
+and auto-closes after a successful Extract. An `extract_profiles` leaf's own context menu also has
+**Re-read...** — re-captures the placement that owns the profile's cell from the live board
+(components/vias/tracks), straight from the tree, no dialog; if several placements own the cell it
+asks you to pick one via the dialog's Re-extract instead.
 
 **Origin**/**Net aliases**/**Net template role**/**Sub-placements**/**Existing** below live in a
 tab widget (2026-08-04: previously stacked in one long column, whose minimum height was the SUM of
