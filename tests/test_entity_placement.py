@@ -14,7 +14,7 @@ import pytest
 from kipy.board_types import FootprintInstance
 
 from kicadstamp.apply_pipeline import apply_cluster_filter, apply_only_filter
-from kicadstamp.config import Cell, ClonePlacement, Config, Entity, Rule
+from kicadstamp.config import Cell, ClonePlacement, Config, Entity, Point, Rule
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.placement.entity_placement import materialize_entity_placements
@@ -576,3 +576,66 @@ def test_real_profile_entity_ref_anchor_follows_moved_ic1():
     assert by_name["CH0_DAC_BUF"].xy[1] == pytest.approx(55.0)      # 30+25
     assert by_name["FPGA_FLASH"].xy[0] == pytest.approx(30.0)       # 50-20
     assert by_name["FPGA_FLASH"].xy[1] == pytest.approx(20.0)       # 30-10
+
+
+# ---------------------------------------------------------------------------
+# Bug #6 (2026-08-31): a (ref ...) tree anchor resolving to a NON-Entity record
+# (a legacy ClonePlacement) that itself anchors via anchor_point. _anchor_base
+# hands an EMPTY resolved_points dict into resolve_base_live_position, so the
+# point must be resolved LAZILY on demand (the same resolve_point_chain pattern
+# _resolve_clone_anchor_position uses) instead of a raw KeyError.
+# ---------------------------------------------------------------------------
+
+
+def _point_anchored_clone_cfg(point_name="Origin", have_point=True):
+    """The handoff_2026_08_31 synthetic recipe: a Point, a legacy ClonePlacement
+    anchored to it via anchor_point, an Entity + origin tree (the materializable
+    "control"), and a SECOND tree whose (ref ...) anchor points at the clone's
+    effective name ("FPGA"). have_point=False deliberately omits the Point to
+    exercise the missing-point path."""
+    clone_placements = [ClonePlacement(name="FPGA", cluster="FPGA", cell="c",
+                                       xy=(0.0, 0.0), anchor_point=point_name)]
+    return Config(
+        cells={"c": _cell("c")},
+        points={point_name: Point(name=point_name, xy=(10.0, 20.0))}
+        if have_point else {},
+        clone_placements=clone_placements,
+        entities=[Entity(name="E1", cell="c"),
+                  Entity(name="E2", cell="c")],
+        trees=[
+            _origin_tree([_node(ref="E1", xy=(1.0, 0.0))]),
+            Tree(name="sub", anchor=TreeAnchor(ref="FPGA"),
+                 nodes=[_node(ref="E2", xy=(0.0, 0.0))]),
+        ],
+    )
+
+
+def test_ref_anchor_on_point_anchored_clone_materializes_on_point_position():
+    """Bug #6 gate (fails with KeyError BEFORE the fix): the tree "sub" anchor
+    (ref "FPGA") resolves to the ClonePlacement (kind "clone", NOT Entity), whose
+    anchor_point "Origin" names a real Point (xy 10,20). _anchor_base passes an
+    EMPTY resolved_points dict, so ClonePositionCalculator._resolve_anchor must
+    lazily resolve the point on demand — E2 materializes at the Point's live
+    position (10,20) + the clone's flat shift (0,0) + E2's own node offset (0,0).
+    E1 (the origin-tree control) materializes unchanged at (1,0)."""
+    cfg = _point_anchored_clone_cfg()
+    clones = materialize_entity_placements(None, cfg, {})
+    by_name = {c.name: c for c in clones}
+    assert set(by_name) == {"E1", "E2"}
+    assert by_name["E1"].xy == pytest.approx((1.0, 0.0))
+    assert by_name["E2"].xy[0] == pytest.approx(10.0)
+    assert by_name["E2"].xy[1] == pytest.approx(20.0)
+
+
+def test_ref_anchor_on_clone_with_missing_point_is_skipped_locally_not_keyerror(caplog):
+    """Bug #6: an anchor_point naming a point ABSENT from cfg.points must surface
+    as a clear ValidationError (per-tree warning + skip in
+    materialize_entity_placements, the bug-#4 tolerance), NEVER a raw KeyError
+    leaking to the caller. The neighbor origin tree (E1) still materializes."""
+    cfg = _point_anchored_clone_cfg(have_point=False)
+    with caplog.at_level(logging.WARNING,
+                         logger="kicadstamp.placement.entity_placement"):
+        clones = materialize_entity_placements(None, cfg, {})
+    assert [c.name for c in clones] == ["E1"]
+    assert "skipped" in caplog.text
+    assert "sub" in caplog.text

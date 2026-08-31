@@ -180,11 +180,30 @@ class ClonePositionCalculator:
         placing the section "somewhere" or silently skipping it is worse than failing.
         """
         if clone.anchor_point is not None:
-            # Guaranteed already resolved — dependency_order.py orders this
-            # clone_placement's Item after the point's (see
-            # resolve_clone_anchor_ref's anchor_point branch). Only ever
-            # needs a coordinate, unlike Rule/thermal_via_array — a shifted
+            # Guaranteed already resolved in the normal Apply path —
+            # dependency_order.py orders this clone_placement's Item after the
+            # point's (see resolve_clone_anchor_ref's anchor_point branch). Only
+            # ever needs a coordinate, unlike Rule/thermal_via_array — a shifted
             # or xy-literal point is fine here.
+            #
+            # Lazy on-demand fallback (bug #6, 2026-08-31): tree-position
+            # callers resolve a BASE live and may hand us an empty/accumulating
+            # resolved_points dict — _anchor_base (entity_placement.py) and the
+            # rigid-group redraw (tree_position.capture_rigid_state /
+            # apply_rigid_override) run BEFORE the planner's Phase 1 ever
+            # resolves Points, so the point may not be cached yet.
+            # resolve_point_chain resolves it (and any transitive anchor_point
+            # chain, cycle-guarded; a missing point is a clear ValidationError,
+            # never a raw KeyError) on demand — the same result the
+            # dependency-order pass would produce, just lazy instead of
+            # topologically ordered. Mirrors _resolve_clone_anchor_position in
+            # board_items_resolver.py. In the normal Apply path this is a plain
+            # cache hit (the point was already resolved in Phase 1).
+            if clone.anchor_point not in self.resolved_points:
+                from .point_resolver import resolve_point_chain
+                self.resolved_points[clone.anchor_point] = resolve_point_chain(
+                    self.adapter, self.cfg.points, clone.anchor_point,
+                    self.sheet_names)
             logger.debug(_("  [{name}] anchor: point {point!r}")
                          .format(name=clone_placement_effective_name(clone),
                                  point=clone.anchor_point))

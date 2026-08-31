@@ -77,6 +77,38 @@ class TestClonePlacementAnchorPoint:
         # anchor lookup — no get_footprint call for an anchor_ref/anchor_role.
         adapter.get_footprint.assert_not_called()
 
+    def test_lazily_resolves_missing_point_from_cfg_points(self):
+        """Bug #6 (2026-08-31): with an EMPTY resolved_points (a tree-position
+        caller — _anchor_base / the rigid-group redraw — resolving a BASE before
+        the planner's Phase 1 ever ran), ClonePositionCalculator must resolve the
+        anchor_point ON DEMAND via resolve_point_chain instead of a raw KeyError.
+        The result is cached, so a repeat lookup is a plain dict hit."""
+        from kicadstamp.config import Point
+        point = Point(name="Origin", xy=(10.0, 20.0))
+        clone = ClonePlacement(cluster="cp1", cell="tpl", xy=(0.0, 0.0),
+                               anchor_point="Origin")
+        cfg = Config(layer="F.Cu", points={"Origin": point},
+                     clone_placements=[clone])
+        adapter = MagicMock()
+
+        calc = ClonePositionCalculator(adapter, cfg, resolved_points={})
+        assert calc.resolved_points == {}
+        pos = calc._resolve_anchor(clone)
+        assert pos == Vector2.from_xy(int(10.0 * MM), int(20.0 * MM))
+        # the lazily-resolved point is now cached for subsequent lookups.
+        assert calc.resolved_points["Origin"].position == pos
+
+    def test_missing_point_is_clear_validation_error_not_keyerror(self):
+        """Bug #6: an anchor_point naming a point ABSENT from cfg.points must be
+        a clear ValidationError (fatal at the boundary, resolve_point_chain's
+        "anchor_point not found"), never a raw KeyError."""
+        clone = ClonePlacement(cluster="cp1", cell="tpl", xy=(0.0, 0.0),
+                               anchor_point="NOPE")
+        cfg = Config(layer="F.Cu", points={}, clone_placements=[clone])
+        calc = ClonePositionCalculator(MagicMock(), cfg, resolved_points={})
+        with pytest.raises(ValidationError, match="not found"):
+            calc._resolve_anchor(clone)
+
 
 class TestRuleAnchorPoint:
     def test_uses_points_footprint_to_look_up_spoke_pad(self):

@@ -3095,17 +3095,6 @@ msgstr "Размещение"
 msgid "coordinate"
 msgstr ""
 
-#: gui/docks/trees_dock.py:172
-#, python-brace-format
-msgid ""
-"Record {ref!r} is anchored via anchor_point ({point!r}), which a live "
-"read cannot resolve outside the full apply pipeline — apply the record "
-"once first, or anchor it by ref/role instead"
-msgstr ""
-"Запись {ref!r} привязана через anchor_point ({point!r}), который вне "
-"полного apply-пайплайна живым чтением не разрешить — сначала примени "
-"запись один раз, либо привяжи по ref/role"
-
 #: gui/docks/trees_dock.py:226 gui/docks/trees_dock.py:260
 #, fuzzy
 msgid "Add tree…"
