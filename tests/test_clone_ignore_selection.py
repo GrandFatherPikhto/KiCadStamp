@@ -71,7 +71,13 @@ def _cfg():
 class TestCloneIgnoreSelectionWiring:
     def test_stray_selection_fatals_without_ignore_selection(self):
         adapter = _adapter_with_stray_selection()
-        clone = ClonePlacement(cluster="fpga", cell="fpga_tpl", xy=(0.0, 0.0))
+        # by_selection is EXPLICIT since 2026-08-31 (the old implicit
+        # by-selection inference happened to depend on a case-SENSITIVE cluster
+        # match emptying the derivable candidate set; with the case-insensitive
+        # cluster_prefix_match the unique Role=FPGA now resolves by nets, so the
+        # by-selection path this test targets must be pinned explicitly).
+        clone = ClonePlacement(cluster="fpga", cell="fpga_tpl", xy=(0.0, 0.0),
+                               by_selection=True)
         calc = ClonePositionCalculator(adapter, _cfg())
 
         with pytest.raises(ValidationError, match="CONN_PM5V"):

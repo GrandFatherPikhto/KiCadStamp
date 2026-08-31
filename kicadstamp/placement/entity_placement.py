@@ -380,26 +380,45 @@ def _to_clone(entity: Entity, pos_nm: Vector2, rot_deg: float) -> ClonePlacement
     )
 
 
-def _walk(linked_nodes, parent_pos: Vector2, parent_rot: float, out: list[ClonePlacement]) -> None:
+def _walk(linked_nodes, parent_pos: Vector2, parent_rot: float, out: list[ClonePlacement],
+          position_overrides: dict | None = None) -> None:
     """Depth-first over LinkedNode children. A node's absolute position =
     node_position(node, parent_pos, parent_rot) (parent + offset rotated into
     the parent's frame); its own rotation feeds its children's frame as
     parent_rot + node.rotation (the same accumulation the rigid-redraw
     relative_rotation does). Only kind "placement" nodes whose record is an
     Entity are materialized; legacy clone/rule/coordinate/point/external
-    nodes are left to their existing paths."""
+    nodes are left to their existing paths.
+
+    position_overrides — {record.name: PositionOverride} (tree rigid-group
+    redraw, plan_2026_08_29_tree_live_rigid_redraw.md): an override REPLACES
+    the structural pos/rot for THAT node (the same principle as
+    ClonePositionCalculator.compute_raw_positions), closing the asymmetry
+    where materialization recomputed the position without seeing the override
+    (plan_2026_08_31_fpga_flash_rigid_redraw_not_following.md). Children keep
+    walking from the STRUCTURAL pos/rot — a rigid redraw applies one node per
+    run (only=[name]) and the override node is the only one that survives
+    _filter_materialized_entities, so the child frame is never observed in
+    that scenario; a full apply passes no overrides at all."""
     for ln in linked_nodes:
         node = ln.node
         pos = node_position(node, parent_pos, parent_rot)
         rot = parent_rot + node.rotation
         if node.kind == "placement" and ln.record is not None \
                 and isinstance(ln.record.obj, Entity):
-            out.append(_to_clone(ln.record.obj, pos, rot))
-        _walk(ln.children, pos, rot, out)
+            override = (position_overrides or {}).get(ln.record.name)
+            if override is not None:
+                out.append(_to_clone(ln.record.obj, override.position,
+                                     override.rotation_deg))
+            else:
+                out.append(_to_clone(ln.record.obj, pos, rot))
+        _walk(ln.children, pos, rot, out, position_overrides)
 
 
 def materialize_entity_placements(adapter: "KiCadBoardAdapter", cfg: "Config",
-                                  sheet_names=None) -> list[ClonePlacement]:
+                                  sheet_names=None,
+                                  position_overrides: dict | None = None
+                                  ) -> list[ClonePlacement]:
     """Walk cfg.trees and materialize every kind="placement" node (whose
     ref resolves to an Entity) into a transient absolute ClonePlacement.
 
@@ -411,6 +430,15 @@ def materialize_entity_placements(adapter: "KiCadBoardAdapter", cfg: "Config",
     "placement") is resolved RECURSIVELY through the tree that places that
     Entity (_anchor_base, cycle-guarded) — a tree can anchor on another tree's
     placement node (cross-tree entity anchoring).
+
+    position_overrides — {record.name: PositionOverride} (tree rigid-group
+    redraw): an override REPLACES the structural pos/rot for that placement
+    node (see _walk), closing the asymmetry where this step recomputed the
+    position without seeing the override (the override still applied later in
+    ClonePositionCalculator.compute_raw_positions, but only after this step
+    had already produced a possibly-different transient clone — plan_2026_08_31_
+    fpga_flash_rigid_redraw_not_following.md). None/empty = the normal apply
+    path, behavior unchanged.
 
     Per-tree tolerance (bug #4, 2026-08-30): a tree whose anchor is not
     resolvable (a (point ...) anchor — still unwired — or an unresolvable
@@ -437,7 +465,8 @@ def materialize_entity_placements(adapter: "KiCadBoardAdapter", cfg: "Config",
             anchor_pos, anchor_rot = _anchor_base(
                 adapter, cfg, tree, sheet_names, forest=linked)
             tree_clones: list[ClonePlacement] = []
-            _walk(tree.nodes, anchor_pos, anchor_rot, tree_clones)
+            _walk(tree.nodes, anchor_pos, anchor_rot, tree_clones,
+                  position_overrides=position_overrides)
         except _EntityAnchorError:
             # A ref anchor resolving to an Entity that is not placed / placed
             # twice / in a cycle is a CONFIG bug — fatal for the whole run,

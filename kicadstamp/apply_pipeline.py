@@ -475,7 +475,8 @@ class ApplyPipeline:
         # produce an empty materialized list (quiet data loss, 4.1-fix 2).
         materialized = _filter_materialized_entities(
             materialize_entity_placements(self.adapter, self._full_cfg,
-                                          sheet_names=self.sheet_names),
+                                          sheet_names=self.sheet_names,
+                                          position_overrides=self.position_overrides),
             _split_comma_values(self.only), _split_comma_values(self.cluster))
         if materialized:
             logger.info(_("Materialized {count} entity placement(s) from trees "

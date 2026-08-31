@@ -813,3 +813,186 @@ def test_auto_anchor_roundtrips_through_sexp_bridge():
     tree = tree_from_sexp(sexp, seen_names=set(), seen_refs=set(), location="test")
     assert tree.anchor.is_auto is True
     assert tree_to_sexp(tree) == sexp
+
+
+# ---------------------------------------------------------------------------
+# position_overrides reach materialization (plan_2026_08_31_fpga_flash_rigid_
+# redraw_not_following.md): a tree rigid-group redraw feeds a per-node
+# PositionOverride into ApplyPipeline; materialization must let it REPLACE the
+# structural pos/rot for that placement node (the same principle as
+# ClonePositionCalculator.compute_raw_positions), closing the asymmetry where
+# this step recomputed the position without seeing the override.
+# ---------------------------------------------------------------------------
+
+
+def test_materialize_position_override_replaces_placement_node():
+    """An origin-anchored tree with a placement node at structural (5,0)/0° —
+    a PositionOverride for "fpga" must replace it: the materialized clone lands
+    at the override (10,20)/45°, NOT at the structural (5,0)."""
+    from kicadstamp.tree_position import PositionOverride
+
+    cfg = _cfg([Entity(name="fpga", cell="c")],
+               [_origin_tree([_node(ref="fpga", xy=(5.0, 0.0))])])
+    override = PositionOverride(position=Vector2.from_xy_mm(10.0, 20.0),
+                                rotation_deg=45.0)
+    clones = materialize_entity_placements(None, cfg, {},
+                                           position_overrides={"fpga": override})
+    assert len(clones) == 1
+    c = clones[0]
+    assert c.name == "fpga"
+    assert c.xy == pytest.approx((10.0, 20.0))
+    assert c.rotation_deg == pytest.approx(45.0)
+
+
+def test_materialize_position_override_only_overridden_node():
+    """Override applies ONLY to the node it names: fpga is overridden to
+    (10,20)/45°, the child keeps the STRUCTURAL frame (fpga node at (5,0)/0°
+    -> child at (7,0)/0°). A rigid redraw applies one node per run, so the
+    child's structural frame is never observed there — this just pins the
+    documented behavior."""
+    from kicadstamp.tree_position import PositionOverride
+
+    cfg = Config(
+        cells={"c": _cell("c")},
+        entities=[Entity(name="fpga", cell="c"), Entity(name="child", cell="c")],
+        trees=[_origin_tree([
+            _node(ref="fpga", xy=(5.0, 0.0),
+                  children=[_node(ref="child", xy=(2.0, 0.0))])])])
+    override = PositionOverride(position=Vector2.from_xy_mm(10.0, 20.0),
+                                rotation_deg=45.0)
+    clones = materialize_entity_placements(None, cfg, {},
+                                           position_overrides={"fpga": override})
+    by_name = {c.name: c for c in clones}
+    assert by_name["fpga"].xy == pytest.approx((10.0, 20.0))
+    assert by_name["fpga"].rotation_deg == pytest.approx(45.0)
+    assert by_name["child"].xy == pytest.approx((7.0, 0.0))
+    assert by_name["child"].rotation_deg == pytest.approx(0.0)
+
+
+def test_materialize_without_override_unchanged():
+    """Regression: no overrides -> the normal structural path is unchanged."""
+    cfg = _cfg([Entity(name="fpga", cell="c")],
+               [_origin_tree([_node(ref="fpga", xy=(5.0, 2.0), rotation=90.0)])])
+    clones = materialize_entity_placements(None, cfg, {})
+    assert len(clones) == 1
+    assert clones[0].xy == pytest.approx((5.0, 2.0))
+    assert clones[0].rotation_deg == pytest.approx(90.0)
+
+
+def test_resolve_order_forwards_position_overrides_to_materialize():
+    """The pipeline wires the asymmetry shut: _resolve_order passes its
+    position_overrides through to materialize_entity_placements, so a tree
+    rigid-group redraw's override reaches the materialized transient clone."""
+    from unittest.mock import patch
+
+    from kicadstamp.apply_pipeline import ApplyPipeline
+    from kicadstamp.tree_position import PositionOverride
+
+    cfg = _cfg([Entity(name="fpga", cell="c")],
+               [_origin_tree([_node(ref="fpga", xy=(5.0, 0.0))])])
+    override = PositionOverride(position=Vector2.from_xy_mm(10.0, 20.0),
+                                rotation_deg=0.0)
+    pipeline = ApplyPipeline("board.sexp", preloaded_cfg=cfg, only=["fpga"],
+                             position_overrides={"fpga": override})
+    pipeline.adapter = None
+    pipeline._load_config()
+    pipeline._filter_config()
+
+    calls = []
+    with patch("kicadstamp.apply_pipeline.materialize_entity_placements",
+               side_effect=lambda *a, **k: calls.append(k) or []), \
+         patch("kicadstamp.apply_pipeline.resolve_execution_order", return_value=[]):
+        pipeline._resolve_order()
+    assert calls
+    assert calls[0]["position_overrides"] == {"fpga": override}
+
+
+def _fpga_flash_mock_adapter():
+    """Live-like mock board for the fpga_flash redraw repro: U6 (Role=FLASH,
+    Cluster=FPGA_FLASH, pad +3V3_FLASH) and C117 (Role=C_IN_BULK,
+    Cluster=FPGA_FLASH, pads +3V3/GND) — the minimal set that exercises the net
+    auto-derivation for a role WITHOUT net_template (C_IN_BULK)."""
+    import contextlib
+    from unittest.mock import MagicMock
+
+    def _pad(number, net):
+        p = MagicMock()
+        p.number = number
+        p.net_name = net
+        return p
+
+    def _fp(ref, role, cluster, x, y, pads):
+        fp = MagicMock()
+        fp.ref = ref
+        fp.position = Vector2.from_xy_mm(x, y)
+        fp.angle_deg = 0.0
+        fp._role = role
+        fp._cluster = cluster
+        fp._pads = list(pads)
+        return fp
+
+    u6 = _fp("U6", "FLASH", "FPGA_FLASH", 101.738, 15.0,
+             [_pad("8", "+3V3_FLASH")])
+    c117 = _fp("C117", "C_IN_BULK", "FPGA_FLASH", 99.769, 8.107,
+               [_pad("1", "+3V3"), _pad("2", "GND")])
+    adapter = MagicMock()
+    adapter.get_footprints.return_value = [u6, c117]
+    adapter.get_field_value.side_effect = (
+        lambda fp, name: getattr(fp, "_role", None) if name == "Role"
+        else (getattr(fp, "_cluster", None) if name == "Cluster" else None))
+    adapter.get_footprint_pads.side_effect = (
+        lambda fp: list(getattr(fp, "_pads", [])))
+    adapter.get_pad_by_number.side_effect = (
+        lambda fp, num: next((p for p in getattr(fp, "_pads", [])
+                              if p.number == str(num)), None))
+    adapter.get_selected_items.return_value = []
+    adapter.temporarily_ignore_selection.side_effect = (
+        lambda clone: contextlib.nullcontext())
+    return adapter
+
+
+def test_placement_live_resolve_autoderives_net_for_role_without_template():
+    """fpga_flash redraw repro (plan_2026_08_31_fpga_flash_rigid_redraw_
+    not_following.md): an Entity whose materialized clone falls back its
+    cluster to its OWN lower-case name ("fpga_flash") must still narrow the
+    role candidates to the upper-case physical Cluster ("FPGA_FLASH") — a
+    case-insensitive cluster_prefix_match lets the net auto-derivation
+    (_auto_derive_live_net) find the unique C_IN_BULK instance and derive its
+    net live, so the whole apply/redraw no longer fatals with "net-based
+    mapping failed" on a role with no net_template (before the fix the live
+    Redraw of fpga_flash silently moved nothing)."""
+    import dataclasses
+
+    from kicadstamp.apply_pipeline import _filter_materialized_entities
+    from kicadstamp.placement.dependency_order import resolve_execution_order
+    from kicadstamp.placement.planner import PlacementPlanner
+
+    cell = Cell(name="fpga_flash", components=[
+        TemplateComponentSlot(role="FLASH"),                      # zero-slot
+        TemplateComponentSlot(role="C_IN_BULK",                   # NO net_template
+                              offset_along_mm=-1.9695,
+                              offset_across_mm=-6.8925),
+    ])
+    cfg = Config(
+        cells={"fpga_flash": cell},
+        entities=[Entity(name="fpga_flash", cell="fpga_flash")],
+        trees=[_origin_tree([_node(ref="fpga_flash", xy=(0.0, 0.0))])],
+    )
+    adapter = _fpga_flash_mock_adapter()
+
+    materialized = materialize_entity_placements(adapter, cfg, {})
+    assert [c.name for c in materialized] == ["fpga_flash"]
+    # The fallback cluster is the lower-case Entity name (Entity has no
+    # explicit cluster) — the case that used to empty the candidate set.
+    assert materialized[0].cluster == "fpga_flash"
+
+    filtered = _filter_materialized_entities(materialized, ["fpga_flash"], None)
+    cfg2 = dataclasses.replace(cfg, clone_placements=list(cfg.clone_placements) + filtered)
+    items = resolve_execution_order(adapter, cfg2, sheet_names={})  # must NOT raise
+    ff_item = next(it for it in items if getattr(it.obj, "name", None) == "fpga_flash")
+
+    planner = PlacementPlanner(adapter, cfg2, sheet_names={})
+    planner.begin_planning()
+    moves = planner.plan_item(ff_item)  # must NOT raise (was net-based mapping fatal)
+    assert any(m.ref == "U6" for m in moves)
+    assert any(m.ref == "C117" for m in moves)

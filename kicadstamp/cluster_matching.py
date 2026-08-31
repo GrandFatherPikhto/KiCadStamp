@@ -20,5 +20,18 @@ def cluster_prefix_match(candidate_cluster: str, wanted: str) -> bool:
     in two places; now one function, defined here (not in clone_role_resolver.py —
     that already depends on component_pool via ROLE_FIELD_NAME, and the reverse
     dependency would create an import cycle).
+
+    Case-insensitive since 2026-08-31 (plan_2026_08_31_fpga_flash_rigid_redraw_
+    not_following.md): a Cluster tag is a user-visible label, its case is not
+    semantically significant. Live repro: an Entity materialized from a tree
+    whose cell was extracted with Origin "By component role" may fall back its
+    cluster to entity.name (e.g. "fpga_flash", lower-case) while the physical
+    Cluster field on the board is upper-case ("FPGA_FLASH") — a case-sensitive
+    segment match then empties the candidate set and the live net auto-derivation
+    (_auto_derive_live_net) cannot find the unique instance, failing the whole
+    apply/redraw of that placement. Both sides are lower-cased before the
+    segment-prefix comparison.
     """
-    return candidate_cluster == wanted or candidate_cluster.startswith(wanted + '/')
+    candidate = candidate_cluster.lower()
+    wanted_l = wanted.lower()
+    return candidate == wanted_l or candidate.startswith(wanted_l + '/')
