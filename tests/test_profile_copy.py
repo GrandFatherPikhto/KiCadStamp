@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from kicadstamp.config import load_cell, load_entity, load_rule
-from kicadstamp.config.profile_copy import copy_cell, copy_entity, copy_rule
+from kicadstamp.config.profile_copy import copy_cell, copy_entity, copy_items, copy_rule
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.exceptions import ValidationError
 
@@ -307,3 +307,63 @@ def test_copy_rule_missing_identity_is_explicit_error(tmp_path):
         copy_rule(source, "no_such_net", target)
 
     assert "not found" in str(exc.value)
+
+
+# ── copy_items (multi-select) ───────────────────────────────────────────────
+
+def test_copy_items_imports_multiple_records_with_shared_closure(tmp_path):
+    """Entity and Rule on the SAME cells import together: their overlapping
+    dependency closures are merged, so the second record does NOT trip on the
+    cells the first one just wrote (a naive per-record loop would)."""
+    source = _make_source(tmp_path)
+    target = _write_sexp(tmp_path / "target.sexp", {
+        "cells": {}, "points": {}, "entities": [], "rules": []})
+
+    result = copy_items(source, [
+        {"kind": "entity", "name": "E_FILTER"},
+        {"kind": "rule", "name": "rule_5v"},
+    ], target)
+
+    assert set(result["cells"]) == {"top", "mid", "leaf"}
+    assert set(result["points"]) == {"fpga_origin", "origin"}
+    assert result["entities"] == ["E_FILTER"]
+    assert result["rules"] == ["rule_5v"]
+    data = _read(target)
+    assert set(data["cells"]) == {"top", "mid", "leaf"}
+    assert set(data["points"]) == {"fpga_origin", "origin"}
+    assert data["entities"] == [
+        {"name": "E_FILTER", "cell": "top", "cluster": "CH0",
+         "nets": {"R1": "/NET_A"}, "params": {"X": "1"}, "sheet": "Sheet_0"}]
+    assert data["rules"][0]["name"] == "rule_5v"
+    # the shared closure is written ONCE (no duplicate cells section)
+    assert data["cells"]["top"]["clone_placements"][0]["cell"] == "mid"
+
+
+def test_copy_items_collision_is_atomic_across_all_records(tmp_path):
+    """The collision check covers the UNION of all selected records' closures
+    BEFORE any write — if one record's closure collides, NOTHING (including a
+    perfectly clean rule) is written."""
+    source = _make_source(tmp_path)
+    target = _write_sexp(tmp_path / "target.sexp", {
+        "cells": {"leaf": {"layer": "F.Cu"}},  # collides via entity's closure
+        "points": {}, "entities": [], "rules": []})
+    before = target.read_bytes()
+
+    with pytest.raises(ValidationError) as exc:
+        copy_items(source, [
+            {"kind": "entity", "name": "E_FILTER"},
+            {"kind": "rule", "name": "rule_5v"},  # its own names are free
+        ], target)
+
+    assert "already exists" in str(exc.value)
+    assert target.read_bytes() == before  # neither entity, rule, nor cells written
+
+
+def test_copy_items_unknown_kind_is_explicit_error(tmp_path):
+    source = _make_source(tmp_path)
+    target = _write_sexp(tmp_path / "target.sexp", {"cells": {}})
+
+    with pytest.raises(ValidationError) as exc:
+        copy_items(source, [{"kind": "bogus", "name": "x"}], target)
+
+    assert "unknown import kind" in str(exc.value)

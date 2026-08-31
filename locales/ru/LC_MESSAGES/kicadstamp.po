@@ -11096,3 +11096,18 @@ msgstr "выберите существующий конфигурационны
 #: kicadstamp/config/profile_copy.py
 msgid "check that the file is a valid .sexp or .json config"
 msgstr "проверьте, что файл — корректный конфиг .sexp или .json"
+
+#: gui/docks/profile_import.py
+#, python-brace-format
+msgid "Imported from {path}:"
+msgstr "Импортировано из {path}:"
+
+#: gui/docks/profile_import.py
+#, python-brace-format
+msgid "  {kind} {name!r}"
+msgstr "  {kind} {name!r}"
+
+#: gui/docks/profile_import.py
+#, python-brace-format
+msgid "({cells} cell(s), {points} point(s) copied)"
+msgstr "(скопировано: ячеек {cells}, точек {points})"

@@ -272,87 +272,125 @@ def list_importable(source_path) -> list:
     return out
 
 
-def copy_cell(source_path, cell_name, target_path, target_root: Optional[Path] = None) -> list:
-    """Copy one Cell (and its whole dependency closure) from source_path into
-    target_path by value. Returns the ordered list of copied Cell names (root
-    first). `target_root` — the target profile's include-graph root used for
-    the collision check; defaults to target_path itself. Raises a clear
-    ValidationError on: missing/unreadable source, missing Cell, a missing
-    dependency in the source, or ANY name collision in the target (nothing is
-    written in any failure case)."""
+def copy_items(source_path, items, target_path, target_root: Optional[Path] = None) -> dict:
+    """Copy several Cell/Entity/Rule records from source_path into target_path
+    by value in ONE atomic pass (2026-08-31, multi-select in the import
+    dialog). `items` is a list of {"kind": "cell"|"entity"|"rule", "name":
+    <identity>} rows — exactly what list_importable() produces. The dependency
+    closures of ALL selected records are merged into ONE set and the collision
+    check runs on the UNION before anything is written, so two records that
+    share a Cell (e.g. an Entity and a Rule on the same cell) import cleanly
+    instead of the second one tripping on the first one's just-written cell.
+
+    Returns {"cells": [...], "points": [...], "entities": [...], "rules": [...]}
+    — the copied names per section (cells/points root-first). Raises a clear
+    ValidationError on: missing/unreadable source, a missing record/name, a
+    missing dependency in the source, or ANY name collision in the target
+    (nothing is written in any failure case)."""
     source = _load_source(source_path)
-    closure = _collect_cell_closure(source, cell_name)
+    cells_data = source.get("cells") or {}
+    points_data = source.get("points") or {}
+    entities = source.get("entities") or []
+    rules = source.get("rules") or []
+
+    cells_to_write: dict = {}
+    points_to_write: dict = {}
+    entities_to_write: list = []
+    rules_to_write: list = []
+
+    for item in items:
+        kind = item.get("kind")
+        name = item.get("name")
+        if kind == "cell":
+            for n in _collect_cell_closure(source, name):
+                cells_to_write.setdefault(n, cells_data[n])
+        elif kind == "entity":
+            raw = next((e for e in entities
+                        if isinstance(e, dict) and e.get("name") == name), None)
+            if raw is None:
+                raise ValidationError(format_fatal_error(
+                    _("entity {name!r} not found in import source").format(name=name),
+                    [_("known entities in the source: {names}").format(
+                        names=sorted(e.get("name") for e in entities if isinstance(e, dict))
+                        if entities else _("(none)"))]))
+            if raw.get("cell"):
+                for n in _collect_cell_closure(source, raw["cell"]):
+                    cells_to_write.setdefault(n, cells_data[n])
+            entities_to_write.append(raw)
+        elif kind == "rule":
+            raw = next((r for r in rules if isinstance(r, dict)
+                        and ((r.get("name") or r.get("net")) == name)), None)
+            if raw is None:
+                raise ValidationError(format_fatal_error(
+                    _("rule {name!r} not found in import source").format(name=name),
+                    [_("known rules in the source: {names}").format(
+                        names=sorted((r.get("name") or r.get("net"))
+                                     for r in rules if isinstance(r, dict))
+                        if rules else _("(none)"))]))
+            for spoke in (raw.get("spokes") or []):
+                if isinstance(spoke, dict) and spoke.get("cell"):
+                    for n in _collect_cell_closure(source, spoke["cell"]):
+                        cells_to_write.setdefault(n, cells_data[n])
+            if raw.get("anchor_point"):
+                for n in _collect_point_closure(source, raw["anchor_point"]):
+                    points_to_write.setdefault(n, points_data[n])
+            rules_to_write.append(raw)
+        else:
+            raise ValidationError(format_fatal_error(
+                _("unknown import kind {kind!r}").format(kind=kind),
+                [_("kind must be 'cell', 'entity' or 'rule'")]))
+
     root = Path(target_root) if target_root is not None else Path(target_path)
-    _check_no_collision(root, "cells", closure, _("cell"))
-    cells = source.get("cells") or {}
-    _write_dict_section(Path(target_path), "cells", {n: cells[n] for n in closure})
-    return closure
+    _check_no_collision(root, "cells", list(cells_to_write), _("cell"))
+    _check_no_collision(root, "points", list(points_to_write), _("point"))
+    for entry in entities_to_write:
+        _check_no_collision(root, "entities", [entry["name"]], _("entity"))
+    for entry in rules_to_write:
+        _check_no_collision(root, "rules", [(entry.get("name") or entry.get("net"))], _("rule"))
+
+    target = Path(target_path)
+    _write_dict_section(target, "cells", cells_to_write)
+    _write_dict_section(target, "points", points_to_write)
+    for entry in entities_to_write:
+        _append_list_entry(target, "entities", entry)
+    for entry in rules_to_write:
+        _append_list_entry(target, "rules", entry)
+
+    return {
+        "cells": list(cells_to_write),
+        "points": list(points_to_write),
+        "entities": [e["name"] for e in entities_to_write],
+        "rules": [(r.get("name") or r.get("net")) for r in rules_to_write],
+    }
+
+
+def copy_cell(source_path, cell_name, target_path, target_root: Optional[Path] = None) -> list:
+    """Copy one Cell (and its whole dependency closure) by value — a thin
+    single-record wrapper over copy_items(). Returns the ordered list of
+    copied Cell names (root first). Raises a clear ValidationError on:
+    missing/unreadable source, missing Cell, a missing dependency in the
+    source, or ANY name collision in the target (nothing is written)."""
+    result = copy_items(source_path, [{"kind": "cell", "name": cell_name}],
+                        target_path, target_root)
+    return result["cells"]
 
 
 def copy_entity(source_path, entity_name, target_path, target_root: Optional[Path] = None) -> list:
     """Copy one Entity (its raw dict verbatim — nets:/params:/net_overrides:/
-    sheet: included as-is) plus the Cell closure behind entity.cell, into
-    target_path by value. Returns the ordered list of copied Cell names.
-    Collision (entity name or any closure Cell) is refused before any write."""
-    source = _load_source(source_path)
-    entities = source.get("entities") or []
-    raw_entity = next((e for e in entities
-                       if isinstance(e, dict) and e.get("name") == entity_name), None)
-    if raw_entity is None:
-        raise ValidationError(format_fatal_error(
-            _("entity {name!r} not found in import source").format(name=entity_name),
-            [_("known entities in the source: {names}").format(
-                names=sorted(e.get("name") for e in entities if isinstance(e, dict))
-                if entities else _("(none)"))]))
-    cell = raw_entity.get("cell")
-    closure = _collect_cell_closure(source, cell) if cell else []
-
-    root = Path(target_root) if target_root is not None else Path(target_path)
-    _check_no_collision(root, "entities", [entity_name], _("entity"))
-    _check_no_collision(root, "cells", closure, _("cell"))
-
-    cells = source.get("cells") or {}
-    _write_dict_section(Path(target_path), "cells", {n: cells[n] for n in closure})
-    _append_list_entry(Path(target_path), "entities", raw_entity)
-    return closure
+    sheet: included as-is) plus the Cell closure behind entity.cell, by value —
+    a thin single-record wrapper over copy_items(). Returns the ordered list
+    of copied Cell names. Collision is refused before any write."""
+    result = copy_items(source_path, [{"kind": "entity", "name": entity_name}],
+                        target_path, target_root)
+    return result["cells"]
 
 
 def copy_rule(source_path, rule_identity, target_path, target_root: Optional[Path] = None) -> list:
     """Copy one Rule (matched by effective identity — name: or net:) plus its
     Cell closure (every spoke.cell, transitively) and its points closure
-    (anchor_point, transitively), into target_path by value. Electrical
-    fields are copied verbatim. Returns the ordered list of copied dependency
-    names (cells then points). Collision (rule identity or any closure name)
-    is refused before any write."""
-    source = _load_source(source_path)
-    rules = source.get("rules") or []
-    raw_rule = next((r for r in rules if isinstance(r, dict)
-                     and ((r.get("name") or r.get("net")) == rule_identity)), None)
-    if raw_rule is None:
-        raise ValidationError(format_fatal_error(
-            _("rule {name!r} not found in import source").format(name=rule_identity),
-            [_("known rules in the source: {names}").format(
-                names=sorted((r.get("name") or r.get("net"))
-                             for r in rules if isinstance(r, dict))
-                if rules else _("(none)"))]))
-
-    cell_closure: list = []
-    for spoke in (raw_rule.get("spokes") or []):
-        if isinstance(spoke, dict) and spoke.get("cell"):
-            for n in _collect_cell_closure(source, spoke["cell"]):
-                if n not in cell_closure:
-                    cell_closure.append(n)
-    point_closure = (_collect_point_closure(source, raw_rule["anchor_point"])
-                     if raw_rule.get("anchor_point") else [])
-
-    root = Path(target_root) if target_root is not None else Path(target_path)
-    _check_no_collision(root, "rules", [rule_identity], _("rule"))
-    _check_no_collision(root, "cells", cell_closure, _("cell"))
-    _check_no_collision(root, "points", point_closure, _("point"))
-
-    cells = source.get("cells") or {}
-    points = source.get("points") or {}
-    _write_dict_section(Path(target_path), "cells", {n: cells[n] for n in cell_closure})
-    _write_dict_section(Path(target_path), "points", {n: points[n] for n in point_closure})
-    _append_list_entry(Path(target_path), "rules", raw_rule)
-    return cell_closure + point_closure
+    (anchor_point, transitively), by value — a thin single-record wrapper over
+    copy_items(). Electrical fields are copied verbatim. Returns the ordered
+    list of copied dependency names (cells then points)."""
+    result = copy_items(source_path, [{"kind": "rule", "name": rule_identity}],
+                        target_path, target_root)
+    return result["cells"] + result["points"]

@@ -6,6 +6,7 @@ actual copy + collision logic itself is covered thoroughly (and headlessly) by
 tests/test_profile_copy.py."""
 from pathlib import Path
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
@@ -30,7 +31,11 @@ def _silence_boxes(monkeypatch, warnings=None, infos=None):
                         lambda *a, **k: (infos.append(a[2]) if infos is not None else None))
 
 
-def test_import_dialog_browse_and_copy_cell_into_root(qapp, tmp_path, monkeypatch):
+def _check_row(dlg, row: int) -> None:
+    dlg.table.item(row, 0).setCheckState(Qt.CheckState.Checked)
+
+
+def test_import_dialog_browse_and_check_cell_into_root(qapp, tmp_path, monkeypatch):
     source = _write_sexp(tmp_path / "source.sexp", {"cells": {
         "leaf": {"layer": "F.Cu", "components": [{"role": "R1"}]}}})
     root = _write_sexp(tmp_path / "root.sexp", {"cells": {}})
@@ -43,14 +48,46 @@ def test_import_dialog_browse_and_copy_cell_into_root(qapp, tmp_path, monkeypatc
 
     assert dlg._source_path == source
     assert dlg.table.rowCount() == 1
-    assert dlg.table.item(0, 0).text() == "Cell"
-    assert dlg.table.item(0, 1).text() == "leaf"
+    assert dlg.table.item(0, 1).text() == "Cell"
+    assert dlg.table.item(0, 2).text() == "leaf"
+    assert dlg.import_button.isEnabled() is False  # nothing checked yet
 
-    dlg.table.selectRow(0)
+    _check_row(dlg, 0)
+    assert dlg.import_button.isEnabled() is True
     dlg._import()
 
     assert "leaf" in _read(root)["cells"]
     assert _read(root)["cells"]["leaf"]["components"][0]["role"] == "R1"
+
+
+def test_import_dialog_multi_select_imports_all_checked(qapp, tmp_path, monkeypatch):
+    source = _write_sexp(tmp_path / "source.sexp", {
+        "cells": {
+            "c1": {"layer": "F.Cu", "components": [{"role": "R1"}]},
+            "c2": {"layer": "F.Cu", "components": [{"role": "R2"}]},
+        },
+        "entities": [{"name": "E1", "cell": "c1", "nets": {"R1": "/N1"}}],
+    })
+    root = _write_sexp(tmp_path / "root.sexp", {"cells": {}, "entities": []})
+    monkeypatch.setattr(QFileDialog, "getOpenFileName",
+                        lambda *a, **k: (str(source), ""))
+    infos = []
+    _silence_boxes(monkeypatch, infos=infos)
+
+    dlg = ProfileImportDialog(None, root)
+    dlg._browse()
+    assert dlg.table.rowCount() == 3  # c1, c2, E1
+
+    # tick c2 (row 1) and E1 (row 2) — NOT c1
+    _check_row(dlg, 1)
+    _check_row(dlg, 2)
+    dlg._import()
+
+    data = _read(root)
+    assert set(data["cells"]) == {"c1", "c2"}  # E1's cell c1 comes via closure
+    assert data["entities"] == [{"name": "E1", "cell": "c1", "nets": {"R1": "/N1"}}]
+    assert infos, "multi-import must report a summary"
+    assert "E1" in infos[0] and "c2" in infos[0]
 
 
 def test_import_dialog_collision_shows_error_and_leaves_root_unchanged(qapp, tmp_path, monkeypatch):
@@ -65,7 +102,7 @@ def test_import_dialog_collision_shows_error_and_leaves_root_unchanged(qapp, tmp
 
     dlg = ProfileImportDialog(None, root)
     dlg._browse()
-    dlg.table.selectRow(0)
+    _check_row(dlg, 0)
     dlg._import()
 
     assert warnings, "collision must surface as a visible message"

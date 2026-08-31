@@ -1,13 +1,15 @@
 # gui/docks/profile_import.py
 """Edit > Import from profile... (2026-08-31, plan_2026_08_31_copy_cell_
-entity_from_profile.md) — copy one Cell/Entity/Rule from ANOTHER profile into
-the CURRENT project BY VALUE (no include: link, no live reference). The actual
-copy + dependency closure + collision logic lives in the core module
-kicadstamp/config/profile_copy.py; this file is the thin picker dialog:
+entity_from_profile.md) — copy one or more Cell/Entity/Rule from ANOTHER
+profile into the CURRENT project BY VALUE (no include: link, no live
+reference). The actual copy + dependency closure + collision logic lives in the
+core module kicadstamp/config/profile_copy.py; this file is the thin picker
+dialog:
 
   1. choose a source .sexp/.json file,
   2. see every Cell/Entity/Rule in it (name + a recognizable descriptor),
-  3. pick one and copy it into the current project root.
+  3. tick the records to import (multi-select, one checkbox per row) and copy
+     them all into the current project root in one atomic pass.
 
 On a name collision (or any other refusal) the backend raises BEFORE writing
 anything, and the dialog shows the clear message in a QMessageBox — never a
@@ -17,12 +19,12 @@ import logging
 from pathlib import Path
 from typing import Callable, List, Optional
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QAbstractItemView, QDialog, QFileDialog, QHBoxLayout,
                               QHeaderView, QLabel, QMessageBox, QPushButton,
                               QTableWidget, QTableWidgetItem, QVBoxLayout)
 
-from kicadstamp.config.profile_copy import (
-    copy_cell, copy_entity, copy_rule, list_importable)
+from kicadstamp.config.profile_copy import copy_items, list_importable
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
 
@@ -33,27 +35,24 @@ logger = logging.getLogger(__name__)
 _KIND_LABEL = {"cell": _("Cell"), "entity": _("Entity"), "rule": _("Rule")}
 
 
-def _copy_one(kind: str, source_path: Path, name: str, target_path: Path) -> List[str]:
-    """Dispatch one picker row to the matching backend copy_* function. Returns
-    the copied dependency names (cells for cell/entity; cells+points for rule)."""
-    if kind == "cell":
-        return copy_cell(source_path, name, target_path, target_root=target_path)
-    if kind == "entity":
-        return copy_entity(source_path, name, target_path, target_root=target_path)
-    return copy_rule(source_path, name, target_path, target_root=target_path)
-
-
-def _summary(kind: str, name: str, copied: List[str]) -> str:
-    """Human-readable success message: the imported record + its closure."""
-    deps = [n for n in copied]
-    if not deps:
-        return _("Imported {kind} {name!r}").format(kind=_KIND_LABEL[kind], name=name)
-    return _("Imported {kind} {name!r} with dependencies: {deps}").format(
-        kind=_KIND_LABEL[kind], name=name, deps=", ".join(deps))
+def _summary_many(items: List[dict], result: dict, source_name: str) -> str:
+    """Human-readable multi-line success message: the imported records + the
+    total dependency cells/points the backend copied for them."""
+    lines = [_("Imported from {path}:").format(path=source_name)]
+    for item in items:
+        lines.append(_("  {kind} {name!r}").format(
+            kind=_KIND_LABEL[item["kind"]], name=item["name"]))
+    n_cells = len(result["cells"])
+    n_points = len(result["points"])
+    if n_cells or n_points:
+        lines.append(_("({cells} cell(s), {points} point(s) copied)")
+                     .format(cells=n_cells, points=n_points))
+    return "\n".join(lines)
 
 
 class ProfileImportDialog(QDialog):
-    """Modal picker: source file -> table of importable records -> copy one."""
+    """Modal picker: source file -> table of importable records (tick the ones
+    to import) -> copy all checked records in one atomic pass."""
 
     def __init__(self, parent, root_path: Path, on_imported: Optional[Callable[[], None]] = None):
         super().__init__(parent)
@@ -63,7 +62,7 @@ class ProfileImportDialog(QDialog):
         self._rows: List[dict] = []
 
         self.setWindowTitle(_("Import from profile..."))
-        self.resize(520, 380)
+        self.resize(560, 400)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -78,16 +77,18 @@ class ProfileImportDialog(QDialog):
         source_row.addWidget(self.browse_button)
         layout.addLayout(source_row)
 
-        # Table of importable records
-        self.table = QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels([_("Type"), _("Name"), _("Info")])
+        # Table of importable records — one checkbox per row (multi-select),
+        # not a single selection (Denis, 2026-08-31: "множественное выделение,
+        # например галочками").
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["", _("Type"), _("Name"), _("Info")])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.table.itemSelectionChanged.connect(self._selection_changed)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.table.itemChanged.connect(self._on_item_changed)
         layout.addWidget(self.table, 1)
 
         # Buttons
@@ -126,36 +127,44 @@ class ProfileImportDialog(QDialog):
     def _populate_table(self) -> None:
         self.table.setRowCount(len(self._rows))
         for row, item in enumerate(self._rows):
-            self.table.setItem(row, 0, QTableWidgetItem(_KIND_LABEL[item["kind"]]))
-            self.table.setItem(row, 1, QTableWidgetItem(item["name"]))
-            self.table.setItem(row, 2, QTableWidgetItem(item.get("info") or ""))
+            check = QTableWidgetItem("")
+            check.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+            check.setCheckState(Qt.CheckState.Unchecked)
+            self.table.setItem(row, 0, check)
+            self.table.setItem(row, 1, QTableWidgetItem(_KIND_LABEL[item["kind"]]))
+            self.table.setItem(row, 2, QTableWidgetItem(item["name"]))
+            self.table.setItem(row, 3, QTableWidgetItem(item.get("info") or ""))
         self.import_button.setEnabled(False)
 
     # ── Selection / import ───────────────────────────────────────────────
 
-    def _selection_changed(self) -> None:
-        rows = self.table.selectionModel().selectedRows()
-        self.import_button.setEnabled(self._source_path is not None and bool(rows))
+    def _on_item_changed(self, item) -> None:
+        if item.column() == 0:
+            self.import_button.setEnabled(self._source_path is not None and bool(self._checked_rows()))
 
-    def _selected_row(self) -> Optional[dict]:
-        rows = self.table.selectionModel().selectedRows()
-        if not rows or self._source_path is None:
-            return None
-        return self._rows[rows[0].row()]
+    def _checked_rows(self) -> List[dict]:
+        if self._source_path is None:
+            return []
+        out: List[dict] = []
+        for row in range(self.table.rowCount()):
+            check_item = self.table.item(row, 0)
+            if check_item is not None and check_item.checkState() == Qt.CheckState.Checked:
+                out.append(self._rows[row])
+        return out
 
     def _import(self) -> None:
-        item = self._selected_row()
-        if item is None:
+        items = self._checked_rows()
+        if not items or self._source_path is None:
             return
         try:
-            copied = _copy_one(item["kind"], self._source_path, item["name"], self._root_path)
+            result = copy_items(self._source_path, items, self._root_path,
+                                target_root=self._root_path)
         except (ValidationError, OSError) as e:
             QMessageBox.warning(self, _("Import failed"), str(e))
             return
-        show_message(_summary(item["kind"], item["name"], copied), "", logger)
-        QMessageBox.information(
-            self, _("Import from profile..."),
-            _summary(item["kind"], item["name"], copied))
+        message = _summary_many(items, result, self._source_path.name)
+        show_message(message, "", logger)
+        QMessageBox.information(self, _("Import from profile..."), message)
         if self._on_imported is not None:
             self._on_imported()
         self.accept()
