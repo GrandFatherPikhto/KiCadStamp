@@ -24,6 +24,7 @@ import pytest
 from kicadstamp.anchor_graph import Record
 from kicadstamp.config import ClonePlacement, CoordinatePlacement
 from kicadstamp.domain.geometry import Vector2
+from kicadstamp.exceptions import ValidationError
 from kicadstamp.geometry.spoke_layout import local_to_absolute
 from kicadstamp.link_trees import LinkedAnchor, LinkedNode, LinkedTree
 from kicadstamp.trees import TreeAnchor, TreeNode
@@ -490,6 +491,20 @@ def test_dispatch_unreachable_kind_raises_assertion_error():
     a wrong position."""
     rec = _record("thermal_via", "TVA1")
     with pytest.raises(AssertionError, match="thermal_via"):
+        resolve_record_live_position("adapter", "cfg", rec, "points", "sheets")
+
+
+def test_dispatch_placement_raises_validation_error_not_assertion():
+    """Bug gate (2026-08-31, plan read_position_entity_parent_crash): an Entity
+    (record kind "placement") carries NO record-level position — its live
+    position is resolved from the TREE at apply time (Phase 4). Asking for a
+    record-only live position of one must raise the USER-FACING ValidationError
+    (the GUI Read-position handlers turn it into a QMessageBox warning), NEVER
+    an AssertionError that escapes a GUI callback uncaught. The same kind is
+    the ONLY such place: the sibling rotation dispatcher (resolve_record_
+    rotation_deg) already honestly returns None for placement."""
+    rec = _record("placement", "ENT_A")
+    with pytest.raises(ValidationError, match="entity placement live position"):
         resolve_record_live_position("adapter", "cfg", rec, "points", "sheets")
 
 

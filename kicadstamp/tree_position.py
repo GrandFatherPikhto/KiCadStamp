@@ -159,8 +159,12 @@ def resolve_record_live_position(adapter, cfg, rec: Record, resolved_points,
         # placement_grammar.md §3). Their live position as a tree base/anchor is
         # resolved from the TREE (anchor / parent node offset) at Phase 4 —
         # never from the record. Reaching this branch means a caller asked for
-        # a record-only live position of an Entity, which is not wired yet.
-        raise AssertionError(
+        # a record-only live position of an Entity, which is not wired yet — a
+        # LONG-KNOWN LIMITATION, so it must surface as the user-facing
+        # ValidationError (the GUI "Read current position" handlers turn it into
+        # a QMessageBox warning), NOT an AssertionError that escapes a GUI
+        # callback uncaught (plan_2026_08_31_read_position_entity_parent_crash.md).
+        raise ValidationError(
             "entity placement live position is resolved from the tree at apply "
             "time (phase 4); the Entity record itself carries no anchor/xy")
 

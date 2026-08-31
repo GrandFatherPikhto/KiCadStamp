@@ -1328,6 +1328,23 @@ ANCHOR_POINT_ANCHOR_CFG = {
     ],
 }
 
+# A tree whose PARENT node is a kind="placement" record (an Entity). An Entity
+# carries NO record-level position — its live position is resolved from the
+# TREE at apply time (Phase 4). Bug 2026-08-31: the GUI "Read current position"
+# used to raise an uncaught AssertionError here (resolve_record_live_position's
+# placement branch) instead of the user-facing ValidationError.
+ENTITY_PARENT_CFG = {
+    "entities": [
+        {"name": "ENT_A", "cell": "c"},
+        {"name": "ENT_B", "cell": "c"},
+    ],
+    "trees": [
+        {"name": "t1", "anchor": {"origin": True},
+         "nodes": [{"ref": "ENT_A", "kind": "placement",
+                    "children": [{"ref": "ENT_B", "kind": "placement"}]}]},
+    ],
+}
+
 
 def test_read_position_clone_anchor_point_resolves_on_demand(
         main_window, tmp_path, monkeypatch):
@@ -1381,6 +1398,36 @@ def test_reread_node_flow_clone_anchor_point_anchor_resolves_on_demand(
     assert node.polar is None
     assert node.rotation == 0.0
     assert dock._dirty is True
+
+
+def test_node_dialog_read_position_entity_parent_warns_not_crash(
+        main_window, tmp_path, monkeypatch):
+    """Bug gate (2026-08-31, plan read_position_entity_parent_crash): the
+    parent is an Entity (kind "placement"), which has NO record-level live
+    position — resolve_record_live_position must raise the user-facing
+    ValidationError (NOT the old uncaught AssertionError), _on_read_position
+    turns it into a QMessageBox warning, and the offset/rotation fields stay
+    untouched. Exercises the REAL _resolve_live_offset path (no mock) — the
+    dialog must not raise."""
+    import gui.docks.trees_dock as td_mod
+    dock, _root = _dock_with(main_window, tmp_path, ENTITY_PARENT_CFG)
+    tree = dock._current_tree()
+    parent = tree.nodes[0]  # ENT_A — a kind="placement" Entity node
+
+    warnings = []
+    monkeypatch.setattr(td_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or None)
+    dlg = _build_dialog(dock, tree, parent)
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("placement"))
+    dlg.ref_combo.setCurrentText("ENT_B")
+
+    dlg._on_read_position()  # must NOT raise (the AssertionError used to escape)
+
+    assert warnings
+    assert any("entity placement live position" in str(w[2]) for w in warnings)
+    assert dlg.offset_widget.x_edit.text() == ""
+    assert dlg.offset_widget.y_edit.text() == ""
+    assert dlg.rotation_edit.text() == ""
 
 
 # NOTE: a clone whose anchor_point names a point ABSENT from cfg.points is
