@@ -155,12 +155,18 @@ action (cells → Add cell, extract_profiles → Add extract profile, ...); Clon
 (read-only, no GUI edit form); a file header still shows all of them (Denis's decision — otherwise a
 fresh file with no sections yet couldn't create its first entity). "Add extract profile..." isn't a
 blank form like the other Add-actions (an extract profile's params come from a real board selection)
-— it points the Extract dock at the file, pre-checks "Also save as extract_profile" and focuses the
-profile-key field, so the profile is saved as a side effect of the next real Extract. Since 2026-08-31
-the selected Cluster auto-fills BOTH the Cell name and the Profile key (the matching profile key when
-one exists, otherwise the Cluster's slug — never stomping a typed value), and when the selection spans
-several Clusters the "Keep only one Cluster" filter is auto-checked (its combo already defaults to the
-Cluster with the most components), so a "New Extract" immediately narrows to the user's own Cluster.
+— it opens the Extract dialog pointed at the file, pre-checks "Also save as extract_profile" and
+focuses the profile-key field, so the profile is saved as a side effect of the next real Extract.
+Since 2026-08-31 the Extract form is a standalone **dialog** (no longer a Detail-dock page):
+right-clicking the tree offers **New Extract...** (a plain fresh capture, always available) and, on
+the `extract_profiles` section, **Add extract profile...** (profile-save armed); clicking an
+`extract_profiles` leaf opens the dialog with that profile's recipe pulled in. The dialog is
+non-modal — you can keep selecting on the board while it's open — and auto-closes after a successful
+Extract. Also since 2026-08-31 the selected Cluster auto-fills BOTH the Cell name and the Profile key
+(the matching profile key when one exists, otherwise the Cluster's slug — never stomping a typed
+value), and when the selection spans several Clusters the "Keep only one Cluster" filter is
+auto-checked (its combo already defaults to the Cluster with the most components), so a "New Extract"
+immediately narrows to the user's own Cluster.
 
 Clicking any node also switches the Detail dock to that node's own panel (Rule → Rules, file →
 Project, ...). Since 2026-08-21 the entity docks no longer ask **which file to write to** — every
@@ -291,13 +297,15 @@ move is applied via a per-run, non-persistent position override (Option 1, see t
 
 ## Detail dock
 
-Extract/Placer/Project/Thermal via/Points/Rules/Net traces/Cells/Settings below all live as tabs
+Placer/Project/Thermal via/Points/Rules/Net traces/Cells/Settings below all live as tabs
 inside one shared **Detail** dock, not as separate docks — switching is both automatic (a
-Config-tree click routes to the matching tab) and manual (click the tab bar directly). Every
+Config-tree click routes to the matching tab) and manual (click the tab bar directly). Extract is
+NOT a tab here since 2026-08-31 — it's a standalone dialog, see the [Extract](#extract) section.
+Every
 automatic switch also
 raises Detail to the front of its own tabified group (it shares screen space with fieldstool) and
 updates its window title to name the page and, where there's a single obvious current entity, its
-name too — e.g. "Detail — Cells: composite", or just "Detail — Extract" for pages with no single
+name too — e.g. "Detail — Cells: composite", or just "Detail — Project" for pages with no single
 current entity (added 2026-08-06, found live — Denis: "неплохо бы подсвечивать, какой док сейчас
 активен. А то вообще, не видно, кто и что" — a plain tree click used to switch the tab silently if
 Detail wasn't already the visible group).
@@ -339,7 +347,11 @@ use), this tab just adds GUI editing on top of a few more keys.
 ## Extract
 
 Builds a `Cell` from whatever's currently selected on the board (components, vias, tracks) and
-writes it into the Cells file — the GUI equivalent of `kicadstamp_cli.py extract`.
+writes it into the Cells file — the GUI equivalent of `kicadstamp_cli.py extract`. Since 2026-08-31
+this is a standalone **dialog** (not a Detail-dock page): open it from the Config tree's context
+menu with **New Extract...** (plain capture) or **Add extract profile...** (profile-save armed), or
+by clicking an `extract_profiles` leaf. It's non-modal (keep selecting on the board while it's open)
+and auto-closes after a successful Extract.
 
 **Origin**/**Net aliases**/**Net template role**/**Sub-placements**/**Existing** below live in a
 tab widget (2026-08-04: previously stacked in one long column, whose minimum height was the SUM of
@@ -347,9 +359,9 @@ every section's own — the dock couldn't shrink below that even when most of it
 now). A `QTabWidget` only sizes for the current page, so the dock resizes freely; **Net template
 role**'s and **Sub-placements**' tabs are hidden outright (not just their content) until they
 actually apply. Since 2026-08-31 nets are auto-derived at extract (a role's `net_template` is
-written from its own non-rule pad nets — see below), so the **Net aliases** and **Net template
-role** tabs are hidden by default too; the **Show advanced net settings** checkbox reveals them
-for manual overrides.
+written from its own non-rule pad nets — see below), so the **Net aliases**, **Net template role**
+and **Existing** tabs are hidden by default too (profiles/cells are picked from the Config tree);
+the **Show advanced net settings** checkbox reveals them for manual overrides.
 
 - **Write target** — a successful extraction writes the Cell into the project root file's `cells:`
   section (and, with "Also save as extract_profile", the profile recipe into that same file's

@@ -3,7 +3,6 @@
 from gui.docks.cell_editor import CellDock
 from gui.docks.configurator import ConfiguratorDock
 from gui.docks.detail_panel import DetailDock
-from gui.docks.extract import ExtractDock
 from gui.docks.net_trace import NetTraceDock
 from gui.docks.placer import PlacerDock
 from gui.docks.points import PointsDock
@@ -15,7 +14,6 @@ from gui.docks.tools import ToolsDock
 
 def test_pages_are_the_expected_panel_types(main_window):
     dock = DetailDock(main_window)
-    assert isinstance(dock.extract_panel, ExtractDock)
     assert isinstance(dock.placer_panel, PlacerDock)
     assert isinstance(dock.root_panel, RootMetadataDock)
     assert isinstance(dock.thermal_via_panel, ThermalViaArrayDock)
@@ -26,11 +24,12 @@ def test_pages_are_the_expected_panel_types(main_window):
     assert isinstance(dock.configurator_panel, ConfiguratorDock)
     assert isinstance(dock.tools_panel, ToolsDock)
     # Coordinate placements merged into PlacerDock (2026-08-12, Group 1) —
-    # no separate Coordinate panel/tab anymore. Settings is the 9th tab
-    # (2026-08-15, plan configurator_panel); Net traces (2026-08-21, plan
-    # net_trace_dock) sits between Rules and Cells; Tools (2026-08-30,
-    # phase 5.2 stage 3) sits between Cells and Settings.
-    assert dock.stack.count() == 10
+    # no separate Coordinate panel/tab anymore. Extract is NOT a page since
+    # 2026-08-31 (plan extract_dialog_and_hide_existing.md) — it moved to a
+    # standalone dialog (gui/docks/extract_dialog.py). Settings is the 8th
+    # tab; Net traces sits between Rules and Cells; Tools between Cells and
+    # Settings.
+    assert dock.stack.count() == 9
 
 
 def test_project_tab_is_shown_first(main_window):
@@ -46,7 +45,7 @@ def test_project_tab_is_shown_first(main_window):
 def test_show_placer_switches_tab_and_stack(main_window):
     dock = DetailDock(main_window)
     dock.show_placer()
-    assert dock.tab_bar.currentIndex() == 2
+    assert dock.tab_bar.currentIndex() == 1
     assert dock.stack.currentWidget() is dock.placer_panel
 
 
@@ -57,12 +56,15 @@ def test_show_root_switches_tab_and_stack(main_window):
     assert dock.stack.currentWidget() is dock.root_panel
 
 
-def test_show_extract_switches_back(main_window):
+def test_no_extract_tab_since_it_is_a_dialog(main_window):
+    """2026-08-31 (plan extract_dialog_and_hide_existing.md): the Extract form
+    moved out of DetailDock into a standalone dialog (gui/docks/extract_dialog
+    .py) — there must be no Extract page/tab left here, and the first
+    non-Project page is Placer."""
     dock = DetailDock(main_window)
-    dock.show_placer()
-    dock.show_extract()
-    assert dock.tab_bar.currentIndex() == 1
-    assert dock.stack.currentWidget() is dock.extract_panel
+    labels = [dock.tab_bar.tabText(i) for i in range(dock.tab_bar.count())]
+    assert "Extract" not in labels
+    assert labels[1] == "Placer"
 
 
 def test_manually_clicking_a_tab_switches_the_stack(main_window):
@@ -71,14 +73,14 @@ def test_manually_clicking_a_tab_switches_the_stack(main_window):
     selector so a panel stays reachable even without a matching tree
     click)."""
     dock = DetailDock(main_window)
-    dock.tab_bar.setCurrentIndex(2)
+    dock.tab_bar.setCurrentIndex(1)
     assert dock.stack.currentWidget() is dock.placer_panel
 
 
 def test_show_thermal_via_switches_tab_and_stack(main_window):
     dock = DetailDock(main_window)
     dock.show_thermal_via()
-    assert dock.tab_bar.currentIndex() == 3
+    assert dock.tab_bar.currentIndex() == 2
     assert dock.stack.currentWidget() is dock.thermal_via_panel
 
 
@@ -88,35 +90,35 @@ def test_show_coordinate_placer_switches_to_the_placer_tab(main_window):
     separate Coordinate placer tab anymore."""
     dock = DetailDock(main_window)
     dock.show_coordinate_placer()
-    assert dock.tab_bar.currentIndex() == 2
+    assert dock.tab_bar.currentIndex() == 1
     assert dock.stack.currentWidget() is dock.placer_panel
 
 
 def test_show_points_switches_tab_and_stack(main_window):
     dock = DetailDock(main_window)
     dock.show_points()
-    assert dock.tab_bar.currentIndex() == 4
+    assert dock.tab_bar.currentIndex() == 3
     assert dock.stack.currentWidget() is dock.points_panel
 
 
 def test_show_rules_switches_tab_and_stack(main_window):
     dock = DetailDock(main_window)
     dock.show_rules()
-    assert dock.tab_bar.currentIndex() == 5
+    assert dock.tab_bar.currentIndex() == 4
     assert dock.stack.currentWidget() is dock.rules_panel
 
 
 def test_show_net_trace_switches_tab_and_stack(main_window):
     dock = DetailDock(main_window)
     dock.show_net_trace()
-    assert dock.tab_bar.currentIndex() == 6
+    assert dock.tab_bar.currentIndex() == 5
     assert dock.stack.currentWidget() is dock.net_trace_panel
 
 
 def test_show_cells_switches_tab_and_stack(main_window):
     dock = DetailDock(main_window)
     dock.show_cells()
-    assert dock.tab_bar.currentIndex() == 7
+    assert dock.tab_bar.currentIndex() == 6
     assert dock.stack.currentWidget() is dock.cells_panel
 
 
@@ -143,8 +145,8 @@ def test_show_placer_raises_and_shows_the_dock(main_window):
 
 def test_title_reflects_page_with_no_current_entity(main_window):
     dock = DetailDock(main_window)
-    dock.show_extract()
-    assert dock.windowTitle() == "Detail — Extract"
+    dock.show_root()
+    assert dock.windowTitle() == "Detail — Project"
 
 
 def test_title_reflects_current_entity_name_for_cells(main_window):
@@ -178,7 +180,7 @@ def test_title_updates_when_loading_a_different_entity_on_the_same_tab(main_wind
 def test_manual_tab_click_also_updates_the_title(main_window):
     dock = DetailDock(main_window)
     dock.rules_panel.name_edit.setText("my_rule")
-    dock.tab_bar.setCurrentIndex(5)  # Rules
+    dock.tab_bar.setCurrentIndex(4)  # Rules
     assert dock.windowTitle() == "Detail — Rules: my_rule"
 
 
@@ -187,17 +189,18 @@ def test_show_tools_switches_tab_and_stack(main_window):
     fields, between Cells and Settings."""
     dock = DetailDock(main_window)
     dock.show_tools()
-    assert dock.tab_bar.currentIndex() == 8
+    assert dock.tab_bar.currentIndex() == 7
     assert dock.stack.currentWidget() is dock.tools_panel
 
 
 def test_show_settings_switches_tab_and_stack(main_window):
-    """Settings is the 10th tab (2026-08-15 plan configurator_panel, +1 for
-    Net traces 2026-08-21, +1 for Tools 2026-08-30) — its show_X() page-switch
-    follows the same pattern as every other page."""
+    """Settings is the 9th tab (2026-08-15 plan configurator_panel, +1 for
+    Net traces 2026-08-21, +1 for Tools 2026-08-30, -1 for Extract moved to
+    its own dialog 2026-08-31) — its show_X() page-switch follows the same
+    pattern as every other page."""
     dock = DetailDock(main_window)
     dock.show_settings()
-    assert dock.tab_bar.currentIndex() == 9
+    assert dock.tab_bar.currentIndex() == 8
     assert dock.stack.currentWidget() is dock.configurator_panel
 
 

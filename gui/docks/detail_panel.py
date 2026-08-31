@@ -1,28 +1,30 @@
 # gui/docks/detail_panel.py
 """
-DetailDock — one shared right-hand form area for Extract/Placer/Root/
-Thermal via (2026-08-03, GUI tree roadmap: Denis — "Панели: Экстракт,
-Пласер, Рут — становятся контекстными (общая область формы)"). Used to be
-separate QDockWidgets tabified together; ExtractDock/PlacerDock/
-RootMetadataDock/ThermalViaArrayDock are now plain QWidgets (see each
-module's own docstring) living as pages of one QStackedWidget here,
-switched by a QTabBar that drives the stack directly (the standard "tabs
-without their own page-widgets" Qt pattern — a QTabWidget would insist on
-owning/parenting the pages itself).
+DetailDock — one shared right-hand form area for Placer/Root/Thermal via
+(2026-08-03, GUI tree roadmap: Denis — "Панели: Экстракт, Пласер, Рут —
+становятся контекстными (общая область формы)"). Used to be separate
+QDockWidgets tabified together; PlacerDock/RootMetadataDock/
+ThermalViaArrayDock/... are plain QWidgets (see each module's own docstring)
+living as pages of one QStackedWidget here, switched by a QTabBar that drives
+the stack directly (the standard "tabs without their own page-widgets" Qt
+pattern — a QTabWidget would insist on owning/parenting the pages itself).
+Extract is no longer a page: 2026-08-31 (plan extract_dialog_and_hide_existing
+.md) it moved to a standalone non-modal dialog (gui/docks/extract_dialog.py)
+launched from the Config tree context menu — see gui/dock_hub.py's
+_open_extract_dialog().
 
 Switching is BOTH automatic (Config-tree context) and manual (the tab bar
 itself) — Denis picked this over auto-only when asked live 2026-08-03,
 specifically so a panel stays reachable even when the tree click that
 would normally select it hasn't happened (e.g. checking Root while
-Extract is what's currently showing). gui/dock_hub.py wires the automatic
+Placer is what's currently showing). gui/dock_hub.py wires the automatic
 half: cell_picked/placement_picked/add_placer_requested -> show_placer(),
-profile_picked -> show_extract(), thermal_via_picked/add_thermal_via_
-requested -> show_thermal_via() (added same day, "для thermal_via_array я
-бы сразу создал панель"), file_selected (fires on EVERY click, including
-leaf clicks, always BEFORE the more specific signal — see config_tree.py's
-_on_clicked) -> show_root() as the fallback for a plain file/category
-click; the more specific signal's handler (if any) then runs right after
-and wins.
+thermal_via_picked/add_thermal_via_requested -> show_thermal_via() (added
+same day, "для thermal_via_array я бы сразу создал панель"), file_selected
+(fires on EVERY click, including leaf clicks, always BEFORE the more specific
+signal — see config_tree.py's _on_clicked) -> show_root() as the fallback
+for a plain file/category click; the more specific signal's handler (if any)
+then runs right after and wins.
 
 Raise-on-switch (2026-08-06, found live — Denis: "неплохо бы подсвечивать,
 какой док сейчас активен. А то вообще, не видно, кто и что"): every
@@ -55,7 +57,6 @@ from kicadstamp.i18n import _
 from ._common import highlight_stylesheet_for
 from .cell_editor import CellDock
 from .configurator import ConfiguratorDock
-from .extract import ExtractDock
 from .net_trace import NetTraceDock
 from .placer import PlacerDock
 from .points import PointsDock
@@ -64,11 +65,13 @@ from .rules import RuleDock
 from .thermal_via import ThermalViaArrayDock
 from .tools import ToolsDock
 
-_ROOT, _EXTRACT, _PLACER, _THERMAL_VIA, _POINTS, _RULES, _NET_TRACE, _CELLS = range(8)
+_ROOT, _PLACER, _THERMAL_VIA, _POINTS, _RULES, _NET_TRACE, _CELLS = range(7)
 # Tools (2026-08-30, Entity/Placement split phase 5.2 stage 3): the Entity's
 # electrical fields (Nets/Net overrides/Refs), moved out of PlacerDock.
-_TOOLS = 8
-_SETTINGS = 9
+# Indexes shifted -1 on 2026-08-31 (plan extract_dialog_and_hide_existing.md):
+# the Extract page was removed from this dock.
+_TOOLS = 7
+_SETTINGS = 8
 
 
 class _StackedPages(QStackedWidget):
@@ -116,7 +119,6 @@ class DetailDock(QDockWidget):
         # below): "root" remains the correct internal term (it edits the
         # project's ROOT config file), only the user-facing label changed.
         self.tab_bar.addTab(_("Project"))
-        self.tab_bar.addTab(_("Extract"))
         self.tab_bar.addTab(_("Placer"))
         self.tab_bar.addTab(_("Thermal via"))
         self.tab_bar.addTab(_("Points"))
@@ -141,7 +143,6 @@ class DetailDock(QDockWidget):
         # actually on — see _StackedPages.
         self.stack = _StackedPages()
         self.root_panel = RootMetadataDock(main_window)
-        self.extract_panel = ExtractDock(main_window, connection=connection)
         self.placer_panel = PlacerDock(main_window)
         self.thermal_via_panel = ThermalViaArrayDock(main_window)
         self.points_panel = PointsDock(main_window, connection=connection)
@@ -151,7 +152,6 @@ class DetailDock(QDockWidget):
         self.configurator_panel = ConfiguratorDock(main_window, connection=connection)
         self.tools_panel = ToolsDock(main_window)
         self.stack.addWidget(self.root_panel)
-        self.stack.addWidget(self.extract_panel)
         self.stack.addWidget(self.placer_panel)
         self.stack.addWidget(self.thermal_via_panel)
         self.stack.addWidget(self.points_panel)
@@ -185,7 +185,6 @@ class DetailDock(QDockWidget):
     # ── Page labels / current entity name (for the window title) ─────────
 
     _PAGE_LABELS = {
-        _EXTRACT: _("Extract"),
         _PLACER: _("Placer"),
         _ROOT: _("Project"),
         _THERMAL_VIA: _("Thermal via"),
@@ -202,11 +201,10 @@ class DetailDock(QDockWidget):
         read fresh from that page's own name field — no page-agnostic
         concept of "current entity" exists, each dock owns its own name/net
         widget (see each module's __init__), so this just knows where to
-        look for each one. Extract/Project/Coordinate placer have no
-        single current entity (Extract browses profiles, Project edits a
-        whole file, Coordinate placer edits a whole TABLE of rows at
-        once) — empty string for all three, title falls back to just the
-        page label."""
+        look for each one. Project/Coordinate placer have no single
+        current entity (Project edits a whole file, Coordinate placer edits
+        a whole TABLE of rows at once) — empty string for both, title
+        falls back to just the page label."""
         index = self.tab_bar.currentIndex()
         if index == _PLACER:
             return self.placer_panel.current_entity_name
@@ -246,9 +244,6 @@ class DetailDock(QDockWidget):
         self._update_title()  # unconditional — currentChanged doesn't fire when index is unchanged
         self.setVisible(True)
         self.raise_()
-
-    def show_extract(self) -> None:
-        self._show(_EXTRACT)
 
     def show_placer(self) -> None:
         self._show(_PLACER)

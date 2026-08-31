@@ -168,12 +168,13 @@ def test_placement_picked_loads_into_placer_form(real_main_window):
     assert real_main_window.placer_dock.y_edit.text() == "2.5"
 
 
-def test_profile_picked_fills_extract_form(real_main_window, tmp_path):
+def test_profile_picked_fills_extract_form_and_opens_dialog(real_main_window, tmp_path):
     """ConfigTreeDock -> ExtractDock wiring (profile_picked -> pick_profile,
     see gui/docks/config_tree.py's profile_picked docstring / ExtractDock.
     pick_profile's docstring) — clicking an Extract-profile leaf in the real
     Config tree must reach ExtractDock's form end-to-end, not just via a
-    direct pick_profile() call."""
+    direct pick_profile() call, and open the (non-modal) Extract dialog
+    (2026-08-31, plan extract_dialog_and_hide_existing.md)."""
     extractor_file = tmp_path / "profiles.sexp"
     _write(extractor_file, {"extract_profiles": {"alpha_profile": {"params": {"ROLE": "+3V3"}}}})
     real_main_window.extract_dock.set_root_path(extractor_file)
@@ -181,7 +182,7 @@ def test_profile_picked_fills_extract_form(real_main_window, tmp_path):
     real_main_window.config_tree_dock.profile_picked.emit("alpha_profile")
 
     assert real_main_window.extract_dock.profile_key_edit.text() == "alpha_profile"
-    assert real_main_window._dock_hub.detail_dock.stack.currentWidget() is real_main_window.extract_dock
+    assert real_main_window._dock_hub.extract_dialog.isVisible()
 
 
 def test_points_picked_fills_points_form_and_switches_tab(real_main_window, tmp_path):
@@ -320,11 +321,13 @@ def test_add_rule_requested_opens_blank_rules_form_and_shows_tab(real_main_windo
     assert real_main_window._dock_hub.detail_dock.stack.currentWidget() is real_main_window.rules_dock
 
 
-def test_add_extract_profile_requested_arms_extract_and_shows_tab(real_main_window, tmp_path):
+def test_add_extract_profile_requested_arms_extract_and_shows_dialog(real_main_window, tmp_path):
     """ConfigTreeDock's "Add extract profile..." context-menu action (2026-08-13,
     plan context_menu_by_section) -> ExtractDock.prepare_new_profile — NOT a
     blank form like the other Add-actions (a profile's params come from a real
-    board selection), it pre-arms the Extract flow for a profile save."""
+    board selection), it pre-arms the Extract flow for a profile save, and
+    opens the (non-modal) Extract dialog (2026-08-31, plan
+    extract_dialog_and_hide_existing.md)."""
     profiles_file = tmp_path / "profiles.sexp"
     _write(profiles_file)
     real_main_window.extract_dock.save_profile_checkbox.setChecked(False)
@@ -334,20 +337,21 @@ def test_add_extract_profile_requested_arms_extract_and_shows_tab(real_main_wind
 
     assert real_main_window.extract_dock.save_profile_checkbox.isChecked()
     assert real_main_window.extract_dock.profile_key_edit.text() == ""
-    assert real_main_window._dock_hub.detail_dock.stack.currentWidget() is real_main_window.extract_dock
+    assert real_main_window._dock_hub.extract_dialog.isVisible()
 
 
 def test_add_extract_profile_requested_shows_extract_before_preparing(main_window, tmp_path):
     """Bug 1 (handoff_2026_08_13_focus_and_autorole_bugs): prepare_new_profile
-    ends with profile_key_edit.setFocus(), and a setFocus on a page that isn't
-    yet the current one in the QStackedWidget doesn't stick (Qt) — the visible
-    focus signal would be silently lost even though the checkbox still turns
-    on. The Extract page must be shown BEFORE the dock is prepared."""
+    ends with profile_key_edit.setFocus(), and a setFocus on a widget that
+    isn't shown yet doesn't stick (Qt) — the visible focus signal would be
+    silently lost even though the checkbox still turns on. The Extract dialog
+    must be opened BEFORE the dock is prepared (same ordering rule, now via
+    _open_extract_dialog, 2026-08-31 plan extract_dialog_and_hide_existing.md)."""
     hub = DockHub(main_window, connection=main_window.connection, verbose=False)
     try:
         calls = []
-        original_show = hub.detail_dock.show_extract
-        hub.detail_dock.show_extract = lambda: (calls.append("show"), original_show())[1]
+        original_open = hub._open_extract_dialog
+        hub._open_extract_dialog = lambda: (calls.append("show"), original_open())[1]
         hub.extract_dock.prepare_new_profile = lambda p: calls.append("prepare")
 
         profiles_file = tmp_path / "profiles.sexp"
@@ -357,6 +361,37 @@ def test_add_extract_profile_requested_shows_extract_before_preparing(main_windo
         assert calls == ["show", "prepare"]
     finally:
         _teardown_hub(hub)
+
+
+def test_new_extract_requested_opens_dialog_and_prepares_fresh(real_main_window):
+    """ConfigTreeDock's "New Extract..." (new_extract_requested, 2026-08-31
+    plan extract_dialog_and_hide_existing.md) -> ExtractDock.prepare_new_extract
+    + opening the (non-modal) dialog: a plain fresh capture."""
+    hub = real_main_window._dock_hub
+    hub.extract_dock.name_edit.setText("stale_name")
+    hub.extract_dock.profile_key_edit.setText("stale_key")
+    hub.extract_dock.save_profile_checkbox.setChecked(True)
+
+    hub.config_tree_dock.new_extract_requested.emit()
+
+    assert hub.extract_dialog.isVisible()
+    assert hub.extract_dock.name_edit.text() == ""
+    assert hub.extract_dock.profile_key_edit.text() == ""
+    assert hub.extract_dock.save_profile_checkbox.isChecked() is False
+
+
+def test_successful_extract_auto_closes_the_dialog(real_main_window):
+    """2026-08-31 (plan extract_dialog_and_hide_existing.md, Denis: "после
+    успешного Extract диалог должен сам закрываться") — DockHub wires
+    extract_dock.saved -> extract_dialog.hide; saved fires in _finish_extract
+    only on success, so the dialog hides right after a successful Extract."""
+    hub = real_main_window._dock_hub
+    hub._open_extract_dialog()
+    assert hub.extract_dialog.isVisible()
+
+    hub.extract_dock.saved.emit()
+
+    assert hub.extract_dialog.isVisible() is False
 
 
 def test_file_selected_alone_shows_root_page(real_main_window, tmp_path):

@@ -248,6 +248,12 @@ class ConfigTreeDock(QDockWidget):
     # REAL board selection, see ExtractDock.prepare_new_profile): it points
     # ExtractDock at the file and pre-checks "Also save as extract_profile".
     add_extract_profile_requested = pyqtSignal(object)
+    # Fired by the context menu's "New Extract..." (2026-08-31, plan
+    # extract_dialog_and_hide_existing.md): a plain fresh capture — no file
+    # argument (the project root is already known). Opens the (non-modal)
+    # Extract dialog and clears/auto-fills the fields via
+    # ExtractDock.prepare_new_extract.
+    new_extract_requested = pyqtSignal()
     # Fired on EVERY click in the tree (file header, category, or leaf) —
     # see module docstring for why this replaces the three independent
     # FilePickerDock role signals.
@@ -736,6 +742,11 @@ class ConfigTreeDock(QDockWidget):
         # unconditional — it's relevant in every context.
         menu.addAction(_("Add included file...")).triggered.connect(
             lambda: self._add_included_file(file_path))
+        # "New Extract..." (2026-08-31, plan extract_dialog_and_hide_existing
+        # .md): a plain fresh capture, also unconditional — the Extract form is
+        # a dialog now, reachable from anywhere in the tree.
+        menu.addAction(_("New Extract...")).triggered.connect(
+            lambda: self.new_extract_requested.emit())
         if parent_path is not None:
             menu.addSeparator()
             menu.addAction(_("Remove this file")).triggered.connect(

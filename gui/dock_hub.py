@@ -35,6 +35,8 @@ from .docks.anchor_tree import AnchorTreeDock
 from .docks.config_tree import ConfigTreeDock
 from .docks.trees_dock import TreesDock
 from .docks.detail_panel import DetailDock
+from .docks.extract import ExtractDock
+from .docks.extract_dialog import ExtractDialog
 from .docks.fieldstool_dock import FieldsToolDock
 from .docks.log_panel import LogDock
 from .docks.pending import PendingChangesDock
@@ -105,8 +107,13 @@ class DockHub:
         # a specific panel by name (extract_dock/placer_dock/
         # root_metadata_dock) keeps working unchanged; they're pages inside
         # detail_dock's stack now (gui/docks/detail_panel.py), not their
-        # own QDockWidgets.
-        self.extract_dock = self.detail_dock.extract_panel
+        # own QDockWidgets. EXCEPT extract_dock: 2026-08-31 (plan
+        # extract_dialog_and_hide_existing.md) it is a STANDALONE widget
+        # hosted in the non-modal ExtractDialog (the Detail dock has no
+        # Extract page anymore) — the same single live instance keeps
+        # receiving the selection-watch ticks / set_root_path / saved.
+        self.extract_dock = ExtractDock(main_window, connection=connection)
+        self.extract_dialog = ExtractDialog(self.extract_dock, main_window)
         self.placer_dock = self.detail_dock.placer_panel
         self.root_metadata_dock = self.detail_dock.root_panel
         self.thermal_via_dock = self.detail_dock.thermal_via_panel
@@ -318,7 +325,7 @@ class DockHub:
         self.config_tree_dock.placement_picked.connect(self.placer_dock.load_placement)
         self.config_tree_dock.placement_picked.connect(self.detail_dock.show_placer)
         self.config_tree_dock.profile_picked.connect(self.extract_dock.pick_profile)
-        self.config_tree_dock.profile_picked.connect(self.detail_dock.show_extract)
+        self.config_tree_dock.profile_picked.connect(self._open_extract_dialog)
         self.config_tree_dock.thermal_via_picked.connect(self.thermal_via_dock.load_entry)
         self.config_tree_dock.thermal_via_picked.connect(self.detail_dock.show_thermal_via)
         # Coordinate placements (2026-08-12, Group 1): a normal named-records
@@ -381,6 +388,10 @@ class DockHub:
         self.points_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.rules_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.cells_dock.saved.connect(self._refresh_graph_dependent_choices)
+        # Auto-close the (non-modal) Extract dialog after a successful Extract
+        # (2026-08-31, Denis): saved is emitted by _finish_extract only on
+        # success — see gui/docks/extract.py.
+        self.extract_dock.saved.connect(self.extract_dialog.hide)
         # Config tree's "Add placer.../Add thermal via pad.../Add point.../
         # Add rule..." context-menu actions -> Placer/Thermal via/Points/
         # Rules: open the form blank, targeting the file the action was
@@ -403,6 +414,7 @@ class DockHub:
         # Extract flow for a profile save (see ExtractDock.prepare_new_profile).
         self.config_tree_dock.add_extract_profile_requested.connect(
             self._start_new_extract_profile)
+        self.config_tree_dock.new_extract_requested.connect(self._start_new_extract)
         # Config tree's own graph-mutating actions (_on_rename/_on_delete/
         # _add_included_file/_remove_file) -> every dock's graph-derived
         # combos, same handler the seven entity-dock `saved` signals above
@@ -551,14 +563,33 @@ class DockHub:
         """ConfigTreeDock's add_extract_profile_requested delegate — same
         reasoning as _start_new_placement above, for ExtractDock's profile
         preparation (see extract.py's prepare_new_profile — deliberately not
-        a blank form like the other Add-actions). The Extract page is shown
-        BEFORE preparing (bug 1, 2026-08-13): prepare_new_profile ends with
-        profile_key_edit.setFocus(), and a setFocus on a page that isn't yet
-        the current one in the QStackedWidget doesn't stick — the checkbox
-        would still turn on, but the intended visible signal (focus in the
-        profile-key field) would be silently lost."""
-        self.detail_dock.show_extract()
+        a blank form like the other Add-actions). The Extract dialog is
+        opened BEFORE preparing (bug 1, 2026-08-13, same ordering rule):
+        prepare_new_profile ends with profile_key_edit.setFocus(), and a
+        setFocus on a widget that isn't shown yet doesn't stick — the
+        checkbox would still turn on, but the intended visible signal (focus
+        in the profile-key field) would be silently lost."""
+        self._open_extract_dialog()
         self.extract_dock.prepare_new_profile(file_path)
+
+    def _start_new_extract(self) -> None:
+        """ConfigTreeDock's new_extract_requested delegate ("New Extract...",
+        2026-08-31, plan extract_dialog_and_hide_existing.md): a plain fresh
+        capture — opens the (non-modal) Extract dialog and arms it via
+        ExtractDock.prepare_new_extract (clears Cell name / Profile key,
+        unchecks profile save, auto-fills from the current Cluster)."""
+        self._open_extract_dialog()
+        self.extract_dock.prepare_new_extract()
+
+    def _open_extract_dialog(self) -> None:
+        """Show/raise the ONE live Extract dialog — non-modal, so the user can
+        keep selecting on the board while it's open: the selection-watch tick
+        keeps feeding the same extract_dock instance inside it. Closing via
+        the window X just hides it (QDialog default), so the next open starts
+        from the current board state."""
+        self.extract_dialog.show()
+        self.extract_dialog.raise_()
+        self.extract_dialog.activateWindow()
 
     def _refresh_graph_dependent_choices(self) -> None:
         """The include: graph's shape or an entry's name changed — either

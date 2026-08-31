@@ -741,7 +741,9 @@ def test_tabs_have_the_expected_labels(main_window, tmp_path):
     QVBoxLayout into a QTabWidget, so the dock's minimum height is that of
     ONE page, not the sum of all of them. "Sub-placements" (2026-08-25) is a
     hidden-by-default tab, same as "Net template role" — it must not break the
-    tab order or the "only current page sizes the window" invariant."""
+    tab order or the "only current page sizes the window" invariant. Since
+    2026-08-31 (plan extract_dialog_and_hide_existing.md) "Existing" is also
+    hidden by default (behind the advanced-net-settings checkbox)."""
     cells_file = tmp_path / "cells.sexp"
     _write(cells_file, {})
     dock = ExtractDock(main_window)
@@ -751,6 +753,8 @@ def test_tabs_have_the_expected_labels(main_window, tmp_path):
         "Origin", "Net aliases", "Net template role", "Sub-placements", "Existing"]
     # Hidden until there is at least one fully-covered placement candidate.
     assert not dock._tabs.isTabVisible(dock._sub_placement_tab_index)
+    # Hidden by default — profiles/cells are picked from the Config tree.
+    assert not dock._tabs.isTabVisible(dock._existing_tab_index)
 
 
 def test_net_template_role_tab_hidden_until_classification_sees_two_nets(main_window, tmp_path, monkeypatch):
@@ -831,7 +835,9 @@ def test_advanced_net_tabs_hidden_by_default_and_revealed_by_setting(
     """plan_2026_08_31_extract_auto_nets_hide_tabs.md: the manual net-override
     tabs ('Net aliases', 'Net template role') are hidden by default — nets are
     auto-derived. The 'Show advanced net settings' checkbox reveals both and
-    persists the choice in gui_state.json."""
+    persists the choice in gui_state.json. Since 2026-08-31 (plan
+    extract_dialog_and_hide_existing.md) the 'Existing' tab is hidden the same
+    way (profiles/cells are picked from the Config tree)."""
     from gui import settings
 
     cells_file = tmp_path / "cells.sexp"
@@ -843,6 +849,7 @@ def test_advanced_net_tabs_hidden_by_default_and_revealed_by_setting(
     dock.set_root_path(cells_file)
     assert dock.advanced_net_settings_checkbox.isChecked() is False
     assert dock._tabs.isTabVisible(dock._aliases_tab_index) is False
+    assert dock._tabs.isTabVisible(dock._existing_tab_index) is False
 
     # Even with an ambiguous bridging role in the selection, the Net template
     # role tab stays hidden while the advanced setting is off.
@@ -852,16 +859,18 @@ def test_advanced_net_tabs_hidden_by_default_and_revealed_by_setting(
     assert dock._tabs.isTabVisible(dock._role_net_tab_index) is False
     assert "PI_FILTER_FB" in dock._net_template_role_edits  # logic still computed
 
-    # Reveal both via the checkbox (and persist).
+    # Reveal all three via the checkbox (and persist).
     dock.advanced_net_settings_checkbox.setChecked(True)
     assert dock._tabs.isTabVisible(dock._aliases_tab_index) is True
     assert dock._tabs.isTabVisible(dock._role_net_tab_index) is True  # ambiguous now shown
+    assert dock._tabs.isTabVisible(dock._existing_tab_index) is True
     assert settings.state.get("extract_show_advanced_net_settings") is True
 
-    # Hide again -> both hidden, the persisted key follows.
+    # Hide again -> all three hidden, the persisted key follows.
     dock.advanced_net_settings_checkbox.setChecked(False)
     assert dock._tabs.isTabVisible(dock._aliases_tab_index) is False
     assert dock._tabs.isTabVisible(dock._role_net_tab_index) is False
+    assert dock._tabs.isTabVisible(dock._existing_tab_index) is False
     assert settings.state.get("extract_show_advanced_net_settings") is False
 
 def test_net_template_role_blocks_extraction_until_resolved(main_window, tmp_path, monkeypatch, caplog):

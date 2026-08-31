@@ -336,11 +336,11 @@ class ExtractDock(QWidget):
         self._show_advanced_net_settings = bool(
             settings.state.get("extract_show_advanced_net_settings", False))
         self.advanced_net_settings_checkbox = QCheckBox(
-            _("Show advanced net settings (aliases, net template role)"))
+            _("Show advanced net settings (aliases, net template role, existing profiles)"))
         self.advanced_net_settings_checkbox.setToolTip(
             _("By default nets are derived automatically at extract. Check to "
-              "reveal the 'Net aliases' and 'Net template role' tabs for manual "
-              "overrides."))
+              "reveal the 'Net aliases', 'Net template role' and 'Existing' "
+              "tabs for manual overrides."))
         self.advanced_net_settings_checkbox.setChecked(self._show_advanced_net_settings)
         self.advanced_net_settings_checkbox.toggled.connect(
             self._on_advanced_net_settings_toggled)
@@ -550,7 +550,11 @@ class ExtractDock(QWidget):
         self.profiles_list.itemClicked.connect(self._on_profile_item_clicked)
         profiles_col.addWidget(self.profiles_list)
         existing_row.addLayout(profiles_col)
-        self._tabs.addTab(existing_page, _("Existing"))
+        # 2026-08-31: the 'Existing' tab is hidden by default too — profiles/
+        # cells are picked from the Config tree; the checkbox (advanced net
+        # settings) reveals this tab for manual browsing (see
+        # _apply_advanced_net_settings_visibility).
+        self._existing_tab_index = self._tabs.addTab(existing_page, _("Existing"))
 
         self.save_profile_checkbox = QCheckBox(_("Also save as extract_profile"))
         layout.addWidget(self.save_profile_checkbox)
@@ -626,13 +630,16 @@ class ExtractDock(QWidget):
 
     def _apply_advanced_net_settings_visibility(self) -> None:
         """Apply the advanced-net-settings visibility to the 'Net aliases' and
-        'Net template role' tabs (hidden by default — nets are auto-derived).
-        The Net template role tab additionally requires an actual ambiguous
-        bridging role (its own _update_net_template_role_rows rule)."""
+        'Net template role' tabs (hidden by default — nets are auto-derived),
+        and to the 'Existing' tab (hidden by default too — profiles/cells are
+        picked from the Config tree, 2026-08-31). The Net template role tab
+        additionally requires an actual ambiguous bridging role (its own
+        _update_net_template_role_rows rule)."""
         show = self._show_advanced_net_settings
         self._tabs.setTabVisible(self._aliases_tab_index, show)
         self._tabs.setTabVisible(self._role_net_tab_index,
                                  show and bool(self._net_template_role_edits))
+        self._tabs.setTabVisible(self._existing_tab_index, show)
 
     def set_board_selection(self, raw_items: List[Any], selected_footprints: List[Selected]) -> None:
         """Called every selection-watch tick — see module docstring for why
@@ -1084,6 +1091,22 @@ class ExtractDock(QWidget):
         # and drops the foreign Clusters.
         if len({s.cluster for s in self._selected_footprints if s.cluster}) > 1:
             self.cluster_filter_checkbox.setChecked(True)
+
+    def prepare_new_extract(self) -> None:
+        """ConfigTreeDock's "New Extract..." delegate (2026-08-31, plan
+        extract_dialog_and_hide_existing): a plain fresh capture, distinct
+        from "Add extract profile..." — no "Also save as extract_profile"
+        pre-check (the user isn't necessarily saving a profile). Clears Cell
+        name / Profile key (they re-auto-fill from the current Cluster),
+        focuses the Cell name, then auto-fills immediately from the CURRENT
+        selection so a just-opened dialog already shows the Cluster's slug."""
+        self.name_edit.clear()
+        self.profile_key_edit.clear()
+        self._profile_key_autofilled = False
+        self.save_profile_checkbox.setChecked(False)
+        self._last_autofill_key = None  # force _autofill_from_cluster to re-derive
+        self.name_edit.setFocus()
+        self._autofill_from_cluster()
 
     @staticmethod
     def _slugify(text: str) -> str:
