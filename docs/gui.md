@@ -211,11 +211,17 @@ tree…** (the whole-tree counterpart of a node's "Delete node", confirmed with 
 default), plus **Save** and **Redraw selected**. Structural editing happens through each node's
 context menu (Add child / Add sibling / Reread current position / Edit node… / Delete node / Rename…
 / Move to…); the tree anchor pseudo-root's menu carries **Add node** and **Set anchor…**. The
-**Set anchor…** dialog picks between **Origin (board 0,0)**, **Config record** (a name from the
-config, resolved at Save) and **External refdes** (a live-board component outside the config) — the
-external choice is stored with an explicit `external` marker so it is NEVER resolved against a
-config record name: a refdes that happens to match a config record (e.g. a stale
-`coordinate_placement` named `"fpga"`) cannot hijack the anchor (2026-08-28). Node
+**Set anchor…** dialog covers all six anchor modes: **Origin (board 0,0)**, **Config record** (a name
+from the config, resolved at Save; a **Kind** filter narrows the ref list to one section —
+Entity/Rule/Coordinate/Point/Clone/All — a picker aid only, the anchor grammar has no kind),
+**External refdes** (a live-board component outside the config), **Auto (derive from Entity's own
+cell)** (no explicit anchor — derived at materialization from the root Entity's cell zero slot),
+**Role** (role + optional sheet/cluster/pad) and **Point** (a `points:` entry name). The external
+choice is stored with an explicit `external` marker so it is NEVER resolved against a config record
+name: a refdes that happens to match a config record (e.g. a stale `coordinate_placement` named
+`"fpga"`) cannot hijack the anchor (2026-08-28). Editing an existing anchor (via **Set anchor…** on a
+tree that already has one) pre-fills the dialog with the current anchor's mode and fields, so a small
+tweak (e.g. changing a role anchor's sheet) doesn't rebuild the anchor from scratch. Node
 offsets are typed by hand or read from the live board via **Read current position** in the
 Add/Edit-node dialog — a passive live-board read that never validates the whole tree's FORK-1
 invariant, so an unrelated existing node with a conflicting inline anchor does not block it. Nothing

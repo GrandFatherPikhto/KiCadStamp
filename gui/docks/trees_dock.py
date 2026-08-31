@@ -67,6 +67,32 @@ _KIND_TAGS = {
     "external": _("external"),
 }
 
+
+def _anchor_label(anchor: TreeAnchor) -> str:
+    """Human-readable label for a tree's anchor pseudo-root — one branch per
+    TreeAnchor mode; never renders "None" (2026-08-31, anchor-dialog GUI gap:
+    auto/role/point anchors carry ref=None and would otherwise show "⚓ None").
+    The exact tag per mode is a display convention only — the underlying
+    TreeAnchor is unchanged."""
+    if anchor.is_origin:
+        return _("⚓ (origin)")
+    if anchor.is_auto:
+        return _("⚓ (auto)")
+    if anchor.role:
+        details = " / ".join(
+            part for part in (anchor.anchor_sheet, anchor.anchor_cluster,
+                              anchor.anchor_pad) if part)
+        base = _("⚓ (role {role})").format(role=anchor.role)
+        return f"{base} {details}" if details else base
+    if anchor.point:
+        return _("⚓ (point {point})").format(point=anchor.point)
+    if anchor.ref:
+        if anchor.is_external:
+            return _("⚓ {ref} (external)").format(ref=anchor.ref)
+        return f"⚓ {anchor.ref}"
+    return _("⚓ (unknown)")
+
+
 _ORIGIN = Vector2.from_xy(0, 0)
 
 
@@ -379,8 +405,7 @@ class TreesDock(QDockWidget):
         those land in Phase 4)."""
         # Pseudo-root showing the anchor, visually distinct (not selectable).
         anchor_item = QTreeWidgetItem(tree_widget.invisibleRootItem())
-        anchor_text = f"⚓ {tree.anchor.ref}" if not tree.anchor.is_origin else _("⚓ (origin)")
-        anchor_item.setText(0, anchor_text)
+        anchor_item.setText(0, _anchor_label(tree.anchor))
         anchor_item.setFlags(anchor_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
         for node in tree.nodes:
             self._render_node(anchor_item, node)
@@ -585,6 +610,20 @@ class TreesDock(QDockWidget):
         board = getattr(self._main_window.connection, "board", None)
         return getattr(board, "adapter", None)
 
+    def _live_roles(self) -> list[str]:
+        """Distinct Role values from the current live-board snapshot, sorted —
+        the same populate-don't-restrict source every dock's
+        refresh_known_roles uses. Empty when not connected: the dialog's role
+        combo is still a searchable picker where free text is accepted."""
+        snapshot = getattr(getattr(self._main_window, "connection", None), "snapshot", None)
+        return sorted({s.role for s in (snapshot or []) if s.role})
+
+    def _live_clusters(self) -> list[str]:
+        """Distinct Cluster values from the current live-board snapshot, sorted
+        (same source/empty-tolerant rules as _live_roles)."""
+        snapshot = getattr(getattr(self._main_window, "connection", None), "snapshot", None)
+        return sorted({s.cluster for s in (snapshot or []) if s.cluster})
+
     def _prompt_node(self, title: str, tree: Tree,
                      parent_node: Optional[TreeNode] = None,
                      existing: Optional[TreeNode] = None) -> Optional[TreeNode]:
@@ -740,7 +779,13 @@ class TreesDock(QDockWidget):
         self._rebuild_tabs()
 
     def _set_anchor_flow(self, tree: Tree) -> None:
-        anchor = _AnchorDialog.prompt(self, self._all_ref_names())
+        anchor = _AnchorDialog.prompt(
+            self, self._all_ref_candidates(),
+            cfg=self._cfg,
+            sheet_names=self._ctx.sheet_names if self._ctx is not None else {},
+            role_candidates=self._live_roles(),
+            cluster_candidates=self._live_clusters(),
+            existing=tree.anchor)
         if anchor is not None:
             tree.anchor = anchor
             self._mark_dirty()
@@ -806,7 +851,12 @@ class TreesDock(QDockWidget):
             QMessageBox.warning(self, _("Add tree"),
                                 _("A tree named {name!r} already exists.").format(name=name))
             return
-        anchor = _AnchorDialog.prompt(self, self._all_ref_names())
+        anchor = _AnchorDialog.prompt(
+            self, self._all_ref_candidates(),
+            cfg=self._cfg,
+            sheet_names=self._ctx.sheet_names if self._ctx is not None else {},
+            role_candidates=self._live_roles(),
+            cluster_candidates=self._live_clusters())
         if anchor is None:
             return
         self._trees.append(Tree(name=name, anchor=anchor, nodes=[]))
@@ -1213,29 +1263,109 @@ class _NodeDialog(QDialog):
 
 
 class _AnchorDialog(QDialog):
-    """Modal dialog for picking a tree anchor: (origin) / config record ref /
-    free-text external refdes (design §4). "External refdes" is STORED as an
-    is_external anchor — the resolver then never matches it against a config
-    record name (collision impossible; note_2026_08_28_tree_anchor_name_collision)."""
+    """Modal dialog for picking a tree anchor, covering ALL six TreeAnchor
+    modes (see kicadstamp/trees.py):
+      - origin   -> (anchor (origin)): absolute board origin (0,0)
+      - record   -> (anchor (ref "...")): a config record name, narrowed by a
+                    kind filter (Entity/Rule/Coordinate/Point/Clone + All) —
+                    a PICKER AID only: the anchor grammar has no kind (a name
+                    shared across sections is fatal at link_trees either way)
+      - external -> (anchor (ref "...") (external)): live-board-only refdes
+      - auto     -> NO (anchor ...): derived from the root Entity's own cell
+                    zero slot at materialization (is_auto=True) — the only
+                    way to get an auto anchor through the GUI
+      - role     -> (anchor (role "...") [(sheet ...) (cluster ...) (pad ...)])
+      - point    -> (anchor (point "...")): a points: entry name
+    `existing` (a TreeAnchor) switches to EDIT mode: the mode and every field
+    are pre-filled (symmetric to _NodeDialog's existing=), so a user can just
+    tweak e.g. the sheet of a role anchor instead of rebuilding it.
+    "External refdes" is STORED as an is_external anchor — the resolver then
+    never matches it against a config record name (collision impossible;
+    note_2026_08_28_tree_anchor_name_collision)."""
 
-    def __init__(self, parent, ref_candidates: list[str]):
+    # User-facing labels for the record-mode kind filter (populate the Kind
+    # combo in the same order the placeable sections are documented).
+    _KIND_LABELS = {
+        "placement": _("Entity"),
+        "rule": _("Rule"),
+        "coordinate": _("Coordinate"),
+        "point": _("Point"),
+        "clone": _("Clone"),
+    }
+
+    def __init__(self, parent, ref_candidates, *, cfg=None, sheet_names=None,
+                 role_candidates=None, cluster_candidates=None, existing=None):
         super().__init__(parent)
         self.setWindowTitle(_("Set anchor"))
+        self._ref_candidates = list(ref_candidates or [])
+        self._cfg = cfg
+        self._sheet_names = dict(sheet_names or {})
+        self._role_candidates = list(role_candidates or [])
+        self._cluster_candidates = list(cluster_candidates or [])
         self._result: Optional[TreeAnchor] = None
 
         form = QFormLayout(self)
+
+        # Mode combo — the six TreeAnchor modes. The first three keep their
+        # historic indices (0/1/2) so nothing that drives the combo by index
+        # regresses; auto/role/point are appended after them.
         self.mode_combo = QComboBox()
         self.mode_combo.addItem(_("Origin (board 0,0)"), "origin")
         self.mode_combo.addItem(_("Config record"), "record")
         self.mode_combo.addItem(_("External refdes"), "external")
-        self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
+        self.mode_combo.addItem(_("Auto (derive from Entity's own cell)"), "auto")
+        self.mode_combo.addItem(_("Role"), "role")
+        self.mode_combo.addItem(_("Point"), "point")
         form.addRow(_("Anchor:"), self.mode_combo)
 
+        # record / external rows: a kind filter (picker aid) + the ref combo.
+        self.record_row = QWidget()
+        record_form = QFormLayout(self.record_row)
+        record_form.setContentsMargins(0, 0, 0, 0)
+        self.kind_combo = QComboBox()
+        self.kind_combo.addItem(_("All kinds"), None)
+        for kind, label in self._KIND_LABELS.items():
+            self.kind_combo.addItem(label, kind)
+        record_form.addRow(_("Kind:"), self.kind_combo)
         self.ref_combo = QComboBox()
         configure_searchable(self.ref_combo)
-        set_combo_items(self.ref_combo, ref_candidates)
         self.ref_combo.setPlaceholderText(_("record name (from config)"))
-        form.addRow(_("Ref:"), self.ref_combo)
+        record_form.addRow(_("Ref:"), self.ref_combo)
+        form.addRow(self.record_row)
+
+        # role rows: role/sheet/cluster searchable combos + pad free text.
+        self.role_row = QWidget()
+        role_form = QFormLayout(self.role_row)
+        role_form.setContentsMargins(0, 0, 0, 0)
+        self.role_edit = QComboBox()
+        configure_searchable(self.role_edit)
+        set_combo_items(self.role_edit, self._role_candidates)
+        role_form.addRow(_("Role:"), self.role_edit)
+        self.sheet_edit = QComboBox()
+        configure_searchable(self.sheet_edit)
+        set_combo_items(self.sheet_edit, list(self._sheet_names))
+        self.sheet_edit.lineEdit().setPlaceholderText(
+            _("sheet name (narrows an ambiguous Role, optional)"))
+        role_form.addRow(_("Sheet:"), self.sheet_edit)
+        self.cluster_edit = QComboBox()
+        configure_searchable(self.cluster_edit)
+        set_combo_items(self.cluster_edit, self._cluster_candidates)
+        role_form.addRow(_("Cluster:"), self.cluster_edit)
+        self.pad_edit = QLineEdit()
+        self.pad_edit.setPlaceholderText(_("pad (optional)"))
+        role_form.addRow(_("Pad:"), self.pad_edit)
+        form.addRow(self.role_row)
+
+        # point row: searchable combo over the cfg.points names.
+        self.point_row = QWidget()
+        point_form = QFormLayout(self.point_row)
+        point_form.setContentsMargins(0, 0, 0, 0)
+        self.point_edit = QComboBox()
+        configure_searchable(self.point_edit)
+        if self._cfg is not None:
+            set_combo_items(self.point_edit, sorted(getattr(self._cfg, "points", {}) or {}))
+        point_form.addRow(_("Point:"), self.point_edit)
+        form.addRow(self.point_row)
 
         buttons = QHBoxLayout()
         self.ok_button = QPushButton(_("OK"))
@@ -1246,16 +1376,145 @@ class _AnchorDialog(QDialog):
         buttons.addWidget(cancel_button)
         form.addRow(buttons)
 
-        self._on_mode_changed()
+        # Connect only AFTER every widget exists so no handler fires mid-
+        # construction (adding the first combo item triggers a spurious
+        # currentIndexChanged before the rows are built).
+        self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
+        self.kind_combo.currentIndexChanged.connect(self._on_kind_changed)
+        self.ref_combo.currentIndexChanged.connect(self._on_ref_selected)
+
+        if existing is not None:
+            self._prefill(existing)
+        else:
+            self._on_mode_changed()
 
     def _on_mode_changed(self) -> None:
-        self.ref_combo.setEnabled(self.mode_combo.currentData() != "origin")
+        mode = self.mode_combo.currentData()
+        self.record_row.setVisible(mode in ("record", "external"))
+        self.role_row.setVisible(mode == "role")
+        self.point_row.setVisible(mode == "point")
+        if mode in ("record", "external"):
+            self._on_kind_changed()
+
+    def _on_kind_changed(self) -> None:
+        """Populate the ref combo for the current kind filter. External mode
+        clears it (free-text live refdes); "All kinds" shows every placeable
+        name — one unique to a section plain, one shared by 2+ sections once
+        per section as {kind}:{name}; a concrete kind shows only that section's
+        names (mirrors _NodeDialog._on_kind_changed)."""
+        if self.mode_combo.currentData() == "external":
+            self.ref_combo.clear()
+            self.ref_combo.setPlaceholderText(_("external refdes (live board)"))
+            return
+        kind = self.kind_combo.currentData()
+        if kind is None:
+            section_count: dict[str, int] = {}
+            for _k, name in self._ref_candidates:
+                section_count[name] = section_count.get(name, 0) + 1
+            items = []
+            for k, name in self._ref_candidates:
+                if section_count[name] > 1:
+                    items.append((f"{k}:{name}", k, name))
+                else:
+                    items.append((name, None, name))
+        else:
+            items = [(name, kind, name) for k, name in self._ref_candidates if k == kind]
+        self._set_ref_items(items)
+        self.ref_combo.setPlaceholderText(_("record name (from config)"))
+
+    def _set_ref_items(self, items: list[tuple[str, Optional[str], str]]) -> None:
+        """Repopulate ref_combo with (display_text, kind, name) triples,
+        preserving the current text and blocking signals (the same rule as
+        set_combo_items); a concrete `kind` means a PREFIXED collision entry —
+        picking it auto-narrows the kind filter (_on_ref_selected)."""
+        current_text = self.ref_combo.currentText()
+        self.ref_combo.blockSignals(True)
+        self.ref_combo.clear()
+        for text, kind, name in items:
+            self.ref_combo.addItem(text, (kind, name))
+        self.ref_combo.setCurrentText(current_text)
+        self.ref_combo.blockSignals(False)
+
+    def _on_ref_selected(self, index: int) -> None:
+        """Auto-narrow the kind filter when the user picks a PREFIXED collision
+        entry in "All kinds" mode (itemData = (kind, name) with a concrete
+        kind): switch the kind combo to that section and put the CLEAN name in
+        the ref combo. Plain entries carry (None, name) and leave it alone."""
+        data = self.ref_combo.itemData(index)
+        if data is None:
+            return
+        kind, name = data
+        if kind is None:
+            return
+        kind_idx = self.kind_combo.findData(kind)
+        if kind_idx < 0:
+            return
+        self.kind_combo.setCurrentIndex(kind_idx)
+        self.ref_combo.setCurrentText(name)
+
+    def _prefill(self, existing: TreeAnchor) -> None:
+        """Edit mode: select the mode matching `existing` and pre-fill every
+        field (symmetric to _NodeDialog._prefill). The mode handler runs even
+        when the index did not change (a fresh dialog defaults to origin), so
+        the right rows are shown and the ref list is built for record/external."""
+        if existing.is_origin:
+            mode = "origin"
+        elif existing.is_auto:
+            mode = "auto"
+        elif existing.role is not None:
+            mode = "role"
+        elif existing.point is not None:
+            mode = "point"
+        else:
+            mode = "external" if existing.is_external else "record"
+        idx = self.mode_combo.findData(mode)
+        if idx >= 0:
+            self.mode_combo.setCurrentIndex(idx)
+        self._on_mode_changed()
+
+        if existing.role is not None:
+            self.role_edit.setCurrentText(existing.role)
+            self.sheet_edit.setCurrentText(existing.anchor_sheet or "")
+            self.cluster_edit.setCurrentText(existing.anchor_cluster or "")
+            self.pad_edit.setText(existing.anchor_pad or "")
+        elif existing.point is not None:
+            self.point_edit.setCurrentText(existing.point)
+        elif existing.ref is not None:
+            if not existing.is_external:
+                # Narrow the kind filter when the ref is unambiguous (a name
+                # unique to one section); ambiguous names stay on "All kinds".
+                kinds = sorted({k for k, name in self._ref_candidates
+                                if name == existing.ref})
+                if len(kinds) == 1:
+                    kind_idx = self.kind_combo.findData(kinds[0])
+                    if kind_idx >= 0:
+                        self.kind_combo.setCurrentIndex(kind_idx)
+            self._on_kind_changed()
+            self.ref_combo.setCurrentText(existing.ref)
 
     def _accept(self) -> None:
         mode = self.mode_combo.currentData()
         if mode == "origin":
             self._result = TreeAnchor(ref=None, is_origin=True, is_external=False)
-        else:
+        elif mode == "auto":
+            self._result = TreeAnchor(is_auto=True)
+        elif mode == "role":
+            role = self.role_edit.currentText().strip()
+            if not role:
+                QMessageBox.warning(self, _("Set anchor"), _("Role is required."))
+                return
+            self._result = TreeAnchor(
+                role=role, is_origin=False,
+                anchor_sheet=self.sheet_edit.currentText().strip() or None,
+                anchor_cluster=self.cluster_edit.currentText().strip() or None,
+                anchor_pad=self.pad_edit.text().strip() or None)
+        elif mode == "point":
+            point = self.point_edit.currentText().strip()
+            if not point:
+                QMessageBox.warning(self, _("Set anchor"), _("Point name is required."))
+                return
+            self._result = TreeAnchor(point=point, is_origin=False)
+        else:  # record / external
             ref = self.ref_combo.currentText().strip()
             if not ref:
                 QMessageBox.warning(self, _("Set anchor"), _("Ref is required."))
@@ -1267,8 +1526,11 @@ class _AnchorDialog(QDialog):
         self.accept()
 
     @staticmethod
-    def prompt(parent, ref_candidates: list[str]) -> Optional[TreeAnchor]:
-        dlg = _AnchorDialog(parent, ref_candidates)
+    def prompt(parent, ref_candidates, *, cfg=None, sheet_names=None,
+               role_candidates=None, cluster_candidates=None, existing=None):
+        dlg = _AnchorDialog(parent, ref_candidates, cfg=cfg, sheet_names=sheet_names,
+                            role_candidates=role_candidates,
+                            cluster_candidates=cluster_candidates, existing=existing)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return None
         return dlg._result

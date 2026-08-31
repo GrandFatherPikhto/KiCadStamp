@@ -371,12 +371,22 @@ def test_context_menu_on_anchor_offers_add_node(main_window, tmp_path, monkeypat
     assert dock._dirty is True
 
 
+def test_anchor_dialog_origin_mode_returns_origin(main_window):
+    """The historic "Origin (board 0,0)" mode still yields is_origin=True with
+    every other field at its default — regression gate for the 6-mode rework."""
+    from gui.docks.trees_dock import _AnchorDialog
+    dlg = _AnchorDialog(main_window, [("placement", "CL_A")])
+    dlg.mode_combo.setCurrentIndex(0)  # "Origin (board 0,0)"
+    dlg._accept()
+    assert dlg._result == TreeAnchor(ref=None, is_origin=True, is_external=False)
+
+
 def test_anchor_dialog_external_mode_carries_is_external(main_window):
     """The "External refdes" mode of _AnchorDialog must STORE is_external=True
     — otherwise the resolver cannot tell "external" from "config record" and
     the name collision returns (note_2026_08_28_tree_anchor_name_collision)."""
     from gui.docks.trees_dock import _AnchorDialog
-    dlg = _AnchorDialog(main_window, ["CL_A", "CL_B"])
+    dlg = _AnchorDialog(main_window, [("placement", "CL_A"), ("placement", "CL_B")])
     dlg.mode_combo.setCurrentIndex(2)  # "External refdes" (0=Origin, 1=Config record)
     dlg.ref_combo.setCurrentText("fpga")  # editable combo — free text is allowed
     dlg._accept()
@@ -387,11 +397,199 @@ def test_anchor_dialog_record_mode_stays_non_external(main_window):
     """Contrast: the "Config record" mode must NOT set is_external — a normal
     record anchor resolves against the config (guards the same regression)."""
     from gui.docks.trees_dock import _AnchorDialog
-    dlg = _AnchorDialog(main_window, ["CL_A", "CL_B"])
+    dlg = _AnchorDialog(main_window, [("placement", "CL_A"), ("placement", "CL_B")])
     dlg.mode_combo.setCurrentIndex(1)  # "Config record"
     dlg.ref_combo.setCurrentText("CL_A")
     dlg._accept()
     assert dlg._result == TreeAnchor(ref="CL_A", is_origin=False, is_external=False)
+
+
+def test_anchor_dialog_auto_mode_returns_is_auto(main_window):
+    """The new "Auto (derive from Entity's own cell)" mode must yield
+    TreeAnchor(is_auto=True) with every other field at its default — the only
+    GUI path to an auto anchor (2026-08-31 plan)."""
+    from gui.docks.trees_dock import _AnchorDialog
+    dlg = _AnchorDialog(main_window, [("placement", "FPGA")])
+    dlg.mode_combo.setCurrentIndex(dlg.mode_combo.findData("auto"))
+    dlg._accept()
+    assert dlg._result == TreeAnchor(is_auto=True)
+
+
+def test_anchor_dialog_role_mode_returns_role_anchor(main_window):
+    """The new "Role" mode builds a role anchor: role required, sheet/cluster/
+    pad optional, nothing else set (ref/is_origin/is_external/is_auto all off)."""
+    from gui.docks.trees_dock import _AnchorDialog
+    dlg = _AnchorDialog(main_window, [],
+                        role_candidates=["FPGA", "R_FB"],
+                        sheet_names={"S1": "s1.sex", "S2": "s2.sex"})
+    dlg.mode_combo.setCurrentIndex(dlg.mode_combo.findData("role"))
+    dlg.role_edit.setCurrentText("FPGA")
+    dlg.sheet_edit.setCurrentText("S1")
+    dlg.cluster_edit.setCurrentText("CL_A")
+    dlg.pad_edit.setText("A1")
+    dlg._accept()
+    assert dlg._result == TreeAnchor(role="FPGA", is_origin=False,
+                                     anchor_sheet="S1", anchor_cluster="CL_A",
+                                     anchor_pad="A1")
+
+
+def test_anchor_dialog_role_mode_requires_role(main_window, monkeypatch):
+    """An empty Role in "Role" mode must warn and NOT accept — never a silent
+    role=None anchor (mirrors the node dialog's "Ref is required." gate)."""
+    import gui.docks.trees_dock as td_mod
+    from gui.docks.trees_dock import _AnchorDialog
+    shown = []
+    monkeypatch.setattr(td_mod.QMessageBox, "warning", lambda *a, **k: shown.append(a))
+    dlg = _AnchorDialog(main_window, [])
+    dlg.mode_combo.setCurrentIndex(dlg.mode_combo.findData("role"))
+    dlg._accept()
+    assert shown
+    assert dlg._result is None
+
+
+def test_anchor_dialog_point_mode_returns_point_anchor(main_window):
+    """The new "Point" mode builds a point anchor from a cfg.points name; the
+    combo is populated with the sorted points names (populate-don't-restrict)."""
+    from types import SimpleNamespace
+    from gui.docks.trees_dock import _AnchorDialog
+    cfg = SimpleNamespace(points={"P2": object(), "P1": object()})
+    dlg = _AnchorDialog(main_window, [], cfg=cfg)
+    dlg.mode_combo.setCurrentIndex(dlg.mode_combo.findData("point"))
+    assert _combo_texts(dlg.point_edit) == ["P1", "P2"]  # sorted names
+    dlg.point_edit.setCurrentText("P1")
+    dlg._accept()
+    assert dlg._result == TreeAnchor(point="P1", is_origin=False)
+
+
+def test_anchor_dialog_record_kind_filter_narrows_ref_combo(main_window):
+    """Denis 2026-08-31: the Config-record ref combo is narrowed by record
+    kind (Rule -> only rules, etc.). The filter is a picker aid only — the
+    produced TreeAnchor is still a plain ref=name (the grammar has no kind)."""
+    from gui.docks.trees_dock import _AnchorDialog
+    candidates = [("clone", "CL_A"), ("clone", "SHARED"),
+                  ("rule", "R_B"), ("rule", "SHARED"),
+                  ("coordinate", "COORD_C"), ("point", "PNT_D")]
+    dlg = _AnchorDialog(main_window, candidates)
+    dlg.mode_combo.setCurrentIndex(dlg.mode_combo.findData("record"))
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("rule"))
+    assert _combo_texts(dlg.ref_combo) == ["R_B", "SHARED"]
+    dlg.ref_combo.setCurrentText("R_B")
+    dlg._accept()
+    assert dlg._result == TreeAnchor(ref="R_B", is_origin=False, is_external=False)
+
+
+def test_anchor_dialog_all_kinds_prefixed_collisions(main_window):
+    """"All kinds" shows every placeable name — a name shared by 2+ sections
+    once per section as {kind}:{name}, itemData carrying (kind|None, name), so
+    picking a prefixed entry auto-narrows the kind filter."""
+    from gui.docks.trees_dock import _AnchorDialog
+    candidates = [("clone", "CL_A"), ("clone", "SHARED"),
+                  ("rule", "R_B"), ("rule", "SHARED"),
+                  ("coordinate", "COORD_C"), ("point", "PNT_D")]
+    dlg = _AnchorDialog(main_window, candidates)
+    dlg.mode_combo.setCurrentIndex(dlg.mode_combo.findData("record"))
+    assert dlg.kind_combo.currentData() is None  # "All kinds" by default
+    assert _combo_texts(dlg.ref_combo) == [
+        "CL_A", "clone:SHARED", "R_B", "rule:SHARED", "COORD_C", "PNT_D",
+    ]
+    assert dlg.ref_combo.itemData(0) == (None, "CL_A")
+    assert dlg.ref_combo.itemData(1) == ("clone", "SHARED")
+    assert dlg.ref_combo.itemData(3) == ("rule", "SHARED")
+
+    collision_idx = _combo_texts(dlg.ref_combo).index("rule:SHARED")
+    dlg.ref_combo.setCurrentIndex(collision_idx)
+    assert dlg.kind_combo.currentData() == "rule"   # auto-narrowed
+    assert dlg.ref_combo.currentText() == "SHARED"  # clean name
+
+
+# ── _AnchorDialog edit-mode prefill (2026-08-31) ───────────────────────────
+
+def test_anchor_dialog_prefills_auto(main_window):
+    from gui.docks.trees_dock import _AnchorDialog
+    dlg = _AnchorDialog(main_window, [], existing=TreeAnchor(is_auto=True))
+    assert dlg.mode_combo.currentData() == "auto"
+
+
+def test_anchor_dialog_prefills_role(main_window):
+    from gui.docks.trees_dock import _AnchorDialog
+    dlg = _AnchorDialog(main_window, [], role_candidates=["FPGA"],
+                        existing=TreeAnchor(role="FPGA", anchor_sheet="S1",
+                                            anchor_cluster="CL_A", anchor_pad="A1"))
+    assert dlg.mode_combo.currentData() == "role"
+    assert dlg.role_edit.currentText() == "FPGA"
+    assert dlg.sheet_edit.currentText() == "S1"
+    assert dlg.cluster_edit.currentText() == "CL_A"
+    assert dlg.pad_edit.text() == "A1"
+
+
+def test_anchor_dialog_prefills_point(main_window):
+    from gui.docks.trees_dock import _AnchorDialog
+    dlg = _AnchorDialog(main_window, [], existing=TreeAnchor(point="P1"))
+    assert dlg.mode_combo.currentData() == "point"
+    assert dlg.point_edit.currentText() == "P1"
+
+
+def test_anchor_dialog_prefills_record_with_kind(main_window):
+    """A ref anchor whose name is unambiguous across sections pre-fills the
+    kind filter too — so a subsequent Save edits the same record, not a blind
+    "All kinds" list."""
+    from gui.docks.trees_dock import _AnchorDialog
+    dlg = _AnchorDialog(main_window, [("placement", "FPGA"), ("rule", "R_FB")],
+                        existing=TreeAnchor(ref="R_FB", is_external=False))
+    assert dlg.mode_combo.currentData() == "record"
+    assert dlg.kind_combo.currentData() == "rule"
+    assert dlg.ref_combo.currentText() == "R_FB"
+
+
+def test_anchor_dialog_prefills_external(main_window):
+    from gui.docks.trees_dock import _AnchorDialog
+    dlg = _AnchorDialog(main_window, [], existing=TreeAnchor(ref="U3", is_external=True))
+    assert dlg.mode_combo.currentData() == "external"
+    assert dlg.ref_combo.currentText() == "U3"
+
+
+# ── Anchor pseudo-root label (_anchor_label / _render_tree) ────────────────
+
+def test_anchor_label_all_modes_never_none():
+    """Every TreeAnchor mode renders a human-readable label with NO "None"
+    (auto/role/point carry ref=None — the pre-2026-08-31 render showed '⚓ None')."""
+    from gui.docks.trees_dock import _anchor_label
+    cases = [
+        (TreeAnchor(is_origin=True), "origin"),
+        (TreeAnchor(is_auto=True), "auto"),
+        (TreeAnchor(role="FPGA"), "role"),
+        (TreeAnchor(role="FPGA", anchor_sheet="S1", anchor_cluster="CL_A",
+                    anchor_pad="A1"), "S1"),
+        (TreeAnchor(point="P1"), "point"),
+        (TreeAnchor(ref="CONN_PM5V"), "CONN_PM5V"),
+        (TreeAnchor(ref="U3", is_external=True), "external"),
+    ]
+    for anchor, needle in cases:
+        label = _anchor_label(anchor)
+        assert "None" not in label
+        assert needle in label
+
+
+def test_render_tree_auto_anchor_label(main_window, tmp_path):
+    """A tree with NO (anchor ...) loads as is_auto and its pseudo-root renders
+    '⚓ (auto)' — never '⚓ None' (2026-08-31 gap)."""
+    trees = {"trees": [{"name": "t", "nodes": []}]}  # no anchor key -> auto
+    dock, _root = _dock_with(main_window, tmp_path, trees)
+    tree_widget = dock.tabs.widget(0)
+    tops = _children(tree_widget.invisibleRootItem())
+    assert len(tops) == 1
+    assert "auto" in tops[0].text(0)
+    assert "None" not in tops[0].text(0)
+
+
+def test_render_tree_role_anchor_label(main_window, tmp_path):
+    """A role anchor with a sheet narrow renders role + sheet in the label."""
+    trees = {"trees": [{"name": "t", "anchor": {"role": "FPGA", "sheet": "S1"},
+                        "nodes": []}]}
+    dock, _root = _dock_with(main_window, tmp_path, trees)
+    label = _children(dock.tabs.widget(0).invisibleRootItem())[0].text(0)
+    assert "role" in label and "FPGA" in label and "S1" in label
+    assert "None" not in label
 
 
 def test_rename_tree_enforces_unique_names(main_window, tmp_path):

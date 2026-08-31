@@ -2979,6 +2979,45 @@ msgstr ""
 msgid "⚓ (origin)"
 msgstr ""
 
+#: gui/docks/trees_dock.py:391
+msgid "⚓ (auto)"
+msgstr ""
+
+#: gui/docks/trees_dock.py:391
+#, python-brace-format
+msgid "⚓ (point {point})"
+msgstr ""
+
+#: gui/docks/trees_dock.py:391
+#, python-brace-format
+msgid "⚓ (role {role})"
+msgstr ""
+
+#: gui/docks/trees_dock.py:391
+msgid "⚓ (unknown)"
+msgstr ""
+
+#: gui/docks/trees_dock.py:391
+#, python-brace-format
+msgid "⚓ {ref} (external)"
+msgstr ""
+
+#: gui/docks/trees_dock.py:1280
+msgid "All kinds"
+msgstr ""
+
+#: gui/docks/trees_dock.py:1274
+msgid "Auto (derive from Entity's own cell)"
+msgstr ""
+
+#: gui/docks/trees_dock.py:1280
+msgid "Clone"
+msgstr ""
+
+#: gui/docks/trees_dock.py:1284
+msgid "Point name is required."
+msgstr ""
+
 #: gui/docks/trees_dock.py:448
 #, python-brace-format
 msgid "{ref}: xy=({x:.3f}, {y:.3f}) mm"

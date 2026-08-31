@@ -3150,6 +3150,45 @@ msgstr "Дерево анкоров"
 msgid "⚓ (origin)"
 msgstr "Начало"
 
+#: gui/docks/trees_dock.py:391
+msgid "⚓ (auto)"
+msgstr "⚓ (авто)"
+
+#: gui/docks/trees_dock.py:391
+#, python-brace-format
+msgid "⚓ (point {point})"
+msgstr "⚓ (точка {point})"
+
+#: gui/docks/trees_dock.py:391
+#, python-brace-format
+msgid "⚓ (role {role})"
+msgstr "⚓ (роль {role})"
+
+#: gui/docks/trees_dock.py:391
+msgid "⚓ (unknown)"
+msgstr "⚓ (неизвестно)"
+
+#: gui/docks/trees_dock.py:391
+#, python-brace-format
+msgid "⚓ {ref} (external)"
+msgstr "⚓ {ref} (внешний)"
+
+#: gui/docks/trees_dock.py:1280
+msgid "All kinds"
+msgstr "Все типы"
+
+#: gui/docks/trees_dock.py:1274
+msgid "Auto (derive from Entity's own cell)"
+msgstr "Авто (из ячейки Entity-корня)"
+
+#: gui/docks/trees_dock.py:1280
+msgid "Clone"
+msgstr "Клон"
+
+#: gui/docks/trees_dock.py:1284
+msgid "Point name is required."
+msgstr "Требуется имя точки."
+
 #: gui/docks/trees_dock.py:448
 #, fuzzy, python-brace-format
 msgid "{ref}: xy=({x:.3f}, {y:.3f}) mm"
