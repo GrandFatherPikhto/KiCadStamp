@@ -367,3 +367,59 @@ def test_copy_items_unknown_kind_is_explicit_error(tmp_path):
         copy_items(source, [{"kind": "bogus", "name": "x"}], target)
 
     assert "unknown import kind" in str(exc.value)
+
+
+# ── copy_items on_collision (overwrite / keep existing / cancel) ───────────
+
+def test_copy_items_on_collision_overwrite_replaces_existing(tmp_path):
+    source = _write_sexp(tmp_path / "source.sexp", {"cells": {
+        "leaf": {"layer": "F.Cu",
+                 "components": [{"role": "R1", "offset_along_mm": 9.0}]}}})
+    target = _write_sexp(tmp_path / "target.sexp", {"cells": {
+        "leaf": {"layer": "F.Cu",
+                 "components": [{"role": "R1", "offset_along_mm": 1.0}]}}})
+
+    result = copy_items(source, [{"kind": "cell", "name": "leaf"}], target,
+                        on_collision=lambda collisions: "overwrite")
+
+    assert result["cells"] == ["leaf"]
+    # the source version wins
+    assert _read(target)["cells"]["leaf"]["components"][0]["offset_along_mm"] == 9.0
+
+
+def test_copy_items_on_collision_skip_keeps_existing_and_imports_rest(tmp_path):
+    """'Keep existing' leaves the colliding cell untouched but still imports
+    the non-colliding closure and the entity (which now references the kept
+    cell)."""
+    source = _make_source(tmp_path)  # entity E_FILTER -> cell top -> mid -> leaf
+    target = _write_sexp(tmp_path / "target.sexp", {
+        "cells": {"top": {"layer": "F.Cu"}},  # collides, must be kept as-is
+        "points": {}, "entities": [], "rules": []})
+
+    result = copy_items(source, [{"kind": "entity", "name": "E_FILTER"}], target,
+                        on_collision=lambda collisions: "skip")
+
+    assert result["cells"] == ["mid", "leaf"]  # top kept, not re-written
+    assert result["entities"] == ["E_FILTER"]
+    data = _read(target)
+    # the existing top is kept — the SOURCE top (which carries the nested
+    # clone_placements) was NOT written over it
+    assert "clone_placements" not in data["cells"]["top"]
+    assert "mid" in data["cells"] and "leaf" in data["cells"]
+    assert data["entities"] == [
+        {"name": "E_FILTER", "cell": "top", "cluster": "CH0",
+         "nets": {"R1": "/NET_A"}, "params": {"X": "1"}, "sheet": "Sheet_0"}]
+
+
+def test_copy_items_on_collision_cancel_raises_nothing_written(tmp_path):
+    source = _make_source(tmp_path)
+    target = _write_sexp(tmp_path / "target.sexp", {
+        "cells": {"leaf": {"layer": "F.Cu"}}, "points": {}, "entities": [], "rules": []})
+    before = target.read_bytes()
+
+    with pytest.raises(ValidationError) as exc:
+        copy_items(source, [{"kind": "entity", "name": "E_FILTER"}], target,
+                   on_collision=lambda collisions: None)  # cancel
+
+    assert "cancelled" in str(exc.value).lower()
+    assert target.read_bytes() == before

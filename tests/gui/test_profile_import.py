@@ -90,24 +90,70 @@ def test_import_dialog_multi_select_imports_all_checked(qapp, tmp_path, monkeypa
     assert "E1" in infos[0] and "c2" in infos[0]
 
 
-def test_import_dialog_collision_shows_error_and_leaves_root_unchanged(qapp, tmp_path, monkeypatch):
+def _leaf_source_and_root(tmp_path, root_offset):
     source = _write_sexp(tmp_path / "source.sexp", {"cells": {
-        "leaf": {"layer": "F.Cu", "components": [{"role": "R1"}]}}})
-    root = _write_sexp(tmp_path / "root.sexp", {"cells": {"leaf": {"layer": "F.Cu"}}})
-    before = root.read_bytes()
+        "leaf": {"layer": "F.Cu",
+                 "components": [{"role": "R1", "offset_along_mm": 9.0}]}}})
+    root = _write_sexp(tmp_path / "root.sexp", {"cells": {
+        "leaf": {"layer": "F.Cu",
+                 "components": [{"role": "R1", "offset_along_mm": root_offset}]}}})
+    return source, root
+
+
+def test_import_dialog_collision_ask_overwrite_replaces(qapp, tmp_path, monkeypatch):
+    """A colliding name no longer fails — the dialog asks, and Overwrite makes
+    the source version win."""
+    source, root = _leaf_source_and_root(tmp_path, root_offset=1.0)
     monkeypatch.setattr(QFileDialog, "getOpenFileName",
                         lambda *a, **k: (str(source), ""))
-    warnings = []
-    _silence_boxes(monkeypatch, warnings=warnings)
+    asked = []
+    _silence_boxes(monkeypatch)
 
     dlg = ProfileImportDialog(None, root)
+    monkeypatch.setattr(dlg, "_ask_collision",
+                        lambda collisions: (asked.append(collisions), "overwrite")[1])
     dlg._browse()
     _check_row(dlg, 0)
     dlg._import()
 
-    assert warnings, "collision must surface as a visible message"
-    assert "already exists" in warnings[0]
-    assert root.read_bytes() == before  # nothing written
+    assert asked and "leaf" in asked[0]["cells"]
+    assert _read(root)["cells"]["leaf"]["components"][0]["offset_along_mm"] == 9.0
+
+
+def test_import_dialog_collision_keep_existing_skips(qapp, tmp_path, monkeypatch):
+    source, root = _leaf_source_and_root(tmp_path, root_offset=1.0)
+    monkeypatch.setattr(QFileDialog, "getOpenFileName",
+                        lambda *a, **k: (str(source), ""))
+    _silence_boxes(monkeypatch)
+
+    dlg = ProfileImportDialog(None, root)
+    monkeypatch.setattr(dlg, "_ask_collision", lambda collisions: "skip")
+    dlg._browse()
+    _check_row(dlg, 0)
+    dlg._import()
+
+    # the existing entry is kept untouched
+    assert _read(root)["cells"]["leaf"]["components"][0]["offset_along_mm"] == 1.0
+
+
+def test_import_dialog_collision_cancel_is_a_noop(qapp, tmp_path, monkeypatch):
+    source, root = _leaf_source_and_root(tmp_path, root_offset=1.0)
+    before = root.read_bytes()
+    monkeypatch.setattr(QFileDialog, "getOpenFileName",
+                        lambda *a, **k: (str(source), ""))
+    _silence_boxes(monkeypatch)
+
+    dlg = ProfileImportDialog(None, root)
+
+    def _cancel(_collisions):
+        raise profile_import_mod._Cancelled()
+
+    monkeypatch.setattr(dlg, "_ask_collision", _cancel)
+    dlg._browse()
+    _check_row(dlg, 0)
+    dlg._import()
+
+    assert root.read_bytes() == before  # cancel -> nothing written, no error box
 
 
 def test_run_import_dialog_without_root_is_graceful(qapp, monkeypatch):

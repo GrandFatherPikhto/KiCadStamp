@@ -36,7 +36,7 @@ it by hand after import).
 import copy
 import json
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from ..config_writer import merge_write, upsert_list_entry
 from ..exceptions import ValidationError, format_fatal_error
@@ -272,7 +272,8 @@ def list_importable(source_path) -> list:
     return out
 
 
-def copy_items(source_path, items, target_path, target_root: Optional[Path] = None) -> dict:
+def copy_items(source_path, items, target_path, target_root: Optional[Path] = None,
+               on_collision: Optional[Callable[[dict], Optional[str]]] = None) -> dict:
     """Copy several Cell/Entity/Rule records from source_path into target_path
     by value in ONE atomic pass (2026-08-31, multi-select in the import
     dialog). `items` is a list of {"kind": "cell"|"entity"|"rule", "name":
@@ -282,11 +283,26 @@ def copy_items(source_path, items, target_path, target_root: Optional[Path] = No
     share a Cell (e.g. an Entity and a Rule on the same cell) import cleanly
     instead of the second one tripping on the first one's just-written cell.
 
+    Collision handling (Denis, 2026-08-31 — "перезаписать или оставить, как
+    есть"):
+      * `on_collision` is a callback receiving the FULL collision summary
+        {"cells": [...], "points": [...], "entities": [...], "rules": [...]}
+        (names that already exist in the target's include: graph) and returns:
+          - "overwrite" -> every colliding name is replaced by the source
+            version (merge_write replaces dict keys, upsert_list_entry replaces
+            list entries in place);
+          - "skip"      -> colliding names are LEFT as-is, everything else is
+            still imported;
+          - None        -> import cancelled (raises, nothing written).
+      * when `on_collision` is None (the default — the single-record wrappers
+        and CLI-style use), ANY collision is a clear ValidationError and
+        nothing is written (the original fail-loud behaviour).
+
     Returns {"cells": [...], "points": [...], "entities": [...], "rules": [...]}
-    — the copied names per section (cells/points root-first). Raises a clear
-    ValidationError on: missing/unreadable source, a missing record/name, a
-    missing dependency in the source, or ANY name collision in the target
-    (nothing is written in any failure case)."""
+    — the names actually written per section (cells/points root-first; with
+    "skip", colliding names are excluded). Raises a clear ValidationError on:
+    missing/unreadable source, a missing record/name, a missing dependency in
+    the source, or (default policy) ANY name collision in the target."""
     source = _load_source(source_path)
     cells_data = source.get("cells") or {}
     points_data = source.get("points") or {}
@@ -341,12 +357,42 @@ def copy_items(source_path, items, target_path, target_root: Optional[Path] = No
                 [_("kind must be 'cell', 'entity' or 'rule'")]))
 
     root = Path(target_root) if target_root is not None else Path(target_path)
-    _check_no_collision(root, "cells", list(cells_to_write), _("cell"))
-    _check_no_collision(root, "points", list(points_to_write), _("point"))
-    for entry in entities_to_write:
-        _check_no_collision(root, "entities", [entry["name"]], _("entity"))
-    for entry in rules_to_write:
-        _check_no_collision(root, "rules", [(entry.get("name") or entry.get("net"))], _("rule"))
+    collisions = {
+        "cells": [n for n in cells_to_write if _target_has_entry(root, "cells", n)],
+        "points": [n for n in points_to_write if _target_has_entry(root, "points", n)],
+        "entities": [e["name"] for e in entities_to_write
+                     if _target_has_entry(root, "entities", e["name"])],
+        "rules": [(r.get("name") or r.get("net")) for r in rules_to_write
+                  if _target_has_entry(root, "rules", r.get("name") or r.get("net"))],
+    }
+    if any(collisions.values()):
+        if on_collision is None:
+            # Default policy: fail loudly on the first collision, nothing written.
+            section, name = next((s, names[0]) for s, names in collisions.items() if names)
+            label = {"cells": _("cell"), "points": _("point"),
+                     "entities": _("entity"), "rules": _("rule")}[section]
+            _check_no_collision(root, section, [name], label)
+        decision = on_collision(collisions)
+        if decision is None:
+            raise ValidationError(format_fatal_error(
+                _("Import cancelled — existing entries were left unchanged"),
+                [_("nothing was written")]))
+        if decision == "skip":
+            for n in collisions["cells"]:
+                cells_to_write.pop(n, None)
+            for n in collisions["points"]:
+                points_to_write.pop(n, None)
+            entities_to_write = [e for e in entities_to_write
+                                 if e["name"] not in collisions["entities"]]
+            rules_to_write = [r for r in rules_to_write
+                              if (r.get("name") or r.get("net")) not in collisions["rules"]]
+        elif decision != "overwrite":
+            raise ValidationError(format_fatal_error(
+                _("invalid collision decision {decision!r}").format(decision=decision),
+                [_("expected 'overwrite', 'skip' or None (cancel)")]))
+        # decision == "overwrite": write everything as-is — merge_write()
+        # replaces dict-section keys and upsert_list_entry() replaces
+        # list-section entries in place, so the source version wins.
 
     target = Path(target_path)
     _write_dict_section(target, "cells", cells_to_write)

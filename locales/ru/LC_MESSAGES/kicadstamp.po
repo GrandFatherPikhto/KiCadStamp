@@ -11111,3 +11111,29 @@ msgstr "  {kind} {name!r}"
 #, python-brace-format
 msgid "({cells} cell(s), {points} point(s) copied)"
 msgstr "(скопировано: ячеек {cells}, точек {points})"
+
+#: gui/docks/profile_import.py
+msgid "Keep existing"
+msgstr "Оставить как есть"
+
+#: gui/docks/profile_import.py
+msgid "The following already exist in the target profile:"
+msgstr "В целевом профиле уже существуют следующие записи:"
+
+#: gui/docks/profile_import.py
+#, python-brace-format
+msgid "  • {kind} {name!r}"
+msgstr "  • {kind} {name!r}"
+
+#: gui/docks/profile_import.py
+msgid "No changes — the selected records already exist in the target profile."
+msgstr "Ничего не изменено — выбранные записи уже есть в целевом профиле."
+
+#: kicadstamp/config/profile_copy.py
+msgid "Import cancelled — existing entries were left unchanged"
+msgstr "Импорт отменён — существующие записи не изменены"
+
+#: kicadstamp/config/profile_copy.py
+#, python-brace-format
+msgid "invalid collision decision {decision!r}"
+msgstr "недопустимое решение по коллизии {decision!r}"

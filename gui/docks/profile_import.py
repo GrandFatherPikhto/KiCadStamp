@@ -33,6 +33,14 @@ from ._common import ERROR_STYLE as _ERROR_STYLE, show_message
 logger = logging.getLogger(__name__)
 
 _KIND_LABEL = {"cell": _("Cell"), "entity": _("Entity"), "rule": _("Rule")}
+# section -> kind label, for the collision list (cells/points have no entry in
+# _KIND_LABEL).
+_SECTION_LABEL = {"cells": _("Cell"), "points": _("Point"),
+                  "entities": _("Entity"), "rules": _("Rule")}
+
+
+class _Cancelled(Exception):
+    """User clicked Cancel in the collision dialog — import is a silent no-op."""
 
 
 def _summary_many(items: List[dict], result: dict, source_name: str) -> str:
@@ -152,15 +160,50 @@ class ProfileImportDialog(QDialog):
                 out.append(self._rows[row])
         return out
 
+    def _ask_collision(self, collisions: dict) -> str:
+        """The on_collision callback passed to copy_items(): shows ONE dialog
+        listing every name that already exists in the target and lets the user
+        pick Overwrite / Keep existing / Cancel (Denis, 2026-08-31 — a name
+        collision must ask, not silently refuse)."""
+        lines = [_("The following already exist in the target profile:")]
+        for section, names in collisions.items():
+            for name in names:
+                lines.append(_("  • {kind} {name!r}").format(
+                    kind=_SECTION_LABEL[section], name=name))
+        box = QMessageBox(self)
+        box.setWindowTitle(_("Import from profile..."))
+        box.setText("\n".join(lines))
+        overwrite = box.addButton(_("Overwrite"), QMessageBox.ButtonRole.AcceptRole)
+        keep = box.addButton(_("Keep existing"), QMessageBox.ButtonRole.DestructiveRole)
+        cancel = box.addButton(_("Cancel"), QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(cancel)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is overwrite:
+            return "overwrite"
+        if clicked is keep:
+            return "skip"
+        raise _Cancelled()
+
     def _import(self) -> None:
         items = self._checked_rows()
         if not items or self._source_path is None:
             return
         try:
             result = copy_items(self._source_path, items, self._root_path,
-                                target_root=self._root_path)
+                                target_root=self._root_path,
+                                on_collision=self._ask_collision)
+        except _Cancelled:
+            return  # user declined the collision dialog — nothing to do
         except (ValidationError, OSError) as e:
             QMessageBox.warning(self, _("Import failed"), str(e))
+            return
+        if not (result["cells"] or result["points"]
+                or result["entities"] or result["rules"]):
+            # every selected record already exists and was kept as-is
+            QMessageBox.information(
+                self, _("Import from profile..."),
+                _("No changes — the selected records already exist in the target profile."))
             return
         message = _summary_many(items, result, self._source_path.name)
         show_message(message, "", logger)
