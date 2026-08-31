@@ -548,6 +548,256 @@ def test_anchor_dialog_prefills_external(main_window):
     assert dlg.ref_combo.currentText() == "U3"
 
 
+# ── Self-reference anchor guard — dialog filter (2026-08-31, plan §1/§2) ───
+
+def _placement_node(ref):
+    """A minimal top-level kind="placement" TreeNode — the shape a tree's own
+    root Entity has for the self-reference guard."""
+    return TreeNode(ref=ref, kind="placement", xy=None, polar=None,
+                    rotation=0.0, name=None, group=None)
+
+
+def _entity_refs(dlg):
+    """The plain display names currently in the dialog's ref combo."""
+    return {dlg.ref_combo.itemText(i) for i in range(dlg.ref_combo.count())}
+
+
+def test_anchor_dialog_excludes_own_root_entity(main_window):
+    """§1 of plan_2026_08_31_anchor_self_ref_guard: a tree whose single
+    top-level node IS a placement record must not be offered that record as its
+    own ref anchor (a ref anchor pointing at its own root Entity can never
+    resolve). Other (non-self) Entities stay available."""
+    from gui.docks.trees_dock import _AnchorDialog
+    tree = Tree(name="fpga_tree", anchor=TreeAnchor(is_auto=True),
+                nodes=[_placement_node("fpga")])
+    dlg = _AnchorDialog(main_window,
+                        [("placement", "fpga"), ("placement", "CL_A"),
+                         ("rule", "R_FB")],
+                        tree=tree)
+    dlg.mode_combo.setCurrentIndex(dlg.mode_combo.findData("record"))
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("placement"))
+    names = _entity_refs(dlg)
+    assert "fpga" not in names
+    assert "CL_A" in names
+
+
+def test_anchor_dialog_empty_tree_keeps_self_entity(main_window):
+    """§1 regression: an EMPTY tree (no top-level nodes) has no self-reference
+    yet — the Entity is still a legitimate candidate and must stay."""
+    from gui.docks.trees_dock import _AnchorDialog
+    tree = Tree(name="fpga_tree", anchor=TreeAnchor(is_auto=True), nodes=[])
+    dlg = _AnchorDialog(main_window, [("placement", "fpga"), ("placement", "CL_A")],
+                        tree=tree)
+    dlg.mode_combo.setCurrentIndex(dlg.mode_combo.findData("record"))
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("placement"))
+    names = _entity_refs(dlg)
+    assert "fpga" in names
+    assert "CL_A" in names
+
+
+def test_anchor_dialog_multiple_top_level_not_filtered(main_window):
+    """§edge-case: with several top-level nodes there is no single "own root
+    Entity" (and the auto-anchor is unreachable) — the dialog must not filter."""
+    from gui.docks.trees_dock import _AnchorDialog
+    tree = Tree(name="multi", anchor=TreeAnchor(is_auto=True),
+                nodes=[_placement_node("fpga"), _placement_node("CL_A")])
+    dlg = _AnchorDialog(main_window, [("placement", "fpga"), ("placement", "CL_A")],
+                        tree=tree)
+    dlg.mode_combo.setCurrentIndex(dlg.mode_combo.findData("record"))
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("placement"))
+    names = _entity_refs(dlg)
+    assert "fpga" in names
+    assert "CL_A" in names
+
+
+def test_anchor_dialog_non_placement_root_not_filtered(main_window):
+    """§edge-case: the single top-level node is NOT kind=placement — there is
+    no self-referencing Entity to guard."""
+    from gui.docks.trees_dock import _AnchorDialog
+    tree = Tree(name="rule_root", anchor=TreeAnchor(is_auto=True),
+                nodes=[TreeNode(ref="R_FB", kind="rule", xy=None, polar=None,
+                                rotation=0.0, name=None, group=None)])
+    dlg = _AnchorDialog(main_window, [("placement", "fpga"), ("rule", "R_FB")],
+                        tree=tree)
+    dlg.mode_combo.setCurrentIndex(dlg.mode_combo.findData("record"))
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("placement"))
+    names = _entity_refs(dlg)
+    assert "fpga" in names
+
+
+def test_anchor_dialog_all_kinds_removes_self_ref(main_window):
+    """§1: in "All kinds" the self-Entity (placement "fpga") disappears — the
+    leftover "rule:fpga" record is no longer a cross-section collision (the
+    placement entry was dropped), so it shows as a plain "fpga" and stays
+    selectable: it is NOT the self-Entity."""
+    from gui.docks.trees_dock import _AnchorDialog
+    tree = Tree(name="fpga_tree", anchor=TreeAnchor(is_auto=True),
+                nodes=[_placement_node("fpga")])
+    dlg = _AnchorDialog(main_window,
+                        [("placement", "fpga"), ("rule", "fpga"), ("rule", "R_FB")],
+                        tree=tree)
+    dlg.mode_combo.setCurrentIndex(dlg.mode_combo.findData("record"))
+    texts = [dlg.ref_combo.itemText(i) for i in range(dlg.ref_combo.count())]
+    assert "placement:fpga" not in texts
+    assert "fpga" in texts
+    assert "R_FB" in texts
+
+
+def test_anchor_dialog_hint_when_self_ref_empties_entities(main_window):
+    """§2: when the ONLY Entity candidate was the tree's own root Entity (so
+    the Entity section empties BECAUSE of the self-ref exclusion), a non-modal
+    hint points at the Auto mode instead of a bare empty combo."""
+    from gui.docks.trees_dock import _AnchorDialog
+    tree = Tree(name="fpga_tree", anchor=TreeAnchor(is_auto=True),
+                nodes=[_placement_node("fpga")])
+    dlg = _AnchorDialog(main_window, [("placement", "fpga"), ("rule", "R_FB")],
+                        tree=tree)
+    dlg.mode_combo.setCurrentIndex(dlg.mode_combo.findData("record"))
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("placement"))
+    assert not dlg.hint_label.isHidden()
+    assert "fpga" in dlg.hint_label.text()
+
+
+def test_anchor_dialog_hint_hidden_when_other_entity_remains(main_window):
+    """§2 regression: the hint must NOT show when the Entity section still has
+    a usable (non-self) candidate — the filter is working, the list isn't a
+    dead end."""
+    from gui.docks.trees_dock import _AnchorDialog
+    tree = Tree(name="fpga_tree", anchor=TreeAnchor(is_auto=True),
+                nodes=[_placement_node("fpga")])
+    dlg = _AnchorDialog(main_window, [("placement", "fpga"), ("placement", "CL_A")],
+                        tree=tree)
+    dlg.mode_combo.setCurrentIndex(dlg.mode_combo.findData("record"))
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("placement"))
+    assert dlg.hint_label.isHidden()
+
+
+def test_anchor_dialog_hint_hidden_outside_record_mode(main_window):
+    """§2 regression: outside the Config-record mode the hint is never shown
+    (e.g. Auto — the very switch the hint suggests — must not carry it)."""
+    from gui.docks.trees_dock import _AnchorDialog
+    tree = Tree(name="fpga_tree", anchor=TreeAnchor(is_auto=True),
+                nodes=[_placement_node("fpga")])
+    dlg = _AnchorDialog(main_window, [("placement", "fpga")], tree=tree)
+    dlg.mode_combo.setCurrentIndex(dlg.mode_combo.findData("auto"))
+    assert dlg.hint_label.isHidden()
+
+
+# ── Self-reference save guard (_enforce_no_self_ref, plan §3) ──────────────
+
+def _guard_dock(main_window, tree):
+    """A TreesDock with no root file, holding exactly the given tree — enough
+    for the pure _enforce_no_self_ref mutation tests (no disk IO)."""
+    dock = TreesDock(main_window)
+    dock.set_root_file(None)
+    dock._trees = [tree]
+    return dock
+
+
+def test_save_guard_switches_self_ref_anchor_to_auto(main_window):
+    """§3: a tree whose explicit ref anchor points at its OWN root placement
+    node (the dialog-bypass combination: anchor set while empty, then the root
+    added) is silently switched to an Auto anchor by _enforce_no_self_ref."""
+    tree = Tree(name="fpga_tree",
+                anchor=TreeAnchor(ref="fpga", is_origin=False, is_external=False),
+                nodes=[_placement_node("fpga")])
+    dock = _guard_dock(main_window, tree)
+    dock._enforce_no_self_ref()
+    assert tree.anchor.is_auto is True
+    assert tree.anchor.ref is None
+
+
+def test_save_guard_does_not_touch_different_entity_anchor(main_window):
+    """§edge-case: (ref X) where X is a DIFFERENT Entity than the tree's root —
+    the normal working Case 1 — must not be touched."""
+    tree = Tree(name="t", anchor=TreeAnchor(ref="fpga", is_origin=False),
+                nodes=[_placement_node("CL_A")])
+    dock = _guard_dock(main_window, tree)
+    dock._enforce_no_self_ref()
+    assert tree.anchor == TreeAnchor(ref="fpga", is_origin=False)
+
+
+def test_save_guard_does_not_touch_external_self_named_anchor(main_window):
+    """§edge-case: (ref "fpga") (external) with a placement root "fpga" is NOT
+    a self-reference (external is a live refdes, never an Entity record)."""
+    tree = Tree(name="t", anchor=TreeAnchor(ref="fpga", is_origin=False,
+                                            is_external=True),
+                nodes=[_placement_node("fpga")])
+    dock = _guard_dock(main_window, tree)
+    dock._enforce_no_self_ref()
+    assert tree.anchor == TreeAnchor(ref="fpga", is_origin=False, is_external=True)
+
+
+def test_save_guard_does_not_touch_auto_anchor(main_window):
+    """§edge-case: an already-auto anchor has nothing to replace."""
+    tree = Tree(name="t", anchor=TreeAnchor(is_auto=True),
+                nodes=[_placement_node("fpga")])
+    dock = _guard_dock(main_window, tree)
+    dock._enforce_no_self_ref()
+    assert tree.anchor.is_auto is True
+
+
+def test_save_guard_does_not_touch_origin_anchor(main_window):
+    tree = Tree(name="t", anchor=TreeAnchor(is_origin=True),
+                nodes=[_placement_node("fpga")])
+    dock = _guard_dock(main_window, tree)
+    dock._enforce_no_self_ref()
+    assert tree.anchor.is_origin is True
+
+
+def test_save_guard_does_not_touch_role_anchor(main_window):
+    tree = Tree(name="t", anchor=TreeAnchor(role="FPGA", is_origin=False),
+                nodes=[_placement_node("fpga")])
+    dock = _guard_dock(main_window, tree)
+    dock._enforce_no_self_ref()
+    assert tree.anchor.role == "FPGA"
+
+
+def test_save_guard_does_not_touch_point_anchor(main_window):
+    tree = Tree(name="t", anchor=TreeAnchor(point="P1", is_origin=False),
+                nodes=[_placement_node("fpga")])
+    dock = _guard_dock(main_window, tree)
+    dock._enforce_no_self_ref()
+    assert tree.anchor.point == "P1"
+
+
+def test_save_guard_does_not_touch_multiple_top_level(main_window):
+    """§edge-case: several top-level nodes mean no single root Entity — the
+    auto-anchor is unreachable, so there is nothing to switch to (leave it)."""
+    tree = Tree(name="t", anchor=TreeAnchor(ref="fpga", is_origin=False),
+                nodes=[_placement_node("fpga"), _placement_node("CL_A")])
+    dock = _guard_dock(main_window, tree)
+    dock._enforce_no_self_ref()
+    assert tree.anchor == TreeAnchor(ref="fpga", is_origin=False)
+
+
+def test_save_guard_notifies_via_status_bar(main_window):
+    """§3: the auto-switch is non-intrusive but not silent — a status-bar notice
+    naming the tree and the offending ref is shown (never a modal)."""
+    tree = Tree(name="fpga_tree",
+                anchor=TreeAnchor(ref="fpga", is_origin=False, is_external=False),
+                nodes=[_placement_node("fpga")])
+    dock = _guard_dock(main_window, tree)
+    dock._enforce_no_self_ref()
+    assert "fpga_tree" in dock.status_label.text()
+    assert "fpga" in dock.status_label.text()
+
+
+def test_save_guard_roundtrip_yields_auto_anchor(main_window):
+    """§3 round-trip: after the auto-switch, tree_to_dict omits the anchor key
+    and load_tree recovers is_auto=True — the exact path _do_save writes to
+    disk, and the same behavior as a hand-authored auto anchor."""
+    from kicadstamp.config import load_tree
+    from kicadstamp.trees import tree_to_dict
+    tree = Tree(name="fpga_tree",
+                anchor=TreeAnchor(ref="fpga", is_origin=False, is_external=False),
+                nodes=[_placement_node("fpga")])
+    dock = _guard_dock(main_window, tree)
+    dock._enforce_no_self_ref()
+    reloaded = load_tree(tree_to_dict(tree))
+    assert reloaded.anchor.is_auto is True
+
+
 # ── Anchor pseudo-root label (_anchor_label / _render_tree) ────────────────
 
 def test_anchor_label_all_modes_never_none():

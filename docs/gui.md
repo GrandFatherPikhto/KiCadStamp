@@ -219,7 +219,14 @@ cell)** (no explicit anchor — derived at materialization from the root Entity'
 **Role** (role + optional sheet/cluster/pad) and **Point** (a `points:` entry name). The external
 choice is stored with an explicit `external` marker so it is NEVER resolved against a config record
 name: a refdes that happens to match a config record (e.g. a stale `coordinate_placement` named
-`"fpga"`) cannot hijack the anchor (2026-08-28). Editing an existing anchor (via **Set anchor…** on a
+`"fpga"`) cannot hijack the anchor (2026-08-28). Because a ref anchor pointing at the tree's OWN root
+Entity can never resolve (a guaranteed self-reference), the Config-record list excludes that Entity
+whenever the tree already roots it with its single top-level `kind="placement"` node (2026-08-31) —
+and if that exclusion empties the Entity section, a hint points to the Auto mode instead of a bare
+empty combo. Save also guards the paths the dialog cannot see (an anchor set while the tree was still
+empty and the root node added/edited in afterwards, or a hand-edited `.sexp`): the same self-reference
+is silently switched to an Auto anchor with a status-bar/log notice. Editing an existing anchor (via
+**Set anchor…** on a
 tree that already has one) pre-fills the dialog with the current anchor's mode and fields, so a small
 tweak (e.g. changing a role anchor's sheet) doesn't rebuild the anchor from scratch. Node
 offsets are typed by hand or read from the live board via **Read current position** in the

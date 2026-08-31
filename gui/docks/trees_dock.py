@@ -93,6 +93,22 @@ def _anchor_label(anchor: TreeAnchor) -> str:
     return _("⚓ (unknown)")
 
 
+def _root_entity_ref(tree: Optional["Tree"]) -> Optional[str]:
+    """The ref of the tree's OWN single top-level kind="placement" node — the
+    "root Entity" whose record must never be offered as this tree's own ref
+    anchor, because a ref anchor pointing at the tree's own root Entity is a
+    self-reference that can never resolve (plan 2026-08-31 anchor self-ref
+    guard). Mirrors the auto-anchor's EXACTLY ONE rule
+    (_auto_anchor_base in entity_placement.py): an empty tree, several top-level
+    nodes, or a single top-level node that isn't a placement all mean "no
+    self-reference to guard" — the auto-anchor is unreachable for those anyway,
+    so neither the dialog filter nor the save-time auto-switch may touch them."""
+    if tree is None or len(tree.nodes) != 1:
+        return None
+    top = tree.nodes[0]
+    return top.ref if top.kind == "placement" else None
+
+
 _ORIGIN = Vector2.from_xy(0, 0)
 
 
@@ -488,6 +504,7 @@ class TreesDock(QDockWidget):
         message, do not roll back."""
         if self._root_path is None:
             return  # Save unavailable without a root config
+        self._enforce_no_self_ref()
         backup_file(self._root_path)
         trees_dict = [tree_to_dict(t) for t in self._trees]
         write_data(self._root_path, {**read_data(self._root_path), "trees": trees_dict})
@@ -500,6 +517,43 @@ class TreesDock(QDockWidget):
             return  # file written, .bak is fresh — report, don't roll back
         self._dirty = False
         self._update_toolbar_state()
+
+    @staticmethod
+    def _is_self_ref_anchor(tree: Tree) -> bool:
+        """True when the tree's explicit ref anchor points at its OWN single
+        top-level placement node — the self-reference combination that can
+        never resolve (plan 2026-08-31 anchor_self_ref_guard §3). Only an
+        explicit, non-external ref anchor is a candidate: origin/auto/role/
+        point anchors carry no ref, an external refdes is not an Entity record
+        by construction, and _root_entity_ref already enforces the EXACTLY ONE
+        rule (empty / multi-top-level / non-placement roots are untouched)."""
+        anchor = tree.anchor
+        if (anchor is None or anchor.is_auto or anchor.is_origin
+                or anchor.role is not None or anchor.point is not None
+                or not anchor.ref or anchor.is_external):
+            return False
+        return anchor.ref == _root_entity_ref(tree)
+
+    def _enforce_no_self_ref(self) -> None:
+        """Save-time catch-all for the self-reference anchor (plan §3). The
+        dialog filter can't cover every path — an anchor can be set while the
+        tree is EMPTY (a legitimate candidate then), and the (ref X) root node
+        added afterwards (or edited/moved to top level, or loaded from a
+        hand-edited .sexp). The combination is ALWAYS fatal at materialization
+        (never "sometimes useful"), so silently switch such an anchor to Auto
+        (Denis: quiet auto-replace as the fallback) + a non-intrusive
+        log/status-bar notice instead of a modal."""
+        for tree in self._trees:
+            if not self._is_self_ref_anchor(tree):
+                continue
+            ref = tree.anchor.ref
+            message = _("Anchor for tree {name!r}: a ref anchor pointing at "
+                        "its own root Entity {ref!r} never resolves "
+                        "(self-reference) — switched to Auto.").format(
+                            name=tree.name, ref=ref)
+            logger.info(message)
+            self._show_status(message)
+            tree.anchor = TreeAnchor(is_auto=True)
 
     def _mark_dirty(self) -> None:
         """Central dirty setter — every structural mutator (Phase 2) calls
@@ -785,7 +839,8 @@ class TreesDock(QDockWidget):
             sheet_names=self._ctx.sheet_names if self._ctx is not None else {},
             role_candidates=self._live_roles(),
             cluster_candidates=self._live_clusters(),
-            existing=tree.anchor)
+            existing=tree.anchor,
+            tree=tree)
         if anchor is not None:
             tree.anchor = anchor
             self._mark_dirty()
@@ -1294,7 +1349,8 @@ class _AnchorDialog(QDialog):
     }
 
     def __init__(self, parent, ref_candidates, *, cfg=None, sheet_names=None,
-                 role_candidates=None, cluster_candidates=None, existing=None):
+                 role_candidates=None, cluster_candidates=None, existing=None,
+                 tree=None):
         super().__init__(parent)
         self.setWindowTitle(_("Set anchor"))
         self._ref_candidates = list(ref_candidates or [])
@@ -1303,6 +1359,23 @@ class _AnchorDialog(QDialog):
         self._role_candidates = list(role_candidates or [])
         self._cluster_candidates = list(cluster_candidates or [])
         self._result: Optional[TreeAnchor] = None
+
+        # Self-reference guard (plan 2026-08-31 anchor_self_ref_guard): a tree
+        # whose OWN single top-level node is a placement record must never be
+        # offered THAT record as its own ref anchor — a ref anchor pointing at
+        # its own root Entity can never resolve (cycle-fatal). Drop the
+        # (placement, self_ref) candidate here so _on_kind_changed, _prefill
+        # and the collision-prefix counting all operate on the filtered list.
+        self._self_entity_ref = _root_entity_ref(tree)
+        if self._self_entity_ref is not None:
+            self._had_self_entity = any(
+                k == "placement" and n == self._self_entity_ref
+                for k, n in self._ref_candidates)
+            self._ref_candidates = [
+                (k, n) for k, n in self._ref_candidates
+                if not (k == "placement" and n == self._self_entity_ref)]
+        else:
+            self._had_self_entity = False
 
         form = QFormLayout(self)
 
@@ -1331,6 +1404,15 @@ class _AnchorDialog(QDialog):
         configure_searchable(self.ref_combo)
         self.ref_combo.setPlaceholderText(_("record name (from config)"))
         record_form.addRow(_("Ref:"), self.ref_combo)
+        # Self-reference hint (§2 of plan_2026_08_31_anchor_self_ref_guard): a
+        # static label (never a modal) shown when the Entity section emptied
+        # BECAUSE of the self-ref exclusion, pointing the user at the Auto mode
+        # instead of a bare empty combo. Hidden by default; _update_hint drives
+        # it.
+        self.hint_label = QLabel("")
+        self.hint_label.setWordWrap(True)
+        self.hint_label.hide()
+        record_form.addRow(self.hint_label)
         form.addRow(self.record_row)
 
         # role rows: role/sheet/cluster searchable combos + pad free text.
@@ -1405,6 +1487,7 @@ class _AnchorDialog(QDialog):
         if self.mode_combo.currentData() == "external":
             self.ref_combo.clear()
             self.ref_combo.setPlaceholderText(_("external refdes (live board)"))
+            self._update_hint()
             return
         kind = self.kind_combo.currentData()
         if kind is None:
@@ -1421,6 +1504,26 @@ class _AnchorDialog(QDialog):
             items = [(name, kind, name) for k, name in self._ref_candidates if k == kind]
         self._set_ref_items(items)
         self.ref_combo.setPlaceholderText(_("record name (from config)"))
+        self._update_hint()
+
+    def _update_hint(self) -> None:
+        """Show the self-reference hint when the record-mode ref list emptied
+        BECAUSE of the self-ref exclusion (§2 of plan_2026_08_31_anchor_self_
+        ref_guard): the tree's own root Entity was a real candidate
+        (_had_self_entity) and no other Entity record is left. A static label,
+        never a modal — it tells the user where to switch (Auto) instead of
+        leaving them staring at an empty combo."""
+        mode = self.mode_combo.currentData()
+        kind = self.kind_combo.currentData()
+        entity_empty = not any(k == "placement" for k, _n in self._ref_candidates)
+        if (mode == "record" and self._had_self_entity
+                and (kind is None or kind == "placement") and entity_empty):
+            self.hint_label.setText(_(
+                "This tree's own root Entity {ref!r} can't anchor itself — use Auto.")
+                .format(ref=self._self_entity_ref))
+            self.hint_label.show()
+        else:
+            self.hint_label.hide()
 
     def _set_ref_items(self, items: list[tuple[str, Optional[str], str]]) -> None:
         """Repopulate ref_combo with (display_text, kind, name) triples,
@@ -1527,10 +1630,12 @@ class _AnchorDialog(QDialog):
 
     @staticmethod
     def prompt(parent, ref_candidates, *, cfg=None, sheet_names=None,
-               role_candidates=None, cluster_candidates=None, existing=None):
+               role_candidates=None, cluster_candidates=None, existing=None,
+               tree=None):
         dlg = _AnchorDialog(parent, ref_candidates, cfg=cfg, sheet_names=sheet_names,
                             role_candidates=role_candidates,
-                            cluster_candidates=cluster_candidates, existing=existing)
+                            cluster_candidates=cluster_candidates, existing=existing,
+                            tree=tree)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return None
         return dlg._result

@@ -3018,6 +3018,16 @@ msgstr ""
 msgid "Point name is required."
 msgstr ""
 
+#: gui/docks/trees_dock.py:1522
+#, python-brace-format
+msgid "This tree's own root Entity {ref!r} can't anchor itself — use Auto."
+msgstr ""
+
+#: gui/docks/trees_dock.py:551
+#, python-brace-format
+msgid "Anchor for tree {name!r}: a ref anchor pointing at its own root Entity {ref!r} never resolves (self-reference) — switched to Auto."
+msgstr ""
+
 #: gui/docks/trees_dock.py:448
 #, python-brace-format
 msgid "{ref}: xy=({x:.3f}, {y:.3f}) mm"
