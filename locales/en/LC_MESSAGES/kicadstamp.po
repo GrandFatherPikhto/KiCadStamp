@@ -10999,3 +10999,13 @@ msgid ""
 "that name exists to read a zero-offset component from"
 msgstr ""
 
+#: gui/docks/extract.py:335
+msgid "Show advanced net settings (aliases, net template role)"
+msgstr ""
+
+#: gui/docks/extract.py:338
+msgid ""
+"By default nets are derived automatically at extract. Check to reveal the "
+"'Net aliases' and 'Net template role' tabs for manual overrides."
+msgstr ""
+

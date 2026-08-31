@@ -238,6 +238,9 @@ def test_rule_net_checked_net_does_not_make_the_role_ambiguous(main_window, tmp_
     })
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
+    # Reveal the (hidden-by-default) advanced net tabs so the ambiguity
+    # trigger can be observed (plan_2026_08_31_extract_auto_nets_hide_tabs.md).
+    dock.advanced_net_settings_checkbox.setChecked(True)
     dock.set_board_selection(
         [_fake_fp("FB6")],
         [FakeSelected("FB6", "PI_FILTER_FB", "X", {"1": "-2V5", "2": "-2V5_DIRTY"}, fp=object())])
@@ -509,6 +512,9 @@ def test_clicking_profile_pulls_aliases_role_and_origin(main_window, tmp_path, m
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
     dock.set_root_path(extractor_file)
+    # Reveal the (hidden-by-default) Net template role tab for this check
+    # (plan_2026_08_31_extract_auto_nets_hide_tabs.md).
+    dock.advanced_net_settings_checkbox.setChecked(True)
 
     sel = [
         FakeSelected("C22", "C_OUT_BULK", "Out_Pi_Filter_N2V5", {"1": "-2V5", "2": "GND"}, fp=object()),
@@ -535,11 +541,12 @@ def test_clicking_profile_pulls_aliases_role_and_origin(main_window, tmp_path, m
     assert dock.origin_role_combo.currentText() == "C_IN_BYPASS"
     assert dock.origin_pad_edit.text() == "1"
 
-    # FB6/PI_FILTER_FB sits on both aliased nets -> ambiguous row appears,
-    # but this profile predates net_template_role, so nothing to pull:
-    # stays unresolved, requiring one manual pick.
+    # FB6/PI_FILTER_FB sits on both aliased nets -> ambiguous row appears.
+    # The profile predates net_template_role, so nothing to pull — but the
+    # auto-default (plan_2026_08_31_extract_auto_nets_hide_tabs.md) still
+    # prefills the first non-rule net (-2V5) even without a stored pick.
     assert "PI_FILTER_FB" in dock._net_template_role_edits
-    assert dock._net_template_role_edits["PI_FILTER_FB"].currentText() == ""
+    assert dock._net_template_role_edits["PI_FILTER_FB"].currentText() == "-2V5"
 
 
 def test_clicking_cell_cross_references_matching_profile(main_window, tmp_path):
@@ -648,6 +655,10 @@ def test_net_template_role_tab_hidden_until_classification_sees_two_nets(main_wi
         "C_IN_BYPASS": {"1": {"-2V5_DIRTY"}, "2": {"GND"}},
         "PI_FILTER_FB": {"1": {"-2V5"}, "2": {"-2V5_DIRTY"}},
     })
+    # Reveal the (hidden-by-default) advanced net tabs — the ambiguity trigger
+    # then shows the Net template role tab (plan_2026_08_31_extract_auto_nets_
+    # hide_tabs.md).
+    dock.advanced_net_settings_checkbox.setChecked(True)
     dock.set_board_selection(
         [_fake_fp("FB6")],
         [FakeSelected("FB6", "PI_FILTER_FB", "X", {"1": "-2V5", "2": "-2V5_DIRTY"}, fp=object())])
@@ -673,16 +684,59 @@ def test_role_net_tab_appears_from_classification_without_any_alias(main_window,
     dock.set_root_path(cells_file)
     assert dock._tabs.isTabVisible(dock._role_net_tab_index) is False
 
+    # Reveal the (hidden-by-default) advanced net tabs (plan_2026_08_31_
+    # extract_auto_nets_hide_tabs.md).
+    dock.advanced_net_settings_checkbox.setChecked(True)
     dock.set_board_selection(
         [_fake_fp("FB6")],
         [FakeSelected("FB6", "PI_FILTER_FB", "X", {"1": "-2V5", "2": "-2V5_DIRTY"}, fp=object())])
 
     assert dock._tabs.isTabVisible(dock._role_net_tab_index) is True
     assert set(dock._net_template_role_edits) == {"PI_FILTER_FB"}
-    assert dock._net_template_role_edits["PI_FILTER_FB"].currentText() == ""
+    # No alias typed anywhere, yet the auto-default prefills the first non-rule
+    # net (-2V5) — the whole point of the extract auto-net change.
+    assert dock._net_template_role_edits["PI_FILTER_FB"].currentText() == "-2V5"
     # No alias was typed anywhere — the tab is driven purely by classification.
     assert all(not e.text().strip() for e in dock._net_alias_edits.values())
 
+
+def test_advanced_net_tabs_hidden_by_default_and_revealed_by_setting(
+        main_window, tmp_path, monkeypatch):
+    """plan_2026_08_31_extract_auto_nets_hide_tabs.md: the manual net-override
+    tabs ('Net aliases', 'Net template role') are hidden by default — nets are
+    auto-derived. The 'Show advanced net settings' checkbox reveals both and
+    persists the choice in gui_state.json."""
+    from gui import settings
+
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {})
+    main_window.connection.board = _classification_board(monkeypatch, {
+        "PI_FILTER_FB": {"1": {"-2V5"}, "2": {"-2V5_DIRTY"}},
+    })
+    dock = ExtractDock(main_window)
+    dock.set_root_path(cells_file)
+    assert dock.advanced_net_settings_checkbox.isChecked() is False
+    assert dock._tabs.isTabVisible(dock._aliases_tab_index) is False
+
+    # Even with an ambiguous bridging role in the selection, the Net template
+    # role tab stays hidden while the advanced setting is off.
+    dock.set_board_selection(
+        [_fake_fp("FB6")],
+        [FakeSelected("FB6", "PI_FILTER_FB", "X", {"1": "-2V5", "2": "-2V5_DIRTY"}, fp=object())])
+    assert dock._tabs.isTabVisible(dock._role_net_tab_index) is False
+    assert "PI_FILTER_FB" in dock._net_template_role_edits  # logic still computed
+
+    # Reveal both via the checkbox (and persist).
+    dock.advanced_net_settings_checkbox.setChecked(True)
+    assert dock._tabs.isTabVisible(dock._aliases_tab_index) is True
+    assert dock._tabs.isTabVisible(dock._role_net_tab_index) is True  # ambiguous now shown
+    assert settings.state.get("extract_show_advanced_net_settings") is True
+
+    # Hide again -> both hidden, the persisted key follows.
+    dock.advanced_net_settings_checkbox.setChecked(False)
+    assert dock._tabs.isTabVisible(dock._aliases_tab_index) is False
+    assert dock._tabs.isTabVisible(dock._role_net_tab_index) is False
+    assert settings.state.get("extract_show_advanced_net_settings") is False
 
 def test_net_template_role_blocks_extraction_until_resolved(main_window, tmp_path, monkeypatch, caplog):
     """The empty-value block is NOT removed by the prefill feature — it stays
@@ -753,9 +807,11 @@ def test_net_template_role_rows_prefilled_and_extract_passes_without_clicks(main
         [_fake_fp("FB6")],
         [FakeSelected("FB6", "PI_FILTER_FB", "X", {"1": "-2V5", "2": "-2V5_DIRTY"}, fp=object())])
     assert "PI_FILTER_FB" in dock._net_template_role_edits
-    # Without a param there is no backend default yet -> stays empty (the
-    # block remains the honest fallback, nothing to prefill).
-    assert dock._net_template_role_edits["PI_FILTER_FB"].currentText() == ""
+    # Even without a param/alias the auto-default now prefills the first
+    # non-rule net (-2V5) — the extract auto-net change
+    # (plan_2026_08_31_extract_auto_nets_hide_tabs.md); the manual-pick
+    # blocking block only fires when the user explicitly clears the combo.
+    assert dock._net_template_role_edits["PI_FILTER_FB"].currentText() == "-2V5"
 
     # Give -2V5 a param (as a profile/typed alias would) -> rebuild rows:
     # the combo now starts on -2V5, the backend's designated net.

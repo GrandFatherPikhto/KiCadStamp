@@ -342,7 +342,10 @@ tab widget (2026-08-04: previously stacked in one long column, whose minimum hei
 every section's own — the dock couldn't shrink below that even when most of it didn't apply right
 now). A `QTabWidget` only sizes for the current page, so the dock resizes freely; **Net template
 role**'s and **Sub-placements**' tabs are hidden outright (not just their content) until they
-actually apply.
+actually apply. Since 2026-08-31 nets are auto-derived at extract (a role's `net_template` is
+written from its own non-rule pad nets — see below), so the **Net aliases** and **Net template
+role** tabs are hidden by default too; the **Show advanced net settings** checkbox reveals them
+for manual overrides.
 
 - **Write target** — a successful extraction writes the Cell into the project root file's `cells:`
   section (and, with "Also save as extract_profile", the profile recipe into that same file's
@@ -366,9 +369,12 @@ actually apply.
   [docs/config.md](config.md) on `rule_nets:`) — the mechanism for reusing the SAME cell across
   several Rules on different power rails, which `{PLACEHOLDER}` aliasing can't do here (ManualSpoke
   has no `params:` to resolve a template against).
-- **Net template role** — appears only when a component's pads touch **2 or more already-aliased
-  nets** (a bridging part — inductor, ferrite bead, fuse spanning two rails). The tool can't guess
-  which one is "the" role's net_template in that case; extraction is blocked until you pick.
+- **Net template role** — appears only when a component's pads touch **2 or more distinct non-rule
+  nets** (a bridging part — inductor, ferrite bead, fuse spanning two rails). Since 2026-08-31 the
+  role's `net_template` is auto-derived — the first (by sort) net that is aliased (parametrized),
+  or the first non-rule net as a literal otherwise — so extraction is no longer blocked by default
+  and this tab is hidden; it only appears (when the advanced setting is on) so you can override the
+  auto-default with a manual pick.
 - **Sub-placements** (2026-08-25) — appears when an area-select sweeps up an existing,
   already-extracted top-level `clone_placement` (e.g. a PIF power-filter) together with the new
   cell's own components. Instead of copying that placement's geometry **flat** into the new cell

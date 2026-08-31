@@ -11465,3 +11465,16 @@ msgstr ""
 "ни один узел (kind placement) не размещает Entity {name!r}, и нет записи "
 "Entity с таким именем, чтобы прочитать zero-offset-компонент"
 
+#: gui/docks/extract.py:335
+msgid "Show advanced net settings (aliases, net template role)"
+msgstr "Показать расширенные настройки сетей (псевдонимы, роль шаблона цепи)"
+
+#: gui/docks/extract.py:338
+msgid ""
+"By default nets are derived automatically at extract. Check to reveal the "
+"'Net aliases' and 'Net template role' tabs for manual overrides."
+msgstr ""
+"По умолчанию сети определяются автоматически при экстракте. Отметьте, чтобы "
+"показать вкладки «Псевдонимы сетей» и «Роль шаблона цепи» для ручных "
+"override-ов."
+

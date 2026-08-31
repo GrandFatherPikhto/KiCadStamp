@@ -600,6 +600,29 @@ class ExtractDock(QWidget):
         self.re_extract_button.clicked.connect(self._on_re_extract)
         layout.addWidget(self.re_extract_button)
 
+        # Tabs are all built above — apply the advanced-net-settings visibility
+        # now (hidden by default, plan_2026_08_31_extract_auto_nets_hide_tabs.md).
+        self._apply_advanced_net_settings_visibility()
+
+    def _on_advanced_net_settings_toggled(self, checked: bool) -> None:
+        """plan_2026_08_31_extract_auto_nets_hide_tabs.md: reveal/hide the
+        manual net-override tabs. Nets are derived automatically at extract;
+        the aliases/net-template-role tabs stay hidden by default and this
+        checkbox brings them back for manual overrides."""
+        self._show_advanced_net_settings = bool(checked)
+        settings.state.set("extract_show_advanced_net_settings", checked)
+        self._apply_advanced_net_settings_visibility()
+
+    def _apply_advanced_net_settings_visibility(self) -> None:
+        """Apply the advanced-net-settings visibility to the 'Net aliases' and
+        'Net template role' tabs (hidden by default — nets are auto-derived).
+        The Net template role tab additionally requires an actual ambiguous
+        bridging role (its own _update_net_template_role_rows rule)."""
+        show = self._show_advanced_net_settings
+        self._tabs.setTabVisible(self._aliases_tab_index, show)
+        self._tabs.setTabVisible(self._role_net_tab_index,
+                                 show and bool(self._net_template_role_edits))
+
     def set_board_selection(self, raw_items: List[Any], selected_footprints: List[Selected]) -> None:
         """Called every selection-watch tick — see module docstring for why
         this needs the raw mixed list, not just the Selected-footprint one
@@ -1262,18 +1285,20 @@ class ExtractDock(QWidget):
 
         Each ambiguous role's combo now STARTS pre-filled with the same
         deterministic default the backend writes WITHOUT --net-template-role
-        (plan_2026_08_29_extract_net_template_role_prefill.md §2/§3). That
-        default is the first (by sort) of the role's pad nets PRESENT IN
-        net_template_map (template_extraction.py:422 `mapped`) — NOT
-        classifying[0]: the two filters differ. On the live fpga_supp case
+        (plan_2026_08_29_extract_net_template_role_prefill.md §2/§3): the
+        first (by sort) NON-RULE pad net that is in net_template_map
+        (aliased/parametrized), falling back to the first non-rule net when
+        nothing is aliased — the backend writes the literal in that case too
+        (plan_2026_08_31_extract_auto_nets_hide_tabs.md; template_extraction.py
+        `candidates = mapped or non-rule`). On the live fpga_supp case
         CH0_R_TERM_N classifies both '/Channel_0/DAC_CLK_N' and
         '/FPGA/DAC0_CLK_OUT_N', but only the latter carries a param, so the
         backend picks the latter; prefilling '/Channel_0/DAC_CLK_N' would LIE
-        and worse, fatal on "...not in net_template_map". The default is
-        built from the CURRENT aliases, exactly as the extractor derives
-        net_template_map from params. The empty-value block at extract time
-        stays: it only fires when the user explicitly clears a combo (or
-        there is genuinely no param for any of the role's nets).
+        and worse, fatal on "...not in net_template_map". The tab is hidden
+        by default (nets are auto-derived); the "Show advanced net settings"
+        checkbox reveals it for manual overrides. The empty-value block at
+        extract time stays: it only fires when the user explicitly clears a
+        combo (or there is genuinely no non-rule net for the role).
 
         footprints — the (possibly Cluster-filtered) selection, the same list
         _rebuild_net_aliases just classified; falls back to the unfiltered
@@ -1314,9 +1339,18 @@ class ExtractDock(QWidget):
                 # classifier does not cover it (a fallback net with an alias),
                 # add it as the combo's extra candidate so the prefill is
                 # selectable and really matches the backend.
-                mapped = [n for n in sorted(distinct_nets) if n in net_template_map]
-                if mapped:
-                    defaults[s.role] = mapped[0]
+                # Deterministic default = the backend's no-flag designated net:
+                # first (by sort) NON-RULE pad net that is in net_template_map
+                # (aliased, parametrized); fall back to the first non-rule net —
+                # the backend now writes the literal for a non-aliased bridging
+                # role too (plan_2026_08_31_extract_auto_nets_hide_tabs.md,
+                # template_extraction.py: candidates = mapped or non-rule).
+                non_rule = [n for n in sorted(distinct_nets)
+                            if not self._is_rule_net_checked(n)]
+                mapped = [n for n in non_rule if n in net_template_map]
+                candidates = mapped or non_rule
+                if candidates:
+                    defaults[s.role] = candidates[0]
 
         if set(ambiguous) == set(self._net_template_role_edits):
             return
@@ -1343,7 +1377,13 @@ class ExtractDock(QWidget):
             self._role_net_layout.addWidget(combo, row, 1)
             self._net_template_role_edits[role] = combo
 
-        self._tabs.setTabVisible(self._role_net_tab_index, bool(ambiguous))
+        # Hidden unless there is an ambiguous bridging role AND the advanced
+        # net settings are revealed (plan_2026_08_31_extract_auto_nets_hide_tabs.md
+        # — nets are auto-derived, the manual pick tab stays out of the default
+        # flow).
+        self._tabs.setTabVisible(
+            self._role_net_tab_index,
+            bool(ambiguous) and self._show_advanced_net_settings)
 
     def _update_selection_label(self, filtered_selection=None) -> None:
         if not self._raw_items:
