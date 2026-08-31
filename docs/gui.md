@@ -351,10 +351,17 @@ writes it into the Cells file — the GUI equivalent of `kicadstamp_cli.py extra
 this is a standalone **dialog** (not a Detail-dock page): open it from the Config tree's context
 menu with **New Extract...** (plain capture) or **Add extract profile...** (profile-save armed), or
 by clicking an `extract_profiles` leaf. It's non-modal (keep selecting on the board while it's open)
-and auto-closes after a successful Extract. An `extract_profiles` leaf's own context menu also has
-**Re-read...** — re-captures the placement that owns the profile's cell from the live board
-(components/vias/tracks), straight from the tree, no dialog; if several placements own the cell it
-asks you to pick one via the dialog's Re-extract instead.
+and auto-closes after a successful Extract.
+
+The main menu's **Tools → Re-read selected...** (2026-08-31) re-captures already-placed clusters:
+select a cluster's components on the board (the whole cluster — components, vias, tracks), then run
+it. A modal dialog lists every FULLY-selected cluster (all its board components in the selection,
+matched by Cluster tag + sheet) with its Entity and Cell, checkboxes on by default; on OK each
+checked cluster is re-read — its current positions are re-captured into the cell using the matching
+extract_profiles recipe (params/origin/net_template_role/rule_nets) when one exists, else auto.
+Foreign copper swept in by the area-select is dropped by the extractor's connectivity filter (the
+cluster's OWN applied copper is kept — no registry dependency). This is how the three PIF_AVDD
+channels (Channel_0/1/2, same cell) are told apart: the selection's sheet picks the instance.
 
 **Origin**/**Net aliases**/**Net template role**/**Sub-placements**/**Existing** below live in a
 tab widget (2026-08-04: previously stacked in one long column, whose minimum height was the SUM of

@@ -326,10 +326,6 @@ class DockHub:
         self.config_tree_dock.placement_picked.connect(self.detail_dock.show_placer)
         self.config_tree_dock.profile_picked.connect(self.extract_dock.pick_profile)
         self.config_tree_dock.profile_picked.connect(self._open_extract_dialog)
-        # "Re-read..." on an extract_profiles leaf (2026-08-31): re-extract
-        # straight from the tree, NO dialog — ExtractDock.re_extract_profile.
-        self.config_tree_dock.profile_reextract_requested.connect(
-            self.extract_dock.re_extract_profile)
         self.config_tree_dock.thermal_via_picked.connect(self.thermal_via_dock.load_entry)
         self.config_tree_dock.thermal_via_picked.connect(self.detail_dock.show_thermal_via)
         # Coordinate placements (2026-08-12, Group 1): a normal named-records
@@ -562,6 +558,12 @@ class DockHub:
         _start_new_placement above, for CellDock."""
         self.cells_dock.new_cell(file_path)
         self.detail_dock.show_cells()
+
+    def reead_selected(self) -> None:
+        """Main menu "Tools -> Re-read selected..." (2026-08-31, plan
+        reead_selected_dialog.md) -> ExtractDock's batch re-read of the
+        fully-selected Clusters (dialog with Entities + checkboxes)."""
+        self.extract_dock.re_read_selected()
 
     def _start_new_extract_profile(self, file_path) -> None:
         """ConfigTreeDock's add_extract_profile_requested delegate — same

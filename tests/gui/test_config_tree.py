@@ -789,34 +789,6 @@ def test_extract_profiles_category_and_leaf_show_add_extract_profile_only(
     assert "Add rule..." not in captured
 
 
-def test_extract_profiles_leaf_context_menu_has_reead_emitting_signal(
-        main_window, tmp_path, monkeypatch):
-    """2026-08-31 (Denis: "перечитать расположение дорожек, виа и компонент в
-    кластере" — re-extract straight from the profile's context menu, no dialog):
-    an extract_profiles LEAF's menu gains "Re-read..." which emits
-    profile_reextract_requested (-> ExtractDock.re_extract_profile via DockHub).
-    The category header itself must NOT get it (only leaves carry a profile)."""
-    root = tmp_path / "root.sexp"
-    _write(root, ALL_SECTIONS)
-    dock = ConfigTreeDock(main_window)
-    dock.set_root_file(root)
-    monkeypatch.setattr(config_tree_mod.QMenu, "exec", lambda self, *a, **k: None)
-
-    emitted = []
-    dock.profile_reextract_requested.connect(emitted.append)
-
-    leaf = _find(dock.tree.topLevelItem(0), "Extract profiles").child(0)
-    leaf_actions = dict(_context_menu_actions(dock, leaf, monkeypatch))
-    assert "Re-read..." in leaf_actions
-    leaf_actions["Re-read..."].trigger()
-    assert emitted == [leaf.text(0)]
-
-    # The category header is NOT a leaf — no Re-read action there.
-    category = _find(dock.tree.topLevelItem(0), "Extract profiles")
-    category_labels = _context_menu_labels(dock, category, monkeypatch)
-    assert "Re-read..." not in category_labels
-
-
 def test_clone_profiles_category_has_no_add_actions(main_window, tmp_path, monkeypatch):
     """clone_profiles is read-only (no GUI edit form, deliberate scope limit)
     — its category must show NO Add action at all, not even the wrong ones."""

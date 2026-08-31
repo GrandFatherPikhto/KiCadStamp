@@ -199,10 +199,6 @@ class ConfigTreeDock(QDockWidget):
     # Fired when an Extract profile leaf is clicked — ExtractDock listens
     # via its pick_profile() entry point.
     profile_picked = pyqtSignal(str)
-    # Fired by the context menu's "Re-read..." on an extract_profiles leaf
-    # (2026-08-31): re-captures the placement that owns the profile's cell
-    # from the live board — ExtractDock.re_extract_profile, no dialog.
-    profile_reextract_requested = pyqtSignal(str)
     # Fired when a Thermal via array leaf is clicked (2026-08-03) —
     # ThermalViaArrayDock listens to load it back into the form, same shape
     # as placement_picked.
@@ -705,12 +701,6 @@ class ConfigTreeDock(QDockWidget):
             if section == "cells":
                 menu.addAction(_("Edit cell...")).triggered.connect(
                     lambda: self.cell_edit_requested.emit(old_name, file_path))
-            if section == "extract_profiles":
-                # 2026-08-31 (Denis: "перечитать расположение дорожек, виа и
-                # компонент в кластере") — re-extract straight from the profile's
-                # context menu, no dialog (ExtractDock.re_extract_profile).
-                menu.addAction(_("Re-read...")).triggered.connect(
-                    lambda: self.profile_reextract_requested.emit(old_name))
             menu.addAction(_("Rename...")).triggered.connect(
                 lambda: self._on_rename(file_path, section, old_name))
             menu.addAction(_("Delete...")).triggered.connect(

@@ -394,23 +394,19 @@ def test_successful_extract_auto_closes_the_dialog(real_main_window):
     assert hub.extract_dialog.isVisible() is False
 
 
-def test_profile_reextract_requested_runs_without_dialog(real_main_window, tmp_path):
-    """Config-tree "Re-read..." (profile_reextract_requested, 2026-08-31) ->
-    ExtractDock.re_extract_profile — runs straight from the tree and does NOT
-    open the Extract dialog (Denis: "тут никакого диалога не надо"). The
-    signal's slot is the real handler (a pre-bound method, so it cannot be
-    monkeypatched via the instance): with no placement for the profile the
-    re-read picks the profile and just reports in the Log."""
-    extractor_file = tmp_path / "profiles.sexp"
-    _write(extractor_file, {"extract_profiles": {"alpha_profile": {"params": {"ROLE": "+3V3"}}}})
-    real_main_window.extract_dock.set_root_path(extractor_file)
+def test_tools_menu_reead_selected_between_edit_and_view(real_main_window, monkeypatch):
+    """2026-08-31 (plan reead_selected_dialog.md): a Tools menu sits between
+    Edit and View, and its "Re-read selected..." action routes to
+    ExtractDock.re_read_selected via DockHub."""
+    labels = [a.text() for a in real_main_window.menuBar().actions()]
+    assert "Edit" in labels and "Tools" in labels and "View" in labels
+    assert labels.index("Edit") < labels.index("Tools") < labels.index("View")
 
-    real_main_window.config_tree_dock.profile_reextract_requested.emit("alpha_profile")
-
-    # The real handler ran (picked the profile -> re-extract target set), and
-    # NO dialog was opened.
-    assert real_main_window.extract_dock._re_extract_cell_name == "alpha_profile"
-    assert real_main_window._dock_hub.extract_dialog.isVisible() is False
+    called = []
+    monkeypatch.setattr(real_main_window._dock_hub.extract_dock, "re_read_selected",
+                        lambda: called.append(True))
+    real_main_window.reead_selected_action.trigger()
+    assert called == [True]
 
 
 def test_file_selected_alone_shows_root_page(real_main_window, tmp_path):

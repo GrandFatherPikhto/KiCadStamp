@@ -146,7 +146,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from kicadstamp.domain.board import Footprint, Track, Via
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFormLayout,
+from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog, QFormLayout,
                               QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
                               QListWidget, QPushButton, QTableWidget, QTableWidgetItem,
                               QTabWidget, QVBoxLayout, QWidget)
@@ -1330,29 +1330,6 @@ class ExtractDock(QWidget):
         self._set_re_extract_target((entry.get("name") or profile_key) if entry else profile_key,
                                     profile_key, entry)
 
-    def re_extract_profile(self, profile_key: str) -> None:
-        """Config-tree "Re-read..." delegate (2026-08-31, Denis: "перечитать
-        расположение дорожек, виа и компонент в кластере" прямо из контекстного
-        меню профиля, без диалога): re-captures the live components/vias/tracks
-        of the placement that owns this profile's cell. Picks the profile (that
-        sets the re-extract target and repopulates the placement combo), then
-        runs re-extract when the cell is placed by EXACTLY one clone_placement;
-        a missing/ambiguous placement is reported in the Log instead of
-        guessing."""
-        self.pick_profile(profile_key)
-        count = self.re_extract_placement_combo.count()
-        if count == 1:
-            self._on_re_extract()
-        elif count == 0:
-            self._show_message(
-                _("Profile {key!r} isn't placed on the board yet — no clone_placement "
-                  "owns its cell, nothing to re-read.").format(key=profile_key), _WARN_STYLE)
-        else:
-            self._show_message(
-                _("Cell of profile {key!r} is placed by {count} placements — open the "
-                  "Extract dialog's Re-extract to pick one.").format(key=profile_key, count=count),
-                _WARN_STYLE)
-
     def _update_net_template_role_rows(self, footprints=None) -> None:
         """A role needs an explicit net_template_role pick exactly when 2+ of
         ITS pads' DISTINCT nets themselves classify by role (lemma2/pad, see
@@ -2328,4 +2305,138 @@ class ExtractDock(QWidget):
         self._active_op = start_long_op(
             self._connection, (self.re_extract_button,),
             self._run_re_extract, self._finish_extract, self._on_extract_failed, payload)
+
+    # ── 2026-08-31: "Tools -> Re-read selected..." (plan reead_selected_dialog) ──
+
+    def re_read_selected(self) -> None:
+        """Tools -> "Re-read selected..." (2026-08-31, Denis: диалог со списком
+        полностью выделенных кластеров и соответствующими сущностями): lists
+        the FULLY-selected Clusters of the current selection (Cluster + sheet
+        instance -> Entity -> cell -> extract_profiles recipe) in a modal
+        dialog, then batch re-reads the checked ones — the current positions of
+        the cluster's components/vias/tracks are re-captured into the cell.
+        No registry dependency: the cluster's OWN applied copper is kept (not
+        dropped by UUID — that would strip it), foreign copper is dropped by
+        the extractor's connectivity filter."""
+        board = self._connection.board
+        if board is None or getattr(board, "adapter", None) is None:
+            self._show_message(_("Not connected."), _ERROR_STYLE)
+            return
+        if self._root_path is None or self._placer_path is None:
+            self._show_message(_("Set the project root first."), _ERROR_STYLE)
+            return
+        try:
+            cfg, _ctx = load_config(str(self._root_path))
+        except Exception as e:
+            self._show_message(_("Failed to load config: {error}").format(error=e), _ERROR_STYLE)
+            return
+        from .reead import fully_selected_clusters
+        clusters = fully_selected_clusters(
+            self._selected_footprints,
+            list(self._connection.snapshot or []),
+            list(cfg.entities),
+            self._graph_section_keys("extract_profiles"))
+        if not clusters:
+            self._show_message(
+                _("No fully selected Cluster found — select ALL components of a "
+                  "cluster (its Cluster tag + sheet) first."), _WARN_STYLE)
+            return
+        from .reead_dialog import ReReadDialog
+        dialog = ReReadDialog(clusters, self._main_window)
+        if dialog.exec() != int(QDialog.DialogCode.Accepted):
+            return
+        jobs: List[Dict[str, Any]] = []
+        for c in dialog.selected_rows():
+            items = self._reead_items_for_cluster(c)
+            if not items:
+                continue
+            entry = (self._graph_section_entry("extract_profiles", c.profile_key)
+                     if c.profile_key else {})
+            target_path = self._resolve_reead_target(c, entry)
+            if target_path is None:
+                continue
+            jobs.append({
+                "cluster": c.cluster,
+                "sheet": c.sheet,
+                "cell": c.cell,
+                "items": items,
+                "profile_entry": entry,
+                "target_path": target_path,
+                "placer_path": self._placer_path,
+            })
+        if not jobs:
+            self._show_message(_("Nothing to re-read — the checked clusters have no "
+                                 "components in the selection."), _WARN_STYLE)
+            return
+        self._start_reead_op({"jobs": jobs, "board": board})
+
+    def _reead_items_for_cluster(self, cluster) -> List[Any]:
+        """The raw selection narrowed to one fully-selected cluster: its
+        footprints (by ref) plus ALL selected vias/tracks. Foreign copper is
+        left in on purpose — the extractor's connectivity filter drops whatever
+        doesn't reach a kept pad, and dropping by registry UUID would remove
+        this cluster's OWN applied copper (2026-08-31, reead_selected_dialog)."""
+        kept = set(cluster.refs)
+        return [i for i in self._raw_items
+                if not (isinstance(i, Footprint) and i.ref not in kept)]
+
+    def _resolve_reead_target(self, cluster, entry: Dict[str, Any]) -> Optional[Path]:
+        """Where the re-read writes the cell: the profile's stored output, else
+        the dock's current target path (the root cells file)."""
+        output = entry.get("output")
+        if output:
+            from kicadstamp.config_writer import PROJECT_ROOT
+            p = Path(output)
+            return p if p.is_absolute() else PROJECT_ROOT / p
+        if self._target_path is not None:
+            return self._target_path
+        self._show_message(_("Set the project root first."), _ERROR_STYLE)
+        return None
+
+    def _run_reead_selected(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Worker thread: board IPC + file writes only — batch re-read of the
+        checked clusters (see re_read_selected). Never touches a widget."""
+        adapter = payload["board"].adapter
+        messages: List[str] = []
+        for job in payload["jobs"]:
+            entry = job["profile_entry"]
+            origin_kwargs: Dict[str, str] = {}
+            for profile_key, value in entry.items():
+                if profile_key.startswith("origin_by_") and value:
+                    origin_kwargs["origin_" + profile_key[len("origin_by_"):]] = value
+            try:
+                result = run_extract_to_file(
+                    adapter,
+                    name=job["cell"],
+                    params=entry.get("params") or {},
+                    items=job["items"],
+                    net_template_role=entry.get("net_template_role") or {},
+                    rule_nets=set(entry.get("rule_nets") or []),
+                    origin_kwargs=origin_kwargs,
+                    target_path=job["target_path"],
+                    save_profile=False,
+                    profile_key=job["cell"],
+                    profile_path=None,
+                    placer_path=job["placer_path"],
+                    raw_selection=bool(entry.get("raw_selection", False)),
+                    extract_fn=extract_template_from_selection)
+            except Exception as e:
+                messages.append(_("Re-read {cluster}: {error}")
+                                .format(cluster=job["cluster"], error=e))
+                continue
+            if result.get("error"):
+                messages.append(_("Re-read {cluster}: {error}")
+                                .format(cluster=job["cluster"], error=result["error"]))
+                continue
+            messages.append(_("Re-read {cluster} -> {cell}: done")
+                            .format(cluster=job["cluster"], cell=job["cell"]))
+            messages.extend(result.get("messages") or [])
+        return {"messages": messages, "annotations": [], "template_dict": {}}
+
+    def _start_reead_op(self, payload: Dict[str, Any]) -> None:
+        """Batch re-read in the background — no visible button to disable (the
+        dialog is already closed), so the long-op button list is empty."""
+        self._active_op = start_long_op(
+            self._connection, (),
+            self._run_reead_selected, self._finish_extract, self._on_extract_failed, payload)
 

@@ -198,6 +198,16 @@ class MainWindow(QMainWindow):
         self.import_from_profile_action.triggered.connect(lambda: run_import_dialog(self))
         edit_menu.addAction(self.import_from_profile_action)
 
+        # Tools menu (2026-08-31, plan reead_selected_dialog.md) — between
+        # Edit and View. "Re-read selected..." lists the FULLY-selected Clusters
+        # of the current board selection (with their Entities/Cells) and batch
+        # re-captures the checked ones into their cells.
+        tools_menu = self.menuBar().addMenu(_("Tools"))
+        self.reead_selected_action = QAction(_("Re-read selected..."), self)
+        self.reead_selected_action.triggered.connect(
+            lambda: self._dock_hub.reead_selected())
+        tools_menu.addAction(self.reead_selected_action)
+
         # View menu (2026-08-27, handoff sync_skip_message_and_view_menu): the
         # app had no menu bar at all, so a closed dock had no way back short of
         # restarting. Every QDockWidget ships a ready-made toggleViewAction()

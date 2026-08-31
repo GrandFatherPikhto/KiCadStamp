@@ -17,9 +17,11 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from gui.docks.extract import ExtractDock
+from gui.docks.reead import ReReadCluster
 from kicadstamp.config import (Cell, Config, RuntimeContext, TemplateComponentSlot)
 from kicadstamp.config.sexp_format import dict_to_sexp
 
+from tests.gui.test_extract_dock import _fake_fp
 from tests.gui.test_placer_dock import _make_cell_and_dock
 
 
@@ -148,72 +150,58 @@ def test_re_extract_passes_resolver_items_to_extract(main_window, tmp_path, monk
     assert captured["items"] == [fp]
 
 
-# ── 2026-08-31: Config-tree "Re-read..." (profile context menu, no dialog) ───
+# ── 2026-08-31: "Tools -> Re-read selected..." batch worker ────────────────
 
-def test_re_extract_profile_runs_when_single_placement(main_window, tmp_path, monkeypatch):
-    """Config-tree "Re-read..." on an extract_profiles leaf (Denis: "перечитать
-    расположение дорожек, виа и компонент в кластере", no dialog) — the profile
-    is picked (re-extract target set) and re-extract runs directly when the cell
-    is placed by exactly one clone_placement."""
-    root = _root_sexp(tmp_path, tmp_path / "cells_out.sexp")
+def test_reead_selected_worker_runs_one_extract_per_job(main_window, tmp_path, monkeypatch):
+    """_run_reead_selected (the "Tools -> Re-read selected..." batch worker, plan
+    reead_selected_dialog.md) calls run_extract_to_file once per job with that
+    job's items/recipe/cell — the selected cluster's current positions are
+    re-captured into its cell, no registry/name resolution involved."""
     dock = ExtractDock(main_window)
-    dock.set_root_path(root)
+    dock.set_root_path(tmp_path / "root.sexp")
 
-    called = []
-    monkeypatch.setattr(dock, "_on_re_extract", lambda: called.append(True))
+    calls = []
+    monkeypatch.setattr(
+        "gui.docks.extract.run_extract_to_file",
+        lambda adapter, *, name, params, items, net_template_role, rule_nets,
+               origin_kwargs, target_path, save_profile, profile_key, profile_path,
+               placer_path, raw_selection, extract_fn: (
+                   calls.append({"name": name, "items": items, "params": params}),
+                   {"messages": ["ok"], "annotations": [], "template_dict": {}})[1])
 
-    dock.re_extract_profile("myprofile")
+    jobs = [
+        {"cluster": "PIF_AVDD", "sheet": "Channel_1", "cell": "dac_pif_avdd",
+         "items": ["fp1", "via1"], "profile_entry": {"params": {"FB_PI_FLT": "+3V3_AVDD"}},
+         "target_path": tmp_path / "cells_out.sexp", "placer_path": tmp_path / "root.sexp"},
+        {"cluster": "PIF_CLKVDD", "sheet": "Channel_1", "cell": "dac_pif_clkvdd",
+         "items": ["fp2"], "profile_entry": {},
+         "target_path": tmp_path / "cells_out.sexp", "placer_path": tmp_path / "root.sexp"},
+    ]
+    board = SimpleNamespace(adapter=MagicMock())
+    result = dock._run_reead_selected({"jobs": jobs, "board": board})
 
-    assert called == [True]
-    assert dock._re_extract_cell_name == "pi_filter"
+    assert len(calls) == 2
+    assert calls[0]["name"] == "dac_pif_avdd"
+    assert calls[0]["items"] == ["fp1", "via1"]
+    assert calls[0]["params"] == {"FB_PI_FLT": "+3V3_AVDD"}
+    assert calls[1]["name"] == "dac_pif_clkvdd"
+    assert "Re-read PIF_AVDD -> dac_pif_avdd: done" in result["messages"]
 
 
-def test_re_extract_profile_reports_when_unplaced(main_window, tmp_path, monkeypatch):
-    """No clone_placement owns the profile's cell -> a Log message, no re-extract
-    (nothing to guess)."""
-    data = {
-        "clone_placements": [{"cluster": "Ch0_PI", "cell": "pi_filter", "xy": [0.0, 0.0]}],
-        "extract_profiles": {"myprofile": {"output": str(tmp_path / "cells_out.sexp"), "name": "other_cell"}},
-    }
-    root = tmp_path / "root.sexp"
-    _write(root, data)
+def test_reead_items_for_cluster_keeps_vias_drops_foreign_footprints(main_window):
+    """_reead_items_for_cluster narrows the raw selection to ONE cluster: its
+    footprints by ref stay, foreign footprints are dropped, and ALL vias/tracks
+    stay — the extractor's connectivity filter drops foreign copper, never a
+    registry drop (which would strip the cluster's own applied copper)."""
     dock = ExtractDock(main_window)
-    dock.set_root_path(root)
+    fp1, fp2 = _fake_fp("R1"), _fake_fp("R2")
+    via = MagicMock()
+    dock._raw_items = [fp1, fp2, via]
 
-    called = []
-    monkeypatch.setattr(dock, "_on_re_extract", lambda: called.append(True))
-    messages = []
-    monkeypatch.setattr(dock, "_show_message", lambda text, style="": messages.append(text))
+    cluster = ReReadCluster(cluster="PIF_AVDD", sheet="Channel_1", entity_name=None,
+                            cell="dac_pif_avdd", profile_key=None, refs=["R1"])
+    items = dock._reead_items_for_cluster(cluster)
 
-    dock.re_extract_profile("myprofile")
-
-    assert called == []
-    assert dock.re_extract_placement_combo.count() == 0
-    assert messages  # a warning went to the Log
+    assert items == [fp1, via]
 
 
-def test_re_extract_profile_reports_when_ambiguous(main_window, tmp_path, monkeypatch):
-    """Two placements own the cell -> a Log message pointing at the dialog's
-    Re-extract to pick one — nothing guessed silently."""
-    data = {
-        "clone_placements": [
-            {"cluster": "Ch0_PI", "cell": "pi_filter", "xy": [0.0, 0.0]},
-            {"cluster": "Ch1_PI", "cell": "pi_filter", "xy": [0.0, 0.0]},
-        ],
-        "extract_profiles": {"myprofile": {"output": str(tmp_path / "cells_out.sexp"), "name": "pi_filter"}},
-    }
-    root = tmp_path / "root.sexp"
-    _write(root, data)
-    dock = ExtractDock(main_window)
-    dock.set_root_path(root)
-
-    called = []
-    monkeypatch.setattr(dock, "_on_re_extract", lambda: called.append(True))
-    messages = []
-    monkeypatch.setattr(dock, "_show_message", lambda text, style="": messages.append(text))
-
-    dock.re_extract_profile("myprofile")
-
-    assert called == []
-    assert dock.re_extract_placement_combo.count() == 2
-    assert messages  # a warning went to the Log

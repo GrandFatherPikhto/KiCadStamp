@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-31 20:54+0300\n"
+"POT-Creation-Date: 2026-08-31 21:35+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -35,7 +35,7 @@ msgstr "Пересканировать"
 msgid "Not connected"
 msgstr "Нет подключения"
 
-#: gui/docks/extract.py:279 gui/docks/extract.py:1471
+#: gui/docks/extract.py:279 gui/docks/extract.py:1448
 #: gui/fieldstool_window.py:163 gui/fieldstool_window.py:357
 msgid "Nothing selected"
 msgstr "Ничего не выбрано"
@@ -149,7 +149,7 @@ msgstr ""
 "Эти refdes сейчас нет на живой плате — для них ничего не записано:\n"
 "{refs}"
 
-#: gui/fieldstool_window.py:674 gui/main_window.py:505 gui/main_window.py:570
+#: gui/fieldstool_window.py:674 gui/main_window.py:515 gui/main_window.py:580
 #, python-brace-format
 msgid "Not connected: {error}"
 msgstr "Нет подключения: {error}"
@@ -299,7 +299,7 @@ msgstr ""
 "например зависшая/«Not Responding» сессия, которая всё ещё блокирует "
 "подключение нового KiCad."
 
-#: gui/kicad_processes_dialog.py:53 gui/main_window.py:523
+#: gui/kicad_processes_dialog.py:53 gui/main_window.py:533
 msgid "Refresh"
 msgstr "Обновить"
 
@@ -353,15 +353,15 @@ msgstr "Закрываю PID {pid}…"
 msgid "PID {pid} did not confirm closing within a reasonable time."
 msgstr "PID {pid} не подтвердил закрытие за разумное время."
 
-#: gui/main_window.py:115 gui/main_window.py:392
+#: gui/main_window.py:115 gui/main_window.py:402
 msgid "KiCadStamp"
 msgstr "KiCadStamp"
 
-#: gui/main_window.py:122 gui/main_window.py:523 gui/main_window.py:571
+#: gui/main_window.py:122 gui/main_window.py:533 gui/main_window.py:581
 msgid "Reconnect"
 msgstr "Переподключиться"
 
-#: gui/main_window.py:135 gui/main_window.py:395
+#: gui/main_window.py:135 gui/main_window.py:405
 msgid "Open fieldstool"
 msgstr "Открыть fieldstool"
 
@@ -389,23 +389,32 @@ msgstr "Правка"
 msgid "&Import from profile..."
 msgstr "&Импорт из профиля..."
 
-#: gui/main_window.py:207
+#: gui/docks/detail_panel.py:132 gui/docks/detail_panel.py:195
+#: gui/main_window.py:205
+msgid "Tools"
+msgstr "Инструменты"
+
+#: gui/main_window.py:206
+msgid "Re-read selected..."
+msgstr "Перечитать выделенное..."
+
+#: gui/main_window.py:217
 msgid "View"
 msgstr "Вид"
 
-#: gui/main_window.py:390
+#: gui/main_window.py:400
 msgid "Tray icon requested but no system tray is available here."
 msgstr "Запрошен значок в трее, но системный трей здесь недоступен."
 
-#: gui/main_window.py:394
+#: gui/main_window.py:404
 msgid "Show/Hide"
 msgstr "Показать/Скрыть"
 
-#: gui/main_window.py:397
+#: gui/main_window.py:407
 msgid "Quit"
 msgstr "Выход"
 
-#: gui/main_window.py:514
+#: gui/main_window.py:524
 #, python-brace-format
 msgid "Connected — {count} components"
 msgstr "Подключено — компонентов: {count}"
@@ -956,7 +965,7 @@ msgstr "имя (ключ реестра, должно быть уникальн�
 
 #: gui/docks/cell_editor.py:435 gui/docks/extract.py:520
 #: gui/docks/placer.py:766 gui/docks/profile_import.py:35
-#: gui/docks/profile_import.py:38
+#: gui/docks/profile_import.py:38 gui/docks/reead_dialog.py:37
 msgid "Cell"
 msgstr "Шаблон"
 
@@ -1147,8 +1156,9 @@ msgstr "Для якоря XY нужны и X, и Y."
 msgid "Anchor: pick a Role first."
 msgstr "Якорь: сначала выберите Role."
 
-#: gui/docks/cell_editor.py:1184 gui/docks/extract.py:2236
-#: gui/docks/extract.py:2253 gui/docks/net_trace.py:251
+#: gui/docks/cell_editor.py:1184 gui/docks/extract.py:2213
+#: gui/docks/extract.py:2230 gui/docks/extract.py:2326
+#: gui/docks/extract.py:2393 gui/docks/net_trace.py:251
 #: gui/docks/net_trace.py:352 gui/docks/net_trace.py:412
 #: gui/docks/placer.py:2109 gui/docks/placer.py:2119 gui/docks/placer.py:2277
 #: gui/docks/placer.py:2369 gui/docks/placer.py:2478 gui/docks/placer.py:2728
@@ -1271,65 +1281,61 @@ msgstr "Добавить правило..."
 msgid "Add extract profile..."
 msgstr "Добавить профиль извлечения..."
 
-#: gui/docks/config_tree.py:280
+#: gui/docks/config_tree.py:276
 msgid "Config"
 msgstr "Конфиг"
 
-#: gui/docks/config_tree.py:706
+#: gui/docks/config_tree.py:702
 msgid "Edit cell..."
 msgstr "Изменить шаблон..."
 
-#: gui/docks/config_tree.py:712
-msgid "Re-read..."
-msgstr "Перечитать..."
-
-#: gui/docks/config_tree.py:714
+#: gui/docks/config_tree.py:704
 msgid "Rename..."
 msgstr "Переименовать..."
 
-#: gui/docks/config_tree.py:716
+#: gui/docks/config_tree.py:706
 msgid "Delete..."
 msgstr "Удалить..."
 
-#: gui/docks/config_tree.py:722
+#: gui/docks/config_tree.py:712
 msgid "Export selected..."
 msgstr "Экспортировать выбранное..."
 
-#: gui/docks/config_tree.py:722
+#: gui/docks/config_tree.py:712
 msgid "Export..."
 msgstr "Экспорт..."
 
-#: gui/docks/config_tree.py:753
+#: gui/docks/config_tree.py:743
 msgid "Add included file..."
 msgstr "Добавить включаемый файл..."
 
-#: gui/docks/config_tree.py:758
+#: gui/docks/config_tree.py:748
 msgid "New Extract..."
 msgstr "Новый Extract..."
 
-#: gui/docks/config_tree.py:762
+#: gui/docks/config_tree.py:752
 msgid "Remove this file"
 msgstr "Удалить этот файл"
 
-#: gui/docks/config_tree.py:775
+#: gui/docks/config_tree.py:765
 msgid "Rename"
 msgstr "Переименовать"
 
-#: gui/docks/config_tree.py:775
+#: gui/docks/config_tree.py:765
 #, python-brace-format
 msgid "New name for {old!r}:"
 msgstr "Новое имя для {old!r}:"
 
-#: gui/docks/config_tree.py:782
+#: gui/docks/config_tree.py:772
 msgid "Rename failed"
 msgstr "Переименование не удалось"
 
-#: gui/docks/config_tree.py:787
+#: gui/docks/config_tree.py:777
 #, python-brace-format
 msgid "Renamed {old!r} to {new!r} — {count} file(s) updated: {files}"
 msgstr "Переименовано {old!r} в {new!r} — обновлено файлов: {count}: {files}"
 
-#: gui/docks/config_tree.py:792
+#: gui/docks/config_tree.py:782
 #, python-brace-format
 msgid ""
 "If any CLI command uses --only/--profile {old!r}, update that separately "
@@ -1339,21 +1345,21 @@ msgstr ""
 "её отдельно — здесь переписываются только YAML-файлы, командную строку "
 "скрипт не видит."
 
-#: gui/docks/config_tree.py:795
+#: gui/docks/config_tree.py:785
 msgid "Renamed"
 msgstr "Переименовано"
 
-#: gui/docks/config_tree.py:836
+#: gui/docks/config_tree.py:826
 #, python-brace-format
 msgid "{file}: {entries}"
 msgstr "{file}: {entries}"
 
-#: gui/docks/config_tree.py:839 gui/docks/config_tree.py:849
+#: gui/docks/config_tree.py:829 gui/docks/config_tree.py:839
 #, python-brace-format
 msgid "Delete {name!r}"
 msgstr "Удалить {name!r}"
 
-#: gui/docks/config_tree.py:840
+#: gui/docks/config_tree.py:830
 #, python-brace-format
 msgid ""
 "{name!r} is still referenced by:\n"
@@ -1366,34 +1372,34 @@ msgstr ""
 "\n"
 "Удалить также эти ссылающиеся записи? Отмена оставляет всё без изменений."
 
-#: gui/docks/config_tree.py:850
+#: gui/docks/config_tree.py:840
 #, python-brace-format
 msgid "Delete {name!r} from {section}: in {file}?"
 msgstr "Удалить {name!r} из {section}: в {file}?"
 
-#: gui/docks/config_tree.py:859
+#: gui/docks/config_tree.py:849
 #, python-brace-format
 msgid "Deleted {name!r}. Backed up: {backups}."
 msgstr "Удалено {name!r}. Резервная копия: {backups}."
 
-#: gui/docks/config_tree.py:862
+#: gui/docks/config_tree.py:852
 #, python-brace-format
 msgid "Also removed references from: {files}."
 msgstr "Также убраны ссылки из: {files}."
 
-#: gui/docks/config_tree.py:864
+#: gui/docks/config_tree.py:854
 msgid "Deleted"
 msgstr "Удалено"
 
-#: gui/docks/config_tree.py:892
+#: gui/docks/config_tree.py:882
 msgid "Export to..."
 msgstr "Экспорт в..."
 
-#: gui/docks/config_tree.py:909
+#: gui/docks/config_tree.py:899
 msgid "Export"
 msgstr "Экспорт"
 
-#: gui/docks/config_tree.py:910
+#: gui/docks/config_tree.py:900
 #, python-brace-format
 msgid ""
 "{name} already has content — merge the exported entries into it, or "
@@ -1402,44 +1408,44 @@ msgstr ""
 "В {name} уже есть содержимое — слить экспортируемые записи в него или "
 "перезаписать весь файл?"
 
-#: gui/docks/config_tree.py:912
+#: gui/docks/config_tree.py:902
 msgid "Merge"
 msgstr "Слить"
 
-#: gui/docks/config_tree.py:913 gui/docks/profile_import.py:176
+#: gui/docks/config_tree.py:903 gui/docks/profile_import.py:176
 msgid "Overwrite"
 msgstr "Перезаписать"
 
-#: gui/docks/config_tree.py:924
+#: gui/docks/config_tree.py:914
 msgid "Export failed"
 msgstr "Экспорт не удался"
 
-#: gui/docks/config_tree.py:927
+#: gui/docks/config_tree.py:917
 msgid "Exported"
 msgstr "Экспортировано"
 
-#: gui/docks/config_tree.py:928
+#: gui/docks/config_tree.py:918
 #, python-brace-format
 msgid "Exported {count} entr{suffix} to {name}"
 msgstr "Экспортировано записей: {count} в {name}"
 
-#: gui/docks/config_tree.py:929
+#: gui/docks/config_tree.py:919
 msgid "y"
 msgstr "д"
 
-#: gui/docks/config_tree.py:929
+#: gui/docks/config_tree.py:919
 msgid "ies"
 msgstr "и"
 
-#: gui/docks/config_tree.py:939
+#: gui/docks/config_tree.py:929
 msgid "Add included file"
 msgstr "Добавить включаемый файл"
 
-#: gui/docks/config_tree.py:954
+#: gui/docks/config_tree.py:944
 msgid "Cannot include"
 msgstr "Не удалось включить"
 
-#: gui/docks/config_tree.py:955
+#: gui/docks/config_tree.py:945
 #, python-brace-format
 msgid ""
 "{name} has root-config-only key(s) {keys} that include: can't merge — "
@@ -1449,11 +1455,11 @@ msgstr ""
 "include: не может слить — вынесите их или укажите Root прямо на этот "
 "файл."
 
-#: gui/docks/config_tree.py:967
+#: gui/docks/config_tree.py:957
 msgid "Remove file"
 msgstr "Удалить файл"
 
-#: gui/docks/config_tree.py:968
+#: gui/docks/config_tree.py:958
 #, python-brace-format
 msgid ""
 "Remove {name!r} from {parent!r}'s include:? The file itself is not "
@@ -1569,10 +1575,6 @@ msgstr "Расстановщик"
 #: gui/docks/detail_panel.py:123 gui/docks/detail_panel.py:190
 msgid "Thermal via"
 msgstr "Термо-via"
-
-#: gui/docks/detail_panel.py:132 gui/docks/detail_panel.py:195
-msgid "Tools"
-msgstr "Инструменты"
 
 # 2026-08-15, plan configurator_panel — the Settings tab hosts pure GUI/app
 # settings for this machine (see gui/docks/configurator.py), NOT project
@@ -1693,7 +1695,7 @@ msgstr "Цепь"
 msgid "Alias"
 msgstr "Псевдоним"
 
-#: gui/docks/extract.py:467 gui/docks/extract.py:1665
+#: gui/docks/extract.py:467 gui/docks/extract.py:1642
 msgid "Rule net (null)"
 msgstr "Цепь правила (null)"
 
@@ -1844,54 +1846,36 @@ msgstr ""
 "нажмите Extract — профиль сохранится как побочный результат реального "
 "извлечения."
 
-#: gui/docks/extract.py:1348
-#, python-brace-format
-msgid ""
-"Profile {key!r} isn't placed on the board yet — no clone_placement owns "
-"its cell, nothing to re-read."
-msgstr ""
-"Профиль {key!r} ещё не размещён на плате — ни один clone_placement не "
-"владеет его целлой, перечитывать нечего."
-
-#: gui/docks/extract.py:1352
-#, python-brace-format
-msgid ""
-"Cell of profile {key!r} is placed by {count} placements — open the "
-"Extract dialog's Re-extract to pick one."
-msgstr ""
-"Целла профиля {key!r} размещена {count} размещениями — откройте "
-"Re-extract в диалоге Extract, чтобы выбрать одно."
-
-#: gui/docks/extract.py:1476
+#: gui/docks/extract.py:1453
 msgid "Nothing left after the Cluster filter (see above)"
 msgstr ""
 
-#: gui/docks/extract.py:1482
+#: gui/docks/extract.py:1459
 #, python-brace-format
 msgid "{fp} component(s), {other} via/track(s) selected"
 msgstr "Выделено: {fp} компонент(ов), via/треков: {other}"
 
-#: gui/docks/extract.py:1485
+#: gui/docks/extract.py:1462
 #, python-brace-format
 msgid "{fp} component(s) selected"
 msgstr "Выделено компонентов: {fp}"
 
-#: gui/docks/extract.py:1491
+#: gui/docks/extract.py:1468
 #, python-brace-format
 msgid "Selection spans multiple Clusters: {clusters}"
 msgstr "Выделение охватывает несколько кластеров: {clusters}"
 
-#: gui/docks/extract.py:1495
+#: gui/docks/extract.py:1472
 #, python-brace-format
 msgid "(filtered to {cluster!r}: keeping {kept} of {total} component(s))"
 msgstr ""
 
-#: gui/docks/extract.py:1581
+#: gui/docks/extract.py:1558
 #, python-brace-format
 msgid "role: {role}"
 msgstr "роль: {role}"
 
-#: gui/docks/extract.py:1586
+#: gui/docks/extract.py:1563
 #, python-brace-format
 msgid ""
 "This net already resolves via Role {role!r} — a typed alias here would be"
@@ -1900,11 +1884,11 @@ msgstr ""
 "Эта цепь уже резолвится через роль {role!r} — введённый здесь алиас будет"
 " проигнорирован при применении"
 
-#: gui/docks/extract.py:1660
+#: gui/docks/extract.py:1637
 msgid "alias, e.g. PWR_IN"
 msgstr "псевдоним, например, PWR_IN"
 
-#: gui/docks/extract.py:1667
+#: gui/docks/extract.py:1644
 msgid ""
 "Write this via/track net as null instead of a literal — at apply time a "
 "ManualSpoke-placed cell inherits the enclosing Rule's own net for it, so "
@@ -1915,27 +1899,28 @@ msgstr ""
 " объемлющего правила, поэтому шаблон можно переиспользовать между разными"
 " правилами на разных цепях."
 
-#: gui/docks/extract.py:1720
+#: gui/docks/extract.py:1697
 msgid "Cell name is required."
 msgstr "Требуется имя шаблона."
 
-#: gui/docks/extract.py:1763
+#: gui/docks/extract.py:1740
 msgid ""
 "Nothing left to extract — the checked Sub-placements cover the whole "
 "selection."
 msgstr "Нечего извлекать — отмеченные Подразмещения покрывают всё выделение."
 
-#: gui/docks/extract.py:1770
+#: gui/docks/extract.py:1747
 msgid "'Also save as extract_profile' is checked, but no profile file is picked."
 msgstr "Отмечено 'Also save as extract_profile', но файл профиля не выбран."
 
-#: gui/docks/extract.py:1776 gui/docks/extract.py:2245 gui/docks/placer.py:1687
-#: gui/docks/placer.py:2271 gui/docks/points.py:290
-#: gui/docks/role_cluster_tree.py:590 gui/docks/role_cluster_tree.py:602
+#: gui/docks/extract.py:1753 gui/docks/extract.py:2222
+#: gui/docks/extract.py:2323 gui/docks/placer.py:1687 gui/docks/placer.py:2271
+#: gui/docks/points.py:290 gui/docks/role_cluster_tree.py:590
+#: gui/docks/role_cluster_tree.py:602
 msgid "Not connected."
 msgstr "Нет подключения."
 
-#: gui/docks/extract.py:1788
+#: gui/docks/extract.py:1765
 #, python-brace-format
 msgid ""
 "Alias {alias!r} used for both {a!r} and {b!r} — each alias needs a "
@@ -1944,15 +1929,15 @@ msgstr ""
 "Псевдоним {alias!r} используется и для {a!r}, и для {b!r} — у каждого "
 "псевдонима должна быть своя цепь."
 
-#: gui/docks/extract.py:1799
+#: gui/docks/extract.py:1776
 msgid "Origin: pick a component role."
 msgstr "Начало: выберите роль компонента."
 
-#: gui/docks/extract.py:1819
+#: gui/docks/extract.py:1796
 msgid "Origin: pick a via net."
 msgstr "Начало: выберите цепь via."
 
-#: gui/docks/extract.py:1828
+#: gui/docks/extract.py:1805
 #, python-brace-format
 msgid ""
 "Net template role: role {role!r} bridges 2+ nets that auto-classify by "
@@ -1961,7 +1946,7 @@ msgstr ""
 "Роль шаблона цепи: роль {role!r} связывает 2+ цепи, автоматически "
 "классифицируемые по роли, — укажите, какая из них является шаблоном."
 
-#: gui/docks/extract.py:1953
+#: gui/docks/extract.py:1930
 #, python-brace-format
 msgid ""
 "Origin by component sheet: failed to load sheet names from {placer}: "
@@ -1970,49 +1955,74 @@ msgstr ""
 "Origin по компоненту с листом: не удалось загрузить имена листов из "
 "{placer}: {type}: {error} — сужение по листу пропущено"
 
-#: gui/docks/extract.py:2016
+#: gui/docks/extract.py:1993
 #, python-brace-format
 msgid "Failed to load config for Sub-placements: {error}"
 msgstr "Не удалось загрузить конфиг для Подразмещений: {error}"
 
-#: gui/docks/extract.py:2048
+#: gui/docks/extract.py:2025
 #, python-brace-format
 msgid "Sub-placement {name!r}: {error}"
 msgstr "Подразмещение {name!r}: {error}"
 
-#: gui/docks/extract.py:2133
+#: gui/docks/extract.py:2110
 #, python-brace-format
 msgid "{count} via/track net(s) auto-classified by role: {roles}"
 msgstr ""
 
-#: gui/docks/extract.py:2161
+#: gui/docks/extract.py:2138
 #, python-brace-format
 msgid "{count} field(s) could not be determined automatically: {details}"
 msgstr "Полей, которые не удалось определить автоматически: {count}: {details}"
 
-#: gui/docks/extract.py:2177 gui/docks/net_trace.py:322
+#: gui/docks/extract.py:2154 gui/docks/net_trace.py:322
 #: gui/docks/net_trace.py:325
 #, python-brace-format
 msgid "Extract failed: {error}"
 msgstr "Извлечение не удалось: {error}"
 
-#: gui/docks/extract.py:2250
+#: gui/docks/extract.py:2227
 msgid "Pick an existing profile/Cell and a placement first."
 msgstr "Сначала выберите существующий профиль/ячейку и размещение."
 
-#: gui/docks/extract.py:2283
+#: gui/docks/extract.py:2260 gui/docks/extract.py:2331
 #, python-brace-format
 msgid "Failed to load config: {error}"
 msgstr "Не удалось загрузить конфиг: {error}"
 
-#: gui/docks/extract.py:2289
+#: gui/docks/extract.py:2266
 #, python-brace-format
 msgid "Placement {name!r} not found in the config graph."
 msgstr "Размещение {name!r} не найдено в графе конфига."
 
-#: gui/docks/extract.py:2302 gui/docks/placer.py:2317
+#: gui/docks/extract.py:2279 gui/docks/placer.py:2317
 msgid "nothing found on the board for this placement — has it been placed yet?"
 msgstr "на плате ничего не найдено для этого размещения — оно ещё не размещено?"
+
+#: gui/docks/extract.py:2341
+msgid ""
+"No fully selected Cluster found — select ALL components of a cluster (its"
+" Cluster tag + sheet) first."
+msgstr ""
+"Не найден полностью выделенный кластер — выдели ВСЕ компоненты кластера "
+"(его тег Cluster + лист) сначала."
+
+#: gui/docks/extract.py:2368
+msgid ""
+"Nothing to re-read — the checked clusters have no components in the "
+"selection."
+msgstr ""
+"Нечего перечитывать — у отмеченных кластеров нет компонентов в выделении."
+
+#: gui/docks/extract.py:2424 gui/docks/extract.py:2428
+#, python-brace-format
+msgid "Re-read {cluster}: {error}"
+msgstr "Перечитать {cluster}: {error}"
+
+#: gui/docks/extract.py:2431
+#, python-brace-format
+msgid "Re-read {cluster} -> {cell}: done"
+msgstr "Перечитать {cluster} → {cell}: готово"
 
 #: gui/docks/extract_dialog.py:37 gui/docks/net_trace.py:109
 msgid "Extract"
@@ -2302,7 +2312,8 @@ msgid "Single component"
 msgstr "Разместить компоненты"
 
 #: gui/docks/placer.py:766 gui/docks/profile_import.py:35
-#: gui/docks/profile_import.py:39 gui/docks/trees_dock.py:1383
+#: gui/docks/profile_import.py:39 gui/docks/reead_dialog.py:37
+#: gui/docks/trees_dock.py:1383
 msgid "Entity"
 msgstr "Сущность"
 
@@ -2750,6 +2761,18 @@ msgstr "Ошибка импорта"
 msgid "No changes — the selected records already exist in the target profile."
 msgstr "Ничего не изменено — выбранные записи уже есть в целевом профиле."
 
+#: gui/docks/reead_dialog.py:30
+msgid "Re-read selected"
+msgstr "Перечитать выделенное"
+
+#: gui/docks/reead_dialog.py:37 gui/docks/role_cluster_tree.py:160
+msgid "Cluster"
+msgstr "Cluster"
+
+#: gui/docks/reead_dialog.py:37
+msgid "Sheet"
+msgstr "Лист"
+
 #: gui/docks/rename.py:337 gui/docks/rename.py:373
 #, python-brace-format
 msgid "{name!r} not found in {section}: of {path}"
@@ -2764,10 +2787,6 @@ msgstr "{name!r} уже существует в {section}: файла {path}"
 #, python-brace-format
 msgid "{name!r} already exists in {section}: somewhere in this include: graph"
 msgstr "{name!r} уже существует в {section}: где-то в графе include:"
-
-#: gui/docks/role_cluster_tree.py:160
-msgid "Cluster"
-msgstr "Cluster"
 
 #: gui/docks/role_cluster_tree.py:164
 msgid "Collapse all"
@@ -11510,4 +11529,26 @@ msgstr "Всего спиц: {count}"
 #~ "без offset_along_mm/offset_across_mm; найдено: {n}"
 #~ " — оставьте один нулевой компонент "
 #~ "или добавьте явный (anchor ...)"
+
+#~ msgid "Re-read..."
+#~ msgstr "Перечитать..."
+
+#~ msgid ""
+#~ "Profile {key!r} isn't placed on the "
+#~ "board yet — no clone_placement owns "
+#~ "its cell, nothing to re-read."
+#~ msgstr ""
+#~ "Профиль {key!r} ещё не размещён на "
+#~ "плате — ни один clone_placement не "
+#~ "владеет его целлой, перечитывать нечего."
+
+#~ msgid ""
+#~ "Cell of profile {key!r} is placed "
+#~ "by {count} placements — open the "
+#~ "Extract dialog's Re-extract to pick "
+#~ "one."
+#~ msgstr ""
+#~ "Целла профиля {key!r} размещена {count} "
+#~ "размещениями — откройте Re-extract в "
+#~ "диалоге Extract, чтобы выбрать одно."
 
