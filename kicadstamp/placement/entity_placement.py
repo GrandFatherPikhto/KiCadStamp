@@ -119,36 +119,75 @@ def _auto_anchor_base(adapter: "KiCadBoardAdapter", cfg: "Config",
                "(found {n} top-level node(s)); add an explicit (anchor ...) to this "
                "tree instead").format(n=len(linked_tree.nodes))]))
     entity = placement_roots[0].record.obj
+    # The "Entity -> its Cell -> single zero-offset component -> role -> live
+    # read" core is shared with resolve_entity_live_position's fallback for an
+    # Entity that is not placed by any tree — one source of truth, only the
+    # label differs (tree-anchor context here, Entity's own context there).
+    return _entity_own_zero_slot_live_position(
+        adapter, cfg, entity, sheet_names,
+        label=_("tree {name!r} auto-anchor").format(name=linked_tree.name))
+
+
+def _find_entity_record(cfg: "Config", entity_name: str) -> Entity | None:
+    """The cfg.entities record with this name, or None (defensive: a
+    placement-kind record always resolves to an Entity via link_trees, so None
+    is unreachable in practice — but the zero-slot fallback needs the actual
+    Entity object to read its cell)."""
+    for e in cfg.entities:
+        if e.name == entity_name:
+            return e
+    return None
+
+
+def _entity_own_zero_slot_live_position(adapter: "KiCadBoardAdapter",
+                                        cfg: "Config",
+                                        entity: Entity, sheet_names: dict,
+                                        label: str | None = None
+                                        ) -> tuple[Vector2, float]:
+    """(position_nm, rotation_deg) of an Entity's OWN live position, read from
+    its cell's single zero-offset (local 0,0) component's role, live-resolved
+    via ComponentResolver exactly like an explicit (role ...) anchor (Phase
+    4.2 — no new board-reading logic). This is the standalone core of the
+    auto-anchor derivation (_auto_anchor_base, plan 2026-08-31
+    tree_self_anchor_from_entity), extracted so resolve_entity_live_position
+    can fall back to it for an Entity that is NOT (yet) placed by any tree —
+    Denis's live case: "Add child" under fpga with ref fpga_flash and "Read
+    current position" BEFORE saving the node (plan_2026_08_31_entity_live_
+    position_zero_slot_fallback.md).
+
+    Config errors (missing cell, 0/2+ zero slots) are _EntityAnchorError. A
+    LIVE error from the role resolution (role not found / ambiguous on the
+    board) is a plain ValidationError — the caller decides how to surface it
+    (per-tree skip for the materializer, a warning for the GUI read)."""
     cell = cfg.cells.get(entity.cell)
     if cell is None:
         raise _EntityAnchorError(format_fatal_error(
-            _("tree {name!r} auto-anchor: Entity {entity!r} references missing cell {cell!r}")
-            .format(name=linked_tree.name, entity=entity.name, cell=entity.cell),
-            [_("the auto-anchor reads the cell's zero-offset component, so the cell "
-               "must exist")]))
+            _("Entity {name!r} references missing cell {cell!r}")
+            .format(name=entity.name, cell=entity.cell),
+            [_("the zero-offset live read needs the Entity's cell to exist")]))
     zero = [c for c in cell.components
             if c.offset_along_mm == 0.0 and c.offset_across_mm == 0.0]
     if not zero:
         raise _EntityAnchorError(format_fatal_error(
-            _("tree {name!r} has no explicit anchor and its root Entity {entity!r} "
-              "has no zero-offset component to anchor on").format(
-                  name=linked_tree.name, entity=entity.name),
-            [_("the auto-anchor needs EXACTLY ONE component without "
-               "offset_along_mm/offset_across_mm (local (0,0)) in cell {cell!r}; add "
-               "one, or give the tree an explicit (anchor ...)").format(cell=entity.cell)]))
+            _("Entity {name!r} has no zero-offset component to read live")
+            .format(name=entity.name),
+            [_("cell {cell!r} has no component without offset_along_mm/"
+               "offset_across_mm (local (0,0)) to act as the Entity's own "
+               "anchor role").format(cell=entity.cell)]))
     if len(zero) > 1:
         raise _EntityAnchorError(format_fatal_error(
-            _("tree {name!r}: root Entity {entity!r} has {n} zero-offset components "
-              "in cell {cell!r} — auto-anchor is ambiguous").format(
-                  name=linked_tree.name, entity=entity.name, n=len(zero), cell=entity.cell),
-            [_("auto-anchor needs EXACTLY ONE component without offset_along_mm/"
-               "offset_across_mm; found {n} — leave only one zero component, or add "
-               "an explicit (anchor ...)").format(n=len(zero))]))
+            _("Entity {name!r} has {n} zero-offset components in cell {cell!r} "
+              "— live position is ambiguous")
+            .format(name=entity.name, n=len(zero), cell=entity.cell),
+            [_("a zero-offset live read needs EXACTLY ONE component without "
+               "offset_along_mm/offset_across_mm; found {n}")
+             .format(n=len(zero))]))
     slot = zero[0]
     resolver = ComponentResolver(adapter, cfg, sheet_names)
     fp = resolver.resolve_anchor_fp(
         None, slot.role, entity.sheet, entity.cluster,
-        label=_("tree {name!r} auto-anchor").format(name=linked_tree.name))
+        label=label or _("Entity {name!r} own zero-offset live position")
+        .format(name=entity.name))
     return fp.position, fp.angle_deg
 
 
@@ -246,10 +285,14 @@ def resolve_entity_live_position(adapter: "KiCadBoardAdapter", cfg: "Config",
     (link_trees(cfg, cfg.trees)); `visited` holds the Entity names already on
     the current resolution chain so a cycle (a tree anchored on an Entity
     whose placing tree anchors back) is a clear _EntityAnchorError fatal,
-    never an infinite loop. An Entity with no placement node, one referenced
-    by 2+ nodes, or a cyclic chain raises the SAME _EntityAnchorError as
-    _anchor_base — the caller must decide how to surface it (fatal for the
-    materializer, a ValidationError warning for the GUI read)."""
+    never an infinite loop. An Entity with NO placement node anywhere falls
+    back to its OWN zero-offset component's live position
+    (_entity_own_zero_slot_live_position — plan_2026_08_31_entity_live_
+    position_zero_slot_fallback.md); an Entity referenced by 2+ nodes, a
+    cyclic chain, or one with neither a placement node nor a readable
+    zero-slot raises the SAME _EntityAnchorError as _anchor_base — the caller
+    must decide how to surface it (fatal for the materializer, a ValidationError
+    warning for the GUI read)."""
     if forest is None:
         forest = link_trees(cfg, cfg.trees)
     chain = visited if visited is not None else set()
@@ -262,12 +305,39 @@ def resolve_entity_live_position(adapter: "KiCadBoardAdapter", cfg: "Config",
     chain = chain | {entity_name}
     matches = _find_entity_node(forest, entity_name)
     if not matches:
-        raise _EntityAnchorError(format_fatal_error(
-            _("Entity {name!r} is not placed in any tree — nothing to "
-              "read live").format(name=entity_name),
-            [_("no (kind placement) node places Entity {name!r}; add a "
-               "placement node for it, or read a record that is actually "
-               "placed by a tree").format(name=entity_name)]))
+        # The Entity is not (yet) placed by any tree — but it may still have
+        # a readable OWN live position: the single zero-offset (local 0,0)
+        # component of its cell acts as its own anchor role (the same
+        # derivation the auto-anchor uses for a root Entity). Denis's live
+        # case: "Add child" under fpga with ref fpga_flash and "Read current
+        # position" BEFORE saving the node — fpga_flash is not a placement
+        # node anywhere yet, but its cell was extracted with a zero-offset
+        # component (an Origin "By component role" extraction). Only when the
+        # zero-slot read ALSO fails (no cell, 0/2+ zero slots) do we raise the
+        # final fatal, honestly naming BOTH reasons. A LIVE role-resolution
+        # failure (role not found / ambiguous) is a plain ValidationError from
+        # resolve_anchor_fp and propagates as-is — a board condition, not a
+        # config error.
+        entity_rec = _find_entity_record(cfg, entity_name)
+        if entity_rec is None:
+            raise _EntityAnchorError(format_fatal_error(
+                _("Entity {name!r} is not placed in any tree — nothing to "
+                  "read live").format(name=entity_name),
+                [_("no (kind placement) node places Entity {name!r}, and no "
+                   "Entity record with that name exists to read a zero-offset "
+                   "component from").format(name=entity_name)]))
+        try:
+            return _entity_own_zero_slot_live_position(
+                adapter, cfg, entity_rec, sheet_names)
+        except _EntityAnchorError as zero_err:
+            raise _EntityAnchorError(format_fatal_error(
+                _("Entity {name!r} is not placed in any tree and has no "
+                  "readable own zero-offset component").format(name=entity_name),
+                [_("no (kind placement) node places Entity {name!r}; add a "
+                   "placement node for it, or read a record that is actually "
+                   "placed by a tree").format(name=entity_name),
+                 _("the own-cell zero-offset fallback also failed: "
+                   "{reason}").format(reason=zero_err)]))
     if len(matches) > 1:
         raise _EntityAnchorError(format_fatal_error(
             _("Entity {name!r} is placed in more than one tree node")

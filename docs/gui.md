@@ -234,8 +234,11 @@ Add/Edit-node dialog — a passive live-board read that never validates the whol
 invariant, so an unrelated existing node with a conflicting inline anchor does not block it. An Entity
 parent (a `kind="placement"` node) resolves its live position/rotation from the tree that places it —
 the same recursive anchor-base + node-path composition the Apply-time materializer uses — so the
-offset preview works for a resolvable Entity parent too; only a parent that no tree places (or one
-placed twice / in a cycle) warns with the materializer's own fatal text (2026-08-31). Nothing
+offset preview works for a resolvable Entity parent too. An Entity that no tree places (yet) falls
+back to its own cell's single zero-offset (local 0,0) component's role (the same derivation as the
+auto-anchor), so "Read current position" for e.g. fpga_flash works even BEFORE the node that places
+it is saved; only an Entity with NEITHER a placement node NOR a readable zero-offset component (or
+one placed twice / in a cycle) warns with the materializer's own fatal text (2026-08-31). Nothing
 reaches the disk until **Save**, which replaces the whole root `trees:` section through the single
 config_writer chokepoint (a fresh `.bak` is made first); linking/validation runs at Save via
 `kicadstamp.link_trees`.

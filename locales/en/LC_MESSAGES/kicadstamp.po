@@ -10940,3 +10940,62 @@ msgstr ""
 #~ msgid "Imported {kind} {name!r} with dependencies: {deps}"
 #~ msgstr ""
 
+#: kicadstamp/placement/entity_placement.py:148
+#, python-brace-format
+msgid "Entity {name!r} references missing cell {cell!r}"
+msgstr ""
+
+#: kicadstamp/placement/entity_placement.py:150
+msgid "the zero-offset live read needs the Entity's cell to exist"
+msgstr ""
+
+#: kicadstamp/placement/entity_placement.py:157
+#, python-brace-format
+msgid "Entity {name!r} has no zero-offset component to read live"
+msgstr ""
+
+#: kicadstamp/placement/entity_placement.py:158
+#, python-brace-format
+msgid ""
+"cell {cell!r} has no component without offset_along_mm/offset_across_mm "
+"(local (0,0)) to act as the Entity's own anchor role"
+msgstr ""
+
+#: kicadstamp/placement/entity_placement.py:165
+#, python-brace-format
+msgid ""
+"Entity {name!r} has {n} zero-offset components in cell {cell!r} — live "
+"position is ambiguous"
+msgstr ""
+
+#: kicadstamp/placement/entity_placement.py:167
+#, python-brace-format
+msgid ""
+"a zero-offset live read needs EXACTLY ONE component without offset_along_mm/"
+"offset_across_mm; found {n}"
+msgstr ""
+
+#: kicadstamp/placement/entity_placement.py:175
+#, python-brace-format
+msgid "Entity {name!r} own zero-offset live position"
+msgstr ""
+
+#: kicadstamp/placement/entity_placement.py:321
+#, python-brace-format
+msgid ""
+"Entity {name!r} is not placed in any tree and has no readable own "
+"zero-offset component"
+msgstr ""
+
+#: kicadstamp/placement/entity_placement.py:329
+#, python-brace-format
+msgid "the own-cell zero-offset fallback also failed: {reason}"
+msgstr ""
+
+#: kicadstamp/placement/entity_placement.py:315
+#, python-brace-format
+msgid ""
+"no (kind placement) node places Entity {name!r}, and no Entity record with "
+"that name exists to read a zero-offset component from"
+msgstr ""
+

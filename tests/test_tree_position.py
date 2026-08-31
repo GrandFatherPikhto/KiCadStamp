@@ -629,6 +629,65 @@ def test_dispatch_placement_entity_anchor_cycle_raises():
         resolve_record_live_position(None, cfg, rec, {}, {})
 
 
+def test_dispatch_placement_not_placed_but_zero_slot_resolves():
+    """Denis's live case (plan_2026_08_31_entity_live_position_zero_slot_
+    fallback.md): an Entity that is NOT (yet) a placement node in any tree —
+    but whose cell has a single zero-offset (local 0,0) component — resolves
+    its OWN live position from that component's role, the same derivation the
+    auto-anchor uses. "Read current position" for e.g. fpga_flash BEFORE the
+    node that would place it is saved now works: Role=FPGA at (30,40) ->
+    fpga_flash's live position is (30,40), rotation 0."""
+    cell = Cell(name="f", components=[TemplateComponentSlot(role="FPGA")])
+    cfg = Config(
+        cells={"f": cell},
+        entities=[Entity(name="fpga_flash", cell="f")],
+        trees=[],  # fpga_flash is NOT placed anywhere (yet)
+    )
+    adapter = _role_adapter()
+    rec = _record("placement", "fpga_flash")
+    pos = resolve_record_live_position(adapter, cfg, rec, {}, {})
+    assert pos.x == pytest.approx(30.0 * MM, abs=2)
+    assert pos.y == pytest.approx(40.0 * MM, abs=2)
+    assert resolve_record_rotation_deg(adapter, cfg, rec, {}) == pytest.approx(0.0)
+
+
+def test_dispatch_placement_not_placed_no_zero_slot_fatal_both_reasons():
+    """An Entity with NO placement node AND a cell with NO zero-offset
+    component (0 zero slots) raises the final _EntityAnchorError naming BOTH
+    reasons ("not placed in any tree" + "zero-offset") — never a silent
+    guess."""
+    cfg = Config(
+        cells={"f": Cell(name="f", components=[
+            TemplateComponentSlot(role="R_TERM_N", offset_along_mm=1.0)])},
+        entities=[Entity(name="fpga_flash", cell="f")],
+        trees=[],
+    )
+    rec = _record("placement", "fpga_flash")
+    with pytest.raises(ValidationError) as excinfo:
+        resolve_record_live_position(None, cfg, rec, {}, {})
+    text = str(excinfo.value)
+    assert "not placed in any tree" in text
+    assert "zero-offset" in text
+
+
+def test_dispatch_placement_not_placed_two_zero_slots_fatal_both_reasons():
+    """Same final two-reason fatal when the cell has TWO zero-offset
+    components (the fallback is ambiguous, so it cannot read either)."""
+    cfg = Config(
+        cells={"f": Cell(name="f", components=[
+            TemplateComponentSlot(role="A"),
+            TemplateComponentSlot(role="B")])},
+        entities=[Entity(name="fpga_flash", cell="f")],
+        trees=[],
+    )
+    rec = _record("placement", "fpga_flash")
+    with pytest.raises(ValidationError) as excinfo:
+        resolve_record_live_position(None, cfg, rec, {}, {})
+    text = str(excinfo.value)
+    assert "not placed in any tree" in text
+    assert "zero-offset" in text
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # resolve_base_live_position — external-vs-record entry point
 # ═══════════════════════════════════════════════════════════════════════════

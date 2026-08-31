@@ -1367,6 +1367,25 @@ UNPLACED_ENTITY_PARENT_CFG = {
     ],
 }
 
+# The child Entity (fpga_flash) is NOT a placement node in any tree (its node
+# would be saved by this very dialog), but its cell has a single zero-offset
+# (local 0,0) component with role "FPGA" — the own-zero-slot fallback
+# (plan_2026_08_31_entity_live_position_zero_slot_fallback.md): "Read current
+# position" for it must resolve from that zero-slot role, not warn.
+ZERO_SLOT_ENTITY_CFG = {
+    "entities": [
+        {"name": "ENT_A", "cell": "c"},
+        {"name": "fpga_flash", "cell": "f"},
+    ],
+    "cells": {
+        "f": {"components": [{"role": "FPGA"}]},
+    },
+    "trees": [
+        {"name": "t1", "anchor": {"origin": True},
+         "nodes": [{"ref": "ENT_A", "kind": "placement"}]},
+    ],
+}
+
 
 def test_read_position_clone_anchor_point_resolves_on_demand(
         main_window, tmp_path, monkeypatch):
@@ -1478,6 +1497,56 @@ def test_node_dialog_read_position_unplaced_entity_parent_warns(
     assert dlg.offset_widget.x_edit.text() == ""
     assert dlg.offset_widget.y_edit.text() == ""
     assert dlg.rotation_edit.text() == ""
+
+
+def test_node_dialog_read_position_unplaced_entity_child_zero_slot_resolves(
+        main_window, tmp_path, monkeypatch):
+    """Denis's live repro (plan_2026_08_31_entity_live_position_zero_slot_
+    fallback.md): the CHILD is fpga_flash — a kind="placement" Entity that is
+    NOT (yet) a placement node in any tree (its node would be saved by this
+    very dialog), but whose cell has a single zero-offset (local 0,0)
+    component with role "FPGA". "Read current position" must resolve the
+    child's OWN live position from that zero-slot role (mock board: Role=FPGA
+    at (30,40)) and fill the offset relative to the parent ENT_A (origin-
+    anchored tree, absolute (0,0)) — (30,40), rotation 0 — with NO warning.
+    Exercises the REAL _resolve_live_offset path (no mock)."""
+    import gui.docks.trees_dock as td_mod
+    from unittest.mock import MagicMock
+
+    from kipy.board_types import FootprintInstance
+
+    from kicadstamp.constants import ROLE_FIELD_NAME
+    from kicadstamp.domain.geometry import Vector2
+
+    dock, _root = _dock_with(main_window, tmp_path, ZERO_SLOT_ENTITY_CFG)
+    tree = dock._current_tree()
+    parent = tree.nodes[0]  # ENT_A — a kind="placement" Entity node placed by t1
+
+    fp = MagicMock(spec=FootprintInstance)
+    fp.ref = "IC1"
+    fp._role = "FPGA"
+    fp.position = Vector2.from_xy_mm(30.0, 40.0)
+    fp.angle_deg = 0.0
+    adapter = MagicMock()
+    adapter.get_footprints.return_value = [fp]
+    adapter.get_field_value.side_effect = (
+        lambda f, name: getattr(f, "_role", None) if name == ROLE_FIELD_NAME else None)
+    adapter.get_selected_items.return_value = []
+
+    warnings = []
+    monkeypatch.setattr(td_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or None)
+    dlg = _build_dialog(dock, tree, parent)
+    dlg._adapter = adapter
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("placement"))
+    dlg.ref_combo.setCurrentText("fpga_flash")
+
+    dlg._on_read_position()  # must not raise
+
+    assert not warnings
+    assert dlg.offset_widget.x_edit.text() == "30.000"
+    assert dlg.offset_widget.y_edit.text() == "40.000"
+    assert dlg.rotation_edit.text() == "0.000"
 
 
 # NOTE: a clone whose anchor_point names a point ABSENT from cfg.points is

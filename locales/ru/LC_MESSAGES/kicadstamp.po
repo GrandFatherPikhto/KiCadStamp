@@ -11396,3 +11396,72 @@ msgstr "Всего спиц: {count}"
 #~ msgid "Imported {kind} {name!r} with dependencies: {deps}"
 #~ msgstr "Импортировано: {kind} {name!r} с зависимостями: {deps}"
 
+#: kicadstamp/placement/entity_placement.py:148
+#, python-brace-format
+msgid "Entity {name!r} references missing cell {cell!r}"
+msgstr "Entity {name!r} ссылается на отсутствующую ячейку {cell!r}"
+
+#: kicadstamp/placement/entity_placement.py:150
+msgid "the zero-offset live read needs the Entity's cell to exist"
+msgstr "живое чтение zero-offset требует, чтобы ячейка Entity существовала"
+
+#: kicadstamp/placement/entity_placement.py:157
+#, python-brace-format
+msgid "Entity {name!r} has no zero-offset component to read live"
+msgstr "Entity {name!r} не имеет zero-offset-компонента для живого чтения"
+
+#: kicadstamp/placement/entity_placement.py:158
+#, python-brace-format
+msgid ""
+"cell {cell!r} has no component without offset_along_mm/offset_across_mm "
+"(local (0,0)) to act as the Entity's own anchor role"
+msgstr ""
+"в ячейке {cell!r} нет компонента без offset_along_mm/offset_across_mm "
+"(local (0,0)), который мог бы стать собственной anchor-ролью Entity"
+
+#: kicadstamp/placement/entity_placement.py:165
+#, python-brace-format
+msgid ""
+"Entity {name!r} has {n} zero-offset components in cell {cell!r} — live "
+"position is ambiguous"
+msgstr ""
+"Entity {name!r} имеет {n} zero-offset-компонентов в ячейке {cell!r} — "
+"живая позиция неоднозначна"
+
+#: kicadstamp/placement/entity_placement.py:167
+#, python-brace-format
+msgid ""
+"a zero-offset live read needs EXACTLY ONE component without offset_along_mm/"
+"offset_across_mm; found {n}"
+msgstr ""
+"живое чтение zero-offset требует РОВНО ОДНОГО компонента без "
+"offset_along_mm/offset_across_mm; найдено {n}"
+
+#: kicadstamp/placement/entity_placement.py:175
+#, python-brace-format
+msgid "Entity {name!r} own zero-offset live position"
+msgstr "собственная живая позиция zero-offset Entity {name!r}"
+
+#: kicadstamp/placement/entity_placement.py:321
+#, python-brace-format
+msgid ""
+"Entity {name!r} is not placed in any tree and has no readable own "
+"zero-offset component"
+msgstr ""
+"Entity {name!r} не размещена ни в одном дереве и не имеет читаемого "
+"собственного zero-offset-компонента"
+
+#: kicadstamp/placement/entity_placement.py:329
+#, python-brace-format
+msgid "the own-cell zero-offset fallback also failed: {reason}"
+msgstr "фоллбэк на собственный zero-offset ячейки тоже не сработал: {reason}"
+
+#: kicadstamp/placement/entity_placement.py:315
+#, python-brace-format
+msgid ""
+"no (kind placement) node places Entity {name!r}, and no Entity record with "
+"that name exists to read a zero-offset component from"
+msgstr ""
+"ни один узел (kind placement) не размещает Entity {name!r}, и нет записи "
+"Entity с таким именем, чтобы прочитать zero-offset-компонент"
+
