@@ -44,6 +44,16 @@ own anchor base (origin/ref/role/another Entity ref — recursion, cycle-guarded
 An Entity referenced by no placement node, by more than one, or through a chain that loops into a
 cycle is a CONFIG error — fatal, never silently skipped.
 
+A tree with NO `(anchor ...)` at all (2026-08-31, plan tree_self_anchor_from_entity) gets an AUTO
+anchor: the single top-level `kind "placement"` node's Entity becomes the anchor subject — the ONE
+component of its cell sitting at local offset (0,0) (no `offset_along_mm`/`offset_across_mm` — the
+"zero", self-referencing slot, e.g. `role "FPGA"`) acts as the anchor role, narrowed by the Entity's
+OWN `sheet`/`cluster`, then resolved LIVE exactly like an explicit `(anchor (role ...))`. An explicit
+`(anchor ...)` ALWAYS wins; auto applies ONLY to an absent anchor (a literal `(anchor (ref "self"))`
+is still the pre-existing cycle-fatal). Config ambiguity (0/2+ zero slots, 0/2+ top-level placement
+nodes) is a whole-run fatal, never a silent guess; a live role-resolution failure (role missing or
+ambiguous on the board) is the usual per-tree skip.
+
 **Migrating a legacy profile:** `tools/convert_placements.py` rewrites `clone_placements:` into
 `entities:` + placement trees in place (run on a COPY — it writes a timestamped `.bak` first), and
 rewrites pre-existing `kind "clone"` tree nodes to `kind "placement"`. See

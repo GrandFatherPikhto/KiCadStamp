@@ -266,13 +266,21 @@ def test_non_trees_top_level_is_fatal(tmp_path):
         load_trees(_write(tmp_path, text))
 
 
-def test_tree_missing_anchor_is_fatal(tmp_path):
+def test_tree_missing_anchor_is_auto(tmp_path):
+    """A tree with NO (anchor ...) is no longer fatal — it gets an AUTO anchor
+    (2026-08-31, plan tree_self_anchor_from_entity): the base is derived at
+    materialization time from the tree's own root Entity placement's cell zero
+    slot. An explicit anchor is never required syntactically anymore."""
     text = """(kicadstamp-trees
   (tree
     (name "t")
     (node (ref "R1") (xy 1 1))))"""
-    with pytest.raises(ValidationError, match="missing an \\(anchor"):
-        load_trees(_write(tmp_path, text))
+    trees = load_trees(_write(tmp_path, text))
+    assert len(trees) == 1
+    assert trees[0].anchor.is_auto is True
+    assert trees[0].anchor.ref is None
+    assert trees[0].anchor.role is None
+    assert trees[0].anchor.is_origin is False
 
 
 def test_tree_missing_name_is_fatal(tmp_path):

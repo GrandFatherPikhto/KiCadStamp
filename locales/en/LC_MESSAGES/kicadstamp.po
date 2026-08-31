@@ -10721,3 +10721,47 @@ msgstr ""
 #, python-brace-format
 msgid "invalid collision decision {decision!r}"
 msgstr ""
+
+#: kicadstamp/placement/entity_placement.py
+#, python-brace-format
+msgid "tree {name!r} has no explicit anchor and cannot auto-derive one"
+msgstr ""
+
+#: kicadstamp/placement/entity_placement.py
+#, python-brace-format
+msgid "auto-anchor needs EXACTLY ONE top-level placement node on an Entity (found {n} top-level node(s)); add an explicit (anchor ...) to this tree instead"
+msgstr ""
+
+#: kicadstamp/placement/entity_placement.py
+#, python-brace-format
+msgid "tree {name!r} auto-anchor: Entity {entity!r} references missing cell {cell!r}"
+msgstr ""
+
+#: kicadstamp/placement/entity_placement.py
+msgid "the auto-anchor reads the cell's zero-offset component, so the cell must exist"
+msgstr ""
+
+#: kicadstamp/placement/entity_placement.py
+#, python-brace-format
+msgid "tree {name!r} has no explicit anchor and its root Entity {entity!r} has no zero-offset component to anchor on"
+msgstr ""
+
+#: kicadstamp/placement/entity_placement.py
+#, python-brace-format
+msgid "the auto-anchor needs EXACTLY ONE component without offset_along_mm/offset_across_mm (local (0,0)) in cell {cell!r}; add one, or give the tree an explicit (anchor ...)"
+msgstr ""
+
+#: kicadstamp/placement/entity_placement.py
+#, python-brace-format
+msgid "tree {name!r}: root Entity {entity!r} has {n} zero-offset components in cell {cell!r} — auto-anchor is ambiguous"
+msgstr ""
+
+#: kicadstamp/placement/entity_placement.py
+#, python-brace-format
+msgid "auto-anchor needs EXACTLY ONE component without offset_along_mm/offset_across_mm; found {n} — leave only one zero component, or add an explicit (anchor ...)"
+msgstr ""
+
+#: kicadstamp/placement/entity_placement.py
+#, python-brace-format
+msgid "tree {name!r} auto-anchor"
+msgstr ""

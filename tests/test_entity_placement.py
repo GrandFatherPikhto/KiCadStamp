@@ -14,11 +14,13 @@ import pytest
 from kipy.board_types import FootprintInstance
 
 from kicadstamp.apply_pipeline import apply_cluster_filter, apply_only_filter
-from kicadstamp.config import Cell, ClonePlacement, Config, Entity, Point, Rule
+from kicadstamp.config import Cell, ClonePlacement, Config, Entity, Point, Rule, TemplateComponentSlot
+from kicadstamp.constants import CLUSTER_FIELD_NAME
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.placement.entity_placement import materialize_entity_placements
 from kicadstamp.placement.services.clone_position_calculator import entity_anchor_id
+from kicadstamp.placement.services.component_pool import ROLE_FIELD_NAME
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode
 
 
@@ -639,3 +641,175 @@ def test_ref_anchor_on_clone_with_missing_point_is_skipped_locally_not_keyerror(
     assert [c.name for c in clones] == ["E1"]
     assert "skipped" in caplog.text
     assert "sub" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Auto-anchor from the root Entity's cell zero slot (2026-08-31, plan
+# tree_self_anchor_from_entity): a tree with NO explicit (anchor ...) derives
+# its base from the single top-level placement node's Entity — the ONE
+# component of its cell at local offset (0,0) acts as the anchor role, narrowed
+# by the Entity's OWN sheet/cluster, then resolved LIVE like a (role ...)
+# anchor. Config ambiguity is a whole-run fatal (never a silent origin/skip).
+# ---------------------------------------------------------------------------
+
+
+def _role_adapter(role="FPGA", x=30.0, y=40.0, cluster=None):
+    """Adapter with one footprint carrying the given Role/Cluster fields."""
+    fp = MagicMock(spec=FootprintInstance)
+    fp.ref = "IC1"
+    fp._role = role
+    fp._cluster = cluster
+    fp.position = Vector2.from_xy_mm(x, y)
+    fp.angle_deg = 0.0
+    adapter = MagicMock()
+    adapter.get_footprints.return_value = [fp]
+    adapter.get_field_value.side_effect = (
+        lambda f, name: getattr(f, "_role", None) if name == ROLE_FIELD_NAME else
+        (getattr(f, "_cluster", None) if name == CLUSTER_FIELD_NAME else None))
+    adapter.get_selected_items.return_value = []
+    return adapter
+
+
+def _auto_tree(nodes):
+    return Tree(name="t", anchor=TreeAnchor(is_auto=True), nodes=nodes)
+
+
+def test_auto_anchor_materializes_on_zero_slot_role():
+    """A tree with NO explicit (anchor ...) whose single top-level node is a
+    placement on an Entity whose cell has ONE zero-offset slot (the "zero",
+    self-referencing slot — e.g. role "FPGA") derives its anchor from that
+    slot's role and materializes at the live footprint's position — the same
+    live resolution as an explicit (role ...) anchor."""
+    cell = Cell(name="fpga", components=[
+        TemplateComponentSlot(role="FPGA"),                       # zero slot
+        TemplateComponentSlot(role="R_TERM_N", offset_along_mm=1.0),
+    ])
+    cfg = Config(cells={"fpga": cell},
+                 entities=[Entity(name="fpga", cell="fpga")],
+                 trees=[_auto_tree([_node(ref="fpga", xy=(1.0, 2.0))])])
+    clones = materialize_entity_placements(_role_adapter(), cfg, {})
+    assert len(clones) == 1
+    c = clones[0]
+    assert c.name == "fpga"
+    assert c.xy[0] == pytest.approx(31.0)   # IC1 (30,40) + node (1,2)
+    assert c.xy[1] == pytest.approx(42.0)
+    assert c.rotation_deg == pytest.approx(0.0)
+
+
+def test_auto_anchor_no_zero_slot_is_fatal_not_silent():
+    """Zero zero-offset components -> a CONFIG error, fatal for the whole run —
+    never a silent origin fallback or a per-tree skip."""
+    cfg = Config(cells={"c": Cell(name="c", components=[
+        TemplateComponentSlot(role="R_TERM_N", offset_along_mm=1.0),
+    ])},
+        entities=[Entity(name="E1", cell="c")],
+        trees=[_auto_tree([_node(ref="E1", xy=(0.0, 0.0))])])
+    with pytest.raises(ValidationError, match="zero-offset"):
+        materialize_entity_placements(_role_adapter(), cfg, {})
+
+
+def test_auto_anchor_multiple_zero_slots_is_fatal_naming_count():
+    """Two zero-offset components -> explicit fatal naming the count, not a
+    guess."""
+    cfg = Config(cells={"c": Cell(name="c", components=[
+        TemplateComponentSlot(role="A"),
+        TemplateComponentSlot(role="B"),
+    ])},
+        entities=[Entity(name="E1", cell="c")],
+        trees=[_auto_tree([_node(ref="E1", xy=(0.0, 0.0))])])
+    with pytest.raises(ValidationError, match="2 zero-offset"):
+        materialize_entity_placements(_role_adapter(), cfg, {})
+
+
+def test_auto_anchor_multiple_top_level_nodes_is_fatal():
+    """Auto-anchor applies only when the tree has EXACTLY ONE top-level
+    placement node; several roots without a common parent is ambiguous -> fatal
+    (the plan's open question, resolved: trees CAN have several top-level
+    nodes, so auto-derivation requires exactly one)."""
+    cfg = Config(cells={"c": _cell("c")},
+                 entities=[Entity(name="E1", cell="c"), Entity(name="E2", cell="c")],
+                 trees=[Tree(name="t", anchor=TreeAnchor(is_auto=True),
+                             nodes=[_node(ref="E1", xy=(0.0, 0.0)),
+                                    _node(ref="E2", xy=(0.0, 0.0))])])
+    with pytest.raises(ValidationError, match="EXACTLY ONE"):
+        materialize_entity_placements(None, cfg, {})
+
+
+def test_auto_anchor_explicit_anchor_wins():
+    """An explicit (anchor (role ...)) is used as-is; the auto path does NOT run
+    (regression gate: auto would resolve the zero slot's role "FPGA", the
+    explicit anchor resolves "OTHER" instead)."""
+    cell = Cell(name="c", components=[TemplateComponentSlot(role="FPGA")])
+    cfg = Config(cells={"c": cell},
+                 entities=[Entity(name="E1", cell="c")],
+                 trees=[Tree(name="t", anchor=TreeAnchor(role="OTHER"),
+                             nodes=[_node(ref="E1", xy=(1.0, 0.0))])])
+    clones = materialize_entity_placements(_role_adapter(role="OTHER", x=5.0, y=5.0), cfg, {})
+    assert len(clones) == 1
+    assert clones[0].xy[0] == pytest.approx(6.0)   # OTHER (5,5) + node (1,0)
+    assert clones[0].xy[1] == pytest.approx(5.0)
+
+
+def test_auto_anchor_narrows_by_entity_cluster():
+    """Entity.sheet/cluster feed the auto-anchor's narrowing exactly like an
+    explicit (role ...) anchor: two live footprints with the same role but
+    different Cluster — Entity.cluster picks the right instance."""
+    ch0 = MagicMock(spec=FootprintInstance)
+    ch0.ref = "IC_A"; ch0._role = "FPGA"; ch0._cluster = "CH0"
+    ch0.position = Vector2.from_xy_mm(10.0, 10.0); ch0.angle_deg = 0.0
+    ch1 = MagicMock(spec=FootprintInstance)
+    ch1.ref = "IC_B"; ch1._role = "FPGA"; ch1._cluster = "CH1"
+    ch1.position = Vector2.from_xy_mm(50.0, 50.0); ch1.angle_deg = 0.0
+    adapter = MagicMock()
+    adapter.get_footprints.return_value = [ch0, ch1]
+    adapter.get_field_value.side_effect = (
+        lambda f, name: getattr(f, "_role", None) if name == ROLE_FIELD_NAME else
+        (getattr(f, "_cluster", None) if name == CLUSTER_FIELD_NAME else None))
+    adapter.get_selected_items.return_value = []
+
+    cell = Cell(name="c", components=[TemplateComponentSlot(role="FPGA")])
+    cfg = Config(cells={"c": cell},
+                 entities=[Entity(name="E1", cell="c", cluster="CH1")],
+                 trees=[_auto_tree([_node(ref="E1", xy=(0.0, 0.0))])])
+    clones = materialize_entity_placements(adapter, cfg, {})
+    assert len(clones) == 1
+    assert clones[0].xy[0] == pytest.approx(50.0)   # CH1 instance, not CH0
+    assert clones[0].xy[1] == pytest.approx(50.0)
+
+
+def test_auto_anchor_literal_self_ref_stays_cycle_fatal():
+    """A LITERAL (anchor (ref "E1")) self-reference (not the absent-anchor auto
+    case) KEEPS the existing semantics: the Entity-ref recursion loops into
+    itself and the cycle-guard makes it a clear fatal. The auto-anchor only
+    applies when (anchor ...) is ABSENT — it never rewrites the (ref ...)
+    grammar (decision documented in the done handoff)."""
+    cfg = Config(cells={"c": _cell("c")},
+                 entities=[Entity(name="E1", cell="c")],
+                 trees=[Tree(name="t", anchor=TreeAnchor(ref="E1"),
+                             nodes=[_node(ref="E1", xy=(0.0, 0.0))])])
+    with pytest.raises(ValidationError, match="cycle"):
+        materialize_entity_placements(None, cfg, {})
+
+
+def test_auto_anchor_roundtrips_through_dict_bridge():
+    """The config dict inlay round-trips an auto-anchored tree: no "anchor" key
+    in -> TreeAnchor(is_auto=True); tree_to_dict omits the key again."""
+    from kicadstamp.trees import tree_from_dict, tree_to_dict
+    data = {"name": "t",
+            "nodes": [{"ref": "E1", "kind": "placement", "xy": [1.0, 2.0]}]}
+    tree = tree_from_dict(data)
+    assert tree.anchor.is_auto is True
+    assert tree_to_dict(tree) == data
+
+
+def test_auto_anchor_roundtrips_through_sexp_bridge():
+    """The s-expr path (used by .sexp configs via sexp_format) round-trips an
+    auto-anchored tree too: a (tree ...) node with no (anchor ...) child ->
+    TreeAnchor(is_auto=True), and no (anchor ...) node is re-emitted."""
+    from kicadstamp.cloner.sexp import sym
+    from kicadstamp.trees import tree_from_sexp, tree_to_sexp
+    sexp = [sym("tree"), [sym("name"), "t"],
+            [sym("node"), [sym("ref"), "E1"], [sym("kind"), sym("placement")]]]
+    tree = tree_from_sexp(sexp, seen_names=set(), seen_refs=set(), location="test")
+    assert tree.anchor.is_auto is True
+    assert tree_to_sexp(tree) == sexp

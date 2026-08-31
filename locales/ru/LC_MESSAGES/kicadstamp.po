@@ -11137,3 +11137,47 @@ msgstr "Импорт отменён — существующие записи н
 #, python-brace-format
 msgid "invalid collision decision {decision!r}"
 msgstr "недопустимое решение по коллизии {decision!r}"
+
+#: kicadstamp/placement/entity_placement.py
+#, python-brace-format
+msgid "tree {name!r} has no explicit anchor and cannot auto-derive one"
+msgstr "Дерево {name!r} без явного якоря — авто-вывод невозможен"
+
+#: kicadstamp/placement/entity_placement.py
+#, python-brace-format
+msgid "auto-anchor needs EXACTLY ONE top-level placement node on an Entity (found {n} top-level node(s)); add an explicit (anchor ...) to this tree instead"
+msgstr "авто-якорь требует РОВНО один корневой placement-узел на Entity (найдено top-level узлов: {n}); добавьте этому дереву явный (anchor ...)"
+
+#: kicadstamp/placement/entity_placement.py
+#, python-brace-format
+msgid "tree {name!r} auto-anchor: Entity {entity!r} references missing cell {cell!r}"
+msgstr "Дерево {name!r} авто-якорь: Entity {entity!r} ссылается на отсутствующую ячейку {cell!r}"
+
+#: kicadstamp/placement/entity_placement.py
+msgid "the auto-anchor reads the cell's zero-offset component, so the cell must exist"
+msgstr "авто-якорь читает нулевой компонент ячейки, поэтому ячейка должна существовать"
+
+#: kicadstamp/placement/entity_placement.py
+#, python-brace-format
+msgid "tree {name!r} has no explicit anchor and its root Entity {entity!r} has no zero-offset component to anchor on"
+msgstr "Дерево {name!r} без явного якоря: у корневой Entity {entity!r} нет нулевого компонента для якоря"
+
+#: kicadstamp/placement/entity_placement.py
+#, python-brace-format
+msgid "the auto-anchor needs EXACTLY ONE component without offset_along_mm/offset_across_mm (local (0,0)) in cell {cell!r}; add one, or give the tree an explicit (anchor ...)"
+msgstr "авто-якорю нужен РОВНО один компонент без offset_along_mm/offset_across_mm (локальный (0,0)) в ячейке {cell!r}; добавьте его или задайте дереву явный (anchor ...)"
+
+#: kicadstamp/placement/entity_placement.py
+#, python-brace-format
+msgid "tree {name!r}: root Entity {entity!r} has {n} zero-offset components in cell {cell!r} — auto-anchor is ambiguous"
+msgstr "Дерево {name!r}: у корневой Entity {entity!r} {n} нулевых компонентов в ячейке {cell!r} — авто-якорь неоднозначен"
+
+#: kicadstamp/placement/entity_placement.py
+#, python-brace-format
+msgid "auto-anchor needs EXACTLY ONE component without offset_along_mm/offset_across_mm; found {n} — leave only one zero component, or add an explicit (anchor ...)"
+msgstr "авто-якорю нужен РОВНО один компонент без offset_along_mm/offset_across_mm; найдено: {n} — оставьте один нулевой компонент или добавьте явный (anchor ...)"
+
+#: kicadstamp/placement/entity_placement.py
+#, python-brace-format
+msgid "tree {name!r} auto-anchor"
+msgstr "авто-якорь дерева {name!r}"

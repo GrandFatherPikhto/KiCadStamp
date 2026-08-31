@@ -91,11 +91,74 @@ def _find_entity_node(forest: list[LinkedTree], entity_name: str
     return matches
 
 
+def _auto_anchor_base(adapter: "KiCadBoardAdapter", cfg: "Config",
+                      linked_tree: LinkedTree, sheet_names: dict) -> tuple[Vector2, float]:
+    """Auto-derive a tree's anchor base when it has NO explicit (anchor ...)
+    (2026-08-31, plan tree_self_anchor_from_entity): the single top-level
+    kind="placement" node's Entity becomes the anchor subject — the ONE
+    component of its cell sitting at local offset (0,0) (no
+    offset_along_mm/offset_across_mm — the "zero", self-referencing slot, e.g.
+    role "FPGA" in the fpga/fpga_supp cells) acts as the anchor role, narrowed
+    by the Entity's OWN sheet/cluster, then resolved LIVE exactly like an
+    explicit (role ...) anchor (Phase 4.2 — no new board-reading logic).
+
+    Config errors (no/2+ zero slots, 0/2+ top-level placement nodes, a missing
+    cell) are _EntityAnchorError — fatal for the whole run, NEVER a silent
+    origin/guess. A LIVE error from the role resolution (role not found /
+    ambiguous on the board) is a plain ValidationError — the SAME per-tree
+    skip tolerance materialize_entity_placements already applies to explicit
+    role anchors."""
+    placement_roots = [ln for ln in linked_tree.nodes
+                       if ln.node.kind == "placement" and ln.record is not None
+                       and isinstance(ln.record.obj, Entity)]
+    if len(linked_tree.nodes) != 1 or len(placement_roots) != 1:
+        raise _EntityAnchorError(format_fatal_error(
+            _("tree {name!r} has no explicit anchor and cannot auto-derive one")
+            .format(name=linked_tree.name),
+            [_("auto-anchor needs EXACTLY ONE top-level placement node on an Entity "
+               "(found {n} top-level node(s)); add an explicit (anchor ...) to this "
+               "tree instead").format(n=len(linked_tree.nodes))]))
+    entity = placement_roots[0].record.obj
+    cell = cfg.cells.get(entity.cell)
+    if cell is None:
+        raise _EntityAnchorError(format_fatal_error(
+            _("tree {name!r} auto-anchor: Entity {entity!r} references missing cell {cell!r}")
+            .format(name=linked_tree.name, entity=entity.name, cell=entity.cell),
+            [_("the auto-anchor reads the cell's zero-offset component, so the cell "
+               "must exist")]))
+    zero = [c for c in cell.components
+            if c.offset_along_mm == 0.0 and c.offset_across_mm == 0.0]
+    if not zero:
+        raise _EntityAnchorError(format_fatal_error(
+            _("tree {name!r} has no explicit anchor and its root Entity {entity!r} "
+              "has no zero-offset component to anchor on").format(
+                  name=linked_tree.name, entity=entity.name),
+            [_("the auto-anchor needs EXACTLY ONE component without "
+               "offset_along_mm/offset_across_mm (local (0,0)) in cell {cell!r}; add "
+               "one, or give the tree an explicit (anchor ...)").format(cell=entity.cell)]))
+    if len(zero) > 1:
+        raise _EntityAnchorError(format_fatal_error(
+            _("tree {name!r}: root Entity {entity!r} has {n} zero-offset components "
+              "in cell {cell!r} — auto-anchor is ambiguous").format(
+                  name=linked_tree.name, entity=entity.name, n=len(zero), cell=entity.cell),
+            [_("auto-anchor needs EXACTLY ONE component without offset_along_mm/"
+               "offset_across_mm; found {n} — leave only one zero component, or add "
+               "an explicit (anchor ...)").format(n=len(zero))]))
+    slot = zero[0]
+    resolver = ComponentResolver(adapter, cfg, sheet_names)
+    fp = resolver.resolve_anchor_fp(
+        None, slot.role, entity.sheet, entity.cluster,
+        label=_("tree {name!r} auto-anchor").format(name=linked_tree.name))
+    return fp.position, fp.angle_deg
+
+
 def _anchor_base(adapter: "KiCadBoardAdapter", cfg: "Config",
                  linked_tree: LinkedTree, sheet_names: dict,
                  forest: list[LinkedTree] | None = None,
                  visited: set[str] | None = None) -> tuple[Vector2, float]:
     """(position_nm, rotation_deg) for a tree's anchor base.
+    AUTO (no explicit (anchor ...)) -> derived from the tree's own root Entity
+    placement's cell zero slot (_auto_anchor_base) — live role resolution.
     (origin) -> the board origin (0,0), rotation 0.
     (ref ...) -> the referenced record's / live footprint's current position
     and rotation (external refdes handled by resolve_base_*). When the ref
@@ -117,6 +180,10 @@ def _anchor_base(adapter: "KiCadBoardAdapter", cfg: "Config",
     (point ...) anchors are not live-resolvable for entity materialization
     yet — raise a clear error instead of guessing."""
     anchor = linked_tree.anchor
+    if anchor.anchor.is_auto:
+        # No explicit (anchor ...): derive the base from the tree's own root
+        # Entity placement's cell zero slot, live-resolved like a role anchor.
+        return _auto_anchor_base(adapter, cfg, linked_tree, sheet_names)
     if anchor.is_origin:
         return _ORIGIN, 0.0
     if anchor.anchor.role is not None:

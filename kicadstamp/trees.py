@@ -58,6 +58,12 @@ class TreeAnchor:
     is_external=True marks a ref anchor as live-board-only (never resolved
     against config) — symmetric to kind="external" on TreeNode (the anchor's
     own collision shield).
+
+    is_auto=True (2026-08-31, plan tree_self_anchor_from_entity) — NO explicit
+    (anchor ...) at all: the tree's anchor is derived at materialization time
+    from its own root Entity placement's cell "zero slot" (the single
+    component at local offset (0,0)), live-resolved like a (role ...) anchor.
+    Explicit anchors ALWAYS win; is_auto is only ever the ABSENT-anchor case.
     """
     ref: str | None = None        # None unless a ref anchor
     is_origin: bool = False
@@ -67,6 +73,7 @@ class TreeAnchor:
     anchor_cluster: str | None = None
     anchor_pad: str | None = None
     point: str | None = None
+    is_auto: bool = False
 
 
 @dataclass
@@ -235,14 +242,15 @@ def tree_from_sexp(tree_node, seen_names: set[str], seen_refs: set[str],
     seen_names.add(name)
 
     anchor_node = child(tree_node, "anchor")
-    if anchor_node is None:
-        _fatal(_("{location}: tree {name!r} is missing an (anchor ...)")
-               .format(location=location, name=name))
+    # A missing (anchor ...) is now legal — the tree's anchor is AUTO-derived
+    # at materialization time from its own root Entity placement's cell zero
+    # slot (2026-08-31, plan tree_self_anchor_from_entity).
+    anchor = _parse_anchor(anchor_node) if anchor_node is not None else TreeAnchor(is_auto=True)
 
     top_nodes = children(tree_node, "node")
     return Tree(
         name=name,
-        anchor=_parse_anchor(anchor_node),
+        anchor=anchor,
         nodes=[_parse_node(n, seen_refs, f"{location}:tree {name!r}") for n in top_nodes],
     )
 
@@ -297,9 +305,13 @@ def _node_to_sexp(node: TreeNode) -> list:
     return out
 
 
-def _anchor_to_sexp(anchor: TreeAnchor) -> list:
+def _anchor_to_sexp(anchor: TreeAnchor) -> list | None:
     """Serialize one anchor node: (origin), (ref ...) [(external)],
-    (role ...) (+ sheet/cluster/pad), or (point ...)."""
+    (role ...) (+ sheet/cluster/pad), (point ...). None for an AUTO anchor
+    (no explicit anchor — the (anchor ...) node is omitted entirely, so the
+    round-trip load_trees(save_trees(x)) == x keeps holding)."""
+    if anchor.is_auto:
+        return None
     if anchor.is_origin:
         return [sym("anchor"), [sym("origin")]]
     out = [sym("anchor")]
@@ -321,9 +333,12 @@ def _anchor_to_sexp(anchor: TreeAnchor) -> list:
 
 
 def _tree_to_sexp(tree: Tree) -> list:
-    """Serialize one Tree (name, anchor, top-level nodes)."""
+    """Serialize one Tree (name, anchor, top-level nodes). The (anchor ...)
+    node is omitted for an AUTO anchor (None from _anchor_to_sexp)."""
     out: list = [sym("tree"), [sym("name"), tree.name]]
-    out.append(_anchor_to_sexp(tree.anchor))
+    anchor_sexp = _anchor_to_sexp(tree.anchor)
+    if anchor_sexp is not None:
+        out.append(anchor_sexp)
     for node in tree.nodes:
         out.append(_node_to_sexp(node))
     return out
@@ -349,8 +364,11 @@ def save_trees(path: str, trees: list[Tree]) -> None:
 # default-valued fields omitted on serialization (same no-noise principle as
 # _node_to_sexp) — tree_to_dict(tree_from_dict(d)) is the canonical form.
 
-def _anchor_to_dict(anchor: TreeAnchor) -> dict:
-    """Mirror of _anchor_to_sexp in plain-dict shape (the config inlay)."""
+def _anchor_to_dict(anchor: TreeAnchor) -> dict | None:
+    """Mirror of _anchor_to_sexp in plain-dict shape (the config inlay). None
+    for an AUTO anchor — tree_to_dict then omits the "anchor" key entirely."""
+    if anchor.is_auto:
+        return None
     if anchor.is_origin:
         return {"origin": True}
     if anchor.ref is not None:
@@ -393,7 +411,10 @@ def tree_to_dict(tree: Tree) -> dict:
     """Tree -> plain dict (the config-dict shape). Default-valued fields are
     omitted (kind None, rotation 0.0, name/group None, no offset, empty
     children) so the dict stays minimal — same principle as _node_to_sexp."""
-    out: dict = {"name": tree.name, "anchor": _anchor_to_dict(tree.anchor)}
+    out: dict = {"name": tree.name}
+    anchor_dict = _anchor_to_dict(tree.anchor)
+    if anchor_dict is not None:
+        out["anchor"] = anchor_dict
     if tree.nodes:
         out["nodes"] = [_node_to_dict(n) for n in tree.nodes]
     return out
@@ -468,9 +489,14 @@ def tree_from_dict(data: dict, seen_refs: set[str] | None = None) -> Tree:
     anchor_data = data.get("anchor") or {}
     anchor_modes = [k for k in ("origin", "ref", "role", "point")
                     if anchor_data.get(k) is not None]
-    if len(anchor_modes) != 1:
+    if len(anchor_modes) > 1:
         _fatal(_("anchor must specify exactly one of origin/ref/role/point"))
-    if anchor_data.get("origin"):
+    if not anchor_modes:
+        # A tree with no (anchor ...) gets an AUTO anchor, derived at
+        # materialization time from its own root Entity placement's cell zero
+        # slot (2026-08-31, plan tree_self_anchor_from_entity).
+        anchor = TreeAnchor(is_auto=True)
+    elif anchor_data.get("origin"):
         if anchor_data.get("external"):
             _fatal(_("anchor: origin and external are mutually exclusive"))
         anchor = TreeAnchor(is_origin=True)
