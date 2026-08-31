@@ -1515,6 +1515,77 @@ def test_all_ref_candidates_empty_without_root(main_window):
     assert dock._all_ref_names() == []
 
 
+# ── refresh_ref_candidates (plan_2026_08_31_trees_dock_stale_after_entity_add.md) ──
+
+def test_refresh_ref_candidates_preserves_dirty_trees_and_sees_new_entity(
+        main_window, tmp_path):
+    """Denis's complaint: the Trees dock saw a new Entity/Cell/... only after
+    an app restart. The lightweight refresh re-reads cfg/ctx from the SAME
+    root so the dialogs' ref candidates see a config change — but, unlike
+    set_root_file, must NEVER touch already-loaded/edited trees or the dirty
+    flag (a full reset there would silently destroy an in-progress tree
+    edit)."""
+    dock, root = _dock_with(main_window, tmp_path, KIND_FILTER_CFG)
+    assert ("clone", "BRAND_NEW_ENTITY") not in dock._all_ref_candidates()
+
+    # An unsaved edit made directly on the loaded tree (not through Save) —
+    # exactly the state a full set_root_file reset would wipe.
+    tree = dock._trees[0]
+    tree.nodes.append(TreeNode(ref="DIRTY_NODE", kind="external", xy=(9.0, 9.0),
+                               polar=None, rotation=0.0, name=None,
+                               group=None, children=[]))
+    dock._mark_dirty()
+    trees_before = [(t.name, [n.ref for n in t.nodes]) for t in dock._trees]
+    assert dock._dirty is True
+
+    # A new Entity lands in the config file AFTER the dock was loaded.
+    changed = dict(KIND_FILTER_CFG)
+    changed["clone_placements"] = KIND_FILTER_CFG["clone_placements"] + [
+        {"name": "BRAND_NEW_ENTITY", "cluster": "c3", "cell": "t",
+         "xy": [5.0, 6.0]}]
+    root.write_text(dict_to_sexp(changed), encoding="utf-8")
+
+    dock.refresh_ref_candidates()
+
+    # Trees + dirty state are untouched...
+    assert dock._dirty is True
+    assert [(t.name, [n.ref for n in t.nodes]) for t in dock._trees] == trees_before
+    # ...while the ref candidates now include the freshly saved Entity.
+    assert ("clone", "BRAND_NEW_ENTITY") in dock._all_ref_candidates()
+
+
+def test_refresh_ref_candidates_noop_without_root(main_window):
+    """No root config -> the lightweight refresh is a no-op (the same guard as
+    _do_save/set_root_file) — must not crash and must not fabricate
+    candidates."""
+    dock = TreesDock(main_window)
+    dock.set_root_file(None)
+    dock.refresh_ref_candidates()
+    assert dock._cfg is None
+    assert dock._trees == []
+    assert dock._all_ref_candidates() == []
+
+
+def test_refresh_ref_candidates_keeps_previous_cfg_on_load_failure(
+        main_window, tmp_path, caplog):
+    """A transiently broken/missing root must not wipe the dialog candidates:
+    on a load failure the refresh keeps the PREVIOUS cfg/ctx (set_root_file
+    remains the only full-teardown path, on a real root change) and logs a
+    warning."""
+    dock, root = _dock_with(main_window, tmp_path, KIND_FILTER_CFG)
+    old_cfg = dock._cfg
+    old_ctx = dock._ctx
+
+    root.unlink()  # missing file -> load_config raises ValidationError
+    dock.refresh_ref_candidates()
+
+    assert dock._cfg is old_cfg
+    assert dock._ctx is old_ctx
+    assert dock._all_ref_candidates() != []  # previous candidates still served
+    assert any("root config failed to load" in r.getMessage()
+               for r in caplog.records)
+
+
 def test_all_ref_names_dedups_cross_section_collision(main_window, tmp_path):
     """The ANCHOR dialog consumes plain names and an anchor auto-resolves by
     name (a section collision is fatal there) — so SHARED appears once."""

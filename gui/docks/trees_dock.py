@@ -346,6 +346,45 @@ class TreesDock(QDockWidget):
         self._rebuild_tabs()
         self._update_toolbar_state()
 
+    def refresh_ref_candidates(self) -> None:
+        """Lightweight cfg re-read — the TreesDock half of DockHub's
+        _refresh_graph_dependent_choices (wired in gui/dock_hub.py, plan
+        2026-08-31_trees_dock_stale_after_entity_add.md). The include graph's
+        shape or an entry's name changed (a new Entity/Cell/Rule/... saved by
+        another dock, or a rename/delete/add-file in ConfigTreeDock), so the
+        ref candidates behind the node/anchor dialogs must reflect it without
+        waiting for a root change or an app restart.
+
+        Unlike set_root_file this NEVER touches self._trees or self._dirty:
+        trees already loaded/edited stay exactly as they are (unsaved edits
+        preserved) — only self._cfg/self._ctx are re-read from the SAME root,
+        so the next _all_ref_candidates()/_live_roles()/_live_clusters() and
+        every combo populated at dialog-open time see the fresh graph. The
+        dialogs fetch their candidates lazily when opened (see _prompt_node/
+        _set_anchor_flow/_on_add_tree), so no tab rebuild is needed here — the
+        opposite of the other docks, whose set_root_path refresh_file_combo_
+        choices repopulates live combos, and which are safe to call because
+        they never reset loaded form state.
+
+        No-op when no root is loaded. On a load failure the PREVIOUS cfg/ctx
+        are kept (a transiently broken file must not wipe the candidate
+        combos; set_root_file remains the only full-teardown path, on a real
+        root change) and the failure is logged."""
+        if self._root_path is None:
+            return
+        try:
+            cfg, ctx = load_config(str(self._root_path))
+        except (ValidationError, OSError) as e:
+            logger.warning(_("Trees: root config failed to load: {error}")
+                           .format(error=e))
+            return
+        self._cfg = cfg
+        self._ctx = ctx
+        if self._dirty:
+            logger.debug("Trees: ref candidates refreshed; unsaved tree "
+                         "edits were left untouched (trees stay stale until "
+                         "saved)")
+
     def apply_highlight(self) -> None:
         """Re-apply the highlight stylesheet — same consumer shape as the
         other tree docks (see gui/dock_hub.py)."""

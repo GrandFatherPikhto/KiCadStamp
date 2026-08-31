@@ -405,12 +405,16 @@ class DockHub:
             self._start_new_extract_profile)
         # Config tree's own graph-mutating actions (_on_rename/_on_delete/
         # _add_included_file/_remove_file) -> every dock's graph-derived
-        # combos, same handler the six entity-dock `saved` signals above
+        # combos, same handler the seven entity-dock `saved` signals above
         # feed (2026-08-15, plan graph_changed_broadcast): a file added or
         # removed, or a cell:/point: name renamed or deleted, must be
         # visible everywhere immediately, not only after the root is
-        # reassigned. NOT wired to the tree's initial refresh (first
-        # population, not a change) or to _on_export (no graph change).
+        # reassigned. TreesDock's dialog ref candidates join the same
+        # broadcast via its lightweight refresh_ref_candidates() (plan
+        # 2026-08-31_trees_dock_stale_after_entity_add.md) — NOT its
+        # full set_root_file reset, which would wipe unsaved tree edits.
+        # NOT wired to the tree's initial refresh (first population, not a
+        # change) or to _on_export (no graph change).
         self.config_tree_dock.graph_changed.connect(self._refresh_graph_dependent_choices)
         self.config_tree_dock.graph_changed.connect(self.anchor_tree_dock.schedule_refresh)
 
@@ -555,7 +559,7 @@ class DockHub:
     def _refresh_graph_dependent_choices(self) -> None:
         """The include: graph's shape or an entry's name changed — either
         via ConfigTreeDock's own actions (add/remove a file, rename/delete a
-        cell/point/...) or via one of the six entity docks' own Save
+        cell/point/...) or via one of the entity docks' own Save
         creating/renaming an entry directly (e.g. CellDock's "Add cell..." +
         Save — a brand new cell name that RulesDock.spoke_cell_combo, sourced
         from collect_all_cell_names(), would otherwise not see until the
@@ -567,7 +571,12 @@ class DockHub:
         current selection via refresh_file_combo_choices' current_paths
         argument — it does not touch whatever entity is currently loaded in
         the dock's form, see gui/docks/_common.py's refresh_file_combo_choices
-        docstring). Cheap to call repeatedly since 2026-08-15's mtime file
+        docstring). TreesDock is the ONE exception to that set_root_path
+        pattern (plan 2026-08-31_trees_dock_stale_after_entity_add.md): its
+        set_root_file does a FULL reset that would wipe unsaved tree edits, so
+        it gets a dedicated lightweight refresh_ref_candidates() that only
+        re-reads its cfg/ctx and never touches the loaded trees/dirty state.
+        Cheap to call repeatedly since 2026-08-15's mtime file
         cache (plan_2026_08_15_config_read_cache_startup.md) — this handler
         does NOT need its own caching, it just needs to fire at the right
         moments, which it previously didn't (found live — Denis: adding a
@@ -582,6 +591,7 @@ class DockHub:
         self.tools_dock.set_root_path(root_path)
         self.points_dock.set_root_path(root_path)
         self.extract_dock.set_root_path(root_path)
+        self.trees_dock.refresh_ref_candidates()
         self.root_metadata_dock.refresh_working_file_choices()
 
     def _edit_cell(self, name, file_path) -> None:

@@ -236,6 +236,11 @@ reaches the disk until **Save**, which replaces the whole root `trees:` section 
 config_writer chokepoint (a fresh `.bak` is made first); linking/validation runs at Save via
 `kicadstamp.link_trees`.
 
+The **Ref:** (Add/Edit-node) and **Set anchor…** candidate lists refresh automatically the moment the
+include graph changes or an entity dock saves a new/renamed Entity/Cell/Rule/... — no app restart or
+root reassignment needed (2026-08-31). The refresh only re-reads the config behind those lists; trees
+you are currently editing are left completely untouched, including their unsaved edits.
+
 The Add/Edit-node dialog's **Ref:** combo is **Kind**-filtered: choosing a concrete **Kind**
 (`clone`/`rule`/`coordinate`/`point`) lists only that section's record names, while **auto** shows
 all placeable names — a name unique to one section plainly, and a name shared by 2+ sections once

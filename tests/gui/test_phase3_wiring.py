@@ -977,17 +977,22 @@ def _seed_last_root(root: Path) -> None:
 
 def _spy_graph_refresh_targets(hub, monkeypatch):
     """Install call-recording spies on every target of DockHub's
-    _refresh_graph_dependent_choices (the six entity docks' set_root_path plus
+    _refresh_graph_dependent_choices (the seven entity docks' set_root_path,
+    trees_dock.refresh_ref_candidates — the lightweight TreesDock half — and
     root_metadata_dock.refresh_working_file_choices) — AFTER DockHub is built
     (construction itself calls set_root_path during _wire; the spies must only
     see post-construction calls). Returns {name: [recorded_arg, ...]}."""
     calls = {}
     for name in ("rules_dock", "placer_dock", "thermal_via_dock", "cells_dock",
-                 "points_dock", "extract_dock"):
+                 "tools_dock", "points_dock", "extract_dock"):
         recorded = []
         monkeypatch.setattr(getattr(hub, name), "set_root_path",
                             lambda path, r=recorded: r.append(path))
         calls[name] = recorded
+    recorded_trees = []
+    monkeypatch.setattr(hub.trees_dock, "refresh_ref_candidates",
+                        lambda: recorded_trees.append(True))
+    calls["trees_dock"] = recorded_trees
     recorded_root = []
     monkeypatch.setattr(hub.root_metadata_dock, "refresh_working_file_choices",
                         lambda: recorded_root.append(True))
@@ -997,8 +1002,9 @@ def _spy_graph_refresh_targets(hub, monkeypatch):
 
 def test_graph_changed_refreshes_every_dock_with_a_file_combo(main_window, monkeypatch):
     """ConfigTreeDock's graph_changed must re-fetch every dock's graph-derived
-    combo choices — the same handler the six entity-dock saved signals feed —
-    i.e. set_root_path on all six entity docks plus
+    combo choices — the same handler the seven entity-dock saved signals feed —
+    i.e. set_root_path on all seven entity docks plus
+    trees_dock.refresh_ref_candidates and
     root_metadata_dock.refresh_working_file_choices, each exactly once per
     emit."""
     hub = DockHub(main_window, connection=main_window.connection, verbose=False)
@@ -1014,7 +1020,7 @@ def test_graph_changed_refreshes_every_dock_with_a_file_combo(main_window, monke
 def test_dock_saved_also_refreshes_graph_dependent_choices(main_window, monkeypatch):
     """Second trigger found at plan review: an entity dock's own Save can
     introduce a brand-new NAME directly (e.g. CellDock's "Add cell..." +
-    Save), bypassing the tree entirely — so each of the six docks' saved
+    Save), bypassing the tree entirely — so each of the seven docks' saved
     signal must ALSO fire the graph-dependent refresh, in addition to its
     existing `saved -> config_tree_dock.refresh` wiring (the tree keeps
     updating its own display; the broadcast updates everyone else)."""
@@ -1022,10 +1028,11 @@ def test_dock_saved_also_refreshes_graph_dependent_choices(main_window, monkeypa
     try:
         targets = _spy_graph_refresh_targets(hub, monkeypatch)
         for dock_name in ("placer_dock", "thermal_via_dock", "extract_dock",
-                          "points_dock", "rules_dock", "cells_dock"):
+                          "points_dock", "rules_dock", "cells_dock",
+                          "tools_dock"):
             getattr(hub, dock_name).saved.emit()
         for name, calls in targets.items():
-            assert len(calls) == 6, f"{name} not refreshed once per dock Save: {calls}"
+            assert len(calls) == 7, f"{name} not refreshed once per dock Save: {calls}"
     finally:
         _teardown_hub(hub)
 
