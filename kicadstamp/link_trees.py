@@ -37,10 +37,11 @@ from .exceptions import ValidationError
 from .i18n import _
 from .trees import KINDS, Tree, TreeAnchor, TreeNode
 
-# The 4 sections a node/anchor can auto-search without an explicit kind —
-# net_trace/thermal_via are not valid node kinds, so the index never scans
-# them (symmetry between the kind whitelist and the search index).
-_PLACEABLE_KINDS = set(KINDS) - {"external"}
+# The sections a node/anchor can auto-search without an explicit kind.
+# net_trace IS a valid node kind (2026-09-01, phase D) but is NOT auto-searched:
+# a net_trace node's ref is a net name that could collide with another section's
+# name, so it requires an explicit kind (resolved via by_key "net_trace:<net>").
+_PLACEABLE_KINDS = set(KINDS) - {"external", "net_trace"}
 
 # inline position-source fields FORK-1 checks on the resolved record's obj —
 # a tree-placed record must not ALSO carry its own anchor (two sources of truth).

@@ -200,6 +200,19 @@ def resolve_record_live_position(adapter, cfg, rec: Record, resolved_points,
         target, _ = resolve_target_position(cp)
         return target
 
+    if kind == "net_trace":
+        # A net trace is copper anchored to its OWN anchor footprint; as a tree
+        # node its live position is that anchor point (same ComponentResolver
+        # search net_trace_planner uses). Phase D, 2026-09-01.
+        nt = rec.obj
+        resolver = ComponentResolver(adapter, cfg, sheet_names)
+        fp = resolver.resolve_anchor_fp(
+            None, nt.anchor_role, nt.anchor_sheet, nt.anchor_cluster,
+            label=rec.name)
+        if nt.anchor_pad:
+            return resolve_anchor_pad_position(adapter, fp, nt.anchor_pad, rec.name)
+        return fp.position
+
     raise AssertionError(f"unreachable record kind for live resolution: {kind!r}")
 
 
@@ -267,6 +280,9 @@ def resolve_record_rotation_deg(adapter, cfg, rec: Record, sheet_names) -> float
         return fp.angle_deg
     if kind == "point":
         return None
+    if kind == "net_trace":
+        # A net trace is a translation-following bundle — no rotation.
+        return 0.0
     raise AssertionError(f"unreachable record kind for rotation: {kind!r}")
 
 
@@ -469,7 +485,10 @@ def curated_redraw_plan(linked_tree: LinkedTree, selected_refs: set[str]
         if (is_selected and linked_node.record is not None
                 and linked_node.record.kind != "point"):
             conflict_field = inline_anchor_field(linked_node.record)
-            if conflict_field is not None:
+            # A net_trace's anchor_role/anchor_pad is its INTRINSIC placement
+            # (the copper is stored relative to it) — not a competing persistent
+            # position, so no inline-anchor warning (phase D, 2026-09-01).
+            if conflict_field is not None and linked_node.record.kind != "net_trace":
                 warnings.append(
                     _("Node {ref!r} also has its own {field} — the regular "
                       "(non-tree) Apply/Redraw keeps using it; this tree redraw "

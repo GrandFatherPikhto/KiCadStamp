@@ -915,24 +915,27 @@ class DockHub:
         from .docks.tree_from_selection import build_tree_from_clusters
         # entity_positions already holds only the positions that resolved live
         # (failed reads are omitted -> that node is saved without xy).
+        checked_nets = dialog.selected_nets()
         tree, build_errors = build_tree_from_clusters(
             selected, tree_name, anchor, cfg.entities, cfg,
-            entity_positions=entity_positions, anchor_base=anchor_base)
+            entity_positions=entity_positions, anchor_base=anchor_base,
+            net_nodes=[n.net for n in checked_nets])
         if tree is None:
             QMessageBox.warning(self.main_window, _("Extract tree"),
                                 _("Cannot build the tree:\n{errors}")
                                 .format(errors="\n".join(build_errors)))
             return
 
-        # ── Save: auto-created cells/entities + trees:, then net_traces: ───
+        # ── Save: auto-created cells/entities + net_traces + trees: ─────────
         from dataclasses import replace
-        from kicadstamp.config import Entity, load_tree
+        from kicadstamp.config import Entity, NetTrace, load_tree
         from kicadstamp.config_writer import read_data, write_data
         from kicadstamp.link_trees import link_trees
-        from kicadstamp.net_trace_extract import extract_net_trace, write_net_trace
+        from kicadstamp.net_trace_extract import extract_net_trace, net_trace_to_dict
         from kicadstamp.template_extraction import extract_template_from_selection
         from kicadstamp.trees import tree_to_dict
         from .docks.entity_delete import backup_file
+        from kicadstamp.domain.board import Track, Via
         try:
             backup_file(root_path)
             data = read_data(root_path)
@@ -976,38 +979,54 @@ class DockHub:
                 new_entities.append(Entity(
                     name=entity_name, cell=cell_name,
                     cluster=c.cluster, sheet=c.sheet))
+            # Phase B+C+D: capture the checked inter-cluster nets as net_traces:
+            # records BEFORE the tree write, so the tree's net_trace nodes
+            # resolve against cfg.net_traces at link_trees time.
+            selected_raw = self.extract_dock._raw_items
+            net_traces_data = data.setdefault("net_traces", [])
+            new_net_traces: list[NetTrace] = []
+            for net in checked_nets:
+                try:
+                    # Phase B: capture ONLY the SELECTED copper of the net — the
+                    # record must match the third-tab #tracks/#vias.
+                    net_items = [i for i in selected_raw
+                                 if isinstance(i, (Track, Via)) and i.net_name == net.net]
+                    nt = extract_net_trace(
+                        adapter, net=net.net,
+                        anchor_role=anchor.role,
+                        anchor_sheet=anchor.anchor_sheet,
+                        anchor_cluster=anchor.anchor_cluster,
+                        anchor_pad=anchor.anchor_pad,
+                        sheet_names=sheet_names,
+                        items=net_items)
+                    # upsert by net (same semantics as write_net_trace)
+                    entry = net_trace_to_dict(nt)
+                    replaced = False
+                    for i, e in enumerate(net_traces_data):
+                        if isinstance(e, dict) and e.get("net") == nt.net:
+                            net_traces_data[i] = entry
+                            replaced = True
+                            break
+                    if not replaced:
+                        net_traces_data.append(entry)
+                    new_net_traces.append(nt)
+                except Exception as e:  # noqa: BLE001 — one bad net must not drop the tree
+                    logging.warning("Extract tree: net %r not captured: %s",
+                                    net.net, e)
             trees_dict = [tree_to_dict(t) for t in cfg.trees] + [tree_to_dict(tree)]
             data["trees"] = trees_dict
             write_data(root_path, data)
             reloaded = [load_tree(t) for t in trees_dict]
-            link_cfg = replace(cfg, entities=list(cfg.entities) + new_entities)
+            link_cfg = replace(
+                cfg,
+                entities=list(cfg.entities) + new_entities,
+                net_traces=list(cfg.net_traces) + new_net_traces)
             link_trees(link_cfg, reloaded)
         except Exception as e:  # noqa: BLE001 — .bak is fresh; report, don't roll back
             QMessageBox.warning(self.main_window, _("Extract tree"),
                                 _("Saved, but the round-trip check failed: {error}")
                                 .format(error=e))
             return
-        from kicadstamp.domain.board import Track, Via
-        selected_raw = self.extract_dock._raw_items
-        for net in dialog.selected_nets():
-            try:
-                # Phase B (2026-09-01 rework): capture ONLY the SELECTED copper
-                # of the net — the record must match the third-tab #tracks/#vias,
-                # not the whole board's copper on that net.
-                net_items = [i for i in selected_raw
-                             if isinstance(i, (Track, Via)) and i.net_name == net.net]
-                nt = extract_net_trace(
-                    adapter, net=net.net,
-                    anchor_role=anchor.role,
-                    anchor_sheet=anchor.anchor_sheet,
-                    anchor_cluster=anchor.anchor_cluster,
-                    anchor_pad=anchor.anchor_pad,
-                    sheet_names=sheet_names,
-                    items=net_items)
-                write_net_trace(str(root_path), nt)
-            except Exception as e:  # noqa: BLE001 — one bad net must not drop the tree
-                logging.warning("Extract tree: net %r not captured: %s",
-                                net.net, e)
 
         # ── Refresh: show the new tree + graph everywhere without a restart ──
         self.trees_dock.reload_trees()

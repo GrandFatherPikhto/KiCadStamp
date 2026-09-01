@@ -227,6 +227,7 @@ def build_tree_from_clusters(
     entities, cfg,
     *, entity_positions: Optional[dict] = None,
     anchor_base: Optional[tuple[float, float]] = None,
+    net_nodes: Iterable[str] = (),
 ) -> tuple[Optional[Tree], list[str]]:
     """Build the Tree from the checked clusters. Every cluster becomes a
     top-level kind="placement" TreeNode with ref = the Entity that will place
@@ -263,6 +264,21 @@ def build_tree_from_clusters(
             ref=entity_name,
             kind="placement",
             xy=xy,
+            polar=None,
+            rotation=0.0,
+            name=None,
+            group=None,
+            children=[],
+        ))
+    # Phase D (2026-09-01): the checked inter-cluster nets become top-level
+    # kind="net_trace" nodes (ref = the net name, resolved to a net_traces:
+    # record by link_trees). No xy — a net trace is stored as local offsets
+    # from its own anchor; live-position at apply.
+    for net in net_nodes:
+        nodes.append(TreeNode(
+            ref=net,
+            kind="net_trace",
+            xy=None,
             polar=None,
             rotation=0.0,
             name=None,

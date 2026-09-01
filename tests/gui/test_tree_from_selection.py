@@ -18,6 +18,7 @@ from gui.docks.tree_from_selection import (
     resolve_cluster_entity,
     tree_anchor_from_cluster_entity,
 )
+import pytest
 from kicadstamp.config import Config, load_tree
 from kicadstamp.config.models import Cell, Entity, TemplateComponentSlot
 from kicadstamp.domain.board import Track, Via
@@ -603,6 +604,65 @@ def test_detect_connectivity_drops_net_touching_single_cluster():
         "R2": [_pad_at(20, 20)],
     })
     assert detect_inter_cluster_nets(raw, clusters, snapshot, adapter=adapter) == []
+
+
+# ── Phase D: net_trace tree nodes (2026-09-01) ────────────────────────────
+
+def test_build_tree_emits_net_trace_nodes():
+    """Phase D: the checked inter-cluster nets become top-level
+    kind="net_trace" nodes (ref = the net name, no xy)."""
+    cfg = _cfg_with_entities()
+    tree, errors = build_tree_from_clusters(
+        _clusters(), "power_tree", _anchor(), cfg.entities, cfg,
+        net_nodes=["SHARED", "AVDD"])
+    assert errors == []
+    assert [n.ref for n in tree.nodes] == \
+        ["CH1_PIF_AVDD", "CH1_PIF_CLKVDD", "SHARED", "AVDD"]
+    assert [n.kind for n in tree.nodes] == \
+        ["placement", "placement", "net_trace", "net_trace"]
+    assert all(n.xy is None for n in tree.nodes[2:])
+
+
+def test_build_tree_net_trace_round_trip_and_link_trees():
+    """Phase D: a tree with a net_trace node round-trips and link_trees resolves
+    it to the net_traces: record by key net_trace:<net>."""
+    from kicadstamp.config import NetTrace
+
+    cfg = _cfg_with_entities()
+    tree, errors = build_tree_from_clusters(
+        _clusters(), "power_tree", _anchor(), cfg.entities, cfg,
+        net_nodes=["SHARED"])
+    assert errors == []
+
+    reloaded = load_tree(tree_to_dict(tree))
+    assert [n.ref for n in reloaded.nodes] == \
+        ["CH1_PIF_AVDD", "CH1_PIF_CLKVDD", "SHARED"]
+    assert [n.kind for n in reloaded.nodes] == \
+        ["placement", "placement", "net_trace"]
+
+    cfg.net_traces = [NetTrace(net="SHARED", anchor_role="DAC")]
+    linked = link_trees(cfg, [reloaded])
+    nt_node = next(n for n in linked[0].nodes if n.node.kind == "net_trace")
+    assert nt_node.record.name == "SHARED"
+    assert nt_node.record.kind == "net_trace"
+
+
+def test_link_trees_net_trace_requires_explicit_kind():
+    """Phase D: a net_trace ref is NOT auto-searched — a kind-less node whose
+    name matches a net stays unresolved (net_trace requires an explicit kind),
+    so a net name can never collide with another section by accident."""
+    from kicadstamp.config import NetTrace
+    from kicadstamp.trees import TreeNode
+
+    cfg = _cfg(entities=[Entity(name="CH1_PIF_AVDD", cell="dac_pif_avdd",
+                                cluster="PIF_AVDD", sheet="Channel_1")],
+               cells=[Cell(name="dac_pif_avdd", components=[_slot("DAC")])])
+    cfg.net_traces = [NetTrace(net="SHARED", anchor_role="DAC")]
+    tree = Tree(name="t", anchor=_anchor(),
+                nodes=[TreeNode(ref="SHARED", kind=None, xy=None, polar=None,
+                                rotation=0.0, name=None, group=None)])
+    with pytest.raises(Exception, match="not found"):
+        link_trees(cfg, [tree])
 
 
 # ── round-trip / link_trees ───────────────────────────────────────────────

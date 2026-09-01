@@ -736,8 +736,9 @@ def test_extract_tree_happy_path_saves_tree_and_nets(real_main_window,
     tree = next(t for t in trees if t["name"] == "power_tree")
     assert tree["anchor"] == {"role": "DAC", "sheet": "Channel_1",
                               "cluster": "PIF_AVDD"}
-    assert [n["ref"] for n in tree["nodes"]] == ["CH1_PIF_AVDD", "CH1_PIF_CLKVDD"]
-    assert all(n["kind"] == "placement" for n in tree["nodes"])
+    # Phase D: the checked inter-cluster net "SHARED" becomes a net_trace node.
+    assert [n["ref"] for n in tree["nodes"]] == ["CH1_PIF_AVDD", "CH1_PIF_CLKVDD", "SHARED"]
+    assert [n["kind"] for n in tree["nodes"]] == ["placement", "placement", "net_trace"]
     # Autopositioning: entity (10,20) - anchor base (5,10) = (5,10).
     assert tree["nodes"][0]["xy"] == [5.0, 10.0]
     nets = data.get("net_traces") or []

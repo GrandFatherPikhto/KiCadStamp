@@ -23,7 +23,7 @@ Syntactic rules enforced here (fatal via ValidationError):
      reused as a tree `anchor` (an anchor is a base, not something the tree
      "places")
   3. xy / polar are mutually exclusive, each exactly 2 numbers
-  4. kind, if present, is one of clone/rule/coordinate/point/external
+  4. kind, if present, is one of clone/rule/coordinate/point/net_trace/external
   5. cycles are impossible by construction (nested s-expr structure)
 """
 from dataclasses import dataclass, field
@@ -38,7 +38,12 @@ from .i18n import _
 # design_2026_08_30_entity_placement_grammar.md §2.2). "clone" is KEPT alongside
 # during the migration so legacy clone_placement-referencing trees keep working;
 # the release cutover (Phase 6 converter) rewrites "clone" -> "placement".
-KINDS = ("clone", "placement", "chain", "coordinate", "point", "external")
+# "net_trace" — 2026-09-01 rework, phase D: inter-cluster copper becomes a tree
+# node (ref = the net name, resolved to a net_traces: record by link_trees via
+# by_key "net_trace:<net>"). Deliberately NOT auto-searched (requires an explicit
+# kind) — its ref is a net name that could collide with another section's name;
+# see link_trees._PLACEABLE_KINDS.
+KINDS = ("clone", "placement", "chain", "coordinate", "net_trace", "point", "external")
 
 # Legacy kind alias for the 2026-09-01 Rule -> Chain rename: tree nodes written
 # with kind "rule" (the old record kind) are still accepted at parse time (a
