@@ -1,33 +1,39 @@
 # gui/docks/detail_panel.py
 """
-DetailDock — one shared right-hand form area for Placer/Root/Thermal via
-(2026-08-03, GUI tree roadmap: Denis — "Панели: Экстракт, Пласер, Рут —
-становятся контекстными (общая область формы)"). Used to be separate
-QDockWidgets tabified together; PlacerDock/RootMetadataDock/
-ThermalViaArrayDock/... are plain QWidgets (see each module's own docstring)
-living as pages of one QStackedWidget here, switched by a QTabBar that drives
-the stack directly (the standard "tabs without their own page-widgets" Qt
-pattern — a QTabWidget would insist on owning/parenting the pages itself).
-Extract is no longer a page: 2026-08-31 (plan extract_dialog_and_hide_existing
-.md) it moved to a standalone non-modal dialog (gui/docks/extract_dialog.py)
-launched from the Config tree context menu — see gui/dock_hub.py's
-_open_extract_dialog(). Thermal via is no longer a page either: 2026-09-01
-(plan plan_2026_09_01_thermal_via_dialog.md) it moved to a standalone
-non-modal dialog (gui/docks/thermal_via_dialog.py) launched from the Tools
-menu ("Place thermal vias...") and the Config tree context menu — see
-gui/dock_hub.py's _open_thermal_via_dialog().
+DetailDock — one shared right-hand form area for Placer/Points/Rules/Net
+traces/Cells/Tools (2026-08-03, GUI tree roadmap: Denis — "Панели: Экстракт,
+Пласер, Рут — становятся контекстными (общая область формы)"). Used to be
+separate QDockWidgets tabified together; PlacerDock/RuleDock/... are plain
+QWidgets (see each module's own docstring) living as pages of one
+QStackedWidget here, switched by a QTabBar that drives the stack directly (the
+standard "tabs without their own page-widgets" Qt pattern — a QTabWidget would
+insist on owning/parenting the pages itself).
+
+Pages that LEFT this dock (2026-08-31 .. 2026-09-01) into standalone dialogs,
+so they are no longer tabs here:
+- Extract (2026-08-31, plan extract_dialog_and_hide_existing.md) — the
+  non-modal ExtractDialog (gui/docks/extract_dialog.py);
+- Thermal via (2026-09-01, plan plan_2026_09_01_thermal_via_dialog.md) — the
+  non-modal ThermalViaDialog (gui/docks/thermal_via_dialog.py);
+- Project (RootMetadataDock) and Settings (ConfiguratorDock) — 2026-09-01,
+  plan project_settings_dialogs — moved into the non-modal ProjectDialog
+  (File > "Project...", gui/docks/project_dialog.py) and the modal
+  SettingsDialog (Tools > "Settings...", gui/docks/settings_dialog.py).
+  RootMetadataDock keeps its root-changed broadcast / Working-file combobox
+  from inside the dialog — see gui/dock_hub.py.
 
 Switching is BOTH automatic (Config-tree context) and manual (the tab bar
 itself) — Denis picked this over auto-only when asked live 2026-08-03,
 specifically so a panel stays reachable even when the tree click that
-would normally select it hasn't happened (e.g. checking Root while
+would normally select it hasn't happened (e.g. checking Rules while
 Placer is what's currently showing). gui/dock_hub.py wires the automatic
 half: cell_picked/placement_picked/add_placer_requested -> show_placer(),
-file_selected
-(fires on EVERY click, including leaf clicks, always BEFORE the more specific
-signal — see config_tree.py's _on_clicked) -> show_root() as the fallback
-for a plain file/category click; the more specific signal's handler (if any)
-then runs right after and wins.
+points_picked/rule_picked/net_trace_picked/cells_picked -> the matching
+show_X(). The old file_selected -> show_root() fallback (2026-08-03) was
+REMOVED 2026-09-01 together with the Project tab — a plain file/category
+click in the Config tree no longer switches this dock (it still feeds
+RootMetadataDock's Working-file combo display via set_working_file_from_tree,
+see gui/dock_hub.py).
 
 Raise-on-switch (2026-08-06, found live — Denis: "неплохо бы подсвечивать,
 какой док сейчас активен. А то вообще, не видно, кто и что"): every
@@ -59,22 +65,21 @@ from kicadstamp.i18n import _
 
 from ._common import highlight_stylesheet_for
 from .cell_editor import CellDock
-from .configurator import ConfiguratorDock
 from .net_trace import NetTraceDock
 from .placer import PlacerDock
 from .points import PointsDock
-from .root_metadata import RootMetadataDock
 from .rules import RuleDock
 from .tools import ToolsDock
 
-_ROOT, _PLACER, _POINTS, _RULES, _NET_TRACE, _CELLS = range(6)
+_PLACER, _POINTS, _RULES, _NET_TRACE, _CELLS = range(5)
 # Tools (2026-08-30, Entity/Placement split phase 5.2 stage 3): the Entity's
 # electrical fields (Nets/Net overrides/Refs), moved out of PlacerDock.
 # Indexes shifted -2 on 2026-09-01 (plan extract_dialog_and_hide_existing.md /
 # plan_2026_09_01_thermal_via_dialog.md): the Extract page (2026-08-31) and
-# the Thermal via page (2026-09-01) were both removed from this dock.
-_TOOLS = 6
-_SETTINGS = 7
+# the Thermal via page (2026-09-01) were both removed from this dock. Shifted
+# -2 again on 2026-09-01 (plan project_settings_dialogs): the Project and
+# Settings pages moved out into standalone dialogs too.
+_TOOLS = 5
 
 
 class _StackedPages(QStackedWidget):
@@ -111,57 +116,40 @@ class DetailDock(QDockWidget):
         layout.setContentsMargins(4, 4, 4, 4)
 
         self.tab_bar = QTabBar()
-        # Project first (2026-08-11, Denis: "сделай док Проект первым. А то
-        # он не понятно, где стоит") — it's the control tower now (root
-        # ownership + Working file combobox, see gui/docks/root_metadata.py's
-        # module docstring), so it's also the tab shown by default on
-        # startup (QTabBar's own currentIndex defaults to whatever was
-        # added first). Displayed as "Project" (2026-08-05, Denis: "давай не
-        # root, а project") — the underlying panel is still
-        # RootMetadataDock/root_metadata_dock/show_root() (root_panel here
-        # below): "root" remains the correct internal term (it edits the
-        # project's ROOT config file), only the user-facing label changed.
-        self.tab_bar.addTab(_("Project"))
+        # Project (2026-09-01, plan project_settings_dialogs) is no longer a
+        # tab here — it moved out into the standalone non-modal ProjectDialog
+        # (File > "Project...", see gui/docks/project_dialog.py). Settings
+        # (ConfiguratorDock) moved out too — into the modal SettingsDialog
+        # (Tools > "Settings...", see gui/docks/settings_dialog.py). This dock
+        # keeps only the entity edit forms.
         self.tab_bar.addTab(_("Placer"))
         self.tab_bar.addTab(_("Points"))
         self.tab_bar.addTab(_("Rules"))
         self.tab_bar.addTab(_("Net traces"))
         self.tab_bar.addTab(_("Cells"))
         # Tools (2026-08-30, phase 5.2 stage 3): the Entity's electrical
-        # fields (Nets/Net overrides/Refs) — see gui/docks/tools.py. Inserted
-        # BEFORE Settings so Settings stays last (its own "added last"
-        # convention is preserved).
+        # fields (Nets/Net overrides/Refs) — see gui/docks/tools.py.
         self.tab_bar.addTab(_("Tools"))
-        # Settings (2026-08-15, plan configurator_panel) — GUI/app settings
-        # for this machine (always-on-top, tray, highlight color, connection
-        # timeout), deliberately NOT project config — see
-        # gui/docks/configurator.py's module docstring for the "what this is
-        # NOT" section. Added LAST so every existing tab's index is unchanged.
-        self.tab_bar.addTab(_("Settings"))
         layout.addWidget(self.tab_bar)
 
         # _StackedPages, not a stock QStackedWidget (2026-08-30): the size
         # hints follow the CURRENT page, so the dock sizes to the page you are
         # actually on — see _StackedPages.
         self.stack = _StackedPages()
-        self.root_panel = RootMetadataDock(main_window)
         self.placer_panel = PlacerDock(main_window)
         self.points_panel = PointsDock(main_window, connection=connection)
         self.rules_panel = RuleDock(main_window)
         self.net_trace_panel = NetTraceDock(main_window, connection=connection)
         self.cells_panel = CellDock(main_window)
-        self.configurator_panel = ConfiguratorDock(main_window, connection=connection)
         self.tools_panel = ToolsDock(main_window)
-        self.stack.addWidget(self.root_panel)
+        # Stack order must match the tab-bar order exactly (setCurrentIndex
+        # drives stack.setCurrentIndex).
         self.stack.addWidget(self.placer_panel)
         self.stack.addWidget(self.points_panel)
         self.stack.addWidget(self.rules_panel)
         self.stack.addWidget(self.net_trace_panel)
         self.stack.addWidget(self.cells_panel)
-        # Tools BEFORE Settings — the stack order must match the tab-bar
-        # order exactly (setCurrentIndex drives stack.setCurrentIndex).
         self.stack.addWidget(self.tools_panel)
-        self.stack.addWidget(self.configurator_panel)
         # The stack sits DIRECTLY in the dock layout (2026-08-30, Denis:
         # "убираем скроллы внутри доков"). The 2026-08-27 QScrollArea wrap was
         # removed: _StackedPages already makes the dock follow the CURRENT page
@@ -178,7 +166,7 @@ class DetailDock(QDockWidget):
         self.setWidget(container)
         self._update_title()
         # Highlight scheme at startup (reads settings.state) — the Settings
-        # tab's highlight_changed drives this live afterwards (see
+        # dialog's highlight_changed drives this live afterwards (see
         # gui/dock_hub.py).
         self.apply_highlight()
 
@@ -186,13 +174,11 @@ class DetailDock(QDockWidget):
 
     _PAGE_LABELS = {
         _PLACER: _("Placer"),
-        _ROOT: _("Project"),
         _POINTS: _("Points"),
         _RULES: _("Rules"),
         _NET_TRACE: _("Net traces"),
         _CELLS: _("Cells"),
         _TOOLS: _("Tools"),
-        _SETTINGS: _("Settings"),
     }
 
     def _current_entity_name(self) -> str:
@@ -200,10 +186,9 @@ class DetailDock(QDockWidget):
         read fresh from that page's own name field — no page-agnostic
         concept of "current entity" exists, each dock owns its own name/net
         widget (see each module's __init__), so this just knows where to
-        look for each one. Project/Coordinate placer have no single
-        current entity (Project edits a whole file, Coordinate placer edits
-        a whole TABLE of rows at once) — empty string for both, title
-        falls back to just the page label."""
+        look for each one. The Coordinate placer has no single current
+        entity (it edits a whole TABLE of rows at once) — empty string,
+        title falls back to just the page label."""
         index = self.tab_bar.currentIndex()
         if index == _PLACER:
             return self.placer_panel.current_entity_name
@@ -230,7 +215,7 @@ class DetailDock(QDockWidget):
         """Re-apply the highlight stylesheet to the active tab of this
         dock's QTabBar — one of the three highlight consumers (see
         gui/docks/configurator.py). Called at construction (reads the
-        current settings.state) and by DockHub whenever the Settings tab's
+        current settings.state) and by DockHub whenever the Settings dialog's
         highlight_changed fires."""
         self.tab_bar.setStyleSheet(highlight_stylesheet_for("QTabBar::tab:selected"))
 
@@ -244,9 +229,6 @@ class DetailDock(QDockWidget):
 
     def show_placer(self) -> None:
         self._show(_PLACER)
-
-    def show_root(self) -> None:
-        self._show(_ROOT)
 
     def show_coordinate_placer(self) -> None:
         """Alias for show_placer (2026-08-12, Group 1): the merged PlacerDock
@@ -270,9 +252,3 @@ class DetailDock(QDockWidget):
         """Same pattern as the other show_X() pages — the Tools tab (ToolsDock,
         the Entity's electrical fields, 2026-08-30 phase 5.2 stage 3)."""
         self._show(_TOOLS)
-
-    def show_settings(self) -> None:
-        """Same pattern as the other show_X() pages — the Settings tab
-        (ConfiguratorDock) is reachable by clicking the tab bar directly; a
-        programmatic entry point keeps it consistent with every other page."""
-        self._show(_SETTINGS)

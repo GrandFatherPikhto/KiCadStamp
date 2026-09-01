@@ -1500,6 +1500,18 @@ msgstr "Выбрать цвет..."
 msgid "KiCad connection"
 msgstr "Подключение к KiCad"
 
+#: gui/docks/configurator.py:143
+msgid "General"
+msgstr "Общие"
+
+#: gui/docks/configurator.py:149
+msgid "Appearance"
+msgstr "Внешний вид"
+
+#: gui/docks/configurator.py:159
+msgid "KiCad"
+msgstr "KiCad"
+
 #: gui/docks/configurator.py:164
 msgid "Config tree"
 msgstr "Дерево конфигурации"
@@ -1568,6 +1580,10 @@ msgstr "Детали"
 msgid "Project"
 msgstr "Проект"
 
+#: gui/main_window.py:181 gui/docks/project_dialog.py:36
+msgid "&Project..."
+msgstr "&Проект..."
+
 #: gui/docks/detail_panel.py:122 gui/docks/detail_panel.py:188
 msgid "Placer"
 msgstr "Расстановщик"
@@ -1586,6 +1602,10 @@ msgstr "Расставить термо-виа"
 #: gui/docks/detail_panel.py:138 gui/docks/detail_panel.py:196
 msgid "Settings"
 msgstr "Настройки"
+
+#: gui/main_window.py:262 gui/docks/settings_dialog.py:47
+msgid "Settings..."
+msgstr "Настройки..."
 
 #: gui/docks/detail_panel.py:229
 #, python-brace-format

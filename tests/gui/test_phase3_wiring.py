@@ -615,24 +615,26 @@ def test_extract_tree_happy_path_saves_tree_and_nets(real_main_window,
     assert graph_changed
 
 
-def test_file_selected_alone_shows_root_page(real_main_window, tmp_path):
-    """A plain file/category click (file_selected fires with no matching
-    leaf signal) falls back to the Root page — Denis's chosen auto-switch
-    rule for clicks the tree can't route more specifically (2026-08-03)."""
+def test_file_selected_no_longer_switches_detail_page(real_main_window, tmp_path):
+    """A plain file/category click (file_selected fires with no matching leaf
+    signal) NO LONGER switches the Detail dock — the old file_selected ->
+    show_root() fallback was removed together with the Project tab
+    (2026-09-01, plan project_settings_dialogs; RootMetadataDock now lives in
+    the non-modal ProjectDialog). The dock stays on whatever page it was on."""
     real_main_window._dock_hub.detail_dock.show_placer()
     target_file = tmp_path / "power.sexp"
     _write(target_file)
 
     real_main_window.config_tree_dock.file_selected.emit(target_file)
 
-    assert real_main_window._dock_hub.detail_dock.stack.currentWidget() is real_main_window.root_metadata_dock
+    assert real_main_window._dock_hub.detail_dock.stack.currentWidget() is real_main_window.placer_dock
 
 
-def test_cell_picked_overrides_the_file_selected_fallback(real_main_window):
-    """A Cell-leaf click fires file_selected (-> Root fallback) THEN
-    cell_picked (-> Placer) in that order (see config_tree.py's
-    _on_clicked) — the more specific signal must win, ending on Placer,
-    not Root."""
+def test_cell_picked_still_switches_to_placer(real_main_window):
+    """A Cell-leaf click fires file_selected THEN cell_picked in that order
+    (see config_tree.py's _on_clicked) — the specific signal routes into
+    Placer (2026-09-01: file_selected no longer first jumps to the removed
+    Root page, but cell_picked's show_placer must still win)."""
     real_main_window.config_tree_dock.file_selected.emit(None)
     real_main_window.config_tree_dock.cell_picked.emit("ldo_adj")
 

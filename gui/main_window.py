@@ -82,7 +82,6 @@ from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (QApplication, QLabel, QMainWindow, QMenu,
                               QMessageBox, QPushButton, QSystemTrayIcon)
 
-from kicadstamp.config_writer import display_path
 from kicadstamp.config_working_set import WORKING_SET
 from kicadstamp.explore import selection_signature
 from kicadstamp.i18n import _
@@ -170,17 +169,23 @@ class MainWindow(QMainWindow):
         self._dock_hub.restore_tree_mode()
 
         # File menu (2026-08-30, plan dock_toolbars_menus_hotkeys Этап 1b) —
-        # by FUNCTION, not per-dock (the plan's resolved open question 1).
-        # Open/New REUSE the RootMetadataDock's own QActions (gui/hotkeys.py
-        # build_action) — one action is both the dock-button hotkey and the
-        # menu entry, never a second copy of the same operation. Close is a
-        # NEW root-dock operation (close_project, guarded by the same
-        # unsaved-changes prompt TreesDock uses). Quit reuses self._quit
+        # by FUNCTION, not per-dock. "Project..." (2026-09-01, plan
+        # project_settings_dialogs) opens the non-modal ProjectDialog that
+        # hosts the WHOLE RootMetadataDock — Open/New/Recent, the root
+        # settings and the Working-file combo all moved INTO that dialog (the
+        # old File > Open/New/Recent entries are gone; the Recent submenu with
+        # them — the same recent_root_files source lives in the dock's own
+        # Recent combo). Ctrl+O/Ctrl+N stay app-wide regardless of the
+        # dialog's visibility: the dock's own build_action actions
+        # (gui/hotkeys.py) are still registered on this window. Close is a
+        # root-dock operation (close_project, guarded by the same
+        # unsaved-changes prompt set_root_file uses). Quit reuses self._quit
         # (already the tray menu's handler).
         file_menu = self.menuBar().addMenu(_("&File"))
-        root_dock = self.root_metadata_dock
-        file_menu.addAction(root_dock.action_open)
-        file_menu.addAction(root_dock.action_new)
+        self.project_action = QAction(_("&Project..."), self)
+        self.project_action.triggered.connect(
+            lambda: self._dock_hub._open_project_dialog())
+        file_menu.addAction(self.project_action)
 
         # Save / Discard (2026-09-01, plan project_save_model) — the ONE global
         # save model: every dock's edits stage into the working set, and only
@@ -195,14 +200,8 @@ class MainWindow(QMainWindow):
             self._discard_project)
         file_menu.addAction(self.discard_action)
 
-        # Recent — a submenu rebuilt on every aboutToShow from the SAME
-        # settings.state["recent_root_files"] source the RootMetadataDock
-        # Recent combo reads (see _rebuild_recent_menu).
-        self.recent_menu = file_menu.addMenu(_("Recent"))
-        self.recent_menu.aboutToShow.connect(self._rebuild_recent_menu)
-
         self.close_action = QAction(_("Close"), self)
-        self.close_action.triggered.connect(root_dock.close_project)
+        self.close_action.triggered.connect(self.root_metadata_dock.close_project)
         file_menu.addAction(self.close_action)
 
         file_menu.addSeparator()
@@ -257,6 +256,13 @@ class MainWindow(QMainWindow):
         self.place_thermal_vias_action.triggered.connect(
             lambda: self._dock_hub.place_thermal_vias())
         tools_menu.addAction(self.place_thermal_vias_action)
+        # "Settings..." (2026-09-01, plan project_settings_dialogs): opens the
+        # MODAL Settings dialog — a two-pane browser (category tree on the
+        # left, settings pages on the right) with OK/Apply/Cancel.
+        self.settings_action = QAction(_("Settings..."), self)
+        self.settings_action.triggered.connect(
+            lambda: self._dock_hub.open_settings_dialog())
+        tools_menu.addAction(self.settings_action)
 
         # View menu (2026-08-27, handoff sync_skip_message_and_view_menu): the
         # app had no menu bar at all, so a closed dock had no way back short of
@@ -386,16 +392,20 @@ class MainWindow(QMainWindow):
                     logger.info("Saved dock layout did not apply (version/dock-set "
                                 "mismatch) — using the default layout")
 
-        # The checkboxes now live in the Settings tab (ConfiguratorDock,
-        # moved here 2026-08-15) — setChecked triggers its
-        # always_on_top_toggled/tray_enabled_toggled signals, which DockHub
-        # wires to _set_always_on_top/_set_tray_enabled (gui/dock_hub.py).
-        # DockHub is constructed before this method runs (line ~137 vs
-        # here), so configurator_dock is guaranteed to exist.
+        # Always-on-top / tray (2026-09-01, plan project_settings_dialogs):
+        # the Settings browser's checkboxes no longer flip the window flag /
+        # tray icon on a toggle (settings now apply explicitly via the modal
+        # dialog's OK/Apply — see gui/docks/configurator.py), so the persisted
+        # flags are applied HERE at startup directly. setChecked keeps the
+        # browser's widgets in sync (they are seeded from settings.state anyway
+        # — see ConfiguratorDock.reload_from_state). DockHub is constructed
+        # before this method runs, so configurator_dock is guaranteed to exist.
         if settings.state.get("always_on_top"):
             self._dock_hub.configurator_dock.always_on_top_checkbox.setChecked(True)
+            self._set_always_on_top(True)
         if settings.state.get("tray_enabled"):
             self._dock_hub.configurator_dock.tray_checkbox.setChecked(True)
+            self._set_tray_enabled(True)
 
     def _persist_settings(self) -> None:
         rect = self.geometry()
@@ -413,12 +423,14 @@ class MainWindow(QMainWindow):
         # DO sometimes fix by hand to rescue an off-screen window).
         dock_state = bytes(self.saveState(_DOCK_STATE_VERSION))
         settings.state.set("dock_state", base64.b64encode(dock_state).decode("ascii"))
-        # Checkboxes moved to the Settings tab 2026-08-15 — read their
-        # state back through the ConfiguratorDock (see gui/docks/
-        # configurator.py).
-        configurator = self._dock_hub.configurator_dock
-        settings.state.set("always_on_top", configurator.always_on_top_checkbox.isChecked())
-        settings.state.set("tray_enabled", configurator.tray_checkbox.isChecked())
+        # Always-on-top / tray (2026-09-01, plan project_settings_dialogs):
+        # the Settings dialog's apply() already persisted these keys (modal
+        # OK/Apply — see gui/docks/configurator.py), and the browser's widgets
+        # are re-seeded from state on every open/cancel — so on quit we just
+        # re-assert the APPLIED state rather than reading possibly-unapplied
+        # widget state.
+        settings.state.set("always_on_top", bool(settings.state.get("always_on_top", False)))
+        settings.state.set("tray_enabled", bool(settings.state.get("tray_enabled", False)))
 
     def closeEvent(self, event) -> None:
         """While the tray icon is enabled, the title-bar X hides instead of
@@ -426,7 +438,7 @@ class MainWindow(QMainWindow):
         _toggle_visibility). Real quit only happens here when tray is off
         (today's original behavior, unchanged) or via the tray menu's Quit
         action, which bypasses this entirely (see _quit)."""
-        if self._dock_hub.configurator_dock.tray_checkbox.isChecked():
+        if settings.state.get("tray_enabled", False):
             event.ignore()
             self.hide()
             return
@@ -490,21 +502,6 @@ class MainWindow(QMainWindow):
         the status-bar button."""
         self.bring_to_front()
         self._dock_hub.open_fieldstool()
-
-    def _rebuild_recent_menu(self) -> None:
-        """File > Recent (2026-08-30, plan dock_toolbars_menus_hotkeys Этап
-        1b) — rebuilt on every aboutToShow from
-        settings.state["recent_root_files"], the SAME source the
-        RootMetadataDock Recent combo reads, so it never goes stale after a
-        project switch. Each entry reuses the dock's set_root_file (the same
-        target the combo's _on_recent_selected reaches), not a duplicated
-        copy of the open logic."""
-        self.recent_menu.clear()
-        for path_str in settings.state.get("recent_root_files", []):
-            action = self.recent_menu.addAction(display_path(Path(path_str)))
-            action.setData(path_str)
-            action.triggered.connect(
-                lambda _checked=False, p=path_str: self.root_metadata_dock.set_root_file(Path(p)))
 
     def _show_kicad_processes(self) -> None:
         """Status-bar button — opens the manual KiCad-process picker (see

@@ -1,12 +1,10 @@
 # tests/gui/test_detail_panel.py
 
 from gui.docks.cell_editor import CellDock
-from gui.docks.configurator import ConfiguratorDock
 from gui.docks.detail_panel import DetailDock
 from gui.docks.net_trace import NetTraceDock
 from gui.docks.placer import PlacerDock
 from gui.docks.points import PointsDock
-from gui.docks.root_metadata import RootMetadataDock
 from gui.docks.rules import RuleDock
 from gui.docks.tools import ToolsDock
 
@@ -14,66 +12,64 @@ from gui.docks.tools import ToolsDock
 def test_pages_are_the_expected_panel_types(main_window):
     dock = DetailDock(main_window)
     assert isinstance(dock.placer_panel, PlacerDock)
-    assert isinstance(dock.root_panel, RootMetadataDock)
     assert isinstance(dock.points_panel, PointsDock)
     assert isinstance(dock.rules_panel, RuleDock)
     assert isinstance(dock.net_trace_panel, NetTraceDock)
     assert isinstance(dock.cells_panel, CellDock)
-    assert isinstance(dock.configurator_panel, ConfiguratorDock)
     assert isinstance(dock.tools_panel, ToolsDock)
     # Coordinate placements merged into PlacerDock (2026-08-12, Group 1) —
-    # no separate Coordinate panel/tab anymore. Extract is NOT a page since
-    # 2026-08-31 (plan extract_dialog_and_hide_existing.md) and Thermal via
-    # is NOT a page since 2026-09-01 (plan plan_2026_09_01_thermal_via_dialog
-    # .md) — both moved to standalone dialogs. Settings is the 8th tab; Net
-    # traces sits between Rules and Cells; Tools between Cells and Settings.
-    assert dock.stack.count() == 8
+    # no separate Coordinate panel/tab anymore. Extract (2026-08-31), Thermal
+    # via (2026-09-01), and Project + Settings (2026-09-01, plan
+    # project_settings_dialogs) are all standalone dialogs now, NOT pages.
+    assert dock.stack.count() == 6
 
 
-def test_project_tab_is_shown_first(main_window):
-    """Project first (2026-08-11, Denis: "сделай док Проект первым. А то
-    он не понятно, где стоит") — the control-tower panel (root ownership +
-    Working file combobox, see gui/docks/root_metadata.py) is also the tab
-    shown by default on startup."""
+def test_placer_tab_is_shown_first(main_window):
+    """Placer is the first tab now (2026-09-01, plan project_settings_dialogs)
+    — the old Project tab moved out into the non-modal ProjectDialog (File >
+    "Project...", gui/docks/project_dialog.py), so Placer is the default page
+    on startup."""
     dock = DetailDock(main_window)
     assert dock.tab_bar.currentIndex() == 0
-    assert dock.stack.currentWidget() is dock.root_panel
+    assert dock.stack.currentWidget() is dock.placer_panel
 
 
 def test_show_placer_switches_tab_and_stack(main_window):
     dock = DetailDock(main_window)
     dock.show_placer()
-    assert dock.tab_bar.currentIndex() == 1
-    assert dock.stack.currentWidget() is dock.placer_panel
-
-
-def test_show_root_switches_tab_and_stack(main_window):
-    dock = DetailDock(main_window)
-    dock.show_root()
     assert dock.tab_bar.currentIndex() == 0
-    assert dock.stack.currentWidget() is dock.root_panel
+    assert dock.stack.currentWidget() is dock.placer_panel
 
 
 def test_no_extract_tab_since_it_is_a_dialog(main_window):
     """2026-08-31 (plan extract_dialog_and_hide_existing.md): the Extract form
     moved out of DetailDock into a standalone dialog (gui/docks/extract_dialog
-    .py) — there must be no Extract page/tab left here, and the first
-    non-Project page is Placer."""
+    .py) — there must be no Extract page/tab left here."""
     dock = DetailDock(main_window)
     labels = [dock.tab_bar.tabText(i) for i in range(dock.tab_bar.count())]
     assert "Extract" not in labels
-    assert labels[1] == "Placer"
 
 
 def test_no_thermal_via_tab_since_it_is_a_dialog(main_window):
     """2026-09-01 (plan plan_2026_09_01_thermal_via_dialog.md): the Thermal via
     form moved out of DetailDock into a standalone dialog
     (gui/docks/thermal_via_dialog.py) — there must be no Thermal via page/tab
-    left here, and the first non-Project page is still Placer."""
+    left here."""
     dock = DetailDock(main_window)
     labels = [dock.tab_bar.tabText(i) for i in range(dock.tab_bar.count())]
     assert "Thermal via" not in labels
-    assert labels[1] == "Placer"
+
+
+def test_no_project_or_settings_tab_since_they_are_dialogs(main_window):
+    """2026-09-01 (plan project_settings_dialogs): the Project tab
+    (RootMetadataDock -> non-modal ProjectDialog) and the Settings tab
+    (ConfiguratorDock -> modal SettingsDialog) are both gone from the Detail
+    dock — they are dialogs now (File > "Project...", Tools > "Settings...")."""
+    dock = DetailDock(main_window)
+    labels = [dock.tab_bar.tabText(i) for i in range(dock.tab_bar.count())]
+    assert "Project" not in labels
+    assert "Settings" not in labels
+    assert labels == ["Placer", "Points", "Rules", "Net traces", "Cells", "Tools"]
 
 
 def test_manually_clicking_a_tab_switches_the_stack(main_window):
@@ -82,7 +78,7 @@ def test_manually_clicking_a_tab_switches_the_stack(main_window):
     selector so a panel stays reachable even without a matching tree
     click)."""
     dock = DetailDock(main_window)
-    dock.tab_bar.setCurrentIndex(1)
+    dock.tab_bar.setCurrentIndex(0)
     assert dock.stack.currentWidget() is dock.placer_panel
 
 
@@ -92,35 +88,35 @@ def test_show_coordinate_placer_switches_to_the_placer_tab(main_window):
     separate Coordinate placer tab anymore."""
     dock = DetailDock(main_window)
     dock.show_coordinate_placer()
-    assert dock.tab_bar.currentIndex() == 1
+    assert dock.tab_bar.currentIndex() == 0
     assert dock.stack.currentWidget() is dock.placer_panel
 
 
 def test_show_points_switches_tab_and_stack(main_window):
     dock = DetailDock(main_window)
     dock.show_points()
-    assert dock.tab_bar.currentIndex() == 2
+    assert dock.tab_bar.currentIndex() == 1
     assert dock.stack.currentWidget() is dock.points_panel
 
 
 def test_show_rules_switches_tab_and_stack(main_window):
     dock = DetailDock(main_window)
     dock.show_rules()
-    assert dock.tab_bar.currentIndex() == 3
+    assert dock.tab_bar.currentIndex() == 2
     assert dock.stack.currentWidget() is dock.rules_panel
 
 
 def test_show_net_trace_switches_tab_and_stack(main_window):
     dock = DetailDock(main_window)
     dock.show_net_trace()
-    assert dock.tab_bar.currentIndex() == 4
+    assert dock.tab_bar.currentIndex() == 3
     assert dock.stack.currentWidget() is dock.net_trace_panel
 
 
 def test_show_cells_switches_tab_and_stack(main_window):
     dock = DetailDock(main_window)
     dock.show_cells()
-    assert dock.tab_bar.currentIndex() == 5
+    assert dock.tab_bar.currentIndex() == 4
     assert dock.stack.currentWidget() is dock.cells_panel
 
 
@@ -147,8 +143,8 @@ def test_show_placer_raises_and_shows_the_dock(main_window):
 
 def test_title_reflects_page_with_no_current_entity(main_window):
     dock = DetailDock(main_window)
-    dock.show_root()
-    assert dock.windowTitle() == "Detail — Project"
+    dock.show_placer()
+    assert dock.windowTitle() == "Detail — Placer"
 
 
 def test_title_reflects_current_entity_name_for_cells(main_window):
@@ -182,29 +178,18 @@ def test_title_updates_when_loading_a_different_entity_on_the_same_tab(main_wind
 def test_manual_tab_click_also_updates_the_title(main_window):
     dock = DetailDock(main_window)
     dock.rules_panel.name_edit.setText("my_rule")
-    dock.tab_bar.setCurrentIndex(3)  # Rules
+    dock.tab_bar.setCurrentIndex(2)  # Rules
     assert dock.windowTitle() == "Detail — Rules: my_rule"
 
 
 def test_show_tools_switches_tab_and_stack(main_window):
     """Tools (2026-08-30, phase 5.2 stage 3) — the Entity's electrical
-    fields, between Cells and Settings."""
+    fields, now the LAST tab (after the Project/Settings tabs moved out into
+    dialogs on 2026-09-01)."""
     dock = DetailDock(main_window)
     dock.show_tools()
-    assert dock.tab_bar.currentIndex() == 6
+    assert dock.tab_bar.currentIndex() == 5
     assert dock.stack.currentWidget() is dock.tools_panel
-
-
-def test_show_settings_switches_tab_and_stack(main_window):
-    """Settings is the 8th tab (2026-08-15 plan configurator_panel, +1 for
-    Net traces 2026-08-21, +1 for Tools 2026-08-30, -1 for Extract moved to
-    its own dialog 2026-08-31, -1 for Thermal via moved to its own dialog
-    2026-09-01) — its show_X() page-switch follows the same pattern as every
-    other page."""
-    dock = DetailDock(main_window)
-    dock.show_settings()
-    assert dock.tab_bar.currentIndex() == 7
-    assert dock.stack.currentWidget() is dock.configurator_panel
 
 
 def test_tab_bar_has_highlight_stylesheet(main_window):
@@ -233,6 +218,6 @@ def test_stack_size_hints_follow_the_current_page(main_window):
     page only, so the dock sizes to the page you are actually on (not the
     tallest one) even without a scroll area."""
     dock = DetailDock(main_window)
-    dock.tab_bar.setCurrentIndex(1)  # Placer
+    dock.tab_bar.setCurrentIndex(0)  # Placer
     assert dock.stack.sizeHint() == dock.stack.currentWidget().sizeHint()
     assert dock.stack.minimumSizeHint() == dock.stack.currentWidget().minimumSizeHint()

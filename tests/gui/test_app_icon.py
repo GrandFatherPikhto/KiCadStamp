@@ -41,6 +41,9 @@ def test_tray_uses_the_embedded_icon(real_main_window):
     from PyQt6.QtWidgets import QSystemTrayIcon
 
     assert real_main_window._tray_icon is None
+    # 2026-09-01 (plan project_settings_dialogs): settings apply explicitly —
+    # the checkbox alone is a draft, apply() is what builds the tray.
     real_main_window._dock_hub.configurator_dock.tray_checkbox.setChecked(True)
+    real_main_window._dock_hub.configurator_dock.apply()
     assert isinstance(real_main_window._tray_icon, QSystemTrayIcon)
     assert not real_main_window._tray_icon.icon().isNull()

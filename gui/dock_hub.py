@@ -40,14 +40,18 @@ from kicadstamp.logging_setup import get_log_listener
 
 from .docks.anchor_tree import AnchorTreeDock
 from .docks.config_tree import ConfigTreeDock
-from .docks.trees_dock import TreesDock
+from .docks.configurator import ConfiguratorDock
 from .docks.detail_panel import DetailDock
+from .docks.trees_dock import TreesDock
 from .docks.extract import ExtractDock
 from .docks.extract_dialog import ExtractDialog
 from .docks.fieldstool_dock import FieldsToolDock
 from .docks.log_panel import LogDock
 from .docks.pending import PendingChangesDock
+from .docks.project_dialog import ProjectDialog
 from .docks.role_cluster_tree import RoleClusterTreeDock
+from .docks.root_metadata import RootMetadataDock
+from .docks.settings_dialog import SettingsDialog
 from .docks.thermal_via import ThermalViaArrayDock
 from .docks.thermal_via_dialog import ThermalViaDialog
 
@@ -130,18 +134,29 @@ class DockHub:
         # ticks / set_root_path / saved.
         self.thermal_via_dock = ThermalViaArrayDock(main_window)
         self.thermal_via_dialog = ThermalViaDialog(self.thermal_via_dock, main_window)
+        # Project (2026-09-01, plan project_settings_dialogs): RootMetadataDock
+        # is no longer a Detail dock page — it is hosted in the standalone
+        # non-modal ProjectDialog (File > "Project...", see
+        # gui/docks/project_dialog.py). The widget keeps its root-changed
+        # broadcast / Working-file combobox from inside the dialog; the
+        # root_metadata_dock attribute below stays the single source every
+        # other dock follows.
+        self.root_metadata_dock = RootMetadataDock(main_window)
+        self.project_dialog = ProjectDialog(self.root_metadata_dock, main_window)
         self.placer_dock = self.detail_dock.placer_panel
-        self.root_metadata_dock = self.detail_dock.root_panel
         self.points_dock = self.detail_dock.points_panel
         self.rules_dock = self.detail_dock.rules_panel
         self.net_trace_dock = self.detail_dock.net_trace_panel
         self.cells_dock = self.detail_dock.cells_panel
-        # Settings tab (ConfiguratorDock, 2026-08-15, plan
-        # configurator_panel) — GUI/app settings for this machine, NOT
-        # project config (see gui/docks/configurator.py's module docstring).
-        # MainWindow reads its checkboxes back through this alias (see
+        # Settings (2026-09-01, plan project_settings_dialogs): ConfiguratorDock
+        # is no longer a Detail dock page either — it is a two-pane settings
+        # browser (QTreeWidget of categories on the left, pages on the right,
+        # see gui/docks/configurator.py) hosted in the MODAL SettingsDialog
+        # (Tools > "Settings...", see gui/docks/settings_dialog.py). MainWindow
+        # reads its checkboxes back through this alias / settings.state (see
         # _restore_window_state/_persist_settings/closeEvent there).
-        self.configurator_dock = self.detail_dock.configurator_panel
+        self.configurator_dock = ConfiguratorDock(main_window, connection=connection)
+        self.settings_dialog = SettingsDialog(self.configurator_dock, main_window)
         # Tools tab (ToolsDock, 2026-08-30 phase 5.2 stage 3) — the Entity's
         # electrical fields, moved out of PlacerDock.
         self.tools_dock = self.detail_dock.tools_panel
@@ -304,12 +319,16 @@ class DockHub:
         # instead of crashing DockHub.__init__/MainWindow.__init__.
         self._sync_root_to_docks(self.root_metadata_dock.root_path)
         self._on_root_changed_for_working_set(self.root_metadata_dock.root_path)
-        # file_selected fires BEFORE the more specific cell_picked/
-        # placement_picked/profile_picked signal on a leaf click (see
-        # config_tree.py's _on_clicked) — so this fallback runs first and
-        # the specific handler below (if any) wins by running after it,
-        # same emission order the auto-switch relies on.
-        self.config_tree_dock.file_selected.connect(lambda _path: self.detail_dock.show_root())
+        # NOTE (2026-09-01, plan project_settings_dialogs): the old
+        # file_selected -> detail_dock.show_root() fallback is GONE together
+        # with the Project tab (RootMetadataDock now lives in the non-modal
+        # ProjectDialog). A plain file/category click in the Config tree still
+        # feeds RootMetadataDock's Working-file combo display via
+        # set_working_file_from_tree (wired above), but no longer switches the
+        # Detail dock. file_selected fires BEFORE the more specific
+        # cell_picked/placement_picked/profile_picked signal on a leaf click
+        # (see config_tree.py's _on_clicked) — the specific handler below (if
+        # any) wins by running after it, same emission order as before.
 
         # Components tree -> Placer: clicking a Cluster group node in the
         # tree fills PlacerDock's Cluster field; Config tree -> Placer/
@@ -788,6 +807,24 @@ class DockHub:
         self.thermal_via_dialog.show()
         self.thermal_via_dialog.raise_()
         self.thermal_via_dialog.activateWindow()
+
+    def _open_project_dialog(self) -> None:
+        """Show/raise the ONE live Project dialog (File > "Project...",
+        2026-09-01, plan project_settings_dialogs) — non-modal, so the user can
+        keep working while it's open: the root_metadata_dock instance inside it
+        keeps broadcasting root_changed / the Working-file combobox to every
+        other dock. Closing via the window X just hides it (QDialog default),
+        so the next open starts from the current project state."""
+        self.project_dialog.show()
+        self.project_dialog.raise_()
+        self.project_dialog.activateWindow()
+
+    def open_settings_dialog(self) -> None:
+        """Open the MODAL Settings dialog (Tools > "Settings...",
+        2026-09-01, plan project_settings_dialogs). Settings apply explicitly
+        (OK/Apply/Cancel — see gui/docks/settings_dialog.py); open_modal()
+        re-seeds the widgets from the persisted state first."""
+        self.settings_dialog.open_modal()
 
     def _refresh_graph_dependent_choices(self) -> None:
         """The include: graph's shape or an entry's name changed — either

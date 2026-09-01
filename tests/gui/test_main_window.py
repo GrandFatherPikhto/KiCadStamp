@@ -157,44 +157,32 @@ def _file_menu(real_main_window):
     return file_menus[0].menu()
 
 
-def test_file_menu_has_open_new_recent_close_quit(real_main_window):
-    """&File contains Open/New (reusing the root dock's own actions), a
-    Recent submenu, Close and &Quit."""
+def test_file_menu_has_project_close_quit(real_main_window):
+    """&File (2026-09-01, plan project_settings_dialogs): Open/New/Recent
+    moved INTO the Project dialog, so the menu now has just &Project..., Save,
+    Discard, Close and &Quit."""
     menu = _file_menu(real_main_window)
     texts = [a.text() for a in menu.actions()]
-    assert "Open Root file..." in texts
-    assert "New Root file..." in texts
+    assert "&Project..." in texts
     assert "Close" in texts
     assert "&Quit" in texts
-    assert any(a.text() == "Recent" and a.menu() is not None for a in menu.actions())
+    assert "Open Root file..." not in texts
+    assert "New Root file..." not in texts
+    assert not any(a.text() == "Recent" and a.menu() is not None for a in menu.actions())
 
 
-def test_file_menu_open_reuses_root_metadata_action(real_main_window):
-    """Open/New are the SAME QAction objects the root dock's buttons use —
-    one action is the button hotkey AND the menu entry (no duplicated copy)."""
+def test_file_menu_project_opens_the_project_dialog(real_main_window):
+    """File > &Project... shows/raises the ONE live ProjectDialog — the non-
+    modal shell around RootMetadataDock (gui/docks/project_dialog.py). The
+    Ctrl+O/Ctrl+N hotkeys stay app-wide regardless of the dialog's visibility
+    (the dock's own build_action actions are still registered on the window)."""
     menu = _file_menu(real_main_window)
-    open_action = next(a for a in menu.actions() if a.text() == "Open Root file...")
-    new_action = next(a for a in menu.actions() if a.text() == "New Root file...")
-    assert open_action is real_main_window.root_metadata_dock.action_open
-    assert new_action is real_main_window.root_metadata_dock.action_new
-
-
-def test_file_menu_recent_builds_from_recent_root_files(real_main_window, tmp_path):
-    """Recent is rebuilt from settings.state["recent_root_files"] (the same
-    source as the dock's combo); triggering an entry opens it via the dock's
-    set_root_file."""
-    a = tmp_path / "a.sexp"
-    b = tmp_path / "b.sexp"
-    a.write_text("(kicadstamp-config)\n", encoding="utf-8")
-    b.write_text("(kicadstamp-config)\n", encoding="utf-8")
-    settings.state.set("recent_root_files", [str(b), str(a)])
-
-    real_main_window._rebuild_recent_menu()
-    entries = real_main_window.recent_menu.actions()
-    assert [e.text() for e in entries] == [str(b), str(a)]
-
-    entries[0].trigger()
-    assert real_main_window.root_metadata_dock._path == b
+    project_action = next(a for a in menu.actions() if a.text() == "&Project...")
+    dialog = real_main_window._dock_hub.project_dialog
+    dialog.hide()
+    project_action.trigger()
+    assert dialog.isVisible()
+    assert dialog.root_metadata_dock is real_main_window.root_metadata_dock
 
 
 def test_file_menu_close_calls_set_root_file_none(real_main_window, monkeypatch):

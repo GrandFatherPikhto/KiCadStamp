@@ -92,7 +92,13 @@ def build_action(parent: QWidget, action_id: str, label: str,
 def set_shortcut(action_id: str, shortcut_text: str) -> None:
     """Persist a user override for `action_id` ("" clears it, back to the
     code default — absent entry == default, see plan) and re-apply it to the
-    live QAction, if any, right away."""
+    live QAction, if any, right away.
+
+    The live re-apply is defensive about a deleted QAction: the module-global
+    registry can hold a stale reference after its owning window was torn down
+    (multiple MainWindows built in one process — e.g. the test suite — or a
+    future window rebuild). The override is persisted regardless; it applies
+    to the next live action that registers this action_id."""
     hotkeys = dict(settings.state.get("hotkeys") or {})
     if shortcut_text:
         hotkeys[action_id] = shortcut_text
@@ -101,7 +107,12 @@ def set_shortcut(action_id: str, shortcut_text: str) -> None:
     settings.state.set("hotkeys", hotkeys)
     action = _LIVE_ACTIONS.get(action_id)
     if action is not None:
-        action.setShortcut(get_shortcut(action_id))
+        try:
+            action.setShortcut(get_shortcut(action_id))
+        except RuntimeError:
+            # The wrapped C++ QAction was deleted — drop the stale reference
+            # so the next build_action(action_id) starts clean.
+            _LIVE_ACTIONS.pop(action_id, None)
 
 
 def registered_hotkeys() -> List[Tuple[str, str, str]]:

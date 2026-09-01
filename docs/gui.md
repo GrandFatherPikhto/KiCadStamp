@@ -194,8 +194,9 @@ value), and when the selection spans several Clusters the "Keep only one Cluster
 auto-checked (its combo already defaults to the Cluster with the most components), so a "New Extract"
 immediately narrows to the user's own Cluster.
 
-Clicking any node also switches the Detail dock to that node's own panel (Rule → Rules, file →
-Project, ...). Since 2026-08-21 the entity docks no longer ask **which file to write to** — every
+Clicking any node also switches the Detail dock to that node's own panel (Rule → Rules, ...; a plain
+file click no longer jumps to a Project page since 2026-09-01 — the Project tab moved into a
+dialog). Since 2026-08-21 the entity docks no longer ask **which file to write to** — every
 new record (Rule/ClonePlacement/CoordinatePlacement/ThermalViaArray/Point/Cell/ExtractProfile/
 NetTrace) is written to the project's ONE root file (the file shown in the Project panel), with no
 file picker in the form. The `include:` graph is still fully supported for READING: the Config tree
@@ -323,55 +324,67 @@ move is applied via a per-run, non-persistent position override (Option 1, see t
 
 ## Detail dock
 
-Placer/Project/Points/Rules/Net traces/Cells/Settings below all live as tabs
-inside one shared **Detail** dock, not as separate docks — switching is both automatic (a
-Config-tree click routes to the matching tab) and manual (click the tab bar directly). Extract is
-NOT a tab here since 2026-08-31 (see the [Extract](#extract) section) and Thermal via is NOT a tab
-here since 2026-09-01 — both moved to standalone dialogs (Thermal via: the main menu's
-**Tools → Place thermal vias...** or the Config tree context menu, see the paragraph after the
-Extract section).
+Placer/Points/Rules/Net traces/Cells/Tools below all live as tabs inside one shared **Detail** dock,
+not as separate docks — switching is both automatic (a Config-tree click routes to the matching tab)
+and manual (click the tab bar directly). Extract (2026-08-31), Thermal via (2026-09-01), and
+Project + Settings (2026-09-01, plan `project_settings_dialogs`) are NOT tabs here — they moved to
+standalone dialogs: see the [Extract](#extract) and [Project](#project) sections, and **Tools →
+Settings...** for the Settings dialog.
 Every
 automatic switch also
 raises Detail to the front of its own tabified group (it shares screen space with fieldstool) and
 updates its window title to name the page and, where there's a single obvious current entity, its
-name too — e.g. "Detail — Cells: composite", or just "Detail — Project" for pages with no single
+name too — e.g. "Detail — Cells: composite", or just "Detail — Placer" for pages with no single
 current entity (added 2026-08-06, found live — Denis: "неплохо бы подсвечивать, какой док сейчас
 активен. А то вообще, не видно, кто и что" — a plain tree click used to switch the tab silently if
 Detail wasn't already the visible group).
 
 ## Settings
 
-**Settings** (the last Detail-dock tab, 2026-08-15, plan `configurator_panel`) hosts pure GUI/app
-settings for THIS MACHINE — a GUI facade over [`gui/settings.py`](gui/settings.py)'s
-`gui_state.json`, deliberately NOT project config. The "Project" tab (RootMetadataDock) edits the
-project YAML in the version-controlled project file; this tab never touches it. Everything here is
-local per-machine state (the same storage `last_root_file`/`window_geometry`/`tree_group_by` already
-use), this tab just adds GUI editing on top of a few more keys.
+**Settings** (2026-08-15, plan `configurator_panel`; reworked 2026-09-01, plan
+`project_settings_dialogs`) is a standalone **modal dialog** — open it from the main menu's **Tools →
+Settings...**. It hosts pure GUI/app settings for THIS MACHINE — a GUI facade over
+[`gui/settings.py`](gui/settings.py)'s `gui_state.json`, deliberately NOT project config. The
+"Project" dialog (RootMetadataDock) edits the project YAML in the version-controlled project file;
+this dialog never touches it. Everything here is local per-machine state (the same storage
+`last_root_file`/`window_geometry`/`tree_group_by` already use).
 
-- **Always on top** / **Tray icon** — the two checkboxes that used to sit directly in the status
-  bar moved here (2026-08-15); the actual window-flag / tray-icon LOGIC is unchanged in
-  `MainWindow` (`_set_always_on_top`/`_set_tray_enabled`) — the checkboxes just re-emit their
-  toggles and `DockHub` wires them back. The status bar is now the status label plus the
-  Reconnect/Open fieldstool/KiCad processes... buttons only.
-- **Highlight color** — one highlight scheme applied to ALL THREE highlight places: the Detail
+The dialog is a two-pane browser: a **category tree on the left** (General / Appearance / KiCad /
+Config tree / Hotkeys / MCP server) and the matching settings page on the right. Settings apply
+**explicitly** via the **OK / Apply / Cancel** buttons — a widget change is only a draft until
+**Apply** (persists and stays open) or **OK** (persists and closes) commits it; **Cancel** (or the
+window X) discards the draft. Side effects (always-on-top flag, tray icon, highlight re-apply,
+connection timeout, hotkey rebinding) fire only on Apply/OK.
+
+- **Always on top** / **Tray icon** (the **General** page) — the two checkboxes that used to sit
+  directly in the status bar moved to Settings (2026-08-15); the actual window-flag / tray-icon
+  LOGIC is unchanged in `MainWindow` (`_set_always_on_top`/`_set_tray_enabled`) — the browser just
+  re-emits their toggles from `apply()` and `DockHub` wires them back. The status bar is now the
+  status label plus the Reconnect/Open fieldstool/KiCad processes... buttons only.
+- **Highlight color** (the **Appearance** page) — one highlight scheme applied to ALL THREE
+  highlight places: the Detail
   dock's active tab, the Config tree's selected item, and the Components tree's selected item.
   **System palette** uses the OS theme's `palette(highlight)`; **Custom** (via **Pick color...**)
   uses a literal color. Stored as `highlight_mode` (`"system"`/`"custom"`) + `highlight_color`
   (hex) in `gui_state.json`, applied at startup and re-applied live on change. Before this, both
   trees were bare native-styled `QTreeView`s whose selection was barely visible on Windows (the
   same "еле видно" bug found during this discussion).
-- **KiCad connection timeout** — the ONE user-facing timeout (`DEFAULT_TIMEOUT_MS`,
+- **KiCad connection timeout** (the **KiCad** page) — the ONE user-facing timeout (`DEFAULT_TIMEOUT_MS`,
   `kicadstamp/constants.py`), editable in milliseconds. Written straight into
   `connection.timeout_ms`, which `BoardConnection` reads on every connect, so it takes effect on
   the NEXT connection without disturbing an open one. The internal protective timings
   (`_CONNECT_TIMEOUT_GRACE_S`, pynng-safety's `_CLOSE_TIMEOUT_S`, the single-instance ping) are
   deliberately NOT exposed — one of them literally just closed a live GUI freeze (see
   `handoff_2026_08_15_pynng_close_timeout.md`).
-- **Hotkeys** (2026-08-30, plan `dock_toolbars_menus_hotkeys` Этап 1) — one key-sequence editor per
-  QAction-based hotkey (so far the Project dock's five: Open/New/Save/Add.../Remove — see
-  `gui/hotkeys.py`). Rebinding writes `gui_state.json["hotkeys"]` as `{action_id: shortcut}` and
-  re-applies to the live action immediately; an empty editor restores the code default. The full
-  list lives in [docs/hotkeys.md](hotkeys.md).
+- **Hotkeys** (the **Hotkeys** page, 2026-08-30, plan `dock_toolbars_menus_hotkeys` Этап 1) — one
+  key-sequence editor per QAction-based hotkey (so far the Project dock's five:
+  Open/New/Save/Add.../Remove — see `gui/hotkeys.py`). Rebinding writes
+  `gui_state.json["hotkeys"]` as `{action_id: shortcut}` and re-applies to the live action on
+  Apply/OK; an empty editor restores the code default. The full list lives in
+  [docs/hotkeys.md](hotkeys.md).
+- **MCP server** (the **MCP server** page) — the `kicad_raw_move_footprint` raw-write gate the
+  headless MCP server reads from `gui_state.json` (see [docs/mcp.md](mcp.md)); the same effect as
+  the `KICADSTAMP_MCP_ALLOW_RAW_WRITE=1` env var.
 
 ## Extract
 
@@ -705,7 +718,8 @@ the position, which is written into the `trees:` node that places this Entity.
 ## Tools (Nets / Net overrides / Refs, 2026-08-30)
 
 Phase 5.3 moved the Entity's three electrical editors OUT of the Placer dock into a new **Tools**
-page (a tab in the Detail dock's stack, inserted right before Settings).
+page (a tab in the Detail dock's stack, now the last tab since the Project/Settings tabs moved into
+dialogs on 2026-09-01).
 
 - **Nets** — `role → net` (Params stays in the Placer's Source tab — both feed the same by-nets
   role resolution).
@@ -719,9 +733,13 @@ the same record without clobbering each other.
 
 ## Project
 
-(Tab labeled "Project" — Denis, 2026-08-05: "давай не root, а project"; the panel underneath is
+**Project** (2026-09-01, plan `project_settings_dialogs`) is a standalone **non-modal dialog** —
+open it from the main menu's **File → Project...**. It hosts the whole RootMetadataDock widget
+(displayed "Project" since 2026-08-05, Denis: "давай не root, а project"; the panel underneath is
 still called RootMetadataDock in code, since it edits the project's ROOT config file, same concept
-the Config tree's "Open Root file..." uses — only the displayed label changed.)
+the Config tree's "Open Root file..." uses). Open/New/Recent moved INTO this dialog too (2026-09-01)
+— the File menu now only has **Project...**, Save, Discard, Close, Quit; the `Ctrl+O`/`Ctrl+N`
+hotkeys stay app-wide regardless of the dialog's visibility.
 
 Edits the project's root-config-only scalar keys: Layer/Place components/Skip existing components
 (shown above the tabs, as general project settings), then three tabs — **Files** (Registry path/
@@ -730,10 +748,10 @@ Track registry path/Log file/Operation log dir), **Schematics** (Schematic dir/S
 "dock too tall to resize" reason as Extract's own tabs above.
 
 Always targets the project's single root file — the one opened via "Open Root file..."/"New Root
-file..."/the Recent dropdown (see the Config tree in `gui/docks/config_tree.py`) — regardless of
-which included file is currently browsed in that tree. Browsing into an included file does not
-retarget this panel: these fields are only valid on an actual root (an included file setting any of
-them is fatal at load — see [docs/config.md](config.md)), and a project only ever has one.
+file..."/the Recent dropdown inside this dialog — regardless of which included file is currently
+browsed in the Config tree. Browsing into an included file does not retarget this panel: these
+fields are only valid on an actual root (an included file setting any of them is fatal at load — see
+[docs/config.md](config.md)), and a project only ever has one.
 
 ## Points
 

@@ -1,9 +1,11 @@
 # tests/gui/test_configurator_dock.py
-"""Tests for the Settings tab's ConfiguratorDock (gui/docks/configurator.py,
-2026-08-15, plan techdocs/handoff/plan_2026_08_15_configurator_panel.md):
-always-on-top/tray checkbox relocation, highlight mode/color persistence
-(QColorDialog mocked), connection-timeout persistence, and the highlight
-smoke test across all three consumer widgets."""
+"""Tests for the Settings browser's ConfiguratorDock (gui/docks/configurator.py,
+2026-08-15, plan techdocs/handoff/plan_2026_08_15_configurator_panel.md;
+reworked 2026-09-01, plan project_settings_dialogs): the two-pane category
+tree + pages, and the EXPLICIT apply model (OK/Apply/Cancel, hosted in the
+modal SettingsDialog) — a widget change is only a draft; apply() persists to
+gui_state.json and fires the side effects, cancel()/reload_from_state()
+discards the draft."""
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QKeySequence
 
@@ -19,45 +21,78 @@ from gui.hotkeys import build_action
 import gui.docks.configurator as configurator_mod
 
 
-# ── Always on top / Tray — moved checkboxes, same effects ────────────────
+# ── Category tree / pages (2026-09-01, plan project_settings_dialogs) ─────
 
-def test_always_on_top_checkbox_emits_toggled(main_window, qapp):
+def test_tree_lists_expected_categories(main_window, qapp):
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    labels = [dock.tree.topLevelItem(i).text(0)
+              for i in range(dock.tree.topLevelItemCount())]
+    assert labels == ["General", "Appearance", "KiCad", "Config tree",
+                      "Hotkeys", "MCP server"]
+    assert dock.stack.count() == len(labels)
+
+
+def test_selecting_a_category_switches_the_page(main_window, qapp):
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    dock.tree.setCurrentItem(dock.tree.topLevelItem(4))  # Hotkeys
+    assert dock.stack.currentIndex() == 4
+    assert dock.stack.currentWidget() is dock.hotkeys_page
+    dock.tree.setCurrentItem(dock.tree.topLevelItem(0))  # General
+    assert dock.stack.currentWidget() is dock.general_page
+
+
+# ── Always on top / Tray — moved checkboxes, applied via apply() ──────────
+
+def test_apply_emits_always_on_top_toggled(main_window, qapp):
+    """A checkbox toggle alone is only a draft — always_on_top_toggled fires
+    from apply() (the modal OK/Apply contract), not from setChecked."""
     dock = ConfiguratorDock(main_window, connection=main_window.connection)
     calls = []
     dock.always_on_top_toggled.connect(calls.append)
     dock.always_on_top_checkbox.setChecked(True)
+    assert calls == []  # draft only
+    dock.apply()
+    assert calls == [True]
     dock.always_on_top_checkbox.setChecked(False)
+    dock.apply()
     assert calls == [True, False]
 
 
-def test_tray_checkbox_emits_toggled(main_window, qapp):
+def test_apply_emits_tray_enabled_toggled(main_window, qapp):
     dock = ConfiguratorDock(main_window, connection=main_window.connection)
     calls = []
     dock.tray_enabled_toggled.connect(calls.append)
     dock.tray_checkbox.setChecked(True)
+    assert calls == []  # draft only
+    dock.apply()
     assert calls == [True]
 
 
 def test_always_on_top_checkbox_still_sets_window_flag(real_main_window):
-    """The always-on-top checkbox moved to the Settings tab, but toggling it
-    must still flip the real window's always-on-top flag (DockHub wires the
-    configurator's signal back onto MainWindow._set_always_on_top)."""
-    checkbox = real_main_window._dock_hub.configurator_dock.always_on_top_checkbox
+    """The always-on-top checkbox moved to the Settings browser, and toggling
+    it alone is a draft — but apply() must still flip the real window's
+    always-on-top flag (DockHub wires the configurator's signal back onto
+    MainWindow._set_always_on_top)."""
+    configurator = real_main_window._dock_hub.configurator_dock
+    checkbox = configurator.always_on_top_checkbox
     flag = Qt.WindowType.WindowStaysOnTopHint
     assert not (real_main_window.windowFlags() & flag)
     checkbox.setChecked(True)
+    assert not (real_main_window.windowFlags() & flag)  # draft only
+    configurator.apply()
     assert real_main_window.windowFlags() & flag
     checkbox.setChecked(False)
+    configurator.apply()
     assert not (real_main_window.windowFlags() & flag)
 
 
-# ── Highlight mode / color ───────────────────────────────────────────────
+# ── Highlight mode / color ────────────────────────────────────────────────
 
 def test_highlight_defaults_to_system_mode(main_window, qapp):
     """Nothing stored yet == system mode (the default). The dock does NOT
     write "system" into storage at construction — it only stores real user
-    changes, so an absent key stays absent and every reader falls back to
-    the default."""
+    changes on apply(), so an absent key stays absent and every reader falls
+    back to the default."""
     dock = ConfiguratorDock(main_window, connection=main_window.connection)
     assert dock.system_radio.isChecked()
     assert not dock.custom_radio.isChecked()
@@ -66,56 +101,67 @@ def test_highlight_defaults_to_system_mode(main_window, qapp):
     assert settings.state.get("highlight_mode") is None
 
 
-def test_selecting_custom_persists_mode_and_enables_pick(main_window, qapp):
+def test_selecting_custom_enables_pick_but_persists_only_on_apply(main_window, qapp):
     dock = ConfiguratorDock(main_window, connection=main_window.connection)
     dock.custom_radio.setChecked(True)
-    assert settings.state.get("highlight_mode") == "custom"
     assert dock.pick_color_button.isEnabled()
+    assert settings.state.get("highlight_mode") is None  # draft only
+    dock.apply()
+    assert settings.state.get("highlight_mode") == "custom"
 
 
-def test_selecting_system_back_persists_mode(main_window, qapp):
+def test_selecting_system_back_applies(main_window, qapp):
     dock = ConfiguratorDock(main_window, connection=main_window.connection)
     dock.custom_radio.setChecked(True)
     dock.system_radio.setChecked(True)
-    assert settings.state.get("highlight_mode") == "system"
     assert not dock.pick_color_button.isEnabled()
+    dock.apply()
+    assert settings.state.get("highlight_mode") == "system"
 
 
-def test_picking_color_persists_hex_and_updates_preview(main_window, qapp, monkeypatch):
+def test_picking_color_updates_preview_and_apply_persists(main_window, qapp, monkeypatch):
+    """The picked color updates the draft + preview immediately, but is
+    written to settings.state only on apply() (OK/Apply contract)."""
     dock = ConfiguratorDock(main_window, connection=main_window.connection)
     dock.custom_radio.setChecked(True)
     monkeypatch.setattr(configurator_mod.QColorDialog, "getColor",
                         lambda *a, **k: QColor("#ff8800"))
     dock._pick_color()
-    assert settings.state.get("highlight_color") == "#ff8800"
     assert "#ff8800" in dock.color_preview.styleSheet()
+    assert settings.state.get("highlight_color") is None  # draft only
+    dock.apply()
+    assert settings.state.get("highlight_color") == "#ff8800"
 
 
 def test_picking_color_cancel_keeps_previous(main_window, qapp, monkeypatch):
     """getColor() returning an invalid QColor == the user pressed Cancel —
-    nothing is persisted or re-emitted."""
+    the draft is left untouched and apply() persists the previous color."""
     dock = ConfiguratorDock(main_window, connection=main_window.connection)
     dock.custom_radio.setChecked(True)
     settings.state.set("highlight_color", "#abcdef")
+    dock.reload_from_state()  # seed the draft from the persisted color
     monkeypatch.setattr(configurator_mod.QColorDialog, "getColor",
                         lambda *a, **k: QColor())  # invalid -> cancel
     dock._pick_color()
+    dock.apply()
     assert settings.state.get("highlight_color") == "#abcdef"
 
 
-def test_highlight_changed_emitted_on_mode_and_color(main_window, qapp, monkeypatch):
-    """Exactly one highlight_changed per change — radio toggling must not
-    double-emit (the two radios are auto-exclusive, but only custom_radio is
-    wired to the handler)."""
+def test_highlight_changed_emitted_once_per_apply(main_window, qapp, monkeypatch):
+    """highlight_changed fires exactly once per apply(), NOT per toggle/pick
+    (the modal OK/Apply contract — side effects are deferred until the user
+    confirms)."""
     dock = ConfiguratorDock(main_window, connection=main_window.connection)
     calls = []
     dock.highlight_changed.connect(lambda: calls.append(None))
     dock.custom_radio.setChecked(True)
-    assert len(calls) == 1  # exactly one emit per mode toggle
+    assert len(calls) == 0  # draft only
     monkeypatch.setattr(configurator_mod.QColorDialog, "getColor",
                         lambda *a, **k: QColor("#112233"))
     dock._pick_color()
-    assert len(calls) == 2
+    assert len(calls) == 0  # still draft
+    dock.apply()
+    assert len(calls) == 1  # exactly one emit per apply()
 
 
 def test_highlight_radio_state_restored_from_settings(main_window, qapp):
@@ -129,21 +175,26 @@ def test_highlight_radio_state_restored_from_settings(main_window, qapp):
     assert "#123456" in dock.color_preview.styleSheet()
 
 
-# ── Connection timeout ───────────────────────────────────────────────────
+# ── Connection timeout ────────────────────────────────────────────────────
 
-def test_timeout_spin_persists_to_settings(main_window, qapp):
+def test_timeout_spin_persists_only_on_apply(main_window, qapp):
     dock = ConfiguratorDock(main_window, connection=main_window.connection)
     dock.timeout_spin.setValue(5000)
+    assert settings.state.get("kicad_timeout_ms") is None  # draft only
+    dock.apply()
     assert settings.state.get("kicad_timeout_ms") == 5000
 
 
-def test_timeout_spin_updates_connection_live(main_window, qapp):
+def test_timeout_apply_updates_connection(main_window, qapp):
     """The plan's chosen mechanism: write straight into connection.timeout_ms,
     which BoardConnection reads by reference on every connect(), so it takes
-    effect on the next connection without disturbing any open one."""
+    effect on the next connection without disturbing any open one. Happens on
+    apply(), not on the spinbox edit."""
     dock = ConfiguratorDock(main_window, connection=main_window.connection)
     assert main_window.connection.timeout_ms == 20000  # default, untouched
     dock.timeout_spin.setValue(7000)
+    assert main_window.connection.timeout_ms == 20000  # draft only
+    dock.apply()
     assert main_window.connection.timeout_ms == 7000
 
 
@@ -153,17 +204,18 @@ def test_timeout_spin_range(main_window, qapp):
     assert dock.timeout_spin.maximum() <= 120000
 
 
-def test_timeout_restored_from_settings_and_applied(main_window, qapp):
-    """A stored timeout is reflected into the spinbox at construction AND
-    applied to the connection (which was built before this panel existed and
-    would otherwise keep the CLI/default value)."""
+def test_timeout_restored_from_settings_and_applied_on_apply(main_window, qapp):
+    """A stored timeout is reflected into the spinbox at construction; the
+    connection is updated only when the user applies (modal contract)."""
     settings.state.set("kicad_timeout_ms", 9000)
     dock = ConfiguratorDock(main_window, connection=main_window.connection)
     assert dock.timeout_spin.value() == 9000
+    assert main_window.connection.timeout_ms == 20000  # not applied yet
+    dock.apply()
     assert main_window.connection.timeout_ms == 9000
 
 
-# ── Highlight smoke test across the three consumer widgets ───────────────
+# ── Highlight smoke test across the three consumer widgets ────────────────
 
 def test_three_consumers_have_highlight_stylesheet(main_window):
     """Each of the three highlight consumers applies its stylesheet at
@@ -189,11 +241,14 @@ def test_rename_confirmation_defaults_to_enabled(main_window, qapp):
     assert settings.state.get("rename_confirmation_enabled") is None  # not written at construction
 
 
-def test_unchecking_rename_confirmation_persists(main_window, qapp):
+def test_unchecking_rename_confirmation_applies(main_window, qapp):
     dock = ConfiguratorDock(main_window, connection=main_window.connection)
     dock.rename_confirmation_checkbox.setChecked(False)
+    assert settings.state.get("rename_confirmation_enabled") is None  # draft only
+    dock.apply()
     assert settings.state.get("rename_confirmation_enabled") is False
     dock.rename_confirmation_checkbox.setChecked(True)
+    dock.apply()
     assert settings.state.get("rename_confirmation_enabled") is True
 
 
@@ -215,11 +270,14 @@ def test_raw_write_checkbox_defaults_to_off(main_window, qapp):
     assert settings.state.get("mcp_allow_raw_write") is None
 
 
-def test_toggling_raw_write_persists(main_window, qapp):
+def test_toggling_raw_write_applies(main_window, qapp):
     dock = ConfiguratorDock(main_window, connection=main_window.connection)
     dock.raw_write_checkbox.setChecked(True)
+    assert settings.state.get("mcp_allow_raw_write") is None  # draft only
+    dock.apply()
     assert settings.state.get("mcp_allow_raw_write") is True
     dock.raw_write_checkbox.setChecked(False)
+    dock.apply()
     assert settings.state.get("mcp_allow_raw_write") is False
 
 
@@ -231,10 +289,36 @@ def test_raw_write_state_restored_on_recreation(main_window, qapp):
     assert dock.raw_write_checkbox.isChecked()
 
 
+# ── Draft / Cancel / reload (OK/Cancel/Apply contract) ───────────────────
+
+def test_cancel_discards_draft(main_window, qapp):
+    """Cancel (or a reload) re-seeds the widgets from the persisted state, so
+    a draft that was never applied can never become the applied state."""
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    dock.always_on_top_checkbox.setChecked(True)
+    dock.raw_write_checkbox.setChecked(True)
+    assert settings.state.get("always_on_top") is None  # draft only
+    dock.cancel()
+    assert not dock.always_on_top_checkbox.isChecked()
+    assert not dock.raw_write_checkbox.isChecked()
+    assert settings.state.get("always_on_top") is None  # nothing persisted
+
+
+def test_reload_from_state_reseeds_widgets(main_window, qapp):
+    settings.state.set("always_on_top", True)
+    settings.state.set("rename_confirmation_enabled", False)
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    dock.always_on_top_checkbox.setChecked(False)  # draft
+    dock.rename_confirmation_checkbox.setChecked(True)  # draft
+    dock.reload_from_state()
+    assert dock.always_on_top_checkbox.isChecked()
+    assert not dock.rename_confirmation_checkbox.isChecked()
+
+
 # ── Hotkeys (2026-08-30, plan dock_toolbars_menus_hotkeys Этап 1) ────────
 
 def test_hotkeys_section_has_one_edit_per_registered_action(main_window, qapp):
-    """The Settings tab lists one QKeySequenceEdit per registered QAction —
+    """The Settings page lists one QKeySequenceEdit per registered QAction —
     the reassignment UI surface for the hotkey infrastructure."""
     build_action(main_window, "test.hotkey", "Test hotkey", "Ctrl+Shift+Q", None)
     dock = ConfiguratorDock(main_window, connection=main_window.connection)
@@ -252,15 +336,18 @@ def test_hotkey_edit_shows_stored_override(main_window, qapp):
     assert dock.hotkey_edits["test.hotkey"].keySequence() == QKeySequence("Ctrl+Alt+H")
 
 
-def test_editing_hotkey_persists_override(main_window, qapp):
-    """Rebinding in the Settings tab writes gui_state.json["hotkeys"] and
-    re-applies to the live action (set_shortcut's live re-apply)."""
+def test_editing_hotkey_applies_override(main_window, qapp):
+    """Rebinding in the Settings browser writes gui_state.json["hotkeys"] and
+    re-applies to the live action (set_shortcut's live re-apply) — but only
+    on apply(), matching the modal OK/Apply contract."""
     build_action(main_window, "test.hotkey", "Test hotkey", "Ctrl+Shift+Q", None)
     dock = ConfiguratorDock(main_window, connection=main_window.connection)
     edit = dock.hotkey_edits["test.hotkey"]
     edit.setKeySequence(QKeySequence("Ctrl+Alt+R"))
-    dock._on_hotkey_edited("test.hotkey", edit)
+    assert settings.state.get("hotkeys") is None  # draft only
+    dock.apply()
     assert settings.state.get("hotkeys") == {"test.hotkey": "Ctrl+Alt+R"}
+    assert hotkeys.get_shortcut("test.hotkey") == QKeySequence("Ctrl+Alt+R")
 
 
 def test_hotkeys_refresh_picks_up_actions_registered_later(main_window, qapp):
