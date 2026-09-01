@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import pytest
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QMessageBox
 
 import gui.docks.config_tree as config_tree_mod
@@ -38,7 +39,7 @@ ALL_SECTIONS = {
     "clone_placements": [{"name": "my_placement", "cell": "my_cell"}],
     "coordinate_placements": [{"name": "my_coord", "cluster": "CHAN", "role": "R"}],
     "points": {"my_point": {"xy": [1.0, 2.0]}},
-    "rules": [{"net": "+3V3"}],
+    "chains": [{"net": "+3V3"}],
 }
 
 
@@ -147,20 +148,25 @@ def test_clicking_an_extract_profile_leaf_fires_profile_picked(main_window, tmp_
     assert picked == ["alpha"]
 
 
-def test_clicking_a_rules_leaf_fires_no_signal_no_form_yet(main_window, tmp_path):
+def test_clicking_a_chain_node_fires_no_signal_no_form_yet(main_window, tmp_path):
+    """2026-09-01, plan rules_to_chains: a chains: node (anchor/chain/pad)
+    is edited via DOUBLE click or the context menu — a single click does
+    nothing (same as points/entities after 2026-09-01)."""
     root = tmp_path / "root.sexp"
-    _write(root, {"rules": [{"net": "+3V3", "anchor_ref": "U1", "spokes": []}]})
+    _write(root, {"chains": [{"net": "+3V3", "anchor_ref": "U1", "spokes": []}]})
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
-    leaf = _find(dock.tree.topLevelItem(0), "Rules").child(0)
-    assert leaf.text(0) == "+3V3"
+    chains_cat = _find(dock.tree.topLevelItem(0), "Chains")
+    anchor = _find(chains_cat, "Anchor: U1")
+    chain = _find(anchor, "+3V3")
+    assert chain.text(0) == "+3V3"
     picked = []
     dock.cell_picked.connect(picked.append)
     dock.placement_picked.connect(picked.append)
     dock.profile_picked.connect(picked.append)
-    dock.tree.itemClicked.emit(leaf, 0)
+    dock.tree.itemClicked.emit(chain, 0)
 
     assert picked == []
 
@@ -530,38 +536,39 @@ def test_entities_leaf_double_click_emits_entity_edit_requested(main_window, tmp
     assert requested == ["E1"]
 
 
-def test_add_rule_emits_request_instead_of_writing_directly(main_window, tmp_path):
+def test_add_chain_emits_request_instead_of_writing_directly(main_window, tmp_path):
     root = tmp_path / "root.sexp"
-    _write(root, {"rules": []})
+    _write(root, {"chains": []})
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
     requested = []
-    dock.add_rule_requested.connect(requested.append)
-    dock.add_rule_requested.emit(root)
+    dock.add_chain_requested.connect(requested.append)
+    dock.add_chain_requested.emit(root)
 
     assert requested == [root]
-    # nothing written — Add rule defers to RuleDock's own Save path, same
+    # nothing written — Add chain defers to ChainDock's own Save path, same
     # reasoning as Add thermal via pad/Add placer/Add point above.
-    assert _load(root) == {"rules": []}
+    assert _load(root) == {"chains": []}
 
 
-def test_rule_leaf_click_emits_rule_picked(main_window, tmp_path):
-    """rules: is a LIST section (see _entries()) — like thermal_via_picked,
-    the payload is already the full dict."""
+def test_chain_node_double_click_emits_chain_edit_requested(main_window, tmp_path):
+    """A chains: CHAIN node is opened by a DOUBLE click (2026-09-01, plan
+    rules_to_chains) — the payload is the full chain dict (like the old
+    rule_picked) but routed through chain_edit_requested, not a single click."""
     root = tmp_path / "root.sexp"
-    _write(root, {"rules": [{"net": "+3V3", "anchor_role": "FPGA"}]})
+    _write(root, {"chains": [{"net": "+3V3", "anchor_role": "FPGA"}]})
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
-    picked = []
-    dock.rule_picked.connect(picked.append)
-    leaf = _find(dock.tree.topLevelItem(0), "Rules").child(0)
-    dock._on_clicked(leaf, 0)
+    requested = []
+    dock.chain_edit_requested.connect(requested.append)
+    chain = _find(_find(dock.tree.topLevelItem(0), "Chains"), "Anchor: FPGA").child(0)
+    dock._on_double_clicked(chain, 0)
 
-    assert picked == [{"net": "+3V3", "anchor_role": "FPGA"}]
+    assert requested == [{"net": "+3V3", "anchor_role": "FPGA"}]
 
 
 def test_entities_and_trees_categories_with_entity_click(main_window, tmp_path):
@@ -749,7 +756,7 @@ def _add_labels(labels):
     ("Coordinate placements", "Add coordinate placement..."),
     ("Clone placements", "Add placer..."),
     ("Points", "Add point..."),
-    ("Rules", "Add rule..."),
+    ("Chains", "Add chain..."),
 ])
 def test_category_context_menu_shows_only_its_own_add_action(
         main_window, tmp_path, monkeypatch, category_label, expected_add):
@@ -770,7 +777,7 @@ def test_category_context_menu_shows_only_its_own_add_action(
     ("Coordinate placements", "Add coordinate placement..."),
     ("Clone placements", "Add placer..."),
     ("Points", "Add point..."),
-    ("Rules", "Add rule..."),
+    ("Chains", "Add chain..."),
 ])
 def test_leaf_context_menu_shows_only_its_sections_add_action(
         main_window, tmp_path, monkeypatch, category_label, expected_add):
@@ -815,7 +822,7 @@ def test_extract_profiles_category_and_leaf_have_no_add_action_but_new_extract(
     assert _add_labels(captured) == ["Add included file...", "Add included file..."]
     assert captured.count("New Extract...") == 2  # one per menu
     assert "Add cell..." not in captured
-    assert "Add rule..." not in captured
+    assert "Add chain..." not in captured
 
 
 def test_clone_profiles_category_has_no_add_actions(main_window, tmp_path, monkeypatch):
@@ -847,7 +854,7 @@ def test_file_header_context_menu_shows_all_six_add_actions(
     labels = _context_menu_labels(dock, dock.tree.topLevelItem(0), monkeypatch)
 
     for label in ("Add cell...", "Add thermal via pad...", "Add coordinate placement...",
-                  "Add placer...", "Add point...", "Add rule..."):
+                  "Add placer...", "Add point...", "Add chain..."):
         assert label in labels
 
 
@@ -866,7 +873,7 @@ def test_nested_cell_child_context_menu_shows_all_add_actions(
     labels = _context_menu_labels(dock, nested, monkeypatch)
 
     assert "Add cell..." in labels
-    assert "Add rule..." in labels
+    assert "Add chain..." in labels
 
 
 def test_add_section_for_item_leaf_category_and_file_header(main_window, tmp_path):
@@ -1405,28 +1412,30 @@ def test_cell_leaf_without_comment_is_plain(main_window, tmp_path):
     assert leaf.toolTip(0) == ""
 
 
-def test_rules_leaf_with_comment_shows_glyph_and_tooltip(main_window, tmp_path):
-    """comment on a LIST-section (rules) entry: _entries() yields the full
-    record dict as payload, so the marker comes straight from it."""
+def test_chains_chain_node_with_comment_shows_glyph_and_tooltip(main_window, tmp_path):
+    """comment on a chains: entry — the marker goes on the CHAIN node (the
+    nested tree's second level, under its anchor), straight from the dict."""
     root = tmp_path / "root.sexp"
-    _write(root, {"rules": [{"net": "+3V3", "anchor_ref": "U1", "comment": "a rule note", "spokes": []}]})
+    _write(root, {"chains": [{"net": "+3V3", "anchor_ref": "U1", "comment": "a chain note", "spokes": []}]})
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
-    leaf = _find(dock.tree.topLevelItem(0), "Rules").child(0)
-    assert leaf.text(0) == "📝 +3V3"
-    assert leaf.toolTip(0) == "a rule note"
+    chains_cat = _find(dock.tree.topLevelItem(0), "Chains")
+    chain = _find(_find(chains_cat, "Anchor: U1"), "📝 +3V3")
+    assert chain.text(0) == "📝 +3V3"
+    assert chain.toolTip(0) == "a chain note"
 
 
-def test_rules_leaf_without_comment_is_plain(main_window, tmp_path):
+def test_chains_chain_node_without_comment_is_plain(main_window, tmp_path):
     root = tmp_path / "root.sexp"
-    _write(root, {"rules": [{"net": "+3V3", "anchor_ref": "U1", "spokes": []}]})
+    _write(root, {"chains": [{"net": "+3V3", "anchor_ref": "U1", "spokes": []}]})
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
-    leaf = _find(dock.tree.topLevelItem(0), "Rules").child(0)
-    assert leaf.text(0) == "+3V3"
-    assert leaf.toolTip(0) == ""
+    chains_cat = _find(dock.tree.topLevelItem(0), "Chains")
+    chain = _find(_find(chains_cat, "Anchor: U1"), "+3V3")
+    assert chain.text(0) == "+3V3"
+    assert chain.toolTip(0) == ""
 
 
 # ── Selection survives refresh() (2026-08-27) ─────────────────────────────
@@ -1508,3 +1517,217 @@ def test_selection_degrades_gracefully_when_entry_deleted(main_window, tmp_path)
     dock.refresh()  # must not raise
 
     assert dock.tree.selectedItems() == []
+
+
+# ── Chains nested tree (2026-09-01, plan rules_to_chains) ────────────────────
+# The Chains category renders category -> anchor -> chain -> pad leaves (NOT a
+# flat list and NOT a pad table — the whole point of the modernization).
+
+def test_chains_nested_tree_renders_anchor_chain_pads(main_window, tmp_path):
+    """Chains category -> anchor group -> chain node -> pad leaves. The chain
+    carries anchor_ref: U1 and two spokes; the pads are LEAVES with the pad
+    number as label and the cell as tooltip (no separate table anywhere)."""
+    root = tmp_path / "root.sexp"
+    _write(root, {"chains": [{
+        "net": "+3V3", "anchor_ref": "U1",
+        "spokes": [{"pad": "1", "cell": "fpga"}, {"pad": "3", "cell": "cap"}],
+    }]})
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    chains_cat = _find(dock.tree.topLevelItem(0), "Chains")
+    anchor = _find(chains_cat, "Anchor: U1")
+    chain = _find(anchor, "+3V3")
+
+    assert chain.childCount() == 2  # pads are leaves, not a table
+    pad1 = _find(chain, "1")
+    assert pad1.data(0, Qt.ItemDataRole.UserRole) == (
+        "pad", "chains", chain.data(0, Qt.ItemDataRole.UserRole)[2], 0)
+    assert pad1.toolTip(0) == "cell fpga"
+    pad3 = _find(chain, "3")
+    assert pad3.data(0, Qt.ItemDataRole.UserRole) == (
+        "pad", "chains", chain.data(0, Qt.ItemDataRole.UserRole)[2], 1)
+    assert pad3.toolTip(0) == "cell cap"
+
+
+def test_chains_sorts_anchors_then_chains_then_pads(main_window, tmp_path):
+    """Anchors sort by key, chains by effective name, pads by pad number —
+    regardless of the source list order."""
+    root = tmp_path / "root.sexp"
+    _write(root, {"chains": [
+        {"net": "B", "anchor_ref": "U2",
+         "spokes": [{"pad": "3", "cell": "c"}, {"pad": "1", "cell": "c"}]},
+        {"net": "A", "anchor_ref": "U1", "spokes": [{"pad": "2", "cell": "c"}]},
+        {"name": "Z_named", "net": "A", "anchor_ref": "U1",
+         "spokes": [{"pad": "5", "cell": "c"}]},
+    ]})
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    chains_cat = _find(dock.tree.topLevelItem(0), "Chains")
+    assert chains_cat.childCount() == 2  # two anchors
+    anchor1 = chains_cat.child(0)
+    anchor2 = chains_cat.child(1)
+    assert anchor1.text(0) == "Anchor: U1"
+    assert anchor2.text(0) == "Anchor: U2"
+    # U1 has two chains: effective name "A" (net) then "Z_named" (name beats
+    # net but sorts after) — sorted by effective name.
+    assert anchor1.child(0).text(0) == "A"
+    assert anchor1.child(1).text(0) == "Z_named"
+    # U2's single chain "B" has its pads sorted 1 then 3.
+    assert anchor2.child(0).child(0).text(0) == "1"
+    assert anchor2.child(0).child(1).text(0) == "3"
+
+
+def test_chains_pad_and_chain_double_click_emit_edit_requests(main_window, tmp_path):
+    """Double click routes by node kind: CHAIN node -> chain_edit_requested
+    (whole chain dict), PAD leaf -> pad_edit_requested (chain dict, pad index).
+    Single click on either fires NO pick signal (see the single-click test)."""
+    root = tmp_path / "root.sexp"
+    chain_data = {"net": "+3V3", "anchor_role": "FPGA",
+                  "spokes": [{"pad": "1", "cell": "c"}, {"pad": "2", "cell": "c"}]}
+    _write(root, {"chains": [chain_data]})
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    anchor = _find(_find(dock.tree.topLevelItem(0), "Chains"), "Anchor: FPGA")
+    chain = _find(anchor, "+3V3")
+    pad1 = _find(chain, "1")
+
+    chain_requests = []
+    dock.chain_edit_requested.connect(chain_requests.append)
+    pad_requests = []
+    dock.pad_edit_requested.connect(
+        lambda chain, idx: pad_requests.append((chain, idx)))
+
+    dock._on_double_clicked(chain, 0)
+    assert chain_requests == [chain_data]
+    dock._on_double_clicked(pad1, 0)
+    assert pad_requests == [(chain_data, 0)]
+
+    # Single clicks fire neither.
+    picked = []
+    dock.cell_picked.connect(picked.append)
+    dock.placement_picked.connect(picked.append)
+    dock._on_clicked(chain, 0)
+    dock._on_clicked(pad1, 0)
+    assert picked == []
+
+
+def test_chains_pad_selection_survives_refresh(main_window, tmp_path):
+    """A selected PAD leaf stays selected across refresh() — its identity is
+    (file, "chains", parent chain effective name, pad index), rebuilt from the
+    fresh chain dict after the tree rebuild."""
+    root = tmp_path / "root.sexp"
+    _write(root, {"chains": [{"net": "+3V3", "anchor_ref": "U1",
+                              "spokes": [{"pad": "1", "cell": "c"},
+                                         {"pad": "2", "cell": "c"}]}]})
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    chain = _find(_find(_find(dock.tree.topLevelItem(0), "Chains"), "Anchor: U1"), "+3V3")
+    pad2 = _find(chain, "2")
+    pad2.setSelected(True)
+    assert len(dock.tree.selectedItems()) == 1
+
+    dock.refresh()
+
+    selected = dock.tree.selectedItems()
+    assert len(selected) == 1
+    assert selected[0].text(0) == "2"
+    assert selected[0].data(0, Qt.ItemDataRole.UserRole)[0] == "pad"
+
+
+def test_chain_context_menu_has_spoke_redraw_and_bulk(main_window, tmp_path, monkeypatch):
+    """Chain node's EXTRA context actions (beyond the generic Add chain... /
+    Rename.../Delete... from the shared blocks): Add spoke..., Redraw chain,
+    Bulk set Cell for net... — plus the generic Add chain... from the Add block.
+    Their triggered QActions emit add_pad_requested / chain_redraw_requested /
+    bulk_set_cell_requested (Redraw/Bulk moved OUT of the old RuleDock buttons,
+    plan rules_to_chains)."""
+    root = tmp_path / "root.sexp"
+    chain_data = {"net": "+3V3", "anchor_ref": "U1", "spokes": []}
+    _write(root, {"chains": [chain_data]})
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    chain = _find(_find(_find(dock.tree.topLevelItem(0), "Chains"), "Anchor: U1"), "+3V3")
+    actions = _context_menu_actions(dock, chain, monkeypatch)
+    labels = [text for text, _ in actions]
+
+    for expected in ("Add spoke...", "Redraw chain", "Bulk set Cell for net..."):
+        assert expected in labels, labels
+
+    by_label = dict(actions)
+    add_pad = []
+    dock.add_pad_requested.connect(add_pad.append)
+    by_label["Add spoke..."].trigger()
+    assert add_pad == [chain_data]
+
+    redraw = []
+    dock.chain_redraw_requested.connect(redraw.append)
+    by_label["Redraw chain"].trigger()
+    assert redraw == [chain_data]
+
+    bulk = []
+    dock.bulk_set_cell_requested.connect(bulk.append)
+    by_label["Bulk set Cell for net..."].trigger()
+    assert bulk == ["+3V3"]
+
+
+def test_pad_context_menu_has_redraw_spoke_and_delete_pad(main_window, tmp_path, monkeypatch):
+    """Pad leaf's context actions: Redraw spoke + Delete pad... (the pad has no
+    Rename/Delete — it is not a standalone record)."""
+    root = tmp_path / "root.sexp"
+    chain_data = {"net": "+3V3", "anchor_ref": "U1",
+                  "spokes": [{"pad": "1", "cell": "fpga"},
+                             {"pad": "2", "cell": "c"}]}
+    _write(root, {"chains": [chain_data]})
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    chain = _find(_find(_find(dock.tree.topLevelItem(0), "Chains"), "Anchor: U1"), "+3V3")
+    pad1 = _find(chain, "1")
+    actions = _context_menu_actions(dock, pad1, monkeypatch)
+    labels = [text for text, _ in actions]
+
+    assert "Redraw spoke" in labels, labels
+    assert "Delete pad..." in labels, labels
+    assert "Rename..." not in labels  # pads have no name of their own
+
+    redraw = []
+    dock.pad_redraw_requested.connect(
+        lambda chain, idx: redraw.append((chain, idx)))
+    dict(actions)["Redraw spoke"].trigger()
+    assert redraw == [(chain_data, 0)]
+
+
+def test_anchor_context_menu_has_add_chain_and_redraw_chains(main_window, tmp_path, monkeypatch):
+    """Anchor node: the generic Add chain... (its own Add block) PLUS the
+    anchor-level "Redraw chains..." that redraws every chain under this anchor
+    in ONE batch action (2026-09-01, Denis: "если корневой компонент, то
+    вообще все его спицы") — it emits anchor_redraw_requested with the list
+    of chain dicts. Pads/Delete are per-chain, not per-anchor."""
+    root = tmp_path / "root.sexp"
+    _write(root, {"chains": [
+        {"net": "+3V3", "anchor_ref": "U1", "spokes": []},
+        {"net": "GND", "anchor_ref": "U1", "spokes": []},
+    ]})
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    anchor = _find(_find(dock.tree.topLevelItem(0), "Chains"), "Anchor: U1")
+    actions = _context_menu_actions(dock, anchor, monkeypatch)
+    labels = [text for text, _ in actions]
+
+    assert "Add chain..." in labels
+    assert "Redraw chains..." in labels
+    assert "Add spoke..." not in labels
+    assert "Redraw chain" not in labels  # the anchor uses the batch "Redraw chains..."
+    assert "Delete pad..." not in labels
+
+    redraws = []
+    dock.anchor_redraw_requested.connect(redraws.append)
+    dict(actions)["Redraw chains..."].trigger()
+    assert len(redraws) == 1
+    assert [c["net"] for c in redraws[0]] == ["+3V3", "GND"]
