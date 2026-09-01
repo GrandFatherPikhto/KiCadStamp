@@ -11195,3 +11195,11 @@ msgstr ""
 #: gui/docks/tree_from_selection_dialog.py
 msgid "Some selected clusters have no Entity or cell:\n{list}"
 msgstr ""
+
+#: kicadstamp/kicad/adapter.py:246
+msgid "Registry UUIDs have no live items ({type}: {e})"
+msgstr ""
+
+#: gui/docks/trees_dock.py
+msgid "Trees: root config failed to reload: {error}"
+msgstr ""

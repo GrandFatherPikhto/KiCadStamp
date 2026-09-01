@@ -11660,3 +11660,11 @@ msgstr "Выберите корневой кластер, чтобы запол�
 #: gui/docks/tree_from_selection_dialog.py
 msgid "Some selected clusters have no Entity or cell:\n{list}"
 msgstr "У некоторых выделенных кластеров нет Entity или cell:\n{list}"
+
+#: kicadstamp/kicad/adapter.py:246
+msgid "Registry UUIDs have no live items ({type}: {e})"
+msgstr "Реестр UUID: нет живых элементов ({type}: {e})"
+
+#: gui/docks/trees_dock.py
+msgid "Trees: root config failed to reload: {error}"
+msgstr "Деревья: не удалось перезагрузить корневой конфиг: {error}"

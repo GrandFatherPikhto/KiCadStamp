@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for kicadstamp/i18n.py — language detection precedence and the
 setup_i18n() install mechanism. See docs/i18n_translation.md."""
+import ast
 import re
 import string
 import sys
@@ -12,7 +13,14 @@ import pytest
 from kicadstamp.i18n import detect_language, setup_i18n
 
 ROOT = Path(__file__).parent.parent
+EN_PO = ROOT / "locales" / "en" / "LC_MESSAGES" / "kicadstamp.po"
 RU_PO = ROOT / "locales" / "ru" / "LC_MESSAGES" / "kicadstamp.po"
+RU_MO = RU_PO.with_suffix(".mo")
+
+# The shipped packages — the same scope pyproject.toml's packages.find uses.
+# tests/ and tools/ are deliberately NOT scanned: their strings never reach
+# users, so they don't need catalog entries.
+SHIPPED_DIRS = (ROOT / "kicadstamp", ROOT / "gui", ROOT / "mcp_server")
 
 
 class TestDetectLanguagePrecedence:
@@ -199,3 +207,73 @@ class TestLocaleCatalogIntegrity:
             "msgstr references placeholder(s) not in msgid (would KeyError "
             f"at runtime) — (msgid, msgstr, extra names): {invented}"
         )
+
+
+def _source_msgids() -> set:
+    """Every _("...") literal in the SHIPPED source, via stdlib ast. Implicit
+    string concatenation is folded by the parser, so a multi-line
+    `_("a " "b")` yields ONE msgid — the same folding pybabel (which generates
+    the .po files) does, but without the babel dependency here. This is the
+    exact set the en/ru catalogs must cover."""
+    msgs: set = set()
+    for base in SHIPPED_DIRS:
+        for py in base.rglob("*.py"):
+            try:
+                tree = ast.parse(py.read_text(encoding="utf-8"))
+            except (OSError, SyntaxError):
+                continue
+            for node in ast.walk(tree):
+                if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                        and node.func.id == "_" and node.args):
+                    arg = node.args[0]
+                    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                        msgs.add(arg.value)
+    return msgs
+
+
+def _po_all_msgids(po_path: Path) -> set:
+    """Every msgid in a .po, translated OR untranslated — presence, not
+    translation quality, is what completeness means (gettext falls back to the
+    English msgid for an empty msgstr, so an untranslated entry still works).
+    Obsolete (#~) entries are excluded: they're retired strings, not coverage."""
+    text = po_path.read_text(encoding="utf-8")
+    text = "\n".join(ln for ln in text.splitlines() if not ln.startswith("#~"))
+    out: set = set()
+    for m in re.finditer(r'^msgid ((?:"(?:[^"\\]|\\.)*"\n?)+)', text, re.M):
+        mid = _unescape_po_string(m.group(1))
+        if mid:
+            out.add(mid)
+    return out
+
+
+class TestCatalogCompleteness:
+    """A new _("...") string that isn't added to the catalogs silently falls
+    back to English for RU users — and before this class no test caught it.
+    These tests pin the completeness of BOTH catalogs against the shipped
+    source, plus the compiled RU .mo (the binary gettext actually reads)."""
+
+    def test_every_source_string_is_in_en_catalog(self):
+        missing = sorted(_source_msgids() - _po_all_msgids(EN_PO))
+        assert not missing, (
+            "strings missing from locales/en/LC_MESSAGES/kicadstamp.po "
+            f"(source _() without a catalog entry): {missing}")
+
+    def test_every_source_string_is_in_ru_catalog(self):
+        missing = sorted(_source_msgids() - _po_all_msgids(RU_PO))
+        assert not missing, (
+            "strings missing from locales/ru/LC_MESSAGES/kicadstamp.po "
+            f"(source _() without a catalog entry): {missing}")
+
+    def test_compiled_ru_mo_is_in_sync_with_po(self):
+        """The .mo binary is what gettext reads at runtime — a .po edit that
+        isn't recompiled ships a STALE binary (RU shows English despite the
+        .po being complete). Every TRANSLATED (non-empty msgstr) .po entry
+        must be present in the compiled .mo."""
+        with open(RU_MO, "rb") as f:
+            mo = gettext.GNUTranslations(f)
+        catalog = getattr(mo, "_catalog", {})
+        missing = sorted(mid for mid, _mstr in _po_entries(RU_PO)
+                         if mid not in catalog)
+        assert not missing, (
+            "locales/ru/LC_MESSAGES/kicadstamp.po has translated entries missing "
+            "from the compiled .mo — recompile it (pybabel compile): " + repr(missing))
