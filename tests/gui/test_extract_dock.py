@@ -388,63 +388,14 @@ def _combo_index_for_filename(combo, filename):
     return -1
 
 
-def test_prepare_new_profile_arms_the_extract_flow(main_window, tmp_path):
-    """ConfigTreeDock's "Add extract profile..." delegate — not a blank form
-    (an extract_profiles: entry's params come from a real board selection):
-    it points the dock at the profile file, pre-checks the save checkbox,
-    clears + focuses the profile-key field."""
-    cells_file = tmp_path / "cells.sexp"
-    _write(cells_file, {"cells": {}})
-    profile_file = tmp_path / "profiles.sexp"
-    _write(profile_file, {"extract_profiles": {}})
-    dock = ExtractDock(main_window)
-    dock.set_root_path(cells_file)
-    dock.save_profile_checkbox.setChecked(False)
-    dock.profile_key_edit.setText("stale")
-
-    dock.prepare_new_profile(profile_file)
-
-    assert dock.save_profile_checkbox.isChecked()
-    assert dock.profile_key_edit.text() == ""
-    # hasFocus() is False in offscreen (the window is never shown/activated)
-    # — focusWidget() reflects the window's set focus widget instead.
-    assert dock.focusWidget() is dock.profile_key_edit
-    assert dock._profile_path == dock._root_path
-
-
-def test_prepare_new_profile_does_not_disturb_the_cells_context(main_window, tmp_path):
-    """The profile key is independent of what's selected for extraction —
-    prepare_new_profile must not change the target Cell file or the existing
-    cells list content (set_profile_file's list refresh re-adds the SAME
-    cells from the unchanged _target_path)."""
-    cells_file = tmp_path / "cells.sexp"
-    _write(cells_file, {"cells": {"alpha": {}}})
-    profile_file = tmp_path / "profiles.sexp"
-    _write(profile_file, {"extract_profiles": {}})
-    dock = ExtractDock(main_window)
-    dock.set_root_path(cells_file)
-
-    before_items = [dock.cells_list.item(i).text() for i in range(dock.cells_list.count())]
-    before_target = dock._target_path
-
-    dock.prepare_new_profile(profile_file)
-
-    after_items = [dock.cells_list.item(i).text() for i in range(dock.cells_list.count())]
-    assert after_items == before_items == ["alpha"]
-    assert dock._target_path == before_target
-    assert dock.profile_key_edit.text() == ""
-
-
-def test_prepare_new_profile_auto_checks_cluster_filter_when_selection_spans_clusters(main_window, tmp_path):
-    """2026-08-31, "Add extract profile...": when the current selection swept
-    up several Clusters, "Add extract profile..." auto-checks "Keep only one
-    Cluster" — the combo already defaults to the majority Cluster, so checking
-    the box immediately narrows the upcoming extract to it and drops the
-    foreign Clusters swept in by the area-select."""
+def test_prepare_new_extract_auto_checks_cluster_filter_when_selection_spans_clusters(main_window, tmp_path):
+    """2026-08-31 (moved from the removed "Add extract profile..."): when the
+    current selection swept up several Clusters, "New Extract..." auto-checks
+    "Keep only one Cluster" — the combo already defaults to the majority
+    Cluster, so checking the box immediately narrows the upcoming extract to
+    it and drops the foreign Clusters swept in by the area-select."""
     cells_file = tmp_path / "cells.sexp"
     _write(cells_file, {})
-    profile_file = tmp_path / "profiles.sexp"
-    _write(profile_file, {"extract_profiles": {}})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
 
@@ -458,25 +409,22 @@ def test_prepare_new_profile_auto_checks_cluster_filter_when_selection_spans_clu
     assert dock.cluster_filter_checkbox.isChecked() is False
     assert dock.cluster_filter_combo.currentData() == "FPGA_PERIPH"
 
-    dock.prepare_new_profile(profile_file)
+    dock.prepare_new_extract()
 
     assert dock.cluster_filter_checkbox.isChecked() is True
     assert dock.cluster_filter_combo.currentData() == "FPGA_PERIPH"
     # Checking the filter narrows the selection down to the one kept Cluster
     # (FPGA_PERIPH), so the profile key auto-fills from THAT cluster's slug —
-    # the "auto-check + auto-key from cluster" pair working together, exactly
-    # the "New Extract" behaviour Denis asked for.
+    # the "auto-check + auto-key from cluster" pair working together.
     assert dock.profile_key_edit.text() == "fpga_periph"
 
 
-def test_prepare_new_profile_leaves_cluster_filter_alone_for_single_cluster(main_window, tmp_path):
-    """With nothing to filter (one Cluster, or none), "Add extract profile..."
-    must not touch the checkbox — checking it would hide no foreign Clusters
-    and would silently survive into a later multi-Cluster selection."""
+def test_prepare_new_extract_leaves_cluster_filter_alone_for_single_cluster(main_window, tmp_path):
+    """With nothing to filter (one Cluster, or none), "New Extract..." must
+    not touch the checkbox — checking it would hide no foreign Clusters and
+    would silently survive into a later multi-Cluster selection."""
     cells_file = tmp_path / "cells.sexp"
     _write(cells_file, {})
-    profile_file = tmp_path / "profiles.sexp"
-    _write(profile_file, {"extract_profiles": {}})
     dock = ExtractDock(main_window)
     dock.set_root_path(cells_file)
 
@@ -484,7 +432,7 @@ def test_prepare_new_profile_leaves_cluster_filter_alone_for_single_cluster(main
                              [FakeSelected("R18", "R_SERIES", "FPGA_PERIPH", {})])
     assert dock.cluster_filter_checkbox.isChecked() is False
 
-    dock.prepare_new_profile(profile_file)
+    dock.prepare_new_extract()
 
     assert dock.cluster_filter_checkbox.isChecked() is False
 

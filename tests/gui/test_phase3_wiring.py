@@ -321,46 +321,23 @@ def test_add_rule_requested_opens_blank_rules_form_and_shows_tab(real_main_windo
     assert real_main_window._dock_hub.detail_dock.stack.currentWidget() is real_main_window.rules_dock
 
 
-def test_add_extract_profile_requested_arms_extract_and_shows_dialog(real_main_window, tmp_path):
-    """ConfigTreeDock's "Add extract profile..." context-menu action (2026-08-13,
-    plan context_menu_by_section) -> ExtractDock.prepare_new_profile — NOT a
-    blank form like the other Add-actions (a profile's params come from a real
-    board selection), it pre-arms the Extract flow for a profile save, and
-    opens the (non-modal) Extract dialog (2026-08-31, plan
-    extract_dialog_and_hide_existing.md)."""
-    profiles_file = tmp_path / "profiles.sexp"
-    _write(profiles_file)
-    real_main_window.extract_dock.save_profile_checkbox.setChecked(False)
-    real_main_window.extract_dock.profile_key_edit.setText("stale")
+def test_tools_menu_new_extract_opens_dialog_and_prepares_fresh(real_main_window):
+    """2026-09-01: the Tools menu's "New Extract..." action routes to
+    DockHub.new_extract -> _start_new_extract -> the same plain fresh capture
+    (prepare_new_extract) the Config tree context menu's "New Extract..."
+    provides. With the section-specific "Add extract profile..." removed this
+    is the single Extract entry point."""
+    hub = real_main_window._dock_hub
+    hub.extract_dock.name_edit.setText("stale_name")
+    hub.extract_dock.profile_key_edit.setText("stale_key")
+    hub.extract_dock.save_profile_checkbox.setChecked(True)
 
-    real_main_window.config_tree_dock.add_extract_profile_requested.emit(profiles_file)
+    real_main_window.new_extract_action.trigger()
 
-    assert real_main_window.extract_dock.save_profile_checkbox.isChecked()
-    assert real_main_window.extract_dock.profile_key_edit.text() == ""
-    assert real_main_window._dock_hub.extract_dialog.isVisible()
-
-
-def test_add_extract_profile_requested_shows_extract_before_preparing(main_window, tmp_path):
-    """Bug 1 (handoff_2026_08_13_focus_and_autorole_bugs): prepare_new_profile
-    ends with profile_key_edit.setFocus(), and a setFocus on a widget that
-    isn't shown yet doesn't stick (Qt) — the visible focus signal would be
-    silently lost even though the checkbox still turns on. The Extract dialog
-    must be opened BEFORE the dock is prepared (same ordering rule, now via
-    _open_extract_dialog, 2026-08-31 plan extract_dialog_and_hide_existing.md)."""
-    hub = DockHub(main_window, connection=main_window.connection, verbose=False)
-    try:
-        calls = []
-        original_open = hub._open_extract_dialog
-        hub._open_extract_dialog = lambda: (calls.append("show"), original_open())[1]
-        hub.extract_dock.prepare_new_profile = lambda p: calls.append("prepare")
-
-        profiles_file = tmp_path / "profiles.sexp"
-        _write(profiles_file)
-        hub._start_new_extract_profile(profiles_file)
-
-        assert calls == ["show", "prepare"]
-    finally:
-        _teardown_hub(hub)
+    assert hub.extract_dialog.isVisible()
+    assert hub.extract_dock.name_edit.text() == ""
+    assert hub.extract_dock.profile_key_edit.text() == ""
+    assert hub.extract_dock.save_profile_checkbox.isChecked() is False
 
 
 def test_new_extract_requested_opens_dialog_and_prepares_fresh(real_main_window):

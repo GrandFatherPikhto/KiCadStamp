@@ -148,19 +148,17 @@ Right-click any entry for:
   or overwrite the whole file.
 
 Right-click a file node for **Add cell.../Add point.../Add rule.../Add placer.../Add thermal via
-pad.../Add extract profile.../Add included file...**, plus **Remove this file** (soft-disables its
-`include:` entry, doesn't delete the file) when it's not the root. Since 2026-08-13 the "Add ..."
-block is **section-aware**: right-clicking a category or a leaf shows only THAT section's own Add
-action (cells → Add cell, extract_profiles → Add extract profile, ...); Clone profiles shows none
-(read-only, no GUI edit form); a file header still shows all of them (Denis's decision — otherwise a
-fresh file with no sections yet couldn't create its first entity). "Add extract profile..." isn't a
-blank form like the other Add-actions (an extract profile's params come from a real board selection)
-— it opens the Extract dialog pointed at the file, pre-checks "Also save as extract_profile" and
-focuses the profile-key field, so the profile is saved as a side effect of the next real Extract.
+pad.../Add included file...**, plus **Remove this file** (soft-disables its `include:` entry,
+doesn't delete the file) when it's not the root. Since 2026-08-13 the "Add ..." block is
+**section-aware**: right-clicking a category or a leaf shows only THAT section's own Add action
+(cells → Add cell, rules → Add rule, ...); Clone profiles and Extract profiles show none (no
+dedicated Add form — an extract profile is created via the unconditional **New Extract...** below
+with the dialog's "Also save as extract_profile" checked); a file header still shows all of them
+(Denis's decision — otherwise a fresh file with no sections yet couldn't create its first entity).
 Since 2026-08-31 the Extract form is a standalone **dialog** (no longer a Detail-dock page):
-right-clicking the tree offers **New Extract...** (a plain fresh capture, always available) and, on
-the `extract_profiles` section, **Add extract profile...** (profile-save armed); clicking an
-`extract_profiles` leaf opens the dialog with that profile's recipe pulled in. The dialog is
+right-clicking the tree offers **New Extract...** (a plain fresh capture, always available) and the
+main menu's **Tools → New Extract...** opens the same flow; clicking an `extract_profiles` leaf
+opens the dialog with that profile's recipe pulled in. The dialog is
 non-modal — you can keep selecting on the board while it's open — and auto-closes after a successful
 Extract. Also since 2026-08-31 the selected Cluster auto-fills BOTH the Cell name and the Profile key
 (the matching profile key when one exists, otherwise the Cluster's slug — never stomping a typed
@@ -349,9 +347,9 @@ use), this tab just adds GUI editing on top of a few more keys.
 Builds a `Cell` from whatever's currently selected on the board (components, vias, tracks) and
 writes it into the Cells file — the GUI equivalent of `kicadstamp_cli.py extract`. Since 2026-08-31
 this is a standalone **dialog** (not a Detail-dock page): open it from the Config tree's context
-menu with **New Extract...** (plain capture) or **Add extract profile...** (profile-save armed), or
-by clicking an `extract_profiles` leaf. It's non-modal (keep selecting on the board while it's open)
-and auto-closes after a successful Extract.
+menu or the main menu's **Tools → New Extract...** (plain capture; save a NEW profile by checking
+"Also save as extract_profile" in the dialog), or by clicking an `extract_profiles` leaf. It's
+non-modal (keep selecting on the board while it's open) and auto-closes after a successful Extract.
 
 The main menu's **Tools → Re-read selected...** (2026-08-31) re-captures already-placed clusters:
 select a cluster's components on the board (the whole cluster — components, vias, tracks), then run

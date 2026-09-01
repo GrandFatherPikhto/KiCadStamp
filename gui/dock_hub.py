@@ -409,11 +409,8 @@ class DockHub:
         self.config_tree_dock.add_point_requested.connect(self._start_new_point)
         self.config_tree_dock.add_rule_requested.connect(self._start_new_rule)
         self.config_tree_dock.add_cell_requested.connect(self._start_new_cell)
-        # "Add extract profile..." (2026-08-13, plan context_menu_by_section)
-        # — NOT a blank form like the other Add-actions: it prepares the
-        # Extract flow for a profile save (see ExtractDock.prepare_new_profile).
-        self.config_tree_dock.add_extract_profile_requested.connect(
-            self._start_new_extract_profile)
+        # "New Extract..." (2026-08-31, plan extract_dialog_and_hide_existing.
+        # md) — context menu + Tools menu -> the same plain fresh capture.
         self.config_tree_dock.new_extract_requested.connect(self._start_new_extract)
         # Config tree's own graph-mutating actions (_on_rename/_on_delete/
         # _add_included_file/_remove_file) -> every dock's graph-derived
@@ -565,18 +562,11 @@ class DockHub:
         fully-selected Clusters (dialog with Entities + checkboxes)."""
         self.extract_dock.re_read_selected()
 
-    def _start_new_extract_profile(self, file_path) -> None:
-        """ConfigTreeDock's add_extract_profile_requested delegate — same
-        reasoning as _start_new_placement above, for ExtractDock's profile
-        preparation (see extract.py's prepare_new_profile — deliberately not
-        a blank form like the other Add-actions). The Extract dialog is
-        opened BEFORE preparing (bug 1, 2026-08-13, same ordering rule):
-        prepare_new_profile ends with profile_key_edit.setFocus(), and a
-        setFocus on a widget that isn't shown yet doesn't stick — the
-        checkbox would still turn on, but the intended visible signal (focus
-        in the profile-key field) would be silently lost."""
-        self._open_extract_dialog()
-        self.extract_dock.prepare_new_profile(file_path)
+    def new_extract(self) -> None:
+        """Main menu "Tools -> New Extract..." (2026-09-01) -> the same plain
+        fresh capture as the Config tree context menu's "New Extract..."
+        (new_extract_requested -> _start_new_extract)."""
+        self._start_new_extract()
 
     def _start_new_extract(self) -> None:
         """ConfigTreeDock's new_extract_requested delegate ("New Extract...",

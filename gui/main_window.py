@@ -207,6 +207,14 @@ class MainWindow(QMainWindow):
         self.reead_selected_action.triggered.connect(
             lambda: self._dock_hub.reead_selected())
         tools_menu.addAction(self.reead_selected_action)
+        # "New Extract..." (2026-09-01): the same plain fresh capture as the
+        # Config tree context menu item — with the section-specific "Add
+        # extract profile..." removed, this is the single Extract entry point
+        # (the dialog's "Also save as extract_profile" covers profile saving).
+        self.new_extract_action = QAction(_("New Extract..."), self)
+        self.new_extract_action.triggered.connect(
+            lambda: self._dock_hub.new_extract())
+        tools_menu.addAction(self.new_extract_action)
 
         # View menu (2026-08-27, handoff sync_skip_message_and_view_menu): the
         # app had no menu bar at all, so a closed dock had no way back short of

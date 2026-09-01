@@ -4,9 +4,10 @@ ExtractDialog — the Extract form as a standalone, non-modal dialog
 (2026-08-31, plan extract_dialog_and_hide_existing.md).
 
 The Extract dock was merged into DetailDock's stack (gui/docks/detail_panel.py)
-back on 2026-08-03; since then every extract flow — "New Extract...",
-"Add extract profile..." and clicking an extract_profiles leaf — opened that
-dock page. With nets auto-derived and the cluster auto-fill in place
+back on 2026-08-03; since then every extract flow — "New Extract..." and
+clicking an extract_profiles leaf — opened that dock page (the section-
+specific "Add extract profile..." was removed 2026-09-01 as a duplicate of
+"New Extract..."). With nets auto-derived and the cluster auto-fill in place
 (plan_2026_08_31_extract_new_profile_cluster_autofill.md) the form became a
 simple "select -> Extract" capture, so it now lives in a DIALOG launched from
 the Config tree context menu instead of a permanent dock page.

@@ -64,8 +64,10 @@ Right-click context menu (2026-08-03): file-level actions always operate on
 — the descendant doesn't change WHICH file the action targets). Since
 2026-08-13 (plan context_menu_by_section) the "Add ..." block is ALSO
 section-aware: right-clicking a leaf or category shows only that section's
-own Add action (cells -> Add cell, extract_profiles -> Add extract profile,
-...), clone_profiles shows none (read-only, no GUI edit form), and a file
+own Add action (cells -> Add cell, rules -> Add rule, ...); clone_profiles
+and extract_profiles show none (an extract profile is created via the
+unconditional "New Extract..." with the dialog's "Also save as extract_
+profile" checked), and a file
 header (or a read-only nested cell node) shows ALL of them — Denis's
 explicit decision, otherwise a fresh file with no sections yet couldn't
 create its first entity. Remove this file still appears only for non-root
@@ -152,11 +154,12 @@ _SECTION_LABELS = {
 # block (2026-08-13, plan context_menu_by_section): right-clicking a leaf or
 # category of a section shows ONLY that section's own Add action. Order here
 # is the order the actions appear when ALL of them are shown (file header).
-# extract_profiles is in the list (its "Add extract profile..." opens the
-# Extract form pre-armed for profile saving, see ExtractDock.prepare_new_
-# profile); clone_profiles is deliberately ABSENT — it has no GUI edit form
-# (same deliberate scope limit as the module docstring's read-only note), so
-# a right-click on it shows no Add action at all.
+# extract_profiles is deliberately ABSENT — creating an extract profile is a
+# plain "New Extract..." (unconditional, below) with the dialog's "Also save
+# as extract_profile" checked, so it needs no section Add action; clone_
+# profiles is deliberately ABSENT too — it has no GUI edit form (same
+# deliberate scope limit as the module docstring's read-only note), so a
+# right-click on it shows no Add action at all.
 _ADD_ACTION_BY_SECTION = {
     "cells": (_("Add cell..."), "add_cell_requested"),
     "thermal_via_arrays": (_("Add thermal via pad..."), "add_thermal_via_requested"),
@@ -164,7 +167,6 @@ _ADD_ACTION_BY_SECTION = {
     "clone_placements": (_("Add placer..."), "add_placer_requested"),
     "points": (_("Add point..."), "add_point_requested"),
     "rules": (_("Add rule..."), "add_rule_requested"),
-    "extract_profiles": (_("Add extract profile..."), "add_extract_profile_requested"),
 }
 
 # Leaf-label marker for an entry carrying a comment — a single source of truth,
@@ -242,17 +244,11 @@ class ConfigTreeDock(QDockWidget):
     # same list-section full-dict payload as rule_picked. NetTraceDock.
     # load_entry() listens.
     net_trace_picked = pyqtSignal(object)
-    # Fired by the context menu's "Add extract profile..." (2026-08-13, plan
-    # context_menu_by_section) — unlike the other five Add-actions it does NOT
-    # open a blank form ready to Save (an extract profile's params come from a
-    # REAL board selection, see ExtractDock.prepare_new_profile): it points
-    # ExtractDock at the file and pre-checks "Also save as extract_profile".
-    add_extract_profile_requested = pyqtSignal(object)
-    # Fired by the context menu's "New Extract..." (2026-08-31, plan
-    # extract_dialog_and_hide_existing.md): a plain fresh capture — no file
-    # argument (the project root is already known). Opens the (non-modal)
-    # Extract dialog and clears/auto-fills the fields via
-    # ExtractDock.prepare_new_extract.
+    # Fired by the context menu's "New Extract..." and the Tools menu's
+    # "New Extract..." (2026-08-31, plan extract_dialog_and_hide_existing.
+    # md): a plain fresh capture — no file argument (the project root is
+    # already known). Opens the (non-modal) Extract dialog and clears/auto-
+    # fills the fields via ExtractDock.prepare_new_extract.
     new_extract_requested = pyqtSignal()
     # Fired on EVERY click in the tree (file header, category, or leaf) —
     # see module docstring for why this replaces the three independent

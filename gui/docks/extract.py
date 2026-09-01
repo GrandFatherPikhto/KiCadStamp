@@ -246,8 +246,8 @@ class ExtractDock(QWidget):
         # auto-matched profile key) rather than something the user typed or
         # picked — lets an explicit click (cell cross-reference, profile pick)
         # override the suggestion without ever stomping a manually typed key
-        # (2026-08-31, "Add extract profile...": the key now auto-fills from
-        # the selected cluster, so the distinction matters again).
+        # (2026-08-31: the key now auto-fills from the selected cluster, so
+        # the distinction matters again).
         self._profile_key_autofilled: bool = False
         # (via_uuids, track_uuids) already in the Placer file's registry —
         # see _registry_uuids()'s own docstring for why this is cached
@@ -1056,56 +1056,27 @@ class ExtractDock(QWidget):
             return {}
         return collect_section_entries(self._root_path, section).get(key, {})
 
-    def prepare_new_profile(self, file_path: Path) -> None:
-        """ConfigTreeDock's "Add extract profile..." delegate (2026-08-13,
-        plan context_menu_by_section). Deliberately NOT a blank form ready
-        to Save like the other five Add-actions: an extract_profiles: entry's
-        params/net_template_role/rule_nets physically come from a REAL board
-        selection at extraction time (see module docstring), so there is
-        nothing meaningful a user could type into an empty form. Instead this
-        prepares the existing Extract flow for a profile save:
-        - points this dock at `file_path` (set_profile_file, which also keeps
-          profile_file_combo in sync);
-        - pre-checks "Also save as extract_profile" and clears the profile-key
-          field (defaults to the Cell name at extraction time), focusing it;
-        - leaves cells_list / the picked Cell untouched — the profile key is
-          independent of what's selected for extraction.
-        The visible cue is the checked checkbox + focused empty key field (and
-        that field's existing tooltip); the hint message goes only to the Log
-        dock (show_message — no inline label since 2026-08-13, deliberately
-        not reintroducing one for this single hint)."""
-        self._profile_path = self._root_path
-        self._refresh_existing_lists()
-        self.save_profile_checkbox.setChecked(True)
-        self.profile_key_edit.clear()
-        self._profile_key_autofilled = False  # fresh flow; re-derived from the selection below
-        self.profile_key_edit.setFocus()
-        self._show_message(
-            _("Select footprints/vias/tracks on the board, type a profile key above, then "
-              "Extract — the profile is saved as a side effect of a real extraction."),
-            _WARN_STYLE)
-        # Auto-check the "Keep only one Cluster" filter when the area-select
-        # swept up several Clusters (2026-08-31, "Add extract profile..."): the
-        # combo already defaults to the Cluster with the most components in the
-        # selection, so checking the box immediately narrows extraction to it
-        # and drops the foreign Clusters.
-        if len({s.cluster for s in self._selected_footprints if s.cluster}) > 1:
-            self.cluster_filter_checkbox.setChecked(True)
-
     def prepare_new_extract(self) -> None:
-        """ConfigTreeDock's "New Extract..." delegate (2026-08-31, plan
-        extract_dialog_and_hide_existing): a plain fresh capture, distinct
-        from "Add extract profile..." — no "Also save as extract_profile"
-        pre-check (the user isn't necessarily saving a profile). Clears Cell
-        name / Profile key (they re-auto-fill from the current Cluster),
-        focuses the Cell name, then auto-fills immediately from the CURRENT
-        selection so a just-opened dialog already shows the Cluster's slug."""
+        """ConfigTreeDock's "New Extract..." delegate (context menu + Tools
+        menu, 2026-08-31): a plain fresh capture — clears Cell name / Profile
+        key (they re-auto-fill from the current Cluster), unchecks "Also save
+        as extract_profile", focuses the Cell name, then auto-fills
+        immediately from the CURRENT selection so a just-opened dialog already
+        shows the Cluster's slug. When the selection swept up several Clusters
+        it also auto-checks "Keep only one Cluster" — the combo already
+        defaults to the majority Cluster, so checking the box immediately
+        narrows the upcoming extract to it and drops the foreign Clusters
+        swept in by the area-select (the behaviour "Add extract profile..."
+        used to pre-arm; that section action was removed 2026-09-01 as a
+        duplicate of this single entry point)."""
         self.name_edit.clear()
         self.profile_key_edit.clear()
         self._profile_key_autofilled = False
         self.save_profile_checkbox.setChecked(False)
         self._last_autofill_key = None  # force _autofill_from_cluster to re-derive
         self.name_edit.setFocus()
+        if len({s.cluster for s in self._selected_footprints if s.cluster}) > 1:
+            self.cluster_filter_checkbox.setChecked(True)
         self._autofill_from_cluster()
 
     @staticmethod
@@ -1192,8 +1163,8 @@ class ExtractDock(QWidget):
             elif not self.profile_key_edit.text().strip():
                 # No existing profile yet — the Cluster's slug is still a
                 # perfectly good default key, same as the Cell name
-                # (2026-08-31, "Add extract profile...": the profile key
-                # auto-fills from the selected cluster).
+                # (2026-08-31: the profile key auto-fills from the selected
+                # cluster).
                 self.profile_key_edit.setText(candidates[0])
                 self._profile_key_autofilled = True
 
