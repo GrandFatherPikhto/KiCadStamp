@@ -4,22 +4,22 @@ from gui.docks.cell_editor import CellDock
 from gui.docks.detail_panel import DetailDock
 from gui.docks.net_trace import NetTraceDock
 from gui.docks.placer import PlacerDock
-from gui.docks.rules import RuleDock
 
 
 def test_pages_are_the_expected_panel_types(main_window):
     dock = DetailDock(main_window)
     assert isinstance(dock.placer_panel, PlacerDock)
-    assert isinstance(dock.rules_panel, RuleDock)
     assert isinstance(dock.net_trace_panel, NetTraceDock)
     assert isinstance(dock.cells_panel, CellDock)
     # Coordinate placements merged into PlacerDock (2026-08-12, Group 1) —
-    # no separate Coordinate panel/tab anymore. Extract (2026-08-31), Thermal
-    # via (2026-09-01), Points (2026-09-01, plan plan_2026_09_01_points_dialog
-    # .md), Tools (2026-09-01, plan plan_2026_09_01_tools_dialog_and_entity_
-    # roles.md), and Project + Settings (2026-09-01, plan
-    # project_settings_dialogs) are all standalone dialogs now, NOT pages.
-    assert dock.stack.count() == 4
+    # no separate Coordinate panel/tab anymore. Rules (2026-09-01, plan
+    # rules_to_chains — the Chain form is the standalone non-modal ChainDialog
+    # now), Extract (2026-08-31), Thermal via (2026-09-01), Points (2026-09-01,
+    # plan plan_2026_09_01_points_dialog.md), Tools (2026-09-01, plan
+    # plan_2026_09_01_tools_dialog_and_entity_roles.md), and Project + Settings
+    # (2026-09-01, plan project_settings_dialogs) are all standalone dialogs
+    # now, NOT pages.
+    assert dock.stack.count() == 3
 
 
 def test_placer_tab_is_shown_first(main_window):
@@ -69,7 +69,8 @@ def test_no_project_or_settings_tab_since_they_are_dialogs(main_window):
     assert "Settings" not in labels
     assert "Points" not in labels
     assert "Tools" not in labels
-    assert labels == ["Placer", "Rules", "Net traces", "Cells"]
+    assert "Rules" not in labels  # Chain form is the standalone ChainDialog now
+    assert labels == ["Placer", "Net traces", "Cells"]
 
 
 def test_manually_clicking_a_tab_switches_the_stack(main_window):
@@ -92,24 +93,17 @@ def test_show_coordinate_placer_switches_to_the_placer_tab(main_window):
     assert dock.stack.currentWidget() is dock.placer_panel
 
 
-def test_show_rules_switches_tab_and_stack(main_window):
-    dock = DetailDock(main_window)
-    dock.show_rules()
-    assert dock.tab_bar.currentIndex() == 1
-    assert dock.stack.currentWidget() is dock.rules_panel
-
-
 def test_show_net_trace_switches_tab_and_stack(main_window):
     dock = DetailDock(main_window)
     dock.show_net_trace()
-    assert dock.tab_bar.currentIndex() == 2
+    assert dock.tab_bar.currentIndex() == 1
     assert dock.stack.currentWidget() is dock.net_trace_panel
 
 
 def test_show_cells_switches_tab_and_stack(main_window):
     dock = DetailDock(main_window)
     dock.show_cells()
-    assert dock.tab_bar.currentIndex() == 3
+    assert dock.tab_bar.currentIndex() == 2
     assert dock.stack.currentWidget() is dock.cells_panel
 
 
@@ -170,9 +164,9 @@ def test_title_updates_when_loading_a_different_entity_on_the_same_tab(main_wind
 
 def test_manual_tab_click_also_updates_the_title(main_window):
     dock = DetailDock(main_window)
-    dock.rules_panel.name_edit.setText("my_rule")
-    dock.tab_bar.setCurrentIndex(1)  # Rules
-    assert dock.windowTitle() == "Detail — Rules: my_rule"
+    dock.net_trace_panel.net_edit.setCurrentText("GND")
+    dock.tab_bar.setCurrentIndex(1)  # Net traces
+    assert dock.windowTitle() == "Detail — Net traces: GND"
 
 
 def test_tab_bar_has_highlight_stylesheet(main_window):

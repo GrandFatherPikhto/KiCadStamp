@@ -56,22 +56,22 @@ def test_export_merge_preserves_the_target_files_other_content(tmp_path):
     assert data["include"] == ["somewhere.sexp"]
 
 
-def test_export_merge_matches_a_nameless_rule_by_net_fallback(tmp_path):
-    """rules: falls back to net: as identity when name: is absent (config/
-    models.py's rule_effective_name()) — exporting into a target that
-    already has a rule with the same net must REPLACE it, not duplicate."""
+def test_export_merge_matches_a_nameless_chain_by_net_fallback(tmp_path):
+    """chains: falls back to net: as identity when name: is absent (config/
+    models.py's chain_effective_name()) — exporting into a target that
+    already has a chain with the same net must REPLACE it, not duplicate."""
     source = _write(tmp_path / "config.sexp", {
-        "rules": [{"net": "+3V3", "anchor_role": "NEW_MCU"}]})
+        "chains": [{"net": "+3V3", "anchor_role": "NEW_MCU"}]})
     target = _write(tmp_path / "out.sexp", {
-        "rules": [{"net": "+3V3", "anchor_role": "OLD_MCU"}]})
-    item = ExportItem(source_path=source, section="rules", name="+3V3",
+        "chains": [{"net": "+3V3", "anchor_role": "OLD_MCU"}]})
+    item = ExportItem(source_path=source, section="chains", name="+3V3",
                       payload={"net": "+3V3", "anchor_role": "NEW_MCU"})
 
     export_entries(target, [item], overwrite=False)
 
-    rules = _load(target)["rules"]
-    assert len(rules) == 1
-    assert rules[0]["anchor_role"] == "NEW_MCU"
+    chains = _load(target)["chains"]
+    assert len(chains) == 1
+    assert chains[0]["anchor_role"] == "NEW_MCU"
 
 
 def test_export_overwrite_replaces_the_targets_whole_content(tmp_path):

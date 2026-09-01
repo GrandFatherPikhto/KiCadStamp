@@ -1,6 +1,6 @@
 # gui/docks/detail_panel.py
 """
-DetailDock — one shared right-hand form area for Placer/Points/Rules/Net
+DetailDock — one shared right-hand form area for Placer/Points/Chains/Net
 traces/Cells/Tools (2026-08-03, GUI tree roadmap: Denis — "Панели: Экстракт,
 Пласер, Рут — становятся контекстными (общая область формы)"). Used to be
 separate QDockWidgets tabified together; PlacerDock/RuleDock/... are plain
@@ -72,9 +72,12 @@ from ._common import highlight_stylesheet_for
 from .cell_editor import CellDock
 from .net_trace import NetTraceDock
 from .placer import PlacerDock
-from .rules import RuleDock
 
-_PLACER, _RULES, _NET_TRACE, _CELLS = range(4)
+# Rules is NOT a tab here anymore (2026-09-01, plan rules_to_chains): the
+# Chain form moved out into the standalone non-modal ChainDialog (like Points/
+# Tools/Thermal via/Extract before it) — a chains: node is edited via a DOUBLE
+# click in the Config tree, not a Detail dock page.
+_PLACER, _NET_TRACE, _CELLS = range(3)
 
 
 class _StackedPages(QStackedWidget):
@@ -118,7 +121,6 @@ class DetailDock(QDockWidget):
         # (Tools > "Settings...", see gui/docks/settings_dialog.py). This dock
         # keeps only the entity edit forms.
         self.tab_bar.addTab(_("Placer"))
-        self.tab_bar.addTab(_("Rules"))
         self.tab_bar.addTab(_("Net traces"))
         self.tab_bar.addTab(_("Cells"))
         layout.addWidget(self.tab_bar)
@@ -128,13 +130,11 @@ class DetailDock(QDockWidget):
         # actually on — see _StackedPages.
         self.stack = _StackedPages()
         self.placer_panel = PlacerDock(main_window)
-        self.rules_panel = RuleDock(main_window)
         self.net_trace_panel = NetTraceDock(main_window, connection=connection)
         self.cells_panel = CellDock(main_window)
         # Stack order must match the tab-bar order exactly (setCurrentIndex
         # drives stack.setCurrentIndex).
         self.stack.addWidget(self.placer_panel)
-        self.stack.addWidget(self.rules_panel)
         self.stack.addWidget(self.net_trace_panel)
         self.stack.addWidget(self.cells_panel)
         # The stack sits DIRECTLY in the dock layout (2026-08-30, Denis:
@@ -161,7 +161,6 @@ class DetailDock(QDockWidget):
 
     _PAGE_LABELS = {
         _PLACER: _("Placer"),
-        _RULES: _("Rules"),
         _NET_TRACE: _("Net traces"),
         _CELLS: _("Cells"),
     }
@@ -177,8 +176,6 @@ class DetailDock(QDockWidget):
         index = self.tab_bar.currentIndex()
         if index == _PLACER:
             return self.placer_panel.current_entity_name
-        if index == _RULES:
-            return self.rules_panel.name_edit.text().strip() or self.rules_panel.net_edit.currentText().strip()
         if index == _NET_TRACE:
             return self.net_trace_panel.net_edit.currentText().strip()
         if index == _CELLS:
@@ -216,9 +213,6 @@ class DetailDock(QDockWidget):
         hosts the coordinate mode now — there is no separate Coordinate
         placer tab anymore, the Placer tab switches its field set instead."""
         self._show(_PLACER)
-
-    def show_rules(self) -> None:
-        self._show(_RULES)
 
     def show_net_trace(self) -> None:
         self._show(_NET_TRACE)

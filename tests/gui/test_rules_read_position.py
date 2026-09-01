@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
-"""RuleDock "Read current position" — the Origin tab's INFORMATIONAL readout of
-the rule anchor's live position (design 2026_08_29_config_tree_read_live_
+"""ChainDock "Read current position" — the Origin tab's INFORMATIONAL readout
+of the chain anchor's live position (design 2026_08_29_config_tree_read_live_
 position.md §1.4) + guard tests locking the "no button" decisions
-(§1.5 spoke / §1.6 Points / §1.9 nested clone).
+(§1.5 spoke / §1.6 Points / §1.9 nested clone). (2026-09-01, plan
+rules_to_chains: RuleDock -> ChainDock in gui/docks/chain.py.)
 
 Headless: the live resolver (read_anchor_live) is monkeypatched — the test
 drives the dock's orchestration (adapter check, anchor read, label text,
 failure warning) exactly like test_trees_dock.py drives _resolve_live_offset.
 """
-import gui.docks.rules as rules_mod
+import gui.docks.chain as rules_mod
 from gui.docks.cell_editor import CellDock
+from gui.docks.chain import ChainDock as RuleDock
 from gui.docks.live_position import LiveRead
 from gui.docks.points import PointsDock
-from gui.docks.rules import RuleDock
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.utils.units import MM

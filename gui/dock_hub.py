@@ -36,12 +36,18 @@ from typing import Optional
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtWidgets import QDialog, QMessageBox
 
+from .docks._common import display_path, show_message
+from .docks.entity_delete import delete_entry
+from .docks.rename import entry_effective_name
+
 from kicadstamp.cli_common import peek_log_file
 from kicadstamp.config_working_set import WORKING_SET
 from kicadstamp.i18n import _
 from kicadstamp.logging_setup import get_log_listener
 
 from .docks.anchor_tree import AnchorTreeDock
+from .docks.chain import ChainDock
+from .docks.chain_dialog import ChainDialog
 from .docks.config_tree import ConfigTreeDock
 from .docks.configurator import ConfiguratorDock
 from .docks.detail_panel import DetailDock
@@ -151,9 +157,21 @@ class DockHub:
         self.root_metadata_dock = RootMetadataDock(main_window)
         self.project_dialog = ProjectDialog(self.root_metadata_dock, main_window)
         self.placer_dock = self.detail_dock.placer_panel
-        self.rules_dock = self.detail_dock.rules_panel
         self.net_trace_dock = self.detail_dock.net_trace_panel
         self.cells_dock = self.detail_dock.cells_panel
+        # Chain (2026-09-01, plan rules_to_chains): the Chain form is a
+        # STANDALONE widget hosted in the non-modal ChainDialog — the Detail
+        # dock has no Rules page anymore (same move as Extract/Thermal via/
+        # Points/Tools). The same single live instance keeps receiving the
+        # snapshot ticks / set_root_path / saved. Redraw chain/spoke and Bulk
+        # set Cell are driven from the Config tree's context menu
+        # (chain_redraw_requested/pad_redraw_requested/bulk_set_cell_requested),
+        # not from buttons inside the dialog.
+        self.chain_dock = ChainDock(main_window)
+        self.chain_dialog = ChainDialog(self.chain_dock, main_window)
+        # Backward-compat alias for the 2026-09-01 Rule -> Chain rename — the
+        # old rules_dock name still resolves to the live ChainDock.
+        self.rules_dock = self.chain_dock
         # Points (2026-09-01, plan plan_2026_09_01_points_dialog.md): a
         # STANDALONE widget hosted in the non-modal PointsDialog — the Detail
         # dock has no Points page anymore (same move as Extract/Thermal via).
@@ -271,8 +289,8 @@ class DockHub:
             partial(self._safe_call, "trees_dock.set_root_file",
                     self.trees_dock.set_root_file))
         self.root_metadata_dock.root_changed.connect(
-            partial(self._safe_call, "rules_dock.set_root_path",
-                    self.rules_dock.set_root_path))
+            partial(self._safe_call, "chain_dock.set_root_path",
+                    self.chain_dock.set_root_path))
         self.root_metadata_dock.root_changed.connect(
             partial(self._safe_call, "net_trace_dock.set_root_path",
                     self.net_trace_dock.set_root_path))
@@ -383,8 +401,20 @@ class DockHub:
         # PointsDock and open the non-modal PointsDialog. Single click on a
         # points: leaf does NOTHING (the old points_picked wiring is gone).
         self.config_tree_dock.points_edit_requested.connect(self._start_edit_point)
-        self.config_tree_dock.rule_picked.connect(self.rules_dock.load_entry)
-        self.config_tree_dock.rule_picked.connect(self.detail_dock.show_rules)
+        # Chains (2026-09-01, plan rules_to_chains): a DOUBLE click on a chain
+        # node opens the chain-mode ChainDialog (chain_edit_requested); a
+        # DOUBLE click on a pad leaf opens the pad-mode ChainDialog
+        # (pad_edit_requested). The tree's context menu drives Redraw chain/
+        # spoke and Bulk set Cell (chain_redraw_requested/pad_redraw_requested/
+        # bulk_set_cell_requested) — those run the ApplyPipeline / bulk write
+        # on the same live chain_dock instance.
+        self.config_tree_dock.chain_edit_requested.connect(self._start_edit_chain)
+        self.config_tree_dock.pad_edit_requested.connect(self._start_edit_pad)
+        self.config_tree_dock.add_pad_requested.connect(self._start_new_pad)
+        self.config_tree_dock.chain_redraw_requested.connect(self.chain_dock.redraw_chain)
+        self.config_tree_dock.pad_redraw_requested.connect(self.chain_dock.redraw_pad)
+        self.config_tree_dock.anchor_redraw_requested.connect(self.chain_dock.redraw_chains)
+        self.config_tree_dock.bulk_set_cell_requested.connect(self.chain_dock.bulk_set_cell)
         self.config_tree_dock.net_trace_picked.connect(self.net_trace_dock.load_entry)
         self.config_tree_dock.net_trace_picked.connect(self.detail_dock.show_net_trace)
         # "Edit cell..." (context menu, 2026-08-06) — deliberately NOT wired
@@ -396,7 +426,7 @@ class DockHub:
         # explicitly before loading, same reasoning as _start_new_placement
         # etc. below for "Add ...".
         self.config_tree_dock.cell_edit_requested.connect(self._edit_cell)
-        # Placer/Thermal via/Extract/Points/Rules -> Config tree: a
+        # Placer/Thermal via/Extract/Points/Chains -> Config tree: a
         # successful Save refreshes the whole tree (walk_include_tree() is
         # re-run) so a brand new (or renamed) entry shows up without
         # reassigning Files. The SAME six signals ALSO feed
@@ -411,7 +441,7 @@ class DockHub:
         self.thermal_via_dock.saved.connect(self.config_tree_dock.refresh)
         self.extract_dock.saved.connect(self.config_tree_dock.refresh)
         self.points_dock.saved.connect(self.config_tree_dock.refresh)
-        self.rules_dock.saved.connect(self.config_tree_dock.refresh)
+        self.chain_dock.saved.connect(self.config_tree_dock.refresh)
         self.net_trace_dock.saved.connect(self.config_tree_dock.refresh)
         self.cells_dock.saved.connect(self.config_tree_dock.refresh)
         # The anchor tree shows the SAME records — refresh it on every Save too,
@@ -422,7 +452,7 @@ class DockHub:
         self.thermal_via_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
         self.extract_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
         self.points_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
-        self.rules_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
+        self.chain_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
         self.net_trace_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
         self.cells_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
         self.tools_dock.saved.connect(self.config_tree_dock.refresh)
@@ -437,7 +467,7 @@ class DockHub:
         self.thermal_via_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.extract_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.points_dock.saved.connect(self._refresh_graph_dependent_choices)
-        self.rules_dock.saved.connect(self._refresh_graph_dependent_choices)
+        self.chain_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.cells_dock.saved.connect(self._refresh_graph_dependent_choices)
         # Auto-close the (non-modal) Extract dialog after a successful Extract
         # (2026-08-31, Denis): saved is emitted by _finish_extract only on
@@ -451,6 +481,11 @@ class DockHub:
         # (2026-09-01, Denis): saved is emitted by _on_save only on success —
         # a Point has no Redraw, so Save closing is the whole point of the form.
         self.points_dock.saved.connect(self.points_dialog.hide)
+        # Auto-close the (non-modal) Chain dialog after a successful Save
+        # (2026-09-01, plan rules_to_chains, "как Points"): saved is emitted by
+        # _persist_chain/_persist_pad only on success — Redraw (placement) and
+        # Bulk set Cell stay open for iterative tuning.
+        self.chain_dock.saved.connect(self.chain_dialog.hide)
         # Config tree's "Add placer.../Add thermal via pad.../Add point.../
         # Add rule..." context-menu actions -> Placer/Thermal via/Points/
         # Rules: open the form blank, targeting the file the action was
@@ -466,7 +501,7 @@ class DockHub:
         self.config_tree_dock.add_coordinate_placement_requested.connect(
             self.detail_dock.show_coordinate_placer)
         self.config_tree_dock.add_point_requested.connect(self._start_new_point)
-        self.config_tree_dock.add_rule_requested.connect(self._start_new_rule)
+        self.config_tree_dock.add_chain_requested.connect(self._start_new_chain)
         self.config_tree_dock.add_cell_requested.connect(self._start_new_cell)
         # "New Extract..." (2026-08-31, plan extract_dialog_and_hide_existing.
         # md) — context menu + Tools menu -> the same plain fresh capture.
@@ -532,8 +567,8 @@ class DockHub:
         self.thermal_via_dock.refresh_known_roles(snapshot)
         self.thermal_via_dock.refresh_known_nets(board)
         self.points_dock.refresh_known_roles(snapshot)
-        self.rules_dock.refresh_known_roles(snapshot)
-        self.rules_dock.refresh_known_nets(board)
+        self.chain_dock.refresh_known_roles(snapshot)
+        self.chain_dock.refresh_known_nets(board)
         self.net_trace_dock.refresh_known_roles(snapshot)
         self.net_trace_dock.refresh_known_nets(board)
         self.cells_dock.refresh_known_roles(snapshot)
@@ -620,11 +655,93 @@ class DockHub:
         requested -> _start_new_point)."""
         self._start_new_point(self.root_metadata_dock.root_path)
 
-    def _start_new_rule(self, file_path) -> None:
-        """ConfigTreeDock's add_rule_requested delegate — same reasoning as
-        _start_new_placement above, for RuleDock."""
-        self.rules_dock.new_rule(file_path)
-        self.detail_dock.show_rules()
+    def add_chain(self) -> None:
+        """Main menu "Tools -> Add net..." (2026-09-01, plan rules_to_chains)
+        -> the same fresh blank chain form as the Config tree context menu's
+        "Add chain..." (add_chain_requested -> _start_new_chain). The menu
+        labels a chain by its NET identity (Denis's decision)."""
+        self._start_new_chain(self.root_metadata_dock.root_path)
+
+    def add_spoke(self) -> None:
+        """Main menu "Tools -> Add spoke..." (2026-09-01, plan rules_to_chains)
+        -> opens the Chain dialog in pad mode with a fresh blank form, appending
+        to the chain currently SELECTED in the Config tree. Requires a selected
+        chains: CHAIN node — otherwise a message in the Log dock
+        ("Pick a chain in the Config tree first"), mirroring the plan's
+        Add-spoke-requires-selection rule."""
+        chain = self._selected_tree_chain()
+        if chain is None:
+            show_message(_("Pick a chain in the Config tree first."), "", logging.getLogger(__name__))
+            return
+        self._start_new_pad(chain)
+
+    def delete_selected_chain(self) -> None:
+        """Main menu "Tools -> Delete net..." (2026-09-01, plan rules_to_chains)
+        -> deletes the chain currently SELECTED in the Config tree via
+        delete_entry (with the usual timestamped backup). Requires a selected
+        chains: CHAIN node — otherwise a message in the Log dock."""
+        selection = self.config_tree_dock.selected_chain()
+        if selection is None:
+            show_message(_("Pick a chain in the Config tree first."), "", logging.getLogger(__name__))
+            return
+        file_path, chain = selection
+        name = entry_effective_name("chains", chain)
+        report = delete_entry(self.root_metadata_dock.root_path, file_path, "chains", name,
+                              cascade=False)
+        self.config_tree_dock.refresh()
+        self.config_tree_dock.graph_changed.emit()
+        show_message(
+            _("Deleted net {name!r}. Backed up: {backups}.").format(
+                name=name, backups=", ".join(display_path(p) for p in report["backups"])),
+            "", logging.getLogger(__name__))
+
+    def _selected_tree_chain(self):
+        """The currently selected chains: CHAIN node in the Config tree as its
+        chain dict, or None (no selection / a different node kind)."""
+        selection = self.config_tree_dock.selected_chain()
+        if selection is None:
+            return None
+        return selection[1]
+
+    def _open_chain_dialog(self) -> None:
+        """Show/raise the ONE live Chain dialog — non-modal, so the user can
+        keep selecting on the board while it's open: the ~2s snapshot tick
+        keeps feeding the same chain_dock instance inside it. Closing via the
+        window X just hides it (QDialog default), so the next open starts from
+        the current board state."""
+        self.chain_dialog.show()
+        self.chain_dialog.raise_()
+        self.chain_dialog.activateWindow()
+
+    def _start_new_chain(self, file_path) -> None:
+        """ConfigTreeDock's add_chain_requested delegate — opens the (non-modal)
+        Chain dialog in chain mode with a fresh blank form, same reasoning as
+        _start_new_thermal_via above, for ChainDock."""
+        self.chain_dock.new_chain(file_path)
+        self._open_chain_dialog()
+
+    def _start_edit_chain(self, entry) -> None:
+        """ConfigTreeDock's chain_edit_requested delegate (double click on a
+        chains: chain node, 2026-09-01, plan rules_to_chains) — loads the
+        chain into the live ChainDock's chain mode and opens the (non-modal)
+        Chain dialog with it."""
+        self.chain_dock.load_chain(entry)
+        self._open_chain_dialog()
+
+    def _start_edit_pad(self, chain_entry, pad_index) -> None:
+        """ConfigTreeDock's pad_edit_requested delegate (double click on a
+        chains: pad leaf) — loads that one pad into the live ChainDock's pad
+        mode (remembering the parent chain) and opens the (non-modal) Chain
+        dialog with it."""
+        self.chain_dock.load_pad(chain_entry, pad_index)
+        self._open_chain_dialog()
+
+    def _start_new_pad(self, chain_entry) -> None:
+        """ConfigTreeDock's add_pad_requested delegate ("Add spoke..." on a
+        chain node) — opens the (non-modal) Chain dialog in pad mode with a
+        fresh blank form, appending to the given parent chain."""
+        self.chain_dock.new_pad(chain_entry, self.root_metadata_dock.root_path)
+        self._open_chain_dialog()
 
     def _start_new_cell(self, file_path) -> None:
         """ConfigTreeDock's add_cell_requested delegate — same reasoning as
@@ -938,7 +1055,7 @@ class DockHub:
         from wherever the new file was created, the tree's own action never
         told any other dock)."""
         root_path = self.root_metadata_dock.root_path
-        self.rules_dock.set_root_path(root_path)
+        self.chain_dock.set_root_path(root_path)
         self.placer_dock.set_root_path(root_path)
         self.thermal_via_dock.set_root_path(root_path)
         self.cells_dock.set_root_path(root_path)
@@ -1017,7 +1134,7 @@ class DockHub:
         self._safe_call("anchor_tree_dock.set_root_file",
                         self.anchor_tree_dock.set_root_file, path)
         self._safe_call("trees_dock.set_root_file", self.trees_dock.set_root_file, path)
-        self._safe_call("rules_dock.set_root_path", self.rules_dock.set_root_path, path)
+        self._safe_call("chain_dock.set_root_path", self.chain_dock.set_root_path, path)
         self._safe_call("placer_dock.set_root_path", self.placer_dock.set_root_path, path)
         self._safe_call("thermal_via_dock.set_root_path",
                         self.thermal_via_dock.set_root_path, path)

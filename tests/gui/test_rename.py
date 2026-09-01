@@ -192,18 +192,18 @@ def test_rename_list_entry_renames_clone_placement_by_name(tmp_path):
     assert data["clone_placements"][0]["cell"] == "ldo"  # other fields untouched
 
 
-def test_rename_list_entry_gives_a_nameless_rule_an_explicit_name(tmp_path):
-    """rules: entries may have no name: at all, falling back to net: as
-    their effective display name (config/models.py's rule_effective_name())
+def test_rename_list_entry_gives_a_nameless_chain_an_explicit_name(tmp_path):
+    """chains: entries may have no name: at all, falling back to net: as
+    their effective display name (config/models.py's chain_effective_name())
     — renaming one is what GIVES it an explicit name: for the first time."""
     path = _write(tmp_path / "config.sexp", {
-        "rules": [{"net": "+3V3", "anchor_role": "MCU"}]})
+        "chains": [{"net": "+3V3", "anchor_role": "MCU"}]})
 
-    rename_list_entry(path, "rules", "+3V3", "power_rule")
+    rename_list_entry(path, "chains", "+3V3", "power_chain")
 
     data = _load(path)
-    assert data["rules"][0]["name"] == "power_rule"
-    assert data["rules"][0]["net"] == "+3V3"  # net: itself is never touched
+    assert data["chains"][0]["name"] == "power_chain"
+    assert data["chains"][0]["net"] == "+3V3"  # net: itself is never touched
 
 
 def test_rename_list_entry_gives_a_nameless_coordinate_placement_an_explicit_name(tmp_path):

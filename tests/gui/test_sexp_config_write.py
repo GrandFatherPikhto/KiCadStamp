@@ -43,7 +43,7 @@ def test_write_data_sexp_roundtrips(tmp_path):
     data = {
         "layer": "B.Cu",
         "place_components": False,
-        "rules": [
+        "chains": [
             {"net": "+3V3_VCCIO", "anchor_role": "FPGA",
              "spokes": [{"pad": "17", "cell": "fpga_pwr_bank",
                          "shift_x_mm": 1.2, "shift_y_mm": -1.5}]},

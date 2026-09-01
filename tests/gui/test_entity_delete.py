@@ -54,10 +54,10 @@ def test_find_references_finds_a_clone_placement_referencing_a_cell(tmp_path):
     assert refs == {path: ["spoke_1"]}
 
 
-def test_find_references_finds_a_nested_spoke_cell_without_touching_the_rule(tmp_path):
+def test_find_references_finds_a_nested_spoke_cell_without_touching_the_chain(tmp_path):
     path = _write(tmp_path / "config.sexp", {
-        "rules": [{
-            "name": "power_rule", "anchor_role": "MCU",
+        "chains": [{
+            "name": "power_chain", "anchor_role": "MCU",
             "spokes": [{"pad": "17", "cell": "target_cell"},
                        {"pad": "26", "cell": "other_cell"}],
         }]})
@@ -65,9 +65,9 @@ def test_find_references_finds_a_nested_spoke_cell_without_touching_the_rule(tmp
     refs = find_references([path], "cell", "target_cell")
 
     assert path in refs
-    assert len(refs[path]) == 1  # only the matching spoke, not the whole rule
+    assert len(refs[path]) == 1  # only the matching spoke, not the whole chain
     data = _load(path)  # find_references must not have written anything
-    assert len(data["rules"][0]["spokes"]) == 2
+    assert len(data["chains"][0]["spokes"]) == 2
 
 
 def test_find_references_finds_a_point_chained_to_another_point(tmp_path):
@@ -82,9 +82,9 @@ def test_find_references_finds_a_point_chained_to_another_point(tmp_path):
     assert refs == {path: ["chained"]}
 
 
-def test_find_references_finds_a_rule_anchored_on_a_point(tmp_path):
+def test_find_references_finds_a_chain_anchored_on_a_point(tmp_path):
     path = _write(tmp_path / "config.sexp", {
-        "rules": [{"net": "+3V3", "anchor_point": "base"}]})
+        "chains": [{"net": "+3V3", "anchor_point": "base"}]})
 
     refs = find_references([path], "anchor_point", "base")
 
@@ -114,12 +114,12 @@ def test_delete_entry_removes_a_dict_section_entry_and_backs_up_the_file(tmp_pat
 
 def test_delete_entry_removes_a_list_section_entry_by_net_fallback(tmp_path):
     path = _write(tmp_path / "config.sexp", {
-        "rules": [{"net": "+3V3", "anchor_role": "MCU"},
-                  {"net": "GND", "anchor_role": "MCU"}]})
+        "chains": [{"net": "+3V3", "anchor_role": "MCU"},
+                   {"net": "GND", "anchor_role": "MCU"}]})
 
-    delete_entry(None, path, "rules", "+3V3", cascade=False)
+    delete_entry(None, path, "chains", "+3V3", cascade=False)
 
-    nets = [r["net"] for r in _load(path)["rules"]]
+    nets = [r["net"] for r in _load(path)["chains"]]
     assert nets == ["GND"]
 
 
@@ -173,11 +173,11 @@ def test_delete_entry_cascade_removes_referencing_clone_placement(tmp_path):
     assert report["cascade_files"] == [path]
 
 
-def test_delete_entry_cascade_removes_only_the_referencing_spoke_not_the_whole_rule(tmp_path):
+def test_delete_entry_cascade_removes_only_the_referencing_spoke_not_the_whole_chain(tmp_path):
     path = _write(tmp_path / "config.sexp", {
         "cells": {"target_cell": {}},
-        "rules": [{
-            "name": "power_rule", "anchor_role": "MCU",
+        "chains": [{
+            "name": "power_chain", "anchor_role": "MCU",
             "spokes": [{"pad": "17", "cell": "target_cell"},
                        {"pad": "26", "cell": "keep_cell"}],
         }],
@@ -186,8 +186,8 @@ def test_delete_entry_cascade_removes_only_the_referencing_spoke_not_the_whole_r
     delete_entry(path, path, "cells", "target_cell", cascade=True)
 
     data = _load(path)
-    pads = [s["pad"] for s in data["rules"][0]["spokes"]]
-    assert pads == ["26"]  # the rule itself survives with one spoke left
+    pads = [s["pad"] for s in data["chains"][0]["spokes"]]
+    assert pads == ["26"]  # the chain itself survives with one spoke left
 
 
 def test_delete_entry_cascade_across_the_include_graph(tmp_path):

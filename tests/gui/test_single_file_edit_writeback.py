@@ -6,10 +6,10 @@ fatal on a duplicate dict key, or silently split a list record)."""
 from kicadstamp.config import load_config
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from gui.docks.cell_editor import CellDock
+from gui.docks.chain import ChainDock
 from gui.docks.net_trace import NetTraceDock
 from gui.docks.placer import PlacerDock
 from gui.docks.points import PointsDock
-from gui.docks.rules import RuleDock
 from gui.docks.thermal_via import ThermalViaArrayDock
 
 
@@ -57,18 +57,18 @@ class TestEditingIncludedEntryWritesBackToItsFile:
 
     def test_rule(self, main_window, tmp_path):
         sub = tmp_path / "sub.sexp"
-        _write(sub, {"rules": [{"net": "+3V3", "anchor_role": "FPGA", "spokes": []}]})
+        _write(sub, {"chains": [{"net": "+3V3", "anchor_role": "FPGA", "spokes": []}]})
         root = tmp_path / "root.sexp"
         _write(root, {"include": ["sub.sexp"]})
 
-        dock = RuleDock(main_window)
+        dock = ChainDock(main_window)
         dock.set_root_path(root)
-        dock.load_entry({"net": "+3V3", "anchor_role": "FPGA", "spokes": []})
+        dock.load_chain({"net": "+3V3", "anchor_role": "FPGA", "spokes": []})
         dock.retired_checkbox.setChecked(True)
         dock._on_save()
 
-        assert _load(sub)["rules"][0]["retired"] is True
-        assert "rules" not in _load(root)
+        assert _load(sub)["chains"][0]["retired"] is True
+        assert "chains" not in _load(root)
         load_config(str(root))
 
     def test_thermal_via(self, main_window, tmp_path):
