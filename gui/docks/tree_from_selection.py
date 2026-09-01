@@ -32,6 +32,7 @@ from typing import Any, Iterable, Optional
 
 from kicadstamp.domain.board import Track, Via
 from kicadstamp.i18n import _
+from kicadstamp.net_resolution import RULE_NETS
 from kicadstamp.placement.services.component_resolver import (
     ComponentResolver,
     resolve_anchor_pad_position,
@@ -49,6 +50,13 @@ class InterClusterNet:
     net: str
     track_count: int = 0
     via_count: int = 0
+
+
+# A point-to-point inter-cluster link spans exactly 2 selected Clusters; a net
+# on pads of MORE than this many is a ubiquitous rail (+3V3, GND...) — not a
+# capture candidate for the third tab. 2026-09-01 review, live-verified on
+# 3CH-AWG-TIA: GND on 6 Clusters, +3V3 on 3, real links on exactly 2.
+DEFAULT_MAX_CLUSTER_COVERAGE = 2
 
 
 # ── Anchor construction ───────────────────────────────────────────────────
@@ -199,23 +207,46 @@ def _cluster_nets(clusters: Iterable[ReReadCluster],
 def detect_inter_cluster_nets(raw_items: Iterable[Any],
                               clusters: Iterable[ReReadCluster],
                               snapshot: Iterable[Any],
-                              rule_nets: Iterable[str] = ()) -> list[InterClusterNet]:
+                              rule_nets: Iterable[str] = (),
+                              max_cluster_coverage: int = DEFAULT_MAX_CLUSTER_COVERAGE,
+                              ) -> list[InterClusterNet]:
     """Nets of the raw SELECTED copper that connect 2+ fully-selected Clusters
     (i.e. do not belong to one cluster-cell alone) — the `net_traces:` capture
     candidates shown in the dialog's third tab.
 
     A net is inter-cluster when its name appears on the footprints of at
-    least two clusters (from the snapshot's Selected.nets). Rule nets
-    (rule_nets — e.g. a power net a Rule already plans) are excluded. Only
-    nets that ALSO have selected tracks/vias in `raw_items` are offered —
+    least two clusters (from the snapshot's Selected.nets). Excluded:
+
+      - rule nets — rule_nets (a power net a Rule/Chain already plans) AND the
+        default RULE_NETS (kicadstamp.net_resolution.RULE_NETS, {"GND"}), the
+        same always-excluded set the Cells/Extract dock uses — so a global GND
+        is never offered even when no Chain registers it (2026-09-01 review,
+        live 3CH-AWG-TIA: GND leaked with 32 tracks / 25 vias);
+      - ubiquitous rails — a net that sits on pads of MORE than
+        `max_cluster_coverage` of the SELECTED clusters. A point-to-point
+        inter-cluster link spans exactly 2 clusters; a global rail (+3V3, GND)
+        spans most/all of them (live: GND on 6, +3V3 on 3, real links on
+        exactly 2). Configurable, default 2 — i.e. coverage > 2 is a rail.
+
+    Only nets that ALSO have selected tracks/vias in `raw_items` are offered —
     a net with no selected copper is nothing to capture, so the tab stays
     empty (the dialog then has no nets tab content)."""
     cluster_nets = _cluster_nets(clusters, snapshot)
+    # coverage[net] = how many SELECTED Clusters carry the net on a pad —
+    # the signal that separates a point-to-point link (2) from a ubiquitous
+    # rail (+3V3, GND — 3+).
+    coverage: dict[str, int] = {}
+    for nets in cluster_nets:
+        for net in nets:
+            coverage[net] = coverage.get(net, 0) + 1
+
     inter: set[str] = set()
     for i in range(len(cluster_nets)):
         for j in range(i + 1, len(cluster_nets)):
             inter.update(cluster_nets[i] & cluster_nets[j])
     inter -= set(rule_nets)
+    inter -= RULE_NETS  # default rule nets — GND is always a rule net
+    inter = {n for n in inter if coverage.get(n, 0) <= max_cluster_coverage}
     if not inter:
         return []
 

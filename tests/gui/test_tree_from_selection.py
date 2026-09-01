@@ -311,6 +311,73 @@ def test_detect_inter_cluster_nets_requires_selected_copper():
     assert detect_inter_cluster_nets([], clusters, snapshot) == []
 
 
+def test_detect_inter_cluster_nets_gnd_excluded_even_without_rule_nets():
+    """Regression (2026-09-01, live 3CH-AWG-TIA): a shared GND must NOT be
+    offered even when NO Rule/Chain registers it — RULE_NETS={"GND"} is
+    subtracted by default, the same always-excluded set the Cells/Extract dock
+    uses (net_resolution.RULE_NETS)."""
+    clusters = _clusters()
+    snapshot = [
+        _sel("R1", "PIF_AVDD", "Channel_1", {"1": "GND", "2": "AVDD"}),
+        _sel("R2", "PIF_CLKVDD", "Channel_1", {"1": "GND"}),
+    ]
+    raw = [_tr("GND"), _via("GND")]
+    assert detect_inter_cluster_nets(raw, clusters, snapshot) == []
+
+
+def test_detect_inter_cluster_nets_rail_on_3_clusters_excluded():
+    """A net on pads of MORE than 2 selected Clusters is a ubiquitous rail
+    (+3V3), not a point-to-point link — not offered (coverage=3 > 2). Live
+    finding: +3V3 sat on 3 of 6 selected Clusters and leaked."""
+    clusters = _clusters() + [
+        ReReadCluster(cluster="PIF_DVDD", sheet="Channel_1", entity_name="CH1_PIF_DVDD",
+                      cell="dac_pif_dvdd", profile_key=None, refs=["C3"]),
+    ]
+    snapshot = [
+        _sel("R1", "PIF_AVDD", "Channel_1", {"1": "+3V3"}),
+        _sel("R2", "PIF_CLKVDD", "Channel_1", {"1": "+3V3"}),
+        _sel("C3", "PIF_DVDD", "Channel_1", {"1": "+3V3"}),
+    ]
+    raw = [_tr("+3V3")]
+    assert detect_inter_cluster_nets(raw, clusters, snapshot) == []
+
+
+def test_detect_inter_cluster_nets_real_2cluster_link_kept_with_3rd_cluster():
+    """The coverage rule must NOT drop a real point-to-point link: SHARED sits
+    on exactly 2 of 3 selected Clusters -> still offered (coverage=2 <= 2)."""
+    clusters = _clusters() + [
+        ReReadCluster(cluster="PIF_DVDD", sheet="Channel_1", entity_name="CH1_PIF_DVDD",
+                      cell="dac_pif_dvdd", profile_key=None, refs=["C3"]),
+    ]
+    snapshot = [
+        _sel("R1", "PIF_AVDD", "Channel_1", {"1": "SHARED", "2": "AVDD"}),
+        _sel("R2", "PIF_CLKVDD", "Channel_1", {"1": "SHARED"}),
+        _sel("C3", "PIF_DVDD", "Channel_1", {"1": "DVDD"}),
+    ]
+    raw = [_tr("SHARED")]
+    assert detect_inter_cluster_nets(raw, clusters, snapshot) == [
+        InterClusterNet(net="SHARED", track_count=1, via_count=0)]
+
+
+def test_detect_inter_cluster_nets_max_cluster_coverage_configurable():
+    """max_cluster_coverage raises the rail threshold: a net on exactly 3
+    Clusters is excluded at the default (2) but offered at 3."""
+    clusters = _clusters() + [
+        ReReadCluster(cluster="PIF_DVDD", sheet="Channel_1", entity_name="CH1_PIF_DVDD",
+                      cell="dac_pif_dvdd", profile_key=None, refs=["C3"]),
+    ]
+    snapshot = [
+        _sel("R1", "PIF_AVDD", "Channel_1", {"1": "+3V3"}),
+        _sel("R2", "PIF_CLKVDD", "Channel_1", {"1": "+3V3"}),
+        _sel("C3", "PIF_DVDD", "Channel_1", {"1": "+3V3"}),
+    ]
+    raw = [_tr("+3V3")]
+    assert detect_inter_cluster_nets(raw, clusters, snapshot) == []          # coverage 3 > 2
+    assert detect_inter_cluster_nets(
+        raw, clusters, snapshot, max_cluster_coverage=3) == [
+            InterClusterNet(net="+3V3", track_count=1, via_count=0)]
+
+
 # ── round-trip / link_trees ───────────────────────────────────────────────
 
 def test_tree_round_trip_and_link_trees_with_role_anchor_and_n_nodes():
