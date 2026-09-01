@@ -150,6 +150,94 @@ def test_re_extract_passes_resolver_items_to_extract(main_window, tmp_path, monk
     assert captured["items"] == [fp]
 
 
+# ── _resolve_re_extract_target: where re-extract writes back into ──────────
+
+def test_resolve_re_extract_target_uses_profile_output(main_window, tmp_path):
+    """_resolve_re_extract_target resolves the profile's stored output: a
+    relative one against the project root, an absolute one as-is."""
+    from kicadstamp.config_writer import PROJECT_ROOT
+    root = _root_sexp(tmp_path, tmp_path / "cells_out.sexp")
+    dock = ExtractDock(main_window)
+    dock.set_root_path(root)
+
+    relative = dock._resolve_re_extract_target("pi_filter", {"output": "cells_out.sexp"})
+    assert relative == PROJECT_ROOT / "cells_out.sexp"
+
+    absolute = tmp_path / "abs_out.sexp"
+    assert dock._resolve_re_extract_target("pi_filter", {"output": str(absolute)}) == absolute
+
+
+def test_resolve_re_extract_target_falls_back_to_target_path(main_window, tmp_path):
+    """No profile output -> the dock's current target path is where re-extract
+    writes (a bare Cell with no profile)."""
+    root = _root_sexp(tmp_path, tmp_path / "cells_out.sexp")
+    dock = ExtractDock(main_window)
+    dock.set_root_path(root)
+
+    assert dock._resolve_re_extract_target("pi_filter", {}) == root
+
+
+def test_resolve_re_extract_target_none_without_root(main_window):
+    """Neither a profile output nor a target path -> None + "Set the project
+    root first." (never a crash)."""
+    dock = ExtractDock(main_window)
+    assert dock._resolve_re_extract_target("pi_filter", {}) is None
+
+
+# ── _on_re_extract: guards + payload to the worker ─────────────────────────
+
+def test_on_re_extract_guard_when_not_connected(main_window, tmp_path, monkeypatch):
+    """No board -> "Not connected." and no op starts."""
+    root = _root_sexp(tmp_path, tmp_path / "cells_out.sexp")
+    dock = ExtractDock(main_window)
+    dock.set_root_path(root)
+    dock.pick_profile("myprofile")
+    dock.re_extract_placement_combo.setCurrentIndex(0)
+    main_window.connection.board = None
+
+    started = []
+    monkeypatch.setattr(dock, "_start_re_extract_op", lambda p: started.append(p))
+    dock._on_re_extract()
+
+    assert started == []
+
+
+def test_on_re_extract_guard_when_no_placement(main_window, tmp_path, monkeypatch):
+    """Connected but no picked cell/placement -> message, no op starts."""
+    root = _root_sexp(tmp_path, tmp_path / "cells_out.sexp")
+    dock = ExtractDock(main_window)
+    dock.set_root_path(root)
+    main_window.connection.board = SimpleNamespace(adapter=MagicMock())
+
+    started = []
+    monkeypatch.setattr(dock, "_start_re_extract_op", lambda p: started.append(p))
+    dock._on_re_extract()  # no profile/cell picked yet
+
+    assert started == []
+
+
+def test_on_re_extract_starts_op_with_resolved_payload(main_window, tmp_path, monkeypatch):
+    """Happy path: connected + picked profile + chosen placement -> the worker
+    gets a payload with the placement/cell/target/resolver entry."""
+    root = _root_sexp(tmp_path, tmp_path / "cells_out.sexp")
+    dock = ExtractDock(main_window)
+    dock.set_root_path(root)
+    main_window.connection.board = SimpleNamespace(adapter=MagicMock())
+    dock.pick_profile("myprofile")
+    dock.re_extract_placement_combo.setCurrentIndex(0)
+
+    captured = {}
+    monkeypatch.setattr(dock, "_start_re_extract_op", lambda p: captured.update(p))
+    dock._on_re_extract()
+
+    assert captured["cell_name"] == "pi_filter"
+    assert captured["placement_name"] == "Ch0_PI"
+    assert captured["profile_key"] == "myprofile"
+    assert captured["root_path"] == root
+    assert captured["placer_path"] == root
+    assert captured["target_path"] == tmp_path / "cells_out.sexp"
+
+
 # ── 2026-08-31: "Tools -> Re-read selected..." batch worker ────────────────
 
 def test_reead_selected_worker_runs_one_extract_per_job(main_window, tmp_path, monkeypatch):

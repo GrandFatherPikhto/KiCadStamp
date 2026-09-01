@@ -462,6 +462,47 @@ def test_extract_saved_refreshes_config_tree_cells(real_main_window, tmp_path):
     assert cells.child(0).text(0) == "ldo_adj_2vp"
 
 
+def test_extract_save_profile_writes_root_entry_and_tree_shows_leaf(
+        real_main_window, tmp_path, monkeypatch):
+    """2026-09-01 (gap close): a successful Extract with "Also save as
+    extract_profile" writes the entry into the project root AND the Config
+    tree shows the new extract_profiles leaf (saved -> refresh) — the full
+    "profile appeared in the config" path, not just the writer in isolation
+    (the write itself is pinned in test_extract_dock.py; this pins the
+    section rendering after a save_profile Extract)."""
+    import gui.docks.extract as extract_mod
+    from tests.gui.test_extract_dock import (FakeBoard, FakeSelected,
+                                             _fake_extract, _fake_fp, _load)
+
+    root = tmp_path / "root.sexp"
+    _write(root)
+    hub = real_main_window._dock_hub
+    hub.config_tree_dock.set_root_file(root)
+    dock = hub.extract_dock
+    dock.set_root_path(root)
+    dock._connection.board = FakeBoard()
+
+    monkeypatch.setattr(extract_mod, "extract_template_from_selection", _fake_extract)
+
+    dock.set_board_selection([_fake_fp("C1")],
+                             [FakeSelected("C1", "SOME_ROLE", "PIF_P5V", {"1": "+5V"})])
+    dock.name_edit.setText("pif_p5v")
+    dock.save_profile_checkbox.setChecked(True)
+    dock.profile_key_edit.setText("pif_p5v_profile")
+
+    dock._do_extract()
+
+    profile = _load(root)["extract_profiles"]["pif_p5v_profile"]
+    assert profile["name"] == "pif_p5v"
+
+    root_item = hub.config_tree_dock.tree.topLevelItem(0)
+    profiles = next((root_item.child(i) for i in range(root_item.childCount())
+                     if root_item.child(i).text(0) == "Extract profiles"), None)
+    assert profiles is not None
+    assert profiles.childCount() == 1
+    assert profiles.child(0).text(0) == "pif_p5v_profile"
+
+
 # ── 3.2: docks use the injected BoardConnection, not main_window.connection ──
 
 def test_extract_dock_uses_injected_connection_when_given(main_window):

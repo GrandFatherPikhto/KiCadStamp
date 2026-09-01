@@ -359,15 +359,17 @@ class TestHypothesisH6:
             assert entity.nets[role] not in (_RAIL_NET, "GND")
 
     @pytest.mark.skip(reason=(
-        "Re-verify the signal-pad numbering of R_FL_HOLD/R_FL_WP if Cell "
-        "'fpga_flash' is ever re-extracted from the live board: electrically "
-        "symmetric 2-pin R/C pad '1' vs '2' is an arbitrary routing choice "
-        "(R_FB_TOP precedent 2026-08-16) — H1/H3 hold for the CURRENT "
-        "extracted template only, not as a cross-instance guarantee (see the "
+        "The live recheck now lives in "
+        "tests/integration_tests/test_reextract_pad_numbering.py (2026-09-01): "
+        "re-extract fpga_flash from the LIVE board via the resolver + "
+        "run_extract_to_file path and re-verify the signal-pad numbering of "
+        "R_FL_HOLD/R_FL_WP — electrically symmetric 2-pin R/C pad '1' vs '2' "
+        "is an arbitrary routing choice (R_FB_TOP precedent 2026-08-16), so "
+        "H1/H3 hold for the CURRENT extracted template only (see the "
         "TestHypothesisH6 docstring)."
     ))
     def test_re_extract_must_recheck_pad_numbering(self):
-        """Skipped placeholder — the reminder itself is the point (H6): nothing
-        to run now, but the reason string names exactly what must be re-checked
-        if Cell fpga_flash is ever re-extracted."""
+        """Skipped placeholder — the reminder itself is the point (H6): the
+        static H1/H3 checks run above; the LIVE re-extract recheck is the
+        integration test in tests/integration_tests/test_reextract_pad_numbering.py."""
         raise AssertionError("this test is skipped by design")
