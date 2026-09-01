@@ -10863,6 +10863,12 @@ msgstr "Нет импортируемых записей (Cell/Entity/Chain) в 
 msgid "cluster {cluster!r} live position"
 msgstr "живая позиция кластера {cluster!r}"
 
+msgid "A tree named {name!r} already exists. Update it from the current selection?"
+msgstr "Дерево с именем {name!r} уже существует. Обновить его по текущему выделению?"
+
+msgid "Also delete the net traces now only referenced by this tree: {nets}?"
+msgstr "Удалить также записи дорожек, на которые теперь ссылается только это дерево: {nets}?"
+
 #~ msgid ""
 #~ "Process only rules/clone_placements/thermal_via_array with this name (can be"
 #~ " repeated). The name must be explicitly set in the YAML (see docs). "

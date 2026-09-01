@@ -131,6 +131,22 @@ def collect_tree_refs(tree: "Tree") -> list[str]:
     return refs
 
 
+def _tree_net_trace_nets(tree: "Tree") -> set[str]:
+    """Every net referenced by the tree's kind="net_trace" nodes (phase D/E,
+    2026-09-01) — the net_traces: records that belong to this tree's captured
+    inter-cluster copper (used by the delete-tree cascade to find orphans)."""
+    nets: set[str] = set()
+
+    def walk(nodes: list) -> None:
+        for node in nodes:
+            if node.kind == "net_trace" and node.ref:
+                nets.add(node.ref)
+            walk(node.children)
+
+    walk(tree.nodes)
+    return nets
+
+
 def _resolve_probe_ref(cfg, ref: str, kind: str | None) -> tuple[Record | None, bool]:
     """Same resolution rules as a real tree node — reused via link_trees's own
     private index builders (already partially imported here), not
@@ -233,6 +249,9 @@ class TreesDock(QDockWidget):
         self._ctx = None
         self._dirty: bool = False                # used from Phase 2, field kept from the start
         self._active_op = None
+        # Phase E (2026-09-01): net_traces: records orphaned by a deleted tree's
+        # net_trace nodes — removed from the working set on the next stage.
+        self._orphan_net_nets: set[str] = set()
         # ref -> QTreeWidgetItem, rebuilt on every render — needed for the
         # checkbox selection (Phase 4) and for the move "not into own
         # descendant" guard (Phase 2).
@@ -645,8 +664,15 @@ class TreesDock(QDockWidget):
         validation catches it before anything is written)."""
         if self._root_path is None:
             return
-        trees_dict = [tree_to_dict(t) for t in self._trees]
-        write_data(self._root_path, {**read_data(self._root_path), "trees": trees_dict})
+        data = read_data(self._root_path)
+        data["trees"] = [tree_to_dict(t) for t in self._trees]
+        # Phase E cascade: remove the net_traces orphaned by a deleted tree's
+        # net_trace nodes (see _on_delete_tree).
+        if self._orphan_net_nets:
+            data["net_traces"] = [
+                e for e in data.get("net_traces", [])
+                if not (isinstance(e, dict) and e.get("net") in self._orphan_net_nets)]
+        write_data(self._root_path, data)
 
     def _mark_dirty(self) -> None:
         """Central dirty setter — every structural mutator (Phase 2) calls
@@ -1048,6 +1074,25 @@ class TreesDock(QDockWidget):
             QMessageBox.StandardButton.No)
         if ret != QMessageBox.StandardButton.Yes:
             return
+        # Phase E cascade (2026-09-01): net_traces captured by this tree's
+        # net_trace nodes and NOT referenced by any other remaining tree become
+        # orphaned — offer to remove them too (No is the safe default).
+        deleted_nets = _tree_net_trace_nets(tree)
+        remaining_nets: set[str] = set()
+        for other in self._trees:
+            if other is tree:
+                continue
+            remaining_nets |= _tree_net_trace_nets(other)
+        orphaned = deleted_nets - remaining_nets
+        if orphaned:
+            ret = QMessageBox.question(
+                self, _("Delete tree"),
+                _("Also delete the net traces now only referenced by this tree: "
+                  "{nets}?").format(nets=", ".join(sorted(orphaned))),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No)
+            if ret == QMessageBox.StandardButton.Yes:
+                self._orphan_net_nets |= orphaned
         self._trees.remove(tree)
         self._mark_dirty()
         self._rebuild_tabs()

@@ -10931,6 +10931,12 @@ msgstr "No importable entries (Cell/Entity/Chain) in this file."
 msgid "cluster {cluster!r} live position"
 msgstr "cluster {cluster!r} live position"
 
+msgid "A tree named {name!r} already exists. Update it from the current selection?"
+msgstr "A tree named {name!r} already exists. Update it from the current selection?"
+
+msgid "Also delete the net traces now only referenced by this tree: {nets}?"
+msgstr "Also delete the net traces now only referenced by this tree: {nets}?"
+
 #~ msgid ""
 #~ "Process only rules/clone_placements/thermal_via_array with this name (can be"
 #~ " repeated). The name must be explicitly set in the YAML (see docs). "

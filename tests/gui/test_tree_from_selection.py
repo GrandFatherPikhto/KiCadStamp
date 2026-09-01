@@ -665,6 +665,27 @@ def test_link_trees_net_trace_requires_explicit_kind():
         link_trees(cfg, [tree])
 
 
+# ── Phase E: re-extract / delete-tree cascade (2026-09-01) ────────────────
+
+def test_build_tree_allow_existing_rebuilds_on_duplicate_name():
+    """Phase E: allow_existing=True lets the build proceed with a name that
+    already exists (re-extract) instead of the "already exists" hard error."""
+    cfg = _cfg_with_entities()
+    cfg.trees = [Tree(name="power_tree", anchor=_anchor(), nodes=[])]
+    # New tree would be blocked...
+    tree, errors = build_tree_from_clusters(
+        _clusters(), "power_tree", _anchor(), cfg.entities, cfg)
+    assert tree is None
+    assert any("already exists" in e for e in errors)
+    # ...but with allow_existing (re-extract) it rebuilds.
+    tree, errors = build_tree_from_clusters(
+        _clusters(), "power_tree", _anchor(), cfg.entities, cfg,
+        allow_existing=True, net_nodes=["SHARED"])
+    assert errors == []
+    assert [n.ref for n in tree.nodes] == \
+        ["CH1_PIF_AVDD", "CH1_PIF_CLKVDD", "SHARED"]
+
+
 # ── round-trip / link_trees ───────────────────────────────────────────────
 
 def test_tree_round_trip_and_link_trees_with_role_anchor_and_n_nodes():

@@ -389,9 +389,17 @@ class TreeFromSelectionDialog(QDialog):
                                 _("Tree name must not be empty."))
             return
         if name in self._existing_names:
-            QMessageBox.warning(self, _("Extract tree"),
-                                _("A tree named {name!r} already exists.").format(name=name))
-            return
+            # Phase E (2026-09-01): entering an existing tree's name means
+            # RE-EXTRACT — the tree is rebuilt from the current selection and
+            # replaces the old one. Confirmed (No is the safe default).
+            ret = QMessageBox.question(
+                self, _("Extract tree"),
+                _("A tree named {name!r} already exists. Update it from the "
+                  "current selection?").format(name=name),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No)
+            if ret != QMessageBox.StandardButton.Yes:
+                return
         if not self.role_edit.currentText().strip():
             QMessageBox.warning(self, _("Extract tree"),
                                 _("Role is required for the tree anchor."))

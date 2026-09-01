@@ -210,12 +210,14 @@ def cluster_errors(clusters: Iterable[ReReadCluster], entities,
     return ["" for _ in clusters]
 
 
-def _name_errors(tree_name: str, cfg: Any) -> list[str]:
+def _name_errors(tree_name: str, cfg: Any, allow_existing: bool = False) -> list[str]:
     """Tree-name validation (empty / duplicate in cfg.trees) — an error here
-    blocks the build exactly like a cluster error."""
+    blocks the build exactly like a cluster error. allow_existing=True (phase E,
+    re-extract): the name is expected to match an existing tree that is being
+    UPDATED from the current selection, so the duplicate check is skipped."""
     if not tree_name or not tree_name.strip():
         return [_("Tree name must not be empty.")]
-    if any(t.name == tree_name for t in cfg.trees):
+    if not allow_existing and any(t.name == tree_name for t in cfg.trees):
         return [_("A tree named {name!r} already exists.").format(name=tree_name)]
     return []
 
@@ -228,6 +230,7 @@ def build_tree_from_clusters(
     *, entity_positions: Optional[dict] = None,
     anchor_base: Optional[tuple[float, float]] = None,
     net_nodes: Iterable[str] = (),
+    allow_existing: bool = False,
 ) -> tuple[Optional[Tree], list[str]]:
     """Build the Tree from the checked clusters. Every cluster becomes a
     top-level kind="placement" TreeNode with ref = the Entity that will place
@@ -242,7 +245,7 @@ def build_tree_from_clusters(
     remaining hard error. A cluster without an Entity/cell is auto-satisfiable
     (phase A) and no longer blocks the build.
     """
-    errors = _name_errors(tree_name, cfg)
+    errors = _name_errors(tree_name, cfg, allow_existing=allow_existing)
     if errors:
         return None, errors
     errors = cluster_errors(clusters, entities, cfg)

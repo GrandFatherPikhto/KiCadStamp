@@ -916,10 +916,14 @@ class DockHub:
         # entity_positions already holds only the positions that resolved live
         # (failed reads are omitted -> that node is saved without xy).
         checked_nets = dialog.selected_nets()
+        # Phase E (2026-09-01): entering an existing tree's name = RE-EXTRACT —
+        # the tree is rebuilt from the current selection and replaces the old one.
+        existing_tree = next((t for t in cfg.trees if t.name == tree_name), None)
         tree, build_errors = build_tree_from_clusters(
             selected, tree_name, anchor, cfg.entities, cfg,
             entity_positions=entity_positions, anchor_base=anchor_base,
-            net_nodes=[n.net for n in checked_nets])
+            net_nodes=[n.net for n in checked_nets],
+            allow_existing=existing_tree is not None)
         if tree is None:
             QMessageBox.warning(self.main_window, _("Extract tree"),
                                 _("Cannot build the tree:\n{errors}")
@@ -1013,7 +1017,10 @@ class DockHub:
                 except Exception as e:  # noqa: BLE001 — one bad net must not drop the tree
                     logging.warning("Extract tree: net %r not captured: %s",
                                     net.net, e)
-            trees_dict = [tree_to_dict(t) for t in cfg.trees] + [tree_to_dict(tree)]
+            # Phase E: an existing tree with this name is REPLACED (re-extract),
+            # not duplicated.
+            kept_trees = [t for t in cfg.trees if t.name != tree_name]
+            trees_dict = [tree_to_dict(t) for t in kept_trees] + [tree_to_dict(tree)]
             data["trees"] = trees_dict
             write_data(root_path, data)
             reloaded = [load_tree(t) for t in trees_dict]

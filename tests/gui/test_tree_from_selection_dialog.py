@@ -3,7 +3,7 @@ extract_selection_as_tree.md) — the thin 3-tab renderer in
 gui/docks/tree_from_selection_dialog.py. All mapping/validation logic is
 tested separately in test_tree_from_selection.py; this file only pins the
 widget behaviour (rows, checkboxes, master, prefill, blocking OK)."""
-from PyQt6.QtWidgets import QDialog
+from PyQt6.QtWidgets import QDialog, QMessageBox
 
 from gui.docks import tree_from_selection_dialog as tfsd
 from gui.docks.reead import ReReadCluster
@@ -76,16 +76,36 @@ def test_ok_blocked_on_empty_name(main_window, monkeypatch):
     assert dialog.result() != QDialog.DialogCode.Accepted
 
 
-def test_ok_blocked_on_duplicate_name(main_window, monkeypatch):
-    warnings = []
+def test_ok_blocked_on_duplicate_name_when_update_declined(main_window, monkeypatch):
+    """Phase E: an existing name now asks "update?" — declining (No, safe
+    default) still blocks; nothing is accepted."""
+    questions = []
     monkeypatch.setattr(tfsd.QMessageBox, "warning",
-                        lambda *a, **k: warnings.append(a[2]))
+                        lambda *a, **k: None)
+    monkeypatch.setattr(tfsd.QMessageBox, "question",
+                        lambda *a, **k: questions.append(a[2])
+                        or QMessageBox.StandardButton.No)
     dialog = TreeFromSelectionDialog(_clusters(), [], ["power_tree"],
                                      parent=main_window, prefills=_prefills())
     dialog.tree_name_edit.setText("power_tree")
     dialog._on_ok()
-    assert warnings and "already exists" in warnings[0]
+    assert questions and "already exists" in questions[0]
     assert dialog.result() != QDialog.DialogCode.Accepted
+
+
+def test_ok_duplicate_name_confirmed_updates_existing(main_window, monkeypatch):
+    """Phase E: confirming the update proceeds (the tree is rebuilt from the
+    current selection and replaces the old one in dock_hub)."""
+    monkeypatch.setattr(tfsd.QMessageBox, "warning",
+                        lambda *a, **k: None)
+    monkeypatch.setattr(tfsd.QMessageBox, "question",
+                        lambda *a, **k: QMessageBox.StandardButton.Yes)
+    dialog = TreeFromSelectionDialog(_clusters(), [], ["power_tree"],
+                                     parent=main_window, prefills=_prefills())
+    dialog.tree_name_edit.setText("power_tree")
+    dialog.root_cluster_combo.setCurrentIndex(0)  # prefills the role
+    dialog._on_ok()
+    assert dialog.result() == QDialog.DialogCode.Accepted
 
 
 def test_ok_blocked_without_role(main_window, monkeypatch):

@@ -750,6 +750,26 @@ def test_extract_tree_happy_path_saves_tree_and_nets(real_main_window,
     assert graph_changed
 
 
+def test_tree_net_trace_nets_collects_net_trace_refs():
+    """Phase E: _tree_net_trace_nets returns the nets of a tree's net_trace
+    nodes (used by the delete-tree cascade to find orphaned net_traces)."""
+    from gui.docks.trees_dock import _tree_net_trace_nets
+    from kicadstamp.trees import Tree, TreeAnchor, TreeNode
+
+    tree = Tree(name="t", anchor=TreeAnchor(role="DAC"),
+                nodes=[
+                    TreeNode(ref="E1", kind="placement", xy=None, polar=None,
+                             rotation=0.0, name=None, group=None),
+                    TreeNode(ref="SHARED", kind="net_trace", xy=None, polar=None,
+                             rotation=0.0, name=None, group=None,
+                             children=[
+                                 TreeNode(ref="AVDD", kind="net_trace", xy=None,
+                                          polar=None, rotation=0.0, name=None, group=None),
+                             ]),
+                ])
+    assert _tree_net_trace_nets(tree) == {"SHARED", "AVDD"}
+
+
 def test_file_selected_no_longer_switches_detail_page(real_main_window, tmp_path):
     """A plain file/category click (file_selected fires with no matching leaf
     signal) NO LONGER switches the Detail dock — the old file_selected ->
