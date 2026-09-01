@@ -215,6 +215,14 @@ class MainWindow(QMainWindow):
         self.new_extract_action.triggered.connect(
             lambda: self._dock_hub.new_extract())
         tools_menu.addAction(self.new_extract_action)
+        # "Extract tree..." (2026-09-01, plan extract_selection_as_tree.md): a
+        # NEW tree from the current board selection — fully-selected Clusters
+        # become placement nodes (xy relative to a chosen role anchor), checked
+        # inter-cluster nets are captured as net_traces: records.
+        self.extract_tree_action = QAction(_("Extract tree..."), self)
+        self.extract_tree_action.triggered.connect(
+            lambda: self._dock_hub.extract_tree_from_selection())
+        tools_menu.addAction(self.extract_tree_action)
 
         # View menu (2026-08-27, handoff sync_skip_message_and_view_menu): the
         # app had no menu bar at all, so a closed dock had no way back short of

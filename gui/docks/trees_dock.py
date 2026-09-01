@@ -385,6 +385,47 @@ class TreesDock(QDockWidget):
                          "edits were left untouched (trees stay stale until "
                          "saved)")
 
+    def reload_trees(self) -> None:
+        """Re-read the root config's trees: section after an EXTERNAL write —
+        the TreesDock half of "Tools -> Extract tree..." (2026-09-01, plan
+        extract_selection_as_tree.md), which saves the new tree through
+        config_writer directly, BYPASSING this dock's own Save. Without this
+        the dock would keep showing the pre-action tree until the root was
+        reassigned.
+
+        Rebuilds cfg/ctx/_trees from the same root like set_root_file, but
+        NEVER wipes an in-progress dirty edit: when _dirty, the current buffer
+        stays exactly as it is and externally-added trees (present on disk, not
+        in the buffer) are appended by name — so an unsaved tree the user is
+        hand-editing is preserved and the new "Extract tree..." tab appears.
+        No-op when no root is loaded; on a load failure the PREVIOUS cfg/ctx/
+        _trees are kept and the failure is logged (same discipline as
+        refresh_ref_candidates)."""
+        if self._root_path is None:
+            return
+        try:
+            cfg, ctx = load_config(str(self._root_path))
+        except (ValidationError, OSError) as e:
+            logger.warning(_("Trees: root config failed to reload: {error}")
+                           .format(error=e))
+            return
+        self._cfg = cfg
+        self._ctx = ctx
+        fresh = list(cfg.trees)
+        if self._dirty:
+            # Unsaved edits stay untouched; append whatever appeared AFTER the
+            # current buffer. Index-based (not name-based): an unsaved RENAME
+            # makes the on-disk old name look like a brand-new tree and would
+            # duplicate it — external writers ("Extract tree...") only ever
+            # APPEND, so the buffer's tail is exactly what is new.
+            self._trees = self._trees + fresh[len(self._trees):]
+            logger.debug("Trees: external trees reloaded; unsaved tree edits "
+                         "were left untouched")
+        else:
+            self._trees = fresh
+        self._rebuild_tabs()
+        self._update_toolbar_state()
+
     def apply_highlight(self) -> None:
         """Re-apply the highlight stylesheet — same consumer shape as the
         other tree docks (see gui/dock_hub.py)."""

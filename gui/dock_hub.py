@@ -27,8 +27,10 @@ from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QDialog, QMessageBox
 
 from kicadstamp.cli_common import peek_log_file
+from kicadstamp.i18n import _
 from kicadstamp.logging_setup import get_log_listener
 
 from .docks.anchor_tree import AnchorTreeDock
@@ -567,6 +569,185 @@ class DockHub:
         fresh capture as the Config tree context menu's "New Extract..."
         (new_extract_requested -> _start_new_extract)."""
         self._start_new_extract()
+
+    def extract_tree_from_selection(self) -> None:
+        """Main menu "Tools -> Extract tree..." (2026-09-01, plan
+        extract_selection_as_tree.md): build a NEW tree from the current board
+        selection and save it into the root config's trees: section.
+
+        Flow: detect the FULLY-selected Clusters (reead.py's detection — same
+        selection truth as Re-read) -> show the 3-tab dialog (clusters /
+        anchor / inter-cluster nets) -> on OK, build the Tree (every checked
+        cluster = a top-level kind="placement" node with xy = the Entity's
+        live position minus the live anchor base) and the checked inter-cluster
+        nets as net_traces: records -> save through config_writer (backup +
+        write + round-trip link_trees) -> refresh TreesDock / ConfigTreeDock.
+        """
+        connection = self.main_window.connection
+        board = getattr(connection, "board", None)
+        adapter = getattr(board, "adapter", None) if board is not None else None
+        if adapter is None:
+            QMessageBox.warning(self.main_window, _("Extract tree"),
+                                _("Not connected."))
+            return
+        root_path = self.root_metadata_dock.root_path
+        if root_path is None:
+            QMessageBox.warning(self.main_window, _("Extract tree"),
+                                _("Set the project root first."))
+            return
+        from kicadstamp.config import load_config
+        try:
+            cfg, ctx = load_config(str(root_path))
+        except Exception as e:  # noqa: BLE001 — a broken config must not crash the GUI
+            QMessageBox.warning(self.main_window, _("Extract tree"),
+                                _("Failed to load config: {error}").format(error=e))
+            return
+        sheet_names = dict(ctx.sheet_names or {})
+
+        from .docks.reead import fully_selected_clusters
+        clusters = fully_selected_clusters(
+            self.extract_dock._selected_footprints,
+            list(connection.snapshot or []),
+            list(cfg.entities),
+            (),
+            sheet_names=sheet_names)
+        # Diagnostic + defensive filter (same rationale as re_read_selected:
+        # a row must be a sane single-line cluster).
+        clusters = [c for c in clusters if c.cluster and "\n" not in c.cluster]
+        if not clusters:
+            QMessageBox.warning(
+                self.main_window, _("Extract tree"),
+                _("No fully selected Cluster found — select ALL components of a "
+                  "cluster (its Cluster tag + sheet) first."))
+            return
+
+        from .docks.tree_from_selection import (
+            cluster_errors,
+            detect_inter_cluster_nets,
+            resolve_entity_live_position_mm,
+            resolve_role_anchor_base_mm,
+            tree_anchor_from_cluster_entity,
+        )
+        from .docks.tree_from_selection_dialog import TreeFromSelectionDialog
+
+        inter_nets = detect_inter_cluster_nets(
+            self.extract_dock._raw_items, clusters,
+            list(connection.snapshot or []),
+            [r.net for r in cfg.rules])
+
+        # Per-row "no cell" errors (block OK in the dialog) + per-row "existing
+        # cluster anchor" prefills + the live Entity positions for the offset
+        # preview. A failed live read just omits the position (the node is then
+        # saved without xy — live-position rule at apply), never a crash.
+        errors = cluster_errors(clusters, cfg.entities, cfg)
+        prefills: dict[int, object] = {}
+        entity_positions: dict[str, tuple[float, float]] = {}
+        for i, c in enumerate(clusters):
+            entity = next((e for e in cfg.entities
+                           if e.name == c.entity_name), None)
+            if entity is None:
+                continue
+            prefills[i] = tree_anchor_from_cluster_entity(entity, cfg)
+            try:
+                entity_positions[entity.name] = resolve_entity_live_position_mm(
+                    adapter, cfg, entity, sheet_names)
+            except Exception as e:  # noqa: BLE001 — live read, best-effort preview
+                logging.warning("Extract tree: live position of Entity %r "
+                                "unavailable: %s", entity.name, e)
+
+        def _anchor_base_provider(anchor):
+            if anchor is None or anchor.role is None:
+                return None
+            try:
+                return resolve_role_anchor_base_mm(adapter, cfg, anchor, sheet_names)
+            except Exception:  # noqa: BLE001 — live read, best-effort preview
+                return None
+
+        dialog = TreeFromSelectionDialog(
+            clusters, inter_nets, [t.name for t in cfg.trees],
+            sheet_names=sheet_names,
+            role_candidates=self.trees_dock._live_roles(),
+            cluster_candidates=self.trees_dock._live_clusters(),
+            parent=self.main_window,
+            cluster_errors=errors,
+            entity_positions=entity_positions,
+            anchor_base_provider=_anchor_base_provider,
+            prefills=prefills)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        selected = dialog.selected_clusters()
+        if not selected:
+            QMessageBox.warning(self.main_window, _("Extract tree"),
+                                _("No clusters selected."))
+            return
+        tree_name = dialog.tree_name()
+        anchor = dialog.build_anchor()
+        if anchor is None:
+            QMessageBox.warning(self.main_window, _("Extract tree"),
+                                _("Role is required for the tree anchor."))
+            return
+
+        # Autopositioning: node xy = Entity live position - live anchor base.
+        anchor_base = None
+        try:
+            anchor_base = resolve_role_anchor_base_mm(adapter, cfg, anchor, sheet_names)
+        except Exception as e:  # noqa: BLE001 — without it nodes are saved without xy
+            logging.warning("Extract tree: anchor base unavailable — nodes will "
+                            "have no xy: %s", e)
+
+        from .docks.tree_from_selection import build_tree_from_clusters
+        # entity_positions already holds only the positions that resolved live
+        # (failed reads are omitted -> that node is saved without xy).
+        tree, build_errors = build_tree_from_clusters(
+            selected, tree_name, anchor, cfg.entities, cfg,
+            entity_positions=entity_positions, anchor_base=anchor_base)
+        if tree is None:
+            QMessageBox.warning(self.main_window, _("Extract tree"),
+                                _("Cannot build the tree:\n{errors}")
+                                .format(errors="\n".join(build_errors)))
+            return
+
+        # ── Save: trees: first, then the checked nets as net_traces: ──────
+        from kicadstamp.config import load_tree
+        from kicadstamp.config_writer import read_data, write_data
+        from kicadstamp.link_trees import link_trees
+        from kicadstamp.net_trace_extract import extract_net_trace, write_net_trace
+        from kicadstamp.trees import tree_to_dict
+        from .docks.entity_delete import backup_file
+        try:
+            backup_file(root_path)
+            trees_dict = [tree_to_dict(t) for t in cfg.trees] + [tree_to_dict(tree)]
+            write_data(root_path, {**read_data(root_path), "trees": trees_dict})
+            reloaded = [load_tree(t) for t in trees_dict]
+            link_trees(cfg, reloaded)
+        except Exception as e:  # noqa: BLE001 — .bak is fresh; report, don't roll back
+            QMessageBox.warning(self.main_window, _("Extract tree"),
+                                _("Saved, but the round-trip check failed: {error}")
+                                .format(error=e))
+            return
+        for net in dialog.selected_nets():
+            try:
+                nt = extract_net_trace(
+                    adapter, net=net.net,
+                    anchor_role=anchor.role,
+                    anchor_sheet=anchor.anchor_sheet,
+                    anchor_cluster=anchor.anchor_cluster,
+                    anchor_pad=anchor.anchor_pad,
+                    sheet_names=sheet_names)
+                write_net_trace(str(root_path), nt)
+            except Exception as e:  # noqa: BLE001 — one bad net must not drop the tree
+                logging.warning("Extract tree: net %r not captured: %s",
+                                net.net, e)
+
+        # ── Refresh: show the new tree + graph everywhere without a restart ──
+        self.trees_dock.reload_trees()
+        self.config_tree_dock.refresh()
+        self.config_tree_dock.graph_changed.emit()
+        QMessageBox.information(
+            self.main_window, _("Extract tree"),
+            _("Tree {name!r} saved to {path}.")
+            .format(name=tree.name, path=root_path))
 
     def _start_new_extract(self) -> None:
         """ConfigTreeDock's new_extract_requested delegate ("New Extract...",

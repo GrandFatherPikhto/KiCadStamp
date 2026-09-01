@@ -11552,3 +11552,111 @@ msgstr "Всего спиц: {count}"
 #~ "размещениями — откройте Re-extract в "
 #~ "диалоге Extract, чтобы выбрать одно."
 
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "#tracks"
+msgstr "#треков"
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "#vias"
+msgstr "#переходных"
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "Clusters"
+msgstr "Кластеры"
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "Extract tree"
+msgstr "Извлечь дерево"
+
+#: gui/main_window.py
+msgid "Extract tree..."
+msgstr "Извлечь дерево..."
+
+#: gui/dock_hub.py
+msgid "No clusters selected."
+msgstr "Не выбрано ни одного кластера."
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "No selected tracks/vias connect two or more clusters — nothing to capture."
+msgstr "Нет выделенных дорожек/переходных, соединяющих два и более кластера — нечего захватывать."
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "Role is required for the tree anchor."
+msgstr "Для якоря дерева требуется Role."
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "Root cluster:"
+msgstr "Корневой кластер:"
+
+#: gui/dock_hub.py
+msgid "Saved, but the round-trip check failed: {error}"
+msgstr "Сохранено, но проверка round-trip не прошла: {error}"
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "Select all / deselect all"
+msgstr "Выбрать всё / снять выделение"
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "Tracks and vias between clusters"
+msgstr "Дорожки и переходные между кластерами"
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "Tree name must not be empty."
+msgstr "Имя дерева не должно быть пустым."
+
+#: gui/dock_hub.py
+msgid "Tree {name!r} saved to {path}."
+msgstr "Дерево {name!r} сохранено в {path}."
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "cluster (narrows the role, optional)"
+msgstr "кластер (сужает Role, необязательно)"
+
+#: gui/docks/tree_from_selection.py
+msgid "cluster {cluster!r}: Entity {name!r} not found in the config"
+msgstr "кластер {cluster!r}: Entity {name!r} не найден в конфиге"
+
+#: gui/docks/tree_from_selection.py
+msgid "cluster {cluster!r}: Entity {name!r} references missing cell {cell!r}"
+msgstr "кластер {cluster!r}: Entity {name!r} ссылается на отсутствующую cell {cell!r}"
+
+#: gui/docks/tree_from_selection.py
+msgid "cluster {cluster!r}: no Entity"
+msgstr "кластер {cluster!r}: нет Entity"
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "e.g. power_tree"
+msgstr "например, power_tree"
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "role (the anchor component's Role field)"
+msgstr "роль (поле Role компонента якоря)"
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "sheet (narrows the role, optional)"
+msgstr "лист (сужает Role, необязательно)"
+
+#: gui/docks/tree_from_selection.py
+msgid "tree anchor (from selection)"
+msgstr "якорь дерева (из выделения)"
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "ΔX mm"
+msgstr "ΔX мм"
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "ΔY mm"
+msgstr "ΔY мм"
+
+#: gui/dock_hub.py
+msgid "Cannot build the tree:\n{errors}"
+msgstr "Не удалось построить дерево:\n{errors}"
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "Pick a root cluster to prefill from its Entity, or narrow the anchor explicitly below."
+msgstr "Выберите корневой кластер, чтобы заполнить поля из его Entity, или сузьте якорь вручную ниже."
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "Some selected clusters have no Entity or cell:\n{list}"
+msgstr "У некоторых выделенных кластеров нет Entity или cell:\n{list}"

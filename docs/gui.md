@@ -361,6 +361,24 @@ Foreign copper swept in by the area-select is dropped by the extractor's connect
 cluster's OWN applied copper is kept — no registry dependency). This is how the three PIF_AVDD
 channels (Channel_0/1/2, same cell) are told apart: the selection's sheet picks the instance.
 
+The main menu's **Tools → Extract tree...** (2026-09-01) builds a NEW tree from the current
+selection — there is no "extract into tree" (the extract never writes `trees:`); this is the
+selection's own tree. Select a group of clusters on the board, then run it. A modal dialog has three
+tabs: **Clusters** (the FULLY-selected clusters, checkboxes on by default, with a live ΔX/ΔY offset
+preview once an anchor is chosen), **Anchor** (a root-cluster combo that prefills Sheet/Cluster/Role
+from the cluster's own Entity — the "existing cluster anchor" — or explicit Sheet/Cluster/Role/Pad
+narrowing into a `TreeAnchor`), and **Tracks and vias between clusters** (inter-cluster nets — the
+selected copper whose net touches 2+ clusters — with per-net checkboxes and a "select all /
+deselect all" master). On OK each checked cluster becomes a top-level `kind="placement"` node with
+`ref` = its Entity's name and `xy` = the Entity's live position minus the live anchor base
+(autopositioning, like "Reread current position" — the tree freezes the current geometry relative to
+the anchor; without a live read the node is saved without `xy` and positions are read live at
+apply). The checked inter-cluster nets are captured as `net_traces:` records alongside. The new tree
+is written into the root config's `trees:` section through the same `config_writer` chokepoint
+(backup + round-trip `link_trees` check); TreesDock and the Config tree refresh immediately. Rows
+whose cluster has no Entity or a missing cell are marked and block OK; an empty/duplicate tree name
+or a missing Role also blocks OK.
+
 **Origin**/**Net aliases**/**Net template role**/**Sub-placements**/**Existing** below live in a
 tab widget (2026-08-04: previously stacked in one long column, whose minimum height was the SUM of
 every section's own — the dock couldn't shrink below that even when most of it didn't apply right

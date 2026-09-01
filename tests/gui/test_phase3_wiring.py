@@ -14,15 +14,26 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+from PyQt6.QtWidgets import QDialog
+
 from gui.schema_model import SchematicComponent
-from kicadstamp.config.sexp_format import dict_to_sexp
+from kicadstamp.config import NetTrace
+from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
+from kicadstamp.domain.board import Track
+from kicadstamp.domain.geometry import Vector2
 from kicadstamp.explore import Selected
+from kicadstamp.trees import TreeAnchor
 
 from gui import settings
 from gui.dock_hub import DockHub
 from gui.docks.extract import ExtractDock
 from gui.docks.role_cluster_tree import RoleClusterTreeDock
 from gui.main_window import MainWindow
+
+import gui.dock_hub as dock_hub_mod
+import gui.docks.tree_from_selection as tfs_mod
+import gui.docks.tree_from_selection_dialog as tfsd_mod
+import kicadstamp.net_trace_extract as net_trace_extract_mod
 
 
 def _find_item(model, text):
@@ -384,6 +395,157 @@ def test_tools_menu_reead_selected_between_edit_and_view(real_main_window, monke
                         lambda: called.append(True))
     real_main_window.reead_selected_action.trigger()
     assert called == [True]
+
+
+# ── Tools -> Extract tree... (2026-09-01, plan extract_selection_as_tree.md) ─
+
+def _selected_tree(ref, cluster, sheet, nets):
+    """A Selected footprint carrying pad nets — the inter-cluster-net source."""
+    return Selected(ref=ref, role=None, cluster=cluster, sheet=[sheet],
+                    nets=nets, fp=object())
+
+
+def test_tools_menu_extract_tree_between_edit_and_view(real_main_window, monkeypatch):
+    """The Tools menu has "Extract tree..." next to Re-read/New Extract and
+    routes to DockHub.extract_tree_from_selection."""
+    labels = [a.text() for a in real_main_window.menuBar().actions()]
+    assert "Edit" in labels and "Tools" in labels and "View" in labels
+    assert labels.index("Edit") < labels.index("Tools") < labels.index("View")
+
+    called = []
+    monkeypatch.setattr(real_main_window._dock_hub, "extract_tree_from_selection",
+                        lambda: called.append(True))
+    real_main_window.extract_tree_action.trigger()
+    assert called == [True]
+
+
+def test_extract_tree_no_fully_selected_cluster_shows_message(real_main_window,
+                                                              tmp_path, monkeypatch):
+    """No fully-selected cluster -> a warning is shown and the dialog is NOT
+    opened (same guard as Re-read)."""
+    root = tmp_path / "root.sexp"
+    _write(root)
+    real_main_window.root_metadata_dock.set_root_file(root)
+    # Replace the live BoardConnection with a fake (its snapshot is a
+    # read-only property on the real one — this flow only reads it).
+    real_main_window.connection = SimpleNamespace(
+        board=SimpleNamespace(adapter=object()), snapshot=[], long_op_active=False)
+    hub = real_main_window._dock_hub
+    hub.extract_dock._selected_footprints = []
+    hub.extract_dock._raw_items = []
+
+    warnings = []
+    monkeypatch.setattr(dock_hub_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a[2]))
+    constructed = []
+    monkeypatch.setattr(tfsd_mod, "TreeFromSelectionDialog",
+                        lambda *a, **k: constructed.append(True) or object())
+
+    hub.extract_tree_from_selection()
+
+    assert any("No fully selected Cluster" in w for w in warnings)
+    assert constructed == []
+
+
+def test_extract_tree_happy_path_saves_tree_and_nets(real_main_window,
+                                                     tmp_path, monkeypatch):
+    """The full flow: after OK the root config gains a trees: entry (name +
+    role anchor + placement nodes with xy) and the checked inter-cluster net
+    lands in net_traces:; TreesDock shows the new tree and graph_changed is
+    emitted. Backup + round-trip link_trees must not crash."""
+    root = tmp_path / "root.sexp"
+    _write(root, {
+        "entities": [
+            {"name": "CH1_PIF_AVDD", "cell": "dac_pif_avdd",
+             "cluster": "PIF_AVDD", "sheet": "Channel_1"},
+            {"name": "CH1_PIF_CLKVDD", "cell": "dac_pif_clkvdd",
+             "cluster": "PIF_CLKVDD", "sheet": "Channel_1"},
+        ],
+        "cells": {
+            "dac_pif_avdd": {"components": [{"role": "DAC"}]},
+            "dac_pif_clkvdd": {"components": [{"role": "DAC"}]},
+        },
+    })
+    real_main_window.root_metadata_dock.set_root_file(root)
+    hub = real_main_window._dock_hub
+    sel1 = _selected_tree("R1", "PIF_AVDD", "Channel_1", {"1": "SHARED"})
+    sel2 = _selected_tree("R2", "PIF_CLKVDD", "Channel_1", {"1": "SHARED"})
+    # Replace the live BoardConnection with a fake (snapshot is a read-only
+    # property on the real one — this flow only reads it).
+    real_main_window.connection = SimpleNamespace(
+        board=SimpleNamespace(adapter=object()),
+        snapshot=[sel1, sel2], long_op_active=False)
+    hub.extract_dock._selected_footprints = [sel1, sel2]
+    hub.extract_dock._raw_items = [
+        Track(uuid="t1", start=Vector2.from_xy(0, 0), end=Vector2.from_xy(1, 1),
+              net_name="SHARED", width_mm=0.25, layer=None),
+    ]
+
+    # Auto-accepting dialog returning both clusters + the shared net.
+    class _FakeDialog:
+        def __init__(self, clusters, inter_nets, existing_names, **kwargs):
+            self._clusters = clusters
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+        def selected_clusters(self):
+            return self._clusters
+
+        def selected_nets(self):
+            from gui.docks.tree_from_selection import InterClusterNet
+            return [InterClusterNet(net="SHARED", track_count=1, via_count=0)]
+
+        def tree_name(self):
+            return "power_tree"
+
+        def build_anchor(self):
+            return TreeAnchor(role="DAC", anchor_sheet="Channel_1",
+                              anchor_cluster="PIF_AVDD")
+
+    monkeypatch.setattr(tfsd_mod, "TreeFromSelectionDialog", _FakeDialog)
+    # Live positions (mocked) — Entity positions and the anchor base.
+    monkeypatch.setattr(
+        tfs_mod, "resolve_entity_live_position_mm",
+        lambda adapter, cfg, entity, sheet_names, label=None: (10.0, 20.0))
+    monkeypatch.setattr(
+        tfs_mod, "resolve_role_anchor_base_mm",
+        lambda adapter, cfg, anchor, sheet_names, label=None: (5.0, 10.0))
+    # Net capture: return a real NetTrace so write_net_trace persists it.
+    def _fake_extract_net_trace(adapter, *, net, anchor_role, **kwargs):
+        return NetTrace(net=net, anchor_role=anchor_role)
+
+    monkeypatch.setattr(net_trace_extract_mod, "extract_net_trace",
+                        _fake_extract_net_trace)
+    monkeypatch.setattr(dock_hub_mod.QMessageBox, "warning",
+                        lambda *a, **k: None)
+    monkeypatch.setattr(dock_hub_mod.QMessageBox, "information",
+                        lambda *a, **k: None)
+
+    graph_changed = []
+    real_main_window.config_tree_dock.graph_changed.connect(
+        lambda: graph_changed.append(True))
+
+    hub.extract_tree_from_selection()
+
+    # trees: entry + net_traces: entry in the root file.
+    data = sexp_to_dict(root.read_text(encoding="utf-8"))
+    trees = data.get("trees") or []
+    assert any(t["name"] == "power_tree" for t in trees)
+    tree = next(t for t in trees if t["name"] == "power_tree")
+    assert tree["anchor"] == {"role": "DAC", "sheet": "Channel_1",
+                              "cluster": "PIF_AVDD"}
+    assert [n["ref"] for n in tree["nodes"]] == ["CH1_PIF_AVDD", "CH1_PIF_CLKVDD"]
+    assert all(n["kind"] == "placement" for n in tree["nodes"])
+    # Autopositioning: entity (10,20) - anchor base (5,10) = (5,10).
+    assert tree["nodes"][0]["xy"] == [5.0, 10.0]
+    nets = data.get("net_traces") or []
+    assert any(n["net"] == "SHARED" for n in nets)
+
+    # Backup + round-trip link_trees did not crash; TreesDock shows the tab.
+    assert list(tmp_path.glob("root.sexp.bak*")), "backup file must exist"
+    assert any(t.name == "power_tree" for t in hub.trees_dock._trees)
+    assert graph_changed
 
 
 def test_file_selected_alone_shows_root_page(real_main_window, tmp_path):

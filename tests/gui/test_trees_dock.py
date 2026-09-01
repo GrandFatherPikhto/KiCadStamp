@@ -92,6 +92,61 @@ def test_set_root_file_loads_trees_from_config(main_window, tmp_path):
     assert dock2.tabs.count() == 1
 
 
+# ── reload_trees (2026-09-01, plan extract_selection_as_tree.md) ────────────
+
+def test_reload_trees_picks_up_external_write(main_window, tmp_path):
+    """"Tools -> Extract tree..." saves through config_writer directly,
+    bypassing TreesDock's own Save — reload_trees re-reads the root config so
+    the new tree shows up without a root reassignment."""
+    dock, root = _dock_with(main_window, tmp_path)
+    assert [t.name for t in dock._trees] == ["power_tree", "misc"]
+
+    # Simulate the external write: another writer appends a tree to the file.
+    root.write_text(dict_to_sexp({
+        "trees": [
+            {"name": "power_tree", "anchor": {"ref": "CONN_PM5V"}, "nodes": []},
+            {"name": "misc", "anchor": {"origin": True}, "nodes": []},
+            {"name": "from_selection", "anchor": {"role": "DAC"}, "nodes": []},
+        ],
+    }), encoding="utf-8")
+
+    dock.reload_trees()
+
+    assert [t.name for t in dock._trees] == ["power_tree", "misc", "from_selection"]
+    assert dock.tabs.count() == 3
+
+
+def test_reload_trees_preserves_dirty_edits(main_window, tmp_path):
+    """reload_trees must NOT wipe unsaved edits (unlike set_root_file): a
+    dirty buffer stays exactly as-is and externally-added trees are appended
+    by name, so the "Extract tree..." tab appears without losing an in-progress
+    hand edit."""
+    dock, root = _dock_with(main_window, tmp_path)
+    dock._mark_dirty()
+    dock._trees[0].name = "renamed_locally"  # an unsaved edit
+    root.write_text(dict_to_sexp({
+        "trees": [
+            {"name": "power_tree", "anchor": {"ref": "CONN_PM5V"}, "nodes": []},
+            {"name": "misc", "anchor": {"origin": True}, "nodes": []},
+            {"name": "from_selection", "anchor": {"role": "DAC"}, "nodes": []},
+        ],
+    }), encoding="utf-8")
+
+    dock.reload_trees()
+
+    assert [t.name for t in dock._trees] == ["renamed_locally", "misc", "from_selection"]
+
+
+def test_reload_trees_no_root_is_noop(main_window, tmp_path):
+    """No root loaded -> reload_trees is a safe no-op (same guard as
+    set_root_file/_do_save)."""
+    dock = TreesDock(main_window)
+    dock.set_root_file(None)
+    dock.reload_trees()
+    assert dock._trees == []
+    assert dock.tabs.count() == 1
+
+
 def test_tree_widgets_have_an_explicit_minimum_width_floor(main_window, tmp_path):
     """2026-08-30, Denis: TreesDock couldn't be narrowed after being widened
     once — each QTreeWidget's natural minimumSizeHint() floored the dock's

@@ -11087,3 +11087,111 @@ msgstr ""
 #~ "Extract dialog's Re-extract to pick "
 #~ "one."
 
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "#tracks"
+msgstr ""
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "#vias"
+msgstr ""
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "Clusters"
+msgstr ""
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "Extract tree"
+msgstr ""
+
+#: gui/main_window.py
+msgid "Extract tree..."
+msgstr ""
+
+#: gui/dock_hub.py
+msgid "No clusters selected."
+msgstr ""
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "No selected tracks/vias connect two or more clusters — nothing to capture."
+msgstr ""
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "Role is required for the tree anchor."
+msgstr ""
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "Root cluster:"
+msgstr ""
+
+#: gui/dock_hub.py
+msgid "Saved, but the round-trip check failed: {error}"
+msgstr ""
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "Select all / deselect all"
+msgstr ""
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "Tracks and vias between clusters"
+msgstr ""
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "Tree name must not be empty."
+msgstr ""
+
+#: gui/dock_hub.py
+msgid "Tree {name!r} saved to {path}."
+msgstr ""
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "cluster (narrows the role, optional)"
+msgstr ""
+
+#: gui/docks/tree_from_selection.py
+msgid "cluster {cluster!r}: Entity {name!r} not found in the config"
+msgstr ""
+
+#: gui/docks/tree_from_selection.py
+msgid "cluster {cluster!r}: Entity {name!r} references missing cell {cell!r}"
+msgstr ""
+
+#: gui/docks/tree_from_selection.py
+msgid "cluster {cluster!r}: no Entity"
+msgstr ""
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "e.g. power_tree"
+msgstr ""
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "role (the anchor component's Role field)"
+msgstr ""
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "sheet (narrows the role, optional)"
+msgstr ""
+
+#: gui/docks/tree_from_selection.py
+msgid "tree anchor (from selection)"
+msgstr ""
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "ΔX mm"
+msgstr ""
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "ΔY mm"
+msgstr ""
+
+#: gui/dock_hub.py
+msgid "Cannot build the tree:\n{errors}"
+msgstr ""
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "Pick a root cluster to prefill from its Entity, or narrow the anchor explicitly below."
+msgstr ""
+
+#: gui/docks/tree_from_selection_dialog.py
+msgid "Some selected clusters have no Entity or cell:\n{list}"
+msgstr ""
