@@ -23,6 +23,7 @@ from kicadstamp.config.models import Cell, Entity, TemplateComponentSlot
 from kicadstamp.domain.board import Track, Via
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.explore import Selected
+from kicadstamp.utils.units import MM
 from kicadstamp.link_trees import link_trees
 from kicadstamp.trees import Tree, TreeAnchor, tree_to_dict
 
@@ -493,6 +494,115 @@ def test_detect_inter_cluster_nets_max_cluster_coverage_configurable():
     assert detect_inter_cluster_nets(
         raw, clusters, snapshot, max_cluster_coverage=3) == [
             InterClusterNet(net="+3V3", track_count=1, via_count=0)]
+
+
+# ── Phase C: connectivity-based detection (2026-09-01) ────────────────────
+
+def _pad_at(x_mm, y_mm, net="N"):
+    from types import SimpleNamespace
+    from kicadstamp.domain.geometry import Vector2
+    p = SimpleNamespace()
+    p.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
+    p.net_name = net
+    return p
+
+
+def _connectivity_adapter(pads_by_ref):
+    """A mock adapter: get_footprint_pads returns the pads (with .position) for
+    a ref, get_bounding_boxes returns a small centered box per pad — enough for
+    _connected_cluster_labels' union-find closure."""
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+    from kicadstamp.domain.geometry import Vector2
+
+    adapter = MagicMock()
+    adapter.get_footprint_pads.side_effect = lambda fp: pads_by_ref.get(fp.ref, [])
+
+    def _boxes(items):
+        out = []
+        for it in items:
+            b = SimpleNamespace()
+            b.pos = Vector2.from_xy(int(it.position.x - 0.3 * MM),
+                                    int(it.position.y - 0.3 * MM))
+            b.size = Vector2.from_xy(int(0.6 * MM), int(0.6 * MM))
+            b.inflate = lambda _d: None
+            out.append(b)
+        return out
+
+    adapter.get_bounding_boxes.side_effect = _boxes
+    return adapter
+
+
+def test_detect_connectivity_offers_net_reaching_two_clusters():
+    """A net whose SELECTED track runs between cluster A's pad and cluster B's
+    pad is offered when the adapter (connectivity) is passed."""
+    clusters = [
+        ReReadCluster(cluster="A", sheet="Ch", entity_name=None, cell="a",
+                      profile_key=None, refs=["R1"]),
+        ReReadCluster(cluster="B", sheet="Ch", entity_name=None, cell="b",
+                      profile_key=None, refs=["R2"]),
+    ]
+    snapshot = [
+        _sel("R1", "A", "Ch", {"1": "SHARED"}),
+        _sel("R2", "B", "Ch", {"1": "SHARED"}),
+    ]
+    track = Track(uuid="t", start=Vector2.from_xy(int(10 * MM), int(10 * MM)),
+                  end=Vector2.from_xy(int(20 * MM), int(20 * MM)),
+                  net_name="SHARED", width_mm=0.25, layer=None)
+    raw = [_fp("R1"), _fp("R2"), track]
+    adapter = _connectivity_adapter({
+        "R1": [_pad_at(10, 10)],
+        "R2": [_pad_at(20, 20)],
+    })
+    assert detect_inter_cluster_nets(raw, clusters, snapshot, adapter=adapter) == [
+        InterClusterNet(net="SHARED", track_count=1, via_count=0)]
+
+
+def test_detect_connectivity_drops_stitching_via_not_touching_pads():
+    """A net with only a floating stitching via (no cluster pad) is offered by
+    the name-based detector but dropped by the connectivity filter."""
+    clusters = [
+        ReReadCluster(cluster="A", sheet="Ch", entity_name=None, cell="a",
+                      profile_key=None, refs=["R1"]),
+        ReReadCluster(cluster="B", sheet="Ch", entity_name=None, cell="b",
+                      profile_key=None, refs=["R2"]),
+    ]
+    snapshot = [
+        _sel("R1", "A", "Ch", {"1": "SHARED"}),
+        _sel("R2", "B", "Ch", {"1": "SHARED"}),
+    ]
+    via = Via(uuid="v", position=Vector2.from_xy(int(100 * MM), int(100 * MM)),
+              net_name="SHARED", drill_mm=0.3, diameter_mm=0.6)
+    raw = [_fp("R1"), _fp("R2"), via]
+    adapter = _connectivity_adapter({
+        "R1": [_pad_at(10, 10)],
+        "R2": [_pad_at(20, 20)],
+    })
+    assert [n.net for n in detect_inter_cluster_nets(raw, clusters, snapshot)] == ["SHARED"]
+    assert detect_inter_cluster_nets(raw, clusters, snapshot, adapter=adapter) == []
+
+
+def test_detect_connectivity_drops_net_touching_single_cluster():
+    """A net whose selected copper reaches ONLY cluster A's pad is dropped."""
+    clusters = [
+        ReReadCluster(cluster="A", sheet="Ch", entity_name=None, cell="a",
+                      profile_key=None, refs=["R1"]),
+        ReReadCluster(cluster="B", sheet="Ch", entity_name=None, cell="b",
+                      profile_key=None, refs=["R2"]),
+    ]
+    snapshot = [
+        _sel("R1", "A", "Ch", {"1": "SHARED", "2": "AVDD"}),
+        _sel("R2", "B", "Ch", {"1": "SHARED"}),
+    ]
+    track = Track(uuid="t", start=Vector2.from_xy(int(10 * MM), int(10 * MM)),
+                  end=Vector2.from_xy(int(12 * MM), int(12 * MM)),
+                  net_name="SHARED", width_mm=0.25, layer=None)  # only near A's pad
+    raw = [_fp("R1"), _fp("R2"), track]
+    adapter = _connectivity_adapter({
+        "R1": [_pad_at(10, 10)],
+        "R2": [_pad_at(20, 20)],
+    })
+    assert detect_inter_cluster_nets(raw, clusters, snapshot, adapter=adapter) == []
 
 
 # ── round-trip / link_trees ───────────────────────────────────────────────

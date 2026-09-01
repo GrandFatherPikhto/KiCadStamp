@@ -293,11 +293,101 @@ def _cluster_nets(clusters: Iterable[ReReadCluster],
     return out
 
 
+def _connected_cluster_labels(adapter, clusters: Iterable[ReReadCluster],
+                              raw_items: Iterable[Any], net: str) -> set[int]:
+    """Cluster indices whose pads the net's SELECTED copper reaches — via a
+    connected-component closure over the net's selected tracks/vias anchored at
+    the clusters' pads (the same union-find pattern as template_selection's
+    _filter_tracks_and_vias_within_selection, but per-cluster-LABELLED so we
+    know WHICH clusters a component touches). Phase C (2026-09-01) — the "по
+    выделенному" strengthener: a net is inter-cluster only when its selected
+    copper genuinely reaches pads of 2+ clusters, not merely shares a name."""
+    # Local import: template_selection pulls placement.services.role_narrowing;
+    # a module-level import would widen tree_from_selection's load graph for no
+    # benefit (the import itself is acyclic — verified 2026-09-01).
+    from kicadstamp.template_selection import _inflated_boxes, _point_in_box, _points_match
+
+    tracks = [t for t in raw_items if isinstance(t, Track) and t.net_name == net]
+    vias = [v for v in raw_items if isinstance(v, Via) and v.net_name == net]
+    if not tracks and not vias:
+        return set()
+
+    # Inflated pad boxes per cluster (the same anchors the extractor roots its
+    # connectivity closure at).
+    pad_boxes: list[list] = []
+    for c in clusters:
+        refs = set(c.refs)
+        pads = []
+        for fp in raw_items:
+            if isinstance(fp, Footprint) and fp.ref in refs:
+                pads.extend(adapter.get_footprint_pads(fp))
+        pad_boxes.append(_inflated_boxes(adapter, pads))
+
+    parent: dict = {}
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    for i in range(len(tracks)):
+        parent[("t", i)] = ("t", i)
+    for i in range(len(vias)):
+        parent[("v", i)] = ("v", i)
+    for k in range(len(clusters)):
+        parent[("c", k)] = ("c", k)
+
+    def _touches(k, i, is_track):
+        boxes = pad_boxes[k]
+        if not boxes:
+            return False
+        if is_track:
+            t = tracks[i]
+            return any(_point_in_box(t.start, b) or _point_in_box(t.end, b) for b in boxes)
+        v = vias[i]
+        return any(_point_in_box(v.position, b) for b in boxes)
+
+    # Anchor each track/via to every cluster whose pad box it touches.
+    for k in range(len(clusters)):
+        for i in range(len(tracks)):
+            if _touches(k, i, True):
+                union(("t", i), ("c", k))
+        for i in range(len(vias)):
+            if _touches(k, i, False):
+                union(("v", i), ("c", k))
+    # Track-to-track / track-to-via joints (copper chains across clusters).
+    for i, t in enumerate(tracks):
+        for j, v in enumerate(vias):
+            if _points_match(t.start, v.position) or _points_match(t.end, v.position):
+                union(("t", i), ("v", j))
+    for i, t in enumerate(tracks):
+        for j in range(i + 1, len(tracks)):
+            o = tracks[j]
+            if (_points_match(t.start, o.start) or _points_match(t.start, o.end)
+                    or _points_match(t.end, o.start) or _points_match(t.end, o.end)):
+                union(("t", i), ("t", j))
+
+    labels: set[int] = set()
+    for k in range(len(clusters)):
+        croot = find(("c", k))
+        if any(find(("t", i)) == croot for i in range(len(tracks))) or \
+           any(find(("v", i)) == croot for i in range(len(vias))):
+            labels.add(k)
+    return labels
+
+
 def detect_inter_cluster_nets(raw_items: Iterable[Any],
                               clusters: Iterable[ReReadCluster],
                               snapshot: Iterable[Any],
                               rule_nets: Iterable[str] = (),
                               max_cluster_coverage: int = DEFAULT_MAX_CLUSTER_COVERAGE,
+                              adapter=None,
                               ) -> list[InterClusterNet]:
     """Nets of the raw SELECTED copper that connect 2+ fully-selected Clusters
     (i.e. do not belong to one cluster-cell alone) — the `net_traces:` capture
@@ -319,7 +409,14 @@ def detect_inter_cluster_nets(raw_items: Iterable[Any],
 
     Only nets that ALSO have selected tracks/vias in `raw_items` are offered —
     a net with no selected copper is nothing to capture, so the tab stays
-    empty (the dialog then has no nets tab content)."""
+    empty (the dialog then has no nets tab content).
+
+    adapter — OPTIONAL (phase C): when given, the name-based candidates are
+    additionally filtered by CONNECTIVITY — only nets whose selected copper
+    actually reaches pads of 2+ clusters (via _connected_cluster_labels) are
+    offered, so a net that merely shares a name (or a stitching via that touches
+    no cluster pad) is dropped. None (default) keeps the pure name-based
+    detection (used by tests and callers without a board adapter)."""
     cluster_nets = _cluster_nets(clusters, snapshot)
     # coverage[net] = how many SELECTED Clusters carry the net on a pad —
     # the signal that separates a point-to-point link (2) from a ubiquitous
@@ -336,6 +433,14 @@ def detect_inter_cluster_nets(raw_items: Iterable[Any],
     inter -= set(rule_nets)
     inter -= RULE_NETS  # default rule nets — GND is always a rule net
     inter = {n for n in inter if coverage.get(n, 0) <= max_cluster_coverage}
+    # Phase C connectivity filter — only when the adapter actually provides the
+    # geometry the union-find closure needs (a limited/`object()` adapter in
+    # tests falls back to the pure name-based detection).
+    if adapter is not None and hasattr(adapter, "get_bounding_boxes") \
+            and hasattr(adapter, "get_footprint_pads"):
+        raw = list(raw_items)
+        inter = {n for n in inter
+                 if len(_connected_cluster_labels(adapter, clusters, raw, n)) >= 2}
     if not inter:
         return []
 

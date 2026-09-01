@@ -835,7 +835,8 @@ class DockHub:
         inter_nets = detect_inter_cluster_nets(
             self.extract_dock._raw_items, clusters,
             list(connection.snapshot or []),
-            [r.net for r in cfg.rules])
+            [r.net for r in cfg.rules],
+            adapter=adapter)
 
         # Per-row "no cell" errors (block OK in the dialog) + per-row "existing
         # cluster anchor" prefills + the live Entity positions for the offset

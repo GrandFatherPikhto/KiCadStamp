@@ -170,9 +170,12 @@ def main() -> None:
     print("\n=== inter-cluster net list (third tab) ===")
 
     def _nets(rule_nets, max_cov):
+        # Phase C (2026-09-01): the live adapter enables the connectivity
+        # filter — only nets whose SELECTED copper reaches pads of 2+ clusters.
         return detect_inter_cluster_nets(raw_items, clusters, snapshot,
                                          rule_nets=rule_nets,
-                                         max_cluster_coverage=max_cov)
+                                         max_cluster_coverage=max_cov,
+                                         adapter=adapter)
 
     scenarios = [
         ("default (rule_nets=(), coverage>2=rail)",
