@@ -43,8 +43,8 @@ class ReReadCluster:
 
 
 def _slugify(text: str) -> str:
-    """Same slug as ExtractDock._slugify — a Cluster tag -> default cell name
-    when no Entity provides one."""
+    """Same slug as the retired Extract dock's _slugify — a Cluster tag ->
+    default cell name when no Entity provides one."""
     return re.sub(r"[^0-9a-zA-Z]+", "_", text.strip().lower()).strip("_")
 
 

@@ -18,15 +18,13 @@ exception: 2026-08-03 they were merged into ONE QDockWidget, DetailDock
 Rules added 2026-08-05, same shape). Those attributes are kept as aliases
 straight into DetailDock's stack pages so every existing call site keeps
 working unchanged; they are plain QWidgets now, not QDockWidgets in their own
-right. EXCEPT extract_dock (2026-08-31, plan extract_dialog_and_hide_existing
-.md), thermal_via_dock (2026-09-01, plan plan_2026_09_01_thermal_via_dialog.
+right. thermal_via_dock (2026-09-01, plan plan_2026_09_01_thermal_via_dialog.
 md), points_dock (2026-09-01, plan plan_2026_09_01_points_dialog.md) and
 tools_dock (2026-09-01, plan plan_2026_09_01_tools_dialog_and_entity_roles.
 md): they are STANDALONE widgets hosted in their non-modal dialogs
-(ExtractDialog / ThermalViaDialog / PointsDialog / ToolsDialog) — the Detail
-dock has no Extract/Thermal via/Points/Tools page anymore, and the same single
-live instances keep receiving the selection/snapshot ticks, set_root_path and
-saved.
+(ThermalViaDialog / PointsDialog / ToolsDialog) — the Detail dock has no
+Thermal via/Points/Tools page anymore, and the same single live instances keep
+receiving the selection/snapshot ticks, set_root_path and saved.
 """
 import logging
 from functools import partial
@@ -52,8 +50,6 @@ from .docks.config_tree import ConfigTreeDock
 from .docks.configurator import ConfiguratorDock
 from .docks.detail_panel import DetailDock
 from .docks.trees_dock import TreesDock
-from .docks.extract import ExtractDock
-from .docks.extract_dialog import ExtractDialog
 from .docks.fieldstool_dock import FieldsToolDock
 from .docks.log_panel import LogDock
 from .docks.pending import PendingChangesDock
@@ -130,19 +126,12 @@ class DockHub:
         main_window.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.detail_dock)
         main_window.tabifyDockWidget(self.fieldstool_dock, self.detail_dock)
         # Thin aliases — kept so every existing call site/test that reaches
-        # a specific panel by name (extract_dock/placer_dock/
-        # root_metadata_dock) keeps working unchanged; they're pages inside
-        # detail_dock's stack now (gui/docks/detail_panel.py), not their
-        # own QDockWidgets. EXCEPT extract_dock: 2026-08-31 (plan
-        # extract_dialog_and_hide_existing.md) it is a STANDALONE widget
-        # hosted in the non-modal ExtractDialog (the Detail dock has no
-        # Extract page anymore) — the same single live instance keeps
-        # receiving the selection-watch ticks / set_root_path / saved.
-        self.extract_dock = ExtractDock(main_window, connection=connection)
-        self.extract_dialog = ExtractDialog(self.extract_dock, main_window)
-        # Phase F (2026-09-01): the selection-watch state moves OUT of
-        # ExtractDock (which phase F removes) into DockHub — the single source
-        # "Extract tree..." reads for cluster/copper detection.
+        # a specific panel by name (placer_dock/root_metadata_dock) keeps
+        # working unchanged; they're pages inside detail_dock's stack now
+        # (gui/docks/detail_panel.py), not their own QDockWidgets.
+        # Phase F (2026-09-01): the selection-watch state lives in DockHub —
+        # the single source "Extract tree..." reads for cluster/copper detection
+        # (the Extract dock was removed).
         self._selection_raw_items: list = []
         self._selection_footprints: list = []
         # Thermal via (2026-09-01, plan plan_2026_09_01_thermal_via_dialog.md):
@@ -212,9 +201,9 @@ class DockHub:
         # sync_skip_message_and_view_menu): MainWindow's View menu wires each
         # one's ready-made toggleViewAction() so a closed dock can be brought
         # back without restarting. Deliberately NOT DetailDock's internal
-        # panels (extract_dock/placer_dock/... are plain QWidgets switched by
-        # its own tab bar — not independently closable/dockable, no
-        # toggleViewAction of their own). Order matches construction above
+        # panels (placer_dock/... are plain QWidgets switched by its own tab
+        # bar — not independently closable/dockable, no toggleViewAction of
+        # their own). Order matches construction above
         # (already grouped by area: Left / right / bottom).
         self.docks = [
             self.tree_dock, self.config_tree_dock, self.anchor_tree_dock,
@@ -318,13 +307,6 @@ class DockHub:
         self.root_metadata_dock.root_changed.connect(
             partial(self._safe_call, "points_dock.set_root_path",
                     self.points_dock.set_root_path))
-        # Extract's own Cell file/Profile file combos (added 2026-08-06,
-        # Denis: "имя файла, куда пишем extract и cell... тоже, выпадашками"
-        # — un-couples them from always following the same file_selected
-        # click) need the whole include graph too, same reasoning as above.
-        self.root_metadata_dock.root_changed.connect(
-            partial(self._safe_call, "extract_dock.set_root_path",
-                    self.extract_dock.set_root_path))
         # fieldstool's root_sheet (added 2026-08-07, see config/models.py's
         # Config.root_sheet docstring) — same root_changed source, so
         # opening/switching a project automatically re-points fieldstool's
@@ -390,8 +372,6 @@ class DockHub:
             self._start_edit_entity_template)
         self.config_tree_dock.placement_picked.connect(self.placer_dock.load_placement)
         self.config_tree_dock.placement_picked.connect(self.detail_dock.show_placer)
-        self.config_tree_dock.profile_picked.connect(self.extract_dock.pick_profile)
-        self.config_tree_dock.profile_picked.connect(self._open_extract_dialog)
         self.config_tree_dock.thermal_via_picked.connect(self.thermal_via_dock.load_entry)
         self.config_tree_dock.thermal_via_picked.connect(self._open_thermal_via_dialog)
         # Coordinate placements (2026-08-12, Group 1): a normal named-records
@@ -444,7 +424,6 @@ class DockHub:
         # — the tree refresh above only updates the TREE's own display.
         self.placer_dock.saved.connect(self.config_tree_dock.refresh)
         self.thermal_via_dock.saved.connect(self.config_tree_dock.refresh)
-        self.extract_dock.saved.connect(self.config_tree_dock.refresh)
         self.points_dock.saved.connect(self.config_tree_dock.refresh)
         self.chain_dock.saved.connect(self.config_tree_dock.refresh)
         self.net_trace_dock.saved.connect(self.config_tree_dock.refresh)
@@ -455,7 +434,6 @@ class DockHub:
         # synchronous full YAML re-read on top of ConfigTreeDock.refresh()).
         self.placer_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
         self.thermal_via_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
-        self.extract_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
         self.points_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
         self.chain_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
         self.net_trace_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
@@ -470,14 +448,9 @@ class DockHub:
         self.tools_dock.saved.connect(self.tools_dialog.hide)
         self.placer_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.thermal_via_dock.saved.connect(self._refresh_graph_dependent_choices)
-        self.extract_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.points_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.chain_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.cells_dock.saved.connect(self._refresh_graph_dependent_choices)
-        # Auto-close the (non-modal) Extract dialog after a successful Extract
-        # (2026-08-31, Denis): saved is emitted by _finish_extract only on
-        # success — see gui/docks/extract.py.
-        self.extract_dock.saved.connect(self.extract_dialog.hide)
         # Auto-close the (non-modal) Thermal via dialog after a successful Save
         # (2026-09-01, Denis): saved is emitted by _on_save only on success —
         # Redraw (placement) stays open for iterative tuning.
@@ -508,9 +481,6 @@ class DockHub:
         self.config_tree_dock.add_point_requested.connect(self._start_new_point)
         self.config_tree_dock.add_chain_requested.connect(self._start_new_chain)
         self.config_tree_dock.add_cell_requested.connect(self._start_new_cell)
-        # "New Extract..." (2026-08-31, plan extract_dialog_and_hide_existing.
-        # md) — context menu + Tools menu -> the same plain fresh capture.
-        self.config_tree_dock.new_extract_requested.connect(self._start_new_extract)
         # Config tree's own graph-mutating actions (_on_rename/_on_delete/
         # _add_included_file/_remove_file) -> every dock's graph-derived
         # combos, same handler the seven entity-dock `saved` signals above
@@ -592,18 +562,18 @@ class DockHub:
     def set_board_selection(self, items, selected) -> None:
         """Push the live selection into the docks that react to it. Phase F
         (2026-09-01): the raw selection state is kept in DockHub itself
-        (ExtractDock is removed; "Extract tree..." reads these) and PlacerDock
-        still receives it (2026-08-31, plan placer_source_tab_gaps P.1 — its
-        Cell-mode Cluster auto-fill reads the current selection's Cluster)."""
+        ("Extract tree..." reads these) and PlacerDock still receives it
+        (2026-08-31, plan placer_source_tab_gaps P.1 — its Cell-mode Cluster
+        auto-fill reads the current selection's Cluster)."""
         self._selection_raw_items = list(items)
         self._selection_footprints = list(selected)
         self.placer_dock.set_board_selection(items, selected)
 
     def push_fieldstool_selection(self, refs) -> None:
         """Live board selection -> embedded fieldstool's target label (Phase
-        5.1 — the main GUI's single 400ms tick now feeds BOTH the tree/
-        ExtractDock and the embedded fieldstool, whose own selection timer is
-        stopped when it shares the main connection)."""
+        5.1 — the main GUI's single 400ms tick now feeds BOTH the tree and the
+        embedded fieldstool, whose own selection timer is stopped when it
+        shares the main connection)."""
         self.fieldstool_dock.push_live_selection(refs)
 
     def push_fieldstool_snapshot(self, snapshot) -> None:
@@ -755,18 +725,6 @@ class DockHub:
         self.cells_dock.new_cell(file_path)
         self.detail_dock.show_cells()
 
-    def reead_selected(self) -> None:
-        """Main menu "Tools -> Re-read selected..." (2026-08-31, plan
-        reead_selected_dialog.md) -> ExtractDock's batch re-read of the
-        fully-selected Clusters (dialog with Entities + checkboxes)."""
-        self.extract_dock.re_read_selected()
-
-    def new_extract(self) -> None:
-        """Main menu "Tools -> New Extract..." (2026-09-01) -> the same plain
-        fresh capture as the Config tree context menu's "New Extract..."
-        (new_extract_requested -> _start_new_extract)."""
-        self._start_new_extract()
-
     def place_thermal_vias(self) -> None:
         """Main menu "Tools -> Place thermal vias..." (2026-09-01, plan
         plan_2026_09_01_thermal_via_dialog.md) -> the same fresh blank form as
@@ -815,8 +773,8 @@ class DockHub:
             list(cfg.entities),
             (),
             sheet_names=sheet_names)
-        # Diagnostic + defensive filter (same rationale as re_read_selected:
-        # a row must be a sane single-line cluster).
+        # Diagnostic + defensive filter (same rationale as the retired
+        # Re-read flow: a row must be a sane single-line cluster).
         clusters = [c for c in clusters if c.cluster and "\n" not in c.cluster]
         if not clusters:
             QMessageBox.warning(
@@ -1050,25 +1008,6 @@ class DockHub:
             _("Tree {name!r} saved to {path}.")
             .format(name=tree.name, path=root_path))
 
-    def _start_new_extract(self) -> None:
-        """ConfigTreeDock's new_extract_requested delegate ("New Extract...",
-        2026-08-31, plan extract_dialog_and_hide_existing.md): a plain fresh
-        capture — opens the (non-modal) Extract dialog and arms it via
-        ExtractDock.prepare_new_extract (clears Cell name / Profile key,
-        unchecks profile save, auto-fills from the current Cluster)."""
-        self._open_extract_dialog()
-        self.extract_dock.prepare_new_extract()
-
-    def _open_extract_dialog(self) -> None:
-        """Show/raise the ONE live Extract dialog — non-modal, so the user can
-        keep selecting on the board while it's open: the selection-watch tick
-        keeps feeding the same extract_dock instance inside it. Closing via
-        the window X just hides it (QDialog default), so the next open starts
-        from the current board state."""
-        self.extract_dialog.show()
-        self.extract_dialog.raise_()
-        self.extract_dialog.activateWindow()
-
     def _open_thermal_via_dialog(self) -> None:
         """Show/raise the ONE live Thermal via dialog — non-modal, so the user
         can keep selecting on the board while it's open: the ~2s snapshot tick
@@ -1164,7 +1103,6 @@ class DockHub:
         self.cells_dock.set_root_path(root_path)
         self.tools_dock.set_root_path(root_path)
         self.points_dock.set_root_path(root_path)
-        self.extract_dock.set_root_path(root_path)
         self.trees_dock.refresh_ref_candidates()
         self.root_metadata_dock.refresh_working_file_choices()
 
@@ -1244,7 +1182,6 @@ class DockHub:
         self._safe_call("cells_dock.set_root_path", self.cells_dock.set_root_path, path)
         self._safe_call("tools_dock.set_root_path", self.tools_dock.set_root_path, path)
         self._safe_call("points_dock.set_root_path", self.points_dock.set_root_path, path)
-        self._safe_call("extract_dock.set_root_path", self.extract_dock.set_root_path, path)
         self._safe_call("net_trace_dock.set_root_path",
                         self.net_trace_dock.set_root_path, path)
         self._safe_call("fieldstool_dock.set_root_path",

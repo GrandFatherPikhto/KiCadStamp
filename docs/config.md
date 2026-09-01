@@ -112,9 +112,9 @@ cells:
 - `vias:` — `offset_along_mm`/`offset_across_mm` (local), `net:` (`null`/omitted means "inherit the
   chain's net" — only `chains:`/ManualSpoke supports that; `clone_placements:` fatals on a via with no
   net, since it has no single "chain net" to fall back to), `drill_mm`, `diameter_mm`. Same `null`
-  convention for `tracks:`' own `net:` below. The GUI Extract dock's per-net **"Chain net (null)"**
-  checkbox (2026-08-05) writes exactly this — see `extract_profiles:`' `rule_nets:` below for the
-  CLI/profile-file equivalent (`--rule-net`).
+  convention for `tracks:`' own `net:` below. The old GUI Extract dock's per-net **"Chain net (null)"**
+  checkbox (2026-08-05, removed with the dock in Phase F 2026-09-01) wrote exactly this — see
+  `extract_profiles:`' `rule_nets:` below for the CLI/profile-file equivalent (`--rule-net`).
 - `components:` — `role:` (matched against the board's `Role` custom field, **not** a refdes — the
   same role can resolve to a different real component every time the cell is placed), local
   offset+angle, its own `vias:` (same shape, nested under the component), optional `layer:` (only

@@ -1,11 +1,10 @@
 # gui/yaml_io.py
 """
 Small shared YAML read helpers for the docks that browse an already-written
-config file's contents (ExtractDock's "Existing cells:"/"Existing profiles:"
-lists, PlacerDock's Cell list). Split out once PlacerDock needed the exact
-same "read this file, give me its top-level (or nested-section) keys"
-logic ExtractDock already had — see gui/docks/extract.py's _load_data()/
-_existing_keys() history.
+config file's contents (PlacerDock's Cell list, and formerly the Extract
+dock's "Existing cells:"/"Existing profiles:" lists). Split out once
+PlacerDock needed the exact same "read this file, give me its top-level (or
+nested-section) keys" logic the Extract dock already had.
 """
 import json
 import logging

@@ -477,14 +477,6 @@ msgstr "&Импорт из профиля..."
 msgid "Tools"
 msgstr "Инструменты"
 
-#: gui/main_window.py:231
-msgid "Re-read selected..."
-msgstr "Перечитать выделенное..."
-
-#: gui/docks/config_tree.py:979 gui/main_window.py:239
-msgid "New Extract..."
-msgstr "Новый Extract..."
-
 #: gui/main_window.py:247
 msgid "Extract tree..."
 msgstr "Извлечь дерево..."
@@ -2097,10 +2089,6 @@ msgstr ""
 msgid "Profile key:"
 msgstr "Ключ профиля:"
 
-#: gui/docks/extract.py:592
-msgid "Extract to file"
-msgstr "Извлечь в файл"
-
 #: gui/docks/extract.py:605
 msgid "Placement:"
 msgstr "Размещение:"
@@ -2305,12 +2293,7 @@ msgstr ""
 msgid "Re-read {cluster}: {error}"
 msgstr "Перечитать {cluster}: {error}"
 
-#: gui/docks/extract.py:2411
-#, python-brace-format
-msgid "Re-read {cluster} -> {cell}: done"
-msgstr "Перечитать {cluster} → {cell}: готово"
-
-#: gui/docks/extract_dialog.py:38 gui/docks/net_trace.py:109
+#: gui/docks/net_trace.py:109
 msgid "Extract"
 msgstr "Извлечение"
 
@@ -2970,11 +2953,7 @@ msgstr "Ничего не изменено — выбранные записи �
 msgid "Project"
 msgstr "Проект"
 
-#: gui/docks/reead_dialog.py:37
-msgid "Re-read selected"
-msgstr "Перечитать выделенное"
-
-#: gui/docks/reead_dialog.py:48 gui/docks/role_cluster_tree.py:160
+#: gui/docks/role_cluster_tree.py:160
 #: gui/docks/tree_from_selection_dialog.py:124
 msgid "Cluster"
 msgstr "Cluster"

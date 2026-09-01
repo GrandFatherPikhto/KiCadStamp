@@ -76,7 +76,7 @@ logger = logging.getLogger(__name__)
 
 class ThermalViaArrayDock(QWidget):
     """A page inside DetailDock's stack (gui/docks/detail_panel.py) — same
-    "plain QWidget, not its own QDockWidget" shape as ExtractDock/PlacerDock/
+    "plain QWidget, not its own QDockWidget" shape as PlacerDock/
     RootMetadataDock, see their module docstrings."""
 
     # Fired after a successful Save — ConfigTreeDock listens to refresh its

@@ -29,9 +29,9 @@ above).
 
 6 of the 7 recognized sections route into an existing form when LEFT-
 clicked (Cells -> PlacerDock.set_selected_cell, Clone placements ->
-PlacerDock.load_placement, Extract profiles -> ExtractDock.pick_profile,
-Thermal via arrays -> ThermalViaArrayDock.load_entry, added 2026-08-03;
-Rules -> RuleDock.load_entry, added 2026-08-05) — Clone profiles is the one
+PlacerDock.load_placement, Thermal via arrays -> ThermalViaArrayDock.
+load_entry, added 2026-08-03; Rules -> RuleDock.load_entry, added
+2026-08-05) — Clone profiles is the one
 section still with no GUI edit form, shown read-only for now, same deliberate
 scope limit as before. Points and Entities are the two DIALOG sections
 since 2026-09-01 (plan plan_2026_09_01_points_dialog.md /
@@ -58,11 +58,10 @@ caused Denis's Conn_PM5V placement failure, see cell_editor.py).
 Every click (file header, category, or leaf alike) also fires
 file_selected with that item's nearest file ancestor — this REPLACES the
 three independent Cells/Extractor/Placer role signals FilePickerDock used
-to fire: ExtractDock now always targets "whatever file is currently being
-browsed in this tree" for both its Cells output and its extract_profiles
-output (collapsing what used to be two independently-assignable roles
-into one — Denis: "Экстракторы у нас уже автоматизированы", nothing extra
-needed since extracting into a file already positioned in the tree means
+to fire: every dock now targets "whatever file is currently being browsed
+in this tree" (collapsing what used to be two independently-assignable
+roles into one — Denis: "Экстракторы у нас уже автоматизированы", nothing
+extra needed since writing into a file already positioned in the tree means
 it's already reachable from root, no separate include: wiring step
 required in the common case).
 
@@ -72,9 +71,8 @@ Right-click context menu (2026-08-03): file-level actions always operate on
 2026-08-13 (plan context_menu_by_section) the "Add ..." block is ALSO
 section-aware: right-clicking a leaf or category shows only that section's
 own Add action (cells -> Add cell, rules -> Add rule, ...); clone_profiles
-and extract_profiles show none (an extract profile is created via the
-unconditional "New Extract..." with the dialog's "Also save as extract_
-profile" checked), and a file
+shows none (it has no GUI edit form — see the module docstring's read-only
+note), and a file
 header (or a read-only nested cell node) shows ALL of them — Denis's
 explicit decision, otherwise a fresh file with no sections yet couldn't
 create its first entity. Remove this file still appears only for non-root
@@ -162,10 +160,7 @@ _SECTION_LABELS = {
 # block (2026-08-13, plan context_menu_by_section): right-clicking a leaf or
 # category of a section shows ONLY that section's own Add action. Order here
 # is the order the actions appear when ALL of them are shown (file header).
-# extract_profiles is deliberately ABSENT — creating an extract profile is a
-# plain "New Extract..." (unconditional, below) with the dialog's "Also save
-# as extract_profile" checked, so it needs no section Add action; clone_
-# profiles is deliberately ABSENT too — it has no GUI edit form (same
+# clone_profiles is deliberately ABSENT — it has no GUI edit form (same
 # deliberate scope limit as the module docstring's read-only note), so a
 # right-click on it shows no Add action at all.
 _ADD_ACTION_BY_SECTION = {
@@ -206,9 +201,6 @@ class ConfigTreeDock(QDockWidget):
     # Fired when a Clone placement leaf is clicked — PlacerDock listens to
     # load it back into the form.
     placement_picked = pyqtSignal(object)
-    # Fired when an Extract profile leaf is clicked — ExtractDock listens
-    # via its pick_profile() entry point.
-    profile_picked = pyqtSignal(str)
     # Fired when a Thermal via array leaf is clicked (2026-08-03) —
     # ThermalViaArrayDock listens to load it back into the form, same shape
     # as placement_picked. Since 2026-09-01 (plan plan_2026_09_01_thermal_via
@@ -291,12 +283,6 @@ class ConfigTreeDock(QDockWidget):
     # same list-section full-dict payload as rule_picked. NetTraceDock.
     # load_entry() listens.
     net_trace_picked = pyqtSignal(object)
-    # Fired by the context menu's "New Extract..." and the Tools menu's
-    # "New Extract..." (2026-08-31, plan extract_dialog_and_hide_existing.
-    # md): a plain fresh capture — no file argument (the project root is
-    # already known). Opens the (non-modal) Extract dialog and clears/auto-
-    # fills the fields via ExtractDock.prepare_new_extract.
-    new_extract_requested = pyqtSignal()
     # Fired on EVERY click in the tree (file header, category, or leaf) —
     # see module docstring for why this replaces the three independent
     # FilePickerDock role signals.
@@ -744,8 +730,6 @@ class ConfigTreeDock(QDockWidget):
             self.cell_picked.emit(ref)
         elif section == "clone_placements":
             self.placement_picked.emit(ref)
-        elif section == "extract_profiles":
-            self.profile_picked.emit(ref)
         elif section == "thermal_via_arrays":
             self.thermal_via_picked.emit(ref)
         elif section == "coordinate_placements":
@@ -973,11 +957,6 @@ class ConfigTreeDock(QDockWidget):
         # unconditional — it's relevant in every context.
         menu.addAction(_("Add included file...")).triggered.connect(
             lambda: self._add_included_file(file_path))
-        # "New Extract..." (2026-08-31, plan extract_dialog_and_hide_existing
-        # .md): a plain fresh capture, also unconditional — the Extract form is
-        # a dialog now, reachable from anywhere in the tree.
-        menu.addAction(_("New Extract...")).triggered.connect(
-            lambda: self.new_extract_requested.emit())
         if parent_path is not None:
             menu.addSeparator()
             menu.addAction(_("Remove this file")).triggered.connect(

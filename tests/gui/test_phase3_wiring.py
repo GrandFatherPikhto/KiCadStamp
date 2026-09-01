@@ -27,7 +27,6 @@ from kicadstamp.trees import TreeAnchor
 
 from gui import settings
 from gui.dock_hub import DockHub
-from gui.docks.extract import ExtractDock
 from gui.docks.role_cluster_tree import RoleClusterTreeDock
 from gui.main_window import MainWindow
 
@@ -71,9 +70,6 @@ def test_config_tree_file_selected_does_not_retarget_entity_docks(real_main_wind
 
     real_main_window.config_tree_dock.file_selected.emit(target_file)
 
-    assert real_main_window.extract_dock._target_path is None
-    assert real_main_window.extract_dock._profile_path is None
-    assert real_main_window.extract_dock._placer_path is None
     assert real_main_window.placer_dock._cells_path is None
     assert real_main_window.placer_dock._placer_path is None
 
@@ -178,23 +174,6 @@ def test_placement_picked_loads_into_placer_form(real_main_window):
     assert real_main_window.placer_dock._selected_cell == "ldo_adj"
     assert real_main_window.placer_dock.x_edit.text() == "1.5"
     assert real_main_window.placer_dock.y_edit.text() == "2.5"
-
-
-def test_profile_picked_fills_extract_form_and_opens_dialog(real_main_window, tmp_path):
-    """ConfigTreeDock -> ExtractDock wiring (profile_picked -> pick_profile,
-    see gui/docks/config_tree.py's profile_picked docstring / ExtractDock.
-    pick_profile's docstring) — clicking an Extract-profile leaf in the real
-    Config tree must reach ExtractDock's form end-to-end, not just via a
-    direct pick_profile() call, and open the (non-modal) Extract dialog
-    (2026-08-31, plan extract_dialog_and_hide_existing.md)."""
-    extractor_file = tmp_path / "profiles.sexp"
-    _write(extractor_file, {"extract_profiles": {"alpha_profile": {"params": {"ROLE": "+3V3"}}}})
-    real_main_window.extract_dock.set_root_path(extractor_file)
-
-    real_main_window.config_tree_dock.profile_picked.emit("alpha_profile")
-
-    assert real_main_window.extract_dock.profile_key_edit.text() == "alpha_profile"
-    assert real_main_window._dock_hub.extract_dialog.isVisible()
 
 
 def test_points_saved_refreshes_config_tree_points(real_main_window, tmp_path):
@@ -311,56 +290,6 @@ def test_add_chain_requested_opens_blank_chain_form_and_dialog(real_main_window,
 
     assert real_main_window.chain_dock.net_edit.currentText() == ""
     assert real_main_window._dock_hub.chain_dialog.isVisible()
-
-
-def test_tools_menu_new_extract_opens_dialog_and_prepares_fresh(real_main_window):
-    """2026-09-01: the Tools menu's "New Extract..." action routes to
-    DockHub.new_extract -> _start_new_extract -> the same plain fresh capture
-    (prepare_new_extract) the Config tree context menu's "New Extract..."
-    provides. With the section-specific "Add extract profile..." removed this
-    is the single Extract entry point."""
-    hub = real_main_window._dock_hub
-    hub.extract_dock.name_edit.setText("stale_name")
-    hub.extract_dock.profile_key_edit.setText("stale_key")
-    hub.extract_dock.save_profile_checkbox.setChecked(True)
-
-    real_main_window.new_extract_action.trigger()
-
-    assert hub.extract_dialog.isVisible()
-    assert hub.extract_dock.name_edit.text() == ""
-    assert hub.extract_dock.profile_key_edit.text() == ""
-    assert hub.extract_dock.save_profile_checkbox.isChecked() is False
-
-
-def test_new_extract_requested_opens_dialog_and_prepares_fresh(real_main_window):
-    """ConfigTreeDock's "New Extract..." (new_extract_requested, 2026-08-31
-    plan extract_dialog_and_hide_existing.md) -> ExtractDock.prepare_new_extract
-    + opening the (non-modal) dialog: a plain fresh capture."""
-    hub = real_main_window._dock_hub
-    hub.extract_dock.name_edit.setText("stale_name")
-    hub.extract_dock.profile_key_edit.setText("stale_key")
-    hub.extract_dock.save_profile_checkbox.setChecked(True)
-
-    hub.config_tree_dock.new_extract_requested.emit()
-
-    assert hub.extract_dialog.isVisible()
-    assert hub.extract_dock.name_edit.text() == ""
-    assert hub.extract_dock.profile_key_edit.text() == ""
-    assert hub.extract_dock.save_profile_checkbox.isChecked() is False
-
-
-def test_successful_extract_auto_closes_the_dialog(real_main_window):
-    """2026-08-31 (plan extract_dialog_and_hide_existing.md, Denis: "после
-    успешного Extract диалог должен сам закрываться") — DockHub wires
-    extract_dock.saved -> extract_dialog.hide; saved fires in _finish_extract
-    only on success, so the dialog hides right after a successful Extract."""
-    hub = real_main_window._dock_hub
-    hub._open_extract_dialog()
-    assert hub.extract_dialog.isVisible()
-
-    hub.extract_dock.saved.emit()
-
-    assert hub.extract_dialog.isVisible() is False
 
 
 def test_thermal_via_picked_fills_form_and_opens_dialog(real_main_window, tmp_path):
@@ -579,21 +508,6 @@ def test_tools_menu_edit_template_opens_dialog(real_main_window):
     assert hub.tools_dialog.isVisible()
 
 
-def test_tools_menu_reead_selected_between_edit_and_view(real_main_window, monkeypatch):
-    """2026-08-31 (plan reead_selected_dialog.md): a Tools menu sits between
-    Edit and View, and its "Re-read selected..." action routes to
-    ExtractDock.re_read_selected via DockHub."""
-    labels = [a.text() for a in real_main_window.menuBar().actions()]
-    assert "Edit" in labels and "Tools" in labels and "View" in labels
-    assert labels.index("Edit") < labels.index("Tools") < labels.index("View")
-
-    called = []
-    monkeypatch.setattr(real_main_window._dock_hub.extract_dock, "re_read_selected",
-                        lambda: called.append(True))
-    real_main_window.reead_selected_action.trigger()
-    assert called == [True]
-
-
 # ── Tools -> Extract tree... (2026-09-01, plan extract_selection_as_tree.md) ─
 
 def _selected_tree(ref, cluster, sheet, nets):
@@ -603,8 +517,8 @@ def _selected_tree(ref, cluster, sheet, nets):
 
 
 def test_tools_menu_extract_tree_between_edit_and_view(real_main_window, monkeypatch):
-    """The Tools menu has "Extract tree..." next to Re-read/New Extract and
-    routes to DockHub.extract_tree_from_selection."""
+    """The Tools menu has "Extract tree..." and routes to
+    DockHub.extract_tree_from_selection."""
     labels = [a.text() for a in real_main_window.menuBar().actions()]
     assert "Edit" in labels and "Tools" in labels and "View" in labels
     assert labels.index("Edit") < labels.index("Tools") < labels.index("View")
@@ -628,8 +542,8 @@ def test_extract_tree_no_fully_selected_cluster_shows_message(real_main_window,
     real_main_window.connection = SimpleNamespace(
         board=SimpleNamespace(adapter=object()), snapshot=[], long_op_active=False)
     hub = real_main_window._dock_hub
-    hub.extract_dock._selected_footprints = []
-    hub.extract_dock._raw_items = []
+    hub._selection_footprints = []
+    hub._selection_raw_items = []
 
     warnings = []
     monkeypatch.setattr(dock_hub_mod.QMessageBox, "warning",
@@ -826,119 +740,7 @@ def test_placer_saved_refreshes_config_tree_placements(real_main_window, tmp_pat
     assert placements.child(0).text(0) == "spoke_1"
 
 
-def test_extract_saved_refreshes_config_tree_cells(real_main_window, tmp_path):
-    """ExtractDock -> ConfigTreeDock wiring (saved -> refresh) — FIXED
-    2026-08-04 (Denis live: "создал новый экстракт и cell, список в
-    конфиге не обновляется"): ExtractDock never had a saved signal at all,
-    unlike PlacerDock/ThermalViaDock, so a freshly extracted cell never
-    showed up in the Config tree without an unrelated action happening to
-    trigger refresh() first. Same real-widget-state assertion style as
-    test_placer_saved_refreshes_config_tree_placements above."""
-    cells_file = tmp_path / "cells.sexp"
-    _write(cells_file)
-    real_main_window.config_tree_dock.set_root_file(cells_file)
-    root_item = real_main_window.config_tree_dock.tree.topLevelItem(0)
-    assert root_item.childCount() == 0
-
-    _write(cells_file, {"cells": {"ldo_adj_2vp": {}}})
-    real_main_window.extract_dock.saved.emit()
-
-    root_item = real_main_window.config_tree_dock.tree.topLevelItem(0)
-    cells = root_item.child(0)
-    assert cells.text(0) == "Cells"
-    assert cells.child(0).text(0) == "ldo_adj_2vp"
-
-
-def test_extract_save_profile_writes_root_entry_and_tree_shows_leaf(
-        real_main_window, tmp_path, monkeypatch):
-    """2026-09-01 (gap close): a successful Extract with "Also save as
-    extract_profile" writes the entry into the project root AND the Config
-    tree shows the new extract_profiles leaf (saved -> refresh) — the full
-    "profile appeared in the config" path, not just the writer in isolation
-    (the write itself is pinned in test_extract_dock.py; this pins the
-    section rendering after a save_profile Extract)."""
-    import gui.docks.extract as extract_mod
-    from tests.gui.test_extract_dock import (FakeBoard, FakeSelected,
-                                             _fake_extract, _fake_fp, _load)
-
-    root = tmp_path / "root.sexp"
-    _write(root)
-    hub = real_main_window._dock_hub
-    hub.config_tree_dock.set_root_file(root)
-    dock = hub.extract_dock
-    dock.set_root_path(root)
-    dock._connection.board = FakeBoard()
-
-    monkeypatch.setattr(extract_mod, "extract_template_from_selection", _fake_extract)
-
-    dock.set_board_selection([_fake_fp("C1")],
-                             [FakeSelected("C1", "SOME_ROLE", "PIF_P5V", {"1": "+5V"})])
-    dock.name_edit.setText("pif_p5v")
-    dock.save_profile_checkbox.setChecked(True)
-    dock.profile_key_edit.setText("pif_p5v_profile")
-
-    dock._do_extract()
-
-    profile = _load(root)["extract_profiles"]["pif_p5v_profile"]
-    assert profile["name"] == "pif_p5v"
-
-    root_item = hub.config_tree_dock.tree.topLevelItem(0)
-    profiles = next((root_item.child(i) for i in range(root_item.childCount())
-                     if root_item.child(i).text(0) == "Extract profiles"), None)
-    assert profiles is not None
-    assert profiles.childCount() == 1
-    assert profiles.child(0).text(0) == "pif_p5v_profile"
-
-
 # ── 3.2: docks use the injected BoardConnection, not main_window.connection ──
-
-def test_extract_dock_uses_injected_connection_when_given(main_window):
-    injected = SimpleNamespace()
-    dock = ExtractDock(main_window, connection=injected)
-    assert dock._connection is injected
-
-
-def test_extract_dock_falls_back_to_main_window_connection(main_window):
-    dock = ExtractDock(main_window)
-    assert dock._connection is main_window.connection
-
-
-def test_extract_dock_feeds_injected_adapter_into_extraction(main_window, tmp_path, monkeypatch):
-    """Behavioral proof the injected connection is what extraction runs on —
-    the adapter reaching extract_template_from_selection comes from the
-    injected board, not from main_window.connection (which stays board-less)."""
-    import gui.docks.extract as extract_mod
-
-    cells_file = tmp_path / "cells.sexp"
-    _write(cells_file)
-
-    captured = {}
-
-    def _fake_extract(adapter, name, params=None, items=None,
-                      net_template_role=None, annotations=None, **kwargs):
-        captured["adapter"] = adapter
-        captured["items"] = items
-        # Keyed by cell name like the real extractor — the s-expr writer
-        # validates the cell record shape, so a bare {"ref": "C1"} (tolerated
-        # by YAML) would make dict_to_sexp fatal on a str cell body.
-        return {name: {"components": [], "vias": [], "tracks": [], "layer": "F.Cu"}}
-
-    monkeypatch.setattr(extract_mod, "extract_template_from_selection", _fake_extract)
-
-    adapter = object()
-    injected = SimpleNamespace(board=SimpleNamespace(adapter=adapter))
-    dock = ExtractDock(main_window, connection=injected)
-    dock.set_root_path(cells_file)
-    dock.name_edit.setText("c1")
-    dock._raw_items = ["item1"]
-
-    # Full success-path extract: synchronous core (the async _on_extract()
-    # path would not have written captured[] by the asserts below).
-    dock._do_extract()
-
-    assert captured["adapter"] is adapter
-    assert captured["items"] == ["item1"]
-
 
 def test_tree_dock_uses_injected_connection_for_board_highlight(main_window):
     """Clicking a leaf in live mode highlights the selection through the
@@ -1034,7 +836,6 @@ def test_main_window_exposes_all_docks_through_the_hub(real_main_window):
     assert real_main_window.tree_dock is hub.tree_dock
     assert real_main_window.config_tree_dock is hub.config_tree_dock
     assert real_main_window.fieldstool_dock is hub.fieldstool_dock
-    assert real_main_window.extract_dock is hub.extract_dock
     assert real_main_window.placer_dock is hub.placer_dock
     assert real_main_window.log_dock is hub.log_dock
 
@@ -1052,7 +853,6 @@ def test_dock_hub_constructs_all_docks(main_window, tmp_path):
         assert hub.tree_dock is not None
         assert hub.config_tree_dock is not None
         assert hub.fieldstool_dock is not None
-        assert hub.extract_dock is not None
         assert hub.placer_dock is not None
         assert hub.root_metadata_dock is not None
         assert hub.points_dock is not None
@@ -1060,7 +860,6 @@ def test_dock_hub_constructs_all_docks(main_window, tmp_path):
         assert hub.log_dock is not None
 
         hub.config_tree_dock.file_selected.emit(target_file)
-        assert hub.extract_dock._target_path is None
         assert hub.placer_dock._cells_path is None
         assert hub.points_dock._path is None
         assert hub.rules_dock._path is None
@@ -1294,13 +1093,13 @@ def test_dock_hub_file_handler_attaches_to_the_queue_listener_when_one_is_runnin
 
 
 def test_dock_hub_injects_connection_into_connection_docks(main_window):
-    """The connection passed to DockHub reaches the three docks that consume
-    it (RoleClusterTreeDock, ExtractDock, and — Phase 5.1 — the embedded
+    """The connection passed to DockHub reaches the docks that consume it
+    (RoleClusterTreeDock, PointsDock, and — Phase 5.1 — the embedded
     fieldstool window) — never main_window.connection."""
     hub = DockHub(main_window, connection=main_window.connection, verbose=False)
     try:
         assert hub.tree_dock._connection is main_window.connection
-        assert hub.extract_dock._connection is main_window.connection
+        assert hub.points_dock._connection is main_window.connection
         assert hub.fieldstool_dock.window.connection is main_window.connection
     finally:
         _teardown_hub(hub)
@@ -1451,7 +1250,7 @@ def _spy_graph_refresh_targets(hub, monkeypatch):
     see post-construction calls). Returns {name: [recorded_arg, ...]}."""
     calls = {}
     for name in ("rules_dock", "placer_dock", "thermal_via_dock", "cells_dock",
-                 "tools_dock", "points_dock", "extract_dock"):
+                 "tools_dock", "points_dock"):
         recorded = []
         monkeypatch.setattr(getattr(hub, name), "set_root_path",
                             lambda path, r=recorded: r.append(path))
@@ -1494,12 +1293,12 @@ def test_dock_saved_also_refreshes_graph_dependent_choices(main_window, monkeypa
     hub = DockHub(main_window, connection=main_window.connection, verbose=False)
     try:
         targets = _spy_graph_refresh_targets(hub, monkeypatch)
-        for dock_name in ("placer_dock", "thermal_via_dock", "extract_dock",
+        for dock_name in ("placer_dock", "thermal_via_dock",
                           "points_dock", "rules_dock", "cells_dock",
                           "tools_dock"):
             getattr(hub, dock_name).saved.emit()
         for name, calls in targets.items():
-            assert len(calls) == 7, f"{name} not refreshed once per dock Save: {calls}"
+            assert len(calls) == 6, f"{name} not refreshed once per dock Save: {calls}"
     finally:
         _teardown_hub(hub)
 

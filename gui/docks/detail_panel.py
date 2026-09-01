@@ -10,9 +10,8 @@ standard "tabs without their own page-widgets" Qt pattern — a QTabWidget would
 insist on owning/parenting the pages itself).
 
 Pages that LEFT this dock (2026-08-31 .. 2026-09-01) into standalone dialogs,
-so they are no longer tabs here:
-- Extract (2026-08-31, plan extract_dialog_and_hide_existing.md) — the
-  non-modal ExtractDialog (gui/docks/extract_dialog.py);
+so they are no longer tabs here (the Extract page was removed entirely in
+Phase F 2026-09-01 — "Extract tree..." in DockHub is the single capture path):
 - Thermal via (2026-09-01, plan plan_2026_09_01_thermal_via_dialog.md) — the
   non-modal ThermalViaDialog (gui/docks/thermal_via_dialog.py);
 - Points (2026-09-01, plan plan_2026_09_01_points_dialog.md) — the non-modal

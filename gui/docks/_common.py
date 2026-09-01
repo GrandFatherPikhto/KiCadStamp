@@ -155,8 +155,9 @@ def set_file_combo_selection(combo: QComboBox, path: Optional[Path]) -> None:
     outside the include graph) — same "still show/select it anyway"
     fallback PlacerDock's cell_combo/set_selected_cell already relies on.
 
-    Consolidated 2026-08-13 from ExtractDock's private copy (see plan
-    tree_to_combo_file_pickers) — every dock's file combo now shares ONE
+    Consolidated 2026-08-13 from the retired Extract dock's private copy
+    (see plan tree_to_combo_file_pickers) — every dock's file combo now
+    shares ONE
     implementation instead of six near-identical _set_file_combo_selection
     methods.
 

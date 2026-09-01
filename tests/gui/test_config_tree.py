@@ -133,21 +133,6 @@ def test_clicking_a_placement_leaf_fires_full_dict(main_window, tmp_path):
     assert picked == [{"name": "spoke_1", "cell": "ldo_adj", "xy": [0, 0]}]
 
 
-def test_clicking_an_extract_profile_leaf_fires_profile_picked(main_window, tmp_path):
-    root = tmp_path / "root.sexp"
-    _write(root, {"extract_profiles": {"alpha": {"params": {}}}})
-
-    dock = ConfigTreeDock(main_window)
-    dock.set_root_file(root)
-
-    leaf = _find(dock.tree.topLevelItem(0), "Extract profiles").child(0)
-    picked = []
-    dock.profile_picked.connect(picked.append)
-    dock.tree.itemClicked.emit(leaf, 0)
-
-    assert picked == ["alpha"]
-
-
 def test_clicking_a_chain_node_fires_no_signal_no_form_yet(main_window, tmp_path):
     """2026-09-01, plan rules_to_chains: a chains: node (anchor/chain/pad)
     is edited via DOUBLE click or the context menu — a single click does
@@ -165,7 +150,6 @@ def test_clicking_a_chain_node_fires_no_signal_no_form_yet(main_window, tmp_path
     picked = []
     dock.cell_picked.connect(picked.append)
     dock.placement_picked.connect(picked.append)
-    dock.profile_picked.connect(picked.append)
     dock.tree.itemClicked.emit(chain, 0)
 
     assert picked == []
@@ -792,16 +776,14 @@ def test_leaf_context_menu_shows_only_its_sections_add_action(
     assert _add_labels(labels) == [expected_add, "Add included file..."]
 
 
-def test_extract_profiles_category_and_leaf_have_no_add_action_but_new_extract(
-        main_window, tmp_path, monkeypatch):
-    """2026-09-01: the section-specific "Add extract profile..." was removed
-    as a duplicate of the unconditional "New Extract..." (the dialog's "Also
-    save as extract_profile" covers profile saving), so an Extract profiles
-    category/leaf shows NO section Add action (like clone_profiles) — only
-    the unconditional "New Extract..." + "Add included file...". Both menus
-    are built inside ONE addAction-capture session (re-patching between two
-    calls would make the second capture's "original" the first patch — see
-    _context_menu_labels' caller note)."""
+def test_extract_profiles_category_and_leaf_have_no_add_action(main_window, tmp_path, monkeypatch):
+    """Phase F (2026-09-01): the Extract dock (and its "New Extract..." entry
+    point) was removed — extract_profiles: is now a CLI/config-only section.
+    Its category/leaf must show NO section Add action and NO "New Extract..."
+    at all (like clone_profiles) — only the unconditional "Add included file...".
+    Both menus are built inside ONE addAction-capture session (re-patching
+    between two calls would make the second capture's "original" the first
+    patch — see _context_menu_labels' caller note)."""
     root = tmp_path / "root.sexp"
     _write(root, ALL_SECTIONS)
     dock = ConfigTreeDock(main_window)
@@ -819,8 +801,8 @@ def test_extract_profiles_category_and_leaf_have_no_add_action_but_new_extract(
     dock._on_context_menu(dock.tree.visualItemRect(category.child(0)).center())
 
     assert "Add extract profile..." not in captured
+    assert "New Extract..." not in captured
     assert _add_labels(captured) == ["Add included file...", "Add included file..."]
-    assert captured.count("New Extract...") == 2  # one per menu
     assert "Add cell..." not in captured
     assert "Add chain..." not in captured
 
@@ -844,8 +826,8 @@ def test_file_header_context_menu_shows_all_six_add_actions(
     """Denis's explicit decision: a file header (incl. the root) must still
     offer ALL the Add actions — otherwise a fresh file with no sections yet
     couldn't create its first entity. (2026-09-01: extract_profiles no longer
-    has a section Add action — an extract profile is created via the
-    unconditional "New Extract..." — so the count is six, not seven.)"""
+    has a section Add action — profiles are a CLI/config-only section now,
+    Phase F — so the count is six, not seven.)"""
     root = tmp_path / "root.sexp"
     _write(root, ALL_SECTIONS)
     dock = ConfigTreeDock(main_window)

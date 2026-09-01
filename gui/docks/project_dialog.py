@@ -4,9 +4,9 @@ ProjectDialog — the Project form (RootMetadataDock) as a standalone,
 non-modal dialog (2026-09-01, plan project_settings_dialogs).
 
 RootMetadataDock was a page inside DetailDock's stack (gui/docks/detail_panel.py)
-since 2026-08-03. Following the Extract-dialog (plan_2026_08_31_extract_dialog_
-and_hide_existing.md) and Thermal-via-dialog (plan_plan_2026_09_01_thermal_via_
-dialog.md) precedents, the form now lives in a DIALOG launched from the File
+since 2026-08-03. Following the standalone-dialog move (Extract 2026-08-31 /
+Thermal via 2026-09-01) precedents, the form now lives in a DIALOG launched
+from the File
 menu ("Project...") instead of a permanent dock page. The "Project" and
 "Settings" tabs are removed from the Detail dock entirely (user decision,
 2026-09-01): project management and machine settings are dialogs now.

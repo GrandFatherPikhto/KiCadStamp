@@ -6,7 +6,6 @@ sees entries from every included file of the include: graph."""
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 
 from gui.docks.cell_editor import CellDock
-from gui.docks.extract import ExtractDock
 from gui.docks.placer import PlacerDock
 from gui.docks.points import PointsDock
 from gui.docks.rules import RuleDock
@@ -57,12 +56,6 @@ class TestWriteTargetsFollowRoot:
         rules = RuleDock(main_window)
         rules.set_root_path(root)
         assert rules._path == root
-
-        extract = ExtractDock(main_window)
-        extract.set_root_path(root)
-        assert extract._target_path == root
-        assert extract._profile_path == root
-        assert extract._placer_path == root
 
 
 class TestNewRecordsGoToRootNotTheInclude:

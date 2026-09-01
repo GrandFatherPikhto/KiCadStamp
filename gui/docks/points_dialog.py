@@ -4,9 +4,9 @@ PointsDialog — the Points form as a standalone, non-modal dialog (2026-09-01,
 plan plan_2026_09_01_points_dialog.md).
 
 The PointsDock was a page inside DetailDock's stack (gui/docks/detail_panel.py)
-since 2026-08-05; following the Thermal via / Extract dialog precedents
-(plan_2026_09_01_thermal_via_dialog.md / plan_2026_08_31_extract_dialog_and_
-hide_existing.md) the form now lives in a DIALOG launched from the Tools menu
+since 2026-08-05; following the Thermal via dialog precedent
+(plan_2026_09_01_thermal_via_dialog.md) the form now lives in a DIALOG
+launched from the Tools menu
 ("Add point..."), from the Config tree context menu ("Add point..."), and from
 a DOUBLE click on a points: leaf in the Config tree, instead of a permanent
 dock page.

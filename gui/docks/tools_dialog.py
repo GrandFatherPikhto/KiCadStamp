@@ -4,9 +4,8 @@ ToolsDialog — the Entity electrical-fields form (ToolsDock) as a standalone,
 non-modal dialog (2026-09-01, plan plan_2026_09_01_tools_dialog_and_entity_roles.md).
 
 The ToolsDock was a page inside DetailDock's stack (gui/docks/detail_panel.py)
-since 2026-08-30 (phase 5.2 stage 3); following the Thermal via / Extract /
-Points dialog precedents (plan_2026_09_01_thermal_via_dialog.md /
-plan_2026_08_31_extract_dialog_and_hide_existing.md /
+since 2026-08-30 (phase 5.2 stage 3); following the Thermal via / Points
+dialog precedents (plan_2026_09_01_thermal_via_dialog.md /
 plan_2026_09_01_points_dialog.md) the form now lives in a DIALOG launched from
 the Tools menu ("Edit template...") and from a DOUBLE click on an Entities leaf
 in the Config tree, instead of a permanent dock page.

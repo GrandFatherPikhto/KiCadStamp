@@ -4,9 +4,9 @@ ThermalViaDialog — the Thermal via form as a standalone, non-modal dialog
 (2026-09-01, plan plan_2026_09_01_thermal_via_dialog.md).
 
 The ThermalViaArrayDock was a page inside DetailDock's stack (gui/docks/
-detail_panel.py) since 2026-08-03; following the Extract-dialog precedent
-(plan_2026_08_31_extract_dialog_and_hide_existing.md) the form now lives in
-a DIALOG launched from the Tools menu ("Place thermal vias...") and from the
+detail_panel.py) since 2026-08-03; following the standalone-dialog move for
+the Extract form (2026-08-31) the form now lives in a DIALOG launched from
+the Tools menu ("Place thermal vias...") and from the
 Config tree context menu ("Add thermal via pad..."/a thermal_via_arrays leaf
 click) instead of a permanent dock page.
 

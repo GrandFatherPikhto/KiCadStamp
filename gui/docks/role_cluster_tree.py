@@ -142,7 +142,7 @@ class RoleClusterTreeDock(QDockWidget):
         self._auto_expand_pending = True
         # The currently running long op (gui/worker.py) — held so the
         # parent-less QThread isn't garbage-collected mid-run (same pattern
-        # as PlacerDock/ExtractDock/ThermalViaArrayDock).
+        # as PlacerDock/ThermalViaArrayDock).
         self._active_op: Optional[Any] = None
         # Set by gui/dock_hub.py to the main window's request_refresh() —
         # called right after Clear all/Delete selected successfully write to

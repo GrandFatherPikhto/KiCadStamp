@@ -39,10 +39,10 @@ def test_show_placer_switches_tab_and_stack(main_window):
     assert dock.stack.currentWidget() is dock.placer_panel
 
 
-def test_no_extract_tab_since_it_is_a_dialog(main_window):
-    """2026-08-31 (plan extract_dialog_and_hide_existing.md): the Extract form
-    moved out of DetailDock into a standalone dialog (gui/docks/extract_dialog
-    .py) — there must be no Extract page/tab left here."""
+def test_no_extract_tab_since_the_dock_was_removed(main_window):
+    """Phase F (2026-09-01): the Extract dock (and its standalone dialog) was
+    removed entirely — "Extract tree..." in DockHub is the single capture
+    path. There must be no Extract page/tab left in DetailDock."""
     dock = DetailDock(main_window)
     labels = [dock.tab_bar.tabText(i) for i in range(dock.tab_bar.count())]
     assert "Extract" not in labels

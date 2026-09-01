@@ -1,6 +1,11 @@
 # tests/gui/test_reead.py
-"""Pure-logic tests for "Tools -> Re-read selected..." cluster detection
-(2026-08-31, plan reead_selected_dialog.md) — gui/docks/reead.py, no Qt.
+"""Pure-logic tests for the FULLY-SELECTED cluster detection core
+(gui/docks/reead.py, no Qt). Phase F (2026-09-01): "Re-read selected..." was
+merged into "Extract tree..." (the Extract dock was removed) — this module is
+now the shared cluster-detection core BOTH features used, and it stays covered
+independently of the GUI (see plan_2026_09_01_extract_tree_rework_phaseF_
+cells_dock_audit.md §6.6: "core-пути ... reead детект ... покрыты тестами
+независимо от GUI").
 
 The core scenario is Denis's real board: PIF_AVDD placed THREE times on
 Channel_0/1/2 (entities CH0/CH1/CH2_PIF_AVDD, all with cell dac_pif_avdd).

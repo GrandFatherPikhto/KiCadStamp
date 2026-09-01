@@ -17,10 +17,11 @@ to solve correctly (direct `.kicad_sch` edits). FieldsToolDock (see
 gui/docks/fieldstool_dock.py) now occupies that first right-hand tab
 instead, embedding fieldstool's own standalone MainWindow whole. Then
 ConfigTreeDock (pick a Root file, browse/edit its include: graph — folded
-FilePickerDock's job into it 2026-08-03, see gui/docks/config_tree.py)
-and ExtractDock (build a Cell from the current selection, write it into
-whatever file is currently selected in the Config tree). kipy 0.7.1's
-Board has no selection/board-change push events (checked directly against
+FilePickerDock's job into it 2026-08-03, see gui/docks/config_tree.py).
+Phase F (2026-09-01) removed the Extract dock entirely — "Extract tree..."
+(see DockHub.extract_tree_from_selection) is the single capture entry point.
+kipy 0.7.1's Board has no selection/board-change push events (checked
+directly against
 the installed kipy.board.Board class), so "live" here means polled on a
 QTimer, not pushed.
 
@@ -68,8 +69,8 @@ by the ~2s poll / manual Refresh, and the tick builds its `selected` list by
 ref against that cache. Building it on every tick was the main perf bug of
 this timer (a full select() over every footprint, 2-3x a second). The tick
 also early-exits entirely when neither the raw selection nor the cached
-snapshot changed since the last tick, so ExtractDock's per-selection widget
-rebuilds (aliases, origin combos, button state) aren't churned for nothing.
+snapshot changed since the last tick, so the selection push to DockHub /
+the tree highlight isn't churned for nothing.
 """
 import base64
 import logging
@@ -224,22 +225,11 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(self.import_from_profile_action)
 
         # Tools menu (2026-08-31, plan reead_selected_dialog.md) — between
-        # Edit and View. "Re-read selected..." lists the FULLY-selected Clusters
-        # of the current board selection (with their Entities/Cells) and batch
-        # re-captures the checked ones into their cells.
+        # Edit and View. Phase F (2026-09-01): "Re-read selected..." and
+        # "New Extract..." were removed with the Extract dock — "Extract
+        # tree..." below is the single capture entry point (its dialog covers
+        # re-reading existing clusters and profile saving).
         tools_menu = self.menuBar().addMenu(_("Tools"))
-        self.reead_selected_action = QAction(_("Re-read selected..."), self)
-        self.reead_selected_action.triggered.connect(
-            lambda: self._dock_hub.reead_selected())
-        tools_menu.addAction(self.reead_selected_action)
-        # "New Extract..." (2026-09-01): the same plain fresh capture as the
-        # Config tree context menu item — with the section-specific "Add
-        # extract profile..." removed, this is the single Extract entry point
-        # (the dialog's "Also save as extract_profile" covers profile saving).
-        self.new_extract_action = QAction(_("New Extract..."), self)
-        self.new_extract_action.triggered.connect(
-            lambda: self._dock_hub.new_extract())
-        tools_menu.addAction(self.new_extract_action)
         # "Extract tree..." (2026-09-01, plan extract_selection_as_tree.md): a
         # NEW tree from the current board selection — fully-selected Clusters
         # become placement nodes (xy relative to a chosen role anchor), checked
@@ -358,10 +348,6 @@ class MainWindow(QMainWindow):
     @property
     def fieldstool_dock(self):
         return self._dock_hub.fieldstool_dock
-
-    @property
-    def extract_dock(self):
-        return self._dock_hub.extract_dock
 
     @property
     def placer_dock(self):
@@ -733,11 +719,10 @@ class MainWindow(QMainWindow):
         # highlight_board_selection()'s own): if neither the raw selection
         # nor the cached snapshot changed since the last tick, there is
         # nothing to repaint — skip both the tree highlight (which would
-        # self-bail anyway) and ExtractDock.set_board_selection(), which
-        # rebuilds its alias/role widgets on every call. The raw selection
-        # matters as much as the footprint refs (vias/tracks drive
-        # ExtractDock's via-net origin combo), so the signature covers the
-        # whole get_selected_items() list, not just refs.
+        # self-bail anyway) and DockHub.set_board_selection(). The raw
+        # selection matters as much as the footprint refs (vias/tracks drive
+        # the inter-cluster net detection), so the signature covers the whole
+        # get_selected_items() list, not just refs.
         signature = (refs, selection_signature(items),
                      self.connection.snapshot_version)
         if signature == self._last_selection_signature:

@@ -191,19 +191,12 @@ pad.../Add included file...**, plus **Remove this file** (soft-disables its `inc
 doesn't delete the file) when it's not the root. Since 2026-08-13 the "Add ..." block is
 **section-aware**: right-clicking a category or a leaf shows only THAT section's own Add action
 (cells → Add cell, chains → Add chain, ...); Clone profiles and Extract profiles show none (no
-dedicated Add form — an extract profile is created via the unconditional **New Extract...** below
-with the dialog's "Also save as extract_profile" checked); a file header still shows all of them
-(Denis's decision — otherwise a fresh file with no sections yet couldn't create its first entity).
-Since 2026-08-31 the Extract form is a standalone **dialog** (no longer a Detail-dock page):
-right-clicking the tree offers **New Extract...** (a plain fresh capture, always available) and the
-main menu's **Tools → New Extract...** opens the same flow; clicking an `extract_profiles` leaf
-opens the dialog with that profile's recipe pulled in. The dialog is
-non-modal — you can keep selecting on the board while it's open — and auto-closes after a successful
-Extract. Also since 2026-08-31 the selected Cluster auto-fills BOTH the Cell name and the Profile key
-(the matching profile key when one exists, otherwise the Cluster's slug — never stomping a typed
-value), and when the selection spans several Clusters the "Keep only one Cluster" filter is
-auto-checked (its combo already defaults to the Cluster with the most components), so a "New Extract"
-immediately narrows to the user's own Cluster.
+dedicated Add form — profiles are a CLI/config-only section since the Extract dock was removed in
+Phase F, 2026-09-01); a file header still shows all of them (Denis's decision — otherwise a fresh
+file with no sections yet couldn't create its first entity). Since 2026-09-01 the single capture
+entry point is the Tools menu's **Extract tree...** (see below): it auto-derives the `cells:` records
+from the fully-selected clusters and captures inter-cluster copper as `net_traces:`, so the old
+standalone Extract dialog / **New Extract...** entry points are gone.
 
 Clicking a file/category switches the Detail dock to that node's own panel (a Cells leaf → Placer,
 ...; a plain file click no longer jumps to a Project page since 2026-09-01 — the Project tab moved
@@ -403,22 +396,20 @@ connection timeout, hotkey rebinding) fire only on Apply/OK.
 
 ## Extract
 
-Builds a `Cell` from whatever's currently selected on the board (components, vias, tracks) and
-writes it into the Cells file — the GUI equivalent of `kicadstamp_cli.py extract`. Since 2026-08-31
-this is a standalone **dialog** (not a Detail-dock page): open it from the Config tree's context
-menu or the main menu's **Tools → New Extract...** (plain capture; save a NEW profile by checking
-"Also save as extract_profile" in the dialog), or by clicking an `extract_profiles` leaf. It's
-non-modal (keep selecting on the board while it's open) and auto-closes after a successful Extract.
+The GUI's dedicated Extract dock/dialog was removed in Phase F (2026-09-01) — its function is
+absorbed by **Tools → Extract tree...** below (auto-derives `cells:` from the fully-selected
+clusters and captures inter-cluster copper as `net_traces:`), and manual `cells:` editing stays in
+the Detail dock's **Cells** tab. `extract_profiles:` remain a CLI/config-only concept:
+`kicadstamp_cli.py extract --profile` (`cli_extract.py`, `extract_writer.py`) still consumes them.
 
-The main menu's **Tools → Re-read selected...** (2026-08-31) re-captures already-placed clusters:
-select a cluster's components on the board (the whole cluster — components, vias, tracks), then run
-it. A modal dialog lists every FULLY-selected cluster (all its board components in the selection,
-matched by Cluster tag + sheet) with its Entity and Cell, checkboxes on by default; on OK each
-checked cluster is re-read — its current positions are re-captured into the cell using the matching
-extract_profiles recipe (params/origin/net_template_role/rule_nets) when one exists, else auto.
-Foreign copper swept in by the area-select is dropped by the extractor's connectivity filter (the
-cluster's OWN applied copper is kept — no registry dependency). This is how the three PIF_AVDD
-channels (Channel_0/1/2, same cell) are told apart: the selection's sheet picks the instance.
+The old **Tools → Re-read selected...** was merged into **Extract tree...**: its dialog lists every
+FULLY-selected cluster (all its board components in the selection, matched by Cluster tag + sheet)
+with its Entity and Cell, checkboxes on by default; on OK each checked cluster is re-captured — its
+current positions are re-captured into the cell using the matching extract_profiles recipe
+(params/origin/net_template_role/rule_nets) when one exists, else auto. Foreign copper swept in by
+the area-select is dropped by the extractor's connectivity filter (the cluster's OWN applied copper
+is kept — no registry dependency). This is how the three PIF_AVDD channels (Channel_0/1/2, same
+cell) are told apart: the selection's sheet picks the instance.
 
 The main menu's **Tools → Extract tree...** (2026-09-01) builds a NEW tree from the current
 selection — there is no "extract into tree" (the extract never writes `trees:`); this is the

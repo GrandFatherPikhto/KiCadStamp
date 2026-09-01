@@ -39,8 +39,8 @@ from .tree_from_selection import InterClusterNet
 
 def _single_line(text: object) -> str:
     """Collapse any whitespace (including newlines) to single spaces — a table
-    cell must never render raw multi-line/file content (same convention as
-    ReReadDialog, live 2026-08-31)."""
+    cell must never render raw multi-line/file content (same convention as the
+    retired Re-read dialog, live 2026-08-31)."""
     return " ".join(str(text).split())
 
 
@@ -119,7 +119,7 @@ class TreeFromSelectionDialog(QDialog):
         self._table = QTableWidget(len(self._clusters), 7)
         # The checkbox column's header is a PLAIN empty string — never _(""):
         # gettext stores the .po file header under the empty msgid (the same
-        # ReReadDialog pitfall, found live 2026-08-31).
+        # retired Re-read dialog pitfall, found live 2026-08-31).
         self._table.setHorizontalHeaderLabels(
             ["", _("Cluster"), _("Sheet"), _("Entity"), _("Cell"),
              _("ΔX mm"), _("ΔY mm")])

@@ -156,8 +156,8 @@ def cluster_raw_items(c: ReReadCluster, raw_items: Iterable[Any]) -> list:
     """The raw selection narrowed to one fully-selected cluster: its footprints
     (by ref) plus ALL selected vias/tracks. Foreign copper is left in on
     purpose — the extractor's connectivity filter drops whatever doesn't reach
-    a kept pad (2026-09-01, same rationale as ExtractDock._reead_items_for_
-    cluster, which phase F folds into this flow)."""
+    a kept pad (2026-09-01, same rationale as the retired Extract dock's
+    _reead_items_for_cluster, which phase F folds into this flow)."""
     kept = set(c.refs)
     return [i for i in raw_items
             if not (isinstance(i, Footprint) and i.ref not in kept)]

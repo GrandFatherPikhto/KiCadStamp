@@ -50,7 +50,7 @@ Save writes via merge_write(section="points") — points: is a DICT section
 (keyed by name), unlike thermal_via_arrays:/clone_placements: (list
 sections upsert_list_entry matches by an inline `name` field) — see
 _common.py's merge_write docstring for the section= dict-merge shape this
-uses, same as ExtractDock's cells:/extract_profiles: writes.
+uses, same as the retired Extract dock's cells:/extract_profiles: writes.
 
 Resolve (Denis: "надо руками пощупать" — a way to check where a point
 CURRENTLY computes to, before Save, without moving anything on the board —
@@ -101,8 +101,8 @@ class PointsDock(QWidget):
     """Edits a named `points:` entry — hosted since 2026-09-01 (plan
     plan_2026_09_01_points_dialog.md) in the standalone non-modal PointsDialog
     (gui/docks/points_dialog.py), same "plain QWidget, not its own
-    QDockWidget" shape as ExtractDock/ThermalViaArrayDock, see their module
-    docstrings. The single live instance is owned by DockHub."""
+    QDockWidget" shape as ThermalViaArrayDock, see its module docstring. The
+    single live instance is owned by DockHub."""
 
     # Fired after a successful Save — ConfigTreeDock listens to refresh its
     # Points category (see gui/dock_hub.py), same as Placer/ThermalVia/Extract.

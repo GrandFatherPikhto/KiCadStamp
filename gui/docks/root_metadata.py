@@ -37,7 +37,7 @@ them set is fatal at load time — see config/includes.py), so tracking
 fields would be invalid.
 
 Restructured into tabs the same day ("решил сделать root табами") to cut
-dock height, following ExtractDock's 2026-08-04 tabbing for the same
+dock height, following the Extract dock's 2026-08-04 tabbing for the same
 reason — Layer/place_components/skip_existing_components stay above the
 tabs as general project settings; Files/Schematics/Via each get their own
 tab.
@@ -152,8 +152,9 @@ _INT_FIELDS = [
 
 class RootMetadataDock(QWidget):
     """A page inside DetailDock's stack (gui/docks/detail_panel.py) — used
-    to be its own QDockWidget, merged 2026-08-03 (see ExtractDock's module
-    docstring note for the same change). Layout builds directly on self
+    to be its own QDockWidget, merged 2026-08-03 (see the retired Extract
+    dock's module docstring note for the same change). Layout builds
+    directly on self
     instead of a wrapped QDockWidget-owned container; everything else is
     unchanged.
 

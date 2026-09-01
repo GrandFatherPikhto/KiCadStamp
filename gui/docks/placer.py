@@ -647,8 +647,9 @@ class _CoordinatePlacementForm(QWidget):
 
 class PlacerDock(QWidget):
     """A page inside DetailDock's stack (gui/docks/detail_panel.py) — used
-    to be its own QDockWidget, merged 2026-08-03 (see ExtractDock's module
-    docstring note for the same change). Layout builds directly on self
+    to be its own QDockWidget, merged 2026-08-03 (see the retired Extract
+    dock's module docstring note for the same change). Layout builds
+    directly on self
     instead of a wrapped QDockWidget-owned container; everything else is
     unchanged."""
 
@@ -668,8 +669,9 @@ class PlacerDock(QWidget):
         self._selected_cell: Optional[str] = None
         # Live board selection (2026-08-31, plan placer_source_tab_gaps P.1)
         # — pushed every selection-watch tick via DockHub.set_board_selection,
-        # same (raw_items, selected_footprints) shape as ExtractDock's own
-        # set_board_selection. Drives the Cell-mode Cluster auto-fill (only
+        # same (raw_items, selected_footprints) shape as the retired Extract
+        # dock's own set_board_selection. Drives the Cell-mode Cluster
+        # auto-fill (only
         # the selected footprints' Cluster field is actually read here).
         self._raw_items: List[Any] = []
         self._selected_footprints: List[Any] = []
@@ -677,8 +679,8 @@ class PlacerDock(QWidget):
         # tick whose cluster-relevant state (selected Cluster-set / dirty
         # flag / current field text) is unchanged is a no-op, so the ~400ms
         # selection-watch tick can't churn the auto-fill for nothing (same
-        # "don't redo work on an unchanged tick" idea as ExtractDock's
-        # _last_autofill_key).
+        # "don't redo work on an unchanged tick" idea as the retired Extract
+        # dock's _last_autofill_key).
         self._last_selection_cluster_signature: Optional[tuple] = None
         self._param_edits: Dict[str, QComboBox] = {}
         self._known_nets: List[str] = []
@@ -1460,10 +1462,10 @@ class PlacerDock(QWidget):
                             selected_footprints: List[Any]) -> None:
         """Called every selection-watch tick (DockHub.set_board_selection,
         2026-08-31, plan placer_source_tab_gaps P.1) — the live board
-        selection drives the Cell-mode Cluster auto-fill, mirroring
-        ExtractDock's set_board_selection/_autofill_from_cluster. PlacerDock
-        only reads the selected footprints' Cluster field here (raw_items is
-        kept for signature symmetry with ExtractDock's own hook)."""
+        selection drives the Cell-mode Cluster auto-fill, mirroring the
+        retired Extract dock's set_board_selection/_autofill_from_cluster.
+        PlacerDock only reads the selected footprints' Cluster field here
+        (raw_items is kept for signature symmetry with that hook)."""
         self._raw_items = raw_items
         self._selected_footprints = selected_footprints
         self._autofill_cluster_from_selection()
@@ -1472,13 +1474,13 @@ class PlacerDock(QWidget):
         """Cell-mode Cluster auto-fill from the CURRENT board selection
         (2026-08-31, plan placer_source_tab_gaps P.1; Денис: selected a whole
         Cluster's components on the board, expected its name to fill itself
-        into the Source tab's Cluster field, like ExtractDock does for Cell
-        names). If the selected footprints all carry ONE non-empty Cluster,
-        fill it into cluster_edit — but ONLY while the field is blank and not
-        user-owned (_cluster_identity_dirty), the same "never overwrite what
-        is already there" rule as set_cluster_name and ExtractDock's own
-        _autofill_from_cluster. An empty/mixed selection silently does
-        nothing.
+        into the Source tab's Cluster field, like the retired Extract dock
+        does for Cell names). If the selected footprints all carry ONE
+        non-empty Cluster, fill it into cluster_edit — but ONLY while the
+        field is blank and not user-owned (_cluster_identity_dirty), the same
+        "never overwrite what is already there" rule as set_cluster_name and
+        the retired Extract dock's own _autofill_from_cluster. An empty/mixed
+        selection silently does nothing.
 
         On a successful fill also runs _maybe_autofill_nets(): once Cell and
         Cluster are both set, the full Nets/Params auto-fill pipeline should
@@ -1487,8 +1489,9 @@ class PlacerDock(QWidget):
         clobber it — same reasoning as set_cluster_name)."""
         if self.is_coordinate or self.is_entity:
             return
-        # getattr guard (same defensive style as ExtractDock's own
-        # getattr(s, "sheet", None) on the same selection-watch input): the
+        # getattr guard (same defensive style as the retired Extract dock's
+        # own getattr(s, "sheet", None) on the same selection-watch input):
+        # the
         # DockHub wiring test passes plain strings through set_board_selection,
         # and a stray non-Selected entry must simply be skipped, not crash.
         clusters = frozenset(getattr(s, "cluster", None) for s in self._selected_footprints
@@ -1889,7 +1892,7 @@ class PlacerDock(QWidget):
             found |= set(_PLACEHOLDER_RE.findall(node))
         return found
 
-    # ── Message helper (same shape as ExtractDock's) ────────────────────────
+    # ── Message helper (same shape as the retired Extract dock's) ──────────
 
     def _show_message(self, text: str, style: str = "") -> None:
         """Mirror into the Log dock at the level matching `style` — the docks

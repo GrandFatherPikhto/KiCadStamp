@@ -6,7 +6,7 @@ NAME over the WHOLE live board (no mouse selection needed — this is the
 long-standing GUI gap the review's finding 5 was about), an anchor block, and
 Extract / Save / Redraw.
 
-Unlike the selection-based ExtractDock ("Origin: Via net" combo), the net
+Unlike the selection-based Extract dock ("Origin: Via net" combo), the net
 picker here is sourced from ALL tracks/vias of the live board
 (adapter.get_tracks() + get_vias()), not the current selection — the two
 widgets look similar but are deliberately different mechanisms (the plan's
