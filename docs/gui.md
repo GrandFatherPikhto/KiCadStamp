@@ -66,11 +66,13 @@ real time.
   config changes. Switching or closing the project with a dirty working set asks
   Save/Discard/Cancel first.
 - The per-dock Save buttons are GONE (2026-09-01, step 6): RootMetadata, Tools, Points, Thermal via,
-  Net trace, Rules and Cell auto-stage their records on the forms' commit points — a field's
-  blur/Enter, a combo pick, a checkbox toggle, or an Add/Update/Remove row action. The Trees editor
-  and the Placer still keep their Save buttons (which now stage into the working set): the Trees
-  editor's structural-edit "don't Save = undo" model is deliberately preserved, and Placer's large
-  interdependent form needs a careful per-field auto-stage conversion (planned).
+  Net trace, Rules, Cell and the Trees editor auto-stage their records on the forms' commit points —
+  a field's blur/Enter, a combo pick, a checkbox toggle, an Add/Update/Remove row action, or a Trees
+  structural edit. The ONE remaining exception is the **Placer**: it keeps its Save button (which
+  now stages into the working set). Placer's form is deliberately "validate the whole placement
+  before commit" (Redraw and Save both build and validate the complete record), so auto-staging
+  every field edit would put invalid partial placements into the working set and fail the global
+  Save's graph validation — a careful silent-skip-on-invalid auto-stage is planned.
 
 ## Components tree
 

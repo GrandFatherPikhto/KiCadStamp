@@ -264,10 +264,9 @@ class TreesDock(QDockWidget):
         self.anchor_pos_button.setEnabled(True)
         self.anchor_pos_button.clicked.connect(self._refresh_anchor_live_position)
 
-        self.save_button = QPushButton(_("Save"))
-        self.save_button.setEnabled(True)
-        self.save_button.clicked.connect(self._do_save)
-        toolbar.addWidget(self.save_button)
+        # 2026-09-01 (plan project_save_model): no per-dock Save button — every
+        # structural edit auto-stages the trees: section (see _mark_dirty ->
+        # _stage_trees); File > Save commits the working set.
         self.redraw_button = QPushButton(_("Redraw selected"))
         self.redraw_button.setEnabled(True)
         self.redraw_button.clicked.connect(self._on_redraw_selected)
@@ -565,10 +564,10 @@ class TreesDock(QDockWidget):
     # ── Toolbar / dirty state helpers ────────────────────────────────────
 
     def _update_toolbar_state(self) -> None:
-        """Dirty indicator reflects _dirty; Save enabled from Phase 3, Redraw
-        from Phase 4 (their skeletons are visible but disabled until then)."""
+        """Dirty indicator reflects _dirty; Redraw enabled from Phase 4 (the
+        per-dock Save button is gone since 2026-09-01 — structural edits
+        auto-stage via _mark_dirty -> _stage_trees)."""
         self.dirty_label.setText(_("●") if self._dirty else "")
-        self.save_button.setEnabled(True)
         self.redraw_button.setEnabled(True)
 
     def _do_save(self) -> None:
@@ -635,10 +634,23 @@ class TreesDock(QDockWidget):
             self._show_status(message)
             tree.anchor = TreeAnchor(is_auto=True)
 
+    def _stage_trees(self) -> None:
+        """Auto-stage the trees: section into the working set after every
+        structural edit (2026-09-01, plan project_save_model) — File > Save
+        commits it. No per-edit backup (the flush backs up to history/) and no
+        modal on an invalid intermediate state (the flush's load_config
+        validation catches it before anything is written)."""
+        if self._root_path is None:
+            return
+        trees_dict = [tree_to_dict(t) for t in self._trees]
+        write_data(self._root_path, {**read_data(self._root_path), "trees": trees_dict})
+
     def _mark_dirty(self) -> None:
         """Central dirty setter — every structural mutator (Phase 2) calls
         this instead of setting _dirty inline, so the indicator can never be
-        forgotten."""
+        forgotten. Since 2026-09-01 the mutation ALSO auto-stages the trees:
+        section into the working set (the per-dock Save button is gone)."""
+        self._stage_trees()
         self._dirty = True
         self._update_toolbar_state()
 

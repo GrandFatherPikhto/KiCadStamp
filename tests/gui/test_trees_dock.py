@@ -250,7 +250,6 @@ def test_toolbar_buttons_enabled(main_window):
     assert dock.add_tree_button.isEnabled() is True
     assert dock.rename_tree_button.isEnabled() is True
     assert dock.delete_tree_button.isEnabled() is True
-    assert dock.save_button.isEnabled() is True
     assert dock.redraw_button.isEnabled() is True
     assert dock.redraw_whole_button.isEnabled() is True
     assert dock.anchor_pos_button.isEnabled() is True
@@ -273,7 +272,6 @@ def test_toolbar_moves_secondary_actions_into_an_overflow_menu(main_window):
     toolbar = _toolbar_layout(dock)
     visible = [toolbar.itemAt(i).widget() for i in range(toolbar.count())
                if toolbar.itemAt(i).widget() is not None]
-    assert dock.save_button in visible
     assert dock.redraw_button in visible
     assert dock.redraw_whole_button in visible
     # the secondary actions are reachable only through the "⋯" menu
