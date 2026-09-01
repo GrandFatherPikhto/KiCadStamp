@@ -1027,9 +1027,9 @@ class PlacerDock(QWidget):
         self.redraw_and_save_button = QPushButton(_("Redraw & Save"))
         self.redraw_and_save_button.clicked.connect(self._on_redraw_and_save)
         button_row.addWidget(self.redraw_and_save_button)
-        self.save_button = QPushButton(_("Save"))
-        self.save_button.clicked.connect(self._on_save)
-        button_row.addWidget(self.save_button)
+        # 2026-09-01 (plan project_save_model): the standalone per-dock Save
+        # button is GONE — a field commit point auto-stages the current
+        # placement (see _autostage); File > Save commits the working set.
         # Select on board (2026-08-25, handoff clone_item_resolver_select_and_
         # reextract): resolve the CURRENT form's placement to its live board
         # items and highlight them in pcbnew — visual check of what this
@@ -1045,6 +1045,32 @@ class PlacerDock(QWidget):
         self.undo_button.clicked.connect(self._on_undo)
         button_row.addWidget(self.undo_button)
         layout.addLayout(button_row)
+
+        # Auto-stage wiring (2026-09-01, plan project_save_model): a field
+        # commit point stages the current placement into the working set.
+        # _loading guards programmatic population; _autostage silently skips
+        # incomplete forms (an invalid partial placement is NEVER staged).
+        self._loading = False
+        self.entity_combo.currentIndexChanged.connect(self._autostage)
+        self.cluster_edit.activated.connect(self._autostage)
+        self.cluster_edit.lineEdit().editingFinished.connect(self._autostage)
+        self.sheet_edit.currentIndexChanged.connect(self._autostage)
+        self.placer_name_edit.editingFinished.connect(self._autostage)
+        self.placer_comment_edit.editingFinished.connect(self._autostage)
+        self.rotation_edit.editingFinished.connect(self._autostage)
+        self.layer_combo.currentIndexChanged.connect(self._autostage)
+        self.mirror_checkbox.toggled.connect(self._autostage)
+        self.nets_table.changed.connect(self._autostage)
+        self.net_overrides_table.changed.connect(self._autostage)
+        self.refs_table.changed.connect(self._autostage)
+        for w in self.origin_widget.findChildren(QLineEdit):
+            w.editingFinished.connect(self._autostage)
+        for w in self.origin_widget.findChildren(QComboBox):
+            w.currentIndexChanged.connect(self._autostage)
+        for w in self.coordinate_form.findChildren(QLineEdit):
+            w.editingFinished.connect(self._autostage)
+        for w in self.coordinate_form.findChildren(QComboBox):
+            w.currentIndexChanged.connect(self._autostage)
 
         self._on_cell_mode_changed()
 
@@ -1141,6 +1167,16 @@ class PlacerDock(QWidget):
         entity = self._load_entity_data(name)
         if entity is None:
             return
+        self._loading = True
+        try:
+            self._populate_entity_form(entity)
+        finally:
+            self._loading = False
+
+    def _populate_entity_form(self, entity) -> None:
+        """Fill the form from a loaded Entity — split out of _on_entity_picked
+        so the whole populate sits under the _loading auto-stage guard (see
+        _autostage)."""
         self._selected_cell = entity.cell
         # Params rows follow the CELL's {placeholders} — rebuild them for the
         # entity's cell, then fill the entity's own values into the rows.
@@ -1364,10 +1400,14 @@ class PlacerDock(QWidget):
         picking it in the Entity combo."""
         if not name:
             return
-        if not self.is_entity:
-            self.cell_mode_combo.setCurrentIndex(2)  # -> Entity (signal toggles)
-            self._on_cell_mode_changed()
-        self.entity_combo.setCurrentText(name)
+        self._loading = True
+        try:
+            if not self.is_entity:
+                self.cell_mode_combo.setCurrentIndex(2)  # -> Entity (signal toggles)
+                self._on_cell_mode_changed()
+            self.entity_combo.setCurrentText(name)
+        finally:
+            self._loading = False
 
     def set_cluster_name(self, name: str) -> None:
         """Called by RoleClusterTreeDock's cluster_picked signal when a
@@ -2254,7 +2294,7 @@ class PlacerDock(QWidget):
         Save runs, so no two board-touching actions can overlap (same "one
         socket in flight" discipline as connection.long_op_active)."""
         return (self.redraw_button, self.redraw_dependents_button,
-                self.redraw_and_save_button, self.save_button, self.select_button,
+                self.redraw_and_save_button, self.select_button,
                 self.undo_button)
 
     def _on_select_on_board(self) -> None:
@@ -2720,6 +2760,35 @@ class PlacerDock(QWidget):
         with busy(self._action_buttons()):
             self._do_save()
 
+    def _autostage(self) -> None:
+        """Field commit point -> stage the current placement into the working
+        set (2026-09-01, plan project_save_model); File > Save commits it.
+        Skips programmatic population (_loading), no project, and INCOMPLETE
+        forms: _do_save validates the whole placement, and during auto-stage
+        its messages are silenced, so an invalid partial form is simply not
+        staged — the working set never holds an invalid record, so the global
+        Save's graph validation stays intact. Wrapped in try/except: an
+        unhandled exception in a PyQt6 signal slot aborts the whole process,
+        so a staging bug must degrade to a log line, never a crash."""
+        if self._loading or self._placer_path is None:
+            return
+        if self.is_entity:
+            if not self.entity_combo.currentText().strip():
+                return
+        elif self.is_coordinate:
+            if not self.coordinate_form.cluster_combo.currentText().strip():
+                return
+        elif not self.cluster_edit.currentText().strip():
+            return
+        orig_show = self._show_message
+        try:
+            self._show_message = lambda *a, **k: None  # silent-skip invalid forms
+            self._do_save()
+        except Exception:
+            logger.exception("placer auto-stage failed")
+        finally:
+            self._show_message = orig_show
+
     def _do_save(self) -> None:
         entry = self._build_entry_dict()
         if entry is None:
@@ -2987,6 +3056,7 @@ class PlacerDock(QWidget):
         actually creates the entry, same as every other way a placement gets
         saved. The entry is written to the project root file (2026-08-21), so
         the passed path is ignored."""
+        self._loading = True
         self._placer_path = self._root_path
         self._selected_cell = None
         self.cell_combo.setCurrentIndex(-1)
@@ -3023,6 +3093,7 @@ class PlacerDock(QWidget):
         self.nets_table.load_dict({})
         self.net_overrides_table.load_dict({})
         self.refs_table.load_dict({})
+        self._loading = False
         self._show_message("")
 
     def new_coordinate_placement(self, placer_path: Path) -> None:
@@ -3032,10 +3103,12 @@ class PlacerDock(QWidget):
         clone counterpart (_do_save_coordinate -> load_coordinate_placement).
         The entry is written to the project root file (2026-08-21), so the
         passed path is ignored."""
+        self._loading = True
         self._placer_path = self._root_path
         self.cell_mode_combo.setCurrentIndex(1)  # -> Single component (signal toggles tabs)
         self._on_cell_mode_changed()
         self.coordinate_form.clear()
+        self._loading = False
         self._show_message("")
 
     # ── Loading an already-saved placement back into the form ──────────────
@@ -3060,12 +3133,14 @@ class PlacerDock(QWidget):
         # empty (or already THIS record's), never the previous record's value —
         # otherwise the new auto-fill trigger could fire on a stale cluster
         # before this record's own nets load. Same call new_placement() uses.
+        self._loading = True
         self.origin_widget.clear()
         if "cell" not in entry:
             # Coordinate placement — single component, no cell:.
             self.cell_mode_combo.setCurrentIndex(1)  # -> Single component (signal toggles tabs)
             self._on_cell_mode_changed()
             self.coordinate_form.load(entry)
+            self._loading = False
             return
         self.cluster_edit.setCurrentText(str(entry.get("cluster", "")))
         # A loaded entry owns its identity (2026-08-15, plan
@@ -3144,6 +3219,7 @@ class PlacerDock(QWidget):
         self.nets_table.load_dict(entry.get("nets"))
         self.net_overrides_table.load_dict(entry.get("net_overrides"))
         self.refs_table.load_dict(entry.get("refs"))
+        self._loading = False
 
     @staticmethod
     def _upsert_clone_placement(path: Path, entry: Dict[str, Any]) -> bool:

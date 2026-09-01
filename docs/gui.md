@@ -65,14 +65,12 @@ real time.
 - A **●** in the status bar (and on the File > Save item) marks the project as having unsaved
   config changes. Switching or closing the project with a dirty working set asks
   Save/Discard/Cancel first.
-- The per-dock Save buttons are GONE (2026-09-01, step 6): RootMetadata, Tools, Points, Thermal via,
-  Net trace, Rules, Cell and the Trees editor auto-stage their records on the forms' commit points —
-  a field's blur/Enter, a combo pick, a checkbox toggle, an Add/Update/Remove row action, or a Trees
-  structural edit. The ONE remaining exception is the **Placer**: it keeps its Save button (which
-  now stages into the working set). Placer's form is deliberately "validate the whole placement
-  before commit" (Redraw and Save both build and validate the complete record), so auto-staging
-  every field edit would put invalid partial placements into the working set and fail the global
-  Save's graph validation — a careful silent-skip-on-invalid auto-stage is planned.
+- The per-dock Save buttons are GONE (2026-09-01, step 6): every dock auto-stages its record on the
+  form's commit points — a field's blur/Enter, a combo pick, a checkbox toggle, an Add/Update/Remove
+  row action, or a Trees structural edit. The Placer auto-stages too, with a **silent-skip**: an
+  invalid partial placement is never staged (so the working set never holds an invalid record and
+  the global Save's graph validation stays intact) and no error is spammed on every blur — the
+  record stages as soon as its fields are complete.
 
 ## Components tree
 
