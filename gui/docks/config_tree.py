@@ -33,11 +33,14 @@ PlacerDock.load_placement, Extract profiles -> ExtractDock.pick_profile,
 Thermal via arrays -> ThermalViaArrayDock.load_entry, added 2026-08-03;
 Rules -> RuleDock.load_entry, added 2026-08-05) — Clone profiles is the one
 section still with no GUI edit form, shown read-only for now, same deliberate
-scope limit as before. Points is the one EXCEPTION since 2026-09-01 (plan
-plan_2026_09_01_points_dialog.md): its form lives in the non-modal
-PointsDialog now, opened by a DOUBLE click on a points: leaf
-(points_edit_requested) or the context menu's "Add point..." — a single
-left-click does nothing.
+scope limit as before. Points and Entities are the two DIALOG sections
+since 2026-09-01 (plan plan_2026_09_01_points_dialog.md /
+plan_2026_09_01_tools_dialog_and_entity_roles.md): Points in the non-modal
+PointsDialog, an Entity's electrical fields (Nets/Net overrides/Refs) in the
+non-modal ToolsDialog — both opened by a DOUBLE click on their leaf
+(points_edit_requested / entity_edit_requested). A single click on a points:
+leaf does nothing; on an Entities leaf it keeps loading Placer's Entity
+source (entity_picked).
 
 Cells is special (2026-08-06, CellDock added — see gui/docks/cell_editor.py):
 left-click on a Cell leaf keeps its ORIGINAL meaning, "pick this cell as a
@@ -270,6 +273,12 @@ class ConfigTreeDock(QDockWidget):
     # Entity leaf click (phase 5.6): emitted with the Entity's NAME so
     # PlacerDock's Entity source can load it (see placer.set_selected_entity).
     entity_picked = pyqtSignal(str)
+    # Fired by a DOUBLE click on an Entities leaf (2026-09-01, plan
+    # plan_2026_09_01_tools_dialog_and_entity_roles.md) — opens the (non-modal)
+    # "Edit template" dialog (ToolsDock) pre-loaded with that Entity (DockHub:
+    # entity_edit_requested -> tools_dock.load_entity + _open_tools_dialog).
+    # Single click stays entity_picked (Placer Entity source), unchanged.
+    entity_edit_requested = pyqtSignal(str)
     # Fired AFTER a ConfigTreeDock action actually changed the include:
     # graph's file set or an entry's name (_on_rename/_on_delete/
     # _add_included_file/_remove_file) — DockHub listens to refresh every
@@ -644,8 +653,10 @@ class ConfigTreeDock(QDockWidget):
 
     def _on_double_clicked(self, item, column) -> None:
         """Double click on a points: leaf -> points_edit_requested (2026-09-01,
-        plan plan_2026_09_01_points_dialog.md): DockHub loads the named point
-        into the live PointsDock and opens the non-modal Points dialog. Any
+        plan plan_2026_09_01_points_dialog.md), and on an Entities leaf ->
+        entity_edit_requested (2026-09-01, plan plan_2026_09_01_tools_dialog_
+        and_entity_roles.md): DockHub loads the named entry into the live
+        PointsDock / ToolsDock and opens the matching non-modal dialog. Any
         other leaf/file/category keeps its default double-click behavior."""
         data = item.data(0, Qt.ItemDataRole.UserRole)
         if data is None or data[0] != "leaf":
@@ -653,6 +664,10 @@ class ConfigTreeDock(QDockWidget):
         _kind, section, ref = data
         if section == "points":
             self.points_edit_requested.emit(ref)
+        elif section == "entities":
+            name = ref.get("name") if isinstance(ref, dict) else ref
+            if name:
+                self.entity_edit_requested.emit(name)
 
     # ── Context menu (right-click anywhere under a file) ────────────────
 

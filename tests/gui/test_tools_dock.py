@@ -19,10 +19,12 @@ def _load(path: Path) -> dict:
     return sexp_to_dict(path.read_text(encoding="utf-8")) or {}
 
 
-def _make_dock(main_window, tmp_path, entities=None, include_entities=None):
+def _make_dock(main_window, tmp_path, entities=None, include_entities=None,
+               cell_components=None):
     cells_file = tmp_path / "cells.sexp"
     _write(cells_file, {"cells": {"pi_filter": {
-        "components": [], "vias": [], "tracks": [], "layer": "F.Cu",
+        "components": cell_components if cell_components is not None else [],
+        "vias": [], "tracks": [], "layer": "F.Cu",
     }}})
     root_data = {"clone_placements": [], "include": ["cells.sexp"]}
     if entities is not None:
@@ -108,3 +110,78 @@ def test_save_emits_saved(main_window, tmp_path):
     dock.saved.connect(lambda: emitted.append(1))
     dock._do_save()
     assert emitted == [1]
+
+
+# ── Role/Net choices (2026-09-01 regression fix) ─────────────────────────
+
+_ROLES = [{"role": "C_IN"}, {"role": "C_OUT"}, {"role": "C_OTHER"}]
+
+
+def _combo_items(combo) -> list:
+    return [combo.itemText(i) for i in range(combo.count())]
+
+
+def test_pick_populates_role_choices_from_the_entitys_cell(main_window, tmp_path):
+    """2026-09-01 regression fix: the ToolsDock (migrated 2026-08-30) only
+    ever called load_dict() — set_key_choices()/set_value_choices() were never
+    wired, so the Role/Net combos stayed empty free text. Picking an Entity
+    must scope the Role choices to that Entity's OWN cell components
+    (Entity -> cell -> cell.components[].role), not every role on the board."""
+    dock, _ = _make_dock(
+        main_window, tmp_path,
+        entities=[{"name": "E1", "cell": "pi_filter", "nets": {"C_IN": "+3V3"}}],
+        cell_components=_ROLES)
+    dock.target_combo.setCurrentText("E1")
+    assert _combo_items(dock.nets_table.key_edit) == ["C_IN", "C_OTHER", "C_OUT"]
+    assert _combo_items(dock.refs_table.key_edit) == ["C_IN", "C_OTHER", "C_OUT"]
+
+
+def test_role_choices_are_scoped_to_the_picked_cell_only(main_window, tmp_path):
+    """Same scoping rule as PlacerDock._rebuild_cell_role_choices (placer.py:
+    1625) — a role that is NOT in this entity's cell must not appear."""
+    dock, _ = _make_dock(
+        main_window, tmp_path,
+        entities=[{"name": "E1", "cell": "pi_filter"}],
+        cell_components=[{"role": "C_IN"}])
+    dock.target_combo.setCurrentText("E1")
+    assert _combo_items(dock.nets_table.key_edit) == ["C_IN"]
+    assert "C_OUT" not in _combo_items(dock.nets_table.key_edit)
+
+
+def test_refresh_known_nets_populates_net_value_choices(main_window, tmp_path):
+    """2026-09-01 regression fix: the Net value combos are fed from the live
+    board's net names via refresh_known_nets (wired in DockHub.push_snapshot),
+    the same list PlacerDock's refresh_known_nets feeds its Nets/Net
+    overrides tabs (placer.py:1546)."""
+    class _Net:
+        def __init__(self, name):
+            self.name = name
+
+    class _Adapter:
+        def get_all_nets(self):
+            return [_Net("+3V3"), _Net("GND"), _Net("+5V")]
+
+    class _Board:
+        adapter = _Adapter()
+
+    dock, _ = _make_dock(main_window, tmp_path, entities=[
+        {"name": "E1", "cell": "pi_filter"},
+    ])
+    dock.refresh_known_nets(_Board())
+    assert _combo_items(dock.nets_table.value_edit) == ["+3V3", "+5V", "GND"]
+    assert _combo_items(dock.net_overrides_table.key_edit) == ["+3V3", "+5V", "GND"]
+    assert _combo_items(dock.net_overrides_table.value_edit) == ["+3V3", "+5V", "GND"]
+
+
+def test_load_entity_preloads_without_the_combo_signal(main_window, tmp_path):
+    """load_entity() is the programmatic entry point (Config tree DOUBLE click
+    on an Entities leaf -> DockHub._start_edit_entity_template) — it must load
+    the record and fill the role choices even when the target combo text never
+    changes (mirror of PointsDock.load_entry)."""
+    dock, _ = _make_dock(
+        main_window, tmp_path,
+        entities=[{"name": "E1", "cell": "pi_filter", "nets": {"C_IN": "+3V3"}}],
+        cell_components=_ROLES)
+    dock.load_entity("E1")
+    assert dock.nets_table.to_dict() == {"C_IN": "+3V3"}
+    assert _combo_items(dock.nets_table.key_edit) == ["C_IN", "C_OTHER", "C_OUT"]

@@ -158,8 +158,10 @@ and its own included files, recursively.
 
 Since 2026-08-30 (Entity/Placement split, phase 5.6) each file node also shows **Entities** and
 **Trees** categories. Clicking an **Entities** leaf switches the Placer dock into Entity mode with
-that Entity loaded (`set_selected_entity`); the **Trees** category is navigation-only — editing
-lives in the Trees dock.
+that Entity loaded (`set_selected_entity`); a **double click** on an Entities leaf opens the
+non-modal "Edit template" dialog with that Entity loaded (its electrical fields, see the
+[Tools](#tools) section); the **Trees** category is navigation-only — editing lives in the Trees
+dock.
 
 Right-click any entry for:
 - **Rename...** — renames the entry; for Cells/Points, also rewrites every reference to it
@@ -324,13 +326,14 @@ move is applied via a per-run, non-persistent position override (Option 1, see t
 
 ## Detail dock
 
-Placer/Rules/Net traces/Cells/Tools below all live as tabs inside one shared **Detail** dock,
+Placer/Rules/Net traces/Cells below all live as tabs inside one shared **Detail** dock,
 not as separate docks — switching is both automatic (a Config-tree click routes to the matching tab)
 and manual (click the tab bar directly). Extract (2026-08-31), Thermal via (2026-09-01), Points
-(2026-09-01, plan `plan_2026_09_01_points_dialog.md`), and Project + Settings (2026-09-01, plan
+(2026-09-01, plan `plan_2026_09_01_points_dialog.md`), Tools (2026-09-01, plan
+`plan_2026_09_01_tools_dialog_and_entity_roles.md`), and Project + Settings (2026-09-01, plan
 `project_settings_dialogs`) are NOT tabs here — they moved to standalone dialogs: see the
-[Extract](#extract), [Points](#points) and [Project](#project) sections, and **Tools → Settings...**
-for the Settings dialog.
+[Extract](#extract), [Points](#points), [Tools](#tools) and [Project](#project) sections, and
+**Tools → Settings...** for the Settings dialog.
 Every
 automatic switch also
 raises Detail to the front of its own tabified group (it shares screen space with fieldstool) and
@@ -714,23 +717,30 @@ the position, which is written into the `trees:` node that places this Entity.
   "Placed under tree …" or "Not placed — set an origin to place it." (no tree node yet = legitimately
   not placed).
 - **Tabs** — in Entity mode the Placer's Nets/Net overrides/Refs tabs are hidden (they moved to the
-  **Tools** page, next section); the legacy Cell/ClonePlacement mode keeps them.
+  **Tools** dialog, next section); the legacy Cell/ClonePlacement mode keeps them.
 
 ## Tools (Nets / Net overrides / Refs, 2026-08-30)
 
-Phase 5.3 moved the Entity's three electrical editors OUT of the Placer dock into a new **Tools**
-page (a tab in the Detail dock's stack, now the last tab since the Project/Settings tabs moved into
-dialogs on 2026-09-01).
+Phase 5.3 moved the Entity's three electrical editors OUT of the Placer dock into the **Tools** form
+(gui/docks/tools.py). Since 2026-09-01 (plan `plan_2026_09_01_tools_dialog_and_entity_roles.md`)
+this is a standalone **non-modal dialog** (not a Detail-dock page): open it from the main menu's
+**Tools → Edit template...**, or by a **double click** on an **Entities** leaf in the Config tree
+(which loads that Entity into the form — a single click on an Entities leaf keeps switching the
+Placer into Entity mode). The dialog auto-closes after a successful edit.
 
 - **Nets** — `role → net` (Params stays in the Placer's Source tab — both feed the same by-nets
   role resolution).
 - **Net overrides** — `resolved net → override`.
 - **Refs** — `role → explicit refdes`.
 
-The page is Entity-targeted exactly like the Placer's Entity mode: pick an Entity (graph-wide), edit
-the three dicts, **Save** validates through `load_entity` and writes back via the same merge-safe
-`upsert_entity` into the Entity's own file — so the Tools page and the Placer's Source/Origin edit
-the same record without clobbering each other.
+The dialog is Entity-targeted exactly like the Placer's Entity mode: pick an Entity (graph-wide),
+edit the three dicts, each row write validates through `load_entity` and writes back via the same
+merge-safe `upsert_entity` into the Entity's own file — so the Tools dialog and the Placer's
+Source/Origin edit the same record without clobbering each other. Since 2026-09-01 the **Role**
+combos are scoped to the picked Entity's OWN cell components (`entity.cell` →
+`cell.components[].role`, the same rule as PlacerDock's Cell mode) and the **Net/Override** combos
+are fed from the live board's net names (`refresh_known_nets`, the same ~2s poll as the Placer's own
+tabs) — previously these combos were empty free text.
 
 ## Project
 

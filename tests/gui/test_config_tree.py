@@ -509,6 +509,27 @@ def test_points_leaf_double_click_emits_points_edit_requested(main_window, tmp_p
     assert not hasattr(dock, "points_picked")
 
 
+def test_entities_leaf_double_click_emits_entity_edit_requested(main_window, tmp_path):
+    """2026-09-01 (plan plan_2026_09_01_tools_dialog_and_entity_roles.md): a
+    DOUBLE click on an Entities leaf opens the "Edit template" dialog
+    (ToolsDock) pre-loaded with that Entity. entities: is a LIST section, so
+    the payload is the full dict — _on_double_clicked extracts the name, the
+    same way _on_clicked does for entity_picked. The single click keeps its
+    original meaning (entity_picked -> Placer Entity source)."""
+    root = tmp_path / "root.sexp"
+    _write(root, {"entities": [{"name": "E1", "cell": "pi_filter"}]})
+
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    requested = []
+    dock.entity_edit_requested.connect(requested.append)
+    leaf = _find(dock.tree.topLevelItem(0), "Entities").child(0)
+    dock._on_double_clicked(leaf, 0)
+
+    assert requested == ["E1"]
+
+
 def test_add_rule_emits_request_instead_of_writing_directly(main_window, tmp_path):
     root = tmp_path / "root.sexp"
     _write(root, {"rules": []})

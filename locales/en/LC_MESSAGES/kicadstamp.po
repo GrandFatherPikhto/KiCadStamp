@@ -1223,6 +1223,14 @@ msgstr ""
 msgid "Add point..."
 msgstr ""
 
+#: gui/docks/tools_dialog.py:37
+msgid "Edit template"
+msgstr ""
+
+#: gui/main_window.py:265
+msgid "Edit template..."
+msgstr ""
+
 #: gui/docks/config_tree.py:166
 msgid "Add rule..."
 msgstr ""

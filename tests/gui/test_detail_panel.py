@@ -5,7 +5,6 @@ from gui.docks.detail_panel import DetailDock
 from gui.docks.net_trace import NetTraceDock
 from gui.docks.placer import PlacerDock
 from gui.docks.rules import RuleDock
-from gui.docks.tools import ToolsDock
 
 
 def test_pages_are_the_expected_panel_types(main_window):
@@ -14,13 +13,13 @@ def test_pages_are_the_expected_panel_types(main_window):
     assert isinstance(dock.rules_panel, RuleDock)
     assert isinstance(dock.net_trace_panel, NetTraceDock)
     assert isinstance(dock.cells_panel, CellDock)
-    assert isinstance(dock.tools_panel, ToolsDock)
     # Coordinate placements merged into PlacerDock (2026-08-12, Group 1) —
     # no separate Coordinate panel/tab anymore. Extract (2026-08-31), Thermal
     # via (2026-09-01), Points (2026-09-01, plan plan_2026_09_01_points_dialog
-    # .md), and Project + Settings (2026-09-01, plan project_settings_dialogs)
-    # are all standalone dialogs now, NOT pages.
-    assert dock.stack.count() == 5
+    # .md), Tools (2026-09-01, plan plan_2026_09_01_tools_dialog_and_entity_
+    # roles.md), and Project + Settings (2026-09-01, plan
+    # project_settings_dialogs) are all standalone dialogs now, NOT pages.
+    assert dock.stack.count() == 4
 
 
 def test_placer_tab_is_shown_first(main_window):
@@ -69,7 +68,8 @@ def test_no_project_or_settings_tab_since_they_are_dialogs(main_window):
     assert "Project" not in labels
     assert "Settings" not in labels
     assert "Points" not in labels
-    assert labels == ["Placer", "Rules", "Net traces", "Cells", "Tools"]
+    assert "Tools" not in labels
+    assert labels == ["Placer", "Rules", "Net traces", "Cells"]
 
 
 def test_manually_clicking_a_tab_switches_the_stack(main_window):
@@ -173,16 +173,6 @@ def test_manual_tab_click_also_updates_the_title(main_window):
     dock.rules_panel.name_edit.setText("my_rule")
     dock.tab_bar.setCurrentIndex(1)  # Rules
     assert dock.windowTitle() == "Detail — Rules: my_rule"
-
-
-def test_show_tools_switches_tab_and_stack(main_window):
-    """Tools (2026-08-30, phase 5.2 stage 3) — the Entity's electrical
-    fields, now the LAST tab (after the Project/Settings/Points tabs moved out
-    into dialogs on 2026-09-01)."""
-    dock = DetailDock(main_window)
-    dock.show_tools()
-    assert dock.tab_bar.currentIndex() == 4
-    assert dock.stack.currentWidget() is dock.tools_panel
 
 
 def test_tab_bar_has_highlight_stylesheet(main_window):

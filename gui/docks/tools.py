@@ -1,8 +1,12 @@
 # gui/docks/tools.py
-"""ToolsDock — the Entity/Placement split's "Tools" page (phase 5.2, stage 3):
+"""ToolsDock — the Entity/Placement split's "Tools" form (phase 5.2, stage 3):
 Nets / Net overrides / Refs are the Entity's ELECTRICAL fields, and with
 PlacerDock trimmed to Source (Entity) + Origin they now live HERE instead of
-Placer's tabs.
+Placer's tabs. Hosted since 2026-09-01 in the standalone non-modal
+ToolsDialog (gui/docks/tools_dialog.py), opened from the Tools menu
+("Edit template...") and by a DOUBLE click on an Entities leaf in the Config
+tree (plan plan_2026_09_01_tools_dialog_and_entity_roles.md) — not a
+DetailDock page anymore.
 
 The dock is Entity-targeted like PlacerDock's Entity source mode: pick an
 Entity (graph-wide), edit its nets:/net_overrides:/refs: dicts, Save writes
@@ -26,7 +30,7 @@ from kicadstamp.i18n import _
 
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       KeyValueTableEditor, set_combo_items)
-from .rename import find_list_entry_file
+from .rename import collect_section_entries, find_list_entry_file
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +53,10 @@ class ToolsDock(QWidget):
         # never drops the other fields (cluster/sheet/comment/...).
         self._entity_data: Dict[str, Any] = {}
         self._entity_file: Optional[Path] = None
+        # Live-board net names for the value combos (refresh_known_nets,
+        # 2026-09-01) — the ToolsDock never received the board poll before,
+        # which is exactly why the Net/Override combos stayed empty free text.
+        self._known_nets: list = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -116,6 +124,16 @@ class ToolsDock(QWidget):
         name = (name or "").strip()
         if not name:
             return
+        self.load_entity(name)
+
+    def load_entity(self, name: str) -> None:
+        """Public entry point — the same load as picking the name in the
+        target combo, callable programmatically: the Config tree's DOUBLE
+        click on an Entities leaf routes here via DockHub (mirroring
+        PointsDock.load_entry), so the dialog opens already filled. The combo
+        is synced with blockSignals (mirroring PlacerDock.set_selected_cell)
+        so the loaded Entity is visible in the form without re-entering
+        _on_target_picked through its own signal."""
         found = self._load_entity_dict(name)
         if found is None:
             return
@@ -123,7 +141,32 @@ class ToolsDock(QWidget):
         self.nets_table.load_dict(self._entity_data.get("nets"))
         self.net_overrides_table.load_dict(self._entity_data.get("net_overrides"))
         self.refs_table.load_dict(self._entity_data.get("refs"))
+        self._rebuild_cell_role_choices()
         self._show_message("")
+        self.target_combo.blockSignals(True)
+        if self.target_combo.findText(name) < 0:
+            self.target_combo.addItem(name)
+        self.target_combo.setCurrentText(name)
+        self.target_combo.blockSignals(False)
+
+    def _rebuild_cell_role_choices(self) -> None:
+        """Nets/Refs' own Role key choices — scoped to the picked Entity's
+        OWN cell: components: roles, not every role on the live board
+        (2026-09-01 regression fix — the ToolsDock was migrated from
+        PlacerDock on 2026-08-30 with the TABLES but not the fill logic, so
+        the Role/Net combos stayed empty free text). Same Entity -> cell ->
+        cell.components[].role path as PlacerDock._rebuild_cell_role_choices
+        (placer.py:1625)."""
+        cell_name = self._entity_data.get("cell")
+        if not cell_name or self._root_path is None:
+            roles: list = []
+        else:
+            cell_data = collect_section_entries(
+                self._root_path, "cells").get(cell_name, {})
+            roles = sorted({c.get("role") for c in
+                            cell_data.get("components", []) if c.get("role")})
+        self.nets_table.set_key_choices(roles)
+        self.refs_table.set_key_choices(roles)
 
     def _load_entity_dict(self, name: str) -> Optional[Tuple[Dict[str, Any], Path]]:
         """(raw entities: dict, file) for `name`, from whichever physical
@@ -145,6 +188,19 @@ class ToolsDock(QWidget):
             if isinstance(entry, dict) and entry.get("name") == name:
                 return entry, file_path
         return None
+
+    def refresh_known_nets(self, board) -> None:
+        """Populate the Net/Override value combos with the live board's
+        actual net names (2026-09-01 — the same list PlacerDock's
+        refresh_known_nets feeds its own Nets/Net overrides tabs, placer.py:
+        1546; the ToolsDock never received the board poll, which is why these
+        combos stayed empty). Same ~2s cadence as the other docks (DockHub.
+        push_snapshot)."""
+        self._known_nets = sorted(
+            {n.name for n in board.adapter.get_all_nets() if n.name})
+        self.nets_table.set_value_choices(self._known_nets)
+        self.net_overrides_table.set_key_choices(self._known_nets)
+        self.net_overrides_table.set_value_choices(self._known_nets)
 
     # ── Save ──────────────────────────────────────────────────────────────
 

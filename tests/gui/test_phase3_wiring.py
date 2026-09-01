@@ -469,6 +469,59 @@ def test_tools_menu_add_point_opens_dialog_and_prepares_fresh(real_main_window):
     assert hub.points_dock.name_edit.text() == ""
 
 
+def test_entity_edit_requested_opens_dialog_with_entry_loaded(real_main_window, tmp_path):
+    """ConfigTreeDock -> ToolsDock wiring (entity_edit_requested ->
+    tools_dock.load_entity + _open_tools_dialog, 2026-09-01, plan
+    plan_2026_09_01_tools_dialog_and_entity_roles.md) — the DOUBLE-click
+    route: the named Entity must reach ToolsDock's form end-to-end (record +
+    Role choices from its cell) and open the (non-modal) "Edit template"
+    dialog."""
+    cells = tmp_path / "cells.sexp"
+    _write(cells, {"cells": {"pi_filter": {
+        "components": [{"role": "C_IN"}, {"role": "C_OUT"}],
+        "vias": [], "tracks": [], "layer": "F.Cu"}}})
+    root = tmp_path / "root.sexp"
+    _write(root, {"entities": [{"name": "E1", "cell": "pi_filter",
+                                "nets": {"C_IN": "+3V3"}}],
+                  "include": ["cells.sexp"]})
+    tools_dock = real_main_window._dock_hub.tools_dock
+    tools_dock.set_root_path(root)
+
+    real_main_window.config_tree_dock.entity_edit_requested.emit("E1")
+
+    assert tools_dock.target_combo.currentText() == "E1"
+    assert tools_dock.nets_table.to_dict() == {"C_IN": "+3V3"}
+    roles = [tools_dock.nets_table.key_edit.itemText(i)
+             for i in range(tools_dock.nets_table.key_edit.count())]
+    assert roles == ["C_IN", "C_OUT"]
+    assert real_main_window._dock_hub.tools_dialog.isVisible()
+
+
+def test_successful_edit_auto_closes_the_tools_dialog(real_main_window):
+    """2026-09-01 (plan plan_2026_09_01_tools_dialog_and_entity_roles.md,
+    Denis: dialog auto-hides after a successful edit, "как Points") — DockHub
+    wires tools_dock.saved -> tools_dialog.hide; saved fires in _do_save only
+    on success, so the dialog hides right after the row is written."""
+    hub = real_main_window._dock_hub
+    hub._open_tools_dialog()
+    assert hub.tools_dialog.isVisible()
+
+    hub.tools_dock.saved.emit()
+
+    assert hub.tools_dialog.isVisible() is False
+
+
+def test_tools_menu_edit_template_opens_dialog(real_main_window):
+    """2026-09-01 (plan plan_2026_09_01_tools_dialog_and_entity_roles.md):
+    the Tools menu's "Edit template..." action routes to DockHub.edit_template
+    -> the (non-modal) "Edit template" dialog."""
+    hub = real_main_window._dock_hub
+
+    real_main_window.edit_template_action.trigger()
+
+    assert hub.tools_dialog.isVisible()
+
+
 def test_tools_menu_reead_selected_between_edit_and_view(real_main_window, monkeypatch):
     """2026-08-31 (plan reead_selected_dialog.md): a Tools menu sits between
     Edit and View, and its "Re-read selected..." action routes to
@@ -1247,6 +1300,12 @@ def test_dock_hub_delegates_route_to_the_right_docks(real_main_window, monkeypat
                         lambda s: pushed.setdefault("net_trace_roles", []).append(s))
     monkeypatch.setattr(hub.net_trace_dock, "refresh_known_nets",
                         lambda b: pushed.setdefault("net_trace_nets", []).append(b))
+    # tools_dock (2026-09-01, plan plan_2026_09_01_tools_dialog_and_entity_
+    # roles.md) — the "Edit template" dialog's Net value combos are fed from
+    # the live board on the same tick (the ToolsDock never got the poll
+    # before — the regression fix).
+    monkeypatch.setattr(hub.tools_dock, "refresh_known_nets",
+                        lambda b: pushed.setdefault("tools_nets", []).append(b))
 
     board, snapshot = object(), object()
     hub.push_snapshot(snapshot, board)
@@ -1261,6 +1320,7 @@ def test_dock_hub_delegates_route_to_the_right_docks(real_main_window, monkeypat
     assert pushed["cells_roles"] == [snapshot]
     assert pushed["net_trace_roles"] == [snapshot]
     assert pushed["net_trace_nets"] == [board]
+    assert pushed["tools_nets"] == [board]
 
     cleared = []
     monkeypatch.setattr(hub.tree_dock, "set_footprints", lambda s: cleared.append(s))

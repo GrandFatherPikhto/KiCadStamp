@@ -20,11 +20,13 @@ straight into DetailDock's stack pages so every existing call site keeps
 working unchanged; they are plain QWidgets now, not QDockWidgets in their own
 right. EXCEPT extract_dock (2026-08-31, plan extract_dialog_and_hide_existing
 .md), thermal_via_dock (2026-09-01, plan plan_2026_09_01_thermal_via_dialog.
-md) and points_dock (2026-09-01, plan plan_2026_09_01_points_dialog.md): they
-are STANDALONE widgets hosted in their non-modal dialogs (ExtractDialog /
-ThermalViaDialog / PointsDialog) — the Detail dock has no Extract/Thermal via/
-Points page anymore, and the same single live instances keep receiving the
-selection/snapshot ticks, set_root_path and saved.
+md), points_dock (2026-09-01, plan plan_2026_09_01_points_dialog.md) and
+tools_dock (2026-09-01, plan plan_2026_09_01_tools_dialog_and_entity_roles.
+md): they are STANDALONE widgets hosted in their non-modal dialogs
+(ExtractDialog / ThermalViaDialog / PointsDialog / ToolsDialog) — the Detail
+dock has no Extract/Thermal via/Points/Tools page anymore, and the same single
+live instances keep receiving the selection/snapshot ticks, set_root_path and
+saved.
 """
 import logging
 from functools import partial
@@ -57,6 +59,8 @@ from .docks.root_metadata import RootMetadataDock
 from .docks.settings_dialog import SettingsDialog
 from .docks.thermal_via import ThermalViaArrayDock
 from .docks.thermal_via_dialog import ThermalViaDialog
+from .docks.tools import ToolsDock
+from .docks.tools_dialog import ToolsDialog
 
 
 class DockHub:
@@ -166,9 +170,14 @@ class DockHub:
         # _restore_window_state/_persist_settings/closeEvent there).
         self.configurator_dock = ConfiguratorDock(main_window, connection=connection)
         self.settings_dialog = SettingsDialog(self.configurator_dock, main_window)
-        # Tools tab (ToolsDock, 2026-08-30 phase 5.2 stage 3) — the Entity's
-        # electrical fields, moved out of PlacerDock.
-        self.tools_dock = self.detail_dock.tools_panel
+        # Tools (2026-09-01, plan plan_2026_09_01_tools_dialog_and_entity_roles.md):
+        # the Entity electrical-fields form (ToolsDock) is a STANDALONE widget
+        # hosted in the non-modal ToolsDialog — the Detail dock has no Tools
+        # page anymore (same move as Extract/Thermal via/Points). The same
+        # single live instance keeps receiving the snapshot ticks /
+        # set_root_path / saved.
+        self.tools_dock = ToolsDock(main_window)
+        self.tools_dialog = ToolsDialog(self.tools_dock, main_window)
 
         # ── bottom: Pending changes, Log ────────────────────────────────────
         main_window.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.pending_dock)
@@ -351,6 +360,11 @@ class DockHub:
         # Entities leaf (phase 5.6): load into Placer's Entity source.
         self.config_tree_dock.entity_picked.connect(self.placer_dock.set_selected_entity)
         self.config_tree_dock.entity_picked.connect(self.detail_dock.show_placer)
+        # Entities leaf DOUBLE click (2026-09-01, plan plan_2026_09_01_tools_
+        # dialog_and_entity_roles.md): open the "Edit template" dialog
+        # pre-loaded with that Entity (single click stays entity_picked above).
+        self.config_tree_dock.entity_edit_requested.connect(
+            self._start_edit_entity_template)
         self.config_tree_dock.placement_picked.connect(self.placer_dock.load_placement)
         self.config_tree_dock.placement_picked.connect(self.detail_dock.show_placer)
         self.config_tree_dock.profile_picked.connect(self.extract_dock.pick_profile)
@@ -414,6 +428,11 @@ class DockHub:
         self.tools_dock.saved.connect(self.config_tree_dock.refresh)
         self.tools_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
         self.tools_dock.saved.connect(self._refresh_graph_dependent_choices)
+        # Auto-close after a SUCCESSFUL edit (2026-09-01, Denis: "диалог должен
+        # авто-закрываться после успешной правки (как Points)") — a row action
+        # in any table writes the Entity and emits saved; a validation failure
+        # never emits it, so the dialog stays open for the fix.
+        self.tools_dock.saved.connect(self.tools_dialog.hide)
         self.placer_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.thermal_via_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.extract_dock.saved.connect(self._refresh_graph_dependent_choices)
@@ -518,6 +537,7 @@ class DockHub:
         self.net_trace_dock.refresh_known_roles(snapshot)
         self.net_trace_dock.refresh_known_nets(board)
         self.cells_dock.refresh_known_roles(snapshot)
+        self.tools_dock.refresh_known_nets(board)
 
     def clear_components(self) -> None:
         """Connection-lost path: empty the Components tree (live mode only —
@@ -848,6 +868,29 @@ class DockHub:
         self.points_dialog.show()
         self.points_dialog.raise_()
         self.points_dialog.activateWindow()
+
+    def _open_tools_dialog(self) -> None:
+        """Show/raise the ONE live Tools dialog — non-modal, so the user can
+        keep selecting on the board while it's open: the ~2s snapshot tick
+        keeps feeding the same tools_dock instance inside it (refresh_known_
+        nets). Closing via the window X just hides it (QDialog default), so
+        the next open starts from the current state."""
+        self.tools_dialog.show()
+        self.tools_dialog.raise_()
+        self.tools_dialog.activateWindow()
+
+    def _start_edit_entity_template(self, name) -> None:
+        """ConfigTreeDock's entity_edit_requested delegate (double click on
+        an Entities leaf, 2026-09-01, plan plan_2026_09_01_tools_dialog_and_
+        entity_roles.md) — loads the named Entity into the live ToolsDock and
+        opens the (non-modal) "Edit template" dialog with it."""
+        self.tools_dock.load_entity(name)
+        self._open_tools_dialog()
+
+    def edit_template(self) -> None:
+        """Main menu "Tools -> Edit template..." (2026-09-01) — opens the
+        "Edit template" dialog; the Entity is picked inside it."""
+        self._open_tools_dialog()
 
     def _open_project_dialog(self) -> None:
         """Show/raise the ONE live Project dialog (File > "Project...",

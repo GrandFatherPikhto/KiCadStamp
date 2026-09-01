@@ -263,6 +263,14 @@ class MainWindow(QMainWindow):
         self.add_point_action.triggered.connect(
             lambda: self._dock_hub.new_point())
         tools_menu.addAction(self.add_point_action)
+        # "Edit template..." (2026-09-01, plan plan_2026_09_01_tools_dialog_and_
+        # entity_roles.md): opens the standalone (non-modal) Tools dialog — the
+        # picked Entity's electrical fields (Nets/Net overrides/Refs), same
+        # shape as the Config tree double click on an Entities leaf.
+        self.edit_template_action = QAction(_("Edit template..."), self)
+        self.edit_template_action.triggered.connect(
+            lambda: self._dock_hub.edit_template())
+        tools_menu.addAction(self.edit_template_action)
         # "Settings..." (2026-09-01, plan project_settings_dialogs): opens the
         # MODAL Settings dialog — a two-pane browser (category tree on the
         # left, settings pages on the right) with OK/Apply/Cancel.

@@ -158,8 +158,9 @@ Extract profiles/Clone profiles) и свои include-файлы, рекурси�
 
 С 2026-08-30 (сплит Entity/Placement, фаза 5.6) каждый файловый узел также показывает категории
 **Entities** и **Trees**. Клик по листу **Entities** переключает док Placer в Entity-режим с
-загруженной этой Entity (`set_selected_entity`); категория **Trees** — только навигационная:
-редактирование живёт в доке Trees.
+загруженной этой Entity (`set_selected_entity`); **двойной клик** по листу Entities открывает
+немодальный диалог «Редактировать шаблон» с этой Entity (её электрические поля, см. раздел
+[Tools](#tools)); категория **Trees** — только навигационная: редактирование живёт в доке Trees.
 
 Правый клик по любой записи даёт:
 - **Rename...** — переименовывает запись; для Cells/Points ещё и переписывает каждую ссылку на
@@ -330,13 +331,14 @@ override позиции (Вариант 1, см. §3/§4 плана).
 
 ## Detail dock
 
-Placer/Rules/Net traces/Cells/Tools ниже — всё это табы ОДНОГО общего дока **Detail**, а не
+Placer/Rules/Net traces/Cells ниже — всё это табы ОДНОГО общего дока **Detail**, а не
 отдельные доки — переключение и автоматическое (клик в дереве конфига ведёт на нужный таб), и
 ручное (клик прямо по табу). Extract (2026-08-31), Thermal via (2026-09-01), Points (2026-09-01,
-план `plan_2026_09_01_points_dialog.md`), а также Project и Settings (2026-09-01, план
+план `plan_2026_09_01_points_dialog.md`), Tools (2026-09-01, план
+`plan_2026_09_01_tools_dialog_and_entity_roles.md`), а также Project и Settings (2026-09-01, план
 `project_settings_dialogs`) здесь НЕ табы — они переехали в отдельные диалоги: см.
-[Extract](#extract), [Points](#points) и [Project](#project), а Settings открывается через
-**Инструменты → Настройки...**.
+[Extract](#extract), [Points](#points), [Tools](#tools) и [Project](#project), а Settings
+открывается через **Инструменты → Настройки...**.
 Каждое автоматическое переключение ещё и поднимает
 Detail поверх своей табифицированной группы (она делит экран с fieldstool) и обновляет заголовок
 окна — там имя таба и, если есть один очевидный текущий объект, его имя тоже — например
@@ -731,24 +733,31 @@ Cluster/Sheet/... — электрика и идентичность; секци
   дерево с именем Entity) и пишет/обновляет узел `kind "placement"`, чей `ref` — имя Entity. Метка
   статуса сообщает «Placed under tree …» или «Not placed — set an origin to place it.» (нет узла
   дерева = легально не размещено).
-- **Табы** — в Entity-режиме табы Placer Nets/Net overrides/Refs скрыты (переехали на страницу
+- **Табы** — в Entity-режиме табы Placer Nets/Net overrides/Refs скрыты (переехали в диалог
   **Tools**, следующий раздел); легаси-режим Cell/ClonePlacement их сохраняет.
 
 ## Tools (Nets / Net overrides / Refs, 2026-08-30)
 
-Фаза 5.3 вынесла три электрических редактора Entity ИЗ дока Placer на новую страницу **Tools**
-(таб в стеке Detail dock, теперь последний — после того как вкладки Project/Settings переехали в
-диалоги 2026-09-01).
+Фаза 5.3 вынесла три электрических редактора Entity ИЗ дока Placer в форму **Tools**
+(gui/docks/tools.py). С 2026-09-01 (план `plan_2026_09_01_tools_dialog_and_entity_roles.md`) это
+отдельный **немодальный диалог** (не страница Detail): открывается из меню
+**Инструменты → Редактировать шаблон...** или **двойным кликом** по листу **Entities** в дереве
+Config (который загружает эту Entity в форму — одинарный клик по листу Entities по-прежнему
+переключает Placer в Entity-режим). Диалог авто-закрывается после успешной правки.
 
 - **Nets** — `role → net` (Params остаётся на табе Source у Placer — оба питают один и тот же шаг
   by-nets резолва ролей).
 - **Net overrides** — `резолвленная цепь → override`.
 - **Refs** — `role → явный refdes`.
 
-Страница ориентирована на Entity ровно как Entity-режим Placer: выберите Entity (по всему графу),
-правьте три словаря, **Save** валидирует через `load_entity` и пишет обратно тем же merge-safe
-`upsert_entity` в файл самой Entity — так что страница Tools и Source/Origin у Placer правят одну
-и ту же запись, не затирая друг друга.
+Диалог ориентирован на Entity ровно как Entity-режим Placer: выберите Entity (по всему графу),
+правьте три словаря, каждая запись валидируется через `load_entity` и пишется обратно тем же
+merge-safe `upsert_entity` в файл самой Entity — так что диалог Tools и Source/Origin у Placer
+правят одну и ту же запись, не затирая друг друга. С 2026-09-01 комбобоксы **Role** сужены до
+компонентов Cell выбранной Entity (`entity.cell` → `cell.components[].role`, то же правило, что в
+Cell-режиме PlacerDock), а комбобоксы **Net/Override** питаются именами сетей с живой платы
+(`refresh_known_nets`, тот же ~2s поллинг, что и табы Placer) — раньше эти комбобоксы были пустым
+свободным вводом.
 
 ## Project
 

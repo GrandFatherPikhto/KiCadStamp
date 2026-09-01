@@ -17,6 +17,9 @@ so they are no longer tabs here:
   non-modal ThermalViaDialog (gui/docks/thermal_via_dialog.py);
 - Points (2026-09-01, plan plan_2026_09_01_points_dialog.md) — the non-modal
   PointsDialog (gui/docks/points_dialog.py);
+- Tools (2026-09-01, plan plan_2026_09_01_tools_dialog_and_entity_roles.md) —
+  the non-modal ToolsDialog (gui/docks/tools_dialog.py) — the Entity's
+  electrical fields (Nets/Net overrides/Refs) are no longer a tab here;
 - Project (RootMetadataDock) and Settings (ConfiguratorDock) — 2026-09-01,
   plan project_settings_dialogs — moved into the non-modal ProjectDialog
   (File > "Project...", gui/docks/project_dialog.py) and the modal
@@ -70,18 +73,8 @@ from .cell_editor import CellDock
 from .net_trace import NetTraceDock
 from .placer import PlacerDock
 from .rules import RuleDock
-from .tools import ToolsDock
 
 _PLACER, _RULES, _NET_TRACE, _CELLS = range(4)
-# Tools (2026-08-30, Entity/Placement split phase 5.2 stage 3): the Entity's
-# electrical fields (Nets/Net overrides/Refs), moved out of PlacerDock.
-# Indexes shifted on 2026-09-01 (plan extract_dialog_and_hide_existing.md /
-# plan_2026_09_01_thermal_via_dialog.md / plan_2026_09_01_points_dialog.md):
-# the Extract page (2026-08-31), the Thermal via page (2026-09-01) and the
-# Points page (2026-09-01) were all removed from this dock. Shifted again on
-# 2026-09-01 (plan project_settings_dialogs): the Project and Settings pages
-# moved out into standalone dialogs too.
-_TOOLS = 4
 
 
 class _StackedPages(QStackedWidget):
@@ -128,9 +121,6 @@ class DetailDock(QDockWidget):
         self.tab_bar.addTab(_("Rules"))
         self.tab_bar.addTab(_("Net traces"))
         self.tab_bar.addTab(_("Cells"))
-        # Tools (2026-08-30, phase 5.2 stage 3): the Entity's electrical
-        # fields (Nets/Net overrides/Refs) — see gui/docks/tools.py.
-        self.tab_bar.addTab(_("Tools"))
         layout.addWidget(self.tab_bar)
 
         # _StackedPages, not a stock QStackedWidget (2026-08-30): the size
@@ -141,14 +131,12 @@ class DetailDock(QDockWidget):
         self.rules_panel = RuleDock(main_window)
         self.net_trace_panel = NetTraceDock(main_window, connection=connection)
         self.cells_panel = CellDock(main_window)
-        self.tools_panel = ToolsDock(main_window)
         # Stack order must match the tab-bar order exactly (setCurrentIndex
         # drives stack.setCurrentIndex).
         self.stack.addWidget(self.placer_panel)
         self.stack.addWidget(self.rules_panel)
         self.stack.addWidget(self.net_trace_panel)
         self.stack.addWidget(self.cells_panel)
-        self.stack.addWidget(self.tools_panel)
         # The stack sits DIRECTLY in the dock layout (2026-08-30, Denis:
         # "убираем скроллы внутри доков"). The 2026-08-27 QScrollArea wrap was
         # removed: _StackedPages already makes the dock follow the CURRENT page
@@ -176,7 +164,6 @@ class DetailDock(QDockWidget):
         _RULES: _("Rules"),
         _NET_TRACE: _("Net traces"),
         _CELLS: _("Cells"),
-        _TOOLS: _("Tools"),
     }
 
     def _current_entity_name(self) -> str:
@@ -196,8 +183,6 @@ class DetailDock(QDockWidget):
             return self.net_trace_panel.net_edit.currentText().strip()
         if index == _CELLS:
             return self.cells_panel.name_edit.text().strip()
-        if index == _TOOLS:
-            return self.tools_panel.target_combo.currentText().strip()
         return ""
 
     def _update_title(self) -> None:
@@ -240,8 +225,3 @@ class DetailDock(QDockWidget):
 
     def show_cells(self) -> None:
         self._show(_CELLS)
-
-    def show_tools(self) -> None:
-        """Same pattern as the other show_X() pages — the Tools tab (ToolsDock,
-        the Entity's electrical fields, 2026-08-30 phase 5.2 stage 3)."""
-        self._show(_TOOLS)
