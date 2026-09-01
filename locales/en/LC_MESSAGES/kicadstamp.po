@@ -10928,6 +10928,9 @@ msgstr "Working file (Points/Chains/Placer/Thermal via/Cells write here):"
 msgid "No importable entries (Cell/Entity/Chain) in this file."
 msgstr "No importable entries (Cell/Entity/Chain) in this file."
 
+msgid "cluster {cluster!r} live position"
+msgstr "cluster {cluster!r} live position"
+
 #~ msgid ""
 #~ "Process only rules/clone_placements/thermal_via_array with this name (can be"
 #~ " repeated). The name must be explicitly set in the YAML (see docs). "

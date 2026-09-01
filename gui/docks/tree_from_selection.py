@@ -27,10 +27,11 @@ detect_inter_cluster_nets below.
 
 Testable without Qt.
 """
+import re
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional
 
-from kicadstamp.domain.board import Track, Via
+from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.i18n import _
 from kicadstamp.net_resolution import RULE_NETS
 from kicadstamp.placement.services.component_resolver import (
@@ -101,30 +102,112 @@ def tree_anchor_from_cluster_entity(entity: Any, cfg: Any) -> TreeAnchor:
     )
 
 
+# ── Auto Entity/cell derivation (2026-09-01 rework, phase A) ───────────────
+# "Extract tree" used to be gated on a `entities:` record for every cluster
+# (cluster_errors blocked OK when absent). On real boards (live 3CH-AWG-TIA,
+# 2026-09-01) the existing entities carry NO cluster/sheet, so
+# fully_selected_clusters returns entity=None for every cluster and the dialog
+# could never proceed. Phase A lifts that gate: a cluster without a matching
+# Entity is auto-satisfiable — an Entity is DERIVED (name unique per
+# cluster+sheet instance) and its cell is the cluster's slug-named cell
+# (existing, or GENERATED from the cluster's own selection at save time —
+# resolve_cluster_entity / cluster_raw_items).
+
+def cluster_cell_name(cluster: str) -> str:
+    """Default cell name for a cluster — the same Cluster-tag slug reead.py's
+    _slugify produces (dac_buf <- DAC_BUF, pif_avdd <- PIF_AVDD)."""
+    return re.sub(r"[^0-9a-zA-Z]+", "_", (cluster or "").strip().lower()).strip("_")
+
+
+def _unique_entity_name(cluster: str, sheet: Optional[str],
+                        entities: Iterable[Any]) -> str:
+    """A unique Entity name for an auto-derived entity — the cluster slug plus
+    the sheet instance (Channel_0/1/2 share the cluster tag, so the instance
+    must disambiguate), suffixed until unique against cfg.entities."""
+    base = cluster_cell_name(cluster)
+    if sheet:
+        base += "_" + re.sub(r"[^0-9a-zA-Z]+", "_", sheet.strip().lower()).strip("_")
+    taken = {e.name for e in entities}
+    name, i = base, 1
+    while name in taken:
+        i += 1
+        name = f"{base}_{i}"
+    return name
+
+
+def resolve_cluster_entity(c: ReReadCluster, cfg: Any) -> tuple[str, str, bool]:
+    """(entity_name, cell_name, is_new) for one fully-selected cluster.
+
+    An existing Entity matched by (cluster, sheet) wins (c.entity_name is
+    already that Entity, set by fully_selected_clusters). Otherwise an
+    auto-derived Entity name (unique per cluster+sheet instance) pointing at
+    the cluster's slug-named cell — which may not exist yet (generated at save
+    time from the cluster's selection, see cluster_raw_items).
+    """
+    if c.entity_name:
+        entity = next((e for e in cfg.entities if e.name == c.entity_name), None)
+        if entity is not None:
+            return entity.name, entity.cell, False
+    return _unique_entity_name(c.cluster, c.sheet, cfg.entities), \
+        cluster_cell_name(c.cluster), True
+
+
+def cluster_raw_items(c: ReReadCluster, raw_items: Iterable[Any]) -> list:
+    """The raw selection narrowed to one fully-selected cluster: its footprints
+    (by ref) plus ALL selected vias/tracks. Foreign copper is left in on
+    purpose — the extractor's connectivity filter drops whatever doesn't reach
+    a kept pad (2026-09-01, same rationale as ExtractDock._reead_items_for_
+    cluster, which phase F folds into this flow)."""
+    kept = set(c.refs)
+    return [i for i in raw_items
+            if not (isinstance(i, Footprint) and i.ref not in kept)]
+
+
+def cluster_origin_role(c: ReReadCluster, selected_footprints: Iterable[Any]) -> str | None:
+    """A role appearing EXACTLY ONCE among the cluster's selected footprints — a
+    stable anchor role for the auto-generated cell (phase A). The extractor uses
+    it as origin_component_role, so that component lands at the cell's local
+    (0,0) — giving the cell a zero-slot, which is what the Entity's live
+    position read requires at apply. None when no role is unique (falls back to
+    a bbox origin — the cell then has no zero-slot and the node saves without
+    autopositioning)."""
+    refs = set(c.refs)
+    counts: dict[str, int] = {}
+    for s in selected_footprints:
+        if s.ref in refs and s.role:
+            counts[s.role] = counts.get(s.role, 0) + 1
+    uniq = sorted(role for role, n in counts.items() if n == 1)
+    return uniq[0] if uniq else None
+
+
+def resolve_cluster_live_position_mm(adapter, cfg, c: ReReadCluster, sheet_names,
+                                     role: str, label: Optional[str] = None
+                                     ) -> tuple[float, float]:
+    """(x_mm, y_mm) of a cluster's role, live-resolved over the whole board with
+    the sheet/cluster narrowing — the phase-A autopositioning twin of
+    resolve_entity_live_position_mm for a cluster whose cell is generated only
+    at save time. `role` is the cell's future zero-slot (cluster_origin_role),
+    so this reads the same point the Entity's own zero-slot live read would."""
+    resolver = ComponentResolver(adapter, cfg, sheet_names)
+    fp = resolver.resolve_anchor_fp(
+        None, role, c.sheet, c.cluster,
+        label=label or _("cluster {cluster!r} live position").format(cluster=c.cluster))
+    return fp.position.x / MM, fp.position.y / MM
+
+
 # ── Validation ────────────────────────────────────────────────────────────
 
 def cluster_errors(clusters: Iterable[ReReadCluster], entities,
                    cfg) -> list[str]:
-    """One error message per cluster ('' when valid), aligned by index with
-    `clusters`: a cluster with no Entity record, or an Entity whose cell is
-    missing from cfg.cells, BLOCKS the tree build (plan: "no cell" rows are
-    marked in the dialog, OK is disabled)."""
-    errors: list[str] = []
-    for c in clusters:
-        if not c.entity_name:
-            errors.append(_("cluster {cluster!r}: no Entity").format(cluster=c.cluster))
-            continue
-        entity = next((e for e in entities if e.name == c.entity_name), None)
-        if entity is None:
-            errors.append(_("cluster {cluster!r}: Entity {name!r} not found in "
-                            "the config").format(cluster=c.cluster, name=c.entity_name))
-        elif cfg.cells.get(entity.cell) is None:
-            errors.append(_("cluster {cluster!r}: Entity {name!r} references "
-                            "missing cell {cell!r}").format(
-                                cluster=c.cluster, name=c.entity_name, cell=entity.cell))
-        else:
-            errors.append("")
-    return errors
+    """One message per cluster ('' when OK), aligned by index with `clusters`.
+
+    2026-09-01 rework (phase A): a cluster WITHOUT an Entity record (or whose
+    Entity's cell is missing) is NO LONGER a blocking error — the Entity is
+    derived and the cell generated from the cluster's own selection at save
+    time (resolve_cluster_entity / cluster_raw_items / A1). The function
+    returns no blocking errors (the dialog no longer disables OK for these
+    rows; rows may still be flagged as informational in the UI)."""
+    return ["" for _ in clusters]
 
 
 def _name_errors(tree_name: str, cfg: Any) -> list[str]:
@@ -146,14 +229,17 @@ def build_tree_from_clusters(
     anchor_base: Optional[tuple[float, float]] = None,
 ) -> tuple[Optional[Tree], list[str]]:
     """Build the Tree from the checked clusters. Every cluster becomes a
-    top-level kind="placement" TreeNode with ref = its Entity's name; xy (the
-    offset from the anchor) is entity_positions[entity] - anchor_base when
-    both are available (autopositioning), else None (live-position rule at
-    apply). The anchor is preserved exactly as passed.
+    top-level kind="placement" TreeNode with ref = the Entity that will place
+    it — an existing (cluster, sheet)-matched Entity when there is one, else
+    the auto-derived Entity name persisted at save time (phase A,
+    resolve_cluster_entity). xy (the offset from the anchor) is
+    entity_positions[entity] - anchor_base when both are available
+    (autopositioning), else None (live-position rule at apply). The anchor is
+    preserved exactly as passed.
 
-    Returns (None, errors) when the tree name is empty/duplicate or any
-    cluster is invalid (no Entity / missing cell) — the dialog blocks OK on
-    those before ever calling this, so this is the defensive second line.
+    Returns (None, errors) when the tree name is empty/duplicate — the only
+    remaining hard error. A cluster without an Entity/cell is auto-satisfiable
+    (phase A) and no longer blocks the build.
     """
     errors = _name_errors(tree_name, cfg)
     if errors:
@@ -164,14 +250,17 @@ def build_tree_from_clusters(
 
     nodes: list[TreeNode] = []
     for c in clusters:
-        entity = next((e for e in entities if e.name == c.entity_name), None)
+        # ref = the Entity that WILL place this cluster: an existing
+        # (cluster, sheet)-matched Entity when there is one, else the
+        # auto-derived Entity name persisted at save time (phase A).
+        entity_name, _cell, _is_new = resolve_cluster_entity(c, cfg)
         xy = None
-        if entity is not None and entity_positions and anchor_base is not None:
-            pos = entity_positions.get(entity.name)
+        if entity_positions and anchor_base is not None:
+            pos = entity_positions.get(entity_name)
             if pos is not None:
                 xy = (pos[0] - anchor_base[0], pos[1] - anchor_base[1])
         nodes.append(TreeNode(
-            ref=entity.name,
+            ref=entity_name,
             kind="placement",
             xy=xy,
             polar=None,

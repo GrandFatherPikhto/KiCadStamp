@@ -10,8 +10,12 @@ from gui.docks.tree_from_selection import (
     InterClusterNet,
     build_role_anchor,
     build_tree_from_clusters,
+    cluster_cell_name,
     cluster_errors,
+    cluster_origin_role,
+    cluster_raw_items,
     detect_inter_cluster_nets,
+    resolve_cluster_entity,
     tree_anchor_from_cluster_entity,
 )
 from kicadstamp.config import Config, load_tree
@@ -33,6 +37,14 @@ def _sel(ref, cluster, sheet, nets=None):
 def _slot(role, along=0.0, across=0.0):
     return TemplateComponentSlot(role=role, offset_along_mm=along,
                                  offset_across_mm=across)
+
+
+def _fp(ref):
+    """A minimal Footprint DTO (cluster_raw_items only reads .ref)."""
+    from kicadstamp.domain.board import Footprint
+    from kicadstamp.domain.geometry import Vector2
+    return Footprint(ref=ref, uuid=f"u-{ref}", position=Vector2.from_xy(0, 0),
+                     angle_deg=0.0, layer=None)
 
 
 def _cfg(entities=None, cells=None, trees=None, rules=None):
@@ -150,29 +162,33 @@ def test_build_tree_without_positions_saves_no_xy():
     assert all(n.xy is None for n in tree.nodes)
 
 
-def test_build_tree_entity_missing_is_an_error():
-    """A cluster whose Entity is not in cfg.entities blocks the build with the
-    cluster name."""
-    clusters = [ReReadCluster(cluster="GHOST", sheet="Root", entity_name="NO_ENT",
-                              cell="ghost_cell", profile_key=None, refs=["X1"])]
-    cfg = _cfg_with_entities()
-    tree, errors = build_tree_from_clusters(clusters, "t", _anchor(), cfg.entities, cfg)
-    assert tree is None
-    assert any("GHOST" in e and "NO_ENT" in e for e in errors)
+def test_build_tree_auto_derives_entity_when_missing():
+    """Phase A (2026-09-01): a cluster WITHOUT an Entity no longer blocks the
+    build — the node references the auto-derived Entity name (cluster+sheet),
+    persisted at save time."""
+    clusters = [ReReadCluster(cluster="DAC_BUF", sheet="Channel_0",
+                              entity_name=None, cell="dac_buf",
+                              profile_key=None, refs=["U7", "R36"])]
+    cfg = _cfg()
+    tree, errors = build_tree_from_clusters(clusters, "dac_tree", _anchor(),
+                                            cfg.entities, cfg)
+    assert errors == []
+    assert tree.nodes[0].kind == "placement"
+    assert tree.nodes[0].ref == "dac_buf_channel_0"
 
 
-def test_build_tree_missing_cell_is_an_error():
-    """An Entity whose cell is not in cfg.cells blocks the build listing the
-    cluster."""
+def test_build_tree_missing_cell_auto_satisfied():
+    """Phase A: an existing Entity whose cell is missing from cfg.cells is
+    auto-satisfiable (the cell is generated from the cluster at save time) —
+    the build no longer errors."""
     clusters = [ReReadCluster(cluster="PIF_AVDD", sheet="Channel_1",
                               entity_name="CH1_PIF_AVDD", cell="dac_pif_avdd",
                               profile_key=None, refs=["R1"])]
-    # Entity references cell "dac_pif_avdd", but the cfg has no such cell.
     cfg = _cfg(entities=[Entity(name="CH1_PIF_AVDD", cell="dac_pif_avdd",
                                 cluster="PIF_AVDD", sheet="Channel_1")])
     tree, errors = build_tree_from_clusters(clusters, "t", _anchor(), cfg.entities, cfg)
-    assert tree is None
-    assert any("dac_pif_avdd" in e for e in errors)
+    assert errors == []
+    assert tree.nodes[0].ref == "CH1_PIF_AVDD"
 
 
 def test_build_tree_empty_name_is_an_error():
@@ -191,12 +207,14 @@ def test_build_tree_duplicate_name_is_an_error():
     assert any("already exists" in e for e in errors)
 
 
-def test_cluster_errors_aligned_with_clusters():
-    """cluster_errors returns one entry per cluster, '' when valid."""
+def test_cluster_errors_never_blocks_auto_satisfiable_cluster():
+    """Phase A: cluster_errors no longer blocks a cluster without an Entity
+    (auto-satisfiable) — returns '' per row, so the dialog never disables OK
+    for these."""
     clusters = [
         ReReadCluster(cluster="PIF_AVDD", sheet="Channel_1", entity_name="CH1_PIF_AVDD",
                       cell="dac_pif_avdd", profile_key=None, refs=["R1"]),
-        ReReadCluster(cluster="PIF_CLKVDD", sheet="Channel_1", entity_name="NO_ENT",
+        ReReadCluster(cluster="PIF_CLKVDD", sheet="Channel_1", entity_name=None,
                       cell="x", profile_key=None, refs=["R2"]),
     ]
     cfg = _cfg(
@@ -204,8 +222,107 @@ def test_cluster_errors_aligned_with_clusters():
                          cluster="PIF_AVDD", sheet="Channel_1")],
         cells=[Cell(name="dac_pif_avdd", components=[_slot("DAC")])])
     errors = cluster_errors(clusters, cfg.entities, cfg)
-    assert errors[0] == ""
-    assert "NO_ENT" in errors[1]
+    assert errors == ["", ""]
+
+
+# ── Phase A: auto Entity/cell derivation (2026-09-01) ─────────────────────
+
+def test_cluster_cell_name_slug():
+    assert cluster_cell_name("DAC_BUF") == "dac_buf"
+    assert cluster_cell_name("PIF_AVDD") == "pif_avdd"
+    assert cluster_cell_name("") == ""
+
+
+def test_resolve_cluster_entity_existing_matched_entity_wins():
+    cfg = _cfg(entities=[Entity(name="CH1_PIF_AVDD", cell="dac_pif_avdd",
+                                cluster="PIF_AVDD", sheet="Channel_1")])
+    c = ReReadCluster(cluster="PIF_AVDD", sheet="Channel_1",
+                      entity_name="CH1_PIF_AVDD", cell="dac_pif_avdd",
+                      profile_key=None, refs=["R1"])
+    name, cell, is_new = resolve_cluster_entity(c, cfg)
+    assert (name, cell, is_new) == ("CH1_PIF_AVDD", "dac_pif_avdd", False)
+
+
+def test_resolve_cluster_entity_auto_derives_unique_per_instance():
+    """No matching Entity -> an auto Entity name unique per cluster+sheet
+    instance (Channel_0/1/2 share the cluster tag) pointing at the slug cell."""
+    cfg = _cfg(entities=[Entity(name="pif_avdd", cell="pif_avdd")])
+    c0 = ReReadCluster(cluster="PIF_AVDD", sheet="Channel_0",
+                       entity_name=None, cell="pif_avdd", profile_key=None, refs=["R1"])
+    c1 = ReReadCluster(cluster="PIF_AVDD", sheet="Channel_1",
+                       entity_name=None, cell="pif_avdd", profile_key=None, refs=["R2"])
+    name0, cell0, new0 = resolve_cluster_entity(c0, cfg)
+    name1, cell1, new1 = resolve_cluster_entity(c1, cfg)
+    assert new0 and new1
+    assert name0 != name1
+    assert cell0 == cell1 == "pif_avdd"
+    assert name0.startswith("pif_avdd_channel_0")
+    assert name1.startswith("pif_avdd_channel_1")
+
+
+def test_cluster_raw_items_narrows_to_cluster_refs():
+    from kicadstamp.domain.board import Track, Via
+    from kicadstamp.domain.geometry import Vector2
+    c = ReReadCluster(cluster="PIF_AVDD", sheet="Channel_1", entity_name=None,
+                      cell="pif_avdd", profile_key=None, refs=["R1", "C1"])
+    fp_other = _fp("X9")
+    fp_own = _fp("R1")
+    raw = [fp_other, fp_own, Track(uuid="t", start=Vector2.from_xy(0, 0),
+                                   end=Vector2.from_xy(1, 1), net_name="N",
+                                   width_mm=0.25, layer=None)]
+    narrowed = cluster_raw_items(c, raw)
+    assert fp_own in narrowed and fp_other not in narrowed
+    assert len(narrowed) == 2
+
+
+def _sel_role(ref, cluster, sheet, role):
+    """A Selected with a non-None role (cluster_origin_role reads .role)."""
+    return Selected(ref=ref, role=role, cluster=cluster, sheet=[sheet],
+                    nets={}, fp=object())
+
+
+def test_cluster_origin_role_unique_role_picked():
+    # FB appears exactly once among the cluster's own refs -> the anchor role.
+    c = ReReadCluster(cluster="PIF_AVDD", sheet="Channel_1", entity_name=None,
+                      cell="pif_avdd", profile_key=None, refs=["R1", "C1", "R2"])
+    selected = [
+        _sel_role("R1", "PIF_AVDD", "Channel_1", "FB"),
+        _sel_role("C1", "PIF_AVDD", "Channel_1", "CAP"),
+        _sel_role("R2", "PIF_AVDD", "Channel_1", "CAP"),
+        _sel_role("X9", "PIF_AVDD", "Channel_1", "CAP"),  # foreign ref, ignored
+    ]
+    assert cluster_origin_role(c, selected) == "FB"
+    # no unique role -> None
+    c2 = ReReadCluster(cluster="PIF_AVDD", sheet="Channel_1", entity_name=None,
+                       cell="pif_avdd", profile_key=None, refs=["R1", "C1", "R2"])
+    selected2 = [
+        _sel_role("R1", "PIF_AVDD", "Channel_1", "CAP"),
+        _sel_role("C1", "PIF_AVDD", "Channel_1", "CAP"),
+        _sel_role("R2", "PIF_AVDD", "Channel_1", "CAP"),
+    ]
+    assert cluster_origin_role(c2, selected2) is None
+
+
+def test_build_tree_auto_entity_round_trip_with_link_trees():
+    """The phase-A save flow: build a node with the auto-derived Entity name,
+    then add that Entity to cfg -> link_trees resolves the placement node."""
+    clusters = [ReReadCluster(cluster="DAC_BUF", sheet="Channel_0",
+                              entity_name=None, cell="dac_buf",
+                              profile_key=None, refs=["U7", "R36"])]
+    cfg = _cfg()
+    tree, errors = build_tree_from_clusters(clusters, "dac_tree", _anchor(),
+                                            cfg.entities, cfg)
+    assert errors == []
+    entity_name, cell_name, is_new = resolve_cluster_entity(clusters[0], cfg)
+    assert is_new
+    auto = Entity(name=entity_name, cell=cell_name,
+                  cluster="DAC_BUF", sheet="Channel_0")
+    cfg2 = _cfg(entities=[auto],
+                cells=[Cell(name=cell_name, components=[_slot("DAC")])])
+    cfg2.trees = [tree]
+    linked = link_trees(cfg2, [tree])
+    assert linked[0].nodes[0].record.name == entity_name
+    assert linked[0].nodes[0].record.kind == "placement"
 
 
 # ── anchor construction ───────────────────────────────────────────────────

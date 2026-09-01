@@ -821,7 +821,11 @@ class DockHub:
 
         from .docks.tree_from_selection import (
             cluster_errors,
+            cluster_origin_role,
+            cluster_raw_items,
             detect_inter_cluster_nets,
+            resolve_cluster_entity,
+            resolve_cluster_live_position_mm,
             resolve_entity_live_position_mm,
             resolve_role_anchor_base_mm,
             tree_anchor_from_cluster_entity,
@@ -841,17 +845,30 @@ class DockHub:
         prefills: dict[int, object] = {}
         entity_positions: dict[str, tuple[float, float]] = {}
         for i, c in enumerate(clusters):
-            entity = next((e for e in cfg.entities
-                           if e.name == c.entity_name), None)
+            entity_name, _cell, is_new = resolve_cluster_entity(c, cfg)
+            if is_new:
+                # Auto-derived Entity (phase A): no cell exists yet — the
+                # autopositioning preview reads the cluster's own live role
+                # (the cell's future zero-slot, see cluster_origin_role).
+                role = cluster_origin_role(c, self.extract_dock._selected_footprints)
+                if role:
+                    try:
+                        entity_positions[entity_name] = resolve_cluster_live_position_mm(
+                            adapter, cfg, c, sheet_names, role)
+                    except Exception as e:  # noqa: BLE001 — best-effort preview
+                        logging.warning("Extract tree: live position of cluster %r "
+                                        "unavailable: %s", c.cluster, e)
+                continue
+            entity = next((e for e in cfg.entities if e.name == entity_name), None)
             if entity is None:
                 continue
             prefills[i] = tree_anchor_from_cluster_entity(entity, cfg)
             try:
-                entity_positions[entity.name] = resolve_entity_live_position_mm(
+                entity_positions[entity_name] = resolve_entity_live_position_mm(
                     adapter, cfg, entity, sheet_names)
             except Exception as e:  # noqa: BLE001 — live read, best-effort preview
                 logging.warning("Extract tree: live position of Entity %r "
-                                "unavailable: %s", entity.name, e)
+                                "unavailable: %s", entity_name, e)
 
         def _anchor_base_provider(anchor):
             if anchor is None or anchor.role is None:
@@ -906,19 +923,64 @@ class DockHub:
                                 .format(errors="\n".join(build_errors)))
             return
 
-        # ── Save: trees: first, then the checked nets as net_traces: ──────
-        from kicadstamp.config import load_tree
+        # ── Save: auto-created cells/entities + trees:, then net_traces: ───
+        from dataclasses import replace
+        from kicadstamp.config import Entity, load_tree
         from kicadstamp.config_writer import read_data, write_data
         from kicadstamp.link_trees import link_trees
         from kicadstamp.net_trace_extract import extract_net_trace, write_net_trace
+        from kicadstamp.template_extraction import extract_template_from_selection
         from kicadstamp.trees import tree_to_dict
         from .docks.entity_delete import backup_file
         try:
             backup_file(root_path)
+            data = read_data(root_path)
+            cells_data = data.setdefault("cells", {})
+            new_entities: list[Entity] = []
+            for c in selected:
+                entity_name, cell_name, is_new = resolve_cluster_entity(c, cfg)
+                if not is_new:
+                    continue
+                # A missing cell is generated from the cluster's own selected
+                # copper (phase A), with a unique role as the origin so the
+                # cell gets a zero-slot — which is what the Entity's live
+                # position read requires at apply (entity_placement).
+                if cell_name not in cfg.cells and cell_name not in cells_data:
+                    items = cluster_raw_items(c, self.extract_dock._raw_items)
+                    origin_kwargs = {}
+                    role = cluster_origin_role(
+                        c, self.extract_dock._selected_footprints)
+                    if role:
+                        origin_kwargs = dict(
+                            origin_component_role=role,
+                            origin_component_cluster=c.cluster,
+                            origin_component_sheet=c.sheet)
+                    try:
+                        cell_dict = extract_template_from_selection(
+                            adapter, cell_name, items=items, **origin_kwargs)
+                    except Exception as e:  # noqa: BLE001 — one bad cluster must not drop the tree
+                        logging.warning("Extract tree: cell %r for cluster %r not "
+                                        "generated: %s", cell_name, c.cluster, e)
+                        cell_dict = None
+                    if cell_dict:
+                        cells_data[cell_name] = cell_dict[cell_name]
+                # The auto-derived Entity (cluster+sheet identity) so link_trees
+                # and apply resolve this tree node.
+                ent = {"name": entity_name, "cell": cell_name}
+                if c.cluster:
+                    ent["cluster"] = c.cluster
+                if c.sheet:
+                    ent["sheet"] = c.sheet
+                data.setdefault("entities", []).append(ent)
+                new_entities.append(Entity(
+                    name=entity_name, cell=cell_name,
+                    cluster=c.cluster, sheet=c.sheet))
             trees_dict = [tree_to_dict(t) for t in cfg.trees] + [tree_to_dict(tree)]
-            write_data(root_path, {**read_data(root_path), "trees": trees_dict})
+            data["trees"] = trees_dict
+            write_data(root_path, data)
             reloaded = [load_tree(t) for t in trees_dict]
-            link_trees(cfg, reloaded)
+            link_cfg = replace(cfg, entities=list(cfg.entities) + new_entities)
+            link_trees(link_cfg, reloaded)
         except Exception as e:  # noqa: BLE001 — .bak is fresh; report, don't roll back
             QMessageBox.warning(self.main_window, _("Extract tree"),
                                 _("Saved, but the round-trip check failed: {error}")
