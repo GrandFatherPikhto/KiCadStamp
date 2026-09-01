@@ -23,6 +23,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from .domain.board import Track, Via
 from .domain.geometry import BoardLayer
 
 from .config import NetTrace
@@ -56,6 +57,7 @@ def extract_net_trace(
     sheet_names: dict[str, str] | None = None,
     retired: bool = False,
     skip: bool = False,
+    items: list | None = None,
 ) -> NetTrace:
     """Capture one net's copper as a local-from-anchor NetTrace.
 
@@ -67,11 +69,18 @@ def extract_net_trace(
       2. anchor point = centre of anchor_pad when given, footprint centre
          otherwise (same semantics as ClonePlacement.anchor_pad / channel-copy's
          pivot anchor);
-      3. every live track/via with net.name == net becomes a local
-         (along/across) TemplateTrack/TemplateVia with the net written
-         explicitly;
+      3. every track/via on the net becomes a local (along/across)
+         TemplateTrack/TemplateVia with the net written explicitly — from
+         `items` (the caller's SELECTED copper) when given, else from the WHOLE
+         live board (CLI extract-net / NetTraceDock);
       4. fatal if the net sits on NO track/via at all (empty result is an
          explicit error, never a silent empty NetTrace).
+
+    items — OPTIONAL list of selected Track/Via domain DTOs (the selected copper
+    of the net, e.g. what the "Extract tree" third tab showed as #tracks/#vias).
+    When given, ONLY those items whose net equals `net` are captured, so the
+    saved record matches the tab; None (default) keeps the historical
+    whole-board capture. 2026-09-01 rework, phase B.
 
     sheet_names — {uuid: Sheetname} for anchor_sheet narrowing (from a loaded
     config's RuntimeContext). Empty/None (the default — extract-net is a
@@ -103,11 +112,15 @@ def extract_net_trace(
     else:
         anchor = anchor_fp.position
 
+    if items is not None:
+        track_items = [t for t in items if isinstance(t, Track) and t.net_name == net]
+        via_items = [v for v in items if isinstance(v, Via) and v.net_name == net]
+    else:
+        track_items = [t for t in adapter.get_tracks() if t.net_name == net]
+        via_items = [v for v in adapter.get_vias() if v.net_name == net]
+
     tracks = []
-    for t in adapter.get_tracks():
-        t_net = t.net_name
-        if t_net != net:
-            continue
+    for t in track_items:
         tracks.append({
             "start_along_mm": round((t.start.x - anchor.x) / MM, 4),
             "start_across_mm": round((t.start.y - anchor.y) / MM, 4),
@@ -119,10 +132,7 @@ def extract_net_trace(
         })
 
     vias = []
-    for v in adapter.get_vias():
-        v_net = v.net_name
-        if v_net != net:
-            continue
+    for v in via_items:
         vias.append({
             "offset_along_mm": round((v.position.x - anchor.x) / MM, 4),
             "offset_across_mm": round((v.position.y - anchor.y) / MM, 4),

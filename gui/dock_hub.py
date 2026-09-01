@@ -986,15 +986,23 @@ class DockHub:
                                 _("Saved, but the round-trip check failed: {error}")
                                 .format(error=e))
             return
+        from kicadstamp.domain.board import Track, Via
+        selected_raw = self.extract_dock._raw_items
         for net in dialog.selected_nets():
             try:
+                # Phase B (2026-09-01 rework): capture ONLY the SELECTED copper
+                # of the net — the record must match the third-tab #tracks/#vias,
+                # not the whole board's copper on that net.
+                net_items = [i for i in selected_raw
+                             if isinstance(i, (Track, Via)) and i.net_name == net.net]
                 nt = extract_net_trace(
                     adapter, net=net.net,
                     anchor_role=anchor.role,
                     anchor_sheet=anchor.anchor_sheet,
                     anchor_cluster=anchor.anchor_cluster,
                     anchor_pad=anchor.anchor_pad,
-                    sheet_names=sheet_names)
+                    sheet_names=sheet_names,
+                    items=net_items)
                 write_net_trace(str(root_path), nt)
             except Exception as e:  # noqa: BLE001 — one bad net must not drop the tree
                 logging.warning("Extract tree: net %r not captured: %s",

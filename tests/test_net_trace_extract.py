@@ -117,6 +117,73 @@ def test_extract_happy_path_with_pad_anchor():
     assert v.drill_mm == 0.3 and v.diameter_mm == 0.6
 
 
+# ── phase B (2026-09-01): selection-scoped capture via `items` ────────────
+
+
+def test_extract_items_captures_only_selected_copper():
+    """With `items`, ONLY the SELECTED tracks/vias on the net are captured —
+    the record matches the "Extract tree" third tab (#tracks/#vias) instead of
+    the whole board's copper on that net."""
+    from kicadstamp.domain.board import Track, Via
+
+    fpga = _make_fp("U1", "FPGA", 50, 50)
+    # The whole board carries 3 DAC_DB0 tracks + 2 vias...
+    board_tracks = [
+        _make_track(53, 54, 55, 56, "DAC_DB0", 0.2),
+        _make_track(70, 70, 80, 80, "DAC_DB0"),
+        _make_track(90, 90, 95, 95, "DAC_DB0"),
+    ]
+    board_vias = [_make_via(57, 58, "DAC_DB0"), _make_via(100, 100, "DAC_DB0")]
+    adapter = _adapter([fpga], board_tracks, board_vias,
+                       pad_by_number={"42": _make_pad(52, 52)})
+
+    # ...but the SELECTION carries only one track + one via on the net.
+    sel_track = Track(uuid="t1", start=Vector2.from_xy(int(53 * MM), int(54 * MM)),
+                      end=Vector2.from_xy(int(55 * MM), int(56 * MM)),
+                      net_name="DAC_DB0", width_mm=0.2, layer=BoardLayer.BL_F_Cu)
+    sel_via = Via(uuid="v1", position=Vector2.from_xy(int(57 * MM), int(58 * MM)),
+                  net_name="DAC_DB0", drill_mm=0.3, diameter_mm=0.6)
+    other_net = _make_track(1, 1, 2, 2, "OTHER_NET")  # selected, wrong net -> ignored
+
+    nt = extract_net_trace(adapter, net="DAC_DB0", anchor_role="FPGA",
+                           anchor_pad="42", items=[sel_track, sel_via, other_net])
+
+    assert len(nt.tracks) == 1
+    assert len(nt.vias) == 1
+    assert nt.tracks[0].start_along_mm == 1.0 and nt.tracks[0].end_along_mm == 3.0
+    assert nt.vias[0].offset_along_mm == 5.0
+
+
+def test_extract_items_empty_is_fatal():
+    """items=[] (or only other-net copper) -> the net has no SELECTED copper ->
+    the same "no copper" fatal as the whole-board path."""
+    fpga = _make_fp("U1", "FPGA", 50, 50)
+    adapter = _adapter([fpga],
+                       [_make_track(53, 54, 55, 56, "DAC_DB0")],
+                       [_make_via(57, 58, "DAC_DB0")])
+    with pytest.raises(ValidationError, match="has no copper"):
+        extract_net_trace(adapter, net="DAC_DB0", anchor_role="FPGA",
+                          anchor_pad="42", items=[])
+
+
+def test_extract_items_ignores_other_net_selected_copper():
+    """A selection with copper ONLY on other nets must not capture the board's
+    DAC_DB0 copper — the record is scoped to the selection (fatal: nothing
+    selected on this net)."""
+    from kicadstamp.domain.board import Track
+
+    fpga = _make_fp("U1", "FPGA", 50, 50)
+    adapter = _adapter([fpga],
+                       [_make_track(53, 54, 55, 56, "DAC_DB0")],
+                       [_make_via(57, 58, "DAC_DB0")])
+    sel_other = Track(uuid="t9", start=Vector2.from_xy(0, 0),
+                      end=Vector2.from_xy(int(1 * MM), int(1 * MM)),
+                      net_name="OTHER_NET", width_mm=0.2, layer=BoardLayer.BL_F_Cu)
+    with pytest.raises(ValidationError, match="has no copper"):
+        extract_net_trace(adapter, net="DAC_DB0", anchor_role="FPGA",
+                          anchor_pad="42", items=[sel_other])
+
+
 def test_extract_no_anchor_pad_uses_footprint_center():
     fpga = _make_fp("U1", "FPGA", 50, 50)
     # Track starts exactly at the footprint centre -> local (0,0).
