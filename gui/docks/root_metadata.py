@@ -87,6 +87,7 @@ from kicadstamp.i18n import _
 
 from .. import settings, yaml_io
 from ..hotkeys import build_action
+from kicadstamp.config_working_set import WORKING_SET
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       display_path, merge_write, show_message)
 from .rename import collect_graph_files
@@ -343,11 +344,14 @@ class RootMetadataDock(QWidget):
         self._tabs.addTab(schematics_page, _("Schematics"))
         self._tabs.addTab(via_page, _("Via"))
 
+        # 2026-09-01 (plan project_save_model): the per-dock Save button is
+        # GONE — Ctrl+S now belongs to the GLOBAL File > Save (project.save,
+        # gui/main_window.py), which commits the whole working set. This
+        # action survives without a default shortcut only so the Settings
+        # hotkey list / existing tests can still find it; the fields auto-stage
+        # on their commit points instead (see _stage_on_commit).
         self.action_save = build_action(
-            self._main_window, ACTION_SAVE, _("Save"), "Ctrl+S", self._on_save)
-        self.save_button = QPushButton(_("Save"))
-        self.save_button.clicked.connect(self._on_save)
-        layout.addWidget(self.save_button)
+            self._main_window, ACTION_SAVE, _("Save"), "", self._on_save)
 
         # Working file (2026-08-11) — deliberately separated (own label,
         # own row, below Save) from the Root toolbar above — see module
@@ -446,7 +450,11 @@ class RootMetadataDock(QWidget):
         repopulates this panel's OWN fields (via set_target_file, unchanged
         from before the root-ownership move), refreshes the Working-file
         combobox's choices for the new include graph, and broadcasts
-        root_changed to every other dock (see gui/dock_hub.py)."""
+        root_changed to every other dock (see gui/dock_hub.py). The
+        unsaved-changes guard (Save/Discard/Cancel on a dirty working set)
+        runs here, so no root switch can silently drop staged edits."""
+        if WORKING_SET.is_dirty() and not self._confirm_discard_changes():
+            return
         if path is not None:
             self._remember_recent(path)
         try:
@@ -508,6 +516,10 @@ class RootMetadataDock(QWidget):
         regardless of the field-edit signals _populate fired along the way."""
         self._show_message("")
         self._path = path
+        # Clear _dirty BEFORE _populate: repopulation fires the same signals
+        # _stage_on_commit listens to, and a stale dirty flag would wrongly
+        # stage the freshly-loaded root as a user edit (2026-09-01).
+        self._dirty = False
         if path is None:
             self.target_label.setText(_("No project file open"))
             self._present_keys = set()
@@ -608,9 +620,14 @@ class RootMetadataDock(QWidget):
         the single destination."""
         show_message(text, style, logger)
 
-    def _on_save(self) -> None:
+    def _on_save(self, quiet: bool = False) -> None:
+        """Collect the panel's root-settings fields and write them — in the
+        staged model this STAGES into the working set (File > Save commits).
+        `quiet=True` (the auto-stage commit points) suppresses the success/
+        "nothing to save" log chatter that a manual Save should still show."""
         if self._path is None:
-            self._show_message(_("Open or create a project (root) file first."), _ERROR_STYLE)
+            if not quiet:
+                self._show_message(_("Open or create a project (root) file first."), _ERROR_STYLE)
             return
 
         updates: Dict[str, object] = {}
@@ -657,7 +674,8 @@ class RootMetadataDock(QWidget):
                 updates[key] = value
 
         if not updates:
-            self._show_message(_("Nothing to save — every field is still at its default."), "")
+            if not quiet:
+                self._show_message(_("Nothing to save — every field is still at its default."), "")
             return
 
         try:
@@ -670,8 +688,10 @@ class RootMetadataDock(QWidget):
         # A successful write is by definition saved — clears the File > Close
         # unsaved-changes flag (2026-08-30, plan Этап 1b).
         self._dirty = False
-        self._show_message(
-            _("Saved root metadata to {path}").format(path=display_path(self._path)), _SUCCESS_STYLE)
+        if not quiet:
+            self._show_message(
+                _("Saved root metadata to {path}").format(path=display_path(self._path)),
+                _SUCCESS_STYLE)
 
     # ── Unsaved-changes guard + File > Close (2026-08-30, plan
     # dock_toolbars_menus_hotkeys Этап 1b) ───────────────────────────────
@@ -682,51 +702,68 @@ class RootMetadataDock(QWidget):
         unsaved change. Same pattern as TreesDock._mark_dirty."""
         self._dirty = True
 
+    def _stage_on_commit(self) -> None:
+        """Auto-stage (2026-09-01, plan project_save_model): a field edit's
+        commit point (blur/Enter for line edits, a combo pick, a checkbox
+        toggle, a schematic-list change) stages the current root-settings form
+        into the working set. Replaces the old per-dock Save button — only the
+        global File > Save commits to disk."""
+        if self._path is None or not self._dirty:
+            return
+        self._on_save(quiet=True)
+
     def _connect_dirty_signals(self) -> None:
-        """Wire every editable field to _mark_dirty. Called LAST in __init__
-        (after _restore_last_root), so loading a project never marks it dirty;
-        any later set_target_file() repopulation is followed by _dirty = False
-        at its end."""
-        self.layer_combo.currentTextChanged.connect(self._mark_dirty)
+        """Wire every editable field to _mark_dirty (and, on its commit point,
+        to _stage_on_commit). Called LAST in __init__ (after
+        _restore_last_root), so loading a project never marks it dirty; any
+        later set_target_file() repopulation clears _dirty BEFORE _populate
+        (see set_target_file) so the repopulation signals never stage."""
+        self.layer_combo.currentTextChanged.connect(self._stage_on_commit)
         for edit in self._text_edits.values():
             edit.textChanged.connect(self._mark_dirty)
+            edit.editingFinished.connect(self._stage_on_commit)
         for check in self._bool_checks.values():
-            check.toggled.connect(self._mark_dirty)
+            check.toggled.connect(self._stage_on_commit)
         for edit in self._float_edits.values():
             edit.textChanged.connect(self._mark_dirty)
+            edit.editingFinished.connect(self._stage_on_commit)
         for edit in self._int_edits.values():
             edit.textChanged.connect(self._mark_dirty)
+            edit.editingFinished.connect(self._stage_on_commit)
         model = self.schematic_files_list.model()
-        model.dataChanged.connect(self._mark_dirty)
-        model.rowsInserted.connect(self._mark_dirty)
-        model.rowsRemoved.connect(self._mark_dirty)
+        model.dataChanged.connect(self._stage_on_commit)
+        model.rowsInserted.connect(self._stage_on_commit)
+        model.rowsRemoved.connect(self._stage_on_commit)
 
     def _confirm_discard_changes(self) -> bool:
-        """True to proceed (either nothing to lose, or the user confirmed
-        discarding) — the same unsaved-changes close guard TreesDock uses
-        (gui/docks/trees_dock.py), for this dock's own root-settings edits.
-        Called by close_project() (File > Close); tracking other docks'
-        per-entity unsaved state is a follow-up (see plan Этап 1b)."""
-        if not self._dirty:
+        """True to proceed (nothing to lose, or the user confirmed) — the
+        single guard for the WHOLE project's staged edits (2026-09-01, plan
+        project_save_model): WORKING_SET holds every dock's unsaved config
+        state, so switching/closing a project asks once about all of it. Save
+        commits the working set to disk via the global File > Save; Discard
+        drops it (the caller's root switch clears it via root_changed)."""
+        if not WORKING_SET.is_dirty():
             return True
         ret = QMessageBox.question(
             self, _("Unsaved changes"),
-            _("Save the current project's root settings?"),
+            _("Save the current project's unsaved changes?"),
             QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard
             | QMessageBox.StandardButton.Cancel)
         if ret == QMessageBox.StandardButton.Cancel:
             return False
         if ret == QMessageBox.StandardButton.Save:
-            self._on_save()
-            return not self._dirty  # save failed -> keep the current state
-        return True  # Discard
+            saver = getattr(self._main_window, "_save_project", None)
+            if saver is not None:
+                saver()
+            elif self._path is not None:  # plain window in tests: direct flush
+                WORKING_SET.flush(self._path)
+            return not WORKING_SET.is_dirty()  # failed save -> keep current state
+        return True  # Discard — the caller's root switch clears the working set
 
     def close_project(self) -> None:
-        """File > Close (2026-08-30, plan Этап 1b) — a NEW operation the root
-        dock previously had no API for (it could Open/New/Recent, never
-        "close the current project"): with unsaved field edits, ask first (see
-        _confirm_discard_changes), then drop the project root via
-        set_root_file(None) — every other dock follows through root_changed
-        (gui/dock_hub.py)."""
-        if self._confirm_discard_changes():
-            self.set_root_file(None)
+        """File > Close (2026-08-30, plan Этап 1b) — drop the current project
+        root via set_root_file(None); the guard (see _confirm_discard_changes)
+        now lives inside set_root_file, so Open/New/Recent share it too and no
+        path can silently discard staged edits. Every other dock follows
+        through root_changed (gui/dock_hub.py)."""
+        self.set_root_file(None)

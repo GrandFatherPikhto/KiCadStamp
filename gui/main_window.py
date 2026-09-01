@@ -80,9 +80,10 @@ from kicadstamp.domain.board import Footprint
 from PyQt6.QtCore import QByteArray, Qt, QTimer
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (QApplication, QLabel, QMainWindow, QMenu,
-                              QPushButton, QSystemTrayIcon)
+                              QMessageBox, QPushButton, QSystemTrayIcon)
 
 from kicadstamp.config_writer import display_path
+from kicadstamp.config_working_set import WORKING_SET
 from kicadstamp.explore import selection_signature
 from kicadstamp.i18n import _
 
@@ -91,8 +92,14 @@ from .connection import BoardConnection
 from .dock_hub import DockHub
 from .app_icon import build_app_icon
 from .docks.profile_import import run_import_dialog
+from .hotkeys import build_action
 from .kicad_processes_dialog import KicadProcessesDialog
 from .worker import PollWorkerHandle
+
+# Stable QAction ids for the global project save model (2026-09-01, plan
+# project_save_model) — the same registry the Settings tab's hotkey list uses.
+PROJECT_SAVE = "project.save"
+PROJECT_DISCARD = "project.discard"
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +129,12 @@ class MainWindow(QMainWindow):
         self.action_button = QPushButton(_("Reconnect"))
         self.action_button.clicked.connect(lambda: self._poll(manual=True))
         self.statusBar().addWidget(self.status_label, 1)
+
+        # Project-dirty indicator (2026-09-01, plan project_save_model) — a ●
+        # whenever the config working set has unsaved edits. Driven by
+        # DockHub._update_dirty_indicator on every stage/clear.
+        self.dirty_label = QLabel("")
+        self.statusBar().addPermanentWidget(self.dirty_label)
 
         # Always on top / Tray icon checkboxes moved to the Settings tab
         # (ConfiguratorDock) 2026-08-15 — see gui/docks/configurator.py. The
@@ -168,6 +181,19 @@ class MainWindow(QMainWindow):
         root_dock = self.root_metadata_dock
         file_menu.addAction(root_dock.action_open)
         file_menu.addAction(root_dock.action_new)
+
+        # Save / Discard (2026-09-01, plan project_save_model) — the ONE global
+        # save model: every dock's edits stage into the working set, and only
+        # File > Save (Ctrl+S) commits them to disk. Discard reverts them.
+        # Registered via build_action so Ctrl+S appears in the Settings hotkey
+        # list and File > Save is rebindable like every other action.
+        self.save_action = build_action(self, PROJECT_SAVE, _("&Save"), "Ctrl+S",
+                                        self._save_project)
+        file_menu.addAction(self.save_action)
+        self.discard_action = build_action(
+            self, PROJECT_DISCARD, _("&Discard unsaved changes..."), "",
+            self._discard_project)
+        file_menu.addAction(self.discard_action)
 
         # Recent — a submenu rebuilt on every aboutToShow from the SAME
         # settings.state["recent_root_files"] source the RootMetadataDock
@@ -485,6 +511,65 @@ class MainWindow(QMainWindow):
         gui/kicad_processes_dialog.py's module docstring for why this is a
         picker, never an automated kill)."""
         KicadProcessesDialog(self).exec()
+
+    # ── Global save model (2026-09-01, plan project_save_model) ──────────
+
+    def _save_project(self) -> None:
+        """File > Save (Ctrl+S) — commit the whole staged working set to disk.
+        The flush validates the staged graph BEFORE writing anything (see
+        kicadstamp/config_working_set.py); on a cross-file inconsistency
+        nothing is written and the errors are shown."""
+        root = self.root_metadata_dock.root_path
+        if root is None:
+            self.status_label.setText(_("No project open — nothing to save"))
+            return
+        if not WORKING_SET.is_dirty():
+            self.status_label.setText(_("Nothing to save"))
+            return
+        errors = WORKING_SET.flush(root)
+        self._update_dirty_indicator()
+        if errors:
+            QMessageBox.warning(self, _("Save"),
+                                _("Save failed — nothing was written:\n{errors}")
+                                .format(errors="\n".join(errors)))
+            return
+        self.status_label.setText(_("Project saved"))
+
+    def _discard_project(self) -> None:
+        """File > Discard unsaved changes... — drop the working set and reload
+        every dock from disk. Deliberately does NOT roll back Redraw steps that
+        were already applied to the board (stated in the confirm dialog)."""
+        if not WORKING_SET.is_dirty():
+            return
+        reply = QMessageBox.question(
+            self, _("Discard unsaved changes"),
+            _("Discard will revert unsaved CONFIG edits, but NOT Redraw steps "
+              "already applied to the board. Continue?"),
+            QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel)
+        if reply == QMessageBox.StandardButton.Save:
+            self._save_project()
+            return
+        if reply != QMessageBox.StandardButton.Discard:
+            return
+        WORKING_SET.clear()
+        self._dock_hub.reload_project_from_disk()
+        self._update_dirty_indicator()
+        self.status_label.setText(_("Unsaved config changes discarded"))
+
+    def _update_dirty_indicator(self) -> None:
+        """Reflect the working set's dirty state: a ● in the status bar and a ●
+        prefix on the File > Save item. Driven by DockHub on every stage/clear
+        (and by the Save/Discard handlers above)."""
+        dirty = WORKING_SET.is_dirty()
+        self.dirty_label.setText("●" if dirty else "")
+        self.dirty_label.setToolTip(
+            _("Project has unsaved config changes — press Ctrl+S to save")
+            if dirty else "")
+        save_action = getattr(self, "save_action", None)
+        if save_action is not None:
+            save_action.setText(_("● &Save") if dirty else _("&Save"))
 
     def _quit(self) -> None:
         """Tray menu's Quit — a real quit regardless of the tray checkbox.

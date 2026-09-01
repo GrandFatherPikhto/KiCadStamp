@@ -25,6 +25,7 @@ from kicadstamp.exceptions import (
 )
 from kicadstamp.i18n import _
 from kicadstamp.utils.file_cache import cached_file_read, invalidate_graph_path, invalidate_path
+from .config_working_set import WORKING_SET
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,13 @@ def _read_data(path: Path) -> dict:
     OSError (ValidationError as __cause__) — .yaml/.yml with the dedicated
     "convert with sexp_config_convert.py" message, any other extension with
     the unrecognized-extension message."""
+    # Staged mode (2026-09-01, plan project_save_model): a dirty file's content
+    # lives in the working set, not on disk — this also covers to-be-created
+    # (__new__) files that don't exist yet.
+    if WORKING_SET.enabled:
+        staged = WORKING_SET.staged_content(str(path.resolve()))
+        if staged is not None:
+            return copy.deepcopy(staged)
     if not path.exists():
         return {}
 
@@ -104,6 +112,21 @@ def _read_data(path: Path) -> dict:
     return cached_file_read(path, _uncached_read)
 
 
+def _serialize(path: Path, data: dict) -> str:
+    """Serialize `data` to the text form for `path`'s extension — shared by
+    the physical _write_data() below and by the working set's atomic flush
+    (which writes to a temp sibling then os.replace(), see
+    kicadstamp/config_working_set.py). .json -> JSON, .sexp -> s-expr,
+    anything else -> fatal OSError (ValidationError as __cause__), raised
+    BEFORE any file is opened."""
+    suffix = path.suffix.lower()
+    if suffix == ".json":
+        return json.dumps(data, indent=2, ensure_ascii=False, sort_keys=False)
+    if suffix == ".sexp":
+        return dict_to_sexp(data)
+    _raise_unsupported_config_format(path, suffix)
+
+
 def _write_data(path: Path, data: dict) -> None:
     """Write merged content back in the same format (YAML/JSON/s-expr by file
     extension) it was read in. Every GUI dock write path
@@ -121,16 +144,21 @@ def _write_data(path: Path, data: dict) -> None:
     core_yaml_removal — YAML support removed): .json -> JSON, .sexp -> s-expr,
     anything else -> fatal OSError (ValidationError as __cause__), raised
     BEFORE the file is opened, so a bad extension never creates an empty file
-    on disk."""
-    suffix = path.suffix.lower()
-    if suffix == ".json":
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False, sort_keys=False)
-    elif suffix == ".sexp":
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(dict_to_sexp(data))
-    else:
-        _raise_unsupported_config_format(path, suffix)
+    on disk.
+
+    STAGED MODE (2026-09-01, plan project_save_model): when the
+    ConfigWorkingSet is enabled the write goes into the working set instead of
+    to disk — the global Save flushes it (see kicadstamp/config_working_set.py).
+    CLI runs and pre-existing unit tests never enable it, so they hit the
+    physical path unchanged."""
+    if WORKING_SET.enabled:
+        WORKING_SET.stage_write(path, data)
+        return
+    # Serialize BEFORE opening the file — a bad extension must raise with no
+    # (empty) file left behind.
+    text = _serialize(path, data)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
     invalidate_path(path)
     invalidate_graph_path(path)
 
@@ -457,6 +485,10 @@ def _load_data_tolerant(path: Path) -> dict:
     _read_data, only .sexp/.json are read (2026-08-28, core_yaml_removal); a
     .yaml/.yml or any other extension is simply not a supported config format
     and yields {}."""
+    if WORKING_SET.enabled and path is not None:
+        staged = WORKING_SET.staged_content(str(path.resolve()))
+        if staged is not None:
+            return copy.deepcopy(staged)
     if path is None or not path.exists():
         return {}
     suffix = path.suffix.lower()

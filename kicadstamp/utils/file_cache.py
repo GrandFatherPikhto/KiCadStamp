@@ -58,6 +58,21 @@ from typing import Callable, TypeVar
 
 T = TypeVar("T")
 
+# The ConfigWorkingSet module, resolved lazily (see _working_set()) — file_cache
+# must not import it at module level: config_working_set imports this module's
+# invalidate_* at module level, so a top-level import here would be circular.
+_CWS_MOD = None
+
+
+def _working_set():
+    """Lazily resolve the ConfigWorkingSet module (None before first use)."""
+    global _CWS_MOD
+    if _CWS_MOD is None:
+        from .. import config_working_set
+        _CWS_MOD = config_working_set
+    return _CWS_MOD
+
+
 _lock = threading.Lock()
 _cache: dict[tuple[str, int], object] = {}
 # resolved path -> every cache key currently stored for it (there can be more
@@ -108,6 +123,16 @@ def cached_file_read(path: Path, loader: Callable[[Path], T]) -> T:
     entity_delete/rename dock helpers) deepcopy before mutating. The miss
     case returns the freshly computed object, isolated from the stored copy."""
     resolved = str(path.resolve())
+    # Staged mode (GUI edit-in-memory, 2026-09-01, plan project_save_model): a
+    # dirty file's content lives in the working set, not on disk — return it
+    # before any stat/disk read. This also covers to-be-created (__new__) files
+    # that don't exist on disk yet. The staged dict is shared working-set state,
+    # so a deep copy is returned (the same read-only contract as the cache).
+    cws = _working_set()
+    if cws is not None and cws.WORKING_SET.enabled:
+        staged = cws.WORKING_SET.staged_content(resolved)
+        if staged is not None:
+            return copy.deepcopy(staged)
     try:
         mtime_ns = os.stat(resolved).st_mtime_ns
     except OSError:

@@ -30,10 +30,11 @@ from functools import partial
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtWidgets import QDialog, QMessageBox
 
 from kicadstamp.cli_common import peek_log_file
+from kicadstamp.config_working_set import WORKING_SET
 from kicadstamp.i18n import _
 from kicadstamp.logging_setup import get_log_listener
 
@@ -176,6 +177,16 @@ class DockHub:
         # call again later if a dock ever registers hotkeys dynamically.
         self.configurator_dock.refresh_hotkeys()
 
+        # Config working set (2026-09-01, plan project_save_model): every
+        # stage/clear notifies this listener -> dirty indicator + a debounced
+        # refresh so the tree/collectors show the staged content. QTimer-
+        # debounced (a burst of stages in one event-loop turn coalesces into
+        # one rebuild — same reasoning as AnchorTreeDock.schedule_refresh).
+        self._ws_refresh_timer = QTimer(self.main_window)
+        self._ws_refresh_timer.setSingleShot(True)
+        self._ws_refresh_timer.timeout.connect(self._refresh_from_working_set)
+        WORKING_SET.add_listener(self._on_working_set_changed)
+
     def restore_tree_mode(self) -> None:
         """Restores the Components tree's "Not yet applied" (schematic)
         mode. Deliberately NOT part of __init__: restoring it rebuilds the
@@ -274,6 +285,11 @@ class DockHub:
         # cli_common.peek_log_file). Reused here so a project's log_file:
         # covers the GUI too, not just the CLI.
         self.root_metadata_dock.root_changed.connect(self._on_root_file_changed_for_logging)
+        # Config working set (2026-09-01, plan project_save_model): staging is
+        # ON whenever a project root is open, OFF/cleared on close — a root
+        # switch/close starts with a clean working set (the unsaved-changes
+        # guard lives in RootMetadataDock.set_root_file/close_project).
+        self.root_metadata_dock.root_changed.connect(self._on_root_changed_for_working_set)
         # RootMetadataDock's own _restore_last_root() runs inside ITS
         # __init__ (gui/docks/root_metadata.py), which happens before
         # THIS wiring exists — so the very first root_changed emit (if a
@@ -286,37 +302,8 @@ class DockHub:
         # root_changed connections above — on startup the restored root may
         # be broken, and any dock must fail loudly-but-harmlessly (log only)
         # instead of crashing DockHub.__init__/MainWindow.__init__.
-        self._safe_call("config_tree_dock.set_root_file",
-                        self.config_tree_dock.set_root_file,
-                        self.root_metadata_dock.root_path)
-        self._safe_call("anchor_tree_dock.set_root_file",
-                        self.anchor_tree_dock.set_root_file,
-                        self.root_metadata_dock.root_path)
-        self._safe_call("trees_dock.set_root_file", self.trees_dock.set_root_file,
-                        self.root_metadata_dock.root_path)
-        self._safe_call("rules_dock.set_root_path", self.rules_dock.set_root_path,
-                        self.root_metadata_dock.root_path)
-        self._safe_call("placer_dock.set_root_path", self.placer_dock.set_root_path,
-                        self.root_metadata_dock.root_path)
-        self._safe_call("thermal_via_dock.set_root_path",
-                        self.thermal_via_dock.set_root_path,
-                        self.root_metadata_dock.root_path)
-        self._safe_call("cells_dock.set_root_path", self.cells_dock.set_root_path,
-                        self.root_metadata_dock.root_path)
-        self._safe_call("tools_dock.set_root_path", self.tools_dock.set_root_path,
-                        self.root_metadata_dock.root_path)
-        self._safe_call("points_dock.set_root_path", self.points_dock.set_root_path,
-                        self.root_metadata_dock.root_path)
-        self._safe_call("extract_dock.set_root_path", self.extract_dock.set_root_path,
-                        self.root_metadata_dock.root_path)
-        self._safe_call("net_trace_dock.set_root_path", self.net_trace_dock.set_root_path,
-                        self.root_metadata_dock.root_path)
-        self._safe_call("fieldstool_dock.set_root_path",
-                        self.fieldstool_dock.set_root_path,
-                        self.root_metadata_dock.root_path)
-        self._safe_call("_on_root_file_changed_for_logging",
-                        self._on_root_file_changed_for_logging,
-                        self.root_metadata_dock.root_path)
+        self._sync_root_to_docks(self.root_metadata_dock.root_path)
+        self._on_root_changed_for_working_set(self.root_metadata_dock.root_path)
         # file_selected fires BEFORE the more specific cell_picked/
         # placement_picked/profile_picked signal on a leaf click (see
         # config_tree.py's _on_clicked) — so this fallback runs first and
@@ -898,6 +885,72 @@ class DockHub:
         except Exception:  # noqa: BLE001 — any dock computation must not kill the GUI
             logging.exception("GUI: %s failed on the current root config (root "
                               "file may be broken) — window stays open", what)
+
+    def _sync_root_to_docks(self, path) -> None:
+        """Re-notify every root_changed consumer with `path` (the current root
+        or None), each guarded by _safe_call — the startup sync AND the
+        Discard path (reload_project_from_disk) share this one list, so a
+        discard can never drift from the initial wiring."""
+        self._safe_call("config_tree_dock.set_root_file",
+                        self.config_tree_dock.set_root_file, path)
+        self._safe_call("anchor_tree_dock.set_root_file",
+                        self.anchor_tree_dock.set_root_file, path)
+        self._safe_call("trees_dock.set_root_file", self.trees_dock.set_root_file, path)
+        self._safe_call("rules_dock.set_root_path", self.rules_dock.set_root_path, path)
+        self._safe_call("placer_dock.set_root_path", self.placer_dock.set_root_path, path)
+        self._safe_call("thermal_via_dock.set_root_path",
+                        self.thermal_via_dock.set_root_path, path)
+        self._safe_call("cells_dock.set_root_path", self.cells_dock.set_root_path, path)
+        self._safe_call("tools_dock.set_root_path", self.tools_dock.set_root_path, path)
+        self._safe_call("points_dock.set_root_path", self.points_dock.set_root_path, path)
+        self._safe_call("extract_dock.set_root_path", self.extract_dock.set_root_path, path)
+        self._safe_call("net_trace_dock.set_root_path",
+                        self.net_trace_dock.set_root_path, path)
+        self._safe_call("fieldstool_dock.set_root_path",
+                        self.fieldstool_dock.set_root_path, path)
+        self._safe_call("_on_root_file_changed_for_logging",
+                        self._on_root_file_changed_for_logging, path)
+
+    def reload_project_from_disk(self) -> None:
+        """Discard (File > Discard unsaved changes...): the working set was
+        cleared, so re-sync every dock with the on-disk (committed) state by
+        re-running the same root notification the startup path uses."""
+        self._sync_root_to_docks(self.root_metadata_dock.root_path)
+        self._update_dirty_indicator()
+
+    # ── Config working set (2026-09-01, plan project_save_model) ─────────
+
+    def _on_root_changed_for_working_set(self, root_path) -> None:
+        """Enable/clear the config working set when the project root changes:
+        staging is ON whenever a project is open (so every dock edit lands in
+        the working set, not on disk), OFF/cleared when the project closes. A
+        root switch starts with a clean working set; the unsaved-changes guard
+        lives in RootMetadataDock.set_root_file/close_project."""
+        WORKING_SET.enabled = root_path is not None
+        WORKING_SET.clear()
+        self._update_dirty_indicator()
+
+    def _on_working_set_changed(self) -> None:
+        """Every staged write (or clear) — reflect the dirty state immediately
+        and schedule a debounced refresh so the tree/collectors show the staged
+        content."""
+        self._update_dirty_indicator()
+        self._ws_refresh_timer.start()
+
+    def _refresh_from_working_set(self) -> None:
+        """Debounced: the working set changed (staged or flushed) — rebuild the
+        trees and graph-derived combos from the current (staged) state."""
+        self._safe_call("config_tree_dock.refresh", self.config_tree_dock.refresh)
+        self.anchor_tree_dock.schedule_refresh()
+        self._refresh_graph_dependent_choices()
+
+    def _update_dirty_indicator(self) -> None:
+        """Mirror the working set's dirty state into MainWindow's status-bar ●
+        and File > Save text (getattr-guarded: DockHub is also built against a
+        plain QMainWindow in tests)."""
+        fn = getattr(self.main_window, "_update_dirty_indicator", None)
+        if fn is not None:
+            fn()
 
     def _on_root_file_changed_for_logging(self, path) -> None:
         """Attaches a FileHandler using the CURRENT root config's own

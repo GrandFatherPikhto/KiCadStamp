@@ -7,6 +7,7 @@ from gui.docks.root_metadata import (ACTION_ADD_SCH, ACTION_NEW, ACTION_OPEN,
                                      ACTION_REMOVE_SCH, ACTION_SAVE,
                                      RootMetadataDock)
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
+from kicadstamp.config_working_set import WORKING_SET
 
 MINIMAL_CELL = {
     "cells": {
@@ -269,7 +270,9 @@ def test_no_file_picked_shows_placeholder_and_defaults(main_window):
     assert "No project file open" in dock.target_label.text()
     assert dock.layer_combo.currentText() == "F.Cu"
     assert dock.schematic_files_list.count() == 0
-    assert dock.save_button is not None
+    # 2026-09-01 (plan project_save_model): the per-dock Save button is gone —
+    # saving is the global File > Save; the fields auto-stage on commit points.
+    assert not hasattr(dock, "save_button")
 
 
 def test_fields_are_grouped_into_files_schematics_via_tabs(main_window):
@@ -544,7 +547,9 @@ def test_creates_actions_with_stable_ids_and_defaults(main_window):
     expected = {
         ACTION_OPEN: ("Open Root file...", "Ctrl+O"),
         ACTION_NEW: ("New Root file...", "Ctrl+N"),
-        ACTION_SAVE: ("Save", "Ctrl+S"),
+        # Ctrl+S belongs to the GLOBAL File > Save (project.save, 2026-09-01);
+        # the root-dock action keeps no default shortcut.
+        ACTION_SAVE: ("Save", ""),
         ACTION_ADD_SCH: ("Add...", "Ctrl+Shift+A"),
         ACTION_REMOVE_SCH: ("Remove", "Ctrl+Shift+R"),
     }
@@ -553,8 +558,6 @@ def test_creates_actions_with_stable_ids_and_defaults(main_window):
         action = window_actions[action_id]
         assert action.text() == label
         assert action.shortcut() == QKeySequence(shortcut)
-    # the buttons stay as they were (this step only ADDS the action + hotkey)
-    assert dock.save_button.text() == "Save"
 
 
 def test_action_triggers_reach_the_same_slots(main_window, monkeypatch):
@@ -623,12 +626,14 @@ def test_confirm_discard_passes_when_clean(main_window, tmp_path):
 
 def test_close_project_respects_discard_guard(main_window, tmp_path, monkeypatch):
     """File > Close: a refused unsaved-changes guard keeps the project open; a
-    confirmed one drops the root via set_root_file(None)."""
+    confirmed one drops the root via set_root_file(None). The guard now covers
+    the whole project's staged working set (2026-09-01)."""
     path = tmp_path / "root.sexp"
     _write(path, {"cells": {}})
     dock = RootMetadataDock(main_window)
     dock.set_root_file(path)
-    dock._text_edits["schematic_dir"].setText("changed")  # dirty
+    WORKING_SET.enabled = True
+    WORKING_SET.stage_write(path, {"cells": {"c1": {}}})  # project is dirty
 
     monkeypatch.setattr(dock, "_confirm_discard_changes", lambda: False)
     dock.close_project()
@@ -637,3 +642,6 @@ def test_close_project_respects_discard_guard(main_window, tmp_path, monkeypatch
     monkeypatch.setattr(dock, "_confirm_discard_changes", lambda: True)
     dock.close_project()
     assert dock._path is None  # confirmed -> project closed
+
+    WORKING_SET.enabled = False
+    WORKING_SET.clear()
