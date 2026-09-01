@@ -140,6 +140,11 @@ class DockHub:
         # receiving the selection-watch ticks / set_root_path / saved.
         self.extract_dock = ExtractDock(main_window, connection=connection)
         self.extract_dialog = ExtractDialog(self.extract_dock, main_window)
+        # Phase F (2026-09-01): the selection-watch state moves OUT of
+        # ExtractDock (which phase F removes) into DockHub — the single source
+        # "Extract tree..." reads for cluster/copper detection.
+        self._selection_raw_items: list = []
+        self._selection_footprints: list = []
         # Thermal via (2026-09-01, plan plan_2026_09_01_thermal_via_dialog.md):
         # a STANDALONE widget hosted in the non-modal ThermalViaDialog — the
         # Detail dock has no Thermal via page anymore (same move as Extract
@@ -585,12 +590,13 @@ class DockHub:
         self.tree_dock.highlight_board_selection(refs)
 
     def set_board_selection(self, items, selected) -> None:
-        """Push the live selection into the docks that react to it:
-        ExtractDock (its aliases/origin combos and button state depend on
-        what's currently selected) and PlacerDock (2026-08-31, plan
-        placer_source_tab_gaps P.1 — its Cell-mode Cluster auto-fill reads
-        the current selection's Cluster)."""
-        self.extract_dock.set_board_selection(items, selected)
+        """Push the live selection into the docks that react to it. Phase F
+        (2026-09-01): the raw selection state is kept in DockHub itself
+        (ExtractDock is removed; "Extract tree..." reads these) and PlacerDock
+        still receives it (2026-08-31, plan placer_source_tab_gaps P.1 — its
+        Cell-mode Cluster auto-fill reads the current selection's Cluster)."""
+        self._selection_raw_items = list(items)
+        self._selection_footprints = list(selected)
         self.placer_dock.set_board_selection(items, selected)
 
     def push_fieldstool_selection(self, refs) -> None:
@@ -804,7 +810,7 @@ class DockHub:
 
         from .docks.reead import fully_selected_clusters
         clusters = fully_selected_clusters(
-            self.extract_dock._selected_footprints,
+            self._selection_footprints,
             list(connection.snapshot or []),
             list(cfg.entities),
             (),
@@ -833,7 +839,7 @@ class DockHub:
         from .docks.tree_from_selection_dialog import TreeFromSelectionDialog
 
         inter_nets = detect_inter_cluster_nets(
-            self.extract_dock._raw_items, clusters,
+            self._selection_raw_items, clusters,
             list(connection.snapshot or []),
             [r.net for r in cfg.rules],
             adapter=adapter)
@@ -851,7 +857,7 @@ class DockHub:
                 # Auto-derived Entity (phase A): no cell exists yet — the
                 # autopositioning preview reads the cluster's own live role
                 # (the cell's future zero-slot, see cluster_origin_role).
-                role = cluster_origin_role(c, self.extract_dock._selected_footprints)
+                role = cluster_origin_role(c, self._selection_footprints)
                 if role:
                     try:
                         entity_positions[entity_name] = resolve_cluster_live_position_mm(
@@ -954,10 +960,10 @@ class DockHub:
                 # cell gets a zero-slot — which is what the Entity's live
                 # position read requires at apply (entity_placement).
                 if cell_name not in cfg.cells and cell_name not in cells_data:
-                    items = cluster_raw_items(c, self.extract_dock._raw_items)
+                    items = cluster_raw_items(c, self._selection_raw_items)
                     origin_kwargs = {}
                     role = cluster_origin_role(
-                        c, self.extract_dock._selected_footprints)
+                        c, self._selection_footprints)
                     if role:
                         origin_kwargs = dict(
                             origin_component_role=role,
@@ -986,7 +992,7 @@ class DockHub:
             # Phase B+C+D: capture the checked inter-cluster nets as net_traces:
             # records BEFORE the tree write, so the tree's net_trace nodes
             # resolve against cfg.net_traces at link_trees time.
-            selected_raw = self.extract_dock._raw_items
+            selected_raw = self._selection_raw_items
             net_traces_data = data.setdefault("net_traces", [])
             new_net_traces: list[NetTrace] = []
             for net in checked_nets:

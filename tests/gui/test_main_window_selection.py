@@ -83,7 +83,10 @@ def _connected_window(real_main_window, monkeypatch, items, snapshot):
 
 def _record_set_board_selection(real_main_window, monkeypatch):
     calls = []
-    monkeypatch.setattr(real_main_window.extract_dock, "set_board_selection",
+    # Phase F (2026-09-01): ExtractDock is removed — the selection-watch tick
+    # feeds DockHub.set_board_selection (which stores the state for
+    # "Extract tree..." and feeds PlacerDock).
+    monkeypatch.setattr(real_main_window._dock_hub, "set_board_selection",
                         lambda raw, sel: calls.append((raw, list(sel))))
     return calls
 

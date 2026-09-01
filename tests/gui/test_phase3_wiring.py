@@ -672,8 +672,9 @@ def test_extract_tree_happy_path_saves_tree_and_nets(real_main_window,
     real_main_window.connection = SimpleNamespace(
         board=SimpleNamespace(adapter=object()),
         snapshot=[sel1, sel2], long_op_active=False)
-    hub.extract_dock._selected_footprints = [sel1, sel2]
-    hub.extract_dock._raw_items = [
+    # Phase F: the selection-watch state lives in DockHub, not ExtractDock.
+    hub._selection_footprints = [sel1, sel2]
+    hub._selection_raw_items = [
         Track(uuid="t1", start=Vector2.from_xy(0, 0), end=Vector2.from_xy(1, 1),
               net_name="SHARED", width_mm=0.25, layer=None),
     ]
@@ -1411,16 +1412,15 @@ def test_dock_hub_delegates_route_to_the_right_docks(real_main_window, monkeypat
     hub.highlight_selection({"R1"})
     assert highlighted == [{"R1"}]
 
-    board_selected = []
     placer_selected = []
-    monkeypatch.setattr(hub.extract_dock, "set_board_selection",
-                        lambda items, sel: board_selected.append((items, sel)))
-    # 2026-08-31 (plan placer_source_tab_gaps P.1): the selection-watch tick
-    # now also reaches PlacerDock (its Cell-mode Cluster auto-fill).
+    # Phase F (2026-09-01): ExtractDock is removed — the selection-watch state
+    # now lives in DockHub (read by "Extract tree..."); PlacerDock is still fed
+    # (2026-08-31, plan placer_source_tab_gaps P.1).
     monkeypatch.setattr(hub.placer_dock, "set_board_selection",
                         lambda items, sel: placer_selected.append((items, sel)))
     hub.set_board_selection(["raw"], ["sel"])
-    assert board_selected == [(["raw"], ["sel"])]
+    assert hub._selection_raw_items == ["raw"]
+    assert hub._selection_footprints == ["sel"]
     assert placer_selected == [(["raw"], ["sel"])]
 
     shown, raised = [], []
