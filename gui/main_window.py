@@ -214,7 +214,7 @@ class MainWindow(QMainWindow):
 
         # Edit menu (2026-08-31, plan copy_cell_entity_from_profile) — by
         # function like File, not per-dock. Import from profile... copies one
-        # Cell/Entity/Rule from ANOTHER profile into the current project BY
+        # Cell/Entity/Chain from ANOTHER profile into the current project BY
         # VALUE (independent copy, no include: link) — the picker dialog is
         # gui/docks/profile_import.py, and it needs the current project root
         # (owned by RootMetadataDock) to write the copy into.
@@ -263,6 +263,25 @@ class MainWindow(QMainWindow):
         self.add_point_action.triggered.connect(
             lambda: self._dock_hub.new_point())
         tools_menu.addAction(self.add_point_action)
+        # Chains (2026-09-01, plan rules_to_chains): "Add net..." opens the
+        # (non-modal) Chain dialog in chain mode with a fresh blank form (same
+        # shape as "Add point..." -> new_point). The menu labels follow the
+        # NET-identity convention Denis chose (net identifies a chain for
+        # --only); "Add spoke..." adds a pad to the currently selected chain
+        # in the Config tree (pad mode); "Delete net..." removes the selected
+        # chain from its file (with the usual timestamped backup).
+        self.add_chain_action = QAction(_("Add net..."), self)
+        self.add_chain_action.triggered.connect(
+            lambda: self._dock_hub.add_chain())
+        tools_menu.addAction(self.add_chain_action)
+        self.add_spoke_action = QAction(_("Add spoke..."), self)
+        self.add_spoke_action.triggered.connect(
+            lambda: self._dock_hub.add_spoke())
+        tools_menu.addAction(self.add_spoke_action)
+        self.delete_chain_action = QAction(_("Delete net..."), self)
+        self.delete_chain_action.triggered.connect(
+            lambda: self._dock_hub.delete_selected_chain())
+        tools_menu.addAction(self.delete_chain_action)
         # "Edit template..." (2026-09-01, plan plan_2026_09_01_tools_dialog_and_
         # entity_roles.md): opens the standalone (non-modal) Tools dialog — the
         # picked Entity's electrical fields (Nets/Net overrides/Refs), same
@@ -361,8 +380,13 @@ class MainWindow(QMainWindow):
         return self._dock_hub.points_dock
 
     @property
+    def chain_dock(self):
+        return self._dock_hub.chain_dock
+
+    @property
     def rules_dock(self):
-        return self._dock_hub.rules_dock
+        # Backward-compat alias for the 2026-09-01 Rule -> Chain rename.
+        return self._dock_hub.chain_dock
 
     @property
     def log_dock(self):

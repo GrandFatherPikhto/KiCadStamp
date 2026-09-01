@@ -255,60 +255,62 @@ def test_rules_dock_picks_up_a_root_restored_before_wiring_existed(qapp, tmp_pat
         window._poll_worker.stop()
 
 
-def test_rule_picked_fills_rules_form_and_switches_tab(real_main_window, tmp_path):
-    """ConfigTreeDock -> RuleDock wiring (rule_picked -> load_entry) —
-    clicking a Rules leaf in the real Config tree must reach RuleDock's
-    form end-to-end, not just via a direct load_entry() call, and bring
-    the Rules tab to front. rules: is a LIST section (see rule_picked's
-    own docstring), so the payload is already the full dict — unlike
-    points_picked, no set_target_file needed first just to populate the
-    form."""
+def test_chain_edit_requested_fills_chain_form_and_opens_dialog(real_main_window, tmp_path):
+    """ConfigTreeDock -> ChainDock wiring (chain_edit_requested -> _start_edit_
+    chain) — a double click on a chains: chain node must reach ChainDock's
+    chain mode end-to-end, not just via a direct load_chain() call, and open
+    the (non-modal) Chain dialog (2026-09-01, plan rules_to_chains)."""
     rules_file = tmp_path / "rules.sexp"
-    _write(rules_file, {"rules": [
+    _write(rules_file, {"chains": [
         {"net": "+3V3", "anchor_role": "FPGA",
          "spokes": [{"pad": "17", "cell": "cap_pair"}]},
     ]})
     real_main_window.config_tree_dock.set_root_file(rules_file)
 
-    real_main_window.config_tree_dock.rule_picked.emit(
+    real_main_window.config_tree_dock.chain_edit_requested.emit(
         {"net": "+3V3", "anchor_role": "FPGA", "spokes": [{"pad": "17", "cell": "cap_pair"}]})
 
-    assert real_main_window.rules_dock.net_edit.currentText() == "+3V3"
-    assert real_main_window.rules_dock.anchor_role_edit.currentText() == "FPGA"
-    assert real_main_window.rules_dock._spokes == [{"pad": "17", "cell": "cap_pair"}]
-    assert real_main_window._dock_hub.detail_dock.stack.currentWidget() is real_main_window.rules_dock
+    assert real_main_window.chain_dock.net_edit.currentText() == "+3V3"
+    assert real_main_window.chain_dock.anchor_role_edit.currentText() == "FPGA"
+    assert real_main_window.chain_dock._chain_entry == {
+        "net": "+3V3", "anchor_role": "FPGA", "spokes": [{"pad": "17", "cell": "cap_pair"}]}
+    assert real_main_window._dock_hub.chain_dialog.isVisible()
 
 
-def test_rules_saved_refreshes_config_tree_rules(real_main_window, tmp_path):
-    """RuleDock -> ConfigTreeDock wiring (saved -> refresh) — same
+def test_chain_saved_refreshes_config_tree_chains(real_main_window, tmp_path):
+    """ChainDock -> ConfigTreeDock wiring (saved -> refresh) — same
     real-widget-state assertion style as test_points_saved_refreshes_
-    config_tree_points above."""
+    config_tree_points above. The refreshed tree shows the Chains category
+    -> anchor -> chain structure."""
     rules_file = tmp_path / "rules.sexp"
     _write(rules_file)
     real_main_window.config_tree_dock.set_root_file(rules_file)
     root_item = real_main_window.config_tree_dock.tree.topLevelItem(0)
     assert root_item.childCount() == 0
 
-    _write(rules_file, {"rules": [{"net": "+3V3", "anchor_role": "FPGA"}]})
-    real_main_window.rules_dock.saved.emit()
+    _write(rules_file, {"chains": [{"net": "+3V3", "anchor_role": "FPGA"}]})
+    real_main_window.chain_dock.saved.emit()
 
     root_item = real_main_window.config_tree_dock.tree.topLevelItem(0)
-    rules = root_item.child(0)
-    assert rules.text(0) == "Rules"
-    assert rules.child(0).text(0) == "+3V3"
+    chains_cat = root_item.child(0)
+    assert chains_cat.text(0) == "Chains"
+    assert chains_cat.child(0).text(0) == "Anchor: FPGA"
+    assert chains_cat.child(0).child(0).text(0) == "+3V3"
 
 
-def test_add_rule_requested_opens_blank_rules_form_and_shows_tab(real_main_window, tmp_path):
-    """ConfigTreeDock's "Add rule..." context-menu action -> RuleDock, same
-    shape as DockHub._start_new_placement/_start_new_point."""
+def test_add_chain_requested_opens_blank_chain_form_and_dialog(real_main_window, tmp_path):
+    """ConfigTreeDock's "Add chain..." context-menu action -> ChainDock, same
+    shape as DockHub._start_new_placement/_start_new_point (2026-09-01, plan
+    rules_to_chains: "Add chain..." in the tree, "Add net..." in the Tools
+    menu)."""
     rules_file = tmp_path / "rules.sexp"
     _write(rules_file)
-    real_main_window.rules_dock.net_edit.setCurrentText("stale")
+    real_main_window.chain_dock.net_edit.setCurrentText("stale")
 
-    real_main_window.config_tree_dock.add_rule_requested.emit(rules_file)
+    real_main_window.config_tree_dock.add_chain_requested.emit(rules_file)
 
-    assert real_main_window.rules_dock.net_edit.currentText() == ""
-    assert real_main_window._dock_hub.detail_dock.stack.currentWidget() is real_main_window.rules_dock
+    assert real_main_window.chain_dock.net_edit.currentText() == ""
+    assert real_main_window._dock_hub.chain_dialog.isVisible()
 
 
 def test_tools_menu_new_extract_opens_dialog_and_prepares_fresh(real_main_window):
@@ -467,6 +469,61 @@ def test_tools_menu_add_point_opens_dialog_and_prepares_fresh(real_main_window):
 
     assert hub.points_dialog.isVisible()
     assert hub.points_dock.name_edit.text() == ""
+
+
+def test_tools_menu_add_net_opens_chain_dialog_fresh(real_main_window):
+    """2026-09-01 (plan rules_to_chains): the Tools menu's "Add net..." action
+    routes to DockHub.add_chain -> the same fresh blank chain form
+    (_start_new_chain) the Config tree context menu's "Add chain..." provides.
+    The menu labels a chain by its NET identity (Denis's decision)."""
+    hub = real_main_window._dock_hub
+    hub.chain_dock.net_edit.setCurrentText("stale_net")
+
+    real_main_window.add_chain_action.trigger()
+
+    assert hub.chain_dialog.isVisible()
+    assert hub.chain_dock.net_edit.currentText() == ""
+    assert hub.chain_dock._stack.currentWidget() is hub.chain_dock._chain_page
+
+
+def test_tools_menu_add_spoke_requires_a_selected_chain(real_main_window, tmp_path):
+    """2026-09-01 (plan rules_to_chains): "Add spoke..." opens the Chain dialog
+    in pad mode, appending to the chain currently selected in the Config tree.
+    Without a selection it just logs a hint — never a crash."""
+    hub = real_main_window._dock_hub
+    hub.add_spoke()
+    assert not hub.chain_dialog.isVisible()  # nothing selected -> no dialog
+
+    # With a chains: chain selected, the dialog opens in pad mode.
+    chain = {"net": "+3V3", "anchor_ref": "U1", "spokes": []}
+    real_main_window.config_tree_dock.selected_chain = lambda: (None, chain)
+
+    hub.add_spoke()
+
+    assert hub.chain_dialog.isVisible()
+    assert hub.chain_dock._stack.currentWidget() is hub.chain_dock._pad_page
+    assert hub.chain_dock._chain_entry == chain
+    assert hub.chain_dock._pad_index is None  # append
+
+
+def test_tools_menu_delete_net_removes_selected_chain(real_main_window, tmp_path):
+    """2026-09-01 (plan rules_to_chains): "Delete net..." deletes the chain
+    currently selected in the Config tree via delete_entry (timestamped
+    backup)."""
+    rules_file = tmp_path / "rules.sexp"
+    _write(rules_file, {"chains": [
+        {"net": "+3V3", "anchor_ref": "U1", "spokes": []},
+        {"net": "GND", "anchor_ref": "U1", "spokes": []},
+    ]})
+    hub = real_main_window._dock_hub
+    hub.config_tree_dock.set_root_file(rules_file)
+    hub.config_tree_dock.selected_chain = lambda: (rules_file, {"net": "+3V3", "anchor_ref": "U1", "spokes": []})
+
+    real_main_window.delete_chain_action.trigger()
+
+    data = sexp_to_dict(rules_file.read_text(encoding="utf-8"))
+    assert [c["net"] for c in data["chains"]] == ["GND"]
+    assert len(list(tmp_path.glob("rules.sexp.bak.*"))) == 1
 
 
 def test_entity_edit_requested_opens_dialog_with_entry_loaded(real_main_window, tmp_path):
