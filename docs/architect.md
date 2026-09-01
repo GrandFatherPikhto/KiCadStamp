@@ -87,13 +87,13 @@ Modules that work with coordinates, independent of KiCad:
 
 - **`keepout.py`** – `Rect` (AABB) class and functions for building keepout areas, checking point clearance, finding free positions.
 - **`pad_projection.py`** – predicts pad position after moving/rotating the component, accounting for flipping.
-- **`spoke_layout.py`** – transforms template local coordinates (`along/across`) to absolute board coordinates for `ManualSpoke` (pad‑based). Generates vias and **tracks** using `rule.net` as default net.
+- **`spoke_layout.py`** – transforms template local coordinates (`along/across`) to absolute board coordinates for `ManualSpoke` (pad‑based). Generates vias and **tracks** using `chain.net` as default net.
 - **`clone_geometry.py`** – similar transformation for `ClonePlacement`, but without pad binding: uses an absolute origin `(origin_x, origin_y)`, resolves via/track nets via `net_resolution` (with placeholder support). Supports mirroring (`mirror`).
 - **`thermal_grid.py`** – generates thermal via grids under pads.
 
 ### 4.3. Business Logic (`placement/`)
 
-- **`planner.py`** – `PlacementPlanner` is the main orchestrator. It calls `ManualPositionCalculator` for `rules` and `ClonePositionCalculator` for `clone_placements` (which also returns tracks). Then it builds move, via, and track commands. Implements skipping already‑placed components.
+- **`planner.py`** – `PlacementPlanner` is the main orchestrator. It calls `ManualPositionCalculator` for `chains` and `ClonePositionCalculator` for `clone_placements` (which also returns tracks). Then it builds move, via, and track commands. Implements skipping already‑placed components.
 - **`executor/`** – split into modules for readability and testability:
   - `FlipManager` – flip management.
   - `MoveExecutor` – move execution.
@@ -105,7 +105,7 @@ Modules that work with coordinates, independent of KiCad:
 - **`services/`**:
   - `ComponentPool` – collects components by `Role` field and net, sorts them, assigns to spokes (for `ManualSpoke`).
   - `CloneRoleResolver` – resolves roles for `ClonePlacement` in two modes: by selection (reads roles from selected components) and by nets (explicit net assignment with placeholders via `net_resolution`). In net mode, **disambiguation** is performed by physical proximity to the anchor (if multiple candidates exist, the closest one is chosen if the distance margin is sufficient). Supports `anchor_role`, `anchor_sheet`, `by_selection`, and explicit `refs`.
-  - `ManualPositionCalculator` – implements `IPositionCalculator` for `rules`: builds a pool, applies `apply_spoke_geometry`, returns `PlacedComponentInfo` and `ViaCommand`.
+  - `ManualPositionCalculator` – implements `IPositionCalculator` for `chains`: builds a pool, applies `apply_spoke_geometry`, returns `PlacedComponentInfo` and `ViaCommand`.
   - `ClonePositionCalculator` – implements calculation for `clone_placements`, using `apply_clone_geometry` and `clone_role_resolver`, returns components, vias, and tracks.
   - `ViaPlanner` – implements `IViaPlanner`: handles only thermal vias and existing‑via filtering via the registry (`skip_existing_components`).
 
@@ -146,7 +146,7 @@ Modules that work with coordinates, independent of KiCad:
 
 ### 4.10. User Interface (CLI)
 
-- **`kicadstamp_cli.py`** – the main executable, handling argument parsing, config loading, KiCad connection, validation, planning, and execution (three phases: moves → vias → tracks), plus `undo`, `extract`, `clone-extract`, and the optional `--only` flag for processing only the named `rules`/`clone_placements`/`thermal_via_arrays`.
+- **`kicadstamp_cli.py`** – the main executable, handling argument parsing, config loading, KiCad connection, validation, planning, and execution (three phases: moves → vias → tracks), plus `undo`, `extract`, `clone-extract`, and the optional `--only` flag for processing only the named `chains`/`clone_placements`/`thermal_via_arrays`.
 
 ---
 
@@ -161,7 +161,7 @@ Modules that work with coordinates, independent of KiCad:
 2. Config loading (load_config)
    │
    ├── Read YAML
-   ├── Resolve include: (merges external cells:/rules:/clone_placements:/etc.)
+   ├── Resolve include: (merges external cells:/chains:/clone_placements:/etc.)
    ├── Merge with inline templates
    ├── Check role uniqueness in templates
    ├── Build Config object

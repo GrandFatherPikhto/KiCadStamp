@@ -32,7 +32,7 @@ writes `net_from_role` / auto `net_template` / auto `{param}` patterns
 nets (Phase 3) — see those sections. Combined, nothing in the net coordinate
 needs to be typed by hand.
 
-**Move ordering (dependency chain).** Within the moves phase, `rules`/`clone_placements` are not all
+**Move ordering (dependency chain).** Within the moves phase, `chains`/`clone_placements` are not all
 planned from one snapshot any more — each item's anchor (`anchor_ref`/`anchor_role`) is resolved against
 the board, and if that anchor is a ref that ANOTHER item in the same run is about to place, the producer
 is planned, moved, and committed first; only then is the dependent item planned against the real,
@@ -62,10 +62,10 @@ python kicadstamp_cli.py apply <config.sexp> [options]
 | `--log-file` | Save logs to the specified file. |
 | `--no-collision-check` | Disable collision checking (if false positives occur). |
 | `--collision-margin` | Extra clearance for collision checking in mm (default: `0.2`). |
-| `--only NAME` | Process only the `rules`/`clone_placements`/`thermal_via_arrays` with this identity (flag can be repeated, and/or comma-separated: `--only a,b --only c`). The main way to narrow a run (replaces the old `--clone-placement`, which is gone – it never isolated `rules`/`thermal_via_arrays`, only `clone_placements`, hence the confusion). The identity is the entry's `name:` if set, else its `net` for a rule (see below); mandatory for `clone_placements`/`thermal_via_arrays`. Everything that doesn't match is excluded from this run entirely, not even touched by validation/logging – for checking one section of the board in isolation, without noise from the rest. An unknown name is fatal, with a `difflib`-based suggestion. |
-| `--cluster PATH` | Process only spokes / `clone_placements` / `thermal_via_arrays` entries whose `Cluster` (`anchor_cluster` / a spoke's `cluster`) matches this path or a prefix of it, segment-wise (`Channel_0` also matches `Channel_0/DAC_OA`). Repeatable and/or comma-separated. A second, independent selection axis (physical instance, not name/identity) – for a `rules:` entry it narrows `spokes:` inside the rule (the rule survives if at least one spoke matches, is dropped entirely otherwise), for `clone_placements`/`thermal_via_arrays` it's a whole-entry match. Combines with `--only` via AND only (no OR mode) – run `apply` twice if you need "this OR that"; the registry makes repeat runs safe (already-placed items aren't duplicated). Matches nothing → fatal, same as `--only`. |
+| `--only NAME` | Process only the `chains`/`clone_placements`/`thermal_via_arrays` with this identity (flag can be repeated, and/or comma-separated: `--only a,b --only c`). The main way to narrow a run (replaces the old `--clone-placement`, which is gone – it never isolated `chains`/`thermal_via_arrays`, only `clone_placements`, hence the confusion). The identity is the entry's `name:` if set, else its `net` for a chain (see below); mandatory for `clone_placements`/`thermal_via_arrays`. Everything that doesn't match is excluded from this run entirely, not even touched by validation/logging – for checking one section of the board in isolation, without noise from the rest. An unknown name is fatal, with a `difflib`-based suggestion. |
+| `--cluster PATH` | Process only spokes / `clone_placements` / `thermal_via_arrays` entries whose `Cluster` (`anchor_cluster` / a spoke's `cluster`) matches this path or a prefix of it, segment-wise (`Channel_0` also matches `Channel_0/DAC_OA`). Repeatable and/or comma-separated. A second, independent selection axis (physical instance, not name/identity) – for a `chains:` entry it narrows `spokes:` inside the chain (the chain survives if at least one spoke matches, is dropped entirely otherwise), for `clone_placements`/`thermal_via_arrays` it's a whole-entry match. Combines with `--only` via AND only (no OR mode) – run `apply` twice if you need "this OR that"; the registry makes repeat runs safe (already-placed items aren't duplicated). Matches nothing → fatal, same as `--only`. |
 
-**Terminology used below and in the code:** `rules:` (`Rule`, part of `ManualSpoke`) are called **spokes**;
+**Terminology used below and in the code:** `chains:` (`Chain`, part of `ManualSpoke`) are called **spokes**;
 `thermal_via_arrays:` are the **thermal vias**; `clone_placements:` (`ClonePlacement`) are the **clones**. All
 three are independent, uniformly `--only`/`--cluster`/`enabled`-filterable sections of one config.
 
@@ -77,7 +77,7 @@ priority over this field:
 log_file: ../logs/placer.log
 ```
 
-**`include:` – splitting a profile into subsystem files.** General‑purpose: merges `rules:`/
+**`include:` – splitting a profile into subsystem files.** General‑purpose: merges `chains:`/
 `clone_placements:`/`thermal_via_arrays:` (concatenated) and `cells:`/`points:`/`extract_profiles:`/
 `clone_profiles:` (merged by key) from other files into the current one, recursively, and works for
 **both** `apply` (`load_config`) and `extract`/`clone-extract` (`load_profile`, since
@@ -97,23 +97,23 @@ to be separate files, so a repeated name is far more likely a mistake. A file in
 reached from two different branches) is fatal too, whether or not it's a true cycle. Paths are resolved
 relative to the file that references them, not the top‑level config or the current working directory.
 
-**About the current production config:** the master config for the `3CH-AWG-TIA` board is `profiles/3ch-awg-tia.sexp` (merged `rules:`, `clone_placements:`, `thermal_via_arrays:`, with a reference to `profiles/templates/3ch-awg-tia.yaml` via `cells_file`). The file `profiles/generated/10CL006YE144C8G.yaml` written by `tools/generate_10cl006.py` is a self‑contained archival version (can be run separately, but is no longer used in `apply` for this board).
+**About the current production config:** the master config for the `3CH-AWG-TIA` board is `profiles/3ch-awg-tia.sexp` (merged `chains:`, `clone_placements:`, `thermal_via_arrays:`, with a reference to `profiles/templates/3ch-awg-tia.yaml` via `cells_file`). The file `profiles/generated/10CL006YE144C8G.yaml` written by `tools/generate_10cl006.py` is a self‑contained archival version (can be run separately, but is no longer used in `apply` for this board).
 
 **`name:` is mandatory on every `thermal_via_arrays:` entry and every
-`clone_placements:` entry, but OPTIONAL on `rules:` entries** (a rule falls back to its `net` – this was
-briefly made mandatory for rules too, then deliberately reverted the same day: a rule's `net` is already a
-perfectly good, usually-unique identity, and forcing a redundant `name:` on every single rule added no
+`clone_placements:` entry, but OPTIONAL on `chains:` entries** (a chain falls back to its `net` – this was
+briefly made mandatory for chains too, then deliberately reverted the same day: a chain's `net` is already a
+perfectly good, usually-unique identity, and forcing a redundant `name:` on every single chain added no
 value). Used by `--only`. A `clone_placement` without `name:` used to silently become the literal string
 `'?'` (a real hole, not a feature), and a `thermal_via_arrays` entry without one used to silently fall back
 to `thermal_<pad>` – both gone, missing `name:` is fatal at config-load time for these two (and every
-`thermal_via_arrays` entry's `name:` must also be unique across the whole list). For `rules:`, the
-loader instead fatals if **two rules resolve to the same effective identity** (same `net`, no distinguishing
+`thermal_via_arrays` entry's `name:` must also be unique across the whole list). For `chains:`, the
+loader instead fatals if **two chains resolve to the same effective identity** (same `net`, no distinguishing
 `name:`) – add a `name:` to disambiguate, don't rely on one being picked silently:
 ```yaml
-rules:
+chains:
 - net: +3V3_VCCIO
   # name: optional – defaults to net "+3V3_VCCIO"; add one only if you want a
-  # more readable --only label, or two rules share the same net
+  # more readable --only label, or two chains share the same net
   anchor_role: FPGA
   enabled: true          # optional, default true – see below
   spokes: [...]
@@ -129,7 +129,7 @@ clone_placements:
   ...
 ```
 
-**`enabled: bool` (default `true`) on every `rules:`/`clone_placements:`/`thermal_via_arrays:` entry** –
+**`enabled: bool` (default `true`) on every `chains:`/`clone_placements:`/`thermal_via_arrays:` entry** –
 whole-entry on/off switch. `enabled: false` always wins, applied **before** `--only`/`--cluster` are even
 looked at – it means "does not exist on the board right now", not "excluded from this particular run", so
 it cannot be un-done by naming the entry explicitly on the command line. Use it to permanently park a
@@ -168,7 +168,7 @@ python kicadstamp_cli.py apply templates\pi_filter_vccio.sexp --only pi_filter_v
 # Only one clone_placement, no FPGA spokes or thermal vias in the log
 python kicadstamp_cli.py apply profiles/3ch-awg-tia.sexp --only p5v_pi_filter --dry-run
 
-# Multiple names/identities at once (a rule via its net + a named thermal_via_arrays entry), repeat flag or comma
+# Multiple names/identities at once (a chain via its net + a named thermal_via_arrays entry), repeat flag or comma
 python kicadstamp_cli.py apply profiles/3ch-awg-tia.sexp --only +3V3_VCCIO,fpga_thermal
 ```
 
@@ -236,7 +236,7 @@ python kicadstamp_cli.py extract --name <template_name> --output <file> [--timeo
 | `--param KEY=VALUE` | Sets a parameter for verifying `--net-template` (e.g., `channel=1`). Not written to the template, only used for round‑trip validation. Can be repeated. **Optional now** — via/track nets resolve from roles (`net_from_role`) and channel patterns are auto‑discovered, so `params` is only needed when you still override nets via `--net-template`. |
 | `--net-template LITERAL=PATTERN` | Replaces a real net name with a pattern containing placeholders (e.g., `DAC1_DB1=DAC{channel}_DB1`). Can be repeated. **Optional now** — bridging roles auto‑derive `net_template` and channel patterns are auto‑discovered; kept as an explicit override. |
 | `--net-template-role ROLE=LITERAL` | For bridging roles (ferrite/inductor/fuse between two rails) — overrides WHICH net is the role's `net_template` (e.g., `PI_FILTER_FB=+5V_DIRTY`). **Optional now**: extract auto‑derives a designated `net_template` for bridging roles; this flag only changes the designated net. Fatal if the role does not actually have that net on its pads, or if the literal is not registered in `--net-template`/`params`. |
-| `--rule-net LITERAL` | Writes this via/track net as `null` instead of its literal name (e.g., `+3V3`) — at apply time a ManualSpoke‑placed cell's via/track with `net: null` inherits the enclosing Rule's own net, making the cell reusable across Rules on different nets. Only needed for ManualSpoke‑reused cells — `net_from_role` cells need none of this. Can be repeated. Fatal if the same net is also in `--param`/`--net-template`. |
+| `--rule-net LITERAL` | Writes this via/track net as `null` instead of its literal name (e.g., `+3V3`) — at apply time a ManualSpoke‑placed cell's via/track with `net: null` inherits the enclosing Chain's own net, making the cell reusable across Rules on different nets. Only needed for ManualSpoke‑reused cells — `net_from_role` cells need none of this. Can be repeated. Fatal if the same net is also in `--param`/`--net-template`. |
 | `--origin-by-via-net NET` | Sets the template origin to the position of the via with the specified net (instead of the bbox lower‑left corner). Fatal if no such via exists or if there is more than one. Mutually exclusive with `--origin-by-component-role` (you can specify only one origin method). |
 | `--origin-by-component-role ROLE` | Sets the origin to the position of the component with the specified role. Mutually exclusive with `--origin-by-via-net`. |
 | `--origin-by-component-pad PAD` | Refines `--origin-by-component-role`: origin is the position of the specific pad of that component, not its centre. Without `--origin-by-component-role` it is fatal (you can only specify a pad for an already specified role). |
@@ -335,7 +335,7 @@ python kicadstamp_cli.py extract-net --net <NET> --anchor-role <ROLE> \
   hierarchical nets keep their full `/Channel_0/...` form).
 - `--anchor-role` (required) — the Role field of the anchor footprint, searched
   over the whole live board (the same `resolve_footprint_by_role` search
-  Rule/ClonePlacement use). Fatal if absent or ambiguous.
+  Chain/ClonePlacement use). Fatal if absent or ambiguous.
 - `--anchor-sheet` — narrow the anchor_role search by sheet. NOTE:
   `extract-net` has no config of its own, so sheet narrowing needs
   `schematic_dir` in the TARGET config at apply time; prefer `--anchor-cluster`
@@ -486,7 +486,7 @@ python kicadstamp_cli.py channel-copy --src Channel_0 --dst Channel_1 --dst Chan
 Consolidates a multi-file project (a root config that pulls subsystem files in
 via `include:`) into a single YAML file. It resolves the whole `include:`
 graph exactly the way `apply`/`load_config` does, then writes the fully merged
-content back out — every list section (`rules:`/`clone_placements:`/
+content back out — every list section (`chains:`/`clone_placements:`/
 `thermal_via_arrays:`/`coordinate_placements:`/`net_traces:`) concatenated and
 every dict section (`cells:`/`points:`/`extract_profiles:`/`clone_profiles:`/
 `sheet_templates:`) merged by key. The now-resolved `include:` key is dropped,
@@ -604,8 +604,8 @@ No arguments – output paths are hard‑coded inside the script (see `main()`);
 
 | File | Purpose |
 |------|---------|
-| `profiles/generated/10CL006YE144C8G.yaml` | Rules‑based config (`ManualSpoke`/`Rule`) – self‑contained and apply‑ready, uses the old inline (approximate) `templates:`. |
-| `profiles/generated/10CL006YE144C8G.clone_placements.yaml` | Equivalent geometry as `clone_placements:` (`ClonePlacement`). **Since 2026-07-26, `Rule`/`ManualSpoke` can also clone tracks** (see `spoke_layout.py`/`TemplateTrack`) – keeping this path around is now worthwhile for anchor resolution via `anchor_pad`/`anchor_cluster` and `{power_net}` placeholders through `params`, which `Rule` does not resolve, not for tracks. Requires template `cap_pair_standard_clone` from `profiles/templates/3ch-awg-tia.yaml` (via `cells_file`). Not automatically included – copy the block manually into `profiles/3ch-awg-tia.sexp` after verifying with `--dry-run`. |
+| `profiles/generated/10CL006YE144C8G.yaml` | Rules‑based config (`ManualSpoke`/`Chain`) – self‑contained and apply‑ready, uses the old inline (approximate) `templates:`. |
+| `profiles/generated/10CL006YE144C8G.clone_placements.yaml` | Equivalent geometry as `clone_placements:` (`ClonePlacement`). **Since 2026-07-26, `Chain`/`ManualSpoke` can also clone tracks** (see `spoke_layout.py`/`TemplateTrack`) – keeping this path around is now worthwhile for anchor resolution via `anchor_pad`/`anchor_cluster` and `{power_net}` placeholders through `params`, which `Chain` does not resolve, not for tracks. Requires template `cap_pair_standard_clone` from `profiles/templates/3ch-awg-tia.yaml` (via `cells_file`). Not automatically included – copy the block manually into `profiles/3ch-awg-tia.sexp` after verifying with `--dry-run`. |
 | `profiles/generated/10CL006YE144C8G.cluster_table.md` | Table `net \| pad \| cluster` (`FPGA_PWR_BANK/<pad>`) – a cheat sheet for manually setting the `Cluster` field in Eeschema (Bulk Edit) for those pads for which proximity‑based resolution is not sufficient. |
 
 `anchor_cluster` in `clone_placements` is always set — since 2026-08-14 it narrows ONLY the anchor, while the narrowing of roles INSIDE the cell reads the placement's OWN Cluster (`name:`, see `docs/config.md`); in the working profiles `name:` equals `anchor_cluster`, so the two stay in sync. Even before `Cluster` is assigned in the schematic the resolver simply skips the corresponding narrowing step and falls back to the next one, so the generated file can be run with `apply --dry-run --verbose` before marking `Cluster` in Eeschema; the log will show which pads need explicit tagging.

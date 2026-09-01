@@ -72,7 +72,7 @@ GUI-выделение для этой конкретной подсистемы
 
 Ручной, поканальный `clone_placements` — ровно то место, где заводится копипаст-ошибка (не тот ключ
 `nets:`, дублированный `anchor_pad:`, имя листа, скопированное у соседнего канала) — цикл `for` так
-ошибиться физически не может. `ClonePlacement`/`Rule` (`kicadstamp.config`) — обычные dataclass'ы,
+ошибиться физически не может. `ClonePlacement`/`Chain` (`kicadstamp.config`) — обычные dataclass'ы,
 собирай их напрямую, реальными Python-переменными вместо YAML-подстановки `{placeholder}`:
 
 ```python
@@ -127,7 +127,7 @@ python boards/3ch-awg-tia/scripts/my_subsystem.py --apply                      #
 применяется при `--apply` — именно он несёт `schematic_dir`/`registry_path`, и (через
 `include:`) от него ожидается подхватить сам `OUTPUT`, чтобы реестр видел ПОЛНЫЙ конфиг платы, а не
 срез одного этого скрипта (частичный `Config`, собранный из одного скрипта, небезопасен для вычистки
-реестра — см. раздел «Как сделать неправильно» ниже).
+реестра — см. раздел «Как сделать нецепейьно» ниже).
 
 **Вариант (b) — низкоуровневые кусочки**, если `cli_main` не подходит (например, вообще не нужен
 гейтинг через `--apply`):
@@ -136,7 +136,7 @@ python boards/3ch-awg-tia/scripts/my_subsystem.py --apply                      #
 from kicadstamp.author import dump_clone_placements, dump_rules, dump_template, apply_config
 
 dump_clone_placements(clones, "boards/3ch-awg-tia/generated/dac_channels.sexp")   # {'clone_placements': [...]}
-dump_rules(rules, "boards/3ch-awg-tia/generated/fpga_spokes.sexp")                # {'rules': [...]}
+dump_rules(chains, "boards/3ch-awg-tia/generated/fpga_spokes.sexp")                # {'chains': [...]}
 dump_template({"my_cell": {"vias": [...], "components": [...]}}, "templates/my_cell.sexp")
 
 # прямо в живой пайплайн apply, минуя шаг с генерируемым YAML вовсе:
@@ -152,7 +152,7 @@ apply_config(cfg, "boards/3ch-awg-tia/profiles/power.sexp", ctx=ctx, dry_run=Tru
 
 ---
 
-## Как сделать неправильно: пропустить шаг с генерируемым YAML
+## Как сделать нецепейьно: пропустить шаг с генерируемым YAML
 
 Соблазнительно пропустить запись `OUTPUT` и пойти прямиком из `build()` в `apply_config()` с `Config`,
 собранным только из `clones` этого одного скрипта. Не делай так — вычистке `registry.reconcile()`

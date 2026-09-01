@@ -35,10 +35,10 @@
 - **File‑based cloner** (`clone-extract`) – parses `.net` and `.kicad_pcb` without IPC, builds a twin map of channels for hierarchical projects.
 - **Tracks in templates** – templates can include straight track segments (polylines are supported as a sequence of segments). Track collisions are not automatically checked (rely on KiCad DRC).
 - **External template files** – templates can be stored separately as JSON or YAML (wrapped in a `cells:` key) and listed under `include:` in the main config, keeping the main file clean and diff‑friendly.
-- **Splitting a profile into subsystem files** – `include:` at the root of a profile merges in one or more other YAML files (each carrying any mix of `extract_profiles`/`clone_placements`/`rules`/`cells`), recursively, with a per‑entry `enabled: false` on the include itself to switch a whole subsystem file off without touching every item inside it (see [docs/config.md](docs/config.md) for merge semantics and duplicate/cycle handling).
+- **Splitting a profile into subsystem files** – `include:` at the root of a profile merges in one or more other YAML files (each carrying any mix of `extract_profiles`/`clone_placements`/`chains`/`cells`), recursively, with a per‑entry `enabled: false` on the include itself to switch a whole subsystem file off without touching every item inside it (see [docs/config.md](docs/config.md) for merge semantics and duplicate/cycle handling).
 - **Entity/Placement model** (2026-08-30) – an `entities:` record is everything about a thing except where it stands (cell/nets/identity — no position fields at all); "where it stands" lives ONLY in a `trees:` node (`kind "placement"`, `ref` = entity name). A converter (`tools/convert_placements.py`) migrates legacy `clone_placements:` profiles to this model (see [docs/config.md](docs/config.md) and [docs/placement.md](docs/placement.md)).
-- **Import from another profile** (2026-08-31) – copy Cell/Entity/Rule record(s) from another profile's `.sexp`/`.json` into the current one **by value** (an independent copy — later edits in the source never affect it, unlike `include:`). The GUI's **Edit → Import from profile...** picks a source file, lists its Cells/Entities/Rules, and copies the ticked record(s) plus their combined dependency closure in one atomic pass (a composite Cell's nested cells, a Rule's spoke cells and its `anchor_point` points). A name collision anywhere in the target's include: graph is refused with a clear message before anything is written; electrical fields (`nets:`/`params:`/`net_overrides:`/`sheet:`) are copied verbatim for the user to re-tune against the current board.
-- **Scripting API** – `kicadstamp.explore.Board` for ad‑hoc read‑only querying (`board.select(role=..., cluster=..., sheet=..., net=...)`), and `kicadstamp.author` for building `ClonePlacement`/`Rule` in real Python instead of hand‑writing repetitive YAML, either applied directly or dumped back to an `include:`‑ready YAML file (see [docs/python.md](docs/python.md)).
+- **Import from another profile** (2026-08-31) – copy Cell/Entity/Chain record(s) from another profile's `.sexp`/`.json` into the current one **by value** (an independent copy — later edits in the source never affect it, unlike `include:`). The GUI's **Edit → Import from profile...** picks a source file, lists its Cells/Entities/Chains, and copies the ticked record(s) plus their combined dependency closure in one atomic pass (a composite Cell's nested cells, a Chain's spoke cells and its `anchor_point` points). A name collision anywhere in the target's include: graph is refused with a clear message before anything is written; electrical fields (`nets:`/`params:`/`net_overrides:`/`sheet:`) are copied verbatim for the user to re-tune against the current board.
+- **Scripting API** – `kicadstamp.explore.Board` for ad‑hoc read‑only querying (`board.select(role=..., cluster=..., sheet=..., net=...)`), and `kicadstamp.author` for building `ClonePlacement`/`Chain` in real Python instead of hand‑writing repetitive YAML, either applied directly or dumped back to an `include:`‑ready YAML file (see [docs/python.md](docs/python.md)).
 
 ---
 
@@ -71,14 +71,14 @@ pip install kipy pyyaml sexpdata
 ### Why "Spoke"?
 In electronics, decoupling/support components (capacitors, pi‑filters) often radiate outward from an
 IC's pins, like spokes on a wheel. KiCadStamp automates building this kind of "spoke" topology, letting
-you **stamp** it out by rule and role wherever it's needed:
+you **stamp** it out by chain and role wherever it's needed:
 - **Template (`SpokeTemplate`)** – the geometry of one spoke (a capacitor + via + track, or a whole filter block).
-- **Spoke (`ManualSpoke`)** – a rule that takes a spoke template and attaches it to a specific pad.
+- **Spoke (`ManualSpoke`)** – a chain that takes a spoke template and attaches it to a specific pad.
 - **Cloning (`ClonePlacement`)** – the next level: takes a template – one spoke or a whole bundle of them
   (e.g. a channel) – and stamps it as an independent unit anywhere on the board, not just on an IC pad.
 
 That maps onto the tool's two names: **Spoke** is the domain shape (the radiating placement pattern),
-**Stamp** is the action – the tool that replicates it by rule.
+**Stamp** is the action – the tool that replicates it by chain.
 
 ### Template (SpokeTemplate)
 A template describes the **local geometry** of one "spoke" – a set of components, vias, and tracks relative to a local origin (0,0) in the `along/across` coordinate system. It contains:
@@ -100,10 +100,10 @@ Attaches a template to a specific IC pin:
 - `shift_x_mm`, `shift_y_mm` – flat shift from the pad centre to the template origin.
 - `rotation_deg` – rotation of the entire template.
 
-**Important:** In new config versions, each rule (`rules`) must have its own `anchor_ref`. The global `target_ref` has been removed.
+**Important:** In new config versions, each chain (`chains`) must have its own `anchor_ref`. The global `target_ref` has been removed.
 
 ### Roles and Component Pool
-Instead of refdes, **roles** are used in the config. For each net (`rule.net`), a pool of components is built, where each component:
+Instead of refdes, **roles** are used in the config. For each net (`chain.net`), a pool of components is built, where each component:
 - Has a `Role` field with the required value.
 - Has at least one pad connected to that net.
 
@@ -150,7 +150,7 @@ compatibility, but is no longer the recommended way for new cells.
 
 ## Configuration File Format (YAML)
 
-Full field-by-field reference for every section (`cells`/`rules`/`clone_placements`/
+Full field-by-field reference for every section (`cells`/`chains`/`clone_placements`/
 `thermal_via_arrays`/`points`/`include`/`extract_profiles`) with real, currently-loading examples now
 lives in its own page: [docs/config.md](docs/config.md).
 
@@ -174,7 +174,7 @@ Options:
 - `--log-file` – save logs to a file.
 - `--no-collision-check` – disable collision checking.
 - `--collision-margin` – margin in mm (default 0.2).
-- `--only NAME` – process only the `rules`/`clone_placements`/`thermal_via_arrays` with this name (repeatable); everything else is skipped entirely. `name:` is mandatory on every such entry.
+- `--only NAME` – process only the `chains`/`clone_placements`/`thermal_via_arrays` with this name (repeatable); everything else is skipped entirely. `name:` is mandatory on every such entry.
 
 ### `extract` – extract template from selection (enhanced)
 

@@ -38,15 +38,15 @@ params=={} that check fails for every single alias (found live 2026-08-01,
 "net '{X}' has a placeholder with no parameter" on every extract attempt
 that used an alias).
 
-"Rule net" checkbox next to each net row (2026-08-05, Denis: "давай
+"Chain net" checkbox next to each net row (2026-08-05, Denis: "давай
 сделаем явный чекбокс [для null]. Это правильная фича. Она замыкает
 использование rules") — a THIRD, mutually exclusive option alongside
 "leave literal" (blank alias, unchecked) and "alias it" ({ALIAS}, for
 ClonePlacement reuse): checking it writes via.net/track.net: null for that
 net instead of the literal or an alias. At apply time a ManualSpoke-placed
-cell's via/track with net: null inherits the enclosing Rule's own net
+cell's via/track with net: null inherits the enclosing Chain's own net
 (kicadstamp/geometry/spoke_layout.py: `via.net or rule_net`) — the SAME
-cell can then be reused, unmodified, across several Rules on different
+cell can then be reused, unmodified, across several Chains on different
 power rails, which {ALIAS}/net_template CANNOT do here (ManualSpoke has no
 params: field to resolve a template against at all — see
 extract_template_from_selection()'s own docstring on rule_nets). Checking
@@ -464,7 +464,7 @@ class ExtractDock(QWidget):
         # Alias edit of an auto-role net is disabled (see _rebuild_net_aliases).
         self.nets_table = QTableWidget(0, 4)
         self.nets_table.setHorizontalHeaderLabels(
-            [_("Net"), _("Alias"), _("Rule net (null)"), _("Auto-role")])
+            [_("Net"), _("Alias"), _("Chain net (null)"), _("Auto-role")])
         self.nets_table.verticalHeader().setVisible(False)
         self.nets_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.nets_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
@@ -1485,7 +1485,7 @@ class ExtractDock(QWidget):
         for net in nets:
             if net in RULE_NETS:
                 # Intrinsic rule net (GND) — needs no role, not "owned" by any
-                # role, not a classifying net; alias stays active (the "Rule
+                # role, not a classifying net; alias stays active (the "Chain
                 # net (null)" checkbox is the way to null it).
                 out[net] = ("fallback", None)
                 continue
@@ -1499,7 +1499,7 @@ class ExtractDock(QWidget):
         return out
 
     def _is_rule_net_checked(self, net: str) -> bool:
-        """Whether the net's "Rule net (null)" checkbox is currently checked —
+        """Whether the net's "Chain net (null)" checkbox is currently checked —
         the one composite predicate shared by every place deciding whether a
         net still counts "by role": the net-template-role ambiguity trigger
         (bug 3), the Auto-role column/tooltip (bug 5) and the Alias edit's
@@ -1610,11 +1610,11 @@ class ExtractDock(QWidget):
             self.nets_table.setCellWidget(row, 1, edit)
             self._net_alias_edits[net] = edit
 
-            checkbox = QCheckBox(_("Rule net (null)"))
+            checkbox = QCheckBox(_("Chain net (null)"))
             checkbox.setToolTip(
                 _("Write this via/track net as null instead of a literal — at apply time a "
-                  "ManualSpoke-placed cell inherits the enclosing Rule's own net for it, so the "
-                  "cell can be reused across Rules on different nets."))
+                  "ManualSpoke-placed cell inherits the enclosing Chain's own net for it, so the "
+                  "cell can be reused across Chains on different nets."))
             checkbox.setChecked(previous_rule_net.get(net, False))
             checkbox.toggled.connect(lambda checked, r=row, n=net: self._on_rule_net_toggled(r, checked, n))
             self.nets_table.setCellWidget(row, 2, checkbox)

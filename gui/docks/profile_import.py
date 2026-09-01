@@ -32,11 +32,11 @@ from ._common import ERROR_STYLE as _ERROR_STYLE, show_message
 
 logger = logging.getLogger(__name__)
 
-_KIND_LABEL = {"cell": _("Cell"), "entity": _("Entity"), "rule": _("Rule")}
+_KIND_LABEL = {"cell": _("Cell"), "entity": _("Entity"), "rule": _("Chain")}
 # section -> kind label, for the collision list (cells/points have no entry in
 # _KIND_LABEL).
 _SECTION_LABEL = {"cells": _("Cell"), "points": _("Point"),
-                  "entities": _("Entity"), "rules": _("Rule")}
+                  "entities": _("Entity"), "chains": _("Chain")}
 
 
 class _Cancelled(Exception):
@@ -130,7 +130,7 @@ class ProfileImportDialog(QDialog):
         if not self._rows:
             QMessageBox.information(
                 self, _("Import from profile..."),
-                _("No importable entries (Cell/Entity/Rule) in this file."))
+                _("No importable entries (Cell/Entity/Chain) in this file."))
 
     def _populate_table(self) -> None:
         self.table.setRowCount(len(self._rows))
@@ -199,7 +199,7 @@ class ProfileImportDialog(QDialog):
             QMessageBox.warning(self, _("Import failed"), str(e))
             return
         if not (result["cells"] or result["points"]
-                or result["entities"] or result["rules"]):
+                or result["entities"] or result["chains"]):
             # every selected record already exists and was kept as-is
             QMessageBox.information(
                 self, _("Import from profile..."),

@@ -37,7 +37,7 @@ Contains the `ApplyPipeline` class and the `cmd_apply()` entry point. Handles th
 | `cmd_apply(args, cfg, ctx)` | Entry point; creates `ApplyPipeline`, calls `run()`. |
 | `drop_disabled_rules(cfg)` | Removes `enabled: false` items from config. |
 | `drop_inactive_items(cfg)` | Removes `active: false` items (orthogonal to `enabled`). |
-| `apply_only_filter(cfg, only_names)` | Narrows config to only the named rules/clones/thermal vias. |
+| `apply_only_filter(cfg, only_names)` | Narrows config to only the named chains/clones/thermal vias. |
 | `apply_cluster_filter(cfg, cluster_paths)` | Narrows config by cluster path. |
 
 **Key dependencies:**  
@@ -141,7 +141,7 @@ Provides helper functions for writing placement scripts (Python code instead of 
 | Function | Description |
 |----------|-------------|
 | `dump_clone_placements(clones, path)` | Serialises `ClonePlacement` list to YAML, pruning defaults. |
-| `dump_rules(rules, path)` | Serialises `Rule` list to YAML, pruning defaults. |
+| `dump_rules(chains, path)` | Serialises `Chain` list to YAML, pruning defaults. |
 | `dump_template(template_dict, path)` | Writes a template dictionary as JSON or YAML. |
 | `apply_config(cfg, config_path, *, dry_run, ...)` | Loads config and runs `cmd_apply` programmatically. |
 | `cli_main(build_fn, output_path, ...)` | Standard `if __name__ == "__main__":` body for placement scripts — **now in `author_cli.py`** (split out 2026-08-11). |
@@ -172,7 +172,7 @@ Replaced the old monolithic `config.py`. Now a package with separate modules for
 | Module | Description |
 |--------|-------------|
 | `__init__.py` | Exports all config types and `load_config()`. |
-| `models.py` | Dataclasses: `Config`, `SpokeTemplate`, `ManualSpoke`, `ClonePlacement`, `Rule`, `TemplateVia`, `TemplateTrack`, `TemplateComponentSlot`, `ThermalViaArrayConfig`. |
+| `models.py` | Dataclasses: `Config`, `SpokeTemplate`, `ManualSpoke`, `ClonePlacement`, `Chain`, `TemplateVia`, `TemplateTrack`, `TemplateComponentSlot`, `ThermalViaArrayConfig`. |
 | `loader.py` | `load_config()` and `_load_*` helper functions for each config section. Handles role uniqueness checks. |
 | `includes.py` | Handles `include:` directives — loads and merges configs from multiple files with cycle detection and duplicate key checks. |
 
@@ -186,15 +186,15 @@ Replaced the old monolithic `config.py`. Now a package with separate modules for
 | `TemplateComponentSlot` | Component slot in a template: role, local coordinates, angle, list of vias, optional `net_template` and `layer`. |
 | `SpokeTemplate` | Complete spoke template: name, list of vias, list of tracks, list of component slots, absolute `layer`. |
 | `ManualSpoke` | Specific spoke: pad, template, shift, rotation, `enabled` flag, `active` flag. |
-| `Rule` | Rule for one net: net name, list of spokes, `anchor_ref` (mandatory), `active` flag. |
+| `Chain` | Chain for one net: net name, list of spokes, `anchor_ref` (mandatory), `active` flag. |
 | `ClonePlacement` | Cloned placement: name, template, absolute point or shift from anchor, angle, dicts `nets`, `params`, `net_overrides`, `layer`, `mirror`, `refs`, `by_selection`, `anchor_role`, `anchor_sheet`, `anchor_pad`. |
-| `Config` | Main object: global `layer`, templates, thermal vias, rules, clones, flags. |
+| `Config` | Main object: global `layer`, templates, thermal vias, chains, clones, flags. |
 
 **Main functions:**
 
 | Function | Description |
 |----------|-------------|
-| `load_config(path)` | Reads YAML, resolves `include:` (merges external `cells:`/`rules:`/etc. from other files). Parses all sections, returns a `Config` object and `RuntimeContext`. |
+| `load_config(path)` | Reads YAML, resolves `include:` (merges external `cells:`/`chains:`/etc. from other files). Parses all sections, returns a `Config` object and `RuntimeContext`. |
 | `_load_template_via(data)` | Loads `TemplateVia`. Checks that `net` is a string. |
 | `_load_template_track(data)` | Loads `TemplateTrack`. Checks that `net` is a string. |
 | `_load_template_component_slot(data)` | Loads `TemplateComponentSlot`. |
@@ -280,7 +280,7 @@ no adapter, no YAML, no live board:
 | Function | Description |
 |----------|-------------|
 | `match_template_to_target(template, target)` | Returns `(mapping, ambiguous_groups)` — the global Kuhn matching plus the formal ambiguity proof (SCC groups), or a `ValidationError` on non-isomorphism. |
-| `derive_role_nets(roles, role_source_nets, ...)` | `{role: NetDerivation}` by the three-priority rule; roles with no applicable priority are absent (caller's fallback). |
+| `derive_role_nets(roles, role_source_nets, ...)` | `{role: NetDerivation}` by the three-priority chain; roles with no applicable priority are absent (caller's fallback). |
 
 **Planned consumers (Phase 2):** placement role→net auto-derivation
 (`resolve_roles_by_nets` without manual `nets:`), extract auto `net_from_role`,
@@ -438,7 +438,7 @@ graph TD
     ConfigPkg --> Exceptions[exceptions.py]
     ConfigPkg --> Models[config/models.py]
     ConfigPkg --> Loader[config/loader.py]
-    ConfigPkg --> Includes[config/includes.py: include: (external cells:/rules:/etc.)]
+    ConfigPkg --> Includes[config/includes.py: include: (external cells:/chains:/etc.)]
 
     Validation --> ConfigPkg
     Validation --> ComponentPool[placement/services/component_pool.py]

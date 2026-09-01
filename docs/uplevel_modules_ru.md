@@ -37,7 +37,7 @@
 | `cmd_apply(args, cfg, ctx)` | Точка входа; создаёт `ApplyPipeline`, вызывает `run()`. |
 | `drop_disabled_rules(cfg)` | Удаляет `enabled: false` элементы из конфига. |
 | `drop_inactive_items(cfg)` | Удаляет `active: false` элементы (ортогонально `enabled`). |
-| `apply_only_filter(cfg, only_names)` | Сужает конфиг до именованных правил/клонов/термовиа. |
+| `apply_only_filter(cfg, only_names)` | Сужает конфиг до именованных цепей/клонов/термовиа. |
 | `apply_cluster_filter(cfg, cluster_paths)` | Сужает конфиг по пути кластера. |
 
 **Ключевые зависимости:**  
@@ -141,7 +141,7 @@
 | Функция | Описание |
 |---------|----------|
 | `dump_clone_placements(clones, path)` | Сериализует список `ClonePlacement` в YAML, обрезая значения по умолчанию. |
-| `dump_rules(rules, path)` | Сериализует список `Rule` в YAML, обрезая значения по умолчанию. |
+| `dump_rules(chains, path)` | Сериализует список `Chain` в YAML, обрезая значения по умолчанию. |
 | `dump_template(template_dict, path)` | Записывает словарь шаблона в JSON или YAML. |
 | `apply_config(cfg, config_path, *, dry_run, ...)` | Загружает конфиг и запускает `cmd_apply` программно. |
 | `cli_main(build_fn, output_path, ...)` | Стандартное тело `if __name__ == "__main__":` для скриптов расстановки — **теперь в `author_cli.py`** (вынесен 2026-08-11). |
@@ -172,7 +172,7 @@
 | Модуль | Описание |
 |--------|----------|
 | `__init__.py` | Экспортирует все типы конфига и `load_config()`. |
-| `models.py` | Датаклассы: `Config`, `SpokeTemplate`, `ManualSpoke`, `ClonePlacement`, `Rule`, `TemplateVia`, `TemplateTrack`, `TemplateComponentSlot`, `ThermalViaArrayConfig`. |
+| `models.py` | Датаклассы: `Config`, `SpokeTemplate`, `ManualSpoke`, `ClonePlacement`, `Chain`, `TemplateVia`, `TemplateTrack`, `TemplateComponentSlot`, `ThermalViaArrayConfig`. |
 | `loader.py` | `load_config()` и вспомогательные функции `_load_*` для каждой секции конфига. Обрабатывает проверки уникальности ролей. |
 | `includes.py` | Обрабатывает директивы `include:` — загружает и объединяет конфиги из нескольких файлов с обнаружением циклов и проверкой дубликатов ключей. |
 
@@ -186,15 +186,15 @@
 | `TemplateComponentSlot` | Слот компонента в шаблоне: роль, локальные координаты, угол, список via, опциональный `net_template` и `layer`. |
 | `SpokeTemplate` | Полный шаблон спицы: имя, список via, список треков, список слотов компонентов, абсолютный `layer`. |
 | `ManualSpoke` | Конкретная спица: пад, шаблон, сдвиг, поворот, флаги `enabled`, `active`. |
-| `Rule` | Правило для одной цепи: имя цепи, список спиц, `anchor_ref` (обязательное), флаг `active`. |
+| `Chain` | Правило для одной цепи: имя цепи, список спиц, `anchor_ref` (обязательное), флаг `active`. |
 | `ClonePlacement` | Клонируемое размещение: имя, шаблон, абсолютная точка или сдвиг от якоря, угол, словари `nets`, `params`, `net_overrides`, `layer`, `mirror`, `refs`, `by_selection`, `anchor_role`, `anchor_sheet`, `anchor_pad`. |
-| `Config` | Главный объект: глобальный `layer`, шаблоны, термовиа, правила, клонирования, флаги. |
+| `Config` | Главный объект: глобальный `layer`, шаблоны, термовиа, цепи, клонирования, флаги. |
 
 **Основные функции:**
 
 | Функция | Описание |
 |---------|----------|
-| `load_config(path)` | Читает YAML, разрешает `include:` (мёржит внешние `cells:`/`rules:`/и т.д. из других файлов). Парсит все секции, возвращает `Config` и `RuntimeContext`. |
+| `load_config(path)` | Читает YAML, разрешает `include:` (мёржит внешние `cells:`/`chains:`/и т.д. из других файлов). Парсит все секции, возвращает `Config` и `RuntimeContext`. |
 | `_load_template_via(data)` | Загружает `TemplateVia`. Проверяет, что `net` — строка. |
 | `_load_template_track(data)` | Загружает `TemplateTrack`. Проверяет, что `net` — строка. |
 | `_load_template_component_slot(data)` | Загружает `TemplateComponentSlot`. |
@@ -281,7 +281,7 @@
 | Функция | Описание |
 |----------|-------------|
 | `match_template_to_target(template, target)` | Возвращает `(mapping, ambiguous_groups)` — глобальное паросочетание Куна + формальное доказательство неоднозначности (SCC-группы), либо `ValidationError` при неизоморфности. |
-| `derive_role_nets(roles, role_source_nets, ...)` | `{role: NetDerivation}` по правилу трёх приоритетов; роли без применимого приоритета отсутствуют (fallback вызывающего). |
+| `derive_role_nets(roles, role_source_nets, ...)` | `{role: NetDerivation}` по цепейу трёх приоритетов; роли без применимого приоритета отсутствуют (fallback вызывающего). |
 
 **Планируемые потребители (Фаза 2):** авто-вывод ролей→сетей в плейсменте
 (`resolve_roles_by_nets` без ручных `nets:`), авто `net_from_role` в экстракте,
@@ -439,7 +439,7 @@ graph TD
     ConfigPkg --> Exceptions[exceptions.py]
     ConfigPkg --> Models[config/models.py]
     ConfigPkg --> Loader[config/loader.py]
-    ConfigPkg --> Includes[config/includes.py: include: (external cells:/rules:/etc.)]
+    ConfigPkg --> Includes[config/includes.py: include: (external cells:/chains:/etc.)]
 
     Validation --> ConfigPkg
     Validation --> ComponentPool[placement/services/component_pool.py]

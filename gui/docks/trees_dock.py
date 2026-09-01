@@ -61,7 +61,10 @@ logger = logging.getLogger(__name__)
 _KIND_TAGS = {
     "clone": _("clone"),
     "placement": _("placement"),
-    "rule": _("rule"),
+    "chain": _("chain"),
+    # Legacy kind alias (2026-09-01 Rule -> Chain rename): a tree node still
+    # carrying kind "rule" shows the chain tag too.
+    "rule": _("chain"),
     "coordinate": _("coordinate"),
     "point": _("point"),
     "external": _("external"),
@@ -1434,7 +1437,9 @@ class _AnchorDialog(QDialog):
     # combo in the same order the placeable sections are documented).
     _KIND_LABELS = {
         "placement": _("Entity"),
-        "rule": _("Rule"),
+        "chain": _("Chain"),
+        # Legacy kind alias (2026-09-01 Rule -> Chain rename).
+        "rule": _("Chain"),
         "coordinate": _("Coordinate"),
         "point": _("Point"),
         "clone": _("Clone"),

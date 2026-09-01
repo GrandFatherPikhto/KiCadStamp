@@ -5,7 +5,7 @@
 The `placement/` directory contains the core logic for placing components, creating vias, and routing tracks. It orchestrates all stages of the process:
 
 1. **Planning** – calculates target positions for components, vias, and tracks based on spoke templates for three types of placements:
-   - **`ManualSpoke`** (`rules`) – binds to pads of the target IC, with automatic refdes selection via a role pool (`ComponentPool`). **Tracks are not supported** in this mode.
+   - **`ManualSpoke`** (`chains`) – binds to pads of the target IC, with automatic refdes selection via a role pool (`ComponentPool`). **Tracks are not supported** in this mode.
    - **`ClonePlacement`** (cloned sections) – reuses a template (`cell:`, mandatory) at multiple board locations, resolving roles either by selection or by explicit nets (`CloneRoleResolver`). Supports **tracks** as part of the template.
    - **`CoordinatePlacement`** (`coordinate_placements`) – moves one EXISTING footprint (found by an exact Cluster+Role match) to an absolute position or relative to another component's anchor. No template, no via/track, no registry — see the dedicated section below.
 2. **Execution** – applies moves, creates vias, and creates tracks on the board via the KiCad adapter, split into **three phases** (moves first, then vias, then tracks), with a mandatory board reload between phases.
@@ -109,7 +109,7 @@ a YAML comment).
 
 `anchor` (`'center'`/`'pad'`, self-referential, absolute modes only) and
 `anchor_pad` (self pad in absolute modes, the ANCHOR component's pad in
-anchor-relative mode — same semantics as Rule/ClonePlacement) are documented in
+anchor-relative mode — same semantics as Chain/ClonePlacement) are documented in
 the `CoordinatePlacement` docstring.
 
 When the same set of CoordinatePlacement/ClonePlacement entries must be
@@ -197,7 +197,7 @@ Defines abstract interfaces for position calculators and via planners.
 
 | Interface | Method | Description |
 |-----------|--------|-------------|
-| `IPositionCalculator` | `compute_raw_positions(target_fp, rules, side)` | Calculates component/via positions for `ManualSpoke` (pad‑based). |
+| `IPositionCalculator` | `compute_raw_positions(target_fp, chains, side)` | Calculates component/via positions for `ManualSpoke` (pad‑based). |
 | `IViaPlanner` | `plan_vias(planned_components, planned_vias, target_fp, target_layer)` | Plans vias (thermal vias + registry filtering). |
 
 **Used in:** `planner.py`, `manual_position_calculator.py`, `via_planner.py`.
@@ -206,13 +206,13 @@ Defines abstract interfaces for position calculators and via planners.
 
 ### `planner.py`
 
-**Class `PlacementPlanner`** – the main orchestrator. Coordinates position/via/track calculation for `rules` (via `ManualPositionCalculator`) and `clone_placements` (via `ClonePositionCalculator`). Applies skipping of already‑placed components (`skip_existing_components`). Splits planning into three phases: `plan_moves()`, `plan_vias()`, `plan_tracks()`.
+**Class `PlacementPlanner`** – the main orchestrator. Coordinates position/via/track calculation for `chains` (via `ManualPositionCalculator`) and `clone_placements` (via `ClonePositionCalculator`). Applies skipping of already‑placed components (`skip_existing_components`). Splits planning into three phases: `plan_moves()`, `plan_vias()`, `plan_tracks()`.
 
 | Method | Description |
 |-------|-------------|
 | `__init__(adapter, config)` | Initialisation, determines global layer for ManualSpoke. |
 | `_already_in_place(ref, dest, angle_deg, layer)` | Checks if the component is already at the target position (layer, position, angle). Tolerances: 0.01 mm for position, 0.1° for angle. |
-| `plan_moves()` | Calls `ManualPositionCalculator.compute_raw_positions()` for `rules` and `ClonePositionCalculator.compute_raw_positions()` for `clone_placements`, merges results. Applies `skip_existing_components` to components. Stores `_planned`, `_planned_vias`, `_planned_tracks` for later phases. Returns `MoveCommand[]`. |
+| `plan_moves()` | Calls `ManualPositionCalculator.compute_raw_positions()` for `chains` and `ClonePositionCalculator.compute_raw_positions()` for `clone_placements`, merges results. Applies `skip_existing_components` to components. Stores `_planned`, `_planned_vias`, `_planned_tracks` for later phases. Returns `MoveCommand[]`. |
 | `plan_vias()` | Calls `ViaPlanner.plan_vias()` with the stored data. Returns `ViaCommand[]`. |
 | `plan_tracks()` | Returns the stored `_planned_tracks` (no additional processing; collisions not checked). |
 | `plan()` | Backward‑compatible wrapper (calls all three phases). Not recommended for production use. |
@@ -283,7 +283,7 @@ A façade combining all execution phases and managing logging.
 ### `services/`
 
 #### `services/component_pool.py`
-**Class `ComponentPool`** – selects refdes for roles in `ManualSpoke`. Built once per rule (`rule.net`) and consumed by spokes in order.
+**Class `ComponentPool`** – selects refdes for roles in `ManualSpoke`. Built once per chain (`chain.net`) and consumed by spokes in order.
 
 | Method | Description |
 |-------|-------------|
@@ -338,11 +338,11 @@ Functions:
 **Used in:** `planner.py`.
 
 #### `services/manual_position_calculator.py`
-**Class `ManualPositionCalculator`** – calculates component, via, and track positions for `ManualSpoke` based on IC pads. Implements `IPositionCalculator`. A `TemplateTrack.net = None` inherits `rule.net` (same convention as `TemplateVia`), which is what lets one template (e.g. `cap_pair_standard`) be reused across rules with different nets.
+**Class `ManualPositionCalculator`** – calculates component, via, and track positions for `ManualSpoke` based on IC pads. Implements `IPositionCalculator`. A `TemplateTrack.net = None` inherits `chain.net` (same convention as `TemplateVia`), which is what lets one template (e.g. `cap_pair_standard`) be reused across chains with different nets.
 
 | Method | Description |
 |-------|-------------|
-| `compute_raw_positions(rules)` | For each rule, builds a `ComponentPool`, for each spoke calls `apply_spoke_geometry`, returns `(PlacedComponentInfo[], ViaCommand[], TrackCommand[])`. |
+| `compute_raw_positions(chains)` | For each chain, builds a `ComponentPool`, for each spoke calls `apply_spoke_geometry`, returns `(PlacedComponentInfo[], ViaCommand[], TrackCommand[])`. |
 
 **Used in:** `planner.py`.
 

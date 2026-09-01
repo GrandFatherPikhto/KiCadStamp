@@ -153,8 +153,17 @@ dedicated file per role is just the default habit, not a requirement enforced an
 
 A tree mirroring the actual `include:` file graph from a single root config file — pick it via
 **Open Root file...**/**New Root file...**/the **Recent** dropdown. Every file node shows its own
-sections (Cells/Clone placements/Thermal via arrays/Points/Rules/Extract profiles/Clone profiles)
+sections (Cells/Clone placements/Thermal via arrays/Points/Chains/Extract profiles/Clone profiles)
 and its own included files, recursively.
+
+Since 2026-09-01 (plan rules_to_chains) the **Chains** category is a NESTED tree, not a flat list:
+category → **anchor** (grouped by `anchor_ref`/`anchor_role`/`anchor_point`) → **chain** (labelled
+by its net or name) → **pad** leaves (one per spoke, sorted by pad number). There is no separate
+table of pads anywhere — a pad is a leaf. A DOUBLE click on a chain node opens the Chain dialog in
+chain mode; a DOUBLE click on a pad leaf opens it in pad mode; single clicks do nothing (like
+Points/Entities). The context menu adds chains-specific actions: on a chain node **Add spoke...** /
+**Redraw chain** / **Bulk set Cell for net...**, on a pad leaf **Redraw spoke** / **Delete pad...**,
+on an anchor node **Redraw chains...** (redraws all chains under that anchor).
 
 Since 2026-08-30 (Entity/Placement split, phase 5.6) each file node also shows **Entities** and
 **Trees** categories. Clicking an **Entities** leaf switches the Placer dock into Entity mode with
@@ -177,11 +186,11 @@ Right-click any entry for:
   the target file already has content, you're asked whether to merge the exported entries into it
   or overwrite the whole file.
 
-Right-click a file node for **Add cell.../Add point.../Add rule.../Add placer.../Add thermal via
+Right-click a file node for **Add cell.../Add point.../Add chain.../Add placer.../Add thermal via
 pad.../Add included file...**, plus **Remove this file** (soft-disables its `include:` entry,
 doesn't delete the file) when it's not the root. Since 2026-08-13 the "Add ..." block is
 **section-aware**: right-clicking a category or a leaf shows only THAT section's own Add action
-(cells → Add cell, rules → Add rule, ...); Clone profiles and Extract profiles show none (no
+(cells → Add cell, chains → Add chain, ...); Clone profiles and Extract profiles show none (no
 dedicated Add form — an extract profile is created via the unconditional **New Extract...** below
 with the dialog's "Also save as extract_profile" checked); a file header still shows all of them
 (Denis's decision — otherwise a fresh file with no sections yet couldn't create its first entity).
@@ -196,14 +205,15 @@ value), and when the selection spans several Clusters the "Keep only one Cluster
 auto-checked (its combo already defaults to the Cluster with the most components), so a "New Extract"
 immediately narrows to the user's own Cluster.
 
-Clicking any node also switches the Detail dock to that node's own panel (Rule → Rules, ...; a plain
-file click no longer jumps to a Project page since 2026-09-01 — the Project tab moved into a
-dialog). Since 2026-08-21 the entity docks no longer ask **which file to write to** — every
-new record (Rule/ClonePlacement/CoordinatePlacement/ThermalViaArray/Point/Cell/ExtractProfile/
-NetTrace) is written to the project's ONE root file (the file shown in the Project panel), with no
-file picker in the form. The `include:` graph is still fully supported for READING: the Config tree
-and every dock's autocomplete/list show entries from ANY included file. To move a piece of config
-into a separate file, use the tree's context-menu **Export...** (see below).
+Clicking a file/category switches the Detail dock to that node's own panel (a Cells leaf → Placer,
+...; a plain file click no longer jumps to a Project page since 2026-09-01 — the Project tab moved
+into a dialog). Chains nodes are NOT switched by a click — they are edited via DOUBLE click in the
+Chain dialog (see below). Since 2026-08-21 the entity docks no longer ask **which file to write
+to** — every new record (Chain/ClonePlacement/CoordinatePlacement/ThermalViaArray/Point/Cell/
+ExtractProfile/NetTrace) is written to the project's ONE root file (the file shown in the Project
+panel), with no file picker in the form. The `include:` graph is still fully supported for READING:
+the Config tree and every dock's autocomplete/list show entries from ANY included file. To move a
+piece of config into a separate file, use the tree's context-menu **Export...** (see below).
 
 Since 2026-08-15 every dock's file/name combos stay live: a file added/removed via the tree's
 "Add included file..."/"Remove this file", an entry renamed/deleted there, OR a brand-new entity
@@ -252,7 +262,7 @@ context menu (Add child / Add sibling / Reread current position / Edit node… /
 / Move to…); the tree anchor pseudo-root's menu carries **Add node** and **Set anchor…**. The
 **Set anchor…** dialog covers all six anchor modes: **Origin (board 0,0)**, **Config record** (a name
 from the config, resolved at Save; a **Kind** filter narrows the ref list to one section —
-Entity/Rule/Coordinate/Point/Clone/All — a picker aid only, the anchor grammar has no kind),
+Entity/Chain/Coordinate/Point/Clone/All — a picker aid only, the anchor grammar has no kind),
 **External refdes** (a live-board component outside the config), **Auto (derive from Entity's own
 cell)** (no explicit anchor — derived at materialization from the root Entity's cell zero slot),
 **Role** (role + optional sheet/cluster/pad) and **Point** (a `points:` entry name). The external
@@ -283,12 +293,12 @@ config_writer chokepoint (a fresh `.bak` is made first); linking/validation runs
 `kicadstamp.link_trees`.
 
 The **Ref:** (Add/Edit-node) and **Set anchor…** candidate lists refresh automatically the moment the
-include graph changes or an entity dock saves a new/renamed Entity/Cell/Rule/... — no app restart or
+include graph changes or an entity dock saves a new/renamed Entity/Cell/Chain/... — no app restart or
 root reassignment needed (2026-08-31). The refresh only re-reads the config behind those lists; trees
 you are currently editing are left completely untouched, including their unsaved edits.
 
 The Add/Edit-node dialog's **Ref:** combo is **Kind**-filtered: choosing a concrete **Kind**
-(`clone`/`rule`/`coordinate`/`point`) lists only that section's record names, while **auto** shows
+(`clone`/`chain`/`coordinate`/`point`) lists only that section's record names, while **auto** shows
 all placeable names — a name unique to one section plainly, and a name shared by 2+ sections once
 per section prefixed `{kind}:{name}` (e.g. `rule:X`, `clone:X`). Picking such a prefixed entry
 auto-sets the **Kind** to that section and keeps the clean name — a node left in auto with a
@@ -307,7 +317,7 @@ runs at link/Save time). **Redraw selected** (or **Redraw whole tree**) on such 
 it — with an informational, non-blocking warning: the record's own `anchor_role` keeps working for
 the regular (non-tree) Apply/Redraw exactly as before, and this tree redraw moves it only TEMPORARILY
 via a non-persistent override, never rewriting the record (2026-08-29,
-plan_2026_08_29_fork1_rigid_redraw_override.md — REVERSES the pre-2026-08-29 rule that skipped such
+plan_2026_08_29_fork1_rigid_redraw_override.md — REVERSES the pre-2026-08-29 chain that skipped such
 nodes). So a channel's `CH0/1/2_DAC_BUF` can live in the `fpga` tree and be redrawn as a rigid group
 WITHOUT stripping its `anchor_role` first.
 
@@ -326,14 +336,15 @@ move is applied via a per-run, non-persistent position override (Option 1, see t
 
 ## Detail dock
 
-Placer/Rules/Net traces/Cells below all live as tabs inside one shared **Detail** dock,
+Placer/Net traces/Cells below all live as tabs inside one shared **Detail** dock,
 not as separate docks — switching is both automatic (a Config-tree click routes to the matching tab)
-and manual (click the tab bar directly). Extract (2026-08-31), Thermal via (2026-09-01), Points
-(2026-09-01, plan `plan_2026_09_01_points_dialog.md`), Tools (2026-09-01, plan
+and manual (click the tab bar directly). Chains (2026-09-01, plan rules_to_chains), Extract
+(2026-08-31), Thermal via (2026-09-01), Points (2026-09-01, plan
+`plan_2026_09_01_points_dialog.md`), Tools (2026-09-01, plan
 `plan_2026_09_01_tools_dialog_and_entity_roles.md`), and Project + Settings (2026-09-01, plan
 `project_settings_dialogs`) are NOT tabs here — they moved to standalone dialogs: see the
-[Extract](#extract), [Points](#points), [Tools](#tools) and [Project](#project) sections, and
-**Tools → Settings...** for the Settings dialog.
+[Chains](#chains), [Extract](#extract), [Points](#points), [Tools](#tools) and [Project](#project)
+sections, and **Tools → Settings...** for the Settings dialog.
 Every
 automatic switch also
 raises Detail to the front of its own tabified group (it shares screen space with fieldstool) and
@@ -458,12 +469,12 @@ the **Show advanced net settings** checkbox reveals them for manual overrides.
 - **Net aliases** — a `QTableWidget` (2026-08-06, previously a hand-rolled grid — Denis: "у нас в
   экстракторе net-aliases, не таблица"), one row per net found on the selected components' pads.
   Rows themselves aren't user-added/removed — the net set is dictated entirely by the current board
-  selection and rebuilt on every selection-watch tick; only the **Alias** and **Rule net** cells
+  selection and rebuilt on every selection-watch tick; only the **Alias** and **Chain net** cells
   within each row are editable. A non-empty alias becomes a `{PLACEHOLDER}` in the written Cell
   (feeds `params:` for round-trip resolution — see [docs/config.md](config.md) on
-  `net_template`/`params`). Each row also has a **"Rule net (null)"** checkbox (2026-08-05), mutually
+  `net_template`/`params`). Each row also has a **"Chain net (null)"** checkbox (2026-08-05), mutually
   exclusive with the alias field — checking it writes that net's via/track as `net: null` instead, so
-  a cell placed via `rules:`/ManualSpoke inherits whichever Rule's own net it's placed under (see
+  a cell placed via `chains:`/ManualSpoke inherits whichever Chain's own net it's placed under (see
   [docs/config.md](config.md) on `rule_nets:`) — the mechanism for reusing the SAME cell across
   several Rules on different power rails, which `{PLACEHOLDER}` aliasing can't do here (ManualSpoke
   has no `params:` to resolve a template against).
@@ -738,7 +749,7 @@ edit the three dicts, each row write validates through `load_entity` and writes 
 merge-safe `upsert_entity` into the Entity's own file — so the Tools dialog and the Placer's
 Source/Origin edit the same record without clobbering each other. Since 2026-09-01 the **Role**
 combos are scoped to the picked Entity's OWN cell components (`entity.cell` →
-`cell.components[].role`, the same rule as PlacerDock's Cell mode) and the **Net/Override** combos
+`cell.components[].role`, the same chain as PlacerDock's Cell mode) and the **Net/Override** combos
 are fed from the live board's net names (`refresh_known_nets`, the same ~2s poll as the Placer's own
 tabs) — previously these combos were empty free text.
 
@@ -767,7 +778,7 @@ fields are only valid on an actual root (an included file setting any of them is
 ## Points
 
 Edits a named `points:` entry (see [docs/config.md](config.md) on the Point schema) — a reusable
-anchor other `anchor_point:` references (Placer's own Point origin mode, Rule/ThermalViaArrayConfig)
+anchor other `anchor_point:` references (Placer's own Point origin mode, Chain/ThermalViaArrayConfig)
 point at by name. Added 2026-08-05 after noticing how closely Point's own shape already matches
 Placer's Origin widget.
 
@@ -803,52 +814,62 @@ hosts the same live form as the old Detail-dock page; it auto-closes after a suc
   Placer/Thermal via's list-of-dicts sections — an existing name is replaced in place, not
   duplicated).
 
-## Rules
+## Chains
 
-Edits a `rules:` entry (see [docs/config.md](config.md) on Rule/ManualSpoke) — one shared anchor
+Edits a `chains:` entry (see [docs/config.md](config.md) on Chain/ManualSpoke) — one shared anchor
 (no `xy` mode here, unlike Points/Placer — only **Anchor (ref/role, + Sheet/Cluster)** or **Point**;
 Sheet here is the same searchable combo autocompleted from the project's schematic files, not a
 whitelist) plus an ORDERED list of spokes, each placing a Cell at a specific pad of that anchor
-with its own hand-tuned shift/rotation. Added 2026-08-05 after Denis connected `fpga_spokes.sexp`/
-`fpga_cap_pair_spoke.sexp` to a real project and hit the long-standing "Rules has no edit form" gap.
+with its own hand-tuned shift/rotation. Added 2026-08-05 (as "Rules") after Denis connected
+`fpga_spokes.sexp`/`fpga_cap_pair_spoke.sexp` to a real project and hit the long-standing "Rules
+has no edit form" gap.
 
-**Net**/**Origin**/**Spoke** live in a tab widget (2026-08-05, same "a stacked `QVBoxLayout`'s
-minimum height is the SUM of every section's own" fix as Extract/Project): Net carries the rule's
-own Net/Name/Retired/Skip; Origin carries the anchor-mode combo and its two rows; Spoke carries
-every field the detail row below the table writes into. The spokes table itself, its move/Add/
-Update/Remove row, and Redraw/Save stay outside the tabs — they act on the whole rule, not one tab.
+2026-09-01 (plan rules_to_chains): the form is now a standalone **non-modal Chain dialog**
+(`gui/docks/chain_dialog.py`), NOT a Detail dock page anymore — a chains: node in the Config tree
+is edited by a DOUBLE click, and the pads are no longer a table: they are LEAVES in the tree
+(category → anchor → chain → pad). The dialog has TWO modes behind one widget:
+- **Chain mode** — Net/Name/Comment + **Origin** (anchor-mode combo + Sheet/Cluster, or Point) +
+  **Retired**/**Skip** (the old Net/Origin tabs). A double click on a chains: chain node opens it.
+- **Pad mode** — one spoke's fields: **Pad**/**Cell**/**Cluster**/**Mode** (Cartesian/Polar)/
+  **Shift X,Y** (or **Radius+Angle** in Polar)/**Rotation**/**Retired**/**Skip**. A double click on
+  a chains: pad leaf opens it; **Add spoke...** (context menu / Tools menu) opens it blank to
+  append a pad to the selected chain.
 
-- **Spokes table + detail row below** — picked over putting spokes in the shared Config tree
-  (a spoke has no name field for a tree leaf label, spoke ORDER is semantically significant — the
-  component pool consumes spokes in list order — and a table's columns show every spoke's shift/
-  rotation/cluster at a glance). The table itself is read-only; all editing goes through the row
-  below it and its own **Add spoke** / **Update selected** / **Remove selected** / **Move up** /
-  **Move down** buttons — a table row can never drift from what was actually validated and stored.
-  Every one of these, plus any spoke field's *editing finished* (blur / Enter / combo pick),
-  writes the rule to disk immediately (2026-08-20) — no separate Save for spoke-level work, and a
-  failed write is reported in the Log dock, never silent.
+The pads' ORDER is still semantically significant (the component pool consumes a chain's spokes in
+list order), but the tree shows them sorted by pad number — editing a pad rewrites its whole parent
+chain via `upsert_list_entry` (a pad is not a standalone record).
+
 - **Cell** (per spoke) is a searchable combo listing every `cells:` key reachable from the
   project's root via `include:` — not just this file's own, since a spoke's cell routinely lives in
-  a different file than the rule using it. **Point** (the rule's own anchor, not per-spoke — a
-  spoke always anchors to a pad on THIS rule's own anchor) is populated the same whole-graph way.
-  Both need the project's root, wired the same way Project's own panel does.
-- **Redraw rule** — the whole rule, all non-skipped spokes, same replace-by-identity +
-  `ApplyPipeline(only=[...])` shape as Thermal via's own Redraw.
-- **Redraw selected spoke** — same, but every OTHER spoke in the copy handed to the pipeline gets a
-  temporary `skip: true` injected (never written back — Save is unaffected) — sound because spoke
-  resolution shares ONE component pool per net across the whole rule, so a single spoke can't be
-  resolved in total isolation, but the pipeline can be told to skip every spoke except the one
-  you're checking, which `skip:` already exists to do.
-- **Save** — since 2026-08-20 this button's only remaining job is the rule's OWN **Net/Origin**
-  fields (spoke edits autosave themselves, see the Spokes bullet above). It writes the whole rule
-  into the project root file's `rules:` list, matched by name if set, else net (`rules:` is the one list
-  section without a required `name:` — see [docs/config.md](config.md)'s `rule_effective_name`).
-- **Bulk set Cell for net…** (2026-08-20) — sets `cell:` on EVERY spoke of every rule on the
-  chosen net at once, even when those rules live in different included files (a net's rules
-  routinely do — the dialog's net picker and preview walk the whole include: graph). A dialog
-  previews the exact rules/pads that will change BEFORE applying; a partial write failure is
-  reported explicitly (which rules wrote, which didn't) — never a silent half-applied change. If
-  the currently-loaded rule is on that net, its form is reloaded from disk afterwards.
+  a different file than the chain using it. Both the Cell combo and the Point anchor are populated
+  from the whole include graph (root path), wired the same way Project's own panel does.
+- **Redraw chain** (context menu on a chain node) — the whole chain, all non-skipped spokes, same
+  replace-by-identity + `ApplyPipeline(only=[...])` shape as Thermal via's own Redraw.
+- **Redraw spoke** (context menu on a pad leaf) — same, but every OTHER spoke in the copy handed to
+  the pipeline gets a temporary `skip: true` injected (never written back — Save is unaffected) —
+  sound because spoke resolution shares ONE component pool per net across the whole chain, so a
+  single spoke can't be resolved in total isolation, but the pipeline can be told to skip every
+  spoke except the one you're checking, which `skip:` already exists to do.
+- **Redraw chains...** (context menu on an ANCHOR node, 2026-09-01, Denis: "если корневой
+  компонент, то вообще все его спицы") — redraws EVERY chain under that anchor in ONE
+  `ApplyPipeline` run.
+- **Auto-save** — the chain's own Net/Name/Origin/Retired/Skip fields and every pad-mode field
+  write on their commit points (2026-09-01, plan project_save_model): blur/Enter/combo pick
+  persists immediately. It writes the whole chain into its file's `chains:` list, matched by name
+  if set, else net (`chains:` is the one list section without a required `name:` — see
+  [docs/config.md](config.md)'s `chain_effective_name`). A failed write is reported in the Log
+  dock, never silent.
+- **Bulk set Cell for net...** (context menu, 2026-08-20) — sets `cell:` on EVERY spoke of every
+  chain on the chosen net at once, even when those chains live in different included files. A
+  dialog previews the exact chains/pads that will change BEFORE applying; a partial write failure
+  is reported explicitly — never a silent half-applied change.
+
+**Tools menu** (2026-09-01, plan rules_to_chains) — chains are labelled by their NET identity
+(Denis's decision; inside the code it is still `Chain`):
+- **Add net...** — opens the Chain dialog in chain mode with a fresh blank form.
+- **Add spoke...** — opens it in pad mode, appending to the chain currently SELECTED in the Config
+  tree (a message in the Log dock asks to pick one first if none is selected).
+- **Delete net...** — deletes the currently SELECTED chain from its file (timestamped backup).
 
 ## Net traces
 
@@ -865,7 +886,7 @@ net_trace_dock.md`). Added 2026-08-21.
  fields. `net_traces` anchors by Role ONLY — filling Ref is rejected with an explicit message.
 - **Extract** — captures the picked net's live copper (whole-board search) and writes it under
   `net_traces:` in the project root file, then refreshes the Config tree. Geometry (`tracks:`/`vias:`) is
- machine-written and shown read-only by design — edit it by re-extracting, not by hand (same rule
+ machine-written and shown read-only by design — edit it by re-extracting, not by hand (same chain
  as `cells:`).
 - **Save** — edits the controllable fields (net/anchor/retired/skip) of an already-saved record and
  PRESERVES its machine-written geometry (a Save must never silently erase `tracks:`/`vias:`).
@@ -897,19 +918,19 @@ recurse — that tree is Config tree's own Cells category, which now shows a com
   resolves. **Role** is a searchable combo sourced from THIS cell's own current Components list (not
   the live board) — it must name one of them.
 - **Components** — Role (searchable, autocompleted from the live board's `Role` field, same source
-  as Rule's own anchor-role combo), Offset along/across, Angle, Layer (inherit/`F.Cu`/`B.Cu`), Net
+  as Chain's own anchor-role combo), Offset along/across, Angle, Layer (inherit/`F.Cu`/`B.Cu`), Net
   template (for `clone_placements:`'s by-nets role matching only).
 - **Vias**/**Tracks** — the cell's own top-level (spoke-level) vias/tracks, same fields as
   [docs/config.md](config.md)'s `TemplateVia`/`TemplateTrack`.
 - **Nested cells** — one entry per `CellPlacement`: Name, **Cell** (searchable, every `cells:` key
-  reachable from the project's root, same source as Rule's own spoke-cell combo) **or** **Role**,
+  reachable from the project's root, same source as Chain's own spoke-cell combo) **or** **Role**,
   X/Y, Rotation, Mirror, Layer.
 - **Scope cuts, deliberate** (shipped in one sitting, not because they don't matter): per-component
   vias (`TemplateComponentSlot.vias`) are not editable here — only the cell's own top-level Vias tab;
   a pre-existing per-component via list still round-trips untouched if the row isn't otherwise
   edited. Nested cells only expose their core fields — `nets:`/`params:`/`net_overrides:`/`refs:` are
   preserved verbatim if already present, not editable from this form.
-- No Redraw/Resolve — unlike Rule/Point/Placer, a Cell has no anchor of its own on the live board; it
+- No Redraw/Resolve — unlike Chain/Point/Placer, a Cell has no anchor of its own on the live board; it
   only ever gets a physical position in the context of a placement/spoke that references it.
 - **Save** — writes into the project root file's `cells:` section (a dict keyed by name, same shape as
   Points).

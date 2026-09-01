@@ -119,7 +119,7 @@ def _net_display(entry: Dict[str, Any]) -> str:
 class CellDock(QWidget):
     """A page inside DetailDock's stack (gui/docks/detail_panel.py) — same
     "plain QWidget, not its own QDockWidget" shape as Extract/Placer/
-    Project/Thermal via/Points/Rules."""
+    Project/Thermal via/Points/Chains."""
 
     # Fired after a successful Save — ConfigTreeDock listens to refresh its
     # Cells category (see gui/dock_hub.py), same as every other dock here.

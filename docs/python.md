@@ -72,7 +72,7 @@ for that one subsystem).
 
 Per-channel `clone_placements` written by hand are exactly where copy-paste mistakes creep in (wrong
 `nets:` key, duplicate `anchor_pad:`, a sheet name copied from the wrong neighbour) — a `for` loop
-can't make those. `ClonePlacement`/`Rule` (`kicadstamp.config`) are plain dataclasses — build them
+can't make those. `ClonePlacement`/`Chain` (`kicadstamp.config`) are plain dataclasses — build them
 directly, with real Python variables instead of `{placeholder}` YAML substitution:
 
 ```python
@@ -136,7 +136,7 @@ all):
 from kicadstamp.author import dump_clone_placements, dump_rules, dump_template, apply_config
 
 dump_clone_placements(clones, "boards/3ch-awg-tia/generated/dac_channels.sexp")   # {'clone_placements': [...]}
-dump_rules(rules, "boards/3ch-awg-tia/generated/fpga_spokes.sexp")                # {'rules': [...]}
+dump_rules(chains, "boards/3ch-awg-tia/generated/fpga_spokes.sexp")                # {'chains': [...]}
 dump_template({"my_cell": {"vias": [...], "components": [...]}}, "templates/my_cell.sexp")
 
 # straight into the live apply pipeline, bypassing the generated-YAML step entirely:

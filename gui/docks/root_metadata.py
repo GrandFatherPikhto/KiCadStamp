@@ -177,7 +177,7 @@ class RootMetadataDock(QWidget):
     "Working file:" at the bottom) so this doesn't repeat the anchor_
     cluster double-duty confusion (2026-08-10 handoff): root_changed always
     means "the project's one root file", working_file_changed always means
-    "whichever file Points/Rules/Placer/ThermalVia/Cells currently target",
+    "whichever file Points/Chains/Placer/ThermalVia/Cells currently target",
     and those are allowed to point at the same file by coincidence without
     the code treating that as special. The combobox is a second, direct
     entry point for the exact same thing ConfigTreeDock's own tree clicks
@@ -358,7 +358,7 @@ class RootMetadataDock(QWidget):
         # docstring on why these two must stay visually and semantically
         # distinct.
         layout.addWidget(QLabel(
-            _("Working file (Points/Rules/Placer/Thermal via/Cells write here):")))
+            _("Working file (Points/Chains/Placer/Thermal via/Cells write here):")))
         self.working_file_combo = QComboBox()
         self.working_file_combo.setPlaceholderText(
             _("pick a file (or browse it in the Config tree)"))

@@ -65,7 +65,7 @@ In the current KiCadStamp version, this function **is not used** in the main cod
 **Purpose:**  
 Transforms template local coordinates (`along`, `across`) to absolute board coordinates for `ManualSpoke` (pad‑based placement) with the spoke’s `(shift_x, shift_y)` and `rotation_deg`. It also computes the final component rotation and generates all vias (at both the spoke and component levels) as `ResolvedVia` with absolute coordinates and nets (if `net` is omitted, `rule.net` is used).
 
-**Important:** `ManualSpoke` also generates tracks (spoke‑level `TemplateTrack` entries), the same way `ClonePlacement` does. A track with `net = None` inherits `rule.net` – the same convention as `TemplateVia` – which is what lets one template (e.g. `cap_pair_standard`) be reused across rules with different nets without hardcoding a net per rule.
+**Important:** `ManualSpoke` also generates tracks (spoke‑level `TemplateTrack` entries), the same way `ClonePlacement` does. A track with `net = None` inherits `chain.net` – the same convention as `TemplateVia` – which is what lets one template (e.g. `cap_pair_standard`) be reused across chains with different nets without hardcoding a net per chain.
 
 **Key Classes and Functions:**
 

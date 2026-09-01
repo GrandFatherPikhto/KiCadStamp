@@ -1694,7 +1694,7 @@ KIND_FILTER_CFG = {
         {"name": "CL_A", "cluster": "c", "cell": "t", "xy": [1.0, 2.0]},
         {"name": "SHARED", "cluster": "c2", "cell": "t", "xy": [3.0, 4.0]},
     ],
-    "rules": [
+    "chains": [
         {"name": "R_B", "net": "+3V3", "anchor_role": "FPGA", "spokes": []},
         {"name": "SHARED", "net": "+5V", "anchor_role": "FPGA", "spokes": []},
     ],
@@ -1720,7 +1720,7 @@ def test_all_ref_candidates_returns_kind_name_pairs(main_window, tmp_path):
     dock, _root = _dock_with(main_window, tmp_path, KIND_FILTER_CFG)
     assert dock._all_ref_candidates() == [
         ("clone", "CL_A"), ("clone", "SHARED"),
-        ("rule", "R_B"), ("rule", "SHARED"),
+        ("chain", "R_B"), ("chain", "SHARED"),
         ("coordinate", "COORD_C"), ("point", "PNT_D"),
     ]
 
@@ -1812,16 +1812,17 @@ def test_all_ref_names_dedups_cross_section_collision(main_window, tmp_path):
     assert dock._all_ref_names() == ["CL_A", "SHARED", "R_B", "COORD_C", "PNT_D"]
 
 
-def test_node_dialog_kind_rule_lists_only_rules(main_window, tmp_path):
-    """Kind = rule -> the "Ref:" combo carries ONLY rule names (plain), and
-    build_node() yields an explicitly-typed rule node."""
+def test_node_dialog_kind_chain_lists_only_chains(main_window, tmp_path):
+    """Kind = chain -> the "Ref:" combo carries ONLY chain names (plain), and
+    build_node() yields an explicitly-typed chain node. (2026-09-01, plan
+    rules_to_chains: kind "rule" -> "chain".)"""
     dock, _root = _dock_with(main_window, tmp_path, KIND_FILTER_CFG)
     tree = dock._current_tree()
     dlg = _build_dialog(dock, tree, None)
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("rule"))
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("chain"))
 
     assert _combo_texts(dlg.ref_combo) == ["R_B", "SHARED"]
-    assert dlg.ref_combo.itemData(0) == ("rule", "R_B")
+    assert dlg.ref_combo.itemData(0) == ("chain", "R_B")
 
     dlg.ref_combo.setCurrentText("R_B")
     dlg.offset_widget.x_edit.setText("1.0")
@@ -1829,7 +1830,7 @@ def test_node_dialog_kind_rule_lists_only_rules(main_window, tmp_path):
     built = dlg.build_node()
     assert built is not None
     assert built.ref == "R_B"
-    assert built.kind == "rule"
+    assert built.kind == "chain"
 
 
 def test_node_dialog_kind_clone_lists_only_clones(main_window, tmp_path):
@@ -1853,11 +1854,11 @@ def test_node_dialog_auto_unique_plain_collisions_prefixed(main_window, tmp_path
 
     assert dlg.kind_combo.currentData() is None  # auto by default
     assert _combo_texts(dlg.ref_combo) == [
-        "CL_A", "clone:SHARED", "R_B", "rule:SHARED", "COORD_C", "PNT_D",
+        "CL_A", "clone:SHARED", "R_B", "chain:SHARED", "COORD_C", "PNT_D",
     ]
     assert dlg.ref_combo.itemData(0) == (None, "CL_A")
     assert dlg.ref_combo.itemData(1) == ("clone", "SHARED")
-    assert dlg.ref_combo.itemData(3) == ("rule", "SHARED")
+    assert dlg.ref_combo.itemData(3) == ("chain", "SHARED")
     assert dlg.ref_combo.itemData(5) == (None, "PNT_D")
 
 

@@ -145,7 +145,7 @@ def test_auto_role_column_is_the_fourth_readonly_column(main_window):
     dock = ExtractDock(main_window)
     assert [dock.nets_table.horizontalHeaderItem(i).text()
             for i in range(dock.nets_table.columnCount())] == [
-        "Net", "Alias", "Rule net (null)", "Auto-role"]
+        "Net", "Alias", "Chain net (null)", "Auto-role"]
 
 
 def test_auto_role_shows_lemma2_role_and_disables_alias(main_window, tmp_path, monkeypatch):

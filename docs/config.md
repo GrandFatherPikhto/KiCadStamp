@@ -1,7 +1,7 @@
 # YAML Configuration Reference
 
 Everything about **writing** a KiCadStamp config from scratch: root fields, every section
-(`cells:`/`rules:`/`clone_placements:`/`thermal_via_arrays:`/`points:`), `include:`, and
+(`cells:`/`chains:`/`clone_placements:`/`thermal_via_arrays:`/`points:`), `include:`, and
 `extract_profiles:`/`clone_profiles:`. For running commands against a config, see
 [docs/commands.md](commands.md); for coding placement in Python instead of hand-writing YAML, see
 [docs/python.md](python.md); for the module/class architecture behind all of this, see
@@ -29,7 +29,7 @@ thermal_via_arrays:
 include:
   - templates/fpga_pi_filters.sexp
   - fpga_extracts.sexp
-  - rules/fpga_spokes.sexp
+  - chains/fpga_spokes.sexp
 
 clone_placements:
   ...
@@ -37,11 +37,11 @@ clone_placements:
 
 | Field | Type | Meaning |
 |---|---|---|
-| `layer` | string | `F.Cu`\|`B.Cu` — default layer for the `rules:`/ManualSpoke path only. `clone_placements:` each carry their own `layer:`, unaffected by this. |
+| `layer` | string | `F.Cu`\|`B.Cu` — default layer for the `chains:`/ManualSpoke path only. `clone_placements:` each carry their own `layer:`, unaffected by this. |
 | `cells` | mapping | Inline `Cell` definitions (see below). Rare to write by hand — usually populated by `extract`; can be split across files via `include:` (see below). |
 | `points` | mapping | Named, reusable anchors (see **Points** below). |
 | `include` | list | Other YAML files to merge in — see **`include:`** below. |
-| `rules` | list | ManualSpoke rules — see **`rules:`** below. |
+| `chains` | list | ManualSpoke chains — see **`chains:`** below. (Legacy `chains:` is still read as an alias.) |
 | `clone_placements` | list | TemplatePlacer placements — see **`clone_placements:`** below. |
 | `entities` | list | Entity records — the "what" of a placement, WITHOUT any position — see **`entities:`** below. |
 | `trees` | list | Placement trees — the ONLY place a position can live — see **`trees:`** below. |
@@ -66,7 +66,7 @@ section — wrap the external file's content in a `cells:` key), `target_ref`/`s
 
 A `Cell` (until 2026-07-31, `SpokeTemplate`) is a piece of geometry described **once**, in its own
 local coordinate system (`along`/`across`, rotation-invariant — always described at `rotation_deg=0`),
-then placed (and rotated/mirrored/shifted as a whole) wherever it's used — by a `rules:` spoke or a
+then placed (and rotated/mirrored/shifted as a whole) wherever it's used — by a `chains:` spoke or a
 `clone_placements:` entry.
 
 A `Cell` can be a **leaf** (`vias:`/`components:`/`tracks:`), a **composite** (`clone_placements:`
@@ -110,9 +110,9 @@ cells:
 ```
 
 - `vias:` — `offset_along_mm`/`offset_across_mm` (local), `net:` (`null`/omitted means "inherit the
-  rule's net" — only `rules:`/ManualSpoke supports that; `clone_placements:` fatals on a via with no
-  net, since it has no single "rule net" to fall back to), `drill_mm`, `diameter_mm`. Same `null`
-  convention for `tracks:`' own `net:` below. The GUI Extract dock's per-net **"Rule net (null)"**
+  chain's net" — only `chains:`/ManualSpoke supports that; `clone_placements:` fatals on a via with no
+  net, since it has no single "chain net" to fall back to), `drill_mm`, `diameter_mm`. Same `null`
+  convention for `tracks:`' own `net:` below. The GUI Extract dock's per-net **"Chain net (null)"**
   checkbox (2026-08-05) writes exactly this — see `extract_profiles:`' `rule_nets:` below for the
   CLI/profile-file equivalent (`--rule-net`).
 - `components:` — `role:` (matched against the board's `Role` custom field, **not** a refdes — the
@@ -120,7 +120,7 @@ cells:
   offset+angle, its own `vias:` (same shape, nested under the component), optional `layer:` (only
   when it differs from the cell's own layer — e.g. a bottom-side component in an otherwise top-side
   cell), and `net_template:` (used only by `clone_placements:`'s by-nets role matching — see below;
-  `rules:`/ManualSpoke ignores it entirely, matching roles purely by `(rule.net, Role)`).
+  `chains:`/ManualSpoke ignores it entirely, matching roles purely by `(chain.net, Role)`).
   Optional `net_template_pad:` (2026-08-16) — only meaningful together with `net_template:`: which
   pad of the resolved candidate carries that role's net, for roles whose real component has MORE
   than one non-rule net (a regulator/diode/inductor — LDO VIN/VOUT, etc.). Without it, the Placer's
@@ -225,28 +225,31 @@ path, not a Python `RecursionError`).
 > 3. On a `CellPlacement` (nested inside a composite `Cell`) — a shift from the **parent cell's own
 >    local (0,0)**, never the board or a live anchor.
 >
-> Same rule everywhere ("flat shift, no automatic rotation"), three different origins — check for a
+> Same chain everywhere ("flat shift, no automatic rotation"), three different origins — check for a
 > sibling `anchor_*` field, and whether you're inside a `Cell` definition or a top-level
 > `clone_placements:`, before trusting a bare `xy:` number.
 
 ---
 
-## `rules:` — ManualSpoke (radial decoupling around one IC)
+## `chains:` — ManualSpoke (radial decoupling around one IC)
 
-The original, oldest mechanism: a group of spokes (small cells, usually a decap pair) placed
-radially around specific pads of **one** anchor component, drawing real components from a pool by
-`(net, Role)` — not tied to a specific refdes, so re-annotation-safe. Does **not** support tracks
-between spokes across different pads (each spoke is self-contained).
+The original, oldest mechanism (renamed from `chains:` 2026-09-01 — plan rules_to_chains): a group
+of spokes (small cells, usually a decap pair) placed radially around specific pads of **one**
+anchor component, drawing real components from a pool by `(net, Role)` — not tied to a specific
+refdes, so re-annotation-safe. Does **not** support tracks between spokes across different pads
+(each spoke is self-contained). The old `chains:` key is still READ (alias) for backward
+compatibility; [`tools/convert_rules_to_chains.py`](../tools/convert_rules_to_chains.py) rewrites
+an existing profile to `chains:`.
 
-> **Two `rules:` on the same net that consume the same `(role, cluster)` pool are a fatal
-> validation error** (2026-08-20): the pool is rebuilt per rule with no ownership/distance, so
-> whichever rule runs later silently takes components meant for its neighbour (a Redraw of one
-> rule is where this is most visible). Fix: give the spokes of one of them a distinguishing
-> `cluster:` so each rule draws from its own pool.
+> **Two `chains:` on the same net that consume the same `(role, cluster)` pool are a fatal
+> validation error** (2026-08-20): the pool is rebuilt per chain with no ownership/distance, so
+> whichever chain runs later silently takes components meant for its neighbour (a Redraw of one
+> chain is where this is most visible). Fix: give the spokes of one of them a distinguishing
+> `cluster:` so each chain draws from its own pool.
 
 ```yaml
 # boards/3ch-awg-tia/profiles/rules/fpga_spokes.sexp
-rules:
+chains:
 - net: +3V3_VCCIO
   name: +3V3_VCCIO       # optional — defaults to net if omitted, see below
   anchor_role: FPGA
@@ -267,14 +270,14 @@ rules:
     cluster: FPGA_PWR_BANK
 ```
 
-**`Rule` fields:**
+**`Chain` fields:**
 
 | Field | Meaning |
 |---|---|
 | `net` | Required. The net every spoke's components/vias resolve against (component pool lookup is `(net, Role)`). |
 | `anchor_ref` **or** `anchor_role` (`+anchor_sheet`/`anchor_cluster`) **or** `anchor_point` | Exactly one — the anchor component whose pads the spokes attach to. |
-| `name` | Optional, for `--only`. Defaults to `net` (see `rule_effective_name`). **Not** a grouping mechanism — don't reuse one `name:` across several rules to bundle them for `--only`; use a shared `Cluster` (`anchor_cluster`/`spoke.cluster`) instead. Two rules that resolve to the same effective name is a fatal load error. |
-| `retired` | Default `false`. `true` = "does not exist on the board" — prunes this rule's via/track registry entries. Always wins over `--only`/`--cluster`. |
+| `name` | Optional, for `--only`. Defaults to `net` (see `chain_effective_name`). **Not** a grouping mechanism — don't reuse one `name:` across several chains to bundle them for `--only`; use a shared `Cluster` (`anchor_cluster`/`spoke.cluster`) instead. Two chains that resolve to the same effective name is a fatal load error. |
+| `retired` | Default `false`. `true` = "does not exist on the board" — prunes this chain's via/track registry entries. Always wins over `--only`/`--cluster`. |
 | `skip` | Default `false`. `true` = "leave alone this run" — narrows work like `--only`/`--cluster` would, but inline, without protecting/pruning the registry either way. |
 | `comment` | Optional. Free-form note shown in the GUI — a plain schema field, not a YAML comment. |
 
@@ -282,12 +285,12 @@ rules:
 
 | Field | Meaning |
 |---|---|
-| `pad` | Required. Which pad of the rule's anchor this spoke attaches to (a string, like KiCad — `'17'`, not `17`). |
+| `pad` | Required. Which pad of the chain's anchor this spoke attaches to (a string, like KiCad — `'17'`, not `17`). |
 | `cell` | Required. The `Cell` (must be a leaf) this spoke places. |
 | `shift_x_mm`/`shift_y_mm` | Board-absolute mm shift from the pad centre to the spoke's own origin (not local/rotated — tuned visually per spoke). |
 | `rotation_deg` | Rotation of the resulting origin and all cell contents. |
 | `cluster` | Optional — narrows which physical component pool entry a role resolves to when the same net+Role combination isn't unique on its own. |
-| `retired`/`skip` | Same meaning as on `Rule`, scoped to just this one spoke. |
+| `retired`/`skip` | Same meaning as on `Chain`, scoped to just this one spoke. |
 
 ---
 
@@ -298,7 +301,7 @@ rules:
 > (see below); [`tools/convert_placements.py`](../tools/convert_placements.py) converts a legacy
 > profile (run it on a COPY — it writes a timestamped `.bak` first).
 
-Applies a `Cell` at a new location — unlike `rules:` (anchor is always an IC pad), the anchor here is
+Applies a `Cell` at a new location — unlike `chains:` (anchor is always an IC pad), the anchor here is
 just a name (`anchor_id` in the registry is `f"name:{name}"`), so it's the mechanism for repeated
 multi-component sections (PI-filters, DAC channels, LDO subsystems) as well as one-off ones.
 
@@ -366,7 +369,7 @@ clone_placements:
 | `params` | `{placeholder: value}` — fills `{placeholder}`s in the cell's `net_template:`/via/track `net:` fields; presence alone (even with empty `nets`) selects by-nets mode unless `by_selection: true`. |
 | `net_overrides` | OPTIONAL (Phase 2 step 2.1): `{resolved_net: replacement_net}` — final string substitution after the rest of net resolution, for edge cases the placeholder system can't express directly. |
 | `refs` | `{role: refdes}` — explicit override, bypassing net-based search entirely; last resort when candidates are electrically indistinguishable. |
-| `retired` / `skip` | Same convention as `Rule` — see above. `retired` always wins over `--only`/`--cluster`. |
+| `retired` / `skip` | Same convention as `Chain` — see above. `retired` always wins over `--only`/`--cluster`. |
 | `by_selection` | Default `false`. Forces selection mode even when `params`/`nets` are present. |
 | `ignore_selection` | Default `false`. Per-item counterpart of the CLI's `--no-selection`: treats the live GUI selection as empty for THIS placement's own resolution, regardless of the global flag — OR-composes with it. |
 | `layer` | `F.Cu`\|`B.Cu`\|unset (inherit the cell's own layer, place verbatim). |
@@ -421,7 +424,7 @@ So "an Entity no tree node references" is a legitimate, explicitly *not placed* 
 | `net_overrides` | Optional `{resolved_net: replacement_net}` — final substitution after the rest of net resolution. |
 | `cluster` | Optional (unlike `ClonePlacement`) — the Cluster TAG written onto the board at Apply; an entity may exist "not placed" (no tree node) without a tag. |
 | `sheet` | Optional own-identity sheet — narrows ambiguous Cluster+Role inside the cell across reused sheets. |
-| `retired` / `skip` | Optional, default `false` — same convention as `Rule`. |
+| `retired` / `skip` | Optional, default `false` — same convention as `Chain`. |
 | `ignore_selection` | Optional, default `false` — per-item counterpart of `--no-selection`. |
 | `by_selection` | Optional, default `false` — per-instance selection-based role resolution. |
 | `refs` | Optional `{role: refdes}` — per-instance explicit override, bypasses net-based search. |
@@ -448,10 +451,10 @@ entities: a node with `kind "placement"` whose `ref` is an `Entity.name` IS that
 ```
 
 - `kind "clone"` was renamed to `kind "placement"`; on load `"clone"` is still accepted as an alias
-  for `"placement"` during the migration. `rule`/`coordinate`/`point`/`external` node kinds are unchanged.
+  for `"placement"` during the migration. `chain`/`coordinate`/`point`/`external` node kinds are unchanged.
 - `node.ref` for `kind "placement"` resolves to `Entity.name`, not the old `clone_placements:` list.
 - A flat single placement = a tree with one node under `(anchor (origin))` or a component/point anchor.
-- The one-ref-per-node tree rule means an Entity is always 1:1 with its tree node — an Entity cannot
+- The one-ref-per-node tree chain means an Entity is always 1:1 with its tree node — an Entity cannot
   stand in two places.
 
 **An `(anchor (ref ...))` may point at an Entity** — the tree is then anchored on ANOTHER tree's
@@ -550,9 +553,9 @@ thermal_via_arrays:
 ```
 
 A real list (2026-08-02, generalized once a second IC needing thermal vias — AD9707, one per channel —
-showed up) — same shape as `rules:`/`clone_placements:`: any number of entries, each independently
+showed up) — same shape as `chains:`/`clone_placements:`: any number of entries, each independently
 named/anchored/retired/skipped, and each can live in a different file via `include:` (`thermal_via_arrays`
-is a merged list section, same as `rules`/`clone_placements`). `name:` is **required** on every entry (used
+is a merged list section, same as `chains`/`clone_placements`). `name:` is **required** on every entry (used
 for `--only` and the registry identity `f"thermal:{name}"`) and must be **unique across the whole list**
 (fatal at load otherwise — `--only` couldn't tell same-named entries apart).
 
@@ -619,14 +622,14 @@ net_traces:
 - **`anchor_role`** (required) — the Role field of the anchor footprint,
   resolved over the WHOLE live board (never the mouse selection) at BOTH
   extract time (origin) and apply time (anchor) — the same
-  `resolve_footprint_by_role` search Rule/ClonePlacement use. Optional
+  `resolve_footprint_by_role` search Chain/ClonePlacement use. Optional
   `anchor_sheet`/`anchor_cluster` narrow that role's ambiguity, optional
   `anchor_pad` moves the anchor point from the footprint centre to a specific
   pad's centre.
 - **`tracks`/`vias`** — the copper as local (along/across) offsets from the
   anchor point, the exact `TemplateTrack`/`TemplateVia` shape `cells:` use.
   The net is ALWAYS written explicitly on each element (there is no enclosing
-  Rule to inherit a net from).
+  Chain to inherit a net from).
 - **`retired`/`skip`** — the same convention as every other section.
 - **`comment`** — optional free-form note shown in the GUI (a plain schema
   field, not a YAML comment).
@@ -656,7 +659,7 @@ points:
     anchor_pad: '1'
 ```
 
-Then referenced by name from `Rule`/`ClonePlacement`/`ThermalViaArrayConfig`:
+Then referenced by name from `Chain`/`ClonePlacement`/`ThermalViaArrayConfig`:
 
 ```yaml
 clone_placements:
@@ -674,7 +677,7 @@ anchor dependency is.
 | Field | Meaning |
 |---|---|
 | `name` | The key under `points:` — not a separate field, just how it's referenced. |
-| `anchor_ref` / `anchor_role`(+`anchor_sheet`+`anchor_cluster`) **or** `anchor_pad` | Live-board anchor, same fields/resolution as `Rule`/`ClonePlacement`. |
+| `anchor_ref` / `anchor_role`(+`anchor_sheet`+`anchor_cluster`) **or** `anchor_pad` | Live-board anchor, same fields/resolution as `Chain`/`ClonePlacement`. |
 | `anchor_point` | Chain to another, already-defined point by name — points can reference points (a cycle is caught by the same graph algorithm that catches any other anchor cycle). |
 | `xy` | A literal, absolute board coordinate — no live anchor at all. **(0, 0) here is the drawing sheet's corner, not any physical board reference** — see `anchor_origin` below for that. |
 | `anchor_origin` | `'grid'` (Place > Set Grid Origin, visual only — no exported file uses it) or `'drill'` (Place > Drill/Place Origin, the auxiliary axis — drill/position files are always relative to it, Gerbers optionally via their own plot-dialog option). Read LIVE via kipy, not a config literal. |
@@ -682,7 +685,7 @@ anchor dependency is.
 | `comment` | Optional. Free-form note shown in the GUI — a plain schema field, not a YAML comment. |
 
 Exactly one of `{anchor_ref or anchor_role, anchor_point, xy, anchor_origin}` must be the base —
-fatal at load otherwise. `Rule`/`ThermalViaArrayConfig`'s own `anchor_point:` requires the referenced
+fatal at load otherwise. `Chain`/`ThermalViaArrayConfig`'s own `anchor_point:` requires the referenced
 point to resolve to an actual footprint (no shift, not `xy:`-literal, not `anchor_origin`-based, and
 not chained through one that has any of those) — they need to look up a specific pad by number from
 it; `ClonePlacement` only ever needs a coordinate, so any Point works there, `anchor_origin` included.
@@ -703,7 +706,7 @@ include:
 Each entry is either a bare path string, or `{path: <str>, enabled: <bool>}` to switch a whole
 included file off without deleting or commenting it out.
 
-- **List sections** (`rules`, `clone_placements`, `thermal_via_arrays`) — concatenated: this file's own
+- **List sections** (`chains`, `clone_placements`, `thermal_via_arrays`) — concatenated: this file's own
   entries first, then each included file's, in listed order. (Real placement order at `apply` time is
   decided separately, by actual anchor dependencies, not YAML order — see [docs/placement.md](placement.md).)
 - **Dict sections** (`cells`, `points`, `extract_profiles`, `clone_profiles`) — merged key-by-key,
@@ -711,12 +714,12 @@ included file off without deleting or commenting it out.
   independent subsystems, so a repeated name is far more likely a copy-paste mistake than an
   intentional override.
 - **Any other top-level key** (`layer:`, `schematic_dir:`, `registry_path:`, …)
-  inside an *included* (non-root) file has no defined multi-file merge rule and is a **fatal** error —
+  inside an *included* (non-root) file has no defined multi-file merge chain and is a **fatal** error —
   move it to the root config instead. (This used to be silently dropped — a real, repeatedly-hit bug
   class on `boards/3ch-awg-tia`, now caught at load time.)
 - Cycles and diamond-includes (the same file reachable twice) are both fatal.
 
-`include:` is general-purpose and used by both `load_config()` (`rules`/`clone_placements`/
+`include:` is general-purpose and used by both `load_config()` (`chains`/`clone_placements`/
 `thermal_via_arrays`/`cells`/`points`) and the CLI's own profile loader (`extract_profiles`/
 `clone_profiles`), so one subsystem file can carry a mix of everything it needs — this is also how
 external `Cell` files work now: list the file under `include:` and wrap its content in a `cells:` key
@@ -760,10 +763,10 @@ are auto-discovered — these keys are only needed for rare manual exceptions
 
 `rule_nets:` (2026-08-05, `--rule-net LITERAL`, repeatable) — a list of literal net names to write as
 `net: null` on any matching via/track instead of the literal (or an alias) — see the `vias:` note
-above on what `null` means there. Only useful for a cell meant to be placed via **`rules:`**/
-ManualSpoke on more than one `Rule` with a DIFFERENT net each (e.g. a decoupling-cap-pair cell reused
+above on what `null` means there. Only useful for a cell meant to be placed via **`chains:`**/
+ManualSpoke on more than one `Chain` with a DIFFERENT net each (e.g. a decoupling-cap-pair cell reused
 once per power rail) — `net_template`/`params` (`{PLACEHOLDER}`) is the mechanism for the OTHER case,
-reuse across `clone_placements:`, and does nothing for `rules:`/ManualSpoke (`ManualSpoke` has no
+reuse across `clone_placements:`, and does nothing for `chains:`/ManualSpoke (`ManualSpoke` has no
 `params:` field to resolve a template against at all). Fatal if the same net is in both `rule_nets:`
 and `params`/`net_template` — pick one per net.
 
@@ -776,7 +779,7 @@ all write to the same cells file — a profile that needs a different one still 
 
 - [docs/commands.md](commands.md) — the CLI commands (`apply`/`extract`/`undo`/`clone-extract`) that
   consume everything documented here.
-- [docs/python.md](python.md) — building the same `Rule`/`ClonePlacement`/`Cell` objects from Python
+- [docs/python.md](python.md) — building the same `Chain`/`ClonePlacement`/`Cell` objects from Python
   instead of hand-writing YAML.
 - [docs/architect.md](architect.md) — the module architecture (`config/`, `placement/`, `geometry/`)
   behind this schema.

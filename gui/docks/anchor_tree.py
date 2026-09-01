@@ -41,7 +41,9 @@ logger = logging.getLogger(__name__)
 # self-explanatory in the tree (clone/coordinate names are the --only
 # identities the user manages; the rest benefit from a disambiguating tag).
 _KIND_TAGS = {
-    "rule": _("rule"),
+    "chain": _("chain"),
+    # Legacy kind alias (2026-09-01 Rule -> Chain rename).
+    "rule": _("chain"),
     "net_trace": _("net trace"),
     "thermal_via": _("thermal"),
     "point": _("point"),

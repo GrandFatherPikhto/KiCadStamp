@@ -37,7 +37,7 @@ tests/
 ├── test_pad_projection.py            # Pad position prediction
 ├── test_registry_integration.py      # Full registry cycle (create, update, prune) with mocks
 ├── test_registry_pruning_granularity.py # Registry pruning precision
-├── test_registry_rule_protection.py  # Registry rule protection (known_anchor_ids)
+├── test_registry_rule_protection.py  # Registry chain protection (known_anchor_ids)
 ├── test_spoke_layout.py              # Local‑to‑global template coordinate transformation (spoke_layout)
 ├── test_template_extraction.py       # Template extraction from selection (logic, tracks)
 ├── test_cell_files.py            # deprecated cells_file/cell_files/templates_file/template_files → fatal
@@ -128,36 +128,36 @@ pytest tests/integration_tests/ -v -s -m integration
 
 | File | What it tests |
 |------|---------------|
-| `test_author.py` | Scripting helpers: `_prune_defaults` (drops dataclass default fields), YAML round‑trip for `ClonePlacement`/`Rule`, `apply_config` namespace compatibility with `cmd_apply`, `cli_main` entry‑point behaviour. |
+| `test_author.py` | Scripting helpers: `_prune_defaults` (drops dataclass default fields), YAML round‑trip for `ClonePlacement`/`Chain`, `apply_config` namespace compatibility with `cmd_apply`, `cli_main` entry‑point behaviour. |
 | `test_cli_filters.py` | CLI filter logic: `--only NAME` (narrowing by name/net), `--cluster PATH` (narrowing by cluster path), `drop_disabled_rules`, `drop_inactive_items`, `--only`/`--cluster` composition (AND), `load_profile` root defaults and `include:` resolution. |
 | `test_clone_anchor_id.py` | Anchor ID resolution for clones: `clone_anchor_id()` returns correct key based on `anchor_ref`/`anchor_role`/`name`. |
 | `test_clone_geometry.py` | `ClonePlacement` geometry: local‑to‑global coordinate transformation, component angles, vias and tracks, mirroring (`mirror`), net resolution via `params` and `net_overrides`. Checks fatality of vias without a `net`. |
 | `test_clone_ignore_selection.py` | `ignore_selection` flag: temporarily deselects components when processing a clone that should not be affected by user selection. |
 | `test_clone_placement_config.py` | Loading `ClonePlacement` from YAML, checking fields `name`, `template`, `origin_x_mm`, `origin_y_mm`, `rotation_deg`, `nets`, `params`, `net_overrides`, `enabled`. |
-| `test_clone_placement_integration.py` | End‑to‑end test of `PlacementPlanner` with `ClonePlacement` (mocks): cooperation with `rules` (ManualSpoke) and clones in a single run, checking `registry_key` for vias. |
+| `test_clone_placement_integration.py` | End‑to‑end test of `PlacementPlanner` with `ClonePlacement` (mocks): cooperation with `chains` (ManualSpoke) and clones in a single run, checking `registry_key` for vias. |
 | `test_clone_role_resolver.py` | Role resolution for `ClonePlacement` in two modes: by selection (`resolve_roles_by_selection`) and by nets (`resolve_roles_by_nets`), including placeholders, `net_overrides`, ambiguity handling, and anchor proximity. |
 | `test_clone_selection_conflict.py` | Check that no more than one `ClonePlacement` is in selection mode (`check_single_selection_based_clone`), and `clone_uses_selection_mode` works with `by_selection`, `nets`, `params`. |
-| `test_config_includes.py` | `include:` directive: merging `clone_placements`/`rules`/`templates` from multiple files, duplicate detection, cycle/diamond detection, disabled includes, unsupported keys, dict/list misuse. |
+| `test_config_includes.py` | `include:` directive: merging `clone_placements`/`chains`/`templates` from multiple files, duplicate detection, cycle/diamond detection, disabled includes, unsupported keys, dict/list misuse. |
 | `test_dependency_order.py` | Execution order resolution: disabled clones skipped, no‑dependency keeps original order, producer ordered before consumer, self‑anchored is not a cycle, true cycle raises `ValidationError`. |
 | `test_execute_vias_owner_ref.py` | Correctness of `owner_ref` in JSON logs (each via gets its own owner) and that `registry.record_created` is called with the correct UUID. |
 | `test_explore.py` | Read‑only board query helpers: `get_footprints_by_role`, `get_footprint_field`, etc. |
 | `test_full_pipeline_templates.py` | End‑to‑end pipeline test with templates (mocks): position and via calculation for `ManualSpoke`, component distribution by roles, `registry_key` check. |
 | `test_i18n.py` | `_()` function availability, gettext setup, and import verification across all source files. |
 | `test_kicad.py` | Presence of all `IBoardAdapter` methods in `KiCadBoardAdapter`, import, and constructor (without real IPC). |
-| `test_manual_position_calculator.py` | `ManualPositionCalculator` logic: pool building, position calculation, via planning for `rules`. |
-| `test_naming.py` | `rule_effective_name`/`thermal_via_array_effective_name` accessors, `name:` loading from YAML, required name validation (fatality on missing name, and on a duplicate name within `thermal_via_arrays:`), optional Rule.name, Rule.enabled/active defaults. |
+| `test_manual_position_calculator.py` | `ManualPositionCalculator` logic: pool building, position calculation, via planning for `chains`. |
+| `test_naming.py` | `chain_effective_name`/`thermal_via_array_effective_name` accessors, `name:` loading from YAML, required name validation (fatality on missing name, and on a duplicate name within `thermal_via_arrays:`), optional Chain.name, Chain.enabled/active defaults. |
 | `test_net_resolution.py` | Net resolution with placeholders: substitution from `params`, application of `net_overrides`, errors on missing parameters. |
 | `test_pad_projection.py` | Pad position prediction after move/rotate (without and with flip), invariance of `local_pad_offset` to angle. |
 | `test_registry_integration.py` | Full registry cycle (create, update, prune) with mocks, including reconciliation with real vias. |
 | `test_registry_pruning_granularity.py` | Registry pruning precision: correct identification of obsolete vs. current vias/tracks. |
-| `test_registry_rule_protection.py` | Registry rule protection via `known_anchor_ids`: vias/tracks of non‑`--only` clones are not pruned. |
+| `test_registry_rule_protection.py` | Registry chain protection via `known_anchor_ids`: vias/tracks of non‑`--only` clones are not pruned. |
 | `test_spoke_layout.py` | Local‑to‑global coordinate transformation for spoke templates (`spoke_layout`), including spoke‑level and component‑level vias, arbitrary number of roles. |
 | `test_template_extraction.py` | Template extraction from selection: role checks, uniqueness, origin computation, track/via filtering (connected-components closure rooted at kept footprints' pads), net parametrisation (`--net-template`), origin selection by via/role. |
 | `test_cell_files.py` | Deprecated `cells_file`/`cell_files`/`templates_file`/`template_files` keys are all fatal at load with a rename hint (folded into `include:` 2026-08-02 — see `test_config_includes.py` for the current mechanism). |
 | `test_two_phase_execution.py` | Two‑phase execution (moves → refresh → vias) with mocks – ensures that vias are planned after moves and have the correct `registry_key`. |
 | `test_undo_layer.py` | Saving and restoring the component layer in undo (`original_layer` in JSON log). |
 | `test_unique_roles.py` | Uniqueness of roles inside a template (fatal error on duplicates). |
-| `test_unknown_keys_validation.py` | `check_unknown_keys` validation for config sections: unknown top‑level keys, unknown keys inside `clone_placements`, `rules`, `thermal_via_arrays`, `templates`. |
+| `test_unknown_keys_validation.py` | `check_unknown_keys` validation for config sections: unknown top‑level keys, unknown keys inside `clone_placements`, `chains`, `thermal_via_arrays`, `templates`. |
 | `test_validation.py` | Pre‑validation checks: template/pad existence, component pool sufficiency, uniqueness of clone anchors, net resolution for via/tracks, selection mode for clones. |
 
 ---

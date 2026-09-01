@@ -5,7 +5,7 @@
 Директория `placement/` содержит основную логику расстановки компонентов, создания via и дорожек (треков). Она координирует все этапы процесса:
 
 1. **Планирование** – расчёт целевых позиций компонентов, via и треков на основе шаблонов спиц для трёх типов размещений:
-   - **`ManualSpoke`** (правила `rules`) – привязка к падам целевого компонента (IC) с автоматическим подбором refdes через пул ролей (`ComponentPool`). Треки в этом режиме **не поддерживаются**.
+   - **`ManualSpoke`** (цепи `chains`) – привязка к падам целевого компонента (IC) с автоматическим подбором refdes через пул ролей (`ComponentPool`). Треки в этом режиме **не поддерживаются**.
    - **`ClonePlacement`** (клонируемые секции) – многократное применение шаблона (`cell:`, обязателен) в разных местах платы с разрешением ролей по выделению или по явным цепям (`CloneRoleResolver`). Поддерживает **треки** (дорожки) в составе шаблона.
    - **`CoordinatePlacement`** (`coordinate_placements`) – перемещение одного УЖЕ существующего футпринта (по точному совпадению Cluster+Role) в абсолютную позицию или относительно якоря другого компонента. Без шаблона, via/треков и без реестра — см. отдельный раздел ниже.
 2. **Исполнение** – применение перемещений, создание via и треков на плате через адаптер KiCad, с разделением на **три фазы** (сначала перемещения, затем via, затем треки) и обязательным перечитыванием платы между фазами.
@@ -114,7 +114,7 @@ IPC-адаптер**, применяя одну жёсткую трансфор�
 
 `anchor` (`'center'`/`'pad'`, самореференсный, только в абсолютных режимах) и
 `anchor_pad` (свой пад в абсолютных режимах, пад ЯКОРНОГО компонента в режиме
-«относительно якоря» — та же семантика, что у Rule/ClonePlacement) описаны в
+«относительно якоря» — та же семантика, что у Chain/ClonePlacement) описаны в
 докстринге `CoordinatePlacement`.
 
 Когда один и тот же набор записей CoordinatePlacement/ClonePlacement нужно
@@ -202,7 +202,7 @@ from .commands import MoveCommand, ViaCommand, TrackCommand, PlacedComponentInfo
 
 | Интерфейс | Метод | Описание |
 |-----------|-------|----------|
-| `IPositionCalculator` | `compute_raw_positions(target_fp, rules, side)` | Расчёт позиций компонентов и via для `ManualSpoke` (на основе падов IC). |
+| `IPositionCalculator` | `compute_raw_positions(target_fp, chains, side)` | Расчёт позиций компонентов и via для `ManualSpoke` (на основе падов IC). |
 | `IViaPlanner` | `plan_vias(planned_components, planned_vias, target_fp, target_layer)` | Планирование via (термовиа + фильтрация через реестр). |
 
 **Используются в:** `planner.py`, `manual_position_calculator.py`, `via_planner.py`.
@@ -211,13 +211,13 @@ from .commands import MoveCommand, ViaCommand, TrackCommand, PlacedComponentInfo
 
 ### `planner.py`
 
-**Класс `PlacementPlanner`** – главный координатор. Координирует расчёт позиций и via для `rules` (через `ManualPositionCalculator`) и `clone_placements` (через `ClonePositionCalculator`). Применяет логику пропуска уже стоящих на месте компонентов (`skip_existing_components`). Разделяет планирование на три фазы: `plan_moves()`, `plan_vias()`, `plan_tracks()`.
+**Класс `PlacementPlanner`** – главный координатор. Координирует расчёт позиций и via для `chains` (через `ManualPositionCalculator`) и `clone_placements` (через `ClonePositionCalculator`). Применяет логику пропуска уже стоящих на месте компонентов (`skip_existing_components`). Разделяет планирование на три фазы: `plan_moves()`, `plan_vias()`, `plan_tracks()`.
 
 | Метод | Описание |
 |-------|----------|
 | `__init__(adapter, config)` | Инициализация, определение глобального слоя для ManualSpoke. |
 | `_already_in_place(ref, dest, angle_deg, layer)` | Проверяет, находится ли компонент уже на целевой позиции (с учётом слоя, позиции и угла). Допуски: 0.01 мм по координатам, 0.1° по углу. |
-| `plan_moves()` | Вызывает `ManualPositionCalculator.compute_raw_positions()` для `rules` и `ClonePositionCalculator.compute_raw_positions()` для `clone_placements`, объединяет результаты. Применяет `skip_existing_components` к компонентам. Сохраняет `_planned`, `_planned_vias`, `_planned_tracks` для последующих фаз. Возвращает `MoveCommand[]`. |
+| `plan_moves()` | Вызывает `ManualPositionCalculator.compute_raw_positions()` для `chains` и `ClonePositionCalculator.compute_raw_positions()` для `clone_placements`, объединяет результаты. Применяет `skip_existing_components` к компонентам. Сохраняет `_planned`, `_planned_vias`, `_planned_tracks` для последующих фаз. Возвращает `MoveCommand[]`. |
 | `plan_vias()` | Вызывает `ViaPlanner.plan_vias()` с сохранёнными данными. Возвращает `ViaCommand[]`. |
 | `plan_tracks()` | Возвращает сохранённые `_planned_tracks` (без дополнительной обработки; коллизии не проверяются). |
 | `plan()` | Обратно совместимая обёртка (вызывает все три фазы подряд). Не рекомендуется для боевого использования. |
@@ -288,7 +288,7 @@ from .commands import MoveCommand, ViaCommand, TrackCommand, PlacedComponentInfo
 ### `services/`
 
 #### `services/component_pool.py`
-**Класс `ComponentPool`** – подбирает refdes для ролей в `ManualSpoke`. Строится один раз на правило (`rule.net`) и разбирается спицами по очереди.
+**Класс `ComponentPool`** – подбирает refdes для ролей в `ManualSpoke`. Строится один раз на цепейо (`chain.net`) и разбирается спицами по очереди.
 
 | Метод | Описание |
 |-------|----------|
@@ -340,11 +340,11 @@ from .commands import MoveCommand, ViaCommand, TrackCommand, PlacedComponentInfo
 **Используется в:** `planner.py`.
 
 #### `services/manual_position_calculator.py`
-**Класс `ManualPositionCalculator`** – расчёт позиций компонентов, via и треков для `ManualSpoke` на основе падов IC. Реализует `IPositionCalculator`. `TemplateTrack.net = None` наследует `rule.net` (та же конвенция, что и у `TemplateVia`) — именно это позволяет одному шаблону (например, `cap_pair_standard`) переиспользоваться в правилах с разными цепями.
+**Класс `ManualPositionCalculator`** – расчёт позиций компонентов, via и треков для `ManualSpoke` на основе падов IC. Реализует `IPositionCalculator`. `TemplateTrack.net = None` наследует `chain.net` (та же конвенция, что и у `TemplateVia`) — именно это позволяет одному шаблону (например, `cap_pair_standard`) переиспользоваться в цепих с разными цепями.
 
 | Метод | Описание |
 |-------|----------|
-| `compute_raw_positions(rules)` | Для каждого правила строит `ComponentPool`, для каждой спицы вызывает `apply_spoke_geometry`, возвращает `(PlacedComponentInfo[], ViaCommand[], TrackCommand[])`. |
+| `compute_raw_positions(chains)` | Для каждого цепи строит `ComponentPool`, для каждой спицы вызывает `apply_spoke_geometry`, возвращает `(PlacedComponentInfo[], ViaCommand[], TrackCommand[])`. |
 
 **Используется в:** `planner.py`.
 
