@@ -54,7 +54,7 @@ from .entries import (
     _load_manual_spoke,
     _load_net_trace,
     _load_point,
-    _load_rule,
+    _load_chain,
     _load_template_component_slot,
     _load_template_track,
     _load_template_via,
@@ -66,7 +66,7 @@ from .includes import _load_config_file, resolve_includes
 from .sheet_templates import expand_sheet_templates
 from .models import (
     ThermalViaArrayConfig, CoordinatePlacement, NetTrace, Config,
-    rule_effective_name, coordinate_placement_effective_name,
+    chain_effective_name, coordinate_placement_effective_name,
     clone_placement_effective_name, net_trace_effective_name,
     entity_effective_name,
 )
@@ -226,21 +226,21 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
     points_data = dict(data.get('points', {}) or {})
     points = {name: _load_point(name, pdata) for name, pdata in points_data.items()}
 
-    rules = [_load_rule(rule_data) for rule_data in data.get('rules', [])]
+    chains = [_load_chain(chain_data) for chain_data in data.get('chains', [])]
 
-    # Fatal on collision: two rules resolving to the same --only identity
+    # Fatal on collision: two chains resolving to the same --only identity
     # (same net, neither disambiguated with an explicit name) would silently
     # both match the same --only call — catch it at load time, not at --only
-    # time, and point at exactly which rules collided.
+    # time, and point at exactly which chains collided.
     seen_names: dict[str, list[str]] = {}
-    for rule in rules:
-        seen_names.setdefault(rule_effective_name(rule), []).append(
-            rule.anchor_ref or rule.anchor_role or "?"
+    for chain in chains:
+        seen_names.setdefault(chain_effective_name(chain), []).append(
+            chain.anchor_ref or chain.anchor_role or "?"
         )
     for effective_name, anchors in seen_names.items():
         if len(anchors) > 1:
             raise ValidationError(format_fatal_error(
-                _("{count} rules resolve to the same --only identity {name!r} "
+                _("{count} chains resolve to the same --only identity {name!r} "
                   "(anchors: {anchors})").format(count=len(anchors), name=effective_name,
                                                   anchors=", ".join(anchors)),
                 [_("give at least one of them an explicit name: to disambiguate "
@@ -367,8 +367,8 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
     for pname, point in points.items():
         _check_anchor_point(_("point {name!r}").format(name=pname), point.anchor_point,
                             needs_footprint=False)
-    for rule in rules:
-        _check_anchor_point(_("rule (net {net!r})").format(net=rule.net), rule.anchor_point,
+    for chain in chains:
+        _check_anchor_point(_("chain (net {net!r})").format(net=chain.net), chain.anchor_point,
                             needs_footprint=True)
     for cp in clone_placements:
         _check_anchor_point(_("clone_placement {name!r}").format(
@@ -441,7 +441,7 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
         cells=cells,
         points=points,
         thermal_via_arrays=thermal_vias,
-        rules=rules,
+        chains=chains,
         entities=entities,
         clone_placements=clone_placements,
         coordinate_placements=coordinate_placements,
@@ -462,9 +462,9 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
         operation_log_dir=operation_log_dir,
         board_name=board_name,
     )
-    total_spokes = sum(len(r.spokes) for r in cfg.rules)
-    logger.debug(_("Config loaded: layer={layer}, cells={cells}, points={points}, rules={rules}, "
+    total_spokes = sum(len(c.spokes) for c in cfg.chains)
+    logger.debug(_("Config loaded: layer={layer}, cells={cells}, points={points}, chains={chains}, "
                    "spokes={spokes}, clone_placements={clones}").format(
                        layer=cfg.layer, cells=len(cfg.cells), points=len(cfg.points),
-                       rules=len(cfg.rules), spokes=total_spokes, clones=len(cfg.clone_placements)))
+                       chains=len(cfg.chains), spokes=total_spokes, clones=len(cfg.clone_placements)))
     return cfg, ctx

@@ -58,16 +58,16 @@ from ._common import read_data, write_data
 CASCADE_FIELD = {"cells": "cell", "points": "anchor_point"}
 
 DICT_SECTIONS = ("cells", "points", "extract_profiles", "clone_profiles")
-LIST_SECTIONS = ("clone_placements", "thermal_via_arrays", "rules", "net_traces")
+LIST_SECTIONS = ("clone_placements", "thermal_via_arrays", "chains", "net_traces")
 
-# rules: entries fall back to net: as their effective name when name: is
-# absent (config/models.py's rule_effective_name()) — the only section with
+# chains: entries fall back to net: as their effective name when name: is
+# absent (config/models.py's chain_effective_name()) — the only section with
 # a fallback identifying field. Public (2026-08-05): gui/docks/entity_delete.py
-# needs the same "name or net" identity to match a rules: entry for removal.
+# needs the same "name or net" identity to match a chains: entry for removal.
 # net_traces: entries always carry net: and it IS their --only identity
 # (config/models.py's net_trace_effective_name()) — same "single field
-# fallback" shape as rules (2026-08-21, plan net_trace_dock).
-FALLBACK_KEY = {"rules": "net", "net_traces": "net"}
+# fallback" shape as chains (2026-08-21, plan net_trace_dock).
+FALLBACK_KEY = {"chains": "net", "net_traces": "net"}
 
 
 def _coordinate_placement_effective_name(entry: dict) -> str | None:
@@ -108,7 +108,7 @@ RENAME_TARGET_FIELD = {
 
 def entry_effective_name(section: str, entry: dict):
     """The identity used to match/rename/delete a list-section entry in the
-    tree — `name`, falling back per-section (rules: net, coordinate_placements:
+    tree — `name`, falling back per-section (chains: net, coordinate_placements:
     cluster/role), the same convention config/models.py's effective-name
     functions document. Public: gui/docks/entity_delete.py's _entry_identity
     uses it too (2026-08-12, Group 1: coordinate_placements became a normal
@@ -261,10 +261,10 @@ def find_list_entry_file(root_path: Optional[Path], section: str, entry: dict) -
     return None
 
 
-def collect_all_rule_nets(root_path: Path) -> List[str]:
-    """Distinct net: values of every rule reachable from root_path via
-    include: — the net picker for Rules' Bulk-set Cell dialog (2026-08-20,
-    plan rule_spoke_fixes stage 3). A net's rules routinely live in DIFFERENT
+def collect_all_chain_nets(root_path: Path) -> List[str]:
+    """Distinct net: values of every chain reachable from root_path via
+    include: — the net picker for Chains' Bulk-set Cell dialog (2026-08-20,
+    plan rule_spoke_fixes stage 3). A net's chains routinely live in DIFFERENT
     included files, so this walks the whole graph, not just the current
     file. Empty [] on any load failure (broken/unsupported root config) —
     display/autocomplete, not validation: a bad root must never crash a Qt
@@ -274,30 +274,35 @@ def collect_all_rule_nets(root_path: Path) -> List[str]:
     try:
         nets: set = set()
         for path in collect_graph_files(root_path):
-            for rule in (read_data(path).get("rules") or []):
-                if isinstance(rule, dict) and rule.get("net"):
-                    nets.add(rule["net"])
+            for chain in (read_data(path).get("chains") or []):
+                if isinstance(chain, dict) and chain.get("net"):
+                    nets.add(chain["net"])
         return sorted(nets)
     except (ValidationError, OSError):
         return []
 
 
-def collect_rules_by_net(root_path: Path, net: str) -> List[tuple]:
-    """Every (file_path, rule_dict) in the include: graph rooted at
-    root_path whose rule's net: equals `net` — what the Bulk-set Cell action
-    must touch: ALL of a net's spokes, even when the rules live in different
+def collect_chains_by_net(root_path: Path, net: str) -> List[tuple]:
+    """Every (file_path, chain_dict) in the include: graph rooted at
+    root_path whose chain's net: equals `net` — what the Bulk-set Cell action
+    must touch: ALL of a net's spokes, even when the chains live in different
     included files (2026-08-20, plan rule_spoke_fixes stage 3). Empty [] on
     any load failure (broken/unsupported root config) — same no-crash
-    contract as collect_all_rule_nets (2026-08-28, core_yaml_removal)."""
+    contract as collect_all_chain_nets (2026-08-28, core_yaml_removal)."""
     try:
         result: List[tuple] = []
         for path in collect_graph_files(root_path):
-            for rule in (read_data(path).get("rules") or []):
-                if isinstance(rule, dict) and rule.get("net") == net:
-                    result.append((path, rule))
+            for chain in (read_data(path).get("chains") or []):
+                if isinstance(chain, dict) and chain.get("net") == net:
+                    result.append((path, chain))
         return result
     except (ValidationError, OSError):
         return []
+
+
+# Backward-compat aliases for the 2026-09-01 Rule -> Chain rename.
+collect_all_rule_nets = collect_all_chain_nets
+collect_rules_by_net = collect_chains_by_net
 
 
 def collect_all_sheet_names(root_path: Path) -> List[str]:

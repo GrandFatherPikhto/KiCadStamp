@@ -26,7 +26,7 @@ logger = logging.getLogger("test_cli_filters")
 
 
 def _cfg(rules=None, clone_placements=None, thermal_via_arrays=None, coordinate_placements=None):
-    return Config(rules=rules or [], clone_placements=clone_placements or [],
+    return Config(chains=rules or [], clone_placements=clone_placements or [],
                   thermal_via_arrays=thermal_via_arrays or [],
                   coordinate_placements=coordinate_placements or [])
 

@@ -46,7 +46,7 @@ from .config import (
     coordinate_placement_effective_name,
     entity_effective_name,
     net_trace_effective_name,
-    rule_effective_name,
+    chain_effective_name,
     thermal_via_array_effective_name,
 )
 from .exceptions import ValidationError, format_fatal_error
@@ -129,11 +129,11 @@ def _record(kind: str, obj: Any, name: str, sheet: str | None,
 
 def build_records(cfg: Config) -> list[Record]:
     """Normalize every config record into a list of Records, in a stable order
-    (clone_placements, rules, coordinate_placements, net_traces,
+    (clone_placements, chains, coordinate_placements, net_traces,
     thermal_via_arrays, points — mirroring the Config's own section order).
 
     retired: true records are dropped entirely — they "do not exist on the
-    board right now" (same convention as apply_pipeline.drop_disabled_rules),
+    board right now" (same convention as apply_pipeline.drop_disabled_chains),
     so they neither produce nor anchor nor appear. skip: true records are kept:
     skip only excludes them from THIS run, the board entity still exists.
     """
@@ -152,13 +152,13 @@ def build_records(cfg: Config) -> list[Record]:
             continue
         records.append(_record(
             "placement", e, entity_effective_name(e), e.sheet, e.params))
-    for r in cfg.rules:
-        if r.retired:
+    for c in cfg.chains:
+        if c.retired:
             continue
-        # Rule has no own-identity sheet field yet (plan §1.0 adds it) —
+        # Chain has no own-identity sheet field yet (plan §1.0 adds it) —
         # getattr keeps this forward-compatible; None until then.
         records.append(_record(
-            "rule", r, rule_effective_name(r), getattr(r, "sheet", None)))
+            "chain", c, chain_effective_name(c), getattr(c, "sheet", None)))
     for cp in cfg.coordinate_placements:
         if cp.retired:
             continue
@@ -183,7 +183,7 @@ def build_records(cfg: Config) -> list[Record]:
 
 def _record_produces(cfg: Config, rec: Record) -> list[tuple[str | None, str, str | None]]:
     """The (cluster, role, sheet) identities this record PRODUCES on the board
-    (the inverse of anchoring). Only clone_placements, rules and
+    (the inverse of anchoring). Only clone_placements, chains and
     coordinate_placements produce components; net_traces/thermal_via_arrays/
     points produce no component (copper/vias only, or a bare coordinate), so
     they can never be a parent in the graph.
@@ -205,7 +205,7 @@ def _record_produces(cfg: Config, rec: Record) -> list[tuple[str | None, str, st
             return []
         return [(rec.obj.cluster, slot.role, rec.sheet) for slot in cell.components]
 
-    if rec.kind == "rule":
+    if rec.kind == "chain":
         out: list[tuple[str | None, str, str | None]] = []
         for spoke in rec.obj.spokes:
             if spoke.retired:
@@ -272,7 +272,7 @@ def _resolve_role_edge(rec: Record, cfg: Config,
         raise ValidationError(format_fatal_error(
             _("anchor_role {role!r} of {name!r} is not produced by any config record")
             .format(role=role, name=rec.name),
-            [_("no clone_placements:/rules:/coordinate_placements: entry produces a "
+            [_("no clone_placements:/chains:/coordinate_placements: entry produces a "
                "component with role {role!r} — this anchor points outside the config. "
                "For an external (non-kicadstamp-managed) component use anchor_ref: "
                "instead of anchor_role:").format(role=role)]

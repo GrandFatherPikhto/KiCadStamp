@@ -119,9 +119,9 @@ def test_default_values_are_omitted():
 
 # ── all 5 list sections ────────────────────────────────────────────────────
 
-def test_rules_section():
+def test_chains_section():
     _roundtrip({
-        "rules": [
+        "chains": [
             {
                 "net": "+3V3_VCCIO",
                 "anchor_role": "FPGA",
@@ -211,8 +211,8 @@ def test_comment_field_roundtrip_all_sections():
         "points": {
             "ldo_vin": {"anchor_role": "LDO1", "comment": "point note"},
         },
-        "rules": [
-            {"net": "+3V3", "anchor_role": "FPGA", "comment": "rule note"},
+        "chains": [
+            {"net": "+3V3", "anchor_role": "FPGA", "comment": "chain note"},
         ],
         "clone_placements": [
             {"cluster": "CH0", "cell": "dac_buf", "xy": [0.0, 0.0],
@@ -233,7 +233,7 @@ def test_comment_field_roundtrip_all_sections():
     # non-None comments survive verbatim in every section ...
     assert back["cells"]["dac_buf"]["comment"] == "cell note"
     assert back["points"]["ldo_vin"]["comment"] == "point note"
-    assert back["rules"][0]["comment"] == "rule note"
+    assert back["chains"][0]["comment"] == "chain note"
     assert back["clone_placements"][0]["comment"] == "clone note"
     assert back["coordinate_placements"][0]["comment"] == "coord note"
     assert back["thermal_via_arrays"][0]["comment"] == "tva note"
@@ -466,7 +466,7 @@ def test_nested_dict_fields_nets_net_overrides_refs():
 
 def test_include_string_entries():
     _roundtrip({
-        "rules": [
+        "chains": [
             {"net": "+3V3", "spokes": [
                 {"pad": "1", "cell": "c1", "shift_x_mm": 0.5}]},
         ],
@@ -497,7 +497,7 @@ def test_real_profile_yaml_equivalence():
     back = sexp_to_dict(dict_to_sexp(data))
     assert _eq(back, _strip_defaults(data))
     # sanity: the real profile actually exercises all section kinds
-    for section in ("rules", "clone_placements", "cells", "points",
+    for section in ("chains", "clone_placements", "cells", "points",
                     "thermal_via_arrays", "coordinate_placements",
                     "net_traces", "extract_profiles"):
         assert section in data, f"real profile lost section {section}"
@@ -516,7 +516,7 @@ def test_fatal_invalid_top_level_node():
 
 def test_fatal_unknown_key_in_record():
     _match(
-        "(kicadstamp-config (rules (rule (net \"x\") (spokes "
+        "(kicadstamp-config (chains (chain (net \"x\") (spokes "
         "(spoke (pad \"1\") (cell \"c\") (shift_x_mm 0.5))) (bogus 1))))",
         r"unknown key")
 
@@ -524,7 +524,7 @@ def test_fatal_unknown_key_in_record():
 def test_fatal_unquoted_string_in_string_field():
     # (net +3V3) — bare atom where a quoted string is required
     _match(
-        "(kicadstamp-config (rules (rule (net +3V3) (spokes "
+        "(kicadstamp-config (chains (chain (net +3V3) (spokes "
         "(spoke (pad \"1\") (cell \"c\") (shift_x_mm 0.5))))))",
         r"expected a quoted string, got a bare atom")
 
@@ -538,7 +538,7 @@ def test_fatal_wrong_atom_count_in_tuple():
 
 def test_fatal_true_where_number_expected():
     _match(
-        "(kicadstamp-config (rules (rule (net \"x\") (spokes "
+        "(kicadstamp-config (chains (chain (net \"x\") (spokes "
         "(spoke (pad \"1\") (cell \"c\") (shift_x_mm true))))))",
         r"expected a number, got a bare atom")
 

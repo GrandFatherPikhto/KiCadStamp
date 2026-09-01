@@ -58,7 +58,7 @@ def test_two_phase_flow_completes_and_via_geometry_is_correct():
     cfg = Config(
         layer='B.Cu',
         cells={"t": cell},
-        rules=[Rule(net="+3V3", anchor_ref='IC1', spokes=[spoke])],
+        chains=[Rule(net="+3V3", anchor_ref='IC1', spokes=[spoke])],
     )
 
     ic1 = MagicMock()

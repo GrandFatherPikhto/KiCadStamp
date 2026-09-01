@@ -72,14 +72,14 @@ def test_rename_role_only_semantic_fields(tmp_path):
     assert comp_data["cells"]["one"]["components"][0]["net_template"] == "OLD_ROLE"
     # Two `name: OLD_ROLE` must survive: the rule name and the coordinate
     # placement identity name (neither is a role field).
-    assert root_data["rules"][0]["name"] == "OLD_ROLE"
+    assert root_data["chains"][0]["name"] == "OLD_ROLE"
     assert root_data["coordinate_placements"][0]["name"] == "OLD_ROLE"
     assert unmatched == []
 
 
 def test_rename_cluster_and_anchor_cluster_flat(tmp_path):
     root = {
-        "rules": [
+        "chains": [
             {"net": "GND", "anchor_role": "U1", "anchor_cluster": "FPGA",
              "spokes": [{"pad": "1", "cluster": "FPGA_PWR"}]},
         ],
@@ -102,8 +102,8 @@ def test_rename_cluster_and_anchor_cluster_flat(tmp_path):
             yield obj
 
     root_data = mutated[str(tmp_path / "root.sexp")]
-    assert root_data["rules"][0]["anchor_cluster"] == "FPGA_V2"
-    assert root_data["rules"][0]["spokes"][0]["cluster"] == "FPGA_PWR_V2"
+    assert root_data["chains"][0]["anchor_cluster"] == "FPGA_V2"
+    assert root_data["chains"][0]["spokes"][0]["cluster"] == "FPGA_PWR_V2"
     assert root_data["coordinate_placements"][0]["cluster"] == "FPGA_V2"
     # no exact "FPGA" value remains anywhere
     assert "FPGA" not in list(_values(root_data))

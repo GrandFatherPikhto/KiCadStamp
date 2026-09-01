@@ -418,7 +418,7 @@ def test_dispatch_rule_no_anchor_pad_uses_footprint_centre(monkeypatch):
     monkeypatch.setattr(tp, "ComponentResolver", _FakeResolver)
 
     obj = object()
-    rec = Record(kind="rule", obj=obj, name="R1", sheet=None, anchor_ref="U1",
+    rec = Record(kind="chain", obj=obj, name="R1", sheet=None, anchor_ref="U1",
                 anchor_role=None, anchor_sheet=None, anchor_cluster=None,
                 anchor_point=None, params={})
     pos = tp.resolve_record_live_position("adapter", "cfg", rec, "points", "sheets")
@@ -450,7 +450,7 @@ def test_dispatch_rule_with_anchor_pad_narrows_to_pad(monkeypatch):
     class _Obj:
         anchor_pad = "1"
 
-    rec = Record(kind="rule", obj=_Obj(), name="R1", sheet=None, anchor_ref="U1",
+    rec = Record(kind="chain", obj=_Obj(), name="R1", sheet=None, anchor_ref="U1",
                 anchor_role=None, anchor_sheet=None, anchor_cluster=None,
                 anchor_point=None, params={})
     pos = tp.resolve_record_live_position("adapter", "cfg", rec, "points", "sheets")
@@ -787,7 +787,7 @@ def test_rotation_rule_via_live_footprint_angle(monkeypatch):
 
     monkeypatch.setattr(tp, "ComponentResolver", _FakeResolver)
 
-    rec = Record(kind="rule", obj=object(), name="R1", sheet=None,
+    rec = Record(kind="chain", obj=object(), name="R1", sheet=None,
                  anchor_ref="U1", anchor_role=None, anchor_sheet=None,
                  anchor_cluster=None, anchor_point=None, params={})
     assert tp.resolve_record_rotation_deg("adapter", "cfg", rec, "sheets") == 33.0
@@ -1178,7 +1178,7 @@ def test_mixed_tree_rule_override_lands_on_override_not_own_anchor(monkeypatch):
     from kipy.board_types import FootprintInstance, Pad
 
     from kicadstamp.apply_pipeline import ApplyPipeline
-    from kicadstamp.config import (Cell, Config, ManualSpoke, Rule,
+    from kicadstamp.config import (Cell, Chain, Config, ManualSpoke,
                                    TemplateComponentSlot)
     from kicadstamp.placement.dependency_order import Item
 
@@ -1190,7 +1190,7 @@ def test_mixed_tree_rule_override_lands_on_override_not_own_anchor(monkeypatch):
         record=_record("placement", "CL_A"), is_external=False, children=[])
     rule_node = LinkedNode(
         node=_node_dc(ref="RULE_N", kind="rule"),
-        record=_record("rule", "RULE_N"), is_external=False, children=[])
+        record=_record("chain", "RULE_N"), is_external=False, children=[])
     tree = LinkedTree(name="t", anchor=anchor, nodes=[placement_node, rule_node])
 
     # ── 2. Capture rigid state BEFORE any move (live resolvers mocked) ──
@@ -1256,9 +1256,9 @@ def test_mixed_tree_rule_override_lands_on_override_not_own_anchor(monkeypatch):
     cell = Cell(name="tpl", layer="F.Cu",
                 components=[TemplateComponentSlot(role="R1", offset_along_mm=0.0,
                                                   offset_across_mm=0.0, angle_deg=0.0)])
-    rule = Rule(net="RULE_N", anchor_role="R_FPGA",
+    rule = Chain(net="RULE_N", anchor_role="R_FPGA",
                 spokes=[ManualSpoke(pad="1", cell="tpl")])
-    cfg = Config(layer="F.Cu", cells={"tpl": cell}, rules=[rule])
+    cfg = Config(layer="F.Cu", cells={"tpl": cell}, chains=[rule])
 
     # ── 4. ApplyPipeline with the override (bug #5 path) ──
     pipeline = ApplyPipeline("board.yaml", preloaded_cfg=cfg,
@@ -1269,7 +1269,7 @@ def test_mixed_tree_rule_override_lands_on_override_not_own_anchor(monkeypatch):
 
     # ── 5. Plan the rule item -> must land on the override, not (100,100) ──
     pipeline.planner.begin_planning()
-    item = Item(kind="rule", obj=rule, label="rule 'RULE_N'",
+    item = Item(kind="chain", obj=rule, label="chain 'RULE_N'",
                 anchor_ref="FPGA1", produces=set())
     moves = pipeline.planner.plan_item(item)
     assert len(moves) == 1

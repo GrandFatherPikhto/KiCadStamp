@@ -68,7 +68,7 @@ def _make_cfg():
         layer='B.Cu',
         cells={},
         thermal_via_arrays=[tva],
-        rules=[],
+        chains=[],
         clone_placements=[],
         skip_existing_components=False,
         via_keepout_clearance_mm=0.2,
@@ -139,7 +139,7 @@ class TestMultipleThermalViaArrays:
     def _cfg_two_targets(self, tva1, tva2):
         return Config(
             layer='B.Cu', cells={}, thermal_via_arrays=[tva1, tva2],
-            rules=[], clone_placements=[], skip_existing_components=False,
+            chains=[], clone_placements=[], skip_existing_components=False,
             via_keepout_clearance_mm=0.2, via_search_step_mm=0.1,
             via_search_max_radius_mm=5.0, via_search_n_directions=8,
         )

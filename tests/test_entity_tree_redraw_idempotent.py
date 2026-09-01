@@ -293,7 +293,7 @@ def test_track_precheck_runs_when_skip_existing_components_false(monkeypatch):
     not only under the cfg.skip_existing_components gate — so a cross-key
     duplicate is prevented even for profiles (like the live one) that leave the
     flag at its default False."""
-    cfg = Config(layer='F.Cu', cells={}, rules=[], clone_placements=[],
+    cfg = Config(layer='F.Cu', cells={}, chains=[], clone_placements=[],
                  skip_existing_components=False)
     pipeline = ApplyPipeline("board.yaml", preloaded_cfg=cfg)
     pipeline.adapter = MagicMock()

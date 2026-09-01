@@ -12,6 +12,7 @@ import logging
 from pathlib import Path
 from typing import Optional, Set
 
+from kicadstamp.config.aliases import normalize_section_aliases
 from kicadstamp.config.sexp_format import sexp_to_dict
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.utils.file_cache import cached_file_read
@@ -39,9 +40,11 @@ def load_data(path: Optional[Path]) -> dict:
     def _uncached_read(p: Path) -> dict:
         with open(p, "r", encoding="utf-8") as f:
             if p.suffix.lower() == ".json":
-                return json.load(f) or {}
+                # normalize_section_aliases: legacy `rules:` key -> `chains:`
+                # (2026-09-01 rename) so read-only browsing sees the canonical key.
+                return normalize_section_aliases(json.load(f) or {})
             if p.suffix.lower() == ".sexp":
-                return sexp_to_dict(f.read()) or {}
+                return normalize_section_aliases(sexp_to_dict(f.read()) or {})
             return {}  # .yaml/.yml and any other extension — not a supported config format
 
     try:

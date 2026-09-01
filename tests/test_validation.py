@@ -31,7 +31,7 @@ def _cfg(rules=None, cells=None, clone_placements=None, layer='B.Cu'):
         cells=cells or {"t": Cell(name="t", components=[
             TemplateComponentSlot(role="HEAVY"), TemplateComponentSlot(role="LIGHT")
         ])},
-        rules=rules or [],
+        chains=rules or [],
         clone_placements=clone_placements or [],
     )
 
@@ -494,7 +494,7 @@ class TestCandidatePoolCollisions:
             for spoke in rule.spokes:
                 role = spoke.cell.split("_", 1)[1] if "_" in spoke.cell else "DECOUP"
                 built[spoke.cell] = self._cell(role)
-        return Config(cells=built, rules=rules)
+        return Config(cells=built, chains=rules)
 
     def test_same_net_same_role_no_cluster_is_fatal(self):
         rules = [
@@ -640,7 +640,7 @@ class TestBridgingPadHintsSelfConsistent:
         redraw) — verified by patching it on an empty config where every other
         check is a no-op."""
         import kicadstamp.validation as v
-        cfg = Config(cells={}, clone_placements=[], rules=[], coordinate_placements=[])
+        cfg = Config(cells={}, clone_placements=[], chains=[], coordinate_placements=[])
         adapter = MagicMock()
         adapter.get_board_filename.return_value = None
         called = []

@@ -80,7 +80,7 @@ def _build_config():
     cfg = Config(
         layer='B.Cu',
         cells={"cap_pair_standard": cell},
-        rules=[Rule(net="+1V2_VCCINT", anchor_ref='IC1', spokes=[spoke_109, spoke_62])],
+        chains=[Rule(net="+1V2_VCCINT", anchor_ref='IC1', spokes=[spoke_109, spoke_62])],
         via_keepout_clearance_mm=0.2, via_search_step_mm=0.1,
         via_search_max_radius_mm=3.0, via_search_n_directions=8,
     )

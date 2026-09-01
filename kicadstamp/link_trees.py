@@ -113,7 +113,10 @@ def _resolve_node_ref(node: TreeNode, by_key: dict[str, Record],
         return None, True
 
     if node.kind is not None:
-        rec = by_key.get(f"{node.kind}:{ref}")
+        # Legacy kind "rule" -> canonical "chain:" record key prefix (the
+        # 2026-09-01 Rule -> Chain rename; anchor_graph now emits "chain:").
+        kind_key = "chain" if node.kind == "rule" else node.kind
+        rec = by_key.get(f"{kind_key}:{ref}")
         if rec is None:
             _fatal(_("Node {ref!r} (kind {kind!r}) not found in config")
                    .format(ref=ref, kind=node.kind))

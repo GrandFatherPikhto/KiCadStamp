@@ -133,10 +133,10 @@ def test_walk_include_tree_reads_sexp(tmp_path):
     from kicadstamp.config.includes import walk_include_tree
 
     _write(tmp_path, "sub.sexp", dict_to_sexp({
-        "rules": [{"net": "N", "spokes": [{"pad": "1", "cell": "c"}]}],
+        "chains": [{"net": "N", "spokes": [{"pad": "1", "cell": "c"}]}],
     }))
     _write(tmp_path, "root.sexp", dict_to_sexp({
-        "rules": [{"net": "M", "spokes": [{"pad": "2", "cell": "c"}]}],
+        "chains": [{"net": "M", "spokes": [{"pad": "2", "cell": "c"}]}],
         "include": ["sub.sexp"],
     }))
 
@@ -145,8 +145,8 @@ def test_walk_include_tree_reads_sexp(tmp_path):
     assert len(tree.children) == 1
     assert tree.children[0].path.name == "sub.sexp"
     # each node carries only its OWN directly-declared sections
-    assert [r["net"] for r in tree.sections["rules"]] == ["M"]
-    assert [r["net"] for r in tree.children[0].sections["rules"]] == ["N"]
+    assert [r["net"] for r in tree.sections["chains"]] == ["M"]
+    assert [r["net"] for r in tree.children[0].sections["chains"]] == ["N"]
 
 
 def test_broken_sexp_invalid_top_level_raises_validation_error(tmp_path):

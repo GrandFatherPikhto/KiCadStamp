@@ -368,7 +368,7 @@ def _mixed_tree_cfg():
     return Config(
         cells={"c": _cell("c")},
         entities=[Entity(name="E1", cell="c", cluster="CH0")],
-        rules=[Rule(name="R1", net="+3V3_VCCIO", spokes=[])],
+        chains=[Rule(name="R1", net="+3V3_VCCIO", spokes=[])],
         trees=[Tree(name="t", anchor=TreeAnchor(is_origin=True),
                     nodes=[_node(ref="E1", xy=(1.0, 0.0)),
                            _node(ref="R1", kind="rule", xy=(2.0, 0.0))])],

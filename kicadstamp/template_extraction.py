@@ -220,7 +220,7 @@ def extract_template_from_selection(
     rule_nets — OPTIONAL (see --rule-net in CLI), a set of literal net names
     to write as via.net/track.net: null instead of the literal (or an alias)
     — the SAME null a ManualSpoke-placed cell's via/track already treats as
-    "inherit the enclosing Rule's own net" (kicadstamp/geometry/
+    "inherit the enclosing Chain's own net" (kicadstamp/geometry/
     spoke_layout.py's _resolve_via/_resolve_track: `via.net or rule_net`).
     Only meaningful for a cell meant to be reused across several Rules with
     DIFFERENT nets (e.g. the same decoupling-cap-pair cell placed once per
@@ -267,7 +267,7 @@ def extract_template_from_selection(
         raise ValidationError(format_fatal_error(
             _("net(s) {nets} are in both --rule-net and --param/--net-template")
             .format(nets=sorted(both)),
-            [_("a net can't be both \"always the enclosing Rule's own net\" and "
+            [_("a net can't be both \"always the enclosing Chain's own net\" and "
                "\"always resolved from this param\" — pick one per net")]
         ))
     items = items if items is not None else adapter.get_selected_items()

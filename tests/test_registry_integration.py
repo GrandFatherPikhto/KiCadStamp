@@ -64,7 +64,7 @@ def _build_cfg(power_via_offset_across=-1.5):
     return Config(
         layer='B.Cu',
         cells={"t": cell},
-        rules=[Rule(net="+3V3", anchor_ref='IC1', spokes=[spoke])],
+        chains=[Rule(net="+3V3", anchor_ref='IC1', spokes=[spoke])],
     )
 
 
@@ -136,7 +136,7 @@ def test_registry_full_cycle_across_two_runs():
     adapter.reset_mock()  # resets call counts, keeps side_effect and return_value
     cfg4 = Config(
         layer='B.Cu', cells={},
-        rules=[],
+        chains=[],
     )
     calc4 = ManualPositionCalculator(adapter, cfg4)
     _, vias4, _ = calc4.compute_raw_positions(cfg4.rules)

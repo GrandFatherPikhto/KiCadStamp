@@ -40,6 +40,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root on path
 
+from kicadstamp.config.aliases import normalize_section_aliases
 from kicadstamp.config.sexp_format import _strip_defaults, dict_to_sexp, sexp_to_dict
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.utils.yaml_loader import safe_load
@@ -61,7 +62,10 @@ def _eq(a, b) -> bool:
 def _read_dict(path: Path) -> dict:
     if path.suffix.lower() == ".sexp":
         return sexp_to_dict(path.read_text(encoding="utf-8")) or {}
-    return safe_load(path.read_text(encoding="utf-8")) or {}
+    # normalize_section_aliases: legacy `rules:` key -> `chains:` (2026-09-01
+    # rename) so a YAML profile still carrying the old key converts to the
+    # canonical `(chains ...)` sexp and the round-trip self-verify passes.
+    return normalize_section_aliases(safe_load(path.read_text(encoding="utf-8")) or {})
 
 
 def _write_dict(path: Path, data: dict) -> None:

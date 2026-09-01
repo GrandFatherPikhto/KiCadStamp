@@ -33,12 +33,12 @@ import logging
 from dataclasses import dataclass
 
 
-from ..config import (Config, Rule, ClonePlacement, Point,
+from ..config import (Config, Chain, ClonePlacement, Point,
                       clone_placement_effective_name)
 from ..kicad.adapter import KiCadBoardAdapter
 from ..exceptions import ValidationError, format_fatal_error
-from .services.manual_position_calculator import (resolve_rule_anchor_ref,
-                                                  rule_roles_needed, rule_clusters_needed,
+from .services.manual_position_calculator import (resolve_chain_anchor_ref,
+                                                  chain_roles_needed, chain_clusters_needed,
                                                   consume_role_to_ref)
 from .services.clone_position_calculator import resolve_clone_anchor_ref
 from .services.point_resolver import resolve_point_anchor_ref
@@ -52,8 +52,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Item:
-    kind: str  # 'rule' | 'clone' | 'point'
-    obj: Rule | ClonePlacement | Point
+    kind: str  # 'chain' | 'clone' | 'point'
+    obj: Chain | ClonePlacement | Point
     label: str
     # For 'point' items this is possibly a "point:<name>" token, not a bare
     # ref — see resolve_point_anchor_ref. producer_of/the Kahn loop below are
@@ -62,10 +62,10 @@ class Item:
     produces: set[str]
 
 
-def _resolve_rule_produces(adapter: KiCadBoardAdapter, cfg: Config, rule: Rule) -> set[str]:
+def _resolve_chain_produces(adapter: KiCadBoardAdapter, cfg: Config, chain: Chain) -> set[str]:
     """
     Lightweight equivalent of ManualPositionCalculator.compute_raw_positions()
-    that returns ONLY the set of refs this rule will produce — without resolving
+    that returns ONLY the set of refs this chain will produce — without resolving
     the anchor, looking up pads, computing spoke geometry, or creating
     ViaCommand/TrackCommand objects.
 
@@ -77,20 +77,20 @@ def _resolve_rule_produces(adapter: KiCadBoardAdapter, cfg: Config, rule: Rule) 
     pad lookups, via/track command creation).
 
     The roles/clusters/pool-building/pool-consumption steps are shared with
-    ManualPositionCalculator (rule_roles_needed / rule_clusters_needed /
+    ManualPositionCalculator (chain_roles_needed / chain_clusters_needed /
     consume_role_to_ref + ComponentResolver.build_pools, 2026-08-25), so the
     produced set can never drift from what the real pass produces.
     """
     produces: set[str] = set()
 
-    roles_needed = rule_roles_needed(cfg, rule)
-    clusters_needed = rule_clusters_needed(rule)
+    roles_needed = chain_roles_needed(cfg, chain)
+    clusters_needed = chain_clusters_needed(chain)
 
     # --- Build ComponentPools per cluster (same as ManualPositionCalculator) ---
-    pools_by_cluster = ComponentResolver.build_pools(adapter, rule.net, roles_needed, clusters_needed)
+    pools_by_cluster = ComponentResolver.build_pools(adapter, chain.net, roles_needed, clusters_needed)
 
     # --- Consume pools in spoke order (same as ManualPositionCalculator) ---
-    for spoke in rule.spokes:
+    for spoke in chain.spokes:
         if spoke.retired:
             continue
         cell = cfg.cells.get(spoke.cell)
@@ -148,10 +148,10 @@ def _resolve_clone_produces(adapter: KiCadBoardAdapter, cfg: Config, clone: Clon
 
 
 def _build_items(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None) -> list[Item]:
-    """Read-only: resolves every non-retired rule/clone_placement's anchor ref and
+    """Read-only: resolves every non-retired chain/clone_placement's anchor ref and
     produced refs against the board as it is RIGHT NOW. No board mutation —
     lightweight ref-resolution only, no geometry computation (see
-    _resolve_rule_produces / _resolve_clone_produces for what is skipped)."""
+    _resolve_chain_produces / _resolve_clone_produces for what is skipped)."""
     _sn = sheet_names or {}
     items: list[Item] = []
 
@@ -163,11 +163,11 @@ def _build_items(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None) -> l
             anchor_ref=anchor_ref, produces={f"point:{point.name}"},
         ))
 
-    for rule in cfg.rules:
-        anchor_ref = resolve_rule_anchor_ref(adapter, cfg, rule, sheet_names=_sn)
-        produces = _resolve_rule_produces(adapter, cfg, rule)
+    for chain in cfg.chains:
+        anchor_ref = resolve_chain_anchor_ref(adapter, cfg, chain, sheet_names=_sn)
+        produces = _resolve_chain_produces(adapter, cfg, chain)
         items.append(Item(
-            kind='rule', obj=rule, label=_("rule (net {net!r})").format(net=rule.net),
+            kind='chain', obj=chain, label=_("chain (net {net!r})").format(net=chain.net),
             anchor_ref=anchor_ref, produces=produces,
         ))
 
@@ -192,8 +192,8 @@ def _build_items(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None) -> l
 
 def resolve_execution_order(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None) -> list[Item]:
     """
-    Read-only: resolves cfg.rules + cfg.clone_placements (already filtered by
-    drop_disabled_rules/apply_only_filter/apply_cluster_filter) into
+    Read-only: resolves cfg.chains + cfg.clone_placements (already filtered by
+    drop_disabled_chains/apply_only_filter/apply_cluster_filter) into
     level-ordered execution order. Raises ValidationError on a dependency
     cycle — a config where two or more items anchor on each other's output has
     no valid order and must be fixed in the YAML.
@@ -224,7 +224,7 @@ def resolve_execution_order(adapter: KiCadBoardAdapter, cfg: Config, sheet_names
         ]
         if not level:
             raise ValidationError(format_fatal_error(
-                _("dependency cycle among rules/clone_placements"),
+                _("dependency cycle among chains/clone_placements"),
                 [_("{count} item(s) form a cycle through their anchors: {items}")
                  .format(count=len(remaining), items=", ".join(it.label for it in remaining)),
                  _("break the cycle: at least one of these must anchor on something "

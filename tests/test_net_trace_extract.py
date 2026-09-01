@@ -184,7 +184,7 @@ def test_extract_fatal_when_anchor_pad_missing_on_footprint():
 def test_write_net_trace_replaces_same_net_and_preserves_other_keys(tmp_path):
     out = tmp_path / "trace.sexp"
     # Pre-existing content with another top-level key.
-    out.write_text(dict_to_sexp({"rules": [{"net": "GND"}]}), encoding="utf-8")
+    out.write_text(dict_to_sexp({"chains": [{"net": "GND"}]}), encoding="utf-8")
 
     nt = NetTrace(net="DAC_DB0", anchor_role="FPGA",
                   tracks=[], vias=[])
@@ -193,7 +193,7 @@ def test_write_net_trace_replaces_same_net_and_preserves_other_keys(tmp_path):
         net="DAC_DB0", anchor_role="FPGA", anchor_pad="42", tracks=[], vias=[]))
 
     data = sexp_to_dict(out.read_text(encoding="utf-8"))
-    assert "rules" in data  # other top-level key preserved
+    assert "chains" in data  # other top-level key preserved
     assert len(data["net_traces"]) == 1  # same net replaced, not duplicated
     assert data["net_traces"][0]["net"] == "DAC_DB0"
     assert data["net_traces"][0]["anchor_pad"] == "42"

@@ -119,3 +119,70 @@ def test_spoke_partial_polar_is_fatal():
             "net": "+3V3", "anchor_role": "FPGA",
             "spokes": [{"pad": "17", "cell": "t", "radius_mm": 5.0}],
         })
+
+
+# ── rules: -> chains: read alias (2026-09-01, Rule -> Chain rename) ────────
+#
+# Old profiles still carrying the legacy `rules:` section key must load
+# unchanged: normalize_section_aliases() maps it to `chains:` in every raw
+# reader (config/includes.py::_load_config_file, config_writer._read_data,
+# gui/yaml_io.load_data, tools/sexp_config_convert._read_dict), and the sexp
+# parser maps `(rules ...)` -> `(chains ...)` at parse time.
+
+def test_alias_legacy_rules_key_loads_as_chains(tmp_path):
+    from kicadstamp.config import load_config
+    from kicadstamp.config.sexp_format import dict_to_sexp
+
+    # A profile written with the LEGACY key, as .sexp on disk.
+    legacy = {"cells": {}, "rules": [
+        {"net": "+3V3", "anchor_role": "FPGA", "spokes": [
+            {"pad": "17", "cell": "c", "shift_x_mm": 1.2}]},
+    ]}
+    p = tmp_path / "legacy.sexp"
+    p.write_text(dict_to_sexp(legacy), encoding="utf-8")
+
+    cfg, _ = load_config(str(p))
+    assert len(cfg.chains) == 1
+    assert cfg.chains[0].net == "+3V3"
+    assert cfg.chains[0].anchor_role == "FPGA"
+    assert cfg.chains[0].spokes[0].pad == "17"
+
+
+def test_alias_legacy_rules_sexp_tag_parses(tmp_path):
+    from kicadstamp.config.sexp_format import sexp_to_dict
+
+    data = sexp_to_dict(
+        '(kicadstamp-config (rules (chain (net "x") '
+        '(spokes (spoke (pad "1") (cell "c"))))))'
+    )
+    assert data["chains"][0]["net"] == "x"
+
+
+def test_alias_both_keys_in_one_file_is_fatal(tmp_path):
+    import json
+
+    from kicadstamp.config import load_config
+
+    # JSON/YAML carry the raw dict into normalize_section_aliases, which must
+    # fatal when a file has BOTH the legacy and the canonical key (ambiguous).
+    # (In .sexp the parser collapses `(rules ...)` into `chains` at parse time,
+    # so the two cannot coexist there — the fatal applies to the raw-dict path.)
+    p = tmp_path / "both.json"
+    p.write_text(json.dumps({"cells": {}, "rules": [], "chains": []}),
+                 encoding="utf-8")
+
+    with pytest.raises(ValidationError, match="both"):
+        load_config(str(p))
+
+
+def test_alias_legacy_json_key_loads_as_chains(tmp_path):
+    import json
+
+    from kicadstamp.config import load_config
+
+    p = tmp_path / "legacy.json"
+    p.write_text(json.dumps({"cells": {}, "rules": [
+        {"net": "GND", "anchor_ref": "U1", "spokes": []}]}), encoding="utf-8")
+
+    cfg, _ = load_config(str(p))
+    assert [c.net for c in cfg.chains] == ["GND"]

@@ -41,7 +41,7 @@ class PlacementPlanner:
                                                        resolved_points=self.resolved_points)
         self.clone_calc = ClonePositionCalculator(adapter, config, sheet_names=_sn,
                                                    resolved_points=self.resolved_points)
-        # No global target_fp any more: anchors are per‑rule (Rule.anchor_ref / anchor_role)
+        # No global target_fp any more: anchors are per‑chain (Chain.anchor_ref / anchor_role)
         # and per‑tva; resolved on the spot.
         self._target_layer = BoardLayer.BL_B_Cu if config.layer == 'B.Cu' else BoardLayer.BL_F_Cu
         self._tracker = PositionTracker(adapter, self._target_layer,
@@ -58,9 +58,9 @@ class PlacementPlanner:
         self._net_trace_tracks: list[TrackCommand] | None = None
         self.via_planner = ViaPlanner(adapter, config, sheet_names=_sn,
                                       resolved_points=self.resolved_points)
-        logger.info(_("Planner initialised: layer={layer}, anchors in rules: {anchors}")
+        logger.info(_("Planner initialised: layer={layer}, anchors in chains: {anchors}")
                     .format(layer=config.layer,
-                            anchors=len({r.anchor_ref or r.anchor_role for r in config.rules})))
+                            anchors=len({c.anchor_ref or c.anchor_role for c in config.chains})))
 
     def begin_planning(self) -> None:
         """Resets the accumulated plan — call once before either plan_moves()
@@ -94,12 +94,12 @@ class PlacementPlanner:
                                      sheet_names=self.sheet_names)
             self.resolved_points[item.obj.name] = resolved
             return []
-        if item.kind == 'rule':
+        if item.kind == 'chain':
             # Bug #5 (2026-08-30): position_overrides MUST be forwarded to the
             # ManualPositionCalculator too — a tree rigid-group redraw override
-            # replaces the rule's anchor entirely (same semantics as clones), so
-            # a tree-redrawn rule-node follows the tree position instead of its
-            # own anchor_role.
+            # replaces the chain's anchor entirely (same semantics as clones),
+            # so a tree-redrawn chain-node follows the tree position instead of
+            # its own anchor_role.
             placed, vias, tracks = self.position_calc.compute_raw_positions(
                 [item.obj], position_overrides=self.position_overrides)
         else:
@@ -129,15 +129,15 @@ class PlacementPlanner:
     def plan_moves(self) -> list[MoveCommand]:
         self.begin_planning()
 
-        if self.cfg.place_components and self.cfg.rules:
+        if self.cfg.place_components and self.cfg.chains:
             placed, planned_vias, planned_tracks = self.position_calc.compute_raw_positions(
-                self.cfg.rules
+                self.cfg.chains
             )
             self._planned.extend(placed)
             self._planned_vias.extend(planned_vias)
             self._planned_tracks.extend(planned_tracks)
-        elif not self.cfg.rules:
-            logger.debug(_("rules is empty — no ManualSpoke components/vias/tracks planned"))
+        elif not self.cfg.chains:
+            logger.debug(_("chains is empty — no ManualSpoke components/vias/tracks planned"))
         else:
             logger.info(_("place_components=False – component moves are not planned"))
 

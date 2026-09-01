@@ -17,8 +17,8 @@ from pathlib import Path
 
 
 from .config import (
-    Config, Rule, ManualSpoke, clone_placement_effective_name,
-    coordinate_placement_effective_name, rule_effective_name,
+    Config, Chain, ManualSpoke, clone_placement_effective_name,
+    coordinate_placement_effective_name, chain_effective_name,
     entity_effective_name,
 )
 from .geometry.cell_copper_connectivity import (
@@ -49,47 +49,47 @@ def check_cells_and_pads_exist(adapter: KiCadBoardAdapter, cfg: Config, sheet_na
     """
     problems = []
     anchors = {}
-    for rule in cfg.rules:
+    for chain in cfg.chains:
         # Resolve anchor: either anchor_ref or anchor_role
-        if rule.anchor_ref is not None:
-            fp = adapter.get_footprint(rule.anchor_ref)
+        if chain.anchor_ref is not None:
+            fp = adapter.get_footprint(chain.anchor_ref)
             if fp is None:
-                problems.append(_("rule (net {net!r}): anchor {anchor!r} not found on board")
-                                .format(net=rule.net, anchor=rule.anchor_ref))
-            anchors[rule.anchor_ref] = fp
+                problems.append(_("chain (net {net!r}): anchor {anchor!r} not found on board")
+                                .format(net=chain.net, anchor=chain.anchor_ref))
+            anchors[chain.anchor_ref] = fp
         else:
             try:
                 fp = resolve_footprint_by_role(
                     adapter,
-                    rule.anchor_role,
-                    rule.anchor_sheet,
-                    rule.anchor_cluster,
+                    chain.anchor_role,
+                    chain.anchor_sheet,
+                    chain.anchor_cluster,
                     sheet_names or {},
-                    label=_("rule (net {net!r})").format(net=rule.net)
+                    label=_("chain (net {net!r})").format(net=chain.net)
                 )
-                anchors[f"role:{rule.anchor_role}"] = fp
+                anchors[f"role:{chain.anchor_role}"] = fp
             except ValidationError as e:
                 problems.append(str(e))
 
-    for rule in cfg.rules:
-        if rule.anchor_ref is not None:
-            target_fp = anchors.get(rule.anchor_ref)
+    for chain in cfg.chains:
+        if chain.anchor_ref is not None:
+            target_fp = anchors.get(chain.anchor_ref)
         else:
-            target_fp = anchors.get(f"role:{rule.anchor_role}")
+            target_fp = anchors.get(f"role:{chain.anchor_role}")
         if target_fp is None:
             continue
-        for spoke in rule.spokes:
+        for spoke in chain.spokes:
             if spoke.retired:
                 continue
             if spoke.cell not in cfg.cells:
                 problems.append(_("spoke (pad {pad}, net {net!r}): cell {cell!r} not found in cells")
-                                .format(pad=spoke.pad, net=rule.net, cell=spoke.cell))
+                                .format(pad=spoke.pad, net=chain.net, cell=spoke.cell))
                 continue
             pad = adapter.get_pad_by_number(target_fp, spoke.pad) if target_fp else None
             if target_fp is not None and pad is None:
-                anchor_name = rule.anchor_ref if rule.anchor_ref is not None else rule.anchor_role
+                anchor_name = chain.anchor_ref if chain.anchor_ref is not None else chain.anchor_role
                 problems.append(_("spoke (cell {cell!r}, net {net!r}): {anchor!r} has no pad {pad!r}")
-                                .format(cell=spoke.cell, net=rule.net,
+                                .format(cell=spoke.cell, net=chain.net,
                                         anchor=anchor_name, pad=spoke.pad))
 
     if problems:
@@ -102,17 +102,17 @@ def check_cells_and_pads_exist(adapter: KiCadBoardAdapter, cfg: Config, sheet_na
 
 def check_role_pool_sufficiency(adapter: KiCadBoardAdapter, cfg: Config) -> None:
     """
-    For each rule net, pre‑counts how many components of each role are required
+    For each chain net, pre‑counts how many components of each role are required
     by all its spokes for each cluster, and checks against the actual number of
     components on the board (same net + Role field + Cluster field) — fatal with
     a list of all shortages at once.
     """
     problems = []
 
-    for rule in cfg.rules:
-        # Collect all roles needed for this rule
+    for chain in cfg.chains:
+        # Collect all roles needed for this chain
         roles_needed = set()
-        for spoke in rule.spokes:
+        for spoke in chain.spokes:
             if spoke.retired:
                 continue
             cell = cfg.cells.get(spoke.cell)
@@ -126,7 +126,7 @@ def check_role_pool_sufficiency(adapter: KiCadBoardAdapter, cfg: Config) -> None
 
         # Collect all clusters used in spokes (including None)
         clusters_needed = set()
-        for spoke in rule.spokes:
+        for spoke in chain.spokes:
             if spoke.retired:
                 continue
             clusters_needed.add(spoke.cluster)  # None is allowed
@@ -138,7 +138,7 @@ def check_role_pool_sufficiency(adapter: KiCadBoardAdapter, cfg: Config) -> None
         }
 
         # Fill requirements
-        for spoke in rule.spokes:
+        for spoke in chain.spokes:
             if spoke.retired:
                 continue
             cell = cfg.cells.get(spoke.cell)
@@ -153,7 +153,7 @@ def check_role_pool_sufficiency(adapter: KiCadBoardAdapter, cfg: Config) -> None
             if not any(needed_counts.values()):
                 continue
 
-            pool = ComponentPool(adapter, rule.net, roles=sorted(roles_needed), cluster=cluster)
+            pool = ComponentPool(adapter, chain.net, roles=sorted(roles_needed), cluster=cluster)
             for role, needed in needed_counts.items():
                 if needed == 0:
                     continue
@@ -163,7 +163,7 @@ def check_role_pool_sufficiency(adapter: KiCadBoardAdapter, cfg: Config) -> None
                     problems.append(
                         _("net {net!r}, role {role!r}{cluster}: need {needed}, found {available} "
                           "(check the Role and Cluster fields in the schematic and the actual net connection)")
-                        .format(net=rule.net, role=role, cluster=cluster_label,
+                        .format(net=chain.net, role=role, cluster=cluster_label,
                                 needed=needed, available=available)
                     )
 
@@ -430,38 +430,38 @@ def _spoke_roles(cfg: Config, spoke: ManualSpoke) -> set:
 
 
 def check_no_candidate_pool_collisions(cfg: Config) -> None:
-    """Pure config check (no live board). Two rules sharing one net and
+    """Pure config check (no live board). Two chains sharing one net and
     consuming the SAME (role, spoke-cluster) candidate pool will silently
-    steal each other's components: ComponentPool is rebuilt per rule
+    steal each other's components: ComponentPool is rebuilt per chain
     (manual_position_calculator.py), filtering candidates ONLY by net + Role +
     (if set) spoke cluster (component_pool.py) — no ownership registry, no
-    distance heuristic — so whichever rule plans later pops the same
+    distance heuristic — so whichever chain plans later pops the same
     candidates first (natural order). Cluster is the documented mechanism for
-    splitting several rules on one net (Rule's own docstring) but nothing
+    splitting several chains on one net (Chain's own docstring) but nothing
     enforced/checked it.
 
     Reported on the FULL config (before --only/--cluster narrow it) — this is
-    exactly when it must fire: a Redraw (--only=<one rule>) would otherwise
-    hide the collision by filtering the sibling rule out before it is ever
+    exactly when it must fire: a Redraw (--only=<one chain>) would otherwise
+    hide the collision by filtering the sibling chain out before it is ever
     seen (apply_only_filter), which is the live incident that motivated this
-    check. Fatal (never a proximity heuristic): each problem names both rules,
+    check. Fatal (never a proximity heuristic): each problem names both chains,
     the net, the shared role and the spoke cluster (or "no cluster"); the hint
     points at the standard fix — a distinguishing spoke cluster: on one of
     them."""
     problems = []
     seen: set[tuple] = set()
-    rules_by_net: dict[str, list[Rule]] = {}
-    for rule in cfg.rules:
-        if rule.retired or rule.skip:
+    chains_by_net: dict[str, list[Chain]] = {}
+    for chain in cfg.chains:
+        if chain.retired or chain.skip:
             continue  # drop_inactive_items drops these before planning
-        rules_by_net.setdefault(rule.net, []).append(rule)
+        chains_by_net.setdefault(chain.net, []).append(chain)
 
-    for net, rules in rules_by_net.items():
-        if len(rules) < 2:
+    for net, chains in chains_by_net.items():
+        if len(chains) < 2:
             continue
-        for i in range(len(rules)):
-            for j in range(i + 1, len(rules)):
-                a, b = rules[i], rules[j]
+        for i in range(len(chains)):
+            for j in range(i + 1, len(chains)):
+                a, b = chains[i], chains[j]
                 for sa in a.spokes:
                     if sa.retired or sa.skip:
                         continue
@@ -477,7 +477,7 @@ def check_no_candidate_pool_collisions(cfg: Config) -> None:
                         if not shared:
                             continue
                         for role in sorted(shared):
-                            key = (rule_effective_name(a), rule_effective_name(b),
+                            key = (chain_effective_name(a), chain_effective_name(b),
                                    role, sa.cluster)
                             if key in seen:
                                 continue
@@ -485,19 +485,19 @@ def check_no_candidate_pool_collisions(cfg: Config) -> None:
                             cluster_hint = (_(" (cluster {cluster!r})").format(cluster=sa.cluster)
                                             if sa.cluster is not None else _(" (no cluster)"))
                             problems.append(
-                                _("rules {a!r} and {b!r} on net {net!r} both consume role "
+                                _("chains {a!r} and {b!r} on net {net!r} both consume role "
                                   "{role!r} from the same component pool{cluster_hint}")
-                                .format(a=rule_effective_name(a), b=rule_effective_name(b),
+                                .format(a=chain_effective_name(a), b=chain_effective_name(b),
                                         net=net, role=role, cluster_hint=cluster_hint)
                             )
 
     if problems:
         raise ValidationError(format_fatal_error(
-            _("rules on the same net compete for the same component pool"),
+            _("chains on the same net compete for the same component pool"),
             problems + [_("fix: give a distinguishing cluster: to the spokes of one of them, "
-                          "so each rule takes components from its own pool — see Rule's "
+                          "so each chain takes components from its own pool — see Chain's "
                           "docstring (Cluster is the standard mechanism for splitting several "
-                          "rules on one net); a rule redrawn alone (Redraw / --only) will "
+                          "chains on one net); a chain redrawn alone (Redraw / --only) will "
                           "otherwise silently take components meant for its neighbour")]
         ))
     logger.debug(_("Candidate-pool collision checks passed"))

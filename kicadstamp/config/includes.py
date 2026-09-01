@@ -35,6 +35,7 @@ from ..exceptions import (
 )
 from ..i18n import _
 from ..utils.file_cache import cached_file_read, cached_graph_result
+from .aliases import normalize_section_aliases
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ logger = logging.getLogger(__name__)
 # include's, in listed order). YAML order has no functional effect —
 # dependency_order.py already reorders rules/clone_placements by real anchor
 # dependency at apply time.
-_LIST_SECTIONS = ('rules', 'clone_placements', 'thermal_via_arrays', 'coordinate_placements',
+_LIST_SECTIONS = ('chains', 'clone_placements', 'thermal_via_arrays', 'coordinate_placements',
                   'net_traces', 'entities', 'trees')
 
 # Dict sections: merged key-by-key, fatal on a key defined in two different
@@ -80,9 +81,9 @@ def _load_config_file(path: Path) -> dict:
         suffix = Path(path).suffix.lower()
         if suffix == '.sexp':
             from .sexp_format import sexp_to_dict
-            return sexp_to_dict(f.read()) or {}
+            return normalize_section_aliases(sexp_to_dict(f.read()) or {})
         if suffix == '.json':
-            return json.load(f) or {}
+            return normalize_section_aliases(json.load(f) or {})
         if suffix in ('.yaml', '.yml'):
             raise yaml_removed_config_error(path)
         raise unknown_extension_config_error(path, suffix)

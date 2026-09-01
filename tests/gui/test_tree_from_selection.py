@@ -40,7 +40,7 @@ def _cfg(entities=None, cells=None, trees=None, rules=None):
         entities=entities or [],
         cells={c.name: c for c in (cells or [])},
         trees=trees or [],
-        rules=rules or [],
+        chains=rules or [],
     )
 
 

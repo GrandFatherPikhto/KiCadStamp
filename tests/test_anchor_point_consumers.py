@@ -122,7 +122,7 @@ class TestRuleAnchorPoint:
         ])
         rule = Rule(net="NET1", anchor_point="fpga_center",
                    spokes=[ManualSpoke(pad="1", cell="tpl")])
-        cfg = Config(layer="F.Cu", cells={"tpl": cell}, rules=[rule])
+        cfg = Config(layer="F.Cu", cells={"tpl": cell}, chains=[rule])
 
         c1 = _make_fp("C1", role="R1", pads=[_make_pad("1", 0, 0, "NET1")])
         adapter = MagicMock()
@@ -151,7 +151,7 @@ class TestRuleAnchorPoint:
         AttributeError deep in spoke geometry."""
         resolved_points = {"shifted": ResolvedPoint(position=Vector2.from_xy(0, 0), footprint=None)}
         rule = Rule(net="NET1", anchor_point="shifted", spokes=[])
-        cfg = Config(layer="F.Cu", cells={}, rules=[rule])
+        cfg = Config(layer="F.Cu", cells={}, chains=[rule])
         adapter = MagicMock()
 
         calc = ManualPositionCalculator(adapter, cfg, resolved_points=resolved_points)

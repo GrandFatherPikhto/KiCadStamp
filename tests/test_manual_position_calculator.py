@@ -57,7 +57,7 @@ def _run(cell, cfg_layer="F.Cu"):
     adapter = _adapter_for(anchor_fp, comp_fp, anchor_pad)
 
     rule = Rule(net="NET1", anchor_ref="IC1", spokes=[ManualSpoke(pad="1", cell="tpl")])
-    cfg = Config(layer=cfg_layer, cells={"tpl": cell}, rules=[rule])
+    cfg = Config(layer=cfg_layer, cells={"tpl": cell}, chains=[rule])
 
     calc = ManualPositionCalculator(adapter, cfg)
     placed, _vias, _tracks = calc.compute_raw_positions([rule])
@@ -120,7 +120,7 @@ def test_rule_override_replaces_anchor_position():
 
     rule = Rule(net="NET1", anchor_ref="IC1",
                 spokes=[ManualSpoke(pad="1", cell="tpl")])
-    cfg = Config(layer="F.Cu", cells={"tpl": cell}, rules=[rule])
+    cfg = Config(layer="F.Cu", cells={"tpl": cell}, chains=[rule])
     calc = ManualPositionCalculator(adapter, cfg)
 
     # Without an override the rule lands on its own anchor's live pad (11, 20).
@@ -162,7 +162,7 @@ def test_rule_override_reprojects_pad_rotation():
 
     rule = Rule(net="NET1", anchor_ref="IC1",
                 spokes=[ManualSpoke(pad="1", cell="tpl")])
-    cfg = Config(layer="F.Cu", cells={"tpl": cell}, rules=[rule])
+    cfg = Config(layer="F.Cu", cells={"tpl": cell}, chains=[rule])
     calc = ManualPositionCalculator(adapter, cfg)
 
     override = PositionOverride(position=Vector2.from_xy(int(50.0 * MM), int(60.0 * MM)),

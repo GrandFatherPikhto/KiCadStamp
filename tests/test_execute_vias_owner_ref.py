@@ -63,7 +63,7 @@ def test_owner_ref_matches_actual_command_not_first_in_batch():
     cfg = Config(
         layer='F.Cu',
         cells={},
-        rules=[],
+        chains=[],
     )
 
     old_cwd = os.getcwd()
@@ -114,7 +114,7 @@ def test_registry_record_created_called_with_correct_uuid_per_via():
     cfg = Config(
         layer='F.Cu',
         cells={},
-        rules=[],
+        chains=[],
     )
 
     via_a = _make_via(1, "GND", owner_ref="C5", registry_key="pad:17|t|HEAVY|0")

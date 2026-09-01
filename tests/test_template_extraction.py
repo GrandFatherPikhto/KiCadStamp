@@ -380,7 +380,7 @@ class TestRuleNets:
     """rule_nets (2026-08-05, Denis: "давай сделаем явный чекбокс [для null].
     Это правильная фича. Она замыкает использование rules") — a via/track
     net in rule_nets is written as null instead of its literal, so a
-    ManualSpoke-placed cell using it inherits the enclosing Rule's own net
+    ManualSpoke-placed cell using it inherits the enclosing Chain's own net
     at apply time (spoke_layout.py's `via.net or rule_net`)."""
 
     def test_via_net_in_rule_nets_is_written_as_null(self):

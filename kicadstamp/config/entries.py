@@ -20,7 +20,7 @@ from ..i18n import _
 from ..trees import Tree, tree_from_dict
 from .models import (
     ThermalViaArrayConfig, TemplateVia, TemplateComponentSlot, TemplateTrack,
-    Cell, CellPlacement, ManualSpoke, Rule, ClonePlacement, CoordinatePlacement,
+    Cell, CellPlacement, ManualSpoke, Chain, ClonePlacement, CoordinatePlacement,
     NetTrace, Entity,
 )
 from .points import Point
@@ -577,64 +577,64 @@ def _load_manual_spoke(data: dict[str, Any], rule_label: str) -> ManualSpoke:
     )
 
 
-_RULE_KNOWN_KEYS = {
+_CHAIN_KNOWN_KEYS = {
     'net', 'spokes', 'anchor_ref', 'anchor_role', 'anchor_sheet',
     'anchor_cluster', 'anchor_point', 'name', 'sheet', 'retired', 'skip',
     'comment',
 }
 
 
-def _load_rule(rule_data: dict[str, Any]) -> Rule:
+def _load_chain(chain_data: dict[str, Any]) -> Chain:
     """Extracted 2026-08-05 from load_config's own inline loop (same
     standalone-per-entry shape as _load_point/_load_thermal_via_array/
-    _load_clone_placement) so gui/docks/rules.py can validate a single Rule
+    _load_clone_placement) so gui/docks/chain.py can validate a single Chain
     the same clean way those docks already validate their own entry type.
-    The cross-rule name/net collision check stays in load_config — it
-    needs the WHOLE rules list, not just one entry."""
-    rule_net = rule_data.get('net')
-    check_unknown_keys(rule_data, _RULE_KNOWN_KEYS,
-                       _("unknown fields in rule (net {net!r})").format(net=rule_net))
-    anchor_ref = rule_data.get('anchor_ref')
-    anchor_role = rule_data.get('anchor_role')
-    anchor_sheet = rule_data.get('anchor_sheet')
-    anchor_cluster = rule_data.get('anchor_cluster')
-    anchor_point = rule_data.get('anchor_point')
-    sheet = rule_data.get('sheet')
+    The cross-chain name/net collision check stays in load_config — it
+    needs the WHOLE chains list, not just one entry."""
+    chain_net = chain_data.get('net')
+    check_unknown_keys(chain_data, _CHAIN_KNOWN_KEYS,
+                       _("unknown fields in chain (net {net!r})").format(net=chain_net))
+    anchor_ref = chain_data.get('anchor_ref')
+    anchor_role = chain_data.get('anchor_role')
+    anchor_sheet = chain_data.get('anchor_sheet')
+    anchor_cluster = chain_data.get('anchor_cluster')
+    anchor_point = chain_data.get('anchor_point')
+    sheet = chain_data.get('sheet')
 
     if anchor_ref and anchor_role:
         raise ValidationError(format_fatal_error(
-            _("anchor_ref and anchor_role together in rule (net {net!r})").format(net=rule_net),
+            _("anchor_ref and anchor_role together in chain (net {net!r})").format(net=chain_net),
             [_("mutually exclusive: either by refdes (anchor_ref) or by Role field "
                "(anchor_role), not both")]
         ))
     if anchor_sheet and not anchor_role:
         raise ValidationError(format_fatal_error(
-            _("anchor_sheet without anchor_role in rule (net {net!r})").format(net=rule_net),
+            _("anchor_sheet without anchor_role in chain (net {net!r})").format(net=chain_net),
             [_("anchor_sheet only narrows ambiguity of anchor_role, it is not an anchor itself")]
         ))
     if anchor_point and (anchor_ref or anchor_role):
         raise ValidationError(format_fatal_error(
-            _("anchor_point together with anchor_ref/anchor_role in rule (net {net!r})")
-            .format(net=rule_net),
+            _("anchor_point together with anchor_ref/anchor_role in chain (net {net!r})")
+            .format(net=chain_net),
             [_("anchor_point={point!r} names a points: entry that already carries its own "
                "anchor — mutually exclusive with anchor_ref/anchor_role").format(point=anchor_point)]
         ))
     if not anchor_ref and not anchor_role and not anchor_point:
         raise ValidationError(format_fatal_error(
-            _("rule (net {net!r}) without anchor_ref/anchor_role/anchor_point").format(net=rule_net),
-            [_("a spoke rule must have an anchor – anchor_ref: <ref> (component whose "
+            _("chain (net {net!r}) without anchor_ref/anchor_role/anchor_point").format(net=chain_net),
+            [_("a spoke chain must have an anchor – anchor_ref: <ref> (component whose "
                "pads are listed in spokes), anchor_role: <ROLE> (survives re‑annotation), "
                "or anchor_point: <name from points:>")]
         ))
-    spokes = [_load_manual_spoke(spoke_data, rule_net) for spoke_data in rule_data.get('spokes', [])]
-    return Rule(net=rule_net, spokes=spokes, anchor_ref=anchor_ref,
-               anchor_role=anchor_role, anchor_sheet=anchor_sheet,
-               anchor_cluster=anchor_cluster, anchor_point=anchor_point,
-               sheet=sheet,
-               name=rule_data.get('name'),
-               retired=rule_data.get('retired', False),
-               skip=rule_data.get('skip', False),
-               comment=rule_data.get('comment'))
+    spokes = [_load_manual_spoke(spoke_data, chain_net) for spoke_data in chain_data.get('spokes', [])]
+    return Chain(net=chain_net, spokes=spokes, anchor_ref=anchor_ref,
+                anchor_role=anchor_role, anchor_sheet=anchor_sheet,
+                anchor_cluster=anchor_cluster, anchor_point=anchor_point,
+                sheet=sheet,
+                name=chain_data.get('name'),
+                retired=chain_data.get('retired', False),
+                skip=chain_data.get('skip', False),
+                comment=chain_data.get('comment'))
 
 
 _NET_TRACE_KNOWN_KEYS = {

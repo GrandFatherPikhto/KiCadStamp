@@ -15,13 +15,13 @@ from .models import (
     Cell,
     CellPlacement,
     ManualSpoke,
-    Rule,
+    Chain,
     ClonePlacement,
     CoordinatePlacement,
     NetTrace,
     Entity,
     Config,
-    rule_effective_name,
+    chain_effective_name,
     thermal_via_array_effective_name,
     coordinate_placement_effective_name,
     clone_placement_effective_name,
@@ -39,7 +39,7 @@ from .loader import (
     _load_cell_placement,
     _load_point,
     _load_manual_spoke,
-    _load_rule,
+    _load_chain,
     _load_clone_placement,
     _load_thermal_via_array,
     _load_coordinate_placement,
@@ -48,6 +48,12 @@ from .loader import (
     _load_tree,
     _check_layer_value,
 )
+
+# Backward-compat aliases for the 2026-09-01 Rule -> Chain rename — any
+# existing external importer/script referencing the old names keeps working.
+Rule = Chain
+rule_effective_name = chain_effective_name
+load_rule = _load_chain
 
 # load_cell/load_template_component_slot/load_template_via/
 # load_template_track/load_cell_placement (2026-08-06) — the cell editor's
@@ -76,11 +82,12 @@ load_coordinate_placement = _load_coordinate_placement
 # unlike the list-of-dicts thermal_via_arrays/clone_placements above, whose
 # own dict already carries its name inline (see _load_point's signature).
 load_point = _load_point
-# load_rule/load_manual_spoke — Rule's own extracted validator (2026-08-05,
-# see loader.py's _load_rule docstring) + the pre-existing per-spoke one,
-# both needed by gui/docks/rules.py to validate a Rule and its individual
-# spokes the same clean way Save/Redraw validate everything else here.
-load_rule = _load_rule
+# load_chain/load_manual_spoke — Chain's own extracted validator
+# (2026-08-05, see loader.py's _load_chain docstring) + the pre-existing
+# per-spoke one, both needed by gui/docks/chain.py to validate a Chain and
+# its individual spokes the same clean way Save/Redraw validate everything
+# else here.
+load_chain = _load_chain
 load_manual_spoke = _load_manual_spoke
 
 __all__ = [
@@ -92,7 +99,7 @@ __all__ = [
     "CellPlacement",
     "Point",
     "ManualSpoke",
-    "Rule",
+    "Chain",
     "ClonePlacement",
     "CoordinatePlacement",
     "NetTrace",
@@ -109,9 +116,9 @@ __all__ = [
     "load_coordinate_placement",
     "load_net_trace",
     "load_point",
-    "load_rule",
+    "load_chain",
     "load_manual_spoke",
-    "rule_effective_name",
+    "chain_effective_name",
     "thermal_via_array_effective_name",
     "coordinate_placement_effective_name",
     "clone_placement_effective_name",

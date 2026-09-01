@@ -25,7 +25,7 @@ import dataclasses
 import difflib
 import logging
 
-from .config import (Config, load_config, rule_effective_name,
+from .config import (Config, load_config, chain_effective_name,
                     thermal_via_array_effective_name,
                     coordinate_placement_effective_name, clone_placement_effective_name,
                     net_trace_effective_name, entity_effective_name)
@@ -40,7 +40,7 @@ from .placement.services.clone_position_calculator import (
     entity_anchor_id,
 )
 from .placement.services.via_planner import thermal_anchor_id
-from .placement.services.manual_position_calculator import rule_anchor_ids
+from .placement.services.manual_position_calculator import chain_anchor_ids
 from .placement.services.coordinate_position_calculator import build_coordinate_moves
 from .cluster_matching import cluster_prefix_match
 from .placement.executor import BatchExecutor
@@ -74,10 +74,10 @@ def _matches_any_cluster(candidate: str | None, wanted: list[str]) -> bool:
     return any(cluster_prefix_match(candidate, w) for w in wanted)
 
 
-def drop_disabled_rules(cfg, _logger=None) -> "Config":
+def drop_disabled_chains(cfg, _logger=None) -> "Config":
     """retired: true always wins, dropped before --only/--cluster ever see
     it — retired means "does not exist on the board right now", not
-    "excluded from this particular run" (see Rule docstring in config/models.py).
+    "excluded from this particular run" (see Chain docstring in config/models.py).
 
     CONTRACT: filters never mutate the caller's Config. Each one returns a NEW
     derived Config and leaves the input untouched — the input object is never
@@ -85,18 +85,22 @@ def drop_disabled_rules(cfg, _logger=None) -> "Config":
     object) is safe to reuse after a run. Pure config math, no adapter — kept
     separate so it's unit‑testable without a live KiCad connection."""
     l = _logger or logger
-    disabled_rules = [r for r in cfg.rules if r.retired]
-    rules = [r for r in cfg.rules if not r.retired]
-    for r in disabled_rules:
-        l.info(_("Rule {name!r} (net {net!r}): retired=true, skipped entirely")
-               .format(name=rule_effective_name(r), net=r.net))
-    return dataclasses.replace(cfg, rules=rules)
+    disabled_chains = [c for c in cfg.chains if c.retired]
+    chains = [c for c in cfg.chains if not c.retired]
+    for c in disabled_chains:
+        l.info(_("Chain {name!r} (net {net!r}): retired=true, skipped entirely")
+               .format(name=chain_effective_name(c), net=c.net))
+    return dataclasses.replace(cfg, chains=chains)
+
+
+# Backward-compat alias for the 2026-09-01 Rule -> Chain rename.
+drop_disabled_rules = drop_disabled_chains
 
 
 def drop_inactive_items(cfg, _logger=None) -> "Config":
     """skip: true — the inline, per-item counterpart of --only/--cluster
-    (see Rule/ClonePlacement/ThermalViaArrayConfig.skip docstrings in
-    config/models.py). Unlike retired: true (drop_disabled_rules above),
+    (see Chain/ClonePlacement/ThermalViaArrayConfig.skip docstrings in
+    config/models.py). Unlike retired: true (drop_disabled_chains above),
     this must run AFTER known_anchor_ids is computed — a skipped item's
     via/tracks must still count as "known" so reconcile() protects them from
     pruning, it's just not (re)planned this run. Composes with --only/--cluster
@@ -111,22 +115,22 @@ def drop_inactive_items(cfg, _logger=None) -> "Config":
         l.info(_("ClonePlacement {name!r}: skip=true, skipped this run "
                   "(existing via/tracks stay protected)").format(name=c.name))
 
-    narrowed_rules = []
-    for r in cfg.rules:
-        if r.skip:
-            l.info(_("Rule {name!r}: skip=true, skipped this run "
-                      "(existing via/tracks stay protected)").format(name=rule_effective_name(r)))
+    narrowed_chains = []
+    for c in cfg.chains:
+        if c.skip:
+            l.info(_("Chain {name!r}: skip=true, skipped this run "
+                      "(existing via/tracks stay protected)").format(name=chain_effective_name(c)))
             continue
-        kept_spokes = [s for s in r.spokes if not s.skip]
-        for s in r.spokes:
+        kept_spokes = [s for s in c.spokes if not s.skip]
+        for s in c.spokes:
             if s.skip:
-                l.debug(_("Rule {name!r}: spoke on pad {pad} skip=true, skipped this run")
-                         .format(name=rule_effective_name(r), pad=s.pad))
+                l.debug(_("Chain {name!r}: spoke on pad {pad} skip=true, skipped this run")
+                         .format(name=chain_effective_name(c), pad=s.pad))
         if kept_spokes:
-            narrowed_rules.append(dataclasses.replace(r, spokes=kept_spokes))
+            narrowed_chains.append(dataclasses.replace(c, spokes=kept_spokes))
         else:
-            l.info(_("Rule {name!r}: no non-skipped spokes left, skipped this run "
-                      "(existing via/tracks stay protected)").format(name=rule_effective_name(r)))
+            l.info(_("Chain {name!r}: no non-skipped spokes left, skipped this run "
+                      "(existing via/tracks stay protected)").format(name=chain_effective_name(c)))
 
     kept_tvas = []
     for tva in cfg.thermal_via_arrays:
@@ -163,7 +167,7 @@ def drop_inactive_items(cfg, _logger=None) -> "Config":
             continue
         kept_net_traces.append(nt)
 
-    return dataclasses.replace(cfg, rules=narrowed_rules,
+    return dataclasses.replace(cfg, chains=narrowed_chains,
                                clone_placements=kept_clones,
                                thermal_via_arrays=kept_tvas,
                                coordinate_placements=kept_coords,
@@ -171,17 +175,17 @@ def drop_inactive_items(cfg, _logger=None) -> "Config":
 
 
 def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
-    """--only: whole-block selection by identity (rule name-or-net, clone_placement
+    """--only: whole-block selection by identity (chain name-or-net, clone_placement
     name, thermal_via_arrays entry name). Raises PlacerError on unmatched names.
     Pure config math, no adapter.
 
     CONTRACT: returns a derived Config; the input object is never mutated (see
-    drop_disabled_rules). A no-op filter (no --only names) returns cfg unchanged."""
+    drop_disabled_chains). A no-op filter (no --only names) returns cfg unchanged."""
     l = _logger or logger
     if not only_names:
         return cfg
     requested = set(only_names)
-    matched_rules = [r for r in cfg.rules if rule_effective_name(r) in requested]
+    matched_chains = [c for c in cfg.chains if chain_effective_name(c) in requested]
     matched_clones = [c for c in cfg.clone_placements
                       if clone_placement_effective_name(c) in requested]
     matched_tvas = [t for t in cfg.thermal_via_arrays
@@ -198,7 +202,7 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
     # fatal on any tree node whose entity was filtered away. The --only
     # narrowing of ENTITY placements happens on the materialized clones
     # (phase 4.1 fix, see _filter_materialized_entities).
-    found_names = ({rule_effective_name(r) for r in matched_rules}
+    found_names = ({chain_effective_name(c) for c in matched_chains}
                    | {clone_placement_effective_name(c) for c in matched_clones}
                    | {thermal_via_array_effective_name(t) for t in matched_tvas}
                    | {coordinate_placement_effective_name(cp) for cp in matched_coords}
@@ -207,7 +211,7 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
     missing = requested - found_names
     if missing:
         all_names = sorted(
-            {rule_effective_name(r) for r in cfg.rules}
+            {chain_effective_name(c) for c in cfg.chains}
             | {clone_placement_effective_name(c) for c in cfg.clone_placements}
             | {thermal_via_array_effective_name(t) for t in cfg.thermal_via_arrays if not t.retired}
             | {coordinate_placement_effective_name(cp) for cp in cfg.coordinate_placements
@@ -220,22 +224,22 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
             suggestion = difflib.get_close_matches(name, all_names, n=1)
             hint = (_(" (maybe you meant {suggestion!r}?)").format(suggestion=suggestion[0])
                     if suggestion else "")
-            lines.append(_("  {name!r} — not found among rules, clone_placements, "
+            lines.append(_("  {name!r} — not found among chains, clone_placements, "
                            "thermal_via_arrays, coordinate_placements, net_traces, "
                            "or entities{hint}").format(name=name, hint=hint))
         raise PlacerError(_("[error] --only: names not found:\n{lines}\nAvailable: {all}")
                           .format(lines="\n".join(lines), all=all_names))
 
-    l.info(_("--only {requested}: rules={rules}, clone_placements={clones}, "
+    l.info(_("--only {requested}: chains={chains}, clone_placements={clones}, "
               "thermal_via_arrays={thermal}, coordinate_placements={coords}, "
               "net_traces={nets} (everything else is ignored in this run)")
             .format(requested=sorted(requested),
-                    rules=[rule_effective_name(r) for r in matched_rules],
+                    chains=[chain_effective_name(c) for c in matched_chains],
                     clones=[clone_placement_effective_name(c) for c in matched_clones],
                     thermal=[thermal_via_array_effective_name(t) for t in matched_tvas],
                     coords=[coordinate_placement_effective_name(cp) for cp in matched_coords],
                     nets=[net_trace_effective_name(nt) for nt in matched_nets]))
-    return dataclasses.replace(cfg, rules=matched_rules,
+    return dataclasses.replace(cfg, chains=matched_chains,
                                clone_placements=matched_clones,
                                thermal_via_arrays=matched_tvas,
                                coordinate_placements=matched_coords,
@@ -248,7 +252,7 @@ def apply_cluster_filter(cfg, cluster_paths: list[str], _logger=None) -> "Config
     Pure config math, no adapter.
 
     CONTRACT: returns a derived Config; the input object is never mutated (see
-    drop_disabled_rules). A no-op filter (no --cluster paths) returns cfg unchanged."""
+    drop_disabled_chains). A no-op filter (no --cluster paths) returns cfg unchanged."""
     l = _logger or logger
     if not cluster_paths:
         return cfg
@@ -259,7 +263,7 @@ def apply_cluster_filter(cfg, cluster_paths: list[str], _logger=None) -> "Config
     # cp.cluster is the moved component's own physical-instance field here
     # (CoordinatePlacement's anchor-relative mode also has an anchor_cluster
     # narrowing field, but --cluster selects by the instance being acted on,
-    # same as it selects a Rule/ClonePlacement by its own anchor_cluster) —
+    # same as it selects a Chain/ClonePlacement by its own anchor_cluster) —
     # the SAME prefix-match convention still applies to it.
     matched_coords = [cp for cp in cfg.coordinate_placements
                       if not cp.retired and _matches_any_cluster(cp.cluster, cluster_paths)]
@@ -276,32 +280,32 @@ def apply_cluster_filter(cfg, cluster_paths: list[str], _logger=None) -> "Config
         and _matches_any_cluster(e.cluster, cluster_paths)
         for e in cfg.entities)
 
-    narrowed_rules = []
-    for r in cfg.rules:
-        kept_spokes = [s for s in r.spokes if _matches_any_cluster(s.cluster, cluster_paths)]
+    narrowed_chains = []
+    for c in cfg.chains:
+        kept_spokes = [s for s in c.spokes if _matches_any_cluster(s.cluster, cluster_paths)]
         if kept_spokes:
-            narrowed_rules.append(dataclasses.replace(r, spokes=kept_spokes))
+            narrowed_chains.append(dataclasses.replace(c, spokes=kept_spokes))
         else:
-            l.debug(_("Rule {name!r}: no spokes match --cluster {paths}, rule dropped")
-                     .format(name=rule_effective_name(r), paths=cluster_paths))
+            l.debug(_("Chain {name!r}: no spokes match --cluster {paths}, chain dropped")
+                     .format(name=chain_effective_name(c), paths=cluster_paths))
 
-    if (not narrowed_rules and not matched_clones and not matched_tvas
+    if (not narrowed_chains and not matched_clones and not matched_tvas
             and not matched_coords and not matched_nets and not entity_cluster_hit):
-        raise PlacerError(_("[error] --cluster {paths}: matched nothing among rules' spokes, "
+        raise PlacerError(_("[error] --cluster {paths}: matched nothing among chains' spokes, "
                             "clone_placements, thermal_via_arrays, coordinate_placements, "
                             "net_traces, or entities")
                           .format(paths=cluster_paths))
 
-    l.info(_("--cluster {paths}: rules={rules} (spokes narrowed), "
+    l.info(_("--cluster {paths}: chains={chains} (spokes narrowed), "
               "clone_placements={clones}, thermal_via_arrays={thermal}, "
               "coordinate_placements={coords}, net_traces={nets}")
             .format(paths=cluster_paths,
-                    rules=[rule_effective_name(r) for r in narrowed_rules],
+                    chains=[chain_effective_name(c) for c in narrowed_chains],
                     clones=[c.name for c in matched_clones],
                     thermal=[thermal_via_array_effective_name(t) for t in matched_tvas],
                     coords=[coordinate_placement_effective_name(cp) for cp in matched_coords],
                     nets=[net_trace_effective_name(nt) for nt in matched_nets]))
-    return dataclasses.replace(cfg, rules=narrowed_rules,
+    return dataclasses.replace(cfg, chains=narrowed_chains,
                                clone_placements=matched_clones,
                                thermal_via_arrays=matched_tvas,
                                coordinate_placements=matched_coords,
@@ -319,8 +323,8 @@ def _compute_all_anchor_ids(cfg) -> set[str]:
     # prunes copper belonging to an entity outside the selection. No physical
     # vias/tracks exist yet (apply is Phase 4), so this is future-proofing.
     ids |= {entity_anchor_id(e) for e in cfg.entities if not e.retired}
-    for r in cfg.rules:
-        ids |= rule_anchor_ids(r)
+    for c in cfg.chains:
+        ids |= chain_anchor_ids(c)
     ids |= {thermal_anchor_id(t) for t in cfg.thermal_via_arrays if not t.retired}
     # net_traces: an --only-filtered net trace must keep its registry entries
     # protected, same as the other sections (registry.py reconcile's protected
@@ -439,7 +443,7 @@ class ApplyPipeline:
         # (see the filter docstrings) — self.cfg is replaced with each filter's
         # result, so a preloaded cfg (e.g. the GUI's shared object) is never the
         # config that gets applied or modified by this run.
-        cfg = drop_disabled_rules(self.cfg)
+        cfg = drop_disabled_chains(self.cfg)
         self.all_anchor_ids = _compute_all_anchor_ids(cfg)
         cfg = drop_inactive_items(cfg)
         cfg = apply_only_filter(cfg, _split_comma_values(self.only))
@@ -510,7 +514,7 @@ class ApplyPipeline:
                            if self.cfg.coordinate_placements else [])
         # NOTE (2026-08-12, Group 2 review): a dry run does NOT apply Phase 0 —
         # build_coordinate_moves only COMPUTES MoveCommands, nothing moves on
-        # the board — so Phase 1 below necessarily resolves Rule/ClonePlacement
+        # the board — so Phase 1 below necessarily resolves Chain/ClonePlacement
         # anchors from their CURRENT positions, not the post-Phase-0 ones a real
         # apply would use (refresh_board() here would be a pure no-op, the board
         # is unchanged). The divergence is honest and documented in the report
@@ -528,7 +532,7 @@ class ApplyPipeline:
                              .format(ref=m.ref, x=m.position.x / 1e6, y=m.position.y / 1e6,
                                      angle=m.angle.degrees))
             lines.append(_("(Phase 0 moves are NOT applied in a dry run — the "
-                           "Rule/ClonePlacement moves below are still planned from "
+                           "Chain/ClonePlacement moves below are still planned from "
                            "their CURRENT positions, not from the post-Phase-0 board "
                            "a real apply would produce)"))
         lines.append(_("Moves:"))
@@ -550,7 +554,7 @@ class ApplyPipeline:
         if self.cfg.net_traces:
             lines.append(_("(net_traces entries are included in the vias/tracks sections above; "
                            "their anchors are resolved from CURRENT component positions, so a real "
-                           "apply after a Rule/CoordinatePlacement moves the anchor will follow it)"))
+                           "apply after a Chain/CoordinatePlacement moves the anchor will follow it)"))
         lines.append("\n" + _("(thermal via keepout is computed based on CURRENT component positions, "
                               "not the target ones — may slightly differ from the real run)"))
         lines.append(_("(track collisions with other copper/components are NOT checked by this tool — "
@@ -585,7 +589,7 @@ class ApplyPipeline:
         # in this run (each one resolves its OWN existing footprint by
         # Cluster+Role, see coordinate_position_calculator.py), so it never
         # needs dependency_order.py's producer/consumer graph. Runs BEFORE
-        # Phase 1 so a Rule/ClonePlacement anchor that happens to coincide
+        # Phase 1 so a Chain/ClonePlacement anchor that happens to coincide
         # with a coordinate-placed component sees its FINAL position, not a
         # stale pre-move one. No registry involvement (see
         # CoordinatePlacement's own docstring) — always applied

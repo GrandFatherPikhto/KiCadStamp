@@ -59,7 +59,7 @@ def test_clone_placements_only_via_selection():
     cfg = Config(
         layer='B.Cu',
         cells={"crystal": tpl},
-        rules=[],  # НЕТ rules вовсе
+        chains=[],  # НЕТ rules вовсе
         clone_placements=[clone],
     )
 
@@ -113,7 +113,7 @@ def test_rules_and_clone_placements_together():
     cfg = Config(
         layer='B.Cu',
         cells={"cap_single": spoke_tpl, "crystal": clone_tpl},
-        rules=[Rule(net="+3V3", anchor_ref='IC1', spokes=[ManualSpoke(pad="17", cell="cap_single")])],
+        chains=[Rule(net="+3V3", anchor_ref='IC1', spokes=[ManualSpoke(pad="17", cell="cap_single")])],
         clone_placements=[ClonePlacement(cluster="xtal1", cell="crystal", xy=(200.0, 0.0))],
     )
 

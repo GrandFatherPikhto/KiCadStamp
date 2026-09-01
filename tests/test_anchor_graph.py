@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pytest
 
 from kicadstamp.config import (
-    Config, Cell, TemplateComponentSlot, ManualSpoke, Rule,
+    Config, Cell, TemplateComponentSlot, ManualSpoke, Chain,
     ClonePlacement, CoordinatePlacement, Point,
 )
 from kicadstamp.exceptions import ValidationError
@@ -43,8 +43,8 @@ def test_build_producer_index_clone_rule_coordinate():
             ClonePlacement(cluster="CH0", cell="buf_cell", xy=(0.0, 0.0), sheet="Channel_0"),
             ClonePlacement(cluster="CH1", cell="buf_cell", xy=(0.0, 0.0), sheet="Channel_1"),
         ],
-        rules=[
-            Rule(net="GND", spokes=[ManualSpoke(pad="1", cell="buf_cell", cluster="R_CL")]),
+        chains=[
+            Chain(net="GND", spokes=[ManualSpoke(pad="1", cell="buf_cell", cluster="R_CL")]),
         ],
         coordinate_placements=[
             CoordinatePlacement(cluster="CP_C", role="CP_R", sheet="CP_S"),
@@ -67,7 +67,7 @@ def test_producer_index_rule_two_clusters_same_role():
     cell = _cell("c", "R")
     cfg = Config(
         cells={"c": cell},
-        rules=[Rule(net="GND", spokes=[
+        chains=[Chain(net="GND", spokes=[
             ManualSpoke(pad="1", cell="c", cluster="CL_A"),
             ManualSpoke(pad="2", cell="c", cluster="CL_B"),
         ])],
@@ -153,7 +153,7 @@ def test_resolve_anchor_edge_cluster_narrows_to_one():
     cell = _cell("c", "R")
     cfg = Config(
         cells={"c": cell},
-        rules=[Rule(net="GND", spokes=[
+        chains=[Chain(net="GND", spokes=[
             ManualSpoke(pad="1", cell="c", cluster="CL_A"),
             ManualSpoke(pad="2", cell="c", cluster="CL_B"),
         ])],
@@ -167,7 +167,7 @@ def test_resolve_anchor_edge_cluster_narrows_to_one():
     parents = resolve_anchor_edge(records[-1], cfg, index, {})
     # Both entries collapse to the SAME rule record after cluster narrowing.
     assert len(parents) == 1
-    assert parents[0].kind == "rule"
+    assert parents[0].kind == "chain"
 
 
 def test_resolve_anchor_edge_anchor_ref_external():

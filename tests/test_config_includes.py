@@ -144,7 +144,7 @@ def test_unsupported_key_in_included_file_is_fatal(tmp_path):
     then dropped by the caller (only _LIST_SECTIONS/_DICT_SECTIONS are
     pulled up), a real bug hit live on boards/3ch-awg-tia (layer: in
     rules/fpga_spokes.yaml, thermal_via_array: in fpga_thermal_vias.yaml)."""
-    _write(tmp_path, "sub.sexp", {"layer": "B.Cu", "rules": []})
+    _write(tmp_path, "sub.sexp", {"layer": "B.Cu", "chains": []})
 
     root = _write(tmp_path, "root.sexp", {"include": ["sub.sexp"]})
 
@@ -240,7 +240,7 @@ def test_walk_single_file_no_includes(tmp_path):
 
     assert node.path == root.resolve()
     assert list(node.sections["cells"].keys()) == ["one_role"]
-    assert node.sections["rules"] == []
+    assert node.sections["chains"] == []
     assert node.children == []
 
 

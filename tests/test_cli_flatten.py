@@ -26,7 +26,7 @@ def _build_project(tmp_path: Path) -> dict:
     _write(root, {
         "layer": "B.Cu",
         "include": ["components.sexp", "fpga_spokes.sexp"],
-        "rules": [{"net": "+3V3", "anchor_role": "FPGA", "spokes": []}],
+        "chains": [{"net": "+3V3", "anchor_role": "FPGA", "spokes": []}],
     })
     _write(components, {
         "cells": {"cap_pair": {"components": []}},
@@ -52,7 +52,7 @@ class TestFlattenMerge:
         data = _load(paths["root"])
         # Every section from every file is present, the include: key is gone.
         assert data["layer"] == "B.Cu"
-        assert data["rules"][0]["net"] == "+3V3"
+        assert data["chains"][0]["net"] == "+3V3"
         assert "cap_pair" in data["cells"]          # empty cell -> default-stripped {}
         assert "origin_a" in data["points"]         # empty point -> default-stripped {}
         assert data["clone_placements"][0]["name"] == "fpga_clone"
@@ -88,7 +88,7 @@ class TestFlattenDryRun:
         paths = _build_project(tmp_path)
         report = flatten_config(root=str(paths["root"]), dry_run=True)
         joined = "\n".join(report)
-        for section in ("rules", "cells", "points",
+        for section in ("chains", "cells", "points",
                         "clone_placements", "thermal_via_arrays"):
             assert section in joined
         assert "Would write to" in joined

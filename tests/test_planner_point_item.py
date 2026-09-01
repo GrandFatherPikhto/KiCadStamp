@@ -26,7 +26,7 @@ def _make_fp(ref, x_mm=0.0, y_mm=0.0):
 
 
 def _cfg():
-    return Config(layer='F.Cu', cells={}, points={}, rules=[], clone_placements=[])
+    return Config(layer='F.Cu', cells={}, points={}, chains=[], clone_placements=[])
 
 
 def test_point_item_returns_no_moves_and_populates_cache():

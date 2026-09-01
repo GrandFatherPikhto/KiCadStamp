@@ -38,7 +38,13 @@ from .i18n import _
 # design_2026_08_30_entity_placement_grammar.md §2.2). "clone" is KEPT alongside
 # during the migration so legacy clone_placement-referencing trees keep working;
 # the release cutover (Phase 6 converter) rewrites "clone" -> "placement".
-KINDS = ("clone", "placement", "rule", "coordinate", "point", "external")
+KINDS = ("clone", "placement", "chain", "coordinate", "point", "external")
+
+# Legacy kind alias for the 2026-09-01 Rule -> Chain rename: tree nodes written
+# with kind "rule" (the old record kind) are still accepted at parse time (a
+# profile saved before the rename may carry them); link_trees maps them to the
+# canonical "chain:" record key prefix (see link_trees._resolve_node_ref).
+LEGACY_KINDS = ("rule",)
 
 _OFFSET_KEYS = ("xy", "polar")
 
@@ -79,7 +85,7 @@ class TreeAnchor:
 @dataclass
 class TreeNode:
     ref: str
-    kind: str | None       # "clone"/"rule"/"coordinate"/"point"/"external", or None (auto)
+    kind: str | None       # "clone"/"chain"/"coordinate"/"point"/"external", or None (auto)
     xy: tuple[float, float] | None
     polar: tuple[float, float] | None   # (radius_mm, angle_deg)
     rotation: float
@@ -105,7 +111,7 @@ def _parse_kind(node) -> str | None:
     raw = atom(node, "kind")
     if raw is None:
         return None
-    if raw not in KINDS:
+    if raw not in KINDS and raw not in LEGACY_KINDS:
         _fatal(_("node {ref!r}: invalid kind {kind!r} — expected one of {kinds}")
                .format(ref=atom(node, "ref"), kind=raw, kinds=", ".join(KINDS)))
     return raw
@@ -454,7 +460,7 @@ def _dict_node(data: dict, seen_refs: set[str], location: str) -> TreeNode:
                  "(use exactly one)").format(ref=ref))
 
     raw_kind = data.get("kind")
-    if raw_kind is not None and raw_kind not in KINDS:
+    if raw_kind is not None and raw_kind not in KINDS and raw_kind not in LEGACY_KINDS:
         _fatal(_("node {ref!r}: invalid kind {kind!r} — expected one of {kinds}")
                .format(ref=ref, kind=raw_kind, kinds=", ".join(KINDS)))
 

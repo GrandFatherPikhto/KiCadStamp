@@ -61,7 +61,7 @@ class TestOriginalLayerCapture:
         cfg = Config(
             layer='B.Cu',
             cells={},
-            rules=[],
+            chains=[],
             clone_placements=[],
         )
 

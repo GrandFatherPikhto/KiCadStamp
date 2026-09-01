@@ -469,41 +469,43 @@ class ManualSpoke:
 
 
 @dataclass
-class Rule:
-    """Rule: a group of spokes around ONE anchor component, all on one net.
-    anchor_ref OR anchor_role (mutually exclusive, exactly one required) —
-    whose pads are listed in spokes. anchor_sheet/anchor_cluster narrow
-    ambiguity of anchor_role, same principle as in ClonePlacement.
+class Chain:
+    """Chain: a group of spokes around ONE anchor component, all on one net
+    (renamed from Rule 2026-09-01 — "rule" confused users; a chain is
+    identified by its net). anchor_ref OR anchor_role (mutually exclusive,
+    exactly one required) — whose pads are listed in spokes.
+    anchor_sheet/anchor_cluster narrow ambiguity of anchor_role, same
+    principle as in ClonePlacement.
 
     name — OPTIONAL, for --only. Defaults to net when not set (see
-    rule_effective_name). An explicit name is only needed to give a rule a
+    chain_effective_name). An explicit name is only needed to give a chain a
     more readable label than its net; it is NOT a grouping mechanism — do not
-    reuse the same name across several rules to "bundle" them for --only, use
+    reuse the same name across several chains to "bundle" them for --only, use
     a shared Cluster (anchor_cluster / spoke.cluster) for that instead. The
-    loader fatals if two rules resolve to the same effective name (see
+    loader fatals if two chains resolve to the same effective name (see
     config/loader.py) — add a distinguishing name: to one of them.
 
-    retired — whole‑rule switch (default False), same convention as
+    retired — whole‑chain switch (default False), same convention as
     ManualSpoke.retired/ClonePlacement.retired/ThermalViaArrayConfig.retired.
-    Always wins over --only/--cluster: a retired rule is dropped before any
+    Always wins over --only/--cluster: a retired chain is dropped before any
     CLI selection is applied, it cannot be resurrected by naming it explicitly
     on the command line — retired: true means "does not exist on the board
     right now", not "excluded from this particular run".
 
     skip — see ThermalViaArrayConfig.skip. Unlike retired, skip: true does
-    NOT prune this rule's via/tracks from the registry, it only skips
+    NOT prune this chain's via/tracks from the registry, it only skips
     (re)planning them this run — the inline, per-item equivalent of --only/
     --cluster, for narrowing work without retyping CLI flags each time (see
     drop_inactive_items in kicadstamp/apply_pipeline.py, added 2026-07-29).
 
     sheet — OPTIONAL own-identity sheet (2026-08-21, anchor dependency tree
     plan §1.0): mirrors ClonePlacement.sheet / CoordinatePlacement.sheet —
-    the same (Sheet, Cluster, Role) addressing convention completed for Rule.
-    It narrows the roles THIS rule produces (its spokes' cell component roles)
+    the same (Sheet, Cluster, Role) addressing convention completed for Chain.
+    It narrows the roles THIS chain produces (its spokes' cell component roles)
     for the STATIC anchor graph / dependency tree grouping, and is DISTINCT
     from anchor_sheet (which narrows only the OTHER, anchor component).
     Deliberately NOT consumed by the live spoke resolver (ComponentPool has
-    no sheet axis) — a rule's produced roles are matched on the board by
+    no sheet axis) — a chain's produced roles are matched on the board by
     net + role + cluster only, so this field is config bookkeeping + graph
     grouping, not live resolution.
     """
@@ -514,7 +516,7 @@ class Rule:
     anchor_sheet: str | None = None
     anchor_cluster: str | None = None
     # Alternative to anchor_ref/anchor_role — see ThermalViaArrayConfig.anchor_point
-    # for the mutual-exclusion/footprint-required rules, same here (Rule looks
+    # for the mutual-exclusion/footprint-required rules, same here (Chain looks
     # up spoke.pad on the resolved component, a bare coordinate isn't enough).
     anchor_point: str | None = None
     sheet: str | None = None
@@ -525,10 +527,16 @@ class Rule:
     comment: str | None = None
 
 
-def rule_effective_name(rule: "Rule") -> str:
+def chain_effective_name(chain: "Chain") -> str:
     """Single point for reading the identity used for --only: the explicit
-    name if set, otherwise the net (net is guaranteed present on any Rule)."""
-    return rule.name or rule.net
+    name if set, otherwise the net (net is guaranteed present on any Chain)."""
+    return chain.name or chain.net
+
+
+# Backward-compat aliases for the 2026-09-01 Rule -> Chain rename — any
+# existing external importer/script referencing the old names keeps working.
+Rule = Chain
+rule_effective_name = chain_effective_name
 
 
 @dataclass
@@ -561,7 +569,7 @@ class NetTrace:
     Cell.vias use (same local_to_absolute formula at apply time, just always
     with rotation_deg=0 — a net trace is a translation-following bundle, not
     a rotatable cell). Track/via net is ALWAYS written explicitly (the whole
-    record is about ONE net; there is no enclosing Rule to inherit a net
+    record is about ONE net; there is no enclosing Chain to inherit a net
     from, unlike Cell contents).
 
     retired/skip — the same convention as every other section (Rule/
@@ -810,7 +818,23 @@ class Config:
     cells: dict[str, Cell] = field(default_factory=dict)
     points: dict[str, Point] = field(default_factory=dict)
     thermal_via_arrays: list[ThermalViaArrayConfig] = field(default_factory=list)
-    rules: list[Rule] = field(default_factory=list)
+    # chains: — the rule-of-pads container (renamed from rules: 2026-09-01).
+    # `rules` below is a READ-ONLY property alias so every existing cfg.rules
+    # call site keeps working until it is migrated to cfg.chains (writes must
+    # go through cfg.chains; the loader's normalize_section_aliases() maps the
+    # raw `rules:` key on read).
+    chains: list[Chain] = field(default_factory=list)
+
+    @property
+    def rules(self) -> list[Chain]:
+        """Backward-compat alias for the 2026-09-01 rules: -> chains: rename."""
+        return self.chains
+
+    @rules.setter
+    def rules(self, value: list[Chain]) -> None:
+        """Read-write alias so existing `cfg.rules = [...]` / setattr call
+        sites keep working until migrated to cfg.chains."""
+        self.chains = value
     # entities: — NEW section (design_2026_08_30_entity_placement_grammar.md):
     # the "what" of a placement, WITHOUT position (position lives only in a
     # trees: node). Loaded by config/entries.py::_load_entity.
@@ -881,8 +905,8 @@ class Config:
     board_name: str | None = None
     @property
     def anchor_refs(self) -> set:
-        """All anchor refs in the config: spoke rules + thermal via arrays."""
-        out = {r.anchor_ref for r in self.rules if r.anchor_ref}
+        """All anchor refs in the config: spoke chains + thermal via arrays."""
+        out = {c.anchor_ref for c in self.chains if c.anchor_ref}
         out |= {tva.anchor_ref for tva in self.thermal_via_arrays
                 if not tva.retired and tva.anchor_ref}
         return out

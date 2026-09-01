@@ -130,10 +130,10 @@ def _visit_spoke(spoke: Dict[str, Any], location: str, ctx: _Ctx) -> None:
     ctx.rename_value(spoke, "cluster", f"{location}.cluster", "Cluster")
 
 
-def _visit_rule(rule: Dict[str, Any], location: str, ctx: _Ctx) -> None:
-    ctx.rename_value(rule, "anchor_role", f"{location}.anchor_role", "Role")
-    ctx.rename_value(rule, "anchor_cluster", f"{location}.anchor_cluster", "Cluster")
-    for i, spoke in enumerate(rule.get("spokes", []) or []):
+def _visit_chain(chain: Dict[str, Any], location: str, ctx: _Ctx) -> None:
+    ctx.rename_value(chain, "anchor_role", f"{location}.anchor_role", "Role")
+    ctx.rename_value(chain, "anchor_cluster", f"{location}.anchor_cluster", "Cluster")
+    for i, spoke in enumerate(chain.get("spokes", []) or []):
         if isinstance(spoke, dict):
             _visit_spoke(spoke, f"{location}.spokes[{i}]", ctx)
 
@@ -231,7 +231,7 @@ def _walk_file(data: Dict[str, Any], ctx: _Ctx) -> None:
             if isinstance(entry, dict):
                 visitor(entry, f"{section}[{i}]", ctx)
 
-    visit_list("rules", _visit_rule)
+    visit_list("chains", _visit_chain)
     visit_list("clone_placements", _visit_clone_placement)
     visit_list("coordinate_placements", _visit_coordinate_placement)
     visit_list("thermal_via_arrays", _visit_thermal_via_array)

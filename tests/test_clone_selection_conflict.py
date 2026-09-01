@@ -47,7 +47,7 @@ def _cfg(clones, cells=None):
     return Config(
         layer='B.Cu',
         cells=cells or {"t": Cell(name="t")},
-        rules=[], clone_placements=clones,
+        chains=[], clone_placements=clones,
     )
 
 

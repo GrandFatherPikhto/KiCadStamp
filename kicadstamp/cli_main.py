@@ -121,8 +121,8 @@ def main() -> int:
                                      "behaves as if nothing were selected."))
     apply_parser.add_argument("--collision-margin", type=float, default=0.2, help=_("Extra clearance for collision check in mm"))
     apply_parser.add_argument("--only", action="append", metavar="NAME",
-                              help=_("Process only rules/clone_placements/thermal_via_arrays/"
-                                     "coordinate_placements with this identity (rule name if set, else "
+                              help=_("Process only chains/clone_placements/thermal_via_arrays/"
+                                     "coordinate_placements with this identity (chain name if set, else "
                                      "its net; clone_placement/thermal_via_arrays entry name; "
                                      "coordinate_placements entry name, or its default cluster/role pair "
                                      "if name wasn't set). Repeatable and/or comma-separated "
@@ -210,9 +210,9 @@ def main() -> int:
     extract_parser.add_argument("--rule-net", action="append", metavar="LITERAL",
                                 help=_("Write this via/track net as null instead of its literal name "
                                        "(e.g. '+3V3') — at apply time a ManualSpoke-placed cell's via/"
-                                       "track with net: null inherits the enclosing Rule's own net "
+                                       "track with net: null inherits the enclosing Chain's own net "
                                        "(spoke_layout.py's 'via.net or rule_net'), so this makes the "
-                                       "cell reusable across Rules on different nets. Only needed for "
+                                       "cell reusable across Chains on different nets. Only needed for "
                                        "ManualSpoke-reused cells — net_from_role cells need none of this. "
                                        "Can be repeated. Fatal if the same net is also in --param/--net-template."))
     extract_parser.add_argument("--raw-selection", action="store_true",
@@ -259,7 +259,7 @@ def main() -> int:
                                            "nets keep their full '/Channel_0/...' form)"))
     extract_net_parser.add_argument("--anchor-role", required=True, metavar="ROLE",
                                     help=_("Role field of the anchor footprint (resolved over the whole "
-                                           "board, same search Rule/ClonePlacement use)"))
+                                           "board, same search Chain/ClonePlacement use)"))
     extract_net_parser.add_argument("--anchor-sheet", metavar="SHEET",
                                     help=_("Narrow the anchor_role search by sheet (needs schematic_dir "
                                            "in the target config at apply time; extract-net itself has no "

@@ -70,7 +70,7 @@ def _cfg(clones=None, points=None):
         layer='F.Cu',
         cells={"producer_tpl": producer_tpl, "consumer_tpl": consumer_tpl},
         points=points or {},
-        rules=[],
+        chains=[],
         clone_placements=clones or [],
     )
 

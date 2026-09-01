@@ -33,7 +33,7 @@ def _cfg(**overrides):
             ClonePlacement(cluster="CL_A", cell="c", xy=(0.0, 0.0)),
             ClonePlacement(cluster="CL_B", cell="c", xy=(1.0, 1.0)),
         ],
-        rules=[
+        chains=[
             Rule(net="GND", spokes=[]),
         ],
         coordinate_placements=[

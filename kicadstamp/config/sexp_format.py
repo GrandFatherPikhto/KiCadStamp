@@ -46,7 +46,7 @@ from .models import (
     Entity,
     ManualSpoke,
     NetTrace,
-    Rule,
+    Chain,
     TemplateComponentSlot,
     TemplateTrack,
     TemplateVia,
@@ -67,7 +67,7 @@ _TAG_BY_CLASS = {
     TemplateTrack: "track",
     CellPlacement: "clone_placement",
     Cell: "cell",
-    Rule: "rule",
+    Chain: "chain",
     ClonePlacement: "clone_placement",
     Entity: "entity",
     CoordinatePlacement: "coordinate_placement",
@@ -79,7 +79,7 @@ _TAG_TO_CLASS = {v: k for k, v in _TAG_BY_CLASS.items()}
 
 # list sections (concatenated) and their record class — mirrors _LIST_SECTIONS.
 _LIST_SECTION_CLASS = {
-    "rules": Rule,
+    "chains": Chain,
     "clone_placements": ClonePlacement,
     "thermal_via_arrays": ThermalViaArrayConfig,
     "coordinate_placements": CoordinatePlacement,
@@ -844,10 +844,16 @@ def _parse_include(node, path: str) -> list:
     return entries
 
 
-def sexp_to_dict(text: str) -> dict:
+def sexp_to_dict(text: str, apply_aliases: bool = True) -> dict:
     """Parse s-expr config text back into the dict that yaml.safe_load would
     have produced for the equivalent YAML. The top-level node MUST be
-    (kicadstamp-config ...)."""
+    (kicadstamp-config ...).
+
+    apply_aliases=True (default) maps a legacy `(rules ...)` section key to
+    `chains` at parse time (2026-09-01 Rule -> Chain rename) — every normal
+    reader wants this. The converter tools/convert_rules_to_chains.py passes
+    apply_aliases=False so it can still SEE a legacy `rules` key on disk and
+    rewrite the file to the canonical `(chains ...)` form."""
     try:
         root = sexpdata.loads(text)
     except Exception as e:  # sexpdata raises on unbalanced parens etc.
@@ -868,6 +874,14 @@ def sexp_to_dict(text: str) -> dict:
                 "s-expr: expected a (key ...) node at the top level",
                 [_("got {value!r}").format(value=child)])
         key = sval(child[0])
+        # Legacy section-key alias (2026-09-01, Rule -> Chain rename): an old
+        # profile written with `(rules ...)` must parse as the chains record
+        # class, not as an unknown free field. Same alias as
+        # config/aliases.py's normalize_section_aliases, applied at parse time
+        # so the emitted dict already carries the canonical `chains:` key.
+        # apply_aliases=False (the converter) keeps the raw `rules` key.
+        if apply_aliases:
+            key = "chains" if key == "rules" else key
         path = f"<{key}>"
         if key in _LIST_SECTION_CLASS:
             dc = _LIST_SECTION_CLASS[key]

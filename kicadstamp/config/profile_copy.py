@@ -51,7 +51,7 @@ _DICT_SECTIONS = ("cells", "points")
 # name: is absent (config/models.py's rule_effective_name), the rest are name-only.
 _LIST_IDENTITY = {
     "entities": lambda e: e.get("name"),
-    "rules": lambda e: e.get("name") or e.get("net"),
+    "chains": lambda e: e.get("name") or e.get("net"),
 }
 
 
@@ -261,13 +261,13 @@ def list_importable(source_path) -> list:
             out.append({"kind": "entity", "name": entry["name"],
                         "info": _("cell {cell}").format(cell=entry.get("cell", ""))})
 
-    for entry in (source.get("rules") or []):
+    for entry in (source.get("chains") or []):
         if not isinstance(entry, dict):
             continue
         ident = entry.get("name") or entry.get("net")
         if not ident:
             continue
-        out.append({"kind": "rule", "name": ident,
+        out.append({"kind": "chain", "name": ident,
                     "info": _("{n} spokes").format(n=len(entry.get("spokes") or []))})
     return out
 
@@ -307,12 +307,12 @@ def copy_items(source_path, items, target_path, target_root: Optional[Path] = No
     cells_data = source.get("cells") or {}
     points_data = source.get("points") or {}
     entities = source.get("entities") or []
-    rules = source.get("rules") or []
+    chains = source.get("chains") or []
 
     cells_to_write: dict = {}
     points_to_write: dict = {}
     entities_to_write: list = []
-    rules_to_write: list = []
+    chains_to_write: list = []
 
     for item in items:
         kind = item.get("kind")
@@ -333,16 +333,16 @@ def copy_items(source_path, items, target_path, target_root: Optional[Path] = No
                 for n in _collect_cell_closure(source, raw["cell"]):
                     cells_to_write.setdefault(n, cells_data[n])
             entities_to_write.append(raw)
-        elif kind == "rule":
-            raw = next((r for r in rules if isinstance(r, dict)
-                        and ((r.get("name") or r.get("net")) == name)), None)
+        elif kind == "chain":
+            raw = next((c for c in chains if isinstance(c, dict)
+                        and ((c.get("name") or c.get("net")) == name)), None)
             if raw is None:
                 raise ValidationError(format_fatal_error(
-                    _("rule {name!r} not found in import source").format(name=name),
-                    [_("known rules in the source: {names}").format(
-                        names=sorted((r.get("name") or r.get("net"))
-                                     for r in rules if isinstance(r, dict))
-                        if rules else _("(none)"))]))
+                    _("chain {name!r} not found in import source").format(name=name),
+                    [_("known chains in the source: {names}").format(
+                        names=sorted((c.get("name") or c.get("net"))
+                                     for c in chains if isinstance(c, dict))
+                        if chains else _("(none)"))]))
             for spoke in (raw.get("spokes") or []):
                 if isinstance(spoke, dict) and spoke.get("cell"):
                     for n in _collect_cell_closure(source, spoke["cell"]):
@@ -350,11 +350,11 @@ def copy_items(source_path, items, target_path, target_root: Optional[Path] = No
             if raw.get("anchor_point"):
                 for n in _collect_point_closure(source, raw["anchor_point"]):
                     points_to_write.setdefault(n, points_data[n])
-            rules_to_write.append(raw)
+            chains_to_write.append(raw)
         else:
             raise ValidationError(format_fatal_error(
                 _("unknown import kind {kind!r}").format(kind=kind),
-                [_("kind must be 'cell', 'entity' or 'rule'")]))
+                [_("kind must be 'cell', 'entity' or 'chain'")]))
 
     root = Path(target_root) if target_root is not None else Path(target_path)
     collisions = {
@@ -362,15 +362,15 @@ def copy_items(source_path, items, target_path, target_root: Optional[Path] = No
         "points": [n for n in points_to_write if _target_has_entry(root, "points", n)],
         "entities": [e["name"] for e in entities_to_write
                      if _target_has_entry(root, "entities", e["name"])],
-        "rules": [(r.get("name") or r.get("net")) for r in rules_to_write
-                  if _target_has_entry(root, "rules", r.get("name") or r.get("net"))],
+        "chains": [(c.get("name") or c.get("net")) for c in chains_to_write
+                   if _target_has_entry(root, "chains", c.get("name") or c.get("net"))],
     }
     if any(collisions.values()):
         if on_collision is None:
             # Default policy: fail loudly on the first collision, nothing written.
             section, name = next((s, names[0]) for s, names in collisions.items() if names)
             label = {"cells": _("cell"), "points": _("point"),
-                     "entities": _("entity"), "rules": _("rule")}[section]
+                     "entities": _("entity"), "chains": _("chain")}[section]
             _check_no_collision(root, section, [name], label)
         decision = on_collision(collisions)
         if decision is None:
@@ -384,8 +384,8 @@ def copy_items(source_path, items, target_path, target_root: Optional[Path] = No
                 points_to_write.pop(n, None)
             entities_to_write = [e for e in entities_to_write
                                  if e["name"] not in collisions["entities"]]
-            rules_to_write = [r for r in rules_to_write
-                              if (r.get("name") or r.get("net")) not in collisions["rules"]]
+            chains_to_write = [c for c in chains_to_write
+                               if (c.get("name") or c.get("net")) not in collisions["chains"]]
         elif decision != "overwrite":
             raise ValidationError(format_fatal_error(
                 _("invalid collision decision {decision!r}").format(decision=decision),
@@ -399,14 +399,14 @@ def copy_items(source_path, items, target_path, target_root: Optional[Path] = No
     _write_dict_section(target, "points", points_to_write)
     for entry in entities_to_write:
         _append_list_entry(target, "entities", entry)
-    for entry in rules_to_write:
-        _append_list_entry(target, "rules", entry)
+    for entry in chains_to_write:
+        _append_list_entry(target, "chains", entry)
 
     return {
         "cells": list(cells_to_write),
         "points": list(points_to_write),
         "entities": [e["name"] for e in entities_to_write],
-        "rules": [(r.get("name") or r.get("net")) for r in rules_to_write],
+        "chains": [(c.get("name") or c.get("net")) for c in chains_to_write],
     }
 
 
@@ -431,12 +431,16 @@ def copy_entity(source_path, entity_name, target_path, target_root: Optional[Pat
     return result["cells"]
 
 
-def copy_rule(source_path, rule_identity, target_path, target_root: Optional[Path] = None) -> list:
-    """Copy one Rule (matched by effective identity — name: or net:) plus its
+def copy_chain(source_path, chain_identity, target_path, target_root: Optional[Path] = None) -> list:
+    """Copy one Chain (matched by effective identity — name: or net:) plus its
     Cell closure (every spoke.cell, transitively) and its points closure
     (anchor_point, transitively), by value — a thin single-record wrapper over
     copy_items(). Electrical fields are copied verbatim. Returns the ordered
     list of copied dependency names (cells then points)."""
-    result = copy_items(source_path, [{"kind": "rule", "name": rule_identity}],
+    result = copy_items(source_path, [{"kind": "chain", "name": chain_identity}],
                         target_path, target_root)
     return result["cells"] + result["points"]
+
+
+# Backward-compat alias for the 2026-09-01 Rule -> Chain rename.
+copy_rule = copy_chain

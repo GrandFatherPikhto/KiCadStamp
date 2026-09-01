@@ -17,6 +17,7 @@ import logging
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
+from kicadstamp.config.aliases import normalize_section_aliases
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.exceptions import (
     ValidationError,
@@ -104,7 +105,10 @@ def _read_data(path: Path) -> dict:
             _raise_unsupported_config_format(p, suffix)
         try:
             with open(p, "r", encoding="utf-8") as f:
-                return parser(f) or {}
+                # normalize_section_aliases: legacy `rules:` key -> `chains:`
+                # (2026-09-01 rename) so the GUI write paths and their
+                # read-merge-write never create a duplicate rules:/chains: pair.
+                return normalize_section_aliases(parser(f) or {})
         except (json.JSONDecodeError, ValidationError) as e:
             raise OSError(_("{path} is not valid {kind}: {error}").format(
                 path=path, kind=kind, error=e)) from e
@@ -474,7 +478,7 @@ def disable_include(path: Path, target: Path) -> bool:
 # blindly in that case leaves the including file unloadable next time
 # anything reads it.
 INCLUDABLE_KEYS = frozenset(
-    {"rules", "clone_placements", "cells", "points", "extract_profiles", "clone_profiles",
+    {"chains", "clone_placements", "cells", "points", "extract_profiles", "clone_profiles",
      "trees", "include"})
 
 

@@ -19,7 +19,7 @@ MINIMAL_DATA = {"layer": "B.Cu", "rules": []}
 
 def _cfg(cells):
     return Config(layer='B.Cu', cells=cells,
-                  rules=[], clone_placements=[])
+                  chains=[], clone_placements=[])
 
 
 def _write(tmp_path, data) -> Path:

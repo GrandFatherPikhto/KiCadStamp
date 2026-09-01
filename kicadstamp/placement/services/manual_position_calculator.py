@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from ...domain.geometry import BoardLayer, Vector2, Angle
 
-from ...config import Config, Rule, rule_effective_name
+from ...config import Config, Chain, chain_effective_name
 from ...kicad.adapter import KiCadBoardAdapter
 from ...exceptions import ValidationError, format_fatal_error
 from ...geometry.spoke_layout import apply_spoke_geometry
@@ -24,31 +24,31 @@ logger = logging.getLogger(__name__)
 _ORIGIN = Vector2.from_xy(0, 0)
 
 
-def resolve_rule_anchor_ref(adapter: KiCadBoardAdapter, cfg: Config, rule: Rule,
-                            sheet_names=None) -> str | None:
+def resolve_chain_anchor_ref(adapter: KiCadBoardAdapter, cfg: Config, chain: Chain,
+                             sheet_names=None) -> str | None:
     """
-    Resolves rule's anchor to a concrete ref — see
+    Resolves chain's anchor to a concrete ref — see
     component_resolver.resolve_anchor_identity for the shared dispatch (used
     by dependency_order.py to build the producer/consumer graph before any
     planning happens).
     """
     _sn = sheet_names or {}
     return resolve_anchor_identity(
-        rule.anchor_ref, rule.anchor_role, rule.anchor_point,
+        chain.anchor_ref, chain.anchor_role, chain.anchor_point,
         lambda: resolve_footprint_by_role(
-            adapter, rule.anchor_role, rule.anchor_sheet, rule.anchor_cluster,
-            _sn, label=_("rule (net {net!r})").format(net=rule.net),
+            adapter, chain.anchor_role, chain.anchor_sheet, chain.anchor_cluster,
+            _sn, label=_("chain (net {net!r})").format(net=chain.net),
         ),
     )
 
 
-def rule_roles_needed(cfg: Config, rule: Rule) -> set[str]:
+def chain_roles_needed(cfg: Config, chain: Chain) -> set[str]:
     """The set of component Role fields across all non-retired spokes' cells —
     the SAME roles ComponentPool is built with. Shared with dependency_order.py
     (2026-08-25, P1-3 sibling dedup), so the produced-refs set computed there
     and the real geometry pass below can never drift."""
     roles_needed: set[str] = set()
-    for spoke in rule.spokes:
+    for spoke in chain.spokes:
         if spoke.retired:
             continue
         cell = cfg.cells.get(spoke.cell)
@@ -57,10 +57,10 @@ def rule_roles_needed(cfg: Config, rule: Rule) -> set[str]:
     return roles_needed
 
 
-def rule_clusters_needed(rule: Rule) -> set[str | None]:
+def chain_clusters_needed(chain: Chain) -> set[str | None]:
     """Unique clusters across non-retired spokes (``None`` included) — shared
     with dependency_order.py (2026-08-25)."""
-    return {spoke.cluster for spoke in rule.spokes if not spoke.retired}
+    return {spoke.cluster for spoke in chain.spokes if not spoke.retired}
 
 
 def consume_role_to_ref(pool: ComponentPool, cell, spoke_pad: str) -> dict[str, str]:
@@ -70,26 +70,33 @@ def consume_role_to_ref(pool: ComponentPool, cell, spoke_pad: str) -> dict[str, 
     return {slot.role: pool.pop(slot.role, spoke_pad) for slot in cell.components}
 
 
-def rule_anchor_ids(rule: Rule) -> set[str]:
+def chain_anchor_ids(chain: Chain) -> set[str]:
     """
-    Registry identity/identities of a rule — one 'pad:{pad}' per non-retired
+    Registry identity/identities of a chain — one 'pad:{pad}' per non-retired
     spoke (see compute_raw_positions below: anchor_id = f"pad:{spoke.pad}",
     passed to make_registry_key). Unlike ClonePlacement (one clone_anchor_id
-    per placement), a Rule is a GROUP of per-pad spokes, each with its own
+    per placement), a Chain is a GROUP of per-pad spokes, each with its own
     registry identity — so this returns a set, not a single id.
 
     Used for known_anchor_ids (kicadstamp_cli.py's cmd_apply, see
     clone_anchor_id/thermal_anchor_id for the same idea). Without this, a
-    rule excluded from a run (retired: true, --only, --cluster) has its
+    chain excluded from a run (retired: true, --only, --cluster) has its
     via/track registry entries pruned unconditionally —
     registry.reconcile()'s known_anchor_ids protection only recognises the
     'anchor:'/'role:'/'name:'/'thermal:' prefixes (ClonePlacement/
-    thermal_via_array), never 'pad:', so rule-based geometry was never
+    thermal_via_array), never 'pad:', so chain-based geometry was never
     actually protected by --only/--cluster at all (found 2026-07-29: "hiding
-    part of fpga.yaml's rules deletes its routing", true even without
+    part of fpga.yaml's chains deletes its routing", true even without
     touching retired at all — just being excluded by --only was enough).
     """
-    return {f"pad:{spoke.pad}" for spoke in rule.spokes if not spoke.retired}
+    return {f"pad:{spoke.pad}" for spoke in chain.spokes if not spoke.retired}
+
+
+# Backward-compat aliases for the 2026-09-01 Rule -> Chain rename.
+resolve_rule_anchor_ref = resolve_chain_anchor_ref
+rule_roles_needed = chain_roles_needed
+rule_clusters_needed = chain_clusters_needed
+rule_anchor_ids = chain_anchor_ids
 
 
 def reproject_pad_for_override(pad_pos: Vector2, fp, override: "PositionOverride") -> Vector2:
@@ -126,14 +133,14 @@ class ManualPositionCalculator:
 
     def compute_raw_positions(
         self,
-        rules: list[Rule],
+        chains: list[Chain],
         position_overrides: dict[str, "PositionOverride"] | None = None,
     ) -> tuple[list[PlacedComponentInfo], list[ViaCommand], list[TrackCommand]]:
         components_result: list[PlacedComponentInfo] = []
         vias_result: list[ViaCommand] = []
         tracks_result: list[TrackCommand] = []
 
-        for rule in rules:
+        for chain in chains:
             # --- PositionOverride (tree rigid-group redraw): REPLACES the
             # anchor entirely — the rule's anchor footprint is treated as
             # sitting at override.position/rotation_deg instead of resolving
@@ -146,53 +153,53 @@ class ManualPositionCalculator:
             # position_overrides was never forwarded here, so tree-redrawn
             # rule-nodes silently ignored the override and resolved through
             # their own anchor_role.
-            override = (position_overrides or {}).get(rule_effective_name(rule))
+            override = (position_overrides or {}).get(chain_effective_name(chain))
             # --- Resolve anchor (anchor_ref / anchor_role / anchor_point) ---
-            if rule.anchor_point is not None:
+            if chain.anchor_point is not None:
                 # Guaranteed already resolved — dependency_order.py orders
                 # this rule's Item after the point's. footprint is
                 # guaranteed not None — config/loader.py's
                 # _point_is_footprint_eligible already rejected any point
                 # (or chain) with a shift/xy at load time; this is a
                 # defensive check, not the primary guard.
-                resolved = self.resolved_points[rule.anchor_point]
+                resolved = self.resolved_points[chain.anchor_point]
                 if resolved.footprint is None:
                     raise ValidationError(format_fatal_error(
-                        _("rule (net {net!r}): anchor_point {point!r} has no footprint")
-                        .format(net=rule.net, point=rule.anchor_point),
+                        _("chain (net {net!r}): anchor_point {point!r} has no footprint")
+                        .format(net=chain.net, point=chain.anchor_point),
                         [_("this should have been caught at load time (config/loader.py) — "
                            "please report")]
                     ))
                 target_fp = resolved.footprint
             else:
                 target_fp = self._resolver.resolve_anchor_fp(
-                    rule.anchor_ref, rule.anchor_role,
-                    rule.anchor_sheet, rule.anchor_cluster,
-                    label=_("rule (net {net!r})").format(net=rule.net),
+                    chain.anchor_ref, chain.anchor_role,
+                    chain.anchor_sheet, chain.anchor_cluster,
+                    label=_("chain (net {net!r})").format(net=chain.net),
                 )
             anchor_ref_resolved = target_fp.ref
 
-            # --- Collect all roles needed for this rule ---
-            roles_needed = rule_roles_needed(self.cfg, rule)
+            # --- Collect all roles needed for this chain ---
+            roles_needed = chain_roles_needed(self.cfg, chain)
 
-            # Important: do not skip the rule entirely if roles_needed is empty —
+            # Important: do not skip the chain entirely if roles_needed is empty —
             # this only means "no component‑bearing slots in any spoke cell",
-            # not "the rule has no spokes at all". Spokes can carry spoke‑level
+            # not "the chain has no spokes at all". Spokes can carry spoke‑level
             # vias without any sub‑components (e.g. cap_pair_standard without
             # components in old configs) — they don't need a pool at all, but we
             # still need to create their geometry/vias. An empty roles_needed just
             # gives empty pools below — cheap, no special branch needed.
 
             # --- Collect clusters used in spokes (including None) ---
-            clusters_needed = rule_clusters_needed(rule)
+            clusters_needed = chain_clusters_needed(chain)
 
             # --- Build pools for each cluster ---
             pools_by_cluster = ComponentResolver.build_pools(
-                self.adapter, rule.net, roles_needed, clusters_needed,
+                self.adapter, chain.net, roles_needed, clusters_needed,
             )
 
             # --- Process each spoke ---
-            for spoke in rule.spokes:
+            for spoke in chain.spokes:
                 if spoke.retired:
                     continue
 
@@ -231,7 +238,7 @@ class ManualPositionCalculator:
                 # Consume pool by roles
                 role_to_ref = consume_role_to_ref(pool, cell, spoke.pad)
 
-                layout = apply_spoke_geometry(pad_position, spoke, cell, rule.net, role_to_ref)
+                layout = apply_spoke_geometry(pad_position, spoke, cell, chain.net, role_to_ref)
                 anchor_id = f"pad:{spoke.pad}"
 
                 # Spoke‑level vias
