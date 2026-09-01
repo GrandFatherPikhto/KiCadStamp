@@ -363,7 +363,8 @@ def test_on_redraw_dispatches_to_worker(main_window, tmp_path, monkeypatch):
 
     assert dock._active_op == "fake-controller"
     assert captured["connection"] is main_window.connection
-    assert captured["widgets"] == (dock.redraw_button, dock.save_button)
+    # 2026-09-01 (plan project_save_model): the per-dock Save button is gone.
+    assert captured["widgets"] == (dock.redraw_button,)
     payload = captured["args"][0]
     assert payload["name"] == "fpga_thermal"
     assert payload["path"] == target_file

@@ -16,15 +16,14 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import (QComboBox, QFormLayout, QLabel, QPushButton,
-                             QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QComboBox, QFormLayout, QLabel, QVBoxLayout,
+                             QWidget)
 
 from kicadstamp.config import entity_effective_name, load_config, load_entity
 from kicadstamp.config_writer import read_data, upsert_entity
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
 
-from ..ui_utils import busy
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       KeyValueTableEditor, set_combo_items)
 from .rename import find_list_entry_file
@@ -79,11 +78,12 @@ class ToolsDock(QWidget):
         layout.addWidget(QLabel(_("Refs (role -> ref):")))
         layout.addWidget(self.refs_table)
 
-        button_row = QVBoxLayout()
-        self.save_button = QPushButton(_("Save"))
-        self.save_button.clicked.connect(self._on_save)
-        button_row.addWidget(self.save_button)
-        layout.addLayout(button_row)
+        # 2026-09-01 (plan project_save_model): no per-dock Save button — a row
+        # added/updated/removed in any table auto-stages the whole Entity into
+        # the config working set (File > Save commits it to disk).
+        self.nets_table.changed.connect(self._do_save)
+        self.net_overrides_table.changed.connect(self._do_save)
+        self.refs_table.changed.connect(self._do_save)
 
         self._status_label = QLabel("")
         layout.addWidget(self._status_label)
@@ -149,8 +149,9 @@ class ToolsDock(QWidget):
     # ── Save ──────────────────────────────────────────────────────────────
 
     def _on_save(self) -> None:
-        with busy((self.save_button,)):
-            self._do_save()
+        """Kept for tests and any programmatic callers — the table editors'
+        `changed` signal auto-stages via _do_save directly."""
+        self._do_save()
 
     def _do_save(self) -> None:
         if not self._entity_data or self._entity_file is None:

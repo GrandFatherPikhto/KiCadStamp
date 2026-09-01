@@ -163,10 +163,19 @@ class ThermalViaArrayDock(QWidget):
         self.redraw_button = QPushButton(_("Redraw"))
         self.redraw_button.clicked.connect(self._on_redraw)
         button_row.addWidget(self.redraw_button)
-        self.save_button = QPushButton(_("Save"))
-        self.save_button.clicked.connect(self._on_save)
-        button_row.addWidget(self.save_button)
         layout.addLayout(button_row)
+
+        # 2026-09-01 (plan project_save_model): no per-dock Save button — a
+        # field's commit point (blur/Enter/combo pick/checkbox toggle)
+        # auto-stages the current array into the working set; File > Save
+        # commits it to disk. _loading guards programmatic form population.
+        self._loading = False
+        for w in self.findChildren(QLineEdit):
+            w.editingFinished.connect(self._autostage)
+        for w in self.findChildren(QComboBox):
+            w.currentIndexChanged.connect(self._autostage)
+        for w in self.findChildren(QCheckBox):
+            w.toggled.connect(self._autostage)
 
         layout.addStretch(1)
 
@@ -371,7 +380,7 @@ class ThermalViaArrayDock(QWidget):
 
     def _start_redraw_op(self, payload: Dict[str, Any]) -> None:
         self._active_op = start_long_op(
-            self._main_window.connection, (self.redraw_button, self.save_button),
+            self._main_window.connection, (self.redraw_button,),
             self._run_redraw, self._finish_redraw, self._on_redraw_failed, payload)
 
     def _on_redraw_failed(self, message: str) -> None:
@@ -386,7 +395,23 @@ class ThermalViaArrayDock(QWidget):
         result = self._run_redraw(payload)
         self._finish_redraw(result)
 
-    # ── Save ──────────────────────────────────────────────────────────────
+    # ── Save (auto-stage) ─────────────────────────────────────────────────
+
+    def _autostage(self) -> None:
+        """Field commit point -> stage the current array into the working set
+        (2026-09-01, plan project_save_model). Skips programmatic population
+        (_loading) and incomplete arrays (no name yet); _on_save validates
+        and reports — an invalid array is never staged. Wrapped in try/except:
+        an unhandled exception in a PyQt6 signal slot aborts the whole
+        process, so a staging bug must degrade to a log line, never a crash."""
+        try:
+            if self._loading or self._path is None:
+                return
+            if not self.name_edit.text().strip():
+                return
+            self._on_save()
+        except Exception:
+            logger.exception("thermal-via auto-stage failed")
 
     def _on_save(self) -> None:
         entry = self._build_entry_dict()
@@ -422,20 +447,24 @@ class ThermalViaArrayDock(QWidget):
         form empty rather than writing a raw stub straight to YAML, same
         reasoning as PlacerDock.new_placement(). The entry is written to the
         project root file (2026-08-21), so the passed path is ignored."""
-        self._path = self._root_path
-        self.name_edit.setText("")
-        self.comment_edit.setText("")
-        self.origin_widget.clear()
-        self.pad_edit.setText("")
-        self.net_edit.setCurrentText("GND")
-        self.rows_edit.setText("")
-        self.cols_edit.setText("")
-        self.margin_edit.setText("")
-        self.pattern_combo.setCurrentIndex(0)
-        self.drill_edit.setText("")
-        self.diameter_edit.setText("")
-        self.retired_checkbox.setChecked(False)
-        self.skip_checkbox.setChecked(False)
+        self._loading = True
+        try:
+            self._path = self._root_path
+            self.name_edit.setText("")
+            self.comment_edit.setText("")
+            self.origin_widget.clear()
+            self.pad_edit.setText("")
+            self.net_edit.setCurrentText("GND")
+            self.rows_edit.setText("")
+            self.cols_edit.setText("")
+            self.margin_edit.setText("")
+            self.pattern_combo.setCurrentIndex(0)
+            self.drill_edit.setText("")
+            self.diameter_edit.setText("")
+            self.retired_checkbox.setChecked(False)
+            self.skip_checkbox.setChecked(False)
+        finally:
+            self._loading = False
         self._show_message("")
 
     # ── Loading an already-saved entry back into the form ───────────────────
@@ -452,25 +481,29 @@ class ThermalViaArrayDock(QWidget):
             file_path = find_list_entry_file(self._root_path, "thermal_via_arrays", entry)
         if file_path is not None:
             self._path = file_path
-        self.name_edit.setText(str(entry.get("name", "")))
-        self.comment_edit.setText(str(entry.get("comment") or ""))
-        self.pad_edit.setText(str(entry.get("pad", "")))
-        self.net_edit.setCurrentText(str(entry.get("net", "GND")))
+        self._loading = True
+        try:
+            self.name_edit.setText(str(entry.get("name", "")))
+            self.comment_edit.setText(str(entry.get("comment") or ""))
+            self.pad_edit.setText(str(entry.get("pad", "")))
+            self.net_edit.setCurrentText(str(entry.get("net", "GND")))
 
-        if "anchor_point" in entry:
-            self.origin_widget.load(mode="point", point=str(entry["anchor_point"]))
-        else:
-            self.origin_widget.load(
-                mode="anchor", ref=str(entry.get("anchor_ref", "")),
-                role=str(entry.get("anchor_role", "")),
-                sheet=str(entry.get("anchor_sheet", "")),
-                cluster=str(entry.get("anchor_cluster", "")))
+            if "anchor_point" in entry:
+                self.origin_widget.load(mode="point", point=str(entry["anchor_point"]))
+            else:
+                self.origin_widget.load(
+                    mode="anchor", ref=str(entry.get("anchor_ref", "")),
+                    role=str(entry.get("anchor_role", "")),
+                    sheet=str(entry.get("anchor_sheet", "")),
+                    cluster=str(entry.get("anchor_cluster", "")))
 
-        self.rows_edit.setText(str(entry.get("rows", 4)))
-        self.cols_edit.setText(str(entry.get("cols", 4)))
-        self.margin_edit.setText(str(entry.get("margin_mm", 0.5)))
-        self.pattern_combo.setCurrentText(entry.get("pattern", "grid"))
-        self.drill_edit.setText(str(entry.get("drill_mm", 0.3)))
-        self.diameter_edit.setText(str(entry.get("diameter_mm", 0.5)))
-        self.retired_checkbox.setChecked(bool(entry.get("retired", False)))
-        self.skip_checkbox.setChecked(bool(entry.get("skip", False)))
+            self.rows_edit.setText(str(entry.get("rows", 4)))
+            self.cols_edit.setText(str(entry.get("cols", 4)))
+            self.margin_edit.setText(str(entry.get("margin_mm", 0.5)))
+            self.pattern_combo.setCurrentText(entry.get("pattern", "grid"))
+            self.drill_edit.setText(str(entry.get("drill_mm", 0.3)))
+            self.diameter_edit.setText(str(entry.get("diameter_mm", 0.5)))
+            self.retired_checkbox.setChecked(bool(entry.get("retired", False)))
+            self.skip_checkbox.setChecked(bool(entry.get("skip", False)))
+        finally:
+            self._loading = False

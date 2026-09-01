@@ -202,11 +202,19 @@ class CellDock(QWidget):
         self._build_tracks_tab()
         self._build_nested_tab()
 
-        button_row = QHBoxLayout()
-        self.save_button = QPushButton(_("Save"))
-        self.save_button.clicked.connect(self._on_save)
-        button_row.addWidget(self.save_button)
-        layout.addLayout(button_row)
+        # 2026-09-01 (plan project_save_model): no per-dock Save button — a
+        # cell-level field's commit point (name/comment blur, layer/anchor
+        # pick) or any row Add/Update/Remove action auto-stages the whole cell
+        # into the working set; File > Save commits to disk. _loading guards
+        # programmatic form population (new_cell/load_entry).
+        self._loading = False
+        self.name_edit.editingFinished.connect(self._autostage)
+        self.comment_edit.editingFinished.connect(self._autostage)
+        self.layer_combo.currentIndexChanged.connect(self._autostage)
+        self.anchor_mode_combo.currentIndexChanged.connect(self._autostage)
+        self.anchor_role_combo.currentIndexChanged.connect(self._autostage)
+        for edit in (self.anchor_x_edit, self.anchor_y_edit, self.anchor_pad_edit):
+            edit.editingFinished.connect(self._autostage)
 
         self._on_anchor_mode_changed()
         self._refresh_all_tables()
@@ -750,7 +758,7 @@ class CellDock(QWidget):
         self._components.append(entry)
         self._refresh_components_table()
         self.components_table.selectRow(len(self._components) - 1)
-        self._show_message(_("Component added — remember to Save the cell."), _SUCCESS_STYLE)
+        self._autostage()
 
     def _on_update_component(self) -> None:
         if self._selected_component is None:
@@ -762,7 +770,7 @@ class CellDock(QWidget):
         self._components[self._selected_component] = entry
         self._refresh_components_table()
         self.components_table.selectRow(self._selected_component)
-        self._show_message(_("Component updated — remember to Save the cell."), _SUCCESS_STYLE)
+        self._autostage()
 
     def _on_remove_component(self) -> None:
         if self._selected_component is None:
@@ -772,7 +780,7 @@ class CellDock(QWidget):
         self._selected_component = None
         self._refresh_components_table()
         self._clear_component_editor()
-        self._show_message(_("Component removed — remember to Save the cell."), _SUCCESS_STYLE)
+        self._autostage()
 
     # ── Vias tab ──────────────────────────────────────────────────────────
 
@@ -860,7 +868,7 @@ class CellDock(QWidget):
         self._vias.append(entry)
         self._refresh_vias_table()
         self.vias_table.selectRow(len(self._vias) - 1)
-        self._show_message(_("Via added — remember to Save the cell."), _SUCCESS_STYLE)
+        self._autostage()
 
     def _on_update_via(self) -> None:
         if self._selected_via is None:
@@ -872,7 +880,7 @@ class CellDock(QWidget):
         self._vias[self._selected_via] = entry
         self._refresh_vias_table()
         self.vias_table.selectRow(self._selected_via)
-        self._show_message(_("Via updated — remember to Save the cell."), _SUCCESS_STYLE)
+        self._autostage()
 
     def _on_remove_via(self) -> None:
         if self._selected_via is None:
@@ -882,7 +890,7 @@ class CellDock(QWidget):
         self._selected_via = None
         self._refresh_vias_table()
         self._clear_via_editor()
-        self._show_message(_("Via removed — remember to Save the cell."), _SUCCESS_STYLE)
+        self._autostage()
 
     # ── Tracks tab ────────────────────────────────────────────────────────
 
@@ -982,7 +990,7 @@ class CellDock(QWidget):
         self._tracks.append(entry)
         self._refresh_tracks_table()
         self.tracks_table.selectRow(len(self._tracks) - 1)
-        self._show_message(_("Track added — remember to Save the cell."), _SUCCESS_STYLE)
+        self._autostage()
 
     def _on_update_track(self) -> None:
         if self._selected_track is None:
@@ -994,7 +1002,7 @@ class CellDock(QWidget):
         self._tracks[self._selected_track] = entry
         self._refresh_tracks_table()
         self.tracks_table.selectRow(self._selected_track)
-        self._show_message(_("Track updated — remember to Save the cell."), _SUCCESS_STYLE)
+        self._autostage()
 
     def _on_remove_track(self) -> None:
         if self._selected_track is None:
@@ -1004,7 +1012,7 @@ class CellDock(QWidget):
         self._selected_track = None
         self._refresh_tracks_table()
         self._clear_track_editor()
-        self._show_message(_("Track removed — remember to Save the cell."), _SUCCESS_STYLE)
+        self._autostage()
 
     # ── Nested cells tab ──────────────────────────────────────────────────
 
@@ -1101,7 +1109,7 @@ class CellDock(QWidget):
         self._nested.append(entry)
         self._refresh_nested_table()
         self.nested_table.selectRow(len(self._nested) - 1)
-        self._show_message(_("Nested cell added — remember to Save the cell."), _SUCCESS_STYLE)
+        self._autostage()
 
     def _on_update_nested(self) -> None:
         if self._selected_nested is None:
@@ -1113,7 +1121,7 @@ class CellDock(QWidget):
         self._nested[self._selected_nested] = entry
         self._refresh_nested_table()
         self.nested_table.selectRow(self._selected_nested)
-        self._show_message(_("Nested cell updated — remember to Save the cell."), _SUCCESS_STYLE)
+        self._autostage()
 
     def _on_remove_nested(self) -> None:
         if self._selected_nested is None:
@@ -1123,7 +1131,7 @@ class CellDock(QWidget):
         self._selected_nested = None
         self._refresh_nested_table()
         self._clear_nested_editor()
-        self._show_message(_("Nested cell removed — remember to Save the cell."), _SUCCESS_STYLE)
+        self._autostage()
 
     # ── Building the Cell entry dict (Save) ──────────────────────────────
 
@@ -1173,7 +1181,23 @@ class CellDock(QWidget):
             return None
         return name, entry
 
-    # ── Save ──────────────────────────────────────────────────────────────
+    # ── Save (auto-stage) ─────────────────────────────────────────────────
+
+    def _autostage(self) -> None:
+        """Cell commit point -> stage the whole cell into the working set
+        (2026-09-01, plan project_save_model). Skips programmatic population
+        (_loading) and unnamed cells (no name yet); _on_save validates and
+        reports — an invalid cell is never staged. Wrapped in try/except: an
+        unhandled exception in a PyQt6 signal slot aborts the whole process,
+        so a staging bug must degrade to a log line, never a crash."""
+        try:
+            if self._loading or self._path is None:
+                return
+            if not self.name_edit.text().strip():
+                return
+            self._on_save()
+        except Exception:
+            logger.exception("cell auto-stage failed")
 
     def _on_save(self) -> None:
         built = self._build_cell_dict()
@@ -1208,29 +1232,33 @@ class CellDock(QWidget):
         ThermalViaArrayDock.new_thermal_via()/PointsDock.new_point()/
         RuleDock.new_rule(). The entry is written to the project root file
         (2026-08-21), so the passed path is ignored."""
-        self._path = self._root_path
-        self.name_edit.setText("")
-        self.comment_edit.setText("")
-        self.layer_combo.setCurrentIndex(0)
-        self.anchor_mode_combo.setCurrentIndex(0)
-        self.anchor_x_edit.setText("")
-        self.anchor_y_edit.setText("")
-        self.anchor_role_combo.setCurrentText("")
-        self.anchor_pad_edit.setText("")
-        self._on_anchor_mode_changed()
-        self._components = []
-        self._vias = []
-        self._tracks = []
-        self._nested = []
-        self._selected_component = None
-        self._selected_via = None
-        self._selected_track = None
-        self._selected_nested = None
-        self._refresh_all_tables()
-        self._clear_component_editor()
-        self._clear_via_editor()
-        self._clear_track_editor()
-        self._clear_nested_editor()
+        self._loading = True
+        try:
+            self._path = self._root_path
+            self.name_edit.setText("")
+            self.comment_edit.setText("")
+            self.layer_combo.setCurrentIndex(0)
+            self.anchor_mode_combo.setCurrentIndex(0)
+            self.anchor_x_edit.setText("")
+            self.anchor_y_edit.setText("")
+            self.anchor_role_combo.setCurrentText("")
+            self.anchor_pad_edit.setText("")
+            self._on_anchor_mode_changed()
+            self._components = []
+            self._vias = []
+            self._tracks = []
+            self._nested = []
+            self._selected_component = None
+            self._selected_via = None
+            self._selected_track = None
+            self._selected_nested = None
+            self._refresh_all_tables()
+            self._clear_component_editor()
+            self._clear_via_editor()
+            self._clear_track_editor()
+            self._clear_nested_editor()
+        finally:
+            self._loading = False
         self._show_message("")
 
     # ── Loading an already-saved entry back into the form ───────────────
@@ -1255,37 +1283,41 @@ class CellDock(QWidget):
         entry = {}
         if self._root_path is not None:
             entry = collect_section_entries(self._root_path, "cells").get(name) or {}
-        self.name_edit.setText(name)
-        self.comment_edit.setText(str(entry.get("comment") or ""))
-        self.layer_combo.setCurrentIndex(self._findable(self.layer_combo, entry.get("layer", "F.Cu")))
+        self._loading = True
+        try:
+            self.name_edit.setText(name)
+            self.comment_edit.setText(str(entry.get("comment") or ""))
+            self.layer_combo.setCurrentIndex(self._findable(self.layer_combo, entry.get("layer", "F.Cu")))
 
-        if "anchor_xy" in entry:
-            self.anchor_mode_combo.setCurrentIndex(1)
-            xy = entry["anchor_xy"] or [0, 0]
-            self.anchor_x_edit.setText(str(xy[0]))
-            self.anchor_y_edit.setText(str(xy[1]))
-        elif "anchor_role" in entry:
-            self.anchor_mode_combo.setCurrentIndex(2)
-            self.anchor_role_combo.setCurrentText(str(entry["anchor_role"]))
-            self.anchor_pad_edit.setText(str(entry.get("anchor_pad", "")))
-        else:
-            self.anchor_mode_combo.setCurrentIndex(0)
-            self.anchor_x_edit.setText("")
-            self.anchor_y_edit.setText("")
-            self.anchor_role_combo.setCurrentText("")
-            self.anchor_pad_edit.setText("")
-        self._on_anchor_mode_changed()
+            if "anchor_xy" in entry:
+                self.anchor_mode_combo.setCurrentIndex(1)
+                xy = entry["anchor_xy"] or [0, 0]
+                self.anchor_x_edit.setText(str(xy[0]))
+                self.anchor_y_edit.setText(str(xy[1]))
+            elif "anchor_role" in entry:
+                self.anchor_mode_combo.setCurrentIndex(2)
+                self.anchor_role_combo.setCurrentText(str(entry["anchor_role"]))
+                self.anchor_pad_edit.setText(str(entry.get("anchor_pad", "")))
+            else:
+                self.anchor_mode_combo.setCurrentIndex(0)
+                self.anchor_x_edit.setText("")
+                self.anchor_y_edit.setText("")
+                self.anchor_role_combo.setCurrentText("")
+                self.anchor_pad_edit.setText("")
+            self._on_anchor_mode_changed()
 
-        self._components = [dict(c) for c in (entry.get("components") or [])]
-        self._vias = [dict(v) for v in (entry.get("vias") or [])]
-        self._tracks = [dict(t) for t in (entry.get("tracks") or [])]
-        self._nested = [dict(n) for n in (entry.get("clone_placements") or [])]
-        self._selected_component = None
-        self._selected_via = None
-        self._selected_track = None
-        self._selected_nested = None
-        self._refresh_all_tables()
-        self._clear_component_editor()
-        self._clear_via_editor()
-        self._clear_track_editor()
-        self._clear_nested_editor()
+            self._components = [dict(c) for c in (entry.get("components") or [])]
+            self._vias = [dict(v) for v in (entry.get("vias") or [])]
+            self._tracks = [dict(t) for t in (entry.get("tracks") or [])]
+            self._nested = [dict(n) for n in (entry.get("clone_placements") or [])]
+            self._selected_component = None
+            self._selected_via = None
+            self._selected_track = None
+            self._selected_nested = None
+            self._refresh_all_tables()
+            self._clear_component_editor()
+            self._clear_via_editor()
+            self._clear_track_editor()
+            self._clear_nested_editor()
+        finally:
+            self._loading = False

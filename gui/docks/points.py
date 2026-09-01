@@ -79,7 +79,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from kipy.errors import ApiError
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import (QFormLayout, QHBoxLayout, QLineEdit,
+from PyQt6.QtWidgets import (QComboBox, QFormLayout, QHBoxLayout, QLineEdit,
                               QPushButton, QVBoxLayout, QWidget)
 
 from kicadstamp.config import load_point
@@ -152,10 +152,17 @@ class PointsDock(QWidget):
         self.resolve_button = QPushButton(_("Resolve"))
         self.resolve_button.clicked.connect(self._on_resolve)
         button_row.addWidget(self.resolve_button)
-        self.save_button = QPushButton(_("Save"))
-        self.save_button.clicked.connect(self._on_save)
-        button_row.addWidget(self.save_button)
         layout.addLayout(button_row)
+
+        # 2026-09-01 (plan project_save_model): no per-dock Save button — a
+        # field's commit point (blur/Enter for a line edit, a combo pick)
+        # auto-stages the current Point into the working set; File > Save
+        # commits it to disk. _loading guards programmatic form population.
+        self._loading = False
+        for w in self.findChildren(QLineEdit):
+            w.editingFinished.connect(self._autostage)
+        for w in self.findChildren(QComboBox):
+            w.currentIndexChanged.connect(self._autostage)
 
         layout.addStretch(1)
 
@@ -329,7 +336,7 @@ class PointsDock(QWidget):
 
     def _start_resolve_op(self, payload: Dict[str, Any]) -> None:
         self._active_op = start_long_op(
-            self._main_window.connection, (self.resolve_button, self.save_button),
+            self._main_window.connection, (self.resolve_button,),
             self._run_resolve, self._finish_resolve, self._on_resolve_failed, payload)
 
     def _on_resolve_failed(self, message: str) -> None:
@@ -344,7 +351,23 @@ class PointsDock(QWidget):
         result = self._run_resolve(payload)
         self._finish_resolve(result)
 
-    # ── Save ──────────────────────────────────────────────────────────────
+    # ── Save (auto-stage) ─────────────────────────────────────────────────
+
+    def _autostage(self) -> None:
+        """Field commit point -> stage the current Point into the working set
+        (2026-09-01, plan project_save_model). Skips programmatic population
+        (_loading) and incomplete points (no name yet); _on_save validates
+        and reports — an invalid point is never staged. Wrapped in try/except:
+        an unhandled exception in a PyQt6 signal slot aborts the whole
+        process, so a staging bug must degrade to a log line, never a crash."""
+        try:
+            if self._loading or self._path is None:
+                return
+            if not self.name_edit.text().strip():
+                return
+            self._on_save()
+        except Exception:
+            logger.exception("points auto-stage failed")
 
     def _on_save(self) -> None:
         built = self._build_entry()
@@ -383,9 +406,13 @@ class PointsDock(QWidget):
         reasoning as PlacerDock.new_placement()/ThermalViaArrayDock.
         new_thermal_via(). The entry is written to the project root file
         (2026-08-21), so the passed path is ignored."""
-        self._path = self._root_path
-        self.name_edit.setText("")
-        self.origin_widget.clear()
+        self._loading = True
+        try:
+            self._path = self._root_path
+            self.name_edit.setText("")
+            self.origin_widget.clear()
+        finally:
+            self._loading = False
         self._show_message("")
 
     # ── Loading an already-saved entry back into the form ───────────────────
@@ -406,26 +433,30 @@ class PointsDock(QWidget):
         entry = {}
         if self._root_path is not None:
             entry = collect_section_entries(self._root_path, "points").get(name) or {}
-        self.name_edit.setText(name)
-        self.comment_edit.setText(str(entry.get("comment") or ""))
+        self._loading = True
+        try:
+            self.name_edit.setText(name)
+            self.comment_edit.setText(str(entry.get("comment") or ""))
 
-        shift_x = entry.get("shift_x_mm") or None
-        shift_y = entry.get("shift_y_mm") or None
-        if "anchor_point" in entry:
-            self.origin_widget.load(mode="point", point=str(entry["anchor_point"]),
-                                    shift_x=shift_x, shift_y=shift_y)
-        elif "anchor_origin" in entry:
-            self.origin_widget.load(mode="board_origin", kind=entry["anchor_origin"],
-                                    shift_x=shift_x, shift_y=shift_y)
-        elif "xy" in entry:
-            xy = entry["xy"] or [0, 0]
-            self.origin_widget.load(mode="xy", x=xy[0], y=xy[1],
-                                    shift_x=shift_x, shift_y=shift_y)
-        else:
-            self.origin_widget.load(
-                mode="anchor", ref=str(entry.get("anchor_ref", "")),
-                role=str(entry.get("anchor_role", "")),
-                sheet=str(entry.get("anchor_sheet", "")),
-                pad=str(entry.get("anchor_pad", "")),
-                cluster=str(entry.get("anchor_cluster", "")),
-                shift_x=shift_x, shift_y=shift_y)
+            shift_x = entry.get("shift_x_mm") or None
+            shift_y = entry.get("shift_y_mm") or None
+            if "anchor_point" in entry:
+                self.origin_widget.load(mode="point", point=str(entry["anchor_point"]),
+                                        shift_x=shift_x, shift_y=shift_y)
+            elif "anchor_origin" in entry:
+                self.origin_widget.load(mode="board_origin", kind=entry["anchor_origin"],
+                                        shift_x=shift_x, shift_y=shift_y)
+            elif "xy" in entry:
+                xy = entry["xy"] or [0, 0]
+                self.origin_widget.load(mode="xy", x=xy[0], y=xy[1],
+                                        shift_x=shift_x, shift_y=shift_y)
+            else:
+                self.origin_widget.load(
+                    mode="anchor", ref=str(entry.get("anchor_ref", "")),
+                    role=str(entry.get("anchor_role", "")),
+                    sheet=str(entry.get("anchor_sheet", "")),
+                    pad=str(entry.get("anchor_pad", "")),
+                    cluster=str(entry.get("anchor_cluster", "")),
+                    shift_x=shift_x, shift_y=shift_y)
+        finally:
+            self._loading = False

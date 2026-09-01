@@ -108,12 +108,9 @@ class NetTraceDock(QWidget):
         buttons = QHBoxLayout()
         self.extract_button = QPushButton(_("Extract"))
         self.extract_button.clicked.connect(self._on_extract)
-        self.save_button = QPushButton(_("Save"))
-        self.save_button.clicked.connect(self._on_save)
         self.redraw_button = QPushButton(_("Redraw"))
         self.redraw_button.clicked.connect(self._on_redraw)
         buttons.addWidget(self.extract_button)
-        buttons.addWidget(self.save_button)
         buttons.addWidget(self.redraw_button)
         layout.addLayout(buttons)
 
@@ -123,6 +120,18 @@ class NetTraceDock(QWidget):
               "not by hand."))
         self.geometry_note.setWordWrap(True)
         layout.addWidget(self.geometry_note)
+
+        # 2026-09-01 (plan project_save_model): no per-dock Save button — a
+        # field's commit point (blur/Enter/combo pick/checkbox toggle) stages
+        # the record's controllable fields into the working set; File > Save
+        # commits to disk. _loading guards programmatic form population.
+        self._loading = False
+        for w in self.findChildren(QLineEdit):
+            w.editingFinished.connect(self._autostage)
+        for w in self.findChildren(QComboBox):
+            w.currentIndexChanged.connect(self._autostage)
+        for w in self.findChildren(QCheckBox):
+            w.toggled.connect(self._autostage)
 
         layout.addStretch(1)
 
@@ -226,15 +235,19 @@ class NetTraceDock(QWidget):
             file_path = find_list_entry_file(self._root_path, "net_traces", entry)
         if file_path is not None:
             self._path = file_path
-        self.net_edit.setCurrentText(str(entry.get("net", "")))
-        self.comment_edit.setText(str(entry.get("comment") or ""))
-        self.anchor_widget.load(
-            mode="anchor", role=str(entry.get("anchor_role", "")),
-            sheet=str(entry.get("anchor_sheet", "")),
-            pad=str(entry.get("anchor_pad", "")),
-            cluster=str(entry.get("anchor_cluster", "")))
-        self.retired_checkbox.setChecked(bool(entry.get("retired", False)))
-        self.skip_checkbox.setChecked(bool(entry.get("skip", False)))
+        self._loading = True
+        try:
+            self.net_edit.setCurrentText(str(entry.get("net", "")))
+            self.comment_edit.setText(str(entry.get("comment") or ""))
+            self.anchor_widget.load(
+                mode="anchor", role=str(entry.get("anchor_role", "")),
+                sheet=str(entry.get("anchor_sheet", "")),
+                pad=str(entry.get("anchor_pad", "")),
+                cluster=str(entry.get("anchor_cluster", "")))
+            self.retired_checkbox.setChecked(bool(entry.get("retired", False)))
+            self.skip_checkbox.setChecked(bool(entry.get("skip", False)))
+        finally:
+            self._loading = False
 
     # ── Extract ────────────────────────────────────────────────────────────
 
@@ -265,7 +278,7 @@ class NetTraceDock(QWidget):
         }
         self._active_op = start_long_op(
             self._connection,
-            (self.extract_button, self.save_button, self.redraw_button),
+            (self.extract_button, self.redraw_button),
             self._run_extract, self._finish_extract, self._on_op_failed, payload)
 
     def _resolve_sheet_names_for_extract(self, path: Optional[Path]) -> Dict[str, str]:
@@ -340,7 +353,27 @@ class NetTraceDock(QWidget):
     def _on_op_failed(self, message: str) -> None:
         self._show_message(_("Operation failed: {error}").format(error=message), _ERROR_STYLE)
 
-    # ── Save ───────────────────────────────────────────────────────────────
+    # ── Save (auto-stage) ─────────────────────────────────────────────────
+
+    def _autostage(self) -> None:
+        """Field commit point -> stage the record's controllable fields into
+        the working set (2026-09-01, plan project_save_model). Skips
+        programmatic population (_loading) and incomplete records (no net or
+        no anchor role yet — _build_entry_dict would just report it on every
+        blur); _on_save validates and reports — invalid records are never
+        staged. Wrapped in try/except: an unhandled exception in a PyQt6
+        signal slot aborts the whole process, so a staging bug must degrade
+        to a log line, never a crash."""
+        try:
+            if self._loading or self._path is None:
+                return
+            if not self.net_edit.currentText().strip():
+                return
+            if not self.anchor_widget.anchor_role_edit.currentText().strip():
+                return
+            self._on_save()
+        except Exception:
+            logger.exception("net-trace auto-stage failed")
 
     def _on_save(self) -> None:
         """Save the form's controllable fields (net/anchor/retired/skip) into
@@ -397,7 +430,7 @@ class NetTraceDock(QWidget):
             return
         self._active_op = start_long_op(
             self._connection,
-            (self.extract_button, self.save_button, self.redraw_button),
+            (self.extract_button, self.redraw_button),
             self._run_redraw, self._finish_redraw, self._on_op_failed, payload)
 
     def _collect_redraw_inputs(self) -> Optional[Dict[str, Any]]:

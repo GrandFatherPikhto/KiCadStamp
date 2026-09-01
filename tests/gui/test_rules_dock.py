@@ -942,7 +942,8 @@ def test_on_redraw_rule_dispatches_to_worker(main_window, tmp_path, monkeypatch)
 
     assert dock._active_op == "fake-controller"
     assert captured["connection"] is main_window.connection
-    assert captured["widgets"] == (dock.redraw_rule_button, dock.redraw_spoke_button, dock.save_button)
+    # 2026-09-01 (plan project_save_model): the per-dock Save button is gone.
+    assert captured["widgets"] == (dock.redraw_rule_button, dock.redraw_spoke_button)
 
 
 # ── Target-file combo (2026-08-13, plan tree_to_combo_file_pickers) ──────

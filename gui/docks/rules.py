@@ -392,10 +392,25 @@ class RuleDock(QWidget):
         self.bulk_set_cell_button = QPushButton(_("Bulk set Cell for net…"))
         self.bulk_set_cell_button.clicked.connect(self._on_bulk_set_cell)
         button_row.addWidget(self.bulk_set_cell_button)
-        self.save_button = QPushButton(_("Save"))
-        self.save_button.clicked.connect(self._on_save)
-        button_row.addWidget(self.save_button)
         layout.addLayout(button_row)
+
+        # 2026-09-01 (plan project_save_model): no per-dock Save button — the
+        # rule's OWN Net/Name/Origin/retired/skip fields auto-stage on their
+        # commit points (spokes already autosave via _autosave_current_spoke);
+        # File > Save commits the working set. _loading guards population.
+        self._loading = False
+        self.net_edit.activated.connect(self._autostage)
+        net_line = self.net_edit.lineEdit()
+        if net_line is not None:
+            net_line.editingFinished.connect(self._autostage)
+        self.name_edit.editingFinished.connect(self._autostage)
+        self.comment_edit.editingFinished.connect(self._autostage)
+        self.retired_checkbox.toggled.connect(self._autostage)
+        self.skip_checkbox.toggled.connect(self._autostage)
+        for w in self.origin_widget.findChildren(QLineEdit):
+            w.editingFinished.connect(self._autostage)
+        for w in self.origin_widget.findChildren(QComboBox):
+            w.currentIndexChanged.connect(self._autostage)
 
         self._refresh_table()
 
@@ -877,7 +892,7 @@ class RuleDock(QWidget):
     def _start_redraw_op(self, payload: Dict[str, Any]) -> None:
         self._active_op = start_long_op(
             self._main_window.connection,
-            (self.redraw_rule_button, self.redraw_spoke_button, self.save_button),
+            (self.redraw_rule_button, self.redraw_spoke_button),
             self._run_redraw, self._finish_redraw, self._on_redraw_failed, payload)
 
     def _on_redraw_failed(self, message: str) -> None:
@@ -901,13 +916,29 @@ class RuleDock(QWidget):
         result = self._run_redraw(payload)
         self._finish_redraw(result)
 
-    # ── Save ──────────────────────────────────────────────────────────────
+    # ── Save (auto-stage) ─────────────────────────────────────────────────
+
+    def _autostage(self) -> None:
+        """Rule-field commit point -> persist the whole rule (2026-09-01, plan
+        project_save_model) — this is the old Save button's Net/Origin job;
+        spoke edits autosave separately. Skips population (_loading) and
+        incomplete rules (no net yet). Wrapped in try/except: an unhandled
+        exception in a PyQt6 signal slot aborts the whole process, so a
+        staging bug must degrade to a log line, never a crash."""
+        try:
+            if self._loading or self._path is None:
+                return
+            if not self.net_edit.currentText().strip():
+                return
+            self._persist_rule("", notify_tree=True)
+        except Exception:
+            logger.exception("rules auto-stage failed")
 
     def _on_save(self) -> None:
-        """The Save button's sole remaining job since Stage 2 (2026-08-20):
-        the rule's OWN Net/Origin/retired/skip fields — spoke edits autosave
-        themselves (see _persist_rule/_autosave_current_spoke). Always
-        notifies the tree, since a name/net change alters what it shows."""
+        """Kept for tests and programmatic callers — the rule's OWN
+        Net/Origin/retired/skip fields (spoke edits autosave themselves, see
+        _persist_rule/_autosave_current_spoke). Always notifies the tree,
+        since a name/net change alters what it shows."""
         self._persist_rule("", notify_tree=True)
 
     # ── Bulk-set Cell for net (Stage 3, 2026-08-20) ─────────────────────────
@@ -1000,17 +1031,21 @@ class RuleDock(QWidget):
         reasoning as PlacerDock.new_placement()/ThermalViaArrayDock.
         new_thermal_via()/PointsDock.new_point(). The entry is written to the
         project root file (2026-08-21), so the passed path is ignored."""
-        self._path = self._root_path
-        self.net_edit.setCurrentText("")
-        self.name_edit.setText("")
-        self.comment_edit.setText("")
-        self.origin_widget.clear()
-        self.retired_checkbox.setChecked(False)
-        self.skip_checkbox.setChecked(False)
-        self._spokes = []
-        self._selected_index = None
-        self._refresh_table()
-        self._clear_spoke_editor()
+        self._loading = True
+        try:
+            self._path = self._root_path
+            self.net_edit.setCurrentText("")
+            self.name_edit.setText("")
+            self.comment_edit.setText("")
+            self.origin_widget.clear()
+            self.retired_checkbox.setChecked(False)
+            self.skip_checkbox.setChecked(False)
+            self._spokes = []
+            self._selected_index = None
+            self._refresh_table()
+            self._clear_spoke_editor()
+        finally:
+            self._loading = False
         self._show_message("")
 
     # ── Loading an already-saved entry back into the form ───────────────────
@@ -1029,23 +1064,27 @@ class RuleDock(QWidget):
             file_path = find_list_entry_file(self._root_path, "rules", entry)
         if file_path is not None:
             self._path = file_path
-        self.net_edit.setCurrentText(str(entry.get("net", "")))
-        self.name_edit.setText(str(entry.get("name") or ""))
-        self.comment_edit.setText(str(entry.get("comment") or ""))
+        self._loading = True
+        try:
+            self.net_edit.setCurrentText(str(entry.get("net", "")))
+            self.name_edit.setText(str(entry.get("name") or ""))
+            self.comment_edit.setText(str(entry.get("comment") or ""))
 
-        if "anchor_point" in entry:
-            self.origin_widget.load(mode="point", point=str(entry["anchor_point"]))
-        else:
-            self.origin_widget.load(
-                mode="anchor", ref=str(entry.get("anchor_ref", "")),
-                role=str(entry.get("anchor_role", "")),
-                sheet=str(entry.get("anchor_sheet", "")),
-                cluster=str(entry.get("anchor_cluster", "")))
+            if "anchor_point" in entry:
+                self.origin_widget.load(mode="point", point=str(entry["anchor_point"]))
+            else:
+                self.origin_widget.load(
+                    mode="anchor", ref=str(entry.get("anchor_ref", "")),
+                    role=str(entry.get("anchor_role", "")),
+                    sheet=str(entry.get("anchor_sheet", "")),
+                    cluster=str(entry.get("anchor_cluster", "")))
 
-        self.retired_checkbox.setChecked(bool(entry.get("retired", False)))
-        self.skip_checkbox.setChecked(bool(entry.get("skip", False)))
+            self.retired_checkbox.setChecked(bool(entry.get("retired", False)))
+            self.skip_checkbox.setChecked(bool(entry.get("skip", False)))
 
-        self._spokes = [dict(s) for s in (entry.get("spokes") or [])]
-        self._selected_index = None
-        self._refresh_table()
-        self._clear_spoke_editor()
+            self._spokes = [dict(s) for s in (entry.get("spokes") or [])]
+            self._selected_index = None
+            self._refresh_table()
+            self._clear_spoke_editor()
+        finally:
+            self._loading = False

@@ -21,7 +21,7 @@ import logging
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QCompleter,
                              QHBoxLayout, QHeaderView, QLineEdit, QPushButton,
                              QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
@@ -306,7 +306,14 @@ class KeyValueTableEditor(QWidget):
     as `_KeyValueTableEditor` for its existing call sites/tests.
     Key/value combos are searchable and editable (configure_searchable) —
     set_key_choices()/set_value_choices() feed them known roles/nets, same
-    picker-not-whitelist convention as every other combo here."""
+    picker-not-whitelist convention as every other combo here.
+
+    Emits `changed` when a row is added/updated/removed — the commit point a
+    hosting dock uses to auto-stage its record into the config working set
+    (2026-09-01, plan project_save_model: the per-dock Save button is gone,
+    staging happens on the row actions instead)."""
+
+    changed = pyqtSignal()
 
     def __init__(self, key_label: str, value_label: str,
                  key_placeholder: str = "", value_placeholder: str = "",
@@ -357,6 +364,7 @@ class KeyValueTableEditor(QWidget):
             return
         self._data[key] = value
         self._refresh()
+        self.changed.emit()
 
     def _on_remove(self) -> None:
         rows = self.table.selectionModel().selectedRows()
@@ -367,6 +375,7 @@ class KeyValueTableEditor(QWidget):
         self._refresh()
         self.key_edit.setCurrentText("")
         self.value_edit.setCurrentText("")
+        self.changed.emit()
 
     def _refresh(self) -> None:
         self.table.setRowCount(len(self._data))
