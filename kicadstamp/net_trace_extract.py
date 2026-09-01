@@ -242,28 +242,26 @@ def write_net_trace(output: str, nt: NetTrace) -> dict[str, Any]:
     with the same net is REPLACED in place, others are appended. Returns the
     written entry dict.
 
-    Output format is selected by extension like every other reader/writer
-    (config_writer's _read_data/_write_data, config/includes.py's
-    _load_config_file): .json -> JSON, .sexp -> dict_to_sexp/sexp_to_dict,
-    anything else -> fatal — .yaml/.yml with the "convert with
-    sexp_config_convert.py" message, any other extension with the
-    unrecognized-extension message (2026-08-28, core_yaml_removal)."""
+    Reads/writes go through config_writer's read_data/write_data (2026-09-01,
+    plan project_save_model): previously this function opened the file
+    directly, which BYPASSED both the read cache and the staged config working
+    set — in the GUI a net trace written this way would land on disk while
+    the rest of an Extract-tree was still staged, and the next Save would
+    overwrite it. The helpers also select the format by extension exactly like
+    this function used to (.json -> JSON, .sexp -> s-expr, anything else ->
+    fatal with the same messages)."""
+    from kicadstamp.config_writer import read_data, write_data
     output_path = Path(output)
+    # Preserve the pre-existing fatal contract for unsupported extensions
+    # (ValidationError, not the read helper's wrapped OSError): only VALID
+    # .json/.sexp paths go through the staging-aware helpers below.
     suffix = output_path.suffix.lower()
-    is_json = suffix == '.json'
-    is_sexp = suffix == '.sexp'
     if suffix in (".yaml", ".yml"):
         raise yaml_removed_config_error(output_path)
-    if not is_json and not is_sexp:
+    if suffix not in (".json", ".sexp"):
         raise unknown_extension_config_error(output_path, suffix)
 
-    existing: dict[str, Any] = {}
-    if output_path.exists():
-        with open(output_path, "r", encoding="utf-8") as f:
-            if is_json:
-                existing = json.load(f) or {}
-            else:
-                existing = sexp_to_dict(f.read()) or {}
+    existing: dict[str, Any] = read_data(output_path)
 
     net_traces = existing.setdefault('net_traces', [])
     entry = net_trace_to_dict(nt)
@@ -281,12 +279,7 @@ def write_net_trace(output: str, nt: NetTrace) -> dict[str, Any]:
         logger.info(_("Net trace {net!r} replaced in net_traces: of {output}")
                     .format(net=nt.net, output=output_path))
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as f:
-        if is_json:
-            json.dump(existing, f, indent=2, ensure_ascii=False)
-        else:
-            f.write(dict_to_sexp(existing))
+    write_data(output_path, existing)
     return entry
 
 

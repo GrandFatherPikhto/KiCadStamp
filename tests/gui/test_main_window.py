@@ -14,6 +14,7 @@ from PyQt6.QtCore import QByteArray
 
 from gui import settings
 from gui.main_window import _DOCK_STATE_VERSION
+from kicadstamp.config_working_set import WORKING_SET
 
 
 def test_persist_settings_writes_dock_state(real_main_window):
@@ -216,7 +217,10 @@ def test_file_menu_close_guard_respects_unsaved_changes(real_main_window, tmp_pa
     root = tmp_path / "root.sexp"
     root.write_text("(kicadstamp-config)\n", encoding="utf-8")
     real_main_window.root_metadata_dock.set_root_file(root)
-    real_main_window.root_metadata_dock._text_edits["schematic_dir"].setText("x")  # dirty
+    # The guard now covers the whole project's staged working set (2026-09-01):
+    # make it dirty with a staged write, not a bare field edit (a field edit
+    # only marks _dirty until its commit point stages it).
+    WORKING_SET.stage_write(root, {"cells": {"c1": {}}})
 
     close_action = next(a for a in _file_menu(real_main_window).actions()
                         if a.text() == "Close")

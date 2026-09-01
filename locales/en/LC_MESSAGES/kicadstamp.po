@@ -11207,3 +11207,51 @@ msgstr ""
 #: gui/docks/trees_dock.py
 msgid "Trees: root config failed to reload: {error}"
 msgstr ""
+
+#: gui/main_window.py
+msgid "&Save"
+msgstr ""
+
+#: gui/main_window.py
+msgid "&Discard unsaved changes..."
+msgstr ""
+
+#: gui/main_window.py
+msgid "Discard unsaved changes"
+msgstr ""
+
+#: gui/main_window.py
+msgid "Discard will revert unsaved CONFIG edits, but NOT Redraw steps already applied to the board. Continue?"
+msgstr ""
+
+#: gui/main_window.py
+msgid "No project open — nothing to save"
+msgstr ""
+
+#: gui/main_window.py
+msgid "Nothing to save"
+msgstr ""
+
+#: gui/main_window.py
+msgid "Project has unsaved config changes — press Ctrl+S to save"
+msgstr ""
+
+#: gui/main_window.py
+msgid "Project saved"
+msgstr ""
+
+#: gui/main_window.py
+msgid "Save failed — nothing was written:\n{errors}"
+msgstr ""
+
+#: gui/docks/root_metadata.py
+msgid "Save the current project's unsaved changes?"
+msgstr ""
+
+#: gui/main_window.py
+msgid "Unsaved config changes discarded"
+msgstr ""
+
+#: gui/main_window.py
+msgid "● &Save"
+msgstr ""

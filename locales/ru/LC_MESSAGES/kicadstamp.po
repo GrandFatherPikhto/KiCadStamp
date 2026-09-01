@@ -11672,3 +11672,52 @@ msgstr "Реестр UUID: нет живых элементов ({type}: {e})"
 #: gui/docks/trees_dock.py
 msgid "Trees: root config failed to reload: {error}"
 msgstr "Деревья: не удалось перезагрузить корневой конфиг: {error}"
+
+#: gui/main_window.py
+msgid "&Save"
+msgstr "&Сохранить"
+
+#: gui/main_window.py
+msgid "&Discard unsaved changes..."
+msgstr "&Отменить несохранённые изменения..."
+
+#: gui/main_window.py
+msgid "Discard unsaved changes"
+msgstr "Отменить несохранённые изменения"
+
+#: gui/main_window.py
+msgid "Discard will revert unsaved CONFIG edits, but NOT Redraw steps already applied to the board. Continue?"
+msgstr "Отмена вернёт несохранённые правки КОНФИГА, но НЕ шаги Redraw, уже применённые к плате. Продолжить?"
+
+#: gui/main_window.py
+msgid "No project open — nothing to save"
+msgstr "Проект не открыт — нечего сохранять"
+
+#: gui/main_window.py
+msgid "Nothing to save"
+msgstr "Нечего сохранять"
+
+#: gui/main_window.py
+msgid "Project has unsaved config changes — press Ctrl+S to save"
+msgstr "В проекте есть несохранённые изменения конфига — нажмите Ctrl+S для сохранения"
+
+#: gui/main_window.py
+msgid "Project saved"
+msgstr "Проект сохранён"
+
+#: gui/main_window.py
+#, python-brace-format
+msgid "Save failed — nothing was written:\n{errors}"
+msgstr "Не удалось сохранить — ничего не записано:\n{errors}"
+
+#: gui/docks/root_metadata.py
+msgid "Save the current project's unsaved changes?"
+msgstr "Сохранить несохранённые изменения текущего проекта?"
+
+#: gui/main_window.py
+msgid "Unsaved config changes discarded"
+msgstr "Несохранённые изменения конфига отменены"
+
+#: gui/main_window.py
+msgid "● &Save"
+msgstr "● &Сохранить"

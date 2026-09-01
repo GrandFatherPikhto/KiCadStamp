@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import QDialog
 from gui.schema_model import SchematicComponent
 from kicadstamp.config import NetTrace
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
+from kicadstamp.config_working_set import WORKING_SET
 from kicadstamp.domain.board import Track
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.explore import Selected
@@ -589,6 +590,10 @@ def test_extract_tree_happy_path_saves_tree_and_nets(real_main_window,
         lambda: graph_changed.append(True))
 
     hub.extract_tree_from_selection()
+
+    # The write lands in the working set (staged model, 2026-09-01) — commit
+    # it to disk before reading the file back.
+    WORKING_SET.flush(root)
 
     # trees: entry + net_traces: entry in the root file.
     data = sexp_to_dict(root.read_text(encoding="utf-8"))

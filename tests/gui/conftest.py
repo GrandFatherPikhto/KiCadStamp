@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from PyQt6.QtWidgets import QApplication, QMainWindow
 
 from kicadstamp.constants import DEFAULT_TIMEOUT_MS
+from kicadstamp.config_working_set import WORKING_SET
 
 from gui import fieldstool_window as fieldstool_window_mod
 from gui import settings
@@ -92,6 +93,28 @@ def _capture_dock_logs(caplog):
     default — success/warning messages (the common case) sit below caplog's
     WARNING default and would otherwise be silently missed."""
     caplog.set_level(logging.INFO)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_working_set():
+    """The config working set is a process-global singleton (2026-09-01, plan
+    project_save_model) that the real MainWindow ENABLES when a project root
+    is set. GUI tests that don't specifically test the staging model must not
+    inherit a staged/enabled state from a previous test, so clear + disable it
+    around every test and restore the previous enabled flag/listeners
+    afterwards."""
+    ws = WORKING_SET
+    old_enabled = ws.enabled
+    old_listeners = list(ws._listeners)
+    ws.clear()
+    ws._listeners = []
+    ws.enabled = False
+    yield
+    ws.clear()
+    ws._listeners = []
+    ws.enabled = old_enabled
+    for fn in old_listeners:
+        ws.add_listener(fn)
 
 
 class _FakeConnection:
