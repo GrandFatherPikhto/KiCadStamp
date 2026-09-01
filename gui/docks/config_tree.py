@@ -203,7 +203,9 @@ class ConfigTreeDock(QDockWidget):
     profile_picked = pyqtSignal(str)
     # Fired when a Thermal via array leaf is clicked (2026-08-03) —
     # ThermalViaArrayDock listens to load it back into the form, same shape
-    # as placement_picked.
+    # as placement_picked. Since 2026-09-01 (plan plan_2026_09_01_thermal_via
+    # _dialog.md) DockHub also opens the standalone Thermal via dialog
+    # (_open_thermal_via_dialog) on this signal, instead of a DetailDock page.
     thermal_via_picked = pyqtSignal(object)
     # Fired by the context menu's "Add placer..." — PlacerDock listens via
     # its new_placement() entry point (opens the form blank rather than
@@ -212,7 +214,9 @@ class ConfigTreeDock(QDockWidget):
     # Fired by the context menu's "Add thermal via pad..." (2026-08-03,
     # replaces writing a raw {"name": ...} stub straight to YAML) —
     # ThermalViaArrayDock listens via its new_thermal_via() entry point,
-    # same reasoning as add_placer_requested above.
+    # same reasoning as add_placer_requested above. Since 2026-09-01 DockHub's
+    # delegate opens the standalone Thermal via dialog with a fresh blank form
+    # (see _start_new_thermal_via), not a DetailDock page.
     add_thermal_via_requested = pyqtSignal(object)
     # Fired when a Coordinate placement leaf is clicked (2026-08-12, Group 1:
     # coordinate_placements became a normal named-records section — the same

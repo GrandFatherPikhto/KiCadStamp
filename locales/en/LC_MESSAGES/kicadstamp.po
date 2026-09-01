@@ -1495,8 +1495,12 @@ msgstr ""
 msgid "Placer"
 msgstr ""
 
-#: gui/docks/detail_panel.py:123 gui/docks/detail_panel.py:190
+#: gui/docks/thermal_via_dialog.py:31
 msgid "Thermal via"
+msgstr ""
+
+#: gui/main_window.py:226
+msgid "Place thermal vias..."
 msgstr ""
 
 # 2026-08-15, plan configurator_panel — the Settings tab hosts pure GUI/app

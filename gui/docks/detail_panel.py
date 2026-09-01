@@ -11,7 +11,11 @@ pattern — a QTabWidget would insist on owning/parenting the pages itself).
 Extract is no longer a page: 2026-08-31 (plan extract_dialog_and_hide_existing
 .md) it moved to a standalone non-modal dialog (gui/docks/extract_dialog.py)
 launched from the Config tree context menu — see gui/dock_hub.py's
-_open_extract_dialog().
+_open_extract_dialog(). Thermal via is no longer a page either: 2026-09-01
+(plan plan_2026_09_01_thermal_via_dialog.md) it moved to a standalone
+non-modal dialog (gui/docks/thermal_via_dialog.py) launched from the Tools
+menu ("Place thermal vias...") and the Config tree context menu — see
+gui/dock_hub.py's _open_thermal_via_dialog().
 
 Switching is BOTH automatic (Config-tree context) and manual (the tab bar
 itself) — Denis picked this over auto-only when asked live 2026-08-03,
@@ -19,8 +23,7 @@ specifically so a panel stays reachable even when the tree click that
 would normally select it hasn't happened (e.g. checking Root while
 Placer is what's currently showing). gui/dock_hub.py wires the automatic
 half: cell_picked/placement_picked/add_placer_requested -> show_placer(),
-thermal_via_picked/add_thermal_via_requested -> show_thermal_via() (added
-same day, "для thermal_via_array я бы сразу создал панель"), file_selected
+file_selected
 (fires on EVERY click, including leaf clicks, always BEFORE the more specific
 signal — see config_tree.py's _on_clicked) -> show_root() as the fallback
 for a plain file/category click; the more specific signal's handler (if any)
@@ -62,16 +65,16 @@ from .placer import PlacerDock
 from .points import PointsDock
 from .root_metadata import RootMetadataDock
 from .rules import RuleDock
-from .thermal_via import ThermalViaArrayDock
 from .tools import ToolsDock
 
-_ROOT, _PLACER, _THERMAL_VIA, _POINTS, _RULES, _NET_TRACE, _CELLS = range(7)
+_ROOT, _PLACER, _POINTS, _RULES, _NET_TRACE, _CELLS = range(6)
 # Tools (2026-08-30, Entity/Placement split phase 5.2 stage 3): the Entity's
 # electrical fields (Nets/Net overrides/Refs), moved out of PlacerDock.
-# Indexes shifted -1 on 2026-08-31 (plan extract_dialog_and_hide_existing.md):
-# the Extract page was removed from this dock.
-_TOOLS = 7
-_SETTINGS = 8
+# Indexes shifted -2 on 2026-09-01 (plan extract_dialog_and_hide_existing.md /
+# plan_2026_09_01_thermal_via_dialog.md): the Extract page (2026-08-31) and
+# the Thermal via page (2026-09-01) were both removed from this dock.
+_TOOLS = 6
+_SETTINGS = 7
 
 
 class _StackedPages(QStackedWidget):
@@ -120,7 +123,6 @@ class DetailDock(QDockWidget):
         # project's ROOT config file), only the user-facing label changed.
         self.tab_bar.addTab(_("Project"))
         self.tab_bar.addTab(_("Placer"))
-        self.tab_bar.addTab(_("Thermal via"))
         self.tab_bar.addTab(_("Points"))
         self.tab_bar.addTab(_("Rules"))
         self.tab_bar.addTab(_("Net traces"))
@@ -144,7 +146,6 @@ class DetailDock(QDockWidget):
         self.stack = _StackedPages()
         self.root_panel = RootMetadataDock(main_window)
         self.placer_panel = PlacerDock(main_window)
-        self.thermal_via_panel = ThermalViaArrayDock(main_window)
         self.points_panel = PointsDock(main_window, connection=connection)
         self.rules_panel = RuleDock(main_window)
         self.net_trace_panel = NetTraceDock(main_window, connection=connection)
@@ -153,7 +154,6 @@ class DetailDock(QDockWidget):
         self.tools_panel = ToolsDock(main_window)
         self.stack.addWidget(self.root_panel)
         self.stack.addWidget(self.placer_panel)
-        self.stack.addWidget(self.thermal_via_panel)
         self.stack.addWidget(self.points_panel)
         self.stack.addWidget(self.rules_panel)
         self.stack.addWidget(self.net_trace_panel)
@@ -187,7 +187,6 @@ class DetailDock(QDockWidget):
     _PAGE_LABELS = {
         _PLACER: _("Placer"),
         _ROOT: _("Project"),
-        _THERMAL_VIA: _("Thermal via"),
         _POINTS: _("Points"),
         _RULES: _("Rules"),
         _NET_TRACE: _("Net traces"),
@@ -208,8 +207,6 @@ class DetailDock(QDockWidget):
         index = self.tab_bar.currentIndex()
         if index == _PLACER:
             return self.placer_panel.current_entity_name
-        if index == _THERMAL_VIA:
-            return self.thermal_via_panel.name_edit.text().strip()
         if index == _POINTS:
             return self.points_panel.name_edit.text().strip()
         if index == _RULES:
@@ -250,9 +247,6 @@ class DetailDock(QDockWidget):
 
     def show_root(self) -> None:
         self._show(_ROOT)
-
-    def show_thermal_via(self) -> None:
-        self._show(_THERMAL_VIA)
 
     def show_coordinate_placer(self) -> None:
         """Alias for show_placer (2026-08-12, Group 1): the merged PlacerDock

@@ -12,14 +12,18 @@ MainWindow re-exposes as thin forwarding properties — needed for the parts
 of the app that still reach a dock directly (notably RoleClusterTreeDock's
 lazy fieldstool lookup and the test suite).
 
-Extract/Placer/Root/Thermal via/Points/Rules (extract_dock/placer_dock/
-root_metadata_dock/thermal_via_dock/points_dock/rules_dock) are the one
-exception: 2026-08-03 they were merged into ONE QDockWidget, DetailDock
-(gui/docks/detail_panel.py) — its own module docstring covers why (Points/
-Rules added 2026-08-05, same shape). Those attributes are kept as aliases
-straight into DetailDock's stack pages so every existing call site keeps
-working unchanged; they are plain QWidgets now, not QDockWidgets in their
-own right.
+Placer/Root/Points/Rules (placer_dock/root_metadata_dock/points_dock/
+rules_dock) are the one exception: 2026-08-03 they were merged into ONE
+QDockWidget, DetailDock (gui/docks/detail_panel.py) — its own module
+docstring covers why (Points/Rules added 2026-08-05, same shape). Those
+attributes are kept as aliases straight into DetailDock's stack pages so every
+existing call site keeps working unchanged; they are plain QWidgets now, not
+QDockWidgets in their own right. EXCEPT extract_dock (2026-08-31, plan
+extract_dialog_and_hide_existing.md) and thermal_via_dock (2026-09-01, plan
+plan_2026_09_01_thermal_via_dialog.md): they are STANDALONE widgets hosted in
+their non-modal dialogs (ExtractDialog / ThermalViaDialog) — the Detail dock
+has no Extract/Thermal via page anymore, and the same single live instances
+keep receiving the selection/snapshot ticks, set_root_path and saved.
 """
 import logging
 from functools import partial
@@ -43,6 +47,8 @@ from .docks.fieldstool_dock import FieldsToolDock
 from .docks.log_panel import LogDock
 from .docks.pending import PendingChangesDock
 from .docks.role_cluster_tree import RoleClusterTreeDock
+from .docks.thermal_via import ThermalViaArrayDock
+from .docks.thermal_via_dialog import ThermalViaDialog
 
 
 class DockHub:
@@ -116,9 +122,15 @@ class DockHub:
         # receiving the selection-watch ticks / set_root_path / saved.
         self.extract_dock = ExtractDock(main_window, connection=connection)
         self.extract_dialog = ExtractDialog(self.extract_dock, main_window)
+        # Thermal via (2026-09-01, plan plan_2026_09_01_thermal_via_dialog.md):
+        # a STANDALONE widget hosted in the non-modal ThermalViaDialog — the
+        # Detail dock has no Thermal via page anymore (same move as Extract
+        # above). The same single live instance keeps receiving the snapshot
+        # ticks / set_root_path / saved.
+        self.thermal_via_dock = ThermalViaArrayDock(main_window)
+        self.thermal_via_dialog = ThermalViaDialog(self.thermal_via_dock, main_window)
         self.placer_dock = self.detail_dock.placer_panel
         self.root_metadata_dock = self.detail_dock.root_panel
-        self.thermal_via_dock = self.detail_dock.thermal_via_panel
         self.points_dock = self.detail_dock.points_panel
         self.rules_dock = self.detail_dock.rules_panel
         self.net_trace_dock = self.detail_dock.net_trace_panel
@@ -329,7 +341,7 @@ class DockHub:
         self.config_tree_dock.profile_picked.connect(self.extract_dock.pick_profile)
         self.config_tree_dock.profile_picked.connect(self._open_extract_dialog)
         self.config_tree_dock.thermal_via_picked.connect(self.thermal_via_dock.load_entry)
-        self.config_tree_dock.thermal_via_picked.connect(self.detail_dock.show_thermal_via)
+        self.config_tree_dock.thermal_via_picked.connect(self._open_thermal_via_dialog)
         # Coordinate placements (2026-08-12, Group 1): a normal named-records
         # section now — a leaf click carries the full entry dict, loaded into
         # the merged PlacerDock's coordinate mode, exactly like clone_placements
@@ -394,6 +406,10 @@ class DockHub:
         # (2026-08-31, Denis): saved is emitted by _finish_extract only on
         # success — see gui/docks/extract.py.
         self.extract_dock.saved.connect(self.extract_dialog.hide)
+        # Auto-close the (non-modal) Thermal via dialog after a successful Save
+        # (2026-09-01, Denis): saved is emitted by _on_save only on success —
+        # Redraw (placement) stays open for iterative tuning.
+        self.thermal_via_dock.saved.connect(self.thermal_via_dialog.hide)
         # Config tree's "Add placer.../Add thermal via pad.../Add point.../
         # Add rule..." context-menu actions -> Placer/Thermal via/Points/
         # Rules: open the form blank, targeting the file the action was
@@ -536,9 +552,10 @@ class DockHub:
 
     def _start_new_thermal_via(self, file_path) -> None:
         """ConfigTreeDock's add_thermal_via_requested delegate — same
-        reasoning as _start_new_placement above, for ThermalViaArrayDock."""
+        reasoning as _start_new_placement above, for ThermalViaArrayDock: opens
+        the (non-modal) Thermal via dialog with a fresh blank form."""
+        self._open_thermal_via_dialog()
         self.thermal_via_dock.new_thermal_via(file_path)
-        self.detail_dock.show_thermal_via()
 
     def _start_new_point(self, file_path) -> None:
         """ConfigTreeDock's add_point_requested delegate — same reasoning
@@ -569,6 +586,13 @@ class DockHub:
         fresh capture as the Config tree context menu's "New Extract..."
         (new_extract_requested -> _start_new_extract)."""
         self._start_new_extract()
+
+    def place_thermal_vias(self) -> None:
+        """Main menu "Tools -> Place thermal vias..." (2026-09-01, plan
+        plan_2026_09_01_thermal_via_dialog.md) -> the same fresh blank form as
+        the Config tree context menu's "Add thermal via pad..." (add_thermal_
+        via_requested -> _start_new_thermal_via)."""
+        self._start_new_thermal_via(self.root_metadata_dock.root_path)
 
     def extract_tree_from_selection(self) -> None:
         """Main menu "Tools -> Extract tree..." (2026-09-01, plan
@@ -767,6 +791,16 @@ class DockHub:
         self.extract_dialog.show()
         self.extract_dialog.raise_()
         self.extract_dialog.activateWindow()
+
+    def _open_thermal_via_dialog(self) -> None:
+        """Show/raise the ONE live Thermal via dialog — non-modal, so the user
+        can keep selecting on the board while it's open: the ~2s snapshot tick
+        keeps feeding the same thermal_via_dock instance inside it. Closing via
+        the window X just hides it (QDialog default), so the next open starts
+        from the current board state."""
+        self.thermal_via_dialog.show()
+        self.thermal_via_dialog.raise_()
+        self.thermal_via_dialog.activateWindow()
 
     def _refresh_graph_dependent_choices(self) -> None:
         """The include: graph's shape or an entry's name changed — either

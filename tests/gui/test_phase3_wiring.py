@@ -382,6 +382,68 @@ def test_successful_extract_auto_closes_the_dialog(real_main_window):
     assert hub.extract_dialog.isVisible() is False
 
 
+def test_thermal_via_picked_fills_form_and_opens_dialog(real_main_window, tmp_path):
+    """ConfigTreeDock -> ThermalViaArrayDock wiring (thermal_via_picked ->
+    load_entry, see gui/docks/config_tree.py's thermal_via_picked docstring) —
+    clicking a Thermal via array leaf in the real Config tree must reach the
+    form end-to-end and open the (non-modal) Thermal via dialog (2026-09-01,
+    plan plan_2026_09_01_thermal_via_dialog.md)."""
+    tva_file = tmp_path / "tva.sexp"
+    _write(tva_file, {"thermal_via_arrays": [
+        {"name": "fpga_thermal", "pad": "1", "anchor_ref": "U3"}]})
+    real_main_window.thermal_via_dock.set_root_path(tva_file)
+
+    real_main_window.config_tree_dock.thermal_via_picked.emit(
+        {"name": "fpga_thermal", "pad": "1", "anchor_ref": "U3"})
+
+    assert real_main_window.thermal_via_dock.name_edit.text() == "fpga_thermal"
+    assert real_main_window._dock_hub.thermal_via_dialog.isVisible()
+
+
+def test_add_thermal_via_requested_opens_blank_form_and_dialog(real_main_window, tmp_path):
+    """ConfigTreeDock's "Add thermal via pad..." context-menu action ->
+    DockHub._start_new_thermal_via -> the fresh blank form inside the (non-
+    modal) Thermal via dialog."""
+    tva_file = tmp_path / "tva.sexp"
+    _write(tva_file)
+    real_main_window.thermal_via_dock.name_edit.setText("stale")
+
+    real_main_window.config_tree_dock.add_thermal_via_requested.emit(tva_file)
+
+    assert real_main_window.thermal_via_dock.name_edit.text() == ""
+    assert real_main_window._dock_hub.thermal_via_dialog.isVisible()
+
+
+def test_successful_save_auto_closes_the_thermal_via_dialog(real_main_window):
+    """2026-09-01 (plan plan_2026_09_01_thermal_via_dialog.md, Denis: dialog
+    auto-hides only after a successful Save) — DockHub wires
+    thermal_via_dock.saved -> thermal_via_dialog.hide; saved fires in _on_save
+    only on success, so the dialog hides right after the entry is written."""
+    hub = real_main_window._dock_hub
+    hub._open_thermal_via_dialog()
+    assert hub.thermal_via_dialog.isVisible()
+
+    hub.thermal_via_dock.saved.emit()
+
+    assert hub.thermal_via_dialog.isVisible() is False
+
+
+def test_tools_menu_place_thermal_vias_opens_dialog_and_prepares_fresh(real_main_window):
+    """2026-09-01 (plan plan_2026_09_01_thermal_via_dialog.md): the Tools
+    menu's "Place thermal vias..." action routes to DockHub.place_thermal_vias
+    -> the same fresh blank form (new_thermal_via) the Config tree context
+    menu's "Add thermal via pad..." provides."""
+    hub = real_main_window._dock_hub
+    hub.thermal_via_dock.name_edit.setText("stale_name")
+    hub.thermal_via_dock.pad_edit.setText("9")
+
+    real_main_window.place_thermal_vias_action.trigger()
+
+    assert hub.thermal_via_dialog.isVisible()
+    assert hub.thermal_via_dock.name_edit.text() == ""
+    assert hub.thermal_via_dock.pad_edit.text() == ""
+
+
 def test_tools_menu_reead_selected_between_edit_and_view(real_main_window, monkeypatch):
     """2026-08-31 (plan reead_selected_dialog.md): a Tools menu sits between
     Edit and View, and its "Re-read selected..." action routes to

@@ -223,6 +223,14 @@ class MainWindow(QMainWindow):
         self.extract_tree_action.triggered.connect(
             lambda: self._dock_hub.extract_tree_from_selection())
         tools_menu.addAction(self.extract_tree_action)
+        # "Place thermal vias..." (2026-09-01, plan
+        # plan_2026_09_01_thermal_via_dialog.md): opens the standalone
+        # (non-modal) Thermal via dialog with a fresh blank form — same shape
+        # as the Config tree context menu's "Add thermal via pad...".
+        self.place_thermal_vias_action = QAction(_("Place thermal vias..."), self)
+        self.place_thermal_vias_action.triggered.connect(
+            lambda: self._dock_hub.place_thermal_vias())
+        tools_menu.addAction(self.place_thermal_vias_action)
 
         # View menu (2026-08-27, handoff sync_skip_message_and_view_menu): the
         # app had no menu bar at all, so a closed dock had no way back short of

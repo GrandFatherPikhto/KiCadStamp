@@ -295,10 +295,13 @@ move is applied via a per-run, non-persistent position override (Option 1, see t
 
 ## Detail dock
 
-Placer/Project/Thermal via/Points/Rules/Net traces/Cells/Settings below all live as tabs
+Placer/Project/Points/Rules/Net traces/Cells/Settings below all live as tabs
 inside one shared **Detail** dock, not as separate docks — switching is both automatic (a
 Config-tree click routes to the matching tab) and manual (click the tab bar directly). Extract is
-NOT a tab here since 2026-08-31 — it's a standalone dialog, see the [Extract](#extract) section.
+NOT a tab here since 2026-08-31 (see the [Extract](#extract) section) and Thermal via is NOT a tab
+here since 2026-09-01 — both moved to standalone dialogs (Thermal via: the main menu's
+**Tools → Place thermal vias...** or the Config tree context menu, see the paragraph after the
+Extract section).
 Every
 automatic switch also
 raises Detail to the front of its own tabified group (it shares screen space with fieldstool) and
@@ -378,6 +381,14 @@ is written into the root config's `trees:` section through the same `config_writ
 (backup + round-trip `link_trees` check); TreesDock and the Config tree refresh immediately. Rows
 whose cluster has no Entity or a missing cell are marked and block OK; an empty/duplicate tree name
 or a missing Role also blocks OK.
+
+The main menu's **Tools → Place thermal vias...** (2026-09-01) and the Config tree context menu's
+"Add thermal via pad..." (plus a click on a `thermal_via_arrays` leaf) open the standalone
+(non-modal) **Thermal via** dialog — a fresh blank form for "Add ...", the entry pre-loaded for a
+leaf click. It hosts the same form as the old Detail-dock page: pick the anchor (ref/role + cluster,
+or a named Point), pad, net and grid geometry, then **Redraw** to place the vias on the live board
+(ApplyPipeline `only=[name]` — the dialog stays open for iterative tuning) and **Save** to write
+the `thermal_via_arrays:` entry (auto-closes the dialog on success).
 
 **Origin**/**Net aliases**/**Net template role**/**Sub-placements**/**Existing** below live in a
 tab widget (2026-08-04: previously stacked in one long column, whose minimum height was the SUM of
