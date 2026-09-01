@@ -324,12 +324,13 @@ move is applied via a per-run, non-persistent position override (Option 1, see t
 
 ## Detail dock
 
-Placer/Points/Rules/Net traces/Cells/Tools below all live as tabs inside one shared **Detail** dock,
+Placer/Rules/Net traces/Cells/Tools below all live as tabs inside one shared **Detail** dock,
 not as separate docks — switching is both automatic (a Config-tree click routes to the matching tab)
-and manual (click the tab bar directly). Extract (2026-08-31), Thermal via (2026-09-01), and
-Project + Settings (2026-09-01, plan `project_settings_dialogs`) are NOT tabs here — they moved to
-standalone dialogs: see the [Extract](#extract) and [Project](#project) sections, and **Tools →
-Settings...** for the Settings dialog.
+and manual (click the tab bar directly). Extract (2026-08-31), Thermal via (2026-09-01), Points
+(2026-09-01, plan `plan_2026_09_01_points_dialog.md`), and Project + Settings (2026-09-01, plan
+`project_settings_dialogs`) are NOT tabs here — they moved to standalone dialogs: see the
+[Extract](#extract), [Points](#points) and [Project](#project) sections, and **Tools → Settings...**
+for the Settings dialog.
 Every
 automatic switch also
 raises Detail to the front of its own tabified group (it shares screen space with fieldstool) and
@@ -759,6 +760,12 @@ Edits a named `points:` entry (see [docs/config.md](config.md) on the Point sche
 anchor other `anchor_point:` references (Placer's own Point origin mode, Rule/ThermalViaArrayConfig)
 point at by name. Added 2026-08-05 after noticing how closely Point's own shape already matches
 Placer's Origin widget.
+
+Since 2026-09-01 (plan `plan_2026_09_01_points_dialog.md`) this is a standalone **non-modal dialog**
+(not a Detail-dock page): open it from the main menu's **Tools → Add point...**, from the Config
+tree context menu's "Add point...", or by a **double click** on a `points:` leaf in the Config tree
+(which loads that point into the form — a single click on a points leaf does nothing). The dialog
+hosts the same live form as the old Detail-dock page; it auto-closes after a successful Save.
 
 - **Origin** — **Absolute XY** / **Anchor (ref/role)**, now including a **Sheet** field (Denis:
   "нужен anchor_sheet в этой панели") — a searchable combo autocompleted from the project's

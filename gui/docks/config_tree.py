@@ -31,9 +31,13 @@ above).
 clicked (Cells -> PlacerDock.set_selected_cell, Clone placements ->
 PlacerDock.load_placement, Extract profiles -> ExtractDock.pick_profile,
 Thermal via arrays -> ThermalViaArrayDock.load_entry, added 2026-08-03;
-Points -> PointsDock.load_entry, Rules -> RuleDock.load_entry, both added
-2026-08-05) — Clone profiles is the one section still with no GUI edit
-form, shown read-only for now, same deliberate scope limit as before.
+Rules -> RuleDock.load_entry, added 2026-08-05) — Clone profiles is the one
+section still with no GUI edit form, shown read-only for now, same deliberate
+scope limit as before. Points is the one EXCEPTION since 2026-09-01 (plan
+plan_2026_09_01_points_dialog.md): its form lives in the non-modal
+PointsDialog now, opened by a DOUBLE click on a points: leaf
+(points_edit_requested) or the context menu's "Add point..." — a single
+left-click does nothing.
 
 Cells is special (2026-08-06, CellDock added — see gui/docks/cell_editor.py):
 left-click on a Cell leaf keeps its ORIGINAL meaning, "pick this cell as a
@@ -227,15 +231,20 @@ class ConfigTreeDock(QDockWidget):
     # opens a blank coordinate form for a file.
     coordinate_placements_picked = pyqtSignal(object)
     add_coordinate_placement_requested = pyqtSignal(object)
-    # Fired when a Points leaf is clicked (2026-08-05) — points: is a DICT
+    # Fired by a DOUBLE click on a points: leaf (2026-09-01, plan
+    # plan_2026_09_01_points_dialog.md) — opens the (non-modal) Points edit
+    # dialog (DockHub: points_edit_requested -> load_entry + _open_points_
+    # dialog). Single click on a points: leaf does NOTHING anymore — the old
+    # points_picked emission was removed from _on_clicked (the Points form
+    # lives in a dialog now, not a DetailDock page). points: is a DICT
     # section (see _entries()), so the payload is just the name, unlike
     # placement_picked/thermal_via_picked's full-dict payload; PointsDock's
-    # load_entry() re-reads the file for the actual data, same "read fresh
-    # from yaml_io" discipline root_metadata.py's set_target_file already
-    # uses. add_point_requested mirrors add_thermal_via_requested/
-    # add_placer_requested — opens the form blank rather than writing a raw
-    # stub straight to YAML.
-    points_picked = pyqtSignal(str)
+    # load_entry() re-reads the file for the actual data.
+    points_edit_requested = pyqtSignal(str)
+    # Fired by the context menu's "Add point..." (2026-08-05) — opens the
+    # (non-modal) Points dialog with a fresh blank form (DockHub: add_point_
+    # requested -> _start_new_point), rather than writing a raw stub straight
+    # to YAML.
     add_point_requested = pyqtSignal(object)
     # Fired when a Rules leaf is clicked (2026-08-05) — rules: is a LIST
     # section (see _entries()), so unlike points_picked the payload is
@@ -303,6 +312,9 @@ class ConfigTreeDock(QDockWidget):
         # mode either way.
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tree.itemClicked.connect(self._on_clicked)
+        # Double click on a points: leaf -> Points edit dialog (2026-09-01,
+        # plan plan_2026_09_01_points_dialog.md) — see _on_double_clicked.
+        self.tree.itemDoubleClicked.connect(self._on_double_clicked)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._on_context_menu)
         layout.addWidget(self.tree)
@@ -610,7 +622,11 @@ class ConfigTreeDock(QDockWidget):
             # mode, exactly like clone_placements/placement_picked.
             self.coordinate_placements_picked.emit(ref)
         elif section == "points":
-            self.points_picked.emit(ref)
+            # Single click on a points: leaf does NOTHING since 2026-09-01
+            # (plan plan_2026_09_01_points_dialog.md) — the Points form lives
+            # in a dialog now, opened by a DOUBLE click (see
+            # _on_double_clicked / points_edit_requested).
+            pass
         elif section == "rules":
             self.rule_picked.emit(ref)
         elif section == "net_traces":
@@ -625,6 +641,18 @@ class ConfigTreeDock(QDockWidget):
             # Trees are edited in the TreesDock (its own QDockWidget) — a
             # leaf click here is navigation only for now.
             pass
+
+    def _on_double_clicked(self, item, column) -> None:
+        """Double click on a points: leaf -> points_edit_requested (2026-09-01,
+        plan plan_2026_09_01_points_dialog.md): DockHub loads the named point
+        into the live PointsDock and opens the non-modal Points dialog. Any
+        other leaf/file/category keeps its default double-click behavior."""
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if data is None or data[0] != "leaf":
+            return
+        _kind, section, ref = data
+        if section == "points":
+            self.points_edit_requested.emit(ref)
 
     # ── Context menu (right-click anywhere under a file) ────────────────
 

@@ -256,6 +256,13 @@ class MainWindow(QMainWindow):
         self.place_thermal_vias_action.triggered.connect(
             lambda: self._dock_hub.place_thermal_vias())
         tools_menu.addAction(self.place_thermal_vias_action)
+        # "Add point..." (2026-09-01, plan plan_2026_09_01_points_dialog.md):
+        # opens the standalone (non-modal) Points dialog with a fresh blank
+        # form — same shape as the Config tree context menu's "Add point...".
+        self.add_point_action = QAction(_("Add point..."), self)
+        self.add_point_action.triggered.connect(
+            lambda: self._dock_hub.new_point())
+        tools_menu.addAction(self.add_point_action)
         # "Settings..." (2026-09-01, plan project_settings_dialogs): opens the
         # MODAL Settings dialog — a two-pane browser (category tree on the
         # left, settings pages on the right) with OK/Apply/Cancel.

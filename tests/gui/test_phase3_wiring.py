@@ -197,29 +197,6 @@ def test_profile_picked_fills_extract_form_and_opens_dialog(real_main_window, tm
     assert real_main_window._dock_hub.extract_dialog.isVisible()
 
 
-def test_points_picked_fills_points_form_and_switches_tab(real_main_window, tmp_path):
-    """ConfigTreeDock -> PointsDock wiring (points_picked -> load_entry,
-    see gui/docks/config_tree.py's points_picked docstring / PointsDock.
-    load_entry's docstring) — clicking a Points leaf in the real Config
-    tree must reach PointsDock's form end-to-end, not just via a direct
-    load_entry() call, and bring the Points tab to front (2026-08-05, same
-    shape as test_profile_picked_fills_extract_form above)."""
-    points_file = tmp_path / "points.sexp"
-    _write(points_file, {"points": {"origin": {"xy": [1.0, 2.0]}}})
-    real_main_window.config_tree_dock.set_root_file(points_file)
-    # points_picked alone carries only the name (dict section — see its own
-    # docstring); a real tree click fires file_selected first (setting
-    # _path), same as test_profile_picked_fills_extract_form's own
-    # set_profile_file call below.
-    real_main_window.points_dock.set_root_path(points_file)
-
-    real_main_window.config_tree_dock.points_picked.emit("origin")
-
-    assert real_main_window.points_dock.name_edit.text() == "origin"
-    assert real_main_window.points_dock.x_edit.text() == "1.0"
-    assert real_main_window._dock_hub.detail_dock.stack.currentWidget() is real_main_window.points_dock
-
-
 def test_points_saved_refreshes_config_tree_points(real_main_window, tmp_path):
     """PointsDock -> ConfigTreeDock wiring (saved -> refresh) — same
     real-widget-state assertion style as
@@ -240,9 +217,10 @@ def test_points_saved_refreshes_config_tree_points(real_main_window, tmp_path):
     assert points.child(0).text(0) == "origin"
 
 
-def test_add_point_requested_opens_blank_points_form_and_shows_tab(real_main_window, tmp_path):
-    """ConfigTreeDock's "Add point..." context-menu action -> PointsDock,
-    same shape as DockHub._start_new_placement/_start_new_thermal_via."""
+def test_add_point_requested_opens_blank_form_and_dialog(real_main_window, tmp_path):
+    """ConfigTreeDock's "Add point..." context-menu action ->
+    DockHub._start_new_point -> the fresh blank form inside the (non-modal)
+    Points dialog (2026-09-01, plan plan_2026_09_01_points_dialog.md)."""
     points_file = tmp_path / "points.sexp"
     _write(points_file)
     real_main_window.points_dock.name_edit.setText("stale")
@@ -250,7 +228,7 @@ def test_add_point_requested_opens_blank_points_form_and_shows_tab(real_main_win
     real_main_window.config_tree_dock.add_point_requested.emit(points_file)
 
     assert real_main_window.points_dock.name_edit.text() == ""
-    assert real_main_window._dock_hub.detail_dock.stack.currentWidget() is real_main_window.points_dock
+    assert real_main_window._dock_hub.points_dialog.isVisible()
 
 
 def test_rules_dock_picks_up_a_root_restored_before_wiring_existed(qapp, tmp_path):
@@ -443,6 +421,52 @@ def test_tools_menu_place_thermal_vias_opens_dialog_and_prepares_fresh(real_main
     assert hub.thermal_via_dialog.isVisible()
     assert hub.thermal_via_dock.name_edit.text() == ""
     assert hub.thermal_via_dock.pad_edit.text() == ""
+
+
+# ── Points dialog routes (2026-09-01, plan plan_2026_09_01_points_dialog.md) ─
+
+
+def test_points_edit_requested_opens_dialog_with_entry_loaded(real_main_window, tmp_path):
+    """ConfigTreeDock -> PointsDock wiring (points_edit_requested -> load_entry,
+    see gui/docks/config_tree.py's points_edit_requested docstring / PointsDock.
+    load_entry's docstring) — the DOUBLE-click route: the named point must reach
+    PointsDock's form end-to-end and open the (non-modal) Points dialog."""
+    points_file = tmp_path / "points.sexp"
+    _write(points_file, {"points": {"origin": {"xy": [1.0, 2.0]}}})
+    real_main_window.points_dock.set_root_path(points_file)
+
+    real_main_window.config_tree_dock.points_edit_requested.emit("origin")
+
+    assert real_main_window.points_dock.name_edit.text() == "origin"
+    assert real_main_window.points_dock.x_edit.text() == "1.0"
+    assert real_main_window._dock_hub.points_dialog.isVisible()
+
+
+def test_successful_save_auto_closes_the_points_dialog(real_main_window):
+    """2026-09-01 (plan plan_2026_09_01_points_dialog.md, Denis: dialog
+    auto-hides only after a successful Save) — DockHub wires
+    points_dock.saved -> points_dialog.hide; saved fires in _on_save only on
+    success, so the dialog hides right after the entry is written."""
+    hub = real_main_window._dock_hub
+    hub._open_points_dialog()
+    assert hub.points_dialog.isVisible()
+
+    hub.points_dock.saved.emit()
+
+    assert hub.points_dialog.isVisible() is False
+
+
+def test_tools_menu_add_point_opens_dialog_and_prepares_fresh(real_main_window):
+    """2026-09-01 (plan plan_2026_09_01_points_dialog.md): the Tools menu's
+    "Add point..." action routes to DockHub.new_point -> the same fresh blank
+    form (new_point) the Config tree context menu's "Add point..." provides."""
+    hub = real_main_window._dock_hub
+    hub.points_dock.name_edit.setText("stale_name")
+
+    real_main_window.add_point_action.trigger()
+
+    assert hub.points_dialog.isVisible()
+    assert hub.points_dock.name_edit.text() == ""
 
 
 def test_tools_menu_reead_selected_between_edit_and_view(real_main_window, monkeypatch):

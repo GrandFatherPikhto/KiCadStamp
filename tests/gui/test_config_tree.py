@@ -484,22 +484,29 @@ def test_add_point_emits_request_instead_of_writing_directly(main_window, tmp_pa
     assert _load(root) == {"points": {}}
 
 
-def test_points_leaf_click_emits_points_picked_with_the_name(main_window, tmp_path):
-    """points: is a DICT section (see _entries()) — unlike
-    thermal_via_picked's full-dict payload above, the click only carries
-    the name; PointsDock.load_entry() re-reads the file for the data."""
+def test_points_leaf_double_click_emits_points_edit_requested(main_window, tmp_path):
+    """2026-09-01 (plan plan_2026_09_01_points_dialog.md): a DOUBLE click on
+    a points: leaf opens the Points edit dialog. points: is a DICT section
+    (see _entries()), so the payload is just the name; PointsDock.load_entry()
+    re-reads the file for the data. A single click on a points: leaf now does
+    NOTHING — the old points_picked signal was removed from ConfigTreeDock
+    entirely (the Points form lives in a dialog opened by double click, not a
+    DetailDock page)."""
     root = tmp_path / "root.sexp"
     _write(root, {"points": {"origin": {"xy": [0, 0]}}})
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
-    picked = []
-    dock.points_picked.connect(picked.append)
+    requested = []
+    dock.points_edit_requested.connect(requested.append)
     leaf = _find(dock.tree.topLevelItem(0), "Points").child(0)
-    dock._on_clicked(leaf, 0)
+    dock._on_double_clicked(leaf, 0)
 
-    assert picked == ["origin"]
+    assert requested == ["origin"]
+    # The old single-click routing signal is gone — a points: leaf has no
+    # points_picked anymore (only the double-click points_edit_requested).
+    assert not hasattr(dock, "points_picked")
 
 
 def test_add_rule_emits_request_instead_of_writing_directly(main_window, tmp_path):

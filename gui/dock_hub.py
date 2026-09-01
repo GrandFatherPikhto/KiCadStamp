@@ -12,18 +12,19 @@ MainWindow re-exposes as thin forwarding properties — needed for the parts
 of the app that still reach a dock directly (notably RoleClusterTreeDock's
 lazy fieldstool lookup and the test suite).
 
-Placer/Root/Points/Rules (placer_dock/root_metadata_dock/points_dock/
-rules_dock) are the one exception: 2026-08-03 they were merged into ONE
-QDockWidget, DetailDock (gui/docks/detail_panel.py) — its own module
-docstring covers why (Points/Rules added 2026-08-05, same shape). Those
-attributes are kept as aliases straight into DetailDock's stack pages so every
-existing call site keeps working unchanged; they are plain QWidgets now, not
-QDockWidgets in their own right. EXCEPT extract_dock (2026-08-31, plan
-extract_dialog_and_hide_existing.md) and thermal_via_dock (2026-09-01, plan
-plan_2026_09_01_thermal_via_dialog.md): they are STANDALONE widgets hosted in
-their non-modal dialogs (ExtractDialog / ThermalViaDialog) — the Detail dock
-has no Extract/Thermal via page anymore, and the same single live instances
-keep receiving the selection/snapshot ticks, set_root_path and saved.
+Placer/Root/Rules (placer_dock/root_metadata_dock/rules_dock) are the one
+exception: 2026-08-03 they were merged into ONE QDockWidget, DetailDock
+(gui/docks/detail_panel.py) — its own module docstring covers why (Points/
+Rules added 2026-08-05, same shape). Those attributes are kept as aliases
+straight into DetailDock's stack pages so every existing call site keeps
+working unchanged; they are plain QWidgets now, not QDockWidgets in their own
+right. EXCEPT extract_dock (2026-08-31, plan extract_dialog_and_hide_existing
+.md), thermal_via_dock (2026-09-01, plan plan_2026_09_01_thermal_via_dialog.
+md) and points_dock (2026-09-01, plan plan_2026_09_01_points_dialog.md): they
+are STANDALONE widgets hosted in their non-modal dialogs (ExtractDialog /
+ThermalViaDialog / PointsDialog) — the Detail dock has no Extract/Thermal via/
+Points page anymore, and the same single live instances keep receiving the
+selection/snapshot ticks, set_root_path and saved.
 """
 import logging
 from functools import partial
@@ -49,6 +50,8 @@ from .docks.fieldstool_dock import FieldsToolDock
 from .docks.log_panel import LogDock
 from .docks.pending import PendingChangesDock
 from .docks.project_dialog import ProjectDialog
+from .docks.points import PointsDock
+from .docks.points_dialog import PointsDialog
 from .docks.role_cluster_tree import RoleClusterTreeDock
 from .docks.root_metadata import RootMetadataDock
 from .docks.settings_dialog import SettingsDialog
@@ -144,10 +147,16 @@ class DockHub:
         self.root_metadata_dock = RootMetadataDock(main_window)
         self.project_dialog = ProjectDialog(self.root_metadata_dock, main_window)
         self.placer_dock = self.detail_dock.placer_panel
-        self.points_dock = self.detail_dock.points_panel
         self.rules_dock = self.detail_dock.rules_panel
         self.net_trace_dock = self.detail_dock.net_trace_panel
         self.cells_dock = self.detail_dock.cells_panel
+        # Points (2026-09-01, plan plan_2026_09_01_points_dialog.md): a
+        # STANDALONE widget hosted in the non-modal PointsDialog — the Detail
+        # dock has no Points page anymore (same move as Extract/Thermal via).
+        # The same single live instance keeps receiving the snapshot ticks /
+        # set_root_path / saved. connection is needed for Resolve.
+        self.points_dock = PointsDock(main_window, connection=connection)
+        self.points_dialog = PointsDialog(self.points_dock, main_window)
         # Settings (2026-09-01, plan project_settings_dialogs): ConfiguratorDock
         # is no longer a Detail dock page either — it is a two-pane settings
         # browser (QTreeWidget of categories on the left, pages on the right,
@@ -355,8 +364,11 @@ class DockHub:
         # coordinate_placements_picked docstring).
         self.config_tree_dock.coordinate_placements_picked.connect(self.placer_dock.load_placement)
         self.config_tree_dock.coordinate_placements_picked.connect(self.detail_dock.show_coordinate_placer)
-        self.config_tree_dock.points_picked.connect(self.points_dock.load_entry)
-        self.config_tree_dock.points_picked.connect(self.detail_dock.show_points)
+        # Double click on a points: leaf (2026-09-01, plan
+        # plan_2026_09_01_points_dialog.md) -> load the entry into the live
+        # PointsDock and open the non-modal PointsDialog. Single click on a
+        # points: leaf does NOTHING (the old points_picked wiring is gone).
+        self.config_tree_dock.points_edit_requested.connect(self._start_edit_point)
         self.config_tree_dock.rule_picked.connect(self.rules_dock.load_entry)
         self.config_tree_dock.rule_picked.connect(self.detail_dock.show_rules)
         self.config_tree_dock.net_trace_picked.connect(self.net_trace_dock.load_entry)
@@ -416,6 +428,10 @@ class DockHub:
         # (2026-09-01, Denis): saved is emitted by _on_save only on success —
         # Redraw (placement) stays open for iterative tuning.
         self.thermal_via_dock.saved.connect(self.thermal_via_dialog.hide)
+        # Auto-close the (non-modal) Points dialog after a successful Save
+        # (2026-09-01, Denis): saved is emitted by _on_save only on success —
+        # a Point has no Redraw, so Save closing is the whole point of the form.
+        self.points_dock.saved.connect(self.points_dialog.hide)
         # Config tree's "Add placer.../Add thermal via pad.../Add point.../
         # Add rule..." context-menu actions -> Placer/Thermal via/Points/
         # Rules: open the form blank, targeting the file the action was
@@ -564,10 +580,25 @@ class DockHub:
         self.thermal_via_dock.new_thermal_via(file_path)
 
     def _start_new_point(self, file_path) -> None:
-        """ConfigTreeDock's add_point_requested delegate — same reasoning
-        as _start_new_placement above, for PointsDock."""
+        """ConfigTreeDock's add_point_requested delegate — opens the (non-modal)
+        Points dialog with a fresh blank form, same reasoning as
+        _start_new_thermal_via above, for PointsDock."""
+        self._open_points_dialog()
         self.points_dock.new_point(file_path)
-        self.detail_dock.show_points()
+
+    def _start_edit_point(self, name) -> None:
+        """ConfigTreeDock's points_edit_requested delegate (double click on a
+        points: leaf, 2026-09-01, plan plan_2026_09_01_points_dialog.md) —
+        loads the named point into the live PointsDock and opens the (non-
+        modal) Points dialog with it."""
+        self.points_dock.load_entry(name)
+        self._open_points_dialog()
+
+    def new_point(self) -> None:
+        """Main menu "Tools -> Add point..." (2026-09-01) -> the same fresh
+        blank form as the Config tree context menu's "Add point..." (add_point_
+        requested -> _start_new_point)."""
+        self._start_new_point(self.root_metadata_dock.root_path)
 
     def _start_new_rule(self, file_path) -> None:
         """ConfigTreeDock's add_rule_requested delegate — same reasoning as
@@ -807,6 +838,16 @@ class DockHub:
         self.thermal_via_dialog.show()
         self.thermal_via_dialog.raise_()
         self.thermal_via_dialog.activateWindow()
+
+    def _open_points_dialog(self) -> None:
+        """Show/raise the ONE live Points dialog — non-modal, so the user can
+        keep selecting on the board while it's open: the ~2s snapshot tick
+        keeps feeding the same points_dock instance inside it. Closing via the
+        window X just hides it (QDialog default), so the next open starts from
+        the current board state."""
+        self.points_dialog.show()
+        self.points_dialog.raise_()
+        self.points_dialog.activateWindow()
 
     def _open_project_dialog(self) -> None:
         """Show/raise the ONE live Project dialog (File > "Project...",

@@ -98,9 +98,11 @@ logger = logging.getLogger(__name__)
 
 
 class PointsDock(QWidget):
-    """A page inside DetailDock's stack (gui/docks/detail_panel.py) — same
-    "plain QWidget, not its own QDockWidget" shape as Extract/Placer/
-    Project/Thermal via, see their module docstrings."""
+    """Edits a named `points:` entry — hosted since 2026-09-01 (plan
+    plan_2026_09_01_points_dialog.md) in the standalone non-modal PointsDialog
+    (gui/docks/points_dialog.py), same "plain QWidget, not its own
+    QDockWidget" shape as ExtractDock/ThermalViaArrayDock, see their module
+    docstrings. The single live instance is owned by DockHub."""
 
     # Fired after a successful Save — ConfigTreeDock listens to refresh its
     # Points category (see gui/dock_hub.py), same as Placer/ThermalVia/Extract.
@@ -419,13 +421,15 @@ class PointsDock(QWidget):
 
     def load_entry(self, name: str) -> None:
         """Reverse of _build_entry() — called by ConfigTreeDock's Points
-        category (via points_picked) when an already-saved entry is
-        clicked. points: is a DICT section (see module docstring), so the
-        signal only carries the name — the actual data is re-read fresh
-        from the WHOLE include graph here (a point can live in any included
-        file). The WRITE target is set back to the file the entry actually
-        lives in, so a Save updates that file instead of duplicating the
-        point into the root (2026-08-21 review fix)."""
+        category (via points_edit_requested, a DOUBLE click on a points:
+        leaf, since 2026-09-01 — see plan plan_2026_09_01_points_dialog.md)
+        when an already-saved entry is opened. points: is a DICT section
+        (see module docstring), so the signal only carries the name — the
+        actual data is re-read fresh from the WHOLE include graph here (a
+        point can live in any included file). The WRITE target is set back
+        to the file the entry actually lives in, so a Save updates that
+        file instead of duplicating the point into the root (2026-08-21
+        review fix)."""
         self._show_message("")
         source = find_dict_entry_file(self._root_path, "points", name)
         if source is not None:

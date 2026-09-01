@@ -4,7 +4,6 @@ from gui.docks.cell_editor import CellDock
 from gui.docks.detail_panel import DetailDock
 from gui.docks.net_trace import NetTraceDock
 from gui.docks.placer import PlacerDock
-from gui.docks.points import PointsDock
 from gui.docks.rules import RuleDock
 from gui.docks.tools import ToolsDock
 
@@ -12,16 +11,16 @@ from gui.docks.tools import ToolsDock
 def test_pages_are_the_expected_panel_types(main_window):
     dock = DetailDock(main_window)
     assert isinstance(dock.placer_panel, PlacerDock)
-    assert isinstance(dock.points_panel, PointsDock)
     assert isinstance(dock.rules_panel, RuleDock)
     assert isinstance(dock.net_trace_panel, NetTraceDock)
     assert isinstance(dock.cells_panel, CellDock)
     assert isinstance(dock.tools_panel, ToolsDock)
     # Coordinate placements merged into PlacerDock (2026-08-12, Group 1) —
     # no separate Coordinate panel/tab anymore. Extract (2026-08-31), Thermal
-    # via (2026-09-01), and Project + Settings (2026-09-01, plan
-    # project_settings_dialogs) are all standalone dialogs now, NOT pages.
-    assert dock.stack.count() == 6
+    # via (2026-09-01), Points (2026-09-01, plan plan_2026_09_01_points_dialog
+    # .md), and Project + Settings (2026-09-01, plan project_settings_dialogs)
+    # are all standalone dialogs now, NOT pages.
+    assert dock.stack.count() == 5
 
 
 def test_placer_tab_is_shown_first(main_window):
@@ -69,7 +68,8 @@ def test_no_project_or_settings_tab_since_they_are_dialogs(main_window):
     labels = [dock.tab_bar.tabText(i) for i in range(dock.tab_bar.count())]
     assert "Project" not in labels
     assert "Settings" not in labels
-    assert labels == ["Placer", "Points", "Rules", "Net traces", "Cells", "Tools"]
+    assert "Points" not in labels
+    assert labels == ["Placer", "Rules", "Net traces", "Cells", "Tools"]
 
 
 def test_manually_clicking_a_tab_switches_the_stack(main_window):
@@ -92,31 +92,24 @@ def test_show_coordinate_placer_switches_to_the_placer_tab(main_window):
     assert dock.stack.currentWidget() is dock.placer_panel
 
 
-def test_show_points_switches_tab_and_stack(main_window):
-    dock = DetailDock(main_window)
-    dock.show_points()
-    assert dock.tab_bar.currentIndex() == 1
-    assert dock.stack.currentWidget() is dock.points_panel
-
-
 def test_show_rules_switches_tab_and_stack(main_window):
     dock = DetailDock(main_window)
     dock.show_rules()
-    assert dock.tab_bar.currentIndex() == 2
+    assert dock.tab_bar.currentIndex() == 1
     assert dock.stack.currentWidget() is dock.rules_panel
 
 
 def test_show_net_trace_switches_tab_and_stack(main_window):
     dock = DetailDock(main_window)
     dock.show_net_trace()
-    assert dock.tab_bar.currentIndex() == 3
+    assert dock.tab_bar.currentIndex() == 2
     assert dock.stack.currentWidget() is dock.net_trace_panel
 
 
 def test_show_cells_switches_tab_and_stack(main_window):
     dock = DetailDock(main_window)
     dock.show_cells()
-    assert dock.tab_bar.currentIndex() == 4
+    assert dock.tab_bar.currentIndex() == 3
     assert dock.stack.currentWidget() is dock.cells_panel
 
 
@@ -178,17 +171,17 @@ def test_title_updates_when_loading_a_different_entity_on_the_same_tab(main_wind
 def test_manual_tab_click_also_updates_the_title(main_window):
     dock = DetailDock(main_window)
     dock.rules_panel.name_edit.setText("my_rule")
-    dock.tab_bar.setCurrentIndex(2)  # Rules
+    dock.tab_bar.setCurrentIndex(1)  # Rules
     assert dock.windowTitle() == "Detail — Rules: my_rule"
 
 
 def test_show_tools_switches_tab_and_stack(main_window):
     """Tools (2026-08-30, phase 5.2 stage 3) — the Entity's electrical
-    fields, now the LAST tab (after the Project/Settings tabs moved out into
-    dialogs on 2026-09-01)."""
+    fields, now the LAST tab (after the Project/Settings/Points tabs moved out
+    into dialogs on 2026-09-01)."""
     dock = DetailDock(main_window)
     dock.show_tools()
-    assert dock.tab_bar.currentIndex() == 5
+    assert dock.tab_bar.currentIndex() == 4
     assert dock.stack.currentWidget() is dock.tools_panel
 
 

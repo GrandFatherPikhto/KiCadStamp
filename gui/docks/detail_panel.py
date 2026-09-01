@@ -15,6 +15,8 @@ so they are no longer tabs here:
   non-modal ExtractDialog (gui/docks/extract_dialog.py);
 - Thermal via (2026-09-01, plan plan_2026_09_01_thermal_via_dialog.md) — the
   non-modal ThermalViaDialog (gui/docks/thermal_via_dialog.py);
+- Points (2026-09-01, plan plan_2026_09_01_points_dialog.md) — the non-modal
+  PointsDialog (gui/docks/points_dialog.py);
 - Project (RootMetadataDock) and Settings (ConfiguratorDock) — 2026-09-01,
   plan project_settings_dialogs — moved into the non-modal ProjectDialog
   (File > "Project...", gui/docks/project_dialog.py) and the modal
@@ -67,19 +69,19 @@ from ._common import highlight_stylesheet_for
 from .cell_editor import CellDock
 from .net_trace import NetTraceDock
 from .placer import PlacerDock
-from .points import PointsDock
 from .rules import RuleDock
 from .tools import ToolsDock
 
-_PLACER, _POINTS, _RULES, _NET_TRACE, _CELLS = range(5)
+_PLACER, _RULES, _NET_TRACE, _CELLS = range(4)
 # Tools (2026-08-30, Entity/Placement split phase 5.2 stage 3): the Entity's
 # electrical fields (Nets/Net overrides/Refs), moved out of PlacerDock.
-# Indexes shifted -2 on 2026-09-01 (plan extract_dialog_and_hide_existing.md /
-# plan_2026_09_01_thermal_via_dialog.md): the Extract page (2026-08-31) and
-# the Thermal via page (2026-09-01) were both removed from this dock. Shifted
-# -2 again on 2026-09-01 (plan project_settings_dialogs): the Project and
-# Settings pages moved out into standalone dialogs too.
-_TOOLS = 5
+# Indexes shifted on 2026-09-01 (plan extract_dialog_and_hide_existing.md /
+# plan_2026_09_01_thermal_via_dialog.md / plan_2026_09_01_points_dialog.md):
+# the Extract page (2026-08-31), the Thermal via page (2026-09-01) and the
+# Points page (2026-09-01) were all removed from this dock. Shifted again on
+# 2026-09-01 (plan project_settings_dialogs): the Project and Settings pages
+# moved out into standalone dialogs too.
+_TOOLS = 4
 
 
 class _StackedPages(QStackedWidget):
@@ -123,7 +125,6 @@ class DetailDock(QDockWidget):
         # (Tools > "Settings...", see gui/docks/settings_dialog.py). This dock
         # keeps only the entity edit forms.
         self.tab_bar.addTab(_("Placer"))
-        self.tab_bar.addTab(_("Points"))
         self.tab_bar.addTab(_("Rules"))
         self.tab_bar.addTab(_("Net traces"))
         self.tab_bar.addTab(_("Cells"))
@@ -137,7 +138,6 @@ class DetailDock(QDockWidget):
         # actually on — see _StackedPages.
         self.stack = _StackedPages()
         self.placer_panel = PlacerDock(main_window)
-        self.points_panel = PointsDock(main_window, connection=connection)
         self.rules_panel = RuleDock(main_window)
         self.net_trace_panel = NetTraceDock(main_window, connection=connection)
         self.cells_panel = CellDock(main_window)
@@ -145,7 +145,6 @@ class DetailDock(QDockWidget):
         # Stack order must match the tab-bar order exactly (setCurrentIndex
         # drives stack.setCurrentIndex).
         self.stack.addWidget(self.placer_panel)
-        self.stack.addWidget(self.points_panel)
         self.stack.addWidget(self.rules_panel)
         self.stack.addWidget(self.net_trace_panel)
         self.stack.addWidget(self.cells_panel)
@@ -174,7 +173,6 @@ class DetailDock(QDockWidget):
 
     _PAGE_LABELS = {
         _PLACER: _("Placer"),
-        _POINTS: _("Points"),
         _RULES: _("Rules"),
         _NET_TRACE: _("Net traces"),
         _CELLS: _("Cells"),
@@ -192,8 +190,6 @@ class DetailDock(QDockWidget):
         index = self.tab_bar.currentIndex()
         if index == _PLACER:
             return self.placer_panel.current_entity_name
-        if index == _POINTS:
-            return self.points_panel.name_edit.text().strip()
         if index == _RULES:
             return self.rules_panel.name_edit.text().strip() or self.rules_panel.net_edit.currentText().strip()
         if index == _NET_TRACE:
@@ -235,9 +231,6 @@ class DetailDock(QDockWidget):
         hosts the coordinate mode now — there is no separate Coordinate
         placer tab anymore, the Placer tab switches its field set instead."""
         self._show(_PLACER)
-
-    def show_points(self) -> None:
-        self._show(_POINTS)
 
     def show_rules(self) -> None:
         self._show(_RULES)
