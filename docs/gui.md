@@ -41,8 +41,33 @@ tree. Rebuilding the full snapshot happens only on an explicit action — the st
 (**Reconnect** while disconnected, **Refresh** while connected).
 
 The window has a **menu bar** with two top-level menus built by FUNCTION, not per dock: **File**
-(Open/New/Recent/Close/Quit — see [docs/hotkeys.md](hotkeys.md)) and **View** (2026-08-27, one
-checkable entry per top-level dock, so a closed dock can be brought back without restarting).
+(Open/New/**Save**/**Discard unsaved changes...**/Recent/Close/Quit — see
+[docs/hotkeys.md](hotkeys.md)) and **View** (2026-08-27, one checkable entry per top-level dock, so a
+closed dock can be brought back without restarting).
+
+## Save model (staging, 2026-09-01)
+
+Every config edit in the GUI lands in an in-memory **working set** first
+(`kicadstamp/config_working_set.py`) — the config tree, the name collectors, `load_config` and
+Redraw all read the staged state immediately ("it worked"), but **nothing is written to the config
+files until File > Save (Ctrl+S) commits the whole project**. This closes the old gap where the
+Trees editor had a controlled Save+backup flow while every other dock wrote its config files in
+real time.
+
+- **File > Save (Ctrl+S)** flushes the working set to disk atomically: it validates the staged graph
+  (`load_config`) BEFORE writing anything, so a cross-file inconsistency aborts with nothing written;
+  backs each existing dirty file into `history/` (next to the root config, timestamped, never
+  overwritten); writes each file via a temp + `os.replace()`; then invalidates caches and refreshes
+  the docks.
+- **File > Discard unsaved changes...** drops the working set and reloads every dock from disk.
+  Deliberately does NOT roll back Redraw steps already applied to the live board (that is what
+  KiCad's own Ctrl+Z / the operation-log Undo button are for).
+- A **●** in the status bar (and on the File > Save item) marks the project as having unsaved
+  config changes. Switching or closing the project with a dirty working set asks
+  Save/Discard/Cancel first.
+- The per-dock Save buttons that used to write immediately now stage the current form (they remain
+  visible while the auto-stage commit-points migration is in progress; RootMetadata already
+  auto-stages its fields on commit points).
 
 ## Components tree
 
