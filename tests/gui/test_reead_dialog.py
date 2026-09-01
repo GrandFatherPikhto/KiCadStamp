@@ -42,3 +42,19 @@ def test_unchecking_all_returns_empty(main_window):
         cb.setChecked(False)
 
     assert dialog.selected_rows() == []
+
+
+def test_first_column_header_is_plain_empty_not_po_header(main_window):
+    """Found live 2026-08-31: the checkbox column's header was _("") — gettext
+    resolves the empty msgid to the .po FILE HEADER (Project-Id-Version,
+    POT-Creation-Date, ...), so the first column's header rendered the .pot
+    content. The header must be a plain empty string, never run through _()."""
+    dialog = ReReadDialog(_clusters(), main_window)
+
+    header = dialog._table.horizontalHeaderItem(0)
+    assert header is not None
+    assert header.text() == ""
+    assert "Project-Id-Version" not in header.text()
+    # The other columns keep their (translated) labels.
+    assert dialog._table.horizontalHeaderItem(1).text()
+    assert dialog._table.horizontalHeaderItem(4).text()

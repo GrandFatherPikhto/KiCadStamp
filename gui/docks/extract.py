@@ -2326,7 +2326,7 @@ class ExtractDock(QWidget):
             self._show_message(_("Set the project root first."), _ERROR_STYLE)
             return
         try:
-            cfg, _ctx = load_config(str(self._root_path))
+            cfg, ctx = load_config(str(self._root_path))
         except Exception as e:
             self._show_message(_("Failed to load config: {error}").format(error=e), _ERROR_STYLE)
             return
@@ -2335,7 +2335,16 @@ class ExtractDock(QWidget):
             self._selected_footprints,
             list(self._connection.snapshot or []),
             list(cfg.entities),
-            self._graph_section_keys("extract_profiles"))
+            self._graph_section_keys("extract_profiles"),
+            sheet_names=dict(ctx.sheet_names or {}))
+        # Diagnostic + defensive filter (live 2026-08-31: a stray .pot header
+        # leaked into the dialog's first row) — a row must be a sane single-line
+        # cluster/cell; anything else is dropped and reported in the Log.
+        before = len(clusters)
+        clusters = [c for c in clusters
+                    if c.cluster and "\n" not in c.cluster and "\n" not in (c.cell or "")]
+        logger.info("Re-read selected: %d -> %d cluster(s), first=%r",
+                    before, len(clusters), clusters[0] if clusters else None)
         if not clusters:
             self._show_message(
                 _("No fully selected Cluster found — select ALL components of a "

@@ -496,6 +496,44 @@ class TestTemporarilyIgnoreSelection:
         assert adapter.ignore_selection is False
 
 
+def test_get_items_by_id_all_stale_batch_is_quiet(caplog):
+    """Found live 2026-08-31 (fpga_flash, 30 stale registry UUIDs): KiCad
+    raises ApiError "none of the requested IDs were found or valid" when the
+    WHOLE requested batch is stale. That is the documented "a stale UUID is
+    not an error" case — get_items_by_id must return [] WITHOUT a WARNING, or
+    the Sub-placements catalog would spam the Log dock after every extract /
+    re-read that refreshes a fully-covered placement's registry copper."""
+    import logging
+
+    adapter = Adapter.__new__(Adapter)
+    adapter._board = MagicMock()
+    adapter._board.get_items_by_id.side_effect = RuntimeError(
+        "KiCad returned error: none of the requested IDs were found or valid")
+
+    with caplog.at_level(logging.DEBUG, logger="kicadstamp.kicad.adapter"):
+        assert adapter.get_items_by_id(["stale-1", "stale-2"]) == []
+
+    assert not any(r.levelno >= logging.WARNING for r in caplog.records)
+
+
+def test_get_items_by_id_genuine_error_still_warns(caplog):
+    """Only the all-stale ApiError is benign — a transport/IPC failure is a
+    real error and must keep warning (returns [] so the caller degrades to
+    "no copper", never crashes)."""
+    import logging
+
+    adapter = Adapter.__new__(Adapter)
+    adapter._board = MagicMock()
+    adapter._board.get_items_by_id.side_effect = RuntimeError("ipc timeout")
+
+    with caplog.at_level(logging.DEBUG, logger="kicadstamp.kicad.adapter"):
+        assert adapter.get_items_by_id(["u1"]) == []
+
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert warnings
+    assert any("Failed to look up items by id" in r.getMessage() for r in warnings)
+
+
 if __name__ == "__main__":
     print("Running kicad tests (without KiCad connection)...")
     test_import()

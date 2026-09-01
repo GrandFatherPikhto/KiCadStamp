@@ -25,9 +25,10 @@ Testable without Qt.
 """
 import re
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Mapping, Optional
 
 from kicadstamp.explore import Selected
+from kicadstamp.sheet_names import resolve_sheet_path_names
 
 
 @dataclass
@@ -45,6 +46,23 @@ def _slugify(text: str) -> str:
     """Same slug as ExtractDock._slugify — a Cluster tag -> default cell name
     when no Entity provides one."""
     return re.sub(r"[^0-9a-zA-Z]+", "_", text.strip().lower()).strip("_")
+
+
+def _sheet_chain(s: Selected, sheet_names: Optional[Mapping[str, str]] = None) -> list:
+    """The footprint's resolved sheet chain. The GUI's BoardConnection connects
+    WITHOUT schematic_dir, so its snapshot's `Selected.sheet` chains are all
+    None — but each Selected carries the raw footprint, so when `sheet_names`
+    (from the config's RuntimeContext) is available we re-resolve the real
+    names (Channel_0/1/2...) on the fly; otherwise fall back to the snapshot's
+    own chain (exact in CLI/tests)."""
+    if sheet_names:
+        fp = getattr(s, "fp", None)
+        if fp is not None:
+            try:
+                return resolve_sheet_path_names(fp, sheet_names)
+            except Exception:
+                pass
+    return list(s.sheet or ())
 
 
 def sheet_of(fp_sheet) -> Optional[str]:
@@ -66,17 +84,19 @@ def match_entity(entities, cluster: str, fp_sheet) -> Optional[Any]:
     return None
 
 
-def instance_sheet(fp: Selected, entities) -> Optional[str]:
+def instance_sheet(fp: Selected, entities, sheet_names: Optional[Mapping[str, str]] = None) -> Optional[str]:
     """Sheet identity of a footprint for grouping: its matched Entity's sheet
     (exact for hierarchical channels like Channel_0/1/2), else the first
     non-None chain segment as a best-effort fallback."""
-    e = match_entity(entities, fp.cluster or "", fp.sheet)
+    chain = _sheet_chain(fp, sheet_names)
+    e = match_entity(entities, fp.cluster or "", chain)
     if e is not None:
         return e.sheet
-    return sheet_of(fp.sheet)
+    return sheet_of(chain)
 
 
-def group_selected(selected: Iterable[Selected], entities) -> dict:
+def group_selected(selected: Iterable[Selected], entities,
+                   sheet_names: Optional[Mapping[str, str]] = None) -> dict:
     """{(cluster, sheet): [Selected...]} — selected footprints grouped by
     (Cluster tag, instance sheet). Footprints without a Cluster tag are ignored
     (vias/tracks are handled separately, from the raw items)."""
@@ -84,26 +104,29 @@ def group_selected(selected: Iterable[Selected], entities) -> dict:
     for s in selected:
         if not s.cluster:
             continue
-        key = (s.cluster, instance_sheet(s, entities))
+        key = (s.cluster, instance_sheet(s, entities, sheet_names))
         groups.setdefault(key, []).append(s)
     return groups
 
 
 def fully_selected_clusters(selected: Iterable[Selected], snapshot: Iterable[Selected],
-                            entities, profile_keys: Iterable[str]) -> list[ReReadCluster]:
+                            entities, profile_keys: Iterable[str],
+                            sheet_names: Optional[Mapping[str, str]] = None) -> list[ReReadCluster]:
     """Clusters of the selection that are FULLY selected: every board component
     of the (Cluster tag, sheet) instance (snapshot footprints with the same
     Cluster whose sheet chain contains the group's sheet) is in the selection.
-    Each maps to its Entity -> cell -> extract_profiles key (if any)."""
+    Each maps to its Entity -> cell -> extract_profiles key (if any).
+    `sheet_names` (RuntimeContext) re-resolves the GUI snapshot's otherwise-None
+    sheet chains from the raw footprints — see _sheet_chain."""
     selected_by_ref = {s.ref for s in selected}
-    groups = group_selected(selected, entities)
+    groups = group_selected(selected, entities, sheet_names)
     profile_keys = set(profile_keys)
     clusters: list[ReReadCluster] = []
     for (cluster, sheet), members in groups.items():
         if not sheet:
             continue
         snapshot_members = [s for s in snapshot
-                            if s.cluster == cluster and sheet in (s.sheet or ())]
+                            if s.cluster == cluster and sheet in _sheet_chain(s, sheet_names)]
         if not snapshot_members:
             continue
         if not all(s.ref in selected_by_ref for s in snapshot_members):

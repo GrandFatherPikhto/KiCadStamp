@@ -90,3 +90,42 @@ def test_cell_falls_back_to_cluster_slug_when_no_entity():
     assert c.entity_name is None
     assert c.cell == "my_new"
     assert c.profile_key is None
+
+
+class _FakeFP:
+    """Raw footprint exposing sheet_path_uuids for resolve_sheet_path_names."""
+
+    def __init__(self, uuids):
+        self.sheet_path_uuids = uuids
+
+
+def test_sheet_names_resolve_gui_stale_chains():
+    """Live bug 2026-08-31: the GUI's BoardConnection connects WITHOUT
+    schematic_dir, so its snapshot's Selected.sheet chains are all None and the
+    three PIF_AVDD instances can't be told apart by sheet. The fix: pass the
+    config's RuntimeContext sheet_names, re-resolve each footprint's sheet from
+    its raw fp, and the Channel_0 instance is found again."""
+    sheet_names = {
+        "root-uuid": "root", "ch0-uuid": "Channel_0", "dac-uuid": "DAC", "c0-uuid": "comp0",
+        "ch1-uuid": "Channel_1", "c1-uuid": "comp1",
+    }
+
+    def _sel_gui(ref, cluster, uuids):
+        # fp carries the sheet path; sheet=[None] mimics the GUI snapshot.
+        return Selected(ref=ref, role=None, cluster=cluster, sheet=[None], nets={},
+                        fp=_FakeFP(uuids))
+
+    snapshot = [
+        _sel_gui("R1", "PIF_AVDD", ["root-uuid", "ch0-uuid", "dac-uuid", "c0-uuid"]),
+        _sel_gui("C1", "PIF_AVDD", ["root-uuid", "ch0-uuid", "dac-uuid", "c0-uuid"]),
+        _sel_gui("R2", "PIF_AVDD", ["root-uuid", "ch1-uuid", "dac-uuid", "c1-uuid"]),
+        _sel_gui("C2", "PIF_AVDD", ["root-uuid", "ch1-uuid", "dac-uuid", "c1-uuid"]),
+    ]
+    selected = snapshot[:2]  # Channel_0 only, fully
+    clusters = fully_selected_clusters(selected, snapshot, _pif_entities(),
+                                       ["dac_pif_avdd"], sheet_names=sheet_names)
+
+    assert len(clusters) == 1
+    assert clusters[0].sheet == "Channel_0"
+    assert clusters[0].entity_name == "CH0_PIF_AVDD"
+    assert clusters[0].cell == "dac_pif_avdd"

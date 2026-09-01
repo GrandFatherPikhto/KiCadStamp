@@ -22,6 +22,13 @@ from kicadstamp.i18n import _
 from .reead import ReReadCluster
 
 
+def _single_line(text: object) -> str:
+    """Collapse any whitespace (including newlines) to single spaces — a table
+    cell must never render raw multi-line/file content (live 2026-08-31: a
+    stray .pot header leaked into the first row)."""
+    return " ".join(str(text).split())
+
+
 class ReReadDialog(QDialog):
     """Modal dialog listing fully-selected Clusters with checkboxes."""
 
@@ -33,8 +40,12 @@ class ReReadDialog(QDialog):
 
         layout = QVBoxLayout(self)
         self._table = QTableWidget(len(self._clusters), 5)
+        # The checkbox column's header is a PLAIN empty string — never _(""):
+        # gettext stores the .po file header under the empty msgid, so _("")
+        # renders "Project-Id-Version: ... POT-Creation-Date: ..." as the first
+        # column's header (found live 2026-08-31).
         self._table.setHorizontalHeaderLabels(
-            [_(""), _("Cluster"), _("Sheet"), _("Entity"), _("Cell")])
+            ["", _("Cluster"), _("Sheet"), _("Entity"), _("Cell")])
         self._table.verticalHeader().setVisible(False)
         self._table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.ResizeToContents)
@@ -52,11 +63,16 @@ class ReReadDialog(QDialog):
         for row, c in enumerate(self._clusters):
             cb = QCheckBox()
             cb.setChecked(True)
+            # An explicit (empty) item under the checkbox cell too — defensive:
+            # a failed setCellWidget must never leak unrelated text into the
+            # first column. All data cells are rendered single-line via
+            # _single_line.
+            self._table.setItem(row, 0, QTableWidgetItem(""))
             self._table.setCellWidget(row, 0, cb)
             self._checkboxes.append(cb)
             for col, text in enumerate(
                     (c.cluster, c.sheet or "-", c.entity_name or "-", c.cell), 1):
-                self._table.setItem(row, col, QTableWidgetItem(text))
+                self._table.setItem(row, col, QTableWidgetItem(_single_line(text)))
         layout.addWidget(self._table)
 
         buttons = QDialogButtonBox(

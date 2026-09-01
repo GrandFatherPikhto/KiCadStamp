@@ -43,6 +43,17 @@ from . import pynng_safety  # noqa: F401
 logger = logging.getLogger(__name__)
 
 
+def _is_all_ids_stale_error(error: Exception) -> bool:
+    """True when kipy raised KiCad's "whole batch is stale" ApiError — the
+    server rejects a get_items_by_id request in which NO requested UUID maps
+    to a live item ("none of the requested IDs were found or valid"). That is
+    the registry's own "a stale UUID is not an error" case (registry.py
+    reconcile), so callers simply get no copper. Anything else (transport /
+    IPC timeout / malformed request) is a genuine error."""
+    text = str(error).lower()
+    return "none of the requested ids" in text or "not found or valid" in text
+
+
 class KiCadBoardAdapter(IBoardAdapter):
     def __init__(self, timeout_ms: int = DEFAULT_TIMEOUT_MS):
         logger.debug(_("Initialising KiCadBoardAdapter with timeout {timeout} ms").format(timeout=timeout_ms))
@@ -221,6 +232,20 @@ class KiCadBoardAdapter(IBoardAdapter):
         try:
             raw = self._board.get_items_by_id(kiids)
         except Exception as e:
+            # KiCad raises ApiError "none of the requested IDs were found or
+            # valid" when the WHOLE batch is stale (no live item matches ANY
+            # requested UUID). That is exactly the "stale UUID is not an error"
+            # case this docstring promises, so it is logged quietly and [] is
+            # returned. Any other failure (transport/IPC) IS a real error and
+            # stays a warning. Found live 2026-08-31: the Sub-placements
+            # catalog resolves a fully-covered placement's registry copper on
+            # every post-save refresh, so an all-stale batch (e.g. fpga_flash's
+            # leftover registry) must not spam the Log dock after every
+            # extract/re-read.
+            if _is_all_ids_stale_error(e):
+                logger.debug(_("Registry UUIDs have no live items ({type}: {e})")
+                             .format(type=type(e).__name__, e=e))
+                return []
             logger.warning(_("Failed to look up items by id: {type}: {e}")
                            .format(type=type(e).__name__, e=e))
             return []

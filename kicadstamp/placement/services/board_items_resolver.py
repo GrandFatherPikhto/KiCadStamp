@@ -146,6 +146,11 @@ def _resolve_clone_copper(adapter, anchor_id: str,
         for key, entry in load_track_registry(track_registry_path).items():
             if key.startswith(prefix):
                 uuids.append(entry.uuid)
+    # Which anchor/clone is asking for registry copper and how many registry
+    # entries it has — attribution context for the live-board copper lookup.
+    if uuids:
+        logger.info("resolve_clone_copper: %d registry UUID(s) for anchor %s",
+                    len(uuids), anchor_id)
     return _live_items_by_uuid(adapter, uuids)
 
 
