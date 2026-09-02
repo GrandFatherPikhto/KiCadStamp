@@ -470,6 +470,19 @@ is written into the root config's `trees:` section through the same `config_writ
 whose cluster has no Entity or a missing cell are marked and block OK; an empty/duplicate tree name
 or a missing Role also blocks OK.
 
+The main menu's **Tools → Extract cluster...** (2026-09-03) is the NARROWER sibling of
+**Extract tree...** for the case where you want ONLY one fully-selected Cluster as a standalone, flat
+Entity (+ its Cell generated from the cluster's own selection when it doesn't exist yet) — with NO
+tree node, NO anchor and NO `net_traces:` capture. It uses the SAME cluster detection as **Extract
+tree...** (a fully-selected Cluster = all its board components in the selection, matched by Cluster
+tag + sheet), then shows a small single-cluster modal dialog: pick the Cluster, and the Entity name
+is prefilled — auto-derived when new (editable, with the usual duplicate-name validation), read-only
+when an Entity for this Cluster + sheet already exists (reused, never duplicated). On OK the Entity
+is written to the root config's `entities:` (and the new Cell to `cells:`) through the same
+`config_writer` chokepoint; the Config tree refreshes immediately. An Entity stores no position, so
+placing this one (a manual tree node, a `tree_instances:` template, ...) is a separate, later step —
+"Extract cluster..." never writes a position.
+
 The main menu's **Tools → Place thermal vias...** (2026-09-01) and the Config tree context menu's
 "Add thermal via pad..." (plus a click on a `thermal_via_arrays` leaf) open the standalone
 (non-modal) **Thermal via** dialog — a fresh blank form for "Add ...", the entry pre-loaded for a

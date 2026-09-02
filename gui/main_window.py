@@ -238,6 +238,15 @@ class MainWindow(QMainWindow):
         self.extract_tree_action.triggered.connect(
             lambda: self._dock_hub.extract_tree_from_selection())
         tools_menu.addAction(self.extract_tree_action)
+        # "Extract cluster..." (2026-09-03, plan extract_cluster_entity): a
+        # NARROWER sibling of "Extract tree..." — ONE fully-selected Cluster ->
+        # a standalone flat Entity (+ its Cell if missing), NO tree node, NO
+        # anchor, NO net_traces (an Entity stores no position; the user places
+        # it later by any mechanism).
+        self.extract_cluster_action = QAction(_("Extract cluster..."), self)
+        self.extract_cluster_action.triggered.connect(
+            lambda: self._dock_hub.extract_cluster_from_selection())
+        tools_menu.addAction(self.extract_cluster_action)
         # "Place thermal vias..." (2026-09-01, plan
         # plan_2026_09_01_thermal_via_dialog.md): opens the standalone
         # (non-modal) Thermal via dialog with a fresh blank form — same shape

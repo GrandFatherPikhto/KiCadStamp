@@ -679,6 +679,186 @@ def test_extract_tree_happy_path_saves_tree_and_nets(real_main_window,
     assert graph_changed
 
 
+# ── Tools -> Extract cluster... (2026-09-03, plan extract_cluster_entity) ──
+
+def test_tools_menu_extract_cluster_routes_to_dock_hub(real_main_window,
+                                                       monkeypatch):
+    """Tools has "Extract cluster..." right after "Extract tree..." and it
+    routes to DockHub.extract_cluster_from_selection (a narrower sibling —
+    one flat Entity, no tree node)."""
+    tools = next(m for m in real_main_window.menuBar().actions()
+                 if m.text() == "Tools").menu()
+    texts = [a.text() for a in tools.actions()]
+    assert "Extract tree..." in texts and "Extract cluster..." in texts
+    assert texts.index("Extract tree...") < texts.index("Extract cluster...")
+
+    called = []
+    monkeypatch.setattr(real_main_window._dock_hub, "extract_cluster_from_selection",
+                        lambda: called.append(True))
+    real_main_window.extract_cluster_action.trigger()
+    assert called == [True]
+
+
+def test_extract_cluster_no_fully_selected_cluster_shows_message(
+        real_main_window, tmp_path, monkeypatch):
+    """No fully-selected cluster -> the same warning text as "Extract tree..."
+    and the dialog is NOT opened."""
+    root = tmp_path / "root.sexp"
+    _write(root)
+    real_main_window.root_metadata_dock.set_root_file(root)
+    real_main_window.connection = SimpleNamespace(
+        board=SimpleNamespace(adapter=object()), snapshot=[], long_op_active=False)
+    hub = real_main_window._dock_hub
+    hub._selection_footprints = []
+    hub._selection_raw_items = []
+
+    warnings = []
+    monkeypatch.setattr(dock_hub_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a[2]))
+    constructed = []
+    monkeypatch.setattr("gui.docks.extract_cluster_dialog.ExtractClusterDialog",
+                        lambda *a, **k: constructed.append(True) or object())
+
+    hub.extract_cluster_from_selection()
+
+    assert any("No fully selected Cluster" in w for w in warnings)
+    assert constructed == []
+
+
+def test_extract_cluster_happy_path_writes_cell_and_entity(
+        real_main_window, tmp_path, monkeypatch):
+    """The full flow: after OK the root config gains a NEW standalone Entity
+    (+ its generated cell) in entities:/cells: — NO trees:, NO net_traces, NO
+    anchor. The write is staged (WORKING_SET.flush to read back), ConfigTreeDock
+    is refreshed and graph_changed is emitted."""
+    root = tmp_path / "root.sexp"
+    _write(root)
+    real_main_window.root_metadata_dock.set_root_file(root)
+    hub = real_main_window._dock_hub
+    sel = _selected_tree("R1", "PIF_AVDD", "Channel_1", {})
+    real_main_window.connection = SimpleNamespace(
+        board=SimpleNamespace(adapter=object()), snapshot=[sel],
+        long_op_active=False)
+    hub._selection_footprints = [sel]
+    hub._selection_raw_items = [sel.fp]
+
+    # Auto-accepting dialog that returns the single cluster un-edited (the
+    # auto-derived Entity name, nothing else).
+    class _FakeDialog:
+        def __init__(self, parent, clusters, cfg):
+            self._clusters = clusters
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+        def selected_cluster(self):
+            return self._clusters[0]
+
+        def entity_name(self):
+            return "pif_avdd_channel_1"
+
+        @property
+        def existing(self):
+            return False
+
+    monkeypatch.setattr("gui.docks.extract_cluster_dialog.ExtractClusterDialog",
+                        _FakeDialog)
+    # Cell generation is faked — the real extractor needs a live adapter. The
+    # fake cell carries a NON-empty component: the s-expr Cell-schema writer
+    # drops empty components: [] entirely (verified live 2026-09-03), so an
+    # empty fake would make the `cells:` section vanish from the flush output.
+    monkeypatch.setattr(tfs_mod, "extract_template_from_selection",
+                        lambda adapter, name, items=None, **kw:
+                        {name: {"components": [
+                            {"role": "DAC", "offset_along_mm": 0.0,
+                             "offset_across_mm": 0.0}]}})
+    infos = []
+    monkeypatch.setattr(dock_hub_mod.QMessageBox, "information",
+                        lambda *a, **k: infos.append(a[2]))
+    refresh_called = []
+    monkeypatch.setattr(real_main_window.config_tree_dock, "refresh",
+                        lambda: refresh_called.append(True))
+    graph_changed = []
+    real_main_window.config_tree_dock.graph_changed.connect(
+        lambda: graph_changed.append(True))
+
+    hub.extract_cluster_from_selection()
+
+    WORKING_SET.flush(root)
+    data = sexp_to_dict(root.read_text(encoding="utf-8"))
+    entities = data.get("entities") or []
+    ent = next(e for e in entities if e["name"] == "pif_avdd_channel_1")
+    assert ent == {"name": "pif_avdd_channel_1", "cell": "pif_avdd",
+                   "cluster": "PIF_AVDD", "sheet": "Channel_1"}
+    # The generated cell survived the s-expr write; sexp normalizes the 0.0
+    # offsets away, so only the role remains on the component.
+    assert (data.get("cells") or {}).get("pif_avdd") == {
+        "components": [{"role": "DAC"}]}
+    # No tree / net_trace got written by this narrower flow.
+    assert not (data.get("trees") or [])
+    assert not (data.get("net_traces") or [])
+    assert refresh_called and graph_changed
+    assert infos, "a success message must be shown"
+
+
+def test_extract_cluster_existing_entity_reuse_writes_nothing(
+        real_main_window, tmp_path, monkeypatch):
+    """A cluster whose (cluster, sheet) Entity already exists -> OK REUSES it:
+    nothing is staged/written (no .bak, no extra entities: row), the flow just
+    refreshes and confirms."""
+    root = tmp_path / "root.sexp"
+    _write(root, {
+        "entities": [
+            {"name": "CH1_PIF_AVDD", "cell": "dac_pif_avdd",
+             "cluster": "PIF_AVDD", "sheet": "Channel_1"},
+        ],
+        "cells": {"dac_pif_avdd": {"components": [{"role": "DAC"}]}},
+    })
+    real_main_window.root_metadata_dock.set_root_file(root)
+    hub = real_main_window._dock_hub
+    sel = _selected_tree("R1", "PIF_AVDD", "Channel_1", {})
+    real_main_window.connection = SimpleNamespace(
+        board=SimpleNamespace(adapter=object()), snapshot=[sel],
+        long_op_active=False)
+    hub._selection_footprints = [sel]
+    hub._selection_raw_items = [sel.fp]
+
+    class _FakeDialog:
+        def __init__(self, parent, clusters, cfg):
+            self._clusters = clusters
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+        def selected_cluster(self):
+            return self._clusters[0]
+
+        def entity_name(self):
+            return "CH1_PIF_AVDD"
+
+        @property
+        def existing(self):
+            return True
+
+    monkeypatch.setattr("gui.docks.extract_cluster_dialog.ExtractClusterDialog",
+                        _FakeDialog)
+    infos = []
+    monkeypatch.setattr(dock_hub_mod.QMessageBox, "information",
+                        lambda *a, **k: infos.append(a[2]))
+    refresh_called = []
+    monkeypatch.setattr(real_main_window.config_tree_dock, "refresh",
+                        lambda: refresh_called.append(True))
+
+    hub.extract_cluster_from_selection()
+
+    # Nothing was written: no backup, and the on-disk entities: are unchanged.
+    assert list(tmp_path.glob("root.sexp.bak*")) == []
+    data = sexp_to_dict(root.read_text(encoding="utf-8"))
+    assert len(data.get("entities") or []) == 1
+    assert refresh_called
+    assert infos and any("already exists" in i for i in infos)
+
+
 def test_tree_net_trace_nets_collects_net_trace_refs():
     """Phase E: _tree_net_trace_nets returns the nets of a tree's net_trace
     nodes (used by the delete-tree cascade to find orphaned net_traces)."""

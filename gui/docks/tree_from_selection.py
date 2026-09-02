@@ -27,6 +27,7 @@ detect_inter_cluster_nets below.
 
 Testable without Qt.
 """
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional
@@ -38,6 +39,7 @@ from kicadstamp.placement.services.component_resolver import (
     ComponentResolver,
     resolve_anchor_pad_position,
 )
+from kicadstamp.template_extraction import extract_template_from_selection
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode
 from kicadstamp.utils.units import MM
 
@@ -178,6 +180,71 @@ def cluster_origin_role(c: ReReadCluster, selected_footprints: Iterable[Any]) ->
             counts[s.role] = counts.get(s.role, 0) + 1
     uniq = sorted(role for role, n in counts.items() if n == 1)
     return uniq[0] if uniq else None
+
+
+def create_cell_and_entity_for_cluster(
+    adapter, c: ReReadCluster, cfg, cells_data: dict,
+    selection_footprints, selection_raw_items,
+    entity_name: Optional[str] = None,
+) -> Optional[dict]:
+    """(re)stage the Cell and build the Entity dict for ONE fully-selected
+    cluster — the shared "one cluster -> one flat Entity" step behind BOTH
+    "Extract tree..." (extract_tree_from_selection) and "Extract cluster..."
+    (2026-09-03, plan extract_cluster_entity).
+
+    - The (cluster, sheet)-matched Entity, when it exists, WINS: nothing is
+      created and None is returned (both callers reuse it — never a duplicate).
+    - Otherwise the Entity name is resolve_cluster_entity's auto-derived one,
+      unless the caller passes `entity_name` (the "Extract cluster..." dialog
+      lets the user edit the auto name before OK).
+    - The slug-named Cell, when absent from cfg.cells AND not already staged in
+      cells_data, is generated from the cluster's own selection
+      (cluster_raw_items + cluster_origin_role + extract_template_from_selection)
+      and staged into cells_data[cell_name].
+    - A FAILED cell generation does not raise: it logs a warning and returns an
+      Entity pointing at a cell name that simply doesn't exist yet (matches the
+      extract_tree_from_selection behavior, dock_hub.py:966-969 — one bad
+      cluster must not crash the caller).
+
+    Returns the Entity dict to append to entities: ({"name", "cell", "cluster"?,
+    "sheet"?}) or None when the cluster's Entity already exists. Never writes to
+    disk itself — the caller owns backup_file/read_data/write_data (the same
+    read-merge-write contract as every config_writer-based dialog in this
+    project)."""
+    resolved_entity, cell_name, is_new = resolve_cluster_entity(c, cfg)
+    if not is_new:
+        return None
+    entity_name = entity_name or resolved_entity
+    # A missing cell is generated from the cluster's own selected copper (phase
+    # A), with a unique role as the origin so the cell gets a zero-slot — which
+    # is what the Entity's live position read requires at apply (entity_placement).
+    if cell_name not in cfg.cells and cell_name not in cells_data:
+        items = cluster_raw_items(c, selection_raw_items)
+        origin_kwargs = {}
+        role = cluster_origin_role(c, selection_footprints)
+        if role:
+            origin_kwargs = dict(
+                origin_component_role=role,
+                origin_component_cluster=c.cluster,
+                origin_component_sheet=c.sheet)
+        try:
+            cell_dict = extract_template_from_selection(
+                adapter, cell_name, items=items, **origin_kwargs)
+        except Exception as e:  # noqa: BLE001 — one bad cluster must not crash the caller
+            logging.warning("Cell %r for cluster %r not generated: %s",
+                            cell_name, c.cluster, e)
+            cell_dict = None
+        if cell_dict:
+            cells_data[cell_name] = cell_dict[cell_name]
+    # The auto-derived Entity (cluster+sheet identity) so link_trees and apply
+    # resolve this tree node (extract_tree), or so the user can place it later
+    # by any existing mechanism (extract_cluster — an Entity stores no position).
+    ent = {"name": entity_name, "cell": cell_name}
+    if c.cluster:
+        ent["cluster"] = c.cluster
+    if c.sheet:
+        ent["sheet"] = c.sheet
+    return ent
 
 
 def resolve_cluster_live_position_mm(adapter, cfg, c: ReReadCluster, sheet_names,

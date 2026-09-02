@@ -14,6 +14,7 @@ from gui.docks.tree_from_selection import (
     cluster_errors,
     cluster_origin_role,
     cluster_raw_items,
+    create_cell_and_entity_for_cluster,
     detect_inter_cluster_nets,
     resolve_cluster_entity,
     tree_anchor_from_cluster_entity,
@@ -325,6 +326,115 @@ def test_build_tree_auto_entity_round_trip_with_link_trees():
     linked = link_trees(cfg2, [tree])
     assert linked[0].nodes[0].record.name == entity_name
     assert linked[0].nodes[0].record.kind == "placement"
+
+
+# ── one cluster -> flat Entity (2026-09-03, plan extract_cluster_entity) ──
+# create_cell_and_entity_for_cluster is the shared "one cluster -> Cell (if
+# new) + Entity" step behind BOTH "Extract tree..." and "Extract cluster...".
+
+def test_create_cell_and_entity_for_cluster_new_cluster_generates_cell_and_entity(
+        monkeypatch):
+    """A cluster with no Entity -> the Entity dict (auto name, cluster+sheet)
+    is returned AND its missing cell is generated from the cluster's selection
+    and staged into cells_data."""
+    c = ReReadCluster(cluster="DAC_BUF", sheet="Channel_0", entity_name=None,
+                      cell="dac_buf", profile_key=None, refs=["U7"])
+    cfg = _cfg()
+    cells_data: dict = {}
+    fake_cell = {"dac_buf": {"components": [{"role": "U7"}]}}
+    monkeypatch.setattr(
+        "gui.docks.tree_from_selection.extract_template_from_selection",
+        lambda adapter, name, items=None, **kw: fake_cell)
+    ent = create_cell_and_entity_for_cluster(
+        object(), c, cfg, cells_data, [], [])
+    assert ent == {"name": "dac_buf_channel_0", "cell": "dac_buf",
+                   "cluster": "DAC_BUF", "sheet": "Channel_0"}
+    assert cells_data == {"dac_buf": {"components": [{"role": "U7"}]}}
+
+
+def test_create_cell_and_entity_for_cluster_existing_entity_reused(
+        monkeypatch):
+    """An Entity for (cluster, sheet) already exists -> None (reuse, never a
+    duplicate), cells_data untouched and no extraction happens."""
+    cfg = _cfg(entities=[Entity(name="CH1_PIF_AVDD", cell="dac_pif_avdd",
+                                cluster="PIF_AVDD", sheet="Channel_1")],
+               cells=[Cell(name="dac_pif_avdd", components=[_slot("DAC")])])
+    c = ReReadCluster(cluster="PIF_AVDD", sheet="Channel_1",
+                      entity_name="CH1_PIF_AVDD", cell="dac_pif_avdd",
+                      profile_key=None, refs=["R1"])
+    cells_data: dict = {}
+    called = []
+    monkeypatch.setattr(
+        "gui.docks.tree_from_selection.extract_template_from_selection",
+        lambda *a, **k: called.append(True) or {})
+    ent = create_cell_and_entity_for_cluster(
+        object(), c, cfg, cells_data, [], [])
+    assert ent is None
+    assert cells_data == {}
+    assert called == []
+
+
+def test_create_cell_and_entity_for_cluster_entity_name_override(monkeypatch):
+    """The "Extract cluster..." dialog lets the user edit the auto Entity name:
+    the override is used verbatim, the cell stays the cluster's slug."""
+    c = ReReadCluster(cluster="DAC_BUF", sheet="Channel_0", entity_name=None,
+                      cell="dac_buf", profile_key=None, refs=["U7"])
+    cfg = _cfg()
+    cells_data: dict = {}
+    monkeypatch.setattr(
+        "gui.docks.tree_from_selection.extract_template_from_selection",
+        lambda adapter, name, items=None, **kw: {name: {"components": []}})
+    ent = create_cell_and_entity_for_cluster(
+        object(), c, cfg, cells_data, [], [], entity_name="my_dac_buf")
+    assert ent["name"] == "my_dac_buf"
+    assert ent["cell"] == "dac_buf"
+    assert ent["cluster"] == "DAC_BUF" and ent["sheet"] == "Channel_0"
+    assert cells_data == {"dac_buf": {"components": []}}
+
+
+def test_create_cell_and_entity_for_cluster_existing_cell_not_regenerated(
+        monkeypatch):
+    """The slug cell already exists in cfg.cells -> NOT regenerated, the Entity
+    still returns pointing at it."""
+    c = ReReadCluster(cluster="DAC_BUF", sheet="Channel_0", entity_name=None,
+                      cell="dac_buf", profile_key=None, refs=["U7"])
+    cfg = _cfg(cells=[Cell(name="dac_buf", components=[_slot("DAC")])])
+    cells_data: dict = {}
+    called = []
+    monkeypatch.setattr(
+        "gui.docks.tree_from_selection.extract_template_from_selection",
+        lambda *a, **k: called.append(True) or {})
+    ent = create_cell_and_entity_for_cluster(
+        object(), c, cfg, cells_data, [], [])
+    assert ent is not None
+    assert ent["name"] == "dac_buf_channel_0"
+    assert ent["cell"] == "dac_buf"
+    assert cells_data == {}
+    assert called == []
+
+
+def test_create_cell_and_entity_for_cluster_failed_extraction_logs_warning(
+        monkeypatch, caplog):
+    """A failed cell generation must NOT crash the caller (one bad cluster must
+    not drop the extract): it logs a warning and returns an Entity pointing at
+    a cell name that simply doesn't exist yet (dock_hub.py:966-969 contract)."""
+    c = ReReadCluster(cluster="DAC_BUF", sheet="Channel_0", entity_name=None,
+                      cell="dac_buf", profile_key=None, refs=["U7"])
+    cfg = _cfg()
+    cells_data: dict = {}
+
+    def _boom(*a, **k):
+        raise RuntimeError("extract failed")
+
+    monkeypatch.setattr(
+        "gui.docks.tree_from_selection.extract_template_from_selection", _boom)
+    with caplog.at_level("WARNING"):
+        ent = create_cell_and_entity_for_cluster(
+            object(), c, cfg, cells_data, [], [])
+    assert ent == {"name": "dac_buf_channel_0", "cell": "dac_buf",
+                   "cluster": "DAC_BUF", "sheet": "Channel_0"}
+    assert cells_data == {}
+    assert any("not generated" in r.message for r in caplog.records)
 
 
 # ── anchor construction ───────────────────────────────────────────────────

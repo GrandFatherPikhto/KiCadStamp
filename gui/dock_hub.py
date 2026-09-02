@@ -819,7 +819,7 @@ class DockHub:
         from .docks.tree_from_selection import (
             cluster_errors,
             cluster_origin_role,
-            cluster_raw_items,
+            create_cell_and_entity_for_cluster,
             detect_inter_cluster_nets,
             resolve_cluster_entity,
             resolve_cluster_live_position_mm,
@@ -933,7 +933,6 @@ class DockHub:
         from kicadstamp.config_writer import read_data, write_data
         from kicadstamp.link_trees import link_trees
         from kicadstamp.net_trace_extract import extract_net_trace, net_trace_to_dict
-        from kicadstamp.template_extraction import extract_template_from_selection
         from kicadstamp.trees import tree_to_dict
         from .docks.entity_delete import backup_file
         from kicadstamp.domain.board import Track, Via
@@ -943,43 +942,21 @@ class DockHub:
             cells_data = data.setdefault("cells", {})
             new_entities: list[Entity] = []
             for c in selected:
-                entity_name, cell_name, is_new = resolve_cluster_entity(c, cfg)
-                if not is_new:
+                # Shared "one cluster -> Cell (if new) + Entity" step — the same
+                # code "Extract cluster..." uses (2026-09-03, plan
+                # extract_cluster_entity); a pure refactor of the inline block
+                # that lived here (2026-09-01, extract_selection_as_tree.md).
+                ent = create_cell_and_entity_for_cluster(
+                    adapter, c, cfg, cells_data,
+                    self._selection_footprints, self._selection_raw_items)
+                if ent is None:
+                    # An Entity for (cluster, sheet) already exists — it is
+                    # reused, nothing to stage or append.
                     continue
-                # A missing cell is generated from the cluster's own selected
-                # copper (phase A), with a unique role as the origin so the
-                # cell gets a zero-slot — which is what the Entity's live
-                # position read requires at apply (entity_placement).
-                if cell_name not in cfg.cells and cell_name not in cells_data:
-                    items = cluster_raw_items(c, self._selection_raw_items)
-                    origin_kwargs = {}
-                    role = cluster_origin_role(
-                        c, self._selection_footprints)
-                    if role:
-                        origin_kwargs = dict(
-                            origin_component_role=role,
-                            origin_component_cluster=c.cluster,
-                            origin_component_sheet=c.sheet)
-                    try:
-                        cell_dict = extract_template_from_selection(
-                            adapter, cell_name, items=items, **origin_kwargs)
-                    except Exception as e:  # noqa: BLE001 — one bad cluster must not drop the tree
-                        logging.warning("Extract tree: cell %r for cluster %r not "
-                                        "generated: %s", cell_name, c.cluster, e)
-                        cell_dict = None
-                    if cell_dict:
-                        cells_data[cell_name] = cell_dict[cell_name]
-                # The auto-derived Entity (cluster+sheet identity) so link_trees
-                # and apply resolve this tree node.
-                ent = {"name": entity_name, "cell": cell_name}
-                if c.cluster:
-                    ent["cluster"] = c.cluster
-                if c.sheet:
-                    ent["sheet"] = c.sheet
                 data.setdefault("entities", []).append(ent)
                 new_entities.append(Entity(
-                    name=entity_name, cell=cell_name,
-                    cluster=c.cluster, sheet=c.sheet))
+                    name=ent["name"], cell=ent["cell"],
+                    cluster=ent.get("cluster"), sheet=ent.get("sheet")))
             # Phase B+C+D: capture the checked inter-cluster nets as net_traces:
             # records BEFORE the tree write, so the tree's net_trace nodes
             # resolve against cfg.net_traces at link_trees time.
@@ -1040,6 +1017,127 @@ class DockHub:
             self.main_window, _("Extract tree"),
             _("Tree {name!r} saved to {path}.")
             .format(name=tree.name, path=root_path))
+
+    def extract_cluster_from_selection(self) -> None:
+        """Main menu "Tools -> Extract cluster..." (2026-09-03, plan
+        extract_cluster_entity): extract ONE fully-selected Cluster from the
+        current selection as a standalone flat Entity — WITHOUT building any
+        tree node (no anchor, no inter-cluster net_traces). The slug-named Cell
+        is generated from the cluster's own selection when it doesn't exist
+        yet; the (cluster, sheet)-matched Entity, when it exists, is REUSED
+        (never duplicated). Placing the Entity (a manual tree node, a
+        tree_instances template, ...) is a separate, later user step.
+
+        Flow: adapter/root/cfg checks + fully_selected_clusters (the same
+        selection truth as "Extract tree...", same empty warning) -> the small
+        single-cluster ExtractClusterDialog -> on OK, persist through
+        config_writer (backup_file + read_data/write_data, staged via
+        WORKING_SET) -> ConfigTreeDock.refresh() + graph_changed (a new cell
+        must reach every graph-derived combo).
+        """
+        connection = self.main_window.connection
+        board = getattr(connection, "board", None)
+        adapter = getattr(board, "adapter", None) if board is not None else None
+        if adapter is None:
+            QMessageBox.warning(self.main_window, _("Extract cluster"),
+                                _("Not connected."))
+            return
+        root_path = self.root_metadata_dock.root_path
+        if root_path is None:
+            QMessageBox.warning(self.main_window, _("Extract cluster"),
+                                _("Set the project root first."))
+            return
+        from kicadstamp.config import load_config
+        try:
+            cfg, ctx = load_config(str(root_path))
+        except Exception as e:  # noqa: BLE001 — a broken config must not crash the GUI
+            QMessageBox.warning(self.main_window, _("Extract cluster"),
+                                _("Failed to load config: {error}").format(error=e))
+            return
+        sheet_names = dict(ctx.sheet_names or {})
+
+        from .docks.reead import fully_selected_clusters
+        clusters = fully_selected_clusters(
+            self._selection_footprints,
+            list(connection.snapshot or []),
+            list(cfg.entities),
+            (),
+            sheet_names=sheet_names)
+        # Diagnostic + defensive filter (same rationale as "Extract tree...": a
+        # row must be a sane single-line cluster).
+        clusters = [c for c in clusters if c.cluster and "\n" not in c.cluster]
+        if not clusters:
+            QMessageBox.warning(
+                self.main_window, _("Extract cluster"),
+                _("No fully selected Cluster found — select ALL components of a "
+                  "cluster (its Cluster tag + sheet) first."))
+            return
+
+        from .docks.tree_from_selection import create_cell_and_entity_for_cluster
+        from .docks.extract_cluster_dialog import ExtractClusterDialog
+        dialog = ExtractClusterDialog(self.main_window, clusters, cfg)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        c = dialog.selected_cluster()
+        if c is None:
+            return
+        entity_name = dialog.entity_name()
+
+        # An Entity already exists for (cluster, sheet): reuse — nothing to
+        # write, just confirm + refresh.
+        if dialog.existing:
+            self.config_tree_dock.refresh()
+            QMessageBox.information(
+                self.main_window, _("Extract cluster"),
+                _("Entity {name!r} already exists for this Cluster + sheet — "
+                  "reused, nothing new was created.").format(name=entity_name))
+            return
+
+        # ── Save: cell (if new) + entity, staged through config_writer ──────
+        from kicadstamp.config_writer import read_data, write_data
+        from .docks.entity_delete import backup_file
+        cell_name = ""
+        cell_new = False
+        try:
+            backup_file(root_path)
+            data = read_data(root_path)
+            cells_data = data.setdefault("cells", {})
+            ent = create_cell_and_entity_for_cluster(
+                adapter, c, cfg, cells_data,
+                self._selection_footprints, self._selection_raw_items,
+                entity_name=entity_name)
+            if ent is None:
+                # A matching Entity appeared between the dialog and the write —
+                # treat it as a reuse, never a duplicate.
+                self.config_tree_dock.refresh()
+                QMessageBox.information(
+                    self.main_window, _("Extract cluster"),
+                    _("Entity {name!r} already exists for this Cluster + sheet "
+                      "— reused, nothing new was created.").format(name=entity_name))
+                return
+            cell_name = ent["cell"]
+            cell_new = cell_name not in cfg.cells
+            data.setdefault("entities", []).append(ent)
+            write_data(root_path, data)
+        except Exception as e:  # noqa: BLE001 — .bak is fresh; report, don't roll back
+            QMessageBox.warning(self.main_window, _("Extract cluster"),
+                                _("Failed to save the Entity: {error}").format(error=e))
+            return
+
+        # ── Refresh: the new cells:/entities: appear without a restart ──────
+        self.config_tree_dock.refresh()
+        self.config_tree_dock.graph_changed.emit()
+        if cell_new:
+            QMessageBox.information(
+                self.main_window, _("Extract cluster"),
+                _("Entity {name!r} with its new cell {cell!r} saved to {path}.")
+                .format(name=ent["name"], cell=cell_name, path=root_path))
+        else:
+            QMessageBox.information(
+                self.main_window, _("Extract cluster"),
+                _("Entity {name!r} saved to {path} (cell {cell!r} already "
+                  "existed).")
+                .format(name=ent["name"], cell=cell_name, path=root_path))
 
     def _open_thermal_via_dialog(self) -> None:
         """Show/raise the ONE live Thermal via dialog — non-modal, so the user

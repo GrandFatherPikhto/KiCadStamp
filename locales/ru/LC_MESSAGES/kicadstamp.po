@@ -11810,3 +11810,48 @@ msgstr "Имя копии {name!r} уже существует как дерев
 
 msgid "No tree is loaded to use as a template."
 msgstr "Нет загруженного дерева, чтобы использовать его как шаблон."
+
+msgid "Extract cluster"
+msgstr "Извлечь кластер"
+
+msgid "Extract cluster..."
+msgstr "Извлечь кластер..."
+
+msgid "Fully selected Cluster:"
+msgstr "Полностью выделенный кластер:"
+
+msgid "Entity name:"
+msgstr "Имя Entity:"
+
+msgid "Select the Cluster to extract first."
+msgstr "Сначала выберите кластер для извлечения."
+
+msgid "Entity name must not be empty."
+msgstr "Имя Entity не должно быть пустым."
+
+msgid "This Entity already exists for this Cluster + sheet — it will be reused, nothing new will be created."
+msgstr "Эта Entity для этого кластера + листа уже существует — она будет переиспользована, ничего нового не будет создано."
+
+#, python-brace-format
+msgid "A new Entity will be created with this name (its cell {cell!r} is generated from the cluster's selection when missing)."
+msgstr "Будет создана новая Entity с этим именем (её cell {cell!r} генерируется из выделения кластера, если его ещё нет)."
+
+#, python-brace-format
+msgid "An Entity named {name!r} already exists."
+msgstr "Entity с именем {name!r} уже существует."
+
+#, python-brace-format
+msgid "Entity {name!r} already exists for this Cluster + sheet — reused, nothing new was created."
+msgstr "Entity {name!r} для этого кластера + листа уже существует — переиспользована, ничего нового не создано."
+
+#, python-brace-format
+msgid "Entity {name!r} with its new cell {cell!r} saved to {path}."
+msgstr "Entity {name!r} с новым cell {cell!r} сохранена в {path}."
+
+#, python-brace-format
+msgid "Entity {name!r} saved to {path} (cell {cell!r} already existed)."
+msgstr "Entity {name!r} сохранена в {path} (cell {cell!r} уже существовал)."
+
+#, python-brace-format
+msgid "Failed to save the Entity: {error}"
+msgstr "Не удалось сохранить Entity: {error}"
