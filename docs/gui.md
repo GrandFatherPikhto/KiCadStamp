@@ -327,6 +327,22 @@ offset is read live from the board at redraw time (not from the stored `xy`/`pol
 fallback for a node with no live presence yet); the record's own fields are never rewritten — the
 move is applied via a per-run, non-persistent position override (Option 1, see the plan's §3/§4).
 
+**Module embedding (2026-09-02, plan_2026_09_02_tree_module_embedding.md):** choosing **Kind =
+module** in the Add/Edit-node dialog embeds ANOTHER tree as a rigid sub-layout. The **Ref:** list
+switches to the NAMES of the other trees — excluding the current one, any tree this one already
+embeds, and any tree that would close a module cycle — and the node's offset/rotation position the
+embedded tree's marker. A second, module-only **Pivot (child frame)** offset set says which point
+INSIDE the referenced tree's own local frame must land exactly on the marker (blank = the referenced
+tree's origin); **From child node...** copies an existing child-tree node's offset there. Module refs
+are NEVER auto-numbered and are NOT counted as "used" record refs (the same child tree may be
+embedded by several different parents; only a duplicate inside ONE parent is invalid — a config
+fatal at Save). Double-clicking a module node opens the referenced tree's tab; a tree that others
+embed shows one **"⇐ embedded in {parent}"** item per embedding parent (double-click navigates back).
+The module-aware FULL redraw — every tree's records plus every active module's content, laid out from
+each tree's live anchor (role/auto/origin/point/ref) — runs from **Tools → Full redraw (all trees and
+modules)…** (Tools-menu only, no new dock button); the per-tree **Redraw selected / Redraw whole
+tree** buttons stay single-tree.
+
 ## Detail dock
 
 Placer/Net traces/Cells below all live as tabs inside one shared **Detail** dock,

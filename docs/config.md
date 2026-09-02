@@ -465,6 +465,18 @@ position of its own, such an anchor base is resolved RECURSIVELY at materializat
 recursion is cycle-guarded; an Entity with no placement node, one referenced by more than one node,
 or a chain that loops back into itself is a CONFIG error (fatal, never silently skipped).
 
+**Module embedding (2026-09-02, plan_2026_09_02_tree_module_embedding.md):** a `trees:` node may also
+have `kind "module"` — its `ref` is the NAME of ANOTHER tree, which is embedded as a rigid sub-layout
+(e.g. the `fpga` tree embeds the `ch0_dac_buf` tree). The module node's own `xy`/`polar`/`rotation`
+position its MARKER in the parent; an optional `(pivot-xy x y)` or `(pivot-polar r a)` (mutually
+exclusive, module only) says which point INSIDE the referenced tree's own local frame lands exactly on
+the marker (absent = the referenced tree's origin). A module ref is a tree name, NOT a config record —
+it is exempt from the one-ref-per-node file-wide check, so the SAME child tree may be embedded by
+several different parents; a duplicate inside ONE parent, an unknown/self reference and a module cycle
+(A⊃B⊃A) are config fatals (validated at link/Save). When embedded, the referenced tree's OWN anchor is
+ignored — its content is laid out from the module's pivot-inverted marker (pure geometry, applied as a
+non-persistent position override by the forest-wide redraw).
+
 ---
 
 ## `sheet_templates:` — declaring a group once, instantiating per sheet
