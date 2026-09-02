@@ -12807,3 +12807,33 @@ msgstr ""
 
 msgid "⇐ instance of {template} (sheet={sheet})"
 msgstr ""
+
+msgid "Tree instances"
+msgstr ""
+
+msgid "Instances..."
+msgstr ""
+
+msgid "Template tree (instances are read-only generated copies of it):"
+msgstr ""
+
+msgid "Instance name"
+msgstr ""
+
+msgid "Add row"
+msgstr ""
+
+msgid "Remove row"
+msgstr ""
+
+msgid "Every instance row needs a non-empty instance name and sheet."
+msgstr ""
+
+msgid "Instance name {name!r} is used twice for template {template!r}."
+msgstr ""
+
+msgid "Instance name {name!r} already exists as a tree — instance names must stay unique across all trees."
+msgstr ""
+
+msgid "No tree is loaded to use as a template."
+msgstr ""

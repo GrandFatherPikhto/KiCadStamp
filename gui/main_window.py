@@ -290,6 +290,14 @@ class MainWindow(QMainWindow):
         self.edit_template_action.triggered.connect(
             lambda: self._dock_hub.edit_template())
         tools_menu.addAction(self.edit_template_action)
+        # "Instances..." (2026-09-02, plan tree_instances P3): modal dialog
+        # editing one template tree's `tree_instances:` declarations ({name,
+        # sheet} rows) — the dialog only edits the short declarations, the
+        # materialized instances regenerate on the next load.
+        self.tree_instances_action = QAction(_("Instances..."), self)
+        self.tree_instances_action.triggered.connect(
+            lambda: self._dock_hub.open_instances_dialog())
+        tools_menu.addAction(self.tree_instances_action)
         # "Settings..." (2026-09-01, plan project_settings_dialogs): opens the
         # MODAL Settings dialog — a two-pane browser (category tree on the
         # left, settings pages on the right) with OK/Apply/Cancel.

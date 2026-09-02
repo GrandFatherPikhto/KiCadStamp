@@ -11762,3 +11762,33 @@ msgstr "→ экземпляр: {name}"
 
 msgid "⇐ instance of {template} (sheet={sheet})"
 msgstr "⇐ экземпляр {template} (sheet={sheet})"
+
+msgid "Tree instances"
+msgstr "Экземпляры дерева"
+
+msgid "Instances..."
+msgstr "Экземпляры..."
+
+msgid "Template tree (instances are read-only generated copies of it):"
+msgstr "Дерево-шаблон (экземпляры — его генерируемые копии только для чтения):"
+
+msgid "Instance name"
+msgstr "Имя экземпляра"
+
+msgid "Add row"
+msgstr "Добавить строку"
+
+msgid "Remove row"
+msgstr "Удалить строку"
+
+msgid "Every instance row needs a non-empty instance name and sheet."
+msgstr "Каждой строке экземпляра нужны непустые имя экземпляра и лист."
+
+msgid "Instance name {name!r} is used twice for template {template!r}."
+msgstr "Имя экземпляра {name!r} используется дважды для шаблона {template!r}."
+
+msgid "Instance name {name!r} already exists as a tree — instance names must stay unique across all trees."
+msgstr "Имя экземпляра {name!r} уже существует как дерево — имена экземпляров должны быть уникальны среди всех деревьев."
+
+msgid "No tree is loaded to use as a template."
+msgstr "Нет загруженного дерева, чтобы использовать его как шаблон."

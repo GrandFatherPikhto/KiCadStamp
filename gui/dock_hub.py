@@ -63,6 +63,7 @@ from .docks.thermal_via import ThermalViaArrayDock
 from .docks.thermal_via_dialog import ThermalViaDialog
 from .docks.tools import ToolsDock
 from .docks.tools_dialog import ToolsDialog
+from .docks.instances_dialog import TreeInstancesDialog
 
 
 class DockHub:
@@ -738,6 +739,31 @@ class DockHub:
         curated redraw across ALL trees. TreesDock owns the trees/cfg/ctx and
         the worker callback plumbing (no new dock button — menu only)."""
         self.trees_dock._run_forest_redraw()
+
+    def open_instances_dialog(self) -> None:
+        """Main menu "Tools -> Instances..." (2026-09-02, plan tree_instances
+        P3): modal dialog editing the `tree_instances:` SHORT declarations of
+        one template tree ({name, sheet} rows, add/remove). Writes the section
+        via config_writer.upsert_tree_instances — the dialog GENERATES nothing;
+        materialization happens at the next load — then reloads TreesDock (and
+        refreshes the Config tree) so the regenerated read-only instance tabs
+        appear."""
+        root_path = self.root_metadata_dock.root_path
+        if root_path is None:
+            QMessageBox.warning(self.main_window, _("Tree instances"),
+                                _("Set the project root first."))
+            return
+        from kicadstamp.config import load_config
+        try:
+            cfg, _ctx = load_config(str(root_path))
+        except Exception as e:  # noqa: BLE001 — a broken config must not crash the GUI
+            QMessageBox.warning(self.main_window, _("Tree instances"),
+                                _("Failed to load config: {error}").format(error=e))
+            return
+        dialog = TreeInstancesDialog(self.main_window, root_path, cfg)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.trees_dock.reload_trees()
+            self.config_tree_dock.refresh()
 
     def extract_tree_from_selection(self) -> None:
         """Main menu "Tools -> Extract tree..." (2026-09-01, plan

@@ -409,6 +409,33 @@ def upsert_entity_placement(path: Path, entity_name: str, origin: Dict[str, Any]
     return changed
 
 
+def upsert_tree_instances(path: Path, template: str, rows: list) -> bool:
+    """Replace every tree_instances: entry instantiating `template` with
+    `rows` (each a {name, sheet} dict); entries of OTHER templates are
+    preserved and a section left with no entries at all is dropped. Read-merge-
+    write like the other config_writer helpers; returns whether anything
+    changed (an identical resulting list is a no-op write).
+
+    `rows` are the dialog's pre-validated SHORT declarations (2026-09-02, P3:
+    Tools -> "Instances...") — this helper only persists them; materialization
+    into full Tree + Entity records happens at the NEXT load
+    (config/tree_instances.py::expand_tree_instances), never here."""
+    existing = copy.deepcopy(_read_data(path))
+    before_list = list(existing.get("tree_instances") or [])
+    kept = [e for e in before_list
+            if not (isinstance(e, dict) and e.get("template") == template)]
+    new_items = kept + [{"template": template, "name": r["name"],
+                         "sheet": r["sheet"]} for r in rows]
+    if new_items == before_list:
+        return False
+    if new_items:
+        existing["tree_instances"] = new_items
+    else:
+        existing.pop("tree_instances", None)
+    _write_data(path, existing)
+    return True
+
+
 def _include_entry_target(entry: Any, base_dir: Path) -> Optional[Path]:
     """Resolved path an include: entry (string or {path:, enabled:} dict)
     points at, or None for a malformed entry — shared by add_include()/

@@ -304,3 +304,69 @@ class TestSexpRoundTrip:
         p.write_text(text, encoding="utf-8")
         cfg, _ = load_config(str(p))
         assert _tree_by_name(cfg, "ch1_dac_buf").anchor.anchor_sheet == "Channel_1"
+
+
+class TestTreeInstanceWriter:
+    """Persistence behind Tools -> "Instances..." (2026-09-02, P3):
+    config_writer.upsert_tree_instances rewrites ONE template's short
+    tree_instances: rows (create/edit/delete); the dialog never generates —
+    materialization happens at the next load."""
+
+    @staticmethod
+    def _read_instances(p) -> list:
+        from kicadstamp.config.sexp_format import sexp_to_dict
+        return list(sexp_to_dict(p.read_text(encoding="utf-8"))
+                    .get("tree_instances") or [])
+
+    def _file(self, tmp_path, instances=None):
+        data = _template_data(instances or [])
+        return _write(tmp_path, "w.sexp", data)
+
+    def test_create_writes_rows_and_materializes_on_load(self, tmp_path):
+        from kicadstamp.config_writer import upsert_tree_instances
+        p = self._file(tmp_path)
+        changed = upsert_tree_instances(
+            p, "dac_buf_tpl", [{"name": "ch1_dac_buf", "sheet": "Channel_1"}])
+        assert changed is True
+        assert self._read_instances(p) == [{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"}]
+        cfg, _ = load_config(str(p))
+        assert sorted(t.name for t in cfg.trees) == ["ch1_dac_buf", "dac_buf_tpl"]
+
+    def test_edit_replaces_template_rows_and_preserves_others(self, tmp_path):
+        from kicadstamp.config_writer import upsert_tree_instances
+        p = self._file(tmp_path, [
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"},
+            {"template": "other_tpl", "name": "other", "sheet": "Channel_9"},
+        ])
+        changed = upsert_tree_instances(p, "dac_buf_tpl", [
+            {"name": "ch1_dac_buf", "sheet": "Channel_1_NEW"},
+            {"name": "ch2_dac_buf", "sheet": "Channel_2"},
+        ])
+        assert changed is True
+        rows = self._read_instances(p)
+        assert {"template": "other_tpl", "name": "other", "sheet": "Channel_9"} in rows
+        dac = [r for r in rows if r["template"] == "dac_buf_tpl"]
+        assert dac == [
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1_NEW"},
+            {"template": "dac_buf_tpl", "name": "ch2_dac_buf", "sheet": "Channel_2"},
+        ]
+
+    def test_delete_all_rows_drops_the_section(self, tmp_path):
+        from kicadstamp.config_writer import upsert_tree_instances
+        p = self._file(tmp_path, [
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"},
+        ])
+        changed = upsert_tree_instances(p, "dac_buf_tpl", [])
+        assert changed is True
+        assert self._read_instances(p) == []
+
+    def test_no_change_is_a_noop(self, tmp_path):
+        from kicadstamp.config_writer import upsert_tree_instances
+        rows = [{"name": "ch1_dac_buf", "sheet": "Channel_1"}]
+        p = self._file(tmp_path)
+        upsert_tree_instances(p, "dac_buf_tpl", rows)
+        before = p.read_bytes()
+        changed = upsert_tree_instances(p, "dac_buf_tpl", rows)
+        assert changed is False
+        assert p.read_bytes() == before
