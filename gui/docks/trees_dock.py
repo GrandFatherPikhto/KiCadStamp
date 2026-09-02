@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (QComboBox, QDialog, QDockWidget,
                              QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from kicadstamp.anchor_graph import Record, build_records
-from kicadstamp.config import load_config, load_tree
+from kicadstamp.config import TreeInstance, load_config, load_tree
 from kicadstamp.kicad.adapter import KiCadBoardAdapter
 from kicadstamp.config_writer import read_data, write_data
 from kicadstamp.domain.geometry import Vector2
@@ -217,6 +217,14 @@ class TreesDock(QDockWidget):
         self.setObjectName("trees_dock")
         self._main_window = main_window
         self._trees: list[Tree] = []
+        # tree_instances (2026-09-02, P1): the materialized instance trees live
+        # in cfg.trees — and therefore in self._trees, so redraw/embedding/
+        # forest treat them as ordinary trees — but the raw tree_instances:
+        # declarations (cfg.tree_instances) mark them as GENERATED: an instance
+        # tree is read-only here (geometry comes from template + declaration)
+        # and is NEVER persisted by _do_save/_stage_trees (regenerated on every
+        # load from the declaration). name -> TreeInstance.
+        self._instances: dict[str, TreeInstance] = {}
         self._root_path: Optional[Path] = None   # for link_trees + Save, via root_changed
         self._cfg = None
         self._ctx = None
@@ -322,6 +330,7 @@ class TreesDock(QDockWidget):
         self._cfg = None
         self._ctx = None
         self._trees = []
+        self._instances = {}
         if path is None:
             self._dirty = False
             self._rebuild_tabs()
@@ -336,6 +345,9 @@ class TreesDock(QDockWidget):
             # until a good root is loaded.
             logger.warning(_("Trees: root config failed to load: {error}")
                            .format(error=e))
+        # tree_instances read-only index (cleared above on no-root; rebuilt from
+        # the loaded cfg — empty when the config has no tree_instances:).
+        self._rebuild_instance_index()
         self._dirty = False
         self._rebuild_tabs()
         self._update_toolbar_state()
@@ -374,6 +386,7 @@ class TreesDock(QDockWidget):
             return
         self._cfg = cfg
         self._ctx = ctx
+        self._rebuild_instance_index()
         if self._dirty:
             logger.debug("Trees: ref candidates refreshed; unsaved tree "
                          "edits were left untouched (trees stay stale until "
@@ -405,6 +418,7 @@ class TreesDock(QDockWidget):
             return
         self._cfg = cfg
         self._ctx = ctx
+        self._rebuild_instance_index()
         fresh = list(cfg.trees)
         if self._dirty:
             # Unsaved edits stay untouched; append whatever appeared AFTER the
@@ -614,7 +628,12 @@ class TreesDock(QDockWidget):
             return  # Save unavailable without a root config
         self._enforce_no_self_ref()
         backup_file(self._root_path)
-        trees_dict = [tree_to_dict(t) for t in self._trees]
+        # tree_instances (P1/F3): generated instance trees are never persisted
+        # as literal trees: — only hand-written (incl. template) trees go to
+        # disk; the untouched tree_instances: section regenerates instances on
+        # the next load.
+        trees_dict = [tree_to_dict(t) for t in self._trees
+                      if t.name not in self._instances]
         write_data(self._root_path, {**read_data(self._root_path), "trees": trees_dict})
         try:
             reloaded = [load_tree(t) for t in trees_dict]
@@ -672,7 +691,12 @@ class TreesDock(QDockWidget):
         if self._root_path is None:
             return
         data = read_data(self._root_path)
-        data["trees"] = [tree_to_dict(t) for t in self._trees]
+        # tree_instances (P1/F3): generated instance trees are NEVER staged/
+        # saved as literal trees: — they are derived records, regenerated on
+        # every load from the untouched tree_instances: declarations. Only
+        # hand-written (incl. template) trees are persisted here.
+        data["trees"] = [tree_to_dict(t) for t in self._trees
+                         if t.name not in self._instances]
         # Phase E cascade: remove the net_traces orphaned by a deleted tree's
         # net_trace nodes (see _on_delete_tree).
         if self._orphan_net_nets:
@@ -702,6 +726,40 @@ class TreesDock(QDockWidget):
     def _current_tree_name(self) -> Optional[str]:
         tree = self._current_tree()
         return tree.name if tree is not None else None
+
+    # ── tree_instances: read-only marker (2026-09-02, P1) ────────────────
+
+    def _rebuild_instance_index(self) -> None:
+        """(Re)build the name -> TreeInstance map from cfg.tree_instances after
+        any (re)load of the root config. Instance trees are ORDINARY cfg.trees
+        entries (redraw/embedding see them — that is the point), but this index
+        marks them as generated: read-only in the node/tree editors and EXCLUDED
+        from _do_save/_stage_trees (the raw declarations regenerate them)."""
+        if self._cfg is None:
+            self._instances = {}
+            return
+        self._instances = {ti.name: ti for ti in self._cfg.tree_instances}
+
+    def _instance_of(self, tree: Tree) -> Optional[TreeInstance]:
+        """The TreeInstance declaration behind `tree`, or None when `tree` is a
+        hand-written (or template) tree, i.e. editable normally."""
+        return self._instances.get(tree.name)
+
+    def _warn_read_only_instance(self, tree: Tree) -> bool:
+        """True (and shows a message) when `tree` is a generated instance that
+        may not be edited or deleted — the read-only guard for the tree-level
+        toolbar actions. Returns False for editable (hand-written/template)
+        trees, so callers just `return` on True."""
+        inst = self._instance_of(tree)
+        if inst is None:
+            return False
+        QMessageBox.information(
+            self, _("Read-only instance"),
+            _("This tree is an instance of template {template!r} (read-only) — "
+              "its geometry comes from the template; edit the template tree to "
+              "change it, or manage the instance in Tools → Instances.")
+            .format(template=inst.template))
+        return True
 
     def _used_refs(self) -> set[str]:
         """Every RECORD node ref already used anywhere in the current file —
@@ -798,6 +856,20 @@ class TreesDock(QDockWidget):
         node = item.data(0, Qt.ItemDataRole.UserRole)
         tree = self._current_tree()
         if tree is None:
+            return
+
+        inst = self._instance_of(tree)
+        if inst is not None:
+            # A generated instance (tree_instances:, P1/F3) is read-only: no
+            # structural actions at all — its geometry is owned by the template
+            # + the declaration. A single disabled note explains why; double-
+            # clicking the tab just shows the read-only preview.
+            menu = QMenu(tree_widget)
+            note = menu.addAction(
+                _("Instance of {template} — read-only: edit the template tree "
+                  "to change the geometry").format(template=inst.template))
+            note.setEnabled(False)
+            menu.exec(tree_widget.viewport().mapToGlobal(pos))
             return
 
         menu = QMenu(tree_widget)
@@ -1118,6 +1190,8 @@ class TreesDock(QDockWidget):
         tree = self._current_tree()
         if tree is None:
             return
+        if self._warn_read_only_instance(tree):
+            return
         new_name, ok = QInputDialog.getText(self, _("Rename tree"), _("Tree name:"),
                                             text=tree.name)
         if not ok or not new_name.strip():
@@ -1139,6 +1213,8 @@ class TreesDock(QDockWidget):
         Confirmed via QMessageBox with No as the safe default button."""
         tree = self._current_tree()
         if tree is None:
+            return
+        if self._warn_read_only_instance(tree):
             return
         ret = QMessageBox.question(
             self, _("Delete tree"),

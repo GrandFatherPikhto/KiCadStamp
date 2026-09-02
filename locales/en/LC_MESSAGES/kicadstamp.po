@@ -12792,3 +12792,12 @@ msgstr ""
 
 msgid "v1 tree templates support only kind=placement (Entity) nodes — chain/coordinate/clone/module/net_trace nodes inside a template are not instantiated yet"
 msgstr ""
+
+msgid "Instance of {template} — read-only: edit the template tree to change the geometry"
+msgstr ""
+
+msgid "Read-only instance"
+msgstr ""
+
+msgid "This tree is an instance of template {template!r} (read-only) — its geometry comes from the template; edit the template tree to change it, or manage the instance in Tools → Instances."
+msgstr ""

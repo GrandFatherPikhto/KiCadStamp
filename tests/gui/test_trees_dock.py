@@ -2349,3 +2349,116 @@ def test_double_click_navigation_module_and_embedded_in(main_window, tmp_path):
     mod_item = dock._node_items["ch0_dac_buf"]
     dock._on_node_activated(mod_item, 0)
     assert dock.tabs.currentIndex() == ch0_idx
+
+
+# ── tree_instances: read-only + save protection (2026-09-02, P1/F3) ────────
+
+INSTANCE_CFG = {
+    "entities": [
+        {"name": "dac_buf", "cell": "c_dac", "cluster": "DAC_BUF"},
+        {"name": "pif_avdd", "cell": "c_pif", "cluster": "PIF_AVDD"},
+    ],
+    "trees": [{
+        "name": "dac_buf_tpl", "anchor": {"role": "DAC_BUF"},
+        "nodes": [{
+            "ref": "dac_buf", "kind": "placement", "xy": [1.0, 2.0],
+            "children": [{"ref": "pif_avdd", "kind": "placement",
+                          "xy": [0.5, 0.0]}],
+        }],
+    }],
+    "tree_instances": [
+        {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"},
+    ],
+}
+
+
+def _instance_dock(main_window, tmp_path):
+    """A TreesDock on a root config whose trees: section is generated from one
+    template tree + one tree_instances: declaration (the materialized instance
+    is an ordinary cfg.trees entry / tab, marked read-only via the index)."""
+    root = tmp_path / "inst.sexp"
+    root.write_text(dict_to_sexp(INSTANCE_CFG), encoding="utf-8")
+    dock = TreesDock(main_window)
+    dock.set_root_file(root)
+    return dock, root
+
+
+def test_instance_trees_are_indexed_read_only_but_still_tabs(main_window, tmp_path):
+    """P1: instance trees stay ordinary tabs (redraw/embedding see them), but
+    the tree_instances index marks them read-only; the template stays editable."""
+    dock, _ = _instance_dock(main_window, tmp_path)
+    assert [t.name for t in dock._trees] == ["dac_buf_tpl", "ch1_dac_buf"]
+    assert set(dock._instances) == {"ch1_dac_buf"}
+    assert dock._instance_of(dock._trees[0]) is None       # template: editable
+    assert dock._instance_of(dock._trees[1]) is not None   # instance: read-only
+    assert dock.tabs.count() == 2
+
+
+def test_instance_context_menu_offers_no_structural_actions(
+        main_window, tmp_path, monkeypatch):
+    """P1: right-clicking a node of an INSTANCE tab offers NO Add/Edit/Delete/
+    Rename/Move — only a disabled read-only note; the geometry is owned by the
+    template + declaration."""
+    dock, _ = _instance_dock(main_window, tmp_path)
+    dock.tabs.setCurrentIndex(1)  # ch1_dac_buf (the instance)
+    dock._current_tree_widget().expandAll()
+    top_node = _children(_children(dock._current_tree_widget().invisibleRootItem())[0])[0]
+    assert "dac_buf__ch1_dac_buf" in top_node.text(0)
+    actions = dict(_context_menu_actions(dock, top_node, monkeypatch))
+    labels = set(actions)
+    for forbidden in ("Add child", "Add sibling", "Edit node…",
+                      "Delete node", "Rename…", "Move to…"):
+        assert forbidden not in labels
+    assert len(actions) == 1
+    assert "read-only" in next(iter(labels))
+
+
+def test_template_context_menu_still_offers_structural_actions(
+        main_window, tmp_path, monkeypatch):
+    """P1 control: the TEMPLATE (a hand-written tree, Q3) keeps the full node
+    menu — read-only applies to generated instances only."""
+    dock, _ = _instance_dock(main_window, tmp_path)
+    dock.tabs.setCurrentIndex(0)  # dac_buf_tpl (the template)
+    dock._current_tree_widget().expandAll()
+    top_node = _children(_children(dock._current_tree_widget().invisibleRootItem())[0])[0]
+    assert top_node.text(0).startswith("dac_buf")
+    actions = dict(_context_menu_actions(dock, top_node, monkeypatch))
+    labels = set(actions)
+    assert {"Add child", "Add sibling", "Edit node…", "Delete node"} <= labels
+
+
+def test_rename_delete_tree_are_guarded_on_instance(
+        main_window, tmp_path, monkeypatch):
+    """P1: the toolbar Rename/Delete tree actions refuse an instance tab (an
+    explanatory message, no dialog, no buffer change)."""
+    import gui.docks.trees_dock as td_mod
+    dock, _ = _instance_dock(main_window, tmp_path)
+    dock.tabs.setCurrentIndex(1)  # ch1_dac_buf (the instance)
+    infos = []
+    monkeypatch.setattr(td_mod.QMessageBox, "information",
+                        lambda *a, **k: infos.append(a)
+                        or QMessageBox.StandardButton.Ok)
+    dock._on_rename_tree()
+    dock._on_delete_tree()
+    assert infos, "instance rename/delete must explain the read-only state"
+    assert [t.name for t in dock._trees] == ["dac_buf_tpl", "ch1_dac_buf"]
+
+
+def test_save_does_not_persist_instance_trees(main_window, tmp_path, monkeypatch):
+    """P1/F3: _do_save writes only the hand-written (template) trees: — the
+    generated instance is NEVER persisted (the untouched tree_instances:
+    declaration regenerates it), so a Save/reload cycle never duplicates it."""
+    import gui.docks.trees_dock as td_mod
+    from kicadstamp.config.sexp_format import sexp_to_dict
+    dock, root = _instance_dock(main_window, tmp_path)
+    monkeypatch.setattr(td_mod.QMessageBox, "warning", lambda *a, **k: None)
+    dock._do_save()
+
+    raw = sexp_to_dict(root.read_text(encoding="utf-8"))
+    written = [t.get("name") for t in raw.get("trees", [])]
+    assert written == ["dac_buf_tpl"], "the instance must not be written as a literal tree"
+    assert any(i.get("name") == "ch1_dac_buf" for i in raw.get("tree_instances", []))
+
+    cfg, _ = load_config(str(root))
+    names = [t.name for t in cfg.trees]
+    assert sorted(names) == ["ch1_dac_buf", "dac_buf_tpl"]  # regenerated exactly once
