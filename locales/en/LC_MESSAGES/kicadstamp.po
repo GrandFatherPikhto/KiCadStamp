@@ -12748,9 +12748,6 @@ msgstr ""
 msgid "Expanded {count} tree_instances: declarations into trees/entities"
 msgstr ""
 
-msgid "a tree template's entities are the geometry master with no sheet of their own; every instance substitutes its own sheet at load — remove the sheet: from the template entity, or do not use this tree as a template"
-msgstr ""
-
 msgid "a tree_instances: entry is a dict with 'template'/'name'/'sheet'"
 msgstr ""
 
@@ -12779,9 +12776,6 @@ msgid "only an (anchor (role ...)) template is supported — the instance sheet 
 msgstr ""
 
 msgid "tree_instance {name!r}: template tree {template!r} not found"
-msgstr ""
-
-msgid "tree_instance: template entity {ref!r} must not have its own sheet — sheet comes from the instance"
 msgstr ""
 
 msgid "tree_instance: template {template!r} has a node without a ref"

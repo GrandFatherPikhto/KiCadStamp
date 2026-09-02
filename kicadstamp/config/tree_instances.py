@@ -36,9 +36,18 @@ v1 template constraints (each is a hard fatal, never a silent skip):
     anchors are not parameterized by sheet yet);
   - every template node must be kind=placement (or unset/auto) and must
     reference an existing entities: entry (chain/coordinate/clone/module/
-    net_trace nodes inside a template are not instantiated yet);
-  - a referenced template Entity must NOT carry its own `sheet` (Q2) — sheet
-    comes from the instance; a template entity with a sheet is a usage error.
+    net_trace nodes inside a template are not instantiated yet).
+
+Q2 (revised 2026-09-02, second round): a referenced template Entity MAY carry
+its OWN real `sheet` — it is REQUIRED for the template's own live
+re-readability ("Reread current position": a live component is found by
+Role+Sheet+Cluster, so a sheetless template Entity is ambiguous when the same
+Role+Cluster exists on several sheets, exactly the AD_DAC-on-Channel_0/1/2
+case). Expansion does NOT fatal on it and does NOT keep it: the generated
+ENTITY COPY's sheet is unconditionally overwritten with the instance sheet
+(the same pattern as the role-anchor sheet and as sheet_templates.py's
+`gen['sheet'] = sheet`). The template itself (and the file on disk) is never
+mutated — expansion works on copy.deepcopy only.
 """
 import copy
 import logging
@@ -56,7 +65,12 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
     ref is suffixed with __{instance_name} (recursively through children), its
     matching template Entity is copied into generated_entities under the new
     ref with the instance sheet. v1: only kind=placement (or unset/auto) nodes
-    whose ref names an existing Entity are allowed inside a template."""
+    whose ref names an existing Entity are allowed inside a template.
+
+    Q2 (revised 2026-09-02): the template Entity's OWN sheet is deliberately
+    NOT a fatal and NOT copied — the template keeps it for its own live
+    re-readability, the generated copy unconditionally gets the instance
+    sheet (same overwrite pattern as the role-anchor sheet)."""
     orig_ref = node.get('ref')
     if orig_ref is None:
         raise ValidationError(format_fatal_error(
@@ -79,14 +93,6 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
               "entities: record").format(template=template_name, ref=orig_ref),
             [_("every node of a tree template must reference an entities: entry "
                "(v1 templates are entity placements only)")]))
-    if entity.get('sheet') is not None:
-        raise ValidationError(format_fatal_error(
-            _("tree_instance: template entity {ref!r} must not have its own "
-              "sheet — sheet comes from the instance").format(ref=orig_ref),
-            [_("a tree template's entities are the geometry master with no sheet "
-               "of their own; every instance substitutes its own sheet at load "
-               "— remove the sheet: from the template entity, or do not use "
-               "this tree as a template")]))
 
     new_ref = f"{orig_ref}__{instance_name}"
     gen = copy.deepcopy(node)

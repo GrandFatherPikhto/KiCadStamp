@@ -11688,9 +11688,6 @@ msgstr "'tree_instances' должна быть списком деклараци
 msgid "Expanded {count} tree_instances: declarations into trees/entities"
 msgstr "Развёрнуто {count} деклараций tree_instances: в деревья/сущности"
 
-msgid "a tree template's entities are the geometry master with no sheet of their own; every instance substitutes its own sheet at load — remove the sheet: from the template entity, or do not use this tree as a template"
-msgstr "Entity шаблона дерева — геометрический эталон без собственного sheet; каждый экземпляр подставляет свой sheet при загрузке — уберите sheet: у Entity шаблона или не используйте это дерево как шаблон"
-
 msgid "a tree_instances: entry is a dict with 'template'/'name'/'sheet'"
 msgstr "запись tree_instances: — это словарь с полями 'template'/'name'/'sheet'"
 
@@ -11720,9 +11717,6 @@ msgstr "поддерживается только шаблон с (anchor (role 
 
 msgid "tree_instance {name!r}: template tree {template!r} not found"
 msgstr "tree_instance {name!r}: дерево-шаблон {template!r} не найдено"
-
-msgid "tree_instance: template entity {ref!r} must not have its own sheet — sheet comes from the instance"
-msgstr "tree_instance: Entity шаблона {ref!r} не должно иметь собственный sheet — sheet приходит из экземпляра"
 
 msgid "tree_instance: template {template!r} has a node without a ref"
 msgstr "tree_instance: в шаблоне {template!r} есть узел без ref"

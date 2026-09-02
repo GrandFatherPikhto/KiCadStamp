@@ -167,12 +167,23 @@ class TestFatals:
         with pytest.raises(ValidationError, match="template tree 'no_such_tree' not found"):
             load_config(str(p))
 
-    def test_template_entity_with_own_sheet_is_fatal_q2(self, tmp_path):
+    def test_template_entity_own_sheet_is_overwritten_q2(self, tmp_path):
+        """Q2 (revised 2026-09-02): a template Entity MAY carry its own real
+        sheet (needed for the template's own live re-readability by
+        Role+Sheet+Cluster); expansion does NOT fatal, the template keeps its
+        own sheet untouched, and the generated COPY unconditionally gets the
+        instance sheet (same overwrite pattern as the role-anchor sheet)."""
         p = _write(tmp_path, "t.sexp", _template_data(
             [{"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"}],
             entity_sheet="Channel_0"))
-        with pytest.raises(ValidationError, match="must not have its own sheet"):
-            load_config(str(p))
+        cfg, _ = load_config(str(p))
+        # template entity keeps its own sheet (template stays live/re-readable)
+        assert _entity_by_name(cfg, "pif_avdd").sheet == "Channel_0"
+        # generated copies unconditionally get the instance sheet
+        assert _entity_by_name(cfg, "pif_avdd__ch1_dac_buf").sheet == "Channel_1"
+        assert _entity_by_name(cfg, "dac_buf__ch1_dac_buf").sheet == "Channel_1"
+        # expansion never mutates the template tree (deep copies only)
+        assert _tree_by_name(cfg, "dac_buf_tpl").nodes[0].ref == "dac_buf"
 
     def test_non_role_anchor_is_fatal(self, tmp_path):
         p = _write(tmp_path, "t.sexp", _template_data(
