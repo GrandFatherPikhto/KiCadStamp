@@ -140,7 +140,7 @@ logger = logging.getLogger(__name__)
 # Display label per recognized section, in the order shown under a file
 # node. Order matches config/includes.py's _LIST_SECTIONS + _DICT_SECTIONS.
 _SECTION_LABELS = {
-    "chains": _("Chains"),
+    "chains": _("Spokes"),
     "clone_placements": _("Clone placements"),
     "thermal_via_arrays": _("Thermal via arrays"),
     "coordinate_placements": _("Coordinate placements"),

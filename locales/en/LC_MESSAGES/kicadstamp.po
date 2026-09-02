@@ -1478,9 +1478,9 @@ msgstr "Bulk-set Cell: wrote {n} chain(s) on net {net!r}."
 msgid "Chain"
 msgstr "Chain"
 
-#: gui/docks/config_tree.py:145
-msgid "Chains"
-msgstr "Chains"
+#: gui/docks/config_tree.py:143
+msgid "Spokes"
+msgstr "Spokes"
 
 #: gui/docks/config_tree.py:146
 msgid "Clone placements"

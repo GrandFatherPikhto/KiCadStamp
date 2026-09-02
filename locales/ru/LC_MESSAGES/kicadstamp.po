@@ -1484,9 +1484,9 @@ msgstr "Пакетная замена Cell: записано цепей {n} на
 msgid "Chain"
 msgstr "Цепь"
 
-#: gui/docks/config_tree.py:145
-msgid "Chains"
-msgstr "Цепи"
+#: gui/docks/config_tree.py:143
+msgid "Spokes"
+msgstr "Спицы"
 
 #: gui/docks/config_tree.py:146
 msgid "Clone placements"

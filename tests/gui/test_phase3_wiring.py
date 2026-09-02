@@ -272,7 +272,7 @@ def test_chain_saved_refreshes_config_tree_chains(real_main_window, tmp_path):
 
     root_item = real_main_window.config_tree_dock.tree.topLevelItem(0)
     chains_cat = root_item.child(0)
-    assert chains_cat.text(0) == "Chains"
+    assert chains_cat.text(0) == "Spokes"
     assert chains_cat.child(0).text(0) == "Anchor: FPGA"
     assert chains_cat.child(0).child(0).text(0) == "+3V3"
 

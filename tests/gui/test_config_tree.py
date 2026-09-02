@@ -143,7 +143,7 @@ def test_clicking_a_chain_node_fires_no_signal_no_form_yet(main_window, tmp_path
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
-    chains_cat = _find(dock.tree.topLevelItem(0), "Chains")
+    chains_cat = _find(dock.tree.topLevelItem(0), "Spokes")
     anchor = _find(chains_cat, "Anchor: U1")
     chain = _find(anchor, "+3V3")
     assert chain.text(0) == "+3V3"
@@ -549,7 +549,7 @@ def test_chain_node_double_click_emits_chain_edit_requested(main_window, tmp_pat
 
     requested = []
     dock.chain_edit_requested.connect(requested.append)
-    chain = _find(_find(dock.tree.topLevelItem(0), "Chains"), "Anchor: FPGA").child(0)
+    chain = _find(_find(dock.tree.topLevelItem(0), "Spokes"), "Anchor: FPGA").child(0)
     dock._on_double_clicked(chain, 0)
 
     assert requested == [{"net": "+3V3", "anchor_role": "FPGA"}]
@@ -740,7 +740,7 @@ def _add_labels(labels):
     ("Coordinate placements", "Add coordinate placement..."),
     ("Clone placements", "Add placer..."),
     ("Points", "Add point..."),
-    ("Chains", "Add chain..."),
+    ("Spokes", "Add chain..."),
 ])
 def test_category_context_menu_shows_only_its_own_add_action(
         main_window, tmp_path, monkeypatch, category_label, expected_add):
@@ -761,7 +761,7 @@ def test_category_context_menu_shows_only_its_own_add_action(
     ("Coordinate placements", "Add coordinate placement..."),
     ("Clone placements", "Add placer..."),
     ("Points", "Add point..."),
-    ("Chains", "Add chain..."),
+    ("Spokes", "Add chain..."),
 ])
 def test_leaf_context_menu_shows_only_its_sections_add_action(
         main_window, tmp_path, monkeypatch, category_label, expected_add):
@@ -1402,7 +1402,7 @@ def test_chains_chain_node_with_comment_shows_glyph_and_tooltip(main_window, tmp
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
-    chains_cat = _find(dock.tree.topLevelItem(0), "Chains")
+    chains_cat = _find(dock.tree.topLevelItem(0), "Spokes")
     chain = _find(_find(chains_cat, "Anchor: U1"), "📝 +3V3")
     assert chain.text(0) == "📝 +3V3"
     assert chain.toolTip(0) == "a chain note"
@@ -1414,7 +1414,7 @@ def test_chains_chain_node_without_comment_is_plain(main_window, tmp_path):
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
-    chains_cat = _find(dock.tree.topLevelItem(0), "Chains")
+    chains_cat = _find(dock.tree.topLevelItem(0), "Spokes")
     chain = _find(_find(chains_cat, "Anchor: U1"), "+3V3")
     assert chain.text(0) == "+3V3"
     assert chain.toolTip(0) == ""
@@ -1517,7 +1517,7 @@ def test_chains_nested_tree_renders_anchor_chain_pads(main_window, tmp_path):
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
-    chains_cat = _find(dock.tree.topLevelItem(0), "Chains")
+    chains_cat = _find(dock.tree.topLevelItem(0), "Spokes")
     anchor = _find(chains_cat, "Anchor: U1")
     chain = _find(anchor, "+3V3")
 
@@ -1546,7 +1546,7 @@ def test_chains_sorts_anchors_then_chains_then_pads(main_window, tmp_path):
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
-    chains_cat = _find(dock.tree.topLevelItem(0), "Chains")
+    chains_cat = _find(dock.tree.topLevelItem(0), "Spokes")
     assert chains_cat.childCount() == 2  # two anchors
     anchor1 = chains_cat.child(0)
     anchor2 = chains_cat.child(1)
@@ -1572,7 +1572,7 @@ def test_chains_pad_and_chain_double_click_emit_edit_requests(main_window, tmp_p
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
-    anchor = _find(_find(dock.tree.topLevelItem(0), "Chains"), "Anchor: FPGA")
+    anchor = _find(_find(dock.tree.topLevelItem(0), "Spokes"), "Anchor: FPGA")
     chain = _find(anchor, "+3V3")
     pad1 = _find(chain, "1")
 
@@ -1607,7 +1607,7 @@ def test_chains_pad_selection_survives_refresh(main_window, tmp_path):
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
-    chain = _find(_find(_find(dock.tree.topLevelItem(0), "Chains"), "Anchor: U1"), "+3V3")
+    chain = _find(_find(_find(dock.tree.topLevelItem(0), "Spokes"), "Anchor: U1"), "+3V3")
     pad2 = _find(chain, "2")
     pad2.setSelected(True)
     assert len(dock.tree.selectedItems()) == 1
@@ -1633,7 +1633,7 @@ def test_chain_context_menu_has_spoke_redraw_and_bulk(main_window, tmp_path, mon
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
-    chain = _find(_find(_find(dock.tree.topLevelItem(0), "Chains"), "Anchor: U1"), "+3V3")
+    chain = _find(_find(_find(dock.tree.topLevelItem(0), "Spokes"), "Anchor: U1"), "+3V3")
     actions = _context_menu_actions(dock, chain, monkeypatch)
     labels = [text for text, _ in actions]
 
@@ -1668,7 +1668,7 @@ def test_pad_context_menu_has_redraw_spoke_and_delete_pad(main_window, tmp_path,
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
-    chain = _find(_find(_find(dock.tree.topLevelItem(0), "Chains"), "Anchor: U1"), "+3V3")
+    chain = _find(_find(_find(dock.tree.topLevelItem(0), "Spokes"), "Anchor: U1"), "+3V3")
     pad1 = _find(chain, "1")
     actions = _context_menu_actions(dock, pad1, monkeypatch)
     labels = [text for text, _ in actions]
@@ -1698,7 +1698,7 @@ def test_anchor_context_menu_has_add_chain_and_redraw_chains(main_window, tmp_pa
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
-    anchor = _find(_find(dock.tree.topLevelItem(0), "Chains"), "Anchor: U1")
+    anchor = _find(_find(dock.tree.topLevelItem(0), "Spokes"), "Anchor: U1")
     actions = _context_menu_actions(dock, anchor, monkeypatch)
     labels = [text for text, _ in actions]
 
