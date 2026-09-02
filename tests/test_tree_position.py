@@ -34,8 +34,8 @@ from kicadstamp.constants import ROLE_FIELD_NAME
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.geometry.spoke_layout import local_to_absolute
-from kicadstamp.link_trees import LinkedAnchor, LinkedNode, LinkedTree
-from kicadstamp.trees import Tree, TreeAnchor, TreeNode
+from kicadstamp.link_trees import LinkedAnchor, LinkedNode, LinkedTree, link_trees
+from kicadstamp.trees import Tree, TreeAnchor, TreeNode, load_trees
 from kicadstamp.tree_position import (
     apply_rigid_override,
     capture_rigid_state,
@@ -1353,3 +1353,149 @@ def test_pivot_offset_reads_xy_polar_and_default():
     assert pivot_offset(_mod(ref="m", pivot_polar=(5.0, 0.0))) == \
         local_to_absolute(_ORIGIN, 5.0, 0.0, 0.0)
     assert pivot_offset(_mod(ref="m")) == _ORIGIN
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Module-aware forest planner — plan 2026-09-02 P3 п.1/1a, design P3
+# D2/D3/D4 (recursive module linking D1 is covered in test_link_trees.py).
+# Built end-to-end through link_trees so module_linked is real linked content.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _clone_cfg(names):
+    return Config(clone_placements=[
+        ClonePlacement(cluster=n, cell="c", xy=(0.0, 0.0)) for n in names])
+
+
+def _link_forest(tmp_path, cfg, text):
+    """Parse a .trees body + link it against cfg -> list[LinkedTree]."""
+    path = tmp_path / "trees.trees"
+    path.write_text("(kicadstamp-trees\n" + text + ")", encoding="utf-8")
+    return link_trees(cfg, load_trees(str(path)))
+
+
+def test_forest_module_active_pulls_content_marker_not_a_name(tmp_path):
+    """D2: checking a module marker pulls its referenced tree's WHOLE content
+    into the run; the marker itself is a pass-through vertex — never a name."""
+    cfg = _clone_cfg(["D0", "D1"])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "ch0") (anchor (origin))\n'
+        '      (node (ref "D0") (kind clone) (xy 1 1))\n'
+        '      (node (ref "D1") (kind clone) (xy 2 2)))\n'
+        '(tree (name "p") (anchor (origin))\n'
+        '      (node (ref "ch0") (kind module) (xy 0 0)))')
+    names, warnings = curated_redraw_plan_forest(linked, {"ch0"})
+    assert set(names) == {"D0", "D1"}
+    assert "ch0" not in names
+    assert warnings == []
+
+
+def test_forest_module_priority_0_marker_unchecked_content_not_pulled(tmp_path):
+    """D3 priority 0: with NO active module on ch0 (the marker is not checked)
+    its content is NOT pulled — a checked ch0 node resolves standalone through
+    its own anchor, exactly as the classic planner."""
+    cfg = _clone_cfg(["D0", "D1"])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "ch0") (anchor (origin))\n'
+        '      (node (ref "D0") (kind clone) (xy 1 1))\n'
+        '      (node (ref "D1") (kind clone) (xy 2 2)))\n'
+        '(tree (name "p") (anchor (origin))\n'
+        '      (node (ref "ch0") (kind module) (xy 0 0)))')
+    names, warnings = curated_redraw_plan_forest(linked, {"D0"})
+    assert names == ["D0"]
+    assert set(names) == {"D0"}
+
+
+def test_forest_module_priority_2_plus_is_run_fatal(tmp_path):
+    """D3 priority 2+: TWO different parents embed ch0 through active modules
+    -> a fatal of THIS run (the config is legal — P1 only guards within-one-
+    parent duplicates), naming the conflict."""
+    cfg = _clone_cfg(["D0"])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "ch0") (anchor (origin))\n'
+        '      (node (ref "D0") (kind clone) (xy 1 1)))\n'
+        '(tree (name "p1") (anchor (origin))\n'
+        '      (node (ref "ch0") (kind module) (xy 0 0)))\n'
+        '(tree (name "p2") (anchor (origin))\n'
+        '      (node (ref "ch0") (kind module) (xy 5 5)))')
+    with pytest.raises(ValidationError, match="redraw conflict"):
+        curated_redraw_plan_forest(linked, {"ch0"})
+
+
+def test_forest_module_fc_warning_when_tree_own_node_also_checked(tmp_path):
+    """F-C: a module-placed tree whose OWN node is also checked emits it ONCE
+    (through the module, D3 suppression — no double placement) plus ONE
+    informational warning."""
+    cfg = _clone_cfg(["D0", "D1"])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "ch0") (anchor (origin))\n'
+        '      (node (ref "D0") (kind clone) (xy 1 1))\n'
+        '      (node (ref "D1") (kind clone) (xy 2 2)))\n'
+        '(tree (name "p") (anchor (origin))\n'
+        '      (node (ref "ch0") (kind module) (xy 0 0)))')
+    names, warnings = curated_redraw_plan_forest(linked, {"ch0", "D0"})
+    assert sorted(names) == ["D0", "D1"]
+    assert names.count("D0") == 1 and names.count("D1") == 1
+    assert any("placed through a module" in w for w in warnings)
+
+
+def test_forest_module_owner_parent_before_content(tmp_path):
+    """D4: an ACTIVE marker that is a CHILD of a SELECTED record in the owner
+    tree must place its content AFTER that record (the marker pass-through
+    vertex inherits the owner parent's precedence)."""
+    cfg = _clone_cfg(["PA", "D0"])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "ch0") (anchor (origin))\n'
+        '      (node (ref "D0") (kind clone) (xy 1 1)))\n'
+        '(tree (name "p") (anchor (origin))\n'
+        '      (node (ref "PA") (kind clone) (xy 0 0)\n'
+        '        (node (ref "ch0") (kind module) (xy 2 2))))')
+    names, warnings = curated_redraw_plan_forest(linked, {"PA", "ch0"})
+    assert set(names) == {"PA", "D0"}
+    assert names.index("PA") < names.index("D0")
+
+
+def test_forest_module_nested_a_b_c_auto_expand_and_order(tmp_path):
+    """A embeds B, B embeds C: checking A's marker pulls B AND C content (the
+    nested marker auto-expands, design P3 D2) ordered B before C (D4)."""
+    cfg = _clone_cfg(["B0", "C0"])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "c") (anchor (origin))\n'
+        '      (node (ref "C0") (kind clone) (xy 1 1)))\n'
+        '(tree (name "b") (anchor (origin))\n'
+        '      (node (ref "B0") (kind clone) (xy 1 1)\n'
+        '        (node (ref "c") (kind module) (xy 2 2))))\n'
+        '(tree (name "a") (anchor (origin))\n'
+        '      (node (ref "b") (kind module) (xy 0 0)))')
+    names, warnings = curated_redraw_plan_forest(linked, {"b"})
+    assert set(names) == {"B0", "C0"}
+    assert names.index("B0") < names.index("C0")
+
+
+def test_forest_module_cross_tree_anchor_into_content(tmp_path):
+    """D4: a tree anchored on a module-placed node (cross-tree edge into module
+    content) is ordered after it — Kahn sees the module content edges."""
+    cfg = _clone_cfg(["D0", "E"])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "ch0") (anchor (origin))\n'
+        '      (node (ref "D0") (kind clone) (xy 1 1)))\n'
+        '(tree (name "p") (anchor (origin))\n'
+        '      (node (ref "ch0") (kind module) (xy 0 0)))\n'
+        '(tree (name "d2") (anchor (ref "D0"))\n'
+        '      (node (ref "E") (kind clone) (xy 0 0)))')
+    names, warnings = curated_redraw_plan_forest(linked, {"ch0", "E"})
+    assert set(names) == {"D0", "E"}
+    assert names.index("D0") < names.index("E")
+
+
+def test_forest_module_edge_cycle_is_fatal(tmp_path):
+    """Kahn's cycle detection sees module edges (D4): a tree whose anchor sits
+    INSIDE the content of the module it hosts forms a run-level cycle."""
+    cfg = _clone_cfg(["X", "A1"])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "b") (anchor (origin))\n'
+        '      (node (ref "X") (kind clone) (xy 1 1)))\n'
+        '(tree (name "a") (anchor (ref "X"))\n'
+        '      (node (ref "A1") (kind clone) (xy 0 0)\n'
+        '        (node (ref "b") (kind module) (xy 2 2))))')
+    with pytest.raises(ValidationError, match="cycle"):
+        curated_redraw_plan_forest(linked, {"b", "A1"})

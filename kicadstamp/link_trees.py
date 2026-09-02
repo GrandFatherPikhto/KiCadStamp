@@ -64,6 +64,12 @@ class LinkedNode:
     children: list["LinkedNode"]
     # kind=="module": the referenced Tree (resolved by name, never a record).
     module_tree: Tree | None = None
+    # kind=="module": LINKED CONTENT of the referenced tree (design P3 D1).
+    # The referenced tree's own ANCHOR is never resolved when it is embedded
+    # (design §2.2 — embedded content ignores its own anchor), so this is a
+    # separate LinkedTree with a fictitious origin anchor, shared by every
+    # parent marker referencing the same tree (cached in link_trees, pure).
+    module_linked: "LinkedTree | None" = None
 
 
 @dataclass
@@ -255,12 +261,47 @@ def _check_module_cycles(graph: dict[str, set[str]]) -> None:
             visit(name, [])
 
 
+def _link_content_tree(tree: Tree, by_key: dict[str, Record],
+                       by_name: dict[str, list[Record]],
+                       by_tree: dict[str, Tree],
+                       memo: dict[str, "LinkedTree"]) -> "LinkedTree":
+    """Linked CONTENT of a module's referenced tree (design P3 D1): the tree's
+    nodes are linked recursively (records + nested module markers), but its own
+    ANCHOR is NEVER resolved — an embedded tree ignores its own anchor (design
+    §2.2), so the content LinkedTree carries a fictitious origin anchor.
+
+    Cached by tree name: one referenced tree = one shared content LinkedTree
+    across every parent marker referencing it (module_linked is pure — nothing
+    ever mutates it). The content LinkedTree is a SEPARATE object from the same
+    tree's forest LinkedTree (which keeps its real, resolved anchor) — the two
+    only meet in the planner by record name, never by object identity."""
+    cached = memo.get(tree.name)
+    if cached is not None:
+        return cached
+    content = LinkedTree(
+        name=tree.name,
+        # Fictitious origin: embedded content's own anchor plays no role.
+        anchor=LinkedAnchor(anchor=TreeAnchor(is_origin=True), record=None,
+                            is_origin=True, is_external=False),
+        nodes=[],
+    )
+    # Register BEFORE linking nodes: module cycles are config fatals (P1), but
+    # a caller that links a tree subset without running the graph guard would
+    # otherwise recurse forever on a self/cycle reference — fail-safe.
+    memo[tree.name] = content
+    content.nodes = [_link_node(n, by_key, by_name, by_tree, memo)
+                     for n in tree.nodes]
+    return content
+
+
 def _link_node(node: TreeNode, by_key: dict[str, Record],
                by_name: dict[str, list[Record]],
-               by_tree: dict[str, Tree]) -> LinkedNode:
+               by_tree: dict[str, Tree],
+               memo: dict[str, "LinkedTree"]) -> LinkedNode:
     """Recursively wrap one TreeNode (and its children) into a LinkedNode. A
-    module node resolves its ref as another TREE (module_tree), never a record;
-    its own children (ordinary marker children) link normally."""
+    module node resolves its ref as another TREE (module_tree, never a record)
+    and carries its LINKED CONTENT (module_linked) for the planner/apply; its
+    own children (ordinary marker children) link normally."""
     if node.kind == "module":
         module_tree = by_tree.get(node.ref)
         if module_tree is None:
@@ -274,22 +315,27 @@ def _link_node(node: TreeNode, by_key: dict[str, Record],
             node=node,
             record=None,
             is_external=False,
-            children=[_link_node(c, by_key, by_name, by_tree) for c in node.children],
+            children=[_link_node(c, by_key, by_name, by_tree, memo)
+                      for c in node.children],
             module_tree=module_tree,
+            module_linked=_link_content_tree(module_tree, by_key, by_name,
+                                             by_tree, memo),
         )
     record, is_external = _resolve_node_ref(node, by_key, by_name)
     return LinkedNode(
         node=node,
         record=record,
         is_external=is_external,
-        children=[_link_node(c, by_key, by_name, by_tree) for c in node.children],
+        children=[_link_node(c, by_key, by_name, by_tree, memo)
+                  for c in node.children],
         module_tree=None,
     )
 
 
 def _link_tree(tree: Tree, by_key: dict[str, Record],
                by_name: dict[str, list[Record]],
-               by_tree: dict[str, Tree]) -> LinkedTree:
+               by_tree: dict[str, Tree],
+               memo: dict[str, "LinkedTree"]) -> LinkedTree:
     record, is_external = _resolve_anchor_ref(tree.anchor, by_name)
     return LinkedTree(
         name=tree.name,
@@ -299,7 +345,7 @@ def _link_tree(tree: Tree, by_key: dict[str, Record],
             is_origin=tree.anchor.is_origin,
             is_external=is_external,
         ),
-        nodes=[_link_node(n, by_key, by_name, by_tree) for n in tree.nodes],
+        nodes=[_link_node(n, by_key, by_name, by_tree, memo) for n in tree.nodes],
     )
 
 
@@ -321,4 +367,7 @@ def link_trees(cfg, trees: list[Tree]) -> list[LinkedTree]:
     by_tree = {t.name: t for t in trees}
     if trees:
         _check_module_cycles(_module_graph(trees))
-    return [_link_tree(t, by_key, by_name, by_tree) for t in trees]
+    # memo: tree name -> shared module CONTENT LinkedTree (design P3 D1) — one
+    # referenced tree links to one module_linked content, shared by all parents.
+    memo: dict[str, "LinkedTree"] = {}
+    return [_link_tree(t, by_key, by_name, by_tree, memo) for t in trees]

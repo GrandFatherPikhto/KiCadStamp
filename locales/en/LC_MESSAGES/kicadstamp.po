@@ -6133,6 +6133,14 @@ msgstr "tree module cycle: {chain}"
 msgid "Module {ref!r} references a tree that is not in this set of trees — link the whole config"
 msgstr "Module {ref!r} references a tree that is not in this set of trees — link the whole config"
 
+#, python-brace-format
+msgid "redraw conflict: tree {child!r} is embedded by active modules in several trees ({parents}) — uncheck one of the module markers for this redraw"
+msgstr "redraw conflict: tree {child!r} is embedded by active modules in several trees ({parents}) — uncheck one of the module markers for this redraw"
+
+#, python-brace-format
+msgid "Tree {name!r} is placed through a module in this redraw — nodes checked in the tree itself are applied once via the module"
+msgstr "Tree {name!r} is placed through a module in this redraw — nodes checked in the tree itself are applied once via the module"
+
 #: kicadstamp/trees.py:243
 #, python-brace-format
 msgid "{location}: a tree is missing a (name ...)"

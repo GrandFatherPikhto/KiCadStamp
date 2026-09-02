@@ -531,3 +531,84 @@ def test_module_cycle_is_fatal(tmp_path):
         tmp_path=tmp_path)
     with pytest.raises(ValidationError, match="cycle"):
         link_trees(cfg, trees)
+
+
+# ── module_linked: recursive CONTENT linking (2026-09-02, plan P3a / design
+#    P3 D1) ─────────────────────────────────────────────────────────────────
+
+def test_module_linked_content_linked_with_fictitious_origin_anchor(tmp_path):
+    """A module marker carries module_linked — a linked CONTENT tree whose
+    nodes are resolved records, but whose own ANCHOR is never resolved (a
+    fictitious origin: embedded content ignores its own anchor, design §2.2).
+    It is a SEPARATE object from the referenced tree's forest LinkedTree,
+    which keeps its real, resolved anchor."""
+    cfg = _cfg()
+    trees = _tree(
+        '(tree (name "ch0") (anchor (ref "CL_A"))\n'
+        '      (node (ref "CL_B") (kind clone) (xy 1 1)))\n'
+        '(tree (name "p") (anchor (origin))\n'
+        '      (node (ref "ch0") (kind module) (xy 0 0)))',
+        tmp_path=tmp_path)
+    by = {lt.name: lt for lt in link_trees(cfg, trees)}
+    marker = by["p"].nodes[0]
+    content = marker.module_linked
+    assert content is not None
+    # content anchor is the fictitious origin (not resolved against CL_A)...
+    assert content.name == "ch0"
+    assert content.anchor.is_origin is True
+    assert content.anchor.record is None
+    # ...while the FOREST ch0 tree keeps its real CL_A anchor.
+    assert by["ch0"].anchor.record is not None
+    assert by["ch0"].anchor.record.name == "CL_A"
+    # content nodes are resolved records, distinct objects from the forest tree.
+    assert content.nodes[0].record.name == "CL_B"
+    assert content.nodes[0] is not by["ch0"].nodes[0]
+
+
+def test_module_linked_shared_across_parents(tmp_path):
+    """One referenced tree = ONE shared module_linked content LinkedTree across
+    every parent marker (pure linking, cached in link_trees); never the child's
+    own forest LinkedTree."""
+    cfg = _cfg()
+    trees = _tree(
+        '(tree (name "ch0") (anchor (origin))\n'
+        '      (node (ref "CL_A") (kind clone) (xy 1 1)))\n'
+        '(tree (name "p1") (anchor (origin))\n'
+        '      (node (ref "ch0") (kind module) (xy 0 0)))\n'
+        '(tree (name "p2") (anchor (origin))\n'
+        '      (node (ref "ch0") (kind module) (xy 2 2)))',
+        tmp_path=tmp_path)
+    by = {lt.name: lt for lt in link_trees(cfg, trees)}
+    c1 = by["p1"].nodes[0].module_linked
+    c2 = by["p2"].nodes[0].module_linked
+    assert c1 is not None and c1 is c2
+    assert c1 is not by["ch0"]          # content != forest tree
+    assert c1.nodes[0].record.name == "CL_A"
+
+
+def test_module_linked_recursive_nested(tmp_path):
+    """P3 D1 recursion: A embeds B, B embeds C. A's marker content holds B's
+    records AND B's nested marker, whose own module_linked is C's content —
+    the planner walks one fully linked graph, no manual by-name maps."""
+    cfg = _cfg()
+    trees = _tree(
+        '(tree (name "c") (anchor (origin))\n'
+        '      (node (ref "CL_B") (kind clone) (xy 1 1)))\n'
+        '(tree (name "b") (anchor (origin))\n'
+        '      (node (ref "CL_A") (kind clone) (xy 1 1)\n'
+        '        (node (ref "c") (kind module) (xy 2 2))))\n'
+        '(tree (name "a") (anchor (origin))\n'
+        '      (node (ref "b") (kind module) (xy 0 0)))',
+        tmp_path=tmp_path)
+    by = {lt.name: lt for lt in link_trees(cfg, trees)}
+    content_b = by["a"].nodes[0].module_linked
+    assert content_b.name == "b"
+    assert content_b.nodes[0].record.name == "CL_A"
+    nested = content_b.nodes[0].children[0]
+    assert nested.node.kind == "module" and nested.node.ref == "c"
+    assert nested.module_linked is not None
+    assert nested.module_linked.name == "c"
+    assert nested.module_linked.nodes[0].record.name == "CL_B"
+    # nested content is shared with the nested marker of b's OWN forest tree.
+    forest_b_nested = by["b"].nodes[0].children[0]
+    assert forest_b_nested.module_linked is nested.module_linked

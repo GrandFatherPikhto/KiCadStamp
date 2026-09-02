@@ -595,28 +595,12 @@ def _forest_index(linked_trees: list[LinkedTree]):
     return node_index, parent_map
 
 
-def curated_redraw_plan_forest(linked_trees: list[LinkedTree],
-                               selected_refs: set[str]) -> tuple[list[str], list[str]]:
-    """Global curated-redraw order over a FOREST of linked trees, with
-    cross-tree anchor edges (plan 3.2 / design_2026_08_30_entity_placement_
-    grammar.md §6).
-
-    Within each tree a parent is strictly before its child (the per-tree
-    rule), and every tree's top-level nodes are ordered after their TREE
-    ANCHOR's record when that anchor is itself a SELECTED placement node —
-    possibly in ANOTHER tree (cross-tree anchoring, §9.3). Because the anchor
-    ref is the parent of the top-level nodes in _forest_index, both the
-    within-tree and the cross-tree edges are expressed by one unified parent
-    map, and the result is a single Kahn's topological order over the whole
-    forest. External/origin/point anchors contribute no edge (read live).
-
-    Returns (names, warnings): names is the global application order (each
-    node's record.name == its ref, by link_trees's index construction);
-    point/external nodes are walked as bases but never emitted (same rule as
-    curated_redraw_plan). Raises ValidationError on a cross-tree cycle (two
-    trees whose anchors point into each other's selected nodes)."""
-    node_index, parent_map = _forest_index(linked_trees)
-
+def _plan_forest_plain(node_index: dict[str, LinkedNode],
+                       parent_map: dict[str, str | None],
+                       selected_refs: set[str]) -> tuple[list[str], list[str]]:
+    """No-module forest order — the ORIGINAL planner, kept VERBATIM as the
+    fast path of curated_redraw_plan_forest when no module is active in the
+    run (design P3 D4: module edges are added only when a module is active)."""
     selected: dict[str, LinkedNode] = {}
     for ref, ln in node_index.items():
         if ref in selected_refs and ln.record is not None \
@@ -657,6 +641,268 @@ def curated_redraw_plan_forest(linked_trees: list[LinkedTree],
                 queue.sort()
     if len(names) != len(selected):
         remaining = sorted(set(selected) - set(names))
+        raise ValidationError(format_fatal_error(
+            _("cross-tree anchor cycle in curated redraw forest"),
+            [_("these nodes form a cycle through tree anchors: {items}")
+             .format(items=", ".join(remaining))]))
+    return names, warnings
+
+
+def _module_markers(linked_trees: list[LinkedTree]
+                    ) -> list[tuple[str, LinkedNode, str | None]]:
+    """Every kind=="module" LinkedNode that sits in a FOREST tree (not inside a
+    module's module_linked content — those are enumerated per active module,
+    design P3 D2), as (owner_tree_name, marker, direct_parent_ref).
+
+    direct_parent_ref is the ref of the nearest enclosing NODE in the owner
+    tree, or the owner tree's ANCHOR ref for a top-level marker (None for an
+    origin/auto anchor). It feeds the "marker after its parent in the owner
+    tree" precedence edge (design P3 D4)."""
+    out: list[tuple[str, LinkedNode, str | None]] = []
+
+    def walk(nodes: list[LinkedNode], owner: str, parent_ref: str | None) -> None:
+        for ln in nodes:
+            if ln.node.kind == "module":
+                out.append((owner, ln, parent_ref))
+            # A module marker's OWN children are ordinary nodes of the owner
+            # tree (stage-1 records) — keep descending through them.
+            walk(ln.children, owner, ln.node.ref)
+
+    for lt in linked_trees:
+        walk(lt.nodes, lt.name, lt.anchor.anchor.ref)
+    return out
+
+
+def _walk_content(lt: LinkedTree) -> list[LinkedNode]:
+    """Every LinkedNode in a module content LinkedTree `lt` — records,
+    point/external bases AND nested module markers — DFS over the tree
+    structure only. NEVER crosses into a nested marker's own module_linked
+    (that referenced tree is enumerated separately when the nested marker is
+    itself active, design P3 D2)."""
+    out: list[LinkedNode] = []
+    stack = list(lt.nodes)
+    while stack:
+        ln = stack.pop()
+        out.append(ln)
+        stack.extend(ln.children)
+    return out
+
+
+def _active_module_entries(markers, selected_refs: set[str]
+                           ) -> list[tuple[LinkedNode, str]]:
+    """(marker, parent_tree_name) for every module ACTIVE in this run (design
+    P3 D2): a marker whose node.ref is in selected_refs, plus — transitively —
+    every module node inside the CONTENT of an active module (a nested module
+    expands automatically — its base comes from context, no separate
+    check-mark). parent_tree_name is the FOREST tree containing the marker, or
+    the content tree name for an auto-expanded nested marker (used only for
+    the D3 2+-parents conflict count)."""
+    entries: list[tuple[LinkedNode, str]] = []
+    seen: set[int] = set()
+    queue: list[tuple[LinkedNode, str]] = [
+        (m, owner) for owner, m, _p in markers if m.node.ref in selected_refs]
+    while queue:
+        m, owner = queue.pop()
+        key = id(m)
+        if key in seen:
+            continue
+        seen.add(key)
+        entries.append((m, owner))
+        if m.module_linked is None:
+            continue
+        for ln in _walk_content(m.module_linked):
+            if ln.node.kind == "module":
+                queue.append((ln, m.module_linked.name))
+    return entries
+
+
+def _module_content_record_refs(m: LinkedNode) -> set[str]:
+    """refs of every record node inside m.module_linked's content (stage 2,
+    design P3 D2 — an active module pulls its whole content). Module markers
+    contribute no ref, but their OWN children (stage-1 records of the content
+    tree) do; a nested marker's referenced tree is counted through that nested
+    marker's own active entry, not here."""
+    refs: set[str] = set()
+    if m.module_linked is None:
+        return refs
+    stack = list(m.module_linked.nodes)
+    while stack:
+        ln = stack.pop()
+        if ln.node.kind == "module":
+            stack.extend(ln.children)
+            continue
+        if ln.record is not None and ln.record.kind != "point":
+            refs.add(ln.node.ref)
+        stack.extend(ln.children)
+    return refs
+
+
+def curated_redraw_plan_forest(linked_trees: list[LinkedTree],
+                               selected_refs: set[str]) -> tuple[list[str], list[str]]:
+    """Global curated-redraw order over a FOREST of linked trees: within-tree
+    parent-before-child, cross-tree anchor edges, AND — when module markers are
+    active (plan_2026_09_02_tree_module_embedding.md P3 п.1/1a, design P3
+    D2/D3/D4) — module edges over the linked module content (module_linked).
+
+    When NO module is active the behavior is exactly the classic forest
+    planner (see _plan_forest_plain). When module(s) ARE active this run:
+
+    - D2: a marker checked in selected_refs is ACTIVE and pulls its ENTIRE
+      content (module_linked, stage 2) into the run; nested modules inside an
+      active module's content expand automatically (no separate check-mark).
+    - D3: for each child tree C, active modules placing it from >1 DIFFERENT
+      parent tree -> a fatal OF THIS RUN (the config stays legal; only P1's
+      within-one-parent duplicate is a config error). With exactly one active
+      module C is placed ONLY through that module — C's own anchor-to-top
+      edges are suppressed for the run (no double placement).
+    - D4: module markers are pass-through vertices (no name emitted) that
+      order their content strictly after the marker, and the marker after its
+      own parent chain in the owner tree. Kahn's cycle detection sees module
+      edges too.
+
+    Returns (names, warnings): names is the global application order — record
+    names (each record.name == its ref); module content records appear once
+    through their module. point/external nodes are bases, never emitted. The
+    D3 2+-parent conflict and any cycle raise ValidationError."""
+    node_index, parent_map = _forest_index(linked_trees)
+
+    # P3a: only when a module is ACTIVE does the planner grow module edges.
+    markers = _module_markers(linked_trees)
+    active = _active_module_entries(markers, selected_refs)
+    if not active:
+        return _plan_forest_plain(node_index, parent_map, selected_refs)
+
+    warnings: list[str] = []
+
+    # D3 — per-child priority: number of DIFFERENT parent trees placing child C
+    # through an active module this run.
+    by_child: dict[str, set[str]] = {}
+    for m, owner in active:
+        child = m.module_linked.name if m.module_linked is not None else m.node.ref
+        by_child.setdefault(child, set()).add(owner)
+    for child in sorted(by_child):
+        owners = sorted(by_child[child])
+        if len(owners) > 1:
+            raise ValidationError(format_fatal_error(
+                _("redraw conflict: tree {child!r} is embedded by active "
+                  "modules in several trees ({parents}) — uncheck one of the "
+                  "module markers for this redraw")
+                .format(child=child, parents=", ".join(owners)),
+                []))
+    # Child trees with >=1 active module are placed ONLY through that module.
+    module_placed = set(by_child)
+
+    # stage-2 content refs an active module pulls (D2).
+    child_content: dict[str, set[str]] = {child: set() for child in module_placed}
+    content_refs: set[str] = set()
+    for m, _owner in active:
+        child = m.module_linked.name if m.module_linked is not None else m.node.ref
+        child_content.setdefault(child, set()).update(_module_content_record_refs(m))
+        content_refs |= child_content[child]
+
+    # forest-channel selected records EXCLUDING module-placed trees' own nodes
+    # (D3 suppression: they are represented once, through the module).
+    selected: dict[str, LinkedNode] = {}
+    for ref, ln in node_index.items():
+        if ref in selected_refs and ref not in content_refs \
+                and ln.record is not None and ln.record.kind != "point":
+            selected[ref] = ln
+
+    # F-C: a module-placed tree whose OWN nodes are ALSO checked gets ONE
+    # informational note — they apply once, via the module override.
+    for child in sorted(module_placed):
+        if child_content[child] & selected_refs:
+            warnings.append(
+                _("Tree {name!r} is placed through a module in this redraw — "
+                  "nodes checked in the tree itself are applied once via the "
+                  "module").format(name=child))
+
+    # forest marker id -> (owner, direct parent ref) for owner-side edges.
+    forest_parent: dict[int, tuple[str, str | None]] = {
+        id(m): (owner, parent) for owner, m, parent in markers}
+
+    # Every emitted record and every active module pass-through is a vertex;
+    # pre-seed indegrees so a record WITHOUT an applied parent is still a root
+    # (mirrors _plan_forest_plain seeding every selected ref to 0).
+    records = set(selected) | content_refs
+    children: dict[object, list[object]] = {}
+    indeg: dict[object, int] = {k: 0 for k in records}
+    for m, _owner in active:
+        indeg.setdefault(id(m), 0)
+
+    def add_edge(parent: object, child: object) -> None:
+        indeg.setdefault(child, 0)
+        children.setdefault(parent, []).append(child)
+        indeg[child] += 1
+
+    def flow(nodes: list[LinkedNode], cur: object) -> None:
+        """Precedence edges from module pass-through `cur` through module
+        content: parent strictly before child. A nested module marker is a
+        pass-through vertex (its own module_linked content is flowed by its own
+        active entry); point/external bases emit nothing but children keep the
+        chain."""
+        for ln in nodes:
+            if ln.node.kind == "module":
+                nkey = id(ln)
+                add_edge(cur, nkey)
+                flow(ln.children, nkey)
+            elif ln.record is not None and ln.record.kind != "point":
+                add_edge(cur, ln.node.ref)
+                flow(ln.children, ln.node.ref)
+            else:
+                flow(ln.children, cur)
+
+    # active module markers: owner-side precedence + content edges (D4).
+    for m, _owner in active:
+        mkey = id(m)
+        fp = forest_parent.get(mkey)
+        if fp is not None:
+            _owner, parent_ref = fp
+            # marker after its parent when that parent is applied this run;
+            # nested markers already get their incoming edge from the enclosing
+            # content flow, so only FOREST markers take an owner-side edge.
+            if parent_ref is not None and \
+                    (parent_ref in selected or parent_ref in content_refs):
+                add_edge(parent_ref, mkey)
+        if m.module_linked is not None:
+            flow(m.module_linked.nodes, mkey)
+
+    # forest-channel edges (within-tree AND cross-tree anchor; D4 keeps them).
+    for ref in selected:
+        p = parent_map.get(ref)
+        if p is not None and (p in selected or p in content_refs):
+            add_edge(p, ref)
+
+    # warnings: forest selected node whose base is not applied this run.
+    for ref in selected:
+        p = parent_map.get(ref)
+        parent_label = p if p is not None else "(origin)"
+        if p is None or (p not in selected and p not in content_refs):
+            warnings.append(
+                _("Node {ref!r} will be redrawn from the current position of "
+                  "{parent!r} (not in selection); if {parent!r} moved, {ref!r} "
+                  "will land from the old point")
+                .format(ref=ref, parent=parent_label))
+
+    # Kahn's algorithm over record refs (str) + module pass-through ids (int),
+    # deterministic: record refs lexicographic, module vertices after.
+    def _sort_key(key: object):
+        return (0, key) if isinstance(key, str) else (1, key)
+
+    queue = sorted((k for k in indeg if indeg[k] == 0), key=_sort_key)
+    names: list[str] = []
+    while queue:
+        key = queue.pop(0)
+        if isinstance(key, str):
+            names.append(key)
+        for child in children.get(key, []):
+            indeg[child] -= 1
+            if indeg[child] == 0:
+                queue.append(child)
+                queue.sort(key=_sort_key)
+
+    if len(names) != len(records):
+        remaining = sorted(records - set(names))
         raise ValidationError(format_fatal_error(
             _("cross-tree anchor cycle in curated redraw forest"),
             [_("these nodes form a cycle through tree anchors: {items}")
