@@ -179,6 +179,21 @@ _ADD_ACTION_BY_SECTION = {
 _COMMENT_GLYPH = "📝 "
 
 
+def _identity_to_json(ident: tuple) -> list:
+    """Serialize a rebuild-stable ConfigTreeDock identity (the tuples produced
+    by _item_identity) for gui_state.json. Every Path — ALWAYS at position 1 of
+    each tuple — becomes its str; all other elements (str/int) stay as-is and
+    JSON-serialize natively."""
+    return [str(x) if isinstance(x, Path) else x for x in ident]
+
+
+def _identity_from_json(raw: list) -> tuple:
+    """Inverse of _identity_to_json. Position 1 is ALWAYS a Path in every kind
+    _item_identity returns ("file"/"category"/"leaf"/"anchor"/"chain"/"pad" —
+    verified across all six branches), so it is re-wrapped unconditionally."""
+    return tuple(Path(x) if i == 1 else x for i, x in enumerate(raw))
+
+
 class ConfigTreeDock(QDockWidget):
     # Fired when a Cell leaf is clicked — PlacerDock listens to fill its
     # Cell field (see gui/dock_hub.py). Left CLICK stays "pick this cell as
@@ -343,6 +358,18 @@ class ConfigTreeDock(QDockWidget):
         self.tree.itemDoubleClicked.connect(self._on_double_clicked)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._on_context_menu)
+        # (P3, 2026-09-03, plan tree_ui_state_persistence): which branches the
+        # user collapsed must survive refresh() (which expandAll()s every time)
+        # and app restarts. Collapse is stored as a list of DEVIATIONS from the
+        # "everything expanded" default, so a brand-new record starts expanded
+        # with no extra code. _collapsed holds rebuild-stable identities in
+        # memory; _restoring_expand_state suppresses these two handlers while
+        # refresh() applies the saved state programmatically (otherwise every
+        # rebuild would fire a write storm from expandAll/setExpanded).
+        self._collapsed: set = set()
+        self._restoring_expand_state = False
+        self.tree.itemExpanded.connect(self._on_item_expanded)
+        self.tree.itemCollapsed.connect(self._on_item_collapsed)
         layout.addWidget(self.tree)
 
         # F2 = Rename on the current leaf (2026-08-25, the project's first
@@ -469,6 +496,104 @@ class ConfigTreeDock(QDockWidget):
         if first_match is not None:
             self.tree.scrollToItem(first_match)
 
+    # ── Collapse-state persistence (2026-09-03, plan tree_ui_state_persistence P3) ──
+    #
+    # The config tree is unconditionally expandAll()'d on every refresh — the
+    # branches a user collapsed are saved as DEVIATIONS (gui_state.json key
+    # "config_tree_collapsed", a flat list of identities) and re-applied after
+    # each expandAll. Reuses the SAME _item_identity that keeps selection alive
+    # across tree.clear() (rebuild-stable); Path objects live only in memory —
+    # they are wrapped at the JSON boundary by _identity_to_json/_identity_from_json.
+
+    def _load_collapsed(self) -> set:
+        """The persisted collapsed-branch identities from gui_state.json —
+        fatal-safe: an absent/broken/partially-broken key degrades to the empty
+        set (everything expanded by default), never a crash."""
+        try:
+            raw = settings.state.get("config_tree_collapsed", [])
+        except Exception:
+            return set()
+        collapsed = set()
+        if isinstance(raw, list):
+            for row in raw:
+                if not isinstance(row, list):
+                    continue
+                try:
+                    collapsed.add(_identity_from_json(row))
+                except (TypeError, ValueError):
+                    continue
+        return collapsed
+
+    def _persist_collapsed(self) -> None:
+        """Write the in-memory collapsed set to gui_state.json as a sorted list
+        of JSON identities (deterministic file, trivial diffs)."""
+        rows = sorted(_identity_to_json(i) for i in self._collapsed)
+        settings.state.set("config_tree_collapsed", rows)
+
+    def _expand_and_restore_collapsed(self) -> None:
+        """expandAll() is the right default for NEW/never-seen entries; the
+        persisted collapsed identities are then re-applied as deviations. The
+        whole block runs with _restoring_expand_state set so the programmatic
+        expandAll/setExpanded events don't fire the persistence handlers — the
+        in-memory _collapsed already holds the truth, and re-writing it per
+        item would be a write storm on an already-perf-sensitive refresh."""
+        self._restoring_expand_state = True
+        try:
+            self.tree.expandAll()
+            if self._collapsed:
+                it = QTreeWidgetItemIterator(self.tree)
+                while it.value():
+                    item = it.value()
+                    if self._item_identity(item) in self._collapsed:
+                        item.setExpanded(False)
+                    it += 1
+        finally:
+            self._restoring_expand_state = False
+
+    def _on_item_expanded(self, item: QTreeWidgetItem) -> None:
+        """A branch the user expanded is no longer a collapsed deviation."""
+        if self._restoring_expand_state:
+            return
+        ident = self._item_identity(item)
+        if ident is not None and ident in self._collapsed:
+            self._collapsed.discard(ident)
+            self._persist_collapsed()
+
+    def _on_item_collapsed(self, item: QTreeWidgetItem) -> None:
+        """A branch the user collapsed is remembered as a deviation."""
+        if self._restoring_expand_state:
+            return
+        ident = self._item_identity(item)
+        if ident is not None and ident not in self._collapsed:
+            self._collapsed.add(ident)
+            self._persist_collapsed()
+
+    def _capture_collapsed_from_widget(self) -> None:
+        """Overwrite the in-memory collapsed set from the CURRENT tree widgets —
+        the final-flush path (the per-event handlers already cover each change
+        as it happens)."""
+        collapsed = set()
+        it = QTreeWidgetItemIterator(self.tree)
+        while it.value():
+            item = it.value()
+            # Only parent items can be collapsed — leaves have no branch state.
+            if item.childCount() and not item.isExpanded():
+                ident = self._item_identity(item)
+                if ident is not None:
+                    collapsed.add(ident)
+            it += 1
+        self._collapsed = collapsed
+
+    def persist_ui_state(self) -> None:
+        """Final flush — called by MainWindow._persist_settings() on quit/
+        close. Re-reads the CURRENT widget state so a collapse that happened
+        after the last refresh() (a manual collapse with no structural edit) is
+        still captured."""
+        if self._root_path is None:
+            return
+        self._capture_collapsed_from_widget()
+        self._persist_collapsed()
+
     def refresh(self) -> None:
         """Public — also called by PlacerDock's saved signal (see
         gui/dock_hub.py) so a successful Save shows up here without
@@ -486,6 +611,10 @@ class ConfigTreeDock(QDockWidget):
             self._refresh_profiled()
             return
         selection = self._capture_selection()
+        # (P3) Reload the persisted collapsed-branch set — refresh() can be
+        # triggered by a Save anywhere in the app, so the on-disk state may
+        # have changed since the dock last read it.
+        self._collapsed = self._load_collapsed()
         self.tree.clear()
         if self._root_path is None:
             return
@@ -495,7 +624,9 @@ class ConfigTreeDock(QDockWidget):
             QTreeWidgetItem(self.tree, [str(e)])
             return
         self._build_file_item(self.tree.invisibleRootItem(), node, parent_path=None)
-        self.tree.expandAll()
+        # (P3) Default = everything expanded (a new/never-seen entry must be
+        # visible); then selectively re-collapse what the user collapsed.
+        self._expand_and_restore_collapsed()
         self._restore_selection(selection)
 
     def _refresh_profiled(self) -> None:
@@ -512,6 +643,9 @@ class ConfigTreeDock(QDockWidget):
         profiler.enable()
         t0 = time.perf_counter()
         selection = self._capture_selection()
+        # (P3) Same collapsed-state reload as refresh() — the profiled path
+        # must behave identically or the profile would not reflect reality.
+        self._collapsed = self._load_collapsed()
         self.tree.clear()
         if self._root_path is None:
             profiler.disable()
@@ -525,7 +659,7 @@ class ConfigTreeDock(QDockWidget):
         t1 = time.perf_counter()
         self._build_file_item(self.tree.invisibleRootItem(), node, parent_path=None)
         t2 = time.perf_counter()
-        self.tree.expandAll()
+        self._expand_and_restore_collapsed()
         self._restore_selection(selection)
         t3 = time.perf_counter()
         # repaint() is a SYNCHRONOUS immediate repaint (unlike update(), which

@@ -156,6 +156,11 @@ A tree mirroring the actual `include:` file graph from a single root config file
 sections (Cells/Clone placements/Thermal via arrays/Points/Chains/Extract profiles/Clone profiles)
 and its own included files, recursively.
 
+Since 2026-09-03 (plan tree_ui_state_persistence) the branches you manually COLLAPSE are remembered:
+every refresh (a Save anywhere in the app rebuilds the tree) re-expands everything by default — a new
+entry is always visible — and then re-collapses exactly the branches you had collapsed; the same
+state survives app restarts (stored as deviations in `gui_state.json`).
+
 Since 2026-09-01 (plan rules_to_chains) the **Chains** category is a NESTED tree, not a flat list:
 category → **anchor** (grouped by `anchor_ref`/`anchor_role`/`anchor_point`) → **chain** (labelled
 by its net or name) → **pad** leaves (one per spoke, sorted by pad number). There is no separate
@@ -284,6 +289,11 @@ one placed twice / in a cycle) warns with the materializer's own fatal text (202
 reaches the disk until **Save**, which replaces the whole root `trees:` section through the single
 config_writer chokepoint (a fresh `.bak` is made first); linking/validation runs at Save via
 `kicadstamp.link_trees`.
+
+Since 2026-09-03 (plan tree_ui_state_persistence) the ACTIVE tab and the per-tree expanded/collapsed
+state are remembered too: a rebuild no longer resets you to the first tab or collapses every tree
+back — whichever tree tab was active and which nodes were expanded are restored by name/ref, and the
+whole state survives app restarts (`gui_state.json`).
 
 The **Ref:** (Add/Edit-node) and **Set anchor…** candidate lists refresh automatically the moment the
 include graph changes or an entity dock saves a new/renamed Entity/Cell/Chain/... — no app restart or

@@ -474,13 +474,14 @@ class MainWindow(QMainWindow):
         # widget state.
         settings.state.set("always_on_top", bool(settings.state.get("always_on_top", False)))
         settings.state.set("tray_enabled", bool(settings.state.get("tray_enabled", False)))
-        # Tree-dock UI state (2026-09-03, plan tree_ui_state_persistence P1/P2):
-        # the docks already persist their active-tab / expand state on every
-        # user action and every rebuild; this final flush re-reads the CURRENT
-        # widget state so an interaction after the last rebuild (a pure tab
-        # switch or a manual expand/collapse, with no structural edit) is still
-        # saved when the app quits. ConfigTreeDock's flush is added in P3.
+        # Tree-dock UI state (2026-09-03, plan tree_ui_state_persistence P1/P2/P3):
+        # the docks already persist their active-tab / expand / collapse state on
+        # every user action and every rebuild; this final flush re-reads the
+        # CURRENT widget state so an interaction after the last rebuild (a pure
+        # tab switch or a manual expand/collapse, with no structural edit) is
+        # still saved when the app quits.
         self._dock_hub.trees_dock.persist_ui_state()
+        self._dock_hub.config_tree_dock.persist_ui_state()
 
     def closeEvent(self, event) -> None:
         """While the tray icon is enabled, the title-bar X hides instead of

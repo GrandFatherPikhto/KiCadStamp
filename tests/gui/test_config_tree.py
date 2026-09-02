@@ -1713,3 +1713,124 @@ def test_anchor_context_menu_has_add_chain_and_redraw_chains(main_window, tmp_pa
     dict(actions)["Redraw chains..."].trigger()
     assert len(redraws) == 1
     assert [c["net"] for c in redraws[0]] == ["+3V3", "GND"]
+
+
+# ── Collapse-state persistence (2026-09-03, plan tree_ui_state_persistence P3) ──
+# Branches the user collapsed survive refresh() (which expandAll()s every time)
+# and app restarts. Stored as DEVIATIONS in gui_state.json["config_tree_collapsed"]
+# (a flat list of _item_identity tuples, Path at position 1 -> str at the JSON
+# boundary). gui_state.json is isolated per test by conftest's isolated_settings.
+
+def test_collapsed_category_persists_and_restores_after_refresh(main_window, tmp_path):
+    """Collapsing a category branch writes it to config_tree_collapsed; a later
+    refresh() (a Save elsewhere -> full rebuild + expandAll) re-collapses exactly
+    that branch, leaving everything else expanded."""
+    root = tmp_path / "root.sexp"
+    _write(root, ALL_SECTIONS)
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    root_item = dock.tree.topLevelItem(0)
+    cells = _find(root_item, "Cells")
+    assert cells.isExpanded() is True          # default: everything expanded
+    cells.setExpanded(False)                    # user collapses Cells
+    assert ["category", str(root), "cells"] in settings.state.get(
+        "config_tree_collapsed")
+
+    dock.refresh()                              # rebuild elsewhere in the app
+    root_item2 = dock.tree.topLevelItem(0)
+    assert _find(root_item2, "Cells").isExpanded() is False      # restored
+    assert _find(root_item2, "Points").isExpanded() is True      # untouched
+
+
+def test_collapsed_state_restored_on_fresh_dock(main_window, tmp_path):
+    """A fresh ConfigTreeDock over the same gui_state.json (== app restart)
+    restores the collapsed branches."""
+    root = tmp_path / "root.sexp"
+    _write(root, ALL_SECTIONS)
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+    _find(dock.tree.topLevelItem(0), "Points").setExpanded(False)
+    assert ["category", str(root), "points"] in settings.state.get(
+        "config_tree_collapsed")
+
+    dock2 = ConfigTreeDock(main_window)         # app restart
+    dock2.set_root_file(root)
+    assert _find(dock2.tree.topLevelItem(0), "Points").isExpanded() is False
+    assert _find(dock2.tree.topLevelItem(0), "Cells").isExpanded() is True
+
+
+def test_expanding_a_collapsed_branch_removes_the_deviation(main_window, tmp_path):
+    """Re-expanding a branch the user collapsed removes it from the deviations
+    list — the tree returns to the 'everything expanded' default."""
+    root = tmp_path / "root.sexp"
+    _write(root, ALL_SECTIONS)
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+    points = _find(dock.tree.topLevelItem(0), "Points")
+    points.setExpanded(False)
+    assert ["category", str(root), "points"] in settings.state.get(
+        "config_tree_collapsed")
+    points.setExpanded(True)                    # user re-expands
+    assert ["category", str(root), "points"] not in settings.state.get(
+        "config_tree_collapsed")
+
+
+def test_stale_and_broken_collapsed_entries_are_fatal_safe(main_window, tmp_path):
+    """A persisted collapsed identity whose record no longer exists (renamed/
+    deleted) is simply not found on restore; broken rows are skipped. Never a
+    crash, and nothing unrelated gets collapsed."""
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
+    settings.state.set("config_tree_collapsed", [
+        ["category", str(root), "no_such_section"],   # stale section
+        "not-a-list",                                  # broken row
+        123,                                           # broken row
+    ])
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)                           # must not crash
+    assert _find(dock.tree.topLevelItem(0), "Cells").isExpanded() is True
+
+
+def test_collapsing_one_chain_restores_just_that_chain(main_window, tmp_path):
+    """chains: nested structure (category -> anchor -> chain -> pads): collapsing
+    ONE chain node is restored for exactly that chain — its sibling under the
+    same anchor stays expanded."""
+    root = tmp_path / "root.sexp"
+    _write(root, {"chains": [
+        {"net": "+3V3", "anchor_ref": "U1",
+         "spokes": [{"pad": "1", "cell": "c"}]},
+        {"net": "GND", "anchor_ref": "U1",
+         "spokes": [{"pad": "2", "cell": "c"}]},
+    ]})
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    anchor = _find(_find(dock.tree.topLevelItem(0), "Spokes"), "Anchor: U1")
+    chain_3v3 = _find(anchor, "+3V3")
+    chain_gnd = _find(anchor, "GND")
+    assert chain_3v3.isExpanded() is True and chain_gnd.isExpanded() is True
+    chain_3v3.setExpanded(False)                       # collapse only +3V3
+    assert ["chain", str(root), "chains", "+3V3"] in settings.state.get(
+        "config_tree_collapsed")
+
+    dock.refresh()
+    anchor2 = _find(_find(dock.tree.topLevelItem(0), "Spokes"), "Anchor: U1")
+    assert _find(anchor2, "+3V3").isExpanded() is False
+    assert _find(anchor2, "GND").isExpanded() is True  # sibling untouched
+
+
+def test_persist_ui_state_flushes_collapsed_from_widget(main_window, tmp_path):
+    """persist_ui_state() (the MainWindow quit-flush) re-reads the CURRENT
+    widgets — a collapse not yet persisted (out-of-band divergence) is still
+    saved on quit."""
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+    cells = _find(dock.tree.topLevelItem(0), "Cells")
+    cells.setExpanded(False)
+    dock._collapsed.clear()                            # simulate divergence
+    dock.persist_ui_state()
+    assert ["category", str(root), "cells"] in settings.state.get(
+        "config_tree_collapsed")
