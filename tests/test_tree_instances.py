@@ -370,3 +370,145 @@ class TestTreeInstanceWriter:
         changed = upsert_tree_instances(p, "dac_buf_tpl", rows)
         assert changed is False
         assert p.read_bytes() == before
+
+
+def _net_trace_template_data(instances, anchor_sheet="Channel_0",
+                             net="/Channel_0/DAC/+3V3_AVDD",
+                             include_record=True, template_anchor=None) -> dict:
+    """A role-anchored template tree `dac_buf_tpl` carrying ONE placement node
+    (`dac_buf`) + ONE kind=net_trace node (`net`), plus the matching flat
+    net_traces: record. `net` is a board net path whose leading segment equals
+    `anchor_sheet` (the template's own sheet), as in the real dac_buf copper."""
+    record = {
+        "net": net, "anchor_role": "DAC_BUF", "anchor_sheet": anchor_sheet,
+        "tracks": [{
+            "start_along_mm": 0.0, "start_across_mm": 0.0,
+            "end_along_mm": 1.0, "end_across_mm": 2.0,
+            "width_mm": 0.3, "layer": "F.Cu", "net": net,
+        }],
+        "vias": [{
+            "offset_along_mm": 0.5, "offset_across_mm": 0.5,
+            "drill_mm": 0.3, "diameter_mm": 0.6, "net": net,
+        }],
+    }
+    return {
+        "cells": {},
+        "entities": [
+            {"name": "dac_buf", "cell": "c_dac", "cluster": "DAC_BUF",
+             "sheet": anchor_sheet},
+        ],
+        "net_traces": [record] if include_record else [],
+        "trees": [{
+            "name": "dac_buf_tpl",
+            "anchor": template_anchor if template_anchor is not None
+                     else {"role": "DAC_BUF", "sheet": anchor_sheet},
+            "nodes": [
+                {"ref": "dac_buf", "kind": "placement", "xy": [1.0, 2.0],
+                 "rotation": 90.0},
+                {"ref": net, "kind": "net_trace"},
+            ],
+        }],
+        "tree_instances": instances,
+    }
+
+
+class TestNetTrace:
+    """v1.1 (2026-09-02, plan_2026_09_02_tree_instances_net_trace.md, design
+    §10 "Вариант Б"): a template's kind=net_trace node materializes one
+    net_traces: copy per instance — the net's LEADING sheet segment is
+    substituted (NOT the placement __{instance} suffix), because a net_trace
+    node's ref is a real board net name that must survive into
+    net_trace_planner/KiCad."""
+
+    @staticmethod
+    def _nt_by_net(cfg, net):
+        return next(nt for nt in cfg.net_traces if nt.net == net)
+
+    def test_net_trace_nodes_materialize_one_record_per_instance(self, tmp_path):
+        p = _write(tmp_path, "t.sexp", _net_trace_template_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"},
+            {"template": "dac_buf_tpl", "name": "ch2_dac_buf", "sheet": "Channel_2"},
+        ]))
+        cfg, _ = load_config(str(p))
+
+        # template record untouched + one generated copy per instance; the
+        # distinct nets keep the existing net_traces dedup (one record per net)
+        # happy — load_config above would have fataled on a duplicate net.
+        assert [nt.net for nt in cfg.net_traces] == [
+            "/Channel_0/DAC/+3V3_AVDD",
+            "/Channel_1/DAC/+3V3_AVDD",
+            "/Channel_2/DAC/+3V3_AVDD",
+        ]
+        # template record keeps its own sheet (deep-copy expansion, never mutates)
+        assert self._nt_by_net(cfg, "/Channel_0/DAC/+3V3_AVDD").anchor_sheet == "Channel_0"
+
+        for inst, sheet in (("ch1_dac_buf", "Channel_1"),
+                            ("ch2_dac_buf", "Channel_2")):
+            new_net = f"/{sheet}/DAC/+3V3_AVDD"
+            nt = self._nt_by_net(cfg, new_net)
+            assert nt.anchor_role == "DAC_BUF"
+            # net + every track/via net rewritten to the instance's sheet;
+            # anchor_sheet unconditionally overwritten (Q2 pattern)
+            assert nt.anchor_sheet == sheet
+            assert nt.tracks[0].net == new_net
+            assert nt.vias[0].net == new_net
+            # the generated tree's net_trace node references the NEW net (not a
+            # __{instance} suffix) -> linking by_key["net_trace:" + net] resolves
+            tree = _tree_by_name(cfg, inst)
+            nt_node = next(n for n in tree.nodes if n.kind == "net_trace")
+            assert nt_node.ref == new_net
+            assert tree.anchor.anchor_sheet == sheet
+            # the placement sibling is still suffixed as before (v1 unchanged)
+            assert any(n.ref == f"dac_buf__{inst}" for n in tree.nodes)
+
+        # the template's own net_trace node ref is untouched
+        tpl = _tree_by_name(cfg, "dac_buf_tpl")
+        assert next(n for n in tpl.nodes if n.kind == "net_trace").ref == \
+            "/Channel_0/DAC/+3V3_AVDD"
+
+    def test_net_leading_segment_not_template_sheet_is_fatal(self, tmp_path):
+        """A net whose leading segment isn't the template's anchor sheet is NOT
+        this template's copper — the rewrite must be a fatal, never silent."""
+        data = _net_trace_template_data(
+            [{"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"}],
+            anchor_sheet="Channel_0",
+            net="/Foo/DAC/+3V3_AVDD")
+        p = _write(tmp_path, "t.sexp", data)
+        with pytest.raises(ValidationError, match="net path"):
+            load_config(str(p))
+
+    def test_net_trace_node_without_record_is_fatal(self, tmp_path):
+        """A net_trace node referencing a net with no net_traces: record is a
+        fatal (symmetric to test_placement_node_without_entity_is_fatal)."""
+        data = _net_trace_template_data(
+            [{"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"}],
+            net="/Channel_0/DAC/+3V3_AVDD",
+            include_record=False)
+        p = _write(tmp_path, "t.sexp", data)
+        with pytest.raises(ValidationError, match="no matching net_traces"):
+            load_config(str(p))
+
+    def test_net_trace_node_requires_template_anchor_sheet(self, tmp_path):
+        """old_sheet comes from the template's role-anchor sheet — a template
+        carrying net_trace copper but a role anchor without a sheet cannot
+        decide what to rewrite and is a fatal."""
+        data = _net_trace_template_data(
+            [{"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"}],
+            net="/Channel_0/DAC/+3V3_AVDD",
+            template_anchor={"role": "DAC_BUF"})  # role anchor, NO sheet
+        p = _write(tmp_path, "t.sexp", data)
+        with pytest.raises(ValidationError, match="anchor sheet"):
+            load_config(str(p))
+
+    def test_non_net_trace_kinds_stay_fatal(self, tmp_path):
+        """Regression: only net_trace is lifted out of the v1 kind ban —
+        a module node inside a template is still a fatal (the existing
+        test_non_placement_node_kind_is_fatal covers 'module' via node_kind;
+        this pins the same for 'chain' beside a valid net_trace node)."""
+        data = _net_trace_template_data(
+            [{"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"}])
+        data["trees"][0]["nodes"].append(
+            {"ref": "other", "kind": "chain", "xy": [3.0, 4.0]})
+        p = _write(tmp_path, "t.sexp", data)
+        with pytest.raises(ValidationError, match="unsupported node kind 'chain'"):
+            load_config(str(p))

@@ -12730,7 +12730,7 @@ msgstr "Also delete the net traces now only referenced by this tree: {nets}?"
 msgid "'tree_instances' must be a list of template/name/sheet declarations"
 msgstr ""
 
-msgid "Expanded {count} tree_instances: declarations into trees/entities"
+msgid "Expanded {count} tree_instances: declarations into trees/entities/net_traces"
 msgstr ""
 
 msgid "a tree_instances: entry is a dict with 'template'/'name'/'sheet'"
@@ -12739,10 +12739,10 @@ msgstr ""
 msgid "each entry is a dict with template:/name:/sheet:"
 msgstr ""
 
-msgid "every node of a tree template must reference an entities: entry (v1 templates are entity placements only)"
+msgid "a placement node of a tree template must reference an existing entities: entry by its name"
 msgstr ""
 
-msgid "every template node needs a ref naming an entities: entry"
+msgid "every template node needs a ref naming an entities: entry (placement) or a net_traces: entry by its net (net_trace)"
 msgstr ""
 
 msgid "every tree_instances: entry needs template:/name:/sheet: (all non-empty strings) — template names the source tree, name is the generated tree's name, sheet is substituted into the copies"
@@ -12790,7 +12790,25 @@ msgstr ""
 msgid "unknown fields in tree_instances entry {name!r}"
 msgstr ""
 
-msgid "v1 tree templates support only kind=placement (Entity) nodes — chain/coordinate/clone/module/net_trace nodes inside a template are not instantiated yet"
+msgid "v1 tree templates support only kind=placement (Entity) and kind=net_trace nodes — chain/coordinate/clone/module nodes inside a template are not instantiated yet"
+msgstr ""
+
+msgid "a net_trace node's net is rewritten by replacing its leading sheet segment, so the template tree's role anchor must carry a sheet (anchor.sheet) naming the template's own sheet"
+msgstr ""
+
+msgid "a net_trace node's net must be a board net path '/{sheet}/{group}/{signal}' whose leading sheet segment equals the template tree's anchor sheet — only that copper belongs to this template and is rewritten per instance"
+msgstr ""
+
+msgid "every net_trace node of a tree template must reference an existing net_traces: entry by its net name"
+msgstr ""
+
+msgid "tree_instance: template {template!r} net {ref!r} is not a {old_sheet!r}-sheet net path"
+msgstr ""
+
+msgid "tree_instance: template {template!r} net_trace node {ref!r} needs the template's anchor sheet"
+msgstr ""
+
+msgid "tree_instance: template {template!r} node {ref!r} has no matching net_traces: record"
 msgstr ""
 
 msgid "Instance of {template} — read-only: edit the template tree to change the geometry"

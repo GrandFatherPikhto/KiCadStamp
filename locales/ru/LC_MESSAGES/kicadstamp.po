@@ -11685,8 +11685,8 @@ msgstr "Удалить также записи дорожек, на которы
 msgid "'tree_instances' must be a list of template/name/sheet declarations"
 msgstr "'tree_instances' должна быть списком деклараций template/name/sheet"
 
-msgid "Expanded {count} tree_instances: declarations into trees/entities"
-msgstr "Развёрнуто {count} деклараций tree_instances: в деревья/сущности"
+msgid "Expanded {count} tree_instances: declarations into trees/entities/net_traces"
+msgstr "Развёрнуто {count} деклараций tree_instances: в деревья/сущности/net_traces"
 
 msgid "a tree_instances: entry is a dict with 'template'/'name'/'sheet'"
 msgstr "запись tree_instances: — это словарь с полями 'template'/'name'/'sheet'"
@@ -11694,11 +11694,11 @@ msgstr "запись tree_instances: — это словарь с полями '
 msgid "each entry is a dict with template:/name:/sheet:"
 msgstr "каждая запись — словарь с полями template:/name:/sheet:"
 
-msgid "every node of a tree template must reference an entities: entry (v1 templates are entity placements only)"
-msgstr "каждый узел шаблона дерева должен ссылаться на запись entities: (шаблоны v1 — только размещения сущностей)"
+msgid "a placement node of a tree template must reference an existing entities: entry by its name"
+msgstr "placement-узел шаблона дерева должен ссылаться на существующую запись entities: по её имени"
 
-msgid "every template node needs a ref naming an entities: entry"
-msgstr "каждый узел шаблона должен иметь ref, ссылающийся на запись entities:"
+msgid "every template node needs a ref naming an entities: entry (placement) or a net_traces: entry by its net (net_trace)"
+msgstr "каждый узел шаблона должен иметь ref, ссылающийся на запись entities: (placement) или на запись net_traces: по имени сети (net_trace)"
 
 msgid "every tree_instances: entry needs template:/name:/sheet: (all non-empty strings) — template names the source tree, name is the generated tree's name, sheet is substituted into the copies"
 msgstr "каждой записи tree_instances: нужны template:/name:/sheet: (непустые строки) — template — имя исходного дерева, name — имя генерируемого дерева, sheet подставляется в копии"
@@ -11745,8 +11745,26 @@ msgstr "tree_instances: запись должна быть словарём, п�
 msgid "unknown fields in tree_instances entry {name!r}"
 msgstr "неизвестные поля в записи tree_instances {name!r}"
 
-msgid "v1 tree templates support only kind=placement (Entity) nodes — chain/coordinate/clone/module/net_trace nodes inside a template are not instantiated yet"
-msgstr "шаблоны деревьев v1 поддерживают только узлы kind=placement (Entity) — узлы chain/coordinate/clone/module/net_trace внутри шаблона пока не инстанцируются"
+msgid "v1 tree templates support only kind=placement (Entity) and kind=net_trace nodes — chain/coordinate/clone/module nodes inside a template are not instantiated yet"
+msgstr "шаблоны деревьев v1 поддерживают только узлы kind=placement (Entity) и kind=net_trace — узлы chain/coordinate/clone/module внутри шаблона пока не инстанцируются"
+
+msgid "a net_trace node's net is rewritten by replacing its leading sheet segment, so the template tree's role anchor must carry a sheet (anchor.sheet) naming the template's own sheet"
+msgstr "сеть узла net_trace переписывается заменой ведущего сегмента (листа), поэтому role-якорь шаблонного дерева обязан нести sheet (anchor.sheet) с именем собственного листа шаблона"
+
+msgid "a net_trace node's net must be a board net path '/{sheet}/{group}/{signal}' whose leading sheet segment equals the template tree's anchor sheet — only that copper belongs to this template and is rewritten per instance"
+msgstr "сеть узла net_trace должна быть путём сети платы '/{sheet}/{group}/{signal}', ведущий сегмент которого равен sheet role-якоря шаблонного дерева — только такая медь принадлежит этому шаблону и переписывается под каждый экземпляр"
+
+msgid "every net_trace node of a tree template must reference an existing net_traces: entry by its net name"
+msgstr "каждый узел net_trace шаблона дерева должен ссылаться на существующую запись net_traces: по имени сети"
+
+msgid "tree_instance: template {template!r} net {ref!r} is not a {old_sheet!r}-sheet net path"
+msgstr "tree_instance: сеть {ref!r} шаблона {template!r} — не путь сети листа {old_sheet!r}"
+
+msgid "tree_instance: template {template!r} net_trace node {ref!r} needs the template's anchor sheet"
+msgstr "tree_instance: узлу net_trace {ref!r} шаблона {template!r} нужен sheet role-якоря шаблона"
+
+msgid "tree_instance: template {template!r} node {ref!r} has no matching net_traces: record"
+msgstr "tree_instance: узел {ref!r} шаблона {template!r} не имеет соответствующей записи net_traces:"
 
 msgid "Instance of {template} — read-only: edit the template tree to change the geometry"
 msgstr "Экземпляр дерева {template} — только чтение: геометрию меняй в дереве-шаблоне"

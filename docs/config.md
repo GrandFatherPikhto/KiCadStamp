@@ -499,10 +499,11 @@ tree_instances:
 Expansion runs inside `load_config()`, right after `include:` + `sheet_templates:` resolution and
 before any per-entry loader: each declaration materializes a FULL Tree (a deep copy of the template —
 every node's `ref` gets a `__{instance.name}` suffix recursively, the role anchor's `sheet` becomes
-the instance's) plus one Entity per template node (a deep copy renamed to the new ref, `sheet` = the
-instance's). The materialized records are ordinary for every consumer (embedding/redraw/apply) and go
-through the SAME `_load_tree`/`_load_entity`, duplicate-name, rule-2 and layer/mirror checks as
-hand-written ones — nothing is validated twice.
+the instance's) plus one Entity per template `placement` node (a deep copy renamed to the new ref,
+`sheet` = the instance's) and one `net_traces:` record per template `net_trace` node (see below). The
+materialized records are ordinary for every consumer (embedding/redraw/apply) and go through the SAME
+`_load_tree`/`_load_entity`/`_load_net_trace`, duplicate-name, one-record-per-net, rule-2 and
+layer/mirror checks as hand-written ones — nothing is validated twice.
 
 - **Not a separate file format:** `tree_instances:` lives ONLY in the main dict config (NOT in the
   `*.trees` s-expr format — it has no Entity records at all). It IS an `include:`-mergeable list
@@ -511,9 +512,19 @@ hand-written ones — nothing is validated twice.
   `sheet` — needed for live re-reading by Role+Sheet+Cluster (Q2, revised 2026-09-02) — while the
   generated COPY unconditionally gets the instance's `sheet`. Expansion only ever deep-copies; the
   template and the file on disk are never mutated.
-- **v1 template constraints (each a load-time fatal):** the template's anchor must be `role`-based;
+- **v1.1 template constraints (each a load-time fatal):** the template's anchor must be `role`-based;
   every template node is `kind "placement"` (or unset/auto) and must reference an existing
-  `entities:` record.
+  `entities:` record, OR `kind "net_trace"` and reference an existing `net_traces:` record by its net.
+  (chain/coordinate/clone/module nodes inside a template stay unsupported.)
+- **net_trace nodes inside a template (v1.1):** a `kind "net_trace"` node's `ref` is a real board NET
+  (e.g. `/Channel_0/DAC/+3V3_AVDD`) that must stay a valid net name for the planner/KiCad — so it is
+  NOT suffixed with `__{instance.name}` like a placement ref. Instead the net's LEADING SHEET SEGMENT
+  is replaced with the instance `sheet` (`/Channel_1/DAC/+3V3_AVDD`), independently on the record's
+  `net`, on every `tracks[].net` and every `vias[].net`; the generated `net_traces:` copy's
+  `anchor_sheet` is unconditionally set to the instance `sheet`. The old sheet comes from the template
+  tree's own role-anchor `sheet` — a net whose leading segment isn't it is a fatal (it's not this
+  template's copper), never silently rewritten. Distinct per-instance nets keep the one-record-per-net
+  dedup happy for free.
 - **Generated instances are never persisted** as literal `trees:` entries: the TreesDock Save writes
   only hand-written trees, and the untouched `tree_instances:` section regenerates the instances on
   every load — no duplication. An instance's geometry is edited by editing the template (in the Trees
