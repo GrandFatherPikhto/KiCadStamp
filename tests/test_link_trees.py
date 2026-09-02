@@ -444,3 +444,90 @@ def test_multiple_trees_linked_independently(tmp_path):
     assert [t.name for t in linked] == ["one", "two"]
     assert linked[0].nodes[0].record.name == "CL_A"
     assert linked[1].nodes[0].record.name == "CL_B"
+
+
+# ── module node linking (2026-09-02, plan P1) ──────────────────────────────
+
+def test_module_node_links_to_tree_by_name(tmp_path):
+    """A kind==module node links to the referenced TREE (module_tree), never a
+    record; its own children still link as ordinary record nodes."""
+    cfg = _cfg()
+    trees = _tree(
+        '(tree (name "ch0") (anchor (origin)))\n'
+        '(tree (name "p1") (anchor (origin))\n'
+        '  (node (ref "ch0") (kind module) (xy 1 2)\n'
+        '    (node (ref "CL_A") (kind clone) (xy 0 0))))',
+        tmp_path=tmp_path)
+    linked = link_trees(cfg, trees)
+    by_name = {lt.name: lt for lt in linked}
+    m = by_name["p1"].nodes[0]
+    assert m.node.kind == "module"
+    assert m.module_tree is not None and m.module_tree.name == "ch0"
+    assert m.record is None and m.is_external is False
+    child = m.children[0]
+    assert child.module_tree is None
+    assert child.record is not None and child.record.name == "CL_A"
+
+
+def test_module_ref_unknown_tree_is_fatal(tmp_path):
+    cfg = _cfg()
+    trees = _tree(
+        '(tree (name "p1") (anchor (origin))\n'
+        '  (node (ref "ghost") (kind module) (xy 1 2)))',
+        tmp_path=tmp_path)
+    with pytest.raises(ValidationError, match="unknown tree"):
+        link_trees(cfg, trees)
+
+
+def test_module_self_embed_is_fatal(tmp_path):
+    """A module node referencing the tree that CONTAINS it is a config fatal
+    (early check, clearer than the generic cycle guard)."""
+    cfg = _cfg()
+    trees = _tree(
+        '(tree (name "p1") (anchor (origin))\n'
+        '  (node (ref "p1") (kind module) (xy 1 2)))',
+        tmp_path=tmp_path)
+    with pytest.raises(ValidationError, match="cannot embed itself"):
+        link_trees(cfg, trees)
+
+
+def test_module_duplicate_ref_within_one_parent_is_fatal(tmp_path):
+    """The same child embedded twice INSIDE one parent is a config fatal
+    (multiple PARENTS are fine — that is checked across trees, not within)."""
+    cfg = _cfg()
+    trees = _tree(
+        '(tree (name "ch0") (anchor (origin)))\n'
+        '(tree (name "p1") (anchor (origin))\n'
+        '  (node (ref "ch0") (kind module) (xy 1 2))\n'
+        '  (node (ref "ch0") (kind module) (xy 3 4)))',
+        tmp_path=tmp_path)
+    with pytest.raises(ValidationError, match="more than once"):
+        link_trees(cfg, trees)
+
+
+def test_module_same_child_in_different_parents_is_allowed(tmp_path):
+    cfg = _cfg()
+    trees = _tree(
+        '(tree (name "ch0") (anchor (origin)))\n'
+        '(tree (name "p1") (anchor (origin))\n'
+        '      (node (ref "ch0") (kind module) (xy 1 1)))\n'
+        '(tree (name "p2") (anchor (origin))\n'
+        '      (node (ref "ch0") (kind module) (xy 2 2)))',
+        tmp_path=tmp_path)
+    linked = link_trees(cfg, trees)
+    by = {lt.name: lt for lt in linked}
+    assert by["p1"].nodes[0].module_tree.name == "ch0"
+    assert by["p2"].nodes[0].module_tree.name == "ch0"
+
+
+def test_module_cycle_is_fatal(tmp_path):
+    """A embeds B, B embeds A -> config fatal naming the cycle chain."""
+    cfg = _cfg()
+    trees = _tree(
+        '(tree (name "a") (anchor (origin))\n'
+        '      (node (ref "b") (kind module) (xy 1 1)))\n'
+        '(tree (name "b") (anchor (origin))\n'
+        '      (node (ref "a") (kind module) (xy 1 1)))',
+        tmp_path=tmp_path)
+    with pytest.raises(ValidationError, match="cycle"):
+        link_trees(cfg, trees)

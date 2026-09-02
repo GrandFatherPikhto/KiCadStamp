@@ -6114,6 +6114,25 @@ msgstr "node {ref!r}: pivot-xy and pivot-polar are mutually exclusive (use exact
 msgid "node {ref!r}: pivot_xy and pivot_polar are mutually exclusive (use exactly one)"
 msgstr "node {ref!r}: pivot_xy and pivot_polar are mutually exclusive (use exactly one)"
 
+#, python-brace-format
+msgid "tree {name!r} has a module node referencing itself — a tree cannot embed itself"
+msgstr "tree {name!r} has a module node referencing itself — a tree cannot embed itself"
+
+#, python-brace-format
+msgid "tree {name!r}: module node references unknown tree {ref!r} (no tree with that name exists)"
+msgstr "tree {name!r}: module node references unknown tree {ref!r} (no tree with that name exists)"
+
+#, python-brace-format
+msgid "tree {name!r} embeds tree {ref!r} more than once — a parent may embed a tree by module only once"
+msgstr "tree {name!r} embeds tree {ref!r} more than once — a parent may embed a tree by module only once"
+
+#, python-brace-format
+msgid "tree module cycle: {chain}"
+msgstr "tree module cycle: {chain}"
+
+msgid "Module {ref!r} references a tree that is not in this set of trees — link the whole config"
+msgstr "Module {ref!r} references a tree that is not in this set of trees — link the whole config"
+
 #: kicadstamp/trees.py:243
 #, python-brace-format
 msgid "{location}: a tree is missing a (name ...)"

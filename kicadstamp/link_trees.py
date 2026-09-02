@@ -59,9 +59,11 @@ class LinkedAnchor:
 @dataclass
 class LinkedNode:
     node: TreeNode                 # original node, as-is
-    record: Record | None          # None ONLY when node.kind == "external"
+    record: Record | None          # None ONLY when node.kind == "external" / "module"
     is_external: bool
     children: list["LinkedNode"]
+    # kind=="module": the referenced Tree (resolved by name, never a record).
+    module_tree: Tree | None = None
 
 
 @dataclass
@@ -112,6 +114,12 @@ def _resolve_node_ref(node: TreeNode, by_key: dict[str, Record],
         # Live-board-only refdes: never touch the config (symmetrically to
         # anchor_ref, which is never statically validated).
         return None, True
+
+    if node.kind == "module":
+        # A module node references another TREE (by name), never a config
+        # record — the target Tree is resolved by _link_node via the by_tree
+        # index (and validated up front by link_trees' module-graph pass).
+        return None, False
 
     if node.kind is not None:
         # Legacy kind "rule" -> canonical "chain:" record key prefix (the
@@ -182,20 +190,106 @@ def inline_anchor_field(record: Record | None) -> str | None:
     return None
 
 
+def _collect_module_targets(nodes: list[TreeNode], out: list[str] | None = None) -> list[str]:
+    """Every module TARGET tree name referenced by kind=="module" nodes in
+    `nodes` at any depth (a module node may itself be someone's child) — as a
+    LIST preserving duplicates: a within-one-tree duplicate is exactly what
+    _module_graph's per-parent guard must catch."""
+    out = [] if out is None else out
+    for n in nodes:
+        if n.kind == "module":
+            out.append(n.ref)
+        _collect_module_targets(n.children, out)
+    return out
+
+
+def _module_graph(trees: list[Tree]) -> dict[str, set[str]]:
+    """tree name -> the set of module TARGET tree names referenced anywhere in
+    that tree (any depth). Validates as config-level fatals:
+      - a module ref that names no existing tree (0 matches);
+      - a tree embedding ITSELF (module ref == its own name);
+      - two module nodes INSIDE ONE tree referencing the same tree — a parent
+        may embed a child tree only once (multiple parents ARE allowed, that is
+        checked across trees, not within one)."""
+    names = {t.name for t in trees}
+    graph: dict[str, set[str]] = {t.name: set() for t in trees}
+    for tree in trees:
+        for target in _collect_module_targets(tree.nodes):
+            if target == tree.name:
+                _fatal(_("tree {name!r} has a module node referencing itself — "
+                         "a tree cannot embed itself").format(name=tree.name))
+            if target not in names:
+                _fatal(_("tree {name!r}: module node references unknown tree "
+                         "{ref!r} (no tree with that name exists)")
+                       .format(name=tree.name, ref=target))
+            if target in graph[tree.name]:
+                _fatal(_("tree {name!r} embeds tree {ref!r} more than once — a "
+                         "parent may embed a tree by module only once")
+                       .format(name=tree.name, ref=target))
+            graph[tree.name].add(target)
+    return graph
+
+
+def _check_module_cycles(graph: dict[str, set[str]]) -> None:
+    """DFS over the module graph; any cycle (A embeds B, ... , B embeds A) is a
+    config-level fatal naming the offending chain. Self-embedding is rejected
+    earlier in _module_graph, so only length>=2 cycles reach here."""
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color = {name: WHITE for name in graph}
+
+    def visit(start: str, path: list[str]) -> None:
+        color[start] = GRAY
+        path.append(start)
+        for nxt in sorted(graph.get(start, ())):
+            if color[nxt] == GRAY:
+                idx = path.index(nxt)
+                chain = path[idx:] + [nxt]
+                _fatal(_("tree module cycle: {chain}").format(chain=" > ".join(chain)))
+            if color[nxt] == WHITE:
+                visit(nxt, path)
+        path.pop()
+        color[start] = BLACK
+
+    for name in sorted(graph):
+        if color[name] == WHITE:
+            visit(name, [])
+
+
 def _link_node(node: TreeNode, by_key: dict[str, Record],
-               by_name: dict[str, list[Record]]) -> LinkedNode:
-    """Recursively wrap one TreeNode (and its children) into a LinkedNode."""
+               by_name: dict[str, list[Record]],
+               by_tree: dict[str, Tree]) -> LinkedNode:
+    """Recursively wrap one TreeNode (and its children) into a LinkedNode. A
+    module node resolves its ref as another TREE (module_tree), never a record;
+    its own children (ordinary marker children) link normally."""
+    if node.kind == "module":
+        module_tree = by_tree.get(node.ref)
+        if module_tree is None:
+            # Unreachable when link_trees validates the module graph first
+            # (existence is a config fatal there) — defensive for a caller that
+            # links a SUBSET missing the referenced tree: fail loudly, never
+            # silently drop the embed.
+            _fatal(_("Module {ref!r} references a tree that is not in this "
+                     "set of trees — link the whole config").format(ref=node.ref))
+        return LinkedNode(
+            node=node,
+            record=None,
+            is_external=False,
+            children=[_link_node(c, by_key, by_name, by_tree) for c in node.children],
+            module_tree=module_tree,
+        )
     record, is_external = _resolve_node_ref(node, by_key, by_name)
     return LinkedNode(
         node=node,
         record=record,
         is_external=is_external,
-        children=[_link_node(c, by_key, by_name) for c in node.children],
+        children=[_link_node(c, by_key, by_name, by_tree) for c in node.children],
+        module_tree=None,
     )
 
 
 def _link_tree(tree: Tree, by_key: dict[str, Record],
-               by_name: dict[str, list[Record]]) -> LinkedTree:
+               by_name: dict[str, list[Record]],
+               by_tree: dict[str, Tree]) -> LinkedTree:
     record, is_external = _resolve_anchor_ref(tree.anchor, by_name)
     return LinkedTree(
         name=tree.name,
@@ -205,7 +299,7 @@ def _link_tree(tree: Tree, by_key: dict[str, Record],
             is_origin=tree.anchor.is_origin,
             is_external=is_external,
         ),
-        nodes=[_link_node(n, by_key, by_name) for n in tree.nodes],
+        nodes=[_link_node(n, by_key, by_name, by_tree) for n in tree.nodes],
     )
 
 
@@ -214,10 +308,17 @@ def link_trees(cfg, trees: list[Tree]) -> list[LinkedTree]:
 
     Indexes are built ONCE here (before any tree loop): by_key for explicit-
     kind lookup (with collision detection), by_name for auto-search over the
-    4 placeable sections. retired: true records are already dropped by
-    build_records(), so a node/anchor referring to one gets "not found"
-    (fatal for nodes, silent-external for anchors) — deliberate behavior."""
+    4 placeable sections, by_tree for module refs (a module node references
+    another Tree BY NAME — plan 2026-09-02 tree_module_embedding). Module
+    config errors are validated here (unknown target, self-embed, a duplicate
+    embed within ONE parent, and module cycles A⊃B⊃A). retired: true records
+    are already dropped by build_records(), so a node/anchor referring to one
+    gets "not found" (fatal for nodes, silent-external for anchors) — deliberate
+    behavior."""
     records = build_records(cfg)
     by_key = _build_by_key_index(records)
     by_name = _build_by_name_index(records)
-    return [_link_tree(t, by_key, by_name) for t in trees]
+    by_tree = {t.name: t for t in trees}
+    if trees:
+        _check_module_cycles(_module_graph(trees))
+    return [_link_tree(t, by_key, by_name, by_tree) for t in trees]
