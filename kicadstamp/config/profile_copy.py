@@ -1,5 +1,5 @@
 # kicadstamp/config/profile_copy.py
-"""Copy Cell/Entity/Rule from another profile into the current one BY VALUE
+"""Copy Cell/Entity/Chain from another profile into the current one BY VALUE
 (2026-08-31, plan_2026_08_31_copy_cell_entity_from_profile.md) — a fully
 independent copy, unlike `include:` which keeps a live reference to the other
 file. After the copy, edits in the source never affect the target.
@@ -12,12 +12,12 @@ from_profile.md):
     source's include: graph.
   * Closes DEPENDENCIES: a composite Cell references other Cells through
     `clone_placements[].cell` (Cell.clone_placements/CellPlacement in
-    config/models.py); a Rule references Cells through each `spoke.cell`
+    config/models.py); a Chain references Cells through each `spoke.cell`
     (ManualSpoke) and a `points:` entry through `anchor_point`. Copying one
     record without its closure would leave a broken reference in the target,
     so every transitive dependency is copied too (cycle-safe via a visited
-    set). Points are part of the Rule closure because `anchor_point` is a
-    config-graph reference (unlike nets, which are plain strings) — a Rule
+    set). Points are part of the Chain closure because `anchor_point` is a
+    config-graph reference (unlike nets, which are plain strings) — a Chain
     imported without its point would make the target UNLOADABLE (loader.py's
     _check_anchor_point is a load-time fatal).
   * COLLISION check is done for EVERY name in the closure (plus the record's
@@ -124,7 +124,7 @@ def _collect_point_closure(source_data: dict, root_point: str) -> list:
     """Ordered list of every `points:` name that must be copied to keep
     `root_point` loadable: root first, then every Point transitively chained
     through `anchor_point` (points chain to other points, see
-    config/points.py). Needed for Rule import — a Rule's anchor_point is a
+    config/points.py). Needed for Chain import — a Chain's anchor_point is a
     config-graph reference, and loader.py's _check_anchor_point is a
     load-time fatal on a missing point. Cycle-safe BFS, same shape as
     _collect_cell_closure."""
@@ -234,10 +234,10 @@ def _append_list_entry(target_path: Path, section: str, entry: dict) -> None:
 # ── Public entry points ─────────────────────────────────────────────────────
 
 def list_importable(source_path) -> list:
-    """Every Cell/Entity/Rule in the source profile, as picker rows for the
-    GUI import dialog: [{"kind": "cell"|"entity"|"rule", "name": ..., "info": ...}].
+    """Every Cell/Entity/Chain in the source profile, as picker rows for the
+    GUI import dialog: [{"kind": "cell"|"entity"|"chain", "name": ..., "info": ...}].
     `name` is what the matching copy_* function takes (dict key for cells,
-    entity name, rule effective identity); `info` is a short recognizable
+    entity name, chain effective identity); `info` is a short recognizable
     descriptor (component/nested counts for a cell, cell: for an entity, spoke
     count for a rule). Raises the same clear ValidationError as copy_* on a
     missing/unreadable source."""
@@ -274,19 +274,19 @@ def list_importable(source_path) -> list:
 
 def copy_items(source_path, items, target_path, target_root: Optional[Path] = None,
                on_collision: Optional[Callable[[dict], Optional[str]]] = None) -> dict:
-    """Copy several Cell/Entity/Rule records from source_path into target_path
+    """Copy several Cell/Entity/Chain records from source_path into target_path
     by value in ONE atomic pass (2026-08-31, multi-select in the import
-    dialog). `items` is a list of {"kind": "cell"|"entity"|"rule", "name":
+    dialog). `items` is a list of {"kind": "cell"|"entity"|"chain", "name":
     <identity>} rows — exactly what list_importable() produces. The dependency
     closures of ALL selected records are merged into ONE set and the collision
     check runs on the UNION before anything is written, so two records that
-    share a Cell (e.g. an Entity and a Rule on the same cell) import cleanly
+    share a Cell (e.g. an Entity and a Chain on the same cell) import cleanly
     instead of the second one tripping on the first one's just-written cell.
 
     Collision handling (Denis, 2026-08-31 — "перезаписать или оставить, как
     есть"):
       * `on_collision` is a callback receiving the FULL collision summary
-        {"cells": [...], "points": [...], "entities": [...], "rules": [...]}
+        {"cells": [...], "points": [...], "entities": [...], "chains": [...]}
         (names that already exist in the target's include: graph) and returns:
           - "overwrite" -> every colliding name is replaced by the source
             version (merge_write replaces dict keys, upsert_list_entry replaces

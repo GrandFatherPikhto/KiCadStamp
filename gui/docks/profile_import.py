@@ -1,13 +1,13 @@
 # gui/docks/profile_import.py
 """Edit > Import from profile... (2026-08-31, plan_2026_08_31_copy_cell_
-entity_from_profile.md) — copy one or more Cell/Entity/Rule from ANOTHER
+entity_from_profile.md) — copy one or more Cell/Entity/Chain from ANOTHER
 profile into the CURRENT project BY VALUE (no include: link, no live
 reference). The actual copy + dependency closure + collision logic lives in the
 core module kicadstamp/config/profile_copy.py; this file is the thin picker
 dialog:
 
   1. choose a source .sexp/.json file,
-  2. see every Cell/Entity/Rule in it (name + a recognizable descriptor),
+  2. see every Cell/Entity/Chain in it (name + a recognizable descriptor),
   3. tick the records to import (multi-select, one checkbox per row) and copy
      them all into the current project root in one atomic pass.
 
@@ -32,7 +32,7 @@ from ._common import ERROR_STYLE as _ERROR_STYLE, show_message
 
 logger = logging.getLogger(__name__)
 
-_KIND_LABEL = {"cell": _("Cell"), "entity": _("Entity"), "rule": _("Chain")}
+_KIND_LABEL = {"cell": _("Cell"), "entity": _("Entity"), "chain": _("Chain")}
 # section -> kind label, for the collision list (cells/points have no entry in
 # _KIND_LABEL).
 _SECTION_LABEL = {"cells": _("Cell"), "points": _("Point"),

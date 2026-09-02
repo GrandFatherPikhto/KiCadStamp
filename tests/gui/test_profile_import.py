@@ -90,6 +90,27 @@ def test_import_dialog_multi_select_imports_all_checked(qapp, tmp_path, monkeypa
     assert "E1" in infos[0] and "c2" in infos[0]
 
 
+def test_import_dialog_populates_chain_row_without_crashing(qapp, tmp_path, monkeypatch):
+    """Regression: _populate_table() used to KeyError on a chain row —
+    _KIND_LABEL still had the pre-rename key "rule" (list_importable/
+    copy_items already emit "chain", 2026-09-01 Rule -> Chain rename)."""
+    source = _write_sexp(tmp_path / "source.sexp", {
+        "cells": {"c1": {"layer": "F.Cu", "components": [{"role": "R1"}]}},
+        "chains": [{"net": "+3V3", "spokes": [{"pad": "1", "cell": "c1"}]}],
+    })
+    root = _write_sexp(tmp_path / "root.sexp", {"cells": {}, "chains": []})
+    monkeypatch.setattr(QFileDialog, "getOpenFileName",
+                        lambda *a, **k: (str(source), ""))
+    _silence_boxes(monkeypatch)
+
+    dlg = ProfileImportDialog(None, root)
+    dlg._browse()  # must not raise KeyError
+
+    assert dlg.table.rowCount() == 2  # c1, the chain
+    labels = {dlg.table.item(r, 1).text() for r in range(dlg.table.rowCount())}
+    assert labels == {"Cell", "Chain"}
+
+
 def _leaf_source_and_root(tmp_path, root_offset):
     source = _write_sexp(tmp_path / "source.sexp", {"cells": {
         "leaf": {"layer": "F.Cu",
