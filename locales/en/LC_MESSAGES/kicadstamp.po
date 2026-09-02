@@ -1365,6 +1365,11 @@ msgstr "chain anchor"
 msgid "anchor {ref!r}: ({x:.3f}, {y:.3f}) mm @ {rot}°"
 msgstr "anchor {ref!r}: ({x:.3f}, {y:.3f}) mm @ {rot}°"
 
+#: gui/docks/trees_dock.py
+#, python-brace-format
+msgid "anchor: ({x:.3f}, {y:.3f}) mm @ {rot}°"
+msgstr "anchor: ({x:.3f}, {y:.3f}) mm @ {rot}°"
+
 #: gui/docks/chain.py:433 gui/docks/thermal_via.py:257
 msgid "Pad is required."
 msgstr "Pad is required."

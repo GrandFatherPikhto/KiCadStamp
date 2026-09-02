@@ -1369,6 +1369,11 @@ msgstr "Якорь:"
 msgid "anchor {ref!r}: ({x:.3f}, {y:.3f}) mm @ {rot}°"
 msgstr "якорь {ref!r}: ({x:.3f}, {y:.3f}) мм @ {rot}°"
 
+#: gui/docks/trees_dock.py
+#, python-brace-format
+msgid "anchor: ({x:.3f}, {y:.3f}) mm @ {rot}°"
+msgstr "якорь: ({x:.3f}, {y:.3f}) мм @ {rot}°"
+
 #: gui/docks/chain.py:433 gui/docks/thermal_via.py:257
 msgid "Pad is required."
 msgstr "Требуется пад."

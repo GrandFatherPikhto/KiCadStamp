@@ -1289,6 +1289,147 @@ def test_reread_node_flow_resolution_failure_leaves_node_untouched(
     assert warnings
 
 
+# ── tree-anchor live base: every anchor mode (2026-09-02) ──────────────────
+
+def test_anchor_base_live_role_anchor_resolves_via_role_resolver(monkeypatch):
+    """Regression 2026-09-02 (дерево с role-якорем Role=FPGA/Cluster=FPGA,
+    "Считать текущее положение" верхнего узла): a role anchor must resolve its
+    base LIVE through ComponentResolver — a ref-less anchor used to fall
+    through to ref=None -> "Якорь None не найден на плате"."""
+    import gui.docks.trees_dock as td_mod
+
+    anchor_pos = object()
+
+    class _Fp:
+        position = anchor_pos
+        angle_deg = 90.0
+
+    class _Resolver:
+        def __init__(self, *a, **k):
+            pass
+
+        def resolve_anchor_fp(self, *a, **k):
+            return _Fp()
+
+    monkeypatch.setattr(td_mod, "ComponentResolver", _Resolver)
+    tree = Tree(name="t", anchor=TreeAnchor(role="FPGA", anchor_cluster="FPGA"),
+                nodes=[])
+    pos, rot = td_mod._anchor_base_live_position(object(), object(), tree, {})
+    assert pos is anchor_pos
+    assert rot == 90.0
+
+
+def test_anchor_base_live_role_anchor_pad_reads_pad_position(monkeypatch):
+    """A role anchor with an explicit pad moves the base to that pad."""
+    import gui.docks.trees_dock as td_mod
+
+    pad_pos = object()
+
+    class _Fp:
+        position = object()
+        angle_deg = 0.0
+
+    class _Resolver:
+        def __init__(self, *a, **k):
+            pass
+
+        def resolve_anchor_fp(self, *a, **k):
+            return _Fp()
+
+    monkeypatch.setattr(td_mod, "ComponentResolver", _Resolver)
+    monkeypatch.setattr(td_mod, "resolve_anchor_pad_position",
+                        lambda *a, **k: pad_pos)
+    tree = Tree(name="t", anchor=TreeAnchor(role="R", anchor_pad="2"), nodes=[])
+    pos, _rot = td_mod._anchor_base_live_position(object(), object(), tree, {})
+    assert pos is pad_pos
+
+
+def test_anchor_base_live_auto_anchor_uses_root_entity_zero_slot(monkeypatch):
+    """auto anchor (no explicit (anchor ...)): the base is the root Entity's
+    cell zero-slot — the materializer's derivation, now reused for the GUI
+    live base."""
+    import gui.docks.trees_dock as td_mod
+    import kicadstamp.placement.entity_placement as ep_mod
+
+    zero_pos = object()
+    monkeypatch.setattr(td_mod, "_root_entity_record", lambda cfg, tree: object())
+    monkeypatch.setattr(ep_mod, "_entity_own_zero_slot_live_position",
+                        lambda *a, **k: (zero_pos, 15.0))
+    tree = Tree(name="t", anchor=TreeAnchor(is_auto=True),
+                nodes=[_placement_node("fpga")])
+    pos, rot = td_mod._anchor_base_live_position(object(), object(), tree, {})
+    assert pos is zero_pos
+    assert rot == 15.0
+
+
+def test_anchor_base_live_auto_anchor_non_canonical_raises_clear_error(monkeypatch):
+    """auto anchor on a tree without EXACTLY ONE top-level placement Entity is
+    unreachable -> a clear error, never the old "Якорь None не найден" read."""
+    import gui.docks.trees_dock as td_mod
+
+    tree = Tree(name="t", anchor=TreeAnchor(is_auto=True), nodes=[])
+    try:
+        td_mod._anchor_base_live_position(object(), object(), tree, {})
+    except ValidationError as e:
+        assert "EXACTLY ONE" in str(e)
+    else:
+        raise AssertionError("expected ValidationError for a non-canonical auto tree")
+
+
+def test_anchor_base_live_point_anchor_resolves_chain(monkeypatch):
+    import gui.docks.trees_dock as td_mod
+
+    point_pos = object()
+
+    class _Resolved:
+        position = point_pos
+
+    monkeypatch.setattr(td_mod, "resolve_point_chain",
+                        lambda *a, **k: _Resolved())
+
+    class _Cfg:
+        points = {}
+
+    tree = Tree(name="t", anchor=TreeAnchor(point="P1"), nodes=[])
+    pos, rot = td_mod._anchor_base_live_position(object(), _Cfg(), tree, {})
+    assert pos is point_pos
+    assert rot is None
+
+
+def test_anchor_base_live_ref_anchor_still_resolves(monkeypatch):
+    """The pre-existing ref path is unchanged by the new anchor-mode dispatch."""
+    import gui.docks.trees_dock as td_mod
+
+    ref_pos = object()
+    monkeypatch.setattr(td_mod, "build_records", lambda cfg: [])
+    monkeypatch.setattr(td_mod, "_build_by_name_index", lambda records: {})
+    monkeypatch.setattr(td_mod, "_resolve_anchor_ref",
+                        lambda anchor, by_name: (object(), True))  # external
+    monkeypatch.setattr(td_mod, "resolve_base_live_position",
+                        lambda *a, **k: ref_pos)
+    monkeypatch.setattr(td_mod, "resolve_base_rotation_deg", lambda *a, **k: 30.0)
+    tree = Tree(name="t", anchor=TreeAnchor(ref="U3", is_external=True), nodes=[])
+    pos, rot = td_mod._anchor_base_live_position(object(), object(), tree, {})
+    assert pos is ref_pos
+    assert rot == 30.0
+
+
+def test_prompt_node_returns_none_when_build_node_failed(main_window, tmp_path, monkeypatch):
+    """Regression 2026-09-02 (live crash — the whole GUI died): the node
+    dialog's OK accept()s unconditionally, so build_node() runs AFTER exec() in
+    _prompt_node; a build_node() that returned None (used ref / empty ref / bad
+    offset — it already showed a warning) used to crash on node.ref. Now it is
+    treated like a cancel."""
+    import gui.docks.trees_dock as td_mod
+
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    monkeypatch.setattr(td_mod._NodeDialog, "exec",
+                        lambda self: td_mod.QDialog.DialogCode.Accepted)
+    monkeypatch.setattr(td_mod._NodeDialog, "build_node", lambda self: None)
+    assert dock._prompt_node("Add node", tree, parent_node=None) is None
+
+
 def test_edit_dialog_prefilled_and_own_ref_not_rejected(main_window, tmp_path, monkeypatch):
     """Editing a node WITHOUT changing its ref must not trip the "ref already
     used" check against itself (the §4 exclusion fix)."""
@@ -1649,22 +1790,23 @@ DENIS_CFG = {
 }
 
 
-def test_linked_base_for_anchor_ignores_existing_node_inline_anchor(
+def test_anchor_base_live_origin_ignores_existing_node_inline_anchor(
         main_window, tmp_path):
-    """Regression 2026-08-27: resolving the base for a NEW top-level node
-    (parent_node=None) must NOT run link_trees over the whole tree — an
-    EXISTING node whose record carries a legacy inline anchor (CH0_DAC_BUF
-    with anchor_role) used to FORK-1-fail the whole link and block the read.
-    The anchor base resolves standalone now (origin here)."""
+    """Regression 2026-08-27 (retargeted 2026-09-02 onto
+    _anchor_base_live_position, the old _linked_base_for is gone): resolving
+    the base for a NEW top-level node (parent_node=None) must NOT run
+    link_trees over the whole tree — an EXISTING node whose record carries a
+    legacy inline anchor (CH0_DAC_BUF with anchor_role) used to FORK-1-fail
+    the whole link and block the read. The origin anchor base resolves
+    standalone: (0,0)/0° with no config/board work."""
     import gui.docks.trees_dock as td_mod
     dock, _root = _dock_with(main_window, tmp_path, DENIS_CFG)
     tree = dock._current_tree()
     assert [n.ref for n in tree.nodes] == ["CH0_DAC_BUF"]
 
-    ref, record, is_origin = td_mod._linked_base_for(dock._cfg, tree, None)
-    assert is_origin is True
-    assert ref is None
-    assert record is None
+    pos, rot = td_mod._anchor_base_live_position(None, dock._cfg, tree, {})
+    assert (pos.x, pos.y) == (0, 0)
+    assert rot == 0.0
 
 
 def test_resolve_live_offset_reads_new_ref_despite_existing_node_inline_anchor(

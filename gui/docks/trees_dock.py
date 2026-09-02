@@ -43,6 +43,11 @@ from kicadstamp.tree_position import (
     resolve_base_rotation_deg,
     relative_rotation_deg,
 )
+from kicadstamp.placement.services.component_resolver import (
+    ComponentResolver,
+    resolve_anchor_pad_position,
+)
+from kicadstamp.placement.services.point_resolver import resolve_point_chain
 from kicadstamp.trees import KINDS, Tree, TreeAnchor, TreeNode, tree_to_dict
 from kicadstamp.utils.units import MM
 
@@ -162,28 +167,78 @@ def _resolve_probe_ref(cfg, ref: str, kind: str | None) -> tuple[Record | None, 
     return _resolve_node_ref(probe, by_key, by_name)
 
 
-def _linked_base_for(cfg, tree: Tree,
-                     parent_node: Optional[TreeNode]) -> tuple[str | None, Record | None, bool]:
-    """(ref, record, is_origin) for the base a new/edited node is relative to
-    — either the tree's own anchor (parent_node is None) or another node's own
-    resolved record (record None for an external node). Resolves the parent the
-    same lightweight way _resolve_probe_ref already resolves the child (a
-    single-ref link via link_trees's private index builders) — deliberately
-    NOT a full link_trees(cfg, [tree]) call, which would FORK-1-validate every
-    unrelated node currently in the tree just to read ONE node's live position
-    (a passive live-board read, not a config-computed position). Raises
-    ValidationError on a resolution failure — the caller reports it instead of
-    crashing over an unrelated tree problem."""
-    if parent_node is None:
-        anchor = tree.anchor
-        if anchor.is_origin:
-            return None, None, True
-        records = build_records(cfg)
-        by_name = _build_by_name_index(records)
-        record, _is_external = _resolve_anchor_ref(anchor, by_name)
-        return anchor.ref, record, False
-    record, _is_external = _resolve_probe_ref(cfg, parent_node.ref, parent_node.kind)
-    return parent_node.ref, record, False
+def _root_entity_record(cfg, tree: Tree) -> Optional[object]:
+    """The Entity (a cfg.entities record) behind the tree's OWN single top-level
+    kind="placement" node — `_root_entity_ref`'s ref resolved to its record, or
+    None when there is no such canonical root. Resolved via build_records so the
+    effective-name keying matches link_trees exactly (the same source the
+    apply-time materializer reads its auto-anchor subject from)."""
+    ref = _root_entity_ref(tree)
+    if ref is None:
+        return None
+    for rec in build_records(cfg):
+        if rec.kind == "placement" and rec.name == ref:
+            return rec.obj
+    return None
+
+
+def _anchor_base_live_position(adapter, cfg, tree: Tree, sheet_names: dict,
+                               ) -> tuple[Vector2, Optional[float]]:
+    """(position_nm, rotation_deg | None) of a tree's OWN anchor base, resolved
+    LIVE — the GUI twin of the apply-time materializer's anchor-base dispatch
+    (entity_placement._anchor_base), so "Read current position", "Reread current
+    position" and the anchor-position indicator work for EVERY TreeAnchor mode,
+    not just origin/ref. 2026-09-02 bug: a role/point/auto anchor (ref=None)
+    used to fall through to a ref-less live read -> "Якорь None не найден на
+    плате" (the old _linked_base_for understood only origin/ref).
+      - origin -> the board origin (0,0), rotation 0.0
+      - auto   -> the root Entity's cell zero-slot live position (the SAME
+                  derivation _auto_anchor_base uses at materialization); a tree
+                  without EXACTLY ONE top-level placement Entity cannot
+                  auto-anchor — a clear error, never a bogus "None" read
+      - role   -> the Role-matching live footprint (sheet/cluster/pad narrow)
+      - point  -> the points: entry's resolved chain position (no rotation)
+      - ref    -> the referenced config record / external refdes (existing path)
+    Raises ValidationError on any resolution failure — callers surface it as a
+    warning (never a silent partial write, never a crash)."""
+    anchor = tree.anchor
+    if anchor.is_origin:
+        return _ORIGIN, 0.0
+    if anchor.is_auto:
+        entity = _root_entity_record(cfg, tree)
+        if entity is None:
+            # Reuses the materializer's own existing message for a tree that
+            # cannot auto-anchor (entity_placement._auto_anchor_base).
+            raise ValidationError(_(
+                "auto-anchor needs EXACTLY ONE top-level placement node on an "
+                "Entity (found {n} top-level node(s)); add an explicit (anchor "
+                "...) to this tree instead").format(n=len(tree.nodes)))
+        # Local import: entity_placement imports tree_position at module level,
+        # so the same soft-edge idiom tree_position itself uses for the cycle.
+        from kicadstamp.placement.entity_placement import _entity_own_zero_slot_live_position
+        return _entity_own_zero_slot_live_position(
+            adapter, cfg, entity, sheet_names,
+            label=_("tree {name!r} auto-anchor").format(name=tree.name))
+    if anchor.role:
+        resolver = ComponentResolver(adapter, cfg, sheet_names)
+        label = anchor.role
+        fp = resolver.resolve_anchor_fp(
+            None, anchor.role, anchor.anchor_sheet, anchor.anchor_cluster,
+            label=label)
+        pos = fp.position
+        if anchor.anchor_pad:
+            pos = resolve_anchor_pad_position(adapter, fp, anchor.anchor_pad, label)
+        return pos, fp.angle_deg
+    if anchor.point:
+        resolved = resolve_point_chain(adapter, cfg.points, anchor.point, sheet_names)
+        return resolved.position, None
+    # A ref anchor — record-or-external, the pre-existing path.
+    records = build_records(cfg)
+    by_name = _build_by_name_index(records)
+    record, _is_external = _resolve_anchor_ref(anchor, by_name)
+    pos = resolve_base_live_position(adapter, cfg, anchor.ref, record, {}, sheet_names)
+    deg = resolve_base_rotation_deg(adapter, cfg, anchor.ref, record, sheet_names)
+    return pos, deg
 
 
 def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
@@ -192,12 +247,14 @@ def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
     """((offset_x_mm, offset_y_mm), relative_rotation_deg | None) for the
     "would-be" child `ref`/`kind` relative to `parent_node` (None = the tree's
     own anchor). Reuses the EXACT link_trees resolution rules via
-    _resolve_probe_ref/_linked_base_for and the existing tree_position
-    resolvers — nothing duplicated here. Rotation is None when either side has
-    no rotation concept (point kind) — the caller must leave the field blank,
-    never write a fake 0. Raises ValidationError on any resolution failure (ref
-    not found/ambiguous, adapter not connected, ref missing on the live board)."""
-    parent_ref, parent_record, parent_is_origin = _linked_base_for(cfg, tree, parent_node)
+    _resolve_probe_ref + the existing tree_position resolvers — nothing
+    duplicated here. The tree's own anchor base is resolved by
+    _anchor_base_live_position so EVERY anchor mode works (origin/auto/role/
+    point/ref); a parent NODE is resolved the same single-ref way as before.
+    Rotation is None when either side has no rotation concept (point kind) —
+    the caller must leave the field blank, never write a fake 0. Raises
+    ValidationError on any resolution failure (ref not found/ambiguous, adapter
+    not connected, ref missing on the live board, a non-canonical auto tree)."""
     child_record, _is_external = _resolve_probe_ref(cfg, ref, kind)
 
     # No KeyError boundary here any more: bug #6 (2026-08-31) made
@@ -208,15 +265,17 @@ def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
     # superseded. Real resolution failures (a missing point, a ref not on the
     # board, ...) are ValidationErrors, caught by the callers
     # (_on_read_position / _reread_node_flow), which turn them into a warning.
-    if parent_is_origin:
-        # The tree's own (origin) anchor — an absolute base at board (0,0),
-        # rotation 0.0. resolve_base_live_position/resolve_base_rotation_deg
-        # never see it (they'd treat ref=None as a live external read).
-        parent_pos = _ORIGIN
-        parent_deg = 0.0
+    if parent_node is None:
+        # The base is the tree's own anchor — full anchor-mode support, not the
+        # old origin-only/ref-only split (role/point/auto used to read ref=None).
+        parent_pos, parent_deg = _anchor_base_live_position(
+            adapter, cfg, tree, sheet_names)
     else:
-        parent_pos = resolve_base_live_position(adapter, cfg, parent_ref, parent_record, {}, sheet_names)
-        parent_deg = resolve_base_rotation_deg(adapter, cfg, parent_ref, parent_record, sheet_names)
+        # The base is the parent NODE's own resolved record (external node ->
+        # live refdes read, same as _resolve_probe_ref used to provide).
+        parent_record, _is_external = _resolve_probe_ref(cfg, parent_node.ref, parent_node.kind)
+        parent_pos = resolve_base_live_position(adapter, cfg, parent_node.ref, parent_record, {}, sheet_names)
+        parent_deg = resolve_base_rotation_deg(adapter, cfg, parent_node.ref, parent_record, sheet_names)
 
     child_pos = resolve_base_live_position(adapter, cfg, ref, child_record, {}, sheet_names)
     child_deg = resolve_base_rotation_deg(adapter, cfg, ref, child_record, sheet_names)
@@ -819,6 +878,14 @@ class TreesDock(QDockWidget):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return None
         node = dialog.build_node()
+        if node is None:
+            # build_node() already reported the problem (empty/used ref, bad
+            # offset/rotation) via QMessageBox and returned None — treat it as
+            # a cancel, never dereference it below. The node dialog's OK button
+            # accept()s unconditionally, so validation runs HERE, after exec();
+            # a None node used to crash on node.ref (found live 2026-09-02,
+            # AttributeError in _add_node_flow -> whole GUI died).
+            return None
         # Phase 5.5 auto-numbering: a NEW node whose free-typed ref (not a
         # placeable record — those are shown "(used)" and stay strict) collides
         # with an existing node is auto-numbered (ref_1, ref_2, ...) so the
@@ -1145,11 +1212,12 @@ class TreesDock(QDockWidget):
     def _refresh_anchor_live_position(self) -> None:
         """§5.1 (plan_2026_08_29_fork1_rigid_redraw_override.md) — a READ-ONLY
         indicator of the current tree anchor's live absolute position/rotation,
-        via the same resolve_base_live_position / resolve_base_rotation_deg
-        rigid-redraw itself uses for the anchor. Not cached: reads the board on
-        demand (button/on-open). An origin anchor is trivially (0,0)/0°; a live
-        KiCad IPC failure just shows "unavailable" — the indicator never crashes
-        the dock."""
+        via _anchor_base_live_position — which supports EVERY anchor mode
+        (origin/auto/role/point/ref; 2026-09-02: role/point/auto used to show
+        "unavailable" because a ref-less anchor read was never implemented
+        here). Not cached: reads the board on demand (button/on-open). An
+        origin anchor is trivially (0,0)/0°; a live KiCad IPC failure just
+        shows "unavailable" — the indicator never crashes the dock."""
         tree = self._current_tree()
         if tree is None:
             self.anchor_pos_label.setText("")
@@ -1158,28 +1226,27 @@ class TreesDock(QDockWidget):
             self.anchor_pos_label.setText(_("anchor (origin): (0, 0) mm @ 0°"))
             return
         try:
-            linked = link_trees(self._cfg, self._trees)
-            lt = next((t for t in linked if t.name == tree.name), None)
-            if lt is None:
-                self.anchor_pos_label.setText(_("anchor: not linked"))
-                return
             adapter = KiCadBoardAdapter(timeout_ms=20000)
             adapter.refresh_board()
-            la = lt.anchor
             sheet_names = self._ctx.sheet_names if self._ctx else {}
-            pos = resolve_base_live_position(
-                adapter, self._cfg, la.anchor.ref, la.record, {}, sheet_names)
-            rot = resolve_base_rotation_deg(
-                adapter, self._cfg, la.anchor.ref, la.record, sheet_names)
-            rot_s = f"{rot:.1f}" if rot is not None else "—"
-            self.anchor_pos_label.setText(
-                _("anchor {ref!r}: ({x:.3f}, {y:.3f}) mm @ {rot}°")
-                .format(ref=la.anchor.ref or "(origin)", x=pos.x / MM,
-                        y=pos.y / MM, rot=rot_s))
+            pos, rot = _anchor_base_live_position(
+                adapter, self._cfg, tree, sheet_names)
         except Exception as exc:  # noqa: BLE001 — read-only indicator, never crash
             logger.warning(_("anchor live position unavailable: {error}")
                            .format(error=exc))
             self.anchor_pos_label.setText(_("anchor: live position unavailable"))
+            return
+        rot_s = f"{rot:.1f}" if rot is not None else "—"
+        if tree.anchor.ref:
+            self.anchor_pos_label.setText(
+                _("anchor {ref!r}: ({x:.3f}, {y:.3f}) mm @ {rot}°")
+                .format(ref=tree.anchor.ref, x=pos.x / MM, y=pos.y / MM,
+                        rot=rot_s))
+        else:
+            # auto/role/point anchor — no ref to name, a mode-generic readout.
+            self.anchor_pos_label.setText(
+                _("anchor: ({x:.3f}, {y:.3f}) mm @ {rot}°")
+                .format(x=pos.x / MM, y=pos.y / MM, rot=rot_s))
 
     def _finish_redraw(self, result) -> None:
         results, warnings = result
