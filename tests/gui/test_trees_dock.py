@@ -486,6 +486,18 @@ def test_anchor_dialog_role_mode_returns_role_anchor(main_window):
                                      anchor_pad="A1")
 
 
+def test_anchor_dialog_sheet_combo_lists_names_not_uuid_keys(main_window):
+    """Regression 2026-09-02 (sheet_names is a {uuid: Sheetname} dict): the
+    Role-mode Sheet combo must show the READABLE sheet names (dict values,
+    Channel_0/…), never the uuid keys — `list(dict)` returns keys, and
+    anchor_sheet is matched against the readable names at apply time."""
+    from gui.docks.trees_dock import _AnchorDialog
+    dlg = _AnchorDialog(
+        main_window, [],
+        sheet_names={"sheet-1111-0000": "Channel_0", "sheet-2222-0000": "Channel_1"})
+    assert _combo_texts(dlg.sheet_edit) == ["Channel_0", "Channel_1"]
+
+
 def test_anchor_dialog_role_mode_requires_role(main_window, monkeypatch):
     """An empty Role in "Role" mode must warn and NOT accept — never a silent
     role=None anchor (mirrors the node dialog's "Ref is required." gate)."""

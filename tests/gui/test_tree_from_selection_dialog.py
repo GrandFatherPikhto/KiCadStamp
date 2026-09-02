@@ -156,6 +156,17 @@ def test_manual_narrowing_builds_tree_anchor(main_window):
     assert anchor.anchor_pad == "3"
 
 
+def test_sheet_combo_lists_names_not_uuid_keys(main_window):
+    """Regression 2026-09-02 (dock_hub passes sheet_names as a {uuid: Sheetname}
+    dict): the Anchor-tab Sheet combo must show the READABLE names
+    (Channel_0/…), never the uuid keys — `list(dict)` returns keys."""
+    dialog = TreeFromSelectionDialog(
+        _clusters(), [], [], parent=main_window,
+        sheet_names={"sheet-1111-0000": "Channel_0", "sheet-2222-0000": "Channel_1"})
+    items = [dialog.sheet_edit.itemText(i) for i in range(dialog.sheet_edit.count())]
+    assert items == ["Channel_0", "Channel_1"]
+
+
 def test_manual_narrowing_overrides_existing_cluster_anchor(main_window):
     """Picking a root cluster prefills the "existing cluster anchor", but a
     manual narrowing afterwards wins in build_anchor()."""

@@ -208,6 +208,15 @@ class TestLocaleCatalogIntegrity:
             f"at runtime) — (msgid, msgstr, extra names): {invented}"
         )
 
+    def test_set_anchor_translations_are_not_rule_anchor_leftovers(self):
+        """Regression 2026-09-02: the "Set anchor…"/"Set anchor" RU msgstrs
+        used to carry the stale «якорь правила» left over from the removed
+        "rule anchor" msgid (Rule -> Chain rename); they must be the proper
+        imperative «Назначить якорь…»/«Назначить якорь»."""
+        ru = dict(_po_entries(RU_PO))
+        assert ru.get("Set anchor…") == "Назначить якорь…"
+        assert ru.get("Set anchor") == "Назначить якорь"
+
 
 def _source_msgids() -> set:
     """Every _("...") literal in the SHIPPED source, via stdlib ast. Implicit

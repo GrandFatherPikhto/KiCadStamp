@@ -3572,7 +3572,7 @@ msgstr "Редактировать узел"
 
 #: gui/docks/trees_dock.py:746
 msgid "Set anchor…"
-msgstr "якорь правила"
+msgstr "Назначить якорь…"
 
 #: gui/docks/trees_dock.py:872
 msgid "Rename node"
@@ -3703,7 +3703,7 @@ msgstr "Клон"
 #: gui/docks/trees_dock.py:1447 gui/docks/trees_dock.py:1699
 #: gui/docks/trees_dock.py:1709 gui/docks/trees_dock.py:1715
 msgid "Set anchor"
-msgstr "якорь правила"
+msgstr "Назначить якорь"
 
 #: gui/docks/trees_dock.py:1478
 msgid "Origin (board 0,0)"

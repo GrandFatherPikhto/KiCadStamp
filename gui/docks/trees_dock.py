@@ -1567,7 +1567,7 @@ class _AnchorDialog(QDialog):
         role_form.addRow(_("Role:"), self.role_edit)
         self.sheet_edit = QComboBox()
         configure_searchable(self.sheet_edit)
-        set_combo_items(self.sheet_edit, list(self._sheet_names))
+        set_combo_items(self.sheet_edit, list(self._sheet_names.values()))
         self.sheet_edit.lineEdit().setPlaceholderText(
             _("sheet name (narrows an ambiguous Role, optional)"))
         role_form.addRow(_("Sheet:"), self.sheet_edit)

@@ -82,7 +82,7 @@ class TreeFromSelectionDialog(QDialog):
         # by the dock hub (tree_anchor_from_cluster_entity) so this dialog
         # stays config-free.
         self._prefills = prefills or {}
-        self._sheet_names = list(sheet_names or {})
+        self._sheet_names = list((sheet_names or {}).values())
         self._role_candidates = list(role_candidates or [])
         self._cluster_candidates = list(cluster_candidates or [])
 
