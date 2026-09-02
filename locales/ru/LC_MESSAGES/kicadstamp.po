@@ -6112,6 +6112,14 @@ msgstr ""
 msgid "node {ref!r}: xy and polar are mutually exclusive (use exactly one)"
 msgstr "Якорь: Ref и Role взаимоисключающие — задайте одно."
 
+#, python-brace-format
+msgid "node {ref!r}: pivot-xy and pivot-polar are mutually exclusive (use exactly one)"
+msgstr "узел {ref!r}: pivot-xy и pivot-polar взаимоисключающие (задайте одно)"
+
+#, python-brace-format
+msgid "node {ref!r}: pivot_xy and pivot_polar are mutually exclusive (use exactly one)"
+msgstr "узел {ref!r}: pivot_xy и pivot_polar взаимоисключающие (задайте одно)"
+
 #: kicadstamp/trees.py:243
 #, python-brace-format
 msgid "{location}: a tree is missing a (name ...)"

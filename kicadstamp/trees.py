@@ -43,7 +43,12 @@ from .i18n import _
 # by_key "net_trace:<net>"). Deliberately NOT auto-searched (requires an explicit
 # kind) — its ref is a net name that could collide with another section's name;
 # see link_trees._PLACEABLE_KINDS.
-KINDS = ("clone", "placement", "chain", "coordinate", "net_trace", "point", "external")
+# "module" — 2026-09-02 (plan tree_module_embedding): the node lives in the PARENT
+# tree; its ref is another Tree's NAME (not a record). It does not place a record —
+# at redraw it temporarily substitutes the referenced tree's base (pivot mechanism,
+# pivot_xy/pivot_polar fields). Deliberately NOT auto-searched (like net_trace):
+# see link_trees._PLACEABLE_KINDS.
+KINDS = ("clone", "placement", "chain", "coordinate", "net_trace", "point", "external", "module")
 
 # Legacy kind alias for the 2026-09-01 Rule -> Chain rename: tree nodes written
 # with kind "rule" (the old record kind) are still accepted at parse time (a
@@ -90,13 +95,18 @@ class TreeAnchor:
 @dataclass
 class TreeNode:
     ref: str
-    kind: str | None       # "clone"/"chain"/"coordinate"/"point"/"external", or None (auto)
+    kind: str | None       # "clone"/"chain"/"coordinate"/"point"/"external"/"module", or None (auto)
     xy: tuple[float, float] | None
     polar: tuple[float, float] | None   # (radius_mm, angle_deg)
     rotation: float
     name: str | None       # display label, default = ref
     group: str | None      # pure UI tag, does not participate in geometry
     children: list["TreeNode"] = field(default_factory=list)
+    # Module node only (kind "module"): which point INSIDE the referenced tree
+    # (its own local offset frame) must land on the marker. None = (0, 0) — the
+    # referenced tree's own origin. Mutually exclusive, independent of xy/polar.
+    pivot_xy: tuple[float, float] | None = None
+    pivot_polar: tuple[float, float] | None = None   # (radius_mm, angle_deg)
 
 
 @dataclass
@@ -206,16 +216,33 @@ def _parse_node(node, seen_refs: set[str], location: str) -> TreeNode:
     if ref is None:
         _fatal(_("{location}: node is missing a (ref ...)").format(location=location))
     ref = sval(ref)
-    if ref in seen_refs:
-        _fatal(_("{location}: record {ref!r} already has a node elsewhere in this "
-                 "file — a record's position source must be exactly one")
-               .format(location=location, ref=ref))
-    seen_refs.add(ref)
+
+    # kind read BEFORE the seen_refs check: a module node's ref is another
+    # TREE's name, not a record — rule 2 (a record ref appears in at most one
+    # node of the file) does not apply to it (the same tree may be embedded by
+    # several different parents; per-parent duplicates are guarded in
+    # link_trees, plan P1).
+    kind = _parse_kind(node)
+    if kind != "module":
+        if ref in seen_refs:
+            _fatal(_("{location}: record {ref!r} already has a node elsewhere in this "
+                     "file — a record's position source must be exactly one")
+                   .format(location=location, ref=ref))
+        seen_refs.add(ref)
 
     xy = _parse_offset(node, "xy")
     polar = _parse_offset(node, "polar")
     if xy is not None and polar is not None:
         _fatal(_("node {ref!r}: xy and polar are mutually exclusive "
+                 "(use exactly one)").format(ref=ref))
+
+    # Module node: pivot point inside the referenced tree (default (0,0) = its
+    # own origin). pivot-xy/pivot-polar mutually exclusive, independent of the
+    # node's own xy/polar.
+    pivot_xy = _parse_offset(node, "pivot-xy")
+    pivot_polar = _parse_offset(node, "pivot-polar")
+    if pivot_xy is not None and pivot_polar is not None:
+        _fatal(_("node {ref!r}: pivot-xy and pivot-polar are mutually exclusive "
                  "(use exactly one)").format(ref=ref))
 
     child_nodes = children(node, "node")
@@ -227,13 +254,15 @@ def _parse_node(node, seen_refs: set[str], location: str) -> TreeNode:
     raw_group = atom(node, "group")
     return TreeNode(
         ref=ref,
-        kind=_parse_kind(node),
+        kind=kind,
         xy=xy,
         polar=polar,
         rotation=_parse_rotation(node),
         name=sval(raw_name) if raw_name is not None else None,
         group=sval(raw_group) if raw_group is not None else None,
         children=parsed_children,
+        pivot_xy=pivot_xy,
+        pivot_polar=pivot_polar,
     )
 
 
@@ -311,6 +340,10 @@ def _node_to_sexp(node: TreeNode) -> list:
         out.append([sym("name"), node.name])
     if node.group is not None:
         out.append([sym("group"), node.group])
+    if node.pivot_xy is not None:
+        out.append([sym("pivot-xy"), node.pivot_xy[0], node.pivot_xy[1]])
+    elif node.pivot_polar is not None:
+        out.append([sym("pivot-polar"), node.pivot_polar[0], node.pivot_polar[1]])
     for child_node in node.children:
         out.append(_node_to_sexp(child_node))
     return out
@@ -413,6 +446,10 @@ def _node_to_dict(node: TreeNode) -> dict:
         out["name"] = node.name
     if node.group is not None:
         out["group"] = node.group
+    if node.pivot_xy is not None:
+        out["pivot_xy"] = [node.pivot_xy[0], node.pivot_xy[1]]
+    elif node.pivot_polar is not None:
+        out["pivot_polar"] = [node.pivot_polar[0], node.pivot_polar[1]]
     if node.children:
         out["children"] = [_node_to_dict(c) for c in node.children]
     return out
@@ -452,11 +489,20 @@ def _dict_node(data: dict, seen_refs: set[str], location: str) -> TreeNode:
     ref = data.get("ref")
     if ref is None:
         _fatal(_("{location}: node is missing a (ref ...)").format(location=location))
-    if ref in seen_refs:
-        _fatal(_("{location}: record {ref!r} already has a node elsewhere in this "
-                 "config — a record's position source must be exactly one")
-               .format(location=location, ref=ref))
-    seen_refs.add(ref)
+
+    raw_kind = data.get("kind")
+    if raw_kind is not None and raw_kind not in KINDS and raw_kind not in LEGACY_KINDS:
+        _fatal(_("node {ref!r}: invalid kind {kind!r} — expected one of {kinds}")
+               .format(ref=ref, kind=raw_kind, kinds=", ".join(KINDS)))
+    # Mirror of the s-expr _parse_node: a module node's ref is a TREE name, not
+    # a record — exempt it from the file-wide seen_refs (rule 2) check here too
+    # (the same tree may be embedded by several different parents).
+    if raw_kind != "module":
+        if ref in seen_refs:
+            _fatal(_("{location}: record {ref!r} already has a node elsewhere in this "
+                     "config — a record's position source must be exactly one")
+                   .format(location=location, ref=ref))
+        seen_refs.add(ref)
 
     xy = _dict_offset(data, "xy", location)
     polar = _dict_offset(data, "polar", location)
@@ -464,10 +510,11 @@ def _dict_node(data: dict, seen_refs: set[str], location: str) -> TreeNode:
         _fatal(_("node {ref!r}: xy and polar are mutually exclusive "
                  "(use exactly one)").format(ref=ref))
 
-    raw_kind = data.get("kind")
-    if raw_kind is not None and raw_kind not in KINDS and raw_kind not in LEGACY_KINDS:
-        _fatal(_("node {ref!r}: invalid kind {kind!r} — expected one of {kinds}")
-               .format(ref=ref, kind=raw_kind, kinds=", ".join(KINDS)))
+    pivot_xy = _dict_offset(data, "pivot_xy", location)
+    pivot_polar = _dict_offset(data, "pivot_polar", location)
+    if pivot_xy is not None and pivot_polar is not None:
+        _fatal(_("node {ref!r}: pivot_xy and pivot_polar are mutually exclusive "
+                 "(use exactly one)").format(ref=ref))
 
     raw_rotation = data.get("rotation")
     if raw_rotation is not None and not isinstance(raw_rotation, (int, float)):
@@ -482,6 +529,8 @@ def _dict_node(data: dict, seen_refs: set[str], location: str) -> TreeNode:
         name=data.get("name"),
         group=data.get("group"),
         children=[_dict_node(c, seen_refs, f"{location}.node") for c in data.get("children") or []],
+        pivot_xy=pivot_xy,
+        pivot_polar=pivot_polar,
     )
 
 

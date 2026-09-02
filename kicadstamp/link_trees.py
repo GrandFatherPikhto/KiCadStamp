@@ -41,7 +41,7 @@ from .trees import KINDS, Tree, TreeAnchor, TreeNode
 # net_trace IS a valid node kind (2026-09-01, phase D) but is NOT auto-searched:
 # a net_trace node's ref is a net name that could collide with another section's
 # name, so it requires an explicit kind (resolved via by_key "net_trace:<net>").
-_PLACEABLE_KINDS = set(KINDS) - {"external", "net_trace"}
+_PLACEABLE_KINDS = set(KINDS) - {"external", "net_trace", "module"}
 
 # inline position-source fields FORK-1 checks on the resolved record's obj —
 # a tree-placed record must not ALSO carry its own anchor (two sources of truth).

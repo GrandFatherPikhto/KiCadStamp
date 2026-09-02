@@ -1271,7 +1271,8 @@ _TREE_KNOWN_KEYS = {"name", "anchor", "nodes"}
 # origin / ref(+external) / role(+sheet/cluster/pad) / point.
 _TREE_ANCHOR_KNOWN_KEYS = {"ref", "origin", "external", "role", "point",
                            "sheet", "cluster", "pad"}
-_TREE_NODE_KNOWN_KEYS = {"ref", "kind", "xy", "polar", "rotation", "name", "group", "children"}
+_TREE_NODE_KNOWN_KEYS = {"ref", "kind", "xy", "polar", "rotation", "name", "group", "children",
+                         "pivot_xy", "pivot_polar"}
 
 
 def _check_tree_node_keys(data: Any, label: str) -> None:
