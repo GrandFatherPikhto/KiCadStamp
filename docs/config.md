@@ -45,6 +45,7 @@ clone_placements:
 | `clone_placements` | list | TemplatePlacer placements — see **`clone_placements:`** below. |
 | `entities` | list | Entity records — the "what" of a placement, WITHOUT any position — see **`entities:`** below. |
 | `trees` | list | Placement trees — the ONLY place a position can live — see **`trees:`** below. |
+| `tree_instances` | list | Sheet-parameterized references to a template tree — see **`tree_instances:`** below. |
 | `thermal_via_arrays` | list | Any number of thermal via grids, each independently named/anchored — see **`thermal_via_arrays:`** below. |
 | `place_components` | bool | Default `true`. `false` moves/creates vias and tracks but leaves component positions untouched. |
 | `skip_existing_components` | bool | Default `false`. Skip components (and their vias/tracks) already at the target position — cheap idempotency for re-runs. Note (2026-08-31): the TRACK positional pre-check runs regardless of this flag — it only skips a planned track that already exists at the exact position/net/width/layer, so it can never remove copper, only prevent literal duplicates. |
@@ -476,6 +477,49 @@ several different parents; a duplicate inside ONE parent, an unknown/self refere
 (A⊃B⊃A) are config fatals (validated at link/Save). When embedded, the referenced tree's OWN anchor is
 ignored — its content is laid out from the module's pivot-inverted marker (pure geometry, applied as a
 non-persistent position override by the forest-wide redraw).
+
+---
+
+## `tree_instances:` — one template tree, instantiated per schematic sheet (2026-09-02)
+
+`Channel_1/2` of `DAC_BUF` are the SAME geometry as `Channel_0` — same cells/clusters/roles — and
+differ only by the schematic SHEET (`Channel_1`/`Channel_2`). Copy-pasting the whole tree + its
+`entities:` records N times silently drifts the moment the geometry changes. `tree_instances:`
+declares the tree ONCE — a normal `trees:` entry plus its Entity records (its own `sheet`/anchor
+`sheet` set to a real sheet, so the template stays live-re-readable by Role+Sheet+Cluster) — and
+instantiates it per reuse:
+
+```yaml
+tree_instances:
+  - template: dac_buf_tpl        # name of an existing trees: entry (the template)
+    name: ch1_dac_buf            # the generated tree's name
+    sheet: Channel_1             # substituted into the generated copies
+```
+
+Expansion runs inside `load_config()`, right after `include:` + `sheet_templates:` resolution and
+before any per-entry loader: each declaration materializes a FULL Tree (a deep copy of the template —
+every node's `ref` gets a `__{instance.name}` suffix recursively, the role anchor's `sheet` becomes
+the instance's) plus one Entity per template node (a deep copy renamed to the new ref, `sheet` = the
+instance's). The materialized records are ordinary for every consumer (embedding/redraw/apply) and go
+through the SAME `_load_tree`/`_load_entity`, duplicate-name, rule-2 and layer/mirror checks as
+hand-written ones — nothing is validated twice.
+
+- **Not a separate file format:** `tree_instances:` lives ONLY in the main dict config (NOT in the
+  `*.trees` s-expr format — it has no Entity records at all). It IS an `include:`-mergeable list
+  section.
+- **The template stays editable and alive (a normal tree):** its Entity records KEEP their own
+  `sheet` — needed for live re-reading by Role+Sheet+Cluster (Q2, revised 2026-09-02) — while the
+  generated COPY unconditionally gets the instance's `sheet`. Expansion only ever deep-copies; the
+  template and the file on disk are never mutated.
+- **v1 template constraints (each a load-time fatal):** the template's anchor must be `role`-based;
+  every template node is `kind "placement"` (or unset/auto) and must reference an existing
+  `entities:` record.
+- **Generated instances are never persisted** as literal `trees:` entries: the TreesDock Save writes
+  only hand-written trees, and the untouched `tree_instances:` section regenerates the instances on
+  every load — no duplication. An instance's geometry is edited by editing the template (in the Trees
+  dock) and the declaration's `name`/`sheet` (Tools → **Instances…**, see the GUI docs).
+- `name` must be unique across ALL trees (a clash — with a hand-written tree or another instance — is
+  the usual duplicate-name fatal at load).
 
 ---
 

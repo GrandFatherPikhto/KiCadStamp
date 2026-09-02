@@ -343,6 +343,21 @@ each tree's live anchor (role/auto/origin/point/ref) — runs from **Tools → F
 modules)…** (Tools-menu only, no new dock button); the per-tree **Redraw selected / Redraw whole
 tree** buttons stay single-tree.
 
+**Tree instances (`tree_instances:`, 2026-09-02, plan_2026_09_02_tree_instances.md):** a tree + its
+Entity records can be declared once as a TEMPLATE and instantiated per schematic sheet by
+`tree_instances:` declarations (see the config docs). Each generated instance shows here as an ordinary
+tab whose nodes are a deep copy of the template — refs suffixed `__{instance.name}`, the instance's
+`sheet` substituted into the copied Entities and the role anchor. Instance tabs are **READ-ONLY**: their
+node context menu offers no Add/Edit/Delete/Rename/Move (the geometry is owned by the template + the
+declaration), and Rename/Delete tree refuse them — but **Redraw** works normally (instances are fully
+placeable trees). An instance tab shows one top **"⇐ instance of {template} (sheet={sheet})"** item; a
+template tree shows one **"→ instance: {name}"** item per instance — double-click navigates either way
+(the same navigation primitive as "⇐ embedded in"). **Save never writes generated instances** as literal
+`trees:` entries — the untouched `tree_instances:` section regenerates them on every load (no
+duplication). Manage the short declarations with **Tools → Instances…**: pick a template (generated
+instances can't themselves be templates) and edit its {name, sheet} rows — the dialog only persists the
+declarations, the instances materialize on the next load.
+
 ## Detail dock
 
 Placer/Net traces/Cells below all live as tabs inside one shared **Detail** dock,
