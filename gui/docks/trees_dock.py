@@ -883,7 +883,18 @@ class TreesDock(QDockWidget):
         # with an existing node is auto-numbered (ref_1, ref_2, ...) so the
         # next Save doesn't fatal with link_trees' "already has a node
         # elsewhere". Add-mode only: editing a node must never rename it.
-        if existing is None:
+        # kind=="module" ALWAYS bypasses this (plan 2026-09-02 P4 п.1a): a
+        # module ref is a child TREE NAME chosen explicitly from the dialog's
+        # tree-name list, never a free-typed record needing dedup. The bypass
+        # is CONSTRUCTIVE (by kind) — even if the tree name coincides with a
+        # DIFFERENT ordinary record's node ref elsewhere (e.g. a tree named
+        # "GND"), a module node must keep its exact tree name, or the next
+        # Save would fatal on "unknown tree GND_1" (P1). _used_refs() also
+        # excludes module refs (P4 п.1b), but that only removes module refs
+        # from the "used" set; it does NOT protect a module ref that happens
+        # to equal an unrelated record's ref, which is why the kind guard here
+        # is the real fix.
+        if existing is None and node.kind != "module":
             placeable = {name for _kind, name in self._all_ref_candidates()}
             if node.ref not in placeable:
                 node.ref = self._unique_ref(node.ref, self._used_refs())

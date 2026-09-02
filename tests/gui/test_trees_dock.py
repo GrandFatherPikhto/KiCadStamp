@@ -2261,6 +2261,40 @@ def test_prompt_node_module_ref_not_auto_numbered(main_window, tmp_path, monkeyp
     assert not any("_1" in r for r in refs)
 
 
+def test_prompt_node_module_ref_not_auto_numbered_on_record_collision(
+        main_window, tmp_path, monkeypatch):
+    """P4 п.1a (the CONSTRUCTIVE bypass, not just the _used_refs side effect):
+    a module node whose child-TREE name happens to equal an UNRELATED ordinary
+    (non-module) node's ref elsewhere keeps its exact tree name. Without the
+    kind guard in _prompt_node, _unique_ref would rename it to {tree}_1, which
+    would then point at a nonexistent tree (fatal at the next Save, P1)."""
+    from PyQt6.QtWidgets import QDialog
+
+    trees = {"trees": [
+        # tree "net" already has an ORDINARY node whose ref == "GND" (a live
+        # refdes) — so "GND" IS in _used_refs; the module candidate below is
+        # the separate TREE named "GND".
+        {"name": "net", "anchor": {"origin": True},
+         "nodes": [{"ref": "GND", "kind": "external", "xy": [1.0, 1.0]}]},
+        {"name": "GND", "anchor": {"origin": True}, "nodes": []},
+    ]}
+    dock, _root = _dock_with(main_window, tmp_path, trees=trees)
+    net = next(t for t in dock._trees if t.name == "net")
+    assert "GND" in dock._used_refs()      # the ordinary node's ref is "used"
+
+    built = TreeNode(ref="GND", kind="module", xy=(0.0, 0.0), polar=None,
+                     rotation=0.0, name=None, group=None)
+    monkeypatch.setattr(_NodeDialog, "exec",
+                        lambda self: QDialog.DialogCode.Accepted)
+    monkeypatch.setattr(_NodeDialog, "build_node", lambda self: built)
+
+    dock._add_node_flow(net)
+
+    refs = [n.ref for n in net.nodes]
+    assert refs.count("GND") == 2           # ordinary + module, both "GND"
+    assert not any("_1" in r for r in refs)  # the module was NOT renamed
+
+
 def test_edit_node_flow_module_copies_pivot(main_window, tmp_path, monkeypatch):
     """P4 п.1: _edit_node_flow copies pivot_xy/pivot_polar onto the existing
     module node (the Edit round-trip the plan calls out explicitly)."""
