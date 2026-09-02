@@ -6158,6 +6158,35 @@ msgstr "Полная перерисовка: у module-контента {name!r}
 msgid "Full redraw (all trees and modules)..."
 msgstr "Полная перерисовка (все деревья и модули)..."
 
+msgid "module"
+msgstr "module"
+
+msgid "Pivot (child frame):"
+msgstr "Pivot (в системе координат дерева-ребёнка):"
+
+msgid "From child node..."
+msgstr "Взять offset узла ребёнка..."
+
+msgid "child tree name"
+msgstr "имя дерева-ребёнка"
+
+#, python-brace-format
+msgid "⇐ embedded in {parent}"
+msgstr "⇐ встроено в {parent}"
+
+msgid "Use child node"
+msgstr "Взять узел ребёнка"
+
+msgid "Child node:"
+msgstr "Узел ребёнка:"
+
+#, python-brace-format
+msgid "No tree named {name!r} is loaded."
+msgstr "Дерева с именем {name!r} не загружено."
+
+msgid "The referenced tree has no nodes."
+msgstr "В referenced-дереве нет узлов."
+
 #: kicadstamp/trees.py:243
 #, python-brace-format
 msgid "{location}: a tree is missing a (name ...)"

@@ -2126,3 +2126,192 @@ def test_node_dialog_edit_kind_none_collision_ref_stays_clean(main_window, tmp_p
     assert built is not None
     assert built.ref == "SHARED"
     assert built.kind is None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Module kind GUI — plan 2026-09-02 P4 (tree-name refs, pivot fields,
+# _used_refs exclusion, auto-numbering bypass, double-click navigation)
+# ═══════════════════════════════════════════════════════════════════════════
+
+MODULE_TREES = {
+    "trees": [
+        {"name": "fpga", "anchor": {"origin": True},
+         "nodes": [{"ref": "ch0_dac_buf", "kind": "module", "xy": [10.0, 5.0],
+                    "pivot_xy": [1.0, 2.0]}]},
+        {"name": "ch0_dac_buf", "anchor": {"origin": True},
+         "nodes": [{"ref": "D0", "xy": [0.0, 0.0]}]},
+        {"name": "dac_x", "anchor": {"origin": True}, "nodes": []},
+    ],
+}
+
+CYCLE_TREES = {
+    "trees": [
+        {"name": "a", "anchor": {"origin": True},
+         "nodes": [{"ref": "b", "kind": "module", "xy": [0.0, 0.0]}]},
+        {"name": "b", "anchor": {"origin": True},
+         "nodes": [{"ref": "c", "kind": "module", "xy": [0.0, 0.0]}]},
+        {"name": "c", "anchor": {"origin": True}, "nodes": []},
+        {"name": "d", "anchor": {"origin": True},
+         "nodes": [{"ref": "a", "kind": "module", "xy": [0.0, 0.0]}]},
+    ],
+}
+
+
+def _module_dock(main_window, tmp_path):
+    return _dock_with(main_window, tmp_path, trees=MODULE_TREES)
+
+
+def _tree_of(dock, name):
+    return next(t for t in dock._trees if t.name == name)
+
+
+def test_used_refs_excludes_module_refs(main_window, tmp_path):
+    """P4 п.1b: kind=="module" refs (child TREE names) are NOT "used record
+    refs" — a second parent embedding the same child must never be flagged."""
+    dock, _root = _module_dock(main_window, tmp_path)
+    used = dock._used_refs()
+    assert "D0" in used               # a real node ref of ch0_dac_buf
+    assert "ch0_dac_buf" not in used  # the module marker ref is a tree name
+
+
+def test_module_tree_candidates_exclude_self_dup_and_cycle(main_window, tmp_path):
+    """P4 п.1: the module candidate list for a tree excludes itself, trees it
+    already embeds (per-parent dup -> config fatal), and trees that would close
+    a module cycle (they already reach the current tree)."""
+    dock, _root = _dock_with(main_window, tmp_path, trees=CYCLE_TREES)
+    # a embeds b; d embeds a -> adding a->d would cycle; only c is safe.
+    assert dock._module_tree_candidates(_tree_of(dock, "a")) == ["c"]
+    # c: every other tree reaches c transitively (a->b->c, b->c, d->a->b->c).
+    assert dock._module_tree_candidates(_tree_of(dock, "c")) == []
+    # d embeds a (dup excluded); adding d->b or d->c is safe.
+    assert dock._module_tree_candidates(_tree_of(dock, "d")) == ["b", "c"]
+
+    # no-cycle sanity: fpga may embed the standalone dac_x, not ch0 (dup).
+    dock2, _root2 = _module_dock(main_window, tmp_path)
+    assert dock2._module_tree_candidates(_tree_of(dock2, "fpga")) == ["dac_x"]
+
+
+def test_node_dialog_module_kind_lists_trees_and_builds_pivot(main_window, tmp_path):
+    """P4 п.1: kind==module lists the CHILD TREE NAMES (not records), shows the
+    pivot widget, and build_node returns a module TreeNode with pivot fields."""
+    dock, _root = _module_dock(main_window, tmp_path)
+    fpga = _tree_of(dock, "fpga")
+    dlg = _NodeDialog(dock, [], set(), "Add child", tree=fpga,
+                      module_candidates=["ch0_dac_buf", "dac_x"],
+                      all_trees=dock._trees)
+    idx = dlg.kind_combo.findData("module")
+    assert idx >= 0
+    dlg.kind_combo.setCurrentIndex(idx)
+    texts = [dlg.ref_combo.itemText(i) for i in range(dlg.ref_combo.count())]
+    assert "ch0_dac_buf" in texts and "dac_x" in texts
+    # The dialog is not shown, so visibility means "not explicitly hidden
+    # w.r.t. the dialog" (isVisibleTo), not Qt's on-screen isVisible().
+    assert dlg.pivot_widget.isVisibleTo(dlg)
+    assert not dlg.read_position_button.isVisibleTo(dlg)
+
+    dlg.ref_combo.setCurrentText("ch0_dac_buf")
+    # A module marker always has its own (marker) offset in the parent.
+    dlg.offset_widget.x_edit.setText("10.0")
+    dlg.offset_widget.y_edit.setText("5.0")
+    dlg.pivot_widget.load(x=1.5, y=-2.0)
+    node = dlg.build_node()
+    assert node is not None
+    assert node.kind == "module"
+    assert node.ref == "ch0_dac_buf"
+    assert node.pivot_xy == (1.5, -2.0)
+    assert node.pivot_polar is None
+
+
+def test_node_dialog_module_prefill_round_trips_pivot(main_window, tmp_path):
+    """P4 п.1: editing a module node pre-fills the pivot fields from the
+    existing node (pivot survives an Edit open/rebuild)."""
+    dock, _root = _module_dock(main_window, tmp_path)
+    fpga = _tree_of(dock, "fpga")
+    existing = TreeNode(ref="ch0_dac_buf", kind="module", xy=(10.0, 5.0),
+                        polar=None, rotation=0.0, name=None, group=None,
+                        pivot_xy=(1.0, 2.0))
+    dlg = _NodeDialog(dock, [], set(), "Edit node", tree=fpga, existing=existing,
+                      module_candidates=["ch0_dac_buf"], all_trees=dock._trees)
+    node = dlg.build_node()
+    assert node is not None
+    assert node.kind == "module"
+    assert node.ref == "ch0_dac_buf"
+    assert node.pivot_xy == (1.0, 2.0)
+    assert node.xy == (10.0, 5.0)
+
+
+def test_prompt_node_module_ref_not_auto_numbered(main_window, tmp_path, monkeypatch):
+    """P4 п.1a: a NEW module node's ref (a child tree name) is NEVER
+    auto-numbered to ref_1 — it is chosen from the tree-name list, not a
+    free-typed record needing dedup."""
+    from PyQt6.QtWidgets import QDialog
+
+    dock, _root = _module_dock(main_window, tmp_path)
+    fpga = _tree_of(dock, "fpga")
+    built = TreeNode(ref="ch0_dac_buf", kind="module", xy=(0.0, 0.0), polar=None,
+                     rotation=0.0, name=None, group=None)
+    monkeypatch.setattr(_NodeDialog, "exec",
+                        lambda self: QDialog.DialogCode.Accepted)
+    monkeypatch.setattr(_NodeDialog, "build_node", lambda self: built)
+
+    dock._add_node_flow(fpga)
+
+    refs = [n.ref for n in fpga.nodes]
+    assert refs.count("ch0_dac_buf") == 2   # original + new, BOTH unrenamed
+    assert not any("_1" in r for r in refs)
+
+
+def test_edit_node_flow_module_copies_pivot(main_window, tmp_path, monkeypatch):
+    """P4 п.1: _edit_node_flow copies pivot_xy/pivot_polar onto the existing
+    module node (the Edit round-trip the plan calls out explicitly)."""
+    dock, _root = _module_dock(main_window, tmp_path)
+    fpga = _tree_of(dock, "fpga")
+    node = fpga.nodes[0]            # module node, pivot_xy (1,2)
+    built = TreeNode(ref="ch0_dac_buf", kind="module", xy=(0.0, 0.0), polar=None,
+                     rotation=0.0, name=None, group=None, pivot_xy=(3.0, 4.0))
+    monkeypatch.setattr(dock, "_prompt_node", lambda *a, **k: built)
+    dock._edit_node_flow(fpga, node)
+    assert node.pivot_xy == (3.0, 4.0)
+    assert node.pivot_polar is None
+    assert dock._dirty is True
+
+
+def test_render_tree_shows_module_tag(main_window, tmp_path):
+    """P4 п.1: the module kind gets its "(module)" tag next to the ref."""
+    dock, _root = _module_dock(main_window, tmp_path)
+    item = dock._node_items["ch0_dac_buf"]
+    assert "(module)" in item.text(0)
+
+
+def test_double_click_navigation_module_and_embedded_in(main_window, tmp_path):
+    """P4 п.3/п.4: double-click on a module node opens the referenced tree's
+    tab; the referenced tree's own tab shows an "embedded in <parent>" pseudo
+    item per embedding parent, and double-clicking it opens that parent."""
+    dock, _root = _module_dock(main_window, tmp_path)
+    names = [t.name for t in dock._trees]     # fpga, ch0_dac_buf, dac_x
+    ch0_idx = names.index("ch0_dac_buf")
+    fpga_idx = names.index("fpga")
+
+    # The ch0 tab (module-placed) shows an "embedded in fpga" item.
+    ch0_widget = dock.tabs.widget(ch0_idx)
+
+    emb_items = []
+    def walk(parent):
+        for i in range(parent.childCount()):
+            item = parent.child(i)
+            if item.data(0, Qt.ItemDataRole.UserRole) == "fpga":
+                emb_items.append(item)
+            walk(item)
+
+    walk(ch0_widget.invisibleRootItem())
+    assert emb_items, "ch0 tab must show an 'embedded in fpga' pseudo item"
+
+    # Double-click the embedder item -> fpga tab.
+    dock._on_node_activated(emb_items[0], 0)
+    assert dock.tabs.currentIndex() == fpga_idx
+
+    # Double-click the module node (on the fpga tab) -> ch0 tab.
+    dock.tabs.setCurrentIndex(fpga_idx)
+    mod_item = dock._node_items["ch0_dac_buf"]
+    dock._on_node_activated(mod_item, 0)
+    assert dock.tabs.currentIndex() == ch0_idx

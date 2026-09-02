@@ -6152,6 +6152,35 @@ msgstr "Forest redraw: module content {name!r} has no stage-2 layout value — a
 msgid "Full redraw (all trees and modules)..."
 msgstr "Full redraw (all trees and modules)..."
 
+msgid "module"
+msgstr "module"
+
+msgid "Pivot (child frame):"
+msgstr "Pivot (child frame):"
+
+msgid "From child node..."
+msgstr "From child node..."
+
+msgid "child tree name"
+msgstr "child tree name"
+
+#, python-brace-format
+msgid "⇐ embedded in {parent}"
+msgstr "⇐ embedded in {parent}"
+
+msgid "Use child node"
+msgstr "Use child node"
+
+msgid "Child node:"
+msgstr "Child node:"
+
+#, python-brace-format
+msgid "No tree named {name!r} is loaded."
+msgstr "No tree named {name!r} is loaded."
+
+msgid "The referenced tree has no nodes."
+msgstr "The referenced tree has no nodes."
+
 #: kicadstamp/trees.py:243
 #, python-brace-format
 msgid "{location}: a tree is missing a (name ...)"

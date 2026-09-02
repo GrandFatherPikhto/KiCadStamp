@@ -76,6 +76,7 @@ _KIND_TAGS = {
     "coordinate": _("coordinate"),
     "point": _("point"),
     "external": _("external"),
+    "module": _("module"),
 }
 
 
@@ -484,20 +485,54 @@ class TreesDock(QDockWidget):
             tree_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             tree_widget.customContextMenuRequested.connect(self._on_context_menu)
             tree_widget.itemSelectionChanged.connect(self._on_selection_changed)
+            tree_widget.itemDoubleClicked.connect(self._on_node_activated)
             self._render_tree(tree_widget, tree)
             self.tabs.addTab(tree_widget, tree.name)
         self.tabs.setCurrentIndex(0)
 
+    def _embedded_in(self, tree: Tree) -> list[str]:
+        """Names of every OTHER tree that embeds `tree` through a module node
+        (plan 2026-09-02 P4 п.4) — computed live by reverse-scanning all trees
+        for kind=="module" nodes whose ref == tree.name; nothing is cached."""
+        return [t.name for t in self._trees
+                if t.name != tree.name and tree.name in TreesDock._module_targets(t)]
+
     def _render_tree(self, tree_widget: QTreeWidget, tree: Tree) -> None:
         """Read-only render: a pseudo-root item for the anchor, then the
-        tree's top-level nodes recursively (Phase 1 has no checkboxes —
-        those land in Phase 4)."""
+        tree's top-level nodes recursively, then (when OTHER trees embed this
+        one) one "embedded in X" pseudo item per embedding parent — each opens
+        that parent's tab on double-click (plan 2026-09-02 P4 п.4)."""
         # Pseudo-root showing the anchor, visually distinct (not selectable).
         anchor_item = QTreeWidgetItem(tree_widget.invisibleRootItem())
         anchor_item.setText(0, _anchor_label(tree.anchor))
         anchor_item.setFlags(anchor_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
         for node in tree.nodes:
             self._render_node(anchor_item, node)
+        # "встроено в:" pseudo items — non-selectable, carry the PARENT tree
+        # name (a plain str) in UserRole for double-click navigation.
+        for parent_name in self._embedded_in(tree):
+            emb_item = QTreeWidgetItem(tree_widget.invisibleRootItem())
+            emb_item.setText(0, _("⇐ embedded in {parent}").format(parent=parent_name))
+            emb_item.setFlags(emb_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            emb_item.setData(0, Qt.ItemDataRole.UserRole, parent_name)
+
+    def _on_node_activated(self, item: QTreeWidgetItem, column: int) -> None:
+        """Double-click navigation (plan 2026-09-02 P4 п.3/п.4): a module node
+        switches the current tab to its referenced (child) tree; an "embedded
+        in X" pseudo item switches to the embedding parent's tab. Other items
+        (plain nodes / the anchor pseudo-root) do nothing."""
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if isinstance(data, TreeNode) and data.kind == "module":
+            self._switch_to_tree(data.ref)
+        elif isinstance(data, str):
+            self._switch_to_tree(data)
+
+    def _switch_to_tree(self, name: str) -> None:
+        """Activate the tab of the tree named `name` (no-op if not loaded)."""
+        for idx, t in enumerate(self._trees):
+            if t.name == name:
+                self.tabs.setCurrentIndex(idx)
+                return
 
     def _render_node(self, parent_item: QTreeWidgetItem, node: TreeNode) -> None:
         item = QTreeWidgetItem(parent_item)
@@ -669,9 +704,14 @@ class TreesDock(QDockWidget):
         return tree.name if tree is not None else None
 
     def _used_refs(self) -> set[str]:
-        """Every node ref already used anywhere in the current file — the
-        grammar's "a ref appears in at most one node" invariant, surfaced as
-        a "(used)" marker in the node dialog's ref combo."""
+        """Every RECORD node ref already used anywhere in the current file —
+        the grammar's "a ref appears in at most one node" invariant, surfaced
+        as a "(used)" marker in the node dialog's ref combo. kind=="module"
+        refs are EXCLUDED (plan 2026-09-02 P4 п.1b): a module ref is a CHILD
+        TREE NAME, not a record, and multiple parents may embed the same child
+        tree (design §2.3) — module refs must never be flagged "(used)" or
+        auto-numbered; the narrow within-one-parent duplicate is guarded by
+        link_trees at Save (P1 п.3), not by this set."""
         used: set[str] = set()
         for tree in self._trees:
             for node in tree.nodes:
@@ -680,9 +720,48 @@ class TreesDock(QDockWidget):
 
     @staticmethod
     def _collect_refs(node: TreeNode, into: set[str]) -> None:
-        into.add(node.ref)
+        if node.kind != "module":
+            into.add(node.ref)
         for child in node.children:
             TreesDock._collect_refs(child, into)
+
+    @staticmethod
+    def _module_targets(tree: Tree) -> set[str]:
+        """The refs of every kind=="module" node in `tree` at ANY depth — the
+        names of the trees this tree embeds (module refs are tree names)."""
+        out: set[str] = set()
+
+        def walk(nodes: list) -> None:
+            for n in nodes:
+                if n.kind == "module":
+                    out.add(n.ref)
+                walk(n.children)
+
+        walk(tree.nodes)
+        return out
+
+    def _module_tree_candidates(self, current: Tree) -> list[str]:
+        """Tree names a NEW module node under `current` may reference (plan
+        2026-09-02 P4 п.1): every OTHER tree, minus the ones `current` already
+        embeds (a within-one-parent duplicate is a config fatal, P1 п.3), minus
+        any tree that would close a module cycle — i.e. a tree that already
+        reaches `current` transitively through modules."""
+        by_name = {t.name: t for t in self._trees}
+        targets = {t.name: TreesDock._module_targets(t) for t in self._trees}
+        already_embedded = targets.get(current.name, set())
+
+        def reaches(name: str, goal: str, _seen: set[str]) -> bool:
+            if name == goal:
+                return True
+            if name in _seen:
+                return False
+            _seen.add(name)
+            return any(reaches(n, goal, _seen) for n in targets.get(name, ()))
+
+        return [name for name in by_name
+                if name != current.name
+                and name not in already_embedded
+                and not reaches(name, current.name, set())]
 
     def _all_ref_candidates(self) -> list[tuple[str, str]]:
         """Kind-aware ref candidates for the node dialog: (kind, name) pairs
@@ -917,7 +996,9 @@ class TreesDock(QDockWidget):
         """The first general node editor: the Add dialog reused with
         existing=node, then the built fields copied onto the EXISTING node in
         place (mutate, don't swap identity — other structures may hold a
-        reference, e.g. _node_items)."""
+        reference, e.g. _node_items). pivot_xy/pivot_polar (kind=="module"
+        only) are copied too so Edit round-trips them (plan 2026-09-02 P4
+        п.1)."""
         built = self._prompt_node(_("Edit node"), tree,
                                   parent_node=self._find_parent(tree, node),
                                   existing=node)
@@ -930,6 +1011,8 @@ class TreesDock(QDockWidget):
         node.rotation = built.rotation
         node.name = built.name
         node.group = built.group
+        node.pivot_xy = built.pivot_xy
+        node.pivot_polar = built.pivot_polar
         self._mark_dirty()
         self._rebuild_tabs()
 
@@ -1219,7 +1302,8 @@ class _NodeDialog(QDialog):
 
     def __init__(self, parent, ref_candidates: list[tuple[str, str]], used_refs: set[str],
                  title: str, cfg=None, adapter=None, sheet_names=None,
-                 tree=None, parent_node=None, existing=None):
+                 tree=None, parent_node=None, existing=None,
+                 module_candidates=None, all_trees=None):
         super().__init__(parent)
         self.setWindowTitle(title)
         self._ref_candidates = ref_candidates
@@ -1230,10 +1314,16 @@ class _NodeDialog(QDialog):
         self._tree = tree
         self._parent_node = parent_node
         self._existing = existing
+        # kind=="module": tree-name candidates (other trees minus per-parent
+        # duplicates / cycle risks) + the full tree list for the pivot sugar
+        # (plan 2026-09-02 P4 п.1/п.2). `parent` is the TreesDock; the dock
+        # computes both before opening the dialog.
+        self._module_candidates = list(module_candidates or [])
+        self._all_trees = list(all_trees or [])
 
         form = QFormLayout(self)
 
-        # kind — "auto" (None) + the 5 grammar kinds.
+        # kind — "auto" (None) + every grammar kind (KINDS incl. "module").
         self.kind_combo = QComboBox()
         self.kind_combo.addItem(_("auto"), None)
         for k in KINDS:
@@ -1254,6 +1344,18 @@ class _NodeDialog(QDialog):
         # offset block — xy/polar only, reused from the shared widget (design §3).
         self.offset_widget = AnchorOriginWidget(modes=["xy"], polar=True)
         form.addRow(_("Offset:"), self.offset_widget)
+
+        # pivot block (kind=="module" only; hidden otherwise, plan P4 п.1) —
+        # which point INSIDE the referenced tree's own local offset frame must
+        # land on this marker. The offset above stays the MARKER's own offset
+        # in the parent; pivot is a second, independent field.
+        self.pivot_widget = AnchorOriginWidget(modes=["xy"], polar=True)
+        form.addRow(_("Pivot (child frame):"), self.pivot_widget)
+        self.pivot_from_node_button = QPushButton(_("From child node..."))
+        self.pivot_from_node_button.clicked.connect(self._on_use_child_offset)
+        form.addRow(self.pivot_from_node_button)
+        self.pivot_widget.setVisible(False)
+        self.pivot_from_node_button.setVisible(False)
 
         self.rotation_edit = QLineEdit()
         self.rotation_edit.setPlaceholderText(_("0"))
@@ -1311,6 +1413,15 @@ class _NodeDialog(QDialog):
                                     angle=existing.polar[1])
         else:
             self.offset_widget.load()
+        if existing.kind == "module":
+            # pivot round-trips through Edit (plan 2026-09-02 P4 п.1).
+            if existing.pivot_xy is not None:
+                self.pivot_widget.load(x=existing.pivot_xy[0], y=existing.pivot_xy[1])
+            elif existing.pivot_polar is not None:
+                self.pivot_widget.load(polar=True, radius=existing.pivot_polar[0],
+                                       angle=existing.pivot_polar[1])
+            else:
+                self.pivot_widget.load()
         self.rotation_edit.setText(str(existing.rotation))
         self.name_edit.setText(existing.name or "")
         self.group_edit.setText(existing.group or "")
@@ -1382,6 +1493,22 @@ class _NodeDialog(QDialog):
         per section as {kind}:{name}; a concrete kind -> only that section's
         names, plain (plan_2026_08_29_trees_node_kind_filtered_combo.md)."""
         kind = self.kind_combo.currentData()
+        is_module = kind == "module"
+        # Module-only rows: pivot + its convenience sugar. Everything else:
+        # the "Read current position" row (a live read of a module ref — a
+        # tree, not a record — is meaningless).
+        self.pivot_widget.setVisible(is_module)
+        self.pivot_from_node_button.setVisible(is_module)
+        self.read_position_button.setVisible(not is_module)
+        self.read_status_label.setVisible(not is_module)
+        if kind == "module":
+            # Ref = a child TREE NAME (not a record) — the dialog's separate
+            # tree-name candidate list, minus self/dups/cycle risks.
+            self.ref_combo.clear()
+            self._set_ref_items([(name, None, name)
+                                 for name in self._module_candidates])
+            self.ref_combo.setPlaceholderText(_("child tree name"))
+            return
         if kind == "external":
             self.ref_combo.clear()
             self.ref_combo.setPlaceholderText(_("external refdes (live board)"))
@@ -1421,6 +1548,56 @@ class _NodeDialog(QDialog):
             return
         self.kind_combo.setCurrentIndex(kind_idx)
         self.ref_combo.setCurrentText(name)
+
+    def _on_use_child_offset(self) -> None:
+        """P4 п.2 convenience (pure UI sugar over the pivot field, no extra
+        logic): pick a node of the currently referenced (child) tree and put
+        its static offset from the child tree's origin into the pivot fields —
+        computed by ordinary composition inside the child tree at zero anchor
+        rotation (a plain read, nothing is written anywhere)."""
+        from kicadstamp.tree_position import node_position
+        from kicadstamp.domain.geometry import Vector2
+
+        ref = self.ref_combo.currentText().strip()
+        if not ref or not self._all_trees:
+            return
+        child = next((t for t in self._all_trees if t.name == ref), None)
+        if child is None:
+            QMessageBox.warning(
+                self, _("Add node"),
+                _("No tree named {name!r} is loaded.").format(name=ref))
+            return
+        refs: list[str] = []
+
+        def collect(nodes: list) -> None:
+            for n in nodes:
+                refs.append(n.ref)
+                collect(n.children)
+
+        collect(child.nodes)
+        if not refs:
+            QMessageBox.warning(self, _("Add node"),
+                                _("The referenced tree has no nodes."))
+            return
+        choice, ok = QInputDialog.getItem(self, _("Use child node"),
+                                          _("Child node:"), refs, 0, False)
+        if not ok:
+            return
+        origin = Vector2.from_xy(0, 0)
+
+        def find_abs(nodes: list, px, prot):
+            for n in nodes:
+                pos = node_position(n, px, prot)
+                if n.ref == choice:
+                    return pos
+                found = find_abs(n.children, pos, prot + n.rotation)
+                if found is not None:
+                    return found
+            return None
+
+        abs_nm = find_abs(child.nodes, origin, 0.0)
+        if abs_nm is not None:
+            self.pivot_widget.load(x=abs_nm.x / MM, y=abs_nm.y / MM)
 
     def build_node(self) -> Optional[TreeNode]:
         """Collect + validate the form into a TreeNode, or None (invalid —
@@ -1462,8 +1639,20 @@ class _NodeDialog(QDialog):
 
         name = self.name_edit.text().strip() or None
         group = self.group_edit.text().strip() or None
-        return TreeNode(ref=ref, kind=self.kind_combo.currentData(), xy=xy,
-                        polar=polar, rotation=rotation, name=name, group=group)
+        kind = self.kind_combo.currentData()
+        pivot_xy = pivot_polar = None
+        if kind == "module":
+            pfields, perr = self.pivot_widget.build()
+            if perr:
+                QMessageBox.warning(self, _("Add node"), perr)
+                return None
+            if "radius" in pfields:
+                pivot_polar = (pfields["radius"], pfields["angle"])
+            else:
+                pivot_xy = (pfields["x"], pfields["y"])
+        return TreeNode(ref=ref, kind=kind, xy=xy, polar=polar, rotation=rotation,
+                        name=name, group=group, pivot_xy=pivot_xy,
+                        pivot_polar=pivot_polar)
 
 
 class _AnchorDialog(QDialog):
