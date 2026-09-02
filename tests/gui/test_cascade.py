@@ -290,3 +290,44 @@ def test_curated_redraws_keep_placer_error_traceback_split(monkeypatch, tmp_path
     assert results and results[0] == ("CL_B", False, "boom")
     assert any(r.exc_info for r in caplog.records), \
         "forest redraw: an unexpected Exception must keep the traceback"
+
+
+def test_run_curated_forest_redraw_stage2_places_module_content(monkeypatch, tmp_path):
+    """P3b (plan 2026-09-02 P3 п.2, design P3 D5): an ACTIVE module's content is
+    NOT rigid-captured — its PositionOverride comes from the STAGE-2 LAYOUT laid
+    from the flow root's live anchor (an origin root here -> base (0,0)), so the
+    content lands at the pure layout value (marker (10,5) + content (1,2))."""
+    cfg = _curated_cfg()
+    trees = _load_tree(tmp_path,
+        '(tree (name "ch0") (anchor (origin))\n'
+        '      (node (ref "CL_A") (xy 1 2)))\n'
+        '(tree (name "p") (anchor (origin))\n'
+        '      (node (ref "ch0") (kind module) (xy 10 5)))')
+    selected = {"ch0"}
+
+    calls = []
+
+    class _FakePipeline:
+        def __init__(self, config_path, preloaded_cfg=None, preloaded_ctx=None,
+                     only=None, dry_run=False, position_overrides=None):
+            calls.append((list(only or []), position_overrides))
+
+        def run(self):
+            pass
+
+    monkeypatch.setattr(cascade_mod, "ApplyPipeline", _FakePipeline)
+    monkeypatch.setattr(cascade_mod, "KiCadBoardAdapter", lambda **k: MagicMock())
+
+    results, warnings = run_curated_forest_redraw("/root.sexp", cfg, None,
+                                                  trees, selected)
+
+    assert [c[0] for c in calls] == [["CL_A"]]
+    overrides = calls[0][1]
+    assert overrides is not None and "CL_A" in overrides
+    ov = overrides["CL_A"]
+    # Pure layout from p's (0,0) origin base: marker (10,5) + CL_A (1,2) mm.
+    assert abs(ov.position.x - 11 * 1_000_000) < 1
+    assert abs(ov.position.y - 7 * 1_000_000) < 1
+    assert ov.rotation_deg == 0.0
+    assert results == [("CL_A", True, None)]
+    assert warnings == []

@@ -39,6 +39,9 @@ from kicadstamp.link_trees import (
     link_trees,
 )
 from kicadstamp.tree_position import (
+    _anchor_base_live_position,
+    _root_entity_record,
+    _root_entity_ref,
     resolve_base_live_position,
     resolve_base_rotation_deg,
     relative_rotation_deg,
@@ -55,7 +58,7 @@ from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from ._common import (configure_searchable, highlight_stylesheet_for,
                       set_combo_items)
-from .cascade import run_curated_tree_redraw_worker
+from .cascade import run_curated_forest_redraw_worker, run_curated_tree_redraw_worker
 from .entity_delete import backup_file
 
 logger = logging.getLogger(__name__)
@@ -99,22 +102,6 @@ def _anchor_label(anchor: TreeAnchor) -> str:
             return _("⚓ {ref} (external)").format(ref=anchor.ref)
         return f"⚓ {anchor.ref}"
     return _("⚓ (unknown)")
-
-
-def _root_entity_ref(tree: Optional["Tree"]) -> Optional[str]:
-    """The ref of the tree's OWN single top-level kind="placement" node — the
-    "root Entity" whose record must never be offered as this tree's own ref
-    anchor, because a ref anchor pointing at the tree's own root Entity is a
-    self-reference that can never resolve (plan 2026-08-31 anchor self-ref
-    guard). Mirrors the auto-anchor's EXACTLY ONE rule
-    (_auto_anchor_base in entity_placement.py): an empty tree, several top-level
-    nodes, or a single top-level node that isn't a placement all mean "no
-    self-reference to guard" — the auto-anchor is unreachable for those anyway,
-    so neither the dialog filter nor the save-time auto-switch may touch them."""
-    if tree is None or len(tree.nodes) != 1:
-        return None
-    top = tree.nodes[0]
-    return top.ref if top.kind == "placement" else None
 
 
 _ORIGIN = Vector2.from_xy(0, 0)
@@ -165,80 +152,6 @@ def _resolve_probe_ref(cfg, ref: str, kind: str | None) -> tuple[Record | None, 
     probe = TreeNode(ref=ref, kind=kind, xy=None, polar=None, rotation=0.0,
                      name=None, group=None, children=[])
     return _resolve_node_ref(probe, by_key, by_name)
-
-
-def _root_entity_record(cfg, tree: Tree) -> Optional[object]:
-    """The Entity (a cfg.entities record) behind the tree's OWN single top-level
-    kind="placement" node — `_root_entity_ref`'s ref resolved to its record, or
-    None when there is no such canonical root. Resolved via build_records so the
-    effective-name keying matches link_trees exactly (the same source the
-    apply-time materializer reads its auto-anchor subject from)."""
-    ref = _root_entity_ref(tree)
-    if ref is None:
-        return None
-    for rec in build_records(cfg):
-        if rec.kind == "placement" and rec.name == ref:
-            return rec.obj
-    return None
-
-
-def _anchor_base_live_position(adapter, cfg, tree: Tree, sheet_names: dict,
-                               ) -> tuple[Vector2, Optional[float]]:
-    """(position_nm, rotation_deg | None) of a tree's OWN anchor base, resolved
-    LIVE — the GUI twin of the apply-time materializer's anchor-base dispatch
-    (entity_placement._anchor_base), so "Read current position", "Reread current
-    position" and the anchor-position indicator work for EVERY TreeAnchor mode,
-    not just origin/ref. 2026-09-02 bug: a role/point/auto anchor (ref=None)
-    used to fall through to a ref-less live read -> "Якорь None не найден на
-    плате" (the old _linked_base_for understood only origin/ref).
-      - origin -> the board origin (0,0), rotation 0.0
-      - auto   -> the root Entity's cell zero-slot live position (the SAME
-                  derivation _auto_anchor_base uses at materialization); a tree
-                  without EXACTLY ONE top-level placement Entity cannot
-                  auto-anchor — a clear error, never a bogus "None" read
-      - role   -> the Role-matching live footprint (sheet/cluster/pad narrow)
-      - point  -> the points: entry's resolved chain position (no rotation)
-      - ref    -> the referenced config record / external refdes (existing path)
-    Raises ValidationError on any resolution failure — callers surface it as a
-    warning (never a silent partial write, never a crash)."""
-    anchor = tree.anchor
-    if anchor.is_origin:
-        return _ORIGIN, 0.0
-    if anchor.is_auto:
-        entity = _root_entity_record(cfg, tree)
-        if entity is None:
-            # Reuses the materializer's own existing message for a tree that
-            # cannot auto-anchor (entity_placement._auto_anchor_base).
-            raise ValidationError(_(
-                "auto-anchor needs EXACTLY ONE top-level placement node on an "
-                "Entity (found {n} top-level node(s)); add an explicit (anchor "
-                "...) to this tree instead").format(n=len(tree.nodes)))
-        # Local import: entity_placement imports tree_position at module level,
-        # so the same soft-edge idiom tree_position itself uses for the cycle.
-        from kicadstamp.placement.entity_placement import _entity_own_zero_slot_live_position
-        return _entity_own_zero_slot_live_position(
-            adapter, cfg, entity, sheet_names,
-            label=_("tree {name!r} auto-anchor").format(name=tree.name))
-    if anchor.role:
-        resolver = ComponentResolver(adapter, cfg, sheet_names)
-        label = anchor.role
-        fp = resolver.resolve_anchor_fp(
-            None, anchor.role, anchor.anchor_sheet, anchor.anchor_cluster,
-            label=label)
-        pos = fp.position
-        if anchor.anchor_pad:
-            pos = resolve_anchor_pad_position(adapter, fp, anchor.anchor_pad, label)
-        return pos, fp.angle_deg
-    if anchor.point:
-        resolved = resolve_point_chain(adapter, cfg.points, anchor.point, sheet_names)
-        return resolved.position, None
-    # A ref anchor — record-or-external, the pre-existing path.
-    records = build_records(cfg)
-    by_name = _build_by_name_index(records)
-    record, _is_external = _resolve_anchor_ref(anchor, by_name)
-    pos = resolve_base_live_position(adapter, cfg, anchor.ref, record, {}, sheet_names)
-    deg = resolve_base_rotation_deg(adapter, cfg, anchor.ref, record, sheet_names)
-    return pos, deg
 
 
 def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
@@ -1208,6 +1121,35 @@ class TreesDock(QDockWidget):
         if tree is None:
             return
         self._run_curated_redraw(set(collect_tree_refs(tree)))
+
+    def _run_forest_redraw(self) -> None:
+        """Forest-wide curated redraw — the module-aware FULL redraw (plan
+        2026-09-02 tree_module_embedding P3 п.2/п.3, design P3 D5): collects
+        EVERY node ref of EVERY tree (records AND module markers — checking the
+        markers activates their content) and runs run_curated_forest_redraw_
+        worker in the background, which stage-2-places active module content
+        from the flow roots' live anchors. Exposed ONLY through the Tools menu
+        (DockHub.run_forest_full_redraw) — NO new dock button."""
+        if not self._trees or not self._root_path or self._cfg is None:
+            self._show_status(_("Nothing to redraw."))
+            return
+        refs: set[str] = set()
+        for tree in self._trees:
+            refs.update(collect_tree_refs(tree))
+        if not refs:
+            self._show_status(_("Nothing to redraw."))
+            return
+        payload = {
+            "config_path": str(self._root_path),
+            "cfg": self._cfg,
+            "ctx": self._ctx,
+            "trees": self._trees,
+            "selected_refs": refs,
+        }
+        self._active_op = start_long_op(
+            self._main_window.connection, (),
+            run_curated_forest_redraw_worker, self._finish_redraw,
+            self._on_redraw_failed, payload)
 
     def _refresh_anchor_live_position(self) -> None:
         """§5.1 (plan_2026_08_29_fork1_rigid_redraw_override.md) — a READ-ONLY

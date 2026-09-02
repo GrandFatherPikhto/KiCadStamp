@@ -530,6 +530,20 @@ def test_tools_menu_extract_tree_between_edit_and_view(real_main_window, monkeyp
     assert called == [True]
 
 
+def test_tools_menu_full_redraw_routes_to_dock_hub(real_main_window, monkeypatch):
+    """P3b (plan 2026-09-02 P3 п.3): Tools has the forest-wide "Full redraw
+    (all trees and modules)..." item (NO new dock button) and it routes to
+    DockHub.run_forest_full_redraw."""
+    labels = [a.text() for a in real_main_window.menuBar().actions()]
+    assert "Tools" in labels
+
+    called = []
+    monkeypatch.setattr(real_main_window._dock_hub, "run_forest_full_redraw",
+                        lambda: called.append(True))
+    real_main_window.full_redraw_action.trigger()
+    assert called == [True]
+
+
 def test_extract_tree_no_fully_selected_cluster_shows_message(real_main_window,
                                                               tmp_path, monkeypatch):
     """No fully-selected cluster -> a warning is shown and the dialog is NOT

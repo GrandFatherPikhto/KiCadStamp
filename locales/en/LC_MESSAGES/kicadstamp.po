@@ -6141,6 +6141,17 @@ msgstr "redraw conflict: tree {child!r} is embedded by active modules in several
 msgid "Tree {name!r} is placed through a module in this redraw — nodes checked in the tree itself are applied once via the module"
 msgstr "Tree {name!r} is placed through a module in this redraw — nodes checked in the tree itself are applied once via the module"
 
+#, python-brace-format
+msgid "Forest redraw: root tree {name!r} — stage-2 base unavailable ({error}); its embedded module content is left in place"
+msgstr "Forest redraw: root tree {name!r} — stage-2 base unavailable ({error}); its embedded module content is left in place"
+
+#, python-brace-format
+msgid "Forest redraw: module content {name!r} has no stage-2 layout value — applied from its own record"
+msgstr "Forest redraw: module content {name!r} has no stage-2 layout value — applied from its own record"
+
+msgid "Full redraw (all trees and modules)..."
+msgstr "Full redraw (all trees and modules)..."
+
 #: kicadstamp/trees.py:243
 #, python-brace-format
 msgid "{location}: a tree is missing a (name ...)"

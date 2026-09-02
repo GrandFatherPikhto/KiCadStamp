@@ -272,6 +272,16 @@ class MainWindow(QMainWindow):
         self.delete_chain_action.triggered.connect(
             lambda: self._dock_hub.delete_selected_chain())
         tools_menu.addAction(self.delete_chain_action)
+        # "Full redraw (all trees and modules)..." (2026-09-02, plan
+        # plan_2026_09_02_tree_module_embedding.md P3 п.3): the forest-wide,
+        # module-aware curated redraw across ALL trees (active module markers
+        # pull their content, placed stage-2 from the flow roots' live anchors)
+        # — Tools-menu only, per Denis: NO new dock buttons.
+        self.full_redraw_action = QAction(
+            _("Full redraw (all trees and modules)..."), self)
+        self.full_redraw_action.triggered.connect(
+            lambda: self._dock_hub.run_forest_full_redraw())
+        tools_menu.addAction(self.full_redraw_action)
         # "Edit template..." (2026-09-01, plan plan_2026_09_01_tools_dialog_and_
         # entity_roles.md): opens the standalone (non-modal) Tools dialog — the
         # picked Entity's electrical fields (Nets/Net overrides/Refs), same

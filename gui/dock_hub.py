@@ -732,6 +732,13 @@ class DockHub:
         via_requested -> _start_new_thermal_via)."""
         self._start_new_thermal_via(self.root_metadata_dock.root_path)
 
+    def run_forest_full_redraw(self) -> None:
+        """Main menu "Tools -> Full redraw (all trees and modules)..." (plan
+        2026-09-02 tree_module_embedding P3 п.3): the forest-wide, module-aware
+        curated redraw across ALL trees. TreesDock owns the trees/cfg/ctx and
+        the worker callback plumbing (no new dock button — menu only)."""
+        self.trees_dock._run_forest_redraw()
+
     def extract_tree_from_selection(self) -> None:
         """Main menu "Tools -> Extract tree..." (2026-09-01, plan
         extract_selection_as_tree.md): build a NEW tree from the current board

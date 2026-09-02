@@ -41,6 +41,7 @@ from kicadstamp.tree_position import (
     capture_rigid_state,
     child_absolute_position,
     child_local_offset,
+    curated_forest_module_content,
     curated_redraw_plan,
     curated_redraw_plan_forest,
     layout_tree_from_base,
@@ -1499,3 +1500,51 @@ def test_forest_module_edge_cycle_is_fatal(tmp_path):
         '        (node (ref "b") (kind module) (xy 2 2))))')
     with pytest.raises(ValidationError, match="cycle"):
         curated_redraw_plan_forest(linked, {"b", "A1"})
+
+
+# ── curated_forest_module_content: stage-2 decision (design P3 D5) ─────────
+
+def test_forest_module_content_empty_when_no_module_active(tmp_path):
+    """With no active module the stage-2 decision is empty — the apply path
+    then behaves exactly as the classic (rigid-only) forest redraw."""
+    cfg = _clone_cfg(["D0"])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "ch0") (anchor (origin))\n'
+        '      (node (ref "D0") (kind clone) (xy 1 1)))\n'
+        '(tree (name "p") (anchor (origin))\n'
+        '      (node (ref "ch0") (kind module) (xy 0 0)))')
+    content_refs, flow_roots = curated_forest_module_content(linked, {"D0"})
+    assert content_refs == set()
+    assert flow_roots == []
+
+
+def test_forest_module_content_active_marker_sets_flow_root(tmp_path):
+    """An ACTIVE marker (its ref checked) makes the owner tree a flow root and
+    its referenced content the content_refs (stage-2 placed, NOT rigid)."""
+    cfg = _clone_cfg(["D0", "D1"])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "ch0") (anchor (origin))\n'
+        '      (node (ref "D0") (kind clone) (xy 1 1))\n'
+        '      (node (ref "D1") (kind clone) (xy 2 2)))\n'
+        '(tree (name "p") (anchor (origin))\n'
+        '      (node (ref "ch0") (kind module) (xy 0 0)))')
+    content_refs, flow_roots = curated_forest_module_content(linked, {"ch0"})
+    assert content_refs == {"D0", "D1"}
+    assert flow_roots == ["p"]
+
+
+def test_forest_module_content_nested_flow_root_is_outer(tmp_path):
+    """A nested marker's content is reached through the OUTER flow root's
+    layout — the nested module's own tree is module-placed, not a flow root."""
+    cfg = _clone_cfg(["B0", "C0"])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "c") (anchor (origin))\n'
+        '      (node (ref "C0") (kind clone) (xy 1 1)))\n'
+        '(tree (name "b") (anchor (origin))\n'
+        '      (node (ref "B0") (kind clone) (xy 1 1)\n'
+        '        (node (ref "c") (kind module) (xy 2 2))))\n'
+        '(tree (name "a") (anchor (origin))\n'
+        '      (node (ref "b") (kind module) (xy 0 0)))')
+    content_refs, flow_roots = curated_forest_module_content(linked, {"b"})
+    assert content_refs == {"B0", "C0"}
+    assert flow_roots == ["a"]

@@ -28,8 +28,14 @@ from kicadstamp.i18n import _
 from kicadstamp.kicad.adapter import KiCadBoardAdapter
 from kicadstamp.link_trees import link_trees
 from kicadstamp.tree_position import (
-    apply_rigid_override, capture_rigid_state, curated_redraw_plan,
+    PositionOverride,
+    _anchor_base_live_position,
+    apply_rigid_override,
+    capture_rigid_state,
+    curated_forest_module_content,
+    curated_redraw_plan,
     curated_redraw_plan_forest,
+    layout_tree_from_base,
 )
 from kicadstamp.trees import Tree
 
@@ -176,17 +182,25 @@ def run_curated_tree_redraw_worker(payload: dict) -> tuple:
 def run_curated_forest_redraw(config_path: str, cfg, ctx, trees: list[Tree],
                               selected_refs: set[str]
                               ) -> tuple[List[Tuple[str, bool, Optional[str]]], List[str]]:
-    """Multi-tree curated redraw (plan 4.2 / design §6): plans selected nodes
-    across ALL trees in the global FOREST order (curated_redraw_plan_forest —
-    parent before child within each tree, plus cross-tree anchor edges: a tree
-    whose anchor points at a selected node of another tree orders that node
-    first). Rigid-group state is captured per tree (capture_rigid_state) and
-    each node is applied in the global order with its parent read LIVE at
-    apply time (apply_rigid_override + non-persistent PositionOverride) —
-    the same non-destructive mechanism as the single-tree
-    run_curated_tree_redraw, so anchors never snap to config unless applied.
+    """Multi-tree curated redraw (plan 4.2 / design §6 + plan 2026-09-02 P3
+    module embedding, design P3 D5): plans the run in the global FOREST order
+    (curated_redraw_plan_forest) and applies each name in that order with a
+    NON-persistent PositionOverride, choosing the override source per record:
 
-    Returns (run_cascade-style per-name results, the plan's warnings)."""
+      - NORMAL selected nodes: rigid-group capture/apply as before
+        (capture_rigid_state -> apply_rigid_override re-projects the captured
+        local offset into the parent's CURRENT live frame) — unchanged;
+      - MODULE-CONTENT records (content_refs from curated_forest_module_content):
+        NO rigid capture/apply — their absolute position comes from the stage-2
+        LAYOUT (layout_tree_from_base) laid from each flow root's LIVE anchor
+        (_anchor_base_live_position supports origin/auto/role/point/ref), which
+        covers a root's whole reachable content (nested modules included) in one
+        pass. Module content has no live "parent" to re-project against — it is
+        a computed marker chain, so the pure layout value IS the override.
+
+    With no module active both content_refs and flow_roots are empty and the
+    function behaves exactly as the pre-module forest redraw. Returns
+    (run_cascade-style per-name results, the plan's warnings)."""
     linked = link_trees(cfg, trees)
     names, warnings = curated_redraw_plan_forest(linked, selected_refs)
     for warning in warnings:
@@ -195,6 +209,26 @@ def run_curated_forest_redraw(config_path: str, cfg, ctx, trees: list[Tree],
     adapter = KiCadBoardAdapter(timeout_ms=20000)
     adapter.refresh_board()
     sheet_names = ctx.sheet_names if ctx else {}
+
+    # Stage 2 (design P3 D5): lay each NORMAL flow root from its LIVE anchor and
+    # merge the absolute overrides of everything its module markers reach.
+    content_refs, flow_root_names = curated_forest_module_content(linked, selected_refs)
+    by_tree = {t.name: t for t in trees}
+    stage2: Dict[str, Any] = {}
+    for root_name in flow_root_names:
+        root = by_tree.get(root_name)
+        if root is None:
+            continue
+        try:
+            base_pos, base_rot = _anchor_base_live_position(
+                adapter, cfg, root, sheet_names)
+            stage2.update(layout_tree_from_base(
+                root, base_pos, base_rot if base_rot is not None else 0.0,
+                by_tree))
+        except Exception as e:  # noqa: BLE001 — honest, module content stays put
+            logger.warning(_("Forest redraw: root tree {name!r} — stage-2 base "
+                             "unavailable ({error}); its embedded module content "
+                             "is left in place").format(name=root_name, error=e))
 
     captures: Dict[str, Any] = {}
     parent_map: Dict[str, Any] = {}
@@ -208,16 +242,26 @@ def run_curated_forest_redraw(config_path: str, cfg, ctx, trees: list[Tree],
     for name in names:
         logger.info(_("Forest redraw: applying {name!r}").format(name=name))
         override = None
-        cap = captures.get(name)
-        if cap is not None:
-            parent_ref, parent_record, _is_anchor = parent_map[name]
-            try:
-                override = apply_rigid_override(adapter, cfg, parent_ref,
-                                                parent_record, cap, sheet_names)
-            except Exception as e:  # noqa: BLE001 — honest fallback, never break the chain
-                logger.warning(_("Forest redraw: {name!r} — rigid override failed "
-                                 "({error}); falling back to the record's own position")
-                               .format(name=name, error=e))
+        if name in content_refs:
+            # Module content: the stage-2 absolute layout value, not rigid.
+            if name in stage2:
+                pos, rot = stage2[name]
+                override = PositionOverride(position=pos, rotation_deg=rot)
+            else:
+                logger.warning(_("Forest redraw: module content {name!r} has no "
+                                 "stage-2 layout value — applied from its own "
+                                 "record").format(name=name))
+        else:
+            cap = captures.get(name)
+            if cap is not None:
+                parent_ref, parent_record, _is_anchor = parent_map[name]
+                try:
+                    override = apply_rigid_override(adapter, cfg, parent_ref,
+                                                    parent_record, cap, sheet_names)
+                except Exception as e:  # noqa: BLE001 — honest fallback, never break the chain
+                    logger.warning(_("Forest redraw: {name!r} — rigid override failed "
+                                     "({error}); falling back to the record's own position")
+                                   .format(name=name, error=e))
         try:
             pipeline = ApplyPipeline(
                 config_path=config_path, preloaded_cfg=cfg, preloaded_ctx=ctx,

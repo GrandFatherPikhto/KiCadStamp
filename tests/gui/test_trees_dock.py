@@ -1121,6 +1121,51 @@ def test_redraw_whole_tree_collects_all_refs_and_calls_worker(
     assert captured["payload"]["trees"] is dock._trees
 
 
+def test_run_forest_redraw_collects_all_trees_and_calls_forest_worker(
+        main_window, tmp_path, monkeypatch):
+    """P3b (plan 2026-09-02 P3 п.3): the FULL redraw collects EVERY node ref of
+    EVERY tree (records AND module markers — checking markers activates their
+    content) and calls the FOREST worker (no tree_name payload), through the
+    Tools menu only — no new dock button."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    from gui.docks.trees_dock import (
+        collect_tree_refs, run_curated_forest_redraw_worker)
+
+    captured = {}
+    def fake_start(connection, widgets, worker, finish, failed, payload):
+        captured["worker"] = worker
+        captured["payload"] = payload
+        return object()
+    import gui.docks.trees_dock as td_mod
+    monkeypatch.setattr(td_mod, "start_long_op", fake_start)
+
+    dock._run_forest_redraw()
+
+    assert captured
+    assert captured["worker"] is run_curated_forest_redraw_worker
+    assert "tree_name" not in captured["payload"]
+    assert captured["payload"]["trees"] is dock._trees
+    expected: set[str] = set()
+    for tree in dock._trees:
+        expected.update(collect_tree_refs(tree))
+    assert captured["payload"]["selected_refs"] == expected
+
+
+def test_run_forest_redraw_no_trees_shows_hint(main_window, tmp_path, monkeypatch):
+    """A forest redraw with no trees loaded is a no-op status hint (no worker)."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    dock._trees = []
+    called = []
+    import gui.docks.trees_dock as td_mod
+    monkeypatch.setattr(td_mod, "start_long_op",
+                        lambda *a, **k: called.append(a) or object())
+
+    dock._run_forest_redraw()
+
+    assert not called
+    assert "Nothing to redraw" in dock.status_label.text()
+
+
 def test_refresh_anchor_live_position_origin_shows_trivial(main_window, tmp_path):
     """§5.1: an origin anchor is trivially (0,0)/0° — shown WITHOUT any live
     board read (no IPC needed)."""
@@ -1296,7 +1341,7 @@ def test_anchor_base_live_role_anchor_resolves_via_role_resolver(monkeypatch):
     "Считать текущее положение" верхнего узла): a role anchor must resolve its
     base LIVE through ComponentResolver — a ref-less anchor used to fall
     through to ref=None -> "Якорь None не найден на плате"."""
-    import gui.docks.trees_dock as td_mod
+    import kicadstamp.tree_position as tp_mod
 
     anchor_pos = object()
 
@@ -1311,17 +1356,17 @@ def test_anchor_base_live_role_anchor_resolves_via_role_resolver(monkeypatch):
         def resolve_anchor_fp(self, *a, **k):
             return _Fp()
 
-    monkeypatch.setattr(td_mod, "ComponentResolver", _Resolver)
+    monkeypatch.setattr(tp_mod, "ComponentResolver", _Resolver)
     tree = Tree(name="t", anchor=TreeAnchor(role="FPGA", anchor_cluster="FPGA"),
                 nodes=[])
-    pos, rot = td_mod._anchor_base_live_position(object(), object(), tree, {})
+    pos, rot = tp_mod._anchor_base_live_position(object(), object(), tree, {})
     assert pos is anchor_pos
     assert rot == 90.0
 
 
 def test_anchor_base_live_role_anchor_pad_reads_pad_position(monkeypatch):
     """A role anchor with an explicit pad moves the base to that pad."""
-    import gui.docks.trees_dock as td_mod
+    import kicadstamp.tree_position as tp_mod
 
     pad_pos = object()
 
@@ -1336,11 +1381,11 @@ def test_anchor_base_live_role_anchor_pad_reads_pad_position(monkeypatch):
         def resolve_anchor_fp(self, *a, **k):
             return _Fp()
 
-    monkeypatch.setattr(td_mod, "ComponentResolver", _Resolver)
-    monkeypatch.setattr(td_mod, "resolve_anchor_pad_position",
+    monkeypatch.setattr(tp_mod, "ComponentResolver", _Resolver)
+    monkeypatch.setattr(tp_mod, "resolve_anchor_pad_position",
                         lambda *a, **k: pad_pos)
     tree = Tree(name="t", anchor=TreeAnchor(role="R", anchor_pad="2"), nodes=[])
-    pos, _rot = td_mod._anchor_base_live_position(object(), object(), tree, {})
+    pos, _rot = tp_mod._anchor_base_live_position(object(), object(), tree, {})
     assert pos is pad_pos
 
 
@@ -1348,16 +1393,16 @@ def test_anchor_base_live_auto_anchor_uses_root_entity_zero_slot(monkeypatch):
     """auto anchor (no explicit (anchor ...)): the base is the root Entity's
     cell zero-slot — the materializer's derivation, now reused for the GUI
     live base."""
-    import gui.docks.trees_dock as td_mod
+    import kicadstamp.tree_position as tp_mod
     import kicadstamp.placement.entity_placement as ep_mod
 
     zero_pos = object()
-    monkeypatch.setattr(td_mod, "_root_entity_record", lambda cfg, tree: object())
+    monkeypatch.setattr(tp_mod, "_root_entity_record", lambda cfg, tree: object())
     monkeypatch.setattr(ep_mod, "_entity_own_zero_slot_live_position",
                         lambda *a, **k: (zero_pos, 15.0))
     tree = Tree(name="t", anchor=TreeAnchor(is_auto=True),
                 nodes=[_placement_node("fpga")])
-    pos, rot = td_mod._anchor_base_live_position(object(), object(), tree, {})
+    pos, rot = tp_mod._anchor_base_live_position(object(), object(), tree, {})
     assert pos is zero_pos
     assert rot == 15.0
 
@@ -1377,39 +1422,39 @@ def test_anchor_base_live_auto_anchor_non_canonical_raises_clear_error(monkeypat
 
 
 def test_anchor_base_live_point_anchor_resolves_chain(monkeypatch):
-    import gui.docks.trees_dock as td_mod
+    import kicadstamp.tree_position as tp_mod
 
     point_pos = object()
 
     class _Resolved:
         position = point_pos
 
-    monkeypatch.setattr(td_mod, "resolve_point_chain",
+    monkeypatch.setattr(tp_mod, "resolve_point_chain",
                         lambda *a, **k: _Resolved())
 
     class _Cfg:
         points = {}
 
     tree = Tree(name="t", anchor=TreeAnchor(point="P1"), nodes=[])
-    pos, rot = td_mod._anchor_base_live_position(object(), _Cfg(), tree, {})
+    pos, rot = tp_mod._anchor_base_live_position(object(), _Cfg(), tree, {})
     assert pos is point_pos
     assert rot is None
 
 
 def test_anchor_base_live_ref_anchor_still_resolves(monkeypatch):
     """The pre-existing ref path is unchanged by the new anchor-mode dispatch."""
-    import gui.docks.trees_dock as td_mod
+    import kicadstamp.tree_position as tp_mod
 
     ref_pos = object()
-    monkeypatch.setattr(td_mod, "build_records", lambda cfg: [])
-    monkeypatch.setattr(td_mod, "_build_by_name_index", lambda records: {})
-    monkeypatch.setattr(td_mod, "_resolve_anchor_ref",
+    monkeypatch.setattr(tp_mod, "build_records", lambda cfg: [])
+    monkeypatch.setattr(tp_mod, "_build_by_name_index", lambda records: {})
+    monkeypatch.setattr(tp_mod, "_resolve_anchor_ref",
                         lambda anchor, by_name: (object(), True))  # external
-    monkeypatch.setattr(td_mod, "resolve_base_live_position",
+    monkeypatch.setattr(tp_mod, "resolve_base_live_position",
                         lambda *a, **k: ref_pos)
-    monkeypatch.setattr(td_mod, "resolve_base_rotation_deg", lambda *a, **k: 30.0)
+    monkeypatch.setattr(tp_mod, "resolve_base_rotation_deg", lambda *a, **k: 30.0)
     tree = Tree(name="t", anchor=TreeAnchor(ref="U3", is_external=True), nodes=[])
-    pos, rot = td_mod._anchor_base_live_position(object(), object(), tree, {})
+    pos, rot = tp_mod._anchor_base_live_position(object(), object(), tree, {})
     assert pos is ref_pos
     assert rot == 30.0
 

@@ -31,13 +31,19 @@ the structural "parent not in selection" warnings.
 import dataclasses
 import logging
 
-from .anchor_graph import Record
+from .anchor_graph import Record, build_records
 from .exceptions import ValidationError, format_fatal_error
 from .i18n import _
 from .domain.geometry import Vector2
 from .geometry.clone_geometry import clone_shift_mm
 from .geometry.spoke_layout import local_to_absolute, rotate_local_offset
-from .link_trees import LinkedNode, LinkedTree, inline_anchor_field
+from .link_trees import (
+    LinkedNode,
+    LinkedTree,
+    _build_by_name_index,
+    _resolve_anchor_ref,
+    inline_anchor_field,
+)
 from .placement.services.clone_position_calculator import ClonePositionCalculator
 from .placement.services.component_resolver import (
     ComponentResolver,
@@ -373,6 +379,103 @@ def relative_rotation_deg(child_deg: float, parent_deg: float) -> float:
     (-180, 180] — the SAME (a - b + 180) % 360 - 180 normalization already
     used by position_tracker.py:48 and channel_copy.py:394, not reinvented."""
     return (child_deg - parent_deg + 180.0) % 360.0 - 180.0
+
+
+# ── Tree-anchor live base (2026-09-02: moved here from gui/docks/trees_dock.py
+#    so the WORKER-SAFE apply layer (gui/docks/cascade.py run_curated_forest_
+#    redraw, stage-2 module layout) can resolve a tree's OWN anchor for EVERY
+#    mode — origin/auto/role/point/ref — without touching a widget dock) ─────
+
+
+def _root_entity_ref(tree: Tree | None) -> str | None:
+    """The ref of the tree's OWN single top-level kind="placement" node — the
+    "root Entity" whose record must never be offered as this tree's own ref
+    anchor, because a ref anchor pointing at the tree's own root Entity is a
+    self-reference that can never resolve (plan 2026-08-31 anchor self-ref
+    guard). Mirrors the auto-anchor's EXACTLY ONE rule
+    (_auto_anchor_base in entity_placement.py): an empty tree, several top-level
+    nodes, or a single top-level node that isn't a placement all mean "no
+    self-reference to guard" — the auto-anchor is unreachable for those anyway,
+    so neither the dialog filter nor the save-time auto-switch may touch them."""
+    if tree is None or len(tree.nodes) != 1:
+        return None
+    top = tree.nodes[0]
+    return top.ref if top.kind == "placement" else None
+
+
+def _root_entity_record(cfg, tree: Tree) -> object | None:
+    """The Entity (a cfg.entities record) behind the tree's OWN single top-level
+    kind="placement" node — `_root_entity_ref`'s ref resolved to its record, or
+    None when there is no such canonical root. Resolved via build_records so the
+    effective-name keying matches link_trees exactly (the same source the
+    apply-time materializer reads its auto-anchor subject from)."""
+    ref = _root_entity_ref(tree)
+    if ref is None:
+        return None
+    for rec in build_records(cfg):
+        if rec.kind == "placement" and rec.name == ref:
+            return rec.obj
+    return None
+
+
+def _anchor_base_live_position(adapter, cfg, tree: Tree, sheet_names: dict,
+                               ) -> tuple[Vector2, float | None]:
+    """(position_nm, rotation_deg | None) of a tree's OWN anchor base, resolved
+    LIVE — the worker-safe twin of the apply-time materializer's anchor-base
+    dispatch (entity_placement._anchor_base), so curated redraw ("Read current
+    position", "Reread current position", the anchor-position indicator AND the
+    module stage-2 layout root) works for EVERY TreeAnchor mode, not just
+    origin/ref. 2026-09-02 bug: a role/point/auto anchor (ref=None) used to fall
+    through to a ref-less live read -> "Якорь None не найден на плате" (the old
+    _linked_base_for understood only origin/ref).
+      - origin -> the board origin (0,0), rotation 0.0
+      - auto   -> the root Entity's cell zero-slot live position (the SAME
+                  derivation _auto_anchor_base uses at materialization); a tree
+                  without EXACTLY ONE top-level placement Entity cannot
+                  auto-anchor — a clear error, never a bogus "None" read
+      - role   -> the Role-matching live footprint (sheet/cluster/pad narrow)
+      - point  -> the points: entry's resolved chain position (no rotation)
+      - ref    -> the referenced config record / external refdes (existing path)
+    Raises ValidationError on any resolution failure — callers surface it as a
+    warning (never a silent partial write, never a crash)."""
+    anchor = tree.anchor
+    if anchor.is_origin:
+        return _ORIGIN, 0.0
+    if anchor.is_auto:
+        entity = _root_entity_record(cfg, tree)
+        if entity is None:
+            # Reuses the materializer's own existing message for a tree that
+            # cannot auto-anchor (entity_placement._auto_anchor_base).
+            raise ValidationError(_(
+                "auto-anchor needs EXACTLY ONE top-level placement node on an "
+                "Entity (found {n} top-level node(s)); add an explicit (anchor "
+                "...) to this tree instead").format(n=len(tree.nodes)))
+        # Local import: entity_placement imports tree_position at module level,
+        # so the same soft-edge idiom tree_position itself uses for the cycle.
+        from .placement.entity_placement import _entity_own_zero_slot_live_position
+        return _entity_own_zero_slot_live_position(
+            adapter, cfg, entity, sheet_names,
+            label=_("tree {name!r} auto-anchor").format(name=tree.name))
+    if anchor.role:
+        resolver = ComponentResolver(adapter, cfg, sheet_names)
+        label = anchor.role
+        fp = resolver.resolve_anchor_fp(
+            None, anchor.role, anchor.anchor_sheet, anchor.anchor_cluster,
+            label=label)
+        pos = fp.position
+        if anchor.anchor_pad:
+            pos = resolve_anchor_pad_position(adapter, fp, anchor.anchor_pad, label)
+        return pos, fp.angle_deg
+    if anchor.point:
+        resolved = resolve_point_chain(adapter, cfg.points, anchor.point, sheet_names)
+        return resolved.position, None
+    # A ref anchor — record-or-external, the pre-existing path.
+    records = build_records(cfg)
+    by_name = _build_by_name_index(records)
+    record, _is_external = _resolve_anchor_ref(anchor, by_name)
+    pos = resolve_base_live_position(adapter, cfg, anchor.ref, record, {}, sheet_names)
+    deg = resolve_base_rotation_deg(adapter, cfg, anchor.ref, record, sheet_names)
+    return pos, deg
 
 
 @dataclasses.dataclass
@@ -908,3 +1011,41 @@ def curated_redraw_plan_forest(linked_trees: list[LinkedTree],
             [_("these nodes form a cycle through tree anchors: {items}")
              .format(items=", ".join(remaining))]))
     return names, warnings
+
+
+def curated_forest_module_content(linked_trees: list[LinkedTree],
+                                  selected_refs: set[str]
+                                  ) -> tuple[set[str], list[str]]:
+    """Pure decision half of apply stage-2 (design P3 D5). Returns
+    (content_refs, flow_root_names) for this run:
+
+      content_refs   — record names placed ONLY through active modules (the
+                       stage-2 ABSOLUTE layout override applies; rigid
+                       capture/apply must NOT move them);
+      flow_root_names — the NORMAL top-level forest trees whose LIVE anchor is
+                       the base the stage-2 layout is laid from: each flow root
+                       is laid with layout_tree_from_base(root, base_pos,
+                       base_rot, by_tree), whose recursive result covers every
+                       content_ref reachable through the root's module markers
+                       (nested modules included).
+
+    Both are empty when no module is active in the run — the apply path then
+    behaves exactly as before (rigid only). Callers (cascade.run_curated_
+    forest_redraw) resolve the flow roots' live bases and lay them."""
+    markers = _module_markers(linked_trees)
+    active = _active_module_entries(markers, selected_refs)
+    content_refs: set[str] = set()
+    module_placed: set[str] = set()
+    owners: set[str] = set()
+    for m, owner in active:
+        if m.module_linked is not None:
+            child = m.module_linked.name
+            module_placed.add(child)
+            content_refs |= _module_content_record_refs(m)
+        owners.add(owner)
+    # A flow root is a top-level tree that hosts an active marker and is NOT
+    # itself module-placed this run (then its content flows from the OUTER
+    # module, not from its own anchor — the outer root's layout covers it).
+    flow_roots = [lt.name for lt in linked_trees
+                  if lt.name in owners and lt.name not in module_placed]
+    return content_refs, flow_roots

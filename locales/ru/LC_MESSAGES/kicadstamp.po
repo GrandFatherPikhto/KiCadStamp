@@ -6147,6 +6147,17 @@ msgstr "конфликт перерисовки: дерево {child!r} встр
 msgid "Tree {name!r} is placed through a module in this redraw — nodes checked in the tree itself are applied once via the module"
 msgstr "Дерево {name!r} в этой перерисовке размещается через модуль — узлы, отмеченные в самом дереве, применяются один раз через модуль"
 
+#, python-brace-format
+msgid "Forest redraw: root tree {name!r} — stage-2 base unavailable ({error}); its embedded module content is left in place"
+msgstr "Полная перерисовка: у корневого дерева {name!r} база этапа 2 недоступна ({error}) — встроенный module-контент остаётся на месте"
+
+#, python-brace-format
+msgid "Forest redraw: module content {name!r} has no stage-2 layout value — applied from its own record"
+msgstr "Полная перерисовка: у module-контента {name!r} нет значения раскладки этапа 2 — применяется его собственная позиция записи"
+
+msgid "Full redraw (all trees and modules)..."
+msgstr "Полная перерисовка (все деревья и модули)..."
+
 #: kicadstamp/trees.py:243
 #, python-brace-format
 msgid "{location}: a tree is missing a (name ...)"
