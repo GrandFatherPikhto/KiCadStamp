@@ -51,7 +51,7 @@ from .placement.services.coordinate_position_calculator import (
     resolve_target_position,
 )
 from .placement.services.point_resolver import resolve_point_chain
-from .trees import TreeNode
+from .trees import Tree, TreeNode
 from .utils.units import MM
 
 _ORIGIN = Vector2.from_xy(0, 0)
@@ -131,6 +131,74 @@ def child_absolute_position(parent_pos: Vector2, parent_rotation_deg: float,
     offset = rotate_local_offset(local_offset.x / MM, local_offset.y / MM,
                                  parent_rotation_deg)
     return Vector2.from_xy(parent_pos.x + offset.x, parent_pos.y + offset.y)
+
+
+# ── module embedding geometry (2026-09-02, plan P2) ────────────────────────
+
+def pivot_offset(node: TreeNode) -> Vector2:
+    """A module node's pivot point in its own local offset frame — the mirror
+    of node_offset() over pivot_xy/pivot_polar. Absent (None) = (0, 0): the
+    pivot is the referenced tree's own origin."""
+    if node.pivot_xy is not None:
+        return Vector2.from_xy(int(node.pivot_xy[0] * MM), int(node.pivot_xy[1] * MM))
+    if node.pivot_polar is not None:
+        radius_mm, angle_deg = node.pivot_polar
+        return local_to_absolute(_ORIGIN, radius_mm, 0.0, angle_deg)
+    return Vector2.from_xy(0, 0)
+
+
+def resolve_module_effective_base(marker_pos: Vector2, marker_rot_deg: float,
+                                  pivot: Vector2) -> tuple[Vector2, float]:
+    """(eff_pos, eff_rot) — the base the REFERENCED tree's content is laid out
+    from so that the module's pivot point lands EXACTLY on the marker:
+    invert `eff_pos + rotate(pivot, eff_rot) == marker_pos` with
+    `eff_rot == marker_rot`. A zero pivot is the direct case (eff == marker)."""
+    if pivot.x == 0 and pivot.y == 0:
+        return marker_pos, marker_rot_deg
+    delta = rotate_local_offset(pivot.x / MM, pivot.y / MM, marker_rot_deg)
+    return (Vector2.from_xy(marker_pos.x - delta.x, marker_pos.y - delta.y),
+            marker_rot_deg)
+
+
+def layout_tree_from_base(tree: Tree, base_pos: Vector2, base_rot_deg: float,
+                          forest: dict[str, Tree] | None = None
+                          ) -> dict[str, tuple[Vector2, float]]:
+    """Pure, NON-persistent layout of a tree's ENTIRE content from an absolute
+    (base_pos, base_rot_deg) INSTEAD of its own anchor — the geometry module
+    embedding uses (plan 2026-09-02 tree_module_embedding, stage 2). A module
+    node:
+      - lays its OWN children from its marker (stage 1, raw node_position);
+      - lays its REFERENCED tree from the pivot-inverted effective base
+        (stage 2, resolve_module_effective_base), recursively into nested
+        modules (a child tree may itself embed a third one).
+    Returns {node.ref: (absolute_position, absolute_rotation_deg)} for every
+    NON-module record node reached (module nodes place no record of their own).
+    Cycles cannot occur (link_trees rejects them); the stack is a defensive
+    guard for this pure helper."""
+    out: dict[str, tuple[Vector2, float]] = {}
+    forest = dict(forest or {})
+    stack: list[str] = []
+
+    def lay(nodes: list[TreeNode], pos: Vector2, rot: float) -> None:
+        for n in nodes:
+            abs_pos = node_position(n, pos, rot)
+            abs_rot = rot + n.rotation
+            if n.kind == "module":
+                lay(n.children, abs_pos, abs_rot)          # stage 1
+                child = forest.get(n.ref)                   # stage 2
+                if child is None or child.name in stack:
+                    continue
+                eff_pos, eff_rot = resolve_module_effective_base(
+                    abs_pos, abs_rot, pivot_offset(n))
+                stack.append(child.name)
+                lay(child.nodes, eff_pos, eff_rot)
+                stack.pop()
+                continue
+            out[n.ref] = (abs_pos, abs_rot)
+            lay(n.children, abs_pos, abs_rot)
+
+    lay(tree.nodes, base_pos, base_rot_deg)
+    return out
 
 
 def resolve_record_live_position(adapter, cfg, rec: Record, resolved_points,

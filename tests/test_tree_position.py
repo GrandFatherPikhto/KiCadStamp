@@ -43,8 +43,11 @@ from kicadstamp.tree_position import (
     child_local_offset,
     curated_redraw_plan,
     curated_redraw_plan_forest,
+    layout_tree_from_base,
     node_offset,
     node_position,
+    pivot_offset,
+    resolve_module_effective_base,
     resolve_record_live_position,
     resolve_record_rotation_deg,
 )
@@ -1276,3 +1279,77 @@ def test_mixed_tree_rule_override_lands_on_override_not_own_anchor(monkeypatch):
     # Override origin (10,0) + the pad's +x 1mm local offset -> (11,0).
     assert moves[0].position.x == 11 * MM
     assert moves[0].position.y == 0
+
+
+# ── module embedding geometry (2026-09-02, plan P2) ────────────────────────
+
+def _mod(ref, xy=None, pivot_xy=None, pivot_polar=None, rotation=0.0, children=None):
+    return TreeNode(ref=ref, kind="module", xy=xy, polar=None, rotation=rotation,
+                    name=None, group=None, children=children or [],
+                    pivot_xy=pivot_xy, pivot_polar=pivot_polar)
+
+
+def _leaf_tree(name, nodes):
+    return Tree(name=name, anchor=TreeAnchor(is_auto=True), nodes=nodes)
+
+
+def _mm(vec):
+    return vec.x / MM, vec.y / MM
+
+
+def test_module_layout_pivot_zero_direct(tmp_path):
+    """pivot omitted = (0,0): the referenced tree's content is laid from the
+    marker position directly — a child node at (1,2) mm under a marker at
+    (10,5) mm lands at (11,7) mm."""
+    child = _leaf_tree("ch0", [_node_dc(ref="d0", xy=(1.0, 2.0))])
+    parent = _leaf_tree("p", [_mod(ref="ch0", xy=(10.0, 5.0))])
+    out = layout_tree_from_base(parent, _ORIGIN, 0.0, {"ch0": child})
+    pos, _rot = out["d0"]
+    assert _mm(pos) == (11.0, 7.0)
+
+
+def test_module_pivot_lands_exactly_on_marker_with_rotation():
+    """Invariant: a referenced-tree node whose local offset == pivot lands on
+    the marker's position, even with a rotated marker/pivot."""
+    child = _leaf_tree("ch0", [_node_dc(ref="d0", xy=(1.0, 2.0))])
+    parent = _leaf_tree("p", [_mod(ref="ch0", xy=(10.0, 0.0), rotation=30.0,
+                                  pivot_xy=(1.0, 2.0))])
+    out = layout_tree_from_base(parent, _ORIGIN, 0.0, {"ch0": child})
+    pos, _rot = out["d0"]
+    # d0 at local offset == pivot must coincide with the marker at (10,0).
+    assert abs(pos.x - 10.0 * MM) < 1
+    assert abs(pos.y - 0.0) < 1
+
+
+def test_module_own_children_stage1_vs_referenced_stage2():
+    """A module node's OWN children are laid from its raw marker (stage 1),
+    while the referenced tree's content is laid from the pivot-inverted
+    effective base (stage 2) — distinct positions when pivot != 0."""
+    own = _node_dc(ref="local_cap", xy=(1.0, 0.0))
+    child = _leaf_tree("ch0", [_node_dc(ref="d0", xy=(10.0, 0.0))])
+    parent = _leaf_tree("p", [_mod(ref="ch0", xy=(0.0, 0.0), pivot_xy=(5.0, 0.0),
+                                  children=[own])])
+    out = layout_tree_from_base(parent, _ORIGIN, 0.0, {"ch0": child})
+    # own child from marker (0,0)+(1,0) = (1,0); referenced d0 from eff
+    # (-5,0)+(10,0) = (5,0).
+    assert _mm(out["local_cap"][0]) == (1.0, 0.0)
+    assert _mm(out["d0"][0]) == (5.0, 0.0)
+
+
+def test_module_nested_layout_a_b_c():
+    """A embeds B, B embeds C (all pivot 0): C's node lands at the sum of the
+    marker offsets (10 + 2 + 1 = 13 mm on X)."""
+    c = _leaf_tree("c", [_node_dc(ref="d0", xy=(1.0, 0.0))])
+    b = _leaf_tree("b", [_mod(ref="c", xy=(2.0, 0.0))])
+    a = _leaf_tree("a", [_mod(ref="b", xy=(10.0, 0.0))])
+    out = layout_tree_from_base(a, _ORIGIN, 0.0, {"b": b, "c": c})
+    assert _mm(out["d0"][0]) == (13.0, 0.0)
+
+
+def test_pivot_offset_reads_xy_polar_and_default():
+    """pivot_offset mirrors node_offset over the pivot fields; None = (0,0)."""
+    assert pivot_offset(_mod(ref="m", pivot_xy=(2.0, 3.0))) == \
+        Vector2.from_xy(int(2.0 * MM), int(3.0 * MM))
+    assert pivot_offset(_mod(ref="m", pivot_polar=(5.0, 0.0))) == \
+        local_to_absolute(_ORIGIN, 5.0, 0.0, 0.0)
+    assert pivot_offset(_mod(ref="m")) == _ORIGIN
