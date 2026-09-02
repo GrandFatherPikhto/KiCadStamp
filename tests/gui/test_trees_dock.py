@@ -21,6 +21,7 @@ from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode
 
+from gui import settings
 from gui.docks.trees_dock import TreesDock, _NodeDialog
 
 # The same working example as tests/test_trees.py's GRAMMAR_EXAMPLE, expressed
@@ -2539,3 +2540,233 @@ def test_template_without_instances_shows_no_instance_items(main_window, tmp_pat
     for idx in range(dock.tabs.count()):
         for it in _pseudo_items(dock, idx):
             assert not it.text(0).startswith("→ instance:")
+
+
+# ── UI-state persistence: active tab ───────────────────────────────────────
+# (2026-09-03, plan tree_ui_state_persistence P1 — the active tab must survive
+# structural rebuilds AND app restarts; gui_state.json is isolated per-test by
+# tests/gui/conftest.py's autouse isolated_settings fixture.)
+
+def test_structural_edit_keeps_nonzero_active_tab(main_window, tmp_path):
+    """Bug fix: before 2026-09-03 _rebuild_tabs() unconditionally jumped to
+    tab 0 after EVERY structural edit. An Add-node on tree 0 while tab 1
+    (misc) is active must leave the user on misc (by name), not reset to 0."""
+    dock, _root = _dock_with(main_window, tmp_path)  # power_tree + misc
+    assert dock.tabs.count() == 2
+    dock.tabs.setCurrentIndex(1)
+    assert dock.tabs.currentIndex() == 1
+
+    # A structural edit on the OTHER (non-active) tree — exactly what every
+    # node/dialog mutator does before calling _rebuild_tabs().
+    tree = dock._trees[0]  # power_tree
+    tree.nodes[0].children.append(TreeNode(
+        ref="NEW_CHILD", kind=None, xy=(3.0, 4.0), polar=None,
+        rotation=0.0, name=None, group=None))
+    dock._mark_dirty()
+    dock._rebuild_tabs()
+
+    assert dock.tabs.currentIndex() == 1
+    assert dock.tabs.tabText(dock.tabs.currentIndex()) == "misc"
+
+
+def test_active_tab_persists_between_dock_instances(main_window, tmp_path):
+    """Switching tabs persists the active tab (by tree name) into gui_state.json
+    and a brand-new dock over the same state restores it — the 'survives an app
+    restart' contract."""
+    dock, root = _dock_with(main_window, tmp_path)
+    dock.tabs.setCurrentIndex(1)  # misc
+    assert settings.state.get("trees_dock", {}).get("active_tab") == "misc"
+
+    dock2 = TreesDock(main_window)  # fresh construction == app restart
+    dock2.set_root_file(root)
+    assert dock2.tabs.currentIndex() == 1
+    assert dock2.tabs.tabText(dock2.tabs.currentIndex()) == "misc"
+
+
+def test_persist_ui_state_flushes_current_active_tab(main_window, tmp_path):
+    """The MainWindow._persist_settings() flush hook reads the CURRENT widget
+    state — whatever tab is active right now is what gets saved."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    dock.tabs.setCurrentIndex(1)
+    dock.persist_ui_state()  # the app-quit flush
+    assert settings.state.get("trees_dock", {}).get("active_tab") == "misc"
+
+
+def test_persist_ui_state_is_a_safe_noop_without_trees(main_window):
+    """Final flush with no trees loaded (placeholder tab) writes nothing and
+    never crashes — MainWindow calls persist_ui_state() on every quit."""
+    dock = TreesDock(main_window)
+    dock.set_root_file(None)
+    dock.persist_ui_state()
+    assert settings.state.get("trees_dock") is None
+
+
+def test_active_tab_unknown_persisted_name_falls_back_to_tab_0(main_window, tmp_path):
+    """Fatal-safety: a persisted active_tab that does not name any loaded tree
+    (renamed/deleted/foreign project) must not crash — fall back to tab 0."""
+    root = tmp_path / "root.sexp"
+    root.write_text(dict_to_sexp(GRAMMAR_TREES), encoding="utf-8")
+    settings.state.set("trees_dock", {"active_tab": "no_such_tree"})
+    dock = TreesDock(main_window)
+    dock.set_root_file(root)
+    assert dock.tabs.currentIndex() == 0
+    assert dock.tabs.tabText(0) == "power_tree"
+
+
+def test_active_tab_deleted_tree_by_the_edit_falls_back_to_tab_0(main_window, tmp_path):
+    """Deleting the ACTIVE tree by the same structural edit drops the tab — the
+    rebuild falls back to tab 0, never a crash or a stale tab."""
+    dock, _root = _dock_with(main_window, tmp_path)  # power_tree + misc
+    dock.tabs.setCurrentIndex(1)  # misc is the active tab
+    dock._trees = [t for t in dock._trees if t.name != "misc"]
+    dock._mark_dirty()
+    dock._rebuild_tabs()
+    assert dock.tabs.count() == 1
+    assert dock.tabs.currentIndex() == 0
+    assert dock.tabs.tabText(0) == "power_tree"
+
+
+def test_active_tab_persist_keeps_foreign_trees_dock_subkeys_intact(main_window, tmp_path):
+    """P1 writes only trees_dock.active_tab — a pre-existing trees_dock.trees
+    sub-key (P2's future payload) must survive the P1 write untouched."""
+    settings.state.set("trees_dock",
+                       {"trees": {"power_tree": {"anchor_expanded": True}}})
+    dock, _root = _dock_with(main_window, tmp_path)
+    dock.tabs.setCurrentIndex(1)
+    saved = settings.state.get("trees_dock", {})
+    assert saved.get("active_tab") == "misc"
+    assert saved["trees"] == {"power_tree": {"anchor_expanded": True}}
+
+
+# ── UI-state persistence: per-tree expand/collapse (P2) ─────────────────────
+# (2026-09-03, plan tree_ui_state_persistence P2 — which anchors/nodes are
+# expanded is saved per tree name and restored on rebuilds and app restarts.)
+
+P2_TREES = {"trees": [
+    {"name": "alpha", "anchor": {"origin": True},
+     "nodes": [
+         {"ref": "N1", "kind": "external",
+          "children": [{"ref": "N1a", "kind": "external"}]},
+         {"ref": "N2", "kind": "external",
+          "children": [{"ref": "N2a", "kind": "external"}]},
+     ]},
+    {"name": "beta", "anchor": {"origin": True},
+     "nodes": [
+         {"ref": "M1", "kind": "external",
+          "children": [{"ref": "M1a", "kind": "external"}]},
+     ]},
+]}
+
+
+def _p2_anchor_and_nodes(dock, index):
+    """(anchor_item, [direct node items]) of one rendered tree tab — P2_TREES
+    trees are plain (no back/embedded/instance pseudo items), so the anchor is
+    the only top-level item and its children are the top-level nodes."""
+    w = dock.tabs.widget(index)
+    anchor = _children(w.invisibleRootItem())[0]
+    return anchor, _children(anchor)
+
+
+def test_expansion_persists_and_restores_across_dock_recreate(main_window, tmp_path):
+    """Expand the anchor + 2 nodes on tree alpha, leave tree beta collapsed; a
+    fresh dock over the same gui_state.json restores exactly that state."""
+    root = tmp_path / "p2.sexp"
+    root.write_text(dict_to_sexp(P2_TREES), encoding="utf-8")
+    dock = TreesDock(main_window)
+    dock.set_root_file(root)
+
+    anchor_a, nodes_a = _p2_anchor_and_nodes(dock, 0)  # alpha
+    anchor_a.setExpanded(True)
+    nodes_a[0].setExpanded(True)  # N1
+    nodes_a[1].setExpanded(True)  # N2
+    # Per-event persistence: each expansion was written as it happened.
+    saved = settings.state.get("trees_dock", {}).get("trees", {})
+    assert saved["alpha"]["anchor_expanded"] is True
+    assert set(saved["alpha"]["expanded_refs"]) == {"N1", "N2"}
+
+    # A fresh dock (== app restart) over the same state restores by name.
+    dock2 = TreesDock(main_window)
+    dock2.set_root_file(root)
+    anchor_a2, nodes_a2 = _p2_anchor_and_nodes(dock2, 0)
+    assert anchor_a2.isExpanded() is True
+    assert nodes_a2[0].isExpanded() is True   # N1
+    assert nodes_a2[1].isExpanded() is True   # N2
+    anchor_b2, _ = _p2_anchor_and_nodes(dock2, 1)  # beta untouched
+    assert anchor_b2.isExpanded() is False
+
+
+def test_expansion_survives_in_session_rebuild(main_window, tmp_path):
+    """A structural rebuild (which before this phase collapsed every tree) must
+    re-apply the saved expansion instead of resetting to the Qt default."""
+    root = tmp_path / "p2.sexp"
+    root.write_text(dict_to_sexp(P2_TREES), encoding="utf-8")
+    dock = TreesDock(main_window)
+    dock.set_root_file(root)
+
+    anchor_a, nodes_a = _p2_anchor_and_nodes(dock, 0)
+    anchor_a.setExpanded(True)
+    nodes_a[0].setExpanded(True)  # N1
+
+    dock._mark_dirty()
+    dock._rebuild_tabs()
+
+    anchor_a2, nodes_a2 = _p2_anchor_and_nodes(dock, 0)
+    assert anchor_a2.isExpanded() is True
+    assert nodes_a2[0].isExpanded() is True  # N1 restored, not re-collapsed
+
+
+def test_collapse_removes_ref_and_stale_entries_are_fatal_safe(main_window, tmp_path):
+    """Collapsing a node removes its ref from the persisted entry. A seeded
+    entry may reference a node that no longer exists — it is simply ignored on
+    restore, never an error."""
+    root = tmp_path / "p2.sexp"
+    root.write_text(dict_to_sexp(P2_TREES), encoding="utf-8")
+    settings.state.set("trees_dock", {"trees": {
+        "alpha": {"anchor_expanded": True,
+                  "expanded_refs": ["N1", "GHOST_DELETED"]}}})
+
+    dock = TreesDock(main_window)
+    dock.set_root_file(root)
+    anchor_a, nodes_a = _p2_anchor_and_nodes(dock, 0)
+    assert anchor_a.isExpanded() is True
+    assert nodes_a[0].isExpanded() is True   # N1 present -> expanded
+    assert nodes_a[1].isExpanded() is False  # GHOST_DELETED has no item -> ignored
+
+    nodes_a[0].setExpanded(False)  # collapse N1 -> its ref leaves the entry
+    entry = settings.state.get("trees_dock")["trees"]["alpha"]
+    assert set(entry["expanded_refs"]) == {"GHOST_DELETED"}
+
+
+def test_unknown_tree_name_state_is_ignored_defaults_collapsed(main_window, tmp_path):
+    """A persisted entry whose tree NAME is not among the loaded trees (deleted/
+    renamed since, or a foreign project) is ignored — that tree renders at the
+    Qt default (collapsed), same as a first run."""
+    root = tmp_path / "p2.sexp"
+    root.write_text(dict_to_sexp(P2_TREES), encoding="utf-8")
+    settings.state.set("trees_dock", {"trees": {
+        "gamma": {"anchor_expanded": True, "expanded_refs": ["X"]}}})
+
+    dock = TreesDock(main_window)
+    dock.set_root_file(root)
+    anchor_a, nodes_a = _p2_anchor_and_nodes(dock, 0)
+    assert anchor_a.isExpanded() is False
+    assert all(not n.isExpanded() for n in nodes_a)
+
+
+def test_persist_ui_state_flushes_all_tree_expansion(main_window, tmp_path):
+    """persist_ui_state() (the MainWindow quit-flush) captures EVERY rendered
+    tree's expansion straight from the widgets — the collapsed default of a
+    tree the user never touched AND a stale ref whose node is gone is dropped."""
+    root = tmp_path / "p2.sexp"
+    root.write_text(dict_to_sexp(P2_TREES), encoding="utf-8")
+    settings.state.set("trees_dock", {"trees": {
+        "alpha": {"anchor_expanded": True, "expanded_refs": ["N1", "GHOST"]}}})
+    dock = TreesDock(main_window)
+    dock.set_root_file(root)
+
+    dock.persist_ui_state()
+
+    saved = settings.state.get("trees_dock")["trees"]
+    assert saved["alpha"]["anchor_expanded"] is True
+    assert set(saved["alpha"]["expanded_refs"]) == {"N1"}  # GHOST dropped
+    assert "beta" in saved and saved["beta"]["anchor_expanded"] is False

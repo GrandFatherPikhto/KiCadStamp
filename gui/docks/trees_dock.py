@@ -21,7 +21,8 @@ from PyQt6.QtWidgets import (QComboBox, QDialog, QDockWidget,
                              QFormLayout, QHBoxLayout, QInputDialog, QLabel,
                              QLineEdit, QMenu, QMessageBox, QPushButton,
                              QSizePolicy, QTabWidget, QToolButton,
-                             QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
+                             QTreeWidget, QTreeWidgetItem, QTreeWidgetItemIterator,
+                             QVBoxLayout, QWidget)
 
 from kicadstamp.anchor_graph import Record, build_records
 from kicadstamp.config import TreeInstance, load_config, load_tree
@@ -54,6 +55,7 @@ from kicadstamp.placement.services.point_resolver import resolve_point_chain
 from kicadstamp.trees import KINDS, Tree, TreeAnchor, TreeNode, tree_to_dict
 from kicadstamp.utils.units import MM
 
+from .. import settings
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from ._common import (configure_searchable, highlight_stylesheet_for,
@@ -237,6 +239,14 @@ class TreesDock(QDockWidget):
         # checkbox selection (Phase 4) and for the move "not into own
         # descendant" guard (Phase 2).
         self._node_items: dict[str, QTreeWidgetItem] = {}
+        # (P1/P2, 2026-09-03, plan tree_ui_state_persistence): active-tab and
+        # per-tree expand/collapse state. _pending_active_name is a NAME set by
+        # set_root_file (the persisted active_tab) and consumed by the next
+        # _rebuild_tabs(); _rebuilding_tabs suppresses the persistence signal
+        # handlers during a rebuild (their intermediate events are not user
+        # state — the rebuild persists its final state itself).
+        self._pending_active_name: Optional[str] = None
+        self._rebuilding_tabs = False
 
         container = QWidget()
         layout = QVBoxLayout(container)
@@ -308,6 +318,9 @@ class TreesDock(QDockWidget):
 
         # ── Per-tree tabs ────────────────────────────────────────────────
         self.tabs = QTabWidget()
+        # (P1) Persist the active tab by tree name on every switch — the
+        # rebuild-time events are filtered by _rebuilding_tabs.
+        self.tabs.currentChanged.connect(self._on_tab_changed)
         layout.addWidget(self.tabs, 1)
 
         # ── Status line (static node_offset() preview) ───────────────────
@@ -349,6 +362,10 @@ class TreesDock(QDockWidget):
         # the loaded cfg — empty when the config has no tree_instances:).
         self._rebuild_instance_index()
         self._dirty = False
+        # (P1) A fresh root load applies the remembered active tab (by NAME)
+        # from gui_state.json; _rebuild_tabs consumes it. An absent/foreign
+        # name is fatal-safe — the rebuild falls back to tab 0.
+        self._pending_active_name = self._persisted_active_tab_name()
         self._rebuild_tabs()
         self._update_toolbar_state()
 
@@ -472,9 +489,26 @@ class TreesDock(QDockWidget):
     def _rebuild_tabs(self) -> None:
         """One tab per Tree in self._trees; a single placeholder tab when the
         list is empty (Phase 2's "Add tree…" fills it)."""
+        # (P1, 2026-09-03, plan tree_ui_state_persistence): remember the
+        # CURRENT active tree by NAME before clear() so the rebuild keeps the
+        # user on the same tab instead of unconditionally jumping to tab 0 (the
+        # pre-fix behavior). The explicitly pending name (the persisted
+        # active_tab, applied by set_root_file on a fresh load) wins; otherwise
+        # the previously active tree when it survives this rebuild; only then
+        # tab 0. Tab indexes are not stable across a rebuild — trees get
+        # added/removed/renamed — hence the name-based restore.
+        previous_name = self._current_tab_tree_name()
+        # Suppress the persistence signal handlers while repopulating: the
+        # intermediate currentChanged events (clear -> addTab ->
+        # setCurrentIndex) are not user state. The final active tab is
+        # persisted below, once it is restored.
+        self._rebuilding_tabs = True
         self.tabs.clear()
         self._node_items = {}
         if not self._trees:
+            # Nothing to apply a pending active tab to — drop it so a stale
+            # name from a previous root cannot leak into a later load.
+            self._pending_active_name = None
             placeholder = QTreeWidget()
             # Explicit minimum width (2026-08-30, Denis: TreesDock can't be
             # narrowed after being widened once) — QTreeWidget's natural
@@ -486,7 +520,13 @@ class TreesDock(QDockWidget):
             # test_text_view_minimum_height_is_explicitly_overridden).
             placeholder.setMinimumWidth(1)
             self.tabs.addTab(placeholder, _("(no trees)"))
+            self._rebuilding_tabs = False
             return
+        # (P2) Saved per-tree expansion map — the whole "trees" sub-key is read
+        # ONCE per rebuild (not once per tree). An absent/foreign name means "no
+        # saved state": that tree renders at the Qt default (collapsed), exactly
+        # like today (design §1.2 — not a regression, just no data to restore).
+        saved_tree_state = self._saved_trees_state()
         for tree in self._trees:
             tree_widget = QTreeWidget()
             # Same 2026-08-30 width-floor fix as the placeholder above: the
@@ -500,9 +540,189 @@ class TreesDock(QDockWidget):
             tree_widget.customContextMenuRequested.connect(self._on_context_menu)
             tree_widget.itemSelectionChanged.connect(self._on_selection_changed)
             tree_widget.itemDoubleClicked.connect(self._on_node_activated)
-            self._render_tree(tree_widget, tree)
+            # (P2) itemExpanded/itemCollapsed are per-tree-widget signals, so
+            # each handler is bound to ITS tree's name (the handler must know
+            # which tree the item belongs to in order to update the right
+            # trees_dock.trees entry). Events fired while _rebuild_tabs() is
+            # applying the SAVED state are filtered by the _rebuilding_tabs
+            # guard inside _on_item_expand_changed.
+            tree_widget.itemExpanded.connect(
+                lambda item, name=tree.name: self._on_item_expand_changed(name, item))
+            tree_widget.itemCollapsed.connect(
+                lambda item, name=tree.name: self._on_item_expand_changed(name, item))
+            self._render_tree(tree_widget, tree, saved_tree_state.get(tree.name, {}))
             self.tabs.addTab(tree_widget, tree.name)
-        self.tabs.setCurrentIndex(0)
+        # (P1) Restore the active tab by name.
+        desired = self._pending_active_name
+        self._pending_active_name = None
+        if desired is None:
+            desired = previous_name
+        for idx, tree in enumerate(self._trees):
+            if tree.name == desired:
+                self.tabs.setCurrentIndex(idx)
+                break
+        else:
+            # The desired tree is gone (deleted/renamed by this very edit) or
+            # nothing was active before — today's behavior, tab 0.
+            self.tabs.setCurrentIndex(0)
+        self._rebuilding_tabs = False
+        # Keep gui_state.json in sync with the restored tab (also covers a
+        # rebuild that dropped the previously active tree -> tab 0).
+        self._persist_active_tab()
+
+    # ── UI-state persistence (2026-09-03, plan tree_ui_state_persistence) ──
+    #
+    # gui_state.json["trees_dock"] is a NESTED dict with two independent parts:
+    # "active_tab" (P1) and the per-tree "trees" expansion map (P2). Settings
+    # merges only TOP-LEVEL keys (gui/settings.py), so P1 and P2 must merge
+    # with each other INSIDE that one value — _update_trees_dock_state is the
+    # single read-merge-mutate-write helper both phases go through.
+
+    def _update_trees_dock_state(self, mutate) -> None:
+        """Read-merge-mutate-write of the nested "trees_dock" settings key.
+        `mutate(dock_state)` edits the current dict value in place; the whole
+        dict is then written back under "trees_dock". Lets P1 ("active_tab")
+        and P2 (per-tree "trees") update their own sub-key without clobbering
+        each other."""
+        data = settings.state.get("trees_dock")
+        if not isinstance(data, dict):
+            data = {}
+        mutate(data)
+        settings.state.set("trees_dock", data)
+
+    def _persisted_active_tab_name(self) -> Optional[str]:
+        """The persisted trees_dock.active_tab if it names one of the CURRENTLY
+        loaded trees, else None — fatal-safe: a missing/foreign/stale name (a
+        tree deleted or renamed since it was saved) just falls back to tab 0."""
+        active = settings.state.get("trees_dock", {}).get("active_tab")
+        if isinstance(active, str) and any(t.name == active for t in self._trees):
+            return active
+        return None
+
+    def _current_tab_tree_name(self) -> Optional[str]:
+        """Name of the tree behind the CURRENT tab, or None when the tab widget
+        is not in a state consistent with self._trees (no trees, or a stale tab
+        count right after a structural edit changed the tree list)."""
+        idx = self.tabs.currentIndex()
+        if (idx < 0 or idx >= len(self._trees)
+                or self.tabs.count() != len(self._trees)):
+            return None
+        return self._trees[idx].name
+
+    def _persist_active_tab(self) -> None:
+        """Write the CURRENT active tab (by tree name) into gui_state.json's
+        trees_dock.active_tab. No-op while no real trees are loaded."""
+        if not self._trees:
+            return
+        name = self._current_tab_tree_name()
+        if name is not None:
+            self._update_trees_dock_state(lambda d: d.update({"active_tab": name}))
+
+    def _on_tab_changed(self, _index: int) -> None:
+        """Active tab switched (by the user or programmatically) -> persist by
+        tree name. Ignored while _rebuild_tabs() is repopulating the widget —
+        those intermediate currentChanged events are not user state; the
+        rebuild persists its final active tab itself."""
+        if self._rebuilding_tabs:
+            return
+        self._persist_active_tab()
+
+    def _saved_trees_state(self) -> dict:
+        """The persisted per-tree expansion map (trees_dock.trees): a plain
+        dict of tree_name -> {anchor_expanded, expanded_refs}. {} when the key
+        is absent or not a dict — fatal-safe, callers fall back to Qt defaults
+        (collapsed), which is also what a first run / foreign file gets."""
+        trees = settings.state.get("trees_dock", {}).get("trees")
+        return trees if isinstance(trees, dict) else {}
+
+    def _update_tree_ui_state(self, tree_name: str, mutate) -> None:
+        """Read-merge-mutate-write of ONE tree's expansion entry inside
+        trees_dock.trees. Several trees each own their own entry AND P1's
+        sibling "active_tab" key must survive — this nests under the shared
+        _update_trees_dock_state, which handles the outer merge."""
+        def _fn(dock_state: dict) -> None:
+            trees = dock_state.get("trees")
+            if not isinstance(trees, dict):
+                trees = {}
+                dock_state["trees"] = trees
+            entry = trees.get(tree_name)
+            if not isinstance(entry, dict):
+                entry = {}
+                trees[tree_name] = entry
+            mutate(entry)
+        self._update_trees_dock_state(_fn)
+
+    def _on_item_expand_changed(self, tree_name: str,
+                                item: QTreeWidgetItem) -> None:
+        """A user expanded/collapsed a node or the anchor pseudo-root -> persist
+        that tree's expansion state. Ignored while _rebuild_tabs() is
+        repopulating — those events come from APPLYING the saved state and are
+        not user actions. Pseudo navigation items ("⇐ embedded in" / "⇐
+        instance of" / "→ instance: …") carry a str in UserRole and have no
+        children — nothing to persist."""
+        if self._rebuilding_tabs:
+            return
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if isinstance(data, TreeNode):
+            ref = data.ref
+            expanded = bool(item.isExpanded())
+            def _fn(entry: dict) -> None:
+                refs = entry.get("expanded_refs")
+                if not isinstance(refs, list):
+                    refs = []
+                if expanded:
+                    if ref not in refs:
+                        refs.append(ref)
+                else:
+                    refs = [r for r in refs if r != ref]
+                entry["expanded_refs"] = refs
+            self._update_tree_ui_state(tree_name, _fn)
+        elif data is None:
+            # The anchor pseudo-root carries no UserRole data.
+            expanded = bool(item.isExpanded())
+            self._update_tree_ui_state(
+                tree_name,
+                lambda entry: entry.update({"anchor_expanded": expanded}))
+
+    def _capture_tree_expansion(self, tree_widget: QTreeWidget) -> dict:
+        """Read the CURRENT expansion of one rendered tree into the persisted
+        entry shape {anchor_expanded, expanded_refs} — the final-flush path
+        (per-event handlers cover individual changes as they happen)."""
+        anchor_expanded = False
+        expanded_refs: list = []
+        it = QTreeWidgetItemIterator(tree_widget)
+        while it.value():
+            item = it.value()
+            if item.childCount() and item.isExpanded():
+                data = item.data(0, Qt.ItemDataRole.UserRole)
+                if isinstance(data, TreeNode):
+                    expanded_refs.append(data.ref)
+                elif data is None:
+                    anchor_expanded = True
+            it += 1
+        return {"anchor_expanded": anchor_expanded,
+                "expanded_refs": expanded_refs}
+
+    def persist_ui_state(self) -> None:
+        """Final flush — called by MainWindow._persist_settings() on quit/
+        close. Re-reads the CURRENT widget state so an interaction that
+        happened after the last _rebuild_tabs (a pure tab switch or a manual
+        expand/collapse with no structural edit) is still captured."""
+        if not self._trees:
+            return
+        self._persist_active_tab()
+        # (P2) Also flush every rendered tree's expansion, from the widgets
+        # themselves (authoritative — drops refs whose nodes are gone).
+        def _fn(dock_state: dict) -> None:
+            trees = dock_state.get("trees")
+            if not isinstance(trees, dict):
+                trees = {}
+                dock_state["trees"] = trees
+            for i, tree in enumerate(self._trees):
+                widget = self.tabs.widget(i)
+                if isinstance(widget, QTreeWidget):
+                    trees[tree.name] = self._capture_tree_expansion(widget)
+        self._update_trees_dock_state(_fn)
 
     def _embedded_in(self, tree: Tree) -> list[str]:
         """Names of every OTHER tree that embeds `tree` through a module node
@@ -511,7 +731,8 @@ class TreesDock(QDockWidget):
         return [t.name for t in self._trees
                 if t.name != tree.name and tree.name in TreesDock._module_targets(t)]
 
-    def _render_tree(self, tree_widget: QTreeWidget, tree: Tree) -> None:
+    def _render_tree(self, tree_widget: QTreeWidget, tree: Tree,
+                     saved_entry: Optional[dict] = None) -> None:
         """Read-only render: (for a generated instance) one "⇐ instance of
         {template}" pseudo-root at the very top; then a pseudo-root item for
         the anchor and the tree's top-level nodes recursively; then "embedded
@@ -519,7 +740,12 @@ class TreesDock(QDockWidget):
         tree) one "→ instance: {name}" pseudo item per tree_instances:
         declaration that references it. Every pseudo item is non-selectable and
         carries the target TREE NAME (a plain str) in UserRole for double-click
-        navigation."""
+        navigation.
+
+        saved_entry is the P2 per-tree expansion state from gui_state.json
+        ({anchor_expanded, expanded_refs}) — when present it is re-applied to
+        the freshly built items; when absent (new/renamed tree, first run) the
+        items keep the Qt default (collapsed), which is today's behavior."""
         # A generated instance points back at its template (P2).
         inst = self._instance_of(tree)
         if inst is not None:
@@ -529,12 +755,23 @@ class TreesDock(QDockWidget):
                 .format(template=inst.template, sheet=inst.sheet))
             back_item.setFlags(back_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
             back_item.setData(0, Qt.ItemDataRole.UserRole, inst.template)
+        # (P2) Saved expansion for THIS tree. expanded_refs keys are node.ref —
+        # a globally unique string (rule 2 in trees.py), so no Path/identity
+        # conversion is needed (unlike ConfigTreeDock, design §1.4/§3.1).
+        entry = saved_entry if isinstance(saved_entry, dict) else {}
+        anchor_expanded = bool(entry.get("anchor_expanded", False))
+        raw_refs = entry.get("expanded_refs")
+        expanded_refs = ({r for r in raw_refs if isinstance(r, str)}
+                         if isinstance(raw_refs, list) else set())
         # Pseudo-root showing the anchor, visually distinct (not selectable).
         anchor_item = QTreeWidgetItem(tree_widget.invisibleRootItem())
         anchor_item.setText(0, _anchor_label(tree.anchor))
         anchor_item.setFlags(anchor_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
         for node in tree.nodes:
-            self._render_node(anchor_item, node)
+            self._render_node(anchor_item, node, expanded_refs)
+        # The anchor pseudo-root is the one item that shows/hides the tree's
+        # ENTIRE content — persist/restore its expansion separately from nodes.
+        anchor_item.setExpanded(anchor_expanded)
         # "встроено в:" pseudo items — non-selectable, carry the PARENT tree
         # name (a plain str) in UserRole for double-click navigation.
         for parent_name in self._embedded_in(tree):
@@ -568,7 +805,8 @@ class TreesDock(QDockWidget):
                 self.tabs.setCurrentIndex(idx)
                 return
 
-    def _render_node(self, parent_item: QTreeWidgetItem, node: TreeNode) -> None:
+    def _render_node(self, parent_item: QTreeWidgetItem, node: TreeNode,
+                     expanded_refs: Optional[set] = None) -> None:
         item = QTreeWidgetItem(parent_item)
         text = node.ref
         if node.kind is not None:
@@ -586,7 +824,12 @@ class TreesDock(QDockWidget):
         item.setCheckState(0, Qt.CheckState.Unchecked)
         self._node_items[node.ref] = item
         for child in node.children:
-            self._render_node(item, child)
+            self._render_node(item, child, expanded_refs)
+        # (P2) Re-apply the saved expansion for this node — done after the
+        # children exist (setExpanded is only meaningful on a populated parent).
+        if expanded_refs is None:
+            expanded_refs = set()
+        item.setExpanded(node.ref in expanded_refs)
 
     # ── Static preview (Phase 1, §5) ─────────────────────────────────────
 
