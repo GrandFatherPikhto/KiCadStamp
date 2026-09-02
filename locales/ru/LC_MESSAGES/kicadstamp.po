@@ -11767,31 +11767,31 @@ msgid "tree_instance: template {template!r} node {ref!r} has no matching net_tra
 msgstr "tree_instance: узел {ref!r} шаблона {template!r} не имеет соответствующей записи net_traces:"
 
 msgid "Instance of {template} — read-only: edit the template tree to change the geometry"
-msgstr "Экземпляр дерева {template} — только чтение: геометрию меняй в дереве-шаблоне"
+msgstr "Копия шаблона {template} — только чтение: геометрию меняй в дереве-шаблоне"
 
 msgid "Read-only instance"
-msgstr "Экземпляр только для чтения"
+msgstr "Копия шаблона — только для чтения"
 
 msgid "This tree is an instance of template {template!r} (read-only) — its geometry comes from the template; edit the template tree to change it, or manage the instance in Tools → Instances."
-msgstr "Это дерево — экземпляр шаблона {template!r} (только чтение): его геометрия приходит из шаблона; меняйте дерево-шаблон или управляйте экземпляром в Tools → Instances."
+msgstr "Это дерево — копия шаблона {template!r} (только чтение): его геометрия приходит из шаблона; меняйте дерево-шаблон или управляйте копиями в Tools → Копии шаблона."
 
 msgid "→ instance: {name}"
-msgstr "→ экземпляр: {name}"
+msgstr "→ копия: {name}"
 
 msgid "⇐ instance of {template} (sheet={sheet})"
-msgstr "⇐ экземпляр {template} (sheet={sheet})"
+msgstr "⇐ копия шаблона {template} (sheet={sheet})"
 
 msgid "Tree instances"
-msgstr "Экземпляры дерева"
+msgstr "Копии шаблона"
 
 msgid "Instances..."
-msgstr "Экземпляры..."
+msgstr "Копии шаблона..."
 
 msgid "Template tree (instances are read-only generated copies of it):"
-msgstr "Дерево-шаблон (экземпляры — его генерируемые копии только для чтения):"
+msgstr "Дерево-шаблон (копии — его генерируемые read-only деревья):"
 
 msgid "Instance name"
-msgstr "Имя экземпляра"
+msgstr "Имя копии"
 
 msgid "Add row"
 msgstr "Добавить строку"
@@ -11800,13 +11800,13 @@ msgid "Remove row"
 msgstr "Удалить строку"
 
 msgid "Every instance row needs a non-empty instance name and sheet."
-msgstr "Каждой строке экземпляра нужны непустые имя экземпляра и лист."
+msgstr "Каждой строке копии нужны непустые имя копии и лист."
 
 msgid "Instance name {name!r} is used twice for template {template!r}."
-msgstr "Имя экземпляра {name!r} используется дважды для шаблона {template!r}."
+msgstr "Имя копии {name!r} используется дважды для шаблона {template!r}."
 
 msgid "Instance name {name!r} already exists as a tree — instance names must stay unique across all trees."
-msgstr "Имя экземпляра {name!r} уже существует как дерево — имена экземпляров должны быть уникальны среди всех деревьев."
+msgstr "Имя копии {name!r} уже существует как дерево — имена копий должны быть уникальны среди всех деревьев."
 
 msgid "No tree is loaded to use as a template."
 msgstr "Нет загруженного дерева, чтобы использовать его как шаблон."
