@@ -654,6 +654,31 @@ def entity_effective_name(entity: "Entity") -> str:
 
 
 @dataclass
+class TreeInstance:
+    """One tree_instances: declaration (2026-09-02, plan tree_instances) — a
+    SHORT reference to a template tree, NOT a copy. At load,
+    expand_tree_instances() (config/tree_instances.py) materializes one full
+    Tree (into cfg.trees) plus its Entity records (into cfg.entities) per
+    declaration, copying the template's geometry and substituting `sheet`.
+
+    template — name of an EXISTING trees: entry used as the geometry template.
+        v1 template constraints (fatal otherwise): role-based anchor, only
+        kind=placement nodes, template Entities carry NO own sheet (Q2);
+    name — the materialized tree's name (a duplicate across instances/against
+        hand-written trees is caught by the trees duplicate-name check);
+    sheet — substituted into every generated Entity's `sheet` and (for a role
+        anchor) the generated tree's anchor sheet.
+
+    The declaration list stays on Config (cfg.tree_instances) even after
+    expansion: the raw declarations are the single source of truth for the GUI
+    to tell a materialized (read-only, never persisted) tree from a
+    hand-written one and to rebuild the materialized trees on every load."""
+    template: str
+    name: str
+    sheet: str
+
+
+@dataclass
 class ClonePlacement:
     """
     Applying a cell at a new location (TemplatePlacer/Cloner) — unlike
@@ -847,6 +872,15 @@ class Config:
     # (a wrapper over trees.py's tree_from_dict), serialized by
     # sexp_format.py's special trees branch (design_2026_08_27_trees_in_config_file.md).
     trees: list[Tree] = field(default_factory=list)
+    # tree_instances: — short sheet-parameterized references to template trees
+    # (2026-09-02, plan tree_instances): each declaration expands AT LOAD
+    # (config/tree_instances.py) into a full Tree in cfg.trees plus its Entity
+    # records in cfg.entities. The materialized trees/entities are ordinary
+    # records for every READ consumer (embedding/redraw/apply) but are NEVER
+    # persisted as such — cfg.tree_instances is the persistence source and the
+    # GUI's read-only-instance index. Loaded by
+    # config/entries.py::_load_tree_instance.
+    tree_instances: list[TreeInstance] = field(default_factory=list)
     place_components: bool = True
     skip_existing_components: bool = False
     # Free‑space search parameters — currently used only for thermal vias

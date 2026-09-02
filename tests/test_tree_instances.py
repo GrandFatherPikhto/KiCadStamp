@@ -1,0 +1,295 @@
+#!/usr/bin/env python3
+"""Tests for `tree_instances:` dict-level expansion (2026-09-02, plan
+techdocs/handoff/deepseek/plan_2026_09_02_tree_instances.md P0 — revision:
+dict-level, config/tree_instances.py::expand_tree_instances).
+
+The raw `tree_instances:` declarations materialize into full Tree + Entity
+records BEFORE the per-entry loaders run, so the generated records flow through
+the SAME _load_tree/_load_entity machinery (rule 2 / duplicate-name checks) as
+hand-written ones — these tests pin that behaviour down.
+"""
+from pathlib import Path
+
+import pytest
+
+from kicadstamp.config import load_config, TreeInstance
+from kicadstamp.config.sexp_format import dict_to_sexp
+from kicadstamp.exceptions import ValidationError
+
+
+def _write(tmp_path, name, data) -> Path:
+    p = tmp_path / name
+    p.write_text(dict_to_sexp(data), encoding="utf-8")
+    return p
+
+
+def _template_data(instances, entity_sheet=None, anchor=None,
+                   node_kind="placement", nodes=None) -> dict:
+    """A minimal valid config: one role-anchored template tree `dac_buf_tpl`
+    whose two entities `dac_buf`/`pif_avdd` live on one nested level."""
+    return {
+        "cells": {},
+        "entities": [
+            {"name": "dac_buf", "cell": "c_dac", "cluster": "DAC_BUF"},
+            {"name": "pif_avdd", "cell": "c_pif", "cluster": "PIF_AVDD",
+             **({"sheet": entity_sheet} if entity_sheet is not None else {})},
+        ],
+        "trees": [{
+            "name": "dac_buf_tpl",
+            "anchor": anchor if anchor is not None else {"role": "DAC_BUF"},
+            "nodes": nodes if nodes is not None else [{
+                "ref": "dac_buf", "kind": node_kind, "xy": [1.0, 2.0],
+                "rotation": 90.0,
+                "children": [{"ref": "pif_avdd", "kind": "placement",
+                              "xy": [0.5, 0.0]}],
+            }],
+        }],
+        "tree_instances": instances,
+    }
+
+
+def _tree_by_name(cfg, name):
+    return next(t for t in cfg.trees if t.name == name)
+
+
+def _entity_by_name(cfg, name):
+    return next(e for e in cfg.entities if e.name == name)
+
+
+class TestSimpleExpansion:
+    def test_two_instances_materialize_trees_and_entities(self, tmp_path):
+        p = _write(tmp_path, "t.sexp", _template_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"},
+            {"template": "dac_buf_tpl", "name": "ch2_dac_buf", "sheet": "Channel_2"},
+        ]))
+        cfg, _ = load_config(str(p))
+
+        # The template stays; both instances become ordinary cfg.trees entries.
+        assert [t.name for t in cfg.trees] == \
+            ["dac_buf_tpl", "ch1_dac_buf", "ch2_dac_buf"]
+
+        # cfg.tree_instances keeps the RAW declarations (GUI index source).
+        assert cfg.tree_instances == [
+            TreeInstance(template="dac_buf_tpl", name="ch1_dac_buf", sheet="Channel_1"),
+            TreeInstance(template="dac_buf_tpl", name="ch2_dac_buf", sheet="Channel_2"),
+        ]
+
+        # Entity copies: renamed refs, instance sheet, template fields kept.
+        assert {e.name for e in cfg.entities} == {
+            "dac_buf", "pif_avdd",
+            "dac_buf__ch1_dac_buf", "pif_avdd__ch1_dac_buf",
+            "dac_buf__ch2_dac_buf", "pif_avdd__ch2_dac_buf",
+        }
+        for suffix, sheet in (("ch1_dac_buf", "Channel_1"), ("ch2_dac_buf", "Channel_2")):
+            ent = _entity_by_name(cfg, f"dac_buf__{suffix}")
+            assert ent.sheet == sheet
+            assert ent.cell == "c_dac"
+            assert ent.cluster == "DAC_BUF"
+            nested = _entity_by_name(cfg, f"pif_avdd__{suffix}")
+            assert nested.sheet == sheet
+            assert nested.cell == "c_pif"
+
+        # Generated trees: name/anchor sheet/node refs (recursively).
+        for name, sheet in (("ch1_dac_buf", "Channel_1"), ("ch2_dac_buf", "Channel_2")):
+            tree = _tree_by_name(cfg, name)
+            assert tree.anchor.anchor_sheet == sheet
+            assert tree.anchor.role == "DAC_BUF"
+            node = tree.nodes[0]
+            assert node.ref == f"dac_buf__{name}"
+            assert node.children[0].ref == f"pif_avdd__{name}"
+
+    def test_geometry_identical_to_template_and_each_other(self, tmp_path):
+        p = _write(tmp_path, "t.sexp", _template_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"},
+            {"template": "dac_buf_tpl", "name": "ch2_dac_buf", "sheet": "Channel_2"},
+        ]))
+        cfg, _ = load_config(str(p))
+
+        def _geom(tree):
+            node = tree.nodes[0]
+            child = node.children[0]
+            return (node.xy, node.rotation, child.xy, child.rotation)
+
+        tpl = _tree_by_name(cfg, "dac_buf_tpl")
+        ch1 = _tree_by_name(cfg, "ch1_dac_buf")
+        ch2 = _tree_by_name(cfg, "ch2_dac_buf")
+        assert _geom(ch1) == _geom(tpl)
+        assert _geom(ch2) == _geom(tpl)
+        assert _geom(ch1) == _geom(ch2)
+
+    def test_template_is_still_an_ordinary_tree_q3(self, tmp_path):
+        """Q3: a template stays a normal, independently usable tree — nothing
+        special flags it; its own entities are untouched (still sheetless)."""
+        p = _write(tmp_path, "t.sexp", _template_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"},
+        ]))
+        cfg, _ = load_config(str(p))
+        tpl = _tree_by_name(cfg, "dac_buf_tpl")
+        assert not hasattr(tpl, "is_instance")
+        assert _entity_by_name(cfg, "dac_buf").sheet is None
+        assert _entity_by_name(cfg, "pif_avdd").sheet is None
+
+
+class TestNesting:
+    def test_suffix_applied_on_every_level(self, tmp_path):
+        """A 3-level template — the __{instance.name} suffix must land on every
+        nested level, not just top-level nodes."""
+        nodes = [{
+            "ref": "dac_buf", "kind": "placement", "xy": [0.0, 0.0],
+            "children": [{
+                "ref": "pif_avdd", "kind": "placement", "xy": [1.0, 0.0],
+                "children": [{
+                    "ref": "deep", "kind": "placement", "xy": [2.0, 0.0],
+                }],
+            }],
+        }]
+        data = _template_data(
+            [{"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"}],
+            nodes=nodes)
+        data["entities"].append({"name": "deep", "cell": "c_deep"})
+        p = _write(tmp_path, "t.sexp", data)
+        cfg, _ = load_config(str(p))
+        tree = _tree_by_name(cfg, "ch1_dac_buf")
+        l1 = tree.nodes[0]
+        l2 = l1.children[0]
+        l3 = l2.children[0]
+        assert l1.ref == "dac_buf__ch1_dac_buf"
+        assert l2.ref == "pif_avdd__ch1_dac_buf"
+        assert l3.ref == "deep__ch1_dac_buf"
+        assert _entity_by_name(cfg, "deep__ch1_dac_buf").sheet == "Channel_1"
+
+
+class TestFatals:
+    def test_template_not_found(self, tmp_path):
+        p = _write(tmp_path, "t.sexp", _template_data([
+            {"template": "no_such_tree", "name": "ch1_dac_buf", "sheet": "Channel_1"},
+        ]))
+        with pytest.raises(ValidationError, match="template tree 'no_such_tree' not found"):
+            load_config(str(p))
+
+    def test_template_entity_with_own_sheet_is_fatal_q2(self, tmp_path):
+        p = _write(tmp_path, "t.sexp", _template_data(
+            [{"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"}],
+            entity_sheet="Channel_0"))
+        with pytest.raises(ValidationError, match="must not have its own sheet"):
+            load_config(str(p))
+
+    def test_non_role_anchor_is_fatal(self, tmp_path):
+        p = _write(tmp_path, "t.sexp", _template_data(
+            [{"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"}],
+            anchor={"origin": True}))
+        with pytest.raises(ValidationError, match="must be role-anchored"):
+            load_config(str(p))
+
+    def test_auto_anchor_missing_is_fatal(self, tmp_path):
+        data = _template_data(
+            [{"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"}])
+        data["trees"][0].pop("anchor")  # no (anchor ...) at all -> AUTO anchor
+        p = _write(tmp_path, "t.sexp", data)
+        with pytest.raises(ValidationError, match="must be role-anchored"):
+            load_config(str(p))
+
+    def test_non_placement_node_kind_is_fatal(self, tmp_path):
+        p = _write(tmp_path, "t.sexp", _template_data(
+            [{"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"}],
+            node_kind="module"))
+        with pytest.raises(ValidationError, match="unsupported node kind 'module'"):
+            load_config(str(p))
+
+    def test_placement_node_without_entity_is_fatal(self, tmp_path):
+        data = _template_data(
+            [{"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"}],
+            nodes=[{"ref": "no_entity", "kind": "placement", "xy": [0.0, 0.0]}])
+        p = _write(tmp_path, "t.sexp", data)
+        with pytest.raises(ValidationError, match="no matching entities"):
+            load_config(str(p))
+
+    def test_declaration_missing_field_is_fatal(self, tmp_path):
+        p = _write(tmp_path, "t.sexp", _template_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf"},  # no sheet
+        ]))
+        with pytest.raises(ValidationError, match="missing required sheet"):
+            load_config(str(p))
+
+    def test_tree_instances_not_a_list_is_fatal(self):
+        """Unit-level: the s-expr writer cannot even express a dict-valued
+        section (it assumes list sections are lists), so the guard in
+        expand_tree_instances is exercised on the raw dict directly."""
+        from kicadstamp.config.tree_instances import expand_tree_instances
+        with pytest.raises(ValidationError, match="must be a list"):
+            expand_tree_instances(
+                {"tree_instances": {"template": "x", "name": "y", "sheet": "z"}})
+
+
+class TestDuplicateAndRuleTwo:
+    def test_two_instances_with_same_name_are_fatal(self, tmp_path):
+        """Two declarations with the same name materialize duplicate generated
+        records — the EXISTING duplicate-name checks catch them (no new code)."""
+        p = _write(tmp_path, "t.sexp", _template_data([
+            {"template": "dac_buf_tpl", "name": "dup", "sheet": "Channel_1"},
+            {"template": "dac_buf_tpl", "name": "dup", "sheet": "Channel_2"},
+        ]))
+        with pytest.raises(ValidationError, match="unique name"):
+            load_config(str(p))
+
+    def test_instance_name_colliding_with_hand_written_tree_is_fatal(self, tmp_path):
+        """An instance name equal to a hand-written tree -> generated tree
+        collides -> the trees duplicate-name check fatals."""
+        data = _template_data([
+            {"template": "dac_buf_tpl", "name": "dac_buf_tpl", "sheet": "Channel_1"},
+        ])
+        p = _write(tmp_path, "t.sexp", data)
+        with pytest.raises(ValidationError, match="unique name"):
+            load_config(str(p))
+
+
+class TestInclude:
+    def test_template_in_one_file_instance_in_another(self, tmp_path):
+        """Include-graph: the template (tree+entities) lives in one included
+        file, the tree_instance declaration in another, the root includes both."""
+        _write(tmp_path, "tpl.sexp", {
+            "entities": [
+                {"name": "dac_buf", "cell": "c_dac", "cluster": "DAC_BUF"},
+                {"name": "pif_avdd", "cell": "c_pif", "cluster": "PIF_AVDD"},
+            ],
+            "trees": [{
+                "name": "dac_buf_tpl", "anchor": {"role": "DAC_BUF"},
+                "nodes": [{
+                    "ref": "dac_buf", "kind": "placement", "xy": [1.0, 2.0],
+                    "children": [{"ref": "pif_avdd", "kind": "placement",
+                                  "xy": [0.5, 0.0]}],
+                }],
+            }],
+        })
+        _write(tmp_path, "inst.sexp", {
+            "tree_instances": [
+                {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"},
+            ],
+        })
+        root = _write(tmp_path, "root.sexp", {
+            "cells": {},
+            "include": ["tpl.sexp", "inst.sexp"],
+        })
+        cfg, _ = load_config(str(root))
+        assert [t.name for t in cfg.trees] == ["dac_buf_tpl", "ch1_dac_buf"]
+        assert cfg.tree_instances == [
+            TreeInstance(template="dac_buf_tpl", name="ch1_dac_buf", sheet="Channel_1"),
+        ]
+        assert _tree_by_name(cfg, "ch1_dac_buf").anchor.anchor_sheet == "Channel_1"
+
+
+class TestSexpRoundTrip:
+    def test_tree_instances_section_round_trips_through_sexp(self, tmp_path):
+        """dict_to_sexp/sexp_to_dict survive the new list section verbatim."""
+        data = _template_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"},
+        ])
+        text = dict_to_sexp(data)
+        from kicadstamp.config.sexp_format import sexp_to_dict
+        back = sexp_to_dict(text)
+        assert back["tree_instances"] == data["tree_instances"]
+        # ... and the materialized records load from the round-tripped text.
+        p = tmp_path / "rt.sexp"
+        p.write_text(text, encoding="utf-8")
+        cfg, _ = load_config(str(p))
+        assert _tree_by_name(cfg, "ch1_dac_buf").anchor.anchor_sheet == "Channel_1"

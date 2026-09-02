@@ -12741,3 +12741,75 @@ msgstr "Also delete the net traces now only referenced by this tree: {nets}?"
 
 #~ msgid "rule (net {net!r}): anchor_point {point!r} has no footprint"
 #~ msgstr "rule (net {net!r}): anchor_point {point!r} has no footprint"
+
+msgid "'tree_instances' must be a list of template/name/sheet declarations"
+msgstr ""
+
+msgid "Expanded {count} tree_instances: declarations into trees/entities"
+msgstr ""
+
+msgid "a tree template's entities are the geometry master with no sheet of their own; every instance substitutes its own sheet at load — remove the sheet: from the template entity, or do not use this tree as a template"
+msgstr ""
+
+msgid "a tree_instances: entry is a dict with 'template'/'name'/'sheet'"
+msgstr ""
+
+msgid "each entry is a dict with template:/name:/sheet:"
+msgstr ""
+
+msgid "every node of a tree template must reference an entities: entry (v1 templates are entity placements only)"
+msgstr ""
+
+msgid "every template node needs a ref naming an entities: entry"
+msgstr ""
+
+msgid "every tree_instances: entry needs template:/name:/sheet: (all non-empty strings) — template names the source tree, name is the generated tree's name, sheet is substituted into the copies"
+msgstr ""
+
+msgid "every tree_instances: entry needs template:/name:/sheet: (non-empty strings)"
+msgstr ""
+
+msgid "got {type} — expected a list of declarations, each with template:/name:/sheet: (e.g. template: dac_buf, name: ch1_dac_buf, sheet: Channel_1)"
+msgstr ""
+
+msgid "known trees: {names}"
+msgstr ""
+
+msgid "only an (anchor (role ...)) template is supported — the instance sheet substitutes the role anchor's sheet at load; origin/ref/point/auto anchors are not parameterized by sheet yet"
+msgstr ""
+
+msgid "tree_instance {name!r}: template tree {template!r} not found"
+msgstr ""
+
+msgid "tree_instance: template entity {ref!r} must not have its own sheet — sheet comes from the instance"
+msgstr ""
+
+msgid "tree_instance: template {template!r} has a node without a ref"
+msgstr ""
+
+msgid "tree_instance: template {template!r} has unsupported node kind {kind!r} (ref {ref!r})"
+msgstr ""
+
+msgid "tree_instance: template {template!r} must be role-anchored (v1)"
+msgstr ""
+
+msgid "tree_instance: template {template!r} node {ref!r} has no matching entities: record"
+msgstr ""
+
+msgid "tree_instances: entry #{idx} missing required {field}:"
+msgstr ""
+
+msgid "tree_instances: entry #{idx} must be a mapping"
+msgstr ""
+
+msgid "tree_instances: entry missing required {field}:"
+msgstr ""
+
+msgid "tree_instances: entry must be a mapping, got {type}"
+msgstr ""
+
+msgid "unknown fields in tree_instances entry {name!r}"
+msgstr ""
+
+msgid "v1 tree templates support only kind=placement (Entity) nodes — chain/coordinate/clone/module/net_trace nodes inside a template are not instantiated yet"
+msgstr ""

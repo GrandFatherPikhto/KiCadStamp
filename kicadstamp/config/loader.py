@@ -60,10 +60,12 @@ from .entries import (
     _load_template_via,
     _load_thermal_via_array,
     _load_tree,
+    _load_tree_instance,
     _point_is_footprint_eligible,
 )
 from .includes import _load_config_file, resolve_includes
 from .sheet_templates import expand_sheet_templates
+from .tree_instances import expand_tree_instances
 from .models import (
     ThermalViaArrayConfig, CoordinatePlacement, NetTrace, Config,
     chain_effective_name, coordinate_placement_effective_name,
@@ -117,6 +119,16 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
     # entries are indistinguishable from hand-written ones (see
     # kicadstamp/config/sheet_templates.py).
     data = expand_sheet_templates(data)
+    # tree_instances: expansion (2026-09-02, plan tree_instances) — dict-level,
+    # after include resolution AND after sheet_templates (a template may live
+    # in an included file, or reference a sheet-template-generated entity),
+    # BEFORE any per-entry loader/duplicate-name check, so the materialized
+    # trees/entities flow through the SAME _load_tree/_load_entity path as
+    # hand-written ones (rule 2 seen_refs + duplicate-name checks for free).
+    # Unlike expand_sheet_templates, the raw 'tree_instances:' key is KEPT —
+    # the loader parses it into cfg.tree_instances below (see
+    # kicadstamp/config/tree_instances.py).
+    data = expand_tree_instances(data)
 
     if 'target_ref' in data:
         raise ValidationError(format_fatal_error(
@@ -275,6 +287,14 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
           "same-named trees apart otherwise (a duplicate name may also arrive via "
           "include: from another file)"))
     logger.debug(_("Config loaded: trees={trees}").format(trees=len(trees)))
+
+    # tree_instances: — the RAW short declarations, kept on Config even after
+    # the dict-level expansion above: cfg.tree_instances is the persistence
+    # source and the GUI's read-only-instance index (P1/P2). No duplicate-name
+    # check here by design — two declarations with the same name materialize
+    # two generated trees with the same name, which the trees duplicate-name
+    # check above already catches on the generated set.
+    tree_instances = [_load_tree_instance(x) for x in data.get('tree_instances', [])]
 
     # Cross‑validation of layer/mirror
     for cp in clone_placements:
@@ -447,6 +467,7 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
         coordinate_placements=coordinate_placements,
         net_traces=net_traces,
         trees=trees,
+        tree_instances=tree_instances,
         place_components=data.get('place_components', True),
         skip_existing_components=data.get('skip_existing_components', False),
         via_keepout_clearance_mm=data.get('via_keepout_clearance_mm', 0.2),

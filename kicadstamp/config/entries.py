@@ -21,7 +21,7 @@ from ..trees import Tree, tree_from_dict
 from .models import (
     ThermalViaArrayConfig, TemplateVia, TemplateComponentSlot, TemplateTrack,
     Cell, CellPlacement, ManualSpoke, Chain, ClonePlacement, CoordinatePlacement,
-    NetTrace, Entity,
+    NetTrace, Entity, TreeInstance,
 )
 from .points import Point
 
@@ -1259,6 +1259,42 @@ def _load_coordinate_placement(data: dict[str, Any]) -> CoordinatePlacement:
         skip=data.get('skip', False),
         comment=data.get('comment'),
     )
+
+
+# tree_instances: — short sheet-parameterized references to a template tree
+# (2026-09-02, plan tree_instances). Three required string fields; the actual
+# expansion into full Tree+Entity dicts happens dict-level in
+# config/tree_instances.py (expand_tree_instances, BEFORE these loaders run);
+# this loader only parses the DECLARATION into cfg.tree_instances — the GUI's
+# read-only-instance index and the persistence source. Missing fields here are
+# fatal with the same discipline as every other list-section record.
+_TREE_INSTANCE_KNOWN_KEYS = {"template", "name", "sheet"}
+
+
+def _load_tree_instance(data: dict[str, Any]) -> TreeInstance:
+    """One tree_instances: entry -> TreeInstance (a declaration, NOT the
+    materialized tree). All three fields are required and must be non-empty
+    strings: expansion needs template (which tree to copy), name (the
+    generated tree's unique name) and sheet (what gets substituted)."""
+    if not isinstance(data, dict):
+        raise ValidationError(format_fatal_error(
+            _("tree_instances: entry must be a mapping, got {type}")
+            .format(type=type(data).__name__),
+            [_("a tree_instances: entry is a dict with 'template'/'name'/'sheet'")]))
+    template = data.get('template')
+    name = data.get('name')
+    sheet = data.get('sheet')
+    for field_label, value in (("template", template), ("name", name), ("sheet", sheet)):
+        if not isinstance(value, str) or not value:
+            raise ValidationError(format_fatal_error(
+                _("tree_instances: entry missing required {field}:").format(field=field_label),
+                [_("every tree_instances: entry needs template:/name:/sheet: (all "
+                   "non-empty strings) — template names the source tree, name is the "
+                   "generated tree's name, sheet is substituted into the copies")]))
+    check_unknown_keys(data, _TREE_INSTANCE_KNOWN_KEYS,
+                       _("unknown fields in tree_instances entry {name!r}")
+                       .format(name=name))
+    return TreeInstance(template=template, name=name, sheet=sheet)
 
 
 # trees: — optional curated-redraw list section (design_2026_08_27_trees_in_

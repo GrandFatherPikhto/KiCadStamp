@@ -51,6 +51,7 @@ from .models import (
     TemplateTrack,
     TemplateVia,
     ThermalViaArrayConfig,
+    TreeInstance,
 )
 from .points import Point
 
@@ -74,6 +75,7 @@ _TAG_BY_CLASS = {
     ThermalViaArrayConfig: "thermal_via_array",
     NetTrace: "net_trace",
     Point: "point",
+    TreeInstance: "tree_instance",
 }
 _TAG_TO_CLASS = {v: k for k, v in _TAG_BY_CLASS.items()}
 
@@ -85,6 +87,10 @@ _LIST_SECTION_CLASS = {
     "coordinate_placements": CoordinatePlacement,
     "net_traces": NetTrace,
     "entities": Entity,
+    # tree_instances: — a generic list section (plain {template,name,sheet}
+    # records, unlike trees: which is _SPECIAL_SECTIONS — see below), handled
+    # by the same schema-aware machinery as net_traces/entities.
+    "tree_instances": TreeInstance,
 }
 
 # dict sections with a real dataclass (record name in the first position).

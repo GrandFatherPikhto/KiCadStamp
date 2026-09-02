@@ -20,6 +20,7 @@ from .models import (
     CoordinatePlacement,
     NetTrace,
     Entity,
+    TreeInstance,
     Config,
     chain_effective_name,
     thermal_via_array_effective_name,
@@ -46,6 +47,7 @@ from .loader import (
     _load_net_trace,
     _load_entity,
     _load_tree,
+    _load_tree_instance,
     _check_layer_value,
 )
 
@@ -72,6 +74,9 @@ load_entity = _load_entity
 # load_tree (2026-08-27, trees-in-config) — same pattern, for the TreesDock's
 # Save round-trip validation of a single tree against the root config.
 load_tree = _load_tree
+# load_tree_instance (2026-09-02, tree_instances) — same pattern, for the
+# P3 Tools "Instances..." dialog's single-entry validation/rebuild.
+load_tree_instance = _load_tree_instance
 
 # Public aliases for the loader entry points the GUI uses to validate/rebuild
 # a single entry (Phase 4.2 — gui/ must not import the private names).
@@ -103,6 +108,8 @@ __all__ = [
     "ClonePlacement",
     "CoordinatePlacement",
     "NetTrace",
+    "Entity",
+    "TreeInstance",
     "Config",
     "RuntimeContext",
     "load_config",
@@ -115,9 +122,13 @@ __all__ = [
     "load_thermal_via_array",
     "load_coordinate_placement",
     "load_net_trace",
+    "load_entity",
+    "load_tree",
+    "load_tree_instance",
     "load_point",
     "load_chain",
     "load_manual_spoke",
+    "entity_effective_name",
     "chain_effective_name",
     "thermal_via_array_effective_name",
     "coordinate_placement_effective_name",

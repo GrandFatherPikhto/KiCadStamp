@@ -11681,3 +11681,75 @@ msgstr "Удалить также записи дорожек, на которы
 
 #~ msgid "kind must be 'cell', 'entity' or 'rule'"
 #~ msgstr ""
+
+msgid "'tree_instances' must be a list of template/name/sheet declarations"
+msgstr "'tree_instances' должна быть списком деклараций template/name/sheet"
+
+msgid "Expanded {count} tree_instances: declarations into trees/entities"
+msgstr "Развёрнуто {count} деклараций tree_instances: в деревья/сущности"
+
+msgid "a tree template's entities are the geometry master with no sheet of their own; every instance substitutes its own sheet at load — remove the sheet: from the template entity, or do not use this tree as a template"
+msgstr "Entity шаблона дерева — геометрический эталон без собственного sheet; каждый экземпляр подставляет свой sheet при загрузке — уберите sheet: у Entity шаблона или не используйте это дерево как шаблон"
+
+msgid "a tree_instances: entry is a dict with 'template'/'name'/'sheet'"
+msgstr "запись tree_instances: — это словарь с полями 'template'/'name'/'sheet'"
+
+msgid "each entry is a dict with template:/name:/sheet:"
+msgstr "каждая запись — словарь с полями template:/name:/sheet:"
+
+msgid "every node of a tree template must reference an entities: entry (v1 templates are entity placements only)"
+msgstr "каждый узел шаблона дерева должен ссылаться на запись entities: (шаблоны v1 — только размещения сущностей)"
+
+msgid "every template node needs a ref naming an entities: entry"
+msgstr "каждый узел шаблона должен иметь ref, ссылающийся на запись entities:"
+
+msgid "every tree_instances: entry needs template:/name:/sheet: (all non-empty strings) — template names the source tree, name is the generated tree's name, sheet is substituted into the copies"
+msgstr "каждой записи tree_instances: нужны template:/name:/sheet: (непустые строки) — template — имя исходного дерева, name — имя генерируемого дерева, sheet подставляется в копии"
+
+msgid "every tree_instances: entry needs template:/name:/sheet: (non-empty strings)"
+msgstr "каждой записи tree_instances: нужны template:/name:/sheet: (непустые строки)"
+
+msgid "got {type} — expected a list of declarations, each with template:/name:/sheet: (e.g. template: dac_buf, name: ch1_dac_buf, sheet: Channel_1)"
+msgstr "получено {type} — ожидался список деклараций, каждая с template:/name:/sheet: (например: template: dac_buf, name: ch1_dac_buf, sheet: Channel_1)"
+
+msgid "known trees: {names}"
+msgstr "известные деревья: {names}"
+
+msgid "only an (anchor (role ...)) template is supported — the instance sheet substitutes the role anchor's sheet at load; origin/ref/point/auto anchors are not parameterized by sheet yet"
+msgstr "поддерживается только шаблон с (anchor (role ...)) — sheet экземпляра подставляется в sheet role-якоря при загрузке; якоря origin/ref/point/auto пока не параметризуются по sheet"
+
+msgid "tree_instance {name!r}: template tree {template!r} not found"
+msgstr "tree_instance {name!r}: дерево-шаблон {template!r} не найдено"
+
+msgid "tree_instance: template entity {ref!r} must not have its own sheet — sheet comes from the instance"
+msgstr "tree_instance: Entity шаблона {ref!r} не должно иметь собственный sheet — sheet приходит из экземпляра"
+
+msgid "tree_instance: template {template!r} has a node without a ref"
+msgstr "tree_instance: в шаблоне {template!r} есть узел без ref"
+
+msgid "tree_instance: template {template!r} has unsupported node kind {kind!r} (ref {ref!r})"
+msgstr "tree_instance: шаблон {template!r} содержит неподдерживаемый kind узла {kind!r} (ref {ref!r})"
+
+msgid "tree_instance: template {template!r} must be role-anchored (v1)"
+msgstr "tree_instance: шаблон {template!r} должен иметь role-якорь (v1)"
+
+msgid "tree_instance: template {template!r} node {ref!r} has no matching entities: record"
+msgstr "tree_instance: узел {ref!r} шаблона {template!r} не имеет соответствующей записи entities:"
+
+msgid "tree_instances: entry #{idx} missing required {field}:"
+msgstr "tree_instances: записи #{idx} не хватает обязательного поля {field}:"
+
+msgid "tree_instances: entry #{idx} must be a mapping"
+msgstr "tree_instances: запись #{idx} должна быть словарём"
+
+msgid "tree_instances: entry missing required {field}:"
+msgstr "tree_instances: записи не хватает обязательного поля {field}:"
+
+msgid "tree_instances: entry must be a mapping, got {type}"
+msgstr "tree_instances: запись должна быть словарём, получено {type}"
+
+msgid "unknown fields in tree_instances entry {name!r}"
+msgstr "неизвестные поля в записи tree_instances {name!r}"
+
+msgid "v1 tree templates support only kind=placement (Entity) nodes — chain/coordinate/clone/module/net_trace nodes inside a template are not instantiated yet"
+msgstr "шаблоны деревьев v1 поддерживают только узлы kind=placement (Entity) — узлы chain/coordinate/clone/module/net_trace внутри шаблона пока не инстанцируются"
