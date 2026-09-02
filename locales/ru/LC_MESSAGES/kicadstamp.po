@@ -11756,3 +11756,9 @@ msgstr "Экземпляр только для чтения"
 
 msgid "This tree is an instance of template {template!r} (read-only) — its geometry comes from the template; edit the template tree to change it, or manage the instance in Tools → Instances."
 msgstr "Это дерево — экземпляр шаблона {template!r} (только чтение): его геометрия приходит из шаблона; меняйте дерево-шаблон или управляйте экземпляром в Tools → Instances."
+
+msgid "→ instance: {name}"
+msgstr "→ экземпляр: {name}"
+
+msgid "⇐ instance of {template} (sheet={sheet})"
+msgstr "⇐ экземпляр {template} (sheet={sheet})"

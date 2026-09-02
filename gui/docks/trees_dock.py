@@ -512,10 +512,23 @@ class TreesDock(QDockWidget):
                 if t.name != tree.name and tree.name in TreesDock._module_targets(t)]
 
     def _render_tree(self, tree_widget: QTreeWidget, tree: Tree) -> None:
-        """Read-only render: a pseudo-root item for the anchor, then the
-        tree's top-level nodes recursively, then (when OTHER trees embed this
-        one) one "embedded in X" pseudo item per embedding parent — each opens
-        that parent's tab on double-click (plan 2026-09-02 P4 п.4)."""
+        """Read-only render: (for a generated instance) one "⇐ instance of
+        {template}" pseudo-root at the very top; then a pseudo-root item for
+        the anchor and the tree's top-level nodes recursively; then "embedded
+        in X" pseudo items per module-embedding parent AND (for a template
+        tree) one "→ instance: {name}" pseudo item per tree_instances:
+        declaration that references it. Every pseudo item is non-selectable and
+        carries the target TREE NAME (a plain str) in UserRole for double-click
+        navigation."""
+        # A generated instance points back at its template (P2).
+        inst = self._instance_of(tree)
+        if inst is not None:
+            back_item = QTreeWidgetItem(tree_widget.invisibleRootItem())
+            back_item.setText(
+                0, _("⇐ instance of {template} (sheet={sheet})")
+                .format(template=inst.template, sheet=inst.sheet))
+            back_item.setFlags(back_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            back_item.setData(0, Qt.ItemDataRole.UserRole, inst.template)
         # Pseudo-root showing the anchor, visually distinct (not selectable).
         anchor_item = QTreeWidgetItem(tree_widget.invisibleRootItem())
         anchor_item.setText(0, _anchor_label(tree.anchor))
@@ -529,6 +542,13 @@ class TreesDock(QDockWidget):
             emb_item.setText(0, _("⇐ embedded in {parent}").format(parent=parent_name))
             emb_item.setFlags(emb_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
             emb_item.setData(0, Qt.ItemDataRole.UserRole, parent_name)
+        # A template tree (Q3: still an ordinary editable tree) shows its
+        # instances — one "→ instance: {name}" pseudo item each (P2).
+        for child_inst in self._instances_of(tree.name):
+            inst_item = QTreeWidgetItem(tree_widget.invisibleRootItem())
+            inst_item.setText(0, _("→ instance: {name}").format(name=child_inst.name))
+            inst_item.setFlags(inst_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            inst_item.setData(0, Qt.ItemDataRole.UserRole, child_inst.name)
 
     def _on_node_activated(self, item: QTreeWidgetItem, column: int) -> None:
         """Double-click navigation (plan 2026-09-02 P4 п.3/п.4): a module node
@@ -744,6 +764,14 @@ class TreesDock(QDockWidget):
         """The TreeInstance declaration behind `tree`, or None when `tree` is a
         hand-written (or template) tree, i.e. editable normally."""
         return self._instances.get(tree.name)
+
+    def _instances_of(self, template_name: str) -> list[TreeInstance]:
+        """Every tree_instances: declaration that instantiates `template_name`,
+        sorted by generated tree name — the template tab's "→ instance" list
+        (P2 reverse-scan; a tree with ≥1 of these IS a template)."""
+        return sorted((ti for ti in self._instances.values()
+                       if ti.template == template_name),
+                      key=lambda ti: ti.name)
 
     def _warn_read_only_instance(self, tree: Tree) -> bool:
         """True (and shows a message) when `tree` is a generated instance that

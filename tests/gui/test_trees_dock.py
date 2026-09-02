@@ -2402,9 +2402,8 @@ def test_instance_context_menu_offers_no_structural_actions(
     dock, _ = _instance_dock(main_window, tmp_path)
     dock.tabs.setCurrentIndex(1)  # ch1_dac_buf (the instance)
     dock._current_tree_widget().expandAll()
-    top_node = _children(_children(dock._current_tree_widget().invisibleRootItem())[0])[0]
-    assert "dac_buf__ch1_dac_buf" in top_node.text(0)
-    actions = dict(_context_menu_actions(dock, top_node, monkeypatch))
+    node_item = dock._node_items["dac_buf__ch1_dac_buf"]
+    actions = dict(_context_menu_actions(dock, node_item, monkeypatch))
     labels = set(actions)
     for forbidden in ("Add child", "Add sibling", "Edit node…",
                       "Delete node", "Rename…", "Move to…"):
@@ -2420,9 +2419,9 @@ def test_template_context_menu_still_offers_structural_actions(
     dock, _ = _instance_dock(main_window, tmp_path)
     dock.tabs.setCurrentIndex(0)  # dac_buf_tpl (the template)
     dock._current_tree_widget().expandAll()
-    top_node = _children(_children(dock._current_tree_widget().invisibleRootItem())[0])[0]
-    assert top_node.text(0).startswith("dac_buf")
-    actions = dict(_context_menu_actions(dock, top_node, monkeypatch))
+    node_item = dock._node_items["dac_buf"]
+    assert node_item.text(0).startswith("dac_buf")
+    actions = dict(_context_menu_actions(dock, node_item, monkeypatch))
     labels = set(actions)
     assert {"Add child", "Add sibling", "Edit node…", "Delete node"} <= labels
 
@@ -2462,3 +2461,81 @@ def test_save_does_not_persist_instance_trees(main_window, tmp_path, monkeypatch
     cfg, _ = load_config(str(root))
     names = [t.name for t in cfg.trees]
     assert sorted(names) == ["ch1_dac_buf", "dac_buf_tpl"]  # regenerated exactly once
+
+
+# ── tree_instances: navigation (2026-09-02, P2) ─────────────────────────────
+
+INSTANCE_CFG2 = {**INSTANCE_CFG, "tree_instances": [
+    {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"},
+    {"template": "dac_buf_tpl", "name": "ch2_dac_buf", "sheet": "Channel_2"},
+]}
+
+
+def _pseudo_items(dock, index):
+    """All pseudo (double-click navigation) items on a tab: items carrying a
+    plain tree NAME (str) in UserRole — the "embedded in"/"instance of"/"→
+    instance" navigation items, never real node/anchor items."""
+    widget = dock.tabs.widget(index)
+    out = []
+    def walk(parent):
+        for i in range(parent.childCount()):
+            item = parent.child(i)
+            if isinstance(item.data(0, Qt.ItemDataRole.UserRole), str):
+                out.append(item)
+            walk(item)
+    walk(widget.invisibleRootItem())
+    return out
+
+
+def test_template_tab_shows_instance_items_and_switches(main_window, tmp_path):
+    """P2: a template tab shows one "→ instance: {name}" pseudo item per
+    tree_instances declaration; double-clicking each switches to that instance
+    tab (instances are ordinary tabs in self._trees)."""
+    root = tmp_path / "inst2.sexp"
+    root.write_text(dict_to_sexp(INSTANCE_CFG2), encoding="utf-8")
+    dock = TreesDock(main_window)
+    dock.set_root_file(root)
+    names = [t.name for t in dock._trees]
+    assert names == ["dac_buf_tpl", "ch1_dac_buf", "ch2_dac_buf"]
+
+    tpl_idx = names.index("dac_buf_tpl")
+    dock.tabs.setCurrentIndex(tpl_idx)
+    items = {it.text(0): it for it in _pseudo_items(dock, tpl_idx)}
+    assert len(items) == 2
+    assert "→ instance: ch1_dac_buf" in items
+    assert "→ instance: ch2_dac_buf" in items
+
+    # Double-click each instance item -> that instance's tab.
+    dock._on_node_activated(items["→ instance: ch1_dac_buf"], 0)
+    assert dock.tabs.currentIndex() == names.index("ch1_dac_buf")
+    dock._on_node_activated(items["→ instance: ch2_dac_buf"], 0)
+    assert dock.tabs.currentIndex() == names.index("ch2_dac_buf")
+
+
+def test_instance_tab_shows_back_item_and_switches_to_template(main_window, tmp_path):
+    """P2: an instance tab has one top "⇐ instance of {template} (sheet=…)"
+    pseudo item; double-clicking it switches back to the template tab."""
+    root = tmp_path / "inst.sexp"
+    root.write_text(dict_to_sexp(INSTANCE_CFG), encoding="utf-8")
+    dock = TreesDock(main_window)
+    dock.set_root_file(root)
+    names = [t.name for t in dock._trees]
+    tpl_idx = names.index("dac_buf_tpl")
+    ch1_idx = names.index("ch1_dac_buf")
+
+    dock.tabs.setCurrentIndex(ch1_idx)
+    items = _pseudo_items(dock, ch1_idx)
+    assert len(items) == 1
+    assert items[0].text(0) == "⇐ instance of dac_buf_tpl (sheet=Channel_1)"
+
+    dock._on_node_activated(items[0], 0)
+    assert dock.tabs.currentIndex() == tpl_idx
+
+
+def test_template_without_instances_shows_no_instance_items(main_window, tmp_path):
+    """P2 control: an ordinary (non-template) tree shows no '→ instance' items —
+    only real trees, e.g. the module-embedding example has none."""
+    dock, _root = _dock_with(main_window, tmp_path)  # GRAMMAR_TREES: 2 plain trees
+    for idx in range(dock.tabs.count()):
+        for it in _pseudo_items(dock, idx):
+            assert not it.text(0).startswith("→ instance:")

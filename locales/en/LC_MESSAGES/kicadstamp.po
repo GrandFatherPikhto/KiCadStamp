@@ -12801,3 +12801,9 @@ msgstr ""
 
 msgid "This tree is an instance of template {template!r} (read-only) — its geometry comes from the template; edit the template tree to change it, or manage the instance in Tools → Instances."
 msgstr ""
+
+msgid "→ instance: {name}"
+msgstr ""
+
+msgid "⇐ instance of {template} (sheet={sheet})"
+msgstr ""
