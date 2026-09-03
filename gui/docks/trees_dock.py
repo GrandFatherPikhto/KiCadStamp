@@ -20,7 +20,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QComboBox, QDialog, QDockWidget,
                              QFormLayout, QHBoxLayout, QInputDialog, QLabel,
                              QLineEdit, QMenu, QMessageBox, QPushButton,
-                             QSizePolicy, QTabWidget, QToolButton,
+                             QSizePolicy, QTabWidget,
                              QTreeWidget, QTreeWidgetItem, QTreeWidgetItemIterator,
                              QVBoxLayout, QWidget)
 
@@ -204,11 +204,14 @@ def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
 
 class TreesDock(QDockWidget):
     """QDockWidget hosting the hand-authored trees editor for the root
-    config's trees: section (design_2026_08_27_trees_in_config_file.md). Owns
-    a toolbar, the per-tree tab widget and the status line; dock_hub adds and
-    tabifies it like the other tree docks. No file identity of its own — the
-    trees live in the root config (cfg.trees), read via root_changed and
-    saved through config_writer."""
+    config's trees: section (design_2026_08_27_trees_in_config_file.md).
+    Since 2026-09-03 (plan plan_2026_09_03_trees_menu_tools.md) the
+    whole-tree actions (Create/Rename/Delete tree, Anchor position, Redraw
+    selected/whole) live in the top-level menu Tools → Trees; the dock itself
+    keeps the per-tree tabs, the per-node context menus and the read-only
+    status row. dock_hub adds and tabifies it like the other tree docks. No
+    file identity of its own — the trees live in the root config (cfg.trees),
+    read via root_changed and saved through config_writer."""
 
     def __init__(self, main_window):
         super().__init__(_("Trees"), main_window)
@@ -253,68 +256,15 @@ class TreesDock(QDockWidget):
         layout.setContentsMargins(4, 4, 4, 4)
         self.setWidget(container)
 
-        # ── Toolbar (Add/Rename tree + Save + Redraw; no Open/New — the trees
-        #    live in the root config, which RootMetadataDock owns) ─────────
-        # 2026-08-30 (Denis, live): the dock could not be narrowed after being
-        # widened — seven QPushButtons in one QHBoxLayout never shrink below
-        # their sizeHint(), so the whole row was the dock's real width floor
-        # (the QTreeWidget setMinimumWidth(1) fix alone wasn't the place). The
-        # tree-management actions move into a "⋯" overflow menu; Save + the
-        # two Redraw actions stay as visible text buttons. The moved buttons
-        # STAY as QPushButton attributes (tests/other code click them
-        # directly) — the menu actions just re-trigger the same buttons.
-        toolbar = QHBoxLayout()
-        self.add_tree_button = QPushButton(_("Add tree…"))
-        self.add_tree_button.setEnabled(True)
-        self.add_tree_button.clicked.connect(self._on_add_tree)
-        self.rename_tree_button = QPushButton(_("Rename tree…"))
-        self.rename_tree_button.setEnabled(True)
-        self.rename_tree_button.clicked.connect(self._on_rename_tree)
-        self.delete_tree_button = QPushButton(_("Delete tree…"))
-        self.delete_tree_button.setEnabled(True)
-        self.delete_tree_button.clicked.connect(self._on_delete_tree)
-        self.anchor_pos_button = QPushButton(_("Anchor position"))
-        self.anchor_pos_button.setEnabled(True)
-        self.anchor_pos_button.clicked.connect(self._refresh_anchor_live_position)
-
-        # 2026-09-01 (plan project_save_model): no per-dock Save button — every
-        # structural edit auto-stages the trees: section (see _mark_dirty ->
-        # _stage_trees); File > Save commits the working set.
-        self.redraw_button = QPushButton(_("Redraw selected"))
-        self.redraw_button.setEnabled(True)
-        self.redraw_button.clicked.connect(self._on_redraw_selected)
-        toolbar.addWidget(self.redraw_button)
-        self.redraw_whole_button = QPushButton(_("Redraw whole tree"))
-        self.redraw_whole_button.setEnabled(True)
-        self.redraw_whole_button.clicked.connect(self._on_redraw_whole_tree)
-        toolbar.addWidget(self.redraw_whole_button)
-        # "⋯" overflow (2026-08-30): the tree-management + anchor actions live
-        # here so the row stays narrow; each item re-fires its own button so
-        # the handlers (and the buttons' enabled-state API) stay untouched.
-        self.more_button = QToolButton()
-        self.more_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        self.more_button.setText(_("⋯"))
-        self.more_button.setToolTip(_("More tree actions…"))
-        self.more_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        more_menu = QMenu(self)
-        more_menu.addAction(_("Add tree…"), lambda: self.add_tree_button.click())
-        more_menu.addAction(_("Rename tree…"), lambda: self.rename_tree_button.click())
-        more_menu.addAction(_("Delete tree…"), lambda: self.delete_tree_button.click())
-        more_menu.addAction(_("Anchor position"), lambda: self.anchor_pos_button.click())
-        self.more_button.setMenu(more_menu)
-        toolbar.addWidget(self.more_button)
-        # Labels must never floor the dock width (their text can be wide, e.g.
-        # a live anchor position) — Ignored lets them shrink below the text.
-        self.anchor_pos_label = QLabel("")
-        self.anchor_pos_label.setSizePolicy(QSizePolicy.Policy.Ignored,
-                                            QSizePolicy.Policy.Preferred)
-        toolbar.addWidget(self.anchor_pos_label)
-        self.dirty_label = QLabel("")
-        self.dirty_label.setSizePolicy(QSizePolicy.Policy.Ignored,
-                                       QSizePolicy.Policy.Preferred)
-        toolbar.addWidget(self.dirty_label)
-        toolbar.addStretch(1)
-        layout.addLayout(toolbar)
+        # ── No whole-tree toolbar (2026-09-03, plan
+        #    plan_2026_09_03_trees_menu_tools.md): every whole-tree action —
+        #    Create/Rename/Delete tree, Anchor position, Redraw selected and
+        #    Redraw whole tree — lives in the top-level menu Tools → Trees
+        #    (gui/main_window.py + DockHub delegates). The dock is a pure
+        #    per-tree editor: tabs, checkbox subtree selection, per-node
+        #    context menus, and the read-only indicators in the status row
+        #    below. The handlers stay here as the single call points for the
+        #    Tools-menu QActions (see _on_create_tree/_on_rename_tree/...).
 
         # ── Per-tree tabs ────────────────────────────────────────────────
         self.tabs = QTabWidget()
@@ -322,6 +272,24 @@ class TreesDock(QDockWidget):
         # rebuild-time events are filtered by _rebuilding_tabs.
         self.tabs.currentChanged.connect(self._on_tab_changed)
         layout.addWidget(self.tabs, 1)
+
+        # ── Bottom status row: read-only indicators ──────────────────────
+        # The whole-tree action buttons are gone (Tools → Trees owns them);
+        # only the two read-only labels stay — the anchor live-position
+        # readout and the unsaved-changes ●.
+        status_row = QHBoxLayout()
+        # Labels must never floor the dock width (their text can be wide, e.g.
+        # a live anchor position) — Ignored lets them shrink below the text.
+        self.anchor_pos_label = QLabel("")
+        self.anchor_pos_label.setSizePolicy(QSizePolicy.Policy.Ignored,
+                                            QSizePolicy.Policy.Preferred)
+        status_row.addWidget(self.anchor_pos_label)
+        status_row.addStretch(1)
+        self.dirty_label = QLabel("")
+        self.dirty_label.setSizePolicy(QSizePolicy.Policy.Ignored,
+                                       QSizePolicy.Policy.Preferred)
+        status_row.addWidget(self.dirty_label)
+        layout.addLayout(status_row)
 
         # ── Status line (static node_offset() preview) ───────────────────
         self.status_label = QLabel("")
@@ -347,7 +315,7 @@ class TreesDock(QDockWidget):
         if path is None:
             self._dirty = False
             self._rebuild_tabs()
-            self._update_toolbar_state()
+            self._update_status_row()
             return
         try:
             self._cfg, self._ctx = load_config(str(path))
@@ -367,7 +335,7 @@ class TreesDock(QDockWidget):
         # name is fatal-safe — the rebuild falls back to tab 0.
         self._pending_active_name = self._persisted_active_tab_name()
         self._rebuild_tabs()
-        self._update_toolbar_state()
+        self._update_status_row()
 
     def refresh_ref_candidates(self) -> None:
         """Lightweight cfg re-read — the TreesDock half of DockHub's
@@ -384,7 +352,7 @@ class TreesDock(QDockWidget):
         so the next _all_ref_candidates()/_live_roles()/_live_clusters() and
         every combo populated at dialog-open time see the fresh graph. The
         dialogs fetch their candidates lazily when opened (see _prompt_node/
-        _set_anchor_flow/_on_add_tree), so no tab rebuild is needed here — the
+        _set_anchor_flow/_on_create_tree), so no tab rebuild is needed here — the
         opposite of the other docks, whose set_root_path refresh_file_combo_
         choices repopulates live combos, and which are safe to call because
         they never reset loaded form state.
@@ -449,7 +417,7 @@ class TreesDock(QDockWidget):
         else:
             self._trees = fresh
         self._rebuild_tabs()
-        self._update_toolbar_state()
+        self._update_status_row()
 
     def apply_highlight(self) -> None:
         """Re-apply the highlight stylesheet — same consumer shape as the
@@ -488,7 +456,7 @@ class TreesDock(QDockWidget):
 
     def _rebuild_tabs(self) -> None:
         """One tab per Tree in self._trees; a single placeholder tab when the
-        list is empty (Phase 2's "Add tree…" fills it)."""
+        list is empty (Tools → Trees → Create tree… fills it)."""
         # (P1, 2026-09-03, plan tree_ui_state_persistence): remember the
         # CURRENT active tree by NAME before clear() so the rebuild keeps the
         # user on the same tab instead of unconditionally jumping to tab 0 (the
@@ -867,14 +835,16 @@ class TreesDock(QDockWidget):
     def _show_status(self, text: str) -> None:
         self.status_label.setText(text)
 
-    # ── Toolbar / dirty state helpers ────────────────────────────────────
+    # ── Status / dirty state helpers ─────────────────────────────────────
 
-    def _update_toolbar_state(self) -> None:
-        """Dirty indicator reflects _dirty; Redraw enabled from Phase 4 (the
-        per-dock Save button is gone since 2026-09-01 — structural edits
-        auto-stage via _mark_dirty -> _stage_trees)."""
+    def _update_status_row(self) -> None:
+        """Refresh the read-only status row (2026-09-03, plan
+        plan_2026_09_03_trees_menu_tools.md): the dirty indicator reflects
+        _dirty. The per-dock Save button is gone since 2026-09-01 (structural
+        edits auto-stage via _mark_dirty -> _stage_trees) and the whole-tree
+        action buttons are gone since 2026-09-03 (they live in Tools → Trees),
+        so this only drives the two read-only labels."""
         self.dirty_label.setText(_("●") if self._dirty else "")
-        self.redraw_button.setEnabled(True)
 
     def _do_save(self) -> None:
         """Save the trees: section into the ROOT config through the single
@@ -906,7 +876,7 @@ class TreesDock(QDockWidget):
             QMessageBox.warning(self, _("Save"), str(e))
             return  # file written, .bak is fresh — report, don't roll back
         self._dirty = False
-        self._update_toolbar_state()
+        self._update_status_row()
 
     @staticmethod
     def _is_self_ref_anchor(tree: Tree) -> bool:
@@ -975,7 +945,7 @@ class TreesDock(QDockWidget):
         section into the working set (the per-dock Save button is gone)."""
         self._stage_trees()
         self._dirty = True
-        self._update_toolbar_state()
+        self._update_status_row()
 
     # ── Structural editing (Phase 2) ─────────────────────────────────────
 
@@ -1019,7 +989,7 @@ class TreesDock(QDockWidget):
     def _warn_read_only_instance(self, tree: Tree) -> bool:
         """True (and shows a message) when `tree` is a generated instance that
         may not be edited or deleted — the read-only guard for the tree-level
-        toolbar actions. Returns False for editable (hand-written/template)
+        actions (Tools → Trees). Returns False for editable (hand-written/template)
         trees, so callers just `return` on True."""
         inst = self._instance_of(tree)
         if inst is None:
@@ -1435,13 +1405,19 @@ class TreesDock(QDockWidget):
         for child in node.children:
             self._collect_move_candidates(child, forbidden, out)
 
-    def _on_add_tree(self) -> None:
-        name, ok = QInputDialog.getText(self, _("Add tree"), _("Tree name:"))
+    def _on_create_tree(self) -> None:
+        """Tools → Trees → Create tree… (2026-09-03, plan
+        plan_2026_09_03_trees_menu_tools.md): create a NEW empty (manual)
+        tree in the dock's buffer — name + the six-mode anchor dialog, then an
+        empty nodes=[] tree is appended, marked dirty (auto-staged), and its
+        fresh tab is focused. Nothing is written until File > Save (the same
+        staged model as Rename/Delete). Was the dock's "Add tree…" handler."""
+        name, ok = QInputDialog.getText(self, _("Create tree"), _("Tree name:"))
         if not ok or not name.strip():
             return
         name = name.strip()
         if any(t.name == name for t in self._trees):
-            QMessageBox.warning(self, _("Add tree"),
+            QMessageBox.warning(self, _("Create tree"),
                                 _("A tree named {name!r} already exists.").format(name=name))
             return
         anchor = _AnchorDialog.prompt(

@@ -241,65 +241,31 @@ def test_static_preview_polar_node(main_window, tmp_path):
     assert "3.000" in text and "45.000" in text
 
 
-# ── Toolbar ───────────────────────────────────────────────────────────────
+# ── Whole-tree actions (2026-09-03: moved to the Tools → Trees menu) ───────
 
-def test_toolbar_buttons_enabled(main_window):
-    """No Open/New buttons (trees live in the root config, RootMetadataDock
-    owns the root); Add/Rename/Delete tree + Save + Redraw selected/whole tree
-    + the read-only Anchor position indicator are enabled."""
+def test_no_whole_tree_action_buttons(main_window):
+    """2026-09-03 (plan plan_2026_09_03_trees_menu_tools.md): every whole-tree
+    action (Create/Rename/Delete tree, Anchor position, Redraw selected/whole)
+    moved to the top-level menu Tools → Trees — the dock itself exposes no
+    action buttons or "⋯" overflow. Only the read-only status labels
+    (anchor_pos_label / dirty_label) and the handler call points remain."""
     dock = TreesDock(main_window)
-    assert dock.add_tree_button.isEnabled() is True
-    assert dock.rename_tree_button.isEnabled() is True
-    assert dock.delete_tree_button.isEnabled() is True
-    assert dock.redraw_button.isEnabled() is True
-    assert dock.redraw_whole_button.isEnabled() is True
-    assert dock.anchor_pos_button.isEnabled() is True
-    assert not hasattr(dock, "open_button")
-    assert not hasattr(dock, "new_button")
-
-
-def _toolbar_layout(dock):
-    """The toolbar QHBoxLayout — the first item of the container's QVBoxLayout."""
-    return dock.widget().layout().itemAt(0).layout()
-
-
-def test_toolbar_moves_secondary_actions_into_an_overflow_menu(main_window):
-    """2026-08-30, Denis: TreesDock couldn't be narrowed after being widened —
-    seven QPushButtons in one row never shrink below their sizeHint (the real
-    width floor; the QTreeWidget setMinimumWidth(1) fix wasn't the place). The
-    tree-management actions move into a "⋯" menu, leaving only the primary
-    buttons + the menu trigger in the visible row."""
-    dock = TreesDock(main_window)
-    toolbar = _toolbar_layout(dock)
-    visible = [toolbar.itemAt(i).widget() for i in range(toolbar.count())
-               if toolbar.itemAt(i).widget() is not None]
-    assert dock.redraw_button in visible
-    assert dock.redraw_whole_button in visible
-    # the secondary actions are reachable only through the "⋯" menu
-    for button in (dock.add_tree_button, dock.rename_tree_button,
-                   dock.delete_tree_button, dock.anchor_pos_button):
-        assert button not in visible
-    assert dock.more_button in visible
-    menu = dock.more_button.menu()
-    assert menu is not None
-    texts = [a.text() for a in menu.actions()]
-    assert "Add tree…" in texts
-    assert "Rename tree…" in texts
-    assert "Delete tree…" in texts
-    assert "Anchor position" in texts
-
-
-def test_more_menu_action_re_triggers_the_wrapped_button(main_window, monkeypatch):
-    """The "⋯" menu's actions re-fire their own (hidden) QPushButton, so the
-    existing handler/API wiring is untouched. `click` is patched at call time
-    (the menu lambda resolves the attribute then), proving the routing."""
-    dock = TreesDock(main_window)
-    clicked = []
-    monkeypatch.setattr(dock.add_tree_button, "click", lambda: clicked.append("add"))
-    menu = dock.more_button.menu()
-    action = next(a for a in menu.actions() if a.text() == "Add tree…")
-    action.trigger()
-    assert clicked == ["add"]
+    for attr in ("add_tree_button", "rename_tree_button", "delete_tree_button",
+                 "redraw_button", "redraw_whole_button", "anchor_pos_button",
+                 "more_button", "open_button", "new_button"):
+        assert not hasattr(dock, attr), (
+            f"whole-tree action button {attr} should have moved to Tools → Trees")
+    # The read-only indicators stay.
+    assert hasattr(dock, "anchor_pos_label")
+    assert hasattr(dock, "dirty_label")
+    # The handlers behind the moved Tools actions stay callable on the dock
+    # (DockHub / the Tools-menu QActions forward here).
+    assert callable(dock._on_create_tree)
+    assert callable(dock._on_rename_tree)
+    assert callable(dock._on_delete_tree)
+    assert callable(dock._refresh_anchor_live_position)
+    assert callable(dock._on_redraw_selected)
+    assert callable(dock._on_redraw_whole_tree)
 
 
 # ── Phase 2: structural editing ───────────────────────────────────────────
@@ -922,9 +888,10 @@ def test_rename_tree_enforces_unique_names(main_window, tmp_path):
 # ── Whole-tree Delete (2026-08-27) ────────────────────────────────────────
 
 def test_delete_tree_removes_from_list_and_marks_dirty(main_window, tmp_path, monkeypatch):
-    """Confirming the Delete tree… toolbar button removes the CURRENT tree
-    from self._trees, marks the dock dirty and rebuilds one fewer tab (the
-    deletion itself writes nothing — Save persists it, like Add/Rename)."""
+    """Confirming Tools → Trees → Delete tree… (dock._on_delete_tree) removes
+    the CURRENT tree from self._trees, marks the dock dirty and rebuilds one
+    fewer tab (the deletion itself writes nothing — Save persists it, like
+    Create/Rename)."""
     dock, _root = _dock_with(main_window, tmp_path)  # power_tree + misc
     assert len(dock._trees) == 2
     assert dock.tabs.count() == 2
@@ -933,7 +900,7 @@ def test_delete_tree_removes_from_list_and_marks_dirty(main_window, tmp_path, mo
     import gui.docks.trees_dock as td_mod
     monkeypatch.setattr(td_mod.QMessageBox, "question",
                         lambda *a, **k: QMessageBox.StandardButton.Yes)
-    dock.delete_tree_button.click()
+    dock._on_delete_tree()
 
     assert [t.name for t in dock._trees] == ["misc"]
     assert dock._dirty is True
@@ -950,7 +917,7 @@ def test_delete_tree_cancel_keeps_it(main_window, tmp_path, monkeypatch):
     import gui.docks.trees_dock as td_mod
     monkeypatch.setattr(td_mod.QMessageBox, "question",
                         lambda *a, **k: QMessageBox.StandardButton.No)
-    dock.delete_tree_button.click()
+    dock._on_delete_tree()
 
     assert [t.name for t in dock._trees] == ["power_tree", "misc"]
     assert dock._dirty is False
@@ -958,7 +925,7 @@ def test_delete_tree_cancel_keeps_it(main_window, tmp_path, monkeypatch):
 
 
 def test_delete_tree_no_current_tree_is_noop(main_window, monkeypatch):
-    """With no trees loaded (placeholder tab) the button must not crash and
+    """With no trees loaded (placeholder tab) the handler must not crash and
     must not even open a confirmation dialog."""
     dock = TreesDock(main_window)
     dock.set_root_file(None)
@@ -968,7 +935,7 @@ def test_delete_tree_no_current_tree_is_noop(main_window, monkeypatch):
     called = []
     monkeypatch.setattr(td_mod.QMessageBox, "question",
                         lambda *a, **k: called.append(a) or QMessageBox.StandardButton.Yes)
-    dock.delete_tree_button.click()
+    dock._on_delete_tree()
 
     assert called == []
     assert dock._dirty is False
@@ -2429,8 +2396,8 @@ def test_template_context_menu_still_offers_structural_actions(
 
 def test_rename_delete_tree_are_guarded_on_instance(
         main_window, tmp_path, monkeypatch):
-    """P1: the toolbar Rename/Delete tree actions refuse an instance tab (an
-    explanatory message, no dialog, no buffer change)."""
+    """P1: the Tools → Trees Rename/Delete tree actions (dock handlers) refuse
+    an instance tab (an explanatory message, no dialog, no buffer change)."""
     import gui.docks.trees_dock as td_mod
     dock, _ = _instance_dock(main_window, tmp_path)
     dock.tabs.setCurrentIndex(1)  # ch1_dac_buf (the instance)
