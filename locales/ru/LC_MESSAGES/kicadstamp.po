@@ -1819,6 +1819,23 @@ msgstr "Поверх всех окон"
 msgid "Tray icon"
 msgstr "Значок в трее"
 
+#: gui/docks/configurator.py:181
+msgid "Style"
+msgstr "Стиль"
+
+#: gui/docks/configurator.py:184
+msgid "System default"
+msgstr "Системный по умолчанию"
+
+#: gui/docks/configurator.py:187
+msgid ""
+"Applies immediately; restart KiCadStamp for a fully clean result if you "
+"switch styles more than once in one session."
+msgstr ""
+"Изменения стиля применяются сразу; для гарантированно чистого результата "
+"рекомендуется перезапустить KiCadStamp, если вы переключаете стиль более "
+"одного раза за одну сессию."
+
 #: gui/docks/configurator.py:172
 msgid "Highlight color"
 msgstr "Цвет подсветки"

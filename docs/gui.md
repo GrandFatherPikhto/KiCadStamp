@@ -415,6 +415,19 @@ connection timeout, hotkey rebinding) fire only on Apply/OK.
   LOGIC is unchanged in `MainWindow` (`_set_always_on_top`/`_set_tray_enabled`) — the browser just
   re-emits their toggles from `apply()` and `DockHub` wires them back. The status bar is now the
   status label plus the Reconnect/Open fieldstool/KiCad processes... buttons only.
+- **Style** (the **Appearance** page, 2026-09-03, plan `qt_style_setting`) — pick which Qt style
+  name renders the whole GUI. **System default** (the first, special entry) means "never call
+  `setStyle()`" — today's behaviour, the OS/Qt platform-theme integration untouched. The other
+  entries are the styles available on THIS machine/Qt build (`QStyleFactory.keys()`, e.g.
+  `Fusion`/`Windows`) — never a hardcoded list, so the set differs per OS. Stored as
+  `gui_state.json["qt_style"]` (absent/`None` = System default) and applied BOTH at startup
+  (`kicadstamp/gui_main.py`'s `apply_saved_qt_style`) AND live on Apply/OK
+  (`QApplication.setStyle()`). Fatal-safe like `window_geometry`/`dock_state`: a stored name that
+  does not exist on this machine (e.g. `gui_state.json` synced from another OS) is silently
+  ignored and falls back to System default — never breaks. Known Qt limitation (not ours): after a
+  style was switched live within one session, switching back to System default cannot reliably
+  restore the very first style — the hint under the combo recommends a restart for a fully clean
+  result.
 - **Highlight color** (the **Appearance** page) — one highlight scheme applied to ALL THREE
   highlight places: the Detail
   dock's active tab, the Config tree's selected item, and the Components tree's selected item.

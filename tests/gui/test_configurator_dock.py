@@ -8,6 +8,7 @@ gui_state.json and fires the side effects, cancel()/reload_from_state()
 discards the draft."""
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QKeySequence
+from PyQt6.QtWidgets import QStyleFactory
 
 from gui import hotkeys
 from gui import settings
@@ -173,6 +174,96 @@ def test_highlight_radio_state_restored_from_settings(main_window, qapp):
     assert dock.custom_radio.isChecked()
     assert dock.pick_color_button.isEnabled()
     assert "#123456" in dock.color_preview.styleSheet()
+
+
+# ── Qt style (2026-09-03, plan qt_style_setting) ─────────────────────────
+
+class _RecordingApp:
+    """Stands in for QApplication.instance() in apply() tests — records the
+    setStyle() calls without touching the real test-session style."""
+
+    def __init__(self, calls):
+        self._calls = calls
+
+    def setStyle(self, name):
+        self._calls.append(name)
+
+
+class _ForbiddingApp:
+    """setStyle() must never be called on it — raises if it is."""
+
+    def setStyle(self, name):
+        raise AssertionError("setStyle must not be called for System default")
+
+
+def test_style_combo_lists_system_default_first_then_all_styles(main_window, qapp):
+    """First combo item is the special "System default"; the rest are the styles
+    available on THIS build (QStyleFactory.keys()), sorted — never a hardcoded
+    list (the set differs per OS/Qt build)."""
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    expected = ["System default"] + sorted(QStyleFactory.keys())
+    actual = [dock.style_combo.itemText(i) for i in range(dock.style_combo.count())]
+    assert actual == expected
+
+
+def test_style_defaults_to_system_default(main_window, qapp):
+    """Nothing stored yet == "System default" (index 0), and construction does
+    NOT write the key (same pattern as highlight_mode/rename_confirmation)."""
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    assert dock.style_combo.currentIndex() == 0
+    assert settings.state.get("qt_style") is None
+
+
+def test_style_restored_from_settings(main_window, qapp):
+    """A stored style name that exists on this build is reflected into the
+    combo at construction (the whole point of persisting it)."""
+    valid = sorted(QStyleFactory.keys())[0]
+    settings.state.set("qt_style", valid)
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    assert dock.style_combo.currentIndex() != 0
+    assert dock.style_combo.currentText() == valid
+
+
+def test_style_unknown_name_quietly_falls_back_to_system_default(main_window, qapp):
+    """A stored value that names no style on THIS machine (e.g. gui_state.json
+    synced from another OS) must not break the dialog — quiet fallback to
+    "System default" (index 0), same fatal-safety as the startup path."""
+    settings.state.set("qt_style", "NoSuchStyle_zzz")
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    assert dock.style_combo.currentIndex() == 0
+    assert dock.style_combo.currentText() == "System default"
+
+
+def test_apply_concrete_style_persists_and_applies_live(main_window, qapp, monkeypatch):
+    """Choosing a concrete style on Apply/OK: persisted as qt_style AND applied
+    live via QApplication.instance().setStyle() (the dialog's immediate-apply
+    contract — no restart needed)."""
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    valid = sorted(QStyleFactory.keys())[0]
+    calls = []
+    monkeypatch.setattr(configurator_mod.QApplication, "instance",
+                        lambda: _RecordingApp(calls))
+    dock.style_combo.setCurrentText(valid)
+    assert settings.state.get("qt_style") is None  # draft only
+    dock.apply()
+    assert settings.state.get("qt_style") == valid
+    assert calls == [valid]
+
+
+def test_apply_system_default_clears_key_and_skips_setstyle(main_window, qapp,
+                                                            monkeypatch):
+    """Switching back to "System default" clears qt_style (None) and does NOT
+    call setStyle() — Qt gives no guaranteed restore-to-default API after a
+    live switch within this session (design §2.4), so we leave the running
+    style untouched rather than attempt a non-guaranteed rollback."""
+    valid = sorted(QStyleFactory.keys())[0]
+    settings.state.set("qt_style", valid)  # previously chosen
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    monkeypatch.setattr(configurator_mod.QApplication, "instance",
+                        lambda: _ForbiddingApp())
+    dock.style_combo.setCurrentIndex(0)  # System default
+    dock.apply()
+    assert settings.state.get("qt_style") is None
 
 
 # ── Connection timeout ────────────────────────────────────────────────────

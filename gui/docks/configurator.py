@@ -51,9 +51,10 @@ from typing import Dict
 
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import (QCheckBox, QColorDialog, QGroupBox, QHBoxLayout,
-                             QKeySequenceEdit, QLabel, QPushButton, QRadioButton,
-                             QSpinBox, QStackedWidget, QTreeWidget, QTreeWidgetItem,
+from PyQt6.QtWidgets import (QApplication, QCheckBox, QColorDialog, QComboBox,
+                             QGroupBox, QHBoxLayout, QKeySequenceEdit, QLabel,
+                             QPushButton, QRadioButton, QSpinBox, QStackedWidget,
+                             QStyleFactory, QTreeWidget, QTreeWidgetItem,
                              QVBoxLayout, QWidget)
 
 from kicadstamp.constants import DEFAULT_TIMEOUT_MS
@@ -165,10 +166,31 @@ class ConfiguratorDock(QWidget):
         return page
 
     def _build_appearance_page(self) -> QWidget:
-        """Highlight color: system palette vs custom."""
+        """Qt style (QStyleFactory name) on top, highlight color below."""
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
+
+        # Style — the more fundamental look-and-feel knob, so it sits ABOVE
+        # the highlight group (2026-09-03, plan qt_style_setting). The first
+        # item "System default" is special (not a style name): it means "never
+        # call setStyle()" — today's behaviour. The rest come from
+        # QStyleFactory.keys(), i.e. what THIS machine/Qt build offers — not a
+        # hardcoded list (the set differs per OS/build, and a name saved on one
+        # machine must degrade safely on another).
+        style_group = QGroupBox(_("Style"))
+        style_layout = QVBoxLayout(style_group)
+        self.style_combo = QComboBox()
+        self.style_combo.addItem(_("System default"))
+        self.style_combo.addItems(sorted(QStyleFactory.keys()))
+        style_layout.addWidget(self.style_combo)
+        style_hint = QLabel(_("Applies immediately; restart KiCadStamp for a "
+                              "fully clean result if you switch styles more "
+                              "than once in one session."))
+        style_hint.setWordWrap(True)
+        style_layout.addWidget(style_hint)
+        layout.addWidget(style_group)
+
         highlight_group = QGroupBox(_("Highlight color"))
         highlight_layout = QVBoxLayout(highlight_group)
         self.system_radio = QRadioButton(_("System palette"))
@@ -287,6 +309,14 @@ class ConfiguratorDock(QWidget):
         self.system_radio.setChecked(mode != "custom")
         self.pick_color_button.setEnabled(mode == "custom")
         self._update_color_preview()
+        saved_style = settings.state.get("qt_style")
+        if isinstance(saved_style, str) and saved_style in QStyleFactory.keys():
+            self.style_combo.setCurrentText(saved_style)
+        else:
+            # Quiet fallback to "System default" — a stored non-None value
+            # that names no style on THIS machine (e.g. gui_state.json synced
+            # from another OS) must not break the dialog.
+            self.style_combo.setCurrentIndex(0)
         self.timeout_spin.setValue(settings.state.get("kicad_timeout_ms",
                                                       DEFAULT_TIMEOUT_MS))
         self.rename_confirmation_checkbox.setChecked(
@@ -309,6 +339,23 @@ class ConfiguratorDock(QWidget):
         mode = "custom" if self.custom_radio.isChecked() else "system"
         settings.state.set("highlight_mode", mode)
         settings.state.set("highlight_color", self._draft_highlight_color)
+
+        # Qt style (2026-09-03, plan qt_style_setting): index 0 is the special
+        # "System default" entry (its text is translated, so compare by index,
+        # not text). System default -> clear the key and DO NOT call setStyle():
+        # Qt has no guaranteed "restore original default style" after a live
+        # switch in this session, so the running style is left untouched (see
+        # design §2.4). A concrete style -> persist + apply live via
+        # QApplication.instance().setStyle() (the same immediate-apply contract
+        # every other setting on this dialog honours).
+        if self.style_combo.currentIndex() == 0:
+            settings.state.set("qt_style", None)
+        else:
+            chosen_style = self.style_combo.currentText()
+            settings.state.set("qt_style", chosen_style)
+            app = QApplication.instance()
+            if app is not None:
+                app.setStyle(chosen_style)
 
         timeout_ms = self.timeout_spin.value()
         settings.state.set("kicad_timeout_ms", timeout_ms)

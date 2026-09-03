@@ -1806,6 +1806,22 @@ msgstr "Always on top"
 msgid "Tray icon"
 msgstr "Tray icon"
 
+#: gui/docks/configurator.py:181
+msgid "Style"
+msgstr "Style"
+
+#: gui/docks/configurator.py:184
+msgid "System default"
+msgstr "System default"
+
+#: gui/docks/configurator.py:187
+msgid ""
+"Applies immediately; restart KiCadStamp for a fully clean result if you "
+"switch styles more than once in one session."
+msgstr ""
+"Applies immediately; restart KiCadStamp for a fully clean result if you "
+"switch styles more than once in one session."
+
 #: gui/docks/configurator.py:172
 msgid "Highlight color"
 msgstr "Highlight color"

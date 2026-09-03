@@ -21,19 +21,33 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QStyleFactory
 
 from kicadstamp import __version__
 from kicadstamp.constants import DEFAULT_TIMEOUT_MS
 from kicadstamp.i18n import _
 from kicadstamp.logging_setup import setup_logging
 
+from gui import settings
 from gui.app_icon import build_app_icon
 from gui.docks._common import apply_compact_field_minimums
 from gui.main_window import MainWindow
 from gui.single_instance import SingleInstanceGuard
 
 _SINGLE_INSTANCE_NAME = "kicadstamp-gui-singleton"
+
+
+def apply_saved_qt_style(app: QApplication) -> None:
+    """Apply the user-chosen Qt style (gui_state.json["qt_style"], picked in
+    Settings > Appearance > Style, 2026-09-03 plan qt_style_setting) when it is
+    a non-empty string AND exists on THIS machine/Qt build (QStyleFactory.keys())
+    — any other value (absent, None, empty, or a name this build doesn't know,
+    e.g. gui_state.json synced from another OS) is a silent no-op: today's
+    default behaviour, unchanged. Never raises, never fatal — the same
+    discipline _restore_window_state applies to window_geometry/dock_state."""
+    saved_style = settings.state.get("qt_style")
+    if isinstance(saved_style, str) and saved_style in QStyleFactory.keys():
+        app.setStyle(saved_style)
 
 
 def main():
@@ -50,6 +64,12 @@ def main():
     listener = setup_logging(verbose=args.verbose)
 
     app = QApplication(sys.argv)
+
+    # User-chosen Qt style (Settings > Appearance > Style, plan 2026-09-03
+    # qt_style_setting) — default is none, leaving the system Qt platform-theme
+    # integration untouched. Fatal-safe: unknown/foreign stored name is a
+    # silent no-op (see apply_saved_qt_style).
+    apply_saved_qt_style(app)
 
     # 2026-08-30 (Denis): combos' minimum width == their widest item, which
     # floored narrow docks. App-wide compact field minimums — growth on
