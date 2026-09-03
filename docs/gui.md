@@ -358,11 +358,13 @@ each tree's live anchor (role/auto/origin/point/ref) — runs from **Tools → T
 trees and modules)…** (menu only, no dock button); the per-tree **Redraw selected / Redraw whole
 tree** items in the same **Tools → Trees** submenu stay single-tree.
 
-**Tree instances (`tree_instances:`, 2026-09-02, plan_2026_09_02_tree_instances.md):** a tree + its
-Entity records can be declared once as a TEMPLATE and instantiated per schematic sheet by
-`tree_instances:` declarations (see the config docs). Each generated instance shows here as an ordinary
-tab whose nodes are a deep copy of the template — refs suffixed `__{instance.name}`, the instance's
-`sheet` substituted into the copied Entities and the role anchor. Instance tabs are **READ-ONLY**: their
+**Tree instances (`tree_instances:`, 2026-09-02, plan_2026_09_02_tree_instances.md; optional `cluster:`
+axis 2026-09-03, plan tree_instances_cluster):** a tree + its Entity records can be declared once as a
+TEMPLATE and instantiated per schematic sheet (and, optionally, per cluster) by `tree_instances:`
+declarations (see the config docs). Each generated instance shows here as an ordinary tab whose nodes
+are a deep copy of the template — refs suffixed `__{instance.name}`, the instance's `sheet` (and, when
+the declaration sets it, its `cluster`) substituted into the copied Entities and the role anchor.
+Instance tabs are **READ-ONLY**: their
 node context menu offers no Add/Edit/Delete/Rename/Move (the geometry is owned by the template + the
 declaration), and Rename/Delete tree refuse them — but **Redraw** works normally (instances are fully
 placeable trees). An instance tab shows one top **"⇐ instance of {template} (sheet={sheet})"** item; a
@@ -370,8 +372,10 @@ template tree shows one **"→ instance: {name}"** item per instance — double-
 (the same navigation primitive as "⇐ embedded in"). **Save never writes generated instances** as literal
 `trees:` entries — the untouched `tree_instances:` section regenerates them on every load (no
 duplication). Manage the short declarations with **Tools → Trees → Instances…**: pick a template
-(generated instances can't themselves be templates) and edit its {name, sheet} rows — the dialog only
-persists the declarations, the instances materialize on the next load.
+(generated instances can't themselves be templates) and edit its {name, sheet, cluster?} rows — the
+Cluster column is OPTIONAL (blank = inherit the template's own cluster unchanged); a non-empty value is
+substituted into the generated copies' `cluster` and the role anchor, mirroring `sheet`. The dialog
+only persists the declarations, the instances materialize on the next load.
 
 ## Detail dock
 
