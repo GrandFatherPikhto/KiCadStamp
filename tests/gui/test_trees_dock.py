@@ -94,6 +94,97 @@ def test_set_root_file_loads_trees_from_config(main_window, tmp_path):
     assert dock2.tabs.count() == 1
 
 
+# ── cfg.trees / _trees identity invariant (2026-09-03, plan                 ──
+# ── trees_dock_cfg_trees_desync.md) ────────────────────────────────────────
+
+def test_set_root_file_binds_cfg_trees_to_the_same_buffer(main_window, tmp_path):
+    """Invariant from the dock's very first load (2026-09-03, plan
+    trees_dock_cfg_trees_desync.md): self._cfg.trees MUST be the SAME list
+    object as self._trees — the redraw payloads pass "cfg" (whose trees
+    ApplyPipeline reads), so the two must never be distinct copies."""
+    dock, root = _dock_with(main_window, tmp_path)
+    assert dock._cfg.trees is dock._trees
+    assert dock._cfg.trees[0] is dock._trees[0]
+
+
+def test_refresh_ref_candidates_rebinds_cfg_trees_to_edited_buffer(
+        main_window, tmp_path):
+    """THE reported bug (2026-09-03): an offset edit applied to a node in the
+    working buffer was invisible to the next Redraw — refresh_ref_candidates
+    (fired by another dock's save between Apply and Redraw) swapped self._cfg
+    for fresh-from-disk objects while self._trees kept the edited ones, and
+    ApplyPipeline reads positions through cfg.trees. After the fix cfg.trees is
+    rebound to the SAME list as _trees, so the edit survives the refresh and is
+    visible through cfg."""
+    cfg = {
+        "trees": [{
+            "name": "fpga",
+            "anchor": {"ref": "CONN_PM5V"},
+            "nodes": [{"ref": "fpga_flash_fpga", "kind": "external",
+                       "xy": [10.0, 20.0]}],
+        }],
+    }
+    dock, root = _dock_with(main_window, tmp_path, cfg)
+    node = dock._trees[0].nodes[0]
+
+    # _copy_node_onto/Apply edits the node object in the WORKING buffer...
+    node.xy = (30.0, 40.0)
+    assert dock._cfg.trees[0].nodes[0].xy == (30.0, 40.0)
+    assert dock._cfg.trees is dock._trees
+
+    # ...then a save from another dock fires refresh_ref_candidates, which
+    # re-reads cfg from disk (fresh, UN-edited objects) but must keep _trees
+    # untouched and rebind cfg.trees to it.
+    dock.refresh_ref_candidates()
+
+    assert dock._cfg.trees is dock._trees
+    assert dock._cfg.trees[0].nodes[0] is node           # same object, not a copy
+    assert dock._cfg.trees[0].nodes[0].xy == (30.0, 40.0)  # the edit is visible
+
+
+def test_reload_trees_rebinds_cfg_trees_on_clean_reload(main_window, tmp_path):
+    """On a clean (non-dirty) reload _trees becomes the freshly-read list —
+    cfg.trees must be rebound to THAT exact list (2026-09-03, plan
+    trees_dock_cfg_trees_desync.md)."""
+    dock, root = _dock_with(main_window, tmp_path)
+    root.write_text(dict_to_sexp({
+        "trees": [
+            {"name": "power_tree", "anchor": {"ref": "CONN_PM5V"}, "nodes": []},
+            {"name": "misc", "anchor": {"origin": True}, "nodes": []},
+            {"name": "from_selection", "anchor": {"role": "DAC"}, "nodes": []},
+        ],
+    }), encoding="utf-8")
+
+    dock.reload_trees()
+
+    assert [t.name for t in dock._trees] == ["power_tree", "misc", "from_selection"]
+    assert dock._cfg.trees is dock._trees
+
+
+def test_reload_trees_rebinds_cfg_trees_after_dirty_merge(
+        main_window, tmp_path):
+    """reload_trees re-reads cfg and, when dirty, appends externally-added
+    trees to the working buffer — after the final buffer value is set,
+    cfg.trees must be rebound to it (2026-09-03, plan
+    trees_dock_cfg_trees_desync.md), so the merged buffer and cfg agree."""
+    dock, root = _dock_with(main_window, tmp_path)
+    dock._mark_dirty()
+    dock._trees[0].name = "renamed_locally"  # an unsaved edit
+    root.write_text(dict_to_sexp({
+        "trees": [
+            {"name": "power_tree", "anchor": {"ref": "CONN_PM5V"}, "nodes": []},
+            {"name": "misc", "anchor": {"origin": True}, "nodes": []},
+            {"name": "from_selection", "anchor": {"role": "DAC"}, "nodes": []},
+        ],
+    }), encoding="utf-8")
+
+    dock.reload_trees()
+
+    assert [t.name for t in dock._trees] == ["renamed_locally", "misc", "from_selection"]
+    assert dock._cfg.trees is dock._trees
+    assert dock._cfg.trees[0].name == "renamed_locally"  # the dirty edit is in cfg too
+
+
 # ── reload_trees (2026-09-01, plan extract_selection_as_tree.md) ────────────
 
 def test_reload_trees_picks_up_external_write(main_window, tmp_path):

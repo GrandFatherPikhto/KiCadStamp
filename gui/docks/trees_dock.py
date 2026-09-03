@@ -355,6 +355,13 @@ class TreesDock(QDockWidget):
         try:
             self._cfg, self._ctx = load_config(str(path))
             self._trees = list(self._cfg.trees)
+            # Invariant (2026-09-03, plan trees_dock_cfg_trees_desync.md):
+            # self._cfg.trees MUST be the SAME list object as self._trees — the
+            # redraw payloads pass "cfg" (whose trees ApplyPipeline reads), so
+            # cfg.trees and the working buffer must never diverge. In scope here
+            # they already match by value; this just pins the shared identity
+            # from the very start of the dock's life.
+            self._cfg.trees = self._trees
         except (ValidationError, OSError) as e:
             # A broken root config must not crash the trees dock — cfg stays
             # None, trees empty, and Save's link_trees round-trip is skipped
@@ -406,6 +413,11 @@ class TreesDock(QDockWidget):
             return
         self._cfg = cfg
         self._ctx = ctx
+        # Invariant (2026-09-03, plan trees_dock_cfg_trees_desync.md): this
+        # method re-reads cfg/ctx but deliberately NEVER touches _trees (dirty
+        # edits preserved) — rebind cfg.trees to the working buffer so the two
+        # lists cannot diverge and a later redraw reads the ACTUAL nodes.
+        self._cfg.trees = self._trees
         self._rebuild_instance_index()
         if self._dirty:
             logger.debug("Trees: ref candidates refreshed; unsaved tree "
@@ -451,6 +463,12 @@ class TreesDock(QDockWidget):
                          "were left untouched")
         else:
             self._trees = fresh
+        # Invariant (2026-09-03, plan trees_dock_cfg_trees_desync.md): `fresh`
+        # was captured from cfg.trees ABOVE, before this rebind. Only now that
+        # _trees holds its FINAL value (dirty-merged or fresh) do we rebind
+        # cfg.trees to it — so redraw payloads and Save's link_trees round-trip
+        # always see the same tree objects the dock is showing/editing.
+        self._cfg.trees = self._trees
         self._rebuild_tabs()
         self._update_status_row()
 
