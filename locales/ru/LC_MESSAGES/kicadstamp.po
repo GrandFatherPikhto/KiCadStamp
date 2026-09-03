@@ -11973,3 +11973,59 @@ msgstr "выделение охватывает несколько класте�
 msgid "Set the tree anchor first — a new group is positioned relative to the tree anchor (anchor → Set anchor…)."
 msgstr "Сначала задай якорь дерева — новая группа позиционируется относительно якоря дерева (anchor → Set anchor…)."
 
+
+#: kicadstamp/ (2026-09-03, plan tree_node_own_anchor)
+msgid "Pick a component (Role) or switch back to Relative to parent."
+msgstr "Выберите компонент (Role) или вернитесь к «Относительно родителя»."
+
+#: kicadstamp/ (2026-09-03, plan tree_node_own_anchor)
+msgid "Position"
+msgstr "Положение"
+
+#: kicadstamp/ (2026-09-03, plan tree_node_own_anchor)
+msgid "Relative to component"
+msgstr "Относительно компонента"
+
+#: kicadstamp/ (2026-09-03, plan tree_node_own_anchor)
+msgid "Relative to parent"
+msgstr "Относительно родителя"
+
+#: kicadstamp/ (2026-09-03, plan tree_node_own_anchor)
+#, python-brace-format
+msgid "node {ref!r}: own anchor must be a mapping"
+msgstr "узел {ref!r}: собственный якорь должен быть сопоставлением (mapping)"
+
+#: kicadstamp/ (2026-09-03, plan tree_node_own_anchor)
+#, python-brace-format
+msgid "node {ref!r}: own anchor needs a (role ...)"
+msgstr "узлу {ref!r}: собственный якорь требует (role ...)"
+
+#: kicadstamp/ (2026-09-03, plan tree_node_own_anchor)
+#, python-brace-format
+msgid "node {ref!r}: own anchor needs a live board connection"
+msgstr "узлу {ref!r}: для собственного якоря нужно подключение к живой плате"
+
+#: kicadstamp/ (2026-09-03, plan tree_node_own_anchor)
+#, python-brace-format
+msgid "node {ref!r}: own anchor needs a live board to resolve"
+msgstr "узлу {ref!r}: для разрешения собственного якоря нужна живая плата"
+
+#: kicadstamp/ (2026-09-03, plan tree_node_own_anchor)
+#, python-brace-format
+msgid "node {ref!r}: own anchor needs a role"
+msgstr "узлу {ref!r}: собственный якорь требует role"
+
+#: kicadstamp/ (2026-09-03, plan tree_node_own_anchor)
+#, python-brace-format
+msgid "node {ref!r}: own anchor supports only (role ...) — origin/ref/point/external are tree-anchor-only"
+msgstr "узел {ref!r}: собственный якорь поддерживает только (role ...) — origin/ref/point/external бывают только у якоря дерева"
+
+#: kicadstamp/ (2026-09-03, plan tree_node_own_anchor)
+#, python-brace-format
+msgid "node {ref!r}: own anchor supports only role — {keys} are tree-anchor-only"
+msgstr "узел {ref!r}: собственный якорь поддерживает только role — {keys} бывают только у якоря дерева"
+
+#: kicadstamp/ (2026-09-03, plan tree_node_own_anchor)
+#, python-brace-format
+msgid "unknown fields in {label} own anchor"
+msgstr "неизвестные поля в собственном якоре {label}"

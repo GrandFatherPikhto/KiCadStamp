@@ -224,7 +224,12 @@ def run_curated_forest_redraw(config_path: str, cfg, ctx, trees: list[Tree],
                 adapter, cfg, root, sheet_names)
             stage2.update(layout_tree_from_base(
                 root, base_pos, base_rot if base_rot is not None else 0.0,
-                by_tree))
+                by_tree,
+                # Own-anchor nodes (plan tree_node_own_anchor §2) need the live
+                # board to lay out from their own (role) anchor — the pure
+                # module-embedding callers pass nothing, this live caller has
+                # the adapter right here.
+                adapter=adapter, cfg=cfg, sheet_names=sheet_names))
         except Exception as e:  # noqa: BLE001 — honest, module content stays put
             logger.warning(_("Forest redraw: root tree {name!r} — stage-2 base "
                              "unavailable ({error}); its embedded module content "

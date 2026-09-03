@@ -39,6 +39,7 @@ from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
 from ..link_trees import LinkedNode, LinkedTree, link_trees
 from ..tree_position import (
+    node_own_anchor_base,
     node_position,
     resolve_base_live_position,
     resolve_base_rotation_deg,
@@ -350,6 +351,14 @@ def resolve_entity_live_position(adapter: "KiCadBoardAdapter", cfg: "Config",
                                       forest=forest, visited=chain)
     pos, rot = base_pos, base_rot
     for ln in node_path:
+        # Same own_anchor base substitution as _walk: an intermediate node on
+        # the path with its own (role) anchor breaks to THAT anchor's live
+        # frame, and the composition continues from it — keeps the live Entity
+        # read consistent with materialization (plan tree_node_own_anchor §2).
+        if ln.node.own_anchor is not None:
+            resolved = node_own_anchor_base(ln.node, adapter, cfg, sheet_names)
+            if resolved is not None:
+                pos, rot = resolved
         pos = node_position(ln.node, pos, rot)
         rot = rot + ln.node.rotation
     return pos, rot
@@ -381,7 +390,8 @@ def _to_clone(entity: Entity, pos_nm: Vector2, rot_deg: float) -> ClonePlacement
 
 
 def _walk(linked_nodes, parent_pos: Vector2, parent_rot: float, out: list[ClonePlacement],
-          position_overrides: dict | None = None) -> None:
+          position_overrides: dict | None = None, *,
+          adapter=None, cfg=None, sheet_names=None) -> None:
     """Depth-first over LinkedNode children. A node's absolute position =
     node_position(node, parent_pos, parent_rot) (parent + offset rotated into
     the parent's frame); its own rotation feeds its children's frame as
@@ -402,8 +412,23 @@ def _walk(linked_nodes, parent_pos: Vector2, parent_rot: float, out: list[CloneP
     that scenario; a full apply passes no overrides at all."""
     for ln in linked_nodes:
         node = ln.node
-        pos = node_position(node, parent_pos, parent_rot)
-        rot = parent_rot + node.rotation
+        # Own-anchor node: its offset is measured from the node's OWN (role)
+        # anchor's live frame, not the parent's — a PER-NODE base substitution
+        # (siblings keep the parent frame; children inherit the node's abs
+        # frame below, exactly as _walk has always done). adapter/cfg/sheet_names
+        # are threaded from materialize_entity_placements only for this case.
+        base_pos, base_rot = parent_pos, parent_rot
+        if node.own_anchor is not None:
+            resolved = node_own_anchor_base(node, adapter, cfg, sheet_names)
+            if resolved is None:
+                # node_own_anchor_base returns None only when own_anchor is
+                # None — defensive, unreachable above.
+                raise ValidationError(_(
+                    "node {ref!r}: own anchor needs a live board to resolve"
+                    ).format(ref=node.ref))
+            base_pos, base_rot = resolved
+        pos = node_position(node, base_pos, base_rot)
+        rot = base_rot + node.rotation
         if node.kind == "placement" and ln.record is not None \
                 and isinstance(ln.record.obj, Entity):
             override = (position_overrides or {}).get(ln.record.name)
@@ -412,7 +437,8 @@ def _walk(linked_nodes, parent_pos: Vector2, parent_rot: float, out: list[CloneP
                                      override.rotation_deg))
             else:
                 out.append(_to_clone(ln.record.obj, pos, rot))
-        _walk(ln.children, pos, rot, out, position_overrides)
+        _walk(ln.children, pos, rot, out, position_overrides,
+              adapter=adapter, cfg=cfg, sheet_names=sheet_names)
 
 
 def materialize_entity_placements(adapter: "KiCadBoardAdapter", cfg: "Config",
@@ -466,7 +492,8 @@ def materialize_entity_placements(adapter: "KiCadBoardAdapter", cfg: "Config",
                 adapter, cfg, tree, sheet_names, forest=linked)
             tree_clones: list[ClonePlacement] = []
             _walk(tree.nodes, anchor_pos, anchor_rot, tree_clones,
-                  position_overrides=position_overrides)
+                  position_overrides=position_overrides,
+                  adapter=adapter, cfg=cfg, sheet_names=sheet_names)
         except _EntityAnchorError:
             # A ref anchor resolving to an Entity that is not placed / placed
             # twice / in a cycle is a CONFIG bug — fatal for the whole run,

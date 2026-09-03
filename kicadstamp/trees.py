@@ -107,6 +107,14 @@ class TreeNode:
     # referenced tree's own origin. Mutually exclusive, independent of xy/polar.
     pivot_xy: tuple[float, float] | None = None
     pivot_polar: tuple[float, float] | None = None   # (radius_mm, angle_deg)
+    # NEW (2026-09-03, plan tree_node_own_anchor): optional per-node anchor
+    # override — when set, xy/polar are measured from THIS anchor's LIVE
+    # position instead of the parent's. Only the role-anchor shape is
+    # meaningful here (is_origin/ref/point/is_auto on a NODE's own anchor are
+    # load-time fatals, see _parse_own_anchor/_dict_own_anchor — those are
+    # tree-anchor-only concepts). None (default) = today's behaviour unchanged
+    # (offset from the parent / the tree's anchor for a top-level node).
+    own_anchor: TreeAnchor | None = None
 
 
 @dataclass
@@ -208,6 +216,36 @@ def _parse_anchor(anchor_node) -> TreeAnchor:
     )
 
 
+def _parse_own_anchor(node) -> TreeAnchor | None:
+    """A node's own nested (anchor ...) child, or None when absent. Only the
+    ROLE shape is meaningful here (plan tree_node_own_anchor §1): the node's
+    xy/polar are measured from this anchor's LIVE role position instead of the
+    parent. (origin)/(ref ...)/(point ...)/(external) on a NODE's anchor are
+    tree-anchor-only concepts — hard fatal, mirroring the tree-level
+    _parse_anchor discipline; sheet/cluster narrow an ambiguous Role, pad
+    moves the base onto a specific pad (all optional)."""
+    anchor_node = child(node, "anchor")
+    if anchor_node is None:
+        return None
+    if (child(anchor_node, "origin") is not None
+            or atom(anchor_node, "ref") is not None
+            or atom(anchor_node, "point") is not None
+            or child(anchor_node, "external") is not None):
+        _fatal(_("node {ref!r}: own anchor supports only (role ...) — "
+                 "origin/ref/point/external are tree-anchor-only")
+               .format(ref=atom(node, "ref")))
+    role = atom(anchor_node, "role")
+    if not role:
+        _fatal(_("node {ref!r}: own anchor needs a (role ...)").format(ref=atom(node, "ref")))
+    return TreeAnchor(
+        role=sval(role),
+        is_origin=False,
+        anchor_sheet=_opt_sval(atom(anchor_node, "sheet")),
+        anchor_cluster=_opt_sval(atom(anchor_node, "cluster")),
+        anchor_pad=_opt_sval(atom(anchor_node, "pad")),
+    )
+
+
 def _parse_node(node, seen_refs: set[str], location: str) -> TreeNode:
     """Parse one (node ...) subtree, recursing into nested (node ...)
     children. seen_refs enforces rule 2 (a ref appears in at most one node
@@ -263,6 +301,7 @@ def _parse_node(node, seen_refs: set[str], location: str) -> TreeNode:
         children=parsed_children,
         pivot_xy=pivot_xy,
         pivot_polar=pivot_polar,
+        own_anchor=_parse_own_anchor(node),
     )
 
 
@@ -344,6 +383,21 @@ def _node_to_sexp(node: TreeNode) -> list:
         out.append([sym("pivot-xy"), node.pivot_xy[0], node.pivot_xy[1]])
     elif node.pivot_polar is not None:
         out.append([sym("pivot-polar"), node.pivot_polar[0], node.pivot_polar[1]])
+    if node.own_anchor is not None:
+        # A node's own anchor serializes as a nested (anchor ...) child with
+        # the SAME role shape as a tree-level role anchor (plan
+        # tree_node_own_anchor §1.3) — written explicitly (not via
+        # _anchor_to_sexp) so a hand-built non-role own_anchor can never leak
+        # an origin/ref/point/external shape into a node (parse fatals on it).
+        a = node.own_anchor
+        anchor_sexp = [sym("anchor"), [sym("role"), a.role]]
+        if a.anchor_sheet is not None:
+            anchor_sexp.append([sym("sheet"), a.anchor_sheet])
+        if a.anchor_cluster is not None:
+            anchor_sexp.append([sym("cluster"), a.anchor_cluster])
+        if a.anchor_pad is not None:
+            anchor_sexp.append([sym("pad"), a.anchor_pad])
+        out.append(anchor_sexp)
     for child_node in node.children:
         out.append(_node_to_sexp(child_node))
     return out
@@ -450,6 +504,20 @@ def _node_to_dict(node: TreeNode) -> dict:
         out["pivot_xy"] = [node.pivot_xy[0], node.pivot_xy[1]]
     elif node.pivot_polar is not None:
         out["pivot_polar"] = [node.pivot_polar[0], node.pivot_polar[1]]
+    if node.own_anchor is not None:
+        # A node's own anchor in the dict node shape — role-only (mirror of
+        # the s-expr (anchor ...) child of a node), written explicitly so a
+        # hand-built non-role own_anchor can never leak a ref/origin/point
+        # shape into the config dict (parse fatals on it).
+        a = node.own_anchor
+        anchor_dict: dict = {"role": a.role}
+        if a.anchor_sheet is not None:
+            anchor_dict["sheet"] = a.anchor_sheet
+        if a.anchor_cluster is not None:
+            anchor_dict["cluster"] = a.anchor_cluster
+        if a.anchor_pad is not None:
+            anchor_dict["pad"] = a.anchor_pad
+        out["anchor"] = anchor_dict
     if node.children:
         out["children"] = [_node_to_dict(c) for c in node.children]
     return out
@@ -480,6 +548,35 @@ def _dict_offset(data: dict, key: str, location: str) -> tuple[float, float] | N
         _fatal(_("node {ref!r}: {key} must be exactly two numbers")
                .format(ref=data.get("ref"), key=key))
     return float(raw[0]), float(raw[1])
+
+
+def _dict_own_anchor(data: dict, location: str) -> TreeAnchor | None:
+    """A node dict's own "anchor" mapping (mirror of the s-expr nested
+    (anchor ...) child of a node), or None when absent. Only the role shape is
+    valid here — origin/ref/point/external on a NODE's own anchor are
+    tree-anchor-only concepts and are load-time fatal (mirrors _parse_own_anchor)."""
+    anchor_data = data.get("anchor")
+    if anchor_data is None:
+        return None
+    if not isinstance(anchor_data, dict):
+        _fatal(_("node {ref!r}: own anchor must be a mapping")
+               .format(ref=data.get("ref")))
+    forbidden = [k for k in ("origin", "ref", "point", "external")
+                 if anchor_data.get(k) is not None]
+    if forbidden:
+        _fatal(_("node {ref!r}: own anchor supports only role — {keys} are "
+                 "tree-anchor-only").format(ref=data.get("ref"),
+                                            keys=", ".join(forbidden)))
+    role = anchor_data.get("role")
+    if not role:
+        _fatal(_("node {ref!r}: own anchor needs a role").format(ref=data.get("ref")))
+    return TreeAnchor(
+        role=role,
+        is_origin=False,
+        anchor_sheet=anchor_data.get("sheet"),
+        anchor_cluster=anchor_data.get("cluster"),
+        anchor_pad=anchor_data.get("pad"),
+    )
 
 
 def _dict_node(data: dict, seen_refs: set[str], location: str) -> TreeNode:
@@ -531,6 +628,7 @@ def _dict_node(data: dict, seen_refs: set[str], location: str) -> TreeNode:
         children=[_dict_node(c, seen_refs, f"{location}.node") for c in data.get("children") or []],
         pivot_xy=pivot_xy,
         pivot_polar=pivot_polar,
+        own_anchor=_dict_own_anchor(data, location),
     )
 
 

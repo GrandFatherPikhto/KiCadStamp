@@ -542,3 +542,126 @@ def test_config_dict_tree_with_pivot_passes_known_key_check():
                 nodes=[_module_node(ref="ch0_dac_buf", pivot_xy=(0.5, -0.25))])
     loaded = _load_tree(tree_to_dict(tree))
     assert loaded.nodes[0].pivot_xy == (0.5, -0.25)
+
+
+# ── node's own anchor (own_anchor, plan tree_node_own_anchor 2026-09-03) ──
+
+_NODE_OWN_ANCHOR = """(kicadstamp-trees
+  (tree
+    (name "t")
+    (anchor (origin))
+    (node (ref "E1") (kind placement)
+      (anchor (role "IC1") (sheet "PWR") (cluster "SUP") (pad "3"))
+      (xy 2.0 -1.5))
+    (node (ref "E2") (kind placement) (anchor (role "U2")) (xy 0.0 0.0))))"""
+
+
+def test_node_own_anchor_is_parsed(tmp_path):
+    """A (node ...)-level (anchor (role ...) [(sheet) (cluster) (pad)]) is the
+    node's OWN anchor — the node is positioned relative to that live component
+    instead of its parent (plan tree_node_own_anchor §1)."""
+    nodes = load_trees(_write(tmp_path, _NODE_OWN_ANCHOR))[0].nodes
+    assert nodes[0].own_anchor == TreeAnchor(
+        role="IC1", is_origin=False,
+        anchor_sheet="PWR", anchor_cluster="SUP", anchor_pad="3")
+    assert nodes[1].own_anchor == TreeAnchor(role="U2", is_origin=False)
+    # A node with NO (anchor ...) keeps the default (relative to parent).
+    assert nodes[0].own_anchor is not nodes[1].own_anchor
+
+
+def test_node_own_anchor_sexp_roundtrips(tmp_path):
+    """save_trees -> load_trees keeps the nested (anchor ...) verbatim, so the
+    node's own anchor survives a full write/reload cycle."""
+    trees = load_trees(_write(tmp_path, _NODE_OWN_ANCHOR))
+    path = tmp_path / "own_anchor.trees"
+    save_trees(str(path), trees)
+    assert load_trees(str(path)) == trees
+
+
+def test_node_without_own_anchor_stays_none(tmp_path):
+    """Regression / full backward compatibility: a node WITHOUT a nested
+    (anchor ...) keeps own_anchor None (offset from the parent)."""
+    text = """(kicadstamp-trees
+  (tree (name "t") (anchor (origin)) (node (ref "R1") (xy 1.0 2.0))))"""
+    node = load_trees(_write(tmp_path, text))[0].nodes[0]
+    assert node.own_anchor is None
+
+
+def test_node_own_anchor_non_role_shapes_are_fatal(tmp_path):
+    """A node's own anchor is role-only — (origin)/(ref ...)/(point ...)/
+    (external) inside it are tree-anchor-only concepts: load-time fatal with a
+    message naming the node (never a silent drop)."""
+    for bad in ('(anchor (origin))', '(anchor (ref "IC1"))',
+                '(anchor (point "p1"))', '(anchor (role "IC1") (external))'):
+        text = ("(kicadstamp-trees\n  (tree (name \"t\") (anchor (origin))\n"
+                "    (node (ref \"E1\") (kind placement) {bad} (xy 0 0))))"
+                .format(bad=bad))
+        with pytest.raises(ValidationError, match="own anchor supports only"):
+            load_trees(_write(tmp_path, text))
+
+
+def test_node_own_anchor_missing_role_is_fatal(tmp_path):
+    """(anchor (role ...)) with an EMPTY/absent role inside a node is fatal —
+    an own anchor is meaningless without a role to resolve."""
+    text = """(kicadstamp-trees
+  (tree (name "t") (anchor (origin))
+    (node (ref "E1") (kind placement) (anchor (role "")) (xy 0 0))))"""
+    with pytest.raises(ValidationError, match="own anchor needs a"):
+        load_trees(_write(tmp_path, text))
+
+
+def test_node_own_anchor_dict_bridge_roundtrips():
+    """The config-dict shape round-trips a node's own anchor (nested "anchor"
+    key, role-only) — tree_from_dict(tree_to_dict(x)) == x."""
+    node = TreeNode(ref="E1", kind="placement", xy=(2.0, -1.5), polar=None,
+                    rotation=0.0, name=None, group=None, children=[],
+                    own_anchor=TreeAnchor(role="IC1", anchor_sheet="PWR",
+                                          anchor_cluster="SUP", anchor_pad="3"))
+    tree = Tree(name="t", anchor=TreeAnchor(is_origin=True), nodes=[node])
+    d = tree_to_dict(tree)
+    assert d["nodes"][0]["anchor"] == {"role": "IC1", "sheet": "PWR",
+                                       "cluster": "SUP", "pad": "3"}
+    assert tree_from_dict(d) == tree
+
+
+def test_node_own_anchor_dict_omits_when_none():
+    """No own_anchor -> no nested "anchor" key in the node dict (no-noise)."""
+    node = TreeNode(ref="E1", kind="placement", xy=(0.0, 0.0), polar=None,
+                    rotation=0.0, name=None, group=None, children=[])
+    d = tree_to_dict(Tree(name="t", anchor=TreeAnchor(is_origin=True),
+                          nodes=[node]))
+    assert "anchor" not in d["nodes"][0]
+
+
+def test_node_own_anchor_dict_non_role_shapes_are_fatal():
+    """Dict-path mirror of the sexp fatal: origin/ref/point/external in a
+    node's own anchor dict are rejected at load."""
+    for key in ("origin", "ref", "point", "external"):
+        anchor = {key: ("X" if key != "origin" else True), "role": "IC1"}
+        d = {"name": "t", "nodes": [{"ref": "E1", "kind": "placement",
+                                     "anchor": anchor, "xy": [0, 0]}]}
+        with pytest.raises(ValidationError, match="own anchor supports only"):
+            tree_from_dict(d)
+
+
+def test_node_own_anchor_dict_missing_role_is_fatal():
+    """Dict-path: a node own anchor without a role is fatal (never a silent
+    parent fallback)."""
+    d = {"name": "t", "nodes": [{"ref": "E1", "kind": "placement",
+                                 "anchor": {}, "xy": [0, 0]}]}
+    with pytest.raises(ValidationError, match="own anchor needs a role"):
+        tree_from_dict(d)
+
+
+def test_config_dict_tree_with_node_own_anchor_passes_known_key_check():
+    """_TREE_NODE_KNOWN_KEYS (config/entries.py) must accept the node's nested
+    "anchor" key + its role-only subkeys — the config inlay must not fatal on
+    an own-anchored node."""
+    from kicadstamp.config.entries import _load_tree
+    tree = Tree(name="fpga", anchor=TreeAnchor(is_auto=True),
+                nodes=[TreeNode(ref="E1", kind="placement", xy=(1.0, 0.0),
+                                polar=None, rotation=0.0, name=None, group=None,
+                                children=[],
+                                own_anchor=TreeAnchor(role="IC1"))])
+    loaded = _load_tree(tree_to_dict(tree))
+    assert loaded.nodes[0].own_anchor == TreeAnchor(role="IC1")

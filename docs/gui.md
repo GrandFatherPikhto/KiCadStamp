@@ -295,6 +295,18 @@ reaches the disk until **Save**, which replaces the whole root `trees:` section 
 config_writer chokepoint (a fresh `.bak` is made first); linking/validation runs at Save via
 `kicadstamp.link_trees`.
 
+Since 2026-09-03 (plan tree_node_own_anchor) the Add/Edit-node dialog is a TWO-TAB editor: **General**
+(everything above — Kind/Ref/Offset/Pivot/Rotation/Read current position/Name/Group) and a new
+**Position** tab that picks what a node's offset is measured from. **Relative to parent** (the default)
+keeps today's behaviour (offset from the tree anchor for a top-level node, from the enclosing node for a
+child). **Relative to component** anchors the node to a chosen live component instead: pick a **Role**
+(optionally narrowed by **Sheet**/**Cluster**, shifted onto a specific **Pad**) — the node's `xy`/`polar`
+offset is then measured from that component's live position/rotation, and the node's own children keep
+inheriting that frame. The grammar writes it as a nested `(anchor (role ...) [(sheet ...) (cluster ...)
+(pad ...)])` inside the node — a per-node `own_anchor`; only the role shape is valid there (origin/ref/
+point/external are tree-anchor-only). **Read current position** in component mode diffs against the
+chosen component (not the parent), so the typed offset is relative to the right base.
+
 Since 2026-09-03 (plan tree_ui_state_persistence) the ACTIVE tab and the per-tree expanded/collapsed
 state are remembered too: a rebuild no longer resets you to the first tab or collapses every tree
 back — whichever tree tab was active and which nodes were expanded are restored by name/ref, and the

@@ -1320,7 +1320,15 @@ _TREE_KNOWN_KEYS = {"name", "anchor", "nodes"}
 _TREE_ANCHOR_KNOWN_KEYS = {"ref", "origin", "external", "role", "point",
                            "sheet", "cluster", "pad"}
 _TREE_NODE_KNOWN_KEYS = {"ref", "kind", "xy", "polar", "rotation", "name", "group", "children",
-                         "pivot_xy", "pivot_polar"}
+                         "pivot_xy", "pivot_polar",
+                         # 2026-09-03 (plan tree_node_own_anchor): a node may
+                         # carry its OWN (role ...) anchor to be positioned
+                         # relative to a live component instead of its parent.
+                         "anchor"}
+# A node's own anchor is role-only — origin/ref/external/point are
+# tree-anchor-only and are rejected here as unknown keys (the parse-side fatal
+# in trees.py::_dict_own_anchor mirrors the same rule for the sexp shape).
+_TREE_NODE_ANCHOR_KNOWN_KEYS = {"role", "sheet", "cluster", "pad"}
 
 
 def _check_tree_node_keys(data: Any, label: str) -> None:
@@ -1331,6 +1339,11 @@ def _check_tree_node_keys(data: Any, label: str) -> None:
         return
     check_unknown_keys(data, _TREE_NODE_KNOWN_KEYS,
                        _("unknown fields in {label}").format(label=label))
+    node_anchor = data.get("anchor")
+    if isinstance(node_anchor, dict):
+        check_unknown_keys(node_anchor, _TREE_NODE_ANCHOR_KNOWN_KEYS,
+                           _("unknown fields in {label} own anchor")
+                           .format(label=label))
     for child in data.get("children", []) or []:
         _check_tree_node_keys(child, f"{label} node")
 

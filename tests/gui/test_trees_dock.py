@@ -2737,3 +2737,77 @@ def test_persist_ui_state_flushes_all_tree_expansion(main_window, tmp_path):
     assert saved["alpha"]["anchor_expanded"] is True
     assert set(saved["alpha"]["expanded_refs"]) == {"N1"}  # GHOST dropped
     assert "beta" in saved and saved["beta"]["anchor_expanded"] is False
+
+
+# ── node editor Position tab / own_anchor (plan tree_node_own_anchor 2026-09-03)
+
+def test_node_dialog_has_position_tab_default_relative_to_parent(main_window, tmp_path):
+    """The node editor is a two-tab dialog; the new Position tab defaults to
+    "Relative to parent" (= own_anchor None, today's behaviour), and the
+    component fields are disabled in that mode."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    dlg = _build_dialog(dock, tree, None)
+    assert dlg.tabs.count() == 2
+    assert dlg.tabs.tabText(1) == "Position"
+    assert dlg.relative_to_parent_radio.isChecked()
+    assert not dlg.relative_to_component_radio.isChecked()
+    assert not dlg.own_anchor_role_combo.isEnabled()
+    assert dlg.own_anchor() is None
+
+
+def test_node_dialog_own_anchor_returns_tree_anchor_when_component(main_window, tmp_path):
+    """Selecting "Relative to component" + Role/Sheet/Cluster/Pad -> own_anchor()
+    returns the expected role-only TreeAnchor; switching back to parent -> None."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    dlg = _build_dialog(dock, tree, None)
+    dlg.relative_to_component_radio.setChecked(True)
+    assert dlg.own_anchor_role_combo.isEnabled()
+    dlg.own_anchor_role_combo.setCurrentText("IC1")
+    dlg.own_anchor_sheet_combo.setCurrentText("PWR")
+    dlg.own_anchor_cluster_combo.setCurrentText("SUP")
+    dlg.own_anchor_pad_edit.setText("3")
+    assert dlg.own_anchor() == TreeAnchor(
+        role="IC1", is_origin=False,
+        anchor_sheet="PWR", anchor_cluster="SUP", anchor_pad="3")
+    dlg.relative_to_parent_radio.setChecked(True)
+    assert dlg.own_anchor() is None
+
+
+def test_node_dialog_component_without_role_refuses_build(main_window, tmp_path, monkeypatch):
+    """"Relative to component" with an EMPTY Role is a hard refusal in
+    build_node (QMessageBox) — never a silent downgrade to the parent base."""
+    import gui.docks.trees_dock as td_mod
+    warnings = []
+    monkeypatch.setattr(td_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or None)
+    dlg = _NodeDialog(None, [], set(), "Add node", cfg=None, adapter=None,
+                      sheet_names={}, tree=None, parent_node=None)
+    dlg.ref_combo.setCurrentText("NEW1")
+    dlg.offset_widget.x_edit.setText("1.0")
+    dlg.offset_widget.y_edit.setText("2.0")
+    dlg.relative_to_component_radio.setChecked(True)
+    assert dlg.build_node() is None
+    assert any("Pick a component" in str(w) for w in warnings)
+
+
+def test_node_dialog_prefill_restores_own_anchor(main_window, tmp_path):
+    """Edit mode: an existing node's own_anchor restores the "Relative to
+    component" radio + Role/Sheet/Cluster/Pad, and own_anchor() returns it."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    existing = TreeNode(ref="E1", kind="placement", xy=(1.0, 0.0), polar=None,
+                        rotation=0.0, name=None, group=None, children=[],
+                        own_anchor=TreeAnchor(role="IC1", anchor_sheet="PWR",
+                                              anchor_pad="3"))
+    dlg = _NodeDialog(dock, dock._all_ref_candidates(), dock._used_refs(),
+                      "Edit node", cfg=dock._cfg, adapter=None,
+                      sheet_names={}, tree=tree, parent_node=None,
+                      existing=existing)
+    assert dlg.relative_to_component_radio.isChecked()
+    assert dlg.own_anchor_role_combo.currentText() == "IC1"
+    assert dlg.own_anchor_sheet_combo.currentText() == "PWR"
+    assert dlg.own_anchor_cluster_combo.currentText() == ""
+    assert dlg.own_anchor_pad_edit.text() == "3"
+    assert dlg.own_anchor() == existing.own_anchor

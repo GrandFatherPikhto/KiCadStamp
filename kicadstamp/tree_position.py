@@ -115,6 +115,41 @@ def node_position(node: TreeNode, parent_position: Vector2,
     return Vector2.from_xy(parent_position.x + offset.x, parent_position.y + offset.y)
 
 
+def node_own_anchor_base(node: TreeNode, adapter, cfg, sheet_names,
+                         ) -> tuple[Vector2, float] | None:
+    """Absolute (pos, rot) of a node's OWN (role) anchor, live-resolved, or
+    None when the node has no own_anchor (the caller then keeps the parent
+    frame — today's unchanged behaviour). The single source of truth for the
+    own_anchor substitution in BOTH recursive tree walks (entity_placement._walk
+    and layout_tree_from_base) so materialization (Apply) and the live/curated
+    path can never drift. Only the role shape is possible here (parse fatals on
+    any other). A resolve failure (role not found / ambiguous on the live
+    board) is a plain ValidationError — the same per-tree tolerance a tree-level
+    role anchor gets (design_2026_09_03_tree_node_component_anchor_and_editing
+    §1.2; the per-tree policy is unchanged)."""
+    anchor = node.own_anchor
+    if anchor is None:
+        return None
+    if adapter is None:
+        # A node's own anchor is LIVE-only — there is no static fallback, so a
+        # pure (adapter-less) caller that reaches one gets a clear error, never
+        # a raw resolver crash or a silent wrong position (plan
+        # tree_node_own_anchor §2; the pure module-embedding callers never see
+        # an own_anchor node in practice).
+        raise ValidationError(_(
+            "node {ref!r}: own anchor needs a live board connection"
+            ).format(ref=node.ref))
+    resolver = ComponentResolver(adapter, cfg, sheet_names)
+    fp = resolver.resolve_anchor_fp(
+        None, anchor.role, anchor.anchor_sheet, anchor.anchor_cluster,
+        label=anchor.role)
+    pos = fp.position
+    rot = fp.angle_deg
+    if anchor.anchor_pad:
+        pos = resolve_anchor_pad_position(adapter, fp, anchor.anchor_pad, anchor.role)
+    return pos, rot
+
+
 def child_local_offset(child_pos: Vector2, parent_pos: Vector2,
                        parent_rotation_deg: float) -> Vector2:
     """Pure capture half of the rigid-group mechanics (plan_2026_08_29_
@@ -167,7 +202,8 @@ def resolve_module_effective_base(marker_pos: Vector2, marker_rot_deg: float,
 
 
 def layout_tree_from_base(tree: Tree, base_pos: Vector2, base_rot_deg: float,
-                          forest: dict[str, Tree] | None = None
+                          forest: dict[str, Tree] | None = None, *,
+                          adapter=None, cfg=None, sheet_names=None
                           ) -> dict[str, tuple[Vector2, float]]:
     """Pure, NON-persistent layout of a tree's ENTIRE content from an absolute
     (base_pos, base_rot_deg) INSTEAD of its own anchor — the geometry module
@@ -180,15 +216,36 @@ def layout_tree_from_base(tree: Tree, base_pos: Vector2, base_rot_deg: float,
     Returns {node.ref: (absolute_position, absolute_rotation_deg)} for every
     NON-module record node reached (module nodes place no record of their own).
     Cycles cannot occur (link_trees rejects them); the stack is a defensive
-    guard for this pure helper."""
+    guard for this pure helper.
+
+    A node carrying its OWN (role) anchor (own_anchor, plan tree_node_own_anchor
+    §1) is laid from THAT anchor's LIVE position instead of its parent frame —
+    this needs the live board, so adapter/cfg/sheet_names are OPTIONAL: the live
+    callers (cascade.py's curated forest redraw, which already has an adapter)
+    pass them in; the pure geometry/module-embedding callers leave them None
+    (a node with own_anchor and no adapter is a hard ValidationError, never a
+    silent wrong position)."""
     out: dict[str, tuple[Vector2, float]] = {}
     forest = dict(forest or {})
     stack: list[str] = []
 
     def lay(nodes: list[TreeNode], pos: Vector2, rot: float) -> None:
         for n in nodes:
-            abs_pos = node_position(n, pos, rot)
-            abs_rot = rot + n.rotation
+            # Own-anchor node: laid from its OWN (role) anchor's live frame,
+            # not the parent's — base substitution is PER-NODE (siblings keep
+            # the parent frame; children of the own-anchor node inherit ITS
+            # abs frame as usual, so only `pos`/`rot` for THIS node change).
+            base_pos, base_rot = pos, rot
+            if n.own_anchor is not None:
+                resolved = node_own_anchor_base(n, adapter, cfg, sheet_names)
+                if resolved is None:
+                    # Only reachable when own_anchor is None — defensive.
+                    raise ValidationError(_(
+                        "node {ref!r}: own anchor needs a live board to resolve"
+                        ).format(ref=n.ref))
+                base_pos, base_rot = resolved
+            abs_pos = node_position(n, base_pos, base_rot)
+            abs_rot = base_rot + n.rotation
             if n.kind == "module":
                 lay(n.children, abs_pos, abs_rot)          # stage 1
                 child = forest.get(n.ref)                   # stage 2
