@@ -3462,6 +3462,22 @@ msgstr "Delete tree…"
 msgid "Anchor position"
 msgstr "Anchor position"
 
+#: gui/main_window.py
+msgid "Create tree..."
+msgstr "Create tree..."
+
+#: gui/main_window.py
+msgid "Create tree"
+msgstr "Create tree"
+
+#: gui/main_window.py
+msgid "Rename tree..."
+msgstr "Rename tree..."
+
+#: gui/main_window.py
+msgid "Delete tree..."
+msgstr "Delete tree..."
+
 #: gui/docks/trees_dock.py:270
 msgid "Redraw selected"
 msgstr "Redraw selected"
@@ -12817,7 +12833,7 @@ msgstr ""
 msgid "Read-only instance"
 msgstr ""
 
-msgid "This tree is an instance of template {template!r} (read-only) — its geometry comes from the template; edit the template tree to change it, or manage the instance in Tools → Instances."
+msgid "This tree is an instance of template {template!r} (read-only) — its geometry comes from the template; edit the template tree to change it, or manage the instance in Tools → Trees → Instances."
 msgstr ""
 
 msgid "→ instance: {name}"

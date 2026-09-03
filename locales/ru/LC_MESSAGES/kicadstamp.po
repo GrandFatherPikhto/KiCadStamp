@@ -3477,9 +3477,25 @@ msgstr "Удалить дерево…"
 msgid "Anchor position"
 msgstr "Позиция якоря"
 
+#: gui/main_window.py
+msgid "Create tree..."
+msgstr "Создать дерево..."
+
+#: gui/main_window.py
+msgid "Create tree"
+msgstr "Создать дерево"
+
+#: gui/main_window.py
+msgid "Rename tree..."
+msgstr "Переименовать дерево..."
+
+#: gui/main_window.py
+msgid "Delete tree..."
+msgstr "Удалить дерево..."
+
 #: gui/docks/trees_dock.py:270
 msgid "Redraw selected"
-msgstr "Перерисовать выбранную спицу"
+msgstr "Перерисовать выбранное"
 
 #: gui/docks/trees_dock.py:274
 msgid "Redraw whole tree"
@@ -3506,16 +3522,16 @@ msgstr "Деревья: не удалось перезагрузить корн�
 #: gui/docks/trees_dock.py:444
 #, python-brace-format
 msgid "Save changes to {path}?"
-msgstr "Несохранённые изменения"
+msgstr "Сохранить изменения в {path}?"
 
 #: gui/docks/trees_dock.py:479
 msgid "(no trees)"
-msgstr "Дерево анкоров"
+msgstr "Нет деревьев"
 
 #: gui/docks/trees_dock.py:554
 #, python-brace-format
 msgid "{ref}: xy=({x:.3f}, {y:.3f}) mm"
-msgstr "Реально:     ({x:.3f}, {y:.3f}) мм"
+msgstr "{ref}: xy=({x:.3f}, {y:.3f}) мм"
 
 #: gui/docks/trees_dock.py:557
 #, python-brace-format
@@ -3525,7 +3541,7 @@ msgstr ""
 #: gui/docks/trees_dock.py:559
 #, python-brace-format
 msgid "{ref}: no offset"
-msgstr "У {ref} нет падов"
+msgstr "У {ref} нет смещения"
 
 #: gui/docks/trees_dock.py:570
 msgid "●"
@@ -3542,11 +3558,11 @@ msgstr ""
 
 #: gui/docks/trees_dock.py:726 gui/docks/trees_dock.py:816
 msgid "Add child"
-msgstr "Добавить шаблон..."
+msgstr "Добавить дочерний узел"
 
 #: gui/docks/trees_dock.py:728 gui/docks/trees_dock.py:824
 msgid "Add sibling"
-msgstr ""
+msgstr "Добавить соседний узел"
 
 #: gui/docks/trees_dock.py:730 gui/docks/trees_dock.py:889
 #: gui/docks/trees_dock.py:898
@@ -3559,21 +3575,21 @@ msgstr "Редактировать узел…"
 
 #: gui/docks/trees_dock.py:734
 msgid "Delete node"
-msgstr "Удалено"
+msgstr "Удалить узел"
 
 #: gui/docks/trees_dock.py:736
 msgid "Rename…"
-msgstr "Переименовать"
+msgstr "Переименовать…"
 
 #: gui/docks/trees_dock.py:738 gui/docks/trees_dock.py:952
 msgid "Move to…"
-msgstr "Ниже"
+msgstr "Переместить в…"
 
 #: gui/docks/trees_dock.py:744 gui/docks/trees_dock.py:835
 #: gui/docks/trees_dock.py:1373 gui/docks/trees_dock.py:1384
 #: gui/docks/trees_dock.py:1391 gui/docks/trees_dock.py:1403
 msgid "Add node"
-msgstr "Редактировать узел"
+msgstr "Добавить узел"
 
 #: gui/docks/trees_dock.py:746
 msgid "Set anchor…"
@@ -3581,7 +3597,7 @@ msgstr "Назначить якорь…"
 
 #: gui/docks/trees_dock.py:872
 msgid "Rename node"
-msgstr "Переименовано"
+msgstr "Переименовать узел"
 
 #: gui/docks/trees_dock.py:872
 msgid "Display name (label, not the ref identity):"
@@ -3597,7 +3613,7 @@ msgstr ""
 
 #: gui/docks/trees_dock.py:952
 msgid "New parent:"
-msgstr "Новая Cell:"
+msgstr "Новый родитель:"
 
 #: gui/docks/trees_dock.py:993 gui/docks/trees_dock.py:998
 msgid "Add tree"
@@ -3655,7 +3671,7 @@ msgstr ""
 
 #: gui/docks/trees_dock.py:1181
 msgid "auto"
-msgstr "Авто-роль"
+msgstr "авто"
 
 #: gui/docks/trees_dock.py:1202
 msgid "0"
@@ -3663,11 +3679,11 @@ msgstr ""
 
 #: gui/docks/trees_dock.py:1217
 msgid "Name (optional):"
-msgstr "пад (необязательно)"
+msgstr "Имя (необязательно):"
 
 #: gui/docks/trees_dock.py:1219
 msgid "Group (optional):"
-msgstr "пад (необязательно)"
+msgstr "Группа (необязательно):"
 
 #: gui/docks/trees_dock.py:1287
 msgid "No root config loaded — cannot resolve the record."
@@ -3688,7 +3704,7 @@ msgstr ""
 
 #: gui/docks/trees_dock.py:1373 gui/docks/trees_dock.py:1715
 msgid "Ref is required."
-msgstr "Требуется Role."
+msgstr "Требуется Ref."
 
 #: gui/docks/trees_dock.py:1385
 #, python-brace-format
@@ -11772,8 +11788,8 @@ msgstr "Копия шаблона {template} — только чтение: ге
 msgid "Read-only instance"
 msgstr "Копия шаблона — только для чтения"
 
-msgid "This tree is an instance of template {template!r} (read-only) — its geometry comes from the template; edit the template tree to change it, or manage the instance in Tools → Instances."
-msgstr "Это дерево — копия шаблона {template!r} (только чтение): его геометрия приходит из шаблона; меняйте дерево-шаблон или управляйте копиями в Tools → Копии шаблона."
+msgid "This tree is an instance of template {template!r} (read-only) — its geometry comes from the template; edit the template tree to change it, or manage the instance in Tools → Trees → Instances."
+msgstr "Это дерево — экземпляр шаблона {template!r} (только чтение): его геометрия приходит из шаблона; меняйте дерево-шаблон или управляйте экземпляром через Инструменты → Деревья → Экземпляры."
 
 msgid "→ instance: {name}"
 msgstr "→ копия: {name}"
