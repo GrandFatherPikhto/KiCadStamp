@@ -253,9 +253,14 @@ usual way. The static anchor resolution lives in
 The **Trees** tab (tabbed with the Config tree and Anchor tree, same left group) is a hand-authored
 editor for the OPTIONAL `trees:` section of the ROOT config — unlike the Anchor tree, which is an
 automatic read-only view of the config's anchor graph. One tab per tree, each a nested node list
-relative to the tree's own anchor. The toolbar offers **Add tree…**, **Rename tree…** and **Delete
+relative to the tree's own anchor. Since 2026-09-03 (plan plan_2026_09_03_trees_menu_tools.md) the
+dock has NO whole-tree action toolbar — every whole-tree action lives in the top-level menu
+**Tools → Trees**: **Extract tree…** / **Extract cluster…** (new trees from the board selection),
+**Create tree…** (an empty manual tree — the old dock "Add tree…"), **Rename tree…** / **Delete
 tree…** (the whole-tree counterpart of a node's "Delete node", confirmed with Yes/No — No by
-default), plus **Save** and **Redraw selected**. Structural editing happens through each node's
+default), **Anchor position**, **Redraw selected** / **Redraw whole tree**, **Full redraw (all trees
+and modules)…** and **Instances…**. The dock keeps the tabs, the checkbox subtree selection and the
+read-only status row (anchor live position + unsaved-changes ●). Structural editing happens through each node's
 context menu (Add child / Add sibling / Reread current position / Edit node… / Delete node / Rename…
 / Move to…); the tree anchor pseudo-root's menu carries **Add node** and **Set anchor…**. The
 **Set anchor…** dialog covers all six anchor modes: **Origin (board 0,0)**, **Config record** (a name
@@ -324,10 +329,10 @@ plan_2026_08_29_fork1_rigid_redraw_override.md — REVERSES the pre-2026-08-29 c
 nodes). So a channel's `CH0/1/2_DAC_BUF` can live in the `fpga` tree and be redrawn as a rigid group
 WITHOUT stripping its `anchor_role` first.
 
-The toolbar also offers **Redraw whole tree** — every node of the current tree in one click, with no
-manual checkbox marking — and **Anchor position** — a read-only indicator of the current tree
-anchor's live absolute position/rotation on the board (origin anchor: trivially (0,0)/0°; requires a
-live KiCad connection; "unavailable" otherwise).
+**Redraw whole tree** (Tools → Trees) redraws every node of the current tree in one click, with no
+manual checkbox marking. **Anchor position** (Tools → Trees) refreshes the read-only indicator of the
+current tree anchor's live absolute position/rotation on the board, shown in the dock's status row
+(origin anchor: trivially (0,0)/0°; requires a live KiCad connection; "unavailable" otherwise).
 
 **Redraw selected is a rigid group** (2026-08-29, plan_2026_08_29_tree_live_rigid_redraw.md): a node
 the tree owns (no inline anchor) is placed at its LIVE-captured offset from its parent, re-projected
@@ -349,9 +354,9 @@ embedded by several different parents; only a duplicate inside ONE parent is inv
 fatal at Save). Double-clicking a module node opens the referenced tree's tab; a tree that others
 embed shows one **"⇐ embedded in {parent}"** item per embedding parent (double-click navigates back).
 The module-aware FULL redraw — every tree's records plus every active module's content, laid out from
-each tree's live anchor (role/auto/origin/point/ref) — runs from **Tools → Full redraw (all trees and
-modules)…** (Tools-menu only, no new dock button); the per-tree **Redraw selected / Redraw whole
-tree** buttons stay single-tree.
+each tree's live anchor (role/auto/origin/point/ref) — runs from **Tools → Trees → Full redraw (all
+trees and modules)…** (menu only, no dock button); the per-tree **Redraw selected / Redraw whole
+tree** items in the same **Tools → Trees** submenu stay single-tree.
 
 **Tree instances (`tree_instances:`, 2026-09-02, plan_2026_09_02_tree_instances.md):** a tree + its
 Entity records can be declared once as a TEMPLATE and instantiated per schematic sheet by
@@ -364,9 +369,9 @@ placeable trees). An instance tab shows one top **"⇐ instance of {template} (s
 template tree shows one **"→ instance: {name}"** item per instance — double-click navigates either way
 (the same navigation primitive as "⇐ embedded in"). **Save never writes generated instances** as literal
 `trees:` entries — the untouched `tree_instances:` section regenerates them on every load (no
-duplication). Manage the short declarations with **Tools → Instances…**: pick a template (generated
-instances can't themselves be templates) and edit its {name, sheet} rows — the dialog only persists the
-declarations, the instances materialize on the next load.
+duplication). Manage the short declarations with **Tools → Trees → Instances…**: pick a template
+(generated instances can't themselves be templates) and edit its {name, sheet} rows — the dialog only
+persists the declarations, the instances materialize on the next load.
 
 ## Detail dock
 
@@ -438,7 +443,7 @@ connection timeout, hotkey rebinding) fire only on Apply/OK.
 ## Extract
 
 The GUI's dedicated Extract dock/dialog was removed in Phase F (2026-09-01) — its function is
-absorbed by **Tools → Extract tree...** below (auto-derives `cells:` from the fully-selected
+absorbed by **Tools → Trees → Extract tree...** below (auto-derives `cells:` from the fully-selected
 clusters and captures inter-cluster copper as `net_traces:`), and manual `cells:` editing stays in
 the Detail dock's **Cells** tab. `extract_profiles:` remain a CLI/config-only concept:
 `kicadstamp_cli.py extract --profile` (`cli_extract.py`, `extract_writer.py`) still consumes them.
@@ -452,7 +457,7 @@ the area-select is dropped by the extractor's connectivity filter (the cluster's
 is kept — no registry dependency). This is how the three PIF_AVDD channels (Channel_0/1/2, same
 cell) are told apart: the selection's sheet picks the instance.
 
-The main menu's **Tools → Extract tree...** (2026-09-01) builds a NEW tree from the current
+The main menu's **Tools → Trees → Extract tree...** (2026-09-01) builds a NEW tree from the current
 selection — there is no "extract into tree" (the extract never writes `trees:`); this is the
 selection's own tree. Select a group of clusters on the board, then run it. A modal dialog has three
 tabs: **Clusters** (the FULLY-selected clusters, checkboxes on by default, with a live ΔX/ΔY offset
@@ -470,7 +475,7 @@ is written into the root config's `trees:` section through the same `config_writ
 whose cluster has no Entity or a missing cell are marked and block OK; an empty/duplicate tree name
 or a missing Role also blocks OK.
 
-The main menu's **Tools → Extract cluster...** (2026-09-03) is the NARROWER sibling of
+The main menu's **Tools → Trees → Extract cluster...** (2026-09-03) is the NARROWER sibling of
 **Extract tree...** for the case where you want ONLY one fully-selected Cluster as a standalone, flat
 Entity (+ its Cell generated from the cluster's own selection when it doesn't exist yet) — with NO
 tree node, NO anchor and NO `net_traces:` capture. It uses the SAME cluster detection as **Extract
