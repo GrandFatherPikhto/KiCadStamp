@@ -1,11 +1,13 @@
 # gui/docks/instances_dialog.py
-"""Tools -> "Instances..." dialog (2026-09-02, plan tree_instances P3).
+"""Tools -> "Instances..." dialog (2026-09-02, plan tree_instances P3; cluster
+column 2026-09-03, plan tree_instances_cluster).
 
 Manages the `tree_instances:` short declarations of ONE template tree: pick a
 template (a hand-written trees: entry — a generated instance can NOT be a
 template, its geometry is already derived from its own template), edit the
-{name, sheet} row list (add/remove), OK writes/updates the section through
-config_writer.upsert_tree_instances.
+{name, sheet, cluster?} row list (add/remove), OK writes/updates the section
+through config_writer.upsert_tree_instances. `cluster` is the OPTIONAL
+override column — blank means "not set" and the key is omitted on save.
 
 The dialog GENERATES NOTHING and copies nothing — it only edits the short
 declarations; materialization into full Tree + Entity records happens at the
@@ -51,8 +53,9 @@ class TreeInstancesDialog(QDialog):
         self.template_combo.addItems(self._templates)
         layout.addWidget(self.template_combo)
 
-        self.table = QTableWidget(0, 2)
-        self.table.setHorizontalHeaderLabels([_("Instance name"), _("Sheet")])
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels(
+            [_("Instance name"), _("Sheet"), _("Cluster")])
         self.table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch)
         self.table.verticalHeader().setVisible(False)
@@ -88,10 +91,11 @@ class TreeInstancesDialog(QDialog):
         rows = [ti for ti in self._cfg.tree_instances if ti.template == tpl]
         self.table.setRowCount(len(rows))
         for i, ti in enumerate(rows):
-            self._set_row(i, {"name": ti.name, "sheet": ti.sheet})
+            self._set_row(i, {"name": ti.name, "sheet": ti.sheet,
+                              "cluster": ti.cluster or ""})
 
     def _set_row(self, row: int, entry: dict) -> None:
-        for col, key in enumerate(("name", "sheet")):
+        for col, key in enumerate(("name", "sheet", "cluster")):
             item = QTableWidgetItem(str(entry.get(key, "")))
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(row, col, item)
@@ -108,15 +112,21 @@ class TreeInstancesDialog(QDialog):
             self.table.removeRow(row)
 
     def rows(self) -> list:
-        """The table's {name, sheet} rows (blank name+sheet rows dropped)."""
+        """The table's {name, sheet, cluster?} rows (blank name+sheet rows
+        dropped). A blank cluster means "not set" and is OMITTED from the dict
+        (never kept as "") so declarations that don't need the cluster axis
+        stay clean on disk."""
         out = []
         for r in range(self.table.rowCount()):
             def _cell(c):
                 item = self.table.item(r, c)
                 return item.text().strip() if item is not None else ""
-            name, sheet = _cell(0), _cell(1)
+            name, sheet, cluster = _cell(0), _cell(1), _cell(2)
             if name or sheet:
-                out.append({"name": name, "sheet": sheet})
+                row = {"name": name, "sheet": sheet}
+                if cluster:
+                    row["cluster"] = cluster
+                out.append(row)
         return out
 
     # ── validation + write ──────────────────────────────────────────────
