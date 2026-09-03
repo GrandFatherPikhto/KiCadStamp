@@ -295,3 +295,35 @@ def run_curated_forest_redraw_worker(payload: dict) -> tuple:
     return run_curated_forest_redraw(
         payload["config_path"], payload["cfg"], payload["ctx"], payload["trees"],
         payload["selected_refs"])
+
+
+def run_single_node_redraw_worker(payload: dict) -> tuple:
+    """Worker for the node editor's **Redraw** button (plan
+    tree_node_own_anchor Phase B, design_2026_09_03... §3): ONE ApplyPipeline
+    --only run for a single tree node's ref, over the IN-MEMORY cfg/trees — the
+    dock's working copy (same Tree/TreeNode objects as the dialog just applied
+    to), so an unsaved offset edit is what actually lands on the board. NOT the
+    curated/rigid redraw: a per-node redraw after an edit must place the real
+    component at its (edited) CONFIG position, so no PositionOverride is made.
+    Returns (per-name results, warnings=[]) in the same shape the trees dock's
+    _finish_redraw expects.
+
+    Inherits the documented ApplyPipeline boundary (design §0): if any tree /
+    entity in the config is unresolvable for a placement, this --only run may
+    fail the same way the whole apply would — that is NOT fixed in Phase B."""
+    ref = payload.get("ref") or payload.get("only")
+    try:
+        pipeline = ApplyPipeline(
+            config_path=payload.get("config_path", ""),
+            preloaded_cfg=payload.get("cfg"),
+            preloaded_ctx=payload.get("ctx"),
+            only=[ref], dry_run=False)
+        pipeline.run()
+        return [(ref, True, None)], []
+    except PlacerError as e:
+        # ValidationError/PlacerError family — a well-formatted expected
+        # "fatal at the boundary"; no traceback needed.
+        return [(ref, False, str(e))], []
+    except Exception as e:  # noqa: BLE001 — genuinely unexpected, keep traceback
+        logger.exception("Single node redraw %s failed", ref)
+        return [(ref, False, str(e))], []

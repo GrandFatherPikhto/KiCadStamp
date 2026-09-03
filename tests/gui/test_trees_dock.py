@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+import pytest
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QMessageBox, QTreeWidget
 
@@ -2811,3 +2812,104 @@ def test_node_dialog_prefill_restores_own_anchor(main_window, tmp_path):
     assert dlg.own_anchor_cluster_combo.currentText() == ""
     assert dlg.own_anchor_pad_edit.text() == "3"
     assert dlg.own_anchor() == existing.own_anchor
+
+
+# ── Phase B: double-click -> edit, Apply/Redraw/Close dialog (2026-09-03) ──
+
+def test_double_click_on_plain_node_opens_edit_flow(main_window, tmp_path, monkeypatch):
+    """Double-clicking a NON-module tree node opens the node EDIT dialog (Phase
+    B); module nodes still switch to their referenced tree's tab."""
+    import gui.docks.trees_dock as td_mod
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    node = tree.nodes[0]
+    opened = []
+    monkeypatch.setattr(dock, "_edit_node_flow",
+                        lambda t, n: opened.append((t, n)))
+    item = dock._node_items[node.ref]
+    dock._on_node_activated(item, 0)
+    assert opened and opened[0][1] is node
+
+
+def test_double_click_on_module_node_switches_tab(main_window, tmp_path, monkeypatch):
+    """Phase B does not regress module-node double-click (tab switch, not edit)."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    switched = []
+    monkeypatch.setattr(dock, "_switch_to_tree", lambda name: switched.append(name))
+    # Reuse an existing item but give it a module node payload (only the
+    # UserRole payload drives the branch).
+    node = TreeNode(ref="ch0", kind="module", xy=None, polar=None, rotation=0.0,
+                    name=None, group=None, children=[])
+    item = dock._node_items[tree.nodes[0].ref]
+    item.setData(0, Qt.ItemDataRole.UserRole, node)
+    dock._on_node_activated(item, 0)
+    assert switched == ["ch0"]
+
+
+def test_edit_dialog_has_apply_redraw_close_and_apply_mutates_in_place(
+        main_window, tmp_path, monkeypatch):
+    """EDIT mode: the dialog carries Apply/Redraw/Close (no OK/Cancel); Apply
+    writes the form onto the existing node IN PLACE and marks the dock dirty
+    WITHOUT closing the dialog."""
+    import gui.docks.trees_dock as td_mod
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    node = tree.nodes[0]
+    dirty = []
+    monkeypatch.setattr(dock, "_mark_dirty", lambda: dirty.append(True))
+    dlg = _NodeDialog(dock, dock._all_ref_candidates(), dock._used_refs(),
+                      "Edit node", cfg=dock._cfg, adapter=None,
+                      sheet_names={}, tree=tree,
+                      parent_node=dock._find_parent(tree, node), existing=node)
+    assert dlg.apply_button is not None
+    assert dlg.redraw_button is not None
+    assert dlg.close_button is not None
+    assert not hasattr(dlg, "ok_button")
+    dlg.name_edit.setText("renamed_via_apply")
+    dlg.rotation_edit.setText("33.0")
+    assert dlg._on_apply() is True
+    # Applied in place, dialog still open (no accept), dock marked dirty.
+    assert node.name == "renamed_via_apply"
+    assert node.rotation == pytest.approx(33.0)
+    assert dirty == [True]
+    assert "Applied" in dlg.apply_status_label.text()
+
+
+def test_edit_dialog_redraw_applies_then_requests_dock_redraw(
+        main_window, tmp_path, monkeypatch):
+    """Redraw = Apply + a background per-node redraw request on the dock (the
+    real worker is start_long_op-driven, so here we just assert the request)."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    node = tree.nodes[0]
+    requested = []
+    monkeypatch.setattr(dock, "_redraw_edited_node",
+                        lambda n: requested.append(n))
+    dlg = _NodeDialog(dock, dock._all_ref_candidates(), dock._used_refs(),
+                      "Edit node", cfg=dock._cfg, adapter=None,
+                      sheet_names={}, tree=tree,
+                      parent_node=dock._find_parent(tree, node), existing=node)
+    assert dlg.redraw_button.isEnabled() is True  # placement/clone kind + dock
+    dlg.name_edit.setText("redrawn_via_apply")
+    dlg._on_redraw()
+    assert node.name == "redrawn_via_apply"
+    assert requested and requested[0] is node
+
+
+def test_edit_dialog_double_apply_does_not_duplicate(main_window, tmp_path):
+    """Apply twice on the same dialog mutates in place — no duplication, no
+    second node, dialog stays open both times."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    node = tree.nodes[0]
+    dlg = _NodeDialog(dock, dock._all_ref_candidates(), dock._used_refs(),
+                      "Edit node", cfg=dock._cfg, adapter=None,
+                      sheet_names={}, tree=tree,
+                      parent_node=dock._find_parent(tree, node), existing=node)
+    before_children = len(tree.nodes)
+    dlg.name_edit.setText("first")
+    assert dlg._on_apply() is True
+    assert dlg._on_apply() is True
+    assert node.name == "first"
+    assert len(tree.nodes) == before_children  # still one node, mutated in place

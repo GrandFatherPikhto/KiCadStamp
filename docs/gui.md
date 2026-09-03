@@ -307,6 +307,14 @@ inheriting that frame. The grammar writes it as a nested `(anchor (role ...) [(s
 point/external are tree-anchor-only). **Read current position** in component mode diffs against the
 chosen component (not the parent), so the typed offset is relative to the right base.
 
+Double-clicking any non-module tree node opens its EDIT dialog directly (Phase B, plan
+tree_node_phaseB 2026-09-03); a module node still jumps to its child tree's tab. The EDIT dialog
+closes ONLY via **Close**: **Apply** writes the form onto the node in place (marks the dock dirty,
+stays open — nothing reaches disk until Save), and **Redraw** applies first, then places that node's
+REAL component on the live board at its (edited) config position — one background ApplyPipeline
+`--only` run, never blocking the UI. Un-applied edits are discarded on Close. The Add dialogs keep
+their modal OK/Cancel (there is no node to apply/redraw before it exists).
+
 Since 2026-09-03 (plan tree_ui_state_persistence) the ACTIVE tab and the per-tree expanded/collapsed
 state are remembered too: a rebuild no longer resets you to the first tab or collapses every tree
 back — whichever tree tab was active and which nodes were expanded are restored by name/ref, and the

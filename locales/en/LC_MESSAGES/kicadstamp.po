@@ -13073,3 +13073,15 @@ msgstr "node {ref!r}: own anchor supports only role — {keys} are tree-anchor-o
 #, python-brace-format
 msgid "unknown fields in {label} own anchor"
 msgstr "unknown fields in {label} own anchor"
+
+#: gui/docks/trees_dock.py (2026-09-03, Phase B tree_node_editor)
+msgid "Applied — Redraw started."
+msgstr "Applied — Redraw started."
+
+#: gui/docks/trees_dock.py (2026-09-03, Phase B tree_node_editor)
+msgid "Applied — keep editing or Redraw."
+msgstr "Applied — keep editing or Redraw."
+
+#: gui/docks/trees_dock.py (2026-09-03, Phase B tree_node_editor)
+msgid "Applied — no live board Redraw available."
+msgstr "Applied — no live board Redraw available."

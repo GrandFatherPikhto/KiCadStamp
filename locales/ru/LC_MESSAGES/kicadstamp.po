@@ -12029,3 +12029,15 @@ msgstr "узел {ref!r}: собственный якорь поддержива
 #, python-brace-format
 msgid "unknown fields in {label} own anchor"
 msgstr "неизвестные поля в собственном якоре {label}"
+
+#: gui/docks/trees_dock.py (2026-09-03, Phase B tree_node_editor)
+msgid "Applied — Redraw started."
+msgstr "Применено — Redraw запущен."
+
+#: gui/docks/trees_dock.py (2026-09-03, Phase B tree_node_editor)
+msgid "Applied — keep editing or Redraw."
+msgstr "Применено — можно править дальше или Redraw."
+
+#: gui/docks/trees_dock.py (2026-09-03, Phase B tree_node_editor)
+msgid "Applied — no live board Redraw available."
+msgstr "Применено — живой Redraw недоступен."

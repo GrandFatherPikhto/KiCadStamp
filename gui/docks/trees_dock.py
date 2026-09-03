@@ -60,7 +60,8 @@ from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from ._common import (configure_searchable, highlight_stylesheet_for,
                       set_combo_items)
-from .cascade import run_curated_forest_redraw_worker, run_curated_tree_redraw_worker
+from .cascade import (run_curated_forest_redraw_worker, run_curated_tree_redraw_worker,
+                      run_single_node_redraw_worker)
 from .entity_delete import backup_file
 
 logger = logging.getLogger(__name__)
@@ -216,6 +217,24 @@ def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
     rotation = (relative_rotation_deg(child_deg, parent_deg)
                 if parent_deg is not None and child_deg is not None else None)
     return offset_mm, rotation
+
+
+def _copy_node_onto(target: TreeNode, built: TreeNode) -> None:
+    """Copy every editable field of a BUILT node onto an EXISTING node in place
+    (mutate, don't swap identity — other structures may hold a reference, e.g.
+    _node_items). The single copy routine shared by the node editor dialog's
+    Apply button (Phase B) and the legacy _edit_node_flow commit path, so the
+    two can never drift."""
+    target.ref = built.ref
+    target.kind = built.kind
+    target.xy = built.xy
+    target.polar = built.polar
+    target.rotation = built.rotation
+    target.name = built.name
+    target.group = built.group
+    target.pivot_xy = built.pivot_xy
+    target.pivot_polar = built.pivot_polar
+    target.own_anchor = built.own_anchor
 
 
 class TreesDock(QDockWidget):
@@ -772,15 +791,25 @@ class TreesDock(QDockWidget):
             inst_item.setData(0, Qt.ItemDataRole.UserRole, child_inst.name)
 
     def _on_node_activated(self, item: QTreeWidgetItem, column: int) -> None:
-        """Double-click navigation (plan 2026-09-02 P4 п.3/п.4): a module node
-        switches the current tab to its referenced (child) tree; an "embedded
-        in X" pseudo item switches to the embedding parent's tab. Other items
-        (plain nodes / the anchor pseudo-root) do nothing."""
+        """Double-click (plan 2026-09-02 P4 п.3/п.4 + Phase B
+        design_2026_09_03... §3): a MODULE node switches the current tab to its
+        referenced (child) tree; an "embedded in X"/"instance: X" pseudo item
+        switches tabs; EVERY OTHER tree node opens its EDIT dialog
+        (_edit_node_flow — Apply/Redraw/Close), so double-clicking a placement
+        node gets you straight to editing and a live Redraw. The anchor
+        pseudo-root (no TreeNode) does nothing."""
         data = item.data(0, Qt.ItemDataRole.UserRole)
-        if isinstance(data, TreeNode) and data.kind == "module":
-            self._switch_to_tree(data.ref)
-        elif isinstance(data, str):
+        if isinstance(data, str):
             self._switch_to_tree(data)
+            return
+        if not isinstance(data, TreeNode):
+            return  # anchor pseudo-root
+        if data.kind == "module":
+            self._switch_to_tree(data.ref)
+            return
+        tree = self._tree_of_node(data) or self._current_tree()
+        if tree is not None:
+            self._edit_node_flow(tree, data)
 
     def _switch_to_tree(self, name: str) -> None:
         """Activate the tab of the tree named `name` (no-op if not loaded)."""
@@ -1347,31 +1376,62 @@ class TreesDock(QDockWidget):
         self._rebuild_tabs()
 
     def _edit_node_flow(self, tree: Tree, node: TreeNode) -> None:
-        """The first general node editor: the Add dialog reused with
-        existing=node, then the built fields copied onto the EXISTING node in
-        place (mutate, don't swap identity — other structures may hold a
-        reference, e.g. _node_items). pivot_xy/pivot_polar (kind=="module"
-        only) are copied too so Edit round-trips them (plan 2026-09-02 P4
-        п.1)."""
+        """The node editor (Phase B — design_2026_09_03... §3): the dialog opens
+        in EDIT mode (existing=node) with Apply/Redraw/Close buttons, so the
+        user can apply edits explicitly and keep the dialog open. When the
+        dialog's own Apply already mutated `node` in place, Close returns None
+        here and nothing more is copied — the tree is just refreshed. The
+        legacy commit path (built != None — the Add dialog's caller pattern) is
+        kept for tests/compat and funnels through the shared _copy_node_onto."""
         built = self._prompt_node(_("Edit node"), tree,
                                   parent_node=self._find_parent(tree, node),
                                   existing=node)
         if built is None:
+            # Dialog closed via Close; any applied edits were already written
+            # onto `node` by the dialog's Apply button (marking dirty). Refresh
+            # the tree view so those edits are visible.
+            self._rebuild_tabs()
             return
-        node.ref = built.ref
-        node.kind = built.kind
-        node.xy = built.xy
-        node.polar = built.polar
-        node.rotation = built.rotation
-        node.name = built.name
-        node.group = built.group
-        node.pivot_xy = built.pivot_xy
-        node.pivot_polar = built.pivot_polar
-        # own_anchor (Position tab) round-trips through Edit too (plan
-        # tree_node_own_anchor §3): None keeps "relative to parent".
-        node.own_anchor = built.own_anchor
+        _copy_node_onto(node, built)
         self._mark_dirty()
         self._rebuild_tabs()
+
+    @staticmethod
+    def _contains_node(candidate: TreeNode, target: TreeNode) -> bool:
+        """Identity-based subtree containment (TreeNode is unhashable)."""
+        if candidate is target:
+            return True
+        return any(TreesDock._contains_node(c, target) for c in candidate.children)
+
+    def _tree_of_node(self, node: TreeNode) -> Optional[Tree]:
+        """The tree whose node-subtree holds `node` (identity), or None."""
+        for t in self._trees:
+            if any(TreesDock._contains_node(top, node) for top in t.nodes):
+                return t
+        return None
+
+    def _redraw_edited_node(self, node: TreeNode) -> None:
+        """The node editor dialog's **Redraw** button (Phase B): place the REAL
+        record on the live board at its (edited) CONFIG position — ONE
+        ApplyPipeline --only run for node.ref over the in-memory cfg/trees (the
+        dialog just applied to the same Tree/TreeNode objects), in a background
+        worker (start_long_op, never blocks the UI). NOT the rigid curated
+        redraw: after an offset edit the component must move to the new offset.
+        Inherits the documented ApplyPipeline boundary (design §0) — a node that
+        can't be resolved by the pipeline fails exactly as it would on a full
+        Apply, this phase does not soften it."""
+        if node is None or not node.ref or self._cfg is None or self._ctx is None:
+            return
+        payload = {
+            "config_path": str(self._root_path) if self._root_path else "",
+            "cfg": self._cfg,
+            "ctx": self._ctx,
+            "ref": node.ref,
+        }
+        self._active_op = start_long_op(
+            self._main_window.connection, (),
+            run_single_node_redraw_worker, self._finish_redraw,
+            self._on_redraw_failed, payload)
 
     def _set_anchor_flow(self, tree: Tree) -> None:
         anchor = _AnchorDialog.prompt(
@@ -1910,19 +1970,42 @@ class _NodeDialog(QDialog):
         self.tabs.addTab(general_widget, _("General"))
         self.tabs.addTab(position_widget, _("Position"))
 
+        # Phase B (design_2026_09_03... §3): the EDIT dialog (existing) closes
+        # ONLY via Close — Apply writes the form onto the node (staying open,
+        # edits are explicit, nothing auto-commits), Redraw applies AND re-places
+        # the real component live; unsaved changes since the last Apply are lost
+        # on Close. The ADD dialog (no existing node to apply to) keeps the modal
+        # OK/Cancel commit through the caller (_prompt_node).
+        self._dock = parent if getattr(parent, "_mark_dirty", None) else None
+        self.apply_status_label = QLabel("")
+        self.apply_status_label.setWordWrap(True)
         root = QVBoxLayout(self)
         root.addWidget(self.tabs)
         buttons = QHBoxLayout()
-        self.ok_button = QPushButton(_("OK"))
-        self.ok_button.clicked.connect(self.accept)
-        cancel_button = QPushButton(_("Cancel"))
-        cancel_button.clicked.connect(self.reject)
-        buttons.addWidget(self.ok_button)
-        buttons.addWidget(cancel_button)
+        if existing is not None:
+            self.apply_button = QPushButton(_("Apply"))
+            self.apply_button.clicked.connect(self._on_apply)
+            self.redraw_button = QPushButton(_("Redraw"))
+            self.redraw_button.clicked.connect(self._on_redraw)
+            self.close_button = QPushButton(_("Close"))
+            self.close_button.clicked.connect(self.reject)
+            buttons.addWidget(self.apply_button)
+            buttons.addWidget(self.redraw_button)
+            buttons.addWidget(self.close_button)
+            root.addWidget(self.apply_status_label)
+        else:
+            self.ok_button = QPushButton(_("OK"))
+            self.ok_button.clicked.connect(self.accept)
+            cancel_button = QPushButton(_("Cancel"))
+            cancel_button.clicked.connect(self.reject)
+            buttons.addWidget(self.ok_button)
+            buttons.addWidget(cancel_button)
         root.addLayout(buttons)
 
         self.ref_combo.currentTextChanged.connect(self._update_read_button_state)
         self.kind_combo.currentIndexChanged.connect(self._update_read_button_state)
+        if existing is not None:
+            self.kind_combo.currentIndexChanged.connect(self._update_redraw_state)
 
         if existing is not None:
             self._prefill(existing)   # calls _on_kind_changed() itself (kind
@@ -1931,6 +2014,7 @@ class _NodeDialog(QDialog):
         else:
             self._on_kind_changed()
         self._update_read_button_state()
+        self._update_redraw_state()
 
     def _update_own_anchor_enabled(self) -> None:
         """The Role/Sheet/Cluster/Pad fields are enabled ONLY in "Relative to
@@ -1959,6 +2043,47 @@ class _NodeDialog(QDialog):
             anchor_cluster=self.own_anchor_cluster_combo.currentText().strip() or None,
             anchor_pad=self.own_anchor_pad_edit.text().strip() or None,
         )
+
+    def _update_redraw_state(self) -> None:
+        """Phase B: Redraw only makes sense in EDIT mode with a dock (live board
+        + config) and a record kind ApplyPipeline can re-place by name — a
+        module marker, an external live refdes or an auto node cannot."""
+        redraw = getattr(self, "redraw_button", None)
+        if redraw is None:
+            return
+        kind = self.kind_combo.currentData()
+        redraw.setEnabled(self._dock is not None
+                          and kind in ("placement", "clone", "chain", "rule",
+                                       "coordinate", "net_trace"))
+
+    def _on_apply(self) -> bool:
+        """Phase B Apply: validate the form and write the fields onto the EDITED
+        node in place — explicit, does NOT close the dialog (edits are explicit
+        actions; the config still reaches disk only through the caller's Save).
+        Returns True when applied."""
+        if self._existing is None:
+            return False
+        built = self.build_node()
+        if built is None:
+            return False  # build_node already warned
+        _copy_node_onto(self._existing, built)
+        if self._dock is not None:
+            self._dock._mark_dirty()
+        self.apply_status_label.setText(_("Applied — keep editing or Redraw."))
+        return True
+
+    def _on_redraw(self) -> None:
+        """Phase B Redraw: Apply first, then place the node's REAL record on the
+        live board at its (edited) config position — a background worker via the
+        dock, never blocking the dialog or the UI."""
+        if not self._on_apply():
+            return
+        if self._dock is not None:
+            self._dock._redraw_edited_node(self._existing)
+            self.apply_status_label.setText(_("Applied — Redraw started."))
+        else:
+            self.apply_status_label.setText(
+                _("Applied — no live board Redraw available."))
 
     def _prefill(self, existing: TreeNode) -> None:
         """Edit mode: populate every field from an existing node. Called
