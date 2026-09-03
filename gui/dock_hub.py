@@ -412,6 +412,11 @@ class DockHub:
         # explicitly before loading, same reasoning as _start_new_placement
         # etc. below for "Add ...".
         self.config_tree_dock.cell_edit_requested.connect(self._edit_cell)
+        # 2026-09-03 (plan cell_geometry_refresh): the context menu's "Update
+        # from selection..." — same delegate shape as _edit_cell (explicit
+        # file, then show the cell page), driving the cell's geometry refresh.
+        self.config_tree_dock.cell_refresh_requested.connect(
+            self._refresh_cell_from_selection)
         # Placer/Thermal via/Extract/Points/Chains -> Config tree: a
         # successful Save refreshes the whole tree (walk_include_tree() is
         # re-run) so a brand new (or renamed) entry shows up without
@@ -1311,6 +1316,15 @@ class DockHub:
         passed explicitly here before loading — a later Save writes the edit
         back to that file, not the root (2026-08-21 review fix)."""
         self.cells_dock.load_entry(name, file_path)
+        self.detail_dock.show_cells()
+
+    def _refresh_cell_from_selection(self, name, file_path) -> None:
+        """ConfigTreeDock's cell_refresh_requested delegate (2026-09-03, plan
+        cell_geometry_refresh) — the context menu's "Update from selection...":
+        same explicit file handling as _edit_cell, then drive CellDock's own
+        refresh entry point (which loads the cell when it is not the currently
+        open one and runs the same _on_refresh_geometry path as the button)."""
+        self.cells_dock.refresh_from_selection_requested(name, file_path)
         self.detail_dock.show_cells()
 
     def _attach_log_file_handler(self, handler) -> None:

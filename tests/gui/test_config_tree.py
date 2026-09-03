@@ -298,6 +298,28 @@ def test_edit_cell_emits_name_and_file(main_window, tmp_path):
     assert requested == [("one_role", root)]
 
 
+def test_update_from_selection_emits_name_and_file(main_window, tmp_path, monkeypatch):
+    """"Update from selection..." (context menu, 2026-09-03, plan
+    cell_geometry_refresh) — the cell leaf's context action emits
+    cell_refresh_requested with the SAME (name, file_path) as "Edit cell...",
+    so CellDock can load the right cell and refresh its geometry."""
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
+
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    requested = []
+    dock.cell_refresh_requested.connect(lambda name, path: requested.append((name, path)))
+
+    leaf = _find(dock.tree.topLevelItem(0), "Cells").child(0)
+    actions = dict(_context_menu_actions(dock, leaf, monkeypatch))
+    assert "Update from selection..." in actions
+    actions["Update from selection..."].trigger()
+
+    assert requested == [("one_role", root.resolve())]
+
+
 def test_rename_action_present_for_a_leaf_absent_for_a_category(main_window, tmp_path):
     """2026-08-04, Denis: "А мы можем добавить конекстное меню в конфиг
     чтобы переименовать плэейсменты, целлы, профили извлечения и т.д.?" —

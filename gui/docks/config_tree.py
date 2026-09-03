@@ -206,6 +206,13 @@ class ConfigTreeDock(QDockWidget):
     # via its load_entry() entry point. (name, file_path), same "leaf name +
     # owning file" shape points_picked/rule_picked's file context carries.
     cell_edit_requested = pyqtSignal(str, object)
+    # Fired by the context menu's "Update from selection..." (2026-09-03,
+    # plan cell_geometry_refresh) — CellDock listens via its
+    # refresh_from_selection_requested() entry point: load the requested cell
+    # (when not already the one open) and run the geometry refresh from the
+    # current board selection. Same (name, file_path) shape as
+    # cell_edit_requested.
+    cell_refresh_requested = pyqtSignal(str, object)
     # Fired by the context menu's "Add cell..." (2026-08-06, replaces a raw
     # {"components": []} stub write straight to YAML with no form behind it
     # — the exact root cause of a live bug, see cell_editor.py's module
@@ -1050,6 +1057,13 @@ class ConfigTreeDock(QDockWidget):
             if section == "cells":
                 menu.addAction(_("Edit cell...")).triggered.connect(
                     lambda: self.cell_edit_requested.emit(old_name, file_path))
+                # 2026-09-03 (plan cell_geometry_refresh): refresh an existing
+                # cell's geometry from the current board selection — the
+                # one-click path Denis originally looked for ("как перечитать
+                # cell") without first opening CellDock and hunting for the
+                # button. Same (name, file_path) shape as cell_edit_requested.
+                menu.addAction(_("Update from selection...")).triggered.connect(
+                    lambda: self.cell_refresh_requested.emit(old_name, file_path))
             menu.addAction(_("Rename...")).triggered.connect(
                 lambda: self._on_rename(file_path, section, old_name))
             menu.addAction(_("Delete...")).triggered.connect(
