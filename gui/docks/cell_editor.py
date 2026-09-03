@@ -72,15 +72,20 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFormLayout,
-                              QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton,
-                              QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog,
+                              QDialogButtonBox, QFormLayout, QHBoxLayout, QHeaderView,
+                              QLabel, QLineEdit, QMessageBox, QPushButton,
+                              QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout,
+                              QWidget)
 
+from kicadstamp.cell_geometry_refresh import build_refresh_plan
 from kicadstamp.config import (load_cell, load_cell_placement, load_template_component_slot,
                                load_template_track, load_template_via)
+from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
 
+from ..worker import start_long_op
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       configure_searchable, display_path, merge_write, parse_float_field,
                       set_combo_items, show_message)
@@ -116,6 +121,128 @@ def _net_display(entry: Dict[str, Any]) -> str:
     return str(entry.get("net", ""))
 
 
+# ── Refresh-geometry preview helpers (2026-09-03, plan cell_geometry_refresh)
+# Pure (no widget access) so the GUI test can exercise the exact rows the
+# dialog shows without a QDialog event loop.
+
+_GEO_FIELD_LABELS = {
+    "offset_along_mm": _("Offset along"),
+    "offset_across_mm": _("Offset across"),
+    "angle_deg": _("Angle"),
+    "start_along_mm": _("Start along"),
+    "start_across_mm": _("Start across"),
+    "end_along_mm": _("End along"),
+    "end_across_mm": _("End across"),
+    "width_mm": _("Width"),
+}
+
+_GEO_GROUP_LABELS = {
+    "components": _("Components"),
+    "vias": _("Vias"),
+    "tracks": _("Tracks"),
+}
+
+
+def _fmt_mm(value: Optional[float]) -> str:
+    """Display form for a geometry value — mm numbers at 4 decimals (matches
+    the extractor's storage precision), None rendered as '—' (not-yet-written
+    offset key, means 0 in the refresh model)."""
+    return "—" if value is None else f"{value:.4f}"
+
+
+def refresh_preview_sections(components: List[Dict[str, Any]],
+                             vias: List[Dict[str, Any]],
+                             tracks: List[Dict[str, Any]],
+                             plan) -> List[Dict[str, Any]]:
+    """Build the read-only preview tables for a RefreshPlan.
+
+    Returns one section dict per non-empty group: {"title", "rows"} where
+    each row is [item_label, field_label, old_str, new_str, delta_str]
+    (item_label = the role for a component, "via #i on {net}"/"track #i on
+    {net}" for copper). A field whose recomputed value equals its current one
+    (Δ ≈ 0) contributes NO row — a fully-unchanged selection yields an empty
+    list, which the caller surfaces as "Nothing changed" instead of an empty
+    dialog."""
+    sections: List[Dict[str, Any]] = []
+    groups = (
+        ("components", components, plan.component_updates),
+        ("vias", vias, plan.via_updates),
+        ("tracks", tracks, plan.track_updates),
+    )
+    for group_key, records, updates in groups:
+        if not updates:
+            continue
+        rows: List[List[str]] = []
+        for record, new_geo in updates:
+            idx = _identity_index(records, record)
+            if group_key == "components":
+                item = str(record.get("role", ""))
+            else:
+                kind = "via" if group_key == "vias" else "track"
+                item = _("{kind} #{index} on {net}").format(
+                    kind=kind, index=idx, net=_net_display(record))
+            for field, new_value in new_geo.items():
+                old_value = record.get(field)
+                # An offset key that the old dict never wrote IS zero in the
+                # refresh model — show it as such for a truthful Δ.
+                old_display = 0.0 if old_value is None else old_value
+                if abs(new_value - old_display) < 1e-9:
+                    continue
+                label = _GEO_FIELD_LABELS.get(field, field)
+                rows.append([item, label,
+                             _fmt_mm(old_value),
+                             _fmt_mm(new_value),
+                             f"{new_value - old_display:+.4f}"])
+        if rows:
+            sections.append({"title": _GEO_GROUP_LABELS[group_key], "rows": rows})
+    return sections
+
+
+def _identity_index(records: List[Dict[str, Any]], target: Dict[str, Any]) -> int:
+    """index() by OBJECT identity, not equality — two distinct dicts with the
+    same content would otherwise be conflated."""
+    for i, rec in enumerate(records):
+        if rec is target:
+            return i
+    return -1
+
+
+class _RefreshPreviewDialog(QDialog):
+    """Read-only old/new/Δ preview for one RefreshPlan — deliberately a
+    separate lightweight widget (not the dock's editable tables, whose
+    semantics differ). Apply/Cancel; the actual record.update() happens in the
+    caller AFTER this dialog returns Accepted (so mutation + autostage stay in
+    the dock's normal path)."""
+
+    def __init__(self, sections: List[Dict[str, Any]], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(_("Refresh geometry from selection"))
+        self.resize(760, 420)
+        layout = QVBoxLayout(self)
+        tabs = QTabWidget()
+        for section in sections:
+            table = QTableWidget(0, 5)
+            table.setHorizontalHeaderLabels(
+                [_("Item"), _("Field"), _("Old"), _("New"), _("Δ")])
+            table.horizontalHeader().setSectionResizeMode(
+                QHeaderView.ResizeMode.Stretch)
+            table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+            table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+            for row_index, row in enumerate(section["rows"]):
+                table.insertRow(row_index)
+                for col, value in enumerate(row):
+                    table.setItem(row_index, col, QTableWidgetItem(str(value)))
+            tabs.addTab(table, section["title"])
+        layout.addWidget(tabs, 1)
+        buttons = QDialogButtonBox()
+        apply_button = buttons.addButton(_("Apply"), QDialogButtonBox.ButtonRole.AcceptRole)
+        buttons.addButton(_("Cancel"), QDialogButtonBox.ButtonRole.RejectRole)
+        apply_button.setDefault(True)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+
 class CellDock(QWidget):
     """A page inside DetailDock's stack (gui/docks/detail_panel.py) — same
     "plain QWidget, not its own QDockWidget" shape as Extract/Placer/
@@ -139,6 +266,10 @@ class CellDock(QWidget):
         self._selected_via: Optional[int] = None
         self._selected_track: Optional[int] = None
         self._selected_nested: Optional[int] = None
+        # The currently running long op (gui/worker.py) — held so the
+        # controller outlives its QThread (same pattern as every board-touching
+        # dock: PointsDock/NetTraceDock/RoleClusterTreeDock keep _active_op).
+        self._active_op: Optional[Any] = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -194,6 +325,21 @@ class CellDock(QWidget):
         self.anchor_pad_edit.setPlaceholderText(_("pad (optional)"))
         anchor_role_form.addRow(_("Pad:"), self.anchor_pad_edit)
         layout.addWidget(self._anchor_role_row)
+
+        # Refresh geometry from selection (2026-09-03, plan
+        # cell_geometry_refresh) — an operation over the WHOLE loaded cell
+        # (components + vias + tracks), so it lives above the tabs, not inside
+        # any single component/via/track page. Enabled whenever the live board
+        # adapter is present AND the loaded cell has components (the actual
+        # empty-selection case is reported at run time — CellDock receives no
+        # selection feed to gate on, see _update_refresh_enabled).
+        refresh_row = QHBoxLayout()
+        self.refresh_geometry_button = QPushButton(
+            _("Refresh geometry from selection"))
+        self.refresh_geometry_button.clicked.connect(self._on_refresh_geometry)
+        self.refresh_geometry_button.setEnabled(False)
+        refresh_row.addWidget(self.refresh_geometry_button)
+        layout.addLayout(refresh_row)
 
         self._tabs = QTabWidget()
         layout.addWidget(self._tabs, 1)
@@ -519,6 +665,10 @@ class CellDock(QWidget):
         roles = sorted({s.role for s in snapshot if s.role})
         set_combo_items(self.comp_role_edit, roles)
         set_combo_items(self.nested_role_combo, roles)
+        # A push_snapshot only fires while connected (board present), so this
+        # is the dock's live-board heartbeat — refresh the geometry button's
+        # enabled state on it (adapter present AND a cell is loaded).
+        self._update_refresh_enabled()
 
     # ── Anchor UI ─────────────────────────────────────────────────────────
 
@@ -595,6 +745,9 @@ class CellDock(QWidget):
         self._refresh_tracks_table()
         self._refresh_nested_table()
         self._refresh_role_choices()
+        # The loaded cell changed (load_entry/new_cell/add/remove/...) — the
+        # geometry-refresh button only makes sense on a non-empty cell.
+        self._update_refresh_enabled()
 
     def _refresh_components_table(self) -> None:
         self.components_table.setRowCount(len(self._components))
@@ -1220,6 +1373,130 @@ class CellDock(QWidget):
                 name=name, path=display_path(self._path)),
             _SUCCESS_STYLE)
         self.saved.emit()
+
+    # ── Refresh geometry from selection (2026-09-03, plan cell_geometry_refresh)
+
+    def _update_refresh_enabled(self) -> None:
+        """The refresh-geometry button is meaningful only when a live board
+        adapter is present AND a cell with components is loaded. CellDock
+        receives no per-selection feed (only push_snapshot's role lists), so
+        an EMPTY board selection is not gated here — the worker reports it as
+        a clear error at click time instead."""
+        connection = getattr(self._main_window, "connection", None)
+        board = getattr(connection, "board", None) if connection is not None else None
+        adapter = getattr(board, "adapter", None) if board is not None else None
+        self.refresh_geometry_button.setEnabled(
+            adapter is not None and bool(self._components))
+
+    def _on_refresh_geometry(self) -> None:
+        """Button/context action: read the CURRENT board selection and refresh
+        the loaded cell's geometry to match it. Board IPC (selection read +
+        net_from_role resolution) runs on the worker thread via start_long_op;
+        the preview dialog + Apply stay on the UI thread."""
+        self._show_message("")
+        connection = getattr(self._main_window, "connection", None)
+        board = getattr(connection, "board", None) if connection is not None else None
+        adapter = getattr(board, "adapter", None) if board is not None else None
+        if adapter is None:
+            self._show_message(_("Connect to KiCad first."), _ERROR_STYLE)
+            return
+        if not self._components:
+            self._show_message(_("Load a cell with components first."), _ERROR_STYLE)
+            return
+        if self._path is None:
+            self._show_message(_("Set the project root first."), _ERROR_STYLE)
+            return
+        if self._active_op is not None:
+            return
+        # Snapshot the current lists — the worker reads them while the UI may
+        # keep ticking; build_refresh_plan never mutates them, and the records
+        # it returns are the SAME dict objects, so Apply lands on the loaded
+        # lists regardless of list identity.
+        payload = {
+            "board": board,
+            "components": list(self._components),
+            "vias": list(self._vias),
+            "tracks": list(self._tracks),
+        }
+        self._active_op = start_long_op(
+            connection, (self.refresh_geometry_button,),
+            self._run_refresh_geometry, self._finish_refresh_geometry,
+            self._on_refresh_op_failed, payload)
+
+    def _run_refresh_geometry(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Worker thread: selection read + plan build — never touches a widget.
+        Returns {"plan": RefreshPlan} or {"error": ...} (a ValidationError's
+        format_fatal_error text shown verbatim in a QMessageBox)."""
+        try:
+            adapter = payload["board"].adapter
+            items = adapter.get_selected_items()
+            footprints = [i for i in items if isinstance(i, Footprint)]
+            vias = [i for i in items if isinstance(i, Via)]
+            tracks = [i for i in items if isinstance(i, Track)]
+            plan = build_refresh_plan(
+                payload["components"], payload["vias"], payload["tracks"],
+                footprints, vias, tracks, adapter)
+        except ValidationError as e:
+            return {"error": str(e)}
+        return {"plan": plan}
+
+    def _finish_refresh_geometry(self, result: Dict[str, Any]) -> None:
+        """UI thread (worker finished): a plan error is shown as a warning with
+        the FULL collected text; a clean plan is previewed; on Apply the dock's
+        normal mutation/autostage path runs."""
+        self._active_op = None
+        if result.get("error"):
+            QMessageBox.warning(
+                self, _("Refresh geometry from selection"), result["error"])
+            return
+        plan = result["plan"]
+        sections = refresh_preview_sections(
+            self._components, self._vias, self._tracks, plan)
+        total = sum(len(s["rows"]) for s in sections)
+        if not total:
+            self._show_message(
+                _("Nothing changed — the selection already matches this cell's geometry."),
+                _SUCCESS_STYLE)
+            return
+        dialog = _RefreshPreviewDialog(sections, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        applied = self._apply_refresh_plan(plan)
+        self._show_message(
+            _("Refreshed {name!r} from selection — {count} record(s) updated. "
+              "Save to write the change.").format(
+                name=self.name_edit.text().strip(), count=applied),
+            _SUCCESS_STYLE)
+
+    def _on_refresh_op_failed(self, message: str) -> None:
+        self._active_op = None
+        self._show_message(
+            _("Refresh failed: {error}").format(error=message), _ERROR_STYLE)
+
+    def _apply_refresh_plan(self, plan) -> int:
+        """Apply a RefreshPlan to the loaded cell: mutate ONLY the geometric
+        keys on the SAME dict objects already in self._components/_vias/
+        _tracks (plan records ARE those dicts), then refresh tables + autostage
+        exactly like a manual row Update. Returns how many records changed.
+        Nothing is written to disk here — Save remains a separate explicit
+        action, as everywhere in this dock."""
+        count = 0
+        for record, new_geo in (plan.component_updates + plan.via_updates
+                                + plan.track_updates):
+            record.update(new_geo)
+            count += 1
+        self._refresh_all_tables()
+        self._autostage()
+        return count
+
+    def refresh_from_selection_requested(self, name: str, file_path) -> None:
+        """ConfigTreeDock's cell_refresh_requested delegate (2026-09-03) — the
+        context menu's "Update from selection...": when the requested cell is
+        not the one currently loaded, load it first, then run the same
+        _on_refresh_geometry path as the dock's own button."""
+        if self.name_edit.text().strip() != name or self._path != file_path:
+            self.load_entry(name, file_path)
+        self._on_refresh_geometry()
 
     # ── Starting a brand new entry (ConfigTreeDock's Add cell...) ────────
 

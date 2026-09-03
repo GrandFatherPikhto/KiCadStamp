@@ -10,9 +10,13 @@ from types import SimpleNamespace
 
 import pytest
 
+import gui.docks.cell_editor as cell_editor_mod
 from gui.docks.cell_editor import CellDock
+from kicadstamp.cell_geometry_refresh import build_refresh_plan
 from kicadstamp.config import load_template_via
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
+from kicadstamp.domain.board import Footprint, Track, Via
+from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.exceptions import ValidationError
 
 
@@ -776,3 +780,138 @@ def test_refresh_known_roles_populates_role_combos(main_window, tmp_path):
     nested_items = {dock.nested_role_combo.itemText(i) for i in range(dock.nested_role_combo.count())}
     assert comp_items == {"HEAVY", "LIGHT"}
     assert nested_items == {"HEAVY", "LIGHT"}
+
+
+# ── Refresh geometry from selection (2026-09-03, plan cell_geometry_refresh)
+# Headless: no worker threads — the dock's run/finish/apply methods are driven
+# directly with synthetic board DTOs and a stubbed preview dialog.
+
+def _refresh_dto_fp(ref, role, x_mm, y_mm, angle=0.0):
+    return Footprint(ref=ref, uuid=f"uuid-{ref}",
+                     position=Vector2.from_xy_mm(x_mm, y_mm),
+                     angle_deg=angle, layer=BoardLayer.BL_F_Cu)
+
+
+def _refresh_dto_via(net, x_mm, y_mm):
+    return Via(uuid=f"v-{net}", position=Vector2.from_xy_mm(x_mm, y_mm),
+               net_name=net, drill_mm=0.3, diameter_mm=0.6)
+
+
+class _RefreshBoard:
+    """connection.board stand-in: adapter returns the fixed selection and reads
+    Role by ref — enough for build_refresh_plan's footprint role pass."""
+    def __init__(self, items, roles=None):
+        self.adapter = SimpleNamespace(
+            get_selected_items=lambda: list(items),
+            get_field_value=lambda fp, name: (roles or {}).get(fp.ref))
+
+
+def _loaded_cell_data():
+    return {"cells": {"t": {
+        "layer": "F.Cu",
+        "components": [
+            {"role": "ORIG", "offset_along_mm": 0.0, "offset_across_mm": 0.0,
+             "angle_deg": 0.0, "net_template": "VCC"},
+            {"role": "CAP", "offset_along_mm": 1.0, "offset_across_mm": 0.0,
+             "angle_deg": 0.0, "net_template": "VCC",
+             "net_template_same_as_role": "ORIG"},
+        ],
+        "vias": [{"offset_along_mm": 0.5, "offset_across_mm": 1.5, "net": "GND"}],
+        "tracks": [],
+    }}}
+
+
+def test_refresh_geometry_button_enabled_only_with_board_and_components(main_window, tmp_path):
+    """§2.1 activity: adapter present (push_snapshot fires) AND the loaded cell
+    has components. No board -> disabled; empty cell -> disabled."""
+    dock, _ = _make_dock(main_window, tmp_path, {"cells": {"t": {"components": []}}})
+    dock.load_entry("t")
+    # No board yet — refresh_known_roles isn't called, button stays disabled.
+    assert not dock.refresh_geometry_button.isEnabled()
+
+    # Board present but cell still empty.
+    main_window.connection.board = _RefreshBoard([])
+    dock.refresh_known_roles([])
+    assert not dock.refresh_geometry_button.isEnabled()
+
+    # Load a cell WITH components while the board is present.
+    dock.load_entry("t", None)
+    dock._components.append({"role": "ORIG", "offset_along_mm": 0.0,
+                             "offset_across_mm": 0.0})
+    dock._refresh_all_tables()
+    assert dock.refresh_geometry_button.isEnabled()
+
+
+def test_refresh_geometry_apply_updates_geometry_keeps_other_fields(main_window, tmp_path,
+                                                                   monkeypatch):
+    """Successful plan -> Apply mutates ONLY the geometric keys on the SAME
+    dicts already in _components/_vias, and every other field survives intact
+    (net_template_same_as_role/net_template stay). Preview dialog is stubbed
+    to Accept so the real finish->apply path runs."""
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    orig_cap = next(c for c in dock._components if c["role"] == "CAP")
+    orig_via = dock._vias[0]
+
+    # Live board: components + via moved to new positions.
+    board = _RefreshBoard(
+        [_refresh_dto_fp("R-ORIG", "ORIG", 10.0, 10.0),
+         _refresh_dto_fp("R-CAP", "CAP", 11.5, 9.0, angle=90.0),
+         _refresh_dto_via("GND", 11.0, 13.0)],
+        roles={"R-ORIG": "ORIG", "R-CAP": "CAP"})
+
+    accepted = {"value": False}
+    class _AcceptDialog:
+        def __init__(self, sections, parent=None):
+            self.sections = sections
+        def exec(self):
+            return 1  # QDialog.Accepted
+    monkeypatch.setattr(cell_editor_mod, "_RefreshPreviewDialog", _AcceptDialog)
+
+    result = dock._run_refresh_geometry(
+        {"board": board, "components": list(dock._components),
+         "vias": list(dock._vias), "tracks": list(dock._tracks)})
+    assert "plan" in result
+    dock._finish_refresh_geometry(result)
+
+    assert next(c for c in dock._components if c["role"] == "CAP")["offset_along_mm"] == 1.5
+    assert next(c for c in dock._components if c["role"] == "CAP")["offset_across_mm"] == -1.0
+    assert next(c for c in dock._components if c["role"] == "CAP")["angle_deg"] == 90.0
+    assert dock._vias[0]["offset_along_mm"] == 1.0
+    assert dock._vias[0]["offset_across_mm"] == 3.0
+
+    # Same dict objects were mutated (not replaced) and non-geo keys survived.
+    assert dock._vias[0] is orig_via
+    assert next(c for c in dock._components if c["role"] == "CAP") is orig_cap
+    assert orig_cap["net_template"] == "VCC"
+    assert orig_cap["net_template_same_as_role"] == "ORIG"
+    assert dock._vias[0]["net"] == "GND"
+
+
+def test_refresh_geometry_validation_error_shows_warning_tables_untouched(
+        main_window, tmp_path, monkeypatch):
+    """A structural mismatch (selection is the wrong cluster) -> the full error
+    text goes to QMessageBox.warning and the dock's lists/tables do not change."""
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    before_components = [dict(c) for c in dock._components]
+
+    # Live board is a DIFFERENT cluster: only the CAP role, no ORIG (origin).
+    board = _RefreshBoard([_refresh_dto_fp("R-CAP", "CAP", 5.0, 0.0)],
+                          roles={"R-CAP": "CAP"})
+    warnings = []
+    monkeypatch.setattr(cell_editor_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a))
+
+    result = dock._run_refresh_geometry(
+        {"board": board, "components": list(dock._components),
+         "vias": list(dock._vias), "tracks": list(dock._tracks)})
+    assert "error" in result
+    dock._finish_refresh_geometry(result)
+
+    assert len(warnings) == 1
+    assert "zero-offset origin" in warnings[0][2]
+    assert dock._components == before_components
+    assert dock._vias == [{"offset_along_mm": 0.5, "offset_across_mm": 1.5,
+                           "net": "GND"}]
+    assert dock.vias_table.rowCount() == 1
