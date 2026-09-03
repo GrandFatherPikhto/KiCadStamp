@@ -377,6 +377,18 @@ Cluster column is OPTIONAL (blank = inherit the template's own cluster unchanged
 substituted into the generated copies' `cluster` and the role anchor, mirroring `sheet`. The dialog
 only persists the declarations, the instances materialize on the next load.
 
+**Instantiate from Cell… (2026-09-03, plan instantiate_from_entity):** add ONE more physical group of
+the same kind INTO the current tree without duplicating geometry — pick an EXISTING Cell (e.g.
+pif_p2v5_vcca) as the group's internal layout (its components/vias/tracks live in the Cell once; the
+new Entity just references it via cell:), name the new Entity for the new cluster (e.g. PIF_1V2_VCCINT)
+and address it by Sheet/Cluster. The placement node is offset by xy from the tree's anchor (the tree
+must have an anchor set): entered manually, or — the opt-in "take from selection" checkbox — derived
+from the current board selection (the geometric center of the selected group's footprints when they all
+belong to ONE cluster; several clusters in the selection is an error; no selection → manual). The new
+Entity carries no role-pinning (refs): the new cluster's roles resolve at Apply by (Cluster, Sheet).
+Entry points: Tools → Trees → "Instantiate from Cell..." and the current tree anchor's context menu.
+Everything is staged — nothing reaches disk until File > Save.
+
 ## Detail dock
 
 Placer/Net traces/Cells below all live as tabs inside one shared **Detail** dock,
