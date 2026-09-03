@@ -11970,3 +11970,6 @@ msgstr "напр. PIF_1V2_VCCINT"
 msgid "selection covers several clusters"
 msgstr "выделение охватывает несколько кластеров"
 
+msgid "Set the tree anchor first — a new group is positioned relative to the tree anchor (anchor → Set anchor…)."
+msgstr "Сначала задай якорь дерева — новая группа позиционируется относительно якоря дерева (anchor → Set anchor…)."
+

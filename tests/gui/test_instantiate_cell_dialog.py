@@ -193,3 +193,37 @@ def test_instantiate_from_cell_stages_entity_and_node(main_window, tmp_path,
     assert new_ent.get("cluster") == "PIF_1V2_VCCINT"
     assert new_ent.get("sheet") == "FPGA"
     assert "refs" not in new_ent
+
+
+def test_instantiate_from_cell_requires_real_anchor(main_window, tmp_path,
+                                                    monkeypatch):
+    """Plan §1.5: a tree with an auto/absent anchor must refuse the action in
+    ANY positioning mode (soft block with the "Set anchor…" hint) — the dialog
+    never opens, no node is added, nothing is staged."""
+    import gui.docks.trees_dock as td_mod
+    cfg_dict = {
+        "cells": {},
+        "entities": [
+            {"name": "pif_p2v5_vcca", "cell": "c_pif", "cluster": "PIF_P2V5_VCCA"},
+        ],
+        "trees": [{
+            "name": "fpga",  # no anchor key -> is_auto (no resolvable base)
+            "nodes": [{"ref": "pif_p2v5_vcca", "kind": "placement", "xy": [1.0, 2.0]}],
+        }],
+    }
+    root = tmp_path / "root.sexp"
+    root.write_text(dict_to_sexp(cfg_dict), encoding="utf-8")
+    dock = TreesDock(main_window)
+    dock.set_root_file(root)
+    warnings = []
+    monkeypatch.setattr(td_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a)
+                        or td_mod.QMessageBox.StandardButton.Ok)
+    opened = []
+    monkeypatch.setattr(icd, "InstantiateCellDialog",
+                        lambda *a, **k: opened.append(True) or None)
+    dock._instantiate_from_cell([])
+    assert opened == [], "the dialog must not open for an auto-anchored tree"
+    assert warnings, "an auto-anchored tree must warn with the Set-anchor hint"
+    assert len(dock._trees[0].nodes) == 1   # unchanged
+    assert dock._dirty is False

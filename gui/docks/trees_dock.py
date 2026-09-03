@@ -1447,6 +1447,15 @@ class TreesDock(QDockWidget):
                            "snapshot", None) or []
         return sorted({seg for s in snapshot for seg in (s.sheet or ()) if seg})
 
+    @staticmethod
+    def _tree_anchor_ready(tree: Tree) -> bool:
+        """A tree has a REAL anchor when one is written (role/ref/point/origin)
+        — an is_auto anchor (no (anchor ...) at all) has no resolvable base, so
+        "position relative to the tree anchor" is meaningless for it. The
+        Instantiate-from-Cell flow must refuse an auto/absent anchor in ANY
+        positioning mode (plan instantiate_from_entity §1.5)."""
+        return tree.anchor is not None and not tree.anchor.is_auto
+
     def _anchor_base_mm(self, tree: Tree) -> Optional[tuple[float, float]]:
         """Live base (mm) of the tree's own anchor, or None when it cannot be
         resolved (not connected / anchor unresolvable) — needed only for the
@@ -1481,6 +1490,16 @@ class TreesDock(QDockWidget):
                 self, _("Instantiate from Cell"),
                 _("A generated instance is read-only — add the new group to "
                   "its template tree instead."))
+            return
+        if not self._tree_anchor_ready(tree):
+            # Plan §1.5: a new group is positioned RELATIVE to the tree anchor —
+            # an auto/absent anchor makes manual AND from-selection placement
+            # meaningless alike, so refuse before the dialog (soft, with the
+            # "Set anchor…" hint), in every positioning mode.
+            QMessageBox.warning(
+                self, _("Instantiate from Cell"),
+                _("Set the tree anchor first — a new group is positioned "
+                  "relative to the tree anchor (anchor → Set anchor…)."))
             return
         if self._cfg is None:
             return

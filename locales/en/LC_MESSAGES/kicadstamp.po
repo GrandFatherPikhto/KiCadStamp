@@ -13014,3 +13014,6 @@ msgstr ""
 msgid "selection covers several clusters"
 msgstr ""
 
+msgid "Set the tree anchor first — a new group is positioned relative to the tree anchor (anchor → Set anchor…)."
+msgstr ""
+
