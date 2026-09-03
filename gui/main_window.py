@@ -310,6 +310,14 @@ class MainWindow(QMainWindow):
         self.tree_instances_action.triggered.connect(
             lambda: self._dock_hub.open_instances_dialog())
         self.trees_menu.addAction(self.tree_instances_action)
+        # "Instantiate from Cell..." (2026-09-03, plan instantiate_from_entity):
+        # add ONE new group into the CURRENT tree by reusing an EXISTING Cell
+        # as its internal layout (new Entity + placement node, staged until
+        # Save) — the sibling of "Extract cluster...", but tree-bound.
+        self.instantiate_cell_action = QAction(_("Instantiate from Cell..."), self)
+        self.instantiate_cell_action.triggered.connect(
+            lambda: self._dock_hub.instantiate_from_cell())
+        self.trees_menu.addAction(self.instantiate_cell_action)
 
         # ── Tools root (non-tree entries) ────────────────────────────────
         # "Place thermal vias..." (2026-09-01, plan

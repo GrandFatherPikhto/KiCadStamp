@@ -797,6 +797,23 @@ class DockHub:
         self._focus_trees_dock()
         self.trees_dock._on_delete_tree()
 
+    def instantiate_from_cell(self) -> None:
+        """Tools → Trees → "Instantiate from Cell…" AND the TreesDock anchor
+        context-menu action (2026-09-03, plan instantiate_from_entity): add
+        ONE new group into the CURRENT tree by reusing an EXISTING Cell as its
+        internal layout — a new Entity (no refs; roles resolve at Apply by
+        cluster/sheet) + a top-level placement node, both STAGED (nothing is
+        written until the global Save). The live board selection
+        (_selection_footprints, set by set_board_selection) feeds the dialog's
+        opt-in "take from selection" positioning."""
+        if self.root_metadata_dock.root_path is None:
+            QMessageBox.warning(self.main_window, _("Instantiate from Cell"),
+                                _("Set the project root first."))
+            return
+        self._focus_trees_dock()
+        selected = getattr(self, "_selection_footprints", []) or []
+        self.trees_dock._instantiate_from_cell(selected)
+
     def anchor_position(self) -> None:
         """Tools → Trees → Anchor position: refresh the dock's read-only live
         anchor-position readout for the CURRENT tree."""

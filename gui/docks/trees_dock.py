@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (QComboBox, QDialog, QDockWidget,
 from kicadstamp.anchor_graph import Record, build_records
 from kicadstamp.config import TreeInstance, load_config, load_tree
 from kicadstamp.kicad.adapter import KiCadBoardAdapter
-from kicadstamp.config_writer import read_data, write_data
+from kicadstamp.config_writer import read_data, upsert_entity, write_data
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
@@ -1138,6 +1138,11 @@ class TreesDock(QDockWidget):
                 lambda: self._add_node_flow(tree))
             menu.addAction(_("Set anchor…")).triggered.connect(
                 lambda: self._set_anchor_flow(tree))
+            # "Instantiate from Cell..." (2026-09-03, plan instantiate_from_
+            # entity) — add a NEW group reusing an EXISTING Cell into THIS
+            # tree. Routed through DockHub so it has the live board selection.
+            menu.addAction(_("Instantiate from Cell…")).triggered.connect(
+                lambda: self._main_window._dock_hub.instantiate_from_cell())
         menu.exec(tree_widget.viewport().mapToGlobal(pos))
 
     # ── Node dialog helpers ──────────────────────────────────────────────
@@ -1432,6 +1437,100 @@ class TreesDock(QDockWidget):
         self._mark_dirty()
         self._rebuild_tabs()
         self.tabs.setCurrentIndex(len(self._trees) - 1)
+
+    # ── Instantiate from Cell… (2026-09-03, plan instantiate_from_entity) ──
+
+    def _live_sheets(self) -> list[str]:
+        """Distinct sheet segments from the current live snapshot, sorted —
+        the editable Sheet combo candidates for the instantiate dialog."""
+        snapshot = getattr(getattr(self._main_window, "connection", None),
+                           "snapshot", None) or []
+        return sorted({seg for s in snapshot for seg in (s.sheet or ()) if seg})
+
+    def _anchor_base_mm(self, tree: Tree) -> Optional[tuple[float, float]]:
+        """Live base (mm) of the tree's own anchor, or None when it cannot be
+        resolved (not connected / anchor unresolvable) — needed only for the
+        "from selection" placement mode (node xy = group center - anchor base)."""
+        adapter = self._live_adapter()
+        if adapter is None or self._cfg is None:
+            return None
+        try:
+            sheet_names = self._ctx.sheet_names if self._ctx else {}
+            pos, _rot = _anchor_base_live_position(
+                adapter, self._cfg, tree, sheet_names)
+        except Exception:  # noqa: BLE001 — live read, best-effort
+            return None
+        return (pos.x / MM, pos.y / MM)
+
+    def _instantiate_from_cell(self, selected) -> None:
+        """Add ONE new group into the CURRENT tree by reusing an EXISTING Cell
+        (2026-09-03, plan instantiate_from_entity). Collects the decision in
+        the InstantiateCellDialog, stages a NEW Entity on that Cell (no refs —
+        roles resolve at Apply by cluster/sheet) through config_writer, and
+        appends a top-level placement node (xy relative to the tree anchor).
+        Everything is staged via WORKING_SET — nothing reaches disk until the
+        global Save (see the plan's §3)."""
+        tree = self._current_tree()
+        if tree is None:
+            QMessageBox.warning(self, _("Instantiate from Cell"),
+                                _("Open a tree first — a new group needs a "
+                                  "tree to be added to."))
+            return
+        if self._instance_of(tree) is not None:
+            QMessageBox.warning(
+                self, _("Instantiate from Cell"),
+                _("A generated instance is read-only — add the new group to "
+                  "its template tree instead."))
+            return
+        if self._cfg is None:
+            return
+        from .instantiate_cell_dialog import InstantiateCellDialog
+        from .tree_from_selection import (build_instantiated_entity,
+                                          selected_center_mm)
+        snapshot = getattr(getattr(self._main_window, "connection", None),
+                           "snapshot", None) or []
+        dialog = InstantiateCellDialog(
+            self, self._cfg,
+            cells=sorted(self._cfg.cells),
+            sheets=self._live_sheets(),
+            clusters=self._live_clusters(),
+            selected=list(selected or []),
+            snapshot=list(snapshot))
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        cell_name = dialog.result_cell()
+        entity_name = dialog.entity_name()
+        cluster = dialog.cluster()
+        sheet = dialog.sheet()
+        if dialog.from_selection():
+            center = selected_center_mm(selected)
+            base = self._anchor_base_mm(tree)
+            if center is None or base is None:
+                QMessageBox.warning(
+                    self, _("Instantiate from Cell"),
+                    _("Cannot derive the node offset from the selection (no "
+                      "selected footprint / cannot resolve the tree anchor "
+                      "live). Enter the xy manually instead."))
+                return
+            xy = (center[0] - base[0], center[1] - base[1])
+        else:
+            xy = dialog.manual_xy()
+            if xy is None:
+                return
+        if self._root_path is None:
+            return
+        upsert_entity(self._root_path,
+                      build_instantiated_entity(cell_name, entity_name,
+                                                cluster, sheet))
+        tree.nodes.append(TreeNode(
+            ref=entity_name, kind="placement", xy=xy, polar=None,
+            rotation=0.0, name=None, group=None, children=[]))
+        self._mark_dirty()
+        self._rebuild_tabs()
+        self._show_status(_("Added {entity!r} (cell {cell!r}) to tree {tree!r} "
+                            "— Save to persist.")
+                          .format(entity=entity_name, cell=cell_name,
+                                  tree=tree.name))
 
     def _on_rename_tree(self) -> None:
         tree = self._current_tree()
