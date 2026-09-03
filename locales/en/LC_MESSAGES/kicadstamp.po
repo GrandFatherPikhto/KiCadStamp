@@ -12822,6 +12822,15 @@ msgstr ""
 msgid "tree_instances: entry #{idx} missing required {field}:"
 msgstr ""
 
+msgid "tree_instances: entry #{idx} has an empty cluster:"
+msgstr ""
+
+msgid "tree_instances: entry {name!r} has an empty cluster:"
+msgstr ""
+
+msgid "cluster:, when present, must be a non-empty string — omit the key entirely to inherit the template's own cluster unchanged"
+msgstr ""
+
 msgid "tree_instances: entry #{idx} must be a mapping"
 msgstr ""
 

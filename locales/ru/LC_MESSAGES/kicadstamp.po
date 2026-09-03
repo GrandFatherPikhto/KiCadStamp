@@ -11778,6 +11778,15 @@ msgstr "tree_instance: узел {ref!r} шаблона {template!r} не име�
 msgid "tree_instances: entry #{idx} missing required {field}:"
 msgstr "tree_instances: записи #{idx} не хватает обязательного поля {field}:"
 
+msgid "tree_instances: entry #{idx} has an empty cluster:"
+msgstr "tree_instances: у записи #{idx} пустой cluster:"
+
+msgid "tree_instances: entry {name!r} has an empty cluster:"
+msgstr "tree_instances: у записи {name!r} пустой cluster:"
+
+msgid "cluster:, when present, must be a non-empty string — omit the key entirely to inherit the template's own cluster unchanged"
+msgstr "cluster:, если присутствует, должен быть непустой строкой — опусти ключ целиком, чтобы унаследовать кластер шаблона без изменений"
+
 msgid "tree_instances: entry #{idx} must be a mapping"
 msgstr "tree_instances: запись #{idx} должна быть словарём"
 
