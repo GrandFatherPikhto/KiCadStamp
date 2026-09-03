@@ -379,7 +379,7 @@ class TreesDock(QDockWidget):
 
     def reload_trees(self) -> None:
         """Re-read the root config's trees: section after an EXTERNAL write —
-        the TreesDock half of "Tools -> Extract tree..." (2026-09-01, plan
+        the TreesDock half of "Tools -> Trees -> Extract tree..." (2026-09-01, plan
         extract_selection_as_tree.md), which saves the new tree through
         config_writer directly, BYPASSING this dock's own Save. Without this
         the dock would keep showing the pre-action tree until the root was
@@ -998,7 +998,7 @@ class TreesDock(QDockWidget):
             self, _("Read-only instance"),
             _("This tree is an instance of template {template!r} (read-only) — "
               "its geometry comes from the template; edit the template tree to "
-              "change it, or manage the instance in Tools → Instances.")
+              "change it, or manage the instance in Tools → Trees → Instances.")
             .format(template=inst.template))
         return True
 

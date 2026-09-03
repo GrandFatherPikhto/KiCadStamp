@@ -734,14 +734,15 @@ class DockHub:
         self._start_new_thermal_via(self.root_metadata_dock.root_path)
 
     def run_forest_full_redraw(self) -> None:
-        """Main menu "Tools -> Full redraw (all trees and modules)..." (plan
+        """Main menu "Tools -> Trees -> Full redraw (all trees and modules)..."
+        (plan
         2026-09-02 tree_module_embedding P3 п.3): the forest-wide, module-aware
         curated redraw across ALL trees. TreesDock owns the trees/cfg/ctx and
         the worker callback plumbing (no new dock button — menu only)."""
         self.trees_dock._run_forest_redraw()
 
     def open_instances_dialog(self) -> None:
-        """Main menu "Tools -> Instances..." (2026-09-02, plan tree_instances
+        """Main menu "Tools -> Trees -> Instances..." (2026-09-02, plan tree_instances
         P3): modal dialog editing the `tree_instances:` SHORT declarations of
         one template tree ({name, sheet} rows, add/remove). Writes the section
         via config_writer.upsert_tree_instances — the dialog GENERATES nothing;
@@ -765,8 +766,57 @@ class DockHub:
             self.trees_dock.reload_trees()
             self.config_tree_dock.refresh()
 
+    # ── Tools → Trees submenu: whole-tree actions (2026-09-03, plan
+    #    plan_2026_09_03_trees_menu_tools.md) ─────────────────────────────
+    # The TreesDock's whole-tree action buttons moved to the top-level menu
+    # Tools → Trees; these delegates are the menu QActions' call points. Every
+    # one focuses the Trees dock first so the action's context (the active
+    # tree tab, the checkbox selection, the anchor readout) is visible.
+
+    def _focus_trees_dock(self) -> None:
+        """Show the Trees dock and raise it to the front of its tab group."""
+        self.trees_dock.show()
+        self.trees_dock.raise_()
+
+    def create_tree(self) -> None:
+        """Tools → Trees → Create tree…: the dock's empty-tree creation flow —
+        name + the six-mode anchor dialog; staged (auto-staged) until
+        File > Save."""
+        self._focus_trees_dock()
+        self.trees_dock._on_create_tree()
+
+    def rename_tree(self) -> None:
+        """Tools → Trees → Rename tree…: rename the CURRENT tree (the dock's
+        active tab); staged until File > Save."""
+        self._focus_trees_dock()
+        self.trees_dock._on_rename_tree()
+
+    def delete_tree(self) -> None:
+        """Tools → Trees → Delete tree…: delete the CURRENT tree (the dock's
+        active tab), confirmed; staged until File > Save."""
+        self._focus_trees_dock()
+        self.trees_dock._on_delete_tree()
+
+    def anchor_position(self) -> None:
+        """Tools → Trees → Anchor position: refresh the dock's read-only live
+        anchor-position readout for the CURRENT tree."""
+        self._focus_trees_dock()
+        self.trees_dock._refresh_anchor_live_position()
+
+    def redraw_selected(self) -> None:
+        """Tools → Trees → Redraw selected: curated redraw of the CURRENT
+        tree's CHECKED nodes (background worker)."""
+        self._focus_trees_dock()
+        self.trees_dock._on_redraw_selected()
+
+    def redraw_whole_tree(self) -> None:
+        """Tools → Trees → Redraw whole tree: curated redraw of EVERY node of
+        the CURRENT tree (background worker)."""
+        self._focus_trees_dock()
+        self.trees_dock._on_redraw_whole_tree()
+
     def extract_tree_from_selection(self) -> None:
-        """Main menu "Tools -> Extract tree..." (2026-09-01, plan
+        """Main menu "Tools -> Trees -> Extract tree..." (2026-09-01, plan
         extract_selection_as_tree.md): build a NEW tree from the current board
         selection and save it into the root config's trees: section.
 
@@ -1019,7 +1069,7 @@ class DockHub:
             .format(name=tree.name, path=root_path))
 
     def extract_cluster_from_selection(self) -> None:
-        """Main menu "Tools -> Extract cluster..." (2026-09-03, plan
+        """Main menu "Tools -> Trees -> Extract cluster..." (2026-09-03, plan
         extract_cluster_entity): extract ONE fully-selected Cluster from the
         current selection as a standalone flat Entity — WITHOUT building any
         tree node (no anchor, no inter-cluster net_traces). The slug-named Cell

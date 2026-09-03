@@ -1,7 +1,7 @@
 # gui/docks/tree_from_selection_dialog.py
 """
-TreeFromSelectionDialog — "Tools -> Extract tree..." (2026-09-01, plan
-extract_selection_as_tree.md): the modal 3-tab dialog between the selection
+TreeFromSelectionDialog — "Tools -> Trees -> Extract tree..." (2026-09-01,
+plan extract_selection_as_tree.md): the modal 3-tab dialog between the selection
 and the saved tree.
 
 Tabs (Denis's 09-01 decision):

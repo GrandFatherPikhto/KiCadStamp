@@ -1,6 +1,6 @@
 # gui/docks/tree_from_selection.py
 """
-Pure (Qt-free) logic for "Tools -> Extract tree..." (2026-09-01, plan
+Pure (Qt-free) logic for "Tools -> Trees -> Extract tree..." (2026-09-01, plan
 extract_selection_as_tree.md).
 
 The plan's confirmed starting point: there is NO "extract into tree" — the

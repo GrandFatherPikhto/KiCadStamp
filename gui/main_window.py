@@ -226,10 +226,21 @@ class MainWindow(QMainWindow):
 
         # Tools menu (2026-08-31, plan reead_selected_dialog.md) — between
         # Edit and View. Phase F (2026-09-01): "Re-read selected..." and
-        # "New Extract..." were removed with the Extract dock — "Extract
-        # tree..." below is the single capture entry point (its dialog covers
-        # re-reading existing clusters and profile saving).
+        # "New Extract..." were removed with the Extract dock. Since 2026-09-03
+        # (plan plan_2026_09_03_trees_menu_tools.md) EVERY tree-related entry
+        # lives in the nested "Trees" submenu below — both the capture flows
+        # (Extract tree…/Extract cluster…/Full redraw…/Instances…) and the
+        # whole-tree management actions relocated from the TreesDock toolbar
+        # (Create/Rename/Delete tree, Anchor position, Redraw selected/whole).
+        # The other Tools entries stay in the menu's root.
         tools_menu = self.menuBar().addMenu(_("Tools"))
+
+        # ── Trees submenu (2026-09-03) ──────────────────────────────────
+        # Every tree-related Tools action in one block. Create/Rename/Delete
+        # tree + Anchor position + Redraw selected/whole were the TreesDock
+        # toolbar buttons (removed 2026-09-03); they route through the same
+        # dock handlers via DockHub delegates (which focus the dock first).
+        self.trees_menu = tools_menu.addMenu(_("Trees"))
         # "Extract tree..." (2026-09-01, plan extract_selection_as_tree.md): a
         # NEW tree from the current board selection — fully-selected Clusters
         # become placement nodes (xy relative to a chosen role anchor), checked
@@ -237,7 +248,7 @@ class MainWindow(QMainWindow):
         self.extract_tree_action = QAction(_("Extract tree..."), self)
         self.extract_tree_action.triggered.connect(
             lambda: self._dock_hub.extract_tree_from_selection())
-        tools_menu.addAction(self.extract_tree_action)
+        self.trees_menu.addAction(self.extract_tree_action)
         # "Extract cluster..." (2026-09-03, plan extract_cluster_entity): a
         # NARROWER sibling of "Extract tree..." — ONE fully-selected Cluster ->
         # a standalone flat Entity (+ its Cell if missing), NO tree node, NO
@@ -246,7 +257,61 @@ class MainWindow(QMainWindow):
         self.extract_cluster_action = QAction(_("Extract cluster..."), self)
         self.extract_cluster_action.triggered.connect(
             lambda: self._dock_hub.extract_cluster_from_selection())
-        tools_menu.addAction(self.extract_cluster_action)
+        self.trees_menu.addAction(self.extract_cluster_action)
+        self.trees_menu.addSeparator()
+        # Whole-tree management (relocated from the TreesDock toolbar,
+        # 2026-09-03): "Create tree..." is the empty/manual tree — the dock's
+        # old "Add tree…" renamed — and answers the missing "Создать дерево"
+        # entry next to "Extract tree...".
+        self.create_tree_action = QAction(_("Create tree..."), self)
+        self.create_tree_action.triggered.connect(
+            lambda: self._dock_hub.create_tree())
+        self.trees_menu.addAction(self.create_tree_action)
+        self.rename_tree_action = QAction(_("Rename tree..."), self)
+        self.rename_tree_action.triggered.connect(
+            lambda: self._dock_hub.rename_tree())
+        self.trees_menu.addAction(self.rename_tree_action)
+        self.delete_tree_action = QAction(_("Delete tree..."), self)
+        self.delete_tree_action.triggered.connect(
+            lambda: self._dock_hub.delete_tree())
+        self.trees_menu.addAction(self.delete_tree_action)
+        self.anchor_position_action = QAction(_("Anchor position"), self)
+        self.anchor_position_action.triggered.connect(
+            lambda: self._dock_hub.anchor_position())
+        self.trees_menu.addAction(self.anchor_position_action)
+        self.trees_menu.addSeparator()
+        # Redraw (relocated from the TreesDock toolbar, 2026-09-03):
+        # "Redraw selected" = the current tree's CHECKED nodes; "Redraw whole
+        # tree" = every node of the current tree; "Full redraw..." = the
+        # forest-wide module-aware run across ALL trees (plan 2026-09-02 P3).
+        self.redraw_selected_action = QAction(_("Redraw selected"), self)
+        self.redraw_selected_action.triggered.connect(
+            lambda: self._dock_hub.redraw_selected())
+        self.trees_menu.addAction(self.redraw_selected_action)
+        self.redraw_whole_tree_action = QAction(_("Redraw whole tree"), self)
+        self.redraw_whole_tree_action.triggered.connect(
+            lambda: self._dock_hub.redraw_whole_tree())
+        self.trees_menu.addAction(self.redraw_whole_tree_action)
+        # "Full redraw (all trees and modules)..." (2026-09-02, plan
+        # plan_2026_09_02_tree_module_embedding.md P3 п.3): the forest-wide,
+        # module-aware curated redraw across ALL trees — menu-only, per Denis:
+        # NO new dock buttons.
+        self.full_redraw_action = QAction(
+            _("Full redraw (all trees and modules)..."), self)
+        self.full_redraw_action.triggered.connect(
+            lambda: self._dock_hub.run_forest_full_redraw())
+        self.trees_menu.addAction(self.full_redraw_action)
+        self.trees_menu.addSeparator()
+        # "Instances..." (2026-09-02, plan tree_instances P3): modal dialog
+        # editing one template tree's `tree_instances:` declarations ({name,
+        # sheet} rows) — the dialog only edits the short declarations, the
+        # materialized instances regenerate on the next load.
+        self.tree_instances_action = QAction(_("Instances..."), self)
+        self.tree_instances_action.triggered.connect(
+            lambda: self._dock_hub.open_instances_dialog())
+        self.trees_menu.addAction(self.tree_instances_action)
+
+        # ── Tools root (non-tree entries) ────────────────────────────────
         # "Place thermal vias..." (2026-09-01, plan
         # plan_2026_09_01_thermal_via_dialog.md): opens the standalone
         # (non-modal) Thermal via dialog with a fresh blank form — same shape
@@ -281,16 +346,6 @@ class MainWindow(QMainWindow):
         self.delete_chain_action.triggered.connect(
             lambda: self._dock_hub.delete_selected_chain())
         tools_menu.addAction(self.delete_chain_action)
-        # "Full redraw (all trees and modules)..." (2026-09-02, plan
-        # plan_2026_09_02_tree_module_embedding.md P3 п.3): the forest-wide,
-        # module-aware curated redraw across ALL trees (active module markers
-        # pull their content, placed stage-2 from the flow roots' live anchors)
-        # — Tools-menu only, per Denis: NO new dock buttons.
-        self.full_redraw_action = QAction(
-            _("Full redraw (all trees and modules)..."), self)
-        self.full_redraw_action.triggered.connect(
-            lambda: self._dock_hub.run_forest_full_redraw())
-        tools_menu.addAction(self.full_redraw_action)
         # "Edit template..." (2026-09-01, plan plan_2026_09_01_tools_dialog_and_
         # entity_roles.md): opens the standalone (non-modal) Tools dialog — the
         # picked Entity's electrical fields (Nets/Net overrides/Refs), same
@@ -299,14 +354,6 @@ class MainWindow(QMainWindow):
         self.edit_template_action.triggered.connect(
             lambda: self._dock_hub.edit_template())
         tools_menu.addAction(self.edit_template_action)
-        # "Instances..." (2026-09-02, plan tree_instances P3): modal dialog
-        # editing one template tree's `tree_instances:` declarations ({name,
-        # sheet} rows) — the dialog only edits the short declarations, the
-        # materialized instances regenerate on the next load.
-        self.tree_instances_action = QAction(_("Instances..."), self)
-        self.tree_instances_action.triggered.connect(
-            lambda: self._dock_hub.open_instances_dialog())
-        tools_menu.addAction(self.tree_instances_action)
         # "Settings..." (2026-09-01, plan project_settings_dialogs): opens the
         # MODAL Settings dialog — a two-pane browser (category tree on the
         # left, settings pages on the right) with OK/Apply/Cancel.
