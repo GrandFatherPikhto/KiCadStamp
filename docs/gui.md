@@ -1079,6 +1079,25 @@ A clean match opens a read-only **preview dialog** (old/new/Δ per record, tabs 
 mutates the loaded cell in memory and auto-stages it exactly like a manual row Update; nothing is
 written to disk until the project **Save**.
 
+**Import vias/tracks from selection** (2026-09-03) — the additive counterpart of Refresh: a button
+right next to it on the Cell page AND a right-click **Import from selection...** action on a Cell leaf
+in the Config tree's Cells category. It backfills an EXISTING cell with NEW via/track records for live
+copper the cell's current records do not describe — the way to add vias/tracks that were missing from
+the original extraction (e.g. not yet routed when the cell was extracted, the `fpga_oscill` case)
+without touching what is already there. Select the whole cluster on the board first, then run it.
+
+Where Refresh treats "copper the cell does not describe" as a fatal and refuses, Import turns that same
+leftover into NEW records. It is therefore purely ADDITIVE: it never modifies or removes an existing
+record, and it cannot ADD components. The same symmetric role match and the same named-net/count checks
+stay fatal in both — a wrong/incomplete cluster is rejected exactly like Refresh. A new record's net is
+classified by the extractor's own heuristic (a net a selected role's pad carries -> `net_from_role`
+(+pad); a rule net like GND -> `net: null`; anything else -> a literal net), and its geometry is
+relative to the same zero-offset origin.
+
+A clean plan opens a read-only **preview dialog** listing the NEW records (Kind / Position / Net) —
+**Apply** appends them to the loaded cell in memory and auto-stages it exactly like a manual row Add;
+nothing is written to disk until the project **Save**.
+
 ## Log
 
 A read-only, copyable, searchable panel fed by a `logging.Handler` attached to the **root**
