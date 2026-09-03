@@ -53,18 +53,21 @@ from typing import Any
 
 from .constants import ROLE_FIELD_NAME
 from .domain.board import Footprint, Track, Via
-from .domain.geometry import Vector2
+from .domain.geometry import BoardLayer, Vector2
 from .exceptions import ValidationError, format_fatal_error
 from .i18n import _
-from .net_resolution import resolve_net_from_role
+from .net_resolution import RULE_NETS, resolve_net_from_role
+from .template_extraction import _selection_role_nets, _suggest_net_from_role
 from .utils.units import MM
 
 __all__ = [
+    "ImportPlan",
     "RefreshPlan",
+    "build_import_plan",
+    "build_refresh_plan",
     "cell_zero_slot_role",
     "match_components",
     "net_template_regex",
-    "build_refresh_plan",
 ]
 
 # One str.format placeholder, as resolve_placeholder (net_resolution.py)
@@ -247,11 +250,23 @@ def _component_new_geo(fp: Footprint, origin: Vector2) -> dict:
 
 def _match_copper(records: list[dict], live_items: list[Any], origin: Vector2,
                   role_to_ref: dict[str, str], adapter: Any, kind: str,
-                  ) -> tuple[list[tuple[dict, dict]], list[str]]:
+                  *,
+                  leftover_is_fatal: bool = True,
+                  ) -> tuple[list[tuple[dict, dict]], list[str], list[Any]]:
     """Match one copper section (kind: 'via' | 'track') through the four tiers
-    of plan §1.4.2. Returns (updates, problems) — never raises here; the
-    caller raises once with ALL problems collected. Does not mutate `records`
-    or `live_items`."""
+    of plan §1.4.2. Returns (updates, problems, leftover) — never raises here;
+    the caller raises once with ALL problems collected. Does not mutate
+    `records` or `live_items`.
+
+    leftover_is_fatal — the tier-4 treatment of whatever live items the named
+    tiers 1-3 left unclaimed:
+      - True (Refresh): leftover is "extra copper not described by the cell"
+        — every leftover item becomes a collected problem, `leftover` is [].
+      - False (Import vias/tracks): leftover is RETURNED as the third element
+        — the caller (build_import_plan) turns each into a NEW record instead
+        of a fatal. The count-mismatch fatals of tiers 1-3 are NOT softened
+        in this mode: only tier 4 changes, never a named-net check.
+    """
     updates: list[tuple[dict, dict]] = []
     problems: list[str] = []
     # A mutable pool of live items, claimed as tiers consume them.
@@ -357,13 +372,16 @@ def _match_copper(records: list[dict], live_items: list[Any], origin: Vector2,
                 updates.append((rec, new_geo))
             _claim(pool)
 
-    # ── Tier 4: anything still unclaimed is extra copper ──────────────────
-    for i in pool:
-        problems.append(_("extra copper in selection: {desc} — not described "
-                          "by any net/template/net:null record of this cell")
-                        .format(desc=_live_description(i, kind)))
-
-    return updates, problems
+    # ── Tier 4: anything still unclaimed ──────────────────────────────────
+    # Refresh: extra copper (collected fatal, nothing imported). Import:
+    # returned as leftover — the caller turns each into a NEW record.
+    if leftover_is_fatal:
+        for i in pool:
+            problems.append(_("extra copper in selection: {desc} — not described "
+                              "by any net/template/net:null record of this cell")
+                            .format(desc=_live_description(i, kind)))
+        return updates, problems, []
+    return updates, problems, list(pool)
 
 
 def _live_description(item: Any, kind: str) -> str:
@@ -383,6 +401,83 @@ class RefreshPlan:
     component_updates: list[tuple[dict, dict]]
     via_updates: list[tuple[dict, dict]]
     track_updates: list[tuple[dict, dict]]
+
+
+@dataclass
+class ImportPlan:
+    """What build_import_plan computed — brand-NEW via/track records (already
+    shaped like extract_template_from_selection writes a single via/track, with
+    geometry relative to the same zero-offset origin RefreshPlan uses) plus no
+    change to any existing record. The caller (CellDock) appends these to its
+    _vias/_tracks on Apply — extend, never replace."""
+    new_via_records: list[dict]
+    new_track_records: list[dict]
+
+
+def _cell_selection_context(components: list[dict], footprints: list[Footprint],
+                            adapter: Any, action_label: str,
+                            ) -> tuple[dict[str, str], list[dict], Vector2 | None,
+                                       list[str]]:
+    """Shared origin/role prelude for BOTH refresh and import (plan §B.2:
+    "Import ТРЕБУЕТ тот же чистый матчинг компонентов по ролям, что и
+    Refresh" — a missing/extra role is the same "wrong/incomplete cluster"
+    fatal in both).
+
+    Returns (role_to_ref, matched_components, origin_or_None, problems).
+    Never raises itself; a zero/multiple zero-slot cell raises via
+    cell_zero_slot_role (a cell-local defect, nothing can proceed without a
+    known origin). Collected role problems are the caller's to merge with its
+    copper-tier problems into ONE ValidationError."""
+    problems: list[str] = []
+    # role uniqueness among the selected footprints (mirrors extract's own
+    # fatal — a duplicated Role cannot be matched 1:1).
+    role_to_ref: dict[str, str] = {}
+    for fp in footprints:
+        role = adapter.get_field_value(fp, ROLE_FIELD_NAME)
+        if role is None:
+            problems.append(_("{ref}: no {field!r} field — every selected "
+                              "component must have a Role for a {action}")
+                            .format(ref=fp.ref, field=ROLE_FIELD_NAME,
+                                    action=action_label))
+            continue
+        if role in role_to_ref:
+            problems.append(_("role {role!r} appears twice in selection: "
+                              "{ref1!r} and {ref2!r} — roles must be unique")
+                            .format(role=role, ref1=role_to_ref[role], ref2=fp.ref))
+            continue
+        role_to_ref[role] = fp.ref
+
+    matched, missing, extra = match_components(components, role_to_ref)
+    for role in missing:
+        problems.append(_("role {role!r} is in the cell but not in the "
+                          "selection — {action} needs the whole cluster")
+                        .format(role=role, action=action_label))
+    for role in extra:
+        problems.append(_("role {role!r} is in the selection but not in the "
+                          "cell — {action} cannot add components")
+                        .format(role=role, action=action_label))
+
+    # Origin — the zero-offset slot's LIVE footprint. A zero/multiple
+    # zero-slot cell is a cell-local config defect and raises immediately
+    # (cell_zero_slot_role). An origin ROLE absent from the selection is a
+    # structural problem (wrong cluster selected), collected like the rest.
+    origin_role = cell_zero_slot_role(components)
+    origin_ref = role_to_ref.get(origin_role)
+    origin: Vector2 | None = None
+    ref_to_fp = {fp.ref: fp for fp in footprints}
+    if origin_ref is None:
+        problems.append(_("role {role!r} (the cell's zero-offset origin) is not "
+                          "in the current selection")
+                        .format(role=origin_role))
+    else:
+        origin_fp = ref_to_fp.get(origin_ref)
+        if origin_fp is None:
+            problems.append(_("footprint {ref!r} (role {role!r}) not found in "
+                              "the selection")
+                            .format(ref=origin_ref, role=origin_role))
+        else:
+            origin = origin_fp.position
+    return role_to_ref, matched, origin, problems
 
 
 def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[dict],
@@ -407,63 +502,16 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
     does not store params, so existing parametrized literals are handled by
     template-shape matching (§1.4), which needs no map.
     """
-    problems: list[str] = []
-
-    # role uniqueness among the selected footprints (mirrors extract's own
-    # fatal — a duplicated Role cannot be matched 1:1).
-    role_to_ref: dict[str, str] = {}
-    for fp in footprints:
-        role = adapter.get_field_value(fp, ROLE_FIELD_NAME)
-        if role is None:
-            problems.append(_("{ref}: no {field!r} field — every selected "
-                              "component must have a Role for a refresh")
-                            .format(ref=fp.ref, field=ROLE_FIELD_NAME))
-            continue
-        if role in role_to_ref:
-            problems.append(_("role {role!r} appears twice in selection: "
-                              "{ref1!r} and {ref2!r} — roles must be unique")
-                            .format(role=role, ref1=role_to_ref[role], ref2=fp.ref))
-            continue
-        role_to_ref[role] = fp.ref
-
-    matched, missing, extra = match_components(components, role_to_ref)
-    for role in missing:
-        problems.append(_("role {role!r} is in the cell but not in the "
-                          "selection — refresh needs the whole cluster")
-                        .format(role=role))
-    for role in extra:
-        problems.append(_("role {role!r} is in the selection but not in the "
-                          "cell — refresh cannot add components")
-                        .format(role=role))
-
-    # Origin — the zero-offset slot's LIVE footprint. A zero/multiple
-    # zero-slot cell is a cell-local config defect and raises immediately
-    # (cell_zero_slot_role — nothing can proceed without a known origin).
-    # An origin ROLE absent from the selection is a structural problem
-    # (wrong cluster selected), collected like the rest.
-    origin_role = cell_zero_slot_role(components)
-    origin_ref = role_to_ref.get(origin_role)
-    origin: Vector2 | None = None
-    ref_to_fp = {fp.ref: fp for fp in footprints}
-    if origin_ref is None:
-        problems.append(_("role {role!r} (the cell's zero-offset origin) is not "
-                          "in the current selection")
-                        .format(role=origin_role))
-    else:
-        origin_fp = ref_to_fp.get(origin_ref)
-        if origin_fp is None:
-            problems.append(_("footprint {ref!r} (role {role!r}) not found in "
-                              "the selection")
-                            .format(ref=origin_ref, role=origin_role))
-        else:
-            origin = origin_fp.position
+    role_to_ref, matched, origin, problems = _cell_selection_context(
+        components, footprints, adapter,
+        _("refresh"))
 
     # Components — every matched role recomputed from its own live footprint.
     # Built only once the origin is known (its position is the reference for
     # every recomputed offset); matched is [] when role problems were found,
     # so a pure-role problem run yields no half-built geometry.
     component_updates: list[tuple[dict, dict]] = []
-    if origin is not None and not missing and not extra:
+    if origin is not None and matched:
         ref_to_fp = {fp.ref: fp for fp in footprints}
         for rec in matched:
             fp = ref_to_fp[role_to_ref[rec["role"]]]
@@ -477,11 +525,10 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
     via_problems: list[str] = []
     track_problems: list[str] = []
     if origin is not None:
-        via_updates, via_problems = _match_copper(vias, raw_via_items, origin,
-                                                  role_to_ref, adapter, "via")
-        track_updates, track_problems = _match_copper(tracks, raw_track_items,
-                                                      origin, role_to_ref,
-                                                      adapter, "track")
+        via_updates, via_problems, _via_leftover = _match_copper(
+            vias, raw_via_items, origin, role_to_ref, adapter, "via")
+        track_updates, track_problems, _track_leftover = _match_copper(
+            tracks, raw_track_items, origin, role_to_ref, adapter, "track")
 
     # EVERY problem collected into ONE message (design §2.3-2.5) — role
     # mismatches and every per-net/template/net:null count problem and every
@@ -496,4 +543,127 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
         component_updates=component_updates,
         via_updates=via_updates,
         track_updates=track_updates,
+    )
+
+
+def _import_via_record(live: Via, origin: Vector2) -> dict:
+    """New via dict in the exact shape extract_template_from_selection writes
+    (template_extraction.py:531-541) — geometry + physical, net filled by the
+    caller via _classify_import_net (which needs role nets + cell components)."""
+    return {
+        "offset_along_mm": _mm(live.position.x - origin.x),
+        "offset_across_mm": _mm(live.position.y - origin.y),
+        "drill_mm": round(live.drill_mm, 4),
+        "diameter_mm": round(live.diameter_mm, 4),
+    }
+
+
+def _import_track_record(live: Track, origin: Vector2) -> dict:
+    """New track dict in the exact shape extract writes (template_extraction.py:
+    570-583) — geometry + width; net filled by _classify_import_net."""
+    return {
+        "start_along_mm": _mm(live.start.x - origin.x),
+        "start_across_mm": _mm(live.start.y - origin.y),
+        "end_along_mm": _mm(live.end.x - origin.x),
+        "end_across_mm": _mm(live.end.y - origin.y),
+        "width_mm": round(live.width_mm, 4),
+    }
+
+
+def _classify_import_net(record: dict, live: Via | Track, role_nets: dict,
+                         components: list[dict], rule_nets: set[str]) -> dict:
+    """Fill the net field(s) of a NEW record by reusing the extractor's own
+    classifier 1:1 (plan §B.2 — never a parallel implementation): build
+    selection_role_nets once, then for each live item call _suggest_net_from_role
+    the SAME way extract_template_from_selection's via/track loops do
+    (template_extraction.py:516-541). live_points = the record's local
+    geometry (via: 1 point, track: both endpoints), components = the CELL's
+    component dicts (the geometric tiebreak reference, same as extract's
+    already-built slot list). rule_nets — nets that need no role (net: null);
+    a net NOT in role_nets and NOT a rule net stays a literal `net:`.
+    Never raises: _suggest_net_from_role swallows ambiguity into (None, None),
+    which means "literal net" here — same graceful fallback as extract."""
+    if live.net_name in rule_nets:
+        record["net"] = None
+        return record
+    if live.net_name is None:
+        return record  # no-net live item — leave net unset (blank rule-net)
+    if "start_along_mm" in record:  # a track — two endpoints for the tiebreak
+        points = [(float(record["start_along_mm"]), float(record["start_across_mm"])),
+                  (float(record["end_along_mm"]), float(record["end_across_mm"]))]
+    else:  # a via — its single point
+        points = [(float(record["offset_along_mm"]), float(record["offset_across_mm"]))]
+    role, pad = _suggest_net_from_role(
+        role_nets, live.net_name, rule_nets, points, components)
+    if role is not None:
+        record["net_from_role"] = role
+        if pad is not None:
+            record["net_from_role_pad"] = pad
+    else:
+        record["net"] = live.net_name
+    return record
+
+
+def build_import_plan(components: list[dict], vias: list[dict], tracks: list[dict],
+                      footprints: list[Footprint], raw_via_items: list[Via],
+                      raw_track_items: list[Track], adapter: Any,
+                      rule_nets: set[str] | None = None) -> ImportPlan:
+    """Build the plan for "Import vias/tracks from selection": append NEW via/
+    track records to an EXISTING cell for live copper its current records do
+    not describe — the additive counterpart of build_refresh_plan (Refresh
+    cannot ADD a record by design; Import never MODIFIES/removes an existing
+    one, plan §B.2).
+
+    Existing records are matched through the SAME tiers as refresh
+    (_match_copper), but tier 4 (extra copper) is NOT fatal here: whatever
+    live via/track tiers 1-3 leave unclaimed is turned into a NEW record
+    instead. Count-mismatch fatals of tiers 1-3 and the symmetric component
+    role match are NOT softened — both stay fatal, exactly like refresh. The
+    net of each new record is classified by the extractor's own heuristic
+    (_selection_role_nets + _suggest_net_from_role, plan §B.2): a net a
+    selected role's pad carries -> net_from_role(+pad); a rule net
+    (rule_nets, default {"GND"}) -> net: null; anything else -> a plain
+    literal net. Never mutates its inputs.
+    """
+    rule_nets = set(rule_nets) if rule_nets is not None else set(RULE_NETS)
+    role_to_ref, _matched, origin, problems = _cell_selection_context(
+        components, footprints, adapter,
+        _("import"))
+
+    via_leftover: list[Any] = []
+    track_leftover: list[Any] = []
+    via_problems: list[str] = []
+    track_problems: list[str] = []
+    if origin is not None:
+        _via_updates, via_problems, via_leftover = _match_copper(
+            vias, raw_via_items, origin, role_to_ref, adapter, "via",
+            leftover_is_fatal=False)
+        _track_updates, track_problems, track_leftover = _match_copper(
+            tracks, raw_track_items, origin, role_to_ref, adapter, "track",
+            leftover_is_fatal=False)
+
+    all_problems = problems + via_problems + track_problems
+    if all_problems:
+        raise ValidationError(format_fatal_error(
+            _("cannot import vias/tracks from the current selection"),
+            all_problems))
+
+    # Net classification — build the role -> pad -> nets map ONCE from the
+    # selection (extractor's _selection_role_nets), then classify each leftover
+    # via/track against the CELL's own components (geometric tiebreak).
+    role_nets = _selection_role_nets(adapter, footprints) if origin is not None else {}
+    new_via_records = []
+    for live in via_leftover:
+        rec = _import_via_record(live, origin)
+        _classify_import_net(rec, live, role_nets, components, rule_nets)
+        new_via_records.append(rec)
+    new_track_records = []
+    for live in track_leftover:
+        rec = _import_track_record(live, origin)
+        _classify_import_net(rec, live, role_nets, components, rule_nets)
+        new_track_records.append(rec)
+
+    return ImportPlan(
+        new_via_records=new_via_records,
+        new_track_records=new_track_records,
     )

@@ -14,7 +14,9 @@ import pytest
 
 from kicadstamp import cell_geometry_refresh as mod
 from kicadstamp.cell_geometry_refresh import (
+    ImportPlan,
     RefreshPlan,
+    build_import_plan,
     build_refresh_plan,
     cell_zero_slot_role,
     match_components,
@@ -536,3 +538,202 @@ def test_track_1_to_1_direct_match():
                    "end_along_mm": 2.0, "end_across_mm": 1.0,
                    "width_mm": 0.4}
     assert "net" not in new
+
+
+# ── Import vias/tracks from selection (Part B, plan
+#    fpga_oscill_missing_copper_and_cell_import) ────────────────────────────
+
+def _match_copper_leftover(vias, tracks, raw_vias, raw_tracks, components=None,
+                           footprints=None, adapter=None, leftover_fatal=True,
+                           kind="via"):
+    """Helper: run _match_copper directly (no GUI) and return the leftover."""
+    components = components or [{"role": "ORIG"}]
+    footprints = footprints or [_fp("R-ORIG", "ORIG", 0.0, 0.0)]
+    adapter = adapter or _FakeAdapter(roles={"R-ORIG": "ORIG"})
+    role_to_ref, _m, origin, problems = mod._cell_selection_context(
+        components, footprints, adapter, "import")
+    if origin is None:
+        return [], problems
+    if kind == "via":
+        updates, probs, leftover = mod._match_copper(
+            vias, raw_vias, origin, role_to_ref, adapter, "via",
+            leftover_is_fatal=leftover_fatal)
+    else:
+        updates, probs, leftover = mod._match_copper(
+            tracks, raw_tracks, origin, role_to_ref, adapter, "track",
+            leftover_is_fatal=leftover_fatal)
+    return leftover, probs + problems
+
+
+def test_match_copper_leftover_is_fatal_true_yields_problems_not_leftover():
+    """Refresh mode (leftover_is_fatal=True) is unchanged: a live via the cell
+    does not describe is a collected 'extra copper' problem and leftover is []."""
+    components = [{"role": "ORIG"}]
+    footprints = [_fp("R-ORIG", "ORIG", 0.0, 0.0)]
+    adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})
+    role_to_ref, _m, origin, _p = mod._cell_selection_context(
+        components, footprints, adapter, "refresh")
+    updates, problems, leftover = mod._match_copper(
+        [], [_via("GND", 1.0, 1.0)], origin, role_to_ref, adapter, "via",
+        leftover_is_fatal=True)
+    assert updates == []
+    assert leftover == []
+    assert any("extra copper" in p for p in problems)
+
+
+def test_match_copper_leftover_is_fatal_false_returns_leftover():
+    """Import mode (leftover_is_fatal=False): the same unclaimed live via is
+    RETURNED as leftover (the caller turns it into a NEW record), not a
+    problem."""
+    components = [{"role": "ORIG"}]
+    footprints = [_fp("R-ORIG", "ORIG", 0.0, 0.0)]
+    adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})
+    role_to_ref, _m, origin, _p = mod._cell_selection_context(
+        components, footprints, adapter, "import")
+    updates, problems, leftover = mod._match_copper(
+        [], [_via("GND", 1.0, 1.0)], origin, role_to_ref, adapter, "via",
+        leftover_is_fatal=False)
+    assert updates == []
+    assert problems == []
+    assert len(leftover) == 1
+
+
+def test_build_import_plan_empty_cell_imports_literal_via():
+    """The fpga_oscill case: a cell with components but NO vias/tracks imports
+    every live via/track as a NEW record; an unrecognised net stays a literal
+    (adapter reports no pads -> classifier falls back to literal)."""
+    components = [{"role": "ORIG", "offset_along_mm": 0.0,
+                   "offset_across_mm": 0.0}]
+    footprints = [_fp("R-ORIG", "ORIG", 0.0, 0.0)]
+    adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})
+    plan = build_import_plan(components, [], [], footprints,
+                             [_via("SOME_NET", 2.0, 3.0)],
+                             [_track("TRACK_NET", 0.0, 0.0, 4.0, 0.0)],
+                             adapter)
+    assert isinstance(plan, ImportPlan)
+    assert len(plan.new_via_records) == 1
+    v = plan.new_via_records[0]
+    assert v["offset_along_mm"] == 2.0
+    assert v["offset_across_mm"] == 3.0
+    assert v["net"] == "SOME_NET"  # literal fallback
+    assert v["drill_mm"] == 0.3 and v["diameter_mm"] == 0.6
+    assert len(plan.new_track_records) == 1
+    t = plan.new_track_records[0]
+    assert t["start_along_mm"] == 0.0 and t["end_along_mm"] == 4.0
+    assert t["width_mm"] == 0.25
+    assert t["net"] == "TRACK_NET"
+
+
+def test_build_import_plan_rule_net_becomes_net_none_not_literal():
+    """A live via on a rule net (GND) becomes `net: None` (the rule-net
+    convention), never the literal 'GND' — same treatment extract gives a
+    rule-net via."""
+    components = [{"role": "ORIG", "offset_along_mm": 0.0,
+                   "offset_across_mm": 0.0}]
+    footprints = [_fp("R-ORIG", "ORIG", 0.0, 0.0)]
+    adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})
+    plan = build_import_plan(components, [], [], footprints,
+                             [_via("GND", 1.0, 1.0)], [], adapter,
+                             rule_nets={"GND"})
+    assert len(plan.new_via_records) == 1
+    assert plan.new_via_records[0]["net"] is None
+    assert "net_from_role" not in plan.new_via_records[0]
+
+
+def test_build_import_plan_net_from_role_via_gets_role_not_literal(monkeypatch):
+    """A live via on a net that one selected role's pad carries is classified
+    through the extractor's OWN classifier (_suggest_net_from_role) -> the NEW
+    record gets net_from_role, not a literal net."""
+    components = [
+        {"role": "ORIG", "offset_along_mm": 0.0, "offset_across_mm": 0.0},
+        {"role": "CAP", "offset_along_mm": 5.0, "offset_across_mm": 0.0},
+    ]
+    footprints = [_fp("R-ORIG", "ORIG", 0.0, 0.0),
+                  _fp("R-CAP", "CAP", 5.0, 0.0)]
+    # CAP carries VCC_NET on pad 1 — the classifier must map a VCC_NET via to
+    # role CAP (net_from_role), NOT write a literal 'VCC_NET'.
+    adapter = _FakeAdapter(roles={"R-ORIG": "ORIG", "R-CAP": "CAP"})
+
+    # Fake the extractor's _selection_role_nets (adapter pads would be empty in
+    # this stub) — verify build_import_plan routes through it 1:1.
+    monkeypatch.setattr(
+        mod, "_selection_role_nets",
+        lambda a, fps: {"ORIG": {"1": {"OTHER"}}, "CAP": {"1": {"VCC_NET"}}})
+    plan = build_import_plan(components, [], [], footprints,
+                             [_via("VCC_NET", 5.0, 0.0)], [], adapter)
+    assert len(plan.new_via_records) == 1
+    rec = plan.new_via_records[0]
+    assert rec["net_from_role"] == "CAP"
+    assert "net" not in rec
+
+
+def test_build_import_plan_never_mutates_existing_records():
+    """Import is purely additive: existing vias/tracks dicts are untouched, and
+    NEW records are separate dict objects (never references to existing ones).
+    Existing records still need their live counterparts in the selection (a
+    named net present in the cell but absent live is a tier-2 fatal, NOT
+    softened by Import) — so the live items carry both the matching existing
+    copper and the genuinely-new copper."""
+    components = [{"role": "ORIG", "offset_along_mm": 0.0,
+                   "offset_across_mm": 0.0}]
+    existing_via = {"offset_along_mm": 1.0, "offset_across_mm": 1.0,
+                    "net": "GND"}
+    existing_track = {"start_along_mm": 0.0, "start_across_mm": 0.0,
+                      "end_along_mm": 1.0, "end_across_mm": 1.0,
+                      "width_mm": 0.25, "net": "+3V3"}
+    footprints = [_fp("R-ORIG", "ORIG", 0.0, 0.0)]
+    adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})
+    via_snapshot = [dict(existing_via)]
+    track_snapshot = [dict(existing_track)]
+    plan = build_import_plan(
+        components, [existing_via], [existing_track], footprints,
+        # Existing GND via's live counterpart + a genuinely-new via.
+        [_via("GND", 1.0, 1.0), _via("NEW_NET", 2.0, 2.0)],
+        # Existing +3V3 track's live counterpart + a genuinely-new track.
+        [_track("+3V3", 0.0, 0.0, 1.0, 1.0),
+         _track("NEW_NET", 2.0, 2.0, 3.0, 2.0)],
+        adapter)
+    # Existing dicts untouched, and only the genuinely-new copper imported.
+    assert existing_via == via_snapshot[0]
+    assert existing_track == track_snapshot[0]
+    assert [r["net"] for r in plan.new_via_records] == ["NEW_NET"]
+    assert [r["net"] for r in plan.new_track_records] == ["NEW_NET"]
+    # New records are distinct objects, never the existing ones.
+    assert plan.new_via_records[0] is not existing_via
+    assert plan.new_track_records[0] is not existing_track
+
+
+def test_build_import_plan_does_not_duplicate_existing_records():
+    """An existing via already described by tiers 1-3 (matched to a live item)
+    must NOT be imported a SECOND time — only genuinely-unclaimed live copper
+    becomes a new record."""
+    components = [{"role": "ORIG", "offset_along_mm": 0.0,
+                   "offset_across_mm": 0.0}]
+    existing_via = {"offset_along_mm": 1.0, "offset_across_mm": 1.0,
+                    "net": "GND"}
+    footprints = [_fp("R-ORIG", "ORIG", 0.0, 0.0)]
+    adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})
+    # Live has TWO vias on GND: one matches the existing GND record (tier 2,
+    # 1:1) — claimed, NOT imported — and one extra GND via... but a count
+    # mismatch (1 existing vs 2 live) is a tier-2 FATAL even in import. So use
+    # distinct nets to exercise the non-duplication cleanly: existing net is
+    # matched and skipped, a net the cell has no record for is imported.
+    plan = build_import_plan(
+        components, [existing_via], [], footprints,
+        [_via("GND", 1.0, 1.0),   # matches existing -> tier 2 claims it
+         _via("+3V3_NEW", 5.0, 5.0)],  # no existing record -> imported
+        [], adapter)
+    assert len(plan.new_via_records) == 1
+    assert plan.new_via_records[0]["net"] == "+3V3_NEW"
+
+
+def test_build_import_plan_missing_role_fatal_like_refresh():
+    """Import requires the SAME clean symmetric role match as refresh: a role
+    in the cell but absent from the selection is a fatal, not softened."""
+    components = [{"role": "ORIG"}, {"role": "CAP", "offset_along_mm": 1.0}]
+    footprints = [_fp("R-ORIG", "ORIG", 0.0, 0.0)]  # CAP missing
+    adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})
+    with pytest.raises(ValidationError,
+                       match="role 'CAP'.*not in the selection"):
+        build_import_plan(components, [], [], footprints,
+                          [_via("GND", 1.0, 1.0)], [], adapter)
