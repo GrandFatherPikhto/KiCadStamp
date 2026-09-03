@@ -125,3 +125,67 @@ def test_blank_row_is_rejected(main_window, tmp_path, monkeypatch):
     assert dlg._apply() is False
     assert warnings
     assert _instances_on_disk(p) == []
+
+
+# ── cluster column (2026-09-03, plan tree_instances_cluster) ────────────────
+
+
+def test_table_has_three_columns_with_cluster(main_window, tmp_path):
+    dlg, _p = _open_dialog(main_window, tmp_path)
+    assert dlg.table.columnCount() == 3
+    assert dlg.table.horizontalHeaderItem(2).text() == "Cluster"
+
+
+def test_existing_cluster_loaded_into_third_column(main_window, tmp_path):
+    dlg, _p = _open_dialog(main_window, tmp_path, [
+        {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1",
+         "cluster": "CLUST_A"}])
+    assert dlg.table.rowCount() == 1
+    assert dlg.table.item(0, 0).text() == "ch1_dac_buf"
+    assert dlg.table.item(0, 1).text() == "Channel_1"
+    assert dlg.table.item(0, 2).text() == "CLUST_A"
+    assert dlg.rows() == [{"name": "ch1_dac_buf", "sheet": "Channel_1",
+                           "cluster": "CLUST_A"}]
+
+
+def test_row_with_cluster_writes_cluster_key(main_window, tmp_path):
+    dlg, p = _open_dialog(main_window, tmp_path)
+    dlg._add_row()
+    dlg.table.item(0, 0).setText("ch1_dac_buf")
+    dlg.table.item(0, 1).setText("Channel_1")
+    dlg.table.item(0, 2).setText("CLUST_A")
+    assert dlg._apply() is True
+    assert _instances_on_disk(p) == [{
+        "template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1",
+        "cluster": "CLUST_A"}]
+
+
+def test_row_with_blank_cluster_omits_the_key(main_window, tmp_path):
+    dlg, p = _open_dialog(main_window, tmp_path)
+    dlg._add_row()
+    dlg.table.item(0, 0).setText("ch1_dac_buf")
+    dlg.table.item(0, 1).setText("Channel_1")
+    dlg.table.item(0, 2).setText("   ")   # blank cluster
+    assert dlg._apply() is True
+    assert _instances_on_disk(p) == [{
+        "template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"}]
+
+
+def test_blank_cluster_is_not_required(main_window, tmp_path, monkeypatch):
+    """Cluster is OPTIONAL — a valid name+sheet row with an empty cluster cell
+    must NOT be rejected (only name/sheet are required), and saves without a
+    cluster key."""
+    import gui.docks.instances_dialog as id_mod
+    warnings = []
+    monkeypatch.setattr(id_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a)
+                        or id_mod.QMessageBox.StandardButton.Ok)
+    dlg, p = _open_dialog(main_window, tmp_path)
+    dlg._add_row()
+    dlg.table.item(0, 0).setText("ch1")
+    dlg.table.item(0, 1).setText("Channel_1")
+    dlg.table.item(0, 2).setText("")   # blank cluster
+    assert dlg._apply() is True
+    assert not warnings
+    assert _instances_on_disk(p) == [{
+        "template": "dac_buf_tpl", "name": "ch1", "sheet": "Channel_1"}]

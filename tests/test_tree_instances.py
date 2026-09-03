@@ -512,3 +512,125 @@ class TestNetTrace:
         p = _write(tmp_path, "t.sexp", data)
         with pytest.raises(ValidationError, match="unsupported node kind 'chain'"):
             load_config(str(p))
+
+
+class TestClusterOverride:
+    """v1.2 (2026-09-03, plan tree_instances_cluster): the OPTIONAL `cluster:`
+    declaration override is substituted into every generated Entity copy's
+    cluster AND the generated role anchor's cluster — mirroring `sheet`. When a
+    declaration carries NO cluster, nothing changes (back-compat: the copies
+    inherit the template Entity's own cluster exactly as before)."""
+
+    def test_cluster_override_substituted_into_copies_and_role_anchor(self, tmp_path):
+        p = _write(tmp_path, "t.sexp", _template_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1",
+             "cluster": "CLUST_A"},
+        ]))
+        cfg, _ = load_config(str(p))
+
+        # cfg.tree_instances keeps the RAW declaration including cluster.
+        assert cfg.tree_instances == [
+            TreeInstance(template="dac_buf_tpl", name="ch1_dac_buf",
+                         sheet="Channel_1", cluster="CLUST_A"),
+        ]
+        # Template entities keep their OWN clusters (deep-copy, never mutated).
+        assert _entity_by_name(cfg, "dac_buf").cluster == "DAC_BUF"
+        assert _entity_by_name(cfg, "pif_avdd").cluster == "PIF_AVDD"
+        # Generated Entity copies (every nesting level) get the override.
+        assert _entity_by_name(cfg, "dac_buf__ch1_dac_buf").cluster == "CLUST_A"
+        assert _entity_by_name(cfg, "pif_avdd__ch1_dac_buf").cluster == "CLUST_A"
+        # The generated role anchor gets the override too ...
+        assert _tree_by_name(cfg, "ch1_dac_buf").anchor.anchor_cluster == "CLUST_A"
+        # ... while the template's own anchor cluster stays absent.
+        assert _tree_by_name(cfg, "dac_buf_tpl").anchor.anchor_cluster is None
+
+    def test_no_cluster_inherits_template_entity_cluster_unchanged(self, tmp_path):
+        """THE back-compat regression: a declaration without `cluster:` must
+        behave EXACTLY as before — each generated copy inherits the cluster of
+        its own template Entity (dac_buf -> DAC_BUF, nested pif_avdd ->
+        PIF_AVDD), and the generated anchor keeps the template's (absent)
+        cluster."""
+        p = _write(tmp_path, "t.sexp", _template_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"},
+        ]))
+        cfg, _ = load_config(str(p))
+        assert cfg.tree_instances[0].cluster is None
+        assert _entity_by_name(cfg, "dac_buf__ch1_dac_buf").cluster == "DAC_BUF"
+        assert _entity_by_name(cfg, "pif_avdd__ch1_dac_buf").cluster == "PIF_AVDD"
+        assert _tree_by_name(cfg, "ch1_dac_buf").anchor.anchor_cluster is None
+
+    def test_empty_cluster_is_fatal(self, tmp_path):
+        """Same discipline as `sheet`: `cluster:` present but empty is a fatal
+        (omit the key entirely to inherit — an empty override is meaningless)."""
+        p = _write(tmp_path, "t.sexp", _template_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1",
+             "cluster": ""},
+        ]))
+        with pytest.raises(ValidationError, match="empty cluster"):
+            load_config(str(p))
+
+    def test_unknown_key_still_fatal(self):
+        """`cluster` is now a KNOWN key — but a typo'd sibling key must STILL
+        fatal (check_unknown_keys keeps guarding the declaration record). The
+        s-expr writer already rejects a stray key at serialization (typed
+        record), so this exercises the LOADER's own check on the raw dict."""
+        from kicadstamp.config import load_tree_instance
+        with pytest.raises(ValidationError, match="unknown fields in tree_instances"):
+            load_tree_instance({"template": "dac_buf_tpl", "name": "ch1_dac_buf",
+                                "sheet": "Channel_1", "cluter": "CLUST_A"})
+
+    def test_net_trace_anchor_cluster_ignores_declaration_cluster(self, tmp_path):
+        """The design §3 split, enforced in code: a declaration-level `cluster:`
+        override rewrites the Entity copies (and role anchor), but MUST NOT
+        leak into net_trace materialization — a net_trace's anchor_cluster is
+        a different concept (external anchor search), never overwritten here."""
+        p = _write(tmp_path, "t.sexp", _net_trace_template_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1",
+             "cluster": "CLUST_A"},
+        ]))
+        cfg, _ = load_config(str(p))
+        nt = next(nt for nt in cfg.net_traces if nt.net == "/Channel_1/DAC/+3V3_AVDD")
+        assert nt.anchor_cluster is None   # NOT rewritten by the declaration
+        # ... but the placement sibling DID get the override — the declaration
+        # was not simply dropped, only net_trace ignores it.
+        assert _entity_by_name(cfg, "dac_buf__ch1_dac_buf").cluster == "CLUST_A"
+
+
+class TestTreeInstanceWriterCluster:
+    """Persistence of the OPTIONAL cluster axis (2026-09-03, plan
+    tree_instances_cluster): upsert_tree_instances writes a row's non-empty
+    `cluster` into the declaration; an empty/absent cluster omits the key."""
+
+    @staticmethod
+    def _read_instances(p) -> list:
+        from kicadstamp.config.sexp_format import sexp_to_dict
+        return list(sexp_to_dict(p.read_text(encoding="utf-8"))
+                    .get("tree_instances") or [])
+
+    def _file(self, tmp_path):
+        p = _write(tmp_path, "w.sexp", _template_data([]))
+        return p
+
+    def test_row_with_cluster_writes_cluster_key_and_materializes(self, tmp_path):
+        from kicadstamp.config_writer import upsert_tree_instances
+        p = self._file(tmp_path)
+        changed = upsert_tree_instances(p, "dac_buf_tpl", [
+            {"name": "ch1_dac_buf", "sheet": "Channel_1", "cluster": "CLUST_A"}])
+        assert changed is True
+        assert self._read_instances(p) == [{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1",
+            "cluster": "CLUST_A"}]
+        cfg, _ = load_config(str(p))
+        assert _entity_by_name(cfg, "dac_buf__ch1_dac_buf").cluster == "CLUST_A"
+
+    def test_blank_cluster_is_omitted_not_written(self, tmp_path):
+        """A row with a blank cluster writes NO cluster key at all (the file
+        stays clean for declarations that don't need the cluster axis) — the
+        key is never persisted as null/empty."""
+        from kicadstamp.config_writer import upsert_tree_instances
+        p = self._file(tmp_path)
+        changed = upsert_tree_instances(p, "dac_buf_tpl", [
+            {"name": "ch1_dac_buf", "sheet": "Channel_1", "cluster": ""}])
+        assert changed is True
+        assert self._read_instances(p) == [{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"}]
