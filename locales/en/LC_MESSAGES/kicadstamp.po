@@ -12953,3 +12953,64 @@ msgstr ""
 #, python-brace-format
 msgid "Failed to save the Entity: {error}"
 msgstr ""
+
+msgid "A generated instance is read-only — add the new group to its template tree instead."
+msgstr ""
+
+msgid "Added {entity!r} (cell {cell!r}) to tree {tree!r} — Save to persist."
+msgstr ""
+
+msgid "An entity named {name!r} already exists."
+msgstr ""
+
+msgid "Cannot derive the node offset from the selection (no selected footprint / cannot resolve the tree anchor live). Enter the xy manually instead."
+msgstr ""
+
+msgid "Cell {cell!r} fits this cluster ({n} roles matched)."
+msgstr ""
+
+msgid "Cell {cell!r}: no footprints of this cluster on the board yet — roles will resolve at Apply once they are."
+msgstr ""
+
+msgid "Cell {cell!r}: roles missing on the board for this cluster: {missing}"
+msgstr ""
+
+msgid "Cluster is required (the address of the new instance)."
+msgstr ""
+
+msgid "Instantiate from Cell"
+msgstr ""
+
+msgid "Instantiate from Cell..."
+msgstr ""
+
+msgid "Instantiate from Cell…"
+msgstr ""
+
+msgid "No cluster-tagged component is selected — enter the Cluster and the xy manually."
+msgstr ""
+
+msgid "Open a tree first — a new group needs a tree to be added to."
+msgstr ""
+
+msgid "Pick a Cell (the source of the group's layout)."
+msgstr ""
+
+msgid "Take from selection (one cluster; center of the selected group)"
+msgstr ""
+
+msgid "Unknown cell {cell!r}."
+msgstr ""
+
+msgid "X (mm):"
+msgstr ""
+
+msgid "Y (mm):"
+msgstr ""
+
+msgid "e.g. PIF_1V2_VCCINT"
+msgstr ""
+
+msgid "selection covers several clusters"
+msgstr ""
+

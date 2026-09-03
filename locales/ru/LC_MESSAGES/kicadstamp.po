@@ -11909,3 +11909,64 @@ msgstr "Entity {name!r} сохранена в {path} (cell {cell!r} уже су�
 #, python-brace-format
 msgid "Failed to save the Entity: {error}"
 msgstr "Не удалось сохранить Entity: {error}"
+
+msgid "A generated instance is read-only — add the new group to its template tree instead."
+msgstr "Сгенерированный экземпляр доступен только для чтения — добавь новую группу в его шаблонное дерево."
+
+msgid "Added {entity!r} (cell {cell!r}) to tree {tree!r} — Save to persist."
+msgstr "Добавлено {entity!r} (cell {cell!r}) в дерево {tree!r} — сохрани (Save), чтобы записать."
+
+msgid "An entity named {name!r} already exists."
+msgstr "Entity с именем {name!r} уже существует."
+
+msgid "Cannot derive the node offset from the selection (no selected footprint / cannot resolve the tree anchor live). Enter the xy manually instead."
+msgstr "Не могу вычислить смещение узла из выделения (нет выделенного футпринта / не удаётся живьём разрешить якорь дерева). Введи xy вручную."
+
+msgid "Cell {cell!r} fits this cluster ({n} roles matched)."
+msgstr "Cell {cell!r} подходит для этого кластера (совпало ролей: {n})."
+
+msgid "Cell {cell!r}: no footprints of this cluster on the board yet — roles will resolve at Apply once they are."
+msgstr "Cell {cell!r}: футпринтов этого кластера на плате пока нет — роли разрешатся на Apply, когда они появятся."
+
+msgid "Cell {cell!r}: roles missing on the board for this cluster: {missing}"
+msgstr "Cell {cell!r}: на плате для этого кластера не хватает ролей: {missing}"
+
+msgid "Cluster is required (the address of the new instance)."
+msgstr "Cluster обязателен (адрес нового экземпляра)."
+
+msgid "Instantiate from Cell"
+msgstr "Инстанцировать из Cell"
+
+msgid "Instantiate from Cell..."
+msgstr "Инстанцировать из Cell..."
+
+msgid "Instantiate from Cell…"
+msgstr "Инстанцировать из Cell…"
+
+msgid "No cluster-tagged component is selected — enter the Cluster and the xy manually."
+msgstr "Не выбрана ни одна компонента с кластером — введи Cluster и xy вручную."
+
+msgid "Open a tree first — a new group needs a tree to be added to."
+msgstr "Сначала открой дерево — новой группе нужно дерево, в которое её добавить."
+
+msgid "Pick a Cell (the source of the group's layout)."
+msgstr "Выбери Cell (источник расстановки группы)."
+
+msgid "Take from selection (one cluster; center of the selected group)"
+msgstr "Взять из выделения (один кластер; центр выбранной группы)"
+
+msgid "Unknown cell {cell!r}."
+msgstr "Неизвестная Cell {cell!r}."
+
+msgid "X (mm):"
+msgstr "X (мм):"
+
+msgid "Y (mm):"
+msgstr "Y (мм):"
+
+msgid "e.g. PIF_1V2_VCCINT"
+msgstr "напр. PIF_1V2_VCCINT"
+
+msgid "selection covers several clusters"
+msgstr "выделение охватывает несколько кластеров"
+
