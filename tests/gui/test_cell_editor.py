@@ -915,3 +915,154 @@ def test_refresh_geometry_validation_error_shows_warning_tables_untouched(
     assert dock._vias == [{"offset_along_mm": 0.5, "offset_across_mm": 1.5,
                            "net": "GND"}]
     assert dock.vias_table.rowCount() == 1
+
+
+# ── Import vias/tracks from selection (2026-09-03, plan
+#    fpga_oscill_missing_copper_and_cell_import §B.3) ──────────────────────
+
+def _import_dto_track(net, x1_mm, y1_mm, x2_mm, y2_mm):
+    return Track(uuid=f"t-{net}", net_name=net,
+                 start=Vector2.from_xy_mm(x1_mm, y1_mm),
+                 end=Vector2.from_xy_mm(x2_mm, y2_mm),
+                 width_mm=0.25, layer=BoardLayer.BL_F_Cu)
+
+
+class _ImportBoard:
+    """connection.board stand-in for the import path: like _RefreshBoard but
+    the adapter also reports EMPTY pad lists — build_import_plan calls
+    _selection_role_nets (needs get_footprint_pads), and no pad evidence makes
+    the net classifier fall back to a literal net (same as the module test's
+    empty-pads adapter)."""
+    def __init__(self, items, roles=None):
+        self.adapter = SimpleNamespace(
+            get_selected_items=lambda: list(items),
+            get_field_value=lambda fp, name: (roles or {}).get(fp.ref),
+            get_footprint_pads=lambda fp: [])
+
+
+def test_import_button_enabled_only_with_board_and_components(main_window, tmp_path):
+    """§B.3 activity: the import button shares Refresh's gate — adapter present
+    AND the loaded cell has components."""
+    dock, _ = _make_dock(main_window, tmp_path, {"cells": {"t": {"components": []}}})
+    dock.load_entry("t")
+    # No board yet — refresh_known_roles isn't called, button stays disabled.
+    assert not dock.import_vias_tracks_button.isEnabled()
+
+    # Board present but cell still empty.
+    main_window.connection.board = _RefreshBoard([])
+    dock.refresh_known_roles([])
+    assert not dock.import_vias_tracks_button.isEnabled()
+
+    # Load a cell WITH components while the board is present.
+    dock.load_entry("t", None)
+    dock._components.append({"role": "ORIG", "offset_along_mm": 0.0,
+                             "offset_across_mm": 0.0})
+    dock._refresh_all_tables()
+    assert dock.import_vias_tracks_button.isEnabled()
+
+
+def test_import_apply_appends_new_records_keeps_existing(main_window, tmp_path,
+                                                         monkeypatch):
+    """A clean import plan -> Apply APPENDS only the genuinely-new via/track
+    records; the existing GND via (claimed by its live counterpart in tier 2)
+    is neither duplicated nor mutated. Preview dialog is stubbed to Accept so
+    the real finish->apply path runs."""
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    existing_via = dock._vias[0]
+    via_snapshot = dict(existing_via)
+
+    # Live: ORIG (origin) + CAP at new positions, the existing GND via's live
+    # counterpart, and genuinely-new via + track copper the cell lacks.
+    board = _ImportBoard(
+        [_refresh_dto_fp("R-ORIG", "ORIG", 10.0, 10.0),
+         _refresh_dto_fp("R-CAP", "CAP", 11.5, 9.0),
+         _refresh_dto_via("GND", 10.5, 11.5),
+         _refresh_dto_via("NEW_NET", 12.0, 13.0),
+         _import_dto_track("NEW_NET", 12.0, 12.0, 14.0, 12.0)],
+        roles={"R-ORIG": "ORIG", "R-CAP": "CAP"})
+
+    accepted = {"value": False}
+
+    class _AcceptDialog:
+        def __init__(self, rows, parent=None):
+            self.rows = rows
+
+        def exec(self):
+            accepted["value"] = True
+            return 1  # QDialog.Accepted
+    monkeypatch.setattr(cell_editor_mod, "_ImportPreviewDialog", _AcceptDialog)
+
+    result = dock._run_import_vias_tracks(
+        {"board": board, "components": list(dock._components),
+         "vias": list(dock._vias), "tracks": list(dock._tracks)})
+    assert "plan" in result
+    plan = result["plan"]
+    # Only the genuinely-new copper is imported; the existing GND via is
+    # claimed by tier 2 (its live counterpart), never duplicated.
+    assert [r["net"] for r in plan.new_via_records] == ["NEW_NET"]
+    assert [r["net"] for r in plan.new_track_records] == ["NEW_NET"]
+
+    dock._finish_import_vias_tracks(result)
+    assert accepted["value"] is True
+
+    # Existing GND via: same dict object, untouched.
+    assert dock._vias[0] is existing_via
+    assert existing_via == via_snapshot
+    # Brand-new records APPENDED (extend, not replace) with geometry relative
+    # to the ORIG origin at (10.0, 10.0).
+    assert len(dock._vias) == 2
+    assert dock._vias[1]["net"] == "NEW_NET"
+    assert dock._vias[1]["offset_along_mm"] == 2.0
+    assert dock._vias[1]["offset_across_mm"] == 3.0
+    assert len(dock._tracks) == 1
+    assert dock._tracks[0]["net"] == "NEW_NET"
+    assert dock._tracks[0]["start_along_mm"] == 2.0
+    assert dock._tracks[0]["end_along_mm"] == 4.0
+    assert dock.vias_table.rowCount() == 2
+    assert dock.tracks_table.rowCount() == 1
+
+
+def test_import_preview_rows_lists_only_new_records(main_window, tmp_path):
+    """import_preview_rows is pure and shows one Kind/Position/Net row per NEW
+    record — nothing about existing ones (the additive counterpart of the
+    refresh preview's old/new/Δ rows)."""
+    from kicadstamp.cell_geometry_refresh import ImportPlan
+    plan = ImportPlan(
+        new_via_records=[{"offset_along_mm": 2.0, "offset_across_mm": 3.0,
+                          "net": "NEW_NET"}],
+        new_track_records=[{"start_along_mm": 0.0, "start_across_mm": 0.0,
+                            "end_along_mm": 4.0, "end_across_mm": 0.0,
+                            "net_from_role": "CAP"}])
+    rows = cell_editor_mod.import_preview_rows(plan)
+    assert len(rows) == 2
+    assert rows[0] == ["Via", "(2.0000, 3.0000)", "NEW_NET"]
+    assert rows[1] == ["Track", "(0.0000, 0.0000) → (4.0000, 0.0000)", "role:CAP"]
+
+
+def test_import_validation_error_shows_warning_tables_untouched(
+        main_window, tmp_path, monkeypatch):
+    """A structural mismatch is NOT softened by Import — a wrong cluster
+    (missing the zero-offset origin role) goes to QMessageBox.warning and the
+    dock's lists/tables do not change."""
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    before_vias = [dict(v) for v in dock._vias]
+
+    board = _ImportBoard([_refresh_dto_fp("R-CAP", "CAP", 5.0, 0.0)],
+                         roles={"R-CAP": "CAP"})
+    warnings = []
+    monkeypatch.setattr(cell_editor_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a))
+
+    result = dock._run_import_vias_tracks(
+        {"board": board, "components": list(dock._components),
+         "vias": list(dock._vias), "tracks": list(dock._tracks)})
+    assert "error" in result
+    dock._finish_import_vias_tracks(result)
+
+    assert len(warnings) == 1
+    assert "zero-offset origin" in warnings[0][2]
+    assert dock._vias == before_vias
+    assert dock._tracks == []
+    assert dock.vias_table.rowCount() == 1

@@ -78,7 +78,7 @@ from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog,
                               QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout,
                               QWidget)
 
-from kicadstamp.cell_geometry_refresh import build_refresh_plan
+from kicadstamp.cell_geometry_refresh import build_import_plan, build_refresh_plan
 from kicadstamp.config import (load_cell, load_cell_placement, load_template_component_slot,
                                load_template_track, load_template_via)
 from kicadstamp.domain.board import Footprint, Track, Via
@@ -243,6 +243,72 @@ class _RefreshPreviewDialog(QDialog):
         layout.addWidget(buttons)
 
 
+def _record_position(record: Dict[str, Any], kind: str) -> str:
+    """Human-readable position for one import-preview row — the record's own
+    local geometry relative to the cell's zero-offset origin (the values the
+    Apply button would write into the cell). A via shows its single offset
+    point, a track its start → end pair."""
+    if kind == "via":
+        return "({x}, {y})".format(x=_fmt_mm(record.get("offset_along_mm")),
+                                   y=_fmt_mm(record.get("offset_across_mm")))
+    return "({sx}, {sy}) → ({ex}, {ey})".format(
+        sx=_fmt_mm(record.get("start_along_mm")),
+        sy=_fmt_mm(record.get("start_across_mm")),
+        ex=_fmt_mm(record.get("end_along_mm")),
+        ey=_fmt_mm(record.get("end_across_mm")))
+
+
+def import_preview_rows(plan) -> List[List[str]]:
+    """Build the read-only preview rows for an ImportPlan — one row per NEW
+    via/track record the Apply button would append (deliberately NOT the
+    old/new/Δ shape of refresh_preview_sections: Import creates records, it
+    edits none). Columns are [kind, position, net_source] where position is
+    the record's local geometry relative to the cell's zero-offset origin and
+    net_source is the classified net (literal / role:[pad:] / rule-net null —
+    the same _net_display convention as the dock's own via/track tables).
+    Pure (no widget access) so the GUI test can exercise the exact rows the
+    dialog shows without a QDialog event loop."""
+    rows: List[List[str]] = []
+    for record in plan.new_via_records:
+        rows.append([_("Via"), _record_position(record, "via"), _net_display(record)])
+    for record in plan.new_track_records:
+        rows.append([_("Track"), _record_position(record, "track"), _net_display(record)])
+    return rows
+
+
+class _ImportPreviewDialog(QDialog):
+    """Read-only "these NEW via/track records will be appended" preview for one
+    ImportPlan — the additive counterpart of _RefreshPreviewDialog (which shows
+    Old/New/Δ edits to EXISTING records). One Kind/Position/Net table; Apply
+    appends the listed records to the dock's _vias/_tracks — the actual extend
+    happens in the caller AFTER this dialog returns Accepted, so mutation +
+    autostage stay in the dock's normal path."""
+
+    def __init__(self, rows: List[List[str]], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(_("Import vias/tracks from selection"))
+        self.resize(620, 360)
+        layout = QVBoxLayout(self)
+        table = QTableWidget(0, 3)
+        table.setHorizontalHeaderLabels([_("Kind"), _("Position"), _("Net")])
+        table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Stretch)
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        for row_index, row in enumerate(rows):
+            table.insertRow(row_index)
+            for col, value in enumerate(row):
+                table.setItem(row_index, col, QTableWidgetItem(str(value)))
+        layout.addWidget(table, 1)
+        buttons = QDialogButtonBox()
+        apply_button = buttons.addButton(_("Apply"), QDialogButtonBox.ButtonRole.AcceptRole)
+        buttons.addButton(_("Cancel"), QDialogButtonBox.ButtonRole.RejectRole)
+        apply_button.setDefault(True)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+
 class CellDock(QWidget):
     """A page inside DetailDock's stack (gui/docks/detail_panel.py) — same
     "plain QWidget, not its own QDockWidget" shape as Extract/Placer/
@@ -339,6 +405,17 @@ class CellDock(QWidget):
         self.refresh_geometry_button.clicked.connect(self._on_refresh_geometry)
         self.refresh_geometry_button.setEnabled(False)
         refresh_row.addWidget(self.refresh_geometry_button)
+        # Import vias/tracks from selection (2026-09-03, plan
+        # fpga_oscill_missing_copper_and_cell_import §B.3) — the additive
+        # counterpart of Refresh: backfills NEW via/track records for live
+        # copper the cell's current records don't describe, and NEVER edits/
+        # removes an existing one. Same activity gate, same worker pattern
+        # (see _update_refresh_enabled, which gates BOTH buttons).
+        self.import_vias_tracks_button = QPushButton(
+            _("Import vias/tracks from selection"))
+        self.import_vias_tracks_button.clicked.connect(self._on_import_vias_tracks)
+        self.import_vias_tracks_button.setEnabled(False)
+        refresh_row.addWidget(self.import_vias_tracks_button)
         layout.addLayout(refresh_row)
 
         self._tabs = QTabWidget()
@@ -1377,16 +1454,18 @@ class CellDock(QWidget):
     # ── Refresh geometry from selection (2026-09-03, plan cell_geometry_refresh)
 
     def _update_refresh_enabled(self) -> None:
-        """The refresh-geometry button is meaningful only when a live board
-        adapter is present AND a cell with components is loaded. CellDock
-        receives no per-selection feed (only push_snapshot's role lists), so
-        an EMPTY board selection is not gated here — the worker reports it as
-        a clear error at click time instead."""
+        """The refresh-geometry AND import-vias/tracks buttons are meaningful
+        only when a live board adapter is present AND a cell with components
+        is loaded (Import needs the same clean role match as Refresh, see
+        build_import_plan). CellDock receives no per-selection feed (only
+        push_snapshot's role lists), so an EMPTY board selection is not gated
+        here — the worker reports it as a clear error at click time instead."""
         connection = getattr(self._main_window, "connection", None)
         board = getattr(connection, "board", None) if connection is not None else None
         adapter = getattr(board, "adapter", None) if board is not None else None
-        self.refresh_geometry_button.setEnabled(
-            adapter is not None and bool(self._components))
+        enabled = adapter is not None and bool(self._components)
+        self.refresh_geometry_button.setEnabled(enabled)
+        self.import_vias_tracks_button.setEnabled(enabled)
 
     def _on_refresh_geometry(self) -> None:
         """Button/context action: read the CURRENT board selection and refresh
@@ -1497,6 +1576,117 @@ class CellDock(QWidget):
         if self.name_edit.text().strip() != name or self._path != file_path:
             self.load_entry(name, file_path)
         self._on_refresh_geometry()
+
+    # ── Import vias/tracks from selection (2026-09-03, plan
+    #    fpga_oscill_missing_copper_and_cell_import §B.3) ─────────────────
+
+    def _on_import_vias_tracks(self) -> None:
+        """Button/context action: read the CURRENT board selection and import
+        the live via/track copper it describes that the loaded cell's current
+        records don't (backfill). Board IPC (selection read + net_from_role
+        resolution) runs on the worker thread via start_long_op; the preview
+        dialog + Apply stay on the UI thread."""
+        self._show_message("")
+        connection = getattr(self._main_window, "connection", None)
+        board = getattr(connection, "board", None) if connection is not None else None
+        adapter = getattr(board, "adapter", None) if board is not None else None
+        if adapter is None:
+            self._show_message(_("Connect to KiCad first."), _ERROR_STYLE)
+            return
+        if not self._components:
+            self._show_message(_("Load a cell with components first."), _ERROR_STYLE)
+            return
+        if self._path is None:
+            self._show_message(_("Set the project root first."), _ERROR_STYLE)
+            return
+        if self._active_op is not None:
+            return
+        # Snapshot the current lists — the worker reads them while the UI may
+        # keep ticking; build_import_plan never mutates them, and the plan's
+        # new records are brand-new dicts to APPEND on Apply (existing records
+        # are untouched by construction).
+        payload = {
+            "board": board,
+            "components": list(self._components),
+            "vias": list(self._vias),
+            "tracks": list(self._tracks),
+        }
+        self._active_op = start_long_op(
+            connection, (self.import_vias_tracks_button,),
+            self._run_import_vias_tracks, self._finish_import_vias_tracks,
+            self._on_import_op_failed, payload)
+
+    def _run_import_vias_tracks(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Worker thread: selection read + plan build — never touches a widget.
+        Returns {"plan": ImportPlan} or {"error": ...} (a ValidationError's
+        format_fatal_error text shown verbatim in a QMessageBox)."""
+        try:
+            adapter = payload["board"].adapter
+            items = adapter.get_selected_items()
+            footprints = [i for i in items if isinstance(i, Footprint)]
+            vias = [i for i in items if isinstance(i, Via)]
+            tracks = [i for i in items if isinstance(i, Track)]
+            plan = build_import_plan(
+                payload["components"], payload["vias"], payload["tracks"],
+                footprints, vias, tracks, adapter)
+        except ValidationError as e:
+            return {"error": str(e)}
+        return {"plan": plan}
+
+    def _finish_import_vias_tracks(self, result: Dict[str, Any]) -> None:
+        """UI thread (worker finished): a plan error is shown as a warning with
+        the FULL collected text; a clean plan is previewed (one row per NEW
+        record); on Apply the dock's normal append/autostage path runs."""
+        self._active_op = None
+        if result.get("error"):
+            QMessageBox.warning(
+                self, _("Import vias/tracks from selection"), result["error"])
+            return
+        plan = result["plan"]
+        rows = import_preview_rows(plan)
+        if not rows:
+            self._show_message(
+                _("Nothing to import — every selected via/track is already "
+                  "described by this cell."),
+                _SUCCESS_STYLE)
+            return
+        dialog = _ImportPreviewDialog(rows, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        applied = self._apply_import_plan(plan)
+        self._show_message(
+            _("Imported {count} new record(s) from selection into {name!r}. "
+              "Save to write the change.").format(
+                count=applied, name=self.name_edit.text().strip()),
+            _SUCCESS_STYLE)
+
+    def _on_import_op_failed(self, message: str) -> None:
+        self._active_op = None
+        self._show_message(
+            _("Import failed: {error}").format(error=message), _ERROR_STYLE)
+
+    def _apply_import_plan(self, plan) -> int:
+        """Apply an ImportPlan to the loaded cell: APPEND the plan's brand-new
+        via/track records to self._vias/self._tracks (extend, never replace —
+        plan §B.3), then refresh tables + autostage exactly like a manual row
+        Add. Existing records are untouched by construction. Returns how many
+        records were appended. Nothing is written to disk here — Save remains
+        a separate explicit action, as everywhere in this dock."""
+        self._vias.extend(plan.new_via_records)
+        self._tracks.extend(plan.new_track_records)
+        count = len(plan.new_via_records) + len(plan.new_track_records)
+        self._refresh_all_tables()
+        self._autostage()
+        return count
+
+    def import_from_selection_requested(self, name: str, file_path) -> None:
+        """ConfigTreeDock's cell_import_requested delegate (2026-09-03) — the
+        context menu's "Import from selection...": when the requested cell is
+        not the one currently loaded, load it first, then run the same
+        _on_import_vias_tracks path as the dock's own button."""
+        if self.name_edit.text().strip() != name or self._path != file_path:
+            self.load_entry(name, file_path)
+        self._on_import_vias_tracks()
 
     # ── Starting a brand new entry (ConfigTreeDock's Add cell...) ────────
 
