@@ -1261,21 +1261,27 @@ def _load_coordinate_placement(data: dict[str, Any]) -> CoordinatePlacement:
     )
 
 
-# tree_instances: — short sheet-parameterized references to a template tree
-# (2026-09-02, plan tree_instances). Three required string fields; the actual
-# expansion into full Tree+Entity dicts happens dict-level in
-# config/tree_instances.py (expand_tree_instances, BEFORE these loaders run);
-# this loader only parses the DECLARATION into cfg.tree_instances — the GUI's
-# read-only-instance index and the persistence source. Missing fields here are
-# fatal with the same discipline as every other list-section record.
-_TREE_INSTANCE_KNOWN_KEYS = {"template", "name", "sheet"}
+# tree_instances: — short sheet-/cluster-parameterized references to a template
+# tree (2026-09-02, plan tree_instances; cluster axis added 2026-09-03, plan
+# tree_instances_cluster). Three required string fields (template/name/sheet)
+# plus an OPTIONAL cluster override; the actual expansion into full Tree+Entity
+# dicts happens dict-level in config/tree_instances.py (expand_tree_instances,
+# BEFORE these loaders run); this loader only parses the DECLARATION into
+# cfg.tree_instances — the GUI's read-only-instance index and the persistence
+# source. Missing fields here are fatal with the same discipline as every other
+# list-section record.
+_TREE_INSTANCE_KNOWN_KEYS = {"template", "name", "sheet", "cluster"}
 
 
 def _load_tree_instance(data: dict[str, Any]) -> TreeInstance:
     """One tree_instances: entry -> TreeInstance (a declaration, NOT the
-    materialized tree). All three fields are required and must be non-empty
-    strings: expansion needs template (which tree to copy), name (the
-    generated tree's unique name) and sheet (what gets substituted)."""
+    materialized tree). All three fields (template/name/sheet) are required and
+    must be non-empty strings: expansion needs template (which tree to copy),
+    name (the generated tree's unique name) and sheet (what gets substituted).
+    `cluster` is OPTIONAL (2026-09-03): when present it must be a non-empty
+    string — it is substituted into the generated Entity copies' `cluster`
+    (and the role-anchor cluster); when absent (None) the generated copies
+    inherit the template's own cluster unchanged (today's behaviour)."""
     if not isinstance(data, dict):
         raise ValidationError(format_fatal_error(
             _("tree_instances: entry must be a mapping, got {type}")
@@ -1291,10 +1297,16 @@ def _load_tree_instance(data: dict[str, Any]) -> TreeInstance:
                 [_("every tree_instances: entry needs template:/name:/sheet: (all "
                    "non-empty strings) — template names the source tree, name is the "
                    "generated tree's name, sheet is substituted into the copies")]))
+    cluster = data.get('cluster')
+    if cluster is not None and (not isinstance(cluster, str) or not cluster):
+        raise ValidationError(format_fatal_error(
+            _("tree_instances: entry {name!r} has an empty cluster:").format(name=name),
+            [_("cluster:, when present, must be a non-empty string — omit the key "
+               "entirely to inherit the template's own cluster unchanged")]))
     check_unknown_keys(data, _TREE_INSTANCE_KNOWN_KEYS,
                        _("unknown fields in tree_instances entry {name!r}")
                        .format(name=name))
-    return TreeInstance(template=template, name=name, sheet=sheet)
+    return TreeInstance(template=template, name=name, sheet=sheet, cluster=cluster)
 
 
 # trees: — optional curated-redraw list section (design_2026_08_27_trees_in_

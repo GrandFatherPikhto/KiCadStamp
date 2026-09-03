@@ -37,6 +37,21 @@ overwritten with the instance sheet (same pattern as Tree.anchor.anchor_sheet
 and the Entity copy's sheet). Registry identity (`net_trace_anchor_id` is
 built from the net) is therefore per-copy automatically, no extra code.
 
+v1.2 (2026-09-03, plan tree_instances_cluster): a declaration may OPTIONALLY
+carry `cluster:` — an override substituted into every generated Entity copy's
+`cluster` AND (the template is role-anchored by a v1 fatal) the generated
+tree's role-anchor `cluster`, exactly mirroring how `sheet` is substituted.
+The axis is independent from `sheet` (same-sheet/different-cluster,
+different-sheet/same-cluster and both-different are all expressible). When a
+declaration has NO `cluster` (None) nothing changes: each generated copy keeps
+the cluster of its template Entity (or lacks one), and the anchor keeps its
+template cluster — 100% back-compatible with pre-v1.2 declarations. The
+override is deliberately NOT applied to net_trace materialization: a
+net_trace's `anchor_cluster` narrows an EXTERNAL anchor search (which
+component the copper is anchored to) — a different concept from "which
+physical group this Entity is", and conflating them would be a semantic bug
+(see design_cell_template_reuse §3, "Явно ВНЕ рамок").
+
 The materialized dicts then flow through the SAME _load_entity/_load_tree/
 _load_net_trace path as hand-written entries — duplicate-name checks, rule 2
 (shared seen_refs), the one-record-per-net net_traces dedup, unknown-key
@@ -107,7 +122,8 @@ def _substitute_net_sheet(net: str, old_sheet: str, new_sheet: str,
 def _expand_node(node: dict, instance_name: str, sheet: str,
                  entities_by_name: dict, net_traces_by_net: dict,
                  generated_entities: list, generated_net_traces: list,
-                 template_name: str, old_sheet: str | None) -> dict:
+                 template_name: str, old_sheet: str | None,
+                 cluster: str | None = None) -> dict:
     """Deep-copy one template node dict into the instance shape.
 
     kind=placement (or unset/auto): the node's ref is suffixed with
@@ -125,7 +141,14 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
     Q2 (revised 2026-09-02): the template Entity's OWN sheet is deliberately
     NOT a fatal and NOT copied — the template keeps it for its own live
     re-readability, the generated copy unconditionally gets the instance
-    sheet (same overwrite pattern as the role-anchor sheet)."""
+    sheet (same overwrite pattern as the role-anchor sheet).
+
+    cluster (2026-09-03, plan tree_instances_cluster): a declaration-level
+    override applied ONLY in the placement branch — when not None it
+    overwrites the generated Entity copy's `cluster`; when None the deep copy
+    keeps the template Entity's own cluster unchanged (today's behaviour).
+    The net_trace branch deliberately ignores it (a net_trace's
+    anchor_cluster is a different concept — see the module docstring)."""
     orig_ref = node.get('ref')
     if orig_ref is None:
         raise ValidationError(format_fatal_error(
@@ -202,18 +225,23 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
         gen['children'] = [_expand_node(c, instance_name, sheet, entities_by_name,
                                         net_traces_by_net, generated_entities,
                                         generated_net_traces, template_name,
-                                        old_sheet)
+                                        old_sheet, cluster)
                            for c in children]
     ent = copy.deepcopy(entity)
     ent['name'] = new_ref
     ent['sheet'] = sheet
+    if cluster is not None:
+        # Only when the declaration overrides — otherwise the deep copy keeps
+        # the template Entity's own cluster unchanged (back-compat).
+        ent['cluster'] = cluster
     generated_entities.append(ent)
     return gen
 
 
 def _expand_template(template: dict, template_name: str, instance_name: str,
                      sheet: str, entities_by_name: dict,
-                     net_traces_by_net: dict) -> tuple[dict, list, list]:
+                     net_traces_by_net: dict,
+                     cluster: str | None = None) -> tuple[dict, list, list]:
     """Materialize ONE instance from a template Tree dict: returns
     (tree dict, [entity dicts], [net_trace dicts]). The template dict is never
     mutated — deep copies only."""
@@ -231,11 +259,19 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
     gen = copy.deepcopy(template)
     gen['name'] = instance_name
     gen['anchor']['sheet'] = sheet
+    if cluster is not None and isinstance(gen['anchor'].get('role'), str):
+        # Cluster override lands on the role anchor too (the anchor is already
+        # guaranteed role-based by the fatal above — the isinstance guard only
+        # documents that cluster substitution is a role-anchor concept). Set
+        # UNCONDITIONALLY when cluster is given, same pattern as sheet — even
+        # if the template anchor carried no cluster of its own.
+        gen['anchor']['cluster'] = cluster
     generated_entities: list = []
     generated_net_traces: list = []
     gen['nodes'] = [_expand_node(n, instance_name, sheet, entities_by_name,
                                  net_traces_by_net, generated_entities,
-                                 generated_net_traces, template_name, old_sheet)
+                                 generated_net_traces, template_name, old_sheet,
+                                 cluster)
                     for n in (template.get('nodes') or [])]
     return gen, generated_entities, generated_net_traces
 
@@ -294,6 +330,14 @@ def expand_tree_instances(data: dict) -> dict:
                     .format(idx=idx + 1, field=field_label),
                     [_("every tree_instances: entry needs template:/name:/sheet: "
                        "(non-empty strings)")]))
+        cluster = inst.get('cluster')
+        if cluster is not None and (not isinstance(cluster, str) or not cluster):
+            raise ValidationError(format_fatal_error(
+                _("tree_instances: entry #{idx} has an empty cluster:")
+                .format(idx=idx + 1),
+                [_("cluster:, when present, must be a non-empty string — omit "
+                   "the key entirely to inherit the template's own cluster "
+                   "unchanged")]))
         template = trees_by_name.get(template_name)
         if template is None:
             raise ValidationError(format_fatal_error(
@@ -304,7 +348,7 @@ def expand_tree_instances(data: dict) -> dict:
         (generated_tree, generated_entities,
          generated_net_traces) = _expand_template(
             template, template_name, instance_name, sheet, entities_by_name,
-            net_traces_by_net)
+            net_traces_by_net, cluster)
         trees.append(generated_tree)
         entities.extend(generated_entities)
         net_traces.extend(generated_net_traces)

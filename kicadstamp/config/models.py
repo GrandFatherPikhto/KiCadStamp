@@ -669,6 +669,17 @@ class TreeInstance:
     sheet — substituted into every generated Entity's `sheet` and (for a role
         anchor) the generated tree's anchor sheet.
 
+    cluster — OPTIONAL (2026-09-03, plan tree_instances_cluster): substituted
+        into every generated Entity's `cluster` AND (when the template's anchor
+        is role-based) the generated tree's anchor cluster — the same override
+        pattern as `sheet`, but OFF by default (None = inherit the template's
+        own cluster unchanged, today's behaviour). An independent axis from
+        `sheet`: same-sheet/different-cluster, different-sheet/same-cluster
+        and both-different are all expressible. Deliberately NOT applied to
+        net_traces: a net_trace's anchor_cluster narrows an EXTERNAL anchor
+        search — a different concept from "which physical group this is"
+        (see design_cell_template_reuse §3).
+
     The declaration list stays on Config (cfg.tree_instances) even after
     expansion: the raw declarations are the single source of truth for the GUI
     to tell a materialized (read-only, never persisted) tree from a
@@ -676,6 +687,7 @@ class TreeInstance:
     template: str
     name: str
     sheet: str
+    cluster: str | None = None
 
 
 @dataclass
