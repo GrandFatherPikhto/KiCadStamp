@@ -417,6 +417,13 @@ class DockHub:
         # file, then show the cell page), driving the cell's geometry refresh.
         self.config_tree_dock.cell_refresh_requested.connect(
             self._refresh_cell_from_selection)
+        # 2026-09-03 (plan fpga_oscill_missing_copper_and_cell_import §B.3):
+        # the context menu's "Import from selection..." — the ADDITIVE
+        # counterpart of the refresh delegate above (backfills NEW via/track
+        # records for live copper the cell doesn't describe yet; never edits
+        # existing records).
+        self.config_tree_dock.cell_import_requested.connect(
+            self._import_cell_from_selection)
         # Placer/Thermal via/Extract/Points/Chains -> Config tree: a
         # successful Save refreshes the whole tree (walk_include_tree() is
         # re-run) so a brand new (or renamed) entry shows up without
@@ -1325,6 +1332,18 @@ class DockHub:
         refresh entry point (which loads the cell when it is not the currently
         open one and runs the same _on_refresh_geometry path as the button)."""
         self.cells_dock.refresh_from_selection_requested(name, file_path)
+        self.detail_dock.show_cells()
+
+    def _import_cell_from_selection(self, name, file_path) -> None:
+        """ConfigTreeDock's cell_import_requested delegate (2026-09-03, plan
+        fpga_oscill_missing_copper_and_cell_import §B.3) — the context menu's
+        "Import from selection...": the ADDITIVE backfill counterpart of
+        _refresh_cell_from_selection (Refresh cannot ADD a record; Import
+        never MODIFIES one). Same explicit file handling as _edit_cell, then
+        drive CellDock's own import entry point (loads the cell when it is
+        not the currently open one and runs the same _on_import_vias_tracks
+        path as the button)."""
+        self.cells_dock.import_from_selection_requested(name, file_path)
         self.detail_dock.show_cells()
 
     def _attach_log_file_handler(self, handler) -> None:

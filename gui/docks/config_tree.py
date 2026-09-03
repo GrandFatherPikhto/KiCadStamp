@@ -213,6 +213,13 @@ class ConfigTreeDock(QDockWidget):
     # current board selection. Same (name, file_path) shape as
     # cell_edit_requested.
     cell_refresh_requested = pyqtSignal(str, object)
+    # Fired by the context menu's "Import from selection..." (2026-09-03,
+    # plan fpga_oscill_missing_copper_and_cell_import §B.3) — CellDock
+    # listens via its import_from_selection_requested() entry point: the
+    # ADDITIVE backfill counterpart of cell_refresh_requested (live via/track
+    # copper the cell doesn't describe yet -> NEW records; existing ones are
+    # never touched). Same (name, file_path) shape.
+    cell_import_requested = pyqtSignal(str, object)
     # Fired by the context menu's "Add cell..." (2026-08-06, replaces a raw
     # {"components": []} stub write straight to YAML with no form behind it
     # — the exact root cause of a live bug, see cell_editor.py's module
@@ -1064,6 +1071,13 @@ class ConfigTreeDock(QDockWidget):
                 # button. Same (name, file_path) shape as cell_edit_requested.
                 menu.addAction(_("Update from selection...")).triggered.connect(
                     lambda: self.cell_refresh_requested.emit(old_name, file_path))
+                # 2026-09-03 (plan fpga_oscill_missing_copper_and_cell_import
+                # §B.3): the ADDITIVE counterpart of the item above — import
+                # live via/track copper the cell's current records don't
+                # describe as NEW records (Refresh cannot ADD a record; Import
+                # cannot MODIFY one — they complement, never overlap).
+                menu.addAction(_("Import from selection...")).triggered.connect(
+                    lambda: self.cell_import_requested.emit(old_name, file_path))
             menu.addAction(_("Rename...")).triggered.connect(
                 lambda: self._on_rename(file_path, section, old_name))
             menu.addAction(_("Delete...")).triggered.connect(
