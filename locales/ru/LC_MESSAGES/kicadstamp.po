@@ -12041,3 +12041,131 @@ msgstr "Применено — можно править дальше или Red
 #: gui/docks/trees_dock.py (2026-09-03, Phase B tree_node_editor)
 msgid "Applied — no live board Redraw available."
 msgstr "Применено — живой Redraw недоступен."
+
+#: kicadstamp/cell_geometry_refresh.py (2026-09-03, plan cell_geometry_refresh)
+msgid "no zero-offset component to use as the refresh origin"
+msgstr "нет zero-offset компонента для точки отсчёта рефреша"
+
+#: kicadstamp/cell_geometry_refresh.py (2026-09-03, plan cell_geometry_refresh)
+msgid "cell has no component with offset_along_mm/offset_across_mm both equal to 0 (its local (0,0)) to act as the origin of the refresh — select a cell whose origin component is at (0,0)"
+msgstr "в шаблоне нет компонента с offset_along_mm/offset_across_mm, равными 0 (его локальный (0,0)), который был бы точкой отсчёта рефреша — выберите шаблон, у которого компонент-начало стоит в (0,0)"
+
+#: kicadstamp/cell_geometry_refresh.py (2026-09-03, plan cell_geometry_refresh)
+#, python-brace-format
+msgid "{n} zero-offset components — the refresh origin is ambiguous"
+msgstr "{n} zero-offset компонентов — точка отсчёта рефреша неоднозначна"
+
+#: kicadstamp/cell_geometry_refresh.py (2026-09-03, plan cell_geometry_refresh)
+#, python-brace-format
+msgid "exactly one component must sit at the cell's local (0,0); found {n} — fix the cell so a single component has offset 0/0"
+msgstr "ровно один компонент должен стоять в локальном (0,0) шаблона; найдено {n} — исправьте шаблон так, чтобы offset 0/0 был у одного компонента"
+
+#: kicadstamp/cell_geometry_refresh.py (2026-09-03, plan cell_geometry_refresh)
+#, python-brace-format
+msgid "role {role!r} is in the cell but not in the selection — refresh needs the whole cluster"
+msgstr "роль {role!r} есть в шаблоне, но нет в выделении — для рефреша нужно выделить весь кластер"
+
+#: kicadstamp/cell_geometry_refresh.py (2026-09-03, plan cell_geometry_refresh)
+#, python-brace-format
+msgid "role {role!r} is in the selection but not in the cell — refresh cannot add components"
+msgstr "роль {role!r} есть в выделении, но нет в шаблоне — рефреш не умеет добавлять компоненты"
+
+#: kicadstamp/cell_geometry_refresh.py (2026-09-03, plan cell_geometry_refresh)
+#, python-brace-format
+msgid "role {role!r} (the cell's zero-offset origin) is not in the current selection"
+msgstr "роль {role!r} (zero-offset начало шаблона) отсутствует в текущем выделении"
+
+#: kicadstamp/cell_geometry_refresh.py (2026-09-03, plan cell_geometry_refresh)
+#, python-brace-format
+msgid "footprint {ref!r} (role {role!r}) not found in the selection"
+msgstr "футпринт {ref!r} (роль {role!r}) не найден в выделении"
+
+#: kicadstamp/cell_geometry_refresh.py (2026-09-03, plan cell_geometry_refresh)
+#, python-brace-format
+msgid "template {pattern!r}: {n} record(s) in the cell, {m} live item(s) matching its shape"
+msgstr "шаблон {pattern!r}: {n} записей в шаблоне, {m} живых объектов подходящей формы"
+
+#: kicadstamp/cell_geometry_refresh.py (2026-09-03, plan cell_geometry_refresh)
+#, python-brace-format
+msgid "net {net!r}: {n} record(s) in the cell, {m} live item(s)"
+msgstr "цепь {net!r}: {n} записей в шаблоне, {m} живых объектов"
+
+#: kicadstamp/cell_geometry_refresh.py (2026-09-03, plan cell_geometry_refresh)
+#, python-brace-format
+msgid "rule-net (net: null — inherits the enclosing Rule's own net): {n} record(s) in the cell, {m} unclaimed live item(s) after resolving every named net"
+msgstr "rule-net (net: null — наследует сеть объемлющего правила): {n} записей в шаблоне, {m} незанятых живых объектов после резолва всех именованных цепей"
+
+#: kicadstamp/cell_geometry_refresh.py (2026-09-03, plan cell_geometry_refresh)
+#, python-brace-format
+msgid "extra copper in selection: {desc} — not described by any net/template/net:null record of this cell"
+msgstr "лишняя медь в выделении: {desc} — не описана ни одной записью сети/шаблона/net:null этого шаблона"
+
+#: kicadstamp/cell_geometry_refresh.py (2026-09-03, plan cell_geometry_refresh)
+msgid "(no net)"
+msgstr "(без цепи)"
+
+#: kicadstamp/cell_geometry_refresh.py (2026-09-03, plan cell_geometry_refresh)
+#, python-brace-format
+msgid "{kind} on {net}"
+msgstr "{kind} на {net}"
+
+#: kicadstamp/cell_geometry_refresh.py (2026-09-03, plan cell_geometry_refresh)
+msgid "cannot refresh cell geometry from the current selection"
+msgstr "не удаётся обновить геометрию шаблона по текущему выделению"
+
+#: kicadstamp/cell_geometry_refresh.py (2026-09-03, plan cell_geometry_refresh)
+#, python-brace-format
+msgid "{ref}: no {field!r} field — every selected component must have a Role for a refresh"
+msgstr "{ref}: нет поля {field!r} — у каждого выделенного компонента должна быть Role для рефреша"
+
+#: kicadstamp/cell_geometry_refresh.py (2026-09-03, plan cell_geometry_refresh)
+#, python-brace-format
+msgid "role {role!r} appears twice in selection: {ref1!r} and {ref2!r} — roles must be unique"
+msgstr "роль {role!r} встречается в выделении дважды: {ref1!r} и {ref2!r} — роли должны быть уникальны"
+
+#: gui/docks/cell_editor.py (2026-09-03, plan cell_geometry_refresh)
+msgid "Refresh geometry from selection"
+msgstr "Обновить геометрию по выделению"
+
+#: gui/docks/cell_editor.py (2026-09-03, plan cell_geometry_refresh)
+msgid "Load a cell with components first."
+msgstr "Сначала загрузите шаблон с компонентами."
+
+#: gui/docks/cell_editor.py (2026-09-03, plan cell_geometry_refresh)
+msgid "Nothing changed — the selection already matches this cell's geometry."
+msgstr "Ничего не изменилось — выделение уже совпадает с геометрией этого шаблона."
+
+#: gui/docks/cell_editor.py (2026-09-03, plan cell_geometry_refresh)
+#, python-brace-format
+msgid "Refreshed {name!r} from selection — {count} record(s) updated. Save to write the change."
+msgstr "Обновлён {name!r} по выделению — обновлено записей: {count}. Сохраните, чтобы записать изменение."
+
+#: gui/docks/cell_editor.py (2026-09-03, plan cell_geometry_refresh)
+#, python-brace-format
+msgid "Refresh failed: {error}"
+msgstr "Сбой обновления: {error}"
+
+#: gui/docks/cell_editor.py (2026-09-03, plan cell_geometry_refresh)
+msgid "Item"
+msgstr "Объект"
+
+#: gui/docks/cell_editor.py (2026-09-03, plan cell_geometry_refresh)
+msgid "Old"
+msgstr "Старое"
+
+#: gui/docks/cell_editor.py (2026-09-03, plan cell_geometry_refresh)
+msgid "New"
+msgstr "Новое"
+
+#: gui/docks/cell_editor.py (2026-09-03, plan cell_geometry_refresh)
+msgid "Δ"
+msgstr "Δ"
+
+#: gui/docks/cell_editor.py (2026-09-03, plan cell_geometry_refresh)
+#, python-brace-format
+msgid "{kind} #{index} on {net}"
+msgstr "{kind} #{index} на {net}"
+
+#: gui/docks/config_tree.py (2026-09-03, plan cell_geometry_refresh)
+msgid "Update from selection..."
+msgstr "Обновить по выделению..."

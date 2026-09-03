@@ -1056,6 +1056,29 @@ action, right-click **Edit cell...**, deliberately not the same click as a plain
 Cell leaf (which keeps its original meaning, "pick this cell as a placement's content" — Placer's
 own Cell field), so opening a placement form and opening the cell editor never fight over one click.
 
+**Refresh geometry from selection** (2026-09-03) — a button on the Cell page AND a
+right-click **Update from selection...** action on a Cell leaf in the Config tree's Cells category
+(one click from the tree — no need to open the dock and hunt for the button first). It re-reads an
+ALREADY-saved cell's geometry (Components' offsets/angle, Vias' offsets, Tracks' start/end/width)
+from the CURRENT board selection and writes it back into the cell — the way to pull a geometry
+change you made by hand in one physical instance back into the shared template, so Redraw applies it
+to every instance. Select the whole cluster on the board first, then run it.
+
+Only the geometric numbers change. `role`, `net_template`/`net_template_pad`/
+`net_template_same_as_role`, `net_from_role`/`net_from_role_pad`, `params`, `layer` and any other
+semantic key are copied over untouched — this is explicitly NOT a re-extract, and it never guesses a
+net. The origin is the cell's single zero-offset (local `(0,0)`) component, resolved live from the
+selection. Vias/tracks are matched by resolved net (a `net_from_role` via/track via its role's real
+pad, a plain literal as-is); a parametrized literal net (a `{placeholder}` written at extract time)
+is matched by its SHAPE, not by guessing the parameter value; a `net: null` via/track (rule-net
+convention) is matched by pure position against whatever copper the named nets left unclaimed. A
+missing/extra component role, or a per-net count mismatch, or copper the cell does not describe is a
+fatal — all problems shown at once, nothing is changed, no Apply.
+
+A clean match opens a read-only **preview dialog** (old/new/Δ per record, tabs by kind) — **Apply**
+mutates the loaded cell in memory and auto-stages it exactly like a manual row Update; nothing is
+written to disk until the project **Save**.
+
 ## Log
 
 A read-only, copyable, searchable panel fed by a `logging.Handler` attached to the **root**
