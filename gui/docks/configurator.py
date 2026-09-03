@@ -61,6 +61,7 @@ from kicadstamp.constants import DEFAULT_TIMEOUT_MS
 from kicadstamp.i18n import _
 
 from .. import settings
+from ..color_schemes import available_color_schemes, load_color_scheme
 from ..hotkeys import get_shortcut, registered_hotkeys, set_shortcut
 from ._common import DEFAULT_HIGHLIGHT_COLOR
 
@@ -189,6 +190,24 @@ class ConfiguratorDock(QWidget):
                               "than once in one session."))
         style_hint.setWordWrap(True)
         style_layout.addWidget(style_hint)
+
+        # Color scheme (2026-09-03, plan color_scheme_setting) — an optional
+        # built-in QPalette override, INDEPENDENT from Style (any combination
+        # works; the hint below just notes that Fusion follows a custom
+        # palette most faithfully). First item "None" is special: it means
+        # "no palette override" (the system/theme palette). Scheme names are
+        # proper names (like Fusion/Windows for Style), NOT translated — only
+        # the surrounding labels are.
+        scheme_label = QLabel(_("Color scheme:"))
+        style_layout.addWidget(scheme_label)
+        self.color_scheme_combo = QComboBox()
+        self.color_scheme_combo.addItem(_("None"))
+        self.color_scheme_combo.addItems(available_color_schemes())
+        style_layout.addWidget(self.color_scheme_combo)
+        scheme_hint = QLabel(_("Custom colors are most reliable with the "
+                               "Fusion style."))
+        scheme_hint.setWordWrap(True)
+        style_layout.addWidget(scheme_hint)
         layout.addWidget(style_group)
 
         highlight_group = QGroupBox(_("Highlight color"))
@@ -317,6 +336,14 @@ class ConfiguratorDock(QWidget):
             # that names no style on THIS machine (e.g. gui_state.json synced
             # from another OS) must not break the dialog.
             self.style_combo.setCurrentIndex(0)
+        saved_scheme = settings.state.get("color_scheme")
+        if isinstance(saved_scheme, str) and saved_scheme in available_color_schemes():
+            self.color_scheme_combo.setCurrentText(saved_scheme)
+        else:
+            # Quiet fallback to "None" — a stored value that names no built-in
+            # scheme (e.g. gui_state.json synced from another machine/version
+            # where the set of schemes differs) must not break the dialog.
+            self.color_scheme_combo.setCurrentIndex(0)
         self.timeout_spin.setValue(settings.state.get("kicad_timeout_ms",
                                                       DEFAULT_TIMEOUT_MS))
         self.rename_confirmation_checkbox.setChecked(
@@ -356,6 +383,30 @@ class ConfiguratorDock(QWidget):
             app = QApplication.instance()
             if app is not None:
                 app.setStyle(chosen_style)
+
+        # Color scheme (2026-09-03, plan color_scheme_setting): index 0 is the
+        # special "None" entry (its text is translated, so compare by index,
+        # not text). Unlike qt_style, a CLEAN rollback to the pre-override
+        # palette is achievable here: QApplication.setPalette() accepts any
+        # QPalette, and gui_main.main() snapshots the pristine palette as the
+        # app's "original_palette" dynamic property before any override —
+        # restoring exactly that object undoes every earlier palette override
+        # this session (fatal-safe fallback to style().standardPalette()).
+        if self.color_scheme_combo.currentIndex() == 0:  # "None"
+            settings.state.set("color_scheme", None)
+            app = QApplication.instance()
+            if app is not None:
+                original = app.property("original_palette")
+                app.setPalette(original if original is not None
+                               else app.style().standardPalette())
+        else:
+            chosen_scheme = self.color_scheme_combo.currentText()
+            settings.state.set("color_scheme", chosen_scheme)
+            app = QApplication.instance()
+            if app is not None:
+                palette = load_color_scheme(chosen_scheme)
+                if palette is not None:
+                    app.setPalette(palette)
 
         timeout_ms = self.timeout_spin.value()
         settings.state.set("kicad_timeout_ms", timeout_ms)

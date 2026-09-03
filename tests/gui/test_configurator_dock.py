@@ -7,11 +7,12 @@ modal SettingsDialog) — a widget change is only a draft; apply() persists to
 gui_state.json and fires the side effects, cancel()/reload_from_state()
 discards the draft."""
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QKeySequence
+from PyQt6.QtGui import QColor, QKeySequence, QPalette
 from PyQt6.QtWidgets import QStyleFactory
 
 from gui import hotkeys
 from gui import settings
+from gui.color_schemes import available_color_schemes, load_color_scheme
 from gui.docks.config_tree import ConfigTreeDock
 from gui.docks.configurator import ConfiguratorDock
 from gui.docks.detail_panel import DetailDock
@@ -180,20 +181,46 @@ def test_highlight_radio_state_restored_from_settings(main_window, qapp):
 
 class _RecordingApp:
     """Stands in for QApplication.instance() in apply() tests — records the
-    setStyle() calls without touching the real test-session style."""
+    setStyle() calls without touching the real test-session style. Also
+    implements the QApplication API the color-scheme "None" branch of apply()
+    touches (property/setPalette/style), since apply() now always runs that
+    branch too; a fresh QPalette stands in for the pristine "original_palette"
+    snapshot gui_main.main() stores."""
 
     def __init__(self, calls):
         self._calls = calls
+        self._original_palette = QPalette()
 
     def setStyle(self, name):
         self._calls.append(name)
 
+    def setPalette(self, palette):
+        pass  # qt_style tests never assert on palettes
+
+    def property(self, name):
+        assert name == "original_palette"
+        return self._original_palette
+
+    def style(self):
+        raise AssertionError("style() must not be reached when a snapshot exists")
+
 
 class _ForbiddingApp:
-    """setStyle() must never be called on it — raises if it is."""
+    """setStyle() must never be called on it — raises if it is. (setPalette
+    from the color-scheme "None" branch of apply() is fine — the point is that
+    qt_style's "System default" must not call setStyle.)"""
 
     def setStyle(self, name):
         raise AssertionError("setStyle must not be called for System default")
+
+    def setPalette(self, palette):
+        pass
+
+    def property(self, name):
+        return QPalette()  # "original_palette" snapshot exists
+
+    def style(self):
+        raise AssertionError("style() must not be reached when a snapshot exists")
 
 
 def test_style_combo_lists_system_default_first_then_all_styles(main_window, qapp):
@@ -264,6 +291,138 @@ def test_apply_system_default_clears_key_and_skips_setstyle(main_window, qapp,
     dock.style_combo.setCurrentIndex(0)  # System default
     dock.apply()
     assert settings.state.get("qt_style") is None
+
+
+# ── Color scheme (2026-09-03, plan color_scheme_setting) ─────────────────
+
+class _PaletteRecordingApp:
+    """Stands in for QApplication.instance() in color-scheme apply() tests —
+    records setPalette() calls; property("original_palette") returns the fixed
+    snapshot object the test supplies (the pristine palette gui_main.main()
+    stores); style() is only consulted for the no-snapshot fallback."""
+
+    def __init__(self, original_palette=None, standard_palette=None):
+        self._original = original_palette
+        self._standard = standard_palette
+        self.palettes = []
+
+    def setPalette(self, palette):
+        self.palettes.append(palette)
+
+    def property(self, name):
+        assert name == "original_palette"
+        return self._original
+
+    def style(self):
+        if self._standard is None:
+            raise AssertionError("style() must not be consulted when a "
+                                 "snapshot exists")
+        return _StandardStyleStub(self._standard)
+
+
+class _StandardStyleStub:
+    def __init__(self, palette):
+        self._palette = palette
+
+    def standardPalette(self):
+        return self._palette
+
+
+def test_color_scheme_combo_lists_none_first_then_builtin_schemes(
+        main_window, qapp):
+    """First combo item is the special "None"; the rest are the built-in
+    schemes (available_color_schemes()) — never a hardcoded list."""
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    expected = ["None"] + available_color_schemes()
+    actual = [dock.color_scheme_combo.itemText(i)
+              for i in range(dock.color_scheme_combo.count())]
+    assert actual == expected
+
+
+def test_color_scheme_defaults_to_none(main_window, qapp):
+    """Nothing stored yet == "None" (index 0), and construction does NOT write
+    the key (the "absent key == no palette override" default)."""
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    assert dock.color_scheme_combo.currentIndex() == 0
+    assert dock.color_scheme_combo.currentText() == "None"
+    assert settings.state.get("color_scheme") is None
+
+
+def test_color_scheme_restored_from_settings(main_window, qapp):
+    """A stored scheme name that exists in this build is reflected into the
+    combo at construction (the whole point of persisting it)."""
+    settings.state.set("color_scheme", "Airy")
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    assert dock.color_scheme_combo.currentIndex() != 0
+    assert dock.color_scheme_combo.currentText() == "Airy"
+
+
+def test_color_scheme_unknown_name_quietly_falls_back_to_none(
+        main_window, qapp):
+    """A stored value that names no built-in scheme (e.g. gui_state.json synced
+    from another machine/version where the scheme set differs) must not break
+    the dialog — quiet fallback to "None" (index 0), same fatal-safety as the
+    startup path and as qt_style's unknown-name fallback."""
+    settings.state.set("color_scheme", "NoSuchScheme_zzz")
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    assert dock.color_scheme_combo.currentIndex() == 0
+    assert dock.color_scheme_combo.currentText() == "None"
+
+
+def test_apply_concrete_scheme_persists_and_applies_live(
+        main_window, qapp, monkeypatch):
+    """Choosing a concrete scheme on Apply/OK: persisted as color_scheme AND
+    applied live via QApplication.instance().setPalette() with that scheme's
+    QPalette (the dialog's immediate-apply contract — no restart needed)."""
+    fake = _PaletteRecordingApp(original_palette=QPalette())
+    monkeypatch.setattr(configurator_mod.QApplication, "instance", lambda: fake)
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    dock.color_scheme_combo.setCurrentText("Airy")
+    assert settings.state.get("color_scheme") is None  # draft only
+    dock.apply()
+    assert settings.state.get("color_scheme") == "Airy"
+    assert len(fake.palettes) == 1
+    applied = fake.palettes[0]
+    # Spot-check it really is the Airy palette (data, plan §1), not "any".
+    assert applied.color(QPalette.ColorGroup.Active,
+                         QPalette.ColorRole.Window) == QColor("#ffffffff")
+    assert applied.color(QPalette.ColorGroup.Active,
+                         QPalette.ColorRole.Highlight) == QColor("#ff0986d3")
+
+
+def test_apply_none_clears_key_and_restores_original_palette(
+        main_window, qapp, monkeypatch):
+    """Switching back to "None" clears color_scheme AND calls setPalette() with
+    EXACTLY the object that was captured as the app's "original_palette" (the
+    pristine pre-override palette) — the one substantive guarantee this feature
+    adds over qt_style, which cannot restore its original style. Asserted by
+    object identity: not "called with something", but with this exact object."""
+    original = QPalette()  # stand-in for gui_main.main()'s snapshot
+    settings.state.set("color_scheme", "Airy")  # previously chosen
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    fake = _PaletteRecordingApp(original_palette=original)
+    monkeypatch.setattr(configurator_mod.QApplication, "instance", lambda: fake)
+    dock.color_scheme_combo.setCurrentIndex(0)  # "None"
+    dock.apply()
+    assert settings.state.get("color_scheme") is None
+    assert len(fake.palettes) == 1
+    assert fake.palettes[0] is original
+
+
+def test_apply_none_falls_back_to_standard_palette_without_snapshot(
+        main_window, qapp, monkeypatch):
+    """Fatal-safety: if app.property("original_palette") is ever None (it
+    should always exist in the real main()), the "None" rollback degrades to
+    app.style().standardPalette() instead of crashing."""
+    standard = QPalette()
+    fake = _PaletteRecordingApp(original_palette=None, standard_palette=standard)
+    monkeypatch.setattr(configurator_mod.QApplication, "instance", lambda: fake)
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    dock.color_scheme_combo.setCurrentIndex(0)  # "None"
+    dock.apply()
+    assert settings.state.get("color_scheme") is None
+    assert len(fake.palettes) == 1
+    assert fake.palettes[0] is standard
 
 
 # ── Connection timeout ────────────────────────────────────────────────────

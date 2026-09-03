@@ -428,6 +428,22 @@ connection timeout, hotkey rebinding) fire only on Apply/OK.
   style was switched live within one session, switching back to System default cannot reliably
   restore the very first style — the hint under the combo recommends a restart for a fully clean
   result.
+- **Color scheme** (the **Appearance** page, inside the **Style** group, 2026-09-03, plan
+  `color_scheme_setting`) — the second, independent knob for the same "white-on-white" Linux
+  problem: a built-in **QPalette** override applied on top of the style. **None** (the first entry)
+  means "no palette override" — the system/theme palette. The only built-in scheme today is **Airy**,
+  the exact palette qt6ct's `airy` scheme uses (values embedded in `gui/color_schemes.py` — copied
+  verbatim from `/usr/share/qt6ct/colors/airy.conf`, NOT read from disk at runtime, so it works on
+  any machine/build; the same "sew into the app" principle as the icon). Stored as
+  `gui_state.json["color_scheme"]` (absent/`None` = no override) and applied BOTH at startup
+  (`apply_saved_color_scheme`, after the qt_style override) AND live on Apply/OK
+  (`QApplication.setPalette()`). Fatal-safe like `qt_style`: a stored name that names no built-in
+  scheme (e.g. `gui_state.json` synced from another machine/version) is silently ignored and falls
+  back to None — never breaks. Unlike `qt_style`, a switch back to **None** DOES restore the
+  original palette cleanly (the pristine palette is snapshotted as the app's `original_palette`
+  property at startup, before any override). Custom colors follow a non-native palette most
+  faithfully under the Fusion style (informational hint only — the style is never switched
+  automatically).
 - **Highlight color** (the **Appearance** page) — one highlight scheme applied to ALL THREE
   highlight places: the Detail
   dock's active tab, the Config tree's selected item, and the Components tree's selected item.

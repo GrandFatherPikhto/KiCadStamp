@@ -30,6 +30,7 @@ from kicadstamp.logging_setup import setup_logging
 
 from gui import settings
 from gui.app_icon import build_app_icon
+from gui.color_schemes import available_color_schemes, load_color_scheme
 from gui.docks._common import apply_compact_field_minimums
 from gui.main_window import MainWindow
 from gui.single_instance import SingleInstanceGuard
@@ -50,6 +51,21 @@ def apply_saved_qt_style(app: QApplication) -> None:
         app.setStyle(saved_style)
 
 
+def apply_saved_color_scheme(app: QApplication) -> None:
+    """Apply the user-chosen built-in color scheme (gui_state.json
+    ["color_scheme"], picked in Settings > Appearance > Color scheme,
+    2026-09-03 plan color_scheme_setting) when it names a known built-in
+    scheme — any other value (absent, None, empty, or an unknown name, e.g. a
+    scheme removed in a later version) is a silent no-op: today's default
+    behaviour, unchanged. Never raises, never fatal — the same discipline
+    apply_saved_qt_style applies to qt_style."""
+    saved_scheme = settings.state.get("color_scheme")
+    if isinstance(saved_scheme, str) and saved_scheme in available_color_schemes():
+        palette = load_color_scheme(saved_scheme)
+        if palette is not None:
+            app.setPalette(palette)
+
+
 def main():
     parser = argparse.ArgumentParser(description=_("KiCadStamp GUI"))
     parser.add_argument("--version", "-V", action="version",
@@ -65,11 +81,23 @@ def main():
 
     app = QApplication(sys.argv)
 
+    # Snapshot the pristine palette BEFORE any override (setStyle/setPalette)
+    # — stored on the app object itself as a dynamic property (the same
+    # instance lives for the whole process) and reused for the clean "None"
+    # rollback later in the session (2026-09-03, plan color_scheme_setting).
+    app.setProperty("original_palette", app.palette())
+
     # User-chosen Qt style (Settings > Appearance > Style, plan 2026-09-03
     # qt_style_setting) — default is none, leaving the system Qt platform-theme
     # integration untouched. Fatal-safe: unknown/foreign stored name is a
     # silent no-op (see apply_saved_qt_style).
     apply_saved_qt_style(app)
+
+    # User-chosen built-in color scheme (Settings > Appearance > Color scheme,
+    # plan 2026-09-03 color_scheme_setting) — a QPalette override on top of the
+    # style. Fatal-safe: absent/None/unknown name is a silent no-op (see
+    # apply_saved_color_scheme).
+    apply_saved_color_scheme(app)
 
     # 2026-08-30 (Denis): combos' minimum width == their widest item, which
     # floored narrow docks. App-wide compact field minimums — growth on

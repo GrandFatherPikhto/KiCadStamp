@@ -1827,6 +1827,18 @@ msgstr "Стиль"
 msgid "System default"
 msgstr "Системный по умолчанию"
 
+#: gui/docks/configurator.py:201
+msgid "Color scheme:"
+msgstr "Цветовая схема:"
+
+#: gui/docks/configurator.py:204
+msgid "None"
+msgstr "Нет"
+
+#: gui/docks/configurator.py:207
+msgid "Custom colors are most reliable with the Fusion style."
+msgstr "Кастомные цвета надёжнее всего работают со стилем Fusion."
+
 #: gui/docks/configurator.py:187
 msgid ""
 "Applies immediately; restart KiCadStamp for a fully clean result if you "
