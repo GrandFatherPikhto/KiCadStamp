@@ -132,6 +132,25 @@ def cached_file_read(path: Path, loader: Callable[[Path], T]) -> T:
     if cws is not None and cws.WORKING_SET.enabled:
         staged = cws.WORKING_SET.staged_content(resolved)
         if staged is not None:
+            # Record this path in the active graph-computation trace even though
+            # the read is served from the working set (no disk I/O below) —
+            # otherwise a graph-cached result computed over staged content would
+            # NOT list the staged file, stage_write()/invalidate_graph_path()
+            # could not evict the stale graph entry, and the tree/collectors
+            # would keep showing the pre-edit state until a physical disk write
+            # (Save/restart) changed mtime. Found live 2026-09-04: Config-tree
+            # Delete staged fine (dirty ● appeared) but the leaf stayed in the
+            # tree until Save/restart (plan 2026_09_04_staged_delete_stale_tree
+            # _and_save_hotkey, Bug A).
+            trace = _trace.get()
+            if trace is not None:
+                try:
+                    trace[resolved] = os.stat(resolved).st_mtime_ns
+                except OSError:
+                    # To-be-created (__new__) staged file — nothing on disk yet.
+                    # A sentinel makes _graph_mtimes_unchanged() treat the entry
+                    # as stale (correctness over a cache hit) until it exists.
+                    trace[resolved] = -1
             return copy.deepcopy(staged)
     try:
         mtime_ns = os.stat(resolved).st_mtime_ns

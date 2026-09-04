@@ -980,6 +980,48 @@ def test_delete_without_references_confirms_and_removes_with_backup(main_window,
     assert dock.tree.topLevelItem(0).childCount() == 0  # empty Cells section, no leaf shown
 
 
+def test_delete_in_staged_mode_drops_leaf_from_tree_immediately(
+        main_window, tmp_path, monkeypatch):
+    """Regression (plan 2026_09_04_staged_delete_stale_tree_and_save_hotkey,
+    Bug A — Denis: Delete leaves the entity/cell in the tree until Save/restart):
+    in the LIVE staged mode (ConfigWorkingSet enabled) a Config-tree Delete must
+    drop the leaf from the tree RIGHT AWAY. The delete used to stay invisible
+    because a graph-cached result recomputed over staged content never recorded
+    the staged file in its trace, so stage_write's invalidate_graph_path() could
+    not evict it and the tree rebuild kept reading the pre-delete state. The
+    deletion stays STAGED (dirty ●, disk untouched) — File > Save remains the
+    only commit (Denis's requirement)."""
+    from kicadstamp.config_working_set import WORKING_SET
+
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    monkeypatch.setattr(config_tree_mod.QMessageBox, "question",
+                        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
+    monkeypatch.setattr(config_tree_mod.QMessageBox, "information",
+                        staticmethod(lambda *a, **k: None))
+
+    WORKING_SET.enabled = True
+    try:
+        # Make the root STAGED (like any earlier edit this session) and rebuild
+        # the tree once over the staged content — exactly the moment after which
+        # the stale graph entry used to lose the staged file from its trace.
+        WORKING_SET.stage_write(root, _load(root))
+        dock.refresh()
+        dock._on_delete(root, "cells", "one_role")
+
+        # Leaf gone from the tree immediately...
+        assert dock.tree.topLevelItem(0).childCount() == 0
+        # ...and the deletion is STAGED only: dirty ● set, disk file untouched.
+        assert WORKING_SET.is_dirty()
+        assert "one_role" in _load(root)["cells"]
+    finally:
+        WORKING_SET.enabled = False
+        WORKING_SET.clear()
+
+
 def test_delete_declined_leaves_the_file_untouched(main_window, tmp_path, monkeypatch):
     root = tmp_path / "root.sexp"
     _write(root, MINIMAL_CELL)

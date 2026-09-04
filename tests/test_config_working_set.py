@@ -87,6 +87,39 @@ def test_stage_invalidates_graph_cache(tmp_path):
     assert "c2" in cfg.cells
 
 
+def test_second_staged_mutation_is_visible_to_graph_cache(tmp_path):
+    """Regression (plan 2026_09_04_staged_delete_stale_tree_and_save_hotkey,
+    Bug A — Config-tree Delete left the leaf until Save/restart): once a graph
+    result has been recomputed OVER STAGED CONTENT (its trace records no disk
+    read for the staged file), a FURTHER staged mutation must still be visible.
+    The staged-content branch of cached_file_read used to return BEFORE
+    recording the path in the active graph-computation trace, so the recomputed
+    graph entry listed NO files -> stage_write's invalidate_graph_path() had
+    nothing to evict and the graph kept handing back the pre-mutation state
+    until a physical disk write changed the file's mtime."""
+    from kicadstamp.config.loader import load_config
+    from kicadstamp.config_writer import read_data, write_data
+
+    root = tmp_path / "root.sexp"
+    _write_sexp(root, {"cells": {"c1": {}, "c2": {}}})
+    load_config(str(root))  # prime the graph cache from disk
+    WORKING_SET.enabled = True
+
+    # First staged mutation (add c3) — recomputes the graph entry over staged
+    # content. This is where the stale entry's file set loses the staged path.
+    merge_write(root, {"cells": {"c3": {}}}, section="cells")
+    assert "c3" in load_config(str(root))[0].cells
+
+    # Second staged mutation (remove c1) — the delete shape that used to stay
+    # invisible until Save/restart.
+    data = read_data(root)
+    del data["cells"]["c1"]
+    write_data(root, data)
+    cfg, _ = load_config(str(root))
+    assert "c1" not in cfg.cells
+    assert "c3" in cfg.cells
+
+
 def test_dirty_flag_and_listeners(tmp_path):
     path = tmp_path / "cfg.sexp"
     _write_sexp(path, {})
