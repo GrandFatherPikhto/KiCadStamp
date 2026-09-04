@@ -43,7 +43,7 @@ pip-delete-this-directory.txt
 kicadspoke.txt
 
 # История конфигов (бэкапы с датой при Save, рядом с root-конфигом)
-history/
+.history/
 
 # Настройки сред разработки (IDE)
 .idea/

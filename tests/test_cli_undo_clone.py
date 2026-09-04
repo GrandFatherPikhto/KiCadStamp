@@ -33,7 +33,7 @@ def _clone_args(**kw):
 
 
 def _undo_args(**kw):
-    defaults = dict(operation_log_dir=None)
+    defaults = dict(operation_log_dir=None, config=None)
     defaults.update(kw)
     return SimpleNamespace(**defaults)
 
@@ -114,3 +114,34 @@ class TestCmdUndoValidation:
     def test_operation_log_dir_not_found_raises(self, tmp_path):
         with pytest.raises(PlacerError, match="logs directory not found"):
             cmd_undo(_undo_args(operation_log_dir=str(tmp_path / "nope")))
+
+    def test_config_option_reads_config_relative_default(self, monkeypatch, tmp_path):
+        """undo --config <file> with NO --operation-log-dir must read the SAME
+        config-relative default directory that apply now writes to
+        (<config-dir>/operational, 2026-09-04 plan root_metadata_path_defaults)
+        — reading side of the write-side fix. Round-trip: apply without an
+        explicit operation_log_dir writes to operational/, undo --config finds
+        it there."""
+        import kicadstamp.undo as undo_mod
+        undone = []
+        monkeypatch.setattr(undo_mod, "undo_last_operation",
+                            lambda json_path: undone.append(json_path) or True)
+        cfg_path = tmp_path / "config.sexp"
+        cfg_path.write_text(dict_to_sexp({"layer": "B.Cu", "cells": {}, "rules": []}),
+                            encoding="utf-8")
+        op_dir = tmp_path / "operational"
+        op_dir.mkdir()
+        (op_dir / "operation_20260904_120000.json").write_text("{}", encoding="utf-8")
+        cmd_undo(_undo_args(config=str(cfg_path)))
+        assert len(undone) == 1
+        assert undone[0].parent == op_dir
+
+    def test_config_option_with_broken_config_falls_back_to_default_log_dir(
+            self, monkeypatch, tmp_path):
+        """peek_operation_log_dir never raises on a broken config -> cmd_undo
+        falls back to DEFAULT_LOG_DIR exactly as before (no new crash path)."""
+        broken = tmp_path / "broken.sexp"
+        broken.write_text("(kicadstamp-config (operation_log_dir", encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        with pytest.raises(PlacerError, match="logs directory not found"):
+            cmd_undo(_undo_args(config=str(broken)))

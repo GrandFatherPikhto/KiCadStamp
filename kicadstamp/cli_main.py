@@ -141,6 +141,9 @@ def main() -> int:
     undo_parser.add_argument("--operation-log-dir", metavar="DIR",
                              help=_("Directory with operation_*.json undo logs "
                                     "(default: logs/ next to the current working directory)"))
+    undo_parser.add_argument("--config", metavar="FILE", help=_(
+        "Config file to read operation_log_dir's default from (optional; overridden by "
+        "--operation-log-dir)"))
 
     clone_extract = subparsers.add_parser(
         "clone-extract",

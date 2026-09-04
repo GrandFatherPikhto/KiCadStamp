@@ -26,7 +26,7 @@ inconsistency aborts with nothing written):
      interception it reads the staged graph and catches cross-file
      inconsistencies (e.g. an Entity renamed in file A while file B still
      references the old name);
-  2. backup every existing dirty file into history/ (next to the root config);
+  2. backup every existing dirty file into .history/ (next to the root config);
   3. write each dirty file to a temp sibling + os.replace() in one pass
      (per-file atomic); __new__ files are created, __deleted__ files removed;
   4. invalidate caches and clear the working set.
@@ -157,7 +157,7 @@ class ConfigWorkingSet:
 
         1. validate the STAGED graph first via load_config(root) — nothing is
            written on a cross-file inconsistency;
-        2. backup every existing dirty file into history/ (project root);
+        2. backup every existing dirty file into .history/ (project root);
         3. write each dirty file to a temp sibling + os.replace() (per-file
            atomic), create __new__ files, remove __deleted__ files;
         4. invalidate the caches and clear the working set.
@@ -179,7 +179,7 @@ class ConfigWorkingSet:
 
         root_dir = root.resolve().parent if root else None
 
-        # 2. Backup existing dirty files into history/ (project root).
+        # 2. Backup existing dirty files into .history/ (project root).
         for resolved in dirty:
             path = Path(resolved)
             if path.exists():
@@ -228,18 +228,18 @@ WORKING_SET = ConfigWorkingSet()
 
 
 def _history_dir(root_dir: Optional[Path]) -> Path:
-    """The project's history/ directory — created automatically next to the
+    """The project's .history/ directory — created automatically next to the
     root config file (the project root), exactly once, lazily."""
     base = (root_dir or Path(".")).resolve()
-    d = base / "history"
+    d = base / ".history"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def backup_to_history(path: Path, root_dir: Optional[Path] = None) -> Path:
-    """Timestamped copy of `path` into the project's history/ directory.
+    """Timestamped copy of `path` into the project's .history/ directory.
 
-    history/ lives next to the root config file (the project root) and is
+    .history/ lives next to the root config file (the project root) and is
     created automatically. The backup name encodes the file's path RELATIVE to
     the root (so two files that share a stem never collide), plus a sortable
     timestamp; an existing backup is never overwritten (a collision adds a

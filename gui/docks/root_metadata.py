@@ -84,6 +84,10 @@ from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFormLayout,
 
 from kicadstamp.config.models import Config
 from kicadstamp.i18n import _
+from kicadstamp.utils.paths import (default_log_file_for_config,
+                                    default_operation_log_dir_for_config,
+                                    registry_path_for_config,
+                                    track_registry_path_for_config)
 
 from .. import settings, yaml_io
 from ..hotkeys import build_action
@@ -135,6 +139,18 @@ _TEXT_FIELDS = [
     ("log_file", _("Log file:"), "file", "files"),
     ("operation_log_dir", _("Operation log dir:"), "dir", "files"),
 ]
+# Among _TEXT_FIELDS, these four path fields have a computable default-for-
+# config value (kicadstamp.registry's *_for_config family). The dock shows
+# that computed default as the field's PLACEHOLDER (2026-09-04, plan
+# root_metadata_path_defaults) — an empty field stays empty, the grey text
+# only tells what would actually be used. root_sheet/schematic_dir have no
+# such default and keep the generic "(relative to this YAML)" placeholder.
+_DEFAULT_PLACEHOLDER_FOR = {
+    "registry_path": registry_path_for_config,
+    "track_registry_path": track_registry_path_for_config,
+    "log_file": default_log_file_for_config,
+    "operation_log_dir": default_operation_log_dir_for_config,
+}
 _BOOL_FIELDS = [
     ("place_components", _("Place components")),
     ("skip_existing_components", _("Skip existing components")),
@@ -536,6 +552,18 @@ class RootMetadataDock(QWidget):
         self.layer_combo.setCurrentText(data.get("layer", _DEFAULTS["layer"]))
         for key, _label, _kind, _group in _TEXT_FIELDS:
             self._text_edits[key].setText(data.get(key) or "")
+        # 2026-09-04 (plan root_metadata_path_defaults): for the 4 path fields
+        # with a computable default, show that default (computed for the
+        # CURRENT open root file) as placeholder — the field stays empty, the
+        # placeholder just reveals what apply/undo would actually use. With no
+        # open config (self._path is None) there is nothing to compute, so
+        # fall back to the generic placeholder set at widget creation.
+        if self._path is not None:
+            for key, compute in _DEFAULT_PLACEHOLDER_FOR.items():
+                self._text_edits[key].setPlaceholderText(compute(str(self._path)))
+        else:
+            for key in _DEFAULT_PLACEHOLDER_FOR:
+                self._text_edits[key].setPlaceholderText(_("(relative to this YAML)"))
         self.schematic_files_list.clear()
         self.schematic_files_list.addItems(data.get("schematic_files") or [])
         self._make_schematic_items_editable()

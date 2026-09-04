@@ -129,13 +129,15 @@ def apply_config(cfg: Config, config_path: str, *, ctx: RuntimeContext | None = 
 
     config_path is NOT cosmetic: when cfg.registry_path/cfg.track_registry_path
     are unset, run_apply derives them FROM IT (registry_path_for_config() /
-    track_registry_path_for_config() in registry.py: '<config_path>.registry.json'
-    next to it). A throwaway placeholder here would misfile or collide
-    registries between unrelated scripted runs — exactly the class of bug
-    fixed in this project before (registry prune granularity, thermal via
-    duplication). Either point config_path at a real (possibly
-    nonexistent-on-disk) path that identifies this run, or set
-    cfg.registry_path/cfg.track_registry_path explicitly yourself.
+    track_registry_path_for_config(): '<config-dir>/registry/<stem>.registry.json'
+    and '<config-dir>/tracks/<stem>.tracks.registry.json' — subfolders next to
+    the config, 2026-09-04 plan root_metadata_path_defaults). A throwaway
+    placeholder here would misfile or collide registries between unrelated
+    scripted runs — exactly the class of bug fixed in this project before
+    (registry prune granularity, thermal via duplication). Either point
+    config_path at a real (possibly nonexistent-on-disk) path that identifies
+    this run, or set cfg.registry_path/cfg.track_registry_path explicitly
+    yourself.
 
     Deliberately does not re-run validation.run_all_checks() first: run_apply
     already does, before resolve_execution_order and before any board

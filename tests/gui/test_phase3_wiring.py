@@ -1365,14 +1365,19 @@ def test_dock_hub_swaps_the_file_handler_when_the_root_file_changes(main_window,
         _teardown_hub(hub)
 
 
-def test_dock_hub_has_no_file_handler_when_root_config_has_no_log_file(main_window, tmp_path):
+def test_dock_hub_uses_default_log_file_when_root_config_has_no_log_file(main_window, tmp_path):
+    """2026-09-04 (plan root_metadata_path_defaults): a root config WITHOUT a
+    log_file: is no longer 'silently no file' — peek_log_file falls back to
+    <config-dir>/logs/actions.log, so the GUI writes a file log next to the
+    config by default (the same default apply now uses)."""
     root_file = tmp_path / "root.sexp"
     _write(root_file, {})
 
     hub = DockHub(main_window, connection=main_window.connection, verbose=False)
     try:
         hub.root_metadata_dock.root_changed.emit(root_file)
-        assert hub._log_file_handler is None
+        assert hub._log_file_handler is not None
+        assert Path(hub._log_file_handler.baseFilename) == (tmp_path / "logs" / "actions.log").resolve()
     finally:
         _teardown_hub(hub)
 

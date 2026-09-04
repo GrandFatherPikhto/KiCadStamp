@@ -117,7 +117,8 @@ Allows applying a template at an arbitrary point on the board, without tying to 
 - **Explicit refs** (`refs`) – a last‑resort override when candidates are indistinguishable by nets, selection, or proximity.
 
 ### Placement Registry (PlacementRegistry + TrackRegistry)
-Separate registries for vias and tracks (JSON files next to the config). On subsequent runs:
+Separate registries for vias and tracks (JSON files in `registry/` and `tracks/` subfolders next to
+the config, one file per config: `<stem>.registry.json` / `<stem>.tracks.registry.json`). On subsequent runs:
 - already correctly placed items are skipped;
 - those that changed position/parameters are deleted and recreated;
 - obsolete entries (keys not present in the new plan) are removed (prune).

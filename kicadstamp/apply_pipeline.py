@@ -48,6 +48,7 @@ from .exceptions import PlacerError
 from .validation import run_all_checks, check_config_structure
 from .registry import (PlacementRegistry, registry_path_for_config,
                        TrackRegistry, track_registry_path_for_config,
+                       default_operation_log_dir_for_config,
                        filter_existing_tracks)
 from .i18n import _
 
@@ -579,7 +580,8 @@ class ApplyPipeline:
                                or track_registry_path_for_config(self.config_path))
         executor = BatchExecutor(
             self.adapter, self.cfg, batch_size=self.batch_size,
-            operation_log_dir=ctx.operation_log_dir if ctx else self.cfg.operation_log_dir,
+            operation_log_dir=((ctx.operation_log_dir if ctx else self.cfg.operation_log_dir)
+                               or default_operation_log_dir_for_config(self.config_path)),
         )
         registry = PlacementRegistry(self.adapter, registry_path)
         track_registry = TrackRegistry(self.adapter, track_registry_path)

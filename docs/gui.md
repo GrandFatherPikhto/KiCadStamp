@@ -56,7 +56,7 @@ real time.
 
 - **File > Save (Ctrl+S)** flushes the working set to disk atomically: it validates the staged graph
   (`load_config`) BEFORE writing anything, so a cross-file inconsistency aborts with nothing written;
-  backs each existing dirty file into `history/` (next to the root config, timestamped, never
+  backs each existing dirty file into `.history/` (next to the root config, timestamped, never
   overwritten); writes each file via a temp + `os.replace()`; then invalidates caches and refreshes
   the docks.
 - **File > Discard unsaved changes...** drops the working set and reloads every dock from disk.
@@ -910,6 +910,14 @@ file..."/the Recent dropdown inside this dialog — regardless of which included
 browsed in the Config tree. Browsing into an included file does not retarget this panel: these
 fields are only valid on an actual root (an included file setting any of them is fatal at load — see
 [docs/config.md](config.md)), and a project only ever has one.
+
+Since 2026-09-04 (plan `root_metadata_path_defaults`), the four path fields
+`registry_path`/`track_registry_path`/`log_file`/`operation_log_dir` show their COMPUTED default
+(for the currently open root file) as a grey placeholder while left empty — nothing is written to
+the YAML unless you actually type a value. Those defaults now point into SUBFOLDERS next to the
+config instead of beside it: `registry/<config-stem>.registry.json`, `tracks/<config-stem>.tracks.
+registry.json`, `logs/actions.log`, and `operational/` for the `operation_*.json` undo logs. Config
+backups made on Save live in a hidden `.history/` next to the root config.
 
 ## Points
 

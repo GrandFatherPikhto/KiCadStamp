@@ -4851,6 +4851,15 @@ msgstr "Неожиданная ошибка"
 msgid "Could not read log_file from config {path}: {e}"
 msgstr "Не удалось прочитать log_file из конфига {path}: {e}"
 
+#: kicadstamp/cli_common.py:175
+#, python-brace-format
+msgid "Could not read operation_log_dir from config {path}: {e}"
+msgstr "Не удалось прочитать operation_log_dir из конфига {path}: {e}"
+
+#: kicadstamp/cli_main.py:144
+msgid "Config file to read operation_log_dir's default from (optional; overridden by --operation-log-dir)"
+msgstr "Файл конфига, из которого берётся дефолт operation_log_dir (необязательно; переопределяется --operation-log-dir)"
+
 #: kicadstamp/cli_extract.py:83
 #, python-brace-format
 msgid "[error] profiles file {path!r} not found"

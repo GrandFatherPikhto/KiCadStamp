@@ -149,8 +149,8 @@ def test_flush_writes_clears_and_backs_up(tmp_path):
     assert "c2" in _read_sexp(root)["cells"]   # committed to disk
     assert not WORKING_SET.is_dirty()          # working set cleared
     assert WORKING_SET.enabled is True         # staging re-enabled
-    backups = list((tmp_path / "history").glob("root_*.sexp"))
-    assert backups                             # dated backup in history/
+    backups = list((tmp_path / ".history").glob("root_*.sexp"))
+    assert backups                             # dated backup in .history/
 
 
 def test_flush_aborts_on_invalid_staged_graph_without_writing(tmp_path):
@@ -168,7 +168,7 @@ def test_flush_aborts_on_invalid_staged_graph_without_writing(tmp_path):
     assert errors                              # validation aborted the flush
     assert _read_sexp(root) == {}              # nothing written
     assert not bad.exists()                    # __new__ file not created
-    assert not (tmp_path / "history").exists() # no backups made
+    assert not (tmp_path / ".history").exists()  # no backups made
     assert WORKING_SET.is_dirty()              # still staged (not cleared)
 
 
@@ -200,7 +200,7 @@ def test_backup_to_history_dated_and_never_overwrites(tmp_path):
     _write_sexp(root, {"cells": {"c1": {}}})
     b1 = backup_to_history(root, root.parent)
     b2 = backup_to_history(root, root.parent)
-    assert b1.parent == (tmp_path / "history")
+    assert b1.parent == (tmp_path / ".history")
     assert b1 != b2                            # a second backup never clobbers
     assert b1.exists() and b2.exists()
     assert b1.name.startswith("root_") and b1.name.endswith(".sexp")

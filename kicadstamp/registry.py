@@ -40,6 +40,17 @@ from typing import TypeVar, Generic
 from .placement.commands import ViaCommand, TrackCommand
 from .utils.units import MM
 from .utils.layers import layer_to_str
+# The four config-derived default-path helpers live in kicadstamp/utils/paths.py
+# (import-light) and are re-exported here so the public API
+# (`from kicadstamp.registry import registry_path_for_config, ...`) is unchanged
+# for existing consumers. They must NOT be defined here: kicadstamp.registry is
+# reached late/through placement.executor (which imports registry back — a latent
+# import cycle), while cli_common.peek_* and the GUI RootMetadataDock need these
+# defaults in a fresh process BEFORE that heavy chain is loaded.
+from .utils.paths import (default_log_file_for_config,
+                          default_operation_log_dir_for_config,
+                          registry_path_for_config,
+                          track_registry_path_for_config)
 from .constants import POSITION_TOLERANCE_MM, SPOKE_LEVEL_ROLE_PLACEHOLDER
 from .persistence import REGISTRY_SCHEMA_VERSION, check_schema_version
 from .i18n import _
@@ -70,17 +81,10 @@ def make_registry_key(anchor_id: str, template_name: str, role: str | None, inde
 
 
 
-def registry_path_for_config(config_path: str) -> str:
-    """<config>.yaml -> <config>.registry.json, next to the config itself."""
-    p = Path(config_path)
-    return str(p.with_suffix("").with_suffix(".registry.json"))
-
-
-def track_registry_path_for_config(config_path: str) -> str:
-    """<config>.yaml -> <config>.tracks.registry.json — separate file from vias,
-    record schema is different (two points+width+layer, not drill/diameter)."""
-    p = Path(config_path)
-    return str(p.with_suffix("").with_suffix(".tracks.registry.json"))
+# registry_path_for_config / track_registry_path_for_config /
+# default_log_file_for_config / default_operation_log_dir_for_config are
+# imported (re-exported) from kicadstamp/utils/paths.py above — see that
+# module's header comment for why they live there, not here.
 
 
 @dataclass

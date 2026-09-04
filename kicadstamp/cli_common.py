@@ -21,7 +21,9 @@ from pathlib import Path
 from .exceptions import PlacerError
 from .i18n import _
 from .utils.file_cache import cached_file_read
-from .utils.paths import resolve_config_relative_path
+from .utils.paths import (default_log_file_for_config,
+                          default_operation_log_dir_for_config,
+                          resolve_config_relative_path)
 
 
 def api_error_message(e) -> str:
@@ -116,23 +118,60 @@ def peek_log_file(config_path: str) -> str | None:
     returns ``None``.
 
     ``log_file`` is a root-file top-level key (``include:`` never contributes
-    it), so a root-only read is faithful. Returns the resolved log path or
-    ``None``.
+    it), so a root-only read is faithful.
+
+    CHANGED (2026-09-04, plan root_metadata_path_defaults): when ``log_file:``
+    is ABSENT (the key missing or empty), this no longer returns ``None`` — it
+    falls back to
+    :func:`~kicadstamp.registry.default_log_file_for_config`
+    (``<config-dir>/logs/actions.log``), so the CLI's ``apply`` and the GUI's
+    root-file logging handler consistently write a file log next to the config
+    instead of silently staying silent. ``None`` is now returned ONLY on the
+    exception path (broken/unreadable config), preserving the never-raise
+    contract.
 
     Routed through :func:`kicadstamp.utils.file_cache.cached_file_read` so the
     GUI startup doesn't re-parse the root YAML a second time: DockHub's
     _on_root_file_changed_for_logging calls this right after RootMetadataDock's
     set_target_file() already parsed the same bytes through yaml_io.load_data()
-    (same bug class as the 2026-08-21 yaml_io fix). The never-raise contract is
-    unchanged — a missing/broken file still logs a warning and returns None.
+    (same bug class as the 2026-08-21 yaml_io fix).
     """
     try:
         data = cached_file_read(Path(config_path), _read_root_yaml)
         raw = data.get("log_file") if isinstance(data, dict) else None
         if not raw:
-            return None
+            return default_log_file_for_config(config_path)
         return resolve_config_relative_path(Path(config_path).parent, raw)
     except Exception as e:
         logging.warning(_("Could not read log_file from config {path}: {e}")
+                        .format(path=config_path, e=e))
+        return None
+
+
+def peek_operation_log_dir(config_path: str) -> str | None:
+    """Cheap, non-raising read of ONLY the config's ``operation_log_dir`` key.
+
+    Reading side of the operation-log default, mirroring :func:`peek_log_file`:
+    ``apply`` writes ``operation_*.json`` to ``ctx.operation_log_dir``
+    (resolved relative to the config file, falling back to
+    ``<config-dir>/operational/``), so ``kicadstamp undo`` must be told the
+    SAME directory instead of assuming CWD. Reads just the root config's
+    ``operation_log_dir`` scalar (s-expr/.json by extension, like every core
+    config reader), resolved relative to the config file's directory when set
+    explicitly, else
+    :func:`~kicadstamp.registry.default_operation_log_dir_for_config`
+    (``<config-dir>/operational/``).
+
+    Never raises: a missing/unreadable/broken config logs a warning and returns
+    ``None`` (the caller falls back to DEFAULT_LOG_DIR, exactly as before).
+    """
+    try:
+        data = cached_file_read(Path(config_path), _read_root_yaml)
+        raw = data.get("operation_log_dir") if isinstance(data, dict) else None
+        if not raw:
+            return default_operation_log_dir_for_config(config_path)
+        return resolve_config_relative_path(Path(config_path).parent, raw)
+    except Exception as e:
+        logging.warning(_("Could not read operation_log_dir from config {path}: {e}")
                         .format(path=config_path, e=e))
         return None

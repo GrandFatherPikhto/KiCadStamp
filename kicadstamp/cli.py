@@ -315,16 +315,23 @@ def cmd_undo(args, log_dir: str | None = None) -> None:
     Thin CLI wrapper: finds the newest operation_*.json in the operation-log
     directory and undoes it via kicadstamp.undo.undo_last_operation. The log
     directory comes from, in priority order: the explicit log_dir argument,
-    args.operation_log_dir, or DEFAULT_LOG_DIR — never a hard-coded CWD "logs"
-    path. This is the reading side of П.7: the config's operation_log_dir
-    (resolved relative to the config file, like registry_path/log_file) is
-    where `apply` writes, so `undo` must be told the same directory instead of
-    assuming CWD. Raises PlacerError when there is nothing to undo (the entry
-    point maps it to exit code 1) — an error that used to silently exit 0.
+    args.operation_log_dir, or — NEW (2026-09-04, plan root_metadata_path_defaults):
+    args.config, read through cli_common.peek_operation_log_dir() (the config's
+    own operation_log_dir resolved relative to the config file, else
+    <config-dir>/operational/), or finally DEFAULT_LOG_DIR — never a hard-coded
+    CWD "logs" path. This is the reading side of П.7: `apply` writes its
+    operation_*.json to that same config-bound directory, so `undo --config
+    <file>` finds exactly what `apply` just wrote even when the two runs come
+    from different CWDs. Raises PlacerError when there is nothing to undo (the
+    entry point maps it to exit code 1) — an error that used to silently exit 0.
     `args` is accepted for a uniform Namespace signature across cmd_* wrappers
     (--log-file is wired up by the entry point's setup_logging, not here).
     """
-    resolved = log_dir or getattr(args, "operation_log_dir", None) or DEFAULT_LOG_DIR
+    resolved = log_dir or getattr(args, "operation_log_dir", None)
+    if not resolved and getattr(args, "config", None):
+        from kicadstamp.cli_common import peek_operation_log_dir  # lazy import
+        resolved = peek_operation_log_dir(getattr(args, "config"))
+    resolved = resolved or DEFAULT_LOG_DIR
     log_path = Path(resolved)
     if not log_path.exists():
         raise PlacerError(_("logs directory not found."))

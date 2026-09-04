@@ -4,9 +4,12 @@
 of silently depending on the process CWD. Covers:
 
   - load_config(): operation_log_dir is resolved relative to the config file;
-    absent -> None (fall back to DEFAULT_LOG_DIR at write time).
+    absent -> None (apply now falls back to <config-dir>/operational,
+    2026-09-04, plan root_metadata_path_defaults — not CWD DEFAULT_LOG_DIR).
   - BatchExecutor/OperationLogger (writing side): honours config.operation_log_dir
     and writes operation_*.json there, not into CWD logs/.
+  - the config-derived default paths (registry/tracks/log/operational) now live
+    in SUBFOLDERS next to the config (plan root_metadata_path_defaults).
 """
 import json
 import os
@@ -21,6 +24,10 @@ from kicadstamp.domain.geometry import BoardLayer
 
 from kicadstamp.config import Config, load_config
 from kicadstamp.config.sexp_format import dict_to_sexp
+from kicadstamp.utils.paths import (default_log_file_for_config,
+                                    default_operation_log_dir_for_config,
+                                    registry_path_for_config,
+                                    track_registry_path_for_config)
 
 
 def _write(tmp_path, name, data) -> Path:
@@ -155,3 +162,30 @@ class TestBatchExecutorUsesConfigOperationLogDir:
             assert data["moves"][0]["original_layer"] == "B.Cu"
         finally:
             os.chdir(old_cwd)
+
+
+class TestConfigDerivedPathDefaults:
+    """2026-09-04 (plan root_metadata_path_defaults): the config-derived
+    default paths (via/track registry, log file, operation-log dir) now point
+    into SUBFOLDERS next to the config — the targets apply/undo/GUI fall back
+    to when the config does not set them explicitly."""
+
+    def test_registry_and_track_defaults_live_in_subfolders(self, tmp_path):
+        config_file = tmp_path / "sub" / "board.sexp"
+        assert registry_path_for_config(str(config_file)) == str(
+            tmp_path / "sub" / "registry" / "board.registry.json")
+        assert track_registry_path_for_config(str(config_file)) == str(
+            tmp_path / "sub" / "tracks" / "board.tracks.registry.json")
+
+    def test_registry_default_keeps_config_stem_so_configs_do_not_collide(self, tmp_path):
+        a = tmp_path / "a.sexp"
+        b = tmp_path / "b.sexp"
+        assert registry_path_for_config(str(a)) != registry_path_for_config(str(b))
+        assert track_registry_path_for_config(str(a)) != track_registry_path_for_config(str(b))
+
+    def test_log_and_operation_defaults_are_config_relative(self, tmp_path):
+        config_file = tmp_path / "sub" / "board.sexp"
+        assert default_log_file_for_config(str(config_file)) == str(
+            tmp_path / "sub" / "logs" / "actions.log")
+        assert default_operation_log_dir_for_config(str(config_file)) == str(
+            tmp_path / "sub" / "operational")
