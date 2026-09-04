@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import pytest
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QMessageBox, QTreeWidget
+from PyQt6.QtWidgets import QLabel, QMessageBox, QSplitter, QTabWidget, QTreeWidget
 
 from kicadstamp.config.loader import load_config
 from kicadstamp.config.sexp_format import dict_to_sexp
@@ -23,7 +23,12 @@ from kicadstamp.exceptions import ValidationError
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode
 
 from gui import settings
-from gui.docks.trees_dock import TreesDock, _NodeDialog
+from gui.docks.trees_dock import (
+    AnchorFormWidget,
+    NodeFormWidget,
+    TreesDock,
+    _NodeDialog,
+)
 
 # The same working example as tests/test_trees.py's GRAMMAR_EXAMPLE, expressed
 # as the root-config dict shape (tree_to_dict output) — two trees, nested
@@ -331,6 +336,84 @@ def test_static_preview_polar_node(main_window, tmp_path):
     text = dock.status_label.text()
     assert "R_AROUND" in text and "r=" in text
     assert "3.000" in text and "45.000" in text
+
+
+# ── Master-detail right panel (plan_2026_09_04_trees_dock_master_detail.md §3.2) ──
+
+def _embedded_form(page):
+    """The modal-agnostic form inside a _form_action_row wrapper page — the
+    wrapper's top VBox puts the form at itemAt(0) and the Apply/Redraw row
+    (a nested HBox) at itemAt(1)."""
+    lay = page.layout()
+    if lay is None:
+        return None
+    item = lay.itemAt(0)
+    return item.widget() if item is not None else None
+
+
+def test_master_detail_right_panel_has_fixed_anchor_and_node_tabs(main_window, tmp_path):
+    """§3.1/§3.2: each real-tree page is a QSplitter — the tree on the left, a
+    fixed two-tab (Anchor/Node) QTabWidget on the right. The Anchor tab is
+    always filled with the ACTIVE tree's AnchorFormWidget."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    page = dock.tree_tabs.currentWidget()
+    assert isinstance(page, QSplitter)
+    assert isinstance(page.widget(0), QTreeWidget)
+    tabs = dock._active_form_tabs()
+    assert isinstance(tabs, QTabWidget)
+    assert tabs.count() == 2
+    anchor_form = _embedded_form(tabs.widget(0))
+    assert isinstance(anchor_form, AnchorFormWidget)
+    assert anchor_form._tree is dock._trees[0]
+    # The placeholder (no trees) page stays a bare tree — no form panel.
+    dock2 = TreesDock(main_window)
+    dock2.set_root_file(None)
+    assert not isinstance(dock2._active_form_tabs(), QTabWidget)
+
+
+def test_master_detail_node_tab_tracks_selected_real_node(main_window, tmp_path):
+    """§3.2: a freshly loaded dock has nothing selected, so the Node tab shows
+    the empty hint; selecting a REAL node swaps it for that node's editor."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tabs = dock._active_form_tabs()
+    assert isinstance(tabs.widget(1), QLabel)  # nothing selected yet
+
+    tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
+    nodes = _children(_children(tree_widget.invisibleRootItem())[0])
+    tree_widget.setCurrentItem(nodes[0])  # AMS1117_REG — a real TreeNode
+    form = _embedded_form(dock._active_form_tabs().widget(1))
+    assert isinstance(form, NodeFormWidget)
+    assert form._existing is dock._trees[0].nodes[0]
+
+    # A different node re-fills the SAME tab with its own editor.
+    tree_widget.setCurrentItem(nodes[1])  # R_AROUND
+    form = _embedded_form(dock._active_form_tabs().widget(1))
+    assert isinstance(form, NodeFormWidget)
+    assert form._existing is dock._trees[0].nodes[1]
+
+
+def test_master_detail_node_tab_hint_when_selection_cleared(main_window, tmp_path):
+    """§3.2: clearing the selection returns the Node tab to the 'select a node'
+    hint — never a stale editor for a node that is no longer selected."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
+    nodes = _children(_children(tree_widget.invisibleRootItem())[0])
+    tree_widget.setCurrentItem(nodes[0])
+    assert isinstance(_embedded_form(dock._active_form_tabs().widget(1)),
+                      NodeFormWidget)
+    tree_widget.clearSelection()
+    assert isinstance(dock._active_form_tabs().widget(1), QLabel)
+
+
+def test_master_detail_anchor_panel_rebuilds_for_new_active_tree(main_window, tmp_path):
+    """§3.2: switching the tree tab rebuilds the right panel for the newly
+    active tree — the Anchor tab must edit THAT tree's anchor, not the old one."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    assert _embedded_form(dock._active_form_tabs().widget(0))._tree is dock._trees[0]
+    dock.tree_tabs.setCurrentIndex(1)  # misc
+    anchor_form = _embedded_form(dock._active_form_tabs().widget(0))
+    assert isinstance(anchor_form, AnchorFormWidget)
+    assert anchor_form._tree is dock._trees[1]
 
 
 # ── Whole-tree actions (2026-09-03: moved to the Tools → Trees menu) ───────
