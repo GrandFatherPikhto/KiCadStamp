@@ -4,11 +4,10 @@ techdocs/handoff/deepseek/design_2026_08_27_trees_gui_dock.md, then moved
 into the root config as the trees: section — design_2026_08_27_trees_in_
 config_file.md, FORK-5).
 
-Unlike AnchorTreeDock (read-only automatic anchor graph over the config),
-this dock edits the OPTIONAL manual trees: section of the ROOT config
+This dock edits the OPTIONAL manual trees: section of the ROOT config
 (design_2026_08_27_trees_in_config_file.md): it follows the root via
-root_changed (like ConfigTreeDock/AnchorTreeDock), has no file identity of
-its own, per-tree tabs, structural editing, Save + dirty tracking through
+root_changed (like ConfigTreeDock), has no file identity of its own,
+per-tree tabs, structural editing, Save + dirty tracking through
 the single config_writer chokepoint, checkbox subtree selection + background
 curated Redraw through run_curated_tree_redraw_worker.
 """
@@ -1794,7 +1793,7 @@ class TreesDock(QDockWidget):
         """Shared worker invocation for "Redraw selected" and "Redraw whole
         tree" (plan_2026_08_29_fork1_rigid_redraw_override.md §5) — one
         implementation, only the selection source differs. start_long_op keeps
-        it off the UI thread, same worker pattern as AnchorTreeDock's cascade."""
+        it off the UI thread, same worker pattern as run_cascade_worker."""
         tree_name = self._current_tree_name()
         if tree_name is None:
             return

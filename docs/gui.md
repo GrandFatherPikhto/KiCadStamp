@@ -219,40 +219,10 @@ created by an entity dock's own Save (e.g. CellDock's "Add cell..." + Save) is i
 in every other dock's combo — no root reassignment, no GUI restart (a `graph_changed` broadcast,
 see plan_2026_08_15_graph_changed_broadcast.md).
 
-## Anchor tree
-
-The **Anchor tree** tab (tabbed with the Config tree, same left group) shows the SAME config
-records, regrouped by their ANCHOR edges instead of by file/section — "which record anchors on which
-other record". Built PURELY from the config (no live board): one node = one config record. Roots are
-records with no anchor (absolute placements), external `anchor_ref` targets (the FPGA-like case,
-shown as `REF (external)`), and `points:` entries with no anchor of their own (`xy`/`anchor_origin`).
-Points are ordinary records here: a point that chains to another point (`anchor_point`), anchors on a
-produced role (`anchor_role`), or on an external ref sits under its own parent. A record whose anchor
-is produced by another record appears as that record's child; a record with Sheet metadata appears
-under
-a synthetic **Sheet** folder inside its parent's branch (with its generated `Sheet_` prefix stripped,
-e.g. `DAC_BUF` under `Channel_0`), giving the `Channel_0_DAC_BUF`/`Channel_1_DAC_BUF`/
-`Channel_2_DAC_BUF` grouping from the plan's FPGA example.
-
-Right-click a node for:
-- **Redraw** — one record (the existing Redraw/`--only`).
-- **Redraw dependents** — the cascade: this record plus EVERY record transitively anchored on it,
-  redrawn in topological order (a parent always before the records anchored on it), each via its own
-  `ApplyPipeline --only` run so a dependent reads its anchor's POST-move position. Per-record
-  success/failure and the order are written to the Log dock. The same action is also a **Redraw
-  dependents** button on the Placer dock.
-
-A record anchored on a role TWO records both produce gets BOTH of them as parents and is therefore
-shown (duplicated) under each — the tree is technically a DAG at that point, rendered as a tree the
-usual way. The static anchor resolution lives in
-[`kicadstamp/anchor_graph.py`](kicadstamp/anchor_graph.py) and the shared cascade in
-[`gui/docks/cascade.py`](gui/docks/cascade.py).
-
 ## Trees
 
-The **Trees** tab (tabbed with the Config tree and Anchor tree, same left group) is a hand-authored
-editor for the OPTIONAL `trees:` section of the ROOT config — unlike the Anchor tree, which is an
-automatic read-only view of the config's anchor graph. One tab per tree, each a nested node list
+The **Trees** tab (tabbed with the Config tree, same left group) is a hand-authored editor for the
+OPTIONAL `trees:` section of the ROOT config. One tab per tree, each a nested node list
 relative to the tree's own anchor. Since 2026-09-03 (plan plan_2026_09_03_trees_menu_tools.md) the
 dock has NO whole-tree action toolbar — every whole-tree action lives in the top-level menu
 **Tools → Trees**: **Extract tree…** / **Extract cluster…** (new trees from the board selection),
@@ -813,6 +783,13 @@ the tabs — they act on the whole placement, not one tab.
   (`PIF_DVDD`, ...) instead of being re-tagged with the top placement's name (live bug
   tag_cluster_overtag — a Redraw wiped every nested sub-cell component's Cluster field). Change a
   field, click Redraw again — idempotent, safe to repeat.
+- **Redraw dependents** — the cascade: this placement plus EVERY record transitively anchored on it,
+  redrawn in topological order (a parent always before the records anchored on it), each via its own
+  `ApplyPipeline --only` run so a dependent reads its anchor's POST-move position. The anchor graph
+  is built from the project ROOT config (the whole `include:` graph), so dependents living in other
+  included files are found. Per-record success/failure and the order are written to the Log dock.
+  Static anchor resolution — [`kicadstamp/anchor_graph.py`](kicadstamp/anchor_graph.py); the shared
+  cascade — [`gui/docks/cascade.py`](gui/docks/cascade.py).
 - **Redraw & Save** (2026-08-25) — Redraw, then — only if it actually succeeded — Save, in one
   click. Redraw runs on a worker thread; Save waits for its real completion (never a naive
   `_on_redraw(); _on_save()`, so they can't race), and is skipped with a clear Log message when

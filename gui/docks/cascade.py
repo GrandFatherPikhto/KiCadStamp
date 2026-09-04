@@ -3,8 +3,8 @@
 Shared "Redraw dependents" cascade (§2 of
 plan_2026_08_21_anchor_dependency_tree_cascade_redraw.md).
 
-One action, one implementation — AnchorTreeDock's context menu and PlacerDock's
-button both funnel through here. The cascade is:
+One action, one implementation — PlacerDock's "Redraw dependents" button and
+the tools' tree-redraw workers both funnel through here. The cascade is:
 
   1. STATIC: build the anchor graph over the loaded Config and take the start
      record + its transitive dependents in topological order (cascade_records —

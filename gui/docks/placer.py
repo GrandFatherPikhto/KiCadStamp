@@ -1016,9 +1016,9 @@ class PlacerDock(QWidget):
         self.redraw_button = QPushButton(_("Redraw"))
         self.redraw_button.clicked.connect(self._on_redraw)
         button_row.addWidget(self.redraw_button)
-        # Cascade redraw (§2.4, plan anchor_dependency_tree) — same action as
-        # AnchorTreeDock's context-menu "Redraw dependents": redraw this
-        # placement + every record transitively anchored on it, in order.
+        # Cascade redraw (§2.4, plan anchor_dependency_tree) — "Redraw
+        # dependents": redraw this placement + every record transitively
+        # anchored on it, in order.
         self.redraw_dependents_button = QPushButton(_("Redraw dependents"))
         self.redraw_dependents_button.clicked.connect(self._on_redraw_dependents)
         button_row.addWidget(self.redraw_dependents_button)
@@ -2641,9 +2641,9 @@ class PlacerDock(QWidget):
     # ── Redraw dependents (§2.4) ────────────────────────────────────────
 
     def _on_redraw_dependents(self) -> None:
-        """Cascade "Redraw dependents" for the CURRENT placement — the same
-        action as AnchorTreeDock's context-menu item. The anchor graph is
-        built from the project ROOT config (the whole include: graph), so
+        """Cascade "Redraw dependents" for the CURRENT placement. The anchor
+        graph is built from the project ROOT config (the whole include:
+        graph), so
         dependents living in other included files are found; the current form
         only supplies the START record's identity (its saved anchor state is
         what the graph reads — see the anchor_graph module docstring)."""

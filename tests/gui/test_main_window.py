@@ -100,10 +100,10 @@ def _view_menu(real_main_window):
 def test_view_menu_has_one_checkable_action_per_dock(real_main_window):
     """One checkable toggleViewAction per real top-level dock — the only way
     to bring back a closed dock (the app previously had no menu bar at all).
-    Count must match DockHub.docks (8), NOT DetailDock's internal panels."""
+    Count must match DockHub.docks (7), NOT DetailDock's internal panels."""
     menu = _view_menu(real_main_window)
     actions = menu.actions()
-    assert len(actions) == len(real_main_window._dock_hub.docks) == 8
+    assert len(actions) == len(real_main_window._dock_hub.docks) == 7
     assert all(a.isCheckable() for a in actions)
 
 

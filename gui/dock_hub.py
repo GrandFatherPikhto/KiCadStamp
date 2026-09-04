@@ -43,7 +43,6 @@ from kicadstamp.config_working_set import WORKING_SET
 from kicadstamp.i18n import _
 from kicadstamp.logging_setup import get_log_listener
 
-from .docks.anchor_tree import AnchorTreeDock
 from .docks.chain import ChainDock
 from .docks.chain_dialog import ChainDialog
 from .docks.config_tree import ConfigTreeDock
@@ -85,19 +84,12 @@ class DockHub:
         main_window.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.config_tree_dock)
         main_window.tabifyDockWidget(self.tree_dock, self.config_tree_dock)
 
-        # Anchor dependency tree (2026-08-21, plan anchor_dependency_tree) —
-        # the same records as ConfigTreeDock, regrouped by anchor edges
-        # instead of file/section. Tabbed with the Config tree.
-        self.anchor_tree_dock = AnchorTreeDock(main_window)
-        main_window.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.anchor_tree_dock)
-        main_window.tabifyDockWidget(self.config_tree_dock, self.anchor_tree_dock)
-
         # Hand-authored s-expr "trees" editor (2026-08-27, design
-        # design_2026_08_27_trees_gui_dock.md) — tabbed with the Config/Anchor
-        # trees so the user finds "tree" in one place.
+        # design_2026_08_27_trees_gui_dock.md) — tabbed with the Config tree so
+        # the user finds "tree" in one place.
         self.trees_dock = TreesDock(main_window)
         main_window.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.trees_dock)
-        main_window.tabifyDockWidget(self.anchor_tree_dock, self.trees_dock)
+        main_window.tabifyDockWidget(self.config_tree_dock, self.trees_dock)
 
         # ── bottom: Pending changes (constructed here — shared between
         # RoleClusterTreeDock's live-board writes and fieldstool's own
@@ -207,8 +199,8 @@ class DockHub:
         # their own). Order matches construction above
         # (already grouped by area: Left / right / bottom).
         self.docks = [
-            self.tree_dock, self.config_tree_dock, self.anchor_tree_dock,
-            self.trees_dock, self.pending_dock, self.fieldstool_dock,
+            self.tree_dock, self.config_tree_dock, self.trees_dock,
+            self.pending_dock, self.fieldstool_dock,
             self.detail_dock, self.log_dock,
         ]
 
@@ -227,7 +219,7 @@ class DockHub:
         # stage/clear notifies this listener -> dirty indicator + a debounced
         # refresh so the tree/collectors show the staged content. QTimer-
         # debounced (a burst of stages in one event-loop turn coalesces into
-        # one rebuild — same reasoning as AnchorTreeDock.schedule_refresh).
+        # one rebuild).
         self._ws_refresh_timer = QTimer(self.main_window)
         self._ws_refresh_timer.setSingleShot(True)
         self._ws_refresh_timer.timeout.connect(self._refresh_from_working_set)
@@ -277,9 +269,6 @@ class DockHub:
         self.root_metadata_dock.root_changed.connect(
             partial(self._safe_call, "config_tree_dock.set_root_file",
                     self.config_tree_dock.set_root_file))
-        self.root_metadata_dock.root_changed.connect(
-            partial(self._safe_call, "anchor_tree_dock.set_root_file",
-                    self.anchor_tree_dock.set_root_file))
         self.root_metadata_dock.root_changed.connect(
             partial(self._safe_call, "trees_dock.set_root_file",
                     self.trees_dock.set_root_file))
@@ -441,18 +430,7 @@ class DockHub:
         self.chain_dock.saved.connect(self.config_tree_dock.refresh)
         self.net_trace_dock.saved.connect(self.config_tree_dock.refresh)
         self.cells_dock.saved.connect(self.config_tree_dock.refresh)
-        # The anchor tree shows the SAME records — refresh it on every Save too,
-        # but DEBOUNCED (schedule_refresh coalesces a burst of saves into one
-        # rebuild on the next event-loop turn, so it never stacks a second
-        # synchronous full YAML re-read on top of ConfigTreeDock.refresh()).
-        self.placer_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
-        self.thermal_via_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
-        self.points_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
-        self.chain_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
-        self.net_trace_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
-        self.cells_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
         self.tools_dock.saved.connect(self.config_tree_dock.refresh)
-        self.tools_dock.saved.connect(self.anchor_tree_dock.schedule_refresh)
         self.tools_dock.saved.connect(self._refresh_graph_dependent_choices)
         # Auto-close after a SUCCESSFUL edit (2026-09-01, Denis: "диалог должен
         # авто-закрываться после успешной правки (как Points)") — a row action
@@ -507,7 +485,6 @@ class DockHub:
         # NOT wired to the tree's initial refresh (first population, not a
         # change) or to _on_export (no graph change).
         self.config_tree_dock.graph_changed.connect(self._refresh_graph_dependent_choices)
-        self.config_tree_dock.graph_changed.connect(self.anchor_tree_dock.schedule_refresh)
 
         # fieldstool tab -> Components tree: an explicit Rescan/Apply there
         # refreshes this tree's schematic view (see FieldsToolDock).
@@ -533,13 +510,12 @@ class DockHub:
         self.configurator_dock.highlight_changed.connect(self._apply_highlight)
 
     def _apply_highlight(self) -> None:
-        """Re-apply the highlight stylesheet to the three highlight
-        consumers — DetailDock's active tab, ConfigTreeDock's and
+        """Re-apply the highlight stylesheet to the highlight consumers —
+        DetailDock's active tab, ConfigTreeDock's, TreesDock's and
         RoleClusterTreeDock's selected tree item — after a change in the
         Settings tab (see gui/docks/configurator.py)."""
         self.detail_dock.apply_highlight()
         self.config_tree_dock.apply_highlight()
-        self.anchor_tree_dock.apply_highlight()
         self.trees_dock.apply_highlight()
         self.tree_dock.apply_highlight()
 
@@ -1404,8 +1380,6 @@ class DockHub:
         discard can never drift from the initial wiring."""
         self._safe_call("config_tree_dock.set_root_file",
                         self.config_tree_dock.set_root_file, path)
-        self._safe_call("anchor_tree_dock.set_root_file",
-                        self.anchor_tree_dock.set_root_file, path)
         self._safe_call("trees_dock.set_root_file", self.trees_dock.set_root_file, path)
         self._safe_call("chain_dock.set_root_path", self.chain_dock.set_root_path, path)
         self._safe_call("placer_dock.set_root_path", self.placer_dock.set_root_path, path)
@@ -1451,7 +1425,6 @@ class DockHub:
         """Debounced: the working set changed (staged or flushed) — rebuild the
         trees and graph-derived combos from the current (staged) state."""
         self._safe_call("config_tree_dock.refresh", self.config_tree_dock.refresh)
-        self.anchor_tree_dock.schedule_refresh()
         self._refresh_graph_dependent_choices()
 
     def _update_dirty_indicator(self) -> None:
