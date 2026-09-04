@@ -551,6 +551,174 @@ def test_extract_new_cell_failed_extraction_logs_warning(monkeypatch, caplog):
     assert any("not generated" in r.message for r in caplog.records)
 
 
+# ── manual origin override (2026-09-04, plan extract_origin_pad_restore) ──
+# origin_role/origin_pad must WIN over cluster_origin_role's automatic choice —
+# the regression test uses an override role that is EXPLICITLY DIFFERENT from
+# the automatic one, so a silent fallback to automatic would not pass.
+
+def test_extract_new_cell_zero_slot_manual_origin_override_wins(monkeypatch):
+    """absolute=False + explicit origin_role/origin_pad -> the extractor gets
+    EXACTLY the passed role/pad (NOT the unique-selection role cluster_origin_role
+    would derive — the override deliberately differs from it)."""
+    c = _rc_cluster(refs=["R1", "U1"])
+    # Auto role (unique in selection) would be "R1"; the manual override is a
+    # DIFFERENT role+pad — a regression that silently kept the auto role (or
+    # attached the pad to it) would produce the wrong origin.
+    selected = [_sel_pos("R1", "R1", 1.0, 1.0), _sel_pos("U1", "U1", 2.0, 2.0)]
+    raw = [_fp("R1"), _fp("U1")]
+    calls = {}
+    monkeypatch.setattr(
+        "gui.docks.tree_from_selection.extract_template_from_selection",
+        lambda adapter, name, items=None, **kw: calls.update(items=items, kw=kw)
+        or {name: {"components": []}})
+    out = extract_new_cell_for_instantiation(
+        object(), c, "pif_avdd", selected, raw, absolute=False,
+        origin_role="U1", origin_pad="A1")
+    assert out == {"pif_avdd": {"components": []}}
+    assert calls["kw"] == {
+        "origin_component_role": "U1",
+        "origin_component_pad": "A1",
+        "origin_component_cluster": "PIF_AVDD",
+        "origin_component_sheet": "Channel_1"}
+    assert calls["items"] == raw
+
+
+def test_extract_new_cell_zero_slot_default_origin_matches_previous(monkeypatch):
+    """origin_role=None (default) -> behavior identical to BEFORE the plan: the
+    automatic unique-role detection is used, no origin_component_pad is added."""
+    c = _rc_cluster(refs=["R1"])
+    selected = [_sel_pos("R1", "R1", 5.0, 5.0)]
+    raw = [_fp("R1")]
+    calls = {}
+    monkeypatch.setattr(
+        "gui.docks.tree_from_selection.extract_template_from_selection",
+        lambda adapter, name, items=None, **kw: calls.update(items=items, kw=kw)
+        or {name: {"components": []}})
+    out = extract_new_cell_for_instantiation(
+        object(), c, "pif_avdd", selected, raw, absolute=False)
+    assert out == {"pif_avdd": {"components": []}}
+    assert calls["kw"] == {
+        "origin_component_role": "R1",
+        "origin_component_cluster": "PIF_AVDD",
+        "origin_component_sheet": "Channel_1"}
+    assert "origin_component_pad" not in calls["kw"]
+
+
+def test_extract_new_cell_absolute_ignores_manual_origin_override(monkeypatch):
+    """absolute=True -> the manual origin override is IGNORED (the Absolute mode
+    has its own origin via selected_center_mm): passing origin_role/origin_pad
+    alongside absolute=True must not smuggle a role-based origin in."""
+    c = _rc_cluster(sheet=None, refs=["R1"])
+    selected = [_sel_pos("R1", "R1", 1.0, 2.0)]
+    raw = [_fp("R1")]
+    calls = {}
+    monkeypatch.setattr(
+        "gui.docks.tree_from_selection.extract_template_from_selection",
+        lambda adapter, name, items=None, **kw: calls.update(items=items, kw=kw)
+        or {name: {"components": []}})
+    out = extract_new_cell_for_instantiation(
+        object(), c, "new_cell", selected, raw, absolute=True,
+        origin_role="R1", origin_pad="A1")
+    assert out == {"new_cell": {"components": []}}
+    origin = calls["kw"]["origin"]
+    assert isinstance(origin, Vector2)
+    assert (origin.x / MM, origin.y / MM) == (1.0, 2.0)
+    assert "origin_component_role" not in calls["kw"]
+    assert "origin_component_pad" not in calls["kw"]
+
+
+def test_extract_new_cell_origin_pad_without_role_raises(monkeypatch):
+    """origin_pad given but origin_role empty (programming error, not a user
+    error) -> ValueError BEFORE any extraction (plan §1.2: pad is ONLY a
+    refinement of an explicit role; the GUI never lets this state form)."""
+    c = _rc_cluster(refs=["R1"])
+    selected = [_sel_pos("R1", "R1", 1.0, 1.0)]
+    raw = [_fp("R1")]
+    called = []
+    monkeypatch.setattr(
+        "gui.docks.tree_from_selection.extract_template_from_selection",
+        lambda *a, **k: called.append(True) or {})
+    with pytest.raises(ValueError):
+        extract_new_cell_for_instantiation(
+            object(), c, "pif_avdd", selected, raw, absolute=False,
+            origin_pad="A1")
+    assert called == []
+
+
+def test_create_cell_and_entity_manual_origin_override_wins(monkeypatch):
+    """create_cell_and_entity_for_cluster with explicit origin_role/origin_pad:
+    the staged cell is generated with EXACTLY the passed role/pad, NOT the
+    unique-selection role (the override deliberately differs from the auto one).
+    """
+    from types import SimpleNamespace
+    c = ReReadCluster(cluster="DAC_BUF", sheet="Channel_0", entity_name=None,
+                      cell="dac_buf", profile_key=None, refs=["U7"])
+    cfg = _cfg()
+    cells_data: dict = {}
+    selected = [SimpleNamespace(ref="U7", role="U7"),
+                SimpleNamespace(ref="U8", role="U8")]
+    calls = {}
+    monkeypatch.setattr(
+        "gui.docks.tree_from_selection.extract_template_from_selection",
+        lambda adapter, name, items=None, **kw: calls.update(items=items, kw=kw)
+        or {name: {"components": []}})
+    ent = create_cell_and_entity_for_cluster(
+        object(), c, cfg, cells_data, selected, [_fp("U7"), _fp("U8")],
+        origin_role="U8", origin_pad="B2")
+    assert ent == {"name": "dac_buf_channel_0", "cell": "dac_buf",
+                   "cluster": "DAC_BUF", "sheet": "Channel_0"}
+    assert calls["kw"] == {
+        "origin_component_role": "U8",
+        "origin_component_pad": "B2",
+        "origin_component_cluster": "DAC_BUF",
+        "origin_component_sheet": "Channel_0"}
+
+
+def test_create_cell_and_entity_default_origin_matches_previous(monkeypatch):
+    """origin_role=None (default) -> the automatic unique-role detection is
+    used, identical to BEFORE the plan (regression against the existing zero-slot
+    mode)."""
+    from types import SimpleNamespace
+    c = ReReadCluster(cluster="DAC_BUF", sheet="Channel_0", entity_name=None,
+                      cell="dac_buf", profile_key=None, refs=["U7"])
+    cfg = _cfg()
+    cells_data: dict = {}
+    selected = [SimpleNamespace(ref="U7", role="U7"),
+                SimpleNamespace(ref="U8", role="U8")]
+    calls = {}
+    monkeypatch.setattr(
+        "gui.docks.tree_from_selection.extract_template_from_selection",
+        lambda adapter, name, items=None, **kw: calls.update(items=items, kw=kw)
+        or {name: {"components": []}})
+    ent = create_cell_and_entity_for_cluster(
+        object(), c, cfg, cells_data, selected, [_fp("U7"), _fp("U8")])
+    assert ent == {"name": "dac_buf_channel_0", "cell": "dac_buf",
+                   "cluster": "DAC_BUF", "sheet": "Channel_0"}
+    assert calls["kw"] == {
+        "origin_component_role": "U7",
+        "origin_component_cluster": "DAC_BUF",
+        "origin_component_sheet": "Channel_0"}
+    assert "origin_component_pad" not in calls["kw"]
+
+
+def test_create_cell_and_entity_origin_pad_without_role_raises(monkeypatch):
+    """origin_pad given but origin_role empty -> ValueError BEFORE any extraction
+    (plan §1.1: pad is ONLY a refinement of an explicit role)."""
+    from types import SimpleNamespace
+    c = ReReadCluster(cluster="DAC_BUF", sheet="Channel_0", entity_name=None,
+                      cell="dac_buf", profile_key=None, refs=["U7"])
+    cfg = _cfg()
+    selected = [SimpleNamespace(ref="U7", role="U7")]
+    called = []
+    monkeypatch.setattr(
+        "gui.docks.tree_from_selection.extract_template_from_selection",
+        lambda *a, **k: called.append(True) or {})
+    with pytest.raises(ValueError):
+        create_cell_and_entity_for_cluster(
+            object(), c, cfg, {}, selected, [_fp("U7")], origin_pad="A1")
+    assert called == []
+
+
 # ── anchor construction ───────────────────────────────────────────────────
 
 def test_build_role_anchor_fields():

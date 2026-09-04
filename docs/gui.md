@@ -392,6 +392,15 @@ rotation 0", whose origin is the SAME geometric center the "take from selection"
 the total position reproduces the live one exactly. "Absolute" is only guaranteed together with "take
 from selection" (the dialog warns, not blocks — the Cell can be edited by hand later).
 
+By default the zero-slot origin is picked AUTOMATICALLY (the role present exactly once among the
+cluster's selected footprints — see `cluster_origin_role`). Since 2026-09-04 (plan
+`extract_origin_pad_restore`) you can OPTIONALLY override it by hand with the "Override origin
+(Role/Pad)…" checkbox on the same tab (zero-slot mode only — under "Absolute" the override is hidden
+because that geometry mode has its own origin). Tick it to reveal the shared Anchor/Role picker
+pre-filled with the roles REALLY present in the selected cluster, then pick the role that should land
+at the Cell's local (0,0) and optionally narrow it to a specific pad. This restores the pad-origin
+picker the retired Extract dock had before Phase F. Unchecked = today's automatic behavior unchanged.
+
 ## Detail dock
 
 Placer/Net traces below all live as tabs inside one shared **Detail** dock,
@@ -538,6 +547,13 @@ is written to the root config's `entities:` (and the new Cell to `cells:`) throu
 `config_writer` chokepoint; the Config tree refreshes immediately. An Entity stores no position, so
 placing this one (a manual tree node, a `tree_instances:` template, ...) is a separate, later step —
 "Extract cluster..." never writes a position.
+
+Just like the Instantiate-from-Cell tab above, the new Cell's origin is picked AUTOMATICALLY by
+default (the cluster role present exactly once). Since 2026-09-04 (plan `extract_origin_pad_restore`)
+the same dialog offers an OPTIONAL "Override origin (Role/Pad)…" checkbox to override it by hand:
+the Role picker is pre-filled with the roles of the currently selected Cluster, and an optional Pad
+narrows the origin to that specific pad — the same pad-origin picker the retired Extract dock had.
+Unchecked = today's automatic behavior unchanged.
 
 The main menu's **Tools → Place thermal vias...** (2026-09-01) and the Config tree context menu's
 "Add thermal via pad..." (plus a click on a `thermal_via_arrays` leaf) open the standalone

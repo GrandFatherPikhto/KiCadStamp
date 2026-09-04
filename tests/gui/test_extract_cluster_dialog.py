@@ -137,3 +137,56 @@ def test_valid_new_name_accepts(main_window):
     assert dlg.result() == QDialog.DialogCode.Accepted
     assert dlg.selected_cluster().cluster == "DAC_BUF"
     assert dlg.entity_name() == "my_dac_buf"
+
+
+# ── manual origin override (2026-09-04, plan extract_origin_pad_restore §4) ──
+
+def _sel_fp(ref, role):
+    """A Selected-like footprint the dialog reads for roles (.ref, .role)."""
+    from types import SimpleNamespace
+    return SimpleNamespace(ref=ref, role=role)
+
+
+def _open_with_footprints(main_window, refs=("U7", "U8")):
+    """ExtractClusterDialog with the cluster's refs matched by caller-provided
+    selection footprints (the role combo source)."""
+    return ExtractClusterDialog(
+        main_window,
+        [_new_cluster("DAC_BUF", "Channel_0", refs=list(refs))],
+        _cfg(),
+        selection_footprints=[_sel_fp("U7", "DAC"), _sel_fp("U8", "BUF")])
+
+
+def test_extract_origin_override_unchecked_is_automatic(main_window):
+    """Checkbox off -> origin_override() == (None, None): automatic zero-slot
+    detection stays the default (opt-in principle)."""
+    dlg = _open_with_footprints(main_window)
+    assert dlg.origin_override() == (None, None)
+    assert dlg.origin_override_check.isChecked() is False
+    # The cluster's own roles are what the combo is fed from (U7->DAC, U8->BUF).
+    assert dlg.origin_widget.anchor_role_edit.count() == 2
+
+
+def test_extract_origin_override_returns_chosen_role_and_pad(main_window):
+    """Checkbox on + a Role picked (+ optional Pad) -> origin_override() returns
+    exactly them, bypassing the automatic unique-role detection."""
+    dlg = _open_with_footprints(main_window)
+    dlg.origin_override_check.setChecked(True)
+    assert dlg.origin_widget.isVisibleTo(dlg)
+    dlg.origin_widget.anchor_role_edit.setCurrentText("BUF")
+    dlg.origin_widget.anchor_pad_edit.setText("B2")
+    assert dlg.origin_override() == ("BUF", "B2")
+
+
+def test_extract_origin_override_empty_role_blocks_validate(main_window):
+    """Checkbox on + no Ref/Role -> the widget's own build() error is a FATAL
+    through _validate(): the dialog never accepts an override the picker itself
+    considers invalid."""
+    dlg = _open_with_footprints(main_window, refs=("U7",))
+    # Empty the role combo (set_known_roles([], []) simulates a cluster whose
+    # selection carries no roles).
+    dlg.origin_widget.set_known_roles([], [])
+    dlg.origin_override_check.setChecked(True)
+    problem = dlg._validate()
+    assert problem is not None
+    assert "Ref or Role" in problem

@@ -24,12 +24,13 @@ backup_file/read_data/write_data round-trip.
 """
 from typing import Optional
 
-from PyQt6.QtWidgets import (QDialog, QDialogButtonBox, QLabel, QLineEdit,
-                             QListWidget, QListWidgetItem, QMessageBox,
-                             QVBoxLayout)
+from PyQt6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QLabel,
+                             QLineEdit, QListWidget, QListWidgetItem,
+                             QMessageBox, QVBoxLayout)
 
 from kicadstamp.i18n import _
 
+from ._anchor_origin import AnchorOriginWidget
 from .reead import ReReadCluster
 from .tree_from_selection import resolve_cluster_entity
 
@@ -46,13 +47,19 @@ class ExtractClusterDialog(QDialog):
     reead.fully_selected_clusters + the same "\n" filter as "Extract tree...").
     """
 
-    def __init__(self, parent, clusters: list[ReReadCluster], cfg):
+    def __init__(self, parent, clusters: list[ReReadCluster], cfg,
+                 selection_footprints=()):
         super().__init__(parent)
         self.setWindowTitle(_("Extract cluster"))
         self.setObjectName("extract_cluster_dialog")
         self.setMinimumWidth(440)
         self._clusters = list(clusters)
         self._cfg = cfg
+        # The current selection's footprints — needed to populate the manual
+        # origin Role combo with roles REALLY present in the chosen cluster
+        # (2026-09-04, plan extract_origin_pad_restore §4). Default empty so
+        # callers/tests that don't offer the override keep working unchanged.
+        self._selection_footprints = list(selection_footprints or ())
         self._existing = False
 
         layout = QVBoxLayout(self)
@@ -81,6 +88,21 @@ class ExtractClusterDialog(QDialog):
         self.status_label.setWordWrap(True)
         layout.addWidget(self.status_label)
 
+        # Optional MANUAL origin override (2026-09-04, plan
+        # extract_origin_pad_restore §4): opt-in checkbox + the shared
+        # AnchorOriginWidget — the Extract-cluster Cell is always generated
+        # from a role origin (no "Absolute" variant), so the override is only
+        # gated by the checkbox (unlike InstantiateCellDialog's tab 2).
+        self.origin_override_check = QCheckBox(_("Override origin (Role/Pad)…"))
+        self.origin_override_check.setChecked(False)
+        self.origin_override_check.toggled.connect(
+            lambda _c: self._update_origin_widget_visibility())
+        self.origin_widget = AnchorOriginWidget(
+            modes=("anchor",), anchor_fields=("pad",))
+        layout.addWidget(self.origin_override_check)
+        layout.addWidget(self.origin_widget)
+        self._update_origin_widget_visibility()
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self._on_ok)
@@ -88,6 +110,15 @@ class ExtractClusterDialog(QDialog):
         layout.addWidget(buttons)
 
         self._refresh_entity_name()
+
+    def _update_origin_widget_visibility(self) -> None:
+        """The manual-origin picker follows the opt-in checkbox (2026-09-04,
+        plan extract_origin_pad_restore §4): unchecked = automatic detection,
+        and the widget's anchor-mode build() would fatal on an empty Ref+Role
+        — so never call build() while hidden."""
+        visible = self.origin_override_check.isChecked()
+        self.origin_widget.setVisible(visible)
+        self.origin_widget.setEnabled(visible)
 
     # ── state ─────────────────────────────────────────────────────────────
 
@@ -110,21 +141,34 @@ class ExtractClusterDialog(QDialog):
 
     # ── prefill ───────────────────────────────────────────────────────────
 
+    def _cluster_roles(self, c: ReReadCluster) -> list[str]:
+        """The roles present among the selected footprints of one chosen
+        cluster — the manual-origin combo candidates (2026-09-04, plan
+        extract_origin_pad_restore §2/§4). `c.refs` are the refs of the
+        cluster's fully-selected components; footprint objects are the
+        caller-provided selection (role is a Selected field)."""
+        refs = set(c.refs)
+        return sorted({s.role for s in self._selection_footprints
+                       if s.role and s.ref in refs})
+
     def _refresh_entity_name(self) -> None:
         """Prefill the Entity-name field for the currently selected cluster:
         existing Entity -> read-only (reuse, never a duplicate); new Entity ->
-        editable auto-derived name (resolve_cluster_entity)."""
+        editable auto-derived name (resolve_cluster_entity). Also refills the
+        manual-origin Role combo with the chosen cluster's own roles."""
         c = self.selected_cluster()
         if c is None:
             self._existing = False
             self.entity_name_edit.clear()
             self.entity_name_edit.setReadOnly(False)
             self.status_label.setText(_("Select the Cluster to extract first."))
+            self.origin_widget.set_known_roles([], [])
             return
         entity_name, cell_name, is_new = resolve_cluster_entity(c, self._cfg)
         self._existing = not is_new
         self.entity_name_edit.setText(entity_name)
         self.entity_name_edit.setReadOnly(self._existing)
+        self.origin_widget.set_known_roles(self._cluster_roles(c), [])
         if self._existing:
             self.status_label.setText(
                 _("This Entity already exists for this Cluster + sheet — it will "
@@ -134,6 +178,19 @@ class ExtractClusterDialog(QDialog):
                 _("A new Entity will be created with this name (its cell "
                   "{cell!r} is generated from the cluster's selection when "
                   "missing).").format(cell=cell_name))
+
+    def origin_override(self) -> tuple[str | None, str | None]:
+        """(origin_role, origin_pad) of the opt-in MANUAL origin override, or
+        (None, None) when it is off (2026-09-04, plan extract_origin_pad_restore
+        §4). A build() error returns (None, None) — _validate() already blocks
+        OK on the same build() result, so this getter is never the error
+        surface."""
+        if not self.origin_override_check.isChecked():
+            return (None, None)          # opt-in unchecked — automatic
+        fields, err = self.origin_widget.build()
+        if err:
+            return (None, None)          # _validate() already blocks OK on this
+        return (fields.get("role"), fields.get("pad"))
 
     # ── validation + accept ───────────────────────────────────────────────
 
@@ -147,6 +204,13 @@ class ExtractClusterDialog(QDialog):
             return _("Entity name must not be empty.")
         if not self._existing and any(e.name == name for e in self._cfg.entities):
             return _("An Entity named {name!r} already exists.").format(name=name)
+        # Manual-origin override (opt-in): surface the widget's own build()
+        # error as a fatal — the same condition origin_override() uses
+        # (2026-09-04, plan extract_origin_pad_restore §4).
+        if self.origin_override_check.isChecked():
+            _fields, err = self.origin_widget.build()
+            if err:
+                return err
         return None
 
     def _on_ok(self) -> None:

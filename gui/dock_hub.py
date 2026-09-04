@@ -1144,7 +1144,8 @@ class DockHub:
 
         from .docks.tree_from_selection import create_cell_and_entity_for_cluster
         from .docks.extract_cluster_dialog import ExtractClusterDialog
-        dialog = ExtractClusterDialog(self.main_window, clusters, cfg)
+        dialog = ExtractClusterDialog(
+            self.main_window, clusters, cfg, self._selection_footprints)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         c = dialog.selected_cluster()
@@ -1161,6 +1162,10 @@ class DockHub:
                 _("Entity {name!r} already exists for this Cluster + sheet — "
                   "reused, nothing new was created.").format(name=entity_name))
             return
+        # Manual origin override (2026-09-04, plan extract_origin_pad_restore):
+        # only read when a NEW Entity (+ its cell) is actually created; the
+        # reuse path returns above. (None, None) = keep automatic detection.
+        origin_role, origin_pad = dialog.origin_override()
 
         # ── Save: cell (if new) + entity, staged through config_writer ──────
         from kicadstamp.config_writer import read_data, write_data
@@ -1174,7 +1179,8 @@ class DockHub:
             ent = create_cell_and_entity_for_cluster(
                 adapter, c, cfg, cells_data,
                 self._selection_footprints, self._selection_raw_items,
-                entity_name=entity_name)
+                entity_name=entity_name,
+                origin_role=origin_role, origin_pad=origin_pad)
             if ent is None:
                 # A matching Entity appeared between the dialog and the write —
                 # treat it as a reuse, never a duplicate.

@@ -879,7 +879,7 @@ def test_extract_cluster_happy_path_writes_cell_and_entity(
     # Auto-accepting dialog that returns the single cluster un-edited (the
     # auto-derived Entity name, nothing else).
     class _FakeDialog:
-        def __init__(self, parent, clusters, cfg):
+        def __init__(self, parent, clusters, cfg, selection_footprints=()):
             self._clusters = clusters
 
         def exec(self):
@@ -894,6 +894,9 @@ def test_extract_cluster_happy_path_writes_cell_and_entity(
         @property
         def existing(self):
             return False
+
+        def origin_override(self):
+            return (None, None)
 
     monkeypatch.setattr("gui.docks.extract_cluster_dialog.ExtractClusterDialog",
                         _FakeDialog)
@@ -958,7 +961,7 @@ def test_extract_cluster_existing_entity_reuse_writes_nothing(
     hub._selection_raw_items = [sel.fp]
 
     class _FakeDialog:
-        def __init__(self, parent, clusters, cfg):
+        def __init__(self, parent, clusters, cfg, selection_footprints=()):
             self._clusters = clusters
 
         def exec(self):
@@ -973,6 +976,9 @@ def test_extract_cluster_existing_entity_reuse_writes_nothing(
         @property
         def existing(self):
             return True
+
+        def origin_override(self):
+            return (None, None)
 
     monkeypatch.setattr("gui.docks.extract_cluster_dialog.ExtractClusterDialog",
                         _FakeDialog)

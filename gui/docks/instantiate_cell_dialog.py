@@ -48,6 +48,7 @@ from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox,
 
 from kicadstamp.i18n import _
 
+from ._anchor_origin import AnchorOriginWidget
 from ._common import configure_searchable, set_combo_items
 from .tree_from_selection import (
     build_instantiated_entity,
@@ -143,6 +144,18 @@ class InstantiateCellDialog(QDialog):
         self.geometry_warning_label.setStyleSheet("font-style: italic;")
         self.geometry_warning_label.hide()
         tab2_form.addRow(self.geometry_warning_label)
+        # Optional MANUAL origin override (2026-09-04, plan
+        # extract_origin_pad_restore): opt-in checkbox so "empty" always means
+        # "keep the automatic zero-slot detection", never a swallowed widget
+        # error (AnchorOriginWidget.build() fatals on empty Ref+Role in anchor
+        # mode — an empty build() here is a VALID "leave automatic"). Only
+        # meaningful in zero-slot mode — in Absolute the override never applies.
+        self.origin_override_check = QCheckBox(_("Override origin (Role/Pad)…"))
+        self.origin_override_check.setChecked(False)
+        self.origin_widget = AnchorOriginWidget(
+            modes=("anchor",), anchor_fields=("pad",))
+        tab2_form.addRow(self.origin_override_check)
+        tab2_form.addRow(self.origin_widget)
         # Strict-state status line (0 clusters / >1 clusters / ready).
         self.tab2_status_label = QLabel("")
         self.tab2_status_label.setWordWrap(True)
@@ -207,9 +220,24 @@ class InstantiateCellDialog(QDialog):
         self.from_selection_check.toggled.connect(self._on_from_selection_toggled)
         self.zero_slot_radio.toggled.connect(lambda _c: self._update_geometry_warning())
         self.absolute_radio.toggled.connect(lambda _c: self._update_geometry_warning())
+        self.origin_override_check.toggled.connect(
+            lambda _c: self._update_origin_widget_visibility())
         self.tabs.currentChanged.connect(self._on_tab_changed)
         self._on_tab_changed(self.tabs.currentIndex())
         self._update_geometry_warning()
+        self._update_origin_widget_visibility()
+
+    def _update_origin_widget_visibility(self) -> None:
+        """The manual-origin override (checkbox + role/pad picker) is only
+        meaningful on tab 2 in zero-slot mode: it follows the checkbox AND
+        zero_slot_radio.isChecked() — in "Absolute" the override never applies
+        (see tree_from_selection.extract_new_cell_for_instantiation), so the
+        whole block is hidden regardless of the checkbox (2026-09-04, plan
+        extract_origin_pad_restore §3)."""
+        visible = (self.origin_override_check.isChecked()
+                   and self.zero_slot_radio.isChecked())
+        self.origin_widget.setVisible(visible)
+        self.origin_widget.setEnabled(visible)
 
     def _on_from_selection_toggled(self, checked: bool) -> None:
         # Position mode changed — the "Absolute geometry needs 'Take from
@@ -289,6 +317,21 @@ class InstantiateCellDialog(QDialog):
         # Prefill the new Cell name from the detected cluster's slug (editable).
         self._auto_cell_name = ""
         self._refresh_new_cell_name()
+        # Manual-origin role candidates: roles REALLY present in the detected
+        # cluster's selected components (never the whole board) — 2026-09-04,
+        # plan extract_origin_pad_restore §2.
+        self.origin_widget.set_known_roles(self._tab2_cluster_roles(), [])
+
+    def _tab2_cluster_roles(self) -> list[str]:
+        """The roles present among the selected footprints of the addressed
+        cluster (tab 2, strict single-cluster state) — the manual-origin combo
+        candidates. `self._selected` footprints carry the board cluster tag;
+        the cluster is FULLY selected, so filtering by the tag yields exactly
+        its component roles (the same source cluster_origin_role counts)."""
+        cluster = self.cluster()
+        roles = {s.role for s in self._selected
+                 if s.role and getattr(s, "cluster", None) == cluster}
+        return sorted(roles)
 
     def _update_tab2_ok(self) -> None:
         """The strict gate: on tab 2 OK is only possible when the detection is
@@ -375,6 +418,23 @@ class InstantiateCellDialog(QDialog):
         selected (meaningful only when is_new_cell())."""
         return self.is_new_cell() and self.absolute_radio.isChecked()
 
+    def origin_override(self) -> tuple[str | None, str | None]:
+        """(origin_role, origin_pad) of the opt-in MANUAL origin override, or
+        (None, None) when it is off. The conditions EXPLICITLY repeat the
+        widget's visibility — never rely on the widget being physically hidden:
+        Absolute mode never applies the override (2026-09-04, plan
+        extract_origin_pad_restore §3/§1.2). A build() error returns (None,
+        None) — validate() already blocks OK on the same build() result, so
+        this getter is never the error surface."""
+        if not self.zero_slot_radio.isChecked():
+            return (None, None)          # Absolute mode — override never applies
+        if not self.origin_override_check.isChecked():
+            return (None, None)          # opt-in unchecked — automatic
+        fields, err = self.origin_widget.build()
+        if err:
+            return (None, None)          # validate() already blocks OK on this
+        return (fields.get("role"), fields.get("pad"))
+
     def result_cell(self) -> str:
         """The cell name the new Entity will reference — an EXISTING cell name
         on tab 1, or the brand-new Cell name on tab 2. The single reading point
@@ -431,6 +491,15 @@ class InstantiateCellDialog(QDialog):
             problem = self._tab2_mismatch_problem()
             if problem is not None:
                 return problem
+            # Manual-origin override (only active in zero-slot mode, opt-in):
+            # surface the widget's own build() error as a fatal — the same
+            # pair of conditions origin_override() uses (2026-09-04, plan
+            # extract_origin_pad_restore §3).
+            if (self.zero_slot_radio.isChecked()
+                    and self.origin_override_check.isChecked()):
+                _fields, err = self.origin_widget.build()
+                if err:
+                    return err
         else:
             cell_name = self.result_cell()
             if not cell_name:

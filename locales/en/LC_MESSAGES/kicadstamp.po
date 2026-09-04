@@ -14197,6 +14197,10 @@ msgstr ""
 msgid "Absolute geometry only reproduces the live position when paired with 'Take from selection' — with manual xy the result is unverified."
 msgstr ""
 
+#: gui/docks/instantiate_cell_dialog.py gui/docks/extract_cluster_dialog.py
+msgid "Override origin (Role/Pad)…"
+msgstr ""
+
 #: gui/docks/instantiate_cell_dialog.py
 msgid "A new Cell name is required."
 msgstr ""

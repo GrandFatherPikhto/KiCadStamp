@@ -187,11 +187,18 @@ def create_cell_and_entity_for_cluster(
     adapter, c: ReReadCluster, cfg, cells_data: dict,
     selection_footprints, selection_raw_items,
     entity_name: Optional[str] = None,
+    origin_role: Optional[str] = None,
+    origin_pad: Optional[str] = None,
 ) -> Optional[dict]:
     """(re)stage the Cell and build the Entity dict for ONE fully-selected
     cluster — the shared "one cluster -> one flat Entity" step behind BOTH
     "Extract tree..." (extract_tree_from_selection) and "Extract cluster..."
     (2026-09-03, plan extract_cluster_entity).
+
+    origin_role/origin_pad — optional MANUAL override of the automatic
+    zero-slot detection (2026-09-04, restores the pad-origin picker the retired
+    ExtractDock had before Phase F, plan extract_origin_pad_restore). None
+    (default) keeps today's automatic behavior unchanged.
 
     - The (cluster, sheet)-matched Entity, when it exists, WINS: nothing is
       created and None is returned (both callers reuse it — never a duplicate).
@@ -212,6 +219,8 @@ def create_cell_and_entity_for_cluster(
     disk itself — the caller owns backup_file/read_data/write_data (the same
     read-merge-write contract as every config_writer-based dialog in this
     project)."""
+    if origin_pad and not origin_role:
+        raise ValueError("origin_pad requires origin_role")
     resolved_entity, cell_name, is_new = resolve_cluster_entity(c, cfg)
     if not is_new:
         return None
@@ -221,13 +230,15 @@ def create_cell_and_entity_for_cluster(
     # is what the Entity's live position read requires at apply (entity_placement).
     if cell_name not in cfg.cells and cell_name not in cells_data:
         items = cluster_raw_items(c, selection_raw_items)
+        role = origin_role or cluster_origin_role(c, selection_footprints)
         origin_kwargs = {}
-        role = cluster_origin_role(c, selection_footprints)
         if role:
             origin_kwargs = dict(
                 origin_component_role=role,
                 origin_component_cluster=c.cluster,
                 origin_component_sheet=c.sheet)
+            if origin_pad:
+                origin_kwargs["origin_component_pad"] = origin_pad
         try:
             cell_dict = extract_template_from_selection(
                 adapter, cell_name, items=items, **origin_kwargs)
@@ -252,10 +263,20 @@ def extract_new_cell_for_instantiation(
     adapter, c: ReReadCluster, cell_name: str,
     selection_footprints, selection_raw_items,
     absolute: bool,
+    origin_role: Optional[str] = None,
+    origin_pad: Optional[str] = None,
 ) -> Optional[dict]:
     """Build a NEW Cell dict {cell_name: {...}} for the "Instantiate from
     Cell..." dialog's second tab ("Extract new cell from selection", 2026-09-04,
     plan instantiate_new_cell_from_selection).
+
+    origin_role/origin_pad — optional MANUAL override of the automatic
+    zero-slot detection (2026-09-04, restores the pad-origin picker the retired
+    ExtractDock had before Phase F, plan extract_origin_pad_restore). None
+    (default) keeps today's automatic behavior unchanged. Applied ONLY in the
+    absolute=False branch — in absolute=True they are ignored (the "Absolute"
+    geometry mode has its own explicit origin via selected_center_mm, see design
+    §1.1.2 in cell_internal_anchor.md).
 
     STRICT full-selection semantics (Denis's 2026-09-04 decision): `c` is a
     ReReadCluster returned by fully_selected_clusters — ONLY a FULLY selected
@@ -295,12 +316,16 @@ def extract_new_cell_for_instantiation(
             return None
         origin_kwargs = {"origin": Vector2.from_xy_mm(*center)}
     else:
-        role = cluster_origin_role(c, selection_footprints)
+        if origin_pad and not origin_role:
+            raise ValueError("origin_pad requires origin_role")
+        role = origin_role or cluster_origin_role(c, selection_footprints)
         if role:
             origin_kwargs = dict(
                 origin_component_role=role,
                 origin_component_cluster=c.cluster,
                 origin_component_sheet=c.sheet)
+            if origin_pad:
+                origin_kwargs["origin_component_pad"] = origin_pad
     try:
         return extract_template_from_selection(
             adapter, cell_name, items=items, **origin_kwargs)

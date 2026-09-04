@@ -1668,9 +1668,11 @@ class TreesDock(QDockWidget):
                     _("A cell named {name!r} already exists.").format(name=cell_name))
                 return
             from .tree_from_selection import extract_new_cell_for_instantiation
+            origin_role, origin_pad = dialog.origin_override()
             cell_dict = extract_new_cell_for_instantiation(
                 adapter, c, cell_name, selected, raw_items,
-                absolute=dialog.absolute_origin())
+                absolute=dialog.absolute_origin(),
+                origin_role=origin_role, origin_pad=origin_pad)
             if cell_dict is None:
                 QMessageBox.warning(
                     self, _("Instantiate from Cell"),

@@ -291,6 +291,64 @@ def test_tab2_validate_rejects_address_mismatch(main_window):
     assert "must match" in problem
 
 
+# ── manual origin override (2026-09-04, plan extract_origin_pad_restore) ──
+
+def _tab2_with_roles(main_window, roles=("R1", "DAC")):
+    """Tab 2 with a fully-selected cluster whose selected footprints carry the
+    given roles (the source of the manual-origin role combo)."""
+    dlg = _open(main_window, fully_selected=[("PIF_AVDD", "Channel_1")],
+                selected=[_sel(f"r{i}", role=r, cluster="PIF_AVDD")
+                          for i, r in enumerate(roles)])
+    _to_tab2(dlg)
+    return dlg
+
+
+def test_tab2_origin_override_unchecked_is_automatic(main_window):
+    """Checkbox off -> origin_override() == (None, None): the manual override is
+    an OPT-IN — today's automatic zero-slot detection stays the default."""
+    dlg = _tab2_with_roles(main_window)
+    assert dlg.origin_override() == (None, None)
+    assert dlg.origin_override_check.isChecked() is False
+
+
+def test_tab2_origin_override_returns_chosen_role_and_pad(main_window):
+    """Checkbox on + a Role picked (+ optional Pad) -> origin_override() returns
+    exactly them (the automatic detection is bypassed)."""
+    dlg = _tab2_with_roles(main_window)
+    dlg.origin_override_check.setChecked(True)
+    assert dlg.origin_widget.isVisibleTo(dlg)
+    combo = dlg.origin_widget.anchor_role_edit
+    combo.setCurrentText("DAC")
+    dlg.origin_widget.anchor_pad_edit.setText("A1")
+    assert dlg.origin_override() == ("DAC", "A1")
+
+
+def test_tab2_origin_override_empty_role_blocks_validate(main_window):
+    """Checkbox on + no Ref/Role -> the widget's own build() error surfaces as a
+    FATAL through validate() (never a swallowed 'empty = ok'): the dialog must
+    not accept an override the picker itself considers invalid."""
+    dlg = _tab2_with_roles(main_window, roles=())
+    dlg.name_edit.setText("PIF_AVDD_ENT")
+    dlg.origin_override_check.setChecked(True)
+    problem = dlg.validate()
+    assert problem is not None
+    assert "Ref or Role" in problem
+
+
+def test_tab2_origin_override_absolute_mode_never_applies(main_window):
+    """In "Absolute" geometry the manual override never applies (it has its own
+    origin via selected_center_mm): origin_override() returns (None, None) even
+    when the checkbox is checked and a role is picked (plan §3/§1.2)."""
+    dlg = _tab2_with_roles(main_window)
+    dlg.absolute_radio.setChecked(True)
+    dlg.origin_override_check.setChecked(True)
+    dlg.origin_widget.anchor_role_edit.setCurrentText("DAC")
+    # The widget stays hidden under Absolute (independent of the checkbox)…
+    assert dlg.origin_widget.isVisibleTo(dlg) is False
+    # …and the getter agrees — it repeats the visibility condition explicitly.
+    assert dlg.origin_override() == (None, None)
+
+
 def test_instantiate_from_cell_requires_real_anchor(main_window, tmp_path,
                                                     monkeypatch):
     """Plan §1.5: a tree with an auto/absent anchor must refuse the action in
@@ -339,7 +397,8 @@ def _detect_one_cluster(monkeypatch, cluster="PIF_AVDD", sheet="Channel_1"):
                                        profile_key=None, refs=["R1", "U1"])])
 
 
-def _new_cell_fake(monkeypatch, *, name="pif_avdd", absolute=False):
+def _new_cell_fake(monkeypatch, *, name="pif_avdd", absolute=False,
+                   origin_override=(None, None)):
     """The InstantiateCellDialog double answering as tab 2."""
     fake = MagicMock()
     fake.exec.return_value = QDialog.DialogCode.Accepted
@@ -352,6 +411,7 @@ def _new_cell_fake(monkeypatch, *, name="pif_avdd", absolute=False):
     fake.absolute_origin.return_value = absolute
     fake.from_selection.return_value = False
     fake.manual_xy.return_value = (1.0, 2.0)
+    fake.origin_override.return_value = origin_override
     monkeypatch.setattr(icd, "InstantiateCellDialog", lambda *a, **k: fake)
     return fake
 
