@@ -3760,6 +3760,10 @@ msgstr "Применено — можно править дальше или Red
 msgid "Applied — Redraw started."
 msgstr "Применено — Redraw запущен."
 
+#: gui/docks/trees_dock.py:2893
+msgid "Applied — whole-tree redraw started."
+msgstr "Применено — запущен redraw всего дерева."
+
 #: gui/docks/trees_dock.py:2104
 msgid "Applied — no live board Redraw available."
 msgstr "Применено — живой Redraw недоступен."

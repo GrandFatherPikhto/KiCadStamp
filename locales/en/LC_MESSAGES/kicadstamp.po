@@ -3711,6 +3711,10 @@ msgstr "Applied — keep editing or Redraw."
 msgid "Applied — Redraw started."
 msgstr "Applied — Redraw started."
 
+#: gui/docks/trees_dock.py:2893
+msgid "Applied — whole-tree redraw started."
+msgstr "Applied — whole-tree redraw started."
+
 #: gui/docks/trees_dock.py:2104
 msgid "Applied — no live board Redraw available."
 msgstr "Applied — no live board Redraw available."

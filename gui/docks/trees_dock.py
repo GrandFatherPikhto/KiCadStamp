@@ -2529,8 +2529,8 @@ class _NodeDialog(QDialog):
         return self._form.own_anchor()
 
 
-class _AnchorDialog(QDialog):
-    """Modal dialog for picking a tree anchor, covering ALL six TreeAnchor
+class AnchorFormWidget(QWidget):
+    """The tree-anchor picker/edit FORM (no modal wrapper): all six TreeAnchor
     modes (see kicadstamp/trees.py):
       - origin   -> (anchor (origin)): absolute board origin (0,0)
       - record   -> (anchor (ref "...")): a config record name, narrowed by a
@@ -2544,14 +2544,21 @@ class _AnchorDialog(QDialog):
       - role     -> (anchor (role "...") [(sheet ...) (cluster ...) (pad ...)])
       - point    -> (anchor (point "...")): a points: entry name
     `existing` (a TreeAnchor) switches to EDIT mode: the mode and every field
-    are pre-filled (symmetric to _NodeDialog's existing=), so a user can just
-    tweak e.g. the sheet of a role anchor instead of rebuilding it.
+    are pre-filled (symmetric to NodeFormWidget's existing=), so a user can
+    just tweak e.g. the sheet of a role anchor instead of rebuilding it.
     "External refdes" is STORED as an is_external anchor — the resolver then
     never matches it against a config record name (collision impossible;
-    note_2026_08_28_tree_anchor_name_collision)."""
+    note_2026_08_28_tree_anchor_name_collision).
 
-    # User-facing labels for the record-mode kind filter (populate the Kind
-    # combo in the same order the placeable sections are documented).
+    Modal-agnostic: build_anchor() returns a (value, error) pair and the Phase
+    B apply()/redraw() (design §9.3) write tree.anchor in place; the OK/Cancel
+    or Apply/Redraw button row is added by the embedding context
+    (_AnchorDialog's thin wrapper, or the master-detail Anchor tab of plan
+    plan_2026_09_04_trees_dock_master_detail.md §3).
+
+    Extracted from the former _AnchorDialog (plan §2.1); the class keeps the
+    exact constructor signature and every field/method the picker/edit flows
+    use, just as a plain QWidget."""
     _KIND_LABELS = {
         "placement": _("Entity"),
         "chain": _("Chain"),
@@ -2566,13 +2573,14 @@ class _AnchorDialog(QDialog):
                  role_candidates=None, cluster_candidates=None, existing=None,
                  tree=None):
         super().__init__(parent)
-        self.setWindowTitle(_("Set anchor"))
         self._ref_candidates = list(ref_candidates or [])
         self._cfg = cfg
         self._sheet_names = dict(sheet_names or {})
         self._role_candidates = list(role_candidates or [])
         self._cluster_candidates = list(cluster_candidates or [])
-        self._result: Optional[TreeAnchor] = None
+        self._tree = tree
+        self._dock = parent if getattr(parent, "_mark_dirty", None) else None
+        self._touched = False
 
         # Self-reference guard (plan 2026-08-31 anchor_self_ref_guard): a tree
         # whose OWN single top-level node is a placement record must never be
@@ -2591,7 +2599,10 @@ class _AnchorDialog(QDialog):
         else:
             self._had_self_entity = False
 
-        form = QFormLayout(self)
+        # The form's own vertical layout: the picker rows + the non-blocking
+        # apply-status label (the button row is the embedding context's job).
+        root = QVBoxLayout(self)
+        form = QFormLayout()
 
         # Mode combo — the six TreeAnchor modes. The first three keep their
         # historic indices (0/1/2) so nothing that drives the combo by index
@@ -2663,14 +2674,16 @@ class _AnchorDialog(QDialog):
         point_form.addRow(_("Point:"), self.point_edit)
         form.addRow(self.point_row)
 
-        buttons = QHBoxLayout()
-        self.ok_button = QPushButton(_("OK"))
-        self.ok_button.clicked.connect(self._accept)
-        cancel_button = QPushButton(_("Cancel"))
-        cancel_button.clicked.connect(self.reject)
-        buttons.addWidget(self.ok_button)
-        buttons.addWidget(cancel_button)
-        form.addRow(buttons)
+        # The button row is NOT part of the form — plan
+        # plan_2026_09_04_trees_dock_master_detail.md §2.1: a plain QWidget form
+        # is modal-agnostic, the OK/Cancel (Create-tree/Set-anchor master) or
+        # Apply/Redraw (master-detail Anchor tab of §3) row is added by the
+        # embedding context. What stays here: the picker rows + the non-blocking
+        # apply-status label that apply()/redraw() write to (design §9.4).
+        root.addLayout(form)
+        self.apply_status_label = QLabel("")
+        self.apply_status_label.setWordWrap(True)
+        root.addWidget(self.apply_status_label)
 
         # Connect only AFTER every widget exists so no handler fires mid-
         # construction (adding the first combo item triggers a spurious
@@ -2683,6 +2696,16 @@ class _AnchorDialog(QDialog):
             self._prefill(existing)
         else:
             self._on_mode_changed()
+        # design §9.4: after prefill/initial populate the form is clean —
+        # _touched reflects only USER edits since the last load()/Apply.
+        self._touched = False
+
+    def _mark_touched(self) -> None:
+        """design §9.4: any user field edit flags the form as having unapplied
+        changes — the discard-warning source for a constantly-open panel (the
+        master-detail Anchor tab). Connected per-widget in the embedding
+        context/§3; the flag itself is owned here."""
+        self._touched = True
 
     def _on_mode_changed(self) -> None:
         mode = self.mode_combo.currentData()
@@ -2809,37 +2832,120 @@ class _AnchorDialog(QDialog):
             self._on_kind_changed()
             self.ref_combo.setCurrentText(existing.ref)
 
-    def _accept(self) -> None:
+    def build_anchor(self) -> tuple[Optional[TreeAnchor], Optional[str]]:
+        """Collect + validate the form into a TreeAnchor, or an error string —
+        the same (value, error) idiom as AnchorOriginWidget.build()/build_node()
+        (plan §2.2). Pure — no QMessageBox, no self.accept(); the caller
+        (Apply in the Anchor tab, or _AnchorDialog's OK) decides how to surface
+        an error (apply_status_label vs a modal warning)."""
         mode = self.mode_combo.currentData()
         if mode == "origin":
-            self._result = TreeAnchor(ref=None, is_origin=True, is_external=False)
-        elif mode == "auto":
-            self._result = TreeAnchor(is_auto=True)
-        elif mode == "role":
+            return (TreeAnchor(ref=None, is_origin=True, is_external=False), None)
+        if mode == "auto":
+            return (TreeAnchor(is_auto=True), None)
+        if mode == "role":
             role = self.role_edit.currentText().strip()
             if not role:
-                QMessageBox.warning(self, _("Set anchor"), _("Role is required."))
-                return
-            self._result = TreeAnchor(
+                return (None, _("Role is required."))
+            return (TreeAnchor(
                 role=role, is_origin=False,
                 anchor_sheet=self.sheet_edit.currentText().strip() or None,
                 anchor_cluster=self.cluster_edit.currentText().strip() or None,
-                anchor_pad=self.pad_edit.text().strip() or None)
-        elif mode == "point":
+                anchor_pad=self.pad_edit.text().strip() or None), None)
+        if mode == "point":
             point = self.point_edit.currentText().strip()
             if not point:
-                QMessageBox.warning(self, _("Set anchor"), _("Point name is required."))
-                return
-            self._result = TreeAnchor(point=point, is_origin=False)
-        else:  # record / external
-            ref = self.ref_combo.currentText().strip()
-            if not ref:
-                QMessageBox.warning(self, _("Set anchor"), _("Ref is required."))
-                return
-            # "external" mode = live-board refdes, never a config record name —
-            # carry it as is_external so the resolver can't hit a name collision.
-            self._result = TreeAnchor(ref=ref, is_origin=False,
-                                      is_external=(mode == "external"))
+                return (None, _("Point name is required."))
+            return (TreeAnchor(point=point, is_origin=False), None)
+        # record / external
+        ref = self.ref_combo.currentText().strip()
+        if not ref:
+            return (None, _("Ref is required."))
+        # "external" mode = live-board refdes, never a config record name —
+        # carry it as is_external so the resolver can't hit a name collision.
+        return (TreeAnchor(ref=ref, is_origin=False,
+                           is_external=(mode == "external")), None)
+
+    def apply(self) -> bool:
+        """Anchor-tab Phase B Apply (plan §2.3): write the form's value onto
+        the tree's anchor in place and mark the dock dirty — stays open (the
+        caller owns the button row). Resets _touched (design §9.4)."""
+        anchor, err = self.build_anchor()
+        if err:
+            self.apply_status_label.setText(err)
+            return False
+        if self._tree is not None:
+            self._tree.anchor = anchor
+        if self._dock is not None:
+            self._dock._mark_dirty()
+        self._touched = False
+        self.apply_status_label.setText(_("Applied — keep editing or Redraw."))
+        return True
+
+    def redraw(self) -> None:
+        """Anchor-tab Phase B Redraw (plan §2.3): apply() first, then the
+        existing whole-tree redraw — an anchor moves the WHOLE tree, a
+        point-redraw for it has no meaning (design §9.3)."""
+        if not self.apply():
+            return
+        if self._dock is not None:
+            self._dock._on_redraw_whole_tree()
+            self.apply_status_label.setText(_("Applied — whole-tree redraw started."))
+
+
+class _AnchorDialog(QDialog):
+    """Thin modal wrapper around a single AnchorFormWidget (plan
+    plan_2026_09_04_trees_dock_master_detail.md §2.4): the form is
+    modal-agnostic (a plain QWidget); THIS class adds a pure OK/Cancel row and
+    exec()s it. Kept because _on_create_tree (Tools → Trees → Create tree) —
+    the master flow for a NEW tree that does not exist yet — still needs a
+    modal anchor picker (a persistent tab cannot host the anchor of a tree
+    that is not created). Every form field/method is reachable on the dialog
+    (delegated to the embedded form) so the existing tests keep working until
+    §6 ports them onto AnchorFormWidget directly."""
+    _form: Optional[AnchorFormWidget] = None
+
+    def __init__(self, parent, ref_candidates, *, cfg=None, sheet_names=None,
+                 role_candidates=None, cluster_candidates=None, existing=None,
+                 tree=None):
+        super().__init__(parent)
+        self.setWindowTitle(_("Set anchor"))
+        self._result: Optional[TreeAnchor] = None
+        # The FORM is built with the original `parent` (the TreesDock, not this
+        # dialog) so its _dock resolves to the dock that owns _mark_dirty —
+        # addWidget below reparents the form visually without touching _dock.
+        self._form = AnchorFormWidget(
+            parent, ref_candidates, cfg=cfg, sheet_names=sheet_names,
+            role_candidates=role_candidates,
+            cluster_candidates=cluster_candidates, existing=existing,
+            tree=tree)
+        layout = QVBoxLayout(self)
+        layout.addWidget(self._form)
+        buttons = QHBoxLayout()
+        self.ok_button = QPushButton(_("OK"))
+        self.ok_button.clicked.connect(self._accept)
+        cancel_button = QPushButton(_("Cancel"))
+        cancel_button.clicked.connect(self.reject)
+        buttons.addWidget(self.ok_button)
+        buttons.addWidget(cancel_button)
+        layout.addLayout(buttons)
+
+    def __getattr__(self, name):
+        # Delegate any form field/method to the embedded AnchorFormWidget (the
+        # dialog keeps the QDialog surface only). Only reached when normal
+        # attribute lookup fails — form-only names like mode_combo/ref_combo/
+        # role_edit/tabs/etc.
+        form = self.__dict__.get("_form")
+        if form is not None:
+            return getattr(form, name)
+        raise AttributeError(name)
+
+    def _accept(self) -> None:
+        anchor, err = self._form.build_anchor()
+        if err:
+            QMessageBox.warning(self, _("Set anchor"), err)
+            return
+        self._result = anchor
         self.accept()
 
     @staticmethod
