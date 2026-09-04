@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import QTimer, Qt
-from PyQt6.QtWidgets import QDialog, QMessageBox
+from PyQt6.QtWidgets import QDialog, QMessageBox, QTabWidget
 
 from .docks._common import display_path, show_message
 from .docks.entity_delete import delete_entry
@@ -93,6 +93,14 @@ class DockHub:
         self.trees_dock = TreesDock(main_window)
         main_window.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.trees_dock)
         main_window.tabifyDockWidget(self.config_tree_dock, self.trees_dock)
+
+        # Tab labels of the whole LEFT dock area go to the BOTTOM of the group
+        # (plan_2026_09_04_trees_dock_master_detail.md §4, confirmed with Denis:
+        # the full triple RoleClusterTreeDock + ConfigTreeDock + TreesDock group
+        # moves, not just the Config/Trees pair — setTabPosition is per AREA, so
+        # the single call covers all three).
+        main_window.setTabPosition(
+            Qt.DockWidgetArea.LeftDockWidgetArea, QTabWidget.TabPosition.South)
 
         # ── bottom: Pending changes (constructed here — shared between
         # RoleClusterTreeDock's live-board writes and fieldstool's own

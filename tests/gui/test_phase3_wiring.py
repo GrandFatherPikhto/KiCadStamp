@@ -14,7 +14,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-from PyQt6.QtWidgets import QDialog
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QDialog, QTabWidget
 
 from gui.schema_model import SchematicComponent
 from kicadstamp.config import NetTrace
@@ -1197,6 +1198,20 @@ def test_dock_hub_constructs_all_docks(main_window, tmp_path):
         assert hub.placer_dock._cells_path is None
         assert hub.points_dock._path is None
         assert hub.rules_dock._path is None
+    finally:
+        _teardown_hub(hub)
+
+
+def test_left_dock_tabs_are_on_the_south(main_window):
+    """Plan §4 (trees master-detail): the whole LEFT dock area's tab bar sits at
+    the BOTTOM of the group (RoleClusterTreeDock + ConfigTreeDock + TreesDock —
+    confirmed with Denis: the full triple moves, not just the Config/Trees pair).
+    setTabPosition is per DOCK-WIDGET-AREA, so DockHub's single call covers all
+    three tabbed left docks."""
+    hub = DockHub(main_window, connection=main_window.connection, verbose=False)
+    try:
+        assert main_window.tabPosition(
+            Qt.DockWidgetArea.LeftDockWidgetArea) == QTabWidget.TabPosition.South
     finally:
         _teardown_hub(hub)
 
