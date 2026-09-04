@@ -26,6 +26,7 @@ from kicadstamp.domain.board import Footprint
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import ValidationError, format_fatal_error
 from kicadstamp.geometry.clone_geometry import clone_origin_from_component
+from kicadstamp.geometry.spoke_layout import rotate_local_offset
 from kicadstamp.i18n import _
 from kicadstamp.placement.services.clone_role_resolver import (
     clone_uses_selection_mode,
@@ -41,6 +42,7 @@ from kicadstamp.placement.services.coordinate_position_calculator import (
     resolve_footprint_by_cluster_role,
 )
 from kicadstamp.placement.services.point_resolver import resolve_point_chain
+from kicadstamp.utils.units import MM
 
 
 @dataclass
@@ -96,6 +98,27 @@ def read_anchor_live(adapter, fields: dict, points: dict, sheet_names,
     return LiveRead(position=position, rotation_deg=fp.angle_deg, footprint=fp)
 
 
+def _resolve_clone_role_to_ref(adapter, cfg, clone, cell, sheet_names) -> dict[str, str]:
+    """The clone's role -> live-ref map — the resolution block both
+    read_clone_origin_live and read_cell_anchor_offset_live need. by-nets or
+    by-selection (the SAME branch as apply/Select-on-board), honoring
+    clone.ignore_selection through the adapter's temporarily_ignore_selection
+    when present. Shared (2026-09-04, design cell_internal_anchor) so the
+    Role+Pad rebase never duplicates the resolver logic blindly."""
+    ignore_ctx = getattr(adapter, "temporarily_ignore_selection", None)
+
+    def _resolve() -> dict[str, str]:
+        if clone_uses_selection_mode(clone, adapter=adapter, cell=cell,
+                                     sheet_names=sheet_names):
+            return resolve_roles_by_selection(adapter, cell, clone, sheet_names=sheet_names)
+        return resolve_roles_by_nets(adapter, cell, clone, sheet_names=sheet_names)
+
+    if callable(ignore_ctx):
+        with ignore_ctx(clone.ignore_selection):
+            return _resolve()
+    return _resolve()
+
+
 def read_clone_origin_live(adapter, cfg, clone, sheet_names) -> LiveRead:
     """A ClonePlacement's CELL ORIGIN (its cell-local (0,0)) read from the
     live board, re-derived from ONE placed component via the pure inverse
@@ -115,20 +138,7 @@ def read_clone_origin_live(adapter, cfg, clone, sheet_names) -> LiveRead:
             _("cell {cell!r} not found in config").format(cell=clone.cell),
             [_("extract/save the cell and make sure include: is wired (see Extract)")]))
 
-    ignore_ctx = getattr(adapter, "temporarily_ignore_selection", None)
-
-    def resolve_role_to_ref() -> dict[str, str]:
-        if clone_uses_selection_mode(clone, adapter=adapter, cell=cell,
-                                     sheet_names=sheet_names):
-            return resolve_roles_by_selection(adapter, cell, clone, sheet_names=sheet_names)
-        return resolve_roles_by_nets(adapter, cell, clone, sheet_names=sheet_names)
-
-    if callable(ignore_ctx):
-        with ignore_ctx(clone.ignore_selection):
-            role_to_ref = resolve_role_to_ref()
-    else:
-        role_to_ref = resolve_role_to_ref()
-
+    role_to_ref = _resolve_clone_role_to_ref(adapter, cfg, clone, cell, sheet_names)
     slot = _reference_slot(cell, role_to_ref)
     if slot is None:
         raise ValidationError(format_fatal_error(
@@ -147,6 +157,61 @@ def read_clone_origin_live(adapter, cfg, clone, sheet_names) -> LiveRead:
     origin, rotation = clone_origin_from_component(
         fp.position, fp.angle_deg, slot, clone.mirror)
     return LiveRead(position=origin, rotation_deg=rotation, footprint=fp)
+
+
+def read_cell_anchor_offset_live(adapter, cfg, clone, sheet_names,
+                                 role: str, pad: str) -> tuple[float, float]:
+    """(ax_mm, ay_mm) of ONE pad of the live-resolved role's footprint,
+    expressed in the CELL's own local (unrotated, unmirrored) frame — the
+    delta rebase_cell_anchor (cell_geometry_refresh.py) needs for a Role+Pad
+    internal-anchor rebase (design 2026-09-04_cell_internal_anchor.md §2.2).
+
+    Reuses read_clone_origin_live's (origin, rotation_deg) for the SAME clone
+    (the live test placement Placer is currently editing — the same instance
+    "Read current position" reads), then resolves the pad's absolute position
+    and inverts it back into the cell's local frame:
+      delta = pad_world_pos - origin
+      (ax_mm, ay_mm) = rotate_local_offset(delta.x/MM, delta.y/MM, -rotation_deg)
+    When the clone is MIRRORED the world pad is first un-mirrored about the
+    vertical axis through `origin` (the same X-flip as clone_geometry's
+    _mirror_x): stored cell offsets are described unmirrored, so the anchor
+    must be unmirrored too, or a mirrored live test clone would silently
+    report a mirrored (wrong) anchor.
+
+    Fatal ValidationError when the cell/role doesn't resolve to a live ref, or
+    that ref has no such pad — same "never guess" discipline as every other
+    resolver in this module."""
+    cell = cfg.cells.get(clone.cell)
+    if cell is None:
+        raise ValidationError(format_fatal_error(
+            _("cell {cell!r} not found in config").format(cell=clone.cell),
+            [_("extract/save the cell and make sure include: is wired (see Extract)")]))
+    origin_read = read_clone_origin_live(adapter, cfg, clone, sheet_names)
+    role_to_ref = _resolve_clone_role_to_ref(adapter, cfg, clone, cell, sheet_names)
+    ref = role_to_ref.get(role)
+    name = clone_placement_effective_name(clone)
+    if ref is None:
+        raise ValidationError(format_fatal_error(
+            _("clone {name!r}: role {role!r} is not on the live board").format(
+                name=name, role=role),
+            [_("place the cell on the board first, or check its nets/selection "
+               "resolution — never a guess")]))
+    fp = adapter.get_footprint(ref)
+    if fp is None:
+        raise ValidationError(format_fatal_error(
+            _("clone {name!r}: role {role!r} resolved to {ref!r}, but that ref "
+              "is not on the live board").format(name=name, role=role, ref=ref),
+            [_("the board changed since the last apply — place the component first")]))
+    pad_pos = resolve_anchor_pad_position(adapter, fp, pad, name)
+    origin = origin_read.position
+    wx = pad_pos.x
+    wy = pad_pos.y
+    if clone.mirror:
+        wx = 2 * origin.x - wx  # un-mirror about the vertical axis through origin
+    delta_x_mm = (wx - origin.x) / MM
+    delta_y_mm = (wy - origin.y) / MM
+    offset = rotate_local_offset(delta_x_mm, delta_y_mm, -origin_read.rotation_deg)
+    return (offset.x / MM, offset.y / MM)
 
 
 def _reference_slot(cell, role_to_ref: dict[str, str]):

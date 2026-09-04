@@ -18,7 +18,8 @@ from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.exceptions import ValidationError
 
 from gui.docks.live_position import (
-    read_anchor_live, read_clone_origin_live, read_coordinate_live,
+    read_anchor_live, read_cell_anchor_offset_live,
+    read_clone_origin_live, read_coordinate_live,
 )
 
 MM = 1_000_000
@@ -56,6 +57,13 @@ def _get_pads(fp):
 
 def _get_pad_by_number(fp, num):
     return next((p for p in _get_pads(fp) if p.number == str(num)), None)
+
+
+class _StubPad:
+    """A pad with a hand-chosen absolute world position (nm), for the anchor
+    offset live tests — real pad geometry is irrelevant to the reader."""
+    def __init__(self, x_mm, y_mm):
+        self.position = Vector2.from_xy_mm(x_mm, y_mm)
 
 
 def _adapter(fps):
@@ -270,3 +278,105 @@ class TestReadCloneOriginLive:
                             lambda *a, **k: {"CAP_IN": "C10", "CAP_OUT": "C11"})
         with pytest.raises(ValidationError, match="not on the live board"):
             read_clone_origin_live(adapter, cfg, clone, {})
+
+
+class TestReadCellAnchorOffsetLive:
+    """(ax_mm, ay_mm) of one pad in the cell's OWN local (unrotated,
+    unmirrored) frame — the numeric-regression guard (design 2026-09-04_
+    cell_internal_anchor §2.2): the exact same risk as the instantiate
+    absolute-mode test — a silently wrong sign or an un-inverted rotation/
+    mirror would land the rebase anchor somewhere else entirely.
+
+    Setup: CAP_IN sits at the cell's local (0,0) (so the recovered cell
+    origin == its live position regardless of rotation/mirror), CAP_OUT at
+    local (2,1). We rebase onto CAP_OUT's pad 'A1', whose cell-local offset
+    is (3, 1) — the pad's world position is hand-placed from that local
+    offset via the FORWARD geometry, and the reader must invert it back."""
+
+    def _cell(self):
+        return Cell(name="fpga_flash", components=[
+            TemplateComponentSlot(role="CAP_IN", offset_along_mm=0.0,
+                                  offset_across_mm=0.0, angle_deg=0.0),
+            TemplateComponentSlot(role="CAP_OUT", offset_along_mm=2.0,
+                                  offset_across_mm=1.0, angle_deg=180.0),
+        ])
+
+    def _run(self, monkeypatch, cap_in_angle, mirror, pad_world_mm):
+        import gui.docks.live_position as lp
+        cfg = MagicMock()
+        cfg.cells = {"fpga_flash": self._cell()}
+        c10 = _make_fp("C10", role="CAP_IN", cluster="FPGA_FLASH",
+                       position=Vector2.from_xy_mm(10.0, 20.0), angle=cap_in_angle)
+        c11 = _make_fp("C11", role="CAP_OUT", cluster="FPGA_FLASH")
+        clone = ClonePlacement(cluster="FPGA_FLASH", cell="fpga_flash",
+                               xy=(10.0, 20.0), mirror=mirror)
+        adapter = MagicMock()
+        adapter.get_footprint.side_effect = {c10.ref: c10, c11.ref: c11}.get
+        px, py = pad_world_mm
+        adapter.get_pad_by_number.side_effect = lambda fp, num: _StubPad(px, py)
+        monkeypatch.setattr(lp, "clone_uses_selection_mode", lambda *a, **k: False)
+        monkeypatch.setattr(lp, "resolve_roles_by_nets",
+                            lambda *a, **k: {"CAP_IN": "C10", "CAP_OUT": "C11"})
+        return lp.read_cell_anchor_offset_live(adapter, cfg, clone, {}, "CAP_OUT", "A1")
+
+    def test_unrotated_returns_cell_local_pad_offset(self, monkeypatch):
+        # Rotation 0, no mirror: origin == C10 at (10, 20); pad at local (3,1)
+        # -> world (13, 21).
+        ax, ay = self._run(monkeypatch, cap_in_angle=0.0, mirror=False,
+                           pad_world_mm=(13.0, 21.0))
+        assert ax == pytest.approx(3.0, abs=1e-6)
+        assert ay == pytest.approx(1.0, abs=1e-6)
+
+    def test_rotation_90_is_inverted_back(self, monkeypatch):
+        # Placement rotation 90 (CAP_IN angle 90, local (0,0) -> origin stays
+        # (10,20)). Forward: world pad = origin + R90(3,1) = (11, 17) —
+        # R90(3,1) = (1,-3) (real kipy Vector2.rotate convention).
+        ax, ay = self._run(monkeypatch, cap_in_angle=90.0, mirror=False,
+                           pad_world_mm=(11.0, 17.0))
+        assert ax == pytest.approx(3.0, abs=1e-6)
+        assert ay == pytest.approx(1.0, abs=1e-6)
+
+    def test_mirrored_clone_is_unmirrored_back(self, monkeypatch):
+        # Mirror, rotation 0 (CAP_IN angle must be 180 under mirror for a
+        # 0-rotation placement). Forward world pad = mirror_x(origin, origin +
+        # (3,1)) about x=10 -> (7, 21); the reader must report the UNMIRRORED
+        # local (3, 1) — the frame rebase_cell_anchor actually shifts.
+        ax, ay = self._run(monkeypatch, cap_in_angle=180.0, mirror=True,
+                           pad_world_mm=(7.0, 21.0))
+        assert ax == pytest.approx(3.0, abs=1e-6)
+        assert ay == pytest.approx(1.0, abs=1e-6)
+
+    def test_unresolved_role_is_fatal(self, monkeypatch):
+        import gui.docks.live_position as lp
+        cfg = MagicMock()
+        cfg.cells = {"fpga_flash": self._cell()}
+        c10 = _make_fp("C10", role="CAP_IN", cluster="FPGA_FLASH",
+                       position=Vector2.from_xy_mm(10.0, 20.0))
+        c11 = _make_fp("C11", role="CAP_OUT", cluster="FPGA_FLASH")
+        adapter = MagicMock()
+        adapter.get_footprint.side_effect = {c10.ref: c10, c11.ref: c11}.get
+        clone = ClonePlacement(cluster="FPGA_FLASH", cell="fpga_flash",
+                               xy=(10.0, 20.0))
+        monkeypatch.setattr(lp, "clone_uses_selection_mode", lambda *a, **k: False)
+        monkeypatch.setattr(lp, "resolve_roles_by_nets",
+                            lambda *a, **k: {"CAP_IN": "C10"})  # CAP_OUT missing
+        with pytest.raises(ValidationError, match="role 'CAP_OUT'.*not on the live board"):
+            lp.read_cell_anchor_offset_live(adapter, cfg, clone, {}, "CAP_OUT", "A1")
+
+    def test_missing_pad_is_fatal(self, monkeypatch):
+        import gui.docks.live_position as lp
+        cfg = MagicMock()
+        cfg.cells = {"fpga_flash": self._cell()}
+        c10 = _make_fp("C10", role="CAP_IN", cluster="FPGA_FLASH",
+                       position=Vector2.from_xy_mm(10.0, 20.0))
+        c11 = _make_fp("C11", role="CAP_OUT", cluster="FPGA_FLASH")
+        adapter = MagicMock()
+        adapter.get_footprint.side_effect = {c10.ref: c10, c11.ref: c11}.get
+        adapter.get_pad_by_number.return_value = None  # no such pad
+        clone = ClonePlacement(cluster="FPGA_FLASH", cell="fpga_flash",
+                               xy=(10.0, 20.0))
+        monkeypatch.setattr(lp, "clone_uses_selection_mode", lambda *a, **k: False)
+        monkeypatch.setattr(lp, "resolve_roles_by_nets",
+                            lambda *a, **k: {"CAP_IN": "C10", "CAP_OUT": "C11"})
+        with pytest.raises(ValidationError, match="has no pad"):
+            lp.read_cell_anchor_offset_live(adapter, cfg, clone, {}, "CAP_OUT", "A1")

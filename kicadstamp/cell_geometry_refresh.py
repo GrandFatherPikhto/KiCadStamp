@@ -48,6 +48,7 @@ problem into a single ValidationError (format_fatal_error), never raising on
 the first one.
 """
 import re
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
@@ -68,6 +69,7 @@ __all__ = [
     "cell_zero_slot_role",
     "match_components",
     "net_template_regex",
+    "rebase_cell_anchor",
 ]
 
 # One str.format placeholder, as resolve_placeholder (net_resolution.py)
@@ -678,3 +680,78 @@ def build_import_plan(components: list[dict], vias: list[dict], tracks: list[dic
         new_via_records=new_via_records,
         new_track_records=new_track_records,
     )
+
+
+def rebase_cell_anchor(entry: dict, ax_mm: float, ay_mm: float,
+                       role: str, pad: str | None = None) -> dict:
+    """Shift EVERY local along/across offset in a Cell's dict representation
+    (entry — the SAME shape cell_editor's _build_cell_dict()/load_cell()
+    builds: components/vias/tracks/clone_placements keys) by (-ax_mm, -ay_mm),
+    so that the point formerly at (ax_mm, ay_mm) becomes the new local (0,0).
+    This is the "assign/move a Cell's REAL internal anchor" operation (design
+    2026-09-04_cell_internal_anchor.md §2.2): a one-shot MUTATION of the
+    stored offsets instead of a change to any placement formula — every
+    existing resolver (materialization, ClonePlacement/Rules) just keeps
+    reading the (now shifted) local offsets and sees the new origin for free.
+
+    Records role/pad into entry["anchor_role"]/entry["anchor_pad"] afterwards —
+    the same bookkeeping fields the extractor/cell editor write, now TRUTHFULLY
+    describing the origin again — and clears any stale anchor_xy/anchor_pad a
+    PREVIOUS anchor left behind (the three anchor forms are mutually exclusive;
+    load_cell() fatals on their mixture).
+
+    Pure data transform — no adapter, no live board, no Config. Returns a NEW
+    dict (copy.deepcopy), NEVER mutates the caller's dict in place — the same
+    "don't mutate your inputs" discipline build_refresh_plan already follows.
+    """
+    roles = {c.get("role") for c in entry.get("components", [])}
+    if not role:
+        raise ValidationError(format_fatal_error(
+            _("rebase cell anchor: role is required"),
+            [_("pick which of the cell's own components the new local (0,0) "
+               "should sit at")]))
+    if role not in roles:
+        raise ValidationError(format_fatal_error(
+            _("rebase cell anchor: role {role!r} is not a component of this cell")
+            .format(role=role),
+            [_("anchor_role must name one of the cell's own components: {roles}")
+             .format(roles=sorted(r for r in roles if r))]))
+
+    out = deepcopy(entry)
+
+    def _shift(record: dict) -> None:
+        """Subtract (ax_mm, ay_mm) from a local along/across record."""
+        record["offset_along_mm"] = round(record.get("offset_along_mm", 0.0) - ax_mm, 9)
+        record["offset_across_mm"] = round(record.get("offset_across_mm", 0.0) - ay_mm, 9)
+
+    # Components (+ each component's OWN vias).
+    for c in out.get("components", []):
+        _shift(c)
+        for via in c.get("vias", []):
+            _shift(via)
+    # Cell-level vias.
+    for via in out.get("vias", []):
+        _shift(via)
+    # Cell-level tracks — both endpoints.
+    for t in out.get("tracks", []):
+        t["start_along_mm"] = round(t.get("start_along_mm", 0.0) - ax_mm, 9)
+        t["start_across_mm"] = round(t.get("start_across_mm", 0.0) - ay_mm, 9)
+        t["end_along_mm"] = round(t.get("end_along_mm", 0.0) - ax_mm, 9)
+        t["end_across_mm"] = round(t.get("end_across_mm", 0.0) - ay_mm, 9)
+    # Nested clone_placements (CellPlacement): Cartesian xy only — no polar
+    # fields exist on this type (config/entries.py's _CELL_PLACEMENT_KNOWN_KEYS
+    # whitelist has no radius_mm/angle_deg; any would fatal at load), so shift
+    # xy when present and skip a record without it (loader-defaulted (0,0) is
+    # not a stored field worth inventing here).
+    for cp in out.get("clone_placements", []):
+        if "xy" in cp and cp["xy"] is not None:
+            cp["xy"] = [round(cp["xy"][0] - ax_mm, 9),
+                        round(cp["xy"][1] - ay_mm, 9)]
+
+    out["anchor_role"] = role
+    if pad:
+        out["anchor_pad"] = pad
+    else:
+        out.pop("anchor_pad", None)
+    out.pop("anchor_xy", None)
+    return out

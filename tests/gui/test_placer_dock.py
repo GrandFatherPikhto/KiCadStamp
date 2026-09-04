@@ -13,6 +13,7 @@ manual verification against KiCad, same as every other dock this session.
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import gui.docks.placer as placer_mod
 import kicadstamp.undo as undo_mod
@@ -2683,3 +2684,161 @@ def test_set_board_selection_autofill_triggers_nets_pipeline(main_window, tmp_pa
 
     assert dock.cluster_edit.currentText() == "FPGA_FLASH"
     assert calls == [True]
+
+
+# ── Cell internal anchor (design 2026-09-04_cell_internal_anchor) ──────────
+
+def _make_cell_and_dock_anchor(main_window, tmp_path):
+    """A composite cell (component with its own via, cell-level via, track,
+    nested clone_placement) in an INCLUDED cells file — everything the rebase
+    must shift, with clean offsets (FPGA at (2.5, 1.0))."""
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"cells": {
+        "composite": {
+            "components": [
+                {"role": "FPGA", "offset_along_mm": 2.5, "offset_across_mm": 1.0,
+                 "angle_deg": 0.0,
+                 "vias": [{"offset_along_mm": 2.5, "offset_across_mm": 2.2,
+                           "net": "GND"}]},
+                {"role": "CAP", "offset_along_mm": 3.5, "offset_across_mm": -1.0,
+                 "angle_deg": 90.0},
+            ],
+            "vias": [{"offset_along_mm": 5.0, "offset_across_mm": 4.0, "net": "VCC"}],
+            "tracks": [{"start_along_mm": 0.0, "start_across_mm": 0.0,
+                        "end_along_mm": 3.0, "end_across_mm": 2.0,
+                        "width_mm": 0.25, "net": "+3V3"}],
+            "clone_placements": [{"name": "leaf", "cell": "leaf_cell",
+                                  "xy": [1.0, 1.0], "rotation_deg": 0.0}],
+            "layer": "F.Cu",
+        }
+    }})
+    placer_file = tmp_path / "root.sexp"
+    _write(placer_file, {"clone_placements": [], "include": ["cells.sexp"]})
+    dock = PlacerDock(main_window)
+    dock.set_root_path(placer_file)
+    dock.set_selected_cell("composite")
+    return dock, cells_file, placer_file
+
+
+def _close(a, b, tol=1e-6):
+    return abs(a - b) < tol
+
+
+def _off(record, key):
+    """Value of a local-offset key, defaulting to 0.0 when absent — the sexp
+    writer omits fields equal to their loader default, so a rebased-to-(0,0)
+    offset is simply not stored in the file."""
+    return float(record.get(key, 0.0))
+
+
+def test_cell_anchor_role_combo_is_sourced_from_cell_components(main_window, tmp_path):
+    """The Role picker lists THIS cell's own components (like CellDock's
+    anchor_role_combo), never board-wide roles."""
+    dock, _, _ = _make_cell_and_dock_anchor(main_window, tmp_path)
+    items = [dock.cell_anchor_role_combo.itemText(i)
+             for i in range(dock.cell_anchor_role_combo.count())]
+    assert items == ["CAP", "FPGA"]
+
+
+def test_set_cell_anchor_role_mode_rebases_offline(main_window, tmp_path):
+    """Role mode needs NO live board (the board is not connected): rebase by
+    the FPGA component's own offset — FPGA lands on (0,0), every local offset
+    (incl. its own via, cell via, track endpoints, nested xy) shifts by the
+    same delta, and anchor_role is written to the cell's OWN file."""
+    dock, cells_file, _ = _make_cell_and_dock_anchor(main_window, tmp_path)
+    assert main_window.connection.board is None  # offline regression guard
+    dock.cell_anchor_role_combo.setCurrentText("FPGA")
+    dock.cell_anchor_pad_edit.setText("")
+    dock._on_set_cell_anchor()
+
+    cell = _load(cells_file)["cells"]["composite"]
+    by_role = {c["role"]: c for c in cell["components"]}
+    assert _off(by_role["FPGA"], "offset_along_mm") == 0.0
+    assert _off(by_role["FPGA"], "offset_across_mm") == 0.0
+    assert _close(by_role["FPGA"]["vias"][0].get("offset_along_mm", 0.0), 0.0)
+    assert _close(by_role["FPGA"]["vias"][0].get("offset_across_mm"), 1.2)
+    assert _close(by_role["CAP"].get("offset_along_mm"), 1.0)
+    assert _close(by_role["CAP"].get("offset_across_mm"), -2.0)
+    assert _close(cell["vias"][0].get("offset_along_mm"), 2.5)
+    assert _close(cell["vias"][0].get("offset_across_mm"), 3.0)
+    assert _close(cell["tracks"][0].get("start_along_mm"), -2.5)
+    assert _close(cell["tracks"][0].get("end_along_mm"), 0.5)
+    assert _close(cell["clone_placements"][0]["xy"][0], -1.5)
+    assert cell["clone_placements"][0]["xy"][1] == 0.0
+    assert cell["anchor_role"] == "FPGA"
+    assert "anchor_pad" not in cell
+    assert "anchor_xy" not in cell
+
+
+def test_set_cell_anchor_role_pad_requires_connection(main_window, tmp_path, monkeypatch):
+    """Role+Pad mode needs the live pad geometry — no board must warn
+    ("Not connected") and leave the cell untouched, never a silent partial
+    write."""
+    dock, cells_file, _ = _make_cell_and_dock_anchor(main_window, tmp_path)
+    warnings = []
+    monkeypatch.setattr(placer_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or None)
+    before = _load(cells_file)
+    dock.cell_anchor_role_combo.setCurrentText("FPGA")
+    dock.cell_anchor_pad_edit.setText("A1")
+    dock._on_set_cell_anchor()
+
+    assert warnings  # the "no live board connection" warning fired
+    assert _load(cells_file) == before  # nothing written
+
+
+def test_set_cell_anchor_role_pad_stages_with_adapter(main_window, tmp_path, monkeypatch):
+    """Role+Pad mode with a (fake) live adapter delegates the geometry to
+    read_cell_anchor_offset_live and rebases + records anchor_pad into the
+    cell's own file."""
+    dock, cells_file, _ = _make_cell_and_dock_anchor(main_window, tmp_path)
+    main_window.connection.board = SimpleNamespace(adapter=MagicMock())
+    dock.cluster_edit.setCurrentText("FPGA_FLASH")
+    # The pad's cell-local offset (2.5, 1.0) — the pure reader is covered by
+    # tests/test_live_position.py; here we only exercise the dock's wiring.
+    monkeypatch.setattr(placer_mod, "read_cell_anchor_offset_live",
+                        lambda *a, **k: (2.5, 1.0))
+    dock.cell_anchor_role_combo.setCurrentText("FPGA")
+    dock.cell_anchor_pad_edit.setText("A1")
+    dock._on_set_cell_anchor()
+
+    cell = _load(cells_file)["cells"]["composite"]
+    by_role = {c["role"]: c for c in cell["components"]}
+    assert _off(by_role["FPGA"], "offset_along_mm") == 0.0
+    assert _off(by_role["FPGA"], "offset_across_mm") == 0.0
+    assert _close(by_role["CAP"].get("offset_across_mm"), -2.0)
+    assert cell["anchor_role"] == "FPGA"
+    assert cell["anchor_pad"] == "A1"
+    assert "anchor_xy" not in cell
+
+
+def test_set_cell_anchor_repeated_rebase_clears_previous_pad(main_window, tmp_path, monkeypatch):
+    """A second rebase with a DIFFERENT anchor (role+pad first, then role-only)
+    must not leave the previous anchor_pad behind (load_cell fatals on a pad
+    without a role)."""
+    dock, cells_file, _ = _make_cell_and_dock_anchor(main_window, tmp_path)
+    main_window.connection.board = SimpleNamespace(adapter=MagicMock())
+    dock.cluster_edit.setCurrentText("FPGA_FLASH")
+    monkeypatch.setattr(placer_mod, "read_cell_anchor_offset_live",
+                        lambda *a, **k: (2.5, 1.0))
+
+    # 1st: role+pad rebase onto FPGA pad A1.
+    dock.cell_anchor_role_combo.setCurrentText("FPGA")
+    dock.cell_anchor_pad_edit.setText("A1")
+    dock._on_set_cell_anchor()
+    cell = _load(cells_file)["cells"]["composite"]
+    assert cell["anchor_role"] == "FPGA"
+    assert cell["anchor_pad"] == "A1"
+
+    # 2nd: role-only rebase onto CAP (pad cleared) — old pad must vanish.
+    dock.cell_anchor_role_combo.setCurrentText("CAP")
+    dock.cell_anchor_pad_edit.setText("")
+    dock._on_set_cell_anchor()
+    cell2 = _load(cells_file)["cells"]["composite"]
+    by_role = {c["role"]: c for c in cell2["components"]}
+    assert cell2["anchor_role"] == "CAP"
+    assert "anchor_pad" not in cell2
+    assert "anchor_xy" not in cell2
+    # CAP — the new anchor role — sits exactly on the new (0,0).
+    assert _off(by_role["CAP"], "offset_along_mm") == 0.0
+    assert _off(by_role["CAP"], "offset_across_mm") == 0.0

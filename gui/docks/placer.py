@@ -117,10 +117,12 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from kipy.errors import ApiError
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QGridLayout,
-                              QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-                              QPushButton, QTabWidget, QVBoxLayout, QWidget)
+                              QGroupBox, QHBoxLayout, QLabel, QLineEdit,
+                              QMessageBox, QPushButton, QTabWidget, QVBoxLayout,
+                              QWidget)
 
 from kicadstamp.apply_pipeline import ApplyPipeline
+from kicadstamp.cell_geometry_refresh import rebase_cell_anchor
 from kicadstamp.config import (ClonePlacement, Config, Entity, RuntimeContext,
                                clone_placement_effective_name,
                                coordinate_placement_effective_name,
@@ -140,14 +142,15 @@ from kicadstamp.utils.units import MM
 from ..ui_utils import busy
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
-from .live_position import (LiveRead, read_anchor_live, read_clone_origin_live,
-                            read_coordinate_live)
+from .live_position import (LiveRead, read_anchor_live,
+                            read_cell_anchor_offset_live,
+                            read_clone_origin_live, read_coordinate_live)
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       WARN_STYLE as _WARN_STYLE, KeyValueTableEditor,
-                      configure_searchable, display_path, parse_float_field,
-                      read_data, set_combo_items, set_mode_pair_enabled,
-                      show_message, upsert_clone_placement, upsert_entity,
-                      upsert_entity_placement, upsert_list_entry)
+                      configure_searchable, display_path, merge_write,
+                      parse_float_field, read_data, set_combo_items,
+                      set_mode_pair_enabled, show_message, upsert_clone_placement,
+                      upsert_entity, upsert_entity_placement, upsert_list_entry)
 # _KeyValueTableEditor moved to _common.KeyValueTableEditor (2026-08-30,
 # ToolsDock shares it) — keep the old private name for existing call sites
 # and tests (placer_mod._KeyValueTableEditor).
@@ -156,7 +159,8 @@ from .cascade import cascade_records, run_cascade_worker
 from .entity_delete import delete_entry
 from .rename import (collect_all_cell_names, collect_all_point_names,
                      collect_all_sheet_names, collect_section_entries,
-                     entry_effective_name, find_list_entry_file)
+                     entry_effective_name, find_dict_entry_file,
+                     find_list_entry_file)
 
 logger = logging.getLogger(__name__)
 
@@ -1001,6 +1005,29 @@ class PlacerDock(QWidget):
         origin_page_layout.addLayout(extra_form)
         self.mirror_checkbox = QCheckBox(_("Mirror"))
         origin_page_layout.addWidget(self.mirror_checkbox)
+        # Cell anchor — assign/move the CELL's REAL internal anchor (design
+        # 2026-09-04_cell_internal_anchor.md §2): a one-shot rebase of the
+        # stored offsets so the chosen component (role mode) or its pad
+        # (role+pad mode) becomes the cell's new local (0,0). A per-CELL
+        # action — every applied instance of this cell shifts on the next
+        # Redraw/Apply (design §2.4, expected — no blocking warning). Kept
+        # visually distinct from the Origin section above, which is about
+        # THIS placement's own position, not the cell's origin.
+        self.cell_anchor_box = QGroupBox(_("Cell anchor"))
+        cell_anchor_layout = QVBoxLayout(self.cell_anchor_box)
+        cell_anchor_form = QFormLayout()
+        self.cell_anchor_role_combo = QComboBox()
+        self.cell_anchor_role_combo.setPlaceholderText(
+            _("pick this cell's component role"))
+        cell_anchor_form.addRow(_("Role:"), self.cell_anchor_role_combo)
+        self.cell_anchor_pad_edit = QLineEdit()
+        self.cell_anchor_pad_edit.setPlaceholderText(_("pad (optional)"))
+        cell_anchor_form.addRow(_("Pad:"), self.cell_anchor_pad_edit)
+        cell_anchor_layout.addLayout(cell_anchor_form)
+        self.set_cell_anchor_button = QPushButton(_("Set as anchor"))
+        self.set_cell_anchor_button.clicked.connect(self._on_set_cell_anchor)
+        cell_anchor_layout.addWidget(self.set_cell_anchor_button)
+        origin_page_layout.addWidget(self.cell_anchor_box)
         # Entity mode's placement status (phase 5.2, stage 2): "placed under
         # tree X" vs "не размещено" — the Origin tab edits the Entity's trees:
         # node, and an Entity with no node is a legal unplaced record. Hidden
@@ -1119,6 +1146,9 @@ class PlacerDock(QWidget):
         self._tabs.setTabVisible(self._refs_tab_index, not is_coordinate and not is_entity)
         self._tabs.setTabVisible(self._origin_tab_index, not is_coordinate)
         self._tabs.setTabVisible(self._coordinate_tab_index, is_coordinate)
+        # Cell anchor is a Cell (clone)-mode action — hidden in Entity mode
+        # (the Origin page is shared there; the box would be meaningless).
+        self.cell_anchor_box.setVisible(not is_coordinate and not is_entity)
 
     # ── Wiring from the Config tree / Components tree ─────────────────────
 
@@ -1639,6 +1669,9 @@ class PlacerDock(QWidget):
         roles = sorted({c.get("role") for c in cell_data.get("components", []) if c.get("role")})
         self.nets_table.set_key_choices(roles)
         self.refs_table.set_key_choices(roles)
+        # The Cell-anchor Role picker is sourced the SAME way as CellDock's
+        # anchor_role_combo: THIS cell's own components, never the live board.
+        set_combo_items(self.cell_anchor_role_combo, roles)
 
     # ── Nets "Auto-fill from board" ──────────────────────────────────────
 
@@ -2568,6 +2601,125 @@ class PlacerDock(QWidget):
                 _("Read current position: ({x:.3f}, {y:.3f}) mm").format(
                     x=read.position.x / MM, y=read.position.y / MM),
                 _SUCCESS_STYLE)
+
+    # ── Cell internal anchor (design 2026-09-04_cell_internal_anchor) ──────
+
+    def _on_set_cell_anchor(self) -> None:
+        """"Set as anchor" — assign/move the loaded CELL's REAL internal anchor:
+        rebase every stored local offset so the chosen component's centre (Role
+        mode) or the chosen pad (Role+Pad mode) becomes the cell's new local
+        (0,0). One button, two modes picked by whether Pad is filled:
+          - Role mode — pure cell data, no live board needed: (ax_mm, ay_mm) is
+            the chosen component's own stored offset.
+          - Role+Pad mode — needs the LIVE pad geometry (the test instance the
+            dock is editing must be on the board): read_cell_anchor_offset_live.
+        The rebased cell is written back to the file that actually holds it
+        (cells: is a DICT section that may live in any included file — the same
+        find_dict_entry_file + merge_write path CellDock's own edit uses), then
+        saved is emitted so the Config tree refreshes. No backup_file, no
+        blocking "N places will shift" warning (design §2.4 — expected)."""
+        if self.is_coordinate or self.is_entity:
+            self._show_message(
+                _("Cell anchor applies to Cell (clone) mode only."), _ERROR_STYLE)
+            return
+        if not self._selected_cell:
+            self._show_message(_("Pick a Cell first."), _ERROR_STYLE)
+            return
+        if self._root_path is None:
+            self._show_message(_("Set the project root first."), _ERROR_STYLE)
+            return
+        role = self.cell_anchor_role_combo.currentText().strip()
+        if not role:
+            self._show_message(
+                _("Set as anchor: pick a Role of this cell first."), _ERROR_STYLE)
+            return
+        pad = self.cell_anchor_pad_edit.text().strip() or None
+
+        # The file that physically holds the cell (cells: is dict-keyed; the
+        # entry may live in any file of the include: graph).
+        target_file = find_dict_entry_file(
+            self._root_path, "cells", self._selected_cell)
+        if target_file is None:
+            self._show_message(
+                _("Set as anchor: cell {name!r} not found in the project config")
+                .format(name=self._selected_cell), _ERROR_STYLE)
+            return
+        try:
+            entry = (read_data(target_file).get("cells") or {}).get(self._selected_cell)
+        except (ValidationError, OSError) as e:
+            self._show_message(
+                _("Failed to read {path}: {error}")
+                .format(path=display_path(target_file), error=e), _ERROR_STYLE)
+            return
+        if not isinstance(entry, dict):
+            self._show_message(
+                _("Set as anchor: cell {name!r} not found in {path}")
+                .format(name=self._selected_cell,
+                        path=display_path(target_file)), _ERROR_STYLE)
+            return
+
+        if pad is None:
+            # Role mode — the component's own stored offset, no live board.
+            comp = next((c for c in entry.get("components", [])
+                         if c.get("role") == role), None)
+            if comp is None:
+                self._show_message(
+                    _("Set as anchor: role {role!r} is not a component of cell "
+                      "{name!r}").format(role=role, name=self._selected_cell),
+                    _ERROR_STYLE)
+                return
+            ax_mm = float(comp.get("offset_along_mm", 0.0))
+            ay_mm = float(comp.get("offset_across_mm", 0.0))
+        else:
+            # Role+Pad mode — the pad's offset needs the LIVE placement.
+            board = self._main_window.connection.board
+            if board is None or getattr(board, "adapter", None) is None:
+                QMessageBox.warning(
+                    self, _("Set as anchor"),
+                    _("No live board connection — Role+Pad needs the pad's real "
+                      "position. Leave Pad empty for a Role-only rebase, or "
+                      "connect KiCad first."))
+                return
+            clone = self._build_clone_for_read()
+            if clone is None:
+                self._show_message(
+                    _("Set as anchor: Cluster name and a Cell are required to "
+                      "read the pad's position."), _ERROR_STYLE)
+                return
+            loaded = self._load_target_config(silent=True)
+            if loaded is None:
+                return
+            cfg, ctx = loaded
+            sheet_names = ctx.sheet_names if ctx is not None else {}
+            try:
+                ax_mm, ay_mm = read_cell_anchor_offset_live(
+                    board.adapter, cfg, clone, sheet_names, role, pad)
+            except ValidationError as e:
+                QMessageBox.warning(self, _("Set as anchor"), str(e))
+                return
+
+        try:
+            rebased = rebase_cell_anchor(entry, ax_mm, ay_mm, role, pad)
+            merge_write(target_file, {"cells": {self._selected_cell: rebased}},
+                        section="cells")
+        except (ValidationError, OSError) as e:
+            self._show_message(
+                _("Set as anchor failed: {error}").format(error=e), _ERROR_STYLE)
+            return
+
+        # The cells: entry changed under the graph cache — refresh the Config
+        # tree (and anything else listening to saved) so the rebased offsets
+        # show up; other docks that had this cell cached are not invalidated
+        # further (AnchorTreeDock is gone; ConfigTree is the display owner).
+        self.saved.emit()
+        self._show_message(
+            _("Rebased {name!r} to anchor {role!r}{pad_txt}: all offsets shifted "
+              "by ({ax:.3f}, {ay:.3f}) mm. Already-applied other instances of "
+              "this cell shift on the next Redraw/Apply.")
+            .format(name=self._selected_cell, role=role,
+                    pad_txt=f", pad {pad}" if pad else "",
+                    ax=ax_mm, ay=ay_mm),
+            _SUCCESS_STYLE)
 
     def _start_redraw_op(self, payload: Dict[str, Any]) -> None:
         self._active_op = start_long_op(

@@ -14227,3 +14227,84 @@ msgstr ""
 msgid "Failed to save the new Cell: {error}"
 msgstr ""
 
+
+#: kicadstamp/cell_geometry_refresh.py
+msgid "rebase cell anchor: role is required"
+msgstr ""
+
+#: kicadstamp/cell_geometry_refresh.py
+msgid "pick which of the cell's own components the new local (0,0) should sit at"
+msgstr ""
+
+#: kicadstamp/cell_geometry_refresh.py
+#, python-brace-format
+msgid "rebase cell anchor: role {role!r} is not a component of this cell"
+msgstr ""
+
+#: kicadstamp/cell_geometry_refresh.py
+#, python-brace-format
+msgid "anchor_role must name one of the cell's own components: {roles}"
+msgstr ""
+
+#: gui/docks/live_position.py
+#, python-brace-format
+msgid "clone {name!r}: role {role!r} is not on the live board"
+msgstr ""
+
+#: gui/docks/placer.py
+msgid "Cell anchor"
+msgstr ""
+
+#: gui/docks/placer.py
+msgid "pick this cell's component role"
+msgstr ""
+
+#: gui/docks/placer.py
+msgid "Set as anchor"
+msgstr ""
+
+#: gui/docks/placer.py
+msgid "Cell anchor applies to Cell (clone) mode only."
+msgstr ""
+
+#: gui/docks/placer.py
+msgid "Set as anchor: pick a Role of this cell first."
+msgstr ""
+
+#: gui/docks/placer.py
+#, python-brace-format
+msgid "Set as anchor: cell {name!r} not found in the project config"
+msgstr ""
+
+#: gui/docks/placer.py
+#, python-brace-format
+msgid "Set as anchor: cell {name!r} not found in {path}"
+msgstr ""
+
+#: gui/docks/placer.py
+#, python-brace-format
+msgid "Set as anchor: role {role!r} is not a component of cell {name!r}"
+msgstr ""
+
+#: gui/docks/placer.py
+msgid "No live board connection — Role+Pad needs the pad's real position. Leave Pad empty for a Role-only rebase, or connect KiCad first."
+msgstr ""
+
+#: gui/docks/placer.py
+msgid "Set as anchor: Cluster name and a Cell are required to read the pad's position."
+msgstr ""
+
+#: gui/docks/placer.py
+#, python-brace-format
+msgid "Set as anchor failed: {error}"
+msgstr ""
+
+#: gui/docks/placer.py
+#, python-brace-format
+msgid "Rebased {name!r} to anchor {role!r}{pad_txt}: all offsets shifted by ({ax:.3f}, {ay:.3f}) mm. Already-applied other instances of this cell shift on the next Redraw/Apply."
+msgstr ""
+
+#: gui/docks/placer.py
+#, python-brace-format
+msgid "Failed to read {path}: {error}"
+msgstr ""

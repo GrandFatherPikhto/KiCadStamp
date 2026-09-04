@@ -12852,3 +12852,84 @@ msgstr "Не удалось извлечь новую Cell из выделени
 msgid "Failed to save the new Cell: {error}"
 msgstr "Не удалось сохранить новую Cell: {error}"
 
+
+#: kicadstamp/cell_geometry_refresh.py
+msgid "rebase cell anchor: role is required"
+msgstr "перемещение якоря ячейки: требуется роль"
+
+#: kicadstamp/cell_geometry_refresh.py
+msgid "pick which of the cell's own components the new local (0,0) should sit at"
+msgstr "выберите, на какой из собственных компонент ячейки должен лечь новый локальный (0,0)"
+
+#: kicadstamp/cell_geometry_refresh.py
+#, python-brace-format
+msgid "rebase cell anchor: role {role!r} is not a component of this cell"
+msgstr "перемещение якоря ячейки: роль {role!r} не является компонентой этой ячейки"
+
+#: kicadstamp/cell_geometry_refresh.py
+#, python-brace-format
+msgid "anchor_role must name one of the cell's own components: {roles}"
+msgstr "anchor_role должен называть одну из собственных компонент ячейки: {roles}"
+
+#: gui/docks/live_position.py
+#, python-brace-format
+msgid "clone {name!r}: role {role!r} is not on the live board"
+msgstr "клон {name!r}: роли {role!r} нет на живой плате"
+
+#: gui/docks/placer.py
+msgid "Cell anchor"
+msgstr "Якорь ячейки"
+
+#: gui/docks/placer.py
+msgid "pick this cell's component role"
+msgstr "выберите роль компонента этой ячейки"
+
+#: gui/docks/placer.py
+msgid "Set as anchor"
+msgstr "Назначить якорем"
+
+#: gui/docks/placer.py
+msgid "Cell anchor applies to Cell (clone) mode only."
+msgstr "Якорь ячейки применим только в режиме Cell (клон)."
+
+#: gui/docks/placer.py
+msgid "Set as anchor: pick a Role of this cell first."
+msgstr "Назначить якорем: сначала выберите роль этой ячейки."
+
+#: gui/docks/placer.py
+#, python-brace-format
+msgid "Set as anchor: cell {name!r} not found in the project config"
+msgstr "Назначить якорем: ячейка {name!r} не найдена в конфигурации проекта"
+
+#: gui/docks/placer.py
+#, python-brace-format
+msgid "Set as anchor: cell {name!r} not found in {path}"
+msgstr "Назначить якорем: ячейка {name!r} не найдена в {path}"
+
+#: gui/docks/placer.py
+#, python-brace-format
+msgid "Set as anchor: role {role!r} is not a component of cell {name!r}"
+msgstr "Назначить якорем: роль {role!r} не является компонентой ячейки {name!r}"
+
+#: gui/docks/placer.py
+msgid "No live board connection — Role+Pad needs the pad's real position. Leave Pad empty for a Role-only rebase, or connect KiCad first."
+msgstr "Нет соединения с живой платой — режиму Role+Pad нужна реальная позиция пада. Оставьте Pad пустым для ребейза только по роли или подключите KiCad."
+
+#: gui/docks/placer.py
+msgid "Set as anchor: Cluster name and a Cell are required to read the pad's position."
+msgstr "Назначить якорем: для чтения позиции пада нужны имя кластера и ячейка."
+
+#: gui/docks/placer.py
+#, python-brace-format
+msgid "Set as anchor failed: {error}"
+msgstr "Не удалось назначить якорь: {error}"
+
+#: gui/docks/placer.py
+#, python-brace-format
+msgid "Rebased {name!r} to anchor {role!r}{pad_txt}: all offsets shifted by ({ax:.3f}, {ay:.3f}) mm. Already-applied other instances of this cell shift on the next Redraw/Apply."
+msgstr "Ячейка {name!r} перебазирована на якорь {role!r}{pad_txt}: все офсеты сдвинуты на ({ax:.3f}, {ay:.3f}) мм. Уже применённые в других местах экземпляры этой ячейки сдвинутся при следующем Redraw/Apply."
+
+#: gui/docks/placer.py
+#, python-brace-format
+msgid "Failed to read {path}: {error}"
+msgstr "Не удалось прочитать {path}: {error}"

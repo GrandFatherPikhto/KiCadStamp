@@ -21,6 +21,7 @@ from kicadstamp.cell_geometry_refresh import (
     cell_zero_slot_role,
     match_components,
     net_template_regex,
+    rebase_cell_anchor,
 )
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
@@ -765,3 +766,137 @@ def test_build_import_plan_missing_role_fatal_like_refresh():
                        match="role 'CAP'.*not in the selection"):
         build_import_plan(components, [], [], footprints,
                           [_via("GND", 1.0, 1.0)], [], adapter)
+
+
+# ── rebase_cell_anchor (real internal Cell anchor, design 2026-09-04) ───────
+
+def _anchor_cell_entry():
+    """A synthetic composite Cell dict (the shape cell_editor builds) with a
+    component carrying its own via, a cell-level via, a track and a nested
+    clone_placement — every local-offset family rebase must shift."""
+    return {
+        "layer": "F.Cu",
+        "comment": "keep me",
+        "components": [
+            {"role": "FPGA", "offset_along_mm": 2.5, "offset_across_mm": 1.0,
+             "angle_deg": 0.0, "net_template": "CLK",
+             "vias": [{"offset_along_mm": 2.5, "offset_across_mm": 2.2, "net": "GND"}]},
+            {"role": "CAP", "offset_along_mm": 3.5, "offset_across_mm": -1.0,
+             "angle_deg": 90.0},
+        ],
+        "vias": [
+            {"offset_along_mm": 5.0, "offset_across_mm": 4.0, "net": "VCC"},
+        ],
+        "tracks": [
+            {"start_along_mm": 0.0, "start_across_mm": 0.0,
+             "end_along_mm": 3.0, "end_across_mm": 2.0,
+             "width_mm": 0.25, "net": "+3V3"},
+        ],
+        "clone_placements": [
+            {"name": "leaf", "cell": "leaf_cell", "xy": [1.0, 1.0],
+             "rotation_deg": 0.0},
+        ],
+    }
+
+
+def test_rebase_cell_anchor_role_mode_lands_role_on_zero():
+    """role-mode: rebase by the FPGA component's OWN offset — the FPGA lands
+    EXACTLY on (0,0), every other local offset (components incl. their own
+    vias, cell vias, tracks, nested xy) shifts by the same delta, and
+    anchor_role is recorded (no anchor_pad)."""
+    entry = _anchor_cell_entry()
+    out = rebase_cell_anchor(entry, 2.5, 1.0, "FPGA")
+
+    assert out is not entry  # never mutates / never returns the caller's dict
+    comps = {c["role"]: c for c in out["components"]}
+    assert comps["FPGA"]["offset_along_mm"] == 0.0
+    assert comps["FPGA"]["offset_across_mm"] == 0.0
+    assert comps["FPGA"]["vias"][0]["offset_along_mm"] == 0.0
+    assert comps["FPGA"]["vias"][0]["offset_across_mm"] == pytest.approx(1.2)
+    assert comps["CAP"]["offset_along_mm"] == 1.0
+    assert comps["CAP"]["offset_across_mm"] == pytest.approx(-2.0)
+
+    assert out["vias"][0]["offset_along_mm"] == 2.5
+    assert out["vias"][0]["offset_across_mm"] == 3.0
+
+    track = out["tracks"][0]
+    assert track["start_along_mm"] == pytest.approx(-2.5)
+    assert track["start_across_mm"] == pytest.approx(-1.0)
+    assert track["end_along_mm"] == pytest.approx(0.5)
+    assert track["end_across_mm"] == 1.0
+    assert track["width_mm"] == 0.25  # non-geometric keys copied as-is
+
+    assert out["clone_placements"][0]["xy"] == [-1.5, 0.0]
+
+    assert out["anchor_role"] == "FPGA"
+    assert "anchor_pad" not in out
+    assert "anchor_xy" not in out
+    # Untouched non-geometry keys survive verbatim.
+    assert out["comment"] == "keep me"
+    assert out["layer"] == "F.Cu"
+
+
+def test_rebase_cell_anchor_role_pad_mode_records_pad():
+    """role+pad-mode: pad is only passed through as bookkeeping here — the
+    geometry delta already arrived as (ax_mm, ay_mm); offsets shift by it and
+    anchor_pad is recorded next to anchor_role."""
+    entry = _anchor_cell_entry()
+    out = rebase_cell_anchor(entry, 1.0, -0.5, "CAP", pad="A12")
+
+    comps = {c["role"]: c for c in out["components"]}
+    assert comps["CAP"]["offset_along_mm"] == 2.5
+    assert comps["CAP"]["offset_across_mm"] == pytest.approx(-0.5)
+    assert comps["FPGA"]["offset_along_mm"] == 1.5
+    assert out["anchor_role"] == "CAP"
+    assert out["anchor_pad"] == "A12"
+
+
+def test_rebase_cell_anchor_clears_previous_anchor_bookkeeping():
+    """A previous anchor's bookkeeping (anchor_xy from an XY-anchor, or a
+    leftover anchor_pad from an earlier role+pad rebase) must be cleared by a
+    new rebase, not accumulated — load_cell() fatals on anchor_xy+anchor_role
+    mixed and on anchor_pad without anchor_role."""
+    # Old XY anchor -> new role rebase must drop anchor_xy.
+    entry = _anchor_cell_entry()
+    entry["anchor_xy"] = [0.3, 0.4]
+    out = rebase_cell_anchor(entry, 2.5, 1.0, "FPGA")
+    assert out["anchor_role"] == "FPGA"
+    assert "anchor_xy" not in out
+    assert "anchor_pad" not in out
+
+    # Old role+pad anchor -> new role-only rebase must drop the stale pad.
+    entry2 = _anchor_cell_entry()
+    entry2["anchor_role"] = "CAP"
+    entry2["anchor_pad"] = "OLD"
+    out2 = rebase_cell_anchor(entry2, 2.5, 1.0, "FPGA")
+    assert out2["anchor_role"] == "FPGA"
+    assert "anchor_pad" not in out2
+
+
+def test_rebase_cell_anchor_nested_without_xy_is_skipped():
+    """A nested clone_placement without a stored xy (loader-defaulted (0,0))
+    is skipped without crashing — never an invented shift."""
+    entry = _anchor_cell_entry()
+    entry["clone_placements"] = [{"name": "leaf", "cell": "leaf_cell",
+                                  "rotation_deg": 0.0}]
+    out = rebase_cell_anchor(entry, 2.5, 1.0, "FPGA")
+    assert out["clone_placements"][0] == {"name": "leaf", "cell": "leaf_cell",
+                                          "rotation_deg": 0.0}
+
+
+def test_rebase_cell_anchor_does_not_mutate_input():
+    import copy
+    entry = _anchor_cell_entry()
+    snapshot = copy.deepcopy(entry)
+    rebase_cell_anchor(entry, 2.5, 1.0, "FPGA")
+    assert entry == snapshot
+
+
+def test_rebase_cell_anchor_invalid_role_fatals():
+    """anchor_role must name one of the cell's own components (load_cell
+    validates the same at reload) — never a silently corrupt anchor."""
+    entry = _anchor_cell_entry()
+    with pytest.raises(ValidationError, match="not a component"):
+        rebase_cell_anchor(entry, 2.5, 1.0, "NOPE")
+    with pytest.raises(ValidationError, match="role is required"):
+        rebase_cell_anchor(entry, 2.5, 1.0, "")
