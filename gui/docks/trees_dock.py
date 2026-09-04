@@ -66,8 +66,7 @@ from .entity_delete import backup_file
 logger = logging.getLogger(__name__)
 
 # Short kind tags, shown next to a node's ref when the kind is set. "external"
-# is included here (unlike anchor_tree's _KIND_TAGS, which has no external
-# leaf — trees need it).
+# is included here — trees need it.
 _KIND_TAGS = {
     "clone": _("clone"),
     "placement": _("placement"),

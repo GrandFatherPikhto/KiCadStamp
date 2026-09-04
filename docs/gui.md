@@ -394,20 +394,21 @@ from selection" (the dialog warns, not blocks — the Cell can be edited by hand
 
 ## Detail dock
 
-Placer/Net traces/Cells below all live as tabs inside one shared **Detail** dock,
+Placer/Net traces below all live as tabs inside one shared **Detail** dock,
 not as separate docks — switching is both automatic (a Config-tree click routes to the matching tab)
 and manual (click the tab bar directly). Chains (2026-09-01, plan rules_to_chains), Extract
 (2026-08-31), Thermal via (2026-09-01), Points (2026-09-01, plan
 `plan_2026_09_01_points_dialog.md`), Tools (2026-09-01, plan
-`plan_2026_09_01_tools_dialog_and_entity_roles.md`), and Project + Settings (2026-09-01, plan
+`plan_2026_09_01_tools_dialog_and_entity_roles.md`), Cells (2026-09-04, plan
+`plan_2026_09_04_celldock_to_dialog.md`), and Project + Settings (2026-09-01, plan
 `project_settings_dialogs`) are NOT tabs here — they moved to standalone dialogs: see the
-[Chains](#chains), [Extract](#extract), [Points](#points), [Tools](#tools) and [Project](#project)
-sections, and **Tools → Settings...** for the Settings dialog.
+[Chains](#chains), [Extract](#extract), [Points](#points), [Tools](#tools), [Cells](#cells) and
+[Project](#project) sections, and **Tools → Settings...** for the Settings dialog.
 Every
 automatic switch also
 raises Detail to the front of its own tabified group (it shares screen space with fieldstool) and
 updates its window title to name the page and, where there's a single obvious current entity, its
-name too — e.g. "Detail — Cells: composite", or just "Detail — Placer" for pages with no single
+name too — e.g. "Detail — Net traces: GND", or just "Detail — Placer" for pages with no single
 current entity (added 2026-08-06, found live — Denis: "неплохо бы подсвечивать, какой док сейчас
 активен. А то вообще, не видно, кто и что" — a plain tree click used to switch the tab silently if
 Detail wasn't already the visible group).
@@ -493,7 +494,9 @@ connection timeout, hotkey rebinding) fire only on Apply/OK.
 The GUI's dedicated Extract dock/dialog was removed in Phase F (2026-09-01) — its function is
 absorbed by **Tools → Trees → Extract tree...** below (auto-derives `cells:` from the fully-selected
 clusters and captures inter-cluster copper as `net_traces:`), and manual `cells:` editing stays in
-the Detail dock's **Cells** tab. `extract_profiles:` remain a CLI/config-only concept:
+the standalone Cell dialog (**Tools → Config → Edit Cell...**, or the Config tree's right-click
+**Edit cell...** — see the [Cells](#cells) section). `extract_profiles:` remain a CLI/config-only
+concept:
 `kicadstamp_cli.py extract --profile` (`cli_extract.py`, `extract_writer.py`) still consumes them.
 
 The old **Tools → Re-read selected...** was merged into **Extract tree...**: its dialog lists every
@@ -1009,6 +1012,12 @@ straight to YAML with no form behind it at all ("создавать экстра
 тупняк" — a full select-on-board-and-extract round trip was the only way to add so much as one
 component slot by hand).
 
+Since 2026-09-04 (plan `plan_2026_09_04_celldock_to_dialog.md`) this form is a standalone
+**non-modal dialog**, not a Detail-dock tab anymore — open it from the main menu's **Tools → Config →
+Edit Cell...** (the Config submenu is the future home of Config-related Tools actions), or load a
+specific cell via the Config tree's Cells category (right-click **Edit cell...** / **Add cell...**,
+which open the same dialog pre-loaded / blank — see below).
+
 Four tabs, same "table + detail row below" shape as Rules' own Spoke editor, one pair per kind
 (Components/Vias/Tracks/Nested cells) rather than one tree merging all four — none of the four share
 a common set of columns, so a merged tree would still need the detail form below to switch shape on
@@ -1040,15 +1049,16 @@ recurse — that tree is Config tree's own Cells category, which now shows a com
 - **Save** — writes into the project root file's `cells:` section (a dict keyed by name, same shape as
   Points).
 
-Config tree's **Add cell...** now opens this form blank (`new_cell()`) instead of writing a stub —
-same shape as every other Add-entity action. Editing an EXISTING cell's content is a separate
-action, right-click **Edit cell...**, deliberately not the same click as a plain left-click on a
-Cell leaf (which keeps its original meaning, "pick this cell as a placement's content" — Placer's
-own Cell field), so opening a placement form and opening the cell editor never fight over one click.
+Config tree's **Add cell...** now opens this form blank (`new_cell()`) inside the same non-modal
+dialog instead of writing a stub — same shape as every other Add-entity action. Editing an EXISTING
+cell's content is a separate action, right-click **Edit cell...**, deliberately not the same click as
+a plain left-click on a Cell leaf (which keeps its original meaning, "pick this cell as a placement's
+content" — Placer's own Cell field), so opening a placement form and opening the cell editor never
+fight over one click.
 
-**Refresh geometry from selection** (2026-09-03) — a button on the Cell page AND a
+**Refresh geometry from selection** (2026-09-03) — a button in the Cell dialog AND a
 right-click **Update from selection...** action on a Cell leaf in the Config tree's Cells category
-(one click from the tree — no need to open the dock and hunt for the button first). It re-reads an
+(one click from the tree — no need to open the dialog and hunt for the button first). It re-reads an
 ALREADY-saved cell's geometry (Components' offsets/angle, Vias' offsets, Tracks' start/end/width)
 from the CURRENT board selection and writes it back into the cell — the way to pull a geometry
 change you made by hand in one physical instance back into the shared template, so Redraw applies it
@@ -1070,7 +1080,7 @@ mutates the loaded cell in memory and auto-stages it exactly like a manual row U
 written to disk until the project **Save**.
 
 **Import vias/tracks from selection** (2026-09-03) — the additive counterpart of Refresh: a button
-right next to it on the Cell page AND a right-click **Import from selection...** action on a Cell leaf
+right next to it in the Cell dialog AND a right-click **Import from selection...** action on a Cell leaf
 in the Config tree's Cells category. It backfills an EXISTING cell with NEW via/track records for live
 copper the cell's current records do not describe — the way to add vias/tracks that were missing from
 the original extraction (e.g. not yet routed when the cell was extracted, the `fpga_oscill` case)

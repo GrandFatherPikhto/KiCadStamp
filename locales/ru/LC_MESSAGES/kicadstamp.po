@@ -1803,6 +1803,14 @@ msgstr "Удалить пад..."
 msgid "Edit cell..."
 msgstr "Изменить шаблон..."
 
+#: gui/docks/cell_dialog.py gui/main_window.py
+msgid "Edit Cell"
+msgstr "Изменить шаблон"
+
+#: gui/main_window.py
+msgid "Edit Cell..."
+msgstr "Изменить шаблон..."
+
 #: gui/docks/config_tree.py:1072
 msgid "Update from selection..."
 msgstr "Обновить по выделению..."

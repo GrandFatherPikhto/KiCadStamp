@@ -2643,10 +2643,10 @@ class PlacerDock(QWidget):
     def _on_redraw_dependents(self) -> None:
         """Cascade "Redraw dependents" for the CURRENT placement. The anchor
         graph is built from the project ROOT config (the whole include:
-        graph), so
-        dependents living in other included files are found; the current form
-        only supplies the START record's identity (its saved anchor state is
-        what the graph reads — see the anchor_graph module docstring)."""
+        graph), so dependents living in other included files are found; the
+        current form only supplies the START record's identity (its saved
+        anchor state is what the graph reads — see the anchor_graph module
+        docstring)."""
         self._show_message("")
         if self._root_path is None:
             self._show_message(_("Pick a root file first."), _ERROR_STYLE)

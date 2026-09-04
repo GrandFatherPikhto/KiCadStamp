@@ -19,6 +19,9 @@ Phase F 2026-09-01 — "Extract tree..." in DockHub is the single capture path):
 - Tools (2026-09-01, plan plan_2026_09_01_tools_dialog_and_entity_roles.md) —
   the non-modal ToolsDialog (gui/docks/tools_dialog.py) — the Entity's
   electrical fields (Nets/Net overrides/Refs) are no longer a tab here;
+- Cells (2026-09-04, plan plan_2026_09_04_celldock_to_dialog.md) — the
+  non-modal CellDialog (gui/docks/cell_dialog.py) — editing a cell's
+  Components/Vias/Tracks/Nested is no longer a tab here;
 - Project (RootMetadataDock) and Settings (ConfiguratorDock) — 2026-09-01,
   plan project_settings_dialogs — moved into the non-modal ProjectDialog
   (File > "Project...", gui/docks/project_dialog.py) and the modal
@@ -31,9 +34,13 @@ itself) — Denis picked this over auto-only when asked live 2026-08-03,
 specifically so a panel stays reachable even when the tree click that
 would normally select it hasn't happened (e.g. checking Rules while
 Placer is what's currently showing). gui/dock_hub.py wires the automatic
-half: cell_picked/placement_picked/add_placer_requested -> show_placer(),
-points_picked/rule_picked/net_trace_picked/cells_picked -> the matching
-show_X(). The old file_selected -> show_root() fallback (2026-08-03) was
+half for the TWO pages that remain here:
+cell_picked/placement_picked/add_placer_requested -> show_placer(),
+net_trace_picked -> show_net_trace(). The pages that moved to standalone
+dialogs (Points/Chains/Tools/Cells) no longer switch this dock at all —
+their own context entries/double-clicks open the matching dialog instead
+(see gui/dock_hub.py). The old file_selected -> show_root() fallback
+(2026-08-03) was
 REMOVED 2026-09-01 together with the Project tab — a plain file/category
 click in the Config tree no longer switches this dock (it still feeds
 RootMetadataDock's Working-file combo display via set_working_file_from_tree,
@@ -54,7 +61,7 @@ it used to be for the Add/Edit actions) fixes every caller at once and
 can't drift out of sync again.
 
 Window title (same request) reflects which page AND which entity is
-loaded on it right now — e.g. "Detail — Cells: composite" — read fresh
+loaded on it right now — e.g. "Detail — Net traces: GND" — read fresh
 from each page's own name field via _current_entity_name() rather than
 threaded through every show_X() call, so it stays correct even when a
 DIFFERENT entity is loaded while already on the same tab (leaf click ->
@@ -68,7 +75,6 @@ from PyQt6.QtWidgets import (QDockWidget, QStackedWidget, QTabBar, QVBoxLayout,
 from kicadstamp.i18n import _
 
 from ._common import highlight_stylesheet_for
-from .cell_editor import CellDock
 from .net_trace import NetTraceDock
 from .placer import PlacerDock
 
@@ -76,7 +82,7 @@ from .placer import PlacerDock
 # Chain form moved out into the standalone non-modal ChainDialog (like Points/
 # Tools/Thermal via/Extract before it) — a chains: node is edited via a DOUBLE
 # click in the Config tree, not a Detail dock page.
-_PLACER, _NET_TRACE, _CELLS = range(3)
+_PLACER, _NET_TRACE = range(2)
 
 
 class _StackedPages(QStackedWidget):
@@ -121,7 +127,6 @@ class DetailDock(QDockWidget):
         # keeps only the entity edit forms.
         self.tab_bar.addTab(_("Placer"))
         self.tab_bar.addTab(_("Net traces"))
-        self.tab_bar.addTab(_("Cells"))
         layout.addWidget(self.tab_bar)
 
         # _StackedPages, not a stock QStackedWidget (2026-08-30): the size
@@ -130,12 +135,10 @@ class DetailDock(QDockWidget):
         self.stack = _StackedPages()
         self.placer_panel = PlacerDock(main_window)
         self.net_trace_panel = NetTraceDock(main_window, connection=connection)
-        self.cells_panel = CellDock(main_window)
         # Stack order must match the tab-bar order exactly (setCurrentIndex
         # drives stack.setCurrentIndex).
         self.stack.addWidget(self.placer_panel)
         self.stack.addWidget(self.net_trace_panel)
-        self.stack.addWidget(self.cells_panel)
         # The stack sits DIRECTLY in the dock layout (2026-08-30, Denis:
         # "убираем скроллы внутри доков"). The 2026-08-27 QScrollArea wrap was
         # removed: _StackedPages already makes the dock follow the CURRENT page
@@ -161,7 +164,6 @@ class DetailDock(QDockWidget):
     _PAGE_LABELS = {
         _PLACER: _("Placer"),
         _NET_TRACE: _("Net traces"),
-        _CELLS: _("Cells"),
     }
 
     def _current_entity_name(self) -> str:
@@ -177,8 +179,6 @@ class DetailDock(QDockWidget):
             return self.placer_panel.current_entity_name
         if index == _NET_TRACE:
             return self.net_trace_panel.net_edit.currentText().strip()
-        if index == _CELLS:
-            return self.cells_panel.name_edit.text().strip()
         return ""
 
     def _update_title(self) -> None:
@@ -215,6 +215,3 @@ class DetailDock(QDockWidget):
 
     def show_net_trace(self) -> None:
         self._show(_NET_TRACE)
-
-    def show_cells(self) -> None:
-        self._show(_CELLS)

@@ -1,6 +1,5 @@
 # tests/gui/test_detail_panel.py
 
-from gui.docks.cell_editor import CellDock
 from gui.docks.detail_panel import DetailDock
 from gui.docks.net_trace import NetTraceDock
 from gui.docks.placer import PlacerDock
@@ -10,16 +9,16 @@ def test_pages_are_the_expected_panel_types(main_window):
     dock = DetailDock(main_window)
     assert isinstance(dock.placer_panel, PlacerDock)
     assert isinstance(dock.net_trace_panel, NetTraceDock)
-    assert isinstance(dock.cells_panel, CellDock)
     # Coordinate placements merged into PlacerDock (2026-08-12, Group 1) —
     # no separate Coordinate panel/tab anymore. Rules (2026-09-01, plan
     # rules_to_chains — the Chain form is the standalone non-modal ChainDialog
     # now), Extract (2026-08-31), Thermal via (2026-09-01), Points (2026-09-01,
     # plan plan_2026_09_01_points_dialog.md), Tools (2026-09-01, plan
-    # plan_2026_09_01_tools_dialog_and_entity_roles.md), and Project + Settings
+    # plan_2026_09_01_tools_dialog_and_entity_roles.md), Cells (2026-09-04,
+    # plan plan_2026_09_04_celldock_to_dialog.md), and Project + Settings
     # (2026-09-01, plan project_settings_dialogs) are all standalone dialogs
     # now, NOT pages.
-    assert dock.stack.count() == 3
+    assert dock.stack.count() == 2
 
 
 def test_placer_tab_is_shown_first(main_window):
@@ -70,7 +69,8 @@ def test_no_project_or_settings_tab_since_they_are_dialogs(main_window):
     assert "Points" not in labels
     assert "Tools" not in labels
     assert "Rules" not in labels  # Chain form is the standalone ChainDialog now
-    assert labels == ["Placer", "Net traces", "Cells"]
+    assert "Cells" not in labels  # Cell editor is the CellDialog (2026-09-04)
+    assert labels == ["Placer", "Net traces"]
 
 
 def test_manually_clicking_a_tab_switches_the_stack(main_window):
@@ -100,11 +100,14 @@ def test_show_net_trace_switches_tab_and_stack(main_window):
     assert dock.stack.currentWidget() is dock.net_trace_panel
 
 
-def test_show_cells_switches_tab_and_stack(main_window):
+def test_no_cells_tab_or_show_cells_since_cell_editor_is_a_dialog(main_window):
+    """2026-09-04 (plan plan_2026_09_04_celldock_to_dialog.md): the Cell
+    editor (CellDock) is hosted in the standalone non-modal CellDialog now —
+    there is no Cells tab / cells_panel / show_cells() page here anymore."""
     dock = DetailDock(main_window)
-    dock.show_cells()
-    assert dock.tab_bar.currentIndex() == 2
-    assert dock.stack.currentWidget() is dock.cells_panel
+    assert not hasattr(dock, "cells_panel")
+    assert not hasattr(dock, "show_cells")
+    assert dock.stack.count() == 2  # Placer + Net traces
 
 
 # ── Raise-on-switch + window title (2026-08-06) ──────────────────────────
@@ -134,11 +137,11 @@ def test_title_reflects_page_with_no_current_entity(main_window):
     assert dock.windowTitle() == "Detail — Placer"
 
 
-def test_title_reflects_current_entity_name_for_cells(main_window):
+def test_title_reflects_current_net_name_for_net_trace(main_window):
     dock = DetailDock(main_window)
-    dock.cells_panel.name_edit.setText("composite")
-    dock.show_cells()
-    assert dock.windowTitle() == "Detail — Cells: composite"
+    dock.net_trace_panel.net_edit.setCurrentText("GND")
+    dock.show_net_trace()
+    assert dock.windowTitle() == "Detail — Net traces: GND"
 
 
 def test_title_reflects_placer_cluster_name(main_window):
@@ -148,18 +151,18 @@ def test_title_reflects_placer_cluster_name(main_window):
     assert dock.windowTitle() == "Detail — Placer: Channel_1"
 
 
-def test_title_updates_when_loading_a_different_entity_on_the_same_tab(main_window):
+def test_title_updates_when_loading_a_different_net_on_the_same_tab(main_window):
     """QTabBar.currentChanged doesn't fire when the index doesn't change —
-    show_cells() must call _update_title() unconditionally (see its own
+    show_net_trace() must call _update_title() unconditionally (see its own
     docstring), not rely solely on that signal."""
     dock = DetailDock(main_window)
-    dock.cells_panel.name_edit.setText("first")
-    dock.show_cells()
-    assert dock.windowTitle() == "Detail — Cells: first"
+    dock.net_trace_panel.net_edit.setCurrentText("first")
+    dock.show_net_trace()
+    assert dock.windowTitle() == "Detail — Net traces: first"
 
-    dock.cells_panel.name_edit.setText("second")
-    dock.show_cells()
-    assert dock.windowTitle() == "Detail — Cells: second"
+    dock.net_trace_panel.net_edit.setCurrentText("second")
+    dock.show_net_trace()
+    assert dock.windowTitle() == "Detail — Net traces: second"
 
 
 def test_manual_tab_click_also_updates_the_title(main_window):

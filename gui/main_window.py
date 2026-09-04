@@ -327,6 +327,20 @@ class MainWindow(QMainWindow):
             lambda: self._dock_hub.instantiate_from_cell())
         self.trees_menu.addAction(self.instantiate_cell_action)
 
+        # ── "Config" submenu (2026-09-04, plan plan_2026_09_04_celldock_to_
+        #    dialog.md) ───────────────────────────────────────────────────
+        # A future home for Config-related Tools actions — the first (and for
+        # now only) entry is "Edit Cell...", which opens the standalone
+        # (non-modal) Cell dialog hosting the single live CellDock (the Cell
+        # form moved out of the Detail dock's Cells tab into a dialog — the
+        # same move as Points/Tools/Thermal via/Chain before it; see
+        # gui/dock_hub.py).
+        self.config_menu = tools_menu.addMenu(_("Config"))
+        self.edit_cell_action = QAction(_("Edit Cell..."), self)
+        self.edit_cell_action.triggered.connect(
+            lambda: self._dock_hub.edit_cell())
+        self.config_menu.addAction(self.edit_cell_action)
+
         # ── Tools root (non-tree entries) ────────────────────────────────
         # "Place thermal vias..." (2026-09-01, plan
         # plan_2026_09_01_thermal_via_dialog.md): opens the standalone

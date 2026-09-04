@@ -19,12 +19,13 @@ Rules added 2026-08-05, same shape). Those attributes are kept as aliases
 straight into DetailDock's stack pages so every existing call site keeps
 working unchanged; they are plain QWidgets now, not QDockWidgets in their own
 right. thermal_via_dock (2026-09-01, plan plan_2026_09_01_thermal_via_dialog.
-md), points_dock (2026-09-01, plan plan_2026_09_01_points_dialog.md) and
+md), points_dock (2026-09-01, plan plan_2026_09_01_points_dialog.md),
 tools_dock (2026-09-01, plan plan_2026_09_01_tools_dialog_and_entity_roles.
-md): they are STANDALONE widgets hosted in their non-modal dialogs
-(ThermalViaDialog / PointsDialog / ToolsDialog) — the Detail dock has no
-Thermal via/Points/Tools page anymore, and the same single live instances keep
-receiving the selection/snapshot ticks, set_root_path and saved.
+md) and cells_dock (2026-09-04, plan plan_2026_09_04_celldock_to_dialog.md):
+they are STANDALONE widgets hosted in their non-modal dialogs
+(ThermalViaDialog / PointsDialog / ToolsDialog / CellDialog) — the Detail dock
+has no Thermal via/Points/Tools/Cells page anymore, and the same single live
+instances keep receiving the selection/snapshot ticks, set_root_path and saved.
 """
 import logging
 from functools import partial
@@ -43,6 +44,8 @@ from kicadstamp.config_working_set import WORKING_SET
 from kicadstamp.i18n import _
 from kicadstamp.logging_setup import get_log_listener
 
+from .docks.cell_dialog import CellDialog
+from .docks.cell_editor import CellDock
 from .docks.chain import ChainDock
 from .docks.chain_dialog import ChainDialog
 from .docks.config_tree import ConfigTreeDock
@@ -145,7 +148,16 @@ class DockHub:
         self.project_dialog = ProjectDialog(self.root_metadata_dock, main_window)
         self.placer_dock = self.detail_dock.placer_panel
         self.net_trace_dock = self.detail_dock.net_trace_panel
-        self.cells_dock = self.detail_dock.cells_panel
+        # Cell (2026-09-04, plan plan_2026_09_04_celldock_to_dialog.md): the
+        # Cell form (CellDock) is a STANDALONE widget hosted in the non-modal
+        # CellDialog — the Detail dock has no Cells page anymore (same move as
+        # Thermal via/Points/Tools/Chain). The same single live instance keeps
+        # receiving the snapshot ticks / set_root_path / saved. The Cells page
+        # used to be constructed inside DetailDock and aliased here; it is now
+        # built directly, and the cell_edit_requested delegates below open the
+        # dialog instead of switching a Detail dock tab.
+        self.cells_dock = CellDock(main_window)
+        self.cell_dialog = CellDialog(self.cells_dock, main_window)
         # Chain (2026-09-01, plan rules_to_chains): the Chain form is a
         # STANDALONE widget hosted in the non-modal ChainDialog — the Detail
         # dock has no Rules page anymore (same move as Extract/Thermal via/
@@ -710,9 +722,10 @@ class DockHub:
 
     def _start_new_cell(self, file_path) -> None:
         """ConfigTreeDock's add_cell_requested delegate — same reasoning as
-        _start_new_placement above, for CellDock."""
+        _start_new_thermal_via above, for CellDock: opens the (non-modal) Cell
+        dialog with a fresh blank form."""
+        self._open_cell_dialog()
         self.cells_dock.new_cell(file_path)
-        self.detail_dock.show_cells()
 
     def place_thermal_vias(self) -> None:
         """Main menu "Tools -> Place thermal vias..." (2026-09-01, plan
@@ -1225,6 +1238,17 @@ class DockHub:
         self.tools_dialog.raise_()
         self.tools_dialog.activateWindow()
 
+    def _open_cell_dialog(self) -> None:
+        """Show/raise the ONE live Cell dialog (2026-09-04, plan
+        plan_2026_09_04_celldock_to_dialog.md) — non-modal, so the user can
+        keep selecting on the board while it's open: the ~2s snapshot tick
+        keeps feeding the same cells_dock instance inside it (refresh_known_
+        roles). Closing via the window X just hides it (QDialog default), so
+        the next open starts from the current state."""
+        self.cell_dialog.show()
+        self.cell_dialog.raise_()
+        self.cell_dialog.activateWindow()
+
     def _start_edit_entity_template(self, name) -> None:
         """ConfigTreeDock's entity_edit_requested delegate (double click on
         an Entities leaf, 2026-09-01, plan plan_2026_09_01_tools_dialog_and_
@@ -1237,6 +1261,13 @@ class DockHub:
         """Main menu "Tools -> Edit template..." (2026-09-01) — opens the
         "Edit template" dialog; the Entity is picked inside it."""
         self._open_tools_dialog()
+
+    def edit_cell(self) -> None:
+        """Main menu "Tools -> Config -> Edit Cell..." (2026-09-04, plan
+        plan_2026_09_04_celldock_to_dialog.md) — opens the (non-modal) Cell
+        dialog; the Cell is picked inside it (or a fresh blank form via the
+        Config tree's "Add cell...")."""
+        self._open_cell_dialog()
 
     def _open_project_dialog(self) -> None:
         """Show/raise the ONE live Project dialog (File > "Project...",
@@ -1298,18 +1329,20 @@ class DockHub:
         "Edit cell..." never goes through _on_clicked/file_selected (see
         that wiring's own comment above), so the file the cell lives in is
         passed explicitly here before loading — a later Save writes the edit
-        back to that file, not the root (2026-08-21 review fix)."""
+        back to that file, not the root (2026-08-21 review fix). Opens the
+        (non-modal) Cell dialog with the loaded cell."""
         self.cells_dock.load_entry(name, file_path)
-        self.detail_dock.show_cells()
+        self._open_cell_dialog()
 
     def _refresh_cell_from_selection(self, name, file_path) -> None:
         """ConfigTreeDock's cell_refresh_requested delegate (2026-09-03, plan
         cell_geometry_refresh) — the context menu's "Update from selection...":
         same explicit file handling as _edit_cell, then drive CellDock's own
         refresh entry point (which loads the cell when it is not the currently
-        open one and runs the same _on_refresh_geometry path as the button)."""
+        open one and runs the same _on_refresh_geometry path as the button).
+        Opens the (non-modal) Cell dialog with the loaded cell."""
         self.cells_dock.refresh_from_selection_requested(name, file_path)
-        self.detail_dock.show_cells()
+        self._open_cell_dialog()
 
     def _import_cell_from_selection(self, name, file_path) -> None:
         """ConfigTreeDock's cell_import_requested delegate (2026-09-03, plan
@@ -1319,9 +1352,10 @@ class DockHub:
         never MODIFIES one). Same explicit file handling as _edit_cell, then
         drive CellDock's own import entry point (loads the cell when it is
         not the currently open one and runs the same _on_import_vias_tracks
-        path as the button)."""
+        path as the button). Opens the (non-modal) Cell dialog with the
+        loaded cell."""
         self.cells_dock.import_from_selection_requested(name, file_path)
-        self.detail_dock.show_cells()
+        self._open_cell_dialog()
 
     def _attach_log_file_handler(self, handler) -> None:
         """Attach the root-config log_file: FileHandler either to the live

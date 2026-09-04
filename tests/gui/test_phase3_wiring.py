@@ -508,6 +508,56 @@ def test_tools_menu_edit_template_opens_dialog(real_main_window):
     assert hub.tools_dialog.isVisible()
 
 
+# ── Cell dialog routes (2026-09-04, plan plan_2026_09_04_celldock_to_dialog.md) ─
+
+def test_tools_menu_edit_cell_opens_dialog_once(real_main_window):
+    """2026-09-04: the Tools menu's Tools → Config → "Edit Cell..." action
+    routes to DockHub.edit_cell -> the (non-modal) Cell dialog. Triggering it
+    twice reuses the SAME single live dialog (DockHub owns one instance) — no
+    second window is ever created."""
+    hub = real_main_window._dock_hub
+    dialog = hub.cell_dialog
+
+    real_main_window.edit_cell_action.trigger()
+
+    assert dialog.isVisible()
+    real_main_window.edit_cell_action.trigger()
+    assert hub.cell_dialog is dialog  # still the one instance
+    assert dialog.isVisible()
+
+
+def test_edit_cell_requested_loads_cell_and_opens_dialog(real_main_window, tmp_path):
+    """ConfigTreeDock -> CellDock wiring (cell_edit_requested -> _edit_cell,
+    see gui/dock_hub.py's _edit_cell) — the context menu's "Edit cell..." /
+    DOUBLE click on a Cells leaf must reach CellDock's form end-to-end and
+    open the (non-modal) Cell dialog."""
+    root = tmp_path / "root.sexp"
+    _write(root, {"cells": {"one_role": {"components": []}}})
+    hub = real_main_window._dock_hub
+    hub.cells_dock.set_root_path(root)
+
+    real_main_window.config_tree_dock.cell_edit_requested.emit("one_role", root)
+
+    assert hub.cells_dock.name_edit.text() == "one_role"
+    assert hub.cell_dialog.isVisible()
+
+
+def test_add_cell_requested_opens_blank_form_and_dialog(real_main_window, tmp_path):
+    """ConfigTreeDock's "Add cell..." context-menu action ->
+    DockHub._start_new_cell -> the fresh blank form inside the (non-modal)
+    Cell dialog (2026-09-04, plan plan_2026_09_04_celldock_to_dialog.md)."""
+    root = tmp_path / "root.sexp"
+    _write(root)
+    hub = real_main_window._dock_hub
+    hub.cells_dock.set_root_path(root)
+    hub.cells_dock.name_edit.setText("stale")
+
+    real_main_window.config_tree_dock.add_cell_requested.emit(root)
+
+    assert hub.cells_dock.name_edit.text() == ""
+    assert hub.cell_dialog.isVisible()
+
+
 # ── Tools -> Extract tree... (2026-09-01, plan extract_selection_as_tree.md) ─
 
 def _selected_tree(ref, cluster, sheet, nets):
@@ -717,9 +767,11 @@ def test_tools_trees_submenu_groups_all_tree_actions(real_main_window):
     keeps only the non-tree entries (Settings… stays reachable at the root)."""
     tools = next(m for m in real_main_window.menuBar().actions()
                  if m.text() == "Tools").menu()
-    # Exactly one submenu (the Trees block) at the Tools root.
+    # Two nested blocks at the Tools root: "Trees" (tree entries) and "Config"
+    # (2026-09-04, plan plan_2026_09_04_celldock_to_dialog.md — a future home
+    # for Config-related actions, seeded with "Edit Cell...").
     submenus = [a for a in tools.actions() if a.menu() is not None]
-    assert [a.text() for a in submenus] == ["Trees"]
+    assert [a.text() for a in submenus] == ["Trees", "Config"]
     sub = submenus[0].menu()
     texts = [a.text() for a in sub.actions()]
     for label in ("Extract tree...", "Extract cluster...", "Create tree...",
@@ -729,6 +781,9 @@ def test_tools_trees_submenu_groups_all_tree_actions(real_main_window):
         assert label in texts, f"missing from Tools → Trees: {label}"
     # The capture entries sit before the manual whole-tree management entries.
     assert texts.index("Extract tree...") < texts.index("Create tree...")
+    # "Edit Cell..." lives in the Config submenu, NOT at the Tools root.
+    config_texts = [a.text() for a in submenus[1].menu().actions()]
+    assert "Edit Cell..." in config_texts
     # Non-tree entries stay in the Tools root.
     root_texts = [a.text() for a in tools.actions()]
     assert "Settings..." in root_texts

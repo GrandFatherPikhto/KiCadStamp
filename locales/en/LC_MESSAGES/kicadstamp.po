@@ -1792,6 +1792,14 @@ msgstr "Delete pad..."
 msgid "Edit cell..."
 msgstr "Edit cell..."
 
+#: gui/docks/cell_dialog.py gui/main_window.py
+msgid "Edit Cell"
+msgstr "Edit Cell"
+
+#: gui/main_window.py
+msgid "Edit Cell..."
+msgstr "Edit Cell..."
+
 #: gui/docks/config_tree.py:1072
 msgid "Update from selection..."
 msgstr "Update from selection..."
