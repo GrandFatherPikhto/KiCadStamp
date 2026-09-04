@@ -624,20 +624,48 @@ def test_build_import_plan_empty_cell_imports_literal_via():
     assert t["net"] == "TRACK_NET"
 
 
-def test_build_import_plan_rule_net_becomes_net_none_not_literal():
-    """A live via on a rule net (GND) becomes `net: None` (the rule-net
-    convention), never the literal 'GND' — same treatment extract gives a
-    rule-net via."""
+def test_build_import_plan_gnd_becomes_literal_never_none():
+    """Import NEVER writes `net: null`: a live via on GND that no selected
+    role's pad carries (no pad evidence in the adapter) becomes the plain
+    literal 'GND' — the rule-net -> None convention is NOT applied to Import
+    (a ClonePlacement/Entity-world feature where via.net=None is fatal always).
+    `rule_nets` no longer exists on build_import_plan at all."""
     components = [{"role": "ORIG", "offset_along_mm": 0.0,
                    "offset_across_mm": 0.0}]
     footprints = [_fp("R-ORIG", "ORIG", 0.0, 0.0)]
-    adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})
+    adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})  # no pads -> no role on GND
     plan = build_import_plan(components, [], [], footprints,
-                             [_via("GND", 1.0, 1.0)], [], adapter,
-                             rule_nets={"GND"})
+                             [_via("GND", 1.0, 1.0)], [], adapter)
     assert len(plan.new_via_records) == 1
-    assert plan.new_via_records[0]["net"] is None
-    assert "net_from_role" not in plan.new_via_records[0]
+    rec = plan.new_via_records[0]
+    assert rec["net"] == "GND"
+    assert "net_from_role" not in rec
+
+
+def test_build_import_plan_never_writes_net_none_for_any_named_net():
+    """Regression (plan 2026_09_04_import_never_writes_null_net): Import NEVER
+    emits `net: null`. The recorded bug: GND via/tracks with no selected role
+    pad on GND were classified as rule-net -> net None, and Apply/Redraw then
+    fatalled (a ClonePlacement via.net=None is FATAL). Now every NON-EMPTY
+    live net ends as net_from_role (a selected role genuinely carries it) or
+    as a literal net — the resulting record's net specifier is never None.
+    The synthetic adapter reports NO pads, so no role touches any net and both
+    the GND via and the GND track must take the literal path."""
+    components = [{"role": "ORIG", "offset_along_mm": 0.0,
+                   "offset_across_mm": 0.0}]
+    footprints = [_fp("R-ORIG", "ORIG", 0.0, 0.0)]
+    adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})  # no pad evidence at all
+    plan = build_import_plan(
+        components, [], [], footprints,
+        [_via("GND", 1.0, 1.0), _via("+3V3", 2.0, 2.0)],
+        [_track("GND", 0.0, 0.0, 3.0, 0.0),
+         _track("NET_A", 3.0, 0.0, 5.0, 0.0)],
+        adapter)
+    # The structural invariant: no new Import record ever carries net None.
+    for rec in plan.new_via_records + plan.new_track_records:
+        assert rec.get("net") is not None or rec.get("net_from_role") is not None
+    assert [r["net"] for r in plan.new_via_records] == ["GND", "+3V3"]
+    assert [r["net"] for r in plan.new_track_records] == ["GND", "NET_A"]
 
 
 def test_build_import_plan_net_from_role_via_gets_role_not_literal(monkeypatch):

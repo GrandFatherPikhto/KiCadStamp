@@ -56,7 +56,7 @@ from .domain.board import Footprint, Track, Via
 from .domain.geometry import BoardLayer, Vector2
 from .exceptions import ValidationError, format_fatal_error
 from .i18n import _
-from .net_resolution import RULE_NETS, resolve_net_from_role
+from .net_resolution import resolve_net_from_role
 from .template_extraction import _selection_role_nets, _suggest_net_from_role
 from .utils.units import MM
 
@@ -571,7 +571,7 @@ def _import_track_record(live: Track, origin: Vector2) -> dict:
 
 
 def _classify_import_net(record: dict, live: Via | Track, role_nets: dict,
-                         components: list[dict], rule_nets: set[str]) -> dict:
+                         components: list[dict]) -> dict:
     """Fill the net field(s) of a NEW record by reusing the extractor's own
     classifier 1:1 (plan §B.2 — never a parallel implementation): build
     selection_role_nets once, then for each live item call _suggest_net_from_role
@@ -579,13 +579,20 @@ def _classify_import_net(record: dict, live: Via | Track, role_nets: dict,
     (template_extraction.py:516-541). live_points = the record's local
     geometry (via: 1 point, track: both endpoints), components = the CELL's
     component dicts (the geometric tiebreak reference, same as extract's
-    already-built slot list). rule_nets — nets that need no role (net: null);
-    a net NOT in role_nets and NOT a rule net stays a literal `net:`.
+    already-built slot list).
+
+    Import NEVER writes `net: null` — structurally impossible here, not just
+    off by default: Import works exclusively in the ClonePlacement/Entity world
+    where via.net=None is fatal always (clone_geometry.py), regardless of the
+    cell's context. rule_nets is deliberately NOT threaded through (unlike
+    ordinary extraction, where net:null = "inherit the Chain's net" is
+    legitimate); the shared classifier is handed an EMPTY rule-nets set so its
+    `if net in rule_nets: return None, None` short-circuit can never fire.
+    Every live net therefore ends as net_from_role(+pad) when a selected
+    role's pad genuinely carries it, or as a plain literal `net:` otherwise —
+    never None.
     Never raises: _suggest_net_from_role swallows ambiguity into (None, None),
     which means "literal net" here — same graceful fallback as extract."""
-    if live.net_name in rule_nets:
-        record["net"] = None
-        return record
     if live.net_name is None:
         return record  # no-net live item — leave net unset (blank rule-net)
     if "start_along_mm" in record:  # a track — two endpoints for the tiebreak
@@ -594,7 +601,7 @@ def _classify_import_net(record: dict, live: Via | Track, role_nets: dict,
     else:  # a via — its single point
         points = [(float(record["offset_along_mm"]), float(record["offset_across_mm"]))]
     role, pad = _suggest_net_from_role(
-        role_nets, live.net_name, rule_nets, points, components)
+        role_nets, live.net_name, set(), points, components)
     if role is not None:
         record["net_from_role"] = role
         if pad is not None:
@@ -606,8 +613,7 @@ def _classify_import_net(record: dict, live: Via | Track, role_nets: dict,
 
 def build_import_plan(components: list[dict], vias: list[dict], tracks: list[dict],
                       footprints: list[Footprint], raw_via_items: list[Via],
-                      raw_track_items: list[Track], adapter: Any,
-                      rule_nets: set[str] | None = None) -> ImportPlan:
+                      raw_track_items: list[Track], adapter: Any) -> ImportPlan:
     """Build the plan for "Import vias/tracks from selection": append NEW via/
     track records to an EXISTING cell for live copper its current records do
     not describe — the additive counterpart of build_refresh_plan (Refresh
@@ -618,14 +624,19 @@ def build_import_plan(components: list[dict], vias: list[dict], tracks: list[dic
     (_match_copper), but tier 4 (extra copper) is NOT fatal here: whatever
     live via/track tiers 1-3 leave unclaimed is turned into a NEW record
     instead. Count-mismatch fatals of tiers 1-3 and the symmetric component
-    role match are NOT softened — both stay fatal, exactly like refresh. The
-    net of each new record is classified by the extractor's own heuristic
-    (_selection_role_nets + _suggest_net_from_role, plan §B.2): a net a
-    selected role's pad carries -> net_from_role(+pad); a rule net
-    (rule_nets, default {"GND"}) -> net: null; anything else -> a plain
-    literal net. Never mutates its inputs.
+    role match are NOT softened — both stay fatal, exactly like refresh.
+
+    Every new record's net is classified by the extractor's own heuristic
+    (_selection_role_nets + _suggest_net_from_role, plan §B.2), but Import
+    NEVER writes `net: null` — structurally impossible, not merely disabled by
+    default: Import is exclusively a ClonePlacement/Entity-world feature, where
+    via.net=None is fatal ALWAYS (clone_geometry.py), independent of any
+    specific cell's context. rule_nets is deliberately not threaded through
+    (unlike ordinary extraction, where net:null = "inherit the Chain's net" is
+    legitimate). A net a selected role's pad carries -> net_from_role(+pad);
+    anything else -> a plain literal `net:` — never None. Never mutates its
+    inputs.
     """
-    rule_nets = set(rule_nets) if rule_nets is not None else set(RULE_NETS)
     role_to_ref, _matched, origin, problems = _cell_selection_context(
         components, footprints, adapter,
         _("import"))
@@ -655,12 +666,12 @@ def build_import_plan(components: list[dict], vias: list[dict], tracks: list[dic
     new_via_records = []
     for live in via_leftover:
         rec = _import_via_record(live, origin)
-        _classify_import_net(rec, live, role_nets, components, rule_nets)
+        _classify_import_net(rec, live, role_nets, components)
         new_via_records.append(rec)
     new_track_records = []
     for live in track_leftover:
         rec = _import_track_record(live, origin)
-        _classify_import_net(rec, live, role_nets, components, rule_nets)
+        _classify_import_net(rec, live, role_nets, components)
         new_track_records.append(rec)
 
     return ImportPlan(
