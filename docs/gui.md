@@ -232,8 +232,15 @@ default), **Anchor position**, **Redraw selected** / **Redraw whole tree**, **Fu
 and modules)…** and **Instances…**. The dock keeps the tabs, the checkbox subtree selection and the
 read-only status row (anchor live position + unsaved-changes ●). Structural editing happens through each node's
 context menu (Add child / Add sibling / Reread current position / Edit node… / Delete node / Rename…
-/ Move to…); the tree anchor pseudo-root's menu carries **Add node** and **Set anchor…**. The
-**Set anchor…** dialog covers all six anchor modes: **Origin (board 0,0)**, **Config record** (a name
+/ Move to…); the tree anchor pseudo-root's menu keeps **Add node** and a **Set anchor…** shortcut that
+brings the right-hand **Anchor** tab to the front. Since 2026-09-04 (plan
+plan_2026_09_04_trees_dock_master_detail.md) every real-tree tab is a **master-detail** splitter: the
+node list on the LEFT, a FIXED two-tab panel (**Anchor** / **Node**) on the RIGHT. The **Anchor** tab
+always edits the current tree's anchor; the **Node** tab shows the editor of the currently selected
+REAL node — a single click loads it (pseudo-roots / an empty selection show a "Select a node to edit
+it." hint). The panel's rows are **Apply** / **Redraw** (no OK/Cancel — it stays open); editing a
+generated INSTANCE tree shows the same read-only notice as its context menu in BOTH tabs instead of an
+editor. The anchor editor covers all six anchor modes: **Origin (board 0,0)**, **Config record** (a name
 from the config, resolved at Save; a **Kind** filter narrows the ref list to one section —
 Entity/Chain/Coordinate/Point/Clone/All — a picker aid only, the anchor grammar has no kind),
 **External refdes** (a live-board component outside the config), **Auto (derive from Entity's own
@@ -247,9 +254,9 @@ whenever the tree already roots it with its single top-level `kind="placement"` 
 and if that exclusion empties the Entity section, a hint points to the Auto mode instead of a bare
 empty combo. Save also guards the paths the dialog cannot see (an anchor set while the tree was still
 empty and the root node added/edited in afterwards, or a hand-edited `.sexp`): the same self-reference
-is silently switched to an Auto anchor with a status-bar/log notice. Editing an existing anchor (via
-**Set anchor…** on a
-tree that already has one) pre-fills the dialog with the current anchor's mode and fields, so a small
+is silently switched to an Auto anchor with a status-bar/log notice. Editing an existing anchor is
+free: the **Anchor** tab always pre-fills the current anchor's mode and fields (only **Create tree…**
+still asks for an anchor in a modal — a not-yet-created tree has no tab yet), so a small
 tweak (e.g. changing a role anchor's sheet) doesn't rebuild the anchor from scratch. Node
 offsets are typed by hand or read from the live board via **Read current position** in the
 Add/Edit-node dialog — a passive live-board read that never validates the whole tree's FORK-1
@@ -265,7 +272,9 @@ reaches the disk until **Save**, which replaces the whole root `trees:` section 
 config_writer chokepoint (a fresh `.bak` is made first); linking/validation runs at Save via
 `kicadstamp.link_trees`.
 
-Since 2026-09-03 (plan tree_node_own_anchor) the Add/Edit-node dialog is a TWO-TAB editor: **General**
+Since 2026-09-03 (plan tree_node_own_anchor) the node editor is a TWO-TAB form — shown in the
+master-detail **Node** tab for a selected node, and inside the modal Add dialog while no node exists
+yet: **General**
 (everything above — Kind/Ref/Offset/Pivot/Rotation/Read current position/Name/Group) and a new
 **Position** tab that picks what a node's offset is measured from. Since 2026-09-04
 (plan plan_2026_09_04_unify_node_own_anchor_widget.md) this is the shared `AnchorOriginWidget` combo the
@@ -281,13 +290,19 @@ grammar writes it as a nested `(anchor (role ...) [(sheet ...) (cluster ...) (pa
 tree-anchor-only). **Read current position** in component mode diffs against the chosen component (not
 the parent), so the typed offset is relative to the right base.
 
-Double-clicking any non-module tree node opens its EDIT dialog directly (Phase B, plan
-tree_node_phaseB 2026-09-03); a module node still jumps to its child tree's tab. The EDIT dialog
-closes ONLY via **Close**: **Apply** writes the form onto the node in place (marks the dock dirty,
-stays open — nothing reaches disk until Save), and **Redraw** applies first, then places that node's
-REAL component on the live board at its (edited) config position — one background ApplyPipeline
-`--only` run, never blocking the UI. Un-applied edits are discarded on Close. The Add dialogs keep
-their modal OK/Cancel (there is no node to apply/redraw before it exists).
+Since 2026-09-04 a SINGLE click on a non-module tree node already loads its editor onto the
+master-detail **Node** tab, so double-clicking such a node no longer opens a modal — it just makes
+sure the node is selected and brings the Node tab to the front; a module node / a "⇐ embedded in" /
+"→ instance:" pseudo item still jumps to the referenced tree's tab. The node editor's **Apply**
+writes the form onto the node in place (marks the dock dirty, stays open — nothing reaches disk until
+Save); **Redraw** applies first, then places that node's REAL component on the live board at its
+(edited) config position — one background ApplyPipeline `--only` run, never blocking the UI. Un-applied
+edits are discarded — with a non-blocking "Unapplied changes were discarded." notice in the status row
+(2026-09-04, design §9.4) — when you select ANOTHER node, or when a structural edit rebuilds the tree.
+The generic cascade "Redraw dependents" for an arbitrary node is intentionally NOT restored (design
+§9.2): tree redraws stay selected / whole-tree / forest only. The ADD dialogs (Add / Add child / Add
+sibling / Add node) keep their modal OK/Cancel — there is no node to apply/redraw before it exists,
+and a brand-new tree may not have a tab yet.
 
 Since 2026-09-03 (plan tree_ui_state_persistence) the ACTIVE tab and the per-tree expanded/collapsed
 state are remembered too: a rebuild no longer resets you to the first tab or collapses every tree
@@ -360,7 +375,8 @@ are a deep copy of the template — refs suffixed `__{instance.name}`, the insta
 the declaration sets it, its `cluster`) substituted into the copied Entities and the role anchor.
 Instance tabs are **READ-ONLY**: their
 node context menu offers no Add/Edit/Delete/Rename/Move (the geometry is owned by the template + the
-declaration), and Rename/Delete tree refuse them — but **Redraw** works normally (instances are fully
+declaration), their master-detail Anchor/Node panel shows the same read-only notice instead of an
+editor, and Rename/Delete tree refuse them — but **Redraw** works normally (instances are fully
 placeable trees). An instance tab shows one top **"⇐ instance of {template} (sheet={sheet})"** item; a
 template tree shows one **"→ instance: {name}"** item per instance — double-click navigates either way
 (the same navigation primitive as "⇐ embedded in"). **Save never writes generated instances** as literal
