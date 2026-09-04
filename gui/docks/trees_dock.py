@@ -1919,14 +1919,23 @@ class TreesDock(QDockWidget):
         self._show_status(_("Redraw failed — see log"))
 
 
-class _NodeDialog(QDialog):
-    """Modal dialog for adding/editing a node: ref + kind + offset (xy/polar
-    via AnchorOriginWidget) + rotation/name/group, plus a "Read current
+class NodeFormWidget(QWidget):
+    """The node add/edit FORM (no modal wrapper): ref + kind + offset (xy/
+    polar via AnchorOriginWidget) + rotation/name/group, plus a "Read current
     position" button that fills offset/rotation from the LIVE board relative
-    to the parent base (the parent is decided by the context-menu action that
-    opened it, not here — design §3). `existing` switches to EDIT mode:
-    every field is pre-filled and the "ref already used" check excludes the
-    node's own ref."""
+    to the parent base (the parent is decided by the caller, not here — design
+    §3). `existing` switches to EDIT mode: every field is pre-filled and the
+    "ref already used" check excludes the node's own ref. Modal-agnostic:
+    phase B (design §9.4) — apply()/redraw() mutate the node in place and stay
+    open; the OK/Cancel or Apply/Redraw/Close button row is added by the
+    embedding context (_NodeDialog's thin wrapper, or the master-detail Node
+    tab of plan_2026_09_04_trees_dock_master_detail.md §3).
+
+    Extracted from the former _NodeDialog (plan §1.1); the class keeps the
+    exact constructor signature and every field/method the Add/Edit flows use,
+    just as a plain QWidget."""
+    _dock: Optional["TreesDock"] = None
+    _touched: bool = False
 
     def __init__(self, parent, ref_candidates: list[tuple[str, str]], used_refs: set[str],
                  title: str, cfg=None, adapter=None, sheet_names=None,
@@ -1935,7 +1944,9 @@ class _NodeDialog(QDialog):
                  role_candidates=None, sheet_candidates=None,
                  cluster_candidates=None):
         super().__init__(parent)
-        self.setWindowTitle(title)
+        # `title` is accepted for signature compatibility with the former
+        # QDialog (its caller set the window title); a plain QWidget form has
+        # no window of its own, so nothing is set here.
         self._ref_candidates = ref_candidates
         self._used_refs = used_refs
         self._cfg = cfg
@@ -2041,42 +2052,23 @@ class _NodeDialog(QDialog):
         self.tabs.addTab(general_widget, _("General"))
         self.tabs.addTab(position_widget, _("Position"))
 
-        # Phase B (design_2026_09_03... §3): the EDIT dialog (existing) closes
-        # ONLY via Close — Apply writes the form onto the node (staying open,
-        # edits are explicit, nothing auto-commits), Redraw applies AND re-places
-        # the real component live; unsaved changes since the last Apply are lost
-        # on Close. The ADD dialog (no existing node to apply to) keeps the modal
-        # OK/Cancel commit through the caller (_prompt_node).
+        # The button row is NOT part of the form — plan
+        # plan_2026_09_04_trees_dock_master_detail.md §1.1: a plain QWidget form
+        # is modal-agnostic, the OK/Cancel (Add) or Apply/Redraw/Close (Edit)
+        # row is added by the embedding context (_NodeDialog's thin wrapper, or
+        # the master-detail Node tab of §3). What stays here: the form layout
+        # (General/Position tabs) + the non-blocking apply-status label that
+        # apply()/redraw() write to (design §9.4).
         self._dock = parent if getattr(parent, "_mark_dirty", None) else None
+        self._touched = False
         self.apply_status_label = QLabel("")
         self.apply_status_label.setWordWrap(True)
         root = QVBoxLayout(self)
         root.addWidget(self.tabs)
-        buttons = QHBoxLayout()
-        if existing is not None:
-            self.apply_button = QPushButton(_("Apply"))
-            self.apply_button.clicked.connect(self._on_apply)
-            self.redraw_button = QPushButton(_("Redraw"))
-            self.redraw_button.clicked.connect(self._on_redraw)
-            self.close_button = QPushButton(_("Close"))
-            self.close_button.clicked.connect(self.reject)
-            buttons.addWidget(self.apply_button)
-            buttons.addWidget(self.redraw_button)
-            buttons.addWidget(self.close_button)
-            root.addWidget(self.apply_status_label)
-        else:
-            self.ok_button = QPushButton(_("OK"))
-            self.ok_button.clicked.connect(self.accept)
-            cancel_button = QPushButton(_("Cancel"))
-            cancel_button.clicked.connect(self.reject)
-            buttons.addWidget(self.ok_button)
-            buttons.addWidget(cancel_button)
-        root.addLayout(buttons)
+        root.addWidget(self.apply_status_label)
 
         self.ref_combo.currentTextChanged.connect(self._update_read_button_state)
         self.kind_combo.currentIndexChanged.connect(self._update_read_button_state)
-        if existing is not None:
-            self.kind_combo.currentIndexChanged.connect(self._update_redraw_state)
 
         if existing is not None:
             self._prefill(existing)   # calls _on_kind_changed() itself (kind
@@ -2085,7 +2077,18 @@ class _NodeDialog(QDialog):
         else:
             self._on_kind_changed()
         self._update_read_button_state()
-        self._update_redraw_state()
+        # design §9.4: after _prefill/_on_kind_changed populated the fields the
+        # form is clean — _touched reflects only USER edits since the last
+        # load()/Apply (the same _mark_touched signals fired by prefill must
+        # not mark the fresh form dirty).
+        self._touched = False
+
+    def _mark_touched(self) -> None:
+        """design §9.4: any user field edit flags the form as having unapplied
+        changes — the discard-warning source for a constantly-open panel (the
+        master-detail Node tab). Connected per-widget in the embedding
+        context/§3; the flag itself is owned here."""
+        self._touched = True
 
     def own_anchor(self) -> TreeAnchor | None:
         """The Position tab's value: None when "Relative to parent" (the
@@ -2103,23 +2106,12 @@ class _NodeDialog(QDialog):
             anchor_pad=fields.get("pad"),
         )
 
-    def _update_redraw_state(self) -> None:
-        """Phase B: Redraw only makes sense in EDIT mode with a dock (live board
-        + config) and a record kind ApplyPipeline can re-place by name — a
-        module marker, an external live refdes or an auto node cannot."""
-        redraw = getattr(self, "redraw_button", None)
-        if redraw is None:
-            return
-        kind = self.kind_combo.currentData()
-        redraw.setEnabled(self._dock is not None
-                          and kind in ("placement", "clone", "chain", "rule",
-                                       "coordinate", "net_trace"))
-
-    def _on_apply(self) -> bool:
-        """Phase B Apply: validate the form and write the fields onto the EDITED
-        node in place — explicit, does NOT close the dialog (edits are explicit
-        actions; the config still reaches disk only through the caller's Save).
-        Returns True when applied."""
+    def apply(self) -> bool:
+        """Phase B Apply (plan §1.3): validate the form and write the fields
+        onto the EDITED node in place — explicit, does NOT close anything (the
+        caller owns the button row; edits are explicit actions and the config
+        still reaches disk only through the caller's Save). Returns True when
+        applied. Resets _touched (design §9.4) on success."""
         if self._existing is None:
             return False
         built = self.build_node()
@@ -2128,14 +2120,15 @@ class _NodeDialog(QDialog):
         _copy_node_onto(self._existing, built)
         if self._dock is not None:
             self._dock._mark_dirty()
+        self._touched = False
         self.apply_status_label.setText(_("Applied — keep editing or Redraw."))
         return True
 
-    def _on_redraw(self) -> None:
-        """Phase B Redraw: Apply first, then place the node's REAL record on the
-        live board at its (edited) config position — a background worker via the
-        dock, never blocking the dialog or the UI."""
-        if not self._on_apply():
+    def redraw(self) -> None:
+        """Phase B Redraw (plan §1.3): apply() first, then place the node's
+        REAL record on the live board at its (edited) config position — a
+        background worker via the dock, never blocking the UI."""
+        if not self.apply():
             return
         if self._dock is not None:
             self._dock._redraw_edited_node(self._existing)
@@ -2429,6 +2422,111 @@ class _NodeDialog(QDialog):
         return TreeNode(ref=ref, kind=kind, xy=xy, polar=polar, rotation=rotation,
                         name=name, group=group, pivot_xy=pivot_xy,
                         pivot_polar=pivot_polar, own_anchor=own_anchor)
+
+
+class _NodeDialog(QDialog):
+    """Thin modal wrapper around a single NodeFormWidget (plan
+    plan_2026_09_04_trees_dock_master_detail.md §1.4): the form is
+    modal-agnostic (a plain QWidget); THIS class adds the button row on top —
+    OK/Cancel in Add mode (existing=None, the _prompt_node master flow) or
+    Apply/Redraw/Close in Edit mode (existing=node, Phase B), mirroring the
+    pre-refactor dialog exactly. build_node()/own_anchor() and every form
+    field are reachable on the dialog (via the embedded form) so the existing
+    callers/tests keep working until §6 ports them onto NodeFormWidget."""
+    _form: Optional[NodeFormWidget] = None
+
+    def __init__(self, parent, ref_candidates: list[tuple[str, str]], used_refs: set[str],
+                 title: str, cfg=None, adapter=None, sheet_names=None,
+                 tree=None, parent_node=None, existing=None,
+                 module_candidates=None, all_trees=None,
+                 role_candidates=None, sheet_candidates=None,
+                 cluster_candidates=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        # The FORM is built with the original `parent` (the TreesDock, not this
+        # dialog) so its _dock resolves to the dock that owns _mark_dirty —
+        # addWidget below reparents the form visually without touching _dock.
+        self._form = NodeFormWidget(
+            parent, ref_candidates, used_refs, title, cfg=cfg, adapter=adapter,
+            sheet_names=sheet_names, tree=tree, parent_node=parent_node,
+            existing=existing, module_candidates=module_candidates,
+            all_trees=all_trees, role_candidates=role_candidates,
+            sheet_candidates=sheet_candidates, cluster_candidates=cluster_candidates)
+        layout = QVBoxLayout(self)
+        layout.addWidget(self._form)
+        buttons = QHBoxLayout()
+        if existing is not None:
+            self.apply_button = QPushButton(_("Apply"))
+            self.apply_button.clicked.connect(self._on_apply)
+            self.redraw_button = QPushButton(_("Redraw"))
+            self.redraw_button.clicked.connect(self._on_redraw)
+            self.close_button = QPushButton(_("Close"))
+            self.close_button.clicked.connect(self.reject)
+            buttons.addWidget(self.apply_button)
+            buttons.addWidget(self.redraw_button)
+            buttons.addWidget(self.close_button)
+        else:
+            self.ok_button = QPushButton(_("OK"))
+            self.ok_button.clicked.connect(self.accept)
+            cancel_button = QPushButton(_("Cancel"))
+            cancel_button.clicked.connect(self.reject)
+            buttons.addWidget(self.ok_button)
+            buttons.addWidget(cancel_button)
+        layout.addLayout(buttons)
+        # Redraw-enabled state tracks the form's kind combo (the form no longer
+        # owns a redraw button — the wrapper does, so the wiring lives here).
+        self._form.kind_combo.currentIndexChanged.connect(self._update_redraw_state)
+        self._update_redraw_state()
+
+    @property
+    def _adapter(self):
+        """Read/write through to the embedded form — tests and _prompt_node
+        reassign the live adapter after construction."""
+        return self._form._adapter
+
+    @_adapter.setter
+    def _adapter(self, value):
+        self._form._adapter = value
+
+    def __getattr__(self, name):
+        # Delegate any form field/method to the embedded NodeFormWidget (the
+        # dialog keeps the QDialog surface only). Only reached when normal
+        # attribute lookup fails — form-only names like kind_combo/tabs/etc.
+        form = self.__dict__.get("_form")
+        if form is not None:
+            return getattr(form, name)
+        raise AttributeError(name)
+
+    def _update_redraw_state(self) -> None:
+        """Phase B: Redraw only makes sense in EDIT mode with a dock (live board
+        + config) and a record kind ApplyPipeline can re-place by name — a
+        module marker, an external live refdes or an auto node cannot."""
+        redraw = getattr(self, "redraw_button", None)
+        if redraw is None:
+            return
+        kind = self._form.kind_combo.currentData()
+        redraw.setEnabled(self._form._dock is not None
+                          and kind in ("placement", "clone", "chain", "rule",
+                                       "coordinate", "net_trace"))
+
+    def _on_apply(self) -> bool:
+        """Edit-mode Apply: delegate to the form's apply() (Phase B — mutates
+        the node in place, marks the dock dirty, stays open)."""
+        return self._form.apply()
+
+    def _on_redraw(self) -> None:
+        """Edit-mode Redraw: delegate to the form's redraw() (apply first, then
+        place the real record on the live board via the dock)."""
+        self._form.redraw()
+
+    def build_node(self):
+        """The form's build_node() — the Add flow (_prompt_node) reads it after
+        a successful exec()."""
+        return self._form.build_node()
+
+    def own_anchor(self):
+        """The form's own_anchor() (Position-tab value)."""
+        return self._form.own_anchor()
 
 
 class _AnchorDialog(QDialog):
