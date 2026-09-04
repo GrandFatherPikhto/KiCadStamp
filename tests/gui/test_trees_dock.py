@@ -91,7 +91,7 @@ def test_set_root_file_loads_trees_from_config(main_window, tmp_path):
     dock2 = TreesDock(main_window)
     dock2.set_root_file(None)  # no root -> no trees, placeholder tab
     assert dock2._trees == []
-    assert dock2.tabs.count() == 1
+    assert dock2.tree_tabs.count() == 1
 
 
 # ── cfg.trees / _trees identity invariant (2026-09-03, plan                 ──
@@ -206,7 +206,7 @@ def test_reload_trees_picks_up_external_write(main_window, tmp_path):
     dock.reload_trees()
 
     assert [t.name for t in dock._trees] == ["power_tree", "misc", "from_selection"]
-    assert dock.tabs.count() == 3
+    assert dock.tree_tabs.count() == 3
 
 
 def test_reload_trees_preserves_dirty_edits(main_window, tmp_path):
@@ -237,7 +237,7 @@ def test_reload_trees_no_root_is_noop(main_window, tmp_path):
     dock.set_root_file(None)
     dock.reload_trees()
     assert dock._trees == []
-    assert dock.tabs.count() == 1
+    assert dock.tree_tabs.count() == 1
 
 
 def test_tree_widgets_have_an_explicit_minimum_width_floor(main_window, tmp_path):
@@ -249,9 +249,9 @@ def test_tree_widgets_have_an_explicit_minimum_width_floor(main_window, tmp_path
     back to minimumSizeHint() (see
     test_text_view_minimum_height_is_explicitly_overridden in test_log_panel)."""
     dock, _ = _dock_with(main_window, tmp_path)  # two real trees
-    assert dock.tabs.count() == 2
-    for i in range(dock.tabs.count()):
-        widget = dock.tabs.widget(i)
+    assert dock.tree_tabs.count() == 2
+    for i in range(dock.tree_tabs.count()):
+        widget = dock._tree_widget_of_page(dock.tree_tabs.widget(i))
         assert isinstance(widget, QTreeWidget)
         assert widget.minimumWidth() == 1
 
@@ -261,8 +261,8 @@ def test_placeholder_tree_widget_has_an_explicit_minimum_width_floor(main_window
     consistency with a real tree's tab (set_root_file(None) -> placeholder)."""
     dock = TreesDock(main_window)
     dock.set_root_file(None)
-    assert dock.tabs.count() == 1
-    widget = dock.tabs.widget(0)
+    assert dock.tree_tabs.count() == 1
+    widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
     assert isinstance(widget, QTreeWidget)
     assert widget.minimumWidth() == 1
 
@@ -287,7 +287,7 @@ def test_set_root_file_broken_config_does_not_crash(main_window, tmp_path):
     dock.set_root_file(root)
     assert dock._trees == []
     assert dock._cfg is None
-    assert dock.tabs.count() == 1  # placeholder, not a crash
+    assert dock.tree_tabs.count() == 1  # placeholder, not a crash
 
 
 def test_set_root_file_renders_one_tab_per_tree_with_nested_structure(main_window, tmp_path):
@@ -295,11 +295,11 @@ def test_set_root_file_renders_one_tab_per_tree_with_nested_structure(main_windo
     grammar shape (anchor pseudo-root + nodes + child)."""
     dock, _root = _dock_with(main_window, tmp_path)
 
-    assert dock.tabs.count() == 2
-    assert dock.tabs.tabText(0) == "power_tree"
-    assert dock.tabs.tabText(1) == "misc"
+    assert dock.tree_tabs.count() == 2
+    assert dock.tree_tabs.tabText(0) == "power_tree"
+    assert dock.tree_tabs.tabText(1) == "misc"
 
-    tree_widget = dock.tabs.widget(0)
+    tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
     tops = _children(tree_widget.invisibleRootItem())
     assert len(tops) == 1
     assert "CONN_PM5V" in tops[0].text(0)
@@ -315,7 +315,7 @@ def test_set_root_file_renders_one_tab_per_tree_with_nested_structure(main_windo
 
 def test_static_preview_xy_node(main_window, tmp_path):
     dock, _root = _dock_with(main_window, tmp_path)
-    tree_widget = dock.tabs.widget(0)
+    tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
     nodes = _children(_children(tree_widget.invisibleRootItem())[0])
     tree_widget.setCurrentItem(nodes[0])  # AMS1117_REG (xy 5.0 2.0)
     text = dock.status_label.text()
@@ -325,7 +325,7 @@ def test_static_preview_xy_node(main_window, tmp_path):
 
 def test_static_preview_polar_node(main_window, tmp_path):
     dock, _root = _dock_with(main_window, tmp_path)
-    tree_widget = dock.tabs.widget(0)
+    tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
     nodes = _children(_children(tree_widget.invisibleRootItem())[0])
     tree_widget.setCurrentItem(nodes[1])  # R_AROUND (polar 3.0 45.0)
     text = dock.status_label.text()
@@ -949,7 +949,7 @@ def test_render_tree_auto_anchor_label(main_window, tmp_path):
     '⚓ (auto)' — never '⚓ None' (2026-08-31 gap)."""
     trees = {"trees": [{"name": "t", "nodes": []}]}  # no anchor key -> auto
     dock, _root = _dock_with(main_window, tmp_path, trees)
-    tree_widget = dock.tabs.widget(0)
+    tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
     tops = _children(tree_widget.invisibleRootItem())
     assert len(tops) == 1
     assert "auto" in tops[0].text(0)
@@ -961,7 +961,7 @@ def test_render_tree_role_anchor_label(main_window, tmp_path):
     trees = {"trees": [{"name": "t", "anchor": {"role": "FPGA", "sheet": "S1"},
                         "nodes": []}]}
     dock, _root = _dock_with(main_window, tmp_path, trees)
-    label = _children(dock.tabs.widget(0).invisibleRootItem())[0].text(0)
+    label = _children(dock._tree_widget_of_page(dock.tree_tabs.widget(0)).invisibleRootItem())[0].text(0)
     assert "role" in label and "FPGA" in label and "S1" in label
     assert "None" not in label
 
@@ -986,8 +986,8 @@ def test_delete_tree_removes_from_list_and_marks_dirty(main_window, tmp_path, mo
     Create/Rename)."""
     dock, _root = _dock_with(main_window, tmp_path)  # power_tree + misc
     assert len(dock._trees) == 2
-    assert dock.tabs.count() == 2
-    dock.tabs.setCurrentIndex(0)  # power_tree
+    assert dock.tree_tabs.count() == 2
+    dock.tree_tabs.setCurrentIndex(0)  # power_tree
 
     import gui.docks.trees_dock as td_mod
     monkeypatch.setattr(td_mod.QMessageBox, "question",
@@ -996,8 +996,8 @@ def test_delete_tree_removes_from_list_and_marks_dirty(main_window, tmp_path, mo
 
     assert [t.name for t in dock._trees] == ["misc"]
     assert dock._dirty is True
-    assert dock.tabs.count() == 1
-    assert dock.tabs.tabText(0) == "misc"
+    assert dock.tree_tabs.count() == 1
+    assert dock.tree_tabs.tabText(0) == "misc"
 
 
 def test_delete_tree_cancel_keeps_it(main_window, tmp_path, monkeypatch):
@@ -1013,7 +1013,7 @@ def test_delete_tree_cancel_keeps_it(main_window, tmp_path, monkeypatch):
 
     assert [t.name for t in dock._trees] == ["power_tree", "misc"]
     assert dock._dirty is False
-    assert dock.tabs.count() == 2
+    assert dock.tree_tabs.count() == 2
 
 
 def test_delete_tree_no_current_tree_is_noop(main_window, monkeypatch):
@@ -2387,7 +2387,7 @@ def test_double_click_navigation_module_and_embedded_in(main_window, tmp_path):
     fpga_idx = names.index("fpga")
 
     # The ch0 tab (module-placed) shows an "embedded in fpga" item.
-    ch0_widget = dock.tabs.widget(ch0_idx)
+    ch0_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(ch0_idx))
 
     emb_items = []
     def walk(parent):
@@ -2402,13 +2402,13 @@ def test_double_click_navigation_module_and_embedded_in(main_window, tmp_path):
 
     # Double-click the embedder item -> fpga tab.
     dock._on_node_activated(emb_items[0], 0)
-    assert dock.tabs.currentIndex() == fpga_idx
+    assert dock.tree_tabs.currentIndex() == fpga_idx
 
     # Double-click the module node (on the fpga tab) -> ch0 tab.
-    dock.tabs.setCurrentIndex(fpga_idx)
+    dock.tree_tabs.setCurrentIndex(fpga_idx)
     mod_item = dock._node_items["ch0_dac_buf"]
     dock._on_node_activated(mod_item, 0)
-    assert dock.tabs.currentIndex() == ch0_idx
+    assert dock.tree_tabs.currentIndex() == ch0_idx
 
 
 # ── tree_instances: read-only + save protection (2026-09-02, P1/F3) ────────
@@ -2451,7 +2451,7 @@ def test_instance_trees_are_indexed_read_only_but_still_tabs(main_window, tmp_pa
     assert set(dock._instances) == {"ch1_dac_buf"}
     assert dock._instance_of(dock._trees[0]) is None       # template: editable
     assert dock._instance_of(dock._trees[1]) is not None   # instance: read-only
-    assert dock.tabs.count() == 2
+    assert dock.tree_tabs.count() == 2
 
 
 def test_instance_context_menu_offers_no_structural_actions(
@@ -2460,7 +2460,7 @@ def test_instance_context_menu_offers_no_structural_actions(
     Rename/Move — only a disabled read-only note; the geometry is owned by the
     template + declaration."""
     dock, _ = _instance_dock(main_window, tmp_path)
-    dock.tabs.setCurrentIndex(1)  # ch1_dac_buf (the instance)
+    dock.tree_tabs.setCurrentIndex(1)  # ch1_dac_buf (the instance)
     dock._current_tree_widget().expandAll()
     node_item = dock._node_items["dac_buf__ch1_dac_buf"]
     actions = dict(_context_menu_actions(dock, node_item, monkeypatch))
@@ -2477,7 +2477,7 @@ def test_template_context_menu_still_offers_structural_actions(
     """P1 control: the TEMPLATE (a hand-written tree, Q3) keeps the full node
     menu — read-only applies to generated instances only."""
     dock, _ = _instance_dock(main_window, tmp_path)
-    dock.tabs.setCurrentIndex(0)  # dac_buf_tpl (the template)
+    dock.tree_tabs.setCurrentIndex(0)  # dac_buf_tpl (the template)
     dock._current_tree_widget().expandAll()
     node_item = dock._node_items["dac_buf"]
     assert node_item.text(0).startswith("dac_buf")
@@ -2492,7 +2492,7 @@ def test_rename_delete_tree_are_guarded_on_instance(
     an instance tab (an explanatory message, no dialog, no buffer change)."""
     import gui.docks.trees_dock as td_mod
     dock, _ = _instance_dock(main_window, tmp_path)
-    dock.tabs.setCurrentIndex(1)  # ch1_dac_buf (the instance)
+    dock.tree_tabs.setCurrentIndex(1)  # ch1_dac_buf (the instance)
     infos = []
     monkeypatch.setattr(td_mod.QMessageBox, "information",
                         lambda *a, **k: infos.append(a)
@@ -2535,7 +2535,7 @@ def _pseudo_items(dock, index):
     """All pseudo (double-click navigation) items on a tab: items carrying a
     plain tree NAME (str) in UserRole — the "embedded in"/"instance of"/"→
     instance" navigation items, never real node/anchor items."""
-    widget = dock.tabs.widget(index)
+    widget = dock._tree_widget_of_page(dock.tree_tabs.widget(index))
     out = []
     def walk(parent):
         for i in range(parent.childCount()):
@@ -2559,7 +2559,7 @@ def test_template_tab_shows_instance_items_and_switches(main_window, tmp_path):
     assert names == ["dac_buf_tpl", "ch1_dac_buf", "ch2_dac_buf"]
 
     tpl_idx = names.index("dac_buf_tpl")
-    dock.tabs.setCurrentIndex(tpl_idx)
+    dock.tree_tabs.setCurrentIndex(tpl_idx)
     items = {it.text(0): it for it in _pseudo_items(dock, tpl_idx)}
     assert len(items) == 2
     assert "→ instance: ch1_dac_buf" in items
@@ -2567,9 +2567,9 @@ def test_template_tab_shows_instance_items_and_switches(main_window, tmp_path):
 
     # Double-click each instance item -> that instance's tab.
     dock._on_node_activated(items["→ instance: ch1_dac_buf"], 0)
-    assert dock.tabs.currentIndex() == names.index("ch1_dac_buf")
+    assert dock.tree_tabs.currentIndex() == names.index("ch1_dac_buf")
     dock._on_node_activated(items["→ instance: ch2_dac_buf"], 0)
-    assert dock.tabs.currentIndex() == names.index("ch2_dac_buf")
+    assert dock.tree_tabs.currentIndex() == names.index("ch2_dac_buf")
 
 
 def test_instance_tab_shows_back_item_and_switches_to_template(main_window, tmp_path):
@@ -2583,20 +2583,20 @@ def test_instance_tab_shows_back_item_and_switches_to_template(main_window, tmp_
     tpl_idx = names.index("dac_buf_tpl")
     ch1_idx = names.index("ch1_dac_buf")
 
-    dock.tabs.setCurrentIndex(ch1_idx)
+    dock.tree_tabs.setCurrentIndex(ch1_idx)
     items = _pseudo_items(dock, ch1_idx)
     assert len(items) == 1
     assert items[0].text(0) == "⇐ instance of dac_buf_tpl (sheet=Channel_1)"
 
     dock._on_node_activated(items[0], 0)
-    assert dock.tabs.currentIndex() == tpl_idx
+    assert dock.tree_tabs.currentIndex() == tpl_idx
 
 
 def test_template_without_instances_shows_no_instance_items(main_window, tmp_path):
     """P2 control: an ordinary (non-template) tree shows no '→ instance' items —
     only real trees, e.g. the module-embedding example has none."""
     dock, _root = _dock_with(main_window, tmp_path)  # GRAMMAR_TREES: 2 plain trees
-    for idx in range(dock.tabs.count()):
+    for idx in range(dock.tree_tabs.count()):
         for it in _pseudo_items(dock, idx):
             assert not it.text(0).startswith("→ instance:")
 
@@ -2611,9 +2611,9 @@ def test_structural_edit_keeps_nonzero_active_tab(main_window, tmp_path):
     tab 0 after EVERY structural edit. An Add-node on tree 0 while tab 1
     (misc) is active must leave the user on misc (by name), not reset to 0."""
     dock, _root = _dock_with(main_window, tmp_path)  # power_tree + misc
-    assert dock.tabs.count() == 2
-    dock.tabs.setCurrentIndex(1)
-    assert dock.tabs.currentIndex() == 1
+    assert dock.tree_tabs.count() == 2
+    dock.tree_tabs.setCurrentIndex(1)
+    assert dock.tree_tabs.currentIndex() == 1
 
     # A structural edit on the OTHER (non-active) tree — exactly what every
     # node/dialog mutator does before calling _rebuild_tabs().
@@ -2624,8 +2624,8 @@ def test_structural_edit_keeps_nonzero_active_tab(main_window, tmp_path):
     dock._mark_dirty()
     dock._rebuild_tabs()
 
-    assert dock.tabs.currentIndex() == 1
-    assert dock.tabs.tabText(dock.tabs.currentIndex()) == "misc"
+    assert dock.tree_tabs.currentIndex() == 1
+    assert dock.tree_tabs.tabText(dock.tree_tabs.currentIndex()) == "misc"
 
 
 def test_active_tab_persists_between_dock_instances(main_window, tmp_path):
@@ -2633,20 +2633,20 @@ def test_active_tab_persists_between_dock_instances(main_window, tmp_path):
     and a brand-new dock over the same state restores it — the 'survives an app
     restart' contract."""
     dock, root = _dock_with(main_window, tmp_path)
-    dock.tabs.setCurrentIndex(1)  # misc
+    dock.tree_tabs.setCurrentIndex(1)  # misc
     assert settings.state.get("trees_dock", {}).get("active_tab") == "misc"
 
     dock2 = TreesDock(main_window)  # fresh construction == app restart
     dock2.set_root_file(root)
-    assert dock2.tabs.currentIndex() == 1
-    assert dock2.tabs.tabText(dock2.tabs.currentIndex()) == "misc"
+    assert dock2.tree_tabs.currentIndex() == 1
+    assert dock2.tree_tabs.tabText(dock2.tree_tabs.currentIndex()) == "misc"
 
 
 def test_persist_ui_state_flushes_current_active_tab(main_window, tmp_path):
     """The MainWindow._persist_settings() flush hook reads the CURRENT widget
     state — whatever tab is active right now is what gets saved."""
     dock, _root = _dock_with(main_window, tmp_path)
-    dock.tabs.setCurrentIndex(1)
+    dock.tree_tabs.setCurrentIndex(1)
     dock.persist_ui_state()  # the app-quit flush
     assert settings.state.get("trees_dock", {}).get("active_tab") == "misc"
 
@@ -2668,21 +2668,21 @@ def test_active_tab_unknown_persisted_name_falls_back_to_tab_0(main_window, tmp_
     settings.state.set("trees_dock", {"active_tab": "no_such_tree"})
     dock = TreesDock(main_window)
     dock.set_root_file(root)
-    assert dock.tabs.currentIndex() == 0
-    assert dock.tabs.tabText(0) == "power_tree"
+    assert dock.tree_tabs.currentIndex() == 0
+    assert dock.tree_tabs.tabText(0) == "power_tree"
 
 
 def test_active_tab_deleted_tree_by_the_edit_falls_back_to_tab_0(main_window, tmp_path):
     """Deleting the ACTIVE tree by the same structural edit drops the tab — the
     rebuild falls back to tab 0, never a crash or a stale tab."""
     dock, _root = _dock_with(main_window, tmp_path)  # power_tree + misc
-    dock.tabs.setCurrentIndex(1)  # misc is the active tab
+    dock.tree_tabs.setCurrentIndex(1)  # misc is the active tab
     dock._trees = [t for t in dock._trees if t.name != "misc"]
     dock._mark_dirty()
     dock._rebuild_tabs()
-    assert dock.tabs.count() == 1
-    assert dock.tabs.currentIndex() == 0
-    assert dock.tabs.tabText(0) == "power_tree"
+    assert dock.tree_tabs.count() == 1
+    assert dock.tree_tabs.currentIndex() == 0
+    assert dock.tree_tabs.tabText(0) == "power_tree"
 
 
 def test_active_tab_persist_keeps_foreign_trees_dock_subkeys_intact(main_window, tmp_path):
@@ -2691,7 +2691,7 @@ def test_active_tab_persist_keeps_foreign_trees_dock_subkeys_intact(main_window,
     settings.state.set("trees_dock",
                        {"trees": {"power_tree": {"anchor_expanded": True}}})
     dock, _root = _dock_with(main_window, tmp_path)
-    dock.tabs.setCurrentIndex(1)
+    dock.tree_tabs.setCurrentIndex(1)
     saved = settings.state.get("trees_dock", {})
     assert saved.get("active_tab") == "misc"
     assert saved["trees"] == {"power_tree": {"anchor_expanded": True}}
@@ -2721,7 +2721,7 @@ def _p2_anchor_and_nodes(dock, index):
     """(anchor_item, [direct node items]) of one rendered tree tab — P2_TREES
     trees are plain (no back/embedded/instance pseudo items), so the anchor is
     the only top-level item and its children are the top-level nodes."""
-    w = dock.tabs.widget(index)
+    w = dock._tree_widget_of_page(dock.tree_tabs.widget(index))
     anchor = _children(w.invisibleRootItem())[0]
     return anchor, _children(anchor)
 

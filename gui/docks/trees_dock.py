@@ -19,7 +19,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QComboBox, QDialog, QDockWidget,
                              QFormLayout, QHBoxLayout, QInputDialog, QLabel,
                              QLineEdit, QMenu, QMessageBox, QPushButton,
-                             QSizePolicy, QTabWidget,
+                             QSizePolicy, QSplitter, QTabWidget,
                              QTreeWidget, QTreeWidgetItem, QTreeWidgetItemIterator,
                              QVBoxLayout, QWidget)
 
@@ -300,11 +300,11 @@ class TreesDock(QDockWidget):
         #    Tools-menu QActions (see _on_create_tree/_on_rename_tree/...).
 
         # ── Per-tree tabs ────────────────────────────────────────────────
-        self.tabs = QTabWidget()
+        self.tree_tabs = QTabWidget()
         # (P1) Persist the active tab by tree name on every switch — the
         # rebuild-time events are filtered by _rebuilding_tabs.
-        self.tabs.currentChanged.connect(self._on_tab_changed)
-        layout.addWidget(self.tabs, 1)
+        self.tree_tabs.currentChanged.connect(self._on_tab_changed)
+        layout.addWidget(self.tree_tabs, 1)
 
         # ── Bottom status row: read-only indicators ──────────────────────
         # The whole-tree action buttons are gone (Tools → Trees owns them);
@@ -473,9 +473,9 @@ class TreesDock(QDockWidget):
     def apply_highlight(self) -> None:
         """Re-apply the highlight stylesheet — same consumer shape as the
         other tree docks (see gui/dock_hub.py)."""
-        for i in range(self.tabs.count()):
-            tree = self.tabs.widget(i)
-            if isinstance(tree, QTreeWidget):
+        for i in range(self.tree_tabs.count()):
+            tree = self._tree_widget_of_page(self.tree_tabs.widget(i))
+            if tree is not None:
                 tree.setStyleSheet(highlight_stylesheet_for("QTreeView::item:selected"))
 
     def _confirm_discard_changes(self) -> bool:
@@ -522,7 +522,7 @@ class TreesDock(QDockWidget):
         # setCurrentIndex) are not user state. The final active tab is
         # persisted below, once it is restored.
         self._rebuilding_tabs = True
-        self.tabs.clear()
+        self.tree_tabs.clear()
         self._node_items = {}
         if not self._trees:
             # Nothing to apply a pending active tab to — drop it so a stale
@@ -538,7 +538,7 @@ class TreesDock(QDockWidget):
             # (see tests/gui/test_log_panel.py::
             # test_text_view_minimum_height_is_explicitly_overridden).
             placeholder.setMinimumWidth(1)
-            self.tabs.addTab(placeholder, _("(no trees)"))
+            self.tree_tabs.addTab(placeholder, _("(no trees)"))
             self._rebuilding_tabs = False
             return
         # (P2) Saved per-tree expansion map — the whole "trees" sub-key is read
@@ -570,7 +570,23 @@ class TreesDock(QDockWidget):
             tree_widget.itemCollapsed.connect(
                 lambda item, name=tree.name: self._on_item_expand_changed(name, item))
             self._render_tree(tree_widget, tree, saved_tree_state.get(tree.name, {}))
-            self.tabs.addTab(tree_widget, tree.name)
+            # Master-detail page (plan §3.1): a QSplitter — the SAME tree on
+            # the left (widget(0), so _tree_widget_of_page finds it), and a
+            # fixed two-tab form panel (Anchor/Node) on the right. The form
+            # CONTENT is filled lazily for the active page in §3.2; here the
+            # right panel is created with empty placeholder pages so the
+            # splitter structure is stable from the first build.
+            splitter = QSplitter(Qt.Orientation.Horizontal)
+            splitter.setChildrenCollapsible(False)
+            splitter.addWidget(tree_widget)
+            form_tabs = QTabWidget()
+            form_tabs.setObjectName(f"tree_form_tabs_{tree.name}")
+            form_tabs.addTab(QWidget(), _("Anchor"))
+            form_tabs.addTab(QWidget(), _("Node"))
+            splitter.addWidget(form_tabs)
+            splitter.setStretchFactor(0, 1)
+            splitter.setStretchFactor(1, 0)
+            self.tree_tabs.addTab(splitter, tree.name)
         # (P1) Restore the active tab by name.
         desired = self._pending_active_name
         self._pending_active_name = None
@@ -578,12 +594,12 @@ class TreesDock(QDockWidget):
             desired = previous_name
         for idx, tree in enumerate(self._trees):
             if tree.name == desired:
-                self.tabs.setCurrentIndex(idx)
+                self.tree_tabs.setCurrentIndex(idx)
                 break
         else:
             # The desired tree is gone (deleted/renamed by this very edit) or
             # nothing was active before — today's behavior, tab 0.
-            self.tabs.setCurrentIndex(0)
+            self.tree_tabs.setCurrentIndex(0)
         self._rebuilding_tabs = False
         # Keep gui_state.json in sync with the restored tab (also covers a
         # rebuild that dropped the previously active tree -> tab 0).
@@ -622,9 +638,9 @@ class TreesDock(QDockWidget):
         """Name of the tree behind the CURRENT tab, or None when the tab widget
         is not in a state consistent with self._trees (no trees, or a stale tab
         count right after a structural edit changed the tree list)."""
-        idx = self.tabs.currentIndex()
+        idx = self.tree_tabs.currentIndex()
         if (idx < 0 or idx >= len(self._trees)
-                or self.tabs.count() != len(self._trees)):
+                or self.tree_tabs.count() != len(self._trees)):
             return None
         return self._trees[idx].name
 
@@ -738,9 +754,10 @@ class TreesDock(QDockWidget):
                 trees = {}
                 dock_state["trees"] = trees
             for i, tree in enumerate(self._trees):
-                widget = self.tabs.widget(i)
-                if isinstance(widget, QTreeWidget):
-                    trees[tree.name] = self._capture_tree_expansion(widget)
+                widget = self.tree_tabs.widget(i)
+                tree_widget = self._tree_widget_of_page(widget)
+                if tree_widget is not None:
+                    trees[tree.name] = self._capture_tree_expansion(tree_widget)
         self._update_trees_dock_state(_fn)
 
     def _embedded_in(self, tree: Tree) -> list[str]:
@@ -831,7 +848,7 @@ class TreesDock(QDockWidget):
         """Activate the tab of the tree named `name` (no-op if not loaded)."""
         for idx, t in enumerate(self._trees):
             if t.name == name:
-                self.tabs.setCurrentIndex(idx)
+                self.tree_tabs.setCurrentIndex(idx)
                 return
 
     def _render_node(self, parent_item: QTreeWidgetItem, node: TreeNode,
@@ -862,9 +879,17 @@ class TreesDock(QDockWidget):
 
     # ── Static preview (Phase 1, §5) ─────────────────────────────────────
 
-    def _current_tree_widget(self) -> Optional[QTreeWidget]:
-        widget = self.tabs.currentWidget()
+    @staticmethod
+    def _tree_widget_of_page(widget) -> Optional[QTreeWidget]:
+        """Unwrap a page widget (a QSplitter after §3.1, or historically a bare
+        QTreeWidget in tests/older callers) to the tree it hosts — always
+        widget(0) by construction (§3.1: tree first, form panel second)."""
+        if isinstance(widget, QSplitter):
+            return widget.widget(0) if isinstance(widget.widget(0), QTreeWidget) else None
         return widget if isinstance(widget, QTreeWidget) else None
+
+    def _current_tree_widget(self) -> Optional[QTreeWidget]:
+        return self._tree_widget_of_page(self.tree_tabs.currentWidget())
 
     def _on_selection_changed(self) -> None:
         tree_widget = self._current_tree_widget()
@@ -1012,7 +1037,7 @@ class TreesDock(QDockWidget):
 
     def _current_tree(self) -> Optional[Tree]:
         """The Tree behind the current tab, or None (no trees loaded)."""
-        idx = self.tabs.currentIndex()
+        idx = self.tree_tabs.currentIndex()
         if 0 <= idx < len(self._trees):
             return self._trees[idx]
         return None
@@ -1540,7 +1565,7 @@ class TreesDock(QDockWidget):
         self._trees.append(Tree(name=name, anchor=anchor, nodes=[]))
         self._mark_dirty()
         self._rebuild_tabs()
-        self.tabs.setCurrentIndex(len(self._trees) - 1)
+        self.tree_tabs.setCurrentIndex(len(self._trees) - 1)
 
     # ── Instantiate from Cell… (2026-09-03, plan instantiate_from_entity) ──
 

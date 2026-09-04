@@ -1778,6 +1778,10 @@ msgstr "Конфиг"
 msgid "Anchor"
 msgstr "Якорь"
 
+#: gui/docks/trees_dock.py
+msgid "Node"
+msgstr "Узел"
+
 #: gui/docks/config_tree.py:806 kicadstamp/config/profile_copy.py:262
 #, python-brace-format
 msgid "cell {cell}"
