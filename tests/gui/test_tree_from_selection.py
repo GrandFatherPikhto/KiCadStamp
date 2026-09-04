@@ -16,6 +16,7 @@ from gui.docks.tree_from_selection import (
     cluster_raw_items,
     create_cell_and_entity_for_cluster,
     detect_inter_cluster_nets,
+    extract_new_cell_for_instantiation,
     resolve_cluster_entity,
     tree_anchor_from_cluster_entity,
 )
@@ -434,6 +435,119 @@ def test_create_cell_and_entity_for_cluster_failed_extraction_logs_warning(
     assert ent == {"name": "dac_buf_channel_0", "cell": "dac_buf",
                    "cluster": "DAC_BUF", "sheet": "Channel_0"}
     assert cells_data == {}
+    assert any("not generated" in r.message for r in caplog.records)
+
+
+# ── "Extract new cell from selection" (2026-09-04, plan
+# instantiate_new_cell_from_selection) ────────────────────────────────────
+# The dialog-tab-2 helper: STRICT (only a fully-selected cluster, `c` from
+# fully_selected_clusters), built with the SAME extract_template_from_selection
+# call as create_cell_and_entity_for_cluster, only the origin differs by the
+# "geometry mode": zero-slot role (absolute=False) vs the selection-center
+# Vector2 (absolute=True — the SAME point the node's "Take from selection"
+# positioning uses, so the total position is exact, never doubled).
+
+def _rc_cluster(cluster="PIF_AVDD", sheet="Channel_1", refs=("R1",)):
+    return ReReadCluster(cluster=cluster, sheet=sheet, entity_name=None,
+                          cell=cluster.lower(), profile_key=None, refs=list(refs))
+
+
+def _sel_pos(ref, role, x_mm, y_mm):
+    """A Selected-like footprint the helper reads (.ref/.role for the origin
+    role, .fp.position for the selection center)."""
+    from types import SimpleNamespace
+    return SimpleNamespace(
+        ref=ref, role=role,
+        fp=SimpleNamespace(position=Vector2.from_xy_mm(x_mm, y_mm)))
+
+
+def test_extract_new_cell_zero_slot_uses_cluster_origin_role(monkeypatch):
+    """absolute=False -> the helper passes the cluster's unique selected role as
+    origin_component_role (narrowed by the cluster+sheet) — the SAME zero-slot
+    portable convention ordinary extraction uses — plus the cluster's raw items.
+    No 'origin' kwarg (the extractor derives it from the role component)."""
+    c = _rc_cluster(refs=["R1"])
+    selected = [_sel_pos("R1", "R1", 5.0, 5.0)]
+    raw = [_fp("R1")]
+    calls = {}
+    monkeypatch.setattr(
+        "gui.docks.tree_from_selection.extract_template_from_selection",
+        lambda adapter, name, items=None, **kw: calls.update(items=items, kw=kw)
+        or {name: {"components": []}})
+    out = extract_new_cell_for_instantiation(
+        object(), c, "pif_avdd", selected, raw, absolute=False)
+    assert out == {"pif_avdd": {"components": []}}
+    assert calls["items"] == raw
+    assert calls["kw"] == {
+        "origin_component_role": "R1",
+        "origin_component_cluster": "PIF_AVDD",
+        "origin_component_sheet": "Channel_1"}
+
+
+def test_extract_new_cell_absolute_origin_is_selection_center(monkeypatch):
+    """absolute=True -> origin = Vector2.from_xy_mm(selected_center_mm): the
+    geometric center of the SELECTED footprints — the SAME point the node's
+    'Take from selection' positioning uses. This is the regression that guards
+    the design §1.1.2 double-offset: someone "fixing" the call to pass
+    origin=Vector2(0,0) (or the bbox) instead of the center would shift the
+    reproduced position by the center again."""
+    c = _rc_cluster(sheet=None, refs=["R1", "U1"])
+    selected = [_sel_pos("R1", "R1", 1.0, 2.0), _sel_pos("U1", "U1", 5.0, 4.0)]
+    raw = [_fp("R1"), _fp("U1")]
+    calls = {}
+    monkeypatch.setattr(
+        "gui.docks.tree_from_selection.extract_template_from_selection",
+        lambda adapter, name, items=None, **kw: calls.update(items=items, kw=kw)
+        or {name: {"components": []}})
+    out = extract_new_cell_for_instantiation(
+        object(), c, "new_cell", selected, raw, absolute=True)
+    assert out == {"new_cell": {"components": []}}
+    origin = calls["kw"]["origin"]
+    assert isinstance(origin, Vector2)
+    assert (origin.x / MM, origin.y / MM) == (3.0, 3.0)  # center of (1,2),(5,4)
+    assert "origin_component_role" not in calls["kw"]
+    # The extractor computes cell offsets as (position - origin), so with this
+    # origin the reproduced position = node_center + (pos - center) = pos.
+    assert calls["items"] == raw
+
+
+def test_extract_new_cell_absolute_without_positions_returns_none(
+        monkeypatch, caplog):
+    """absolute=True with no selectable footprint positions -> None + a warning
+    (never a crash, never a cell silently built around an unavailable center)."""
+    from types import SimpleNamespace
+    c = _rc_cluster(sheet=None, refs=["R1"])
+    selected = [SimpleNamespace(ref="R1", role="R1", fp=None)]
+    raw = [_fp("R1")]
+    called = []
+    monkeypatch.setattr(
+        "gui.docks.tree_from_selection.extract_template_from_selection",
+        lambda *a, **k: called.append(True) or {})
+    with caplog.at_level("WARNING"):
+        out = extract_new_cell_for_instantiation(
+            object(), c, "new_cell", selected, raw, absolute=True)
+    assert out is None
+    assert called == []
+    assert any("no footprint positions" in r.message for r in caplog.records)
+
+
+def test_extract_new_cell_failed_extraction_logs_warning(monkeypatch, caplog):
+    """A failed extraction must NOT crash the caller (the same 'one bad cluster
+    must not crash the caller' contract as create_cell_and_entity_for_cluster):
+    None + a logged warning."""
+    c = _rc_cluster(refs=["R1"])
+    selected = [_sel_pos("R1", "R1", 1.0, 1.0)]
+    raw = [_fp("R1")]
+
+    def _boom(*a, **k):
+        raise RuntimeError("extract failed")
+
+    monkeypatch.setattr(
+        "gui.docks.tree_from_selection.extract_template_from_selection", _boom)
+    with caplog.at_level("WARNING"):
+        out = extract_new_cell_for_instantiation(
+            object(), c, "pif_avdd", selected, raw, absolute=False)
+    assert out is None
     assert any("not generated" in r.message for r in caplog.records)
 
 

@@ -33,6 +33,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Optional
 
 from kicadstamp.domain.board import Footprint, Track, Via
+from kicadstamp.domain.geometry import Vector2
 from kicadstamp.i18n import _
 from kicadstamp.net_resolution import RULE_NETS
 from kicadstamp.placement.services.component_resolver import (
@@ -245,6 +246,68 @@ def create_cell_and_entity_for_cluster(
     if c.sheet:
         ent["sheet"] = c.sheet
     return ent
+
+
+def extract_new_cell_for_instantiation(
+    adapter, c: ReReadCluster, cell_name: str,
+    selection_footprints, selection_raw_items,
+    absolute: bool,
+) -> Optional[dict]:
+    """Build a NEW Cell dict {cell_name: {...}} for the "Instantiate from
+    Cell..." dialog's second tab ("Extract new cell from selection", 2026-09-04,
+    plan instantiate_new_cell_from_selection).
+
+    STRICT full-selection semantics (Denis's 2026-09-04 decision): `c` is a
+    ReReadCluster returned by fully_selected_clusters — ONLY a FULLY selected
+    cluster is ever extracted here. A partial selection is never captured
+    silently (the fpga_oscill cell that was born without its via/track because
+    the selection was partial — plan_2026_09_03_fpga_oscill_missing_copper_and_
+    cell_import.md): the dialog only offers this path for a fully-selected
+    cluster and refuses otherwise.
+
+    The Cell is built with the SAME extract_template_from_selection call
+    create_cell_and_entity_for_cluster uses (cluster_raw_items + an origin), the
+    only difference being the origin choice of the "geometry mode":
+      - absolute=False (default): origin_component_role = a unique zero-slot
+        component role among the selection (cluster_origin_role) narrowed by
+        c.cluster/c.sheet — the ordinary portable-cell convention (works with
+        ANY node placement);
+      - absolute=True: origin = the geometric center of the selected footprints
+        (Vector2.from_xy_mm(selected_center_mm)) — the SAME point the caller's
+        "Take from selection" mode uses for the node's own xy, so the total
+        position reproduces the live one exactly (no double-offset, see design
+        §1.1.2). Correct ONLY paired with "Take from selection" node
+        positioning — the dialog says so in the UI; this function does not
+        enforce it.
+
+    Returns None (logs a warning) on a failed extraction — the same "one bad
+    cluster must not crash the caller" contract as create_cell_and_entity_for_
+    cluster. Never writes to disk itself."""
+    items = cluster_raw_items(c, selection_raw_items)
+    origin_kwargs: dict = {}
+    if absolute:
+        center = selected_center_mm(selection_footprints)
+        if center is None:
+            logging.warning(
+                "Cell %r for cluster %r: no footprint positions in the "
+                "selection — the absolute origin (selection center) is "
+                "unavailable", cell_name, c.cluster)
+            return None
+        origin_kwargs = {"origin": Vector2.from_xy_mm(*center)}
+    else:
+        role = cluster_origin_role(c, selection_footprints)
+        if role:
+            origin_kwargs = dict(
+                origin_component_role=role,
+                origin_component_cluster=c.cluster,
+                origin_component_sheet=c.sheet)
+    try:
+        return extract_template_from_selection(
+            adapter, cell_name, items=items, **origin_kwargs)
+    except Exception as e:  # noqa: BLE001 — one bad cluster must not crash the caller
+        logging.warning("Cell %r for cluster %r not generated: %s",
+                        cell_name, c.cluster, e)
+        return None
 
 
 # ── "Instantiate from Cell…" helpers (2026-09-03, plan instantiate_from_entity) ──
