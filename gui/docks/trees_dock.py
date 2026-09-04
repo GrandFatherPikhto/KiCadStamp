@@ -16,10 +16,10 @@ from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (QButtonGroup, QComboBox, QDialog, QDockWidget,
+from PyQt6.QtWidgets import (QComboBox, QDialog, QDockWidget,
                              QFormLayout, QHBoxLayout, QInputDialog, QLabel,
                              QLineEdit, QMenu, QMessageBox, QPushButton,
-                             QRadioButton, QSizePolicy, QTabWidget,
+                             QSizePolicy, QTabWidget,
                              QTreeWidget, QTreeWidgetItem, QTreeWidgetItemIterator,
                              QVBoxLayout, QWidget)
 
@@ -2020,40 +2020,23 @@ class _NodeDialog(QDialog):
 
         # ── Position tab: the offset base — parent (default, = today's node
         # semantics) or a chosen live component (own_anchor, plan
-        # tree_node_own_anchor §3). Role/Sheet/Cluster/Pad mirror the
-        # _AnchorDialog role section (configure_searchable + set_combo_items),
-        # so no new widget pattern is invented.
+        # tree_node_own_anchor §3). The same shared picker as everywhere else
+        # (plan 2026-09-04 unify_node_own_anchor_widget) — AnchorOriginWidget
+        # with two modes: the empty "parent" mode (the dialog's historic
+        # default) and "anchor" restricted to Role+Sheet/Cluster/Pad — Ref
+        # makes no sense for a NODE's own base (a node is itself a placement
+        # record), so show_ref=False, and the mode label keeps the old radio's
+        # wording "Relative to component". Row visibility under each mode is
+        # driven by the widget itself (its mode combo), no manual wiring.
         position_widget = QWidget()
         position_form = QFormLayout(position_widget)
-        self.own_anchor_group = QButtonGroup(self)
-        self.relative_to_parent_radio = QRadioButton(_("Relative to parent"))
-        self.relative_to_component_radio = QRadioButton(_("Relative to component"))
-        self.own_anchor_group.addButton(self.relative_to_parent_radio)
-        self.own_anchor_group.addButton(self.relative_to_component_radio)
-        self.relative_to_parent_radio.setChecked(True)
-        position_form.addRow(self.relative_to_parent_radio)
-        position_form.addRow(self.relative_to_component_radio)
-
-        self.own_anchor_role_combo = QComboBox()
-        configure_searchable(self.own_anchor_role_combo)
-        set_combo_items(self.own_anchor_role_combo, self._role_candidates)
-        position_form.addRow(_("Role:"), self.own_anchor_role_combo)
-        self.own_anchor_sheet_combo = QComboBox()
-        configure_searchable(self.own_anchor_sheet_combo)
-        set_combo_items(self.own_anchor_sheet_combo, self._sheet_candidates)
-        self.own_anchor_sheet_combo.lineEdit().setPlaceholderText(
-            _("sheet name (narrows an ambiguous Role, optional)"))
-        position_form.addRow(_("Sheet:"), self.own_anchor_sheet_combo)
-        self.own_anchor_cluster_combo = QComboBox()
-        configure_searchable(self.own_anchor_cluster_combo)
-        set_combo_items(self.own_anchor_cluster_combo, self._cluster_candidates)
-        position_form.addRow(_("Cluster:"), self.own_anchor_cluster_combo)
-        self.own_anchor_pad_edit = QLineEdit()
-        self.own_anchor_pad_edit.setPlaceholderText(_("pad (optional)"))
-        position_form.addRow(_("Pad:"), self.own_anchor_pad_edit)
-
-        self.relative_to_component_radio.toggled.connect(self._update_own_anchor_enabled)
-        self._update_own_anchor_enabled()
+        self.own_anchor_widget = AnchorOriginWidget(
+            modes=("parent", "anchor"), anchor_fields=("sheet", "cluster", "pad"),
+            show_ref=False, mode_labels={"anchor": _("Relative to component")})
+        position_form.addRow(self.own_anchor_widget)
+        self.own_anchor_widget.set_known_roles(
+            self._role_candidates, self._cluster_candidates)
+        self.own_anchor_widget.set_known_sheets(self._sheet_candidates)
 
         self.tabs.addTab(general_widget, _("General"))
         self.tabs.addTab(position_widget, _("Position"))
@@ -2104,32 +2087,20 @@ class _NodeDialog(QDialog):
         self._update_read_button_state()
         self._update_redraw_state()
 
-    def _update_own_anchor_enabled(self) -> None:
-        """The Role/Sheet/Cluster/Pad fields are enabled ONLY in "Relative to
-        component" mode (own_anchor is meaningful only then); "Relative to
-        parent" keeps them disabled so a stray typed Role cannot silently change
-        the node's base."""
-        component_mode = self.relative_to_component_radio.isChecked()
-        for w in (self.own_anchor_role_combo, self.own_anchor_sheet_combo,
-                  self.own_anchor_cluster_combo, self.own_anchor_pad_edit):
-            w.setEnabled(component_mode)
-
     def own_anchor(self) -> TreeAnchor | None:
         """The Position tab's value: None when "Relative to parent" (the
-        default), else the filled role-only TreeAnchor. An empty Role under
-        "Relative to component" is returned as None here — the caller's
-        validation (build_node) turns it into a warning, never a silent parent."""
-        if self.relative_to_parent_radio.isChecked():
-            return None
-        role = self.own_anchor_role_combo.currentText().strip()
-        if not role:
+        default) or the widget's own validation failed, else the filled
+        role-only TreeAnchor. An empty Role under "Relative to component" is
+        returned as None here — the caller's validation (build_node) turns it
+        into a warning, never a silent parent."""
+        fields, err = self.own_anchor_widget.build()
+        if err or fields["mode"] == "parent":
             return None
         return TreeAnchor(
-            role=role,
-            is_origin=False,
-            anchor_sheet=self.own_anchor_sheet_combo.currentText().strip() or None,
-            anchor_cluster=self.own_anchor_cluster_combo.currentText().strip() or None,
-            anchor_pad=self.own_anchor_pad_edit.text().strip() or None,
+            role=fields["role"], is_origin=False,
+            anchor_sheet=fields.get("sheet"),
+            anchor_cluster=fields.get("cluster"),
+            anchor_pad=fields.get("pad"),
         )
 
     def _update_redraw_state(self) -> None:
@@ -2184,15 +2155,13 @@ class _NodeDialog(QDialog):
         self.ref_combo.setCurrentText(existing.ref)
         # Position tab: restore the node's own_anchor (or "Relative to parent").
         if existing.own_anchor is not None:
-            self.relative_to_component_radio.setChecked(True)
-            self.own_anchor_role_combo.setCurrentText(existing.own_anchor.role)
-            self.own_anchor_sheet_combo.setCurrentText(
-                existing.own_anchor.anchor_sheet or "")
-            self.own_anchor_cluster_combo.setCurrentText(
-                existing.own_anchor.anchor_cluster or "")
-            self.own_anchor_pad_edit.setText(existing.own_anchor.anchor_pad or "")
+            self.own_anchor_widget.load(
+                mode="anchor", role=existing.own_anchor.role,
+                sheet=existing.own_anchor.anchor_sheet or "",
+                cluster=existing.own_anchor.anchor_cluster or "",
+                pad=existing.own_anchor.anchor_pad or "")
         else:
-            self.relative_to_parent_radio.setChecked(True)
+            self.own_anchor_widget.load(mode="parent")
         if existing.xy is not None:
             self.offset_widget.load(x=existing.xy[0], y=existing.xy[1])
         elif existing.polar is not None:
@@ -2241,14 +2210,15 @@ class _NodeDialog(QDialog):
                 self, _("Read current position"),
                 _("No root config loaded — cannot resolve the record."))
             return
-        # When "Relative to component" is selected the offset is defined from
-        # that component's live frame — the read must diff against it, not the
-        # parent (plan tree_node_own_anchor §2.3/§3).
-        base_anchor = self.own_anchor() if self.relative_to_component_radio.isChecked() else None
-        if self.relative_to_component_radio.isChecked() and base_anchor is None:
+        # When the "Relative to component" mode is active the offset is defined
+        # from that component's live frame — the read must diff against it, not
+        # the parent (plan tree_node_own_anchor §2.3/§3).
+        is_component_mode = self.own_anchor_widget.mode == "anchor"
+        base_anchor = self.own_anchor() if is_component_mode else None
+        if is_component_mode and base_anchor is None:
             QMessageBox.warning(
                 self, _("Read current position"),
-                _("Pick a component (Role) or switch back to Relative to parent."))
+                _("Anchor: Role is required."))
             return
         try:
             offset_mm, rotation = _resolve_live_offset(
@@ -2451,10 +2421,10 @@ class _NodeDialog(QDialog):
         # (never silently downgrade to the parent base) — same explicit style as
         # the other guards above.
         own_anchor = self.own_anchor()
-        if self.relative_to_component_radio.isChecked() and own_anchor is None:
+        if self.own_anchor_widget.mode == "anchor" and own_anchor is None:
             QMessageBox.warning(
                 self, _("Add node"),
-                _("Pick a component (Role) or switch back to Relative to parent."))
+                _("Anchor: Role is required."))
             return None
         return TreeNode(ref=ref, kind=kind, xy=xy, polar=polar, rotation=rotation,
                         name=name, group=group, pivot_xy=pivot_xy,

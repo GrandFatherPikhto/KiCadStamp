@@ -2834,17 +2834,16 @@ def test_persist_ui_state_flushes_all_tree_expansion(main_window, tmp_path):
 # ── node editor Position tab / own_anchor (plan tree_node_own_anchor 2026-09-03)
 
 def test_node_dialog_has_position_tab_default_relative_to_parent(main_window, tmp_path):
-    """The node editor is a two-tab dialog; the new Position tab defaults to
-    "Relative to parent" (= own_anchor None, today's behaviour), and the
-    component fields are disabled in that mode."""
+    """The node editor is a two-tab dialog; the Position tab defaults to the
+    shared AnchorOriginWidget's "Relative to parent" mode (= own_anchor None,
+    today's behaviour) — under that empty mode no own_anchor field row is
+    shown (2026-09-04 unify: fields are hidden, not merely disabled)."""
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
     dlg = _build_dialog(dock, tree, None)
     assert dlg.tabs.count() == 2
     assert dlg.tabs.tabText(1) == "Position"
-    assert dlg.relative_to_parent_radio.isChecked()
-    assert not dlg.relative_to_component_radio.isChecked()
-    assert not dlg.own_anchor_role_combo.isEnabled()
+    assert dlg.own_anchor_widget.mode == "parent"
     assert dlg.own_anchor() is None
 
 
@@ -2854,22 +2853,24 @@ def test_node_dialog_own_anchor_returns_tree_anchor_when_component(main_window, 
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
     dlg = _build_dialog(dock, tree, None)
-    dlg.relative_to_component_radio.setChecked(True)
-    assert dlg.own_anchor_role_combo.isEnabled()
-    dlg.own_anchor_role_combo.setCurrentText("IC1")
-    dlg.own_anchor_sheet_combo.setCurrentText("PWR")
-    dlg.own_anchor_cluster_combo.setCurrentText("SUP")
-    dlg.own_anchor_pad_edit.setText("3")
+    dlg.own_anchor_widget.load(mode="anchor")
+    assert dlg.own_anchor_widget.anchor_role_edit.isEnabled()
+    dlg.own_anchor_widget.anchor_role_edit.setCurrentText("IC1")
+    dlg.own_anchor_widget.anchor_sheet_edit.setCurrentText("PWR")
+    dlg.own_anchor_widget.anchor_cluster_edit.setCurrentText("SUP")
+    dlg.own_anchor_widget.anchor_pad_edit.setText("3")
     assert dlg.own_anchor() == TreeAnchor(
         role="IC1", is_origin=False,
         anchor_sheet="PWR", anchor_cluster="SUP", anchor_pad="3")
-    dlg.relative_to_parent_radio.setChecked(True)
+    dlg.own_anchor_widget.load(mode="parent")
     assert dlg.own_anchor() is None
 
 
 def test_node_dialog_component_without_role_refuses_build(main_window, tmp_path, monkeypatch):
     """"Relative to component" with an EMPTY Role is a hard refusal in
-    build_node (QMessageBox) — never a silent downgrade to the parent base."""
+    build_node (QMessageBox) — never a silent downgrade to the parent base.
+    The message is the shared AnchorOriginWidget wording "Anchor: Role is
+    required." (2026-09-04 unify: one wording, no duplication)."""
     import gui.docks.trees_dock as td_mod
     warnings = []
     monkeypatch.setattr(td_mod.QMessageBox, "warning",
@@ -2879,14 +2880,14 @@ def test_node_dialog_component_without_role_refuses_build(main_window, tmp_path,
     dlg.ref_combo.setCurrentText("NEW1")
     dlg.offset_widget.x_edit.setText("1.0")
     dlg.offset_widget.y_edit.setText("2.0")
-    dlg.relative_to_component_radio.setChecked(True)
+    dlg.own_anchor_widget.load(mode="anchor")
     assert dlg.build_node() is None
-    assert any("Pick a component" in str(w) for w in warnings)
+    assert any("Anchor: Role is required." in str(w) for w in warnings)
 
 
 def test_node_dialog_prefill_restores_own_anchor(main_window, tmp_path):
     """Edit mode: an existing node's own_anchor restores the "Relative to
-    component" radio + Role/Sheet/Cluster/Pad, and own_anchor() returns it."""
+    component" mode + Role/Sheet/Cluster/Pad, and own_anchor() returns it."""
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
     existing = TreeNode(ref="E1", kind="placement", xy=(1.0, 0.0), polar=None,
@@ -2897,11 +2898,11 @@ def test_node_dialog_prefill_restores_own_anchor(main_window, tmp_path):
                       "Edit node", cfg=dock._cfg, adapter=None,
                       sheet_names={}, tree=tree, parent_node=None,
                       existing=existing)
-    assert dlg.relative_to_component_radio.isChecked()
-    assert dlg.own_anchor_role_combo.currentText() == "IC1"
-    assert dlg.own_anchor_sheet_combo.currentText() == "PWR"
-    assert dlg.own_anchor_cluster_combo.currentText() == ""
-    assert dlg.own_anchor_pad_edit.text() == "3"
+    assert dlg.own_anchor_widget.mode == "anchor"
+    assert dlg.own_anchor_widget.anchor_role_edit.currentText() == "IC1"
+    assert dlg.own_anchor_widget.anchor_sheet_edit.currentText() == "PWR"
+    assert dlg.own_anchor_widget.anchor_cluster_edit.currentText() == ""
+    assert dlg.own_anchor_widget.anchor_pad_edit.text() == "3"
     assert dlg.own_anchor() == existing.own_anchor
 
 

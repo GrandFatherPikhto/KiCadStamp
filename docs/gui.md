@@ -267,15 +267,19 @@ config_writer chokepoint (a fresh `.bak` is made first); linking/validation runs
 
 Since 2026-09-03 (plan tree_node_own_anchor) the Add/Edit-node dialog is a TWO-TAB editor: **General**
 (everything above — Kind/Ref/Offset/Pivot/Rotation/Read current position/Name/Group) and a new
-**Position** tab that picks what a node's offset is measured from. **Relative to parent** (the default)
-keeps today's behaviour (offset from the tree anchor for a top-level node, from the enclosing node for a
-child). **Relative to component** anchors the node to a chosen live component instead: pick a **Role**
-(optionally narrowed by **Sheet**/**Cluster**, shifted onto a specific **Pad**) — the node's `xy`/`polar`
-offset is then measured from that component's live position/rotation, and the node's own children keep
-inheriting that frame. The grammar writes it as a nested `(anchor (role ...) [(sheet ...) (cluster ...)
-(pad ...)])` inside the node — a per-node `own_anchor`; only the role shape is valid there (origin/ref/
-point/external are tree-anchor-only). **Read current position** in component mode diffs against the
-chosen component (not the parent), so the typed offset is relative to the right base.
+**Position** tab that picks what a node's offset is measured from. Since 2026-09-04
+(plan plan_2026_09_04_unify_node_own_anchor_widget.md) this is the shared `AnchorOriginWidget` combo the
+config docks already use, offered here with two of its modes: the empty **Relative to parent** and the
+role-only anchor mode labeled **Relative to component**. **Relative to parent** (the default) keeps
+today's behaviour (offset from the tree anchor for a top-level node, from the enclosing node for a child);
+its anchor field row is hidden rather than disabled — functionally identical. **Relative to component**
+anchors the node to a chosen live component instead: pick a **Role** (optionally narrowed by
+**Sheet**/**Cluster**, shifted onto a specific **Pad**) — the node's `xy`/`polar` offset is then measured
+from that component's live position/rotation, and the node's own children keep inheriting that frame. The
+grammar writes it as a nested `(anchor (role ...) [(sheet ...) (cluster ...) (pad ...)])` inside the node
+— a per-node `own_anchor`; only the role shape is valid there (origin/ref/point/external are
+tree-anchor-only). **Read current position** in component mode diffs against the chosen component (not
+the parent), so the typed offset is relative to the right base.
 
 Double-clicking any non-module tree node opens its EDIT dialog directly (Phase B, plan
 tree_node_phaseB 2026-09-03); a module node still jumps to its child tree's tab. The EDIT dialog

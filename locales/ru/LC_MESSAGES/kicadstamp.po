@@ -852,11 +852,15 @@ msgstr "X"
 msgid "Y"
 msgstr "Y"
 
-#: gui/docks/_anchor_origin.py:335
+#: gui/docks/_anchor_origin.py:361
+msgid "Anchor: Role is required."
+msgstr "Якорь: требуется указать Role."
+
+#: gui/docks/_anchor_origin.py:362
 msgid "Anchor: set Ref or Role."
 msgstr "Якорь: задайте Ref или Role."
 
-#: gui/docks/_anchor_origin.py:337
+#: gui/docks/_anchor_origin.py:364
 msgid "Anchor: Ref and Role are mutually exclusive — set one."
 msgstr "Якорь: Ref и Role взаимоисключающие — задайте одно."
 

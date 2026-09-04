@@ -31,7 +31,7 @@ Modes offered and anchor sub-fields shown are both constructor-configurable
 (not every consumer wants all four modes or all five anchor fields —
 see MODES/ANCHOR_FIELDS below and each caller's own instantiation)."""
 import logging
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (QComboBox, QFormLayout, QHBoxLayout, QLabel,
@@ -48,6 +48,11 @@ logger = logging.getLogger(__name__)
 # a subset+order from. Board origin's two kinds are fixed (only PointsDock
 # uses this mode, see its own module docstring on 'drill' vs 'grid').
 _MODE_LABELS = {
+    # "parent" — an EMPTY mode (no field row at all): the "relative to the
+    # parent's own base" default state of a node's own_anchor picker
+    # (gui/docks/trees_dock.py _NodeDialog Position tab). Reuses the same
+    # msgid as the old QRadioButton there so no new catalog string appears.
+    "parent": _("Relative to parent"),
     "xy": _("Absolute XY"),
     "anchor": _("Anchor (ref/role)"),
     "point": _("Point"),
@@ -61,30 +66,39 @@ _BOARD_ORIGIN_KINDS = [
 
 class AnchorOriginWidget(QWidget):
     """One QWidget: the Origin combo plus whichever of its mode-specific
-    rows (XY / Anchor / Point / Board origin) and the optional Shift row
-    the caller asked for. Visibility of each row follows the combo, same
-    _on_mode_changed shape every one of the four originals had.
+    rows (XY / Anchor / Point / Board origin / the empty "parent" state) and
+    the optional Shift row the caller asked for. Visibility of each row
+    follows the combo, same _on_mode_changed shape every one of the four
+    originals had.
 
     anchor_fields is a subset of {"sheet", "pad", "cluster"} — Ref/Role
-    themselves are always present whenever "anchor" is in modes, every
-    caller uses both."""
+    themselves are always present whenever "anchor" is in modes UNLESS the
+    caller opts out of Ref via show_ref=False (a role-only anchor picker,
+    e.g. _NodeDialog's own_anchor). mode_labels optionally overrides a
+    mode's combo label (keyed by mode name, merged over _MODE_LABELS) for
+    consumers that need a consumer-specific wording on a shared mode."""
 
     modeChanged = pyqtSignal()
 
     def __init__(self, modes: Sequence[str], anchor_fields: Sequence[str] = (),
-                shift: bool = False, polar: bool = False, parent: Optional[QWidget] = None):
+                shift: bool = False, polar: bool = False, show_ref: bool = True,
+                mode_labels: Optional[Mapping[str, str]] = None,
+                parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._modes: List[str] = list(modes)
         self._anchor_fields = set(anchor_fields)
         self._shift = shift
         self._polar = polar
+        self._show_ref = show_ref
+        # Consumer-specific wording wins over the shared _MODE_LABELS defaults.
+        self._mode_labels: Dict[str, str] = {**_MODE_LABELS, **(mode_labels or {})}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
         origin_form = QFormLayout()
         self.origin_mode_combo = QComboBox()
-        self.origin_mode_combo.addItems([_MODE_LABELS[m] for m in self._modes])
+        self.origin_mode_combo.addItems([self._mode_labels[m] for m in self._modes])
         self.origin_mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         origin_form.addRow(_("Origin:"), self.origin_mode_combo)
         layout.addLayout(origin_form)
@@ -143,10 +157,11 @@ class AnchorOriginWidget(QWidget):
             self._anchor_row = QWidget()
             anchor_form = QFormLayout(self._anchor_row)
             anchor_form.setContentsMargins(0, 0, 0, 0)
-            self.anchor_ref_edit = QLineEdit()
-            self.anchor_ref_edit.setPlaceholderText(
-                _("e.g. U3 (refdes — mostly avoided in this project)"))
-            anchor_form.addRow(_("Ref:"), self.anchor_ref_edit)
+            if self._show_ref:
+                self.anchor_ref_edit = QLineEdit()
+                self.anchor_ref_edit.setPlaceholderText(
+                    _("e.g. U3 (refdes — mostly avoided in this project)"))
+                anchor_form.addRow(_("Ref:"), self.anchor_ref_edit)
             self.anchor_role_edit = QComboBox()
             configure_searchable(self.anchor_role_edit)
             anchor_form.addRow(_("Role:"), self.anchor_role_edit)
@@ -307,6 +322,11 @@ class AnchorOriginWidget(QWidget):
         mode = self.mode
         fields: Dict[str, Any] = {"mode": mode}
 
+        if mode == "parent":
+            # Empty mode — nothing to validate or collect; the caller treats
+            # it as "relative to the parent's own base" (own_anchor=None).
+            return fields, None
+
         if mode == "xy":
             if self._polar and self._polar_combo is not None and self._polar_combo.currentIndex() == 1:
                 radius, err = self._parse_required_float(self.radius_edit, _("Radius"))
@@ -329,9 +349,16 @@ class AnchorOriginWidget(QWidget):
             return fields, None
 
         if mode == "anchor":
-            ref = self.anchor_ref_edit.text().strip()
+            # show_ref=False (role-only consumers) never has a Ref field at
+            # all — read text only when the widget exists (it is None then).
+            ref = self.anchor_ref_edit.text().strip() if self.anchor_ref_edit is not None else ""
             role = self.anchor_role_edit.currentText().strip()
             if not ref and not role:
+                if self.anchor_ref_edit is None:
+                    # Role-only picker: no Ref to fall back on, Role is the
+                    # sole required field (design §3.2 — one wording, no
+                    # duplication between widget and _NodeDialog callers).
+                    return None, _("Anchor: Role is required.")
                 return None, _("Anchor: set Ref or Role.")
             if ref and role:
                 return None, _("Anchor: Ref and Role are mutually exclusive — set one.")
