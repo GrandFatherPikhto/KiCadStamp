@@ -20,6 +20,7 @@ from kicadstamp.trees import load_trees
 import gui.docks.cascade as cascade_mod
 from gui.docks.cascade import (
     cascade_records, run_cascade, run_curated_forest_redraw, run_curated_tree_redraw,
+    run_single_node_redraw_worker,
 )
 
 
@@ -290,6 +291,40 @@ def test_curated_redraws_keep_placer_error_traceback_split(monkeypatch, tmp_path
     assert results and results[0] == ("CL_B", False, "boom")
     assert any(r.exc_info for r in caplog.records), \
         "forest redraw: an unexpected Exception must keep the traceback"
+
+
+def test_single_node_redraw_worker_logs_placer_error_text(monkeypatch, caplog):
+    """2026-09-04 regression: the node editor's **Redraw** worker
+    (run_single_node_redraw_worker) returned the PlacerError text in its result
+    tuple but NEVER logged it — while TreesDock._finish_redraw only reports
+    "{n} failed — see the log above", so the actual reason appeared nowhere
+    (the curated run_curated_tree_redraw has logged the same warning all
+    along). The PlacerError branch must log the formatted message explicitly
+    and stay traceback-free; an unexpected Exception keeps the traceback."""
+    # PlacerError path -> warning WITH the error text, no traceback.
+    monkeypatch.setattr(cascade_mod, "ApplyPipeline",
+                        _raising_pipeline(PlacerError("expected")))
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        results, warnings = run_single_node_redraw_worker({"ref": "CL_A"})
+    assert results == [("CL_A", False, "expected")]
+    assert warnings == []
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("FAILED" in m and "expected" in m for m in messages), \
+        "PlacerError text must be logged (was swallowed before the fix)"
+    assert not any(r.exc_info for r in caplog.records), \
+        "PlacerError must NOT log a traceback (logger.exception)"
+
+    # Plain Exception path -> logger.exception (exc_info set), same result.
+    monkeypatch.setattr(cascade_mod, "ApplyPipeline",
+                        _raising_pipeline(RuntimeError("boom")))
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        results, warnings = run_single_node_redraw_worker({"ref": "CL_A"})
+    assert results == [("CL_A", False, "boom")]
+    assert warnings == []
+    assert any(r.exc_info for r in caplog.records), \
+        "an unexpected Exception must keep the traceback (logger.exception)"
 
 
 def test_run_curated_forest_redraw_stage2_places_module_content(monkeypatch, tmp_path):

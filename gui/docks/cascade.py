@@ -322,7 +322,14 @@ def run_single_node_redraw_worker(payload: dict) -> tuple:
         return [(ref, True, None)], []
     except PlacerError as e:
         # ValidationError/PlacerError family — a well-formatted expected
-        # "fatal at the boundary"; no traceback needed.
+        # "fatal at the boundary"; no traceback needed. The TEXT still has to
+        # reach the log though: TreesDock._finish_redraw only reports
+        # "{n} failed — see the log above", so without this warning the node
+        # dialog's Redraw failure reason was swallowed entirely (regression
+        # 2026-09-04 — the curated tree redraw has logged it all along, see
+        # run_curated_tree_redraw's PlacerError branch).
+        logger.warning(_("Tree redraw: {name!r} — FAILED: {error}")
+                       .format(name=ref, error=e))
         return [(ref, False, str(e))], []
     except Exception as e:  # noqa: BLE001 — genuinely unexpected, keep traceback
         logger.exception("Single node redraw %s failed", ref)
