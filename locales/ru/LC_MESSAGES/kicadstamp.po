@@ -12782,3 +12782,61 @@ msgstr "Всего спиц: {count}"
 #~ "каждого выделенного компонента должна быть "
 #~ "Role для рефреша"
 
+#: gui/docks/instantiate_cell_dialog.py
+msgid "Existing cell"
+msgstr "Существующая Cell"
+
+#: gui/docks/instantiate_cell_dialog.py
+msgid "Extract new cell from selection"
+msgstr "Извлечь новую Cell из выделения"
+
+#: gui/docks/instantiate_cell_dialog.py
+msgid "New cell name:"
+msgstr "Имя новой Cell:"
+
+#: gui/docks/instantiate_cell_dialog.py
+msgid "e.g. dac_buf"
+msgstr "напр. dac_buf"
+
+#: gui/docks/instantiate_cell_dialog.py
+msgid "Geometry origin:"
+msgstr "Точка отсчёта геометрии:"
+
+#: gui/docks/instantiate_cell_dialog.py
+msgid "Relative to zero-slot"
+msgstr "Относительно zero-slot"
+
+#: gui/docks/instantiate_cell_dialog.py
+msgid "Absolute (selection center), rotation 0"
+msgstr "Абсолютно (центр выделения), поворот 0"
+
+#: gui/docks/instantiate_cell_dialog.py
+msgid "Absolute geometry only reproduces the live position when paired with 'Take from selection' — with manual xy the result is unverified."
+msgstr "Абсолютная геометрия воспроизводит живое положение, только когда включено «Take from selection» — при ручном xy результат не проверен."
+
+#: gui/docks/instantiate_cell_dialog.py
+msgid "A new Cell name is required."
+msgstr "Требуется имя новой Cell."
+
+#: gui/docks/instantiate_cell_dialog.py gui/docks/trees_dock.py
+#, python-brace-format
+msgid "A cell named {name!r} already exists."
+msgstr "Cell с именем {name!r} уже существует."
+
+#: gui/docks/instantiate_cell_dialog.py
+msgid "For a new Cell, the Cluster and Sheet must match the fully selected cluster the Cell is extracted from."
+msgstr "Для новой Cell Cluster и Sheet должны совпадать с полностью выделенным кластером, из которого извлекается Cell."
+
+#: gui/docks/instantiate_cell_dialog.py gui/docks/trees_dock.py
+msgid "Select exactly ONE fully selected Cluster — the new Cell is extracted from exactly one cluster."
+msgstr "Выбери ровно ОДИН полностью выделенный Cluster — новая Cell извлекается ровно из одного кластера."
+
+#: gui/docks/trees_dock.py
+msgid "Failed to extract the new Cell from the selection — see the log."
+msgstr "Не удалось извлечь новую Cell из выделения — см. журнал."
+
+#: gui/docks/trees_dock.py
+#, python-brace-format
+msgid "Failed to save the new Cell: {error}"
+msgstr "Не удалось сохранить новую Cell: {error}"
+
