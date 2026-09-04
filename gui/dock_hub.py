@@ -824,7 +824,8 @@ class DockHub:
             return
         self._focus_trees_dock()
         selected = getattr(self, "_selection_footprints", []) or []
-        self.trees_dock._instantiate_from_cell(selected)
+        raw_items = getattr(self, "_selection_raw_items", []) or []
+        self.trees_dock._instantiate_from_cell(selected, raw_items)
 
     def anchor_position(self) -> None:
         """Tools → Trees → Anchor position: refresh the dock's read-only live

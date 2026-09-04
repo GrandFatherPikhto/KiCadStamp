@@ -1577,14 +1577,19 @@ class TreesDock(QDockWidget):
             return None
         return (pos.x / MM, pos.y / MM)
 
-    def _instantiate_from_cell(self, selected) -> None:
-        """Add ONE new group into the CURRENT tree by reusing an EXISTING Cell
-        (2026-09-03, plan instantiate_from_entity). Collects the decision in
-        the InstantiateCellDialog, stages a NEW Entity on that Cell (no refs —
-        roles resolve at Apply by cluster/sheet) through config_writer, and
-        appends a top-level placement node (xy relative to the tree anchor).
-        Everything is staged via WORKING_SET — nothing reaches disk until the
-        global Save (see the plan's §3)."""
+    def _instantiate_from_cell(self, selected, raw_items=()) -> None:
+        """Add ONE new group into the CURRENT tree (2026-09-03, plan
+        instantiate_from_entity; second tab 2026-09-04, plan
+        instantiate_new_cell_from_selection). The group's internal layout comes
+        either from an EXISTING Cell (tab 1) or from a NEW Cell extracted right
+        from the current selection (tab 2, STRICT full-selection semantics —
+        only a FULLY selected cluster is ever extracted, a partial selection is
+        never captured silently). Collects the decision in the
+        InstantiateCellDialog, stages the NEW Entity (no refs — roles resolve
+        at Apply by cluster/sheet) and, on tab 2, the NEW Cell, through
+        config_writer, and appends a top-level placement node (xy relative to
+        the tree anchor). Everything is staged via WORKING_SET — nothing
+        reaches disk until the global Save (see the plan's §3)."""
         tree = self._current_tree()
         if tree is None:
             QMessageBox.warning(self, _("Instantiate from Cell"),
@@ -1614,19 +1619,84 @@ class TreesDock(QDockWidget):
                                           selected_center_mm)
         snapshot = getattr(getattr(self._main_window, "connection", None),
                            "snapshot", None) or []
+        # Strict tab-2 source: the FULLY-selected clusters of the current
+        # selection (the same detection "Extract cluster..." uses). A partial
+        # selection is never offered for extraction (2026-09-04, Denis's
+        # decision — cf. plan_2026_09_03_fpga_oscill_missing_copper_and_
+        # cell_import.md).
+        fully_selected: list = []
+        if self._ctx is not None:
+            from .reead import fully_selected_clusters
+            sheet_names = self._ctx.sheet_names or {}
+            fully_selected = fully_selected_clusters(
+                list(selected or []), list(snapshot),
+                list(self._cfg.entities), (), sheet_names=sheet_names)
+            fully_selected = [c for c in fully_selected
+                              if c.cluster and "\n" not in c.cluster]
         dialog = InstantiateCellDialog(
             self, self._cfg,
             cells=sorted(self._cfg.cells),
             sheets=self._live_sheets(),
             clusters=self._live_clusters(),
             selected=list(selected or []),
-            snapshot=list(snapshot))
+            snapshot=list(snapshot),
+            fully_selected=[(c.cluster, c.sheet) for c in fully_selected])
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        cell_name = dialog.result_cell()
         entity_name = dialog.entity_name()
+        cell_name = dialog.result_cell()
         cluster = dialog.cluster()
         sheet = dialog.sheet()
+        if dialog.is_new_cell():
+            # Tab 2 — extract a NEW Cell right from the current selection's ONE
+            # fully-selected cluster (the dialog only enables OK in that case).
+            adapter = self._live_adapter()  # lazy: tab 1 stays usable offline
+            if adapter is None:
+                QMessageBox.warning(self, _("Instantiate from Cell"),
+                                    _("Not connected."))
+                return
+            if len(fully_selected) != 1:
+                # Defensive — the dialog gates OK on exactly one; nothing staged.
+                QMessageBox.warning(
+                    self, _("Instantiate from Cell"),
+                    _("Select exactly ONE fully selected Cluster — the new Cell "
+                      "is extracted from exactly one cluster."))
+                return
+            c = fully_selected[0]
+            if cell_name in self._cfg.cells:
+                # A same-named Cell would be silently overwritten — refuse.
+                QMessageBox.warning(
+                    self, _("Instantiate from Cell"),
+                    _("A cell named {name!r} already exists.").format(name=cell_name))
+                return
+            from .tree_from_selection import extract_new_cell_for_instantiation
+            cell_dict = extract_new_cell_for_instantiation(
+                adapter, c, cell_name, selected, raw_items,
+                absolute=dialog.absolute_origin())
+            if cell_dict is None:
+                QMessageBox.warning(
+                    self, _("Instantiate from Cell"),
+                    _("Failed to extract the new Cell from the selection — "
+                      "see the log."))
+                return
+            # Strict addressing: the new Entity points at the cluster the Cell
+            # was extracted from (the dialog validated the shared combos match
+            # the detected cluster — see InstantiateCellDialog.validate).
+            cluster = c.cluster
+            sheet = c.sheet
+            # Stage the NEW Cell before the entity write — the same
+            # read_data/write_data read-merge-write path _stage_trees uses
+            # (WORKING_SET-aware; no per-edit backup — the flush backs up to
+            # history/, cf. _stage_trees's docstring).
+            try:
+                data = read_data(self._root_path)
+                data.setdefault("cells", {})[cell_name] = cell_dict[cell_name]
+                write_data(self._root_path, data)
+            except Exception as e:  # noqa: BLE001 — history/.bak is fresh; report
+                QMessageBox.warning(
+                    self, _("Instantiate from Cell"),
+                    _("Failed to save the new Cell: {error}").format(error=e))
+                return
         if dialog.from_selection():
             center = selected_center_mm(selected)
             base = self._anchor_base_mm(tree)

@@ -42,7 +42,8 @@ def _sel(ref, role=None, cluster=None, sheet=None, fp=None):
                            sheet=sheet or [], fp=fp if fp is not None else _fp(0, 0))
 
 
-def _open(main_window, cfg=None, *, selected=(), snapshot=(), cells=("c_pif",)):
+def _open(main_window, cfg=None, *, selected=(), snapshot=(), cells=("c_pif",),
+          fully_selected=()):
     cfg = cfg or _cfg(cells={c: _cell("R1", "C1") for c in cells},
                       entities=["existing_entity"])
     return InstantiateCellDialog(
@@ -51,7 +52,8 @@ def _open(main_window, cfg=None, *, selected=(), snapshot=(), cells=("c_pif",)):
         sheets=["FPGA"],
         clusters=["PIF_1V2_VCCINT", "PIF_P2V5_VCCA"],
         selected=list(selected),
-        snapshot=list(snapshot))
+        snapshot=list(snapshot),
+        fully_selected=list(fully_selected))
 
 
 def test_manual_mode_is_default(main_window):
@@ -168,6 +170,7 @@ def test_instantiate_from_cell_stages_entity_and_node(main_window, tmp_path,
     tree = dock._trees[0]
     fake = MagicMock()
     fake.exec.return_value = QDialog.DialogCode.Accepted
+    fake.is_new_cell.return_value = False  # tab 1 (existing Cell)
     fake.result_cell.return_value = "c_pif"
     fake.entity_name.return_value = "PIF_1V2_VCCINT"
     fake.cluster.return_value = "PIF_1V2_VCCINT"
@@ -193,6 +196,99 @@ def test_instantiate_from_cell_stages_entity_and_node(main_window, tmp_path,
     assert new_ent.get("cluster") == "PIF_1V2_VCCINT"
     assert new_ent.get("sheet") == "FPGA"
     assert "refs" not in new_ent
+
+
+def _to_tab2(dlg):
+    dlg.tabs.setCurrentIndex(1)
+    return dlg
+
+
+# ── Tab 2: "Extract new cell from selection" (2026-09-04) ────────────────
+
+def test_tab2_single_fully_selected_autofills_addressing(main_window):
+    """Tab 2 with exactly ONE fully-selected cluster autofills the shared
+    cluster/sheet addressing from it (the same adoption "_on_from_selection_
+    toggled" uses) and prefills the new Cell name from the cluster slug."""
+    dlg = _open(main_window, fully_selected=[("PIF_AVDD", "Channel_1")])
+    _to_tab2(dlg)
+    assert dlg.is_new_cell() is True
+    assert dlg.cluster() == "PIF_AVDD"
+    assert dlg.sheet() == "Channel_1"
+    assert dlg.new_cell_name() == "pif_avdd"
+    assert dlg.result_cell() == "pif_avdd"      # single reading point for the dock
+    assert dlg.absolute_origin() is False       # zero-slot is the default
+    assert dlg.zero_slot_radio.isChecked()
+
+
+def test_tab2_absolute_radio_and_warning_visibility(main_window):
+    """'Absolute' geometry shows the non-fatal notice only when the node's
+    'Take from selection' positioning is NOT also used; zero-slot never shows
+    it, and it disappears on the existing-cell tab. A cluster-tagged selection
+    keeps the "Take from selection" opt-in modal-free."""
+    dlg = _open(main_window, fully_selected=[("PIF_AVDD", "Channel_1")],
+                selected=[_sel("R1", role="R1", cluster="PIF_AVDD")])
+    _to_tab2(dlg)
+    assert dlg.geometry_warning_label.isVisibleTo(dlg) is False  # zero-slot default
+    dlg.absolute_radio.setChecked(True)
+    assert dlg.absolute_origin() is True
+    assert dlg.geometry_warning_label.isVisibleTo(dlg) is True   # absolute + manual xy
+    dlg.from_selection_check.setChecked(True)
+    assert dlg.geometry_warning_label.isVisibleTo(dlg) is False  # paired correctly
+    dlg.tabs.setCurrentIndex(0)
+    assert dlg.is_new_cell() is False
+    assert dlg.geometry_warning_label.isVisibleTo(dlg) is False
+
+
+def test_tab2_zero_fully_selected_blocks_ok_and_validate(main_window):
+    """STRICT (Denis, 2026-09-04): no fully-selected cluster -> the strict
+    message (the SAME wording "Extract cluster..." uses) + OK disabled; the
+    existing-cell tab 1 stays fully usable (OK re-enabled)."""
+    dlg = _open(main_window)  # fully_selected empty
+    _to_tab2(dlg)
+    assert not dlg._ok_button.isEnabled()
+    assert dlg.validate() is not None
+    assert "fully selected" in dlg.tab2_status_label.text()
+    assert "first." in dlg.tab2_status_label.text()
+    dlg.tabs.setCurrentIndex(0)  # tab 1 unaffected
+    assert dlg.is_new_cell() is False
+    assert dlg._ok_button.isEnabled()
+
+
+def test_tab2_several_fully_selected_blocks(main_window):
+    """More than one fully-selected cluster is ambiguous (a Cell is extracted
+    from exactly one) -> blocked, never a silent pick."""
+    dlg = _open(main_window, fully_selected=[("PIF_AVDD", "Ch0"),
+                                             ("PIF_CLKVDD", "Ch1")])
+    _to_tab2(dlg)
+    assert not dlg._ok_button.isEnabled()
+    assert dlg.validate() is not None
+    assert "exactly ONE" in dlg.tab2_status_label.text()
+
+
+def test_tab2_validate_requires_name_and_blocks_collision(main_window):
+    """Tab 2 validate: a blank new-Cell name and a name colliding with an
+    existing cfg.cells entry both block; a valid name + entity name passes."""
+    dlg = _open(main_window, fully_selected=[("PIF_AVDD", "Channel_1")])
+    _to_tab2(dlg)
+    dlg.name_edit.setText("PIF_AVDD_ENT")
+    assert dlg.validate() is None            # prefilled "pif_avdd" is fresh
+    dlg.new_cell_name_edit.setText("c_pif")  # exists in the _open default cfg
+    assert dlg.validate() is not None
+    assert "already exists" in dlg.validate()
+    dlg.new_cell_name_edit.setText("")       # blank
+    assert dlg.validate() is not None
+
+
+def test_tab2_validate_rejects_address_mismatch(main_window):
+    """On tab 2 the Entity's addressing must match the fully-selected cluster
+    the Cell is extracted from — a silent retype away from it is refused."""
+    dlg = _open(main_window, fully_selected=[("PIF_AVDD", "Channel_1")])
+    _to_tab2(dlg)
+    dlg.name_edit.setText("PIF_AVDD_ENT")
+    dlg.cluster_combo.setCurrentText("SOME_OTHER")
+    problem = dlg.validate()
+    assert problem is not None
+    assert "must match" in problem
 
 
 def test_instantiate_from_cell_requires_real_anchor(main_window, tmp_path,
@@ -227,3 +323,118 @@ def test_instantiate_from_cell_requires_real_anchor(main_window, tmp_path,
     assert warnings, "an auto-anchored tree must warn with the Set-anchor hint"
     assert len(dock._trees[0].nodes) == 1   # unchanged
     assert dock._dirty is False
+
+
+# ── Tab-2 TreesDock flow: extract + stage a brand-new Cell (2026-09-04) ───
+
+def _detect_one_cluster(monkeypatch, cluster="PIF_AVDD", sheet="Channel_1"):
+    """Stub the dock's strict detection to report exactly ONE fully-selected
+    cluster (the same list fully_selected_clusters would return for a full
+    selection)."""
+    from gui.docks.reead import ReReadCluster
+    monkeypatch.setattr(
+        "gui.docks.reead.fully_selected_clusters",
+        lambda *a, **k: [ReReadCluster(cluster=cluster, sheet=sheet,
+                                       entity_name=None, cell=cluster.lower(),
+                                       profile_key=None, refs=["R1", "U1"])])
+
+
+def _new_cell_fake(monkeypatch, *, name="pif_avdd", absolute=False):
+    """The InstantiateCellDialog double answering as tab 2."""
+    fake = MagicMock()
+    fake.exec.return_value = QDialog.DialogCode.Accepted
+    fake.is_new_cell.return_value = True
+    fake.result_cell.return_value = name
+    fake.new_cell_name.return_value = name
+    fake.entity_name.return_value = "PIF_AVDD_ENT"
+    fake.cluster.return_value = "PIF_AVDD"
+    fake.sheet.return_value = "Channel_1"
+    fake.absolute_origin.return_value = absolute
+    fake.from_selection.return_value = False
+    fake.manual_xy.return_value = (1.0, 2.0)
+    monkeypatch.setattr(icd, "InstantiateCellDialog", lambda *a, **k: fake)
+    return fake
+
+
+def test_instantiate_from_cell_extracts_and_stages_new_cell(
+        main_window, tmp_path, monkeypatch):
+    """Tab 2 end-to-end (strict): the dock detects the ONE fully-selected
+    cluster, extracts the NEW Cell through the helper, stages it into cells:,
+    then stages the Entity ADDRESSING that cluster + the placement node — all
+    staged, nothing on disk until Save."""
+    import gui.docks.trees_dock as td_mod
+    from types import SimpleNamespace
+    from gui.docks.reead import ReReadCluster
+    dock, root = _dock(main_window, tmp_path)
+    tree = dock._trees[0]
+    main_window.connection.board = SimpleNamespace(adapter=object())
+    _detect_one_cluster(monkeypatch)
+    _new_cell_fake(monkeypatch)
+    helper_calls = []
+    fake_cell = {"pif_avdd": {"components": [{"role": "R1"}]}}
+    monkeypatch.setattr(
+        "gui.docks.tree_from_selection.extract_new_cell_for_instantiation",
+        lambda *a, **k: helper_calls.append((a, k)) or fake_cell)
+
+    dock._instantiate_from_cell([], [])
+
+    assert helper_calls, "the extraction helper must be called on tab 2"
+    # The helper gets the detected ReReadCluster (strict full-selection), the
+    # raw selection items and the zero-slot geometry mode.
+    _adapter, c, cell_name, _sel, _raw = helper_calls[0][0]
+    assert isinstance(c, ReReadCluster) and c.cluster == "PIF_AVDD"
+    assert helper_calls[0][1]["absolute"] is False
+    assert dock._dirty is True
+    assert any(n.ref == "PIF_AVDD_ENT" and n.kind == "placement"
+               for n in tree.nodes)
+    data = sexp_to_dict(root.read_text(encoding="utf-8"))
+    assert data["cells"]["pif_avdd"]["components"] == [{"role": "R1"}]
+    new_ent = next(e for e in data["entities"] if e.get("name") == "PIF_AVDD_ENT")
+    assert new_ent.get("cell") == "pif_avdd"
+    assert new_ent.get("cluster") == "PIF_AVDD"      # addressing == extracted cluster
+    assert new_ent.get("sheet") == "Channel_1"
+    node = next(n for n in data["trees"][0]["nodes"]
+                if n.get("ref") == "PIF_AVDD_ENT")
+    assert list(node["xy"]) == [1.0, 2.0]
+
+
+def test_instantiate_from_cell_new_cell_name_collision_warns_without_write(
+        main_window, tmp_path, monkeypatch):
+    """A tab-2 name colliding with an EXISTING Cell is refused with a warning —
+    the existing Cell is never silently overwritten; nothing is staged."""
+    import gui.docks.trees_dock as td_mod
+    from types import SimpleNamespace
+    cfg_dict = {
+        "cells": {"pif_avdd": {"components": []}},   # the name already exists
+        "entities": [
+            {"name": "pif_p2v5_vcca", "cell": "c_pif", "cluster": "PIF_P2V5_VCCA"},
+        ],
+        "trees": [{
+            "name": "fpga", "anchor": {"role": "FPGA"},
+            "nodes": [{"ref": "pif_p2v5_vcca", "kind": "placement", "xy": [1.0, 2.0]}],
+        }],
+    }
+    root = tmp_path / "root.sexp"
+    root.write_text(dict_to_sexp(cfg_dict), encoding="utf-8")
+    dock = TreesDock(main_window)
+    dock.set_root_file(root)
+    main_window.connection.board = SimpleNamespace(adapter=object())
+    _detect_one_cluster(monkeypatch)
+    _new_cell_fake(monkeypatch)  # new_cell_name == "pif_avdd" == an existing cell
+    called = []
+    monkeypatch.setattr(
+        "gui.docks.tree_from_selection.extract_new_cell_for_instantiation",
+        lambda *a, **k: called.append(True) or {})
+    warnings = []
+    monkeypatch.setattr(td_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a)
+                        or td_mod.QMessageBox.StandardButton.Ok)
+
+    dock._instantiate_from_cell([], [])
+
+    assert warnings and "already exists" in str(warnings[0])
+    assert called == [], "the extractor must not run for a colliding name"
+    assert dock._dirty is False
+    data = sexp_to_dict(root.read_text(encoding="utf-8"))
+    assert len(data["entities"]) == 1          # unchanged
+    assert len(data["trees"][0]["nodes"]) == 1  # unchanged
