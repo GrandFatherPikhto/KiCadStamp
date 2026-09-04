@@ -409,6 +409,19 @@ Entity carries no role-pinning (refs): the new cluster's roles resolve at Apply 
 Entry points: Tools → Trees → "Instantiate from Cell..." and the current tree anchor's context menu.
 Everything is staged — nothing reaches disk until File > Save.
 
+The same dialog has a second tab, **Extract new cell from selection** (2026-09-04, plan
+instantiate_new_cell_from_selection): when the current board selection holds exactly ONE FULLY
+selected cluster (the same detection "Extract cluster..." uses — a partial selection is never
+captured silently, cf. plan_2026_09_03_fpga_oscill_missing_copper_and_cell_import.md), the tab lets
+you EXTRACT the cluster's layout as a brand-new Cell right here — no separate "Extract cluster..."
+round-trip — and add the placement node in one click. The cluster's Cluster/Sheet auto-fill the
+addressing; the new Cell name defaults to the cluster slug (editable; a name already in `cfg.cells` is
+refused). The Cell's internal geometry origin ("Geometry origin") is either "Relative to zero-slot"
+(default — the portable convention, works with any node placement) or "Absolute (selection center),
+rotation 0", whose origin is the SAME geometric center the "take from selection" positioning uses, so
+the total position reproduces the live one exactly. "Absolute" is only guaranteed together with "take
+from selection" (the dialog warns, not blocks — the Cell can be edited by hand later).
+
 ## Detail dock
 
 Placer/Net traces/Cells below all live as tabs inside one shared **Detail** dock,
