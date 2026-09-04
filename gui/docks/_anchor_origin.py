@@ -79,6 +79,12 @@ class AnchorOriginWidget(QWidget):
     consumers that need a consumer-specific wording on a shared mode."""
 
     modeChanged = pyqtSignal()
+    # design §9.4 (plan_2026_09_04_trees_dock_master_detail.md §3c): ONE
+    # "any field changed" signal the embedding _touched-tracking forms subscribe
+    # to, instead of every form wiring every internal edit/combo by hand. Fires
+    # on user edits AND on programmatic loads — the embedding form resets its
+    # own _touched flag after a prefill.
+    fieldChanged = pyqtSignal()
 
     def __init__(self, modes: Sequence[str], anchor_fields: Sequence[str] = (),
                 shift: bool = False, polar: bool = False, show_ref: bool = True,
@@ -225,6 +231,22 @@ class AnchorOriginWidget(QWidget):
             layout.addWidget(self._shift_row)
 
         self._on_mode_changed()
+        # design §9.4: after every internal field exists, connect them all to
+        # fieldChanged — the shared "the user touched something" source.
+        self._wire_field_changed()
+
+    def _wire_field_changed(self) -> None:
+        """Connect every internal QLineEdit/QComboBox to fieldChanged. Runs
+        after the whole widget is built so no handler fires mid-construction;
+        programmatic loads emit too, which is fine — the embedding form resets
+        its _touched flag after it prefills."""
+        for edit in self.findChildren(QLineEdit):
+            edit.textChanged.connect(self._emit_field_changed)
+        for combo in self.findChildren(QComboBox):
+            combo.currentTextChanged.connect(self._emit_field_changed)
+
+    def _emit_field_changed(self, *_args) -> None:
+        self.fieldChanged.emit()
 
     # ── Mode visibility ──────────────────────────────────────────────────
 

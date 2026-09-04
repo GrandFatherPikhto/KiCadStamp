@@ -1786,6 +1786,10 @@ msgstr "Узел"
 msgid "Select a node to edit it."
 msgstr "Выберите узел, чтобы отредактировать его."
 
+#: gui/docks/trees_dock.py
+msgid "Unapplied changes were discarded."
+msgstr "Неприменённые изменения были отброшены."
+
 #: gui/docks/config_tree.py:806 kicadstamp/config/profile_copy.py:262
 #, python-brace-format
 msgid "cell {cell}"

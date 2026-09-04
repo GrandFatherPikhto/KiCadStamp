@@ -416,6 +416,121 @@ def test_master_detail_anchor_panel_rebuilds_for_new_active_tree(main_window, tm
     assert anchor_form._tree is dock._trees[1]
 
 
+# ── Master-detail §3c: _touched wiring / §9.4 discard / §6.5 fixes ─────────
+
+def test_node_form_field_edit_marks_touched_and_apply_clears(main_window, tmp_path):
+    """§3c gate (note_2026_09_04_touched_wiring_still_open.md): editing a REAL
+    field of a NodeFormWidget sets _touched; a successful apply() resets it."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
+    tree_widget.setCurrentItem(dock._node_items[tree.nodes[0].ref])  # AMS1117_REG
+    form = _embedded_form(dock._active_form_tabs().widget(1))
+    assert isinstance(form, NodeFormWidget)
+    assert form._touched is False
+    form.name_edit.setText("edited")
+    assert form._touched is True
+    assert form.apply() is True
+    assert form._touched is False
+
+
+def test_node_form_offset_field_marks_touched(main_window, tmp_path):
+    """§3c gate: the offset AnchorOriginWidget's single fieldChanged signal
+    feeds the Node form's _touched flag (no per-field wiring in the form)."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
+    tree_widget.setCurrentItem(dock._node_items[tree.nodes[0].ref])
+    form = _embedded_form(dock._active_form_tabs().widget(1))
+    assert isinstance(form, NodeFormWidget)
+    assert form._touched is False
+    form.offset_widget.x_edit.setText("7.25")
+    assert form._touched is True
+
+
+def test_anchor_form_field_edit_marks_touched_and_apply_clears(main_window, tmp_path):
+    """§3c gate: editing a REAL field of an AnchorFormWidget sets _touched; a
+    successful apply() resets it (Origin is a guaranteed-valid anchor)."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    form = _embedded_form(dock._active_form_tabs().widget(0))
+    assert isinstance(form, AnchorFormWidget)
+    assert form._touched is False
+    form.mode_combo.setCurrentIndex(0)  # Origin (board 0,0)
+    assert form._touched is True
+    assert form.apply() is True
+    assert form._touched is False
+    assert dock._current_tree().anchor.is_origin
+
+
+def test_master_detail_node_switch_warns_when_draft_discarded(main_window, tmp_path):
+    """design §9.4: switching to ANOTHER node while the current editor holds
+    unapplied edits replaces it (never blocks) but reports the lost draft in
+    the status row, and the Node tab now shows the NEW node's editor."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
+    nodes = _children(_children(tree_widget.invisibleRootItem())[0])
+    tree_widget.setCurrentItem(nodes[0])  # AMS1117_REG — editor shown
+    form = _embedded_form(dock._active_form_tabs().widget(1))
+    assert isinstance(form, NodeFormWidget)
+    form.name_edit.setText("unsaved")
+    assert form._touched is True
+    tree_widget.setCurrentItem(nodes[1])  # R_AROUND — discards the draft
+    assert "Unapplied changes were discarded." in dock.status_label.text()
+    new_form = _embedded_form(dock._active_form_tabs().widget(1))
+    assert isinstance(new_form, NodeFormWidget)
+    assert new_form._existing is dock._trees[0].nodes[1]
+
+
+def test_rebuild_warns_when_active_page_form_touched(main_window, tmp_path):
+    """§7.1.2/design §9.4: _rebuild_tabs() clears every page, so a touched
+    form on the ACTIVE page is reported (non-blocking) before the rebuild."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
+    tree_widget.setCurrentItem(dock._node_items[tree.nodes[0].ref])
+    form = _embedded_form(dock._active_form_tabs().widget(1))
+    assert isinstance(form, NodeFormWidget)
+    form.name_edit.setText("unsaved")
+    assert form._touched is True
+    dock._rebuild_tabs()
+    assert "Unapplied changes were discarded." in dock.status_label.text()
+
+
+def test_master_detail_same_node_reselect_keeps_editor(main_window, tmp_path):
+    """§7.1.5: re-selecting the SAME node (a 'Redraw selected' checkbox toggle
+    re-selects its row) must NOT tear the editor down nor fake a discard."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
+    nodes = _children(_children(tree_widget.invisibleRootItem())[0])
+    tree_widget.setCurrentItem(nodes[0])
+    form0 = _embedded_form(dock._active_form_tabs().widget(1))
+    assert isinstance(form0, NodeFormWidget)
+    dock._on_selection_changed()  # same row re-selected: the rebuild is skipped
+    form1 = _embedded_form(dock._active_form_tabs().widget(1))
+    assert form1 is form0
+    assert "discarded" not in dock.status_label.text()
+
+
+def test_instance_tree_right_panel_is_read_only(main_window, tmp_path):
+    """§7.1.4: a generated INSTANCE tree's Anchor/Node tabs never host an
+    editor — both show the same read-only stub as the instance context menu,
+    and selecting a real node of the instance keeps the stub."""
+    dock, _ = _instance_dock(main_window, tmp_path)
+    dock.tree_tabs.setCurrentIndex(1)  # ch1_dac_buf (the instance)
+    tabs = dock._active_form_tabs()
+    assert tabs is not None
+    for idx in (0, 1):  # Anchor and Node tabs
+        page = tabs.widget(idx)
+        assert isinstance(page, QLabel), f"tab {idx} must be the read-only stub"
+        assert "read-only" in page.text()
+    dock._current_tree_widget().expandAll()
+    node_item = dock._node_items["dac_buf__ch1_dac_buf"]
+    dock._current_tree_widget().setCurrentItem(node_item)
+    page = dock._active_form_tabs().widget(1)
+    assert isinstance(page, QLabel)
+    assert "read-only" in page.text()
+
+
 # ── Whole-tree actions (2026-09-03: moved to the Tools → Trees menu) ───────
 
 def test_no_whole_tree_action_buttons(main_window):
@@ -2991,19 +3106,21 @@ def test_node_dialog_prefill_restores_own_anchor(main_window, tmp_path):
 
 # ── Phase B: double-click -> edit, Apply/Redraw/Close dialog (2026-09-03) ──
 
-def test_double_click_on_plain_node_opens_edit_flow(main_window, tmp_path, monkeypatch):
-    """Double-clicking a NON-module tree node opens the node EDIT dialog (Phase
-    B); module nodes still switch to their referenced tree's tab."""
-    import gui.docks.trees_dock as td_mod
+def test_double_click_on_plain_node_focuses_node_tab(main_window, tmp_path):
+    """Master-detail §3.2: double-clicking a NON-module real node no longer
+    opens the modal editor — a single click already shows the editor on the
+    right-hand Node tab, so the double-click is a convenience that makes sure
+    the node is selected and brings the Node tab to the front. Module nodes
+    still switch to their referenced tree's tab (kept by the next test)."""
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
     node = tree.nodes[0]
-    opened = []
-    monkeypatch.setattr(dock, "_edit_node_flow",
-                        lambda t, n: opened.append((t, n)))
     item = dock._node_items[node.ref]
     dock._on_node_activated(item, 0)
-    assert opened and opened[0][1] is node
+    assert dock._active_form_tabs().currentIndex() == 1  # Node tab in front
+    form = _embedded_form(dock._active_form_tabs().widget(1))
+    assert isinstance(form, NodeFormWidget)
+    assert form._existing is node
 
 
 def test_double_click_on_module_node_switches_tab(main_window, tmp_path, monkeypatch):
