@@ -19,7 +19,7 @@ wants — hotkey, dock-local menu entry, toolbar entry: the same action can be
 added to a menu/toolbar AND carry a shortcut, so there are never three
 separate entities to keep in sync.
 
-`action_id` is a STABLE string per dock+button (e.g. "root_metadata.save"),
+`action_id` is a STABLE string per dock+button (e.g. "root_metadata.open"),
 deliberately NOT derived from the label text: i18n changes the text, the id
 must stay stable — it is the key under which the user's per-action override is
 stored in gui_state.json["hotkeys"], and the key the Settings tab's

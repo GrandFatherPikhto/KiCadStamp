@@ -619,6 +619,29 @@ def test_hotkeys_refresh_picks_up_actions_registered_later(main_window, qapp):
     assert dock.hotkey_edits[action_id].keySequence() == QKeySequence("Ctrl+Shift+Q")
 
 
+def test_global_project_save_hotkey_appears_with_ctrl_s_default(main_window, qapp):
+    """Bug B regression (plan staged_delete_stale_tree_and_save_hotkey): the
+    GLOBAL File > Save action (project.save — registered by MainWindow AFTER
+    the ConfiguratorDock/Settings are built) must appear in the Hotkeys list
+    with its Ctrl+S default when the Settings dialog opens (SettingsDialog.
+    open_modal -> refresh_hotkeys()). Denis wanted "Ctrl+S by default there":
+    this is that row. The retired root_metadata.save is gone (removed 2026-09-
+    04), so a Ctrl+S binding can no longer land on the wrong action and make
+    the real Ctrl+S ambiguous/dead."""
+    action_id = "project.save"
+    # The module-level registry accumulates across tests/files — make sure this
+    # id genuinely is "not registered yet" before we prove refresh picks it up.
+    hotkeys.HOTKEY_ACTIONS.pop(action_id, None)
+    hotkeys._LIVE_ACTIONS.pop(action_id, None)
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    assert action_id not in dock.hotkey_edits
+    build_action(main_window, action_id, "Save", "Ctrl+S", None)
+    dock.refresh_hotkeys()   # what SettingsDialog.open_modal() does before exec()
+    assert action_id in dock.hotkey_edits
+    assert dock.hotkey_edits[action_id].keySequence() == QKeySequence("Ctrl+S")
+    assert "root_metadata.save" not in dock.hotkey_edits
+
+
 def test_hotkeys_refresh_removes_previous_rows(main_window, qapp):
     """refresh_hotkeys() must actually DELETE the previous rows' widgets, not
     just rebuild the hotkey_edits dict. Each row is added via addLayout (not

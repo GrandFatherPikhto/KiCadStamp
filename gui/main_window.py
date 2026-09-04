@@ -213,6 +213,14 @@ class MainWindow(QMainWindow):
         self.quit_action.triggered.connect(lambda: self._quit())
         file_menu.addAction(self.quit_action)
 
+        # (2026-09-04, plan staged_delete_stale_tree_and_save_hotkey Bug B) The
+        # global File actions above (project.save / project.discard) registered
+        # AFTER DockHub built the Settings Hotkeys page — rebuild that list now
+        # so the global Save (Ctrl+S default) is present and rebindable, and so
+        # the retired root_metadata.save can never be the row a Ctrl+S binding
+        # lands on (which made the real Ctrl+S ambiguous and dead).
+        self._dock_hub.configurator_dock.refresh_hotkeys()
+
         # Edit menu (2026-08-31, plan copy_cell_entity_from_profile) — by
         # function like File, not per-dock. Import from profile... copies one
         # Cell/Entity/Chain from ANOTHER profile into the current project BY

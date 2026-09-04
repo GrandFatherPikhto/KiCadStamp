@@ -65,7 +65,17 @@ class SettingsDialog(QDialog):
     def open_modal(self) -> None:
         """Re-seed the widgets from the persisted state (a previous Cancel or
         an external change must not leak into this opening) and run the modal
-        loop. Called by MainWindow's Tools > "Settings..." handler."""
+        loop. Called by MainWindow's Tools > "Settings..." handler.
+
+        The Hotkeys list is rebuilt FIRST from the live gui.hotkeys registry
+        (2026-09-04, plan staged_delete_stale_tree_and_save_hotkey Bug B):
+        MainWindow registers its global File actions (project.save/project.
+        discard) AFTER DockHub builds this dialog, so without a rebuild here
+        the global Save would be missing from the list (and a Ctrl+S binding
+        could land on the retired root_metadata.save, making the real Ctrl+S
+        ambiguous and dead). refresh_hotkeys() also seeds each row from the
+        effective shortcut, so reload_from_state() below just re-confirms it."""
+        self.configurator_dock.refresh_hotkeys()
         self.configurator_dock.reload_from_state()
         self.exec()
 

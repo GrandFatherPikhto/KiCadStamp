@@ -4,8 +4,8 @@ from PyQt6.QtGui import QKeySequence
 
 from gui import settings
 from gui.docks.root_metadata import (ACTION_ADD_SCH, ACTION_NEW, ACTION_OPEN,
-                                     ACTION_REMOVE_SCH, ACTION_SAVE,
-                                     RootMetadataDock)
+                                     ACTION_REMOVE_SCH, RootMetadataDock)
+from gui.hotkeys import registered_hotkeys
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.config_working_set import WORKING_SET
 
@@ -540,16 +540,15 @@ def test_browse_without_a_file_picked_shows_error(main_window, caplog):
 # ── QAction hotkeys (2026-08-30, plan dock_toolbars_menus_hotkeys Этап 1) ──
 
 def test_creates_actions_with_stable_ids_and_defaults(main_window):
-    """Every action-bearing button (Open/New/Save/Add.../Remove) got a QAction
+    """Every action-bearing button (Open/New/Add.../Remove) got a QAction
     with the stable action_id + default shortcut — the buttons adopt them via
-    setDefaultAction (one action = button + hotkey)."""
+    setDefaultAction (one action = button + hotkey). No root_metadata.save: the
+    per-dock Save button was retired 2026-09-01 (Ctrl+S = the GLOBAL File >
+    Save, project.save — see test_vestigial_save_hotkey_removed)."""
     dock = RootMetadataDock(main_window)
     expected = {
         ACTION_OPEN: ("Open Root file...", "Ctrl+O"),
         ACTION_NEW: ("New Root file...", "Ctrl+N"),
-        # Ctrl+S belongs to the GLOBAL File > Save (project.save, 2026-09-01);
-        # the root-dock action keeps no default shortcut.
-        ACTION_SAVE: ("Save", ""),
         ACTION_ADD_SCH: ("Add...", "Ctrl+Shift+A"),
         ACTION_REMOVE_SCH: ("Remove", "Ctrl+Shift+R"),
     }
@@ -574,8 +573,6 @@ def test_action_triggers_reach_the_same_slots(main_window, monkeypatch):
                         lambda self: calls.append("open"))
     monkeypatch.setattr(root_metadata_mod.RootMetadataDock, "_on_new_root",
                         lambda self: calls.append("new"))
-    monkeypatch.setattr(root_metadata_mod.RootMetadataDock, "_on_save",
-                        lambda self: calls.append("save"))
     monkeypatch.setattr(root_metadata_mod.RootMetadataDock, "_add_schematic_file",
                         lambda self: calls.append("add"))
     monkeypatch.setattr(root_metadata_mod.RootMetadataDock, "_remove_schematic_file",
@@ -584,21 +581,35 @@ def test_action_triggers_reach_the_same_slots(main_window, monkeypatch):
     dock = RootMetadataDock(main_window)
     dock.action_open.trigger()
     dock.action_new.trigger()
-    dock.action_save.trigger()
     dock.action_add_schematic_file.trigger()
     dock.action_remove_schematic_file.trigger()
-    assert calls == ["open", "new", "save", "add", "remove"]
+    assert calls == ["open", "new", "add", "remove"]
 
 
 def test_custom_binding_from_settings_applies_on_next_open(main_window):
     """A stored override in gui_state.json["hotkeys"] is applied when the dock
     is next constructed (plan gate: "кастомный биндинг из settings.state
-    применяется при следующем открытии")."""
-    settings.state.set("hotkeys", {ACTION_SAVE: "Ctrl+Alt+S"})
+    применяется при следующем открытии"). Anchored on ACTION_NEW now that the
+    vestigial ACTION_SAVE is gone (2026-09-04)."""
+    settings.state.set("hotkeys", {ACTION_NEW: "Ctrl+Alt+S"})
     dock = RootMetadataDock(main_window)
-    assert dock.action_save.shortcut() == QKeySequence("Ctrl+Alt+S")
+    assert dock.action_new.shortcut() == QKeySequence("Ctrl+Alt+S")
     # other actions are untouched
     assert dock.action_open.shortcut() == QKeySequence("Ctrl+O")
+
+
+def test_vestigial_save_hotkey_removed(main_window):
+    """Bug B regression (plan staged_delete_stale_tree_and_save_hotkey): the
+    per-dock root_metadata.save hotkey action is GONE — the Save button was
+    retired 2026-09-01 (Ctrl+S is the GLOBAL File > Save = project.save,
+    gui/main_window.py). It must not be registered anywhere, so Settings can no
+    longer offer a second, misleading "Save" row, and a Ctrl+S binding can
+    never land on the wrong action and make the real Ctrl+S ambiguous/dead."""
+    dock = RootMetadataDock(main_window)
+    window_actions = {a.objectName() for a in main_window.actions()}
+    assert "root_metadata.save" not in window_actions
+    assert not any(action_id == "root_metadata.save"
+                   for action_id, _label, _default in registered_hotkeys())
 
 
 # ── Unsaved-changes guard + File > Close (plan Этап 1b) ──────────────────

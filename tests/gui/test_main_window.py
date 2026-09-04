@@ -233,14 +233,19 @@ def test_file_menu_quit_calls_quit(real_main_window, monkeypatch):
 
 
 def test_settings_hotkeys_list_contains_all_dock_actions(real_main_window):
-    """After full DockHub construction, the Settings tab's Hotkeys list
-    includes every registered dock action (root_metadata's five) — DockHub
-    refreshes it once all docks are built (gui/dock_hub.py), so a dock
-    constructed AFTER ConfiguratorDock can never be silently missing from the
-    rebinding UI."""
+    """After full MainWindow construction, the Settings tab's Hotkeys list
+    includes every registered action — the dock actions AND the global File
+    actions (project.save / project.discard). DockHub refreshes the list once
+    all docks are built (gui/dock_hub.py), and MainWindow refreshes it AGAIN
+    after registering its own File actions (2026-09-04, plan
+    staged_delete_stale_tree_and_save_hotkey Bug B) so the global Save
+    (Ctrl+S default) is present and rebindable. The retired
+    root_metadata.save is gone (no misleading second "Save" row)."""
     edits = real_main_window._dock_hub.configurator_dock.hotkey_edits
     assert "root_metadata.open" in edits
     assert "root_metadata.new" in edits
-    assert "root_metadata.save" in edits
     assert "root_metadata.add_schematic_file" in edits
     assert "root_metadata.remove_schematic_file" in edits
+    assert "project.save" in edits
+    assert "project.discard" in edits
+    assert "root_metadata.save" not in edits

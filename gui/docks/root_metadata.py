@@ -106,7 +106,6 @@ _RECENT_LIMIT = 10
 # gui_state.json["hotkeys"] and the id the Settings-tab reassignment UI lists.
 ACTION_OPEN = "root_metadata.open"
 ACTION_NEW = "root_metadata.new"
-ACTION_SAVE = "root_metadata.save"
 ACTION_ADD_SCH = "root_metadata.add_schematic_file"
 ACTION_REMOVE_SCH = "root_metadata.remove_schematic_file"
 
@@ -346,13 +345,14 @@ class RootMetadataDock(QWidget):
         self._tabs.addTab(via_page, _("Via"))
 
         # 2026-09-01 (plan project_save_model): the per-dock Save button is
-        # GONE — Ctrl+S now belongs to the GLOBAL File > Save (project.save,
-        # gui/main_window.py), which commits the whole working set. This
-        # action survives without a default shortcut only so the Settings
-        # hotkey list / existing tests can still find it; the fields auto-stage
-        # on their commit points instead (see _stage_on_commit).
-        self.action_save = build_action(
-            self._main_window, ACTION_SAVE, _("Save"), "", self._on_save)
+        # GONE — Ctrl+S belongs to the GLOBAL File > Save (project.save,
+        # gui/main_window.py), which commits the whole working set. No
+        # root_metadata.save hotkey action is registered (removed 2026-09-04,
+        # plan staged_delete_stale_tree_and_save_hotkey Bug B): a lingering
+        # rebindable "Save" row in Settings let a Ctrl+S binding land on the
+        # WRONG action and made the real project.save Ctrl+S ambiguous/dead.
+        # The fields auto-stage on their commit points instead (see
+        # _stage_on_commit).
 
         # Working file (2026-08-11) — deliberately separated (own label,
         # own row, below Save) from the Root toolbar above — see module
