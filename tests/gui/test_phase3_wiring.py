@@ -153,13 +153,14 @@ def test_cell_picked_fills_placer_selected_cell(real_main_window):
     leaf in the real Config tree must reach PlacerDock's Cell field
     end-to-end, not just via a direct set_selected_cell() call (already
     covered elsewhere, but never through the actual signal). Also brings
-    the merged Detail dock's Placer page to front (2026-08-03 —
-    gui/docks/detail_panel.py)."""
+    the Config dock's Placer right page to front (2026-09-05, plan
+    config_qview_placer_nettrace)."""
     real_main_window.config_tree_dock.cell_picked.emit("ldo_adj")
 
     assert real_main_window.placer_dock._selected_cell == "ldo_adj"
     assert real_main_window.placer_dock.cell_combo.currentText() == "ldo_adj"
-    assert real_main_window._dock_hub.detail_dock.stack.currentWidget() is real_main_window.placer_dock
+    assert (real_main_window._dock_hub.config_tree_dock.right_stack.currentWidget()
+            is real_main_window.placer_dock)
 
 
 def test_placement_picked_loads_into_placer_form(real_main_window):
@@ -1020,30 +1021,31 @@ def test_tree_net_trace_nets_collects_net_trace_refs():
     assert _tree_net_trace_nets(tree) == {"SHARED", "AVDD"}
 
 
-def test_file_selected_no_longer_switches_detail_page(real_main_window, tmp_path):
+def test_file_selected_no_longer_switches_the_right_page(real_main_window, tmp_path):
     """A plain file/category click (file_selected fires with no matching leaf
-    signal) NO LONGER switches the Detail dock — the old file_selected ->
-    show_root() fallback was removed together with the Project tab
-    (2026-09-01, plan project_settings_dialogs; RootMetadataDock now lives in
-    the non-modal ProjectDialog). The dock stays on whatever page it was on."""
-    real_main_window._dock_hub.detail_dock.show_placer()
+    signal) does NOT switch the Config dock's right page — routing is driven
+    by the specific per-leaf signals only (2026-09-05, plan
+    config_qview_placer_nettrace). The page stays on whatever it was on."""
+    real_main_window._dock_hub._show_config_placer()
     target_file = tmp_path / "power.sexp"
     _write(target_file)
 
     real_main_window.config_tree_dock.file_selected.emit(target_file)
 
-    assert real_main_window._dock_hub.detail_dock.stack.currentWidget() is real_main_window.placer_dock
+    assert (real_main_window._dock_hub.config_tree_dock.right_stack.currentWidget()
+            is real_main_window.placer_dock)
 
 
 def test_cell_picked_still_switches_to_placer(real_main_window):
     """A Cell-leaf click fires file_selected THEN cell_picked in that order
-    (see config_tree.py's _on_clicked) — the specific signal routes into
-    Placer (2026-09-01: file_selected no longer first jumps to the removed
-    Root page, but cell_picked's show_placer must still win)."""
+    (see config_tree.py's _on_clicked) — the specific signal routes into the
+    Config dock's Placer page (file_selected never routes; cell_picked's
+    placer routing must still win)."""
     real_main_window.config_tree_dock.file_selected.emit(None)
     real_main_window.config_tree_dock.cell_picked.emit("ldo_adj")
 
-    assert real_main_window._dock_hub.detail_dock.stack.currentWidget() is real_main_window.placer_dock
+    assert (real_main_window._dock_hub.config_tree_dock.right_stack.currentWidget()
+            is real_main_window.placer_dock)
 
 
 def test_placer_saved_refreshes_config_tree_placements(real_main_window, tmp_path):

@@ -3,6 +3,8 @@
 FieldsToolDock wraps a real fieldstool MainWindow and is tabified first in
 the right-hand dock group (replacing the retired BulkFieldEditorDock slot).
 """
+from PyQt6.QtCore import Qt
+
 from gui.fieldstool_window import MainWindow as FieldsToolMainWindow
 
 
@@ -12,11 +14,14 @@ def test_wraps_a_real_fieldstool_main_window(real_main_window):
 
 
 def test_fieldstool_is_first_right_hand_tab(real_main_window):
-    """Extract/Placer/Root are pages inside the merged DetailDock
-    (2026-08-03 — see gui/docks/detail_panel.py), tabified as ONE unit
-    with fieldstool now, not three separate tabs."""
-    tabbed_with_fieldstool = real_main_window.tabifiedDockWidgets(real_main_window.fieldstool_dock)
-    assert real_main_window._dock_hub.detail_dock in tabbed_with_fieldstool
+    """Fieldstool is the first (sole) right-hand dock now — the Config dock
+    became a master-detail and DetailDock was removed (2026-09-05, plan
+    config_qview_placer_nettrace), so fieldstool is no longer tabified with
+    a Detail dock."""
+    hub = real_main_window._dock_hub
+    assert not hasattr(hub, "detail_dock")
+    assert (real_main_window.dockWidgetArea(real_main_window.fieldstool_dock)
+            == Qt.DockWidgetArea.RightDockWidgetArea)
 
 
 def test_open_fieldstool_shows_and_raises_the_dock(real_main_window):

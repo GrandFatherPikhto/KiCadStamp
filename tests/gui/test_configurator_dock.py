@@ -15,7 +15,6 @@ from gui import settings
 from gui.color_schemes import available_color_schemes, load_color_scheme
 from gui.docks.config_tree import ConfigTreeDock
 from gui.docks.configurator import ConfiguratorDock
-from gui.docks.detail_panel import DetailDock
 from gui.docks.role_cluster_tree import RoleClusterTreeDock
 
 from gui.hotkeys import build_action
@@ -465,15 +464,14 @@ def test_timeout_restored_from_settings_and_applied_on_apply(main_window, qapp):
     assert main_window.connection.timeout_ms == 9000
 
 
-# ── Highlight smoke test across the three consumer widgets ────────────────
+# ── Highlight smoke test across the highlight consumer widgets ────────────
 
-def test_three_consumers_have_highlight_stylesheet(main_window):
-    """Each of the three highlight consumers applies its stylesheet at
-    construction — active Detail-dock tab, Config tree selected item,
-    Components tree selected item — so the native barely-visible Windows
+def test_highlight_consumers_have_highlight_stylesheet(main_window):
+    """Each highlight consumer applies its stylesheet at construction — the
+    Config tree selected item and the Components tree selected item (the
+    Detail-dock tab consumer is gone with DetailDock, 2026-09-05, plan
+    config_qview_placer_nettrace) — so the native barely-visible Windows
     selection is gone from the very first paint."""
-    detail = DetailDock(main_window)
-    assert "selected" in detail.tab_bar.styleSheet()
     config_tree = ConfigTreeDock(main_window)
     assert "selected" in config_tree.tree.styleSheet()
     components = RoleClusterTreeDock(main_window)

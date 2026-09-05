@@ -50,7 +50,8 @@ from .docks.chain import ChainDock
 from .docks.chain_dialog import ChainDialog
 from .docks.config_tree import ConfigTreeDock
 from .docks.configurator import ConfiguratorDock
-from .docks.detail_panel import DetailDock
+from .docks.net_trace import NetTraceDock
+from .docks.placer import PlacerDock
 from .docks.trees_dock import TreesDock
 from .docks.fieldstool_dock import FieldsToolDock
 from .docks.log_panel import LogDock
@@ -126,16 +127,15 @@ class DockHub:
         self.tree_dock.on_board_written = request_refresh
         self.fieldstool_dock.window.on_board_written = request_refresh
 
-        self.detail_dock = DetailDock(main_window, connection=connection)
-        main_window.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.detail_dock)
-        main_window.tabifyDockWidget(self.fieldstool_dock, self.detail_dock)
-        # Thin aliases — kept so every existing call site/test that reaches
-        # a specific panel by name (placer_dock/root_metadata_dock) keeps
-        # working unchanged; they're pages inside detail_dock's stack now
-        # (gui/docks/detail_panel.py), not their own QDockWidgets.
-        # Phase F (2026-09-01): the selection-watch state lives in DockHub —
-        # the single source "Extract tree..." reads for cluster/copper detection
-        # (the Extract dock was removed).
+        # Placer / NetTrace (2026-09-05, plan config_qview_placer_nettrace):
+        # ConfigTreeDock is now a master-detail — the Config tree on the left
+        # and a context QStack on the right. PlacerDock and NetTraceDock (the
+        # two former DetailDock pages) are built here and embedded as the
+        # Config dock's right pages; DetailDock is GONE (removed this day).
+        self.placer_dock = PlacerDock(main_window)
+        self.net_trace_dock = NetTraceDock(main_window, connection=connection)
+        self._placer_page = self.config_tree_dock.add_right_page(self.placer_dock)
+        self._net_trace_page = self.config_tree_dock.add_right_page(self.net_trace_dock)
         self._selection_raw_items: list = []
         self._selection_footprints: list = []
         # Thermal via (2026-09-01, plan plan_2026_09_01_thermal_via_dialog.md):
@@ -154,8 +154,6 @@ class DockHub:
         # other dock follows.
         self.root_metadata_dock = RootMetadataDock(main_window)
         self.project_dialog = ProjectDialog(self.root_metadata_dock, main_window)
-        self.placer_dock = self.detail_dock.placer_panel
-        self.net_trace_dock = self.detail_dock.net_trace_panel
         # Cell (2026-09-04, plan plan_2026_09_04_celldock_to_dialog.md): the
         # Cell form (CellDock) is a STANDALONE widget hosted in the non-modal
         # CellDialog — the Detail dock has no Cells page anymore (same move as
@@ -220,8 +218,7 @@ class DockHub:
         # (already grouped by area: Left / right / bottom).
         self.docks = [
             self.tree_dock, self.config_tree_dock, self.trees_dock,
-            self.pending_dock, self.fieldstool_dock,
-            self.detail_dock, self.log_dock,
+            self.pending_dock, self.fieldstool_dock, self.log_dock,
         ]
 
         self._wire()
@@ -254,6 +251,19 @@ class DockHub:
         settings()). MainWindow calls this right after constructing the hub.
         """
         self.tree_dock.restore_mode_from_settings()
+
+    # ── Config right-page routing (2026-09-05, plan config_qview_placer_nettrace) ──
+
+    def _show_config_placer(self, *_args) -> None:
+        """Route a Config tree pick (cell/placement/entity/coordinate) to the
+        Placer right page of the Config dock — the payload of the picked leaf
+        is irrelevant here (the load happened via the dedicated handler)."""
+        self.config_tree_dock.show_page(self._placer_page)
+
+    def _show_config_net_trace(self, *_args) -> None:
+        """Route a net_trace pick to the NetTrace right page of the Config
+        dock."""
+        self.config_tree_dock.show_page(self._net_trace_page)
 
     def _wire(self) -> None:
         """Every dock-to-dock connection (real pyqtSignals — a role can
@@ -371,17 +381,17 @@ class DockHub:
         # wiring, same target methods, unified single source).
         self.tree_dock.cluster_picked.connect(self.placer_dock.set_cluster_name)
         self.config_tree_dock.cell_picked.connect(self.placer_dock.set_selected_cell)
-        self.config_tree_dock.cell_picked.connect(self.detail_dock.show_placer)
+        self.config_tree_dock.cell_picked.connect(self._show_config_placer)
         # Entities leaf (phase 5.6): load into Placer's Entity source.
         self.config_tree_dock.entity_picked.connect(self.placer_dock.set_selected_entity)
-        self.config_tree_dock.entity_picked.connect(self.detail_dock.show_placer)
+        self.config_tree_dock.entity_picked.connect(self._show_config_placer)
         # Entities leaf DOUBLE click (2026-09-01, plan plan_2026_09_01_tools_
         # dialog_and_entity_roles.md): open the "Edit template" dialog
         # pre-loaded with that Entity (single click stays entity_picked above).
         self.config_tree_dock.entity_edit_requested.connect(
             self._start_edit_entity_template)
         self.config_tree_dock.placement_picked.connect(self.placer_dock.load_placement)
-        self.config_tree_dock.placement_picked.connect(self.detail_dock.show_placer)
+        self.config_tree_dock.placement_picked.connect(self._show_config_placer)
         self.config_tree_dock.thermal_via_picked.connect(self.thermal_via_dock.load_entry)
         self.config_tree_dock.thermal_via_picked.connect(self._open_thermal_via_dialog)
         # Coordinate placements (2026-08-12, Group 1): a normal named-records
@@ -390,7 +400,7 @@ class DockHub:
         # -> placement_picked -> load_placement (see config_tree.py's
         # coordinate_placements_picked docstring).
         self.config_tree_dock.coordinate_placements_picked.connect(self.placer_dock.load_placement)
-        self.config_tree_dock.coordinate_placements_picked.connect(self.detail_dock.show_coordinate_placer)
+        self.config_tree_dock.coordinate_placements_picked.connect(self._show_config_placer)
         # Double click on a points: leaf (2026-09-01, plan
         # plan_2026_09_01_points_dialog.md) -> load the entry into the live
         # PointsDock and open the non-modal PointsDialog. Single click on a
@@ -411,7 +421,7 @@ class DockHub:
         self.config_tree_dock.anchor_redraw_requested.connect(self.chain_dock.redraw_chains)
         self.config_tree_dock.bulk_set_cell_requested.connect(self.chain_dock.bulk_set_cell)
         self.config_tree_dock.net_trace_picked.connect(self.net_trace_dock.load_entry)
-        self.config_tree_dock.net_trace_picked.connect(self.detail_dock.show_net_trace)
+        self.config_tree_dock.net_trace_picked.connect(self._show_config_net_trace)
         # "Edit cell..." (context menu, 2026-08-06) — deliberately NOT wired
         # to cell_picked, which keeps meaning "pick this cell as a
         # placement's content" (see config_tree.py's module docstring).
@@ -488,7 +498,7 @@ class DockHub:
         self.config_tree_dock.add_coordinate_placement_requested.connect(
             self.placer_dock.new_coordinate_placement)
         self.config_tree_dock.add_coordinate_placement_requested.connect(
-            self.detail_dock.show_coordinate_placer)
+            self._show_config_placer)
         self.config_tree_dock.add_point_requested.connect(self._start_new_point)
         self.config_tree_dock.add_chain_requested.connect(self._start_new_chain)
         self.config_tree_dock.add_cell_requested.connect(self._start_new_cell)
@@ -534,7 +544,6 @@ class DockHub:
         DetailDock's active tab, ConfigTreeDock's, TreesDock's and
         RoleClusterTreeDock's selected tree item — after a change in the
         Settings tab (see gui/docks/configurator.py)."""
-        self.detail_dock.apply_highlight()
         self.config_tree_dock.apply_highlight()
         self.trees_dock.apply_highlight()
         self.tree_dock.apply_highlight()
@@ -608,11 +617,11 @@ class DockHub:
 
     def _start_new_placement(self, placer_path) -> None:
         """ConfigTreeDock's add_placer_requested delegate — resets
-        PlacerDock's form and brings the Detail dock's Placer page to
+        PlacerDock's form and brings the Config dock's Placer right page to
         front, same reasoning as open_fieldstool() above (the action was
-        invoked from the Config tree tab, not the Detail tab)."""
+        invoked from the Config tree tab)."""
         self.placer_dock.new_placement(placer_path)
-        self.detail_dock.show_placer()  # raises/shows itself now — see detail_panel.py
+        self._show_config_placer()
 
     def _start_new_thermal_via(self, file_path) -> None:
         """ConfigTreeDock's add_thermal_via_requested delegate — same
