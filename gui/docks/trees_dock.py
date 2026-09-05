@@ -899,6 +899,14 @@ class TreesDock(QDockWidget):
                 self.tree_tabs.setCurrentIndex(idx)
                 return
 
+    def activate_tree(self, name: str) -> None:
+        """Public: switch to the tree named `name` AND make sure the dock is
+        visible/raised — the Config Entity page's "jump to placement" target
+        (2026-09-05, design config_qview_chain_entity_pages §8.6)."""
+        self._switch_to_tree(name)
+        self.show()
+        self.raise_()
+
     def _edit_in_panel(self, tree: Tree, node: TreeNode) -> None:
         """§3.3: 'Edit node…' is now a shortcut — a single click already shows
         the node's editor on the master-detail Node tab. This makes sure the

@@ -47,7 +47,9 @@ from kicadstamp.logging_setup import get_log_listener
 from .docks.cell_dialog import CellDialog
 from .docks.cell_editor import CellDock
 from .docks.chain import ChainDock
+from .docks.chains_nav import ChainsNavDock
 from .docks.config_tree import ConfigTreeDock
+from .docks.entity_page import EntityInfoDock
 from .docks.configurator import ConfiguratorDock
 from .docks.net_trace import NetTraceDock
 from .docks.placer import PlacerDock
@@ -182,6 +184,18 @@ class DockHub:
         # + Edit chain flows show the same page (a QWidget can only have one
         # parent, so the ChainDialog wrapper is GONE with this change).
         self._chain_page = self.config_tree_dock.add_right_page(self.chain_dock)
+        # Entity (2026-09-05, design config_qview_chain_entity_pages §5): the
+        # Config right-QView page shown when an Entities leaf is selected — a
+        # read-mostly Entity RECORD editor ("Справка": Name/Cell/Sheet/Cluster
+        # read-only, Comment editable; plus the clickable placements list).
+        self.entity_dock = EntityInfoDock(main_window)
+        self._entity_page = self.config_tree_dock.add_right_page(self.entity_dock)
+        # Chains navigation (2026-09-05, design config_qview_chain_entity_pages
+        # §4/§8.2): a chains: ANCHOR/CHAIN single click shows a clickable drill
+        # list (anchor -> chains -> pads) as another Config QView page; the pad
+        # rows open the spoke editor (ChainDock page).
+        self.chains_nav_dock = ChainsNavDock(main_window)
+        self._chains_nav_page = self.config_tree_dock.add_right_page(self.chains_nav_dock)
         # Points (2026-09-01, plan plan_2026_09_01_points_dialog.md): a
         # STANDALONE widget hosted in the non-modal PointsDialog — the Detail
         # dock has no Points page anymore (same move as Extract/Thermal via).
@@ -283,6 +297,41 @@ class DockHub:
         self.config_tree_dock.show()
         self.config_tree_dock.raise_()
 
+    def _show_config_entity(self, *_args) -> None:
+        """Route an Entities leaf pick to the Entity right page of the Config
+        dock (2026-09-05, design config_qview_chain_entity_pages §5)."""
+        self.config_tree_dock.show_page(self._entity_page)
+
+    def _jump_to_tree(self, tree_name: str) -> None:
+        """Entity page's placement click -> open/raise the named tree in
+        TreesDock (design config_qview_chain_entity_pages §8.6)."""
+        self.trees_dock.activate_tree(tree_name)
+
+    def _load_entity_page(self, name) -> None:
+        """ConfigTreeDock's entity_picked delegate (single click on an Entities
+        leaf, 2026-09-05, design config_qview_chain_entity_pages §5) — loads the
+        Entity record into the Entity right-QView page and shows it."""
+        self.entity_dock.load_entity(name)
+        self._show_config_entity()
+
+    def _show_config_chains_nav(self, *_args) -> None:
+        """Route a chains anchor/chain pick to the chains-navigation right page
+        of the Config dock (2026-09-05, design config_qview_chain_entity_pages
+        §4/§8.2)."""
+        self.config_tree_dock.show_page(self._chains_nav_page)
+
+    def _show_chain_pads(self, chain) -> None:
+        """chains: CHAIN node single click (2026-09-05, S2b) — the chains-nav
+        QView page shows that chain's pads (clickable)."""
+        self.chains_nav_dock.show_chain(chain)
+        self._show_config_chains_nav()
+
+    def _show_anchor_chains(self, anchor_key, chains) -> None:
+        """chains: ANCHOR node single click (2026-09-05, S2b) — the chains-nav
+        QView page shows the anchor's chains (clickable)."""
+        self.chains_nav_dock.show_anchor(anchor_key, chains)
+        self._show_config_chains_nav()
+
     def _wire(self) -> None:
         """Every dock-to-dock connection (real pyqtSignals — a role can
         legitimately have more than one listener)."""
@@ -323,6 +372,9 @@ class DockHub:
         self.root_metadata_dock.root_changed.connect(
             partial(self._safe_call, "chain_dock.set_root_path",
                     self.chain_dock.set_root_path))
+        self.root_metadata_dock.root_changed.connect(
+            partial(self._safe_call, "entity_dock.set_root_path",
+                    self.entity_dock.set_root_path))
         self.root_metadata_dock.root_changed.connect(
             partial(self._safe_call, "net_trace_dock.set_root_path",
                     self.net_trace_dock.set_root_path))
@@ -400,9 +452,11 @@ class DockHub:
         self.tree_dock.cluster_picked.connect(self.placer_dock.set_cluster_name)
         self.config_tree_dock.cell_picked.connect(self.placer_dock.set_selected_cell)
         self.config_tree_dock.cell_picked.connect(self._show_config_placer)
-        # Entities leaf (phase 5.6): load into Placer's Entity source.
-        self.config_tree_dock.entity_picked.connect(self.placer_dock.set_selected_entity)
-        self.config_tree_dock.entity_picked.connect(self._show_config_placer)
+        # Entities leaf (2026-09-05, design config_qview_chain_entity_pages):
+        # a single click opens the Entity right-QView page (record editor) —
+        # NO longer routed into Placer's Entity mode (that mode stays available
+        # as a Placer source, but the tree selection shows the record page).
+        self.config_tree_dock.entity_picked.connect(self._load_entity_page)
         # Entities leaf DOUBLE click (2026-09-01, plan plan_2026_09_01_tools_
         # dialog_and_entity_roles.md): open the "Edit template" dialog
         # pre-loaded with that Entity (single click stays entity_picked above).
@@ -442,6 +496,13 @@ class DockHub:
         self.config_tree_dock.pad_redraw_requested.connect(self.chain_dock.redraw_pad)
         self.config_tree_dock.anchor_redraw_requested.connect(self.chain_dock.redraw_chains)
         self.config_tree_dock.bulk_set_cell_requested.connect(self.chain_dock.bulk_set_cell)
+        # Chains navigation (2026-09-05, design config_qview_chain_entity_pages
+        # §4/§8.2): anchor/chain single clicks -> the chains-nav drill page; a
+        # nav pad row opens the spoke editor; a nav chain row syncs the tree.
+        self.config_tree_dock.chain_picked.connect(self._show_chain_pads)
+        self.config_tree_dock.anchor_picked.connect(self._show_anchor_chains)
+        self.chains_nav_dock.open_spoke.connect(self._start_edit_pad)
+        self.chains_nav_dock.reveal_chain.connect(self.config_tree_dock.select_chains_chain)
         self.config_tree_dock.net_trace_picked.connect(self.net_trace_dock.load_entry)
         self.config_tree_dock.net_trace_picked.connect(self._show_config_net_trace)
         # "Edit cell..." (context menu, 2026-08-06) — deliberately NOT wired
@@ -494,6 +555,11 @@ class DockHub:
         self.points_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.chain_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.cells_dock.saved.connect(self._refresh_graph_dependent_choices)
+        # Entity page (2026-09-05, design config_qview_chain_entity_pages): a
+        # Comment edit refreshes the tree's comment glyph; a placement click
+        # opens that tree in TreesDock.
+        self.entity_dock.saved.connect(self.config_tree_dock.refresh)
+        self.entity_dock.open_tree.connect(self._jump_to_tree)
         # Auto-close the (non-modal) Thermal via dialog after a successful Save
         # (2026-09-01, Denis): saved is emitted by _on_save only on success —
         # Redraw (placement) stays open for iterative tuning.
@@ -1359,6 +1425,7 @@ class DockHub:
         self.thermal_via_dock.set_root_path(root_path)
         self.cells_dock.set_root_path(root_path)
         self.tools_dock.set_root_path(root_path)
+        self.entity_dock.set_root_path(root_path)
         self.points_dock.set_root_path(root_path)
         self.trees_dock.refresh_ref_candidates()
         self.root_metadata_dock.refresh_working_file_choices()
@@ -1460,6 +1527,7 @@ class DockHub:
                         self.thermal_via_dock.set_root_path, path)
         self._safe_call("cells_dock.set_root_path", self.cells_dock.set_root_path, path)
         self._safe_call("tools_dock.set_root_path", self.tools_dock.set_root_path, path)
+        self._safe_call("entity_dock.set_root_path", self.entity_dock.set_root_path, path)
         self._safe_call("points_dock.set_root_path", self.points_dock.set_root_path, path)
         self._safe_call("net_trace_dock.set_root_path",
                         self.net_trace_dock.set_root_path, path)

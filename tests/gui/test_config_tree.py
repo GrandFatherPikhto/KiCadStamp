@@ -1821,6 +1821,38 @@ def test_chains_pad_single_click_emits_pad_picked(main_window, tmp_path):
     assert len(picked) == 1  # only the pad leaf emitted pad_picked
 
 
+def test_chain_and_anchor_single_click_emit_nav_signals(main_window, tmp_path):
+    """A SINGLE click on a chains: CHAIN node -> chain_picked(chain); on a
+    chains: ANCHOR node -> anchor_picked(anchor_key, [chain dicts]) — the
+    chains-navigation QView drill (2026-09-05, design
+    config_qview_chain_entity_pages §4/§8.2)."""
+    root = tmp_path / "root.sexp"
+    c1 = {"net": "+3V3", "anchor_role": "FPGA",
+          "spokes": [{"pad": "1", "cell": "c"}]}
+    c2 = {"net": "+1V2", "anchor_role": "FPGA", "spokes": []}
+    _write(root, {"chains": [c1, c2]})
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    anchor = _find(_find(dock.tree.topLevelItem(0), "Spokes"), "Anchor: FPGA")
+    chain1 = _find(anchor, "+3V3")
+
+    chains_picked = []
+    anchors_picked = []
+    dock.chain_picked.connect(chains_picked.append)
+    dock.anchor_picked.connect(lambda key, chains: anchors_picked.append((key, chains)))
+
+    dock._on_clicked(chain1, 0)
+    assert chains_picked == [c1]
+
+    dock._on_clicked(anchor, 0)
+    assert len(anchors_picked) == 1
+    key, chains = anchors_picked[0]
+    assert key == "FPGA"
+    # Anchor child chains come in the tree's sorted order — compare by net set.
+    assert {c["net"] for c in chains} == {"+3V3", "+1V2"}
+
+
 def test_chains_pad_selection_survives_refresh(main_window, tmp_path):
     """A selected PAD leaf stays selected across refresh() — its identity is
     (file, "chains", parent chain effective name, pad index), rebuilt from the

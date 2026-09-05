@@ -283,9 +283,16 @@ class ConfigTreeDock(QDockWidget):
     # Fired by a SINGLE click on a chains: PAD leaf (2026-09-05, design
     # config_qview_chain_entity_pages §4) — (chain_dict, pad_index); DockHub
     # opens the spoke editor (ChainDock pad mode) as a Config right-QView page.
-    # The pad is the leaf-level "edit" unit; chain/anchor clicks stay
-    # navigation-only (see _on_clicked).
+    # The pad is the leaf-level "edit" unit.
     pad_picked = pyqtSignal(object, int)
+    # Fired by a SINGLE click on a chains: CHAIN node (2026-09-05, design
+    # config_qview_chain_entity_pages §4/§8.2) — the full chain dict; DockHub
+    # shows that chain's PAD list in the Config chains-navigation QView page.
+    chain_picked = pyqtSignal(object)
+    # Fired by a SINGLE click on a chains: ANCHOR node (2026-09-05, design
+    # config_qview_chain_entity_pages §4/§8.2) — (anchor_key, [chain_dicts]);
+    # DockHub shows the anchor's CHAIN list in the chains-navigation QView page.
+    anchor_picked = pyqtSignal(object, object)
     # Fired by the context menu's "Add chain..." — opens the chain-edit dialog
     # with a fresh blank form (mirror of add_point_requested).
     add_chain_requested = pyqtSignal(object)
@@ -971,11 +978,22 @@ class ConfigTreeDock(QDockWidget):
             return  # clicked a file/category header with no click target
         if data[0] == "category":
             return  # clicked a section header with no click target
-        if data[0] in ("anchor", "chain"):
-            # chains: anchor/chain nodes are grouping/navigation only on a
-            # single click (their clickable QView lists land in a later step of
-            # design config_qview_chain_entity_pages); a PAD leaf is the edit
-            # unit and opens the spoke editor below.
+        if data[0] == "chain" and data[1] == "chains":
+            # Single click on a chains: CHAIN node -> the Config chains-nav
+            # QView page shows that chain's PAD list (2026-09-05, design
+            # config_qview_chain_entity_pages §4/§8.2).
+            self.chain_picked.emit(data[2])
+            return
+        if data[0] == "anchor" and data[1] == "chains":
+            # Single click on a chains: ANCHOR node -> the Config chains-nav
+            # QView page shows the anchor's CHAIN list (its chain children).
+            anchor_key = data[2]
+            chains = []
+            for child in range(item.childCount()):
+                child_data = item.child(child).data(0, Qt.ItemDataRole.UserRole)
+                if child_data is not None and child_data[0] == "chain":
+                    chains.append(child_data[2])
+            self.anchor_picked.emit(anchor_key, chains)
             return
         if data[0] == "pad":
             # Single click on a chains: PAD leaf -> the spoke editor as the
@@ -1382,6 +1400,27 @@ class ConfigTreeDock(QDockWidget):
                 if file_ctx is not None:
                     return file_ctx[0], data[2]
         return None
+
+    def select_chains_chain(self, chain: dict) -> None:
+        """Select/expand/scroll to the tree node of the chain whose effective
+        name matches `chain` (2026-09-05, S2b — the QView chains-drill row
+        syncs the Config tree's selection onto that chain node)."""
+        target = entry_effective_name("chains", chain)
+        stack = [self.tree.topLevelItem(i) for i in range(self.tree.topLevelItemCount())]
+        while stack:
+            item = stack.pop()
+            data = item.data(0, Qt.ItemDataRole.UserRole)
+            if (data is not None and data[0] == "chain" and data[1] == "chains"
+                    and entry_effective_name("chains", data[2]) == target):
+                parent = item.parent()
+                while parent is not None:
+                    parent.setExpanded(True)
+                    parent = parent.parent()
+                self.tree.setCurrentItem(item)
+                self.tree.scrollToItem(item)
+                return
+            for child in range(item.childCount()):
+                stack.append(item.child(child))
 
     def _selected_export_items(self) -> list:
         """Currently selected tree leaves/nodes, as ExportItem tuples — file/

@@ -14465,3 +14465,39 @@ msgstr ""
 # anchor source tabs (S-D, 2026-09-05)
 msgid "The anchor is a mount point (bbox frame). The stored offsets are NEVER rewritten; the anchor is applied at placement. Component: Role mounts on that role, +Pad on that pad."
 msgstr ""
+
+# entity page (S3, 2026-09-05)
+msgid "Placements (trees):"
+msgstr ""
+
+# entity page (S3, 2026-09-05)
+msgid "Not placed in any tree."
+msgstr ""
+
+# entity page (S3, 2026-09-05)
+msgid "Entity {name!r} not found."
+msgstr ""
+
+# entity page (S3, 2026-09-05)
+msgid "{n} placement(s) — click to open the tree"
+msgstr ""
+
+# chains navigation (S2b, 2026-09-05)
+msgid "Back"
+msgstr ""
+
+# chains navigation (S2b, 2026-09-05)
+msgid "Chains"
+msgstr ""
+
+# chains navigation (S2b, 2026-09-05)
+msgid "Anchor: {key} — chains"
+msgstr ""
+
+# chains navigation (S2b, 2026-09-05)
+msgid "Chain: {name} — pads"
+msgstr ""
+
+# chains navigation (S2b, 2026-09-05)
+msgid "{name} ({pads} spokes)"
+msgstr ""

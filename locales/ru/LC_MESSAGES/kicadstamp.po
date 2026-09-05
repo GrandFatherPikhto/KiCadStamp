@@ -13090,3 +13090,39 @@ msgstr "Без пада якорь — геометрический центр �
 # anchor source tabs (S-D, 2026-09-05)
 msgid "The anchor is a mount point (bbox frame). The stored offsets are NEVER rewritten; the anchor is applied at placement. Component: Role mounts on that role, +Pad on that pad."
 msgstr "Якорь — точка монтажа (кадр bbox). Хранимые офсеты НИКОГДА не переписываются; якорь применяется при кладке. Компонент: Role — монтаж на эту роль, +Pad — на этот пад."
+
+# entity page (S3, 2026-09-05)
+msgid "Placements (trees):"
+msgstr "Размещения (деревья):"
+
+# entity page (S3, 2026-09-05)
+msgid "Not placed in any tree."
+msgstr "Не размещена ни в одном дереве."
+
+# entity page (S3, 2026-09-05)
+msgid "Entity {name!r} not found."
+msgstr "Сущность {name!r} не найдена."
+
+# entity page (S3, 2026-09-05)
+msgid "{n} placement(s) — click to open the tree"
+msgstr "{n} размещений — клик, чтобы открыть дерево"
+
+# chains navigation (S2b, 2026-09-05)
+msgid "Back"
+msgstr "Назад"
+
+# chains navigation (S2b, 2026-09-05)
+msgid "Chains"
+msgstr "Цепи"
+
+# chains navigation (S2b, 2026-09-05)
+msgid "Anchor: {key} — chains"
+msgstr "Якорь: {key} — цепи"
+
+# chains navigation (S2b, 2026-09-05)
+msgid "Chain: {name} — pads"
+msgstr "Цепь: {name} — пады"
+
+# chains navigation (S2b, 2026-09-05)
+msgid "{name} ({pads} spokes)"
+msgstr "{name} ({pads} спиц)"

@@ -465,6 +465,23 @@ def test_pad_single_click_shows_spoke_editor_qview_page(real_main_window, tmp_pa
     assert hub.chain_dock.spoke_pad_edit.text() == "26"
 
 
+def test_chain_single_click_shows_pads_nav_qview_page(real_main_window, tmp_path):
+    """A SINGLE click on a chains: CHAIN node (chain_picked) shows the
+    chains-navigation QView page with that chain's pads (2026-09-05, design
+    config_qview_chain_entity_pages §4/§8.2)."""
+    rules_file = tmp_path / "rules.sexp"
+    _write(rules_file, {"chains": [{"net": "+3V3", "anchor_role": "FPGA",
+                                    "spokes": [{"pad": "17", "cell": "c"}]}]})
+    real_main_window.config_tree_dock.set_root_file(rules_file)
+    hub = real_main_window._dock_hub
+    chain = {"net": "+3V3", "anchor_role": "FPGA", "spokes": [{"pad": "17", "cell": "c"}]}
+    real_main_window.config_tree_dock.chain_picked.emit(chain)
+
+    assert hub.config_tree_dock.right_stack.currentIndex() == hub._chains_nav_page
+    assert hub.chains_nav_dock.list_widget.count() == 1
+    assert "17" in hub.chains_nav_dock.list_widget.item(0).text()
+
+
 def test_tools_menu_delete_net_removes_selected_chain(real_main_window, tmp_path):
     """2026-09-01 (plan rules_to_chains): "Delete net..." deletes the chain
     currently selected in the Config tree via delete_entry (timestamped
@@ -511,6 +528,16 @@ def test_entity_edit_requested_opens_dialog_with_entry_loaded(real_main_window, 
              for i in range(tools_dock.nets_table.key_edit.count())]
     assert roles == ["C_IN", "C_OUT"]
     assert real_main_window._dock_hub.tools_dialog.isVisible()
+
+
+def test_entity_picked_shows_entity_qview_page(real_main_window):
+    """A SINGLE click on an Entities leaf (entity_picked) shows the Config
+    Entity right-QView page (2026-09-05, design config_qview_chain_entity_pages
+    §5) — the record editor, replacing the old Placer-Entity single-click
+    routing."""
+    hub = real_main_window._dock_hub
+    real_main_window.config_tree_dock.entity_picked.emit("E1")
+    assert hub.config_tree_dock.right_stack.currentIndex() == hub._entity_page
 
 
 def test_successful_edit_auto_closes_the_tools_dialog(real_main_window):
