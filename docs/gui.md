@@ -840,17 +840,6 @@ the tabs — they act on the whole placement, not one tab.
   (`PIF_DVDD`, ...) instead of being re-tagged with the top placement's name (live bug
   tag_cluster_overtag — a Redraw wiped every nested sub-cell component's Cluster field). Change a
   field, click Redraw again — idempotent, safe to repeat.
-- **Redraw dependents** — the cascade: this placement plus EVERY record transitively anchored on it,
-  redrawn in topological order (a parent always before the records anchored on it), each via its own
-  `ApplyPipeline --only` run so a dependent reads its anchor's POST-move position. The anchor graph
-  is built from the project ROOT config (the whole `include:` graph), so dependents living in other
-  included files are found. Per-record success/failure and the order are written to the Log dock.
-  Static anchor resolution — [`kicadstamp/anchor_graph.py`](kicadstamp/anchor_graph.py); the shared
-  cascade — [`gui/docks/cascade.py`](gui/docks/cascade.py).
-- **Redraw & Save** (2026-08-25) — Redraw, then — only if it actually succeeded — Save, in one
-  click. Redraw runs on a worker thread; Save waits for its real completion (never a naive
-  `_on_redraw(); _on_save()`, so they can't race), and is skipped with a clear Log message when
-  Redraw failed.
 - **Save** — separately, writes the current form into the project root file's `clone_placements:` list
   (replacing an existing entry of the same name, never duplicating). Redraw does **not** save by
   itself — look, adjust, Redraw again, and only Save once you're happy with the result.
@@ -858,13 +847,6 @@ the tabs — they act on the whole placement, not one tab.
   (its components plus every via/track the registry records under this placement's anchor) and
   highlights exactly those in pcbnew — a visual check of what this placement really owns, without
   moving anything. Nothing found (not placed yet) is a short Log message, never a crash.
-- **Undo** (2026-08-25) — confirms first, then undoes the NEWEST `operation_*.json` in the whole
-  project's operation-log directory (the same pick as the CLI `kicadstamp undo` — not necessarily
-  the operation this Placer form ran). Moved components are restored and created vias/tracks are
-  removed; the log file is deleted so it can't be undone twice. No logs -> a "nothing to undo"
-  message with no confirmation dialog. The directory comes from the config's `operation_log_dir`
-  (project root as fallback), else `logs/` — same resolution as `kicadstamp undo`.
-
 Not covered by the GUI yet (still reachable by hand-editing the saved YAML): `by_selection` mode.
 `anchor_sheet` narrowing WAS in this deferred list — closed 2026-08-15: every Sheet field is now a
 searchable combo sourced from the project's schematic files (see

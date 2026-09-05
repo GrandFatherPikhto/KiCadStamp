@@ -125,7 +125,7 @@ from kicadstamp.config import (ClonePlacement, Config, Entity, RuntimeContext,
                                coordinate_placement_effective_name,
                                entity_effective_name, load_clone_placement,
                                load_config, load_coordinate_placement, load_entity)
-from kicadstamp.constants import CLUSTER_FIELD_NAME, DEFAULT_LOG_DIR
+from kicadstamp.constants import CLUSTER_FIELD_NAME
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.i18n import _
@@ -148,7 +148,6 @@ from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STY
 # ToolsDock shares it) — keep the old private name for existing call sites
 # and tests (placer_mod._KeyValueTableEditor).
 _KeyValueTableEditor = KeyValueTableEditor
-from .cascade import cascade_records, run_cascade_worker
 from .entity_delete import delete_entry
 from .rename import (collect_all_cell_names, collect_all_point_names,
                      collect_all_sheet_names, collect_section_entries,
@@ -156,18 +155,6 @@ from .rename import (collect_all_cell_names, collect_all_point_names,
                      find_list_entry_file)
 
 logger = logging.getLogger(__name__)
-
-
-def _newest_operation_file(log_dir: Path) -> Optional[Path]:
-    """The most recently written operation_*.json in `log_dir` (by st_ctime,
-    same pick as `kicadstamp undo` / cmd_undo), or None when the directory
-    doesn't exist or holds no operation files."""
-    if not log_dir.exists():
-        return None
-    files = sorted(log_dir.glob("operation_*.json"), key=lambda p: p.stat().st_ctime)
-    return files[-1] if files else None
-
-
 
 
 class _CoordinatePlacementForm(QWidget):
@@ -2379,136 +2366,6 @@ class PlacerDock(QWidget):
         result = self._run_redraw(payload)
         self._finish_redraw(result)
 
-    # ── Redraw & Save ────────────────────────────────────────────────────
-
-    def _on_redraw_and_save(self) -> None:
-        """Redraw & Save button handler — same collect(UI thread)/run(worker
-        thread) split as plain Redraw, reusing _collect_redraw_inputs and
-        _run_redraw unchanged. The difference is the SUCCESS callback: it
-        only runs after the worker has genuinely finished (queued signal back
-        on the UI thread) and calls Save exactly once, then — never for a
-        failed Redraw (no time.sleep/polling, no _on_redraw(); _on_save()
-        race)."""
-        self._show_message("")
-        payload = self._collect_redraw_inputs()
-        if payload is None:
-            return
-        self._start_redraw_and_save_op(payload)
-
-    def _start_redraw_and_save_op(self, payload: Dict[str, Any]) -> None:
-        self._active_op = start_long_op(
-            self._main_window.connection,
-            self._action_buttons(),
-            self._run_redraw, self._finish_redraw_and_save,
-            self._on_redraw_and_save_failed, payload)
-
-    def _finish_redraw_and_save(self, result: Dict[str, Any]) -> None:
-        """UI thread, fired only after the worker's Redraw finished. Save runs
-        ONLY on success — a failed Redraw (error dict) leaves a clear message
-        that just Redraw was reached and Save was skipped."""
-        if result.get("error"):
-            self._show_message(result["error"], _ERROR_STYLE)
-            self._show_message(_("Save was not run — Redraw failed."), _ERROR_STYLE)
-            return
-        # Same message as plain Redraw (warn = placed but tagging failed, still
-        # a successful placement worth saving), then the synchronous Save path.
-        self._finish_redraw(result)
-        self._do_save()
-
-    def _on_redraw_and_save_failed(self, message: str) -> None:
-        self._show_message(_("Placement failed: {error}").format(error=message), _ERROR_STYLE)
-        self._show_message(_("Save was not run — Redraw failed."), _ERROR_STYLE)
-
-    def _do_redraw_and_save(self) -> None:
-        """Synchronous composition of collect + run + finish — the same "for
-        tests" shape as _do_redraw (Redraw runs synchronously here, so Save
-        is provably called AFTER it)."""
-        payload = self._collect_redraw_inputs()
-        if payload is None:
-            return
-        result = self._run_redraw(payload)
-        self._finish_redraw_and_save(result)
-
-    # ── Redraw dependents (§2.4) ────────────────────────────────────────
-
-    def _on_redraw_dependents(self) -> None:
-        """Cascade "Redraw dependents" for the CURRENT placement. The anchor
-        graph is built from the project ROOT config (the whole include:
-        graph), so dependents living in other included files are found; the
-        current form only supplies the START record's identity (its saved
-        anchor state is what the graph reads — see the anchor_graph module
-        docstring)."""
-        self._show_message("")
-        if self._root_path is None:
-            self._show_message(_("Pick a root file first."), _ERROR_STYLE)
-            return
-        entry = self._build_entry_dict()
-        if entry is None:
-            return
-        try:
-            if self.is_coordinate:
-                cp = load_coordinate_placement(entry)
-                name = coordinate_placement_effective_name(cp)
-                start_key = f"coordinate:{name}"
-            else:
-                cp = load_clone_placement(entry)
-                name = clone_placement_effective_name(cp)
-                start_key = f"clone:{name}"
-        except ValidationError as e:
-            self._show_message(str(e), _ERROR_STYLE)
-            return
-
-        try:
-            cfg, ctx = load_config(str(self._root_path))
-        except (ValidationError, OSError) as e:
-            self._show_message(
-                _("Failed to load root config: {error}").format(error=e), _ERROR_STYLE)
-            return
-        try:
-            records = cascade_records(cfg, start_key)
-        except ValidationError as e:
-            self._show_message(str(e), _ERROR_STYLE)
-            return
-        # `records` always includes the start record itself; a cascade of ONE
-        # (just the start, no dependents) is pointless — the plain Redraw
-        # button already covers that single-record case.
-        if len(records) <= 1:
-            self._show_message(
-                _("No records anchor on {name!r} — nothing to redraw.").format(name=name),
-                _WARN_STYLE)
-            return
-        names = [r.name for r in records]
-        self._start_cascade_op(str(self._root_path), cfg, ctx, names)
-
-    def _start_cascade_op(self, config_path: str, cfg, ctx, names: list) -> None:
-        payload = {"config_path": config_path, "cfg": cfg, "ctx": ctx, "names": names}
-        logger.info(_("Redraw dependents: {count} record(s) in order: {order}")
-                    .format(count=len(names), order=" -> ".join(names)))
-        self._active_op = start_long_op(
-            self._main_window.connection,
-            self._action_buttons(),
-            run_cascade_worker, self._finish_cascade, self._on_cascade_failed, payload)
-
-    def _finish_cascade(self, results) -> None:
-        ok = sum(1 for _name, good, _err in results if good)
-        failed = len(results) - ok
-        status = ", ".join(
-            f"{name}={'ok' if good else 'FAILED'}" for name, good, _err in results)
-        logger.info(_("Redraw dependents: {ok}/{total} ok — {status}")
-                    .format(ok=ok, total=len(results), status=status))
-        if failed:
-            self._show_message(
-                _("{failed}/{total} record(s) failed — see the log.")
-                .format(failed=failed, total=len(results)), _ERROR_STYLE)
-        else:
-            self._show_message(
-                _("Redrawn {total} record(s) (dependents).").format(total=len(results)),
-                _SUCCESS_STYLE)
-
-    def _on_cascade_failed(self, message: str) -> None:
-        self._show_message(
-            _("Redraw dependents failed: {error}").format(error=message), _ERROR_STYLE)
-
     def _tag_cluster(self, pipeline: ApplyPipeline, cfg: Config, ctx: RuntimeContext, name: str) -> int:
         """Recovers which refs this specific clone_placement touched (see
         module docstring) and tags them Cluster=name. Returns how many
@@ -2741,104 +2598,6 @@ class PlacerDock(QWidget):
                 name=name, path=display_path(self._placer_path)),
             _SUCCESS_STYLE)
         self.saved.emit()
-
-    # ── Undo (2026-08-25) ────────────────────────────────────────────────
-
-    def _resolve_operation_log_dir(self) -> Path:
-        """The operation-log directory Undo should read — the SAME directory
-        `apply` writes (ctx.operation_log_dir, resolved by load_config relative
-        to the config file). Falls back to the project ROOT config's value when
-        the Placer file itself doesn't set one (a leaf Placer file's own
-        resolution comes up empty even though the root resolves it — same
-        downward-only include: merge as _load_target_config's sheet_names
-        fallback), and finally to DEFAULT_LOG_DIR exactly like cmd_undo."""
-        if self._placer_path is not None:
-            loaded = self._load_target_config(silent=True)
-            if loaded is not None:
-                _, ctx = loaded
-                if ctx.operation_log_dir:
-                    return Path(ctx.operation_log_dir)
-                if self._root_path is not None and self._root_path != self._placer_path:
-                    try:
-                        _root_cfg, root_ctx = load_config(str(self._root_path))
-                        if root_ctx.operation_log_dir:
-                            return Path(root_ctx.operation_log_dir)
-                    except (ValidationError, OSError):
-                        pass
-        return Path(DEFAULT_LOG_DIR)
-
-    def _on_undo(self) -> None:
-        """Undo button handler — undo the NEWEST operation_*.json in the whole
-        project's operation_log_dir, NOT necessarily the operation this Placer
-        form ran (same semantics as `kicadstamp undo`). Confirm first
-        (destructive, one-shot), then run undo_last_operation on the worker
-        thread — it opens its own kipy socket, gated by long_op_active like
-        Redraw's ApplyPipeline."""
-        self._show_message("")
-        log_dir = self._resolve_operation_log_dir()
-        last_file = _newest_operation_file(log_dir)
-        if last_file is None:
-            self._show_message(
-                _("Nothing to undo — no operation logs in {dir}.")
-                .format(dir=display_path(log_dir)), _ERROR_STYLE)
-            return
-        reply = QMessageBox.question(
-            self, _("Undo last operation"),
-            _("Undo the LAST operation logged in the whole project's "
-              "operation-log directory ({dir})?\n\n"
-              "It is not necessarily the operation THIS Placer form ran — it "
-              "undoes whatever `kicadstamp undo` would pick (the newest "
-              "operation_*.json). Moved components are restored and created "
-              "vias/tracks are removed. This cannot be redone from the GUI.")
-            .format(dir=display_path(log_dir)),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
-        if reply != QMessageBox.StandardButton.Yes:
-            return
-        self._start_undo_op(last_file)
-
-    def _start_undo_op(self, last_file: Path) -> None:
-        payload = {"json_path": str(last_file)}
-        self._active_op = start_long_op(
-            self._main_window.connection,
-            self._action_buttons(),
-            self._run_undo, self._finish_undo, self._on_undo_failed, payload)
-
-    @staticmethod
-    def _run_undo(payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Worker thread: undo the operation described by payload["json_path"]
-        — never touches a widget. undo_last_operation builds its own
-        KiCadBoardAdapter here on the worker thread (the same "the op opens its
-        own kipy socket, gated by long_op_active" model as _run_redraw's
-        ApplyPipeline)."""
-        from kicadstamp.undo import undo_last_operation
-        json_path = Path(payload["json_path"])
-        try:
-            undo_last_operation(json_path)
-        except Exception as e:
-            logger.exception("Undo failed")
-            return {"error": str(e), "name": json_path.name}
-        return {"name": json_path.name}
-
-    def _finish_undo(self, result: Dict[str, Any]) -> None:
-        """UI thread: report the undone operation's file name; an error leaves
-        an explicit failure message (the confirm dialog must not imply
-        something was undone when the undo actually failed)."""
-        if result.get("error"):
-            self._show_message(
-                _("Undo failed for {name}: {error}")
-                .format(name=result["name"], error=result["error"]), _ERROR_STYLE)
-            return
-        self._show_message(_("Undone operation {name}.").format(name=result["name"]),
-                           _SUCCESS_STYLE)
-
-    def _on_undo_failed(self, message: str) -> None:
-        self._show_message(_("Undo failed: {error}").format(error=message), _ERROR_STYLE)
-
-    def _do_undo(self, last_file: Path) -> None:
-        """Synchronous composition of run + finish — the same "for tests"
-        shape as _do_redraw."""
-        result = self._run_undo({"json_path": str(last_file)})
-        self._finish_undo(result)
 
     # ── Starting a brand new placement (ConfigTreeDock's Add placer) ───────
 
