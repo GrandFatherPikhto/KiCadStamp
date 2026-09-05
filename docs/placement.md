@@ -301,7 +301,12 @@ Resolves roles for `ClonePlacement`. Supports two modes:
   `nets:` → cell `net_template` (with placeholders; a literal local `/Channel_0/...` net is
   auto-prefix-remapped to the target channel, `TwinMap.twin_net` semantics) → auto-derived from the
   live board (`derive_role_nets`: the unique instance's single net, or the one non-rule net shared by
-  all candidates). A cell `net_template` with an unresolved `{placeholder}` (no matching `params`) is
+  all candidates). A LITERAL cell `net_template` (no `{param}`, not `/Channel_N/...`) is a
+  source-instance fallback, not a selector: when the placement has its own cluster and the live board
+  gives a deterministic net for the role there, that live net wins (`derive_role_nets` live_pad,
+  2026-09-05) — so a cell extracted from one power rail is safely reusable on another rail without
+  dragging the source instance's components (see `tests/test_clone_reuse_cell_across_power_rails.py`).
+  A cell `net_template` with an unresolved `{placeholder}` (no matching `params`) is
   NOT treated as an explicit source — it falls through to the live auto-derivation path (Phase 4 step
   4.3) instead of fataling — so `nets:`/`params:`/`net_overrides:` are OPTIONAL overrides. Since Phase 2 step
   2.3 the IMPLICIT mode (no `nets`/`params`/`by_selection`) is also by-nets whenever the whole cell

@@ -688,6 +688,24 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement | CellPlace
                     if remapped is not None:
                         expected_net = remapped
                         net_source = PREFIX_REMAP
+        # Auto-nets (2026-09-05, derive_role_nets live_pad priority): a LITERAL
+        # cell net_template (no {param}, not a channel-prefixed remap) was baked
+        # from the SOURCE instance at extraction — it is NOT portable to a
+        # placement on a DIFFERENT cluster (live incident: pif_p2v5_vcca reused
+        # for PIF_1V2_VCCINT grabbed pif_p2v5_vcca_fpga's components through the
+        # baked +2V5 template, because the auto-derive path never runs when a
+        # net_template is present). When this placement has its OWN cluster and
+        # the live target board gives a deterministic net for the role
+        # (live_pad), the live net wins; the baked literal remains the fallback
+        # while the target cluster has nothing on the board yet.
+        if (net_source == "net_template"
+                and "{" not in net_template
+                and getattr(clone, "cluster", None)):
+            live_net, _direct_ref, _live_src = _auto_derive_live_net(
+                adapter, all_fps, role, clone, slot, sheet_names or {})
+            if live_net is not None:
+                expected_net = live_net
+                net_source = "live_pad"
         if expected_net is None:
             auto_net, auto_ref, auto_source = _auto_derive_live_net(
                 adapter, all_fps, role, clone, slot, sheet_names)
