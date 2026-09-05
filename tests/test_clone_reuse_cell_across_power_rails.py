@@ -127,3 +127,50 @@ def test_baked_literal_is_fallback_when_target_cluster_absent():
 
     result = resolve_roles_by_nets(adapter, _cell(), clone)
     assert result == {"C_IN_BULK": "C_A"}
+
+
+def _bridging_cell():
+    """A cell with a BRIDGING role (ferrite FB between two nodes — its own
+    pads carry two different nets, so it has no single lemma-2 net) that names
+    a SIBLING role (net_template_same_as_role) whose single net is the rail
+    side. Mirrors pif_p2v5_vcca's FB_PI_FLT slot."""
+    return Cell(name="pif_p2v5_vcca", components=[
+        TemplateComponentSlot(role="FB_PI_FLT", net_template="+2V5",
+                              net_template_same_as_role="C_IN_BYPASS"),
+    ])
+
+
+def _bridging_board():
+    """Source (+2V5_VCCA) and target (+1V2_VCCINT) instances, each with its own
+    ferrite (bridging, two nets) and its rail-side sibling cap on the sibling's
+    single net."""
+    return [
+        _make_fp("FB_A", "FB_PI_FLT", ["+2V5", "+2V5_FB_OUT"], "PIF_2V5_VCCA"),
+        _make_fp("C_A", "C_IN_BYPASS", ["+2V5"], "PIF_2V5_VCCA"),
+        _make_fp("FB_B", "FB_PI_FLT", ["+1V2_VCCINT", "+1V2_FB_OUT"], "PIF_1V2_VCCINT"),
+        _make_fp("C_B", "C_IN_BYPASS", ["+1V2_VCCINT"], "PIF_1V2_VCCINT"),
+    ]
+
+
+def test_bridging_role_live_sibling_net_wins_over_baked_literal():
+    """Live repro: pif_p1v2_vccint's FB_PI_FLT kept stealing the source
+    instance's ferrite (FB_A) through the baked +2V5 — a bridging role has no
+    single lemma-2 net, so a plain live_pad could not derive it. The fix
+    resolves it through net_template_same_as_role: the sibling C_IN_BYPASS's
+    live net on THIS cluster (+1V2_VCCINT) becomes the expected net and the
+    target's own ferrite FB_B is found."""
+    adapter = _adapter(_bridging_board())
+    clone = ClonePlacement(cluster="PIF_1V2_VCCINT", cell="pif_p2v5_vcca",
+                           xy=(0, 0))
+    result = resolve_roles_by_nets(adapter, _bridging_cell(), clone)
+    assert result == {"FB_PI_FLT": "FB_B"}
+
+
+def test_bridging_role_source_cluster_still_resolves_to_source():
+    """Sanity: the source placement's bridging role still resolves to its own
+    ferrite FB_A."""
+    adapter = _adapter(_bridging_board())
+    clone = ClonePlacement(cluster="PIF_2V5_VCCA", cell="pif_p2v5_vcca",
+                           xy=(0, 0))
+    result = resolve_roles_by_nets(adapter, _bridging_cell(), clone)
+    assert result == {"FB_PI_FLT": "FB_A"}

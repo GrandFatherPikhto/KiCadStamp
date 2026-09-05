@@ -695,16 +695,25 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement | CellPlace
         # for PIF_1V2_VCCINT grabbed pif_p2v5_vcca_fpga's components through the
         # baked +2V5 template, because the auto-derive path never runs when a
         # net_template is present). When this placement has its OWN cluster and
-        # the live target board gives a deterministic net for the role
-        # (live_pad), the live net wins; the baked literal remains the fallback
-        # while the target cluster has nothing on the board yet.
+        # the live target board gives a deterministic net for the role, the live
+        # net wins; the baked literal remains the fallback while the target
+        # cluster has nothing on the board yet. Uses suggest_role_nets_from_cluster
+        # (not _auto_derive_live_net) so BRIDGING roles resolve too: a ferrite
+        # with net_template_same_as_role/<net_template_pad> reduces through its
+        # designated pad / sibling role's live net on this cluster (live repro:
+        # FB_PI_FLT kept stealing the source instance's ferrite via the baked
+        # +2V5 because a bridging role has no single lemma-2 net).
         if (net_source == "net_template"
                 and "{" not in net_template
                 and getattr(clone, "cluster", None)):
-            live_net, _direct_ref, _live_src = _auto_derive_live_net(
-                adapter, all_fps, role, clone, slot, sheet_names or {})
-            if live_net is not None:
-                expected_net = live_net
+            role_hint = (getattr(slot, "net_template_pad", None),
+                         getattr(slot, "net_template_same_as_role", None))
+            suggested = suggest_role_nets_from_cluster(
+                adapter, {role: role_hint}, getattr(clone, "cluster", ""),
+                rule_nets=RULE_NETS, sheet=getattr(clone, "sheet", None),
+                sheet_names=sheet_names or {})
+            if role in suggested:
+                expected_net = suggested[role]
                 net_source = "live_pad"
         if expected_net is None:
             auto_net, auto_ref, auto_source = _auto_derive_live_net(
