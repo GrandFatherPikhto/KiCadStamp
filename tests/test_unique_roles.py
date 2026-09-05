@@ -56,10 +56,11 @@ class TestRoleRequired:
 
 
 class TestCellAnchor:
-    """anchor_xy/anchor_role/anchor_pad (2026-08-06) — display-only metadata
-    for the cell editor, see Cell's own docstring in config/models.py. Never
-    consumed by clone_position_calculator.py/any resolver — validated here
-    only for shape/mutual-exclusion/cross-reference correctness."""
+    """anchor_xy/anchor_role/anchor_pad — the cell's mount point A + identity
+    (design_2026_09_05 v2), see Cell's own docstring in config/models.py.
+    anchor_xy may coexist with anchor_role (point + identity); a role-only
+    anchor_xy must match the role's centre. Validated here for shape and
+    cross-reference correctness."""
 
     def test_anchor_xy_loads(self):
         cell = _load_cell("t", {"components": [{"role": "A"}], "anchor_xy": [1.5, -2.0]})
@@ -83,9 +84,18 @@ class TestCellAnchor:
         assert cell.anchor_role is None
         assert cell.anchor_pad is None
 
-    def test_anchor_xy_and_anchor_role_together_is_fatal(self):
-        with pytest.raises(ValidationError, match="anchor_xy together with anchor_role"):
-            _load_cell("t", {"components": [{"role": "A"}],
+    def test_anchor_xy_and_anchor_role_together_loads_when_consistent(self):
+        """v2: anchor_xy (the mount point) may carry anchor_role as its identity
+        — a role-only anchor must agree with the role's centre."""
+        cell = _load_cell("t", {"components": [{"role": "A"}],
+                                "anchor_xy": [0, 0], "anchor_role": "A"})
+        assert cell.anchor_xy == (0.0, 0.0)
+        assert cell.anchor_role == "A"
+
+    def test_anchor_xy_mismatching_role_centre_is_fatal(self):
+        with pytest.raises(ValidationError, match="does not match anchor_role"):
+            _load_cell("t", {"components": [{"role": "A", "offset_along_mm": 2.0,
+                                             "offset_across_mm": 1.0}],
                              "anchor_xy": [0, 0], "anchor_role": "A"})
 
     def test_anchor_pad_without_anchor_role_is_fatal(self):

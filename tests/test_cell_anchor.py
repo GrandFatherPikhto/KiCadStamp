@@ -57,6 +57,25 @@ def test_legacy_role_pad_without_xy_is_the_stored_zero():
     assert cell_mount_offset(cell) == (0.0, 0.0)
 
 
+def test_role_pad_with_xy_prefers_the_point():
+    """A v2 pad anchor: anchor_xy is the pad's point (may differ from the role
+    centre), with the role as identity."""
+    cell = _cell({"components": [{"role": "FPGA", "offset_along_mm": 2.5,
+                                  "offset_across_mm": 1.0}],
+                  "anchor_role": "FPGA", "anchor_pad": "A1",
+                  "anchor_xy": [3.0, 1.5]})
+    assert cell_mount_offset(cell) == (3.0, 1.5)
+
+
+def test_role_only_anchor_xy_consistent_with_centre():
+    """A v2 role-only anchor stores anchor_xy equal to the role's centre; A is
+    that point."""
+    cell = _cell({"components": [{"role": "FPGA", "offset_along_mm": 2.5,
+                                  "offset_across_mm": 1.0}],
+                  "anchor_role": "FPGA", "anchor_xy": [2.5, 1.0]})
+    assert cell_mount_offset(cell) == (2.5, 1.0)
+
+
 def test_unknown_anchor_role_is_fatal():
     cell = Cell(name="t",
                 components=[TemplateComponentSlot(role="A", angle_deg=0.0)],

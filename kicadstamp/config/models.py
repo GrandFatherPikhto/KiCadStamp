@@ -389,17 +389,20 @@ class Cell:
     clone_placements), or both at once — nothing about the two is mutually
     exclusive.
 
-    anchor_xy/anchor_role(+anchor_pad) — added 2026-08-06 for the cell
-    editor (Denis: "cell редактор уже необходимость"), DISPLAY-ONLY
-    metadata, mutually exclusive, both optional: marks which point of the
-    cell's own local (0,0) already IS by construction (offset_along_mm=
-    offset_across_mm=0.0 is always the origin — these fields do not change
-    that, and are never read by clone_position_calculator.py/any resolver).
-    Exists purely so the cell editor can show a crosshair/"distance from
-    anchor" while hand-authoring offsets, instead of them being an untracked
-    fact only the original extractor run knew. anchor_role must name one of
-    this cell's own components (role); anchor_pad narrows to a specific pad
-    of it and is only meaningful together with anchor_role.
+    anchor_xy/anchor_role(+anchor_pad) — the cell's MOUNT POINT and its
+    identity (design_2026_09_05 v2; formerly display-only metadata from
+    2026-08-06). The stored local offsets always live in the bbox-anchored
+    frame; the mount point A is the cell point that coincides with a
+    placement's origin at materialization (geometry reads it via
+    cell_mount_offset and places content as origin + rotate(offset - A)).
+      - anchor_xy [x, y] — A, in the bbox frame; the REAL data geometry reads.
+      - anchor_role — the mount's component (identity / live surrogate).
+        Without a pad and without anchor_xy, A is derived as that component's
+        centre.
+      - anchor_pad — narrows anchor_role to a specific pad; the pad's point is
+        expressed by anchor_xy (a pad offset is not derivable from config).
+    Absent all three = A = (0,0) (the default bbox corner — the extraction
+    default mount; no-op for a freshly extracted default cell).
     """
     name: str
     vias: list[TemplateVia] = field(default_factory=list)

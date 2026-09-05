@@ -227,21 +227,18 @@ def _load_cell(name: str, data: dict[str, Any]) -> Cell:
              .format(dup=n, count=nested_names.count(n)) for n in sorted(dup_names)]
         ))
 
-    # anchor_xy/anchor_role/anchor_pad — display-only metadata for the cell
-    # editor, see Cell's own docstring: mutually exclusive, never consumed
-    # by any resolver, so a bad value here is only ever a UI-authoring
-    # mistake, not a placement-breaking one.
+    # anchor_xy/anchor_role/anchor_pad — the cell's MOUNT point A in the bbox
+    # frame plus optional identity, see Cell's own docstring (design
+    # 2026_09_05 v2). anchor_xy is the REAL mount point (read by geometry via
+    # cell_mount_offset). anchor_role names the mount's component (identity /
+    # live surrogate); given WITHOUT a pad AND WITHOUT anchor_xy, A is derived
+    # as that component's centre (cell_mount_offset). anchor_pad only narrows
+    # anchor_role (the mount is then a pad of it, expressed by anchor_xy).
     anchor_xy_raw = data.get('anchor_xy')
     anchor_role = data.get('anchor_role')
     anchor_pad = data.get('anchor_pad')
     anchor_xy: tuple[float, float] | None = None
     if anchor_xy_raw is not None:
-        if anchor_role is not None:
-            raise ValidationError(format_fatal_error(
-                _("anchor_xy together with anchor_role in cell {name!r}").format(name=name),
-                [_("these are mutually exclusive ways to mark the cell's own local (0,0) — "
-                   "pick one")]
-            ))
         if not (isinstance(anchor_xy_raw, (list, tuple)) and len(anchor_xy_raw) == 2):
             raise ValidationError(format_fatal_error(
                 _("anchor_xy must be a 2-element [x, y] list in cell {name!r}").format(name=name),
@@ -253,13 +250,32 @@ def _load_cell(name: str, data: dict[str, Any]) -> Cell:
             _("anchor_pad without anchor_role in cell {name!r}").format(name=name),
             [_("anchor_pad only narrows anchor_role — it is not an anchor by itself")]
         ))
-    if anchor_role is not None and anchor_role not in {c.role for c in components}:
-        raise ValidationError(format_fatal_error(
-            _("anchor_role {role!r} is not a component of cell {name!r}").format(
-                role=anchor_role, name=name),
-            [_("anchor_role must name one of this cell's own components: {roles}")
-             .format(roles=sorted({c.role for c in components}))]
-        ))
+    if anchor_role is not None:
+        if anchor_role not in {c.role for c in components}:
+            raise ValidationError(format_fatal_error(
+                _("anchor_role {role!r} is not a component of cell {name!r}").format(
+                    role=anchor_role, name=name),
+                [_("anchor_role must name one of this cell's own components: {roles}")
+                 .format(roles=sorted({c.role for c in components}))]
+            ))
+        # A role-only mount (no pad): the role's centre IS the mount, so a
+        # stored anchor_xy must agree with it (a pad mount is the pad's point,
+        # deliberately different from the centre — no such check).
+        if anchor_xy is not None and anchor_pad is None:
+            centre = next(c for c in components if c.role == anchor_role)
+            if (abs(centre.offset_along_mm - anchor_xy[0]) > 1e-6
+                    or abs(centre.offset_across_mm - anchor_xy[1]) > 1e-6):
+                raise ValidationError(format_fatal_error(
+                    _("anchor_xy {xy} does not match anchor_role {role!r} in cell "
+                      "{name!r}").format(
+                        xy=anchor_xy, role=anchor_role, name=name),
+                    [_("a role-only anchor puts the mount on that component's "
+                       "centre, so anchor_xy must equal its stored offset "
+                       "({along}, {across}); use a pad (anchor_pad) to mount on "
+                       "a specific pad instead")
+                     .format(along=centre.offset_along_mm,
+                             across=centre.offset_across_mm)]
+                ))
 
     return Cell(
         name=name,
