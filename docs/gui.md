@@ -1021,11 +1021,16 @@ chain via `upsert_list_entry` (a pad is not a standalone record).
   from the whole include graph (root path), wired the same way Project's own panel does.
 - **Redraw chain** (context menu on a chain node) — the whole chain, all non-skipped spokes, same
   replace-by-identity + `ApplyPipeline(only=[...])` shape as Thermal via's own Redraw.
-- **Redraw spoke** (context menu on a pad leaf) — same, but every OTHER spoke in the copy handed to
-  the pipeline gets a temporary `skip: true` injected (never written back — Save is unaffected) —
-  sound because spoke resolution shares ONE component pool per net across the whole chain, so a
-  single spoke can't be resolved in total isolation, but the pipeline can be told to skip every
-  spoke except the one you're checking, which `skip:` already exists to do.
+- **Redraw spoke** (context menu on a pad leaf) — redraws exactly one pad, but the FULL chain (all
+  spokes) goes to the pipeline with the isolation expressed as a per-run `isolate_spokes` map
+  (chain name -> the selected pad), never written back — Save is unaffected. Spoke resolution
+  shares ONE component pool per net across the whole chain, so every non-redrawn sibling still
+  RESERVES its own components in full-chain order (not placed, but not stealable either): the
+  redrawn spoke keeps exactly the components a full chain redraw would assign to it and never
+  drags a neighbour's component (fix 2026-09-05 — previously the siblings got a temporary
+  `skip: true`, `drop_inactive_items` removed them from the chain and the isolated spoke silently
+  popped the neighbour's first natural-order component). Config-authored `skip: true` on a spoke is
+  unaffected (it still frees that spoke's share of the pool).
 - **Redraw chains...** (context menu on an ANCHOR node, 2026-09-01, Denis: "если корневой
   компонент, то вообще все его спицы") — redraws EVERY chain under that anchor in ONE
   `ApplyPipeline` run.

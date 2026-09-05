@@ -671,7 +671,10 @@ class ChainDock(QWidget):
 
     # ── Redraw (driven from the Config tree's context menu / Tools menu) ───
 
-    def _collect_redraw_payload(self, chains: List["Chain"]) -> Optional[Dict[str, Any]]:
+    def _collect_redraw_payload(
+        self, chains: List["Chain"],
+        isolate_spokes: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
         """Build the ApplyPipeline payload from ONE OR MORE loaded Chains —
         the tree's context menu / Tools menu pass the chain dicts; this loads
         and splices them into the config by identity (replace-by-name, so
@@ -701,7 +704,8 @@ class ChainDock(QWidget):
             cfg.chains = [c for c in cfg.chains if chain_effective_name(c) != effective]
             cfg.chains.append(chain)
 
-        return {"path": config_path, "cfg": cfg, "ctx": ctx, "names": names}
+        return {"path": config_path, "cfg": cfg, "ctx": ctx, "names": names,
+                "isolate_spokes": isolate_spokes}
 
     def redraw_chain(self, chain_dict: Dict[str, Any]) -> None:
         """Redraw the whole chain (all non-skipped spokes) — the Config tree's
@@ -719,20 +723,30 @@ class ChainDock(QWidget):
 
     def redraw_pad(self, chain_dict: Dict[str, Any], pad_index: int) -> None:
         """Redraw ONE pad of a chain — the Config tree's "Redraw spoke"
-        context action (pad_redraw_requested). Every OTHER spoke gets a
-        temporary skip=True injected into the copy handed to ApplyPipeline
-        (never written back) — safe because spoke resolution shares ONE
-        ComponentPool per net across the whole chain."""
+        context action (pad_redraw_requested). The FULL chain (all spokes) is
+        handed to ApplyPipeline unchanged; isolation is expressed via the
+        payload's isolate_spokes map (chain name -> the one active pad).
+
+        The sibling spokes still RESERVE their shared ComponentPool slots in
+        full-chain order, so the redrawn spoke keeps exactly the components a
+        full chain redraw would assign to it and never drags a neighbour's
+        component (fix 2026-09-05: previously the siblings were temporarily
+        skip=True and drop_inactive_items removed them from the chain first —
+        that shifted pool consumption and made the redrawn spoke pop the
+        neighbour's first natural-order component)."""
         self._show_message("")
         try:
             chain = load_chain(chain_dict)
         except ValidationError as e:
             self._show_message(str(e), _ERROR_STYLE)
             return
-        spokes = [dataclasses.replace(s, skip=(i != pad_index))
-                  for i, s in enumerate(chain.spokes)]
-        chain = dataclasses.replace(chain, spokes=spokes)
-        payload = self._collect_redraw_payload([chain])
+        # pad_index always comes from the Config tree's pad leaf (a valid
+        # spoke), so an out-of-range guard is defensive only — stay silent,
+        # like redraw_pad_form's brand-new-pad guard.
+        if not (0 <= pad_index < len(chain.spokes)):
+            return
+        isolate = {chain_effective_name(chain): {chain.spokes[pad_index].pad}}
+        payload = self._collect_redraw_payload([chain], isolate_spokes=isolate)
         if payload is None:
             return
         self._start_redraw_op(payload)
@@ -789,7 +803,8 @@ class ChainDock(QWidget):
         """Worker thread: ApplyPipeline run only — never touches a widget."""
         pipeline = ApplyPipeline(config_path=str(payload["path"]),
                                  preloaded_cfg=payload["cfg"], preloaded_ctx=payload["ctx"],
-                                 only=payload["names"], dry_run=False)
+                                 only=payload["names"], dry_run=False,
+                                 isolate_spokes=payload.get("isolate_spokes"))
         try:
             pipeline.run()
         except (PlacerError, ValidationError, ApiError) as e:

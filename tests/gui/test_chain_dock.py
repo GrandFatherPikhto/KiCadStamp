@@ -471,24 +471,27 @@ def test_redraw_chains_splices_all_into_one_config(main_window, tmp_path, monkey
 
 
 def test_redraw_spoke_isolates_only_the_selected_spoke(main_window, tmp_path):
-    """The one property that makes "Redraw spoke" different from "Redraw
-    chain": every OTHER spoke gets a temporary skip=True injected into the
-    pipeline's copy (never written back)."""
+    """"Redraw spoke" hands the FULL chain to the pipeline and expresses the
+    isolation via the payload's isolate_spokes map (chain name -> the selected
+    pad). The siblings are NOT marked skip — they stay in the chain and only
+    RESERVE their shared ComponentPool slots, so the redrawn spoke keeps its
+    own full-chain components and never steals a neighbour's (fix 2026-09-05:
+    previously the siblings were temporarily skip=True, drop_inactive_items
+    removed them from the chain and the isolated spoke popped the neighbour's
+    first natural-order component)."""
     dock, _ = _make_dock(main_window, tmp_path)
-    base = _lc({"net": "+3V3", "anchor_role": "FPGA", "spokes": [
-        {"pad": "17", "cell": "fpga"}, {"pad": "26", "cell": "cap"}]})
-    # The same transformation ChainDock.redraw_pad does: skip every spoke but
-    # the selected one (index 0).
-    isolated = dataclasses.replace(
-        base, spokes=[dataclasses.replace(s, skip=(i != 0))
-                      for i, s in enumerate(base.spokes)])
-    payload = dock._collect_redraw_payload([isolated])
-    assert payload is not None
-    cfg_chain = payload["cfg"].chains[-1]
-    assert cfg_chain.spokes[0].skip is False
-    assert cfg_chain.spokes[1].skip is True
-    # The in-memory parent chain (from the tree) is untouched.
-    assert base.spokes[0].skip is False and base.spokes[1].skip is False
+    chain_data = {"net": "+3V3", "anchor_role": "FPGA", "spokes": [
+        {"pad": "17", "cell": "fpga"}, {"pad": "26", "cell": "cap"}]}
+
+    captured = {}
+    dock._start_redraw_op = lambda payload: captured.update(payload)
+    dock.redraw_pad(chain_data, 0)
+
+    assert captured["isolate_spokes"] == {"+3V3": {"17"}}
+    cfg_chain = captured["cfg"].chains[-1]
+    assert len(cfg_chain.spokes) == 2
+    assert cfg_chain.spokes[0].pad == "17" and cfg_chain.spokes[0].skip is False
+    assert cfg_chain.spokes[1].pad == "26" and cfg_chain.spokes[1].skip is False
 
 
 # ── Bulk-set Cell for net ──────────────────────────────────────────────────

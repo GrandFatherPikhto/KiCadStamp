@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 class PlacementPlanner:
     def __init__(self, adapter: KiCadBoardAdapter, config: Config, sheet_names=None,
-                 position_overrides=None):
+                 position_overrides=None, isolate_spokes=None):
         _sn = sheet_names or {}
         self.adapter = adapter
         self.cfg = config
@@ -31,6 +31,10 @@ class PlacementPlanner:
         # only this run's placement is affected, the saved config is never
         # rewritten. None/empty = normal config-driven resolution.
         self.position_overrides = position_overrides or {}
+        # GUI "Redraw spoke" isolation (2026-09-05): chain effective name ->
+        # set of spoke pad numbers that must actually be placed this run; the
+        # siblings only reserve their pool slots (full-chain consumption).
+        self.isolate_spokes = isolate_spokes or {}
         # Populated as Point items are planned (see plan_item's kind == 'point'
         # branch) — a name -> ResolvedPoint cache, consulted by anchor_point:
         # on Rule/ClonePlacement/ThermalViaArrayConfig. Passed BY REFERENCE
@@ -101,7 +105,8 @@ class PlacementPlanner:
             # so a tree-redrawn chain-node follows the tree position instead of
             # its own anchor_role.
             placed, vias, tracks = self.position_calc.compute_raw_positions(
-                [item.obj], position_overrides=self.position_overrides)
+                [item.obj], position_overrides=self.position_overrides,
+                isolate_spokes=self.isolate_spokes)
         else:
             placed, vias, tracks = self.clone_calc.compute_raw_positions(
                 [item.obj], position_overrides=self.position_overrides)

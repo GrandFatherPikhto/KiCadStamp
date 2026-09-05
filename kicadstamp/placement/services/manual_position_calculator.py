@@ -135,7 +135,18 @@ class ManualPositionCalculator:
         self,
         chains: list[Chain],
         position_overrides: dict[str, "PositionOverride"] | None = None,
+        isolate_spokes: dict[str, set[str]] | None = None,
     ) -> tuple[list[PlacedComponentInfo], list[ViaCommand], list[TrackCommand]]:
+        """Compute component moves + spoke/component vias/tracks for chains.
+
+        ``isolate_spokes`` — GUI "Redraw spoke" isolation (2026-09-05): maps a
+        chain effective name to the set of spoke PAD numbers that must actually
+        be placed this run. The other (sibling) spokes of such a chain are NOT
+        placed, but they STILL consume the shared per-net ComponentPool in
+        full-chain order (see the per-spoke loop) — so an isolated spoke is
+        assigned exactly the components a FULL chain redraw would give it and
+        can never re-claim a neighbour's component. None/empty = every
+        non-retired spoke is placed (normal full redraw / apply)."""
         components_result: list[PlacedComponentInfo] = []
         vias_result: list[ViaCommand] = []
         tracks_result: list[TrackCommand] = []
@@ -154,6 +165,16 @@ class ManualPositionCalculator:
             # rule-nodes silently ignored the override and resolved through
             # their own anchor_role.
             override = (position_overrides or {}).get(chain_effective_name(chain))
+            # Single-spoke redraw isolation ("Redraw spoke", 2026-09-05):
+            # active_pads = the pads of THIS chain that should actually emit
+            # geometry this run (None = every spoke). When isolation is active
+            # the sibling spokes are NOT placed, but they still consume the
+            # shared pool below in full-chain order. (Before this fix the GUI
+            # marked the siblings skip=True and drop_inactive_items removed
+            # them from the chain first — so the isolated spoke popped the
+            # FIRST natural-order component, i.e. the one owned by its skipped
+            # neighbour: "спица ворует компоненты у соседней спицы".)
+            active_pads = (isolate_spokes or {}).get(chain_effective_name(chain))
             # --- Resolve anchor (anchor_ref / anchor_role / anchor_point) ---
             if chain.anchor_point is not None:
                 # Guaranteed already resolved — dependency_order.py orders
@@ -235,8 +256,16 @@ class ManualPositionCalculator:
                 # created pool that bypasses shared consumption accounting.
                 pool = pools_by_cluster[spoke.cluster]
 
-                # Consume pool by roles
+                # Consume pool by roles — for EVERY non-retired spoke, in chain
+                # order. On an isolated single-spoke redraw an inactive sibling
+                # still reserves its own components here, so the active spoke
+                # keeps the full-chain assignment (never a neighbour's).
                 role_to_ref = consume_role_to_ref(pool, cell, spoke.pad)
+
+                # Isolation: sibling spokes only reserve their pool slots above;
+                # they emit no geometry/vias/tracks this run.
+                if active_pads is not None and spoke.pad not in active_pads:
+                    continue
 
                 layout = apply_spoke_geometry(pad_position, spoke, cell, chain.net, role_to_ref)
                 anchor_id = f"pad:{spoke.pad}"
