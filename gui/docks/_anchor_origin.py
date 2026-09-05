@@ -39,8 +39,7 @@ from PyQt6.QtWidgets import (QComboBox, QFormLayout, QHBoxLayout, QLabel,
 
 from kicadstamp.i18n import _
 
-from ._common import (configure_searchable, parse_float_field, set_combo_items,
-                      set_mode_pair_enabled)
+from ._common import (configure_searchable, parse_float_field, set_combo_items)
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +114,10 @@ class AnchorOriginWidget(QWidget):
         self.angle_edit: Optional[QLineEdit] = None
         self._polar_combo: Optional[QComboBox] = None
         self._polar_row: Optional[QWidget] = None
+        self._radius_angle_box: Optional[QWidget] = None
+        self._shift_row: Optional[QWidget] = None
+        self.shift_x_edit: Optional[QLineEdit] = None
+        self.shift_y_edit: Optional[QLineEdit] = None
         if "xy" in self._modes:
             self._xy_row = QWidget()
             xy_row = QHBoxLayout(self._xy_row)
@@ -129,11 +132,11 @@ class AnchorOriginWidget(QWidget):
             xy_row.addWidget(self.y_edit)
             layout.addWidget(self._xy_row)
 
-            # Optional Cartesian/Polar switch for the XY row — same pattern
-            # as coordinate_placer's _update_row_mode(): enabled-only (not
-            # hidden), so the row keeps a stable layout. Only consumers that
-            # opt in via polar=True (PlacerDock/ClonePlacement) get this; the
-            # other three docks' xy shape is unchanged.
+            # Optional Cartesian/Polar switch for the XY row. Only consumers
+            # that opt in via polar=True (PlacerDock/ClonePlacement) get this;
+            # the other docks' xy shape is unchanged. The ACTIVE coordinate pair
+            # is shown (X/Y for Cartesian, Radius/Angle for Polar) and the
+            # inactive one is HIDDEN, not just disabled (Denis 2026-09-05).
             if self._polar:
                 self._polar_row = QWidget()
                 polar_row = QHBoxLayout(self._polar_row)
@@ -143,14 +146,20 @@ class AnchorOriginWidget(QWidget):
                 self._polar_combo.currentIndexChanged.connect(self._update_polar_mode)
                 polar_row.addWidget(QLabel(_("Mode:")))
                 polar_row.addWidget(self._polar_combo)
-                polar_row.addWidget(QLabel(_("Radius:")))
+                # Radius/Angle live in their own sub-container so the Cartesian/
+                # Polar switch can hide/show them while the Mode combo stays.
+                self._radius_angle_box = QWidget()
+                radius_angle = QHBoxLayout(self._radius_angle_box)
+                radius_angle.setContentsMargins(0, 0, 0, 0)
+                radius_angle.addWidget(QLabel(_("Radius:")))
                 self.radius_edit = QLineEdit()
                 self.radius_edit.setPlaceholderText(_("radius mm"))
-                polar_row.addWidget(self.radius_edit)
-                polar_row.addWidget(QLabel(_("Angle:")))
+                radius_angle.addWidget(self.radius_edit)
+                radius_angle.addWidget(QLabel(_("Angle:")))
                 self.angle_edit = QLineEdit()
                 self.angle_edit.setPlaceholderText(_("angle deg"))
-                polar_row.addWidget(self.angle_edit)
+                radius_angle.addWidget(self.angle_edit)
+                polar_row.addWidget(self._radius_angle_box)
                 layout.addWidget(self._polar_row)
                 self._update_polar_mode()
 
@@ -214,8 +223,6 @@ class AnchorOriginWidget(QWidget):
             board_origin_form.addRow(_("Kind:"), self.board_origin_kind_combo)
             layout.addWidget(self._board_origin_row)
 
-        self.shift_x_edit: Optional[QLineEdit] = None
-        self.shift_y_edit: Optional[QLineEdit] = None
         if self._shift:
             self._shift_row = QWidget()
             shift_row = QHBoxLayout(self._shift_row)
@@ -256,8 +263,12 @@ class AnchorOriginWidget(QWidget):
 
     def _on_mode_changed(self) -> None:
         mode = self.mode
+        polar = (self._polar and self._polar_combo is not None
+                 and self._polar_combo.currentIndex() == 1)
         if "xy" in self._modes:
-            self._xy_row.setVisible(mode == "xy")
+            # Cartesian absolute pair — X/Y shown only when xy AND Cartesian;
+            # in Polar mode the same slot is taken by the radius/angle pair.
+            self._xy_row.setVisible(mode == "xy" and not polar)
         if "anchor" in self._modes:
             self._anchor_row.setVisible(mode == "anchor")
         if "point" in self._modes:
@@ -269,24 +280,50 @@ class AnchorOriginWidget(QWidget):
             # toggles the literal x/y vs radius/angle; in anchor/point mode it
             # toggles the SHIFT vs a polar offset (ClonePlacement's anchor can
             # carry a polar offset — was silently dropped by load_placement
-            # before, 2026-08-12 Group 2 fix).
+            # before, 2026-08-12 Group 2 fix). Only the ACTIVE coordinate pair
+            # is shown; the inactive one is hidden, not just disabled.
             self._polar_row.setVisible(mode == "xy" or mode in ("anchor", "point"))
-        if self._shift:
-            self._shift_row.setVisible(mode != "xy")
+            if self._radius_angle_box is not None:
+                self._radius_angle_box.setVisible(polar)
+        if self._shift and self._shift_row is not None:
+            # Cartesian offset at an anchor/point is the Shift row; Polar mode
+            # hides it in favour of the radius/angle pair.
+            self._shift_row.setVisible(mode != "xy" and not polar)
         self.modeChanged.emit()
 
     def _update_polar_mode(self) -> None:
-        """Same Cartesian/Polar field-toggle as coordinate_placer's
-        _update_row_mode(): X/Y enabled only in Cartesian, Radius/Angle only
-        in Polar. Disabled (not hidden) keeps the row layout stable —
-        shared set_mode_pair_enabled (gui/docks/_common.py)."""
+        """Cartesian/Polar field-toggle (2026-09-05): show ONLY the active
+        coordinate pair — X/Y (xy mode) or Shift X/Y (anchor/point) for
+        Cartesian, Radius/Angle for Polar — and hide the inactive pair (no
+        longer just disabling it)."""
         if not self._polar or self._polar_combo is None:
             return
-        set_mode_pair_enabled(
-            self._polar_combo.currentIndex() == 1,
-            (self.x_edit, self.y_edit),
-            (self.radius_edit, self.angle_edit),
-        )
+        polar = self._polar_combo.currentIndex() == 1
+        mode = self.mode
+        if "xy" in self._modes and self._xy_row is not None:
+            self._xy_row.setVisible(mode == "xy" and not polar)
+        if self._radius_angle_box is not None:
+            self._radius_angle_box.setVisible(polar)
+        if self._shift and self._shift_row is not None:
+            self._shift_row.setVisible(mode != "xy" and not polar)
+        # Keep enabled state consistent for programmatic access (a hidden field
+        # is not focusable anyway): only the shown pair stays enabled.
+        if polar:
+            for edit in (self.x_edit, self.y_edit,
+                         self.shift_x_edit, self.shift_y_edit):
+                if edit is not None:
+                    edit.setEnabled(False)
+            for edit in (self.radius_edit, self.angle_edit):
+                if edit is not None:
+                    edit.setEnabled(True)
+        else:
+            for edit in (self.radius_edit, self.angle_edit):
+                if edit is not None:
+                    edit.setEnabled(False)
+            for edit in (self.x_edit, self.y_edit,
+                         self.shift_x_edit, self.shift_y_edit):
+                if edit is not None:
+                    edit.setEnabled(True)
 
     # ── Populating combos from the live board / other files ───────────────
 

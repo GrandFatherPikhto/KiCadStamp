@@ -267,6 +267,42 @@ def test_polar_mode_toggle_enables_only_active_xy_fields(main_window, tmp_path):
     assert ow.angle_edit.isEnabled() is True
 
 
+def test_polar_visibility_shows_only_active_coordinate_pair(main_window, tmp_path):
+    """2026-09-05 (Denis): the Cartesian/Polar switch shows ONLY the active
+    coordinate pair — X/Y (xy mode, Cartesian), Shift X/Y (anchor/point,
+    Cartesian) or Radius/Angle (Polar). The inactive pair is hidden, not just
+    disabled (previously the greyed-out pair stayed visible)."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    ow = dock.origin_widget
+
+    def vis(w):
+        return w is not None and w.isVisibleTo(ow)
+
+    # xy mode + Cartesian (default): X/Y shown, radius/angle + shift hidden.
+    assert ow.origin_mode_combo.currentIndex() == 0  # xy
+    assert ow._polar_combo.currentIndex() == 0  # Cartesian
+    assert vis(ow._xy_row)
+    assert not vis(ow._radius_angle_box)
+    assert not vis(ow._shift_row)
+
+    # xy mode + Polar: radius/angle shown, X/Y hidden.
+    ow._polar_combo.setCurrentIndex(1)
+    assert not vis(ow._xy_row)
+    assert vis(ow._radius_angle_box)
+
+    # anchor mode + Cartesian: Shift X/Y shown, radius/angle hidden.
+    ow._polar_combo.setCurrentIndex(0)
+    ow.origin_mode_combo.setCurrentIndex(1)  # anchor
+    assert not vis(ow._xy_row)
+    assert not vis(ow._radius_angle_box)
+    assert vis(ow._shift_row)
+
+    # anchor mode + Polar: radius/angle shown, Shift hidden.
+    ow._polar_combo.setCurrentIndex(1)
+    assert not vis(ow._shift_row)
+    assert vis(ow._radius_angle_box)
+
+
 def test_anchor_ref_and_role_together_is_blocked(main_window, tmp_path, caplog):
     dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
     dock.cluster_edit.setCurrentText("X")
