@@ -168,9 +168,11 @@ def read_clone_origin_live(adapter, cfg, clone, sheet_names) -> LiveRead:
 def read_cell_anchor_offset_live(adapter, cfg, clone, sheet_names,
                                  role: str, pad: str) -> tuple[float, float]:
     """(ax_mm, ay_mm) of ONE pad of the live-resolved role's footprint,
-    expressed in the CELL's own local (unrotated, unmirrored) frame — the
-    delta rebase_cell_anchor (cell_geometry_refresh.py) needs for a Role+Pad
-    internal-anchor rebase (design 2026-09-04_cell_internal_anchor.md §2.2).
+    expressed in the CELL's own local (unrotated, unmirrored) frame RELATIVE
+    TO THE CELL'S CURRENT MOUNT (the point read_clone_origin_live returns) —
+    the value the Placer's "Role + Pad" anchor adds to the cell's current
+    mount A to get the pad's stored-frame anchor_xy (design_2026_09_05 v2;
+    the mutation-based rebase of design_2026_09-04 is gone).
 
     Reuses read_clone_origin_live's (origin, rotation_deg) for the SAME clone
     (the live test placement Placer is currently editing — the same instance
