@@ -923,14 +923,31 @@ class PlacerDock(QWidget):
         origin_page_layout.addLayout(extra_form)
         self.mirror_checkbox = QCheckBox(_("Mirror"))
         origin_page_layout.addWidget(self.mirror_checkbox)
-        # Cell anchor — assign/move the CELL's REAL internal anchor (design
-        # 2026-09-04_cell_internal_anchor.md §2): a one-shot rebase of the
-        # stored offsets so the chosen component (role mode) or its pad
-        # (role+pad mode) becomes the cell's new local (0,0). A per-CELL
-        # action — every applied instance of this cell shifts on the next
-        # Redraw/Apply (design §2.4, expected — no blocking warning). Kept
-        # visually distinct from the Origin section above, which is about
+        # NOTE (2026-09-05): the "Cell anchor" box (assign/move the CELL's
+        # REAL internal anchor — design 2026-09-04_cell_internal_anchor.md §2)
+        # moved to its OWN tab below; this Origin page is only about THIS
+        # placement's own position.
+        # Entity mode's placement status (phase 5.2, stage 2): "placed under
+        # tree X" vs "не размещено" — the Origin tab edits the Entity's trees:
+        # node, and an Entity with no node is a legal unplaced record. Hidden
+        # in Cell / Single-component modes (only _on_cell_mode_changed touches
+        # this label).
+        self._placement_status_label = QLabel("")
+        self._placement_status_label.setVisible(False)
+        origin_page_layout.addWidget(self._placement_status_label)
+        origin_page_layout.addStretch(1)
+        self._origin_tab_index = self._tabs.addTab(origin_page, _("Origin"))
+
+        # "Cell anchor" — its OWN tab (Denis 2026-09-05): assign/move the
+        # CELL's REAL internal anchor (design 2026-09-04_cell_internal_anchor.md
+        # §2) — a one-shot rebase of the stored offsets so the chosen component
+        # (role mode) or its pad (role+pad mode) becomes the cell's new local
+        # (0,0). A per-CELL action — every applied instance of this cell shifts
+        # on the next Redraw/Apply (design §2.4, expected — no blocking
+        # warning). Deliberately separate from the Origin page, which is about
         # THIS placement's own position, not the cell's origin.
+        cell_anchor_page = QWidget()
+        cell_anchor_page_layout = QVBoxLayout(cell_anchor_page)
         self.cell_anchor_box = QGroupBox(_("Cell anchor"))
         cell_anchor_layout = QVBoxLayout(self.cell_anchor_box)
         cell_anchor_form = QFormLayout()
@@ -945,17 +962,10 @@ class PlacerDock(QWidget):
         self.set_cell_anchor_button = QPushButton(_("Set as anchor"))
         self.set_cell_anchor_button.clicked.connect(self._on_set_cell_anchor)
         cell_anchor_layout.addWidget(self.set_cell_anchor_button)
-        origin_page_layout.addWidget(self.cell_anchor_box)
-        # Entity mode's placement status (phase 5.2, stage 2): "placed under
-        # tree X" vs "не размещено" — the Origin tab edits the Entity's trees:
-        # node, and an Entity with no node is a legal unplaced record. Hidden
-        # in Cell / Single-component modes (only _on_cell_mode_changed touches
-        # this label).
-        self._placement_status_label = QLabel("")
-        self._placement_status_label.setVisible(False)
-        origin_page_layout.addWidget(self._placement_status_label)
-        origin_page_layout.addStretch(1)
-        self._origin_tab_index = self._tabs.addTab(origin_page, _("Origin"))
+        cell_anchor_page_layout.addWidget(self.cell_anchor_box)
+        cell_anchor_page_layout.addStretch(1)
+        self._cell_anchor_tab_index = self._tabs.addTab(
+            cell_anchor_page, _("Cell anchor"))
 
         button_row = QHBoxLayout()
         self.redraw_button = QPushButton(_("Redraw"))
@@ -1055,9 +1065,11 @@ class PlacerDock(QWidget):
         self._placement_status_label.setVisible(is_entity)
         self._tabs.setTabVisible(self._origin_tab_index, not is_coordinate)
         self._tabs.setTabVisible(self._coordinate_tab_index, is_coordinate)
-        # Cell anchor is a Cell (clone)-mode action — hidden in Entity mode
-        # (the Origin page is shared there; the box would be meaningless).
-        self.cell_anchor_box.setVisible(not is_coordinate and not is_entity)
+        # "Cell anchor" is a Cell (clone)-mode action — the tab is hidden in
+        # Single-component / Entity modes (the Origin page is shared there;
+        # the rebase would be meaningless).
+        self._tabs.setTabVisible(self._cell_anchor_tab_index,
+                                 not is_coordinate and not is_entity)
 
     # ── Wiring from the Config tree / Components tree ─────────────────────
 

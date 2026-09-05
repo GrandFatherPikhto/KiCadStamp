@@ -1784,3 +1784,22 @@ def test_unrelated_edit_preserves_stored_override_fields(main_window, tmp_path):
     assert "nets" not in rebuilt2
     assert "net_overrides" not in rebuilt2
     assert "refs" not in rebuilt2
+
+
+def test_cell_anchor_is_its_own_tab_visible_in_cell_mode_only(main_window, tmp_path):
+    """2026-09-05 (Denis): the "Cell anchor" (rebase) UI moved from the
+    bottom of the Origin page into its OWN tab — available in Cell (clone)
+    mode, hidden in Single-component and Entity modes."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    # Cell (clone) mode is the default: the Cell-anchor tab is available.
+    assert dock._tabs.isTabVisible(dock._cell_anchor_tab_index)
+    # Single component (coordinate): the tab is hidden.
+    dock.cell_mode_combo.setCurrentIndex(1)
+    assert not dock._tabs.isTabVisible(dock._cell_anchor_tab_index)
+    # Entity: hidden too.
+    dock.cell_mode_combo.setCurrentIndex(2)
+    assert not dock._tabs.isTabVisible(dock._cell_anchor_tab_index)
+    # Back to Cell: visible again, and the box sits on its own page.
+    dock.cell_mode_combo.setCurrentIndex(0)
+    assert dock._tabs.isTabVisible(dock._cell_anchor_tab_index)
+    assert dock._tabs.widget(dock._cell_anchor_tab_index) is not None
