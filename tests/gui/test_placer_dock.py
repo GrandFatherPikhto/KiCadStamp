@@ -761,10 +761,7 @@ def test_on_redraw_dispatches_to_worker(main_window, tmp_path, monkeypatch):
 
     assert dock._active_op == "fake-controller"
     assert captured["connection"] is main_window.connection
-    assert captured["widgets"] == (
-        dock.redraw_button, dock.redraw_dependents_button,
-        dock.redraw_and_save_button, dock.select_button,
-        dock.undo_button)
+    assert captured["widgets"] == (dock.redraw_button, dock.select_button)
     # Bound methods: each access creates a fresh object, so compare with ==
     # (equality checks __self__ + __func__) rather than `is`.
     assert captured["fn"] == dock._run_redraw
@@ -779,6 +776,17 @@ def test_on_redraw_dispatches_to_worker(main_window, tmp_path, monkeypatch):
     assert payload["cfg"] is not fake_cfg
     assert [c.cluster for c in payload["cfg"].clone_placements] == ["Channel_2_PI_Filter"]
     assert payload["ctx"] is fake_ctx
+
+
+def test_placer_action_buttons_are_only_redraw_and_select(main_window, tmp_path):
+    """S-C (plan config_qview_placer_nettrace): the Placer page keeps ONLY
+    Redraw + Select on board — Redraw dependents / Redraw & Save / Undo buttons
+    are gone (Denis; plan_placer_button_cleanup)."""
+    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
+    assert dock._action_buttons() == (dock.redraw_button, dock.select_button)
+    assert not hasattr(dock, "redraw_dependents_button")
+    assert not hasattr(dock, "redraw_and_save_button")
+    assert not hasattr(dock, "undo_button")
 
 
 # ── Nets tab: _KeyValueTableEditor + nets:/net_overrides:/refs: (2026-08-06) ──
@@ -1265,50 +1273,6 @@ def test_save_twice_in_a_row_after_rename_does_not_error(main_window, tmp_path):
 
 # ── Redraw & Save (2026-08-25) ──────────────────────────────────────────
 
-def test_on_redraw_and_save_dispatches_to_worker(main_window, tmp_path, monkeypatch):
-    """The combined button reuses the plain Redraw collect/run path and only
-    differs in the completion callback — start_long_op must get _run_redraw +
-    _finish_redraw_and_save (NOT _finish_redraw), plus the full guard-widget
-    set including the new button."""
-    dock, cells_file, placer_file = _make_cell_and_dock(main_window, tmp_path)
-    dock.cluster_edit.setCurrentText("Channel_2_PI_Filter")
-    dock.x_edit.setText("1")
-    dock.y_edit.setText("2")
-    fake_cfg = Config(
-        cells={"pi_filter": Cell(name="pi_filter", vias=[], tracks=[],
-                                 clone_placements=[], components=[])})
-    fake_ctx = RuntimeContext()
-    monkeypatch.setattr(placer_mod, "load_config", lambda path: (fake_cfg, fake_ctx))
-
-    captured = {}
-
-    def _fake_start(connection, widgets, fn, on_success, on_error, *args):
-        captured["connection"] = connection
-        captured["widgets"] = widgets
-        captured["fn"] = fn
-        captured["on_success"] = on_success
-        captured["on_error"] = on_error
-        captured["args"] = args
-        return "fake-controller"
-
-    monkeypatch.setattr(placer_mod, "start_long_op", _fake_start)
-
-    dock._on_redraw_and_save()
-
-    assert dock._active_op == "fake-controller"
-    assert captured["connection"] is main_window.connection
-    assert captured["widgets"] == (
-        dock.redraw_button, dock.redraw_dependents_button,
-        dock.redraw_and_save_button, dock.select_button,
-        dock.undo_button)
-    assert captured["fn"] == dock._run_redraw
-    assert captured["on_success"] == dock._finish_redraw_and_save
-    assert captured["on_error"] == dock._on_redraw_and_save_failed
-
-    payload = captured["args"][0]
-    assert payload["name"] == "Channel_2_PI_Filter"
-
-
 def test_redraw_and_save_calls_save_after_successful_redraw(main_window, tmp_path, monkeypatch):
     """Order, not race: Save runs only after _run_redraw produced its
     (successful) result — via _do_redraw_and_save's synchronous composition."""
@@ -1421,38 +1385,6 @@ def test_undo_confirm_cancel_does_nothing(main_window, tmp_path, monkeypatch):
     dock._on_undo()
 
     assert dispatched == []
-
-
-def test_undo_dispatches_to_worker_with_guard_widgets(main_window, tmp_path, monkeypatch):
-    """Undo must run off the UI thread through start_long_op (own kipy socket
-    inside undo_last_operation, gated by long_op_active) with the same guard
-    buttons as Redraw/Save."""
-    dock, _, _ = _make_cell_and_dock(main_window, tmp_path)
-    captured = {}
-
-    def _fake_start(connection, widgets, fn, on_success, on_error, *args):
-        captured["connection"] = connection
-        captured["widgets"] = widgets
-        captured["fn"] = fn
-        captured["on_success"] = on_success
-        captured["on_error"] = on_error
-        captured["args"] = args
-        return "fake-controller"
-
-    monkeypatch.setattr(placer_mod, "start_long_op", _fake_start)
-    last_file = tmp_path / "operation.json"
-    dock._start_undo_op(last_file)
-
-    assert dock._active_op == "fake-controller"
-    assert captured["connection"] is main_window.connection
-    assert captured["widgets"] == (
-        dock.redraw_button, dock.redraw_dependents_button,
-        dock.redraw_and_save_button, dock.select_button,
-        dock.undo_button)
-    assert captured["fn"] == dock._run_undo
-    assert captured["on_success"] == dock._finish_undo
-    assert captured["on_error"] == dock._on_undo_failed
-    assert captured["args"][0] == {"json_path": str(last_file)}
 
 
 def test_run_undo_calls_undo_last_operation_and_reports_name(main_window, tmp_path, monkeypatch, caplog):

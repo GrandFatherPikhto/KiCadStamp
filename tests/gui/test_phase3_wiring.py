@@ -1048,6 +1048,16 @@ def test_cell_picked_still_switches_to_placer(real_main_window):
             is real_main_window.placer_dock)
 
 
+def test_net_trace_picked_routes_to_config_net_trace_page(real_main_window):
+    """S-B (plan config_qview_placer_nettrace): a net_trace record click
+    (net_trace_picked) brings the Config dock's NetTrace right page to the
+    front — the trigger is the record click only."""
+    hub = real_main_window._dock_hub
+    real_main_window.config_tree_dock.net_trace_picked.emit(
+        {"net": "GND", "anchor_role": "FPGA", "tracks": [], "vias": []})
+    assert hub.config_tree_dock.right_stack.currentWidget() is hub.net_trace_dock
+
+
 def test_placer_saved_refreshes_config_tree_placements(real_main_window, tmp_path):
     """PlacerDock -> ConfigTreeDock wiring (saved -> refresh, see
     gui/docks/config_tree.py's refresh docstring) — a successful Save must

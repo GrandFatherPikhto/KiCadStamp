@@ -991,22 +991,9 @@ class PlacerDock(QWidget):
         self.redraw_button = QPushButton(_("Redraw"))
         self.redraw_button.clicked.connect(self._on_redraw)
         button_row.addWidget(self.redraw_button)
-        # Cascade redraw (§2.4, plan anchor_dependency_tree) — "Redraw
-        # dependents": redraw this placement + every record transitively
-        # anchored on it, in order.
-        self.redraw_dependents_button = QPushButton(_("Redraw dependents"))
-        self.redraw_dependents_button.clicked.connect(self._on_redraw_dependents)
-        button_row.addWidget(self.redraw_dependents_button)
-        # Redraw & Save (2026-08-25): one click = Redraw, then — only if the
-        # worker reported success — Save. Redraw is async (worker thread), so
-        # this is NOT a naive _on_redraw(); _on_save() — see
-        # _on_redraw_and_save()/_finish_redraw_and_save().
-        self.redraw_and_save_button = QPushButton(_("Redraw & Save"))
-        self.redraw_and_save_button.clicked.connect(self._on_redraw_and_save)
-        button_row.addWidget(self.redraw_and_save_button)
-        # 2026-09-01 (plan project_save_model): the standalone per-dock Save
-        # button is GONE — a field commit point auto-stages the current
-        # placement (see _autostage); File > Save commits the working set.
+        # 2026-09-05 (plan config_qview_placer_nettrace S-C): the Placer page
+        # keeps ONLY Redraw + Select on board — Redraw dependents, Redraw &
+        # Save and Undo were removed (Denis; plan_placer_button_cleanup).
         # Select on board (2026-08-25, handoff clone_item_resolver_select_and_
         # reextract): resolve the CURRENT form's placement to its live board
         # items and highlight them in pcbnew — visual check of what this
@@ -1015,12 +1002,6 @@ class PlacerDock(QWidget):
         self.select_button = QPushButton(_("Select on board"))
         self.select_button.clicked.connect(self._on_select_on_board)
         button_row.addWidget(self.select_button)
-        # Undo (2026-08-25): undo the NEWEST operation_*.json in the whole
-        # project's operation_log_dir (same semantics as `kicadstamp undo`,
-        # not necessarily the op this Placer form ran) — see _on_undo().
-        self.undo_button = QPushButton(_("Undo"))
-        self.undo_button.clicked.connect(self._on_undo)
-        button_row.addWidget(self.undo_button)
         layout.addLayout(button_row)
 
         # Auto-stage wiring (2026-09-01, plan project_save_model): a field
@@ -1905,12 +1886,10 @@ class PlacerDock(QWidget):
 
     def _action_buttons(self) -> tuple:
         """Every action button in the bottom row — disabled while any long op
-        (Redraw / Redraw dependents / Redraw & Save / Undo) or the synchronous
-        Save runs, so no two board-touching actions can overlap (same "one
-        socket in flight" discipline as connection.long_op_active)."""
-        return (self.redraw_button, self.redraw_dependents_button,
-                self.redraw_and_save_button, self.select_button,
-                self.undo_button)
+        (Redraw) or the synchronous Save runs, so no two board-touching
+        actions can overlap (same "one socket in flight" discipline as
+        connection.long_op_active)."""
+        return (self.redraw_button, self.select_button)
 
     def _on_select_on_board(self) -> None:
         """Select-on-board button — resolve the CURRENT form's placement
