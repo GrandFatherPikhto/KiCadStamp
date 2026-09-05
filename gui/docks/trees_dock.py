@@ -220,9 +220,9 @@ def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
 def _copy_node_onto(target: TreeNode, built: TreeNode) -> None:
     """Copy every editable field of a BUILT node onto an EXISTING node in place
     (mutate, don't swap identity — other structures may hold a reference, e.g.
-    _node_items). The single copy routine shared by the node editor dialog's
-    Apply button (Phase B) and the legacy _edit_node_flow commit path, so the
-    two can never drift."""
+    _node_items). The single copy routine shared by every node-edit apply path
+    (the master-detail Node tab's apply()/redraw() and the dialog forms), so
+    they can never drift."""
     target.ref = built.ref
     target.kind = built.kind
     target.xy = built.xy
@@ -1716,27 +1716,6 @@ class TreesDock(QDockWidget):
         node.polar = None
         if rotation is not None:
             node.rotation = rotation
-        self._mark_dirty()
-        self._rebuild_tabs()
-
-    def _edit_node_flow(self, tree: Tree, node: TreeNode) -> None:
-        """The node editor (Phase B — design_2026_09_03... §3): the dialog opens
-        in EDIT mode (existing=node) with Apply/Redraw/Close buttons, so the
-        user can apply edits explicitly and keep the dialog open. When the
-        dialog's own Apply already mutated `node` in place, Close returns None
-        here and nothing more is copied — the tree is just refreshed. The
-        legacy commit path (built != None — the Add dialog's caller pattern) is
-        kept for tests/compat and funnels through the shared _copy_node_onto."""
-        built = self._prompt_node(_("Edit node"), tree,
-                                  parent_node=self._find_parent(tree, node),
-                                  existing=node)
-        if built is None:
-            # Dialog closed via Close; any applied edits were already written
-            # onto `node` by the dialog's Apply button (marking dirty). Refresh
-            # the tree view so those edits are visible.
-            self._rebuild_tabs()
-            return
-        _copy_node_onto(node, built)
         self._mark_dirty()
         self._rebuild_tabs()
 

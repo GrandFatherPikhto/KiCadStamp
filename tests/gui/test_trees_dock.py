@@ -531,6 +531,75 @@ def test_instance_tree_right_panel_is_read_only(main_window, tmp_path):
     assert "read-only" in page.text()
 
 
+def test_master_detail_anchor_tab_apply_and_redraw(main_window, tmp_path, monkeypatch):
+    """§6: the Anchor tab's Apply writes tree.anchor IN PLACE and marks the dock
+    dirty; its Redraw applies first, then runs the whole-tree redraw (an anchor
+    moves the whole tree — design §9.3)."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    form = _embedded_form(dock._active_form_tabs().widget(0))
+    assert isinstance(form, AnchorFormWidget)
+    assert not tree.anchor.is_origin
+    form.mode_combo.setCurrentIndex(0)  # Origin (board 0,0)
+    assert form.apply() is True
+    assert tree.anchor.is_origin
+    assert dock._dirty is True
+    redraws = []
+    monkeypatch.setattr(dock, "_on_redraw_whole_tree", lambda: redraws.append(True))
+    form.redraw()
+    assert redraws == [True]
+
+
+def test_context_edit_node_focuses_node_tab(main_window, tmp_path, monkeypatch):
+    """§3.3/§6: 'Edit node…' no longer opens a modal — triggering it selects the
+    node and brings the master-detail Node tab to the front with that node."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    node = tree.nodes[0]
+    dock._current_tree_widget().expandAll()
+    item = dock._node_items[node.ref]
+    actions = dict(_context_menu_actions(dock, item, monkeypatch))
+    actions["Edit node…"].trigger()
+    tabs = dock._active_form_tabs()
+    assert tabs is not None and tabs.currentIndex() == 1
+    form = _embedded_form(tabs.widget(1))
+    assert isinstance(form, NodeFormWidget)
+    assert form._existing is node
+
+
+def test_context_set_anchor_focuses_anchor_tab(main_window, tmp_path, monkeypatch):
+    """§3.3/§6: 'Set anchor…' no longer opens a modal picker — triggering it
+    brings the right-hand Anchor tab of the active tree to the front."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    anchor_item = _children(dock._current_tree_widget().invisibleRootItem())[0]
+    actions = dict(_context_menu_actions(dock, anchor_item, monkeypatch))
+    assert "Set anchor…" in actions
+    actions["Set anchor…"].trigger()
+    tabs = dock._active_form_tabs()
+    assert tabs is not None and tabs.currentIndex() == 0
+    assert isinstance(_embedded_form(tabs.widget(0)), AnchorFormWidget)
+
+
+def test_master_detail_touched_draft_survives_tree_switch(main_window, tmp_path):
+    """§9.4 (on-the-spot §3c decision): the form panel is built ONCE per page, so
+    an unapplied draft survives tabbing to another tree and back — no data loss
+    and no false discard notice on a plain tree switch."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
+    nodes = _children(_children(tree_widget.invisibleRootItem())[0])
+    tree_widget.setCurrentItem(nodes[0])  # AMS1117_REG
+    form0 = _embedded_form(dock._active_form_tabs().widget(1))
+    assert isinstance(form0, NodeFormWidget)
+    form0.name_edit.setText("draft")
+    assert form0._touched is True
+    dock.tree_tabs.setCurrentIndex(1)  # misc
+    dock.tree_tabs.setCurrentIndex(0)  # back to power_tree
+    form1 = _embedded_form(dock._active_form_tabs().widget(1))
+    assert form1 is form0  # the same editor object — not rebuilt
+    assert form1._touched is True
+    assert "discarded" not in dock.status_label.text()
+
+
 # ── Whole-tree actions (2026-09-03: moved to the Tools → Trees menu) ───────
 
 def test_no_whole_tree_action_buttons(main_window):
@@ -1779,25 +1848,25 @@ def test_edit_dialog_different_already_used_ref_still_rejected(
     assert warnings
 
 
-def test_edit_node_flow_copies_fields_onto_existing_in_place(main_window, tmp_path, monkeypatch):
-    """_edit_node_flow mutates the EXISTING node (doesn't swap identity) and
-    marks the dock dirty."""
+def test_master_detail_node_tab_apply_mutates_node_and_marks_dirty(main_window, tmp_path):
+    """§6: the master-detail Node tab's Apply writes the form onto the SELECTED
+    node IN PLACE and marks the dock dirty — the master-detail replacement for
+    the retired modal _edit_node_flow path (plan §6; _edit_node_flow itself was
+    removed in §3c/§6 because a single click already shows the editor)."""
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
-    node = tree.nodes[0]
+    node = tree.nodes[0]  # AMS1117_REG (clone, xy 5,2)
     node.rotation = 1.0
-
-    built = TreeNode(ref="AMS1117_REG", kind="clone", xy=(9.0, 8.0), polar=None,
-                     rotation=77.0, name="new_label", group="g")
-    monkeypatch.setattr(dock, "_prompt_node", lambda *a, **k: built)
-    dock._edit_node_flow(tree, node)
-
+    tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
+    tree_widget.setCurrentItem(dock._node_items[node.ref])
+    form = _embedded_form(dock._active_form_tabs().widget(1))
+    assert isinstance(form, NodeFormWidget)
+    form.rotation_edit.setText("77")
+    form.name_edit.setText("new_label")
+    assert form.apply() is True
     assert node.ref == "AMS1117_REG"
-    assert node.xy == (9.0, 8.0)
-    assert node.polar is None
     assert node.rotation == 77.0
     assert node.name == "new_label"
-    assert node.group == "g"
     assert dock._dirty is True
 
 
@@ -2553,16 +2622,23 @@ def test_prompt_node_module_ref_not_auto_numbered_on_record_collision(
     assert not any("_1" in r for r in refs)  # the module was NOT renamed
 
 
-def test_edit_node_flow_module_copies_pivot(main_window, tmp_path, monkeypatch):
-    """P4 п.1: _edit_node_flow copies pivot_xy/pivot_polar onto the existing
-    module node (the Edit round-trip the plan calls out explicitly)."""
+def test_master_detail_module_node_apply_copies_pivot(main_window, tmp_path):
+    """P4 п.1 / §6: editing a MODULE node on the master-detail Node tab copies
+    pivot_xy/pivot_polar onto the existing node (the Edit round-trip the plan
+    calls out) — the master-detail replacement for the retired modal
+    _edit_node_flow module test."""
     dock, _root = _module_dock(main_window, tmp_path)
     fpga = _tree_of(dock, "fpga")
-    node = fpga.nodes[0]            # module node, pivot_xy (1,2)
-    built = TreeNode(ref="ch0_dac_buf", kind="module", xy=(0.0, 0.0), polar=None,
-                     rotation=0.0, name=None, group=None, pivot_xy=(3.0, 4.0))
-    monkeypatch.setattr(dock, "_prompt_node", lambda *a, **k: built)
-    dock._edit_node_flow(fpga, node)
+    node = fpga.nodes[0]  # module node, pivot_xy (1,2)
+    dock.tree_tabs.setCurrentIndex(dock._trees.index(fpga))
+    tree_widget = dock._tree_widget_of_page(dock.tree_tabs.currentWidget())
+    tree_widget.expandAll()
+    tree_widget.setCurrentItem(dock._node_items[node.ref])
+    form = _embedded_form(dock._active_form_tabs().widget(1))
+    assert isinstance(form, NodeFormWidget)
+    form.pivot_widget.x_edit.setText("3")
+    form.pivot_widget.y_edit.setText("4")
+    assert form.apply() is True
     assert node.pivot_xy == (3.0, 4.0)
     assert node.pivot_polar is None
     assert dock._dirty is True
