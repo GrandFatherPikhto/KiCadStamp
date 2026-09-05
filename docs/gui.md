@@ -810,18 +810,18 @@ the tabs — they act on the whole placement, not one tab.
     is still on the default Absolute (XY), the mode is auto-switched to the filled Anchor/Point set
     (silently, no dialog) so the read expresses the origin as the SHIFT from that anchor instead of
     silently writing absolute coordinates.
-- **Cell anchor** (2026-09-04) — assigns/moves the *cell's* REAL internal anchor: it rebases the
-  cell's stored local offsets so the chosen component's centre (**Role** mode — pure cell data, no
-  live board needed) or the chosen pad (**Role+Pad** mode — needs the live test instance on the
-  board so the pad's real position can be read) becomes the cell's new local (0,0). This is a
-  per-CELL mutation of the `cells:` entry (written back to the file that actually holds it) — it is
-  NOT the Origin section above, which is about THIS placement's own position. Because it moves the
-  cell's physical (0,0), every place this cell is already applied (other clones, tree
-  materialization) shifts on the next Redraw/Apply — expected behaviour, no blocking warning (design
-  2026-09-04_cell_internal_anchor §2.4). The Role picker lists the picked cell's own `components:`
-  roles; leave Pad empty for a pure Role rebase, or fill it to snap the anchor onto a specific pad
-  (then a live board connection is required). After a successful rebase the Config tree refreshes
-  and `anchor_role`/`anchor_pad` bookkeeping is written, truthfully describing the new origin.
+- **Cell anchor** (2026-09-04; reworked 2026-09-05, design_2026_09_05 v2) — RECORDS the *cell's*
+  mount point A on its own file WITHOUT rewriting any stored offset. Stored offsets always live in
+  the bbox-anchored frame; geometry subtracts A at placement (`element = origin + rotate(offset −
+  A)`), so the anchor can be changed freely and reversibly — no per-edit data rewrite. An
+  anchor-mode combo picks **Role** (mount on that component's centre — pure cell data, offline),
+  **Role + Pad** (mount on that pad — the live test instance is read for the pad's real position),
+  **Point** (free X/Y in the bbox frame) or **Reset (bbox default)** (clears the anchor). It writes
+  `anchor_xy` (the mount, real data) plus `anchor_role`/`anchor_pad` identity into the file that
+  actually holds the cell — NOT the Origin section above, which is about THIS placement's own
+  position. Moving the mount shifts every already-applied place of this cell (other clones, tree
+  materialization) on the next Redraw/Apply — expected, no blocking warning (design §2.4). The Role
+  picker lists the picked cell's own `components:` roles.
 - **Rotation / Layer / Mirror** — as in `ClonePlacement`'s own fields (see
   [docs/config.md](config.md)).
 - **Redraw** — builds the placement, validates it, and actually runs it against the live board

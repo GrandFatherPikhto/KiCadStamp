@@ -144,12 +144,17 @@ cells:
   KiCad's own DRC is the source of truth for that, by design (see [docs/geometry.md](geometry.md)).
 - `layer:` at the cell's own top level — the layer it was extracted on; components/tracks without
   their own `layer:` inherit it.
-- `anchor_xy:` **or** `anchor_role:` (`+anchor_pad:`) — added 2026-08-06 for the GUI's Cell editor
-  (`CellDock`), **display-only metadata**: marks which point of the cell's own local `(0,0)` already
-  IS by construction (`offset_along_mm`/`offset_across_mm` = `0.0` is always the origin regardless of
-  this field) — never read by `clone_position_calculator.py` or any resolver, purely so a human (or
-  the editor) can see what the original extractor anchored to instead of it being an untracked fact.
-  Mutually exclusive; `anchor_role` must name one of this cell's own `components:`.
+- `anchor_xy:` / `anchor_role:` (`+anchor_pad:`) — the cell's MOUNT POINT and its identity (reworked
+  2026-09-05, design_2026_09_05 v2). Stored local offsets always live in the bbox-anchored frame;
+  `anchor_xy [x, y]` is the mount point A in that frame — the cell point that coincides with a
+  placement's origin at materialization. Geometry reads A and places content as
+  `element = origin + rotate(offset − A)` (`cell_mount_offset`, clone_geometry/spoke_layout);
+  absent all three = A = (0,0) — the default bbox corner (a no-op for a freshly extracted default
+  cell). `anchor_role` names the mount's component (identity / live surrogate for Trees auto-anchor,
+  refresh and live reads) and, given without a pad or `anchor_xy`, A is derived as that component's
+  centre; `anchor_pad` narrows `anchor_role` to a specific pad whose point is expressed by
+  `anchor_xy` (a pad offset is not derivable from config). `anchor_role` must name one of this cell's
+  own `components:`; a role-only `anchor_xy` must equal that role's centre.
 - `comment:` — optional free-form note shown in the GUI's Cell editor and as a marker on the config
   tree leaf. A plain schema field (survives YAML/s-expr round-trips), NOT a YAML `#` comment.
 - Every `components:` entry **requires** a non-empty `role:` — a missing/`null` role used to either
