@@ -198,18 +198,19 @@ def test_points_saved_refreshes_config_tree_points(real_main_window, tmp_path):
     assert points.child(0).text(0) == "origin"
 
 
-def test_add_point_requested_opens_blank_form_and_dialog(real_main_window, tmp_path):
+def test_add_point_requested_shows_qview_page_blank(real_main_window, tmp_path):
     """ConfigTreeDock's "Add point..." context-menu action ->
-    DockHub._start_new_point -> the fresh blank form inside the (non-modal)
-    Points dialog (2026-09-01, plan plan_2026_09_01_points_dialog.md)."""
+    DockHub._start_new_point -> the fresh blank form as the Config Points
+    right-QView page (2026-09-05 QView move)."""
     points_file = tmp_path / "points.sexp"
     _write(points_file)
     real_main_window.points_dock.name_edit.setText("stale")
 
     real_main_window.config_tree_dock.add_point_requested.emit(points_file)
 
+    hub = real_main_window._dock_hub
     assert real_main_window.points_dock.name_edit.text() == ""
-    assert real_main_window._dock_hub.points_dialog.isVisible()
+    assert hub.config_tree_dock.right_stack.currentIndex() == hub._points_page
 
 
 def test_rules_dock_picks_up_a_root_restored_before_wiring_existed(qapp, tmp_path):
@@ -296,12 +297,11 @@ def test_add_chain_requested_opens_blank_chain_form_and_shows_qview_page(real_ma
     assert hub.config_tree_dock.right_stack.currentIndex() == hub._chain_page
 
 
-def test_thermal_via_picked_fills_form_and_opens_dialog(real_main_window, tmp_path):
+def test_thermal_via_picked_shows_qview_page_with_entry_loaded(real_main_window, tmp_path):
     """ConfigTreeDock -> ThermalViaArrayDock wiring (thermal_via_picked ->
-    load_entry, see gui/docks/config_tree.py's thermal_via_picked docstring) —
-    clicking a Thermal via array leaf in the real Config tree must reach the
-    form end-to-end and open the (non-modal) Thermal via dialog (2026-09-01,
-    plan plan_2026_09_01_thermal_via_dialog.md)."""
+    _load_thermal_via_page, 2026-09-05 QView move) — clicking a Thermal via
+    array leaf loads the record and shows it as the Config Thermal via
+    right-QView page (no dialog)."""
     tva_file = tmp_path / "tva.sexp"
     _write(tva_file, {"thermal_via_arrays": [
         {"name": "fpga_thermal", "pad": "1", "anchor_ref": "U3"}]})
@@ -310,97 +310,98 @@ def test_thermal_via_picked_fills_form_and_opens_dialog(real_main_window, tmp_pa
     real_main_window.config_tree_dock.thermal_via_picked.emit(
         {"name": "fpga_thermal", "pad": "1", "anchor_ref": "U3"})
 
+    hub = real_main_window._dock_hub
     assert real_main_window.thermal_via_dock.name_edit.text() == "fpga_thermal"
-    assert real_main_window._dock_hub.thermal_via_dialog.isVisible()
+    assert hub.config_tree_dock.right_stack.currentIndex() == hub._thermal_via_page
 
 
-def test_add_thermal_via_requested_opens_blank_form_and_dialog(real_main_window, tmp_path):
+def test_add_thermal_via_requested_shows_qview_page_blank(real_main_window, tmp_path):
     """ConfigTreeDock's "Add thermal via pad..." context-menu action ->
-    DockHub._start_new_thermal_via -> the fresh blank form inside the (non-
-    modal) Thermal via dialog."""
+    DockHub._start_new_thermal_via -> the fresh blank form as the Config
+    Thermal via right-QView page (2026-09-05 QView move)."""
     tva_file = tmp_path / "tva.sexp"
     _write(tva_file)
     real_main_window.thermal_via_dock.name_edit.setText("stale")
 
     real_main_window.config_tree_dock.add_thermal_via_requested.emit(tva_file)
 
-    assert real_main_window.thermal_via_dock.name_edit.text() == ""
-    assert real_main_window._dock_hub.thermal_via_dialog.isVisible()
-
-
-def test_successful_save_auto_closes_the_thermal_via_dialog(real_main_window):
-    """2026-09-01 (plan plan_2026_09_01_thermal_via_dialog.md, Denis: dialog
-    auto-hides only after a successful Save) — DockHub wires
-    thermal_via_dock.saved -> thermal_via_dialog.hide; saved fires in _on_save
-    only on success, so the dialog hides right after the entry is written."""
     hub = real_main_window._dock_hub
-    hub._open_thermal_via_dialog()
-    assert hub.thermal_via_dialog.isVisible()
+    assert real_main_window.thermal_via_dock.name_edit.text() == ""
+    assert hub.config_tree_dock.right_stack.currentIndex() == hub._thermal_via_page
+
+
+def test_thermal_via_page_stays_open_after_save(real_main_window):
+    """2026-09-05 (QView move): the Thermal via page is persistent — `saved`
+    refreshes, it does NOT auto-hide (unlike the old dialog)."""
+    hub = real_main_window._dock_hub
+    hub._show_config_thermal_via()
+    assert hub.config_tree_dock.right_stack.currentIndex() == hub._thermal_via_page
 
     hub.thermal_via_dock.saved.emit()
 
-    assert hub.thermal_via_dialog.isVisible() is False
+    assert hub.config_tree_dock.right_stack.currentIndex() == hub._thermal_via_page
 
 
-def test_tools_menu_place_thermal_vias_opens_dialog_and_prepares_fresh(real_main_window):
+def test_tools_menu_place_thermal_vias_shows_qview_page_fresh(real_main_window):
     """2026-09-01 (plan plan_2026_09_01_thermal_via_dialog.md): the Tools
     menu's "Place thermal vias..." action routes to DockHub.place_thermal_vias
-    -> the same fresh blank form (new_thermal_via) the Config tree context
-    menu's "Add thermal via pad..." provides."""
+    -> the fresh blank form (new_thermal_via) as the Config Thermal via
+    right-QView page."""
     hub = real_main_window._dock_hub
     hub.thermal_via_dock.name_edit.setText("stale_name")
     hub.thermal_via_dock.pad_edit.setText("9")
 
     real_main_window.place_thermal_vias_action.trigger()
 
-    assert hub.thermal_via_dialog.isVisible()
+    assert hub.config_tree_dock.right_stack.currentIndex() == hub._thermal_via_page
     assert hub.thermal_via_dock.name_edit.text() == ""
     assert hub.thermal_via_dock.pad_edit.text() == ""
 
 
-# ── Points dialog routes (2026-09-01, plan plan_2026_09_01_points_dialog.md) ─
+# ── Points QView routes (2026-09-05, design config_qview_chain_entity_pages) ─
 
 
-def test_points_edit_requested_opens_dialog_with_entry_loaded(real_main_window, tmp_path):
-    """ConfigTreeDock -> PointsDock wiring (points_edit_requested -> load_entry,
-    see gui/docks/config_tree.py's points_edit_requested docstring / PointsDock.
-    load_entry's docstring) — the DOUBLE-click route: the named point must reach
-    PointsDock's form end-to-end and open the (non-modal) Points dialog."""
+def test_points_edit_requested_shows_qview_page_with_entry_loaded(real_main_window, tmp_path):
+    """ConfigTreeDock -> PointsDock wiring (points_edit_requested -> _start_edit_
+    point, 2026-09-05 QView move) — the DOUBLE-click route: the named point must
+    reach PointsDock's form end-to-end and show the Config Points right-QView
+    page."""
     points_file = tmp_path / "points.sexp"
     _write(points_file, {"points": {"origin": {"xy": [1.0, 2.0]}}})
     real_main_window.points_dock.set_root_path(points_file)
 
     real_main_window.config_tree_dock.points_edit_requested.emit("origin")
 
+    hub = real_main_window._dock_hub
     assert real_main_window.points_dock.name_edit.text() == "origin"
     assert real_main_window.points_dock.x_edit.text() == "1.0"
-    assert real_main_window._dock_hub.points_dialog.isVisible()
+    assert hub.config_tree_dock.right_stack.currentIndex() == hub._points_page
 
 
-def test_successful_save_auto_closes_the_points_dialog(real_main_window):
-    """2026-09-01 (plan plan_2026_09_01_points_dialog.md, Denis: dialog
-    auto-hides only after a successful Save) — DockHub wires
-    points_dock.saved -> points_dialog.hide; saved fires in _on_save only on
-    success, so the dialog hides right after the entry is written."""
+def test_points_single_click_shows_qview_page_with_entry_loaded(real_main_window, tmp_path):
+    """A SINGLE click on a points: leaf (points_picked, 2026-09-05 QView move)
+    shows the Config Points right-QView page with the point loaded."""
+    points_file = tmp_path / "points.sexp"
+    _write(points_file, {"points": {"origin": {"xy": [1.0, 2.0]}}})
+    real_main_window.points_dock.set_root_path(points_file)
+
+    real_main_window.config_tree_dock.points_picked.emit("origin")
+
     hub = real_main_window._dock_hub
-    hub._open_points_dialog()
-    assert hub.points_dialog.isVisible()
-
-    hub.points_dock.saved.emit()
-
-    assert hub.points_dialog.isVisible() is False
+    assert hub.config_tree_dock.right_stack.currentIndex() == hub._points_page
+    assert real_main_window.points_dock.name_edit.text() == "origin"
 
 
-def test_tools_menu_add_point_opens_dialog_and_prepares_fresh(real_main_window):
+def test_tools_menu_add_point_shows_qview_page_fresh(real_main_window):
     """2026-09-01 (plan plan_2026_09_01_points_dialog.md): the Tools menu's
-    "Add point..." action routes to DockHub.new_point -> the same fresh blank
-    form (new_point) the Config tree context menu's "Add point..." provides."""
+    "Add point..." action routes to DockHub.new_point -> the fresh blank form
+    (new_point) as the Config Points right-QView page."""
     hub = real_main_window._dock_hub
     hub.points_dock.name_edit.setText("stale_name")
 
     real_main_window.add_point_action.trigger()
 
-    assert hub.points_dialog.isVisible()
+    assert hub.config_tree_dock.right_stack.currentIndex() == hub._points_page
     assert hub.points_dock.name_edit.text() == ""
 
 

@@ -18,14 +18,17 @@ exception: 2026-08-03 they were merged into ONE QDockWidget, DetailDock
 Rules added 2026-08-05, same shape). Those attributes are kept as aliases
 straight into DetailDock's stack pages so every existing call site keeps
 working unchanged; they are plain QWidgets now, not QDockWidgets in their own
-right. thermal_via_dock (2026-09-01, plan plan_2026_09_01_thermal_via_dialog.
-md), points_dock (2026-09-01, plan plan_2026_09_01_points_dialog.md),
-tools_dock (2026-09-01, plan plan_2026_09_01_tools_dialog_and_entity_roles.
-md) and cells_dock (2026-09-04, plan plan_2026_09_04_celldock_to_dialog.md):
-they are STANDALONE widgets hosted in their non-modal dialogs
-(ThermalViaDialog / PointsDialog / ToolsDialog / CellDialog) — the Detail dock
-has no Thermal via/Points/Tools/Cells page anymore, and the same single live
-instances keep receiving the selection/snapshot ticks, set_root_path and saved.
+right. Since 2026-09-05 (design config_qview_chain_entity_pages) the Config
+dock is a master-detail and its right QView hosts Placer, NetTrace, the Chain
+editor + chains navigation, the Entity page and (same move, QView pages) the
+Points and Thermal via editors — DetailDock and the Points/Thermal/Chain
+dialog wrappers are gone (a QWidget can only have one parent, so each live
+dock is embedded directly as a Config QView page). tools_dock (2026-09-01,
+plan plan_2026_09_01_tools_dialog_and_entity_roles.md, "Edit template") and
+cells_dock (2026-09-04, plan plan_2026_09_04_celldock_to_dialog.md) are the
+remaining standalone widgets hosted in non-modal dialogs (ToolsDialog /
+CellDialog). Every dock keeps receiving the selection/snapshot ticks,
+set_root_path and saved through the same single live instance.
 """
 import logging
 from functools import partial
@@ -59,12 +62,10 @@ from .docks.log_panel import LogDock
 from .docks.pending import PendingChangesDock
 from .docks.project_dialog import ProjectDialog
 from .docks.points import PointsDock
-from .docks.points_dialog import PointsDialog
 from .docks.role_cluster_tree import RoleClusterTreeDock
 from .docks.root_metadata import RootMetadataDock
 from .docks.settings_dialog import SettingsDialog
 from .docks.thermal_via import ThermalViaArrayDock
-from .docks.thermal_via_dialog import ThermalViaDialog
 from .docks.tools import ToolsDock
 from .docks.tools_dialog import ToolsDialog
 from .docks.instances_dialog import TreeInstancesDialog
@@ -139,13 +140,14 @@ class DockHub:
         self._net_trace_page = self.config_tree_dock.add_right_page(self.net_trace_dock)
         self._selection_raw_items: list = []
         self._selection_footprints: list = []
-        # Thermal via (2026-09-01, plan plan_2026_09_01_thermal_via_dialog.md):
-        # a STANDALONE widget hosted in the non-modal ThermalViaDialog — the
-        # Detail dock has no Thermal via page anymore (same move as Extract
-        # above). The same single live instance keeps receiving the snapshot
-        # ticks / set_root_path / saved.
+        # Thermal via (2026-09-05, design config_qview_chain_entity_pages, the
+        # same QView move as Chain/Entity): the single live ThermalViaArrayDock
+        # is a Config right-QView page (a single click on a thermal_via_arrays
+        # leaf opens it) — a QWidget can only have one parent, so the old
+        # ThermalViaDialog wrapper is gone. The same instance keeps receiving
+        # the snapshot ticks / set_root_path / saved.
         self.thermal_via_dock = ThermalViaArrayDock(main_window)
-        self.thermal_via_dialog = ThermalViaDialog(self.thermal_via_dock, main_window)
+        self._thermal_via_page = self.config_tree_dock.add_right_page(self.thermal_via_dock)
         # Project (2026-09-01, plan project_settings_dialogs): RootMetadataDock
         # is no longer a Detail dock page — it is hosted in the standalone
         # non-modal ProjectDialog (File > "Project...", see
@@ -190,13 +192,14 @@ class DockHub:
         # rows open the spoke editor (ChainDock page).
         self.chains_nav_dock = ChainsNavDock(main_window)
         self._chains_nav_page = self.config_tree_dock.add_right_page(self.chains_nav_dock)
-        # Points (2026-09-01, plan plan_2026_09_01_points_dialog.md): a
-        # STANDALONE widget hosted in the non-modal PointsDialog — the Detail
-        # dock has no Points page anymore (same move as Extract/Thermal via).
-        # The same single live instance keeps receiving the snapshot ticks /
+        # Points (2026-09-05, design config_qview_chain_entity_pages, the same
+        # QView move as Chain/Entity): the single live PointsDock is a Config
+        # right-QView page (a single click on a points: leaf opens it) — a
+        # QWidget can only have one parent, so the old PointsDialog wrapper is
+        # gone. The same instance keeps receiving the snapshot ticks /
         # set_root_path / saved. connection is needed for Resolve.
         self.points_dock = PointsDock(main_window, connection=connection)
-        self.points_dialog = PointsDialog(self.points_dock, main_window)
+        self._points_page = self.config_tree_dock.add_right_page(self.points_dock)
         # Settings (2026-09-01, plan project_settings_dialogs): ConfiguratorDock
         # is no longer a Detail dock page either — it is a two-pane settings
         # browser (QTreeWidget of categories on the left, pages on the right,
@@ -458,8 +461,10 @@ class DockHub:
             self._start_edit_entity_template)
         self.config_tree_dock.placement_picked.connect(self.placer_dock.load_placement)
         self.config_tree_dock.placement_picked.connect(self._show_config_placer)
-        self.config_tree_dock.thermal_via_picked.connect(self.thermal_via_dock.load_entry)
-        self.config_tree_dock.thermal_via_picked.connect(self._open_thermal_via_dialog)
+        # Thermal via (2026-09-05 QView move, design config_qview_chain_entity_
+        # pages): a single click on a thermal_via_arrays leaf loads the record
+        # and shows it as a Config right-QView page (no dialog).
+        self.config_tree_dock.thermal_via_picked.connect(self._load_thermal_via_page)
         # Coordinate placements (2026-08-12, Group 1): a normal named-records
         # section now — a leaf click carries the full entry dict, loaded into
         # the merged PlacerDock's coordinate mode, exactly like clone_placements
@@ -467,10 +472,11 @@ class DockHub:
         # coordinate_placements_picked docstring).
         self.config_tree_dock.coordinate_placements_picked.connect(self.placer_dock.load_placement)
         self.config_tree_dock.coordinate_placements_picked.connect(self._show_config_placer)
-        # Double click on a points: leaf (2026-09-01, plan
-        # plan_2026_09_01_points_dialog.md) -> load the entry into the live
-        # PointsDock and open the non-modal PointsDialog. Single click on a
-        # points: leaf does NOTHING (the old points_picked wiring is gone).
+        # Points (2026-09-05 QView move, design config_qview_chain_entity_pages):
+        # a SINGLE click (points_picked) or a double click (points_edit_requested)
+        # on a points: leaf loads the point and shows it as a Config right-QView
+        # page (no dialog).
+        self.config_tree_dock.points_picked.connect(self._start_edit_point)
         self.config_tree_dock.points_edit_requested.connect(self._start_edit_point)
         # Chains (2026-09-05, design config_qview_chain_entity_pages): the
         # chain editor lives as the Config dock's right-QView Chain page (no
@@ -554,14 +560,9 @@ class DockHub:
         # opens that tree in TreesDock.
         self.entity_dock.saved.connect(self.config_tree_dock.refresh)
         self.entity_dock.open_tree.connect(self._jump_to_tree)
-        # Auto-close the (non-modal) Thermal via dialog after a successful Save
-        # (2026-09-01, Denis): saved is emitted by _on_save only on success —
-        # Redraw (placement) stays open for iterative tuning.
-        self.thermal_via_dock.saved.connect(self.thermal_via_dialog.hide)
-        # Auto-close the (non-modal) Points dialog after a successful Save
-        # (2026-09-01, Denis): saved is emitted by _on_save only on success —
-        # a Point has no Redraw, so Save closing is the whole point of the form.
-        self.points_dock.saved.connect(self.points_dialog.hide)
+        # Thermal via and Points are persistent Config right-QView pages
+        # (2026-09-05, design config_qview_chain_entity_pages) — no auto-hide on
+        # `saved`; the page stays open for iterative tuning (Thermal via Redraw).
         # The Chain editor is a persistent Config right-QView page (2026-09-05,
         # design config_qview_chain_entity_pages) — no auto-hide on `saved`: the
         # page stays open for iterative tuning (Redraw on the current form).
@@ -703,27 +704,45 @@ class DockHub:
         self.placer_dock.new_placement(placer_path)
         self._show_config_placer()
 
+    def _show_config_thermal_via(self, *_args) -> None:
+        """Route a thermal_via_arrays pick to the Thermal via right page of the
+        Config dock (2026-09-05 QView move, design config_qview_chain_entity_
+        pages)."""
+        self.config_tree_dock.show_page(self._thermal_via_page)
+
+    def _load_thermal_via_page(self, entry) -> None:
+        """Thermal via leaf click (thermal_via_picked, 2026-09-05 QView move) —
+        load the record and show it as a Config right-QView page (no dialog)."""
+        self.thermal_via_dock.load_entry(entry)
+        self._show_config_thermal_via()
+
+    def _show_config_points(self, *_args) -> None:
+        """Route a points pick to the Points right page of the Config dock
+        (2026-09-05 QView move, design config_qview_chain_entity_pages)."""
+        self.config_tree_dock.show_page(self._points_page)
+
     def _start_new_thermal_via(self, file_path) -> None:
-        """ConfigTreeDock's add_thermal_via_requested delegate — same
-        reasoning as _start_new_placement above, for ThermalViaArrayDock: opens
-        the (non-modal) Thermal via dialog with a fresh blank form."""
-        self._open_thermal_via_dialog()
+        """ConfigTreeDock's add_thermal_via_requested delegate (2026-09-05 QView
+        move) — shows the Config dock's Thermal via right page with a fresh
+        blank form."""
+        self._focus_config_tree_dock()
         self.thermal_via_dock.new_thermal_via(file_path)
+        self._show_config_thermal_via()
 
     def _start_new_point(self, file_path) -> None:
-        """ConfigTreeDock's add_point_requested delegate — opens the (non-modal)
-        Points dialog with a fresh blank form, same reasoning as
-        _start_new_thermal_via above, for PointsDock."""
-        self._open_points_dialog()
+        """ConfigTreeDock's add_point_requested delegate (2026-09-05 QView move)
+        — shows the Config dock's Points right page with a fresh blank form."""
+        self._focus_config_tree_dock()
         self.points_dock.new_point(file_path)
+        self._show_config_points()
 
     def _start_edit_point(self, name) -> None:
-        """ConfigTreeDock's points_edit_requested delegate (double click on a
-        points: leaf, 2026-09-01, plan plan_2026_09_01_points_dialog.md) —
-        loads the named point into the live PointsDock and opens the (non-
-        modal) Points dialog with it."""
+        """ConfigTreeDock's points_picked / points_edit_requested delegate
+        (single or double click on a points: leaf, 2026-09-05 QView move) —
+        loads the point into the live PointsDock and shows the Config Points
+        right page."""
         self.points_dock.load_entry(name)
-        self._open_points_dialog()
+        self._show_config_points()
 
     def new_point(self) -> None:
         """Main menu "Tools -> Add point..." (2026-09-01) -> the same fresh
@@ -1306,26 +1325,6 @@ class DockHub:
                 _("Entity {name!r} saved to {path} (cell {cell!r} already "
                   "existed).")
                 .format(name=ent["name"], cell=cell_name, path=root_path))
-
-    def _open_thermal_via_dialog(self) -> None:
-        """Show/raise the ONE live Thermal via dialog — non-modal, so the user
-        can keep selecting on the board while it's open: the ~2s snapshot tick
-        keeps feeding the same thermal_via_dock instance inside it. Closing via
-        the window X just hides it (QDialog default), so the next open starts
-        from the current board state."""
-        self.thermal_via_dialog.show()
-        self.thermal_via_dialog.raise_()
-        self.thermal_via_dialog.activateWindow()
-
-    def _open_points_dialog(self) -> None:
-        """Show/raise the ONE live Points dialog — non-modal, so the user can
-        keep selecting on the board while it's open: the ~2s snapshot tick
-        keeps feeding the same points_dock instance inside it. Closing via the
-        window X just hides it (QDialog default), so the next open starts from
-        the current board state."""
-        self.points_dialog.show()
-        self.points_dialog.raise_()
-        self.points_dialog.activateWindow()
 
     def _open_tools_dialog(self) -> None:
         """Show/raise the ONE live Tools dialog — non-modal, so the user can

@@ -633,12 +633,11 @@ def test_add_point_emits_request_instead_of_writing_directly(main_window, tmp_pa
 
 def test_points_leaf_double_click_emits_points_edit_requested(main_window, tmp_path):
     """2026-09-01 (plan plan_2026_09_01_points_dialog.md): a DOUBLE click on
-    a points: leaf opens the Points edit dialog. points: is a DICT section
-    (see _entries()), so the payload is just the name; PointsDock.load_entry()
-    re-reads the file for the data. A single click on a points: leaf now does
-    NOTHING — the old points_picked signal was removed from ConfigTreeDock
-    entirely (the Points form lives in a dialog opened by double click, not a
-    DetailDock page)."""
+    a points: leaf opens the Points editor. points: is a DICT section (see
+    _entries()), so the payload is just the name; PointsDock.load_entry()
+    re-reads the file for the data. Since 2026-09-05 (design
+    config_qview_chain_entity_pages) a SINGLE click on a points: leaf emits
+    points_picked — the Points editor is a Config right-QView page."""
     root = tmp_path / "root.sexp"
     _write(root, {"points": {"origin": {"xy": [0, 0]}}})
 
@@ -651,9 +650,12 @@ def test_points_leaf_double_click_emits_points_edit_requested(main_window, tmp_p
     dock._on_double_clicked(leaf, 0)
 
     assert requested == ["origin"]
-    # The old single-click routing signal is gone — a points: leaf has no
-    # points_picked anymore (only the double-click points_edit_requested).
-    assert not hasattr(dock, "points_picked")
+
+    # Single click routes to the same editor via points_picked (2026-09-05).
+    picked = []
+    dock.points_picked.connect(picked.append)
+    dock._on_clicked(leaf, 0)
+    assert picked == ["origin"]
 
 
 def test_entities_leaf_double_click_emits_entity_edit_requested(main_window, tmp_path):

@@ -267,6 +267,11 @@ class ConfigTreeDock(QDockWidget):
     # placement_picked/thermal_via_picked's full-dict payload; PointsDock's
     # load_entry() re-reads the file for the actual data.
     points_edit_requested = pyqtSignal(str)
+    # Fired by a SINGLE click on a points: leaf (2026-09-05, design
+    # config_qview_chain_entity_pages — the same QView move as chains/entities):
+    # payload is the point's NAME; DockHub shows the Points editor as a Config
+    # right-QView page.
+    points_picked = pyqtSignal(str)
     # Fired by the context menu's "Add point..." (2026-08-05) — opens the
     # (non-modal) Points dialog with a fresh blank form (DockHub: add_point_
     # requested -> _start_new_point), rather than writing a raw stub straight
@@ -1017,11 +1022,10 @@ class ConfigTreeDock(QDockWidget):
             # mode, exactly like clone_placements/placement_picked.
             self.coordinate_placements_picked.emit(ref)
         elif section == "points":
-            # Single click on a points: leaf does NOTHING since 2026-09-01
-            # (plan plan_2026_09_01_points_dialog.md) — the Points form lives
-            # in a dialog now, opened by a DOUBLE click (see
-            # _on_double_clicked / points_edit_requested).
-            pass
+            # A SINGLE click on a points: leaf opens the Points editor as the
+            # Config right-QView page (2026-09-05, design
+            # config_qview_chain_entity_pages); the payload is the name.
+            self.points_picked.emit(ref)
         elif section == "net_traces":
             self.net_trace_picked.emit(ref)
         elif section == "entities":
