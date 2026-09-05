@@ -66,9 +66,11 @@ __all__ = [
     "RefreshPlan",
     "build_import_plan",
     "build_refresh_plan",
+    "cell_content_bbox",
     "cell_zero_slot_role",
     "match_components",
     "net_template_regex",
+    "normalize_cell_anchor_frame",
     "rebase_cell_anchor",
 ]
 
@@ -784,3 +786,112 @@ def rebase_cell_anchor(entry: dict, ax_mm: float, ay_mm: float,
         out.pop("anchor_pad", None)
     out.pop("anchor_xy", None)
     return out
+
+
+# ── bbox-frame normalization / migration (design_2026_09_05 v2, plan S8) ───
+
+_TOL_MM = 1e-6
+
+
+def cell_content_bbox(entry: dict) -> tuple[float, float, float, float] | None:
+    """(min_along, max_along, min_across, max_across) over EVERY stored local
+    point of the cell dict (component centres + their vias, cell vias, track
+    endpoints, nested clone_placement xy) — None when the cell has no geometry.
+    Pure; the content extents `normalize_cell_anchor_frame` re-roots against."""
+    pts: list[tuple[float, float]] = []
+
+    def _add(along: float, across: float) -> None:
+        pts.append((float(along), float(across)))
+
+    for c in entry.get("components", []):
+        _add(c.get("offset_along_mm", 0.0), c.get("offset_across_mm", 0.0))
+        for v in c.get("vias", []):
+            _add(v.get("offset_along_mm", 0.0), v.get("offset_across_mm", 0.0))
+    for v in entry.get("vias", []):
+        _add(v.get("offset_along_mm", 0.0), v.get("offset_across_mm", 0.0))
+    for t in entry.get("tracks", []):
+        _add(t.get("start_along_mm", 0.0), t.get("start_across_mm", 0.0))
+        _add(t.get("end_along_mm", 0.0), t.get("end_across_mm", 0.0))
+    for cp in entry.get("clone_placements", []):
+        if cp.get("xy") is not None:
+            _add(cp["xy"][0], cp["xy"][1])
+    if not pts:
+        return None
+    along = [p[0] for p in pts]
+    across = [p[1] for p in pts]
+    return (min(along), max(along), min(across), max(across))
+
+
+def normalize_cell_anchor_frame(entry: dict) -> tuple[dict, bool]:
+    """One-time migration to the bbox-anchored frame (design_2026_09_05 v2 /
+    plan S8): returns (new_entry, changed) where new_entry's stored offsets
+    live in the canonical frame (content in along>=0 / across<=0 measured from
+    the board-lower-left corner) and the anchor fields truthfully describe the
+    mount. NEVER mutates the input; boards do not move (geometry subtracts the
+    anchor A, so the mount stays on the placement origin).
+
+      - already carries anchor fields (a v2-written cell) -> untouched;
+      - canonical, single component at stored (0,0) (the legacy "zero slot")
+        -> that role is recorded as anchor_role (identity) so Trees /
+        auto-anchor / live reads keep working through anchor_role;
+      - non-canonical (the mount is NOT the bbox corner) -> every stored offset
+        is re-rooted to the corner (min_along, max_across) and anchor_xy
+        (= the old mount in the new frame) is recorded, plus anchor_role when a
+        component sat on the old mount.
+    """
+    if entry.get("anchor_xy") or entry.get("anchor_role") or entry.get("anchor_pad"):
+        return dict(entry), False
+    bbox = cell_content_bbox(entry)
+    if bbox is None:
+        return dict(entry), False
+    min_along, _max_along, _min_across, max_across = bbox
+    components = entry.get("components", [])
+
+    def _at_zero(rec: dict) -> bool:
+        return (abs(float(rec.get("offset_along_mm", 0.0))) <= _TOL_MM
+                and abs(float(rec.get("offset_across_mm", 0.0))) <= _TOL_MM)
+
+    if min_along >= -_TOL_MM and max_across <= _TOL_MM:
+        # Canonical already: (0,0) is the bbox corner. Annotate the legacy
+        # zero-slot identity (exactly one component on (0,0)).
+        zero = [c for c in components if _at_zero(c)]
+        if len(zero) == 1:
+            out = dict(entry)
+            out["anchor_role"] = zero[0]["role"]
+            return out, True
+        return dict(entry), False
+
+    # Non-canonical: re-root every stored offset to the corner C =
+    # (min_along, max_across) — content becomes along>=0/across<=0 — and
+    # record the old mount (stored (0,0)) as anchor_xy in the new frame
+    # (= -C; the old mount lands at that offset after the shift).
+    out = deepcopy(entry)
+    dx, dy = min_along, max_across
+
+    def _shift(record: dict) -> None:
+        record["offset_along_mm"] = round(
+            float(record.get("offset_along_mm", 0.0)) - dx, 9)
+        record["offset_across_mm"] = round(
+            float(record.get("offset_across_mm", 0.0)) - dy, 9)
+
+    for c in out.get("components", []):
+        _shift(c)
+        for v in c.get("vias", []):
+            _shift(v)
+    for v in out.get("vias", []):
+        _shift(v)
+    for t in out.get("tracks", []):
+        t["start_along_mm"] = round(float(t.get("start_along_mm", 0.0)) - dx, 9)
+        t["start_across_mm"] = round(float(t.get("start_across_mm", 0.0)) - dy, 9)
+        t["end_along_mm"] = round(float(t.get("end_along_mm", 0.0)) - dx, 9)
+        t["end_across_mm"] = round(float(t.get("end_across_mm", 0.0)) - dy, 9)
+    for cp in out.get("clone_placements", []):
+        if cp.get("xy") is not None:
+            cp["xy"] = [round(float(cp["xy"][0]) - dx, 9),
+                        round(float(cp["xy"][1]) - dy, 9)]
+    anchor_xy = [round(-dx, 9), round(-dy, 9)]
+    out["anchor_xy"] = anchor_xy
+    mount_comp = next((c for c in components if _at_zero(c)), None)
+    if mount_comp is not None:
+        out["anchor_role"] = mount_comp["role"]
+    return out, True

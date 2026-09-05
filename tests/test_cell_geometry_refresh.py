@@ -18,14 +18,18 @@ from kicadstamp.cell_geometry_refresh import (
     RefreshPlan,
     build_import_plan,
     build_refresh_plan,
+    cell_content_bbox,
     cell_zero_slot_role,
     match_components,
     net_template_regex,
+    normalize_cell_anchor_frame,
     rebase_cell_anchor,
 )
+from kicadstamp.config import ClonePlacement, load_cell
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.exceptions import ValidationError
+from kicadstamp.geometry.clone_geometry import apply_clone_geometry
 
 
 # ── Synthetic DTO / adapter helpers ─────────────────────────────────────────
@@ -268,6 +272,93 @@ def test_build_refresh_plan_role_anchored_without_origin_role_is_fatal():
     adapter = _FakeAdapter(roles={"U-MOUNT": "MOUNT"})
     with pytest.raises(ValidationError, match="no zero-offset component"):
         build_refresh_plan(components, [], [], footprints, [], [], adapter)
+
+
+# ── normalize_cell_anchor_frame (bbox-frame migration, plan S8) ─────────────
+
+def test_normalize_canonical_zero_slot_annotates_role():
+    """A canonical cell (content in along>=0/across<=0) whose single component
+    sits on stored (0,0) (the legacy zero slot) gains anchor_role identity —
+    offsets are NOT touched."""
+    entry = {"components": [{"role": "A"}, {"role": "B", "offset_along_mm": 1.0,
+                             "offset_across_mm": 0.0}]}
+    out, changed = normalize_cell_anchor_frame(entry)
+    assert changed is True
+    assert out["anchor_role"] == "A"
+    assert "anchor_xy" not in out
+    by_role = {c["role"]: c for c in out["components"]}
+    assert float(by_role["A"].get("offset_along_mm", 0.0)) == 0.0
+    assert float(by_role["B"]["offset_along_mm"]) == 1.0
+
+
+def test_normalize_canonical_default_without_zero_slot_is_noop():
+    """A canonical bbox-default cell with no component on (0,0) already lives in
+    the right frame — nothing to do."""
+    entry = {"components": [
+        {"role": "A", "offset_along_mm": 1.0, "offset_across_mm": 0.0},
+        {"role": "B", "offset_along_mm": 2.0, "offset_across_mm": -1.0},
+    ]}
+    out, changed = normalize_cell_anchor_frame(entry)
+    assert changed is False
+    assert out == entry
+
+
+def test_normalize_skips_already_anchored_cell():
+    entry = {"components": [{"role": "A", "offset_along_mm": 2.0,
+                             "offset_across_mm": 1.0}],
+             "anchor_role": "A", "anchor_xy": [2.0, 1.0]}
+    out, changed = normalize_cell_anchor_frame(entry)
+    assert changed is False
+    assert out == entry
+
+
+def test_normalize_non_canonical_reroots_and_records_mount():
+    """An interior-mount cell (content straddles (0,0)) is re-rooted to the
+    bbox corner; the old mount (component M) becomes anchor_xy + anchor_role."""
+    entry = {"components": [
+        {"role": "M", "offset_along_mm": 0.0, "offset_across_mm": 0.0,
+         "angle_deg": 0.0},
+        {"role": "O", "offset_along_mm": -1.0, "offset_across_mm": 2.0,
+         "angle_deg": 90.0},
+    ]}
+    out, changed = normalize_cell_anchor_frame(entry)
+    assert changed is True
+    assert out["anchor_role"] == "M"
+    assert out["anchor_xy"] == [1.0, -2.0]
+    by_role = {c["role"]: c for c in out["components"]}
+    assert _mm_eq(by_role["M"]["offset_along_mm"], 1.0)
+    assert _mm_eq(by_role["M"]["offset_across_mm"], -2.0)
+    assert _mm_eq(by_role["O"]["offset_along_mm"], 0.0)
+    assert _mm_eq(by_role["O"]["offset_across_mm"], 0.0)
+    # Now canonical: content in along>=0 / across<=0.
+    bbox = cell_content_bbox(out)
+    assert bbox[0] >= -1e-6 and bbox[3] <= 1e-6
+
+
+def _mm_eq(a, b, tol=1e-6):
+    return abs(float(a) - float(b)) < tol
+
+
+def test_normalize_preserves_placement_geometry():
+    """The whole point of the migration: re-rooting + anchor must NOT move the
+    board. Placing the ORIGINAL (mount at (0,0), no anchor) and the NORMALIZED
+    cell (anchor on M) with the same clone yields identical world positions."""
+    orig = {"components": [
+        {"role": "M", "offset_along_mm": 0.0, "offset_across_mm": 0.0,
+         "angle_deg": 0.0},
+        {"role": "O", "offset_along_mm": -1.0, "offset_across_mm": 2.0,
+         "angle_deg": 90.0},
+    ]}
+    out, _ = normalize_cell_anchor_frame(orig)
+    clone = ClonePlacement(cluster="x", cell="c", xy=(10.0, 20.0))
+    roles = {"M": "U1", "O": "R2"}
+    layout_old = apply_clone_geometry(clone, load_cell("c", orig), roles)
+    layout_new = apply_clone_geometry(clone, load_cell("c", out), roles)
+    old = {c.role: c for c in layout_old.components}
+    new = {c.role: c for c in layout_new.components}
+    for role in ("M", "O"):
+        assert old[role].position == new[role].position
+        assert old[role].angle_deg == new[role].angle_deg
 
 
 def test_build_refresh_plan_does_not_mutate_inputs():
