@@ -1585,7 +1585,7 @@ def test_set_cell_anchor_role_mode_writes_anchor_without_mutation(main_window, t
     offsets are NEVER rewritten (the bbox frame stays stable)."""
     dock, cells_file, _ = _make_cell_and_dock_anchor(main_window, tmp_path)
     assert main_window.connection.board is None  # offline regression guard
-    dock.cell_anchor_mode_combo.setCurrentIndex(0)  # Role
+    dock.cell_anchor_source_tabs.setCurrentIndex(2)  # Component (Role)
     dock.cell_anchor_role_combo.setCurrentText("FPGA")
     dock.cell_anchor_pad_edit.setText("")
     dock.cell_anchor_x_edit.setText("")
@@ -1618,7 +1618,7 @@ def test_set_cell_anchor_role_pad_requires_connection(main_window, tmp_path, mon
     monkeypatch.setattr(placer_mod.QMessageBox, "warning",
                         lambda *a, **k: warnings.append(a) or None)
     before = _load(cells_file)
-    dock.cell_anchor_mode_combo.setCurrentIndex(1)  # Role + Pad
+    dock.cell_anchor_source_tabs.setCurrentIndex(2)  # Component (Role + Pad)
     dock.cell_anchor_role_combo.setCurrentText("FPGA")
     dock.cell_anchor_pad_edit.setText("A1")
     dock._on_set_cell_anchor()
@@ -1639,7 +1639,7 @@ def test_set_cell_anchor_role_pad_stages_with_adapter(main_window, tmp_path, mon
     # covered by tests/test_live_position.py; here we exercise the wiring.
     monkeypatch.setattr(placer_mod, "read_cell_anchor_offset_live",
                         lambda *a, **k: (2.5, 1.0))
-    dock.cell_anchor_mode_combo.setCurrentIndex(1)  # Role + Pad
+    dock.cell_anchor_source_tabs.setCurrentIndex(2)  # Component (Role + Pad)
     dock.cell_anchor_role_combo.setCurrentText("FPGA")
     dock.cell_anchor_pad_edit.setText("A1")
     dock._on_set_cell_anchor()
@@ -1666,7 +1666,7 @@ def test_set_cell_anchor_switching_forms_updates_fields_without_mutation(main_wi
                         lambda *a, **k: (2.5, 1.0))
 
     # 1st: role+pad anchor onto FPGA pad A1.
-    dock.cell_anchor_mode_combo.setCurrentIndex(1)  # Role + Pad
+    dock.cell_anchor_source_tabs.setCurrentIndex(2)  # Component (Role + Pad)
     dock.cell_anchor_role_combo.setCurrentText("FPGA")
     dock.cell_anchor_pad_edit.setText("A1")
     dock._on_set_cell_anchor()
@@ -1677,7 +1677,7 @@ def test_set_cell_anchor_switching_forms_updates_fields_without_mutation(main_wi
 
     # 2nd: role-only anchor onto CAP — the old pad and xy must vanish, and the
     # mount point moves to CAP's centre (3.5, -1.0) — offsets unchanged.
-    dock.cell_anchor_mode_combo.setCurrentIndex(0)  # Role
+    dock.cell_anchor_source_tabs.setCurrentIndex(2)  # Component (Role)
     dock.cell_anchor_role_combo.setCurrentText("CAP")
     dock.cell_anchor_pad_edit.setText("")
     dock._on_set_cell_anchor()
@@ -1690,7 +1690,7 @@ def test_set_cell_anchor_switching_forms_updates_fields_without_mutation(main_wi
     assert _off(by_role["CAP"], "offset_across_mm") == -1.0
 
     # 3rd: point anchor — role/pad vanish, only anchor_xy remains.
-    dock.cell_anchor_mode_combo.setCurrentIndex(2)  # Point
+    dock.cell_anchor_source_tabs.setCurrentIndex(1)  # Point
     dock.cell_anchor_x_edit.setText("0.0")
     dock.cell_anchor_y_edit.setText("0.0")
     dock._on_set_cell_anchor()
@@ -1700,12 +1700,43 @@ def test_set_cell_anchor_switching_forms_updates_fields_without_mutation(main_wi
     assert cell3["anchor_xy"] == [0.0, 0.0]
 
     # 4th: reset — back to the bbox default.
-    dock.cell_anchor_mode_combo.setCurrentIndex(3)  # Reset
+    dock.cell_anchor_source_tabs.setCurrentIndex(0)  # Bbox (0,0) — reset
     dock._on_set_cell_anchor()
     cell4 = _load(cells_file)["cells"]["composite"]
     assert "anchor_role" not in cell4
     assert "anchor_pad" not in cell4
     assert "anchor_xy" not in cell4
+
+
+def test_cell_anchor_source_is_three_tabs(main_window, tmp_path):
+    """S-D (plan config_qview_placer_nettrace): the anchor source is a
+    QTabWidget with exactly three tabs — Bbox (0,0) / Point / Component
+    (Denis: "источник якоря — табы")."""
+    dock, _, _ = _make_cell_and_dock_anchor(main_window, tmp_path)
+    tabs = dock.cell_anchor_source_tabs
+    assert [tabs.tabText(i) for i in range(tabs.count())] == [
+        "Bbox (0,0)", "Point", "Component"]
+
+
+def test_cell_anchor_bbox_tab_clears_to_the_default(main_window, tmp_path):
+    """S-D: the Bbox (0,0) tab is the always-defined default — "Set as anchor"
+    there clears any custom anchor back to the bbox corner."""
+    dock, cells_file, _ = _make_cell_and_dock_anchor(main_window, tmp_path)
+    # First set a role anchor (Component tab).
+    dock.cell_anchor_source_tabs.setCurrentIndex(2)
+    dock.cell_anchor_role_combo.setCurrentText("FPGA")
+    dock.cell_anchor_pad_edit.setText("")
+    dock._on_set_cell_anchor()
+    cell = _load(cells_file)["cells"]["composite"]
+    assert cell["anchor_role"] == "FPGA"
+    assert cell["anchor_xy"] == [2.5, 1.0]
+    # Then clear via the Bbox tab.
+    dock.cell_anchor_source_tabs.setCurrentIndex(0)
+    dock._on_set_cell_anchor()
+    cell = _load(cells_file)["cells"]["composite"]
+    assert "anchor_role" not in cell
+    assert "anchor_pad" not in cell
+    assert "anchor_xy" not in cell
 
 
 def test_unrelated_edit_preserves_stored_override_fields(main_window, tmp_path):

@@ -13070,3 +13070,23 @@ msgstr "y (мм от угла bbox)"
 # anchor mount-point step (2026-09-05)
 msgid "{label} is not in the current selection"
 msgstr "{label} отсутствует в текущем выделении"
+
+# anchor source tabs (S-D, 2026-09-05)
+msgid "Bbox (0,0)"
+msgstr "Bbox (0,0)"
+
+# anchor source tabs (S-D, 2026-09-05)
+msgid "Component"
+msgstr "Компонент"
+
+# anchor source tabs (S-D, 2026-09-05)
+msgid "Default: the mount is the cell's bbox corner (0,0). Press “Set as anchor” to clear any custom anchor."
+msgstr "По умолчанию монтаж — угол bbox ячейки (0,0). Нажмите «Установить якорь», чтобы снять произвольный якорь."
+
+# anchor source tabs (S-D, 2026-09-05)
+msgid "Without a pad the anchor is the component's geometric centre; with a pad — the pad's centre."
+msgstr "Без пада якорь — геометрический центр компонента; с падом — центр пада."
+
+# anchor source tabs (S-D, 2026-09-05)
+msgid "The anchor is a mount point (bbox frame). The stored offsets are NEVER rewritten; the anchor is applied at placement. Component: Role mounts on that role, +Pad on that pad."
+msgstr "Якорь — точка монтажа (кадр bbox). Хранимые офсеты НИКОГДА не переписываются; якорь применяется при кладке. Компонент: Role — монтаж на эту роль, +Pad — на этот пад."

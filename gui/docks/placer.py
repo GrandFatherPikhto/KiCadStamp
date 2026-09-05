@@ -949,37 +949,56 @@ class PlacerDock(QWidget):
         cell_anchor_page_layout = QVBoxLayout(cell_anchor_page)
         self.cell_anchor_box = QGroupBox(_("Cell anchor"))
         cell_anchor_layout = QVBoxLayout(self.cell_anchor_box)
-        cell_anchor_form = QFormLayout()
-        self.cell_anchor_mode_combo = QComboBox()
-        self.cell_anchor_mode_combo.addItems(
-            [_("Role"), _("Role + Pad"), _("Point"), _("Reset (bbox default)")])
-        cell_anchor_form.addRow(_("Anchor mode:"), self.cell_anchor_mode_combo)
-        self.cell_anchor_role_combo = QComboBox()
-        self.cell_anchor_role_combo.setPlaceholderText(
-            _("pick this cell's component role"))
-        cell_anchor_form.addRow(_("Role:"), self.cell_anchor_role_combo)
-        self.cell_anchor_pad_edit = QLineEdit()
-        self.cell_anchor_pad_edit.setPlaceholderText(_("pad (optional)"))
-        cell_anchor_form.addRow(_("Pad:"), self.cell_anchor_pad_edit)
-        point_row = QWidget()
-        point_layout = QHBoxLayout(point_row)
-        point_layout.setContentsMargins(0, 0, 0, 0)
+        # Source of the mount point (2026-09-05, plan config_qview_placer_nettrace
+        # S-D; Denis: "источник якоря — табы"): Bbox (0,0) default / Point X,Y /
+        # Component (Role, optional Pad).
+        self.cell_anchor_source_tabs = QTabWidget()
+        # Tab 0 — Bbox (0,0): the always-defined default mount; "Set as anchor"
+        # here simply clears any custom anchor back to the bbox corner.
+        bbox_page = QWidget()
+        bbox_layout = QVBoxLayout(bbox_page)
+        bbox_note = QLabel(_("Default: the mount is the cell's bbox corner (0,0). "
+                             "Press “Set as anchor” to clear any custom anchor."))
+        bbox_note.setWordWrap(True)
+        bbox_layout.addWidget(bbox_note)
+        self.cell_anchor_source_tabs.addTab(bbox_page, _("Bbox (0,0)"))
+        # Tab 1 — Point X/Y (always bbox-frame coordinates).
+        point_page = QWidget()
+        point_layout = QVBoxLayout(point_page)
+        point_row = QHBoxLayout()
+        point_row.setContentsMargins(0, 0, 0, 0)
         self.cell_anchor_x_edit = QLineEdit()
         self.cell_anchor_x_edit.setPlaceholderText(_("x (mm from bbox corner)"))
         self.cell_anchor_y_edit = QLineEdit()
         self.cell_anchor_y_edit.setPlaceholderText(_("y (mm from bbox corner)"))
-        point_layout.addWidget(self.cell_anchor_x_edit)
-        point_layout.addWidget(self.cell_anchor_y_edit)
-        cell_anchor_form.addRow(_("Point X/Y:"), point_row)
-        cell_anchor_layout.addLayout(cell_anchor_form)
+        point_row.addWidget(self.cell_anchor_x_edit)
+        point_row.addWidget(self.cell_anchor_y_edit)
+        point_layout.addLayout(point_row)
+        self.cell_anchor_source_tabs.addTab(point_page, _("Point"))
+        # Tab 2 — Component (Role, optional Pad; no Sheet/Cluster needed — the
+        # cell already carries them).
+        comp_page = QWidget()
+        comp_layout = QFormLayout(comp_page)
+        self.cell_anchor_role_combo = QComboBox()
+        self.cell_anchor_role_combo.setPlaceholderText(
+            _("pick this cell's component role"))
+        comp_layout.addRow(_("Role:"), self.cell_anchor_role_combo)
+        self.cell_anchor_pad_edit = QLineEdit()
+        self.cell_anchor_pad_edit.setPlaceholderText(_("pad (optional)"))
+        comp_layout.addRow(_("Pad:"), self.cell_anchor_pad_edit)
+        comp_note = QLabel(_("Without a pad the anchor is the component's "
+                             "geometric centre; with a pad — the pad's centre."))
+        comp_note.setWordWrap(True)
+        comp_layout.addRow(comp_note)
+        self.cell_anchor_source_tabs.addTab(comp_page, _("Component"))
+        cell_anchor_layout.addWidget(self.cell_anchor_source_tabs)
         self.set_cell_anchor_button = QPushButton(_("Set as anchor"))
         self.set_cell_anchor_button.clicked.connect(self._on_set_cell_anchor)
         cell_anchor_layout.addWidget(self.set_cell_anchor_button)
-        hint = QLabel(_("The anchor is a mount point (bbox frame): Role mounts on "
-                        "that component, Role+Pad on that pad, only X/Y on that "
-                        "point. The stored offsets are NEVER rewritten; the "
-                        "anchor is applied at placement. Leave everything empty "
-                        "to clear the anchor (back to the bbox default)."))
+        hint = QLabel(_("The anchor is a mount point (bbox frame). The stored "
+                        "offsets are NEVER rewritten; the anchor is applied at "
+                        "placement. Component: Role mounts on that role, +Pad on "
+                        "that pad."))
         hint.setWordWrap(True)
         cell_anchor_layout.addWidget(hint)
         cell_anchor_page_layout.addWidget(self.cell_anchor_box)
@@ -2206,29 +2225,25 @@ class PlacerDock(QWidget):
         if self._root_path is None:
             self._show_message(_("Set the project root first."), _ERROR_STYLE)
             return
-        mode = self.cell_anchor_mode_combo.currentIndex()
-        role = self.cell_anchor_role_combo.currentText().strip()
-        pad_text = self.cell_anchor_pad_edit.text().strip()
-        if mode == 0:        # Role
+        source = self.cell_anchor_source_tabs.currentIndex()
+        if source == 0:            # Bbox (0,0) — clear back to the default.
+            role = ""
             pad = None
-        elif mode == 1:      # Role + Pad
+            point_mode = False
+        elif source == 1:          # Point X/Y.
+            role = ""
+            pad = None
+            point_mode = True
+        else:                      # Component: Role (+ optional Pad).
+            role = self.cell_anchor_role_combo.currentText().strip()
+            pad_text = self.cell_anchor_pad_edit.text().strip()
             pad = pad_text or None
-        elif mode == 2:      # Point
-            role = ""
-            pad = None
-        else:                # Reset (bbox default)
-            role = ""
-            pad = None
-        point_mode = mode == 2
-        if mode in (0, 1) and not role:
-            self._show_message(
-                _("Set as anchor: pick a Role of this cell first."), _ERROR_STYLE)
-            return
-        if mode == 1 and pad is None:
-            self._show_message(
-                _("Set as anchor (Role + Pad): enter a pad, or switch the mode "
-                  "to Role."), _ERROR_STYLE)
-            return
+            point_mode = False
+            if not role:
+                self._show_message(
+                    _("Set as anchor: pick a Role of this cell first."),
+                    _ERROR_STYLE)
+                return
 
         # The file that physically holds the cell (cells: is dict-keyed; the
         # entry may live in any file of the include: graph).

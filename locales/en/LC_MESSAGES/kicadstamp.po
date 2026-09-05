@@ -14445,3 +14445,23 @@ msgstr ""
 # anchor mount-point step (2026-09-05)
 msgid "{label} is not in the current selection"
 msgstr ""
+
+# anchor source tabs (S-D, 2026-09-05)
+msgid "Bbox (0,0)"
+msgstr ""
+
+# anchor source tabs (S-D, 2026-09-05)
+msgid "Component"
+msgstr ""
+
+# anchor source tabs (S-D, 2026-09-05)
+msgid "Default: the mount is the cell's bbox corner (0,0). Press “Set as anchor” to clear any custom anchor."
+msgstr ""
+
+# anchor source tabs (S-D, 2026-09-05)
+msgid "Without a pad the anchor is the component's geometric centre; with a pad — the pad's centre."
+msgstr ""
+
+# anchor source tabs (S-D, 2026-09-05)
+msgid "The anchor is a mount point (bbox frame). The stored offsets are NEVER rewritten; the anchor is applied at placement. Component: Role mounts on that role, +Pad on that pad."
+msgstr ""

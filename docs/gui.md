@@ -423,6 +423,12 @@ picker the retired Extract dock had before Phase F. Unchecked = today's automati
 
 ## Detail dock
 
+> **2026-09-05 relayout (plan config_qview_placer_nettrace):** Placer and Net Trace are no
+> longer Detail-dock pages — the Config dock is now a master-detail (tree left, context QStack
+> right), and Placer / NetTrace are its right QViews, switched by the tree selection. DetailDock
+> was removed. Placer's action buttons are **Redraw** and **Select on board** only (Redraw
+> dependents / Redraw & Save / Undo were removed); the cell-anchor source is a set of tabs.
+
 Placer/Net traces below all live as tabs inside one shared **Detail** dock,
 not as separate docks — switching is both automatic (a Config-tree click routes to the matching tab)
 and manual (click the tab bar directly). Chains (2026-09-01, plan rules_to_chains), Extract
@@ -813,10 +819,10 @@ the tabs — they act on the whole placement, not one tab.
 - **Cell anchor** (2026-09-04; reworked 2026-09-05, design_2026_09_05 v2) — RECORDS the *cell's*
   mount point A on its own file WITHOUT rewriting any stored offset. Stored offsets always live in
   the bbox-anchored frame; geometry subtracts A at placement (`element = origin + rotate(offset −
-  A)`), so the anchor can be changed freely and reversibly — no per-edit data rewrite. An
-  anchor-mode combo picks **Role** (mount on that component's centre — pure cell data, offline),
-  **Role + Pad** (mount on that pad — the live test instance is read for the pad's real position),
-  **Point** (free X/Y in the bbox frame) or **Reset (bbox default)** (clears the anchor). It writes
+  A)`), so the anchor can be changed freely and reversibly — no per-edit data rewrite. Anchor-source
+  TABS pick **Bbox (0,0)** (the default mount — clears any custom anchor), **Point** (free X/Y in
+  the bbox frame) or **Component** (Role, optional Pad — without a pad the anchor is the
+  component's geometric centre, with a pad the pad's centre). It writes
   `anchor_xy` (the mount, real data) plus `anchor_role`/`anchor_pad` identity into the file that
   actually holds the cell — NOT the Origin section above, which is about THIS placement's own
   position. Moving the mount shifts every already-applied place of this cell (other clones, tree
