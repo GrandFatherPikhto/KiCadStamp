@@ -23,8 +23,9 @@ from typing import List, Optional, Sequence, Tuple
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QCompleter,
-                             QHBoxLayout, QHeaderView, QLineEdit, QPushButton,
-                             QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+                             QHBoxLayout, QHeaderView, QLineEdit, QMessageBox,
+                             QPushButton, QTableWidget, QTableWidgetItem,
+                             QVBoxLayout, QWidget)
 
 from kicadstamp.i18n import _
 
@@ -42,6 +43,50 @@ logger = logging.getLogger(__name__)
 ERROR_STYLE = "color: #a00;"
 WARN_STYLE = "color: #a60;"
 SUCCESS_STYLE = "color: #070;"
+
+
+def confirm_first_run_adoption(parent, config_path, adapter=None) -> bool:
+    """Bug 3 (2026-09-05) first-run heads-up shown BEFORE a redraw. When this
+    profile's via/track registries are empty (never placed copper yet — a fresh
+    or newly-copied profile) while the live board already carries copper, the
+    redraw will REGISTER matching existing copper as owned (always-on
+    adopt_matching_unowned in the pipeline). Confirm that, and hint that running
+    a redraw once WITHOUT moving first registers the copper so a later move
+    relocates instead of duplicating.
+
+    Returns True to proceed with the redraw. Silent True (no dialog) when the
+    registries are NOT empty, no config path / no live adapter is available, or
+    the board has no copper — so it never nags on steady-state runs and never
+    blocks headless/GUI tests without a live board."""
+    if not config_path:
+        return True
+    from kicadstamp.registry import registries_empty_for
+    if not registries_empty_for(config_path):
+        return True
+    if adapter is None:
+        return True
+    try:
+        live_copper = len(adapter.get_tracks() or []) + len(adapter.get_vias() or [])
+    except Exception:  # noqa: BLE001 — never block a redraw on the heads-up
+        return True
+    if live_copper <= 0:
+        return True
+    message = (
+        _("This profile's registry is empty, but the board already has copper.\n\n"
+          "KiCadStamp will register existing copper that matches the layout as "
+          "its own during this redraw. If you already moved components before "
+          "this first redraw, old copper that no longer matches may stay at its "
+          "previous place.\n\n"
+          "Recommended: run the redraw once WITHOUT moving first — it registers "
+          "the existing copper, so a later move relocates it instead of "
+          "duplicating."))
+    return QMessageBox.question(
+        parent,
+        _("Adopt existing copper into the registry?"),
+        message,
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+        QMessageBox.StandardButton.Yes,
+    ) == QMessageBox.StandardButton.Yes
 
 
 def set_combo_items(combo: QComboBox, items: List[str]) -> None:

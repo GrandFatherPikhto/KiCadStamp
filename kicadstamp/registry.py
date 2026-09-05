@@ -468,6 +468,72 @@ def filter_existing_tracks(to_create: list[TrackCommand], live_tracks) -> list[T
     return kept
 
 
+def adopt_matching_unowned(reg: BaseRegistry, planned_cmds: list,
+                           live_items=None) -> int:
+    """One-time ownership migration for ANY planned copper (Bug 3, 2026-09-05):
+    claim a live item that exactly matches a planned-but-unregistered command
+    into the registry, so a later reposition of the anchor deletes that same
+    item (by its now-registered UUID) instead of orphaning it at the old place.
+
+    Generalizes net_trace_planner.adopt_net_trace_copper (which covered only
+    net_trace commands) to the WHOLE plan — the fix for "first reposition in a
+    profile whose registry is empty/lost duplicates copper": on a redraw where
+    the board still matches the plan, existing copper that the positional
+    pre-check used to merely SKIP is now registered as owned.
+
+    SAFE BY CONSTRUCTION (never deletes, never steals foreign copper):
+      * claims only a command whose registry_key is set AND absent from the
+        registry;
+      * the live item must match the planned geometry/net/params exactly
+        (BaseRegistry._live_matches — the same predicate reconcile uses);
+      * the live item's UUID must not already be owned by any entry of THIS
+        registry (copper owned under another key — e.g. a legacy clone_placement
+        while an Entity materializes the same cell — is never taken).
+
+    After adoption the registry owns the copper exactly like any created item:
+    reconcile sees "already correctly placed" and skips it; a later move
+    deletes the claimed UUID and recreates at the new position.
+
+    Runs BEFORE reconcile() so seen_keys / stale-prune see the adopted keys.
+    Returns the number of items claimed. When none are claimed the registry
+    file is not rewritten (a no-op on every steady-state run, cheap because
+    keys already present are skipped immediately).
+    """
+    if live_items is None:
+        live_items = reg._get_live_items()
+    owned = {e.uuid for e in reg.entries.values()}
+    adopted = 0
+    for cmd in planned_cmds:
+        key = cmd.registry_key
+        if key is None or key in reg.entries:
+            continue
+        for item in live_items:
+            if item.uuid in owned:
+                continue
+            if reg._live_matches(item, cmd):
+                reg.entries[key] = reg._build_entry(cmd, item.uuid)
+                owned.add(item.uuid)
+                adopted += 1
+                logger.info("  adopted existing copper (%s) into the registry under %s",
+                            type(cmd).__name__, key)
+                break
+    if adopted:
+        reg._save_entries(reg.entries)
+    return adopted
+
+
+def registries_empty_for(config_path) -> bool:
+    """True when BOTH the via and track registries of a config are empty or
+    absent — i.e. this profile has never run a copper-placing apply yet (a
+    "first run" in a fresh / newly-copied profile). Pure file check, no Qt, no
+    adapter: the GUI uses it to decide whether to show the "adopt existing
+    copper?" heads-up before a redraw (Bug 3, 2026-09-05)."""
+    config_path = str(config_path)
+    via_path = registry_path_for_config(config_path)
+    trk_path = track_registry_path_for_config(config_path)
+    return not load_registry(via_path) and not load_track_registry(trk_path)
+
+
 # ── Track registry ────────────────────────────────────────────────────────────
 
 class TrackRegistry(BaseRegistry[TrackRegistryEntry]):

@@ -362,7 +362,11 @@ nodes). So a channel's `CH0/1/2_DAC_BUF` can live in the `fpga` tree and be redr
 WITHOUT stripping its `anchor_role` first.
 
 **Redraw whole tree** (Tools → Trees) redraws every node of the current tree in one click, with no
-manual checkbox marking. **Anchor position** (Tools → Trees) refreshes the read-only indicator of the
+manual checkbox marking. On the first redraw in a profile whose copper registry is still EMPTY while
+the board already carries copper, KiCadStamp asks "adopt existing copper into the registry?" (Bug 3,
+2026-09-05): the redraw registers any existing copper that matches the layout as owned, so a later
+move relocates it instead of leaving leftovers. Recommended flow: run one redraw WITHOUT moving
+first. **Anchor position** (Tools → Trees) refreshes the read-only indicator of the
 current tree anchor's live absolute position/rotation on the board, shown in the dock's status row
 (origin anchor: trivially (0,0)/0°; requires a live KiCad connection; "unavailable" otherwise).
 

@@ -14501,3 +14501,17 @@ msgstr ""
 # chains navigation (S2b, 2026-09-05)
 msgid "{name} ({pads} spokes)"
 msgstr ""
+
+# Bug 3 (2026-09-05) first-run adoption heads-up — gui/docks/_common.py
+msgid ""
+"This profile's registry is empty, but the board already has copper.\n"
+"\n"
+"KiCadStamp will register existing copper that matches the layout as its own during this redraw. If you already moved components before this first redraw, old copper that no longer matches may stay at its previous place.\n"
+"\n"
+"Recommended: run the redraw once WITHOUT moving first — it registers the existing copper, so a later move relocates it instead of duplicating."
+msgstr ""
+
+# Bug 3 (2026-09-05) first-run adoption heads-up — gui/docks/_common.py
+msgid ""
+"Adopt existing copper into the registry?"
+msgstr ""

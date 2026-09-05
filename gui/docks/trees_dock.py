@@ -57,8 +57,8 @@ from kicadstamp.utils.units import MM
 from .. import settings
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
-from ._common import (configure_searchable, highlight_stylesheet_for,
-                      set_combo_items)
+from ._common import (configure_searchable, confirm_first_run_adoption,
+                      highlight_stylesheet_for, set_combo_items)
 from .cascade import (run_curated_forest_redraw_worker, run_curated_tree_redraw_worker,
                       run_single_node_redraw_worker)
 from .entity_delete import backup_file
@@ -2118,6 +2118,17 @@ class TreesDock(QDockWidget):
 
     # ── Checkbox subtree selection + Redraw (Phase 4) ────────────────────
 
+    def _confirm_first_run_redraw(self) -> bool:
+        """Bug 3 (2026-09-05) heads-up before a tree redraw: when this profile's
+        registries are empty but the live board already carries copper, confirm
+        that the redraw registers matching existing copper as owned (always-on
+        adoption) — and hint to run once WITHOUT moving first. Returns True to
+        proceed; silent True (no dialog) on steady-state runs, headless/GUI
+        tests and disconnected adapters (see confirm_first_run_adoption)."""
+        config_path = str(self._root_path) if self._root_path else ""
+        return confirm_first_run_adoption(self, config_path,
+                                          adapter=self._live_adapter())
+
     def _run_curated_redraw(self, selected_refs: set) -> None:
         """Shared worker invocation for "Redraw selected" and "Redraw whole
         tree" (plan_2026_08_29_fork1_rigid_redraw_override.md §5) — one
@@ -2128,6 +2139,8 @@ class TreesDock(QDockWidget):
             return
         if not selected_refs:
             self._show_status(_("Nothing selected — check some nodes first."))
+            return
+        if not self._confirm_first_run_redraw():
             return
         payload = {
             "config_path": str(self._root_path) if self._root_path else "",
@@ -2177,6 +2190,8 @@ class TreesDock(QDockWidget):
             refs.update(collect_tree_refs(tree))
         if not refs:
             self._show_status(_("Nothing to redraw."))
+            return
+        if not self._confirm_first_run_redraw():
             return
         payload = {
             "config_path": str(self._root_path),

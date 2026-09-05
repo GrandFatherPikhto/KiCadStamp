@@ -49,7 +49,7 @@ from .validation import run_all_checks, check_config_structure
 from .registry import (PlacementRegistry, registry_path_for_config,
                        TrackRegistry, track_registry_path_for_config,
                        default_operation_log_dir_for_config,
-                       filter_existing_tracks)
+                       filter_existing_tracks, adopt_matching_unowned)
 from .i18n import _
 
 logger = logging.getLogger(__name__)
@@ -662,6 +662,14 @@ class ApplyPipeline:
         adopt_net_trace_copper(
             self.adapter, registry, track_registry,
             self.planner._net_trace_vias or [], self.planner._net_trace_tracks or [])
+        # Ownership claim GENERALIZED to the whole plan (Bug 3, 2026-09-05):
+        # net_trace adoption above covers only net-trace commands. Claim any
+        # OTHER planned-but-unregistered via that already sits exactly at its
+        # planned position (first run in a fresh/lost-registry profile, legacy/
+        # cross-key copper) too — adopt_net_trace_copper keys are already in
+        # the registry, so this is a no-op for them. A later reposition then
+        # deletes the claimed UUID instead of orphaning the old copper.
+        adopt_matching_unowned(registry, all_vias)
         vias_to_create, vias_to_delete = registry.reconcile(all_vias,
                                                             known_anchor_ids=self.all_anchor_ids)
         # Batch deletion — kipy's remove_items_by_id() accepts a list, so N
@@ -679,11 +687,21 @@ class ApplyPipeline:
 
         # --- Phase 3: tracks ---
         all_tracks = self.planner.plan_tracks()
-        # Live tracks fetched ONCE for both consumers below — reconcile() would
-        # otherwise call adapter.get_tracks() again internally (registry.py's
-        # _get_live_items) just to build its uuid index, and the positional
-        # pre-check needs the same list.
+        # Live tracks fetched ONCE for all three consumers below — reconcile()
+        # would otherwise call adapter.get_tracks() again internally
+        # (registry.py's _get_live_items) just to build its uuid index, and
+        # the positional pre-check needs the same list.
         live_tracks = self.adapter.get_tracks()
+        # Ownership claim generalized to the whole plan (Bug 3, 2026-09-05):
+        # the fix for "first reposition in a fresh/lost-registry profile
+        # duplicates copper". claim planned-but-unregistered tracks already
+        # sitting exactly at their planned position into the track registry
+        # BEFORE reconcile, so their keys are seen (not pruned) and a later
+        # reposition deletes the claimed UUID instead of leaving old copper
+        # orphaned. Safe: geometry-identical + not owned by any other key only
+        # (see adopt_matching_unowned). Net-trace tracks were already claimed by
+        # adopt_net_trace_copper in Phase 2 -> no-op for them.
+        adopt_matching_unowned(track_registry, all_tracks, live_items=live_tracks)
         tracks_to_create, tracks_to_delete = track_registry.reconcile(
             all_tracks, known_anchor_ids=self.all_anchor_ids, live_items=live_tracks)
         # Batch deletion — same single-IPC rationale as the via path above.

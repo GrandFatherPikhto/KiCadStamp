@@ -1448,6 +1448,43 @@ def test_redraw_whole_tree_collects_all_refs_and_calls_worker(
     assert captured["payload"]["trees"] is dock._trees
 
 
+def test_redraw_whole_tree_cancelled_by_first_run_heads_up(
+        main_window, tmp_path, monkeypatch):
+    """Bug 3 (2026-09-05): when the first-run "adopt existing copper?" heads-up
+    is declined, the redraw must NOT start — the worker is never launched."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    called = []
+    import gui.docks.trees_dock as td_mod
+    monkeypatch.setattr(td_mod, "start_long_op",
+                        lambda *a, **k: called.append(a) or object())
+    monkeypatch.setattr(dock, "_confirm_first_run_redraw", lambda: False)
+
+    dock._on_redraw_whole_tree()
+
+    assert not called, "Cancel on the first-run heads-up must abort the redraw"
+
+
+def test_confirm_first_run_redraw_forwards_path_and_live_adapter(
+        main_window, tmp_path, monkeypatch):
+    """Bug 3: _confirm_first_run_redraw hands the dock's ROOT config path and
+    the LIVE board adapter to confirm_first_run_adoption — the two things that
+    decide whether the heads-up fires (empty registries + existing board
+    copper)."""
+    dock, root = _dock_with(main_window, tmp_path)
+    import gui.docks.trees_dock as td_mod
+    adapter = object()
+    captured = {}
+    monkeypatch.setattr(dock, "_live_adapter", lambda: adapter)
+    monkeypatch.setattr(
+        td_mod, "confirm_first_run_adoption",
+        lambda parent, config_path, adapter=adapter: (
+            captured.update(cfg_path=config_path, adapter=adapter) or True))
+
+    assert dock._confirm_first_run_redraw() is True
+    assert captured["cfg_path"] == str(root)
+    assert captured["adapter"] is adapter
+
+
 def test_run_forest_redraw_collects_all_trees_and_calls_forest_worker(
         main_window, tmp_path, monkeypatch):
     """P3b (plan 2026-09-02 P3 п.3): the FULL redraw collects EVERY node ref of

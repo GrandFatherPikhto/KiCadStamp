@@ -11,12 +11,14 @@ import logging
 from pathlib import Path
 
 import pytest
+from PyQt6.QtWidgets import QMessageBox
 
 from gui.docks._common import (ERROR_STYLE, SUCCESS_STYLE, WARN_STYLE,
                                add_include, add_list_entry, configure_searchable,
-                               disable_include, display_path, merge_write,
-                               non_includable_keys, refresh_file_combo_choices,
-                               set_combo_items, set_file_combo_selection, show_message,
+                               confirm_first_run_adoption, disable_include,
+                               display_path, merge_write, non_includable_keys,
+                               refresh_file_combo_choices, set_combo_items,
+                               set_file_combo_selection, show_message,
                                upsert_clone_placement, upsert_list_entry)
 import gui.docks._common as common_mod
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
@@ -513,3 +515,95 @@ def test_apply_compact_field_minimums_is_idempotent(qapp):
     assert "color: #000" in host.styleSheet()  # existing rules preserved
     apply_compact_field_minimums(host)
     assert host.styleSheet().count(FIELD_MIN_WIDTH_QSS) == 1
+
+
+# ── Bug 3 first-run "adopt existing copper?" heads-up ────────────────────────
+
+class _CopperAdapter:
+    """Stand-in live board adapter exposing only the copper counts the
+    confirm_first_run_adoption heads-up reads."""
+
+    def __init__(self, tracks=0, vias=0):
+        self._tracks = [None] * tracks
+        self._vias = [None] * vias
+
+    def get_tracks(self):
+        return list(self._tracks)
+
+    def get_vias(self):
+        return list(self._vias)
+
+
+def _write_track_registry_entry(cfg_path, key="k"):
+    """Persist one track-registry entry for the config path — makes the
+    registries NON-empty so the heads-up must stay silent."""
+    from kicadstamp.registry import (TrackRegistryEntry,
+                                     save_track_registry,
+                                     track_registry_path_for_config)
+    save_track_registry(
+        track_registry_path_for_config(str(cfg_path)),
+        {key: TrackRegistryEntry(uuid="u", start_x_mm=0.0, start_y_mm=0.0,
+                                 end_x_mm=1.0, end_y_mm=1.0, width_mm=0.2,
+                                 net="+N", layer="F.Cu")})
+
+
+class TestConfirmFirstRunAdoption:
+    """confirm_first_run_adoption (Bug 3, 2026-09-05): the heads-up must fire
+    ONLY when this profile's registries are empty AND the live board already
+    has copper. It must stay silent on steady-state runs (registry populated),
+    an empty board, a disconnected adapter (None) and a missing config path —
+    so it never nags and never blocks headless/GUI tests without a live board."""
+
+    def test_silent_when_registries_populated(self, tmp_path, monkeypatch):
+        _write_track_registry_entry(tmp_path / "config.sexp")
+        called = []
+        monkeypatch.setattr(
+            common_mod.QMessageBox, "question",
+            lambda *a, **k: called.append(1) or QMessageBox.StandardButton.Yes)
+        assert confirm_first_run_adoption(None, str(tmp_path / "config.sexp"),
+                                          _CopperAdapter(tracks=5)) is True
+        assert not called
+
+    def test_silent_when_board_has_no_copper(self, tmp_path, monkeypatch):
+        called = []
+        monkeypatch.setattr(
+            common_mod.QMessageBox, "question",
+            lambda *a, **k: called.append(1) or QMessageBox.StandardButton.Yes)
+        assert confirm_first_run_adoption(None, str(tmp_path / "config.sexp"),
+                                          _CopperAdapter()) is True
+        assert not called
+
+    def test_silent_when_adapter_unavailable(self, tmp_path, monkeypatch):
+        called = []
+        monkeypatch.setattr(
+            common_mod.QMessageBox, "question",
+            lambda *a, **k: called.append(1) or QMessageBox.StandardButton.Yes)
+        assert confirm_first_run_adoption(None, str(tmp_path / "config.sexp"),
+                                          None) is True
+        assert not called
+
+    def test_silent_when_no_config_path(self, monkeypatch):
+        called = []
+        monkeypatch.setattr(
+            common_mod.QMessageBox, "question",
+            lambda *a, **k: called.append(1) or QMessageBox.StandardButton.Yes)
+        assert confirm_first_run_adoption(None, "", _CopperAdapter(tracks=5)) is True
+        assert not called
+
+    def test_asks_on_first_run_with_copper_and_yes_proceeds(self, tmp_path, monkeypatch):
+        called = []
+        monkeypatch.setattr(
+            common_mod.QMessageBox, "question",
+            lambda *a, **k: called.append(1) or QMessageBox.StandardButton.Yes)
+        assert confirm_first_run_adoption(None, str(tmp_path / "config.sexp"),
+                                          _CopperAdapter(tracks=3)) is True
+        assert called, "first run + board copper must ask the user"
+
+    def test_asks_on_first_run_with_copper_and_cancel_aborts(self, tmp_path, monkeypatch):
+        called = []
+        monkeypatch.setattr(
+            common_mod.QMessageBox, "question",
+            lambda *a, **k: called.append(1) or QMessageBox.StandardButton.Cancel)
+        assert confirm_first_run_adoption(None, str(tmp_path / "config.sexp"),
+                                          _CopperAdapter(vias=2)) is False
+        assert called

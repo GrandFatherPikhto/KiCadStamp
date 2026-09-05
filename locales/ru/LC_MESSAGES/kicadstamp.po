@@ -13126,3 +13126,23 @@ msgstr "Цепь: {name} — пады"
 # chains navigation (S2b, 2026-09-05)
 msgid "{name} ({pads} spokes)"
 msgstr "{name} ({pads} спиц)"
+
+# Bug 3 (2026-09-05) first-run adoption heads-up — gui/docks/_common.py
+msgid ""
+"This profile's registry is empty, but the board already has copper.\n"
+"\n"
+"KiCadStamp will register existing copper that matches the layout as its own during this redraw. If you already moved components before this first redraw, old copper that no longer matches may stay at its previous place.\n"
+"\n"
+"Recommended: run the redraw once WITHOUT moving first — it registers the existing copper, so a later move relocates it instead of duplicating."
+msgstr ""
+"Реестр этого профиля пуст, но на плате уже есть медь.\n"
+"\n"
+"Во время этой перерисовки KiCadStamp запишет в реестр существующую медь, совпадающую с раскладкой, как свою. Если ты уже передвинул компоненты до этой первой перерисовки, старая медь, которая больше не совпадает, может остаться на прежнем месте.\n"
+"\n"
+"Рекомендация: сначала один раз выполни перерисовку БЕЗ перемещения — она зарегистрирует существующую медь, и тогда последующее перемещение перенесёт её, а не продублирует."
+
+# Bug 3 (2026-09-05) first-run adoption heads-up — gui/docks/_common.py
+msgid ""
+"Adopt existing copper into the registry?"
+msgstr ""
+"Зарегистрировать существующую медь в реестре?"
