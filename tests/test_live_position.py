@@ -18,7 +18,7 @@ from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.exceptions import ValidationError
 
 from gui.docks.live_position import (
-    read_anchor_live, read_cell_anchor_offset_live,
+    read_anchor_live,
     read_clone_origin_live, read_coordinate_live,
 )
 
@@ -229,14 +229,15 @@ class TestReadCloneOriginLive:
         assert read.rotation_deg == 90.0
 
     def test_anchor_role_component_is_the_reference(self, monkeypatch):
-        """cell.anchor_role marks which component's position IS the origin —
-        that slot wins over the first slot even when its local offset is
-        nonzero (the origin is still derived from IT)."""
+        """cell.anchor_role names the MOUNT component (design_2026_09_05 v2) —
+        that slot wins over the first slot even when its stored offset is
+        nonzero, and the mount (what a placement pins) IS that component's live
+        position, not the stored (0,0)."""
         import gui.docks.live_position as lp
         cfg = MagicMock()
         cfg.cells = {"fpga_flash": self._cell(anchor_role="CAP_OUT")}
-        # CAP_OUT at local (2,0), slot angle 180; rotation 0 -> origin =
-        # fp.position - (2,0), and the component's world angle = 180.
+        # CAP_OUT at stored offset (2,0) -> A=(2,0); the mount is CAP_OUT, so
+        # the read returns CAP_OUT's own world position (12,20), not (10,20).
         fp = _make_fp("C11", role="CAP_OUT", cluster="FPGA_FLASH",
                       position=Vector2.from_xy(int(12.0 * MM), int(20.0 * MM)),
                       angle=180.0)
@@ -247,7 +248,8 @@ class TestReadCloneOriginLive:
                             lambda *a, **k: {"CAP_IN": "C10", "CAP_OUT": "C11"})
 
         read = read_clone_origin_live(adapter, cfg, clone, {})
-        assert read.position == Vector2.from_xy(int(10.0 * MM), int(20.0 * MM))
+        assert read.position == Vector2.from_xy(int(12.0 * MM), int(20.0 * MM))
+        assert read.rotation_deg == 0.0
 
     def test_unreachable_cell_is_fatal(self):
         cfg = MagicMock()

@@ -145,50 +145,70 @@ def _entity_own_zero_slot_live_position(adapter: "KiCadBoardAdapter",
                                         entity: Entity, sheet_names: dict,
                                         label: str | None = None
                                         ) -> tuple[Vector2, float]:
-    """(position_nm, rotation_deg) of an Entity's OWN live position, read from
-    its cell's single zero-offset (local 0,0) component's role, live-resolved
-    via ComponentResolver exactly like an explicit (role ...) anchor (Phase
-    4.2 — no new board-reading logic). This is the standalone core of the
-    auto-anchor derivation (_auto_anchor_base, plan 2026-08-31
-    tree_self_anchor_from_entity), extracted so resolve_entity_live_position
-    can fall back to it for an Entity that is NOT (yet) placed by any tree —
-    Denis's live case: "Add child" under fpga with ref fpga_flash and "Read
-    current position" BEFORE saving the node (plan_2026_08_31_entity_live_
-    position_zero_slot_fallback.md).
+    """(position_nm, rotation_deg) of an Entity's OWN live position — the
+    position of its cell's MOUNT point on the board (design_2026_09_05 v2).
+    The mount surrogate role is cell.anchor_role when set (a v2 role-anchored
+    cell); otherwise, for un-annotated LEGACY cells (pre-migration), it falls
+    back to the single component at the stored (0,0) — the old "zero slot"
+    convention — so existing auto-anchor behaviour is unchanged until cells
+    carry an anchor_role. Either way it is live-resolved via ComponentResolver
+    exactly like an explicit (role ...) anchor (Phase 4.2 — no new board-reading
+    logic), with cell.anchor_pad moving the mount onto that pad. This is the
+    standalone core of the auto-anchor derivation (_auto_anchor_base, plan
+    2026-08-31 tree_self_anchor_from_entity), extracted so
+    resolve_entity_live_position can fall back to it for an Entity that is NOT
+    (yet) placed by any tree — Denis's live case: "Add child" under fpga with
+    ref fpga_flash and "Read current position" BEFORE saving the node
+    (plan_2026_08_31_entity_live_position_zero_slot_fallback.md).
 
-    Config errors (missing cell, 0/2+ zero slots) are _EntityAnchorError. A
-    LIVE error from the role resolution (role not found / ambiguous on the
-    board) is a plain ValidationError — the caller decides how to surface it
-    (per-tree skip for the materializer, a warning for the GUI read)."""
+    Config errors (missing cell, no anchor_role and 0/2+ zero-slot fallback
+    components) are _EntityAnchorError. A LIVE error from the role resolution
+    (role not found / ambiguous on the board) is a plain ValidationError — the
+    caller decides how to surface it (per-tree skip for the materializer, a
+    warning for the GUI read)."""
     cell = cfg.cells.get(entity.cell)
     if cell is None:
         raise _EntityAnchorError(format_fatal_error(
             _("Entity {name!r} references missing cell {cell!r}")
             .format(name=entity.name, cell=entity.cell),
-            [_("the zero-offset live read needs the Entity's cell to exist")]))
-    zero = [c for c in cell.components
-            if c.offset_along_mm == 0.0 and c.offset_across_mm == 0.0]
-    if not zero:
-        raise _EntityAnchorError(format_fatal_error(
-            _("Entity {name!r} has no zero-offset component to read live")
-            .format(name=entity.name),
-            [_("cell {cell!r} has no component without offset_along_mm/"
-               "offset_across_mm (local (0,0)) to act as the Entity's own "
-               "anchor role").format(cell=entity.cell)]))
-    if len(zero) > 1:
-        raise _EntityAnchorError(format_fatal_error(
-            _("Entity {name!r} has {n} zero-offset components in cell {cell!r} "
-              "— live position is ambiguous")
-            .format(name=entity.name, n=len(zero), cell=entity.cell),
-            [_("a zero-offset live read needs EXACTLY ONE component without "
-               "offset_along_mm/offset_across_mm; found {n}")
-             .format(n=len(zero))]))
-    slot = zero[0]
+            [_("the anchor live read needs the Entity's cell to exist")]))
+    surrogate_role = cell.anchor_role
+    if surrogate_role is None:
+        # Legacy / transitional fallback: the cell has no v2 anchor_role, so
+        # read from its single zero-offset (stored (0,0)) component, exactly as
+        # before design_2026_09_05. Preferring anchor_role above means a
+        # migrated role-anchored cell is read from ITS mount even when the
+        # mount is no longer at the stored (0,0).
+        zero = [c for c in cell.components
+                if c.offset_along_mm == 0.0 and c.offset_across_mm == 0.0]
+        if not zero:
+            raise _EntityAnchorError(format_fatal_error(
+                _("Entity {name!r} has no zero-offset component to read live")
+                .format(name=entity.name),
+                [_("cell {cell!r} has no component without offset_along_mm/"
+                   "offset_across_mm (local (0,0)) to act as the Entity's own "
+                   "anchor role — and it carries no anchor_role either; set a "
+                   "Role anchor (Якорь ячейки) to give it a live mount")
+                 .format(cell=entity.cell)]))
+        if len(zero) > 1:
+            raise _EntityAnchorError(format_fatal_error(
+                _("Entity {name!r} has {n} zero-offset components in cell {cell!r} "
+                  "— live position is ambiguous")
+                .format(name=entity.name, n=len(zero), cell=entity.cell),
+                [_("a zero-offset live read needs EXACTLY ONE component without "
+                   "offset_along_mm/offset_across_mm; found {n}")
+                 .format(n=len(zero))]))
+        surrogate_role = zero[0].role
     resolver = ComponentResolver(adapter, cfg, sheet_names)
     fp = resolver.resolve_anchor_fp(
-        None, slot.role, entity.sheet, entity.cluster,
-        label=label or _("Entity {name!r} own zero-offset live position")
+        None, surrogate_role, entity.sheet, entity.cluster,
+        label=label or _("Entity {name!r} own live position")
         .format(name=entity.name))
+    if cell.anchor_pad is not None:
+        pos = resolve_anchor_pad_position(
+            adapter, fp, cell.anchor_pad,
+            label or _("Entity {name!r} own live position").format(name=entity.name))
+        return pos, fp.angle_deg
     return fp.position, fp.angle_deg
 
 

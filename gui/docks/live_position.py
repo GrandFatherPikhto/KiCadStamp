@@ -25,6 +25,7 @@ from kicadstamp.config import clone_placement_effective_name
 from kicadstamp.domain.board import Footprint
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import ValidationError, format_fatal_error
+from kicadstamp.geometry.cell_anchor import cell_mount_offset
 from kicadstamp.geometry.clone_geometry import clone_origin_from_component
 from kicadstamp.geometry.spoke_layout import rotate_local_offset
 from kicadstamp.i18n import _
@@ -154,8 +155,13 @@ def read_clone_origin_live(adapter, cfg, clone, sheet_names) -> LiveRead:
               "is not on the live board").format(
                 name=clone_placement_effective_name(clone), role=slot.role, ref=ref),
             [_("the board changed since the last apply — place the component first")]))
+    # The inverse recovers the cell's MOUNT point (its anchor A, or the
+    # default bbox corner when no anchor is set) — pass A so the reference
+    # slot's stored (bbox-frame) offset is reduced exactly as apply_clone_geometry
+    # does (design_2026_09_05 v2).
+    ax_mm, ay_mm = cell_mount_offset(cell)
     origin, rotation = clone_origin_from_component(
-        fp.position, fp.angle_deg, slot, clone.mirror)
+        fp.position, fp.angle_deg, slot, clone.mirror, ax_mm, ay_mm)
     return LiveRead(position=origin, rotation_deg=rotation, footprint=fp)
 
 

@@ -163,33 +163,38 @@ def clone_rotation_from_component(fp_angle_deg: float, slot_angle_deg: float,
 
 def clone_origin_from_component(fp_position: Vector2, fp_angle_deg: float,
                                 slot: TemplateComponentSlot,
-                                mirror: bool) -> tuple[Vector2, float]:
+                                mirror: bool,
+                                ax_mm: float = 0.0, ay_mm: float = 0.0
+                                ) -> tuple[Vector2, float]:
     """Inverse of apply_clone_geometry's component mapping: given ONE live
     component's absolute position/angle (as the board reports it now) and its
-    cell slot, recover the cell's world origin (local (0,0)) and the
-    placement's own rotation_deg. Returns (origin, placement_rotation_deg).
+    cell slot, recover the cell's MOUNT point world position (the cell point —
+    its anchor A, or the default bbox corner when no anchor is set — that
+    coincides with the placement origin) and the placement's own rotation_deg.
+    Returns (origin, placement_rotation_deg).
 
-    Forward (apply_clone_geometry, `place`/`comp_angle`):
-      rotated  = rotate_local_offset(slot.offset_along, slot.offset_across,
-                                     rotation_deg)
+    Forward (apply_clone_geometry, `place`/`comp_angle`): content is placed
+    from the mount, i.e. every stored offset is reduced by the cell anchor A:
+      rotated  = rotate_local_offset(slot.offset_along - ax_mm,
+                                     slot.offset_across - ay_mm, rotation_deg)
       p        = origin + rotated
       if mirror: p = _mirror_x(origin, p) = (2*origin.x - p.x, p.y)
       fp_angle = (slot.angle_deg + rotation_deg) or
                  (180 - (slot.angle_deg + rotation_deg)) % 360 when mirrored.
 
-    Inverse:
+    Inverse (the mirror-X branch flips the sign of rotated.x):
       rotation_deg = clone_rotation_from_component(fp_angle_deg, ...)
       origin.x = fp_position.x - rotated.x          (not mirrored)
                  fp_position.x + rotated.x          (mirrored — X flips)
       origin.y = fp_position.y - rotated.y          (both cases)
 
-    Used by the GUI "Read current position" for a ClonePlacement (the cell
-    origin is not stored anywhere on the board — it must be re-derived from a
-    placed component). Pure math, no adapter; unit-tested including the
-    mirror case. The caller picks WHICH component: cell.anchor_role's slot if
-    set, else the first cell slot."""
+    ax_mm/ay_mm — the cell's anchor A (cell_mount_offset, design_2026_09_05
+    v2); default (0,0) keeps the historical behaviour for anchor-less cells,
+    where the mount IS the stored (0,0). The caller picks WHICH component:
+    cell.anchor_role's slot if set, else the first cell slot."""
     rotation_deg = clone_rotation_from_component(fp_angle_deg, slot.angle_deg, mirror)
-    rotated = rotate_local_offset(slot.offset_along_mm, slot.offset_across_mm, rotation_deg)
+    rotated = rotate_local_offset(slot.offset_along_mm - ax_mm,
+                                  slot.offset_across_mm - ay_mm, rotation_deg)
     if mirror:
         origin = Vector2.from_xy(fp_position.x + rotated.x, fp_position.y - rotated.y)
     else:

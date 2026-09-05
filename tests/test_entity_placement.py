@@ -803,6 +803,28 @@ def test_auto_anchor_materializes_on_zero_slot_role():
     assert c.rotation_deg == pytest.approx(0.0)
 
 
+def test_auto_anchor_materializes_on_anchor_role_not_at_zero():
+    """Design_2026_09_05 v2: a migrated role-anchored cell has NO component at
+    the stored (0,0) at all — its MOUNT role is anchor_role (e.g. FPGA at the
+    bbox-frame offset (2,1)). Auto-anchor must read THAT role live (not the
+    legacy zero-slot, which would fatal: there is none)."""
+    cell = Cell(name="fpga", components=[
+        TemplateComponentSlot(role="FPGA", offset_along_mm=2.0,
+                              offset_across_mm=1.0),          # mount, not (0,0)
+        TemplateComponentSlot(role="R_TERM_N", offset_along_mm=3.0,
+                              offset_across_mm=2.0),
+    ], anchor_role="FPGA", anchor_xy=(2.0, 1.0))
+    cfg = Config(cells={"fpga": cell},
+                 entities=[Entity(name="fpga", cell="fpga")],
+                 trees=[_auto_tree([_node(ref="fpga", xy=(1.0, 2.0))])])
+    clones = materialize_entity_placements(_role_adapter(role="FPGA", x=30.0, y=40.0),
+                                           cfg, {})
+    assert len(clones) == 1
+    c = clones[0]
+    assert c.xy[0] == pytest.approx(31.0)   # IC1 (30,40) + node (1,2)
+    assert c.xy[1] == pytest.approx(42.0)
+
+
 def test_auto_anchor_no_zero_slot_is_fatal_not_silent():
     """Zero zero-offset components -> a CONFIG error, fatal for the whole run —
     never a silent origin fallback or a per-tree skip."""
