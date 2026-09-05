@@ -280,6 +280,12 @@ class ConfigTreeDock(QDockWidget):
     # Fired by a DOUBLE click on a chains: PAD leaf — (chain_dict, pad_index);
     # DockHub opens the pad-edit dialog for that specific spoke.
     pad_edit_requested = pyqtSignal(object, int)
+    # Fired by a SINGLE click on a chains: PAD leaf (2026-09-05, design
+    # config_qview_chain_entity_pages §4) — (chain_dict, pad_index); DockHub
+    # opens the spoke editor (ChainDock pad mode) as a Config right-QView page.
+    # The pad is the leaf-level "edit" unit; chain/anchor clicks stay
+    # navigation-only (see _on_clicked).
+    pad_picked = pyqtSignal(object, int)
     # Fired by the context menu's "Add chain..." — opens the chain-edit dialog
     # with a fresh blank form (mirror of add_point_requested).
     add_chain_requested = pyqtSignal(object)
@@ -965,11 +971,18 @@ class ConfigTreeDock(QDockWidget):
             return  # clicked a file/category header with no click target
         if data[0] == "category":
             return  # clicked a section header with no click target
-        if data[0] in ("anchor", "chain", "pad"):
-            # chains: nodes are edited via DOUBLE click (chain_edit_requested /
-            # pad_edit_requested) or the context menu — a single click on an
-            # anchor/chain/pad node does nothing (same as points/entities since
-            # 2026-09-01).
+        if data[0] in ("anchor", "chain"):
+            # chains: anchor/chain nodes are grouping/navigation only on a
+            # single click (their clickable QView lists land in a later step of
+            # design config_qview_chain_entity_pages); a PAD leaf is the edit
+            # unit and opens the spoke editor below.
+            return
+        if data[0] == "pad":
+            # Single click on a chains: PAD leaf -> the spoke editor as the
+            # Config right-QView page (2026-09-05, design
+            # config_qview_chain_entity_pages §4): pad leaf -> spoke editor.
+            _, _section, chain, pad_index = data
+            self.pad_picked.emit(chain, pad_index)
             return
         if data[0] != "leaf":
             return

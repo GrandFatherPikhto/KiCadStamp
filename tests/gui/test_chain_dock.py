@@ -547,3 +547,66 @@ def test_apply_bulk_cell_set_no_chains_on_net_shows_error(main_window, tmp_path,
     dock.set_root_path(root)
     dock._apply_bulk_cell_set("NOPE", "cell")
     assert any("No chains on net 'NOPE'" in r.message for r in caplog.records)
+
+
+# ── Pad page actions (2026-09-05, design config_qview_chain_entity_pages §4) ─
+
+def test_pad_page_has_apply_and_redraw_buttons(main_window, tmp_path):
+    """The pad page (spoke editor, now the Config right-QView page) carries the
+    explicit 'Apply' (commit the form) and 'Redraw' (apply the current form to
+    the board) actions. Redraw needs an already-saved spoke to isolate — it is
+    disabled on a blank/new pad and enabled once an existing pad loads."""
+    dock, _ = _make_dock(main_window, tmp_path)
+    assert dock.pad_apply_button.text() == "Apply"
+    assert dock.pad_redraw_button.text() == "Redraw"
+    assert dock.pad_redraw_button.isEnabled() is False  # blank form
+
+    chain = {"net": "+3V3", "anchor_role": "FPGA",
+             "spokes": [{"pad": "17", "cell": "fpga"}]}
+    dock.load_pad(chain, 0)
+    assert dock.pad_redraw_button.isEnabled() is True
+    dock.new_pad(chain, tmp_path)
+    assert dock.pad_redraw_button.isEnabled() is False  # brand-new, unsaved
+
+
+def test_pad_apply_button_commits_pad_form(main_window, tmp_path):
+    """The pad page 'Apply' button persists the current pad-mode form into the
+    config (same write as _on_save_pad/_persist_pad) — it replaces the spoke at
+    its index in the parent chain and leaves the other spokes untouched."""
+    dock, target = _make_dock(main_window, tmp_path, {"chains": [
+        {"net": "+3V3", "anchor_role": "FPGA",
+         "spokes": [{"pad": "17", "cell": "fpga"}, {"pad": "26", "cell": "cap"}]}]})
+    chain = _load(target)["chains"][0]
+    dock.load_pad(chain, 0)
+    dock.spoke_cell_combo.setCurrentText("new_cell")
+    dock.pad_apply_button.click()
+
+    written = _load(target)["chains"][0]["spokes"]
+    assert written[0]["cell"] == "new_cell"
+    assert written[1]["cell"] == "cap"
+
+
+def test_pad_redraw_button_applies_current_form_without_writing(main_window, tmp_path, monkeypatch):
+    """The pad page 'Redraw' applies the CURRENT form to the board (only this
+    spoke, every other spoke skipped) WITHOUT writing the config — the spliced
+    chain handed to the redraw path carries the form's cell, and the file on
+    disk stays untouched (Placer-style form redraw, not file redraw)."""
+    dock, target = _make_dock(main_window, tmp_path, {"chains": [
+        {"net": "+3V3", "anchor_role": "FPGA",
+         "spokes": [{"pad": "17", "cell": "fpga"}, {"pad": "26", "cell": "cap"}]}]})
+    chain = _load(target)["chains"][0]
+    dock.load_pad(chain, 0)
+    dock.spoke_cell_combo.setCurrentText("new_cell")
+
+    captured = {}
+    monkeypatch.setattr(
+        dock, "redraw_pad",
+        lambda chain_dict, pad_index: captured.update(
+            {"chain": chain_dict, "pad_index": pad_index}))
+    dock.redraw_pad_form()
+
+    assert captured["pad_index"] == 0
+    assert captured["chain"]["spokes"][0]["cell"] == "new_cell"
+    assert captured["chain"]["spokes"][1]["cell"] == "cap"
+    # Redraw never writes the config — the on-disk spoke is unchanged.
+    assert _load(target)["chains"][0]["spokes"][0]["cell"] == "fpga"

@@ -1795,6 +1795,32 @@ def test_chains_pad_and_chain_double_click_emit_edit_requests(main_window, tmp_p
     assert picked == []
 
 
+def test_chains_pad_single_click_emits_pad_picked(main_window, tmp_path):
+    """A SINGLE click on a chains: PAD leaf opens the spoke editor (2026-09-05,
+    design config_qview_chain_entity_pages §4): pad_picked(chain_dict,
+    pad_index). Chain and anchor single clicks fire no pick signal — only the
+    pad (the leaf-level edit unit) routes."""
+    root = tmp_path / "root.sexp"
+    chain_data = {"net": "+3V3", "anchor_role": "FPGA",
+                  "spokes": [{"pad": "1", "cell": "c"}, {"pad": "2", "cell": "c"}]}
+    _write(root, {"chains": [chain_data]})
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    anchor = _find(_find(dock.tree.topLevelItem(0), "Spokes"), "Anchor: FPGA")
+    chain = _find(anchor, "+3V3")
+    pad1 = _find(chain, "1")
+
+    picked = []
+    dock.pad_picked.connect(lambda c, idx: picked.append((c, idx)))
+    dock._on_clicked(pad1, 0)
+    assert picked == [(chain_data, 0)]
+
+    dock._on_clicked(chain, 0)
+    dock._on_clicked(anchor, 0)
+    assert len(picked) == 1  # only the pad leaf emitted pad_picked
+
+
 def test_chains_pad_selection_survives_refresh(main_window, tmp_path):
     """A selected PAD leaf stays selected across refresh() — its identity is
     (file, "chains", parent chain effective name, pad index), rebuilt from the

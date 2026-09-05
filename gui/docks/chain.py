@@ -293,6 +293,24 @@ class ChainDock(QWidget):
         spoke_checks_row.addWidget(self.spoke_skip_checkbox)
         pad_layout.addLayout(spoke_checks_row)
         pad_layout.addStretch(1)
+
+        # Explicit pad actions (2026-09-05, design config_qview_chain_entity_
+        # pages §4) — the pad editor is now a Config right-QView page: "Apply"
+        # commits the form into the config (working set), "Redraw" applies the
+        # CURRENT form to the board (Placer-style, no file write). Redraw is
+        # disabled for a brand-new unsaved pad (nothing to isolate yet).
+        pad_actions_row = QHBoxLayout()
+        self.pad_apply_button = QPushButton(_("Apply"))
+        self.pad_apply_button.clicked.connect(self._on_save_pad)
+        self.pad_redraw_button = QPushButton(_("Redraw"))
+        self.pad_redraw_button.clicked.connect(self.redraw_pad_form)
+        # Blank initial state: no saved spoke to isolate yet — only an existing
+        # pad load enables it (see load_pad / _clear_pad_editor).
+        self.pad_redraw_button.setEnabled(False)
+        pad_actions_row.addWidget(self.pad_apply_button)
+        pad_actions_row.addWidget(self.pad_redraw_button)
+        pad_layout.addLayout(pad_actions_row)
+
         self._stack.addWidget(self._pad_page)
 
         # Auto-stage the chain's OWN fields (2026-09-01, plan project_save_model)
@@ -426,6 +444,9 @@ class ChainDock(QWidget):
         self.spoke_cluster_combo.setCurrentText("")
         self.spoke_retired_checkbox.setChecked(False)
         self.spoke_skip_checkbox.setChecked(False)
+        # A blank pad form has no saved spoke to isolate on the board yet —
+        # "Redraw" stays disabled until an existing pad loads (2026-09-05).
+        self.pad_redraw_button.setEnabled(False)
 
     def _build_spoke_dict(self) -> Optional[Dict[str, Any]]:
         pad = self.spoke_pad_edit.text().strip()
@@ -714,6 +735,31 @@ class ChainDock(QWidget):
             return
         self._start_redraw_op(payload)
 
+    def redraw_pad_form(self) -> None:
+        """QView pad-page "Redraw" (2026-09-05, design
+        config_qview_chain_entity_pages §4) — apply the CURRENT pad-mode form
+        to the board, isolating exactly this spoke (every other spoke of the
+        parent chain gets a temporary skip). Unlike `_persist_pad` this does
+        NOT write the config: the pipeline is fed from the form content
+        (Placer-style, see PlacerDock._collect_redraw_inputs), so the user can
+        tune and re-redraw without committing. Guarded to an already-saved
+        spoke (the button is disabled while a brand-new pad is unsaved)."""
+        if self._chain_entry is None or self._path is None:
+            self._show_message(_("Set the project root first."), _ERROR_STYLE)
+            return
+        spoke = self._build_spoke_dict()
+        if spoke is None:
+            return  # error already reported
+        if self._pad_index is None:
+            return  # brand-new pad — no saved spoke to isolate (button disabled)
+        chain = dict(self._chain_entry)
+        spokes = list(chain.get("spokes") or [])
+        if not (0 <= self._pad_index < len(spokes)):
+            return
+        spokes[self._pad_index] = spoke
+        chain["spokes"] = spokes
+        self.redraw_pad(chain, self._pad_index)
+
     def redraw_chains(self, chain_dicts: List[Dict[str, Any]]) -> None:
         """Redraw SEVERAL chains in one ApplyPipeline run — the Tools menu's
         "Redraw" on an ANCHOR node redraws every chain under that anchor
@@ -957,6 +1003,9 @@ class ChainDock(QWidget):
             self.spoke_cluster_combo.setCurrentText(str(spoke.get("cluster", "")))
             self.spoke_retired_checkbox.setChecked(bool(spoke.get("retired", False)))
             self.spoke_skip_checkbox.setChecked(bool(spoke.get("skip", False)))
+            # An existing spoke loads — "Redraw" (isolate this pad from the
+            # form) becomes available (2026-09-05).
+            self.pad_redraw_button.setEnabled(True)
             self._show_pad_mode()
         finally:
             self._loading = False

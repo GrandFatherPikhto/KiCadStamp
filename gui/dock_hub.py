@@ -47,7 +47,6 @@ from kicadstamp.logging_setup import get_log_listener
 from .docks.cell_dialog import CellDialog
 from .docks.cell_editor import CellDock
 from .docks.chain import ChainDock
-from .docks.chain_dialog import ChainDialog
 from .docks.config_tree import ConfigTreeDock
 from .docks.configurator import ConfiguratorDock
 from .docks.net_trace import NetTraceDock
@@ -173,10 +172,16 @@ class DockHub:
         # (chain_redraw_requested/pad_redraw_requested/bulk_set_cell_requested),
         # not from buttons inside the dialog.
         self.chain_dock = ChainDock(main_window)
-        self.chain_dialog = ChainDialog(self.chain_dock, main_window)
         # Backward-compat alias for the 2026-09-01 Rule -> Chain rename — the
         # old rules_dock name still resolves to the live ChainDock.
         self.rules_dock = self.chain_dock
+        # Chain as a Config right-QView page (2026-09-05, design
+        # config_qview_chain_entity_pages): the single live ChainDock is now
+        # embedded as a page in the Config dock's right QStack — a single click
+        # on a chains: pad leaf opens the spoke editor there, and Add net/spoke
+        # + Edit chain flows show the same page (a QWidget can only have one
+        # parent, so the ChainDialog wrapper is GONE with this change).
+        self._chain_page = self.config_tree_dock.add_right_page(self.chain_dock)
         # Points (2026-09-01, plan plan_2026_09_01_points_dialog.md): a
         # STANDALONE widget hosted in the non-modal PointsDialog — the Detail
         # dock has no Points page anymore (same move as Extract/Thermal via).
@@ -264,6 +269,19 @@ class DockHub:
         """Route a net_trace pick to the NetTrace right page of the Config
         dock."""
         self.config_tree_dock.show_page(self._net_trace_page)
+
+    def _show_config_chain(self, *_args) -> None:
+        """Route a chains pick (pad leaf / chain edit / Add net / Add spoke) to
+        the Chain right page of the Config dock (2026-09-05, design
+        config_qview_chain_entity_pages §4)."""
+        self.config_tree_dock.show_page(self._chain_page)
+
+    def _focus_config_tree_dock(self) -> None:
+        """Show the Config dock and raise it to the front of its tab group —
+        the Config-dock mirror of _focus_trees_dock (Tools-menu Add net/spoke
+        delegates must bring the Config tab to front before showing a page)."""
+        self.config_tree_dock.show()
+        self.config_tree_dock.raise_()
 
     def _wire(self) -> None:
         """Every dock-to-dock connection (real pyqtSignals — a role can
@@ -406,15 +424,19 @@ class DockHub:
         # PointsDock and open the non-modal PointsDialog. Single click on a
         # points: leaf does NOTHING (the old points_picked wiring is gone).
         self.config_tree_dock.points_edit_requested.connect(self._start_edit_point)
-        # Chains (2026-09-01, plan rules_to_chains): a DOUBLE click on a chain
-        # node opens the chain-mode ChainDialog (chain_edit_requested); a
-        # DOUBLE click on a pad leaf opens the pad-mode ChainDialog
-        # (pad_edit_requested). The tree's context menu drives Redraw chain/
-        # spoke and Bulk set Cell (chain_redraw_requested/pad_redraw_requested/
-        # bulk_set_cell_requested) — those run the ApplyPipeline / bulk write
-        # on the same live chain_dock instance.
+        # Chains (2026-09-05, design config_qview_chain_entity_pages): the
+        # chain editor lives as the Config dock's right-QView Chain page (no
+        # dialog anymore). A SINGLE click on a chains: PAD leaf opens the spoke
+        # editor (pad_picked); a DOUBLE click on a chain/pad leaf is the same
+        # target (chain_edit_requested/pad_edit_requested); "Add spoke..."
+        # (add_pad_requested) opens the same page in pad mode. The tree's
+        # context menu still drives Redraw chain/spoke and Bulk set Cell
+        # (chain_redraw_requested/pad_redraw_requested/bulk_set_cell_requested)
+        # — those run the ApplyPipeline / bulk write on the same live
+        # chain_dock instance.
         self.config_tree_dock.chain_edit_requested.connect(self._start_edit_chain)
         self.config_tree_dock.pad_edit_requested.connect(self._start_edit_pad)
+        self.config_tree_dock.pad_picked.connect(self._start_edit_pad)
         self.config_tree_dock.add_pad_requested.connect(self._start_new_pad)
         self.config_tree_dock.chain_redraw_requested.connect(self.chain_dock.redraw_chain)
         self.config_tree_dock.pad_redraw_requested.connect(self.chain_dock.redraw_pad)
@@ -480,11 +502,9 @@ class DockHub:
         # (2026-09-01, Denis): saved is emitted by _on_save only on success —
         # a Point has no Redraw, so Save closing is the whole point of the form.
         self.points_dock.saved.connect(self.points_dialog.hide)
-        # Auto-close the (non-modal) Chain dialog after a successful Save
-        # (2026-09-01, plan rules_to_chains, "как Points"): saved is emitted by
-        # _persist_chain/_persist_pad only on success — Redraw (placement) and
-        # Bulk set Cell stay open for iterative tuning.
-        self.chain_dock.saved.connect(self.chain_dialog.hide)
+        # The Chain editor is a persistent Config right-QView page (2026-09-05,
+        # design config_qview_chain_entity_pages) — no auto-hide on `saved`: the
+        # page stays open for iterative tuning (Redraw on the current form).
         # Config tree's "Add placer.../Add thermal via pad.../Add point.../
         # Add rule..." context-menu actions -> Placer/Thermal via/Points/
         # Rules: open the form blank, targeting the file the action was
@@ -699,45 +719,39 @@ class DockHub:
             return None
         return selection[1]
 
-    def _open_chain_dialog(self) -> None:
-        """Show/raise the ONE live Chain dialog — non-modal, so the user can
-        keep selecting on the board while it's open: the ~2s snapshot tick
-        keeps feeding the same chain_dock instance inside it. Closing via the
-        window X just hides it (QDialog default), so the next open starts from
-        the current board state."""
-        self.chain_dialog.show()
-        self.chain_dialog.raise_()
-        self.chain_dialog.activateWindow()
-
     def _start_new_chain(self, file_path) -> None:
-        """ConfigTreeDock's add_chain_requested delegate — opens the (non-modal)
-        Chain dialog in chain mode with a fresh blank form, same reasoning as
-        _start_new_thermal_via above, for ChainDock."""
+        """ConfigTreeDock's add_chain_requested delegate (2026-09-05, design
+        config_qview_chain_entity_pages) — opens the Config dock's Chain right
+        page in chain mode with a fresh blank form, same reasoning as
+        _start_new_placement above, for ChainDock."""
+        self._focus_config_tree_dock()
         self.chain_dock.new_chain(file_path)
-        self._open_chain_dialog()
+        self._show_config_chain()
 
     def _start_edit_chain(self, entry) -> None:
         """ConfigTreeDock's chain_edit_requested delegate (double click on a
         chains: chain node, 2026-09-01, plan rules_to_chains) — loads the
-        chain into the live ChainDock's chain mode and opens the (non-modal)
-        Chain dialog with it."""
+        chain into the live ChainDock's chain mode and shows it as the Config
+        dock's Chain right page (2026-09-05)."""
         self.chain_dock.load_chain(entry)
-        self._open_chain_dialog()
+        self._show_config_chain()
 
     def _start_edit_pad(self, chain_entry, pad_index) -> None:
-        """ConfigTreeDock's pad_edit_requested delegate (double click on a
-        chains: pad leaf) — loads that one pad into the live ChainDock's pad
-        mode (remembering the parent chain) and opens the (non-modal) Chain
-        dialog with it."""
+        """ConfigTreeDock's pad_edit_requested / pad_picked delegate (single or
+        double click on a chains: pad leaf, 2026-09-05, design
+        config_qview_chain_entity_pages) — loads that one spoke into the live
+        ChainDock's pad mode and shows it as the Config dock's Chain right
+        page."""
         self.chain_dock.load_pad(chain_entry, pad_index)
-        self._open_chain_dialog()
+        self._show_config_chain()
 
     def _start_new_pad(self, chain_entry) -> None:
         """ConfigTreeDock's add_pad_requested delegate ("Add spoke..." on a
-        chain node) — opens the (non-modal) Chain dialog in pad mode with a
-        fresh blank form, appending to the given parent chain."""
+        chain node) — shows the Config dock's Chain right page in pad mode with
+        a fresh blank form, appending to the given parent chain."""
+        self._focus_config_tree_dock()
         self.chain_dock.new_pad(chain_entry, self.root_metadata_dock.root_path)
-        self._open_chain_dialog()
+        self._show_config_chain()
 
     def _start_new_cell(self, file_path) -> None:
         """ConfigTreeDock's add_cell_requested delegate — same reasoning as
