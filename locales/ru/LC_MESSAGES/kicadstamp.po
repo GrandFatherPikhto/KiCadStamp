@@ -726,26 +726,26 @@ msgstr "Y:"
 #: gui/docks/_anchor_origin.py:122 gui/docks/chain.py:255
 #: gui/docks/placer.py:232 gui/docks/placer.py:295
 msgid "Cartesian"
-msgstr "Пересканировать"
+msgstr "Картезианская"
 
 #: gui/docks/_anchor_origin.py:122 gui/docks/chain.py:255
 #: gui/docks/placer.py:295
 msgid "Polar"
-msgstr "Расстановщик"
+msgstr "Радиальная"
 
 #: gui/docks/_anchor_origin.py:124 gui/docks/chain.py:257
 #: gui/docks/placer.py:234
 msgid "Mode:"
-msgstr "Перемещения:"
+msgstr "Режим:"
 
 #: gui/docks/_anchor_origin.py:126 gui/docks/chain.py:276
 msgid "Radius:"
-msgstr "  Пады:"
+msgstr "Радиус:"
 
 #: gui/docks/_anchor_origin.py:128 gui/docks/chain.py:273
 #: gui/docks/placer.py:310
 msgid "radius mm"
-msgstr ""
+msgstr "радиус, мм"
 
 #: gui/docks/_anchor_origin.py:130 gui/docks/cell_editor.py:472
 #: gui/docks/chain.py:278
@@ -755,7 +755,7 @@ msgstr "Угол:"
 #: gui/docks/_anchor_origin.py:132 gui/docks/chain.py:275
 #: gui/docks/placer.py:312
 msgid "angle deg"
-msgstr "угол, град (0)"
+msgstr "угол, град"
 
 #: gui/docks/_anchor_origin.py:148
 msgid "e.g. U3 (refdes — mostly avoided in this project)"
@@ -836,7 +836,7 @@ msgstr "{label} обязателен."
 #: gui/docks/_anchor_origin.py:312 gui/docks/_anchor_origin.py:366
 #: gui/docks/placer.py:435 gui/docks/placer.py:473
 msgid "Radius"
-msgstr ""
+msgstr "Радиус"
 
 #: gui/docks/_anchor_origin.py:315 gui/docks/_anchor_origin.py:369
 #: gui/docks/cell_editor.py:131 gui/docks/cell_editor.py:930
