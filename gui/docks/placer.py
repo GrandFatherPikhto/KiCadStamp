@@ -85,12 +85,11 @@ clone_placement for editing/Redraw — requested live 2026-08-02 alongside a
 компонент и экстракторов)"), same "pick from a list you already browse"
 pattern as Cell/Cluster picking.
 
-Params comboboxes (placeholder -> literal net) are populated from the
-live board's actual net names (refresh_known_nets(), same ~2s poll
-cadence as refresh_known_roles()) and filter-as-you-type via
-_configure_searchable() — plain literal text is still accepted (editable
-combo, NoInsert policy), this is a picker, not a whitelist: "сети стоит
-сделать выпадашками (комбобоксами с поиском)" (2026-08-02).
+NOTE (2026-09-05): the Nets / Net overrides / Refs tabs (and their
+Params/auto-fill UI) were removed — nets auto-resolve (derive_role_nets)
+since 2026-08-28. Stored nets:/params:/net_overrides:/refs: on existing
+records are carried forward untouched on save; there is no manual GUI for
+them in the Placer anymore.
 
 Source: Cell (the role:/cluster: single-component modes were migrated 1:1 to
 CoordinatePlacement's anchor-relative mode on 2026-08-12, Group 0
@@ -110,13 +109,12 @@ clone source, matched by effective name.
 from dataclasses import replace
 import logging
 import math
-import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from kipy.errors import ApiError
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QGridLayout,
+from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFormLayout,
                               QGroupBox, QHBoxLayout, QLabel, QLineEdit,
                               QMessageBox, QPushButton, QTabWidget, QVBoxLayout,
                               QWidget)
@@ -133,10 +131,6 @@ from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.i18n import _
 from kicadstamp.placement.planner import PlacementPlanner
-from kicadstamp.placement.services.clone_role_resolver import (
-    candidate_nets_by_role,
-    suggest_role_nets_live,
-)
 from kicadstamp.utils.units import MM
 
 from ..ui_utils import busy
@@ -163,8 +157,6 @@ from .rename import (collect_all_cell_names, collect_all_point_names,
                      find_list_entry_file)
 
 logger = logging.getLogger(__name__)
-
-_PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
 
 
 def _newest_operation_file(log_dir: Path) -> Optional[Path]:
@@ -686,23 +678,6 @@ class PlacerDock(QWidget):
         # "don't redo work on an unchanged tick" idea as the retired Extract
         # dock's _last_autofill_key).
         self._last_selection_cluster_signature: Optional[tuple] = None
-        self._param_edits: Dict[str, QComboBox] = {}
-        self._known_nets: List[str] = []
-        # 2026-08-16 (net_template_pad): role -> narrowed Net-combobox choices,
-        # cached from the last auto-fill worker run (never read on the UI
-        # thread); {} until the first run / after a Cell change.
-        self._candidate_nets_narrowing: Dict[str, List[str]] = {}
-        # 2026-08-16 evening: same idea, for the Params tab. A placeholder
-        # {KEY} is narrowable when the cell's components: contain at least
-        # one role whose net_template is EXACTLY '{KEY}' (nothing else in
-        # the string) — that role's own already-narrowed/resolved net IS the
-        # placeholder's real value. _param_placeholder_roles is the static
-        # (no board needed) key -> [role, ...] mapping, rebuilt whenever
-        # cell_data is read; _param_narrowing is the resulting key -> [net,
-        # ...] choices, rebuilt in _finish_autofill_nets from the SAME
-        # worker run as the Nets narrowing (no extra socket round-trip).
-        self._param_placeholder_roles: Dict[str, List[str]] = {}
-        self._param_narrowing: Dict[str, List[str]] = {}
         # G4.4 cache (2026-08-12, carried over from the merged-in coordinate
         # dock): last-tick known-value SETS — refresh_known_roles skips the
         # whole repopulation loop when neither has changed (the ~2s poll tick
@@ -736,6 +711,10 @@ class PlacerDock(QWidget):
         # for Entity mode (2026-08-30, Entity/Placement split, phase 5.2) —
         # see _loaded_clone_identity and _do_save_entity.
         self._loaded_entity_identity: Optional[str] = None
+        # Stored manual by-nets override fields (params/nets/net_overrides/
+        # refs) of whichever record is loaded — carried forward unchanged on
+        # save, since the Placer no longer edits them (2026-09-05).
+        self._loaded_override_fields: Dict[str, Any] = {}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -838,8 +817,6 @@ class PlacerDock(QWidget):
         # text (Enter / focus loss). Deliberately NOT currentTextChanged/
         # editTextChanged — those fire on every keystroke and would flood the
         # kipy socket with live board reads while the user is still typing.
-        self.cluster_edit.activated.connect(self._maybe_autofill_nets)
-        self.cluster_edit.lineEdit().editingFinished.connect(self._maybe_autofill_nets)
         # Mark the Cluster/Name field "user-owned" on the same commit signals
         # (2026-08-15, plan cluster_field_autofill_not_hard_overwrite) — once
         # the user has typed/picked a value, the tree-click auto-fill must not
@@ -879,72 +856,13 @@ class PlacerDock(QWidget):
         source_page_layout.addStretch(1)
         self._tabs.addTab(source_page, _("Source"))
 
-        # Nets/Net overrides/Refs tabs (2026-08-06, split into three sibling
-        # tabs same day they were introduced — Denis, live: stacked as
-        # sections of one "Nets" page, all four (Params+Nets+Net overrides+
-        # Refs) at once didn't fit the screen. Params already existed
-        # (cell-driven, auto-discovered placeholders); nets:/net_overrides:/
-        # refs: had NO GUI at all before this (see module docstring +
-        # _KeyValueTableEditor above) — all four only apply to Cell mode's
-        # by-nets role resolution, hidden for Role/Cluster mode same as
-        # Params already was. Params stays paired with Nets (role -> literal
-        # net) rather than getting its own tab — both feed the same by-nets
-        # resolution step and Denis explicitly liked that pairing as-is
-        # ("отличное решение"); Net overrides and Refs are separate/rarer
-        # enough to earn their own tabs instead of competing for the same
-        # vertical space.
-        nets_page = QWidget()
-        nets_page_layout = QVBoxLayout(nets_page)
-        self._params_label = QLabel(_("Params (placeholder -> literal net, for by-nets role resolution):"))
-        nets_page_layout.addWidget(self._params_label)
-        self._params_container = QWidget()
-        self._params_layout = QGridLayout(self._params_container)
-        self._params_layout.setContentsMargins(0, 0, 0, 0)
-        nets_page_layout.addWidget(self._params_container)
-        nets_page_layout.addWidget(QLabel(_("Nets (role -> literal net, priority over the cell's own net_template):")))
-        self.nets_table = _KeyValueTableEditor(_("Role"), _("Net"), _("ROLE"), _("net name"))
-        nets_page_layout.addWidget(self.nets_table)
-        # Net-combobox narrowing (2026-08-16, net_template_pad): while the
-        # user edits a role's row, offer only that role's real candidate nets
-        # (cached from the last auto-fill worker run — see
-        # _on_nets_key_changed) instead of every net on the board. The role is
-        # the row's key, so the match is unambiguous.
-        self.nets_table.key_edit.currentTextChanged.connect(self._on_nets_key_changed)
-        # Auto-fill from board (2026-08-12, Denis: "если есть проблема, её
-        # можно сразу решить в ручном режиме" — fill what's unambiguous from
-        # the live board, leave the rest as empty rows for manual entry
-        # rather than blocking on it). Uses the Source tab's Cluster field
-        # (cluster_edit, which writes clone.name) as the query key — the SAME
-        # clone.name signal resolve_roles_by_nets's own narrowing (step 3)
-        # already relies on, not a new convention (re-tied 2026-08-14, split
-        # anchor_cluster: it was wrongly reading the Origin tab's Anchor
-        # cluster before, the field that narrows only the anchor). See
-        # suggest_role_nets_from_cluster's own docstring for exactly what it
-        # will and won't fill in.
-        autofill_row = QHBoxLayout()
-        self.autofill_nets_button = QPushButton(_("Auto-fill from board"))
-        self.autofill_nets_button.clicked.connect(self._on_autofill_nets_from_board)
-        autofill_row.addWidget(self.autofill_nets_button)
-        autofill_row.addStretch(1)
-        nets_page_layout.addLayout(autofill_row)
-        self._nets_tab_index = self._tabs.addTab(nets_page, _("Nets"))
-
-        net_overrides_page = QWidget()
-        net_overrides_page_layout = QVBoxLayout(net_overrides_page)
-        net_overrides_page_layout.addWidget(
-            QLabel(_("Net overrides (resolved net -> final override):")))
-        self.net_overrides_table = _KeyValueTableEditor(
-            _("Resolved net"), _("Override"), _("resolved net name"), _("override net name"))
-        net_overrides_page_layout.addWidget(self.net_overrides_table)
-        self._net_overrides_tab_index = self._tabs.addTab(net_overrides_page, _("Net overrides"))
-
-        refs_page = QWidget()
-        refs_page_layout = QVBoxLayout(refs_page)
-        refs_page_layout.addWidget(
-            QLabel(_("Refs (role -> explicit ref, bypasses search entirely — last resort):")))
-        self.refs_table = _KeyValueTableEditor(_("Role"), _("Ref"), _("ROLE"), _("e.g. C12"))
-        refs_page_layout.addWidget(self.refs_table)
-        self._refs_tab_index = self._tabs.addTab(refs_page, _("Refs"))
+        # NOTE (2026-09-05): the Nets / Net overrides / Refs tabs were REMOVED —
+        # nets auto-resolve (derive_role_nets, 2026-08-28), so the manual
+        # by-nets override editors are unnecessary for the typical flow. Stored
+        # nets:/params:/net_overrides:/refs: on existing records stay intact
+        # (carried forward untouched on save — see _build_entry_dict /
+        # _loaded_clone_override_fields). The Engine still applies them when
+        # present; there is simply no GUI to edit them in the Placer anymore.
 
         # Coordinate mode's form (2026-08-12, Group 1): one tab hosting the
         # single-entry _CoordinatePlacementForm — shown only when the Source
@@ -1089,9 +1007,6 @@ class PlacerDock(QWidget):
         self.rotation_edit.editingFinished.connect(self._autostage)
         self.layer_combo.currentIndexChanged.connect(self._autostage)
         self.mirror_checkbox.toggled.connect(self._autostage)
-        self.nets_table.changed.connect(self._autostage)
-        self.net_overrides_table.changed.connect(self._autostage)
-        self.refs_table.changed.connect(self._autostage)
         for w in self.origin_widget.findChildren(QLineEdit):
             w.editingFinished.connect(self._autostage)
         for w in self.origin_widget.findChildren(QComboBox):
@@ -1138,12 +1053,6 @@ class PlacerDock(QWidget):
         self._entity_row.setVisible(is_entity)
         self._coordinate_identity_row.setVisible(is_coordinate)
         self._placement_status_label.setVisible(is_entity)
-        # Entity mode (phase 5.2 stage 3): Nets/Net overrides/Refs moved to
-        # the Tools dock (gui/docks/tools.py) — hidden here. Legacy Cell/
-        # ClonePlacement mode keeps them.
-        self._tabs.setTabVisible(self._nets_tab_index, not is_coordinate and not is_entity)
-        self._tabs.setTabVisible(self._net_overrides_tab_index, not is_coordinate and not is_entity)
-        self._tabs.setTabVisible(self._refs_tab_index, not is_coordinate and not is_entity)
         self._tabs.setTabVisible(self._origin_tab_index, not is_coordinate)
         self._tabs.setTabVisible(self._coordinate_tab_index, is_coordinate)
         # Cell anchor is a Cell (clone)-mode action — hidden in Entity mode
@@ -1210,9 +1119,6 @@ class PlacerDock(QWidget):
         so the whole populate sits under the _loading auto-stage guard (see
         _autostage)."""
         self._selected_cell = entity.cell
-        # Params rows follow the CELL's {placeholders} — rebuild them for the
-        # entity's cell, then fill the entity's own values into the rows.
-        self._rebuild_param_rows()
         self._rebuild_cell_role_choices()
         self.cluster_edit.setCurrentText(entity.cluster or "")
         self.placer_name_edit.setText(entity.name)
@@ -1220,16 +1126,17 @@ class PlacerDock(QWidget):
         self.sheet_edit.setCurrentText(entity.sheet or "")
         self.layer_combo.setCurrentIndex({"F.Cu": 1, "B.Cu": 2}.get(entity.layer, 0))
         self.mirror_checkbox.setChecked(entity.mirror)
-        params = entity.params or {}
-        for key, edit in self._param_edits.items():
-            edit.setCurrentText(str(params.get(key, "")))
-        self.nets_table.load_dict(entity.nets or {})
-        self.net_overrides_table.load_dict(entity.net_overrides or {})
-        self.refs_table.load_dict(entity.refs or {})
         # Remember the identity the form loaded — _do_save_entity removes the
         # old record when the about-to-be-saved name differs (rename via the
         # combo), mirroring the clone path's _loaded_clone_identity.
         self._loaded_entity_identity = entity.name
+        # Entity nets/params are edited in the Tools dock, not here — keep the
+        # record's stored override fields so a Placer save never wipes them.
+        self._loaded_override_fields = {}
+        for key in ("params", "nets", "net_overrides", "refs"):
+            value = getattr(entity, key, None)
+            if value:
+                self._loaded_override_fields[key] = value
         # Phase 5.2 stage 2: load the Entity's placement node (trees:) into
         # the Origin tab — or show "не размещено" when it has no node.
         self._load_entity_node_origin(entity)
@@ -1405,26 +1312,13 @@ class PlacerDock(QWidget):
             self.cell_mode_combo.setCurrentIndex(0)
             self._on_cell_mode_changed()
         self._selected_cell = name
-        # 2026-08-16 (net_template_pad): a different Cell means different
-        # roles — a stale per-role narrowing from the previous cell must not
-        # survive into the new one (the next auto-fill run rebuilds it).
-        self._candidate_nets_narrowing = {}
-        # 2026-08-16 evening: same reasoning for the Params tab narrowing —
-        # a stale placeholder->role mapping (or its resolved nets) from the
-        # previous Cell is actively wrong for the new one, not just unhelpful.
-        self._param_placeholder_roles = {}
-        self._param_narrowing = {}
         self._refresh_cell_choices()
         self.cell_combo.blockSignals(True)
         if self.cell_combo.findText(name) < 0:
             self.cell_combo.addItem(name)
         self.cell_combo.setCurrentText(name)
         self.cell_combo.blockSignals(False)
-        self._rebuild_param_rows()
         self._rebuild_cell_role_choices()
-        # Auto-fill when the pair is complete (plan 2026-08-13, p.2): picking
-        # a Cell while an Anchor cluster is already set is a commit event.
-        self._maybe_autofill_nets()
 
     def set_selected_entity(self, name: str) -> None:
         """ConfigTreeDock's Entities leaf click (phase 5.6): switch to Entity
@@ -1512,9 +1406,6 @@ class PlacerDock(QWidget):
         the retired Extract dock's own _autofill_from_cluster. An empty/mixed
         selection silently does nothing.
 
-        On a successful fill also runs _maybe_autofill_nets(): once Cell and
-        Cluster are both set, the full Nets/Params auto-fill pipeline should
-        fire silently, exactly as if the user had committed the Cluster by
         hand (the field is marked user-owned so a later tick/selection can't
         clobber it — same reasoning as set_cluster_name)."""
         if self.is_coordinate or self.is_entity:
@@ -1542,7 +1433,6 @@ class PlacerDock(QWidget):
         # later tick or tree-click must not silently swap the identity out
         # from under the in-progress edit.
         self._cluster_identity_dirty = True
-        self._maybe_autofill_nets()
 
     def refresh_known_roles(self, snapshot) -> None:
         """Populates the Cluster/anchor Role/anchor Cluster combos with
@@ -1576,354 +1466,18 @@ class PlacerDock(QWidget):
         # anchor Role/Cluster combos share the same live-board values.
         self.coordinate_form.set_known_roles(roles, clusters)
 
-    def refresh_known_nets(self, board) -> None:
-        """Populates the Params comboboxes (placeholder -> literal net) with
-        the live board's actual net names — "сети стоит сделать выпадашками
-        (комбобоксами с поиском)" (2026-08-02). Same ~2s poll cadence as
-        refresh_known_roles(); cached on self so newly-discovered param
-        rows (_rebuild_param_rows, triggered by picking a different Cell)
-        don't have to wait for the next poll tick to be populated. Nets/Net
-        overrides' own value combos (2026-08-06) share the same list."""
-        self._known_nets = sorted({n.name for n in board.adapter.get_all_nets() if n.name})
-        # 2026-08-16 evening: re-apply any existing per-placeholder narrowing
-        # instead of unconditionally resetting to the full board list — same
-        # "poll can't silently undo it" reasoning as the Nets tab's own fix
-        # below (a placeholder with no narrowing yet still falls back to
-        # self._known_nets, unaffected).
-        for name, combo in self._param_edits.items():
-            set_combo_items(combo, self._param_narrowing.get(name, self._known_nets))
-        self.nets_table.set_value_choices(self._known_nets)
-        # 2026-08-16 (net_template_pad): set_value_choices just reset the row's
-        # value combobox to the FULL board list — re-apply the per-role
-        # narrowing for the row currently being edited, so the ~2s poll can't
-        # silently undo it (the row's key hasn't changed, so this is a no-op
-        # unless a narrowing exists for that key).
-        self._on_nets_key_changed(self.nets_table.key_edit.currentText().strip())
-        self.net_overrides_table.set_key_choices(self._known_nets)
-        self.net_overrides_table.set_value_choices(self._known_nets)
-
-    @staticmethod
-    def _autofill_single_candidate(combo: QComboBox, candidates: List[str]) -> None:
-        """If narrowing has resolved to exactly one candidate and the combo is
-        currently blank, select it — the same "never overwrite a value the user
-        already has" discipline as the Nets table's own auto-fill (only ROLES
-        currently blank get filled, see _finish_autofill_nets's `filled = {role:
-        net for role, net in suggestions.items() if not data.get(role,
-        "").strip()}`). More than one candidate (still ambiguous) or zero ->
-        leave the combo as-is, never guess."""
-        if not combo.currentText().strip() and len(candidates) == 1:
-            combo.setCurrentText(candidates[0])
-
-    def _rebuild_param_rows(self) -> None:
-        cell_data = self._cell_data(self._selected_cell)
-        placeholders = sorted(self._discover_placeholders(cell_data))
-        previous = {name: edit.currentText() for name, edit in self._param_edits.items()}
-
-        while self._params_layout.count():
-            item = self._params_layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
-
-        self._param_edits = {}
-        for row, name in enumerate(placeholders):
-            self._params_layout.addWidget(QLabel(name), row, 0)
-            edit = QComboBox()
-            configure_searchable(edit)
-            edit.lineEdit().setPlaceholderText(_("literal net for {{{name}}}").format(name=name))
-            edit.addItems(self._param_narrowing.get(name, self._known_nets))
-            edit.setCurrentText(previous.get(name, ""))
-            if not previous.get(name, "").strip():
-                self._autofill_single_candidate(edit, self._param_narrowing.get(name, []))
-            # 2026-08-31 (plan placer_source_tab_gaps P.3): a placeholder with
-            # NO narrowing looks identical to "auto-fill just hasn't fired yet"
-            # — but for a COMPOUND net_template (e.g. '/{SHEET}/DAC/+3V3_AVDD')
-            # it is a permanent, documented limitation, not a transient state.
-            # Say so on the field so it doesn't read as a silent breakage.
-            if name not in self._param_narrowing:
-                edit.setToolTip(
-                    _("Cannot auto-fill {{{name}}}: no cell role's net_template is "
-                      "exactly '{{{name}}}' — only bare placeholders are narrowed. "
-                      "Pick the net by hand.").format(name=name))
-            self._params_layout.addWidget(edit, row, 1)
-            self._param_edits[name] = edit
-
-        # Hide the whole Params section when the Cell has no {placeholder}
-        # anywhere (plan 2026-08-13, p.4) — _discover_placeholders already
-        # walks the ENTIRE cell_data recursively, deliberately broader than
-        # "net/net_template only", since a placeholder can live in any string.
-        self._params_label.setVisible(bool(placeholders))
-        self._params_container.setVisible(bool(placeholders))
-
     def _rebuild_cell_role_choices(self) -> None:
-        """Nets/Refs' own Role key choices — scoped to the PICKED CELL's own
+        """Populate the Cell-anchor Role picker from the PICKED CELL's own
         components: roles, not every role on the live board (found live
         2026-08-06, Denis: "зачем в выпадашках ВСЕ доступные на плате
-        роли? Нас же интересуют только роли относящиеся к Pi_Filter_p5v?"
-        — right: nets:/refs: are only ever consulted for a role that's
-        actually one of cell.components (see resolve_roles_by_nets), a
-        board-wide role list was misleadingly broad. Same "scope to the
-        owning cell, not the whole board" fix as CellDock's own
-        anchor_role_combo (2026-08-06)."""
+        роли? Нас же интересуют только роли относящиеся к Pi_Filter_p5v?").
+        The Nets/Refs tables that used to share these key choices are gone
+        (2026-09-05 — manual by-nets override editing removed)."""
         cell_data = self._cell_data(self._selected_cell)
         roles = sorted({c.get("role") for c in cell_data.get("components", []) if c.get("role")})
-        self.nets_table.set_key_choices(roles)
-        self.refs_table.set_key_choices(roles)
         # The Cell-anchor Role picker is sourced the SAME way as CellDock's
         # anchor_role_combo: THIS cell's own components, never the live board.
         set_combo_items(self.cell_anchor_role_combo, roles)
-
-    # ── Nets "Auto-fill from board" ──────────────────────────────────────
-
-    def _on_autofill_nets_from_board(self, quiet: bool = False) -> None:
-        """Auto-fill button handler — same collect(UI thread)/run(worker
-        thread)/finish(UI thread) split as Redraw/Extract, since this needs
-        a live board read (get_footprints/get_footprint_pads) over the
-        shared kipy socket. quiet=True (the auto-trigger, plan 2026-08-13
-        p.2) suppresses the full-success status message; the manual button
-        keeps the verbose one. `quiet` is carried through the payload/result
-        (see _collect_autofill_nets_inputs) — NOT a shared dock field (bug 2,
-        2026-08-13), so two overlapping runs can't clobber each other's
-        flag."""
-        self._show_message("")
-        payload = self._collect_autofill_nets_inputs(quiet=quiet)
-        if payload is None:
-            return
-        self._start_autofill_nets_op(payload)
-
-    def _maybe_autofill_nets(self) -> None:
-        """Auto-trigger (plan 2026-08-13, p.2; re-tied to cluster_edit
-        2026-08-14, split anchor_cluster): once BOTH a Cell is selected and
-        the placement's Cluster (Source tab, cluster_edit -> clone.name) is
-        non-empty, run the same auto-fill pipeline as the button — silently
-        on full success (no status spam on every Cell/Cluster pick). A silent
-        no-op whenever either half isn't ready: that is not an error, the
-        user simply hasn't completed the pair yet. p.1 (fill only blank
-        roles) makes repeated firings safe — old manual values of other roles
-        are never touched."""
-        if not self._selected_cell:
-            return
-        if not self.cluster_edit.currentText().strip():
-            return
-        payload = self._collect_autofill_nets_inputs(quiet=True)
-        if payload is None:
-            return
-        self._start_autofill_nets_op(payload)
-
-    def _collect_autofill_nets_inputs(self, quiet: bool = False) -> Optional[Dict[str, Any]]:
-        """Collect + validate the auto-fill inputs. quiet=True suppresses the
-        "not ready yet" error texts — used by the auto-trigger, where a
-        missing Cell/Cluster/board/roles is a normal transient state, not a
-        user-facing error (showing it on every pick would spam the status
-        line)."""
-        if not self._selected_cell:
-            if not quiet:
-                self._show_message(_("Pick a Cell first."), _ERROR_STYLE)
-            return None
-        cluster = self.cluster_edit.currentText().strip()
-        if not cluster:
-            if not quiet:
-                self._show_message(
-                    _("Set Cluster on the Source tab first — Auto-fill searches the live "
-                      "board by Role + that Cluster (prefix match), same signal the by-nets "
-                      "resolver's own narrowing already uses."), _ERROR_STYLE)
-            return None
-        cell_data = self._cell_data(self._selected_cell)
-        # 2026-08-16 (net_template_pad + afternoon net_template_same_as_role):
-        # carry each role's cell-level (net_template_pad, net_template_same_as_role)
-        # pair (both None if absent — loader's mutual-exclusion fatal guarantees
-        # at most one is set) — suggest_role_nets_from_cluster dispatches on the
-        # pair: same-as-role is resolved live against the sibling, pad reads the
-        # resolved candidate's SPECIFIC pad, neither falls back to lemma 2.
-        role_hints = {c["role"]: (c.get("net_template_pad"), c.get("net_template_same_as_role"))
-                      for c in cell_data.get("components", []) if c.get("role")}
-        if not role_hints:
-            if not quiet:
-                self._show_message(_("Selected cell has no component roles."), _ERROR_STYLE)
-            return None
-        # 2026-08-16 evening (Params narrowing): a placeholder {KEY} is only
-        # narrowable through a role whose net_template IS EXACTLY '{KEY}' —
-        # nothing else in the string (a compound template like
-        # '/{SHEET}/DAC/+3V3_AVDD' can't be reverse-mapped to a single net a
-        # role's pads actually carry, so KEY stays unnarrowed for those).
-        # Static cell data, no board needed — stored on self directly rather
-        # than round-tripped through the worker payload/result.
-        self._param_placeholder_roles = {}
-        for c in cell_data.get("components", []):
-            role = c.get("role")
-            nt = c.get("net_template")
-            if not role or not nt:
-                continue
-            m = _PLACEHOLDER_RE.fullmatch(nt)
-            if m:
-                self._param_placeholder_roles.setdefault(m.group(1), []).append(role)
-        board = self._main_window.connection.board
-        if board is None:
-            if not quiet:
-                self._show_message(_("Not connected."), _ERROR_STYLE)
-            return None
-        # 2026-08-16 evening (Auto-fill Sheet narrowing): carry the placement's
-        # OWN Sheet (sheet_edit -> clone.sheet, NOT anchor_sheet — the same
-        # field _narrow_ambiguous_candidates reads at apply time) and the
-        # project's sheet_names so the worker's role resolution can narrow a
-        # Cluster+Role ambiguity across REUSED hierarchical sheets (DAC_BUF
-        # live repro: AD_DAC+DAC_BUF -> IC2/IC3/IC4 board-wide, only Sheet
-        # separates them). sheet_names comes from _load_target_config() — the
-        # SAME leaf-has-none/fall-back-to-root helper the redraw path uses
-        # (plan_2026_08_15_redraw_sheet_names_from_root.md), not duplicated.
-        # Best-effort: no placer file picked (_placer_path None) or a broken
-        # one (silent load -> None) means an empty dict — Auto-fill then
-        # behaves exactly as before (no Sheet narrowing, never a crash/spam).
-        sheet = self.sheet_edit.currentText().strip() or None
-        sheet_names: Dict[str, str] = {}
-        if self._placer_path is not None:
-            loaded = self._load_target_config(silent=quiet)
-            if loaded is not None:
-                sheet_names = loaded[1].sheet_names or {}
-        # `quiet` rides along in the payload (and is echoed back in the
-        # worker's result) instead of a shared dock field — bug 2, 2026-08-13.
-        return {"adapter": board.adapter, "role_hints": role_hints, "cluster": cluster,
-                "sheet": sheet, "sheet_names": sheet_names, "quiet": quiet}
-
-    @staticmethod
-    def _run_autofill_nets(payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Worker thread: live board read only, never touches a widget."""
-        adapter = payload["adapter"]
-        role_hints = payload["role_hints"]
-        cluster = payload["cluster"]
-        # 2026-08-16 evening (Auto-fill Sheet narrowing): thread the
-        # placement's own Sheet + project sheet_names into BOTH resolvers so
-        # a reused-sheet Cluster+Role ambiguity (DAC_BUF) actually narrows.
-        sheet = payload.get("sheet")
-        sheet_names = payload.get("sheet_names")
-        suggestions = suggest_role_nets_live(adapter, role_hints, cluster,
-                                             sheet=sheet, sheet_names=sheet_names)
-        # 2026-08-16 (net_template_pad): also fetch the per-role candidate
-        # nets for the Net-combobox narrowing, in the SAME live-board worker
-        # run (auto-fill already fires on every Cell/Cluster commit — exactly
-        # when narrowing should refresh; no extra socket round-trip).
-        narrowed = candidate_nets_by_role(adapter, list(role_hints), cluster,
-                                          sheet=sheet, sheet_names=sheet_names)
-        return {"suggestions": suggestions, "roles": list(role_hints),
-                "narrowed": narrowed, "quiet": payload["quiet"]}
-
-    def _finish_autofill_nets(self, result: Dict[str, Any]) -> None:
-        """UI thread: merge suggested role->net pairs into the Nets table,
-        filling ONLY the roles that are currently blank — a role the user
-        already typed a value for is never overwritten (plan 2026-08-13,
-        p.1): the auto-trigger re-fires on every Cell+Cluster commit, so an
-        overwrite here would silently clobber manual edits on each re-fire;
-        the manual button gets the same, strictly safer behaviour for free.
-        Also reports what was/wasn't filled; the auto-trigger's full success
-        is silent. `quiet` is read from the RESULT dict (bug 2, 2026-08-13),
-        not a shared dock field — a second auto-fill started while this one
-        was still running can no longer flip this run's silence."""
-        suggestions = result["suggestions"]
-        roles = result["roles"]
-        quiet = result["quiet"]
-        # 2026-08-16 (net_template_pad): store the per-role candidate-net
-        # narrowing the worker already computed for the Net-combobox — a
-        # different Cell/Cluster re-runs this, so the cache tracks the user's
-        # current selection.
-        self._candidate_nets_narrowing = result.get("narrowed", {})
-        # 2026-08-16 evening: derive the Params tab's narrowing from the SAME
-        # per-role data — for placeholder KEY, prefer a matching role's
-        # confident suggestion (single value: fully narrowed) and fall back
-        # to the union of its narrowed-but-ambiguous candidates. Several
-        # roles can map to the same KEY (they're on the same physical net by
-        # construction, e.g. R_FB_TOP/D_PROT_ADJ/LDO_ADJ all '{D_PROT_ADJ}')
-        # — the first confident one wins, order doesn't matter since they
-        # must agree.
-        narrowed = result.get("narrowed", {})
-        self._param_narrowing = {}
-        for key, roles_for_key in self._param_placeholder_roles.items():
-            values: List[str] = []
-            for role in roles_for_key:
-                if role in suggestions:
-                    values = [suggestions[role]]
-                    break
-                values.extend(narrowed.get(role, []))
-            if values:
-                seen: set = set()
-                self._param_narrowing[key] = [v for v in values if not (v in seen or seen.add(v))]
-        for name, combo in self._param_edits.items():
-            set_combo_items(combo, self._param_narrowing.get(name, self._known_nets))
-            self._autofill_single_candidate(combo, self._param_narrowing.get(name, []))
-        data = self.nets_table.to_dict()
-        filled = {role: net for role, net in suggestions.items()
-                  if not data.get(role, "").strip()}
-        if filled:
-            data.update(filled)
-            self.nets_table.load_dict(data)
-
-        # A role still blank AND not resolved by this run is genuinely left
-        # for manual entry; a role the user already filled is neither "filled"
-        # nor "missing" and is simply not mentioned.
-        missing = sorted(role for role in roles
-                         if role not in suggestions and not data.get(role, "").strip())
-
-        if not suggestions:
-            self._show_message(
-                _("Nothing auto-filled — no role resolved to exactly one candidate with exactly "
-                  "one non-rule net for this Cluster; fill Nets in manually."), _WARN_STYLE)
-        elif missing:
-            self._show_message(
-                _("Auto-filled {filled}/{total} role(s); left for manual entry: {missing}")
-                .format(filled=len(filled), total=len(roles), missing=", ".join(missing)),
-                _WARN_STYLE)
-        elif not filled:
-            # Every role already had a value — nothing this run needed to fill.
-            if not quiet:
-                self._show_message(
-                    _("All roles already have a net — nothing to auto-fill."), _SUCCESS_STYLE)
-        elif quiet:
-            pass  # full success from the auto-trigger: don't spam the status line
-        else:
-            self._show_message(
-                _("Auto-filled all {count} role(s) from the board.").format(count=len(filled)),
-                _SUCCESS_STYLE)
-
-    def _on_nets_key_changed(self, key: str) -> None:
-        """Net-combobox narrowing (2026-08-16, net_template_pad): when the
-        user switches the Nets row's Role key, offer only that role's real
-        candidate nets (cached from the last auto-fill worker run — never a
-        live board read in the UI thread) instead of every net on the board.
-        A role with no narrowing (0/2+ candidates) explicitly falls back to
-        the full board net list rather than leaving the previous, now-wrong,
-        narrowed set in place."""
-        items = self._candidate_nets_narrowing.get(key, self._known_nets)
-        self.nets_table.set_value_choices_for_key(key, items)
-
-    def _start_autofill_nets_op(self, payload: Dict[str, Any]) -> None:
-        self._active_op = start_long_op(
-            self._main_window.connection, (self.autofill_nets_button,),
-            self._run_autofill_nets, self._finish_autofill_nets, self._on_autofill_nets_failed, payload)
-
-    def _on_autofill_nets_failed(self, message: str) -> None:
-        self._show_message(_("Auto-fill failed: {error}").format(error=message), _ERROR_STYLE)
-
-    def _do_autofill_nets(self) -> None:
-        """Synchronous composition of collect + run + finish — same
-        "for tests" shape as _do_redraw (manual-button semantics: verbose
-        success message)."""
-        payload = self._collect_autofill_nets_inputs()
-        if payload is None:
-            return
-        result = self._run_autofill_nets(payload)
-        self._finish_autofill_nets(result)
-
-    @staticmethod
-    def _discover_placeholders(node: Any) -> set:
-        found = set()
-        if isinstance(node, dict):
-            for value in node.values():
-                found |= PlacerDock._discover_placeholders(value)
-        elif isinstance(node, list):
-            for value in node:
-                found |= PlacerDock._discover_placeholders(value)
-        elif isinstance(node, str):
-            found |= set(_PLACEHOLDER_RE.findall(node))
-        return found
 
     # ── Message helper (same shape as the retired Extract dock's) ──────────
 
@@ -1932,6 +1486,16 @@ class PlacerDock(QWidget):
         no longer have an inline message_label (2026-08-13), the Log dock is
         the single destination."""
         show_message(text, style, logger)
+
+    def _carry_override_fields(self, entry: Dict[str, Any]) -> None:
+        """Re-attach the LOADED record's stored by-nets override fields
+        (params/nets/net_overrides/refs) to an entry being built for save —
+        the Placer no longer edits them (tabs removed, 2026-09-05; nets
+        auto-resolve), so they must survive any unrelated edit untouched."""
+        for key in ("params", "nets", "net_overrides", "refs"):
+            value = self._loaded_override_fields.get(key)
+            if value:
+                entry[key] = value
 
     # ── Building the clone_placement dict (shared by Redraw and Save) ──────
 
@@ -2041,19 +1605,11 @@ class PlacerDock(QWidget):
         if self.mirror_checkbox.isChecked():
             entry["mirror"] = True
 
-        params = {name: edit.currentText().strip() for name, edit in self._param_edits.items()
-                  if edit.currentText().strip()}
-        if params:
-            entry["params"] = params
-        nets = self.nets_table.to_dict()
-        if nets:
-            entry["nets"] = nets
-        net_overrides = self.net_overrides_table.to_dict()
-        if net_overrides:
-            entry["net_overrides"] = net_overrides
-        refs = self.refs_table.to_dict()
-        if refs:
-            entry["refs"] = refs
+        # Manual by-nets override fields are no longer edited in the Placer
+        # (tabs removed, 2026-09-05 — nets auto-resolve) — carry forward
+        # whatever the LOADED record already stored, so an unrelated edit here
+        # never silently wipes an existing nets:/params:/net_overrides:/refs:.
+        self._carry_override_fields(entry)
 
         return entry
 
@@ -2093,19 +1649,10 @@ class PlacerDock(QWidget):
         if self.mirror_checkbox.isChecked():
             entry["mirror"] = True
 
-        params = {key: edit.currentText().strip() for key, edit in self._param_edits.items()
-                  if edit.currentText().strip()}
-        if params:
-            entry["params"] = params
-        nets = self.nets_table.to_dict()
-        if nets:
-            entry["nets"] = nets
-        net_overrides = self.net_overrides_table.to_dict()
-        if net_overrides:
-            entry["net_overrides"] = net_overrides
-        refs = self.refs_table.to_dict()
-        if refs:
-            entry["refs"] = refs
+        # Entity nets/params are edited in the Tools dock, not here — carry
+        # forward the loaded record's stored override fields so a Placer save
+        # never wipes them (same reasoning as the clone path above).
+        self._carry_override_fields(entry)
 
         return entry
 
@@ -2490,15 +2037,17 @@ class PlacerDock(QWidget):
         cluster = self.cluster_edit.currentText().strip()
         if not cluster or not self._selected_cell:
             return None
-        params = {name: edit.currentText().strip() for name, edit in self._param_edits.items()
-                  if edit.currentText().strip()}
         sheet = self.sheet_edit.currentText().strip() or None
+        # Nets/params/overrides are no longer edited here (2026-09-05) — pass
+        # the loaded record's stored override fields through so the live read
+        # keeps resolving the cell's roles exactly as before.
+        ov = self._loaded_override_fields
         return ClonePlacement(
             cluster=cluster, cell=self._selected_cell, xy=(0.0, 0.0),
             sheet=sheet, mirror=self.mirror_checkbox.isChecked(),
-            params=params, nets=self.nets_table.to_dict(),
-            net_overrides=self.net_overrides_table.to_dict(),
-            refs=self.refs_table.to_dict())
+            params=ov.get("params") or {}, nets=ov.get("nets") or {},
+            net_overrides=ov.get("net_overrides") or {},
+            refs=ov.get("refs") or {})
 
     def _write_clone_live_origin(self, read: LiveRead,
                                  anchor_position: Optional[Vector2] = None) -> None:
@@ -3243,11 +2792,8 @@ class PlacerDock(QWidget):
         self.rotation_edit.setText("")
         self.layer_combo.setCurrentIndex(0)
         self.mirror_checkbox.setChecked(False)
-        self._rebuild_param_rows()
         self._rebuild_cell_role_choices()
-        self.nets_table.load_dict({})
-        self.net_overrides_table.load_dict({})
-        self.refs_table.load_dict({})
+        self._loaded_override_fields = {}
         self._loading = False
         self._show_message("")
 
@@ -3368,12 +2914,14 @@ class PlacerDock(QWidget):
         self.layer_combo.setCurrentIndex({"F.Cu": 1, "B.Cu": 2}.get(entry.get("layer"), 0))
         self.mirror_checkbox.setChecked(bool(entry.get("mirror", False)))
 
-        params = entry.get("params") or {}
-        for name, edit in self._param_edits.items():
-            edit.setCurrentText(str(params.get(name, "")))
-        self.nets_table.load_dict(entry.get("nets"))
-        self.net_overrides_table.load_dict(entry.get("net_overrides"))
-        self.refs_table.load_dict(entry.get("refs"))
+        # Remember the loaded record's stored override fields so an unrelated
+        # edit here never wipes them on save (tabs removed 2026-09-05).
+        self._loaded_override_fields = {
+            key: value for key, value in (
+                ("params", entry.get("params")), ("nets", entry.get("nets")),
+                ("net_overrides", entry.get("net_overrides")),
+                ("refs", entry.get("refs")))
+            if value}
         self._loading = False
 
     @staticmethod
