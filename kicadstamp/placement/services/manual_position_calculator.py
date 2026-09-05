@@ -5,10 +5,11 @@ from typing import TYPE_CHECKING
 
 from ...domain.geometry import BoardLayer, Vector2, Angle
 
-from ...config import Config, Chain, chain_effective_name
+from ...config import Config, Chain, Cell, chain_effective_name
 from ...kicad.adapter import KiCadBoardAdapter
 from ...exceptions import ValidationError, format_fatal_error
 from ...geometry.spoke_layout import apply_spoke_geometry
+from ...net_resolution import resolve_net_from_role
 from ...registry import make_registry_key
 from ..commands import PlacedComponentInfo, ViaCommand, TrackCommand
 from .clone_role_resolver import resolve_footprint_by_role
@@ -130,6 +131,46 @@ class ManualPositionCalculator:
         # PlacementPlanner.resolved_points (owns/shares this dict).
         self.resolved_points = resolved_points if resolved_points is not None else {}
         self._resolver = ComponentResolver(adapter, config, self.sheet_names)
+
+    def _resolve_role_nets(self, cell: Cell, role_to_ref: dict[str, str]) -> dict:
+        """Resolve every net_from_role-bearing via/track net against the live
+        board, BEFORE geometry — the "geometry does not touch the live board"
+        boundary (apply_spoke_geometry docstring) is preserved by doing the
+        live read here, outside the geometry layer. Mirrors
+        ClonePositionCalculator._resolve_role_nets — Bug 3 spoke-path fix
+        (2026-09-05).
+
+        Why this exists: the spoke path previously ignored net_from_role
+        entirely and planned every via/track as `net or chain.net` — so a
+        GND-assigned via of a bypass role (net_from_role=ROLE, net_from_role_pad='2')
+        was planned as the chain RAIL. The registry stored the rail net, the
+        live copper was GND (KiCad assigns it by connectivity), adopt/pre-check
+        honestly refused (net mismatch) and a second GND copy was created.
+        Resolving the role's real pad net live makes the PLAN match the live
+        board, so adopt/reconcile converge and the duplicate disappears.
+
+        Returns {(role, pad): net} for each distinct net_from_role in the cell
+        (cell-level vias/tracks and every component slot's vias). Each
+        resolve_net_from_role is fatal if the role/pad cannot be resolved on
+        THIS instance — apply stops, it does not guess. No rule_nets override
+        is passed (mirror clone exactly): explicit-pad cells (fpga_pwr_bank)
+        are unaffected by rule_nets, and a reused cell resolves identically on
+        the chain and clone paths.
+        """
+        items: list = list(cell.vias) + list(cell.tracks)
+        for slot in cell.components:
+            items += list(slot.vias)
+
+        resolved: dict = {}
+        for item in items:
+            role = getattr(item, "net_from_role", None)
+            if role is None:
+                continue
+            key = (role, getattr(item, "net_from_role_pad", None))
+            if key in resolved:
+                continue
+            resolved[key] = resolve_net_from_role(role, key[1], role_to_ref, self.adapter)
+        return resolved
 
     def compute_raw_positions(
         self,
@@ -267,7 +308,13 @@ class ManualPositionCalculator:
                 if active_pads is not None and spoke.pad not in active_pads:
                     continue
 
-                layout = apply_spoke_geometry(pad_position, spoke, cell, chain.net, role_to_ref)
+                # Resolve net_from_role-bearing via/track nets NOW — role_to_ref
+                # is ready and the live read belongs here, outside the geometry
+                # layer (Bug 3 spoke-path fix, 2026-09-05; see _resolve_role_nets).
+                resolved_role_nets = self._resolve_role_nets(cell, role_to_ref)
+                layout = apply_spoke_geometry(pad_position, spoke, cell, chain.net,
+                                              role_to_ref,
+                                              resolved_role_nets=resolved_role_nets)
                 anchor_id = f"pad:{spoke.pad}"
 
                 # Spoke‑level vias

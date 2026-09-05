@@ -15,7 +15,8 @@ from kicadstamp.domain.geometry import Vector2
 from kipy.board_types import Pad, FootprintInstance
 from kicadstamp.domain.geometry import BoardLayer
 
-from kicadstamp.config import Config, Rule, ManualSpoke, Cell, TemplateComponentSlot
+from kicadstamp.config import (Config, Rule, ManualSpoke, Cell, TemplateComponentSlot,
+                               TemplateVia, TemplateTrack)
 from kicadstamp.placement.services.manual_position_calculator import ManualPositionCalculator
 
 MM = 1_000_000
@@ -172,3 +173,85 @@ def test_rule_override_reprojects_pad_rotation():
     # local (1, 0) rotated by 90 -> (0, -1); origin (50, 60) -> (50, 59).
     assert placed[0].dest.x == int(50.0 * MM)
     assert placed[0].dest.y == int(59.0 * MM)
+
+
+# ---- Bug 3 spoke-path fix (2026-09-05): net_from_role / net_from_role_pad ----
+def _make_fp_with_pads(ref, pad_specs, role=None):
+    """Footprint with connected pads, each spec (number, net_name) — mirrors
+    the bypass-cap topology '1' on the rail net, '2' on GND."""
+    fp = MagicMock(spec=FootprintInstance)
+    fp.ref = ref
+    fp._role = role
+    fp._pads = [_make_pad(num, net) for num, net in pad_specs]
+    fp._pads_by_num = {p.number: p for p in fp._pads}
+    return fp
+
+
+def _adapter_with_pads(anchor_fp, comp_fp):
+    all_fps = [anchor_fp, comp_fp]
+    adapter = MagicMock()
+    adapter.get_footprints.return_value = all_fps
+    adapter.get_footprint.side_effect = lambda ref: next(
+        (fp for fp in all_fps if fp.ref == ref), None)
+    adapter.get_field_value.side_effect = (
+        lambda fp, name: getattr(fp, "_role", None) if name == "Role" else None)
+    adapter.get_footprint_pads.side_effect = lambda fp: list(getattr(fp, "_pads", []))
+    adapter.get_pad_by_number.side_effect = (
+        lambda fp, num: getattr(fp, "_pads_by_num", {}).get(str(num)))
+    adapter.get_selected_items.return_value = []
+    return adapter
+
+
+def _bypass_cell():
+    """Bypass-cap spoke cell — the exact fpga_pwr_bank-style topology that
+    triggered the Bug 3 GND-duplication: cell-level rail via (pad 1), cell-level
+    GND via (pad 2), a GND track and a slot GND via, all via net_from_role."""
+    return Cell(
+        name="bypass_spoke",
+        vias=[
+            TemplateVia(offset_along_mm=0.0, offset_across_mm=-1.5,
+                        net_from_role="BYPASS", net_from_role_pad="1"),
+            TemplateVia(offset_along_mm=0.0, offset_across_mm=-2.0,
+                        net_from_role="BYPASS", net_from_role_pad="2"),
+        ],
+        tracks=[
+            TemplateTrack(start_along_mm=0.0, start_across_mm=-2.0,
+                          end_along_mm=1.0, end_across_mm=-2.0,
+                          net_from_role="BYPASS", net_from_role_pad="2"),
+        ],
+        components=[
+            TemplateComponentSlot(role="BYPASS", offset_along_mm=1.0, offset_across_mm=-1.0,
+                                  angle_deg=0.0,
+                                  vias=[TemplateVia(offset_along_mm=0.0, offset_across_mm=-0.5,
+                                                    net_from_role="BYPASS", net_from_role_pad="2")]),
+        ],
+    )
+
+
+def test_spoke_net_from_role_pad2_vias_planned_as_gnd_not_rail():
+    """Bug 3 spoke-path fix end-to-end through the ManualSpoke planner: the
+    bypass-cell net_from_role vias/tracks are resolved from the role's REAL pad
+    nets BEFORE geometry, so the pad-2 (GND) items are planned as GND, NOT as
+    the chain rail. Before the fix every via/track fell back to `net or
+    chain.net` (the rail) — the registry stored the rail net, live copper was
+    GND, adopt/pre-check honestly refused and a duplicate GND copy appeared on
+    a first/empty-registry redraw.
+
+    Chain net = rail +2V5_VCCA; anchor IC1 pad '1'; pool component C1
+    (Role=BYPASS) with pad '1'=+2V5_VCCA and pad '2'=GND."""
+    rail = "+2V5_VCCA"
+    anchor_fp = _make_fp_with_pads("IC1", [("1", rail)])
+    comp_fp = _make_fp_with_pads("C1", [("1", rail), ("2", "GND")], role="BYPASS")
+    adapter = _adapter_with_pads(anchor_fp, comp_fp)
+
+    rule = Rule(net=rail, anchor_ref="IC1",
+                spokes=[ManualSpoke(pad="1", cell="bypass_spoke")])
+    cfg = Config(layer="F.Cu", cells={"bypass_spoke": _bypass_cell()}, chains=[rule])
+    calc = ManualPositionCalculator(adapter, cfg)
+
+    placed, vias, tracks = calc.compute_raw_positions([rule])
+    assert [p.ref for p in placed] == ["C1"]
+    # cell-level vias: pad1 -> rail, pad2 -> GND; then the slot's pad2 -> GND.
+    assert [v.net_name for v in vias] == [rail, "GND", "GND"]
+    # cell-level track with net_from_role pad2 -> GND (was the rail before the fix).
+    assert [t.net_name for t in tracks] == ["GND"]

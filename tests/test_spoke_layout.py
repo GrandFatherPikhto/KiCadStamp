@@ -11,6 +11,7 @@ KiCadStamp, обобщённые via: TemplateVia используется и н
 import sys
 import math
 from pathlib import Path
+import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from kicadstamp.domain.geometry import Vector2
@@ -308,3 +309,93 @@ class TestSpokeLevelTracks:
         layout = apply_spoke_geometry(pad_pos, ManualSpoke(pad="1", cell="no_tracks"),
                                       tpl, rule_net="GND", role_to_ref={})
         assert layout.tracks == []
+
+
+class TestApplySpokeGeometryRoleNets:
+    """Bug 3 spoke-path fix (2026-09-05): net_from_role / net_from_role_pad on
+    a ManualSpoke cell is honoured from a pre-resolved {(role, pad): net} dict —
+    a pad-2 (GND) via of a bypass role is planned as GND, NOT as the chain rail.
+    Before the fix every via/track was planned as `via.net or rule_net`, the
+    registry stored the rail net, the live copper was GND (KiCad assigns it by
+    connectivity), adopt/pre-check honestly refused and a second GND copy was
+    created on a first/empty-registry redraw."""
+
+    def _bypass_cell(self):
+        """Bypass-cap spoke cell: rail via (pad 1), GND via (pad 2), a GND
+        track and a GND slot via — the exact fpga_pwr_bank-style topology."""
+        return Cell(
+            name="bypass_cell",
+            vias=[
+                TemplateVia(offset_along_mm=0.0, offset_across_mm=-1.5,
+                            net_from_role="BYPASS", net_from_role_pad="1"),
+                TemplateVia(offset_along_mm=0.0, offset_across_mm=-2.0,
+                            net_from_role="BYPASS", net_from_role_pad="2"),
+            ],
+            tracks=[
+                TemplateTrack(start_along_mm=0.0, start_across_mm=-2.0,
+                              end_along_mm=1.0, end_across_mm=-2.0,
+                              net_from_role="BYPASS", net_from_role_pad="2"),
+            ],
+            components=[
+                TemplateComponentSlot(
+                    role="BYPASS", offset_along_mm=1.0, offset_across_mm=-1.0, angle_deg=0.0,
+                    vias=[TemplateVia(offset_along_mm=0.0, offset_across_mm=-0.5,
+                                      net_from_role="BYPASS", net_from_role_pad="2")],
+                ),
+            ],
+        )
+
+    def test_role_nets_taken_from_pre_resolved_map(self):
+        """With a provided dict, net_from_role-bearing vias/tracks take the
+        resolved net: pad 1 -> rail, pad 2 -> GND (not the chain rail)."""
+        pad_pos = Vector2.from_xy(50 * MM, 50 * MM)
+        spoke = ManualSpoke(pad="1", cell="bypass_cell", rotation_deg=0.0)
+        resolved = {("BYPASS", "1"): "+2V5_VCCA", ("BYPASS", "2"): "GND"}
+        layout = apply_spoke_geometry(pad_pos, spoke, self._bypass_cell(),
+                                      rule_net="+2V5_VCCA",
+                                      role_to_ref={"BYPASS": "C1"},
+                                      resolved_role_nets=resolved)
+        assert [v.net for v in layout.vias] == ["+2V5_VCCA", "GND"]
+        assert layout.tracks[0].net == "GND"
+        comp = layout.components[0]
+        assert comp.ref == "C1"
+        assert comp.vias[0].net == "GND"
+
+    def test_resolved_role_nets_none_keeps_legacy_rule_net_fallback(self):
+        """resolved_role_nets=None (pure-geometry legacy call, no live role
+        resolution) keeps the historical behaviour — net_from_role is ignored
+        and every via/track falls back to `via.net or rule_net`. Guards
+        backward compatibility for callers that never resolve roles."""
+        pad_pos = Vector2.from_xy(0, 0)
+        spoke = ManualSpoke(pad="1", cell="bypass_cell")
+        layout = apply_spoke_geometry(pad_pos, spoke, self._bypass_cell(),
+                                      rule_net="+2V5_VCCA", role_to_ref={"BYPASS": "C1"})
+        # Historical (buggy) behaviour: every via/track planned as the chain rail.
+        assert [v.net for v in layout.vias] == ["+2V5_VCCA", "+2V5_VCCA"]
+        assert layout.tracks[0].net == "+2V5_VCCA"
+        assert layout.components[0].vias[0].net == "+2V5_VCCA"
+
+    def test_missing_role_net_in_provided_dict_is_fatal(self):
+        """A PROVIDED dict makes the lookup STRICT — a net_from_role item
+        missing from it is an internal-consistency error, not a silent fallback
+        to the rail (which is exactly the Bug 3 GND-duplication)."""
+        from kicadstamp.exceptions import ValidationError
+        pad_pos = Vector2.from_xy(0, 0)
+        spoke = ManualSpoke(pad="1", cell="bypass_cell")
+        with pytest.raises(ValidationError):
+            apply_spoke_geometry(pad_pos, spoke, self._bypass_cell(),
+                                 rule_net="+2V5_VCCA", role_to_ref={"BYPASS": "C1"},
+                                 resolved_role_nets={("BYPASS", "1"): "+2V5_VCCA"})
+
+    def test_plain_static_nets_still_win_over_rule_net_with_dict(self):
+        """A static net (net='GND') on a via is untouched even when a dict IS
+        provided — net_from_role only applies to items that declare it."""
+        pad_pos = Vector2.from_xy(0, 0)
+        tpl = Cell(
+            name="t",
+            vias=[TemplateVia(offset_along_mm=0.0, offset_across_mm=-1.0, net="GND")],
+        )
+        layout = apply_spoke_geometry(pad_pos, ManualSpoke(pad="1", cell="t"), tpl,
+                                      rule_net="+3V3", role_to_ref={},
+                                      resolved_role_nets={})
+        assert layout.vias[0].net == "GND"

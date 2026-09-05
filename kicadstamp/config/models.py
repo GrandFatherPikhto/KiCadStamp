@@ -201,9 +201,14 @@ class TemplateVia:
     (see net_from_role_resolver.py and
     net_resolution.resolve_net_from_role). Mutually exclusive with net — both
     set at once is a load-time fatal; "both None" keeps the existing rule-net
-    convention (spoke_layout) / fatal-on-apply (clone_geometry). Unlike net,
-    this is only meaningful for ClonePlacement (apply has a live role_to_ref;
-    ManualSpoke ignores it — same as net_template on TemplateComponentSlot).
+    convention (spoke_layout) / fatal-on-apply (clone_geometry). Honoured on
+    BOTH placement paths (2026-09-05, Bug 3 GND-duplication fix): ClonePlacement
+    and chains:/ManualSpoke each resolve the role's real pad net live BEFORE
+    geometry — so a cell's GND-assigned via (net_from_role + pad '2' of a
+    bypass role) is planned as GND, not as the enclosing chain's rail, and the
+    registry converges with the live board (no duplicate GND copy on a first
+    redraw). Formerly the spoke path ignored it and planned every via as the
+    chain net.
     net_from_role_pad — OPTIONAL pad number for a multi-net role (LDO VIN/VOUT):
     the net of THIS pad is taken. Without it the role must carry exactly one
     non-rule net (lemma 2). Validation of the pad number is live/apply-time

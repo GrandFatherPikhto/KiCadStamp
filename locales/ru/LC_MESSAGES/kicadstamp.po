@@ -10206,6 +10206,24 @@ msgstr ""
 msgid "{kind} with net_from_role not resolved in cell {cell!r} ({name!r})"
 msgstr "via без цепи в шаблоне {cell!r} ({name!r})"
 
+#: kicadstamp/geometry/spoke_layout.py
+#, python-brace-format
+msgid "{kind} with net_from_role not resolved in cell {cell!r}"
+msgstr "{kind} с net_from_role не разрешён в ячейке {cell!r}"
+
+#: kicadstamp/geometry/spoke_layout.py
+#, python-brace-format
+msgid ""
+"{kind} has net_from_role={role!r}{pad_txt}, but it was not "
+"resolved before geometry — internal consistency: the caller "
+"must resolve every net_from_role prior to apply_spoke_geometry "
+"(mirror ClonePositionCalculator._resolve_role_nets)"
+msgstr ""
+"{kind} имеет net_from_role={role!r}{pad_txt}, но не был разрешён "
+"до геометрии — внутренняя несогласованность: вызывающий код должен "
+"разрешить каждый net_from_role до apply_spoke_geometry (зеркало "
+"ClonePositionCalculator._resolve_role_nets)"
+
 #: kicadstamp/geometry/clone_geometry.py:42
 #, python-brace-format
 msgid ""

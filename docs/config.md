@@ -116,6 +116,11 @@ cells:
   convention for `tracks:`' own `net:` below. The old GUI Extract dock's per-net **"Chain net (null)"**
   checkbox (2026-08-05, removed with the dock in Phase F 2026-09-01) wrote exactly this — see
   `extract_profiles:`' `rule_nets:` below for the CLI/profile-file equivalent (`--rule-net`).
+  A via/track net may instead be resolved live from a role's real pad — `net_from_role:` /
+  `net_from_role_pad:` (see `clone_placements:`/net-from-role) — and this now works on BOTH
+  placement paths, including `chains:`/ManualSpoke (2026-09-05, Bug 3 GND-duplication fix): a
+  GND-assigned via of a bypass role (`net_from_role` + pad `'2'`) is planned as GND, not as the
+  chain's net — it needs neither `net: null` nor a literal.
 - `components:` — `role:` (matched against the board's `Role` custom field, **not** a refdes — the
   same role can resolve to a different real component every time the cell is placed), local
   offset+angle, its own `vias:` (same shape, nested under the component), optional `layer:` (only
