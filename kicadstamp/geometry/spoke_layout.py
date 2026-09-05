@@ -32,6 +32,7 @@ from ..domain.geometry import Vector2, Angle
 
 from ..config import ManualSpoke, Cell, TemplateVia, TemplateTrack
 from ..utils.units import MM
+from .cell_anchor import cell_mount_offset
 
 _ORIGIN = Vector2.from_xy(0, 0)
 
@@ -60,9 +61,11 @@ class ResolvedVia:
     diameter_mm: float
 
 
-def _resolve_via(origin: Vector2, via: TemplateVia, rotation_deg: float, rule_net: str) -> ResolvedVia:
+def _resolve_via(origin: Vector2, via: TemplateVia, rotation_deg: float, rule_net: str,
+                 ax_mm: float = 0.0, ay_mm: float = 0.0) -> ResolvedVia:
     return ResolvedVia(
-        position=local_to_absolute(origin, via.offset_along_mm, via.offset_across_mm, rotation_deg),
+        position=local_to_absolute(origin, via.offset_along_mm - ax_mm,
+                                   via.offset_across_mm - ay_mm, rotation_deg),
         net=via.net or rule_net,
         drill_mm=via.drill_mm,
         diameter_mm=via.diameter_mm,
@@ -80,13 +83,16 @@ class ResolvedTrack:
 
 
 def _resolve_track(origin: Vector2, track: TemplateTrack, rotation_deg: float,
-                    rule_net: str, template_layer: str) -> ResolvedTrack:
+                    rule_net: str, template_layer: str,
+                    ax_mm: float = 0.0, ay_mm: float = 0.0) -> ResolvedTrack:
     """net=None inherits rule_net — same convention as _resolve_via (see its docstring).
     ManualSpoke does not support mirror (unlike ClonePlacement), so the layer is
     simply its own or the cell layer, without inversion."""
     return ResolvedTrack(
-        start=local_to_absolute(origin, track.start_along_mm, track.start_across_mm, rotation_deg),
-        end=local_to_absolute(origin, track.end_along_mm, track.end_across_mm, rotation_deg),
+        start=local_to_absolute(origin, track.start_along_mm - ax_mm,
+                                track.start_across_mm - ay_mm, rotation_deg),
+        end=local_to_absolute(origin, track.end_along_mm - ax_mm,
+                              track.end_across_mm - ay_mm, rotation_deg),
         width_mm=track.width_mm,
         net=track.net or rule_net,
         layer=track.layer or template_layer,
@@ -140,11 +146,16 @@ def apply_spoke_geometry(
             pad_position.y + int(spoke.shift_y_mm * MM),
         )
 
+    # The cell's mount point A (bbox-anchored frame, design_2026_09_05 v2): the
+    # stored offsets are ALWAYS in the cell's bbox frame and A is subtracted at
+    # placement so A coincides with the spoke origin. Absent anchor -> (0,0).
+    ax_mm, ay_mm = cell_mount_offset(cell)
     layout = SpokeLayout(origin=origin)
 
-    layout.vias = [_resolve_via(origin, v, spoke.rotation_deg, rule_net) for v in cell.vias]
-    layout.tracks = [_resolve_track(origin, t, spoke.rotation_deg, rule_net, cell.layer)
-                      for t in cell.tracks]
+    layout.vias = [_resolve_via(origin, v, spoke.rotation_deg, rule_net, ax_mm, ay_mm)
+                   for v in cell.vias]
+    layout.tracks = [_resolve_track(origin, t, spoke.rotation_deg, rule_net, cell.layer,
+                                    ax_mm, ay_mm) for t in cell.tracks]
 
     for slot in cell.components:
         ref = role_to_ref.get(slot.role)
@@ -153,9 +164,11 @@ def apply_spoke_geometry(
         layout.components.append(ComponentLayout(
             ref=ref,
             role=slot.role,
-            position=local_to_absolute(origin, slot.offset_along_mm, slot.offset_across_mm, spoke.rotation_deg),
+            position=local_to_absolute(origin, slot.offset_along_mm - ax_mm,
+                                       slot.offset_across_mm - ay_mm, spoke.rotation_deg),
             angle_deg=slot.angle_deg + spoke.rotation_deg,
-            vias=[_resolve_via(origin, v, spoke.rotation_deg, rule_net) for v in slot.vias],
+            vias=[_resolve_via(origin, v, spoke.rotation_deg, rule_net, ax_mm, ay_mm)
+                  for v in slot.vias],
             slot_layer=slot.layer,
         ))
 

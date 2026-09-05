@@ -18,6 +18,7 @@ from ..config import (ClonePlacement, Cell, TemplateVia, TemplateTrack,
 from ..exceptions import ValidationError, format_fatal_error
 from ..net_resolution import resolve_net
 from ..utils.units import MM
+from .cell_anchor import cell_mount_offset
 from .spoke_layout import (
     local_to_absolute, rotate_local_offset, ResolvedVia, ResolvedTrack, ComponentLayout, SpokeLayout,
 )
@@ -49,7 +50,8 @@ def _net_from_resolved(role: str, pad: str | None, resolved_role_nets: dict,
 
 def _resolve_clone_via(origin: Vector2, via: TemplateVia, rotation_deg: float,
                        clone: ClonePlacement, mirror: bool = False,
-                       resolved_role_nets: dict | None = None) -> ResolvedVia:
+                       resolved_role_nets: dict | None = None,
+                       ax_mm: float = 0.0, ay_mm: float = 0.0) -> ResolvedVia:
     if via.net_from_role is not None:
         net = _net_from_resolved(via.net_from_role, via.net_from_role_pad,
                                  resolved_role_nets or {}, "via", clone,
@@ -66,7 +68,8 @@ def _resolve_clone_via(origin: Vector2, via: TemplateVia, rotation_deg: float,
                  .format(along=via.offset_along_mm, across=via.offset_across_mm)]
             ))
         net = resolve_net(via.net, clone.params, clone.net_overrides)
-    pos = local_to_absolute(origin, via.offset_along_mm, via.offset_across_mm, rotation_deg)
+    pos = local_to_absolute(origin, via.offset_along_mm - ax_mm,
+                           via.offset_across_mm - ay_mm, rotation_deg)
     if mirror:
         pos = _mirror_x(origin, pos)
     return ResolvedVia(
@@ -80,7 +83,8 @@ def _resolve_clone_via(origin: Vector2, via: TemplateVia, rotation_deg: float,
 def _resolve_clone_track(origin: Vector2, track: TemplateTrack, rotation_deg: float,
                          clone: ClonePlacement, tpl_layer: str,
                          mirror: bool = False,
-                         resolved_role_nets: dict | None = None) -> ResolvedTrack:
+                         resolved_role_nets: dict | None = None,
+                         ax_mm: float = 0.0, ay_mm: float = 0.0) -> ResolvedTrack:
     if track.net_from_role is not None:
         net = _net_from_resolved(track.net_from_role, track.net_from_role_pad,
                                  resolved_role_nets or {}, "track", clone,
@@ -99,8 +103,10 @@ def _resolve_clone_track(origin: Vector2, track: TemplateTrack, rotation_deg: fl
                          e_along=track.end_along_mm, e_across=track.end_across_mm)]
             ))
         net = resolve_net(track.net, clone.params, clone.net_overrides)
-    start = local_to_absolute(origin, track.start_along_mm, track.start_across_mm, rotation_deg)
-    end = local_to_absolute(origin, track.end_along_mm, track.end_across_mm, rotation_deg)
+    start = local_to_absolute(origin, track.start_along_mm - ax_mm,
+                              track.start_across_mm - ay_mm, rotation_deg)
+    end = local_to_absolute(origin, track.end_along_mm - ax_mm,
+                            track.end_across_mm - ay_mm, rotation_deg)
     layer = track.layer or tpl_layer
     if mirror:
         start = _mirror_x(origin, start)
@@ -194,10 +200,15 @@ def clone_origin_from_component(fp_position: Vector2, fp_angle_deg: float,
 def clone_layout_origin(clone: ClonePlacement,
                         anchor_position: Vector2 | None,
                         parent_rotation_deg: float = 0.0) -> Vector2:
-    """World-space position of a clone placement's cell-local (0,0) — EXACTLY
-    the `origin` apply_clone_geometry() computes (same shift composition via
+    """World-space position of a clone placement's MOUNT point — the cell
+    point (its anchor A, or the default bbox corner when no anchor is set)
+    that coincides with `origin` at materialization. Exactly the `origin`
+    apply_clone_geometry() computes (same shift composition via
     rotate_local_offset, same anchor+shift addition), without resolving any
-    cell content (no role_to_ref, no vias/tracks).
+    cell content (no role_to_ref, no vias/tracks). Unchanged by the anchor
+    model (design_2026_09_05 v2): xy is the shift from the placement anchor to
+    the MOUNT, and the per-element `- A` reduction happens only inside
+    apply_clone_geometry.
 
     Split out (2026-08-25, handoff composite_cell_autodetect_and_cycle_guard)
     so ExtractDock's Sub-placements can convert an existing top-level
@@ -277,9 +288,14 @@ def apply_clone_geometry(
     else:
         origin = shift
     rotation_deg = parent_rotation_deg + clone.rotation_deg
+    # The cell's mount point A (bbox-anchored frame, design_2026_09_05 v2): the
+    # stored offsets are ALWAYS in the cell's bbox frame and A is subtracted at
+    # placement so A coincides with `origin`. Absent anchor -> A=(0,0) -> no-op
+    # for a default (bbox-corner) cell, so every existing caller is unchanged.
+    ax_mm, ay_mm = cell_mount_offset(cell)
 
     def place(along_mm: float, across_mm: float) -> Vector2:
-        p = local_to_absolute(origin, along_mm, across_mm, rotation_deg)
+        p = local_to_absolute(origin, along_mm - ax_mm, across_mm - ay_mm, rotation_deg)
         return _mirror_x(origin, p) if mirror else p
 
     def comp_angle(angle_deg: float) -> float:
@@ -288,9 +304,9 @@ def apply_clone_geometry(
 
     layout = SpokeLayout(origin=origin)
     layout.vias = [_resolve_clone_via(origin, v, rotation_deg, clone, mirror,
-                                      resolved_role_nets) for v in cell.vias]
+                                      resolved_role_nets, ax_mm, ay_mm) for v in cell.vias]
     layout.tracks = [_resolve_clone_track(origin, t, rotation_deg, clone, cell.layer, mirror,
-                                          resolved_role_nets) for t in cell.tracks]
+                                          resolved_role_nets, ax_mm, ay_mm) for t in cell.tracks]
 
     for slot in cell.components:
         ref = role_to_ref.get(slot.role)
@@ -302,7 +318,7 @@ def apply_clone_geometry(
             position=place(slot.offset_along_mm, slot.offset_across_mm),
             angle_deg=comp_angle(slot.angle_deg),
             vias=[_resolve_clone_via(origin, v, rotation_deg, clone, mirror,
-                                     resolved_role_nets) for v in slot.vias],
+                                     resolved_role_nets, ax_mm, ay_mm) for v in slot.vias],
             slot_layer=slot.layer,
         ))
 
