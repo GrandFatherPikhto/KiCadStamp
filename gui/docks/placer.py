@@ -120,7 +120,6 @@ from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFormLayout,
                               QWidget)
 
 from kicadstamp.apply_pipeline import ApplyPipeline
-from kicadstamp.cell_geometry_refresh import rebase_cell_anchor
 from kicadstamp.config import (ClonePlacement, Config, Entity, RuntimeContext,
                                clone_placement_effective_name,
                                coordinate_placement_effective_name,
@@ -951,6 +950,10 @@ class PlacerDock(QWidget):
         self.cell_anchor_box = QGroupBox(_("Cell anchor"))
         cell_anchor_layout = QVBoxLayout(self.cell_anchor_box)
         cell_anchor_form = QFormLayout()
+        self.cell_anchor_mode_combo = QComboBox()
+        self.cell_anchor_mode_combo.addItems(
+            [_("Role"), _("Role + Pad"), _("Point"), _("Reset (bbox default)")])
+        cell_anchor_form.addRow(_("Anchor mode:"), self.cell_anchor_mode_combo)
         self.cell_anchor_role_combo = QComboBox()
         self.cell_anchor_role_combo.setPlaceholderText(
             _("pick this cell's component role"))
@@ -958,10 +961,27 @@ class PlacerDock(QWidget):
         self.cell_anchor_pad_edit = QLineEdit()
         self.cell_anchor_pad_edit.setPlaceholderText(_("pad (optional)"))
         cell_anchor_form.addRow(_("Pad:"), self.cell_anchor_pad_edit)
+        point_row = QWidget()
+        point_layout = QHBoxLayout(point_row)
+        point_layout.setContentsMargins(0, 0, 0, 0)
+        self.cell_anchor_x_edit = QLineEdit()
+        self.cell_anchor_x_edit.setPlaceholderText(_("x (mm from bbox corner)"))
+        self.cell_anchor_y_edit = QLineEdit()
+        self.cell_anchor_y_edit.setPlaceholderText(_("y (mm from bbox corner)"))
+        point_layout.addWidget(self.cell_anchor_x_edit)
+        point_layout.addWidget(self.cell_anchor_y_edit)
+        cell_anchor_form.addRow(_("Point X/Y:"), point_row)
         cell_anchor_layout.addLayout(cell_anchor_form)
         self.set_cell_anchor_button = QPushButton(_("Set as anchor"))
         self.set_cell_anchor_button.clicked.connect(self._on_set_cell_anchor)
         cell_anchor_layout.addWidget(self.set_cell_anchor_button)
+        hint = QLabel(_("The anchor is a mount point (bbox frame): Role mounts on "
+                        "that component, Role+Pad on that pad, only X/Y on that "
+                        "point. The stored offsets are NEVER rewritten; the "
+                        "anchor is applied at placement. Leave everything empty "
+                        "to clear the anchor (back to the bbox default)."))
+        hint.setWordWrap(True)
+        cell_anchor_layout.addWidget(hint)
         cell_anchor_page_layout.addWidget(self.cell_anchor_box)
         cell_anchor_page_layout.addStretch(1)
         self._cell_anchor_tab_index = self._tabs.addTab(
@@ -2165,20 +2185,38 @@ class PlacerDock(QWidget):
 
     # ── Cell internal anchor (design 2026-09-04_cell_internal_anchor) ──────
 
+    @staticmethod
+    def _cell_entry_mount_offset(entry: dict) -> tuple[float, float]:
+        """The cell entry's CURRENT mount A in its stored frame (anchor_xy, else
+        anchor_role's centre offset, else (0,0)) — the dict twin of
+        geometry/cell_anchor.cell_mount_offset (design_2026_09_05 v2)."""
+        xy = entry.get("anchor_xy")
+        if xy is not None:
+            return (float(xy[0]), float(xy[1]))
+        role = entry.get("anchor_role")
+        if role:
+            for c in entry.get("components", []):
+                if c.get("role") == role:
+                    return (float(c.get("offset_along_mm", 0.0)),
+                            float(c.get("offset_across_mm", 0.0)))
+        return (0.0, 0.0)
+
     def _on_set_cell_anchor(self) -> None:
-        """"Set as anchor" — assign/move the loaded CELL's REAL internal anchor:
-        rebase every stored local offset so the chosen component's centre (Role
-        mode) or the chosen pad (Role+Pad mode) becomes the cell's new local
-        (0,0). One button, two modes picked by whether Pad is filled:
-          - Role mode — pure cell data, no live board needed: (ax_mm, ay_mm) is
-            the chosen component's own stored offset.
-          - Role+Pad mode — needs the LIVE pad geometry (the test instance the
-            dock is editing must be on the board): read_cell_anchor_offset_live.
-        The rebased cell is written back to the file that actually holds it
-        (cells: is a DICT section that may live in any included file — the same
-        find_dict_entry_file + merge_write path CellDock's own edit uses), then
-        saved is emitted so the Config tree refreshes. No backup_file, no
-        blocking "N places will shift" warning (design §2.4 — expected)."""
+        """"Set as anchor" — RECORD the loaded CELL's MOUNT POINT on its OWN
+        file WITHOUT rewriting any stored offset (design_2026_09_05 v2: stored
+        offsets always stay in the bbox frame; geometry subtracts the anchor A
+        at placement via cell_mount_offset). Mode picked by what is filled:
+          - Role (Pad empty) — mount on that component's centre: A = its stored
+            offset; writes anchor_xy + anchor_role. Offline.
+          - Role + Pad — mount on that pad: A = the pad's stored point (needs
+            the LIVE test instance: read_cell_anchor_offset_live); writes
+            anchor_xy + anchor_role + anchor_pad.
+          - only X/Y — mount on that bbox-frame point; writes anchor_xy.
+          - nothing filled — CLEAR the anchor (back to the bbox default).
+        Writes to the file that actually holds the cell (cells: is dict-keyed;
+        find_dict_entry_file + merge_write — the same path CellDock's own edit
+        uses), then saved is emitted so the Config tree refreshes. No mutation
+        of offsets, no backup_file, no blocking warning (design §2.4)."""
         if self.is_coordinate or self.is_entity:
             self._show_message(
                 _("Cell anchor applies to Cell (clone) mode only."), _ERROR_STYLE)
@@ -2189,12 +2227,29 @@ class PlacerDock(QWidget):
         if self._root_path is None:
             self._show_message(_("Set the project root first."), _ERROR_STYLE)
             return
+        mode = self.cell_anchor_mode_combo.currentIndex()
         role = self.cell_anchor_role_combo.currentText().strip()
-        if not role:
+        pad_text = self.cell_anchor_pad_edit.text().strip()
+        if mode == 0:        # Role
+            pad = None
+        elif mode == 1:      # Role + Pad
+            pad = pad_text or None
+        elif mode == 2:      # Point
+            role = ""
+            pad = None
+        else:                # Reset (bbox default)
+            role = ""
+            pad = None
+        point_mode = mode == 2
+        if mode in (0, 1) and not role:
             self._show_message(
                 _("Set as anchor: pick a Role of this cell first."), _ERROR_STYLE)
             return
-        pad = self.cell_anchor_pad_edit.text().strip() or None
+        if mode == 1 and pad is None:
+            self._show_message(
+                _("Set as anchor (Role + Pad): enter a pad, or switch the mode "
+                  "to Role."), _ERROR_STYLE)
+            return
 
         # The file that physically holds the cell (cells: is dict-keyed; the
         # entry may live in any file of the include: graph).
@@ -2218,9 +2273,22 @@ class PlacerDock(QWidget):
                 .format(name=self._selected_cell,
                         path=display_path(target_file)), _ERROR_STYLE)
             return
+        # Only the anchor bookkeeping fields are ever written — never offsets.
+        entry = dict(entry)
 
-        if pad is None:
-            # Role mode — the component's own stored offset, no live board.
+        desc = _("no anchor (bbox default)")
+        if point_mode:
+            x = self._parse_float(self.cell_anchor_x_edit, _("Anchor X"))
+            y = self._parse_float(self.cell_anchor_y_edit, _("Anchor Y"))
+            if x is None or y is None:
+                self._show_message(
+                    _("Set as anchor: point X and Y are required."), _ERROR_STYLE)
+                return
+            entry["anchor_xy"] = [x, y]
+            entry.pop("anchor_role", None)
+            entry.pop("anchor_pad", None)
+            desc = _("point ({x:.3f}, {y:.3f}) mm").format(x=x, y=y)
+        elif role:
             comp = next((c for c in entry.get("components", [])
                          if c.get("role") == role), None)
             if comp is None:
@@ -2229,39 +2297,58 @@ class PlacerDock(QWidget):
                       "{name!r}").format(role=role, name=self._selected_cell),
                     _ERROR_STYLE)
                 return
-            ax_mm = float(comp.get("offset_along_mm", 0.0))
-            ay_mm = float(comp.get("offset_across_mm", 0.0))
+            if pad is None:
+                ax_mm = float(comp.get("offset_along_mm", 0.0))
+                ay_mm = float(comp.get("offset_across_mm", 0.0))
+                entry["anchor_xy"] = [ax_mm, ay_mm]
+                entry["anchor_role"] = role
+                entry.pop("anchor_pad", None)
+                desc = _("role {role!r} at ({x:.3f}, {y:.3f}) mm").format(
+                    role=role, x=ax_mm, y=ay_mm)
+            else:
+                # Role+Pad: the pad's stored point. read_cell_anchor_offset_live
+                # returns the pad offset relative to the CURRENT mount; add the
+                # current mount A to express it in the stored (bbox) frame.
+                board = self._main_window.connection.board
+                if board is None or getattr(board, "adapter", None) is None:
+                    QMessageBox.warning(
+                        self, _("Set as anchor"),
+                        _("No live board connection — Role+Pad needs the pad's "
+                          "real position. Leave Pad empty for a Role-only "
+                          "anchor, or connect KiCad first."))
+                    return
+                clone = self._build_clone_for_read()
+                if clone is None:
+                    self._show_message(
+                        _("Set as anchor: Cluster name and a Cell are required "
+                          "to read the pad's position."), _ERROR_STYLE)
+                    return
+                loaded = self._load_target_config(silent=True)
+                if loaded is None:
+                    return
+                cfg, ctx = loaded
+                sheet_names = ctx.sheet_names if ctx is not None else {}
+                try:
+                    ax_mm, ay_mm = read_cell_anchor_offset_live(
+                        board.adapter, cfg, clone, sheet_names, role, pad)
+                except ValidationError as e:
+                    QMessageBox.warning(self, _("Set as anchor"), str(e))
+                    return
+                a0, a1 = self._cell_entry_mount_offset(entry)
+                entry["anchor_xy"] = [round(ax_mm + a0, 9), round(ay_mm + a1, 9)]
+                entry["anchor_role"] = role
+                entry["anchor_pad"] = pad
+                desc = _("role {role!r} pad {pad!r} at ({x:.3f}, {y:.3f}) mm").format(
+                    role=role, pad=pad,
+                    x=entry["anchor_xy"][0], y=entry["anchor_xy"][1])
         else:
-            # Role+Pad mode — the pad's offset needs the LIVE placement.
-            board = self._main_window.connection.board
-            if board is None or getattr(board, "adapter", None) is None:
-                QMessageBox.warning(
-                    self, _("Set as anchor"),
-                    _("No live board connection — Role+Pad needs the pad's real "
-                      "position. Leave Pad empty for a Role-only rebase, or "
-                      "connect KiCad first."))
-                return
-            clone = self._build_clone_for_read()
-            if clone is None:
-                self._show_message(
-                    _("Set as anchor: Cluster name and a Cell are required to "
-                      "read the pad's position."), _ERROR_STYLE)
-                return
-            loaded = self._load_target_config(silent=True)
-            if loaded is None:
-                return
-            cfg, ctx = loaded
-            sheet_names = ctx.sheet_names if ctx is not None else {}
-            try:
-                ax_mm, ay_mm = read_cell_anchor_offset_live(
-                    board.adapter, cfg, clone, sheet_names, role, pad)
-            except ValidationError as e:
-                QMessageBox.warning(self, _("Set as anchor"), str(e))
-                return
+            # Clear — back to the bbox default (no anchor fields).
+            entry.pop("anchor_xy", None)
+            entry.pop("anchor_role", None)
+            entry.pop("anchor_pad", None)
 
         try:
-            rebased = rebase_cell_anchor(entry, ax_mm, ay_mm, role, pad)
-            merge_write(target_file, {"cells": {self._selected_cell: rebased}},
+            merge_write(target_file, {"cells": {self._selected_cell: entry}},
                         section="cells")
         except (ValidationError, OSError) as e:
             self._show_message(
@@ -2269,17 +2356,14 @@ class PlacerDock(QWidget):
             return
 
         # The cells: entry changed under the graph cache — refresh the Config
-        # tree (and anything else listening to saved) so the rebased offsets
-        # show up; other docks that had this cell cached are not invalidated
-        # further (AnchorTreeDock is gone; ConfigTree is the display owner).
+        # tree (and anything else listening to saved); ConfigTree is the
+        # display owner. Placed instances of this cell shift on the next
+        # Redraw/Apply (the mount point moved — expected, design §2.4).
         self.saved.emit()
         self._show_message(
-            _("Rebased {name!r} to anchor {role!r}{pad_txt}: all offsets shifted "
-              "by ({ax:.3f}, {ay:.3f}) mm. Already-applied other instances of "
-              "this cell shift on the next Redraw/Apply.")
-            .format(name=self._selected_cell, role=role,
-                    pad_txt=f", pad {pad}" if pad else "",
-                    ax=ax_mm, ay=ay_mm),
+            _("Cell {name!r}: anchor set to {desc}. Stored offsets are never "
+              "rewritten — placed instances shift on the next Redraw/Apply.")
+            .format(name=self._selected_cell, desc=desc),
             _SUCCESS_STYLE)
 
     def _start_redraw_op(self, payload: Dict[str, Any]) -> None:

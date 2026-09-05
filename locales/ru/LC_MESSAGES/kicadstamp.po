@@ -12962,3 +12962,111 @@ msgstr "Ячейка {name!r} перебазирована на якорь {role
 #, python-brace-format
 msgid "Failed to read {path}: {error}"
 msgstr "Не удалось прочитать {path}: {error}"
+
+# anchor mount-point step (2026-09-05)
+msgid "Anchor mode:"
+msgstr "Режим якоря:"
+
+# anchor mount-point step (2026-09-05)
+msgid "Cell {name!r}: anchor set to {desc}. Stored offsets are never rewritten — placed instances shift on the next Redraw/Apply."
+msgstr "Ячейка {name!r}: якорь установлен: {desc}. Хранимые офсеты не переписываются — уже размещённые экземпляры сдвинутся при следующей перерисовке/применении."
+
+# anchor mount-point step (2026-09-05)
+msgid "Entity {name!r} own live position"
+msgstr "Собственная живая позиция сущности {name!r}"
+
+# anchor mount-point step (2026-09-05)
+msgid "No live board connection — Role+Pad needs the pad's real position. Leave Pad empty for a Role-only anchor, or connect KiCad first."
+msgstr "Нет подключения к плате — для Role+Pad нужна реальная позиция пада. Оставьте Pad пустым для якоря по роли или подключите KiCad."
+
+# anchor mount-point step (2026-09-05)
+msgid "Point X/Y:"
+msgstr "Точка X/Y:"
+
+# anchor mount-point step (2026-09-05)
+msgid "Reset (bbox default)"
+msgstr "Сброс (bbox по умолчанию)"
+
+# anchor mount-point step (2026-09-05)
+msgid "Role + Pad"
+msgstr "Роль + Пад"
+
+# anchor mount-point step (2026-09-05)
+msgid "Set as anchor (Role + Pad): enter a pad, or switch the mode to Role."
+msgstr "Установка якоря (Роль + Пад): введите пад или переключите режим на Роль."
+
+# anchor mount-point step (2026-09-05)
+msgid "Set as anchor: point X and Y are required."
+msgstr "Установка якоря: нужны X и Y точки."
+
+# anchor mount-point step (2026-09-05)
+msgid "The anchor is a mount point (bbox frame): Role mounts on that component, Role+Pad on that pad, only X/Y on that point. The stored offsets are NEVER rewritten; the anchor is applied at placement. Leave everything empty to clear the anchor (back to the bbox default)."
+msgstr "Якорь — точка монтажа (кадр bbox): Role — монтаж на этот компонент, Role+Pad — на этот пад, только X/Y — на эту точку. Хранимые офсеты НИКОГДА не переписываются; якорь применяется при кладке. Оставьте всё пустым, чтобы снять якорь (вернуться к bbox по умолчанию)."
+
+# anchor mount-point step (2026-09-05)
+msgid "a role-only anchor puts the mount on that component's centre, so anchor_xy must equal its stored offset ({along}, {across}); use a pad (anchor_pad) to mount on a specific pad instead"
+msgstr "якорь по роли ставит монтаж в центр этого компонента, поэтому anchor_xy должен совпадать с его хранимым офсетом ({along}, {across}); используйте pad (anchor_pad), чтобы монтироваться на конкретный пад"
+
+# anchor mount-point step (2026-09-05)
+msgid "anchor_role must name one of this cell's own components; the mount point cannot be derived from a role that does not exist"
+msgstr "anchor_role должна называть один из собственных компонентов этой ячейки; точку монтажа нельзя вывести из несуществующей роли"
+
+# anchor mount-point step (2026-09-05)
+msgid "anchor_xy {xy} does not match anchor_role {role!r} in cell {name!r}"
+msgstr "anchor_xy {xy} не совпадает с anchor_role {role!r} в ячейке {name!r}"
+
+# anchor mount-point step (2026-09-05)
+msgid "cell {cell!r} has no component without offset_along_mm/offset_across_mm (local (0,0)) to act as the Entity's own anchor role — and it carries no anchor_role either; set a Role anchor (Якорь ячейки) to give it a live mount"
+msgstr "в ячейке {cell!r} нет компонента без offset_along_mm/offset_across_mm (локальный (0,0)) в роли-якоря сущности — и у неё нет anchor_role; задайте Role-якорь (Якорь ячейки), чтобы получить живой монтаж"
+
+# anchor mount-point step (2026-09-05)
+msgid "cell {name!r}: anchor_role {role!r} is not a component of this cell"
+msgstr "ячейка {name!r}: anchor_role {role!r} — не компонент этой ячейки"
+
+# anchor mount-point step (2026-09-05)
+msgid "footprint {ref!r} ({label}) not found in the selection"
+msgstr "футпринт {ref!r} ({label}) не найден в выделении"
+
+# anchor mount-point step (2026-09-05)
+msgid "no anchor (bbox default)"
+msgstr "нет якоря (bbox по умолчанию)"
+
+# anchor mount-point step (2026-09-05)
+msgid "point ({x:.3f}, {y:.3f}) mm"
+msgstr "точка ({x:.3f}, {y:.3f}) мм"
+
+# anchor mount-point step (2026-09-05)
+msgid "role {role!r} (the cell's anchor origin)"
+msgstr "роль {role!r} (якорный origin ячейки)"
+
+# anchor mount-point step (2026-09-05)
+msgid "role {role!r} (the cell's anchor origin) is not a component of this cell"
+msgstr "роль {role!r} (якорный origin ячейки) — не компонент этой ячейки"
+
+# anchor mount-point step (2026-09-05)
+msgid "role {role!r} (the cell's zero-offset origin)"
+msgstr "роль {role!r} (нулевой origin ячейки)"
+
+# anchor mount-point step (2026-09-05)
+msgid "role {role!r} at ({x:.3f}, {y:.3f}) mm"
+msgstr "роль {role!r} в ({x:.3f}, {y:.3f}) мм"
+
+# anchor mount-point step (2026-09-05)
+msgid "role {role!r} pad {pad!r} at ({x:.3f}, {y:.3f}) mm"
+msgstr "роль {role!r}, пад {pad!r} в ({x:.3f}, {y:.3f}) мм"
+
+# anchor mount-point step (2026-09-05)
+msgid "the anchor live read needs the Entity's cell to exist"
+msgstr "для живого чтения якоря ячейка сущности должна существовать"
+
+# anchor mount-point step (2026-09-05)
+msgid "x (mm from bbox corner)"
+msgstr "x (мм от угла bbox)"
+
+# anchor mount-point step (2026-09-05)
+msgid "y (mm from bbox corner)"
+msgstr "y (мм от угла bbox)"
+
+# anchor mount-point step (2026-09-05)
+msgid "{label} is not in the current selection"
+msgstr "{label} отсутствует в текущем выделении"

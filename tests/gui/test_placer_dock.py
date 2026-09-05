@@ -1647,34 +1647,34 @@ def test_cell_anchor_role_combo_is_sourced_from_cell_components(main_window, tmp
     assert items == ["CAP", "FPGA"]
 
 
-def test_set_cell_anchor_role_mode_rebases_offline(main_window, tmp_path):
-    """Role mode needs NO live board (the board is not connected): rebase by
-    the FPGA component's own offset — FPGA lands on (0,0), every local offset
-    (incl. its own via, cell via, track endpoints, nested xy) shifts by the
-    same delta, and anchor_role is written to the cell's OWN file."""
+def test_set_cell_anchor_role_mode_writes_anchor_without_mutation(main_window, tmp_path):
+    """v2: Role "Set as anchor" needs NO live board and RECORDS the mount
+    (anchor_xy = the role's centre + anchor_role as identity) — the stored
+    offsets are NEVER rewritten (the bbox frame stays stable)."""
     dock, cells_file, _ = _make_cell_and_dock_anchor(main_window, tmp_path)
     assert main_window.connection.board is None  # offline regression guard
+    dock.cell_anchor_mode_combo.setCurrentIndex(0)  # Role
     dock.cell_anchor_role_combo.setCurrentText("FPGA")
     dock.cell_anchor_pad_edit.setText("")
+    dock.cell_anchor_x_edit.setText("")
+    dock.cell_anchor_y_edit.setText("")
     dock._on_set_cell_anchor()
 
     cell = _load(cells_file)["cells"]["composite"]
     by_role = {c["role"]: c for c in cell["components"]}
-    assert _off(by_role["FPGA"], "offset_along_mm") == 0.0
-    assert _off(by_role["FPGA"], "offset_across_mm") == 0.0
-    assert _close(by_role["FPGA"]["vias"][0].get("offset_along_mm", 0.0), 0.0)
-    assert _close(by_role["FPGA"]["vias"][0].get("offset_across_mm"), 1.2)
-    assert _close(by_role["CAP"].get("offset_along_mm"), 1.0)
-    assert _close(by_role["CAP"].get("offset_across_mm"), -2.0)
-    assert _close(cell["vias"][0].get("offset_along_mm"), 2.5)
-    assert _close(cell["vias"][0].get("offset_across_mm"), 3.0)
-    assert _close(cell["tracks"][0].get("start_along_mm"), -2.5)
-    assert _close(cell["tracks"][0].get("end_along_mm"), 0.5)
-    assert _close(cell["clone_placements"][0]["xy"][0], -1.5)
-    assert cell["clone_placements"][0]["xy"][1] == 0.0
+    # Offsets untouched: FPGA stays at (2.5, 1.0), CAP at (3.5, -1.0).
+    assert _off(by_role["FPGA"], "offset_along_mm") == 2.5
+    assert _off(by_role["FPGA"], "offset_across_mm") == 1.0
+    assert _off(by_role["FPGA"]["vias"][0], "offset_along_mm") == 2.5
+    assert _close(by_role["CAP"].get("offset_along_mm"), 3.5)
+    assert _close(by_role["CAP"].get("offset_across_mm"), -1.0)
+    assert _close(cell["vias"][0].get("offset_along_mm"), 5.0)
+    assert _off(cell["tracks"][0], "start_along_mm") == 0.0
+    assert cell["clone_placements"][0]["xy"] == [1.0, 1.0]
+    # The anchor (mount) is recorded: FPGA's centre + its identity role.
+    assert cell["anchor_xy"] == [2.5, 1.0]
     assert cell["anchor_role"] == "FPGA"
     assert "anchor_pad" not in cell
-    assert "anchor_xy" not in cell
 
 
 def test_set_cell_anchor_role_pad_requires_connection(main_window, tmp_path, monkeypatch):
@@ -1686,6 +1686,7 @@ def test_set_cell_anchor_role_pad_requires_connection(main_window, tmp_path, mon
     monkeypatch.setattr(placer_mod.QMessageBox, "warning",
                         lambda *a, **k: warnings.append(a) or None)
     before = _load(cells_file)
+    dock.cell_anchor_mode_combo.setCurrentIndex(1)  # Role + Pad
     dock.cell_anchor_role_combo.setCurrentText("FPGA")
     dock.cell_anchor_pad_edit.setText("A1")
     dock._on_set_cell_anchor()
@@ -1696,59 +1697,83 @@ def test_set_cell_anchor_role_pad_requires_connection(main_window, tmp_path, mon
 
 def test_set_cell_anchor_role_pad_stages_with_adapter(main_window, tmp_path, monkeypatch):
     """Role+Pad mode with a (fake) live adapter delegates the geometry to
-    read_cell_anchor_offset_live and rebases + records anchor_pad into the
-    cell's own file."""
+    read_cell_anchor_offset_live and RECORDS the pad's stored point as
+    anchor_xy (+ anchor_role/anchor_pad identity) — offsets untouched."""
     dock, cells_file, _ = _make_cell_and_dock_anchor(main_window, tmp_path)
     main_window.connection.board = SimpleNamespace(adapter=MagicMock())
     dock.cluster_edit.setCurrentText("FPGA_FLASH")
-    # The pad's cell-local offset (2.5, 1.0) — the pure reader is covered by
-    # tests/test_live_position.py; here we only exercise the dock's wiring.
+    # The pad's stored-frame offset (2.5, 1.0); the cell has no prior anchor
+    # (A=(0,0)), so anchor_xy == the reader's value. The pure reader is
+    # covered by tests/test_live_position.py; here we exercise the wiring.
     monkeypatch.setattr(placer_mod, "read_cell_anchor_offset_live",
                         lambda *a, **k: (2.5, 1.0))
+    dock.cell_anchor_mode_combo.setCurrentIndex(1)  # Role + Pad
     dock.cell_anchor_role_combo.setCurrentText("FPGA")
     dock.cell_anchor_pad_edit.setText("A1")
     dock._on_set_cell_anchor()
 
     cell = _load(cells_file)["cells"]["composite"]
     by_role = {c["role"]: c for c in cell["components"]}
-    assert _off(by_role["FPGA"], "offset_along_mm") == 0.0
-    assert _off(by_role["FPGA"], "offset_across_mm") == 0.0
-    assert _close(by_role["CAP"].get("offset_across_mm"), -2.0)
+    # No mutation: FPGA stays at its stored centre.
+    assert _off(by_role["FPGA"], "offset_along_mm") == 2.5
+    assert _off(by_role["FPGA"], "offset_across_mm") == 1.0
+    assert _close(by_role["CAP"].get("offset_across_mm"), -1.0)
     assert cell["anchor_role"] == "FPGA"
     assert cell["anchor_pad"] == "A1"
-    assert "anchor_xy" not in cell
+    assert cell["anchor_xy"] == [2.5, 1.0]
 
 
-def test_set_cell_anchor_repeated_rebase_clears_previous_pad(main_window, tmp_path, monkeypatch):
-    """A second rebase with a DIFFERENT anchor (role+pad first, then role-only)
-    must not leave the previous anchor_pad behind (load_cell fatals on a pad
-    without a role)."""
+def test_set_cell_anchor_switching_forms_updates_fields_without_mutation(main_window, tmp_path, monkeypatch):
+    """A second "Set as anchor" with a DIFFERENT form must not leave the
+    previous fields behind (role+pad first, then a role-only and finally a
+    point): every write replaces the anchor fields, offsets stay untouched."""
     dock, cells_file, _ = _make_cell_and_dock_anchor(main_window, tmp_path)
     main_window.connection.board = SimpleNamespace(adapter=MagicMock())
     dock.cluster_edit.setCurrentText("FPGA_FLASH")
     monkeypatch.setattr(placer_mod, "read_cell_anchor_offset_live",
                         lambda *a, **k: (2.5, 1.0))
 
-    # 1st: role+pad rebase onto FPGA pad A1.
+    # 1st: role+pad anchor onto FPGA pad A1.
+    dock.cell_anchor_mode_combo.setCurrentIndex(1)  # Role + Pad
     dock.cell_anchor_role_combo.setCurrentText("FPGA")
     dock.cell_anchor_pad_edit.setText("A1")
     dock._on_set_cell_anchor()
     cell = _load(cells_file)["cells"]["composite"]
     assert cell["anchor_role"] == "FPGA"
     assert cell["anchor_pad"] == "A1"
+    assert cell["anchor_xy"] == [2.5, 1.0]
 
-    # 2nd: role-only rebase onto CAP (pad cleared) — old pad must vanish.
+    # 2nd: role-only anchor onto CAP — the old pad and xy must vanish, and the
+    # mount point moves to CAP's centre (3.5, -1.0) — offsets unchanged.
+    dock.cell_anchor_mode_combo.setCurrentIndex(0)  # Role
     dock.cell_anchor_role_combo.setCurrentText("CAP")
     dock.cell_anchor_pad_edit.setText("")
     dock._on_set_cell_anchor()
     cell2 = _load(cells_file)["cells"]["composite"]
-    by_role = {c["role"]: c for c in cell2["components"]}
     assert cell2["anchor_role"] == "CAP"
     assert "anchor_pad" not in cell2
-    assert "anchor_xy" not in cell2
-    # CAP — the new anchor role — sits exactly on the new (0,0).
-    assert _off(by_role["CAP"], "offset_along_mm") == 0.0
-    assert _off(by_role["CAP"], "offset_across_mm") == 0.0
+    assert cell2["anchor_xy"] == [3.5, -1.0]
+    by_role = {c["role"]: c for c in cell2["components"]}
+    assert _off(by_role["CAP"], "offset_along_mm") == 3.5
+    assert _off(by_role["CAP"], "offset_across_mm") == -1.0
+
+    # 3rd: point anchor — role/pad vanish, only anchor_xy remains.
+    dock.cell_anchor_mode_combo.setCurrentIndex(2)  # Point
+    dock.cell_anchor_x_edit.setText("0.0")
+    dock.cell_anchor_y_edit.setText("0.0")
+    dock._on_set_cell_anchor()
+    cell3 = _load(cells_file)["cells"]["composite"]
+    assert "anchor_role" not in cell3
+    assert "anchor_pad" not in cell3
+    assert cell3["anchor_xy"] == [0.0, 0.0]
+
+    # 4th: reset — back to the bbox default.
+    dock.cell_anchor_mode_combo.setCurrentIndex(3)  # Reset
+    dock._on_set_cell_anchor()
+    cell4 = _load(cells_file)["cells"]["composite"]
+    assert "anchor_role" not in cell4
+    assert "anchor_pad" not in cell4
+    assert "anchor_xy" not in cell4
 
 
 def test_unrelated_edit_preserves_stored_override_fields(main_window, tmp_path):

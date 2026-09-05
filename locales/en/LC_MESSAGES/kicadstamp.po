@@ -14337,3 +14337,111 @@ msgstr ""
 #, python-brace-format
 msgid "Failed to read {path}: {error}"
 msgstr ""
+
+# anchor mount-point step (2026-09-05)
+msgid "Anchor mode:"
+msgstr ""
+
+# anchor mount-point step (2026-09-05)
+msgid "Cell {name!r}: anchor set to {desc}. Stored offsets are never rewritten — placed instances shift on the next Redraw/Apply."
+msgstr ""
+
+# anchor mount-point step (2026-09-05)
+msgid "Entity {name!r} own live position"
+msgstr ""
+
+# anchor mount-point step (2026-09-05)
+msgid "No live board connection — Role+Pad needs the pad's real position. Leave Pad empty for a Role-only anchor, or connect KiCad first."
+msgstr ""
+
+# anchor mount-point step (2026-09-05)
+msgid "Point X/Y:"
+msgstr ""
+
+# anchor mount-point step (2026-09-05)
+msgid "Reset (bbox default)"
+msgstr ""
+
+# anchor mount-point step (2026-09-05)
+msgid "Role + Pad"
+msgstr ""
+
+# anchor mount-point step (2026-09-05)
+msgid "Set as anchor (Role + Pad): enter a pad, or switch the mode to Role."
+msgstr ""
+
+# anchor mount-point step (2026-09-05)
+msgid "Set as anchor: point X and Y are required."
+msgstr ""
+
+# anchor mount-point step (2026-09-05)
+msgid "The anchor is a mount point (bbox frame): Role mounts on that component, Role+Pad on that pad, only X/Y on that point. The stored offsets are NEVER rewritten; the anchor is applied at placement. Leave everything empty to clear the anchor (back to the bbox default)."
+msgstr ""
+
+# anchor mount-point step (2026-09-05)
+msgid "a role-only anchor puts the mount on that component's centre, so anchor_xy must equal its stored offset ({along}, {across}); use a pad (anchor_pad) to mount on a specific pad instead"
+msgstr ""
+
+# anchor mount-point step (2026-09-05)
+msgid "anchor_role must name one of this cell's own components; the mount point cannot be derived from a role that does not exist"
+msgstr ""
+
+# anchor mount-point step (2026-09-05)
+msgid "anchor_xy {xy} does not match anchor_role {role!r} in cell {name!r}"
+msgstr ""
+
+# anchor mount-point step (2026-09-05)
+msgid "cell {cell!r} has no component without offset_along_mm/offset_across_mm (local (0,0)) to act as the Entity's own anchor role — and it carries no anchor_role either; set a Role anchor (Якорь ячейки) to give it a live mount"
+msgstr ""
+
+# anchor mount-point step (2026-09-05)
+msgid "cell {name!r}: anchor_role {role!r} is not a component of this cell"
+msgstr ""
+
+# anchor mount-point step (2026-09-05)
+msgid "footprint {ref!r} ({label}) not found in the selection"
+msgstr ""
+
+# anchor mount-point step (2026-09-05)
+msgid "no anchor (bbox default)"
+msgstr ""
+
+# anchor mount-point step (2026-09-05)
+msgid "point ({x:.3f}, {y:.3f}) mm"
+msgstr ""
+
+# anchor mount-point step (2026-09-05)
+msgid "role {role!r} (the cell's anchor origin)"
+msgstr ""
+
+# anchor mount-point step (2026-09-05)
+msgid "role {role!r} (the cell's anchor origin) is not a component of this cell"
+msgstr ""
+
+# anchor mount-point step (2026-09-05)
+msgid "role {role!r} (the cell's zero-offset origin)"
+msgstr ""
+
+# anchor mount-point step (2026-09-05)
+msgid "role {role!r} at ({x:.3f}, {y:.3f}) mm"
+msgstr ""
+
+# anchor mount-point step (2026-09-05)
+msgid "role {role!r} pad {pad!r} at ({x:.3f}, {y:.3f}) mm"
+msgstr ""
+
+# anchor mount-point step (2026-09-05)
+msgid "the anchor live read needs the Entity's cell to exist"
+msgstr ""
+
+# anchor mount-point step (2026-09-05)
+msgid "x (mm from bbox corner)"
+msgstr ""
+
+# anchor mount-point step (2026-09-05)
+msgid "y (mm from bbox corner)"
+msgstr ""
+
+# anchor mount-point step (2026-09-05)
+msgid "{label} is not in the current selection"
+msgstr ""
