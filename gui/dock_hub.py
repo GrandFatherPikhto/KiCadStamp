@@ -165,24 +165,18 @@ class DockHub:
         # dialog instead of switching a Detail dock tab.
         self.cells_dock = CellDock(main_window)
         self.cell_dialog = CellDialog(self.cells_dock, main_window)
-        # Chain (2026-09-01, plan rules_to_chains): the Chain form is a
-        # STANDALONE widget hosted in the non-modal ChainDialog — the Detail
-        # dock has no Rules page anymore (same move as Extract/Thermal via/
-        # Points/Tools). The same single live instance keeps receiving the
-        # snapshot ticks / set_root_path / saved. Redraw chain/spoke and Bulk
-        # set Cell are driven from the Config tree's context menu
-        # (chain_redraw_requested/pad_redraw_requested/bulk_set_cell_requested),
-        # not from buttons inside the dialog.
+        # Chain (2026-09-01 plan rules_to_chains -> 2026-09-05 QView move): the
+        # single live ChainDock is embedded as a Config right-QView page below —
+        # a QWidget can only have one parent, so the old ChainDialog wrapper is
+        # gone. The same instance keeps receiving the snapshot ticks /
+        # set_root_path / saved. Redraw chain/spoke and Bulk set Cell are driven
+        # from the Config tree's context menu.
         self.chain_dock = ChainDock(main_window)
         # Backward-compat alias for the 2026-09-01 Rule -> Chain rename — the
         # old rules_dock name still resolves to the live ChainDock.
         self.rules_dock = self.chain_dock
-        # Chain as a Config right-QView page (2026-09-05, design
-        # config_qview_chain_entity_pages): the single live ChainDock is now
-        # embedded as a page in the Config dock's right QStack — a single click
-        # on a chains: pad leaf opens the spoke editor there, and Add net/spoke
-        # + Edit chain flows show the same page (a QWidget can only have one
-        # parent, so the ChainDialog wrapper is GONE with this change).
+        # A single click on a chains: pad leaf opens the spoke editor here; Add
+        # net/spoke and Edit chain flows show the same page.
         self._chain_page = self.config_tree_dock.add_right_page(self.chain_dock)
         # Entity (2026-09-05, design config_qview_chain_entity_pages §5): the
         # Config right-QView page shown when an Entities leaf is selected — a

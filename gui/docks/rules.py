@@ -3,9 +3,9 @@
 BACKWARD-COMPAT SHIM (2026-09-01, plan rules_to_chains).
 
 This module was the old RuleDock (a DetailDock page with a spokes TABLE). The
-Chain form now lives in gui/docks/chain.py (ChainDock — chain/pad modes, hosted
-in the non-modal ChainDialog, gui/docks/chain_dialog.py), and the pads are
-leaves in the Config tree, not a table.
+Chain form now lives in gui/docks/chain.py (ChainDock — chain/pad modes,
+hosted as a Config right-QView page since 2026-09-05), and the pads are leaves
+in the Config tree, not a table.
 
 This file exists ONLY so that existing importers/tests referencing the old
 module path (`from gui.docks.rules import RuleDock`) keep working during the

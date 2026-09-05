@@ -10,14 +10,14 @@ fpga_cap_pair_spoke.yaml to a real project and hit the long-flagged gap
 all.
 
 2026-09-01 (plan rules_to_chains): this module was RuleDock/gui/docks/rules.py;
-it is now ChainDock in a STANDALONE non-modal dialog (ChainDialog,
-gui/docks/chain_dialog.py), no longer a page inside DetailDock's stack. The
-chain's pads are NOT a table anymore — they are LEAVES in the Config tree
-(category -> anchor -> chain -> pad), opened here by a DOUBLE click on a chain
-(chain mode) or on a pad (pad mode). The pads table / Move up-down / Add-
-Update-Remove buttons / Redraw buttons / Bulk-set Cell button are all gone
-from this form (Redraw chain/spoke and Bulk set Cell moved to the Config
-tree's context menu; a pad is edited via the pad mode below).
+2026-09-05 (design config_qview_chain_entity_pages): ChainDock is now a page of
+the Config dock's right QView (no dialog wrapper), and the pads are leaves in
+the Config tree (category -> anchor -> chain -> pad) whose single click opens
+the pad (spoke) editor here; a chain's double click opens chain mode, and the
+Config chains-nav QView page offers an anchor -> chains -> pads drill. The
+pads table / Move up-down / Add-Update-Remove buttons / Bulk-set Cell button
+are all gone from this form (Redraw chain/spoke and Bulk set Cell moved to the
+Config tree's context menu; a pad is edited via the pad mode below).
 
 TWO MODES, one QStackedWidget (the plan's "QStackedWidget на два режима"):
   - chain mode: Net/Name/Comment + Origin (AnchorOriginWidget, "Read current
@@ -56,8 +56,9 @@ Save writes via upsert_list_entry(key_fn=...) matching by chain_effective_name
 name: field (see config/models.py's chain_effective_name), unlike
 clone_placements:/thermal_via_arrays: which always require one.
 
-Errors/fatals go to the Log dock (never silent) — same as the old RuleDock;
-the ChainDialog auto-hides on `saved` (DockHub wiring).
+Errors/fatals go to the Log dock (never silent) — same as the old RuleDock.
+`saved` refreshes the Config tree; the editor stays open as the Config QView
+page (the pad page carries its own Apply/Redraw actions).
 """
 import dataclasses
 import logging
@@ -169,7 +170,8 @@ class BulkSetCellDialog(QDialog):
 
 class ChainDock(QWidget):
     """Edits a single chain (chain mode) or one of its pads (pad mode). Hosted
-    in the non-modal ChainDialog — no longer a DetailDock page."""
+    as a page in the Config dock's right QView (2026-09-05, design
+    config_qview_chain_entity_pages)."""
 
     # Fired after a successful write that can change the tree's display —
     # ConfigTreeDock refreshes its Chains category (see gui/dock_hub.py).
