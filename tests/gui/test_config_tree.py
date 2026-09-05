@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import pytest
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QMessageBox
+from PyQt6.QtWidgets import QMessageBox, QWidget
 
 import gui.docks.config_tree as config_tree_mod
 from gui.docks.config_tree import ConfigTreeDock
@@ -70,6 +70,57 @@ def test_root_file_own_sections_shown_directly(main_window, tmp_path):
     assert root_item.text(0) == "root.sexp"
     cells = _find(root_item, "Cells")
     assert cells.child(0).text(0) == "one_role"
+
+
+def test_master_detail_splitter_holds_tree_and_right_stack(main_window):
+    """S-A (plan config_qview_placer_nettrace): ConfigTreeDock is now a
+    master-detail — QSplitter(tree left, context QStack right), with an empty
+    placeholder page 0 and no right pages until DockHub adds them."""
+    dock = ConfigTreeDock(main_window)
+    assert dock.splitter.widget(0) is dock.tree
+    assert dock.splitter.widget(1) is dock.right_stack
+    assert dock.right_stack.count() == 1            # just the placeholder
+    assert dock.current_right_page_index() == 0
+    # No selection -> placeholder page stays current.
+    dock.set_current_page(-1)
+    assert dock.current_right_page_index() == 0
+
+
+def test_add_right_page_and_routing(main_window):
+    """S-A: DockHub appends Placer/NetTrace as right pages; set_current_page
+    routes by tree selection (page index), and a category/file selection
+    (index < 1) falls back to the placeholder."""
+    dock = ConfigTreeDock(main_window)
+    placer = QWidget()
+    net_trace = QWidget()
+    placer_index = dock.add_right_page(placer)
+    net_index = dock.add_right_page(net_trace)
+    assert placer_index == 1
+    assert net_index == 2
+    assert dock.right_page_count() == 3
+
+    dock.set_current_page(placer_index)
+    assert dock.right_stack.currentWidget() is placer
+    dock.set_current_page(net_index)
+    assert dock.right_stack.currentWidget() is net_trace
+    # Category/file click -> placeholder.
+    dock.set_current_page(0)
+    assert dock.right_stack.currentWidget() is dock.right_stack.widget(0)
+    dock.set_current_page(-5)
+    assert dock.current_right_page_index() == 0
+
+
+def test_show_page_raises_the_dock(main_window):
+    """S-A: show_page switches the page AND makes the dock visible (raise-on-
+    switch, the DetailDock.show_X convention it replaces)."""
+    dock = ConfigTreeDock(main_window)
+    page = QWidget()
+    idx = dock.add_right_page(page)
+    dock.show_page(idx)
+    assert dock.right_stack.currentWidget() is page
+    # Visible flag requested (the dock has no shown parent in a unit test, so
+    # isVisible() stays False — but it must not be marked hidden).
+    assert not dock.isHidden()
 
 
 def test_included_file_becomes_a_nested_file_node_not_merged_in(main_window, tmp_path):

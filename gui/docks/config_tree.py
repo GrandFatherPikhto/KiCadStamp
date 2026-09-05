@@ -119,7 +119,8 @@ from typing import Optional
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (QAbstractItemView, QDockWidget, QFileDialog,
-                              QInputDialog, QMenu, QMessageBox, QTreeWidget,
+                              QInputDialog, QMenu, QMessageBox, QSplitter,
+                              QStackedWidget, QTreeWidget,
                               QTreeWidgetItem, QTreeWidgetItemIterator,
                               QVBoxLayout, QWidget)
 
@@ -384,7 +385,23 @@ class ConfigTreeDock(QDockWidget):
         self._restoring_expand_state = False
         self.tree.itemExpanded.connect(self._on_item_expanded)
         self.tree.itemCollapsed.connect(self._on_item_collapsed)
-        layout.addWidget(self.tree)
+
+        # Master-detail (2026-09-05, plan config_qview_placer_nettrace): the
+        # dock hosts the config tree on the LEFT and a context QView (a
+        # QStackedWidget of right pages) on the RIGHT — the same organisation
+        # TreesDock uses. Right pages (Placer, NetTrace, later others) are
+        # added from DockHub via add_right_page(); stack page 0 is an empty
+        # placeholder shown for a category/file selection (nothing loaded).
+        self._right_stack = QStackedWidget()
+        self._placeholder_page = QWidget()
+        self._right_stack.addWidget(self._placeholder_page)
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.addWidget(self.tree)
+        self.splitter.addWidget(self._right_stack)
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
+        layout.addWidget(self.splitter)
 
         # F2 = Rename on the current leaf (2026-08-25, the project's first
         # shortcut — see docs/hotkeys.md). WidgetWithChildrenShortcut, NOT the
@@ -396,6 +413,43 @@ class ConfigTreeDock(QDockWidget):
         self._rename_shortcut.activated.connect(self._on_rename_shortcut)
 
         self.setWidget(container)
+
+    # ── Master-detail right pages (2026-09-05, plan config_qview_placer_nettrace) ──
+
+    @property
+    def right_stack(self) -> QStackedWidget:
+        """The right-hand context QView (QStackedWidget) — page 0 is the
+        empty placeholder; DockHub adds Placer/NetTrace pages via
+        add_right_page()."""
+        return self._right_stack
+
+    def add_right_page(self, widget: QWidget) -> int:
+        """Append a context QView page to the right stack (e.g. Placer,
+        NetTrace) and return its stack index (>= 1 — page 0 is the
+        placeholder)."""
+        self._right_stack.addWidget(widget)
+        return self._right_stack.count() - 1
+
+    def right_page_count(self) -> int:
+        return self._right_stack.count()
+
+    def set_current_page(self, index: int) -> None:
+        """Switch the right context QView to the given page index. index < 1
+        (e.g. -1 or 0) shows the empty placeholder — for a category/file
+        selection nothing is loaded."""
+        target = index if 0 < index < self._right_stack.count() else 0
+        self._right_stack.setCurrentIndex(target)
+
+    def current_right_page_index(self) -> int:
+        return self._right_stack.currentIndex()
+
+    def show_page(self, index: int) -> None:
+        """Switch the right page AND make sure this dock is visible/raised —
+        the same raise-on-switch convention DetailDock's show_X() had (the
+        dock shares its area with role_cluster_tree/trees_dock tabs)."""
+        self.set_current_page(index)
+        self.setVisible(True)
+        self.raise_()
 
     def apply_highlight(self) -> None:
         """Re-apply the highlight stylesheet to this tree's selected item —
