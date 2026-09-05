@@ -59,8 +59,8 @@ from typing import Any, Callable, Dict, List, Optional
 from PyQt6.QtCore import QItemSelectionModel, Qt, pyqtSignal
 from PyQt6.QtGui import QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDockWidget, QHBoxLayout,
-                              QLineEdit, QMessageBox, QPushButton,
-                              QTreeView, QVBoxLayout, QWidget)
+                              QLineEdit, QMessageBox, QPushButton, QSplitter,
+                              QTabWidget, QTreeView, QVBoxLayout, QWidget)
 
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.exceptions import ValidationError
@@ -100,6 +100,13 @@ class _Row:
 
 
 class RoleClusterTreeDock(QDockWidget):
+    """Master-detail "Components" dock — since 2026-09-05 (plan
+    components_fieldstool_master_detail) the components tree lives in a left
+    QTabWidget (tabs on top: "Components" + the shared Pending page) with the
+    embedded fieldstool window as the right QView, mirroring Config/Trees.
+    Direct construction without the master-detail collaborators (unit tests)
+    still yields the plain single-tree page the dock used to be."""
+
     # Fired when a Cluster GROUP node is clicked while grouped by Cluster,
     # in LIVE mode only (see _on_clicked) — PlacerDock listens, so picking
     # a cluster here fills its Cluster field the same way picking a cell
@@ -108,7 +115,8 @@ class RoleClusterTreeDock(QDockWidget):
     # into fieldstool instead — see module docstring).
     cluster_picked = pyqtSignal(str)
 
-    def __init__(self, main_window, connection=None):
+    def __init__(self, main_window, connection=None,
+                 pending_panel=None, fieldstool_window=None):
         super().__init__(_("Components"), main_window)
         # Stable QDockWidget identity for QMainWindow.saveState()/restoreState()
         # (handoff sync_skip_message_and_view_menu §0) — without a unique
@@ -151,8 +159,20 @@ class RoleClusterTreeDock(QDockWidget):
         # automatic poll tick never refreshes on its own once already
         # connected, see MainWindow._poll's docstring).
         self.on_board_written: Optional[Callable[[], None]] = None
-        container = QWidget()
-        layout = QVBoxLayout(container)
+        # Master-detail collaborators + state (2026-09-05, plan
+        # components_fieldstool_master_detail): pending_panel is the shared
+        # Pending page (a QWidget) and fieldstool_window is the embedded
+        # fieldstool MainWindow. Direct-construction tests pass neither -> the
+        # dock stays the plain single-tree page it always was.
+        self._pending_panel = pending_panel
+        self._fieldstool_window = fieldstool_window
+        self._left_tabs: Optional[QTabWidget] = None
+        self.splitter: Optional[QSplitter] = None
+        self._splitter_restored = False
+
+        # ── "Components" tab page — the tree and its controls ──────────────
+        self._tree_page = QWidget()
+        layout = QVBoxLayout(self._tree_page)
         layout.setContentsMargins(4, 4, 4, 4)
 
         top_row = QHBoxLayout()
@@ -205,7 +225,106 @@ class RoleClusterTreeDock(QDockWidget):
         # changes.
         self.tree.setStyleSheet(highlight_stylesheet_for("QTreeView::item:selected"))
 
-        self.setWidget(container)
+        # Master-detail wrap (only when DockHub supplied the collaborators).
+        if self._fieldstool_window is not None:
+            self._build_master_detail()
+        else:
+            self.setWidget(self._tree_page)
+
+    def _build_master_detail(self) -> None:
+        """Wrap the components-tree page (plus the shared Pending page as a
+        second left tab) around the embedded fieldstool window as the right
+        QView: QSplitter { QTabWidget(tabs on TOP) { "Components",
+        "Pending changes" } | fieldstool_window } — the same master-detail
+        organisation Config/Trees use (2026-09-05, plan
+        components_fieldstool_master_detail). Tabs on top is an explicit Denis
+        requirement: unlike the left dock GROUP's bottom tab bar, this inner
+        tab bar sits above its content."""
+        self._left_tabs = QTabWidget()
+        self._left_tabs.setTabPosition(QTabWidget.TabPosition.North)
+        self._left_tabs.addTab(self._tree_page, _("Components"))
+        if self._pending_panel is not None:
+            self._left_tabs.addTab(self._pending_panel, _("Pending changes"))
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.addWidget(self._left_tabs)
+        self.splitter.addWidget(self._fieldstool_window)
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
+        self.setWidget(self.splitter)
+
+    # ── Master-detail UI-state persistence (2026-09-05, plan
+    #    components_fieldstool_master_detail) ───────────────────────────────
+    #
+    # The splitter handle position (tree|pending tabs vs the fieldstool pane)
+    # and the active LEFT tab are remembered between runs like the dock layout
+    # itself: flushed on quit as gui_state.json["components_splitter_sizes"]
+    # (a plain two-int pixel list, the same human-readable key style as
+    # Config's "config_splitter_sizes") + gui_state.json["components_left_tab"],
+    # and re-applied once the dock is first shown (only then does the splitter
+    # have a real, laid-out width) — mirrors ConfigTreeDock exactly.
+
+    def persist_ui_state(self) -> None:
+        """Flush the CURRENT splitter handle position + active left tab to
+        gui_state.json. Runs unconditionally on quit (MainWindow.
+        _persist_settings); safe to call before the widget is realized
+        (sizes()/setSizes() round-trip cleanly then too). No-op when not in
+        master-detail mode (plain standalone tree page)."""
+        if self.splitter is not None and self.splitter.count() == 2:
+            settings.state.set("components_splitter_sizes", list(self.splitter.sizes()))
+        if self._left_tabs is not None:
+            settings.state.set("components_left_tab", self._left_tabs.currentIndex())
+
+    def restore_ui_state(self) -> None:
+        """Apply the persisted splitter handle + left-tab selection (if any).
+        Best-effort: a missing / wrong-arity / non-numeric value is ignored,
+        same "saved state must never crash startup" discipline as
+        ConfigTreeDock. Public so tests can invoke it synchronously."""
+        if self.splitter is not None and self.splitter.count() == 2:
+            raw = settings.state.get("components_splitter_sizes")
+            if isinstance(raw, list) and len(raw) == 2:
+                try:
+                    sizes = [int(x) for x in raw]
+                except (TypeError, ValueError):
+                    logger.warning("Ignoring invalid saved components splitter sizes: %r", raw)
+                else:
+                    self.splitter.setSizes(sizes)
+        if self._left_tabs is not None:
+            idx = settings.state.get("components_left_tab")
+            if isinstance(idx, int) and 0 <= idx < self._left_tabs.count():
+                self._left_tabs.setCurrentIndex(idx)
+
+    def showEvent(self, event) -> None:
+        """Restore the persisted splitter/tab UI state once the dock is first
+        shown — setSizes() before the widget is realized would target a
+        zero-size splitter (same first-show pattern as ConfigTreeDock)."""
+        super().showEvent(event)
+        if self._splitter_restored:
+            return
+        self._splitter_restored = True
+        if self.splitter is not None:
+            self.restore_ui_state()
+
+    def reveal_ref(self, ref: str) -> None:
+        """Select + expand to the tree node for a ref (no board IO) — used by
+        a Pending-table row click so the Components tab shows the same
+        component (plan components_fieldstool_master_detail). No-op when the
+        ref isn't in the currently built model (e.g. a different mode)."""
+        model = self.tree.model()
+        if model is None:
+            return
+        item = self._ref_to_item.get(ref)
+        if item is None:
+            return
+        index = model.indexFromItem(item)
+        selection_model = self.tree.selectionModel()
+        selection_model.clearSelection()
+        selection_model.select(index, QItemSelectionModel.SelectionFlag.Select)
+        parent = index.parent()
+        while parent.isValid():
+            self.tree.setExpanded(parent, True)
+            parent = parent.parent()
+        self.tree.scrollTo(index)
 
     def apply_highlight(self) -> None:
         """Re-apply the highlight stylesheet to this tree's selected item —

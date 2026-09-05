@@ -1,33 +1,48 @@
 # tests/gui/test_fieldstool_dock.py
 """
-FieldsToolDock wraps a real fieldstool MainWindow and is tabified first in
-the right-hand dock group (replacing the retired BulkFieldEditorDock slot).
+FieldsToolDock is a non-dock facade over the ONE live fieldstool window,
+which since 2026-09-05 (plan components_fieldstool_master_detail) is embedded
+directly as the RIGHT pane of the "Components" master-detail dock
+(RoleClusterTreeDock's QSplitter) — the separate right-hand fieldstool dock
+and the bottom Pending dock are gone (Pending is the Components dock's second
+left tab).
 """
-from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QSplitter, QTabWidget
 
 from gui.fieldstool_window import MainWindow as FieldsToolMainWindow
 
 
 def test_wraps_a_real_fieldstool_main_window(real_main_window):
     assert isinstance(real_main_window.fieldstool_dock.window, FieldsToolMainWindow)
-    assert real_main_window.fieldstool_dock.widget() is real_main_window.fieldstool_dock.window
 
 
-def test_fieldstool_is_first_right_hand_tab(real_main_window):
-    """Fieldstool is the first (sole) right-hand dock now — the Config dock
-    became a master-detail and DetailDock was removed (2026-09-05, plan
-    config_qview_placer_nettrace), so fieldstool is no longer tabified with
-    a Detail dock."""
+def test_fieldstool_window_is_embedded_in_the_components_dock(real_main_window):
+    """The fieldstool window is no longer a right-hand dock — it is the right
+    pane of the Components master-detail dock's splitter (widget(1)), with the
+    Pending page as the second left tab (tabs on top)."""
     hub = real_main_window._dock_hub
+    tree_dock = hub.tree_dock
     assert not hasattr(hub, "detail_dock")
-    assert (real_main_window.dockWidgetArea(real_main_window.fieldstool_dock)
-            == Qt.DockWidgetArea.RightDockWidgetArea)
+    # Fieldstool/Pending are pages of the Components dock, not top-level docks.
+    assert hub.fieldstool_dock not in hub.docks
+    assert hub.pending_dock not in hub.docks
+    # Master-detail structure: QSplitter { QTabWidget(tabs on TOP){ Components,
+    # Pending } | fieldstool_window }.
+    assert isinstance(tree_dock.splitter, QSplitter)
+    assert tree_dock.splitter.count() == 2
+    assert tree_dock.splitter.widget(1) is hub.fieldstool_dock.window
+    left_tabs = tree_dock.splitter.widget(0)
+    assert isinstance(left_tabs, QTabWidget)
+    assert left_tabs.tabPosition() == QTabWidget.TabPosition.North
+    assert left_tabs.count() == 2
+    assert left_tabs.widget(0) is tree_dock._tree_page
+    assert left_tabs.widget(1) is hub.pending_dock
 
 
-def test_open_fieldstool_shows_and_raises_the_dock(real_main_window):
-    real_main_window.fieldstool_dock.setVisible(False)
+def test_open_fieldstool_shows_and_raises_the_components_dock(real_main_window):
+    real_main_window.tree_dock.setVisible(False)
     real_main_window.open_fieldstool()
-    assert real_main_window.fieldstool_dock.isVisible()
+    assert real_main_window.tree_dock.isVisible()
     assert real_main_window.isVisible()
 
 

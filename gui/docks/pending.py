@@ -174,39 +174,52 @@ def edits_to_fields_cfg(edits: List[PendingEdit]) -> Dict[str, Dict[str, str]]:
 
 
 try:
+    from PyQt6.QtCore import pyqtSignal
     from PyQt6.QtGui import QColor
-    from PyQt6.QtWidgets import (QAbstractItemView, QDockWidget, QHBoxLayout,
+    from PyQt6.QtWidgets import (QAbstractItemView, QHBoxLayout,
                                  QPushButton, QTableWidget, QTableWidgetItem,
                                  QVBoxLayout, QWidget)
 
     from kicadstamp.i18n import _
 except ImportError:  # pragma: no cover — the functions above are usable without PyQt6
-    QDockWidget = object
+    QWidget = object
+    pyqtSignal = object
 
 
-class PendingChangesDock(QDockWidget):
+class PendingChangesDock(QWidget):
     """Read-only table of the current schematic-vs-board diff (see
     compute_pending_edits above) + an Apply button MainWindow wires (see
     gui/fieldstool_window.py) — Apply itself needs the root_sheet path and
     the KiCad-running guard, which this dock deliberately doesn't know
     about. Fed wholesale by set_edits() every time either side of the diff
     changes (Rescan, or the main GUI's ~2s poll) — never mutated in place,
-    same "just show me the latest" discipline as the rest of this GUI."""
+    same "just show me the latest" discipline as the rest of this GUI.
+
+    2026-09-05 (plan components_fieldstool_master_detail): no longer a
+    QDockWidget docked at the main window's bottom — the shared single
+    instance is a plain QWidget page hosted in the "Components" master-detail
+    dock's left QTabWidget, and injected into the embedded fieldstool window
+    (which only references it for set_edits()/the Apply callbacks, never
+    parents it — a QWidget can only have one parent). A single click on a
+    diff row now emits ref_activated so DockHub can show that component in
+    the fieldstool pane."""
+
+    # 2026-09-05 (plan components_fieldstool_master_detail): a single click
+    # on a diff-table row — DockHub loads that ref into the embedded
+    # fieldstool pane and reveals it in the Components tree.
+    ref_activated = pyqtSignal(str)
 
     def __init__(self, main_window):
-        super().__init__(_("Pending changes"), main_window)
-        # Stable QDockWidget identity for QMainWindow.saveState()/restoreState()
-        # (handoff sync_skip_message_and_view_menu §0) — without a unique
-        # objectName Qt cannot reliably map a saved layout blob back to this
-        # dock between runs.
+        super().__init__(main_window)
+        # Stable identity kept for diagnostics; no longer a QDockWidget, so
+        # saveState()/restoreState() never sees it (2026-09-05 master-detail).
         self.setObjectName("pending_dock")
         self._main_window = main_window
         self.on_apply_clicked = None  # Callable[[], None], set by MainWindow
         self.on_ensure_fields_clicked = None  # Callable[[], None], set by MainWindow
         self.on_sync_clicked = None  # Callable[[], None], set by MainWindow (2026-08-27)
 
-        container = QWidget()
-        layout = QVBoxLayout(container)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
 
         self.table = QTableWidget(0, 4)
@@ -214,19 +227,17 @@ class PendingChangesDock(QDockWidget):
             [_("Ref"), _("Field"), _("Schematic (current)"), _("Board (new)")])
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        # 2026-08-27 (handoff pending_dock_min_height): the dock is tabified
-        # with LogDock (gui/dock_hub.py) — without an explicit minimum this
-        # QTableWidget's default minimumSizeHint floored how small the dock
-        # could shrink (Denis: "панель log/pending changes нельзя
-        # переразмерить"). setMinimumHeight(1), NOT 0 — same Qt gotcha as
-        # LogDock.text (log_dock_min_height_fix2): an explicit minimum of
-        # exactly 0 is Qt's "unset" sentinel and changes nothing; verified
-        # live, the container's effective layout minimum stays 110px at
-        # baseline AND with setMinimumHeight(0), drops to 41px with
-        # setMinimumHeight(1) — the smallest value Qt actually honors as an
-        # override. QTableWidget already scrolls its own content (own
-        # viewport/scrollbar) — no QScrollArea wrap, same principle as the
-        # other docks.
+        # Row click -> component selection (2026-09-05, plan
+        # components_fieldstool_master_detail): a single click on any cell of
+        # a diff row loads that ref into the fieldstool pane on the right and
+        # reveals it in the Components tree (see _on_cell_clicked).
+        self.table.cellClicked.connect(self._on_cell_clicked)
+        # 2026-08-27 (handoff pending_dock_min_height, kept): without an
+        # explicit minimum this QTableWidget's default minimumSizeHint floored
+        # how small the panel could shrink. setMinimumHeight(1), NOT 0 — Qt
+        # treats an explicit minimum of exactly 0 as "unset" and nothing
+        # changes (verified live, see pending_dock_min_height). The table
+        # scrolls its own content — no QScrollArea wrap.
         self.table.setMinimumHeight(1)
         layout.addWidget(self.table)
 
@@ -256,8 +267,14 @@ class PendingChangesDock(QDockWidget):
         button_row.addWidget(self.sync_button)
         layout.addLayout(button_row)
 
-        self.setWidget(container)
         self.set_edits([])
+
+    def _on_cell_clicked(self, row: int, _col: int) -> None:
+        """Single click on a diff row -> ref_activated(ref) (its Ref column).
+        A row without a ref means nothing to select."""
+        item = self.table.item(row, 0)
+        if item is not None and item.text():
+            self.ref_activated.emit(item.text())
 
     def set_edits(self, edits: List[PendingEdit]) -> None:
         self.table.setRowCount(len(edits))

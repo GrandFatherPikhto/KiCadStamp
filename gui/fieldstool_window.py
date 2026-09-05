@@ -55,7 +55,6 @@ kicadstamp/ — fieldstool_cli.py uses that directly, without any of this.
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
-from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFileDialog,
                               QFormLayout, QHBoxLayout, QLabel, QListWidget,
                               QMainWindow, QMessageBox, QPushButton, QVBoxLayout,
@@ -195,15 +194,20 @@ class MainWindow(QMainWindow):
         edit_layout.addWidget(self.stage_button)
         layout.addWidget(edit_box)
 
-        # Only construct+dock our own PendingChangesDock when embedded
-        # without one injected (direct/test construction, see module
+        # Only construct+embed our own PendingChangesDock when we are NOT
+        # injected with the shared one (direct/test construction, see module
         # docstring) — the embedding DockHub instead builds ONE shared
-        # instance and docks it at the main window's bottom (tabbed with
-        # Log), passing it in here so RoleClusterTreeDock's live-board
-        # writes and this window's own Stage write into the same diff view.
+        # instance (2026-09-05, plan components_fieldstool_master_detail:
+        # hosted as the "Pending" page of the Components master-detail dock's
+        # left QTabWidget) and passes it in here, so RoleClusterTreeDock's
+        # live-board writes and this window's own Stage write into the same
+        # diff view. A self-constructed PendingChangesDock is now a plain
+        # QWidget (not a QDockWidget — a QWidget can only have one parent), so
+        # it is stacked at the bottom of this window's central layout instead
+        # of being added to a QMainWindow dock area.
         self.pending_dock = pending_dock if pending_dock is not None else PendingChangesDock(self)
         if pending_dock is None:
-            self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.pending_dock)
+            layout.addWidget(self.pending_dock, 1)
         self.pending_dock.on_apply_clicked = self._on_apply
         self.pending_dock.on_ensure_fields_clicked = self._on_ensure_fields
         self.pending_dock.on_sync_clicked = self._on_sync_from_schematic

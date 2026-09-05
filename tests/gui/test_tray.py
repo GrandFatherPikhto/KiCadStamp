@@ -76,10 +76,12 @@ def test_close_persists_and_really_closes_when_tray_unchecked(real_main_window, 
 
 
 def test_open_fieldstool_unhides_and_raises(real_main_window):
+    """open_fieldstool shows/raises the Components dock, which hosts the
+    embedded fieldstool pane (2026-09-05 master-detail)."""
     real_main_window.hide()
     real_main_window.open_fieldstool()
     assert real_main_window.isVisible()
-    assert real_main_window.fieldstool_dock.isVisible()
+    assert real_main_window.tree_dock.isVisible()
 
 
 def test_quit_persists_and_calls_application_quit(real_main_window, monkeypatch, qapp):

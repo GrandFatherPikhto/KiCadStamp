@@ -82,8 +82,21 @@ class DockHub:
         # root logger, if any — see _on_root_file_changed_for_logging().
         self._log_file_handler: Optional[logging.Handler] = None
 
-        # ── left group: Components tree, Config tree ──────────────────────
-        self.tree_dock = RoleClusterTreeDock(main_window, connection=connection)
+        # ── left group: Components master-detail, Config tree, Trees ──────
+        # 2026-09-05 (plan components_fieldstool_master_detail): the shared
+        # Pending page and the embedded fieldstool window are built FIRST so
+        # RoleClusterTreeDock can host them as its master-detail pages (a
+        # QWidget can only have one parent — pending/fieldstool are no longer
+        # standalone bottom/right docks, see their module docstrings). The
+        # Components dock (tree | pending tabs on the left, fieldstool on the
+        # right) remains the first tab of the LEFT group, tabbed with Config.
+        self.pending_dock = PendingChangesDock(main_window)
+        self.fieldstool_dock = FieldsToolDock(
+            main_window, connection=connection, pending_dock=self.pending_dock)
+        self.tree_dock = RoleClusterTreeDock(
+            main_window, connection=connection,
+            pending_panel=self.pending_dock,
+            fieldstool_window=self.fieldstool_dock.window)
         main_window.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.tree_dock)
 
         self.config_tree_dock = ConfigTreeDock(main_window)
@@ -101,20 +114,11 @@ class DockHub:
         # (plan_2026_09_04_trees_dock_master_detail.md §4, confirmed with Denis:
         # the full triple RoleClusterTreeDock + ConfigTreeDock + TreesDock group
         # moves, not just the Config/Trees pair — setTabPosition is per AREA, so
-        # the single call covers all three).
+        # the single call covers all three). This outer LEFT-group tab bar stays
+        # at the BOTTOM; only the Components dock's INNER tab bar (Components |
+        # Pending) sits on TOP of its content (Denis's requirement).
         main_window.setTabPosition(
             Qt.DockWidgetArea.LeftDockWidgetArea, QTabWidget.TabPosition.South)
-
-        # ── bottom: Pending changes (constructed here — shared between
-        # RoleClusterTreeDock's live-board writes and fieldstool's own
-        # Stage/Apply, see gui/docks/pending.py — docked further down,
-        # tabbed with Log) ─────────────────────────────────────────────────
-        self.pending_dock = PendingChangesDock(main_window)
-
-        # ── right group: fieldstool, Detail (Extract/Placer/Root) ─────────
-        self.fieldstool_dock = FieldsToolDock(
-            main_window, connection=connection, pending_dock=self.pending_dock)
-        main_window.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.fieldstool_dock)
 
         # Both live-board writers get an immediate out-of-cycle refresh hook
         # (see MainWindow.request_refresh) — the automatic poll tick never
@@ -218,23 +222,24 @@ class DockHub:
         self.tools_dock = ToolsDock(main_window)
         self.tools_dialog = ToolsDialog(self.tools_dock, main_window)
 
-        # ── bottom: Pending changes, Log ────────────────────────────────────
-        main_window.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.pending_dock)
+        # ── bottom: Log ────────────────────────────────────────────────────
+        # 2026-09-05 (plan components_fieldstool_master_detail): Pending moved
+        # into the Components dock's left tab, so Log is the sole bottom dock.
         self.log_dock = LogDock(main_window, verbose=verbose)
         main_window.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.log_dock)
-        main_window.tabifyDockWidget(self.pending_dock, self.log_dock)
 
         # All real TOP-LEVEL QDockWidgets (2026-08-27, handoff
         # sync_skip_message_and_view_menu): MainWindow's View menu wires each
         # one's ready-made toggleViewAction() so a closed dock can be brought
-        # back without restarting. Deliberately NOT DetailDock's internal
-        # panels (placer_dock/... are plain QWidgets switched by its own tab
-        # bar — not independently closable/dockable, no toggleViewAction of
-        # their own). Order matches construction above
-        # (already grouped by area: Left / right / bottom).
+        # back without restarting. Deliberately NOT the internal master-detail
+        # pages (placer_dock/..., and since 2026-09-05 the Components dock's
+        # own Pending page + embedded fieldstool window — plain QWidgets, not
+        # independently closable/dockable, no toggleViewAction of their own).
+        # Order matches construction above (already grouped by area: Left /
+        # bottom).
         self.docks = [
             self.tree_dock, self.config_tree_dock, self.trees_dock,
-            self.pending_dock, self.fieldstool_dock, self.log_dock,
+            self.log_dock,
         ]
 
         self._wire()
@@ -601,6 +606,11 @@ class DockHub:
         # refreshes this tree's schematic view (see FieldsToolDock).
         self.fieldstool_dock.components_changed.connect(self.tree_dock.refresh_schematic_view)
 
+        # Pending-table row click (2026-09-05, plan components_fieldstool_
+        # master_detail) -> show that component in the fieldstool pane and
+        # reveal it in the Components tree (see _on_pending_ref_activated).
+        self.pending_dock.ref_activated.connect(self._on_pending_ref_activated)
+
         # Settings tab (ConfiguratorDock, 2026-08-15, plan
         # configurator_panel): the always-on-top/tray checkboxes MOVED here
         # from the status bar (gui/main_window.py) — the actual window-flag /
@@ -690,11 +700,21 @@ class DockHub:
         is stopped when it shares the main connection)."""
         self.fieldstool_dock.set_connection_status(error)
 
+    def _on_pending_ref_activated(self, ref: str) -> None:
+        """Pending-table row click (2026-09-05, plan components_fieldstool_
+        master_detail): load the clicked ref into the embedded fieldstool pane
+        (target + prefill, the same path a schematic tree leaf click uses) and
+        reveal/select it in the Components tree."""
+        self.fieldstool_dock.pick_leaf([ref])
+        self.tree_dock.reveal_ref(ref)
+
     def open_fieldstool(self) -> None:
-        """Bring the fieldstool tab to front even if another right-hand tab
-        is active or the dock was individually closed."""
-        self.fieldstool_dock.setVisible(True)
-        self.fieldstool_dock.raise_()
+        """Show the Components dock (which hosts the embedded fieldstool pane
+        on the right of its splitter) and raise it to the front of the left
+        tab group — the master-detail replacement for the retired right-hand
+        fieldstool dock (2026-09-05, plan components_fieldstool_master_detail)."""
+        self.tree_dock.setVisible(True)
+        self.tree_dock.raise_()
 
     def _start_new_placement(self, placer_path) -> None:
         """ConfigTreeDock's add_placer_requested delegate — resets

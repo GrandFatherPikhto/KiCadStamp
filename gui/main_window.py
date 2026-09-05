@@ -13,9 +13,11 @@ Step 2 used to be BulkFieldEditorDock, a PCB-only live-IPC Role/Cluster
 editor — retired 2026-08-01: any field it wrote got silently reverted by
 KiCad's own "Update PCB from Schematic" (Role/Cluster actually originate in
 the schematic symbol), which is exactly the problem `fieldstool` was built
-to solve correctly (direct `.kicad_sch` edits). FieldsToolDock (see
-gui/docks/fieldstool_dock.py) now occupies that first right-hand tab
-instead, embedding fieldstool's own standalone MainWindow whole. Then
+to solve correctly (direct `.kicad_sch` edits). 2026-09-05 (plan
+components_fieldstool_master_detail) made the Components dock a master-detail
+(tree | Pending tabs on the left, fieldstool's own standalone MainWindow as
+the right QView), so FieldsToolDock (see gui/docks/fieldstool_dock.py) is now
+only a non-dock facade over that window, not a right-hand dock. Then
 ConfigTreeDock (pick a Root file, browse/edit its include: graph — folded
 FilePickerDock's job into it 2026-08-03, see gui/docks/config_tree.py).
 Phase F (2026-09-01) removed the Extract dock entirely — "Extract tree..."
@@ -113,7 +115,11 @@ SELECTION_POLL_INTERVAL_MS = 400
 # blobs were saved WITHOUT per-dock objectName(), so Qt could not reliably
 # identify which dock a layout entry belonged to — such a blob is useless/
 # potentially confusing, and a bump makes restoreState() ignore it cleanly.
-_DOCK_STATE_VERSION = 2
+# Version 3 (2026-09-05, plan components_fieldstool_master_detail): the
+# fieldstool dock (right) and the Pending dock (bottom) are gone — both are
+# now pages of the Components master-detail dock, so the old 6-dock blob
+# would be mapped onto a 4-dock set and must be ignored.
+_DOCK_STATE_VERSION = 3
 
 
 class MainWindow(QMainWindow):
@@ -566,6 +572,7 @@ class MainWindow(QMainWindow):
         # CURRENT widget state so an interaction after the last rebuild (a pure
         # tab switch or a manual expand/collapse, with no structural edit) is
         # still saved when the app quits.
+        self._dock_hub.tree_dock.persist_ui_state()
         self._dock_hub.trees_dock.persist_ui_state()
         self._dock_hub.config_tree_dock.persist_ui_state()
 
@@ -633,10 +640,11 @@ class MainWindow(QMainWindow):
         self.activateWindow()
 
     def open_fieldstool(self) -> None:
-        """Un-hides the main window if tray-hidden, and brings the
-        fieldstool tab to front even if another right-hand tab is active or
-        the dock was individually closed — used by both the tray menu and
-        the status-bar button."""
+        """Un-hides the main window if tray-hidden, and shows/raises the
+        Components dock (which hosts the embedded fieldstool pane on the right
+        of its splitter) even if another left-group tab is active or the dock
+        was individually closed — used by both the tray menu and the status-bar
+        button."""
         self.bring_to_front()
         self._dock_hub.open_fieldstool()
 

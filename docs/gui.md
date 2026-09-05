@@ -17,13 +17,21 @@ from the first run instead of having to turn it on after something goes wrong.
 
 ## Layout
 
-Eight docks, tabbed into two groups plus a status bar:
+Four top-level docks plus a status bar (2026-09-05: the right-hand **fieldstool**
+dock and the bottom **Pending changes** dock were folded into the Components
+master-detail):
 
-- **Left** (tabbed): **Components** (Role/Cluster tree) and **Cells** (extracted Cell list).
-- **Right** (tabbed): **fieldstool**, **Files**, **Extract**, **Placer**.
+- **Left** (group tabs at the bottom of the group): **Components**, **Config**,
+  **Trees** — each a master-detail dock:
+  - **Components** — since 2026-09-05 a splitter: left a tab widget whose tabs
+    sit ON TOP — **Components** (the Role/Cluster tree) and **Pending changes**
+    (the schematic-vs-board diff) — and the embedded **fieldstool** window as
+    the right pane.
+  - **Config** — the include-graph tree (left) + its context QView (right).
+  - **Trees** — one tab per tree, each a tree | Anchor/Node splitter.
 - **Bottom**: **Log**.
-- **Status bar**: connection state, Reconnect/Refresh button, Always on top checkbox, Tray icon
-  checkbox, Open fieldstool button, KiCad processes... button.
+- **Status bar**: connection state, Reconnect/Refresh button, Always on top /
+  Tray icon (Settings), Open fieldstool button, KiCad processes... button.
 
 The **KiCad processes...** button opens a picker listing every running `kicad.exe` (PID, Windows
 "Not Responding"/"Running" status, window title) — a shortcut for "look in Task Manager, pick the
@@ -103,6 +111,13 @@ The grouping choice and the live/schematic toggle are both remembered across res
 matches ref/role/cluster in either mode; **regex** switches from substring to a case-insensitive
 regex (an invalid pattern just flags the field red, it doesn't crash or hide everything).
 
+Since 2026-09-05 (plan components_fieldstool_master_detail) the Components dock is a
+**master-detail**: the tree (and the shared **Pending changes** view) live in a left tab widget with
+the tabs **on top**, and the embedded [fieldstool pane](#fieldstool-tab) is the right half of a
+splitter. Selecting a component — clicking a tree leaf/group in either mode, or a **Pending
+changes** row — switches the fieldstool pane to that component (its target + Role/Cluster
+prefills).
+
 ## Cells tab
 
 A flat list of Cell names read from whatever file is assigned the **Cells** role in Files (see
@@ -110,17 +125,20 @@ below). Click one to feed the **Placer** dock's Cell field.
 
 ## fieldstool tab
 
-The first right-hand tab embeds [fieldstool](fieldstool.md)'s own GUI whole, wrapped in one dock
-(`gui/docks/fieldstool_dock.py`) — there is no second process/window, this is now the only way
-fieldstool runs (a standalone `fieldstool_gui.py` entry point existed until 2026-08-02, retired as
-pure duplication of this tab). Its **Pending changes** dock (2026-08-03: the schematic-vs-board
-Role/Cluster diff — see [fieldstool.md](fieldstool.md#2-apply-kicad-must-be-closed)) is shared with
-the main window, tabbed with **Log** at the bottom, not a dock local to this tab anymore. It shares
-this GUI's own `BoardConnection` and single 2s/400ms poll (one kipy client, one REQ socket — a
-second independent timer on the same connection would interleave requests mid-flight). It has no
-Components tree of its own — the main [Components tree](#components-tree)'s "Not yet applied" mode
-covers that job when embedded here (fieldstool's own tree, `fieldstool/gui/tree.py`, was retired
-2026-08-01).
+Since 2026-09-05 (plan components_fieldstool_master_detail) fieldstool is the **right pane of the
+Components master-detail dock** — there is no separate right-hand dock anymore, and no second
+process/window (this is the only way fieldstool runs; a standalone `fieldstool_gui.py` entry point
+existed until 2026-08-02, retired as pure duplication). The whole [fieldstool](fieldstool.md) GUI
+window (`gui/fieldstool_window.py::MainWindow`) is embedded as-is — `gui/docks/fieldstool_dock.py`
+is now only a thin non-dock facade over that window. Its **Pending changes** view (2026-08-03: the
+schematic-vs-board Role/Cluster diff — see [fieldstool.md](fieldstool.md#2-apply-kicad-must-be-closed))
+is the Components dock's second LEFT tab (the shared single instance, no longer a bottom dock next
+to Log). Clicking a Pending row shows that component in the fieldstool pane and reveals it in the
+Components tree. It shares this GUI's own `BoardConnection` and single 2s/400ms poll (one kipy
+client, one REQ socket — a second independent timer on the same connection would interleave
+requests mid-flight). It has no Components tree of its own — the main
+[Components tree](#components-tree)'s "Not yet applied" mode covers that job when embedded here
+(fieldstool's own tree, `fieldstool/gui/tree.py`, was retired 2026-08-01).
 
 This replaced **Bulk edit** (also retired 2026-08-01), which used to set Role/Cluster directly over
 live PCB IPC from this tab's slot with no further persistence step — that write was PCB-only and got
@@ -1207,8 +1225,9 @@ existing hidden window without starting a second process — no need to hunt it 
 ## Open fieldstool
 
 The status-bar **Open fieldstool** button (and the tray menu's identical item) un-hides the main
-window if it was tray-hidden and brings the [fieldstool tab](#fieldstool-tab) to front — useful if
-another right-hand tab is currently active, or if that dock was individually closed.
+window if it was tray-hidden and shows/raises the **Components** dock — which hosts the embedded
+[fieldstool pane](#fieldstool-tab) on the right of its splitter — even if another left-group tab
+(Config/Trees) is active or the Components dock was individually closed.
 
 ## What's remembered between restarts
 
@@ -1217,9 +1236,11 @@ Plain JSON in `gui/gui_state.json` (gitignored, human-readable, deliberately not
 grouping and its live/"Not yet applied" toggle, the Files dock's root directory and last click, and
 all three file-role assignments (Cells/Extractor/Placer). Since 2026-09-05 the master-detail
 splitter positions are remembered too — the Config dock's divider (config-tree width vs. its right
-QView) is flushed on quit and restored the first time the dock is shown, and each Trees-dock page's
-divider is remembered per tree. fieldstool's own tab keeps its own separate state file
-(`gui/fieldstool_gui_state.json`).
+QView) is flushed on quit and restored the first time the dock is shown, each Trees-dock page's
+divider is remembered per tree, and the **Components** dock's own divider + active left tab
+(`components_splitter_sizes` / `components_left_tab`: tree|Pending vs. the fieldstool pane) are
+flushed on quit and restored on first show. The embedded fieldstool window keeps its own separate
+state file (`gui/fieldstool_gui_state.json`).
 
 ## Tests
 

@@ -1641,9 +1641,11 @@ def test_dock_hub_delegates_route_to_the_right_docks(real_main_window, monkeypat
     assert hub._selection_footprints == ["sel"]
     assert placer_selected == [(["raw"], ["sel"])]
 
+    # open_fieldstool (2026-09-05 master-detail) shows/raises the Components
+    # dock (tree_dock), which hosts the embedded fieldstool pane.
     shown, raised = [], []
-    monkeypatch.setattr(hub.fieldstool_dock, "setVisible", lambda v: shown.append(v))
-    monkeypatch.setattr(hub.fieldstool_dock, "raise_", lambda: raised.append(True))
+    monkeypatch.setattr(hub.tree_dock, "setVisible", lambda v: shown.append(v))
+    monkeypatch.setattr(hub.tree_dock, "raise_", lambda: raised.append(True))
     hub.open_fieldstool()
     assert shown == [True]
     assert raised == [True]

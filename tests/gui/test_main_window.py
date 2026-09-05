@@ -100,11 +100,12 @@ def _view_menu(real_main_window):
 def test_view_menu_has_one_checkable_action_per_dock(real_main_window):
     """One checkable toggleViewAction per real top-level dock — the only way
     to bring back a closed dock (the app previously had no menu bar at all).
-    Count must match DockHub.docks (6 — DetailDock was removed 2026-09-05,
-    plan config_qview_placer_nettrace)."""
+    Count must match DockHub.docks (4 — 2026-09-05 master-detail folded
+    fieldstool + Pending into the Components dock, so they are no longer
+    top-level docks and have no toggleViewAction of their own)."""
     menu = _view_menu(real_main_window)
     actions = menu.actions()
-    assert len(actions) == len(real_main_window._dock_hub.docks) == 6
+    assert len(actions) == len(real_main_window._dock_hub.docks) == 4
     assert all(a.isCheckable() for a in actions)
 
 
