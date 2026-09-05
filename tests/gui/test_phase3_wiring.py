@@ -1509,8 +1509,6 @@ def test_dock_hub_delegates_route_to_the_right_docks(real_main_window, monkeypat
                         lambda s: pushed.setdefault("tree", []).append(s))
     monkeypatch.setattr(hub.placer_dock, "refresh_known_roles",
                         lambda s: pushed.setdefault("roles", []).append(s))
-    monkeypatch.setattr(hub.placer_dock, "refresh_known_nets",
-                        lambda b: pushed.setdefault("nets", []).append(b))
     monkeypatch.setattr(hub.thermal_via_dock, "refresh_known_roles",
                         lambda s: pushed.setdefault("thermal_roles", []).append(s))
     monkeypatch.setattr(hub.thermal_via_dock, "refresh_known_nets",
@@ -1543,7 +1541,6 @@ def test_dock_hub_delegates_route_to_the_right_docks(real_main_window, monkeypat
     hub.push_snapshot(snapshot, board)
     assert pushed["tree"] == [snapshot]
     assert pushed["roles"] == [snapshot]
-    assert pushed["nets"] == [board]
     assert pushed["thermal_roles"] == [snapshot]
     assert pushed["thermal_nets"] == [board]
     assert pushed["points_roles"] == [snapshot]

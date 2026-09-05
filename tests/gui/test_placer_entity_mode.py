@@ -105,15 +105,14 @@ def test_entity_is_the_third_source_mode(main_window, tmp_path):
     _switch_to_entity(dock)
     assert dock.is_entity
     # Entity row replaces the Cell/name rows; the Coordinate tab does not.
-    # Phase 5.2 stage 3: Nets/Net overrides/Refs moved to the Tools dock, so
-    # they're hidden in Entity mode; the Origin tab (the trees: node) stays.
+    # Phase 5.2 stage 3: Nets/Net overrides/Refs moved to the Tools dock; the
+    # Placer's own override tabs are gone entirely (2026-09-05) — only the
+    # Origin tab (the trees: node) and the Coordinate tab (coordinate mode)
+    # remain.
     assert dock._entity_row.isHidden() is False
     assert dock._cell_row.isHidden() is True
     assert dock._name_row.isHidden() is True
     assert dock._coordinate_identity_row.isHidden() is True
-    assert not dock._tabs.isTabVisible(dock._nets_tab_index)
-    assert not dock._tabs.isTabVisible(dock._net_overrides_tab_index)
-    assert not dock._tabs.isTabVisible(dock._refs_tab_index)
     assert dock._tabs.isTabVisible(dock._origin_tab_index)
     assert not dock._tabs.isTabVisible(dock._coordinate_tab_index)
 
@@ -152,8 +151,10 @@ def test_picking_entity_loads_its_fields_into_the_form(main_window, tmp_path):
     assert dock._selected_cell == "pi_filter"
     assert dock.placer_name_edit.text() == "E1"
     assert dock.cluster_edit.currentText() == "CL1"
-    assert dock.nets_table.to_dict() == {"C_IN": "+3V3"}
-    assert dock.refs_table.to_dict() == {"C_IN": "C5"}
+    # The entity's stored override fields are remembered for carry-forward on
+    # save (the Placer no longer has GUI to edit them — 2026-09-05).
+    assert dock._loaded_override_fields["nets"] == {"C_IN": "+3V3"}
+    assert dock._loaded_override_fields["refs"] == {"C_IN": "C5"}
     assert dock._loaded_entity_identity == "E1"
 
 

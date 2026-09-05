@@ -547,7 +547,9 @@ class DockHub:
         gui/main_window.py's _poll)."""
         self.tree_dock.set_footprints(snapshot)
         self.placer_dock.refresh_known_roles(snapshot)
-        self.placer_dock.refresh_known_nets(board)
+        # NOTE (2026-09-05): placer_dock.refresh_known_nets is GONE — the
+        # Placer's manual Nets/Net overrides/Refs tabs were removed (nets
+        # auto-resolve); the other docks' refresh_known_nets stay below.
         self.thermal_via_dock.refresh_known_roles(snapshot)
         self.thermal_via_dock.refresh_known_nets(board)
         self.points_dock.refresh_known_roles(snapshot)
