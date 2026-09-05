@@ -112,6 +112,7 @@ class AnchorOriginWidget(QWidget):
         self.y_edit: Optional[QLineEdit] = None
         self.radius_edit: Optional[QLineEdit] = None
         self.angle_edit: Optional[QLineEdit] = None
+        self._xy_row: Optional[QWidget] = None
         self._polar_combo: Optional[QComboBox] = None
         self._polar_row: Optional[QWidget] = None
         self._radius_angle_box: Optional[QWidget] = None
@@ -119,6 +120,7 @@ class AnchorOriginWidget(QWidget):
         self.shift_x_edit: Optional[QLineEdit] = None
         self.shift_y_edit: Optional[QLineEdit] = None
         if "xy" in self._modes:
+            # Cartesian absolute coordinate pair (X/Y).
             self._xy_row = QWidget()
             xy_row = QHBoxLayout(self._xy_row)
             xy_row.setContentsMargins(0, 0, 0, 0)
@@ -130,13 +132,13 @@ class AnchorOriginWidget(QWidget):
             xy_row.addWidget(self.x_edit)
             xy_row.addWidget(QLabel(_("Y:")))
             xy_row.addWidget(self.y_edit)
-            layout.addWidget(self._xy_row)
 
-            # Optional Cartesian/Polar switch for the XY row. Only consumers
-            # that opt in via polar=True (PlacerDock/ClonePlacement) get this;
-            # the other docks' xy shape is unchanged. The ACTIVE coordinate pair
-            # is shown (X/Y for Cartesian, Radius/Angle for Polar) and the
-            # inactive one is HIDDEN, not just disabled (Denis 2026-09-05).
+            # Optional Cartesian/Polar switch (polar=True consumers only —
+            # PlacerDock/ClonePlacement; the other docks' xy shape is
+            # unchanged). The active coordinate pair sits INLINE with the Mode
+            # selector so both systems read as ONE row: "Mode: Cartesian X: …
+            # Y: …" or "Mode: Polar Radius: … Angle: …" (Denis 2026-09-05 — the
+            # X/Y pair must not spill onto a second row under the Mode combo).
             if self._polar:
                 self._polar_row = QWidget()
                 polar_row = QHBoxLayout(self._polar_row)
@@ -146,8 +148,9 @@ class AnchorOriginWidget(QWidget):
                 self._polar_combo.currentIndexChanged.connect(self._update_polar_mode)
                 polar_row.addWidget(QLabel(_("Mode:")))
                 polar_row.addWidget(self._polar_combo)
+                polar_row.addWidget(self._xy_row)
                 # Radius/Angle live in their own sub-container so the Cartesian/
-                # Polar switch can hide/show them while the Mode combo stays.
+                # Polar switch shows only the active pair (X/Y or Radius/Angle).
                 self._radius_angle_box = QWidget()
                 radius_angle = QHBoxLayout(self._radius_angle_box)
                 radius_angle.setContentsMargins(0, 0, 0, 0)
@@ -162,6 +165,8 @@ class AnchorOriginWidget(QWidget):
                 polar_row.addWidget(self._radius_angle_box)
                 layout.addWidget(self._polar_row)
                 self._update_polar_mode()
+            else:
+                layout.addWidget(self._xy_row)
 
         self.anchor_ref_edit: Optional[QLineEdit] = None
         self.anchor_role_edit: Optional[QComboBox] = None
