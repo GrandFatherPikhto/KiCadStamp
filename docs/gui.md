@@ -1209,7 +1209,9 @@ another right-hand tab is currently active, or if that dock was individually clo
 Plain JSON in `gui/gui_state.json` (gitignored, human-readable, deliberately not Qt's own
 `QSettings`/`saveGeometry()` blob): window position/size, Always on top, Tray icon, Components tree
 grouping and its live/"Not yet applied" toggle, the Files dock's root directory and last click, and
-all three file-role assignments (Cells/Extractor/Placer). fieldstool's own tab keeps its own
+all three file-role assignments (Cells/Extractor/Placer). Since 2026-09-05 the Config dock's
+master-detail splitter position (config-tree width vs. its right QView) is remembered too — flushed
+on quit and restored the first time the dock is shown. fieldstool's own tab keeps its own
 separate state file (`gui/fieldstool_gui_state.json`).
 
 ## Tests

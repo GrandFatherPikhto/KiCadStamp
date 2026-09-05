@@ -123,6 +123,67 @@ def test_show_page_raises_the_dock(main_window):
     assert not dock.isHidden()
 
 
+def test_splitter_sizes_persist_on_quit_flush(main_window):
+    """Splitter position persistence (2026-09-05): persist_ui_state flushes
+    the tree | right-QView divider even with no project open, so the user's
+    chosen split survives the next launch."""
+    dock = ConfigTreeDock(main_window)
+    dock.add_right_page(QWidget())
+    assert dock.splitter.count() == 2
+    dock.splitter.resize(1200, 500)
+    dock.splitter.setSizes([300, 900])
+    saved = list(dock.splitter.sizes())
+
+    dock.persist_ui_state()  # _root_path is None -> only the splitter is flushed
+
+    assert settings.state.get("config_splitter_sizes") == saved
+
+
+def test_restore_splitter_sizes_reapplies_the_saved_split(main_window):
+    """A fresh dock starts at its default split, then restore_splitter_sizes()
+    puts the handle back where the previous run left it (a 'restart')."""
+    dock = ConfigTreeDock(main_window)
+    dock.add_right_page(QWidget())
+    dock.splitter.resize(1200, 500)
+    dock.splitter.setSizes([300, 900])
+    saved = list(dock.splitter.sizes())
+    settings.state.set("config_splitter_sizes", saved)
+
+    fresh = ConfigTreeDock(main_window)
+    fresh.splitter.resize(1200, 500)
+    fresh.splitter.setSizes([900, 300])  # a different split
+    fresh.restore_splitter_sizes()
+
+    restored = list(fresh.splitter.sizes())
+    assert abs(restored[0] - saved[0]) <= 2
+
+
+def test_restore_splitter_sizes_ignores_invalid_saved_values(main_window, caplog):
+    """A missing / wrong-arity / non-numeric persisted value is ignored — the
+    default split stays and startup never crashes (the same fatal-safe rule as
+    the dock-layout blob)."""
+    dock = ConfigTreeDock(main_window)
+    dock.add_right_page(QWidget())
+    dock.splitter.resize(1200, 500)
+    dock.splitter.setSizes([700, 500])
+    before = list(dock.splitter.sizes())
+
+    dock.restore_splitter_sizes()  # key absent
+    assert list(dock.splitter.sizes()) == before
+
+    settings.state.set("config_splitter_sizes", "nope")
+    dock.restore_splitter_sizes()  # not a list
+    assert list(dock.splitter.sizes()) == before
+
+    settings.state.set("config_splitter_sizes", [10, 20, 30])
+    dock.restore_splitter_sizes()  # wrong arity
+    assert list(dock.splitter.sizes()) == before
+
+    settings.state.set("config_splitter_sizes", [10, "x"])
+    dock.restore_splitter_sizes()  # non-numeric
+    assert list(dock.splitter.sizes()) == before
+
+
 def test_included_file_becomes_a_nested_file_node_not_merged_in(main_window, tmp_path):
     _write(tmp_path / "sub.sexp", MINIMAL_CELL)
     root = tmp_path / "root.sexp"

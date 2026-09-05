@@ -1230,8 +1230,10 @@ Guard от повторного запуска (`gui/single_instance.py`, на `
 Обычный JSON в `gui/gui_state.json` (в `.gitignore`, человекочитаемый, сознательно не бинарный
 blob `QSettings`/`saveGeometry()` из Qt): позиция/размер окна, Always on top, Tray icon,
 группировка дерева компонентов и переключатель живая/«не применённые», корневая директория и
-последний клик в доке Files, все три назначения ролей файлов (Cells/Extractor/Placer). У таба
-fieldstool своё отдельное состояние (`gui/fieldstool_gui_state.json`).
+последний клик в доке Files, все три назначения ролей файлов (Cells/Extractor/Placer). С
+2026-09-05 запоминается и позиция сплиттера master-detail в доке Config (ширина дерева конфига
+против его правого QView) — сохраняется при выходе и восстанавливается при первом показе дока.
+У таба fieldstool своё отдельное состояние (`gui/fieldstool_gui_state.json`).
 
 ## Тесты
 

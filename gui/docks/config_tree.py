@@ -403,6 +403,12 @@ class ConfigTreeDock(QDockWidget):
         self.splitter.setStretchFactor(1, 1)
         layout.addWidget(self.splitter)
 
+        # Splitter position persistence (2026-09-05): the tree | right-QView
+        # divider is flushed on quit (persist_ui_state) and re-applied the
+        # first time the dock is shown (showEvent) — setSizes() before the
+        # widget is realized would target a zero-size splitter.
+        self._splitter_restored = False
+
         # F2 = Rename on the current leaf (2026-08-25, the project's first
         # shortcut — see docs/hotkeys.md). WidgetWithChildrenShortcut, NOT the
         # default WindowShortcut: F2 must fire only while this tree (or one of
@@ -657,10 +663,50 @@ class ConfigTreeDock(QDockWidget):
         close. Re-reads the CURRENT widget state so a collapse that happened
         after the last refresh() (a manual collapse with no structural edit) is
         still captured."""
+        self._persist_splitter_sizes()
         if self._root_path is None:
             return
         self._capture_collapsed_from_widget()
         self._persist_collapsed()
+
+    # ── Splitter position persistence (2026-09-05) ───────────────────────
+    #
+    # The master-detail QSplitter's handle position (how wide the config tree
+    # is vs. the right context QView) is remembered between runs like the dock
+    # layout itself: flushed on quit as gui_state.json["config_splitter_sizes"]
+    # — a plain two-int pixel list, the same human-readable key style as
+    # "config_tree_collapsed" — and re-applied once the dock is first shown
+    # (only then does the splitter have a real, laid-out width).
+
+    def _persist_splitter_sizes(self) -> None:
+        """Flush the CURRENT splitter handle position to gui_state.json.
+        Runs unconditionally on quit (even with no project open) so the user's
+        chosen split is kept — the widget is fully laid out by the time
+        closeEvent fires, so sizes()/setSizes() round-trip cleanly."""
+        sizes = list(self.splitter.sizes())
+        if len(sizes) == self.splitter.count():
+            settings.state.set("config_splitter_sizes", sizes)
+
+    def restore_splitter_sizes(self) -> None:
+        """Apply the persisted handle position (if any) to the splitter.
+        Best-effort: a missing / wrong-arity / non-numeric value is ignored
+        and the default split stays. Called from showEvent on the first show;
+        public so tests can invoke it synchronously."""
+        raw = settings.state.get("config_splitter_sizes")
+        if not isinstance(raw, list) or len(raw) != self.splitter.count():
+            return
+        try:
+            sizes = [int(v) for v in raw]
+        except (TypeError, ValueError):
+            logger.warning("Ignoring invalid saved config splitter sizes: %r", raw)
+            return
+        self.splitter.setSizes(sizes)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if not self._splitter_restored:
+            self._splitter_restored = True
+            self.restore_splitter_sizes()
 
     def refresh(self) -> None:
         """Public — also called by PlacerDock's saved signal (see
