@@ -799,11 +799,15 @@ def _refresh_dto_via(net, x_mm, y_mm):
 
 class _RefreshBoard:
     """connection.board stand-in: adapter returns the fixed selection and reads
-    Role by ref — enough for build_refresh_plan's footprint role pass."""
+    Role by ref — enough for build_refresh_plan's footprint role pass. Since
+    the additive refresh mode (2026-09-05) classifies leftover copper through
+    _selection_role_nets, get_footprint_pads is exposed (empty pad map ->
+    literal-net fallback, same as _ImportBoard)."""
     def __init__(self, items, roles=None):
         self.adapter = SimpleNamespace(
             get_selected_items=lambda: list(items),
-            get_field_value=lambda fp, name: (roles or {}).get(fp.ref))
+            get_field_value=lambda fp, name: (roles or {}).get(fp.ref),
+            get_footprint_pads=lambda fp: [])
 
 
 def _loaded_cell_data():
@@ -1066,3 +1070,105 @@ def test_import_validation_error_shows_warning_tables_untouched(
     assert dock._vias == before_vias
     assert dock._tracks == []
     assert dock.vias_table.rowCount() == 1
+
+
+# ── Refresh additive (2026-09-05, plan update_from_selection_adds_copper): the
+#    'Update from selection...' path now ADDS copper the cell does not describe ──
+
+def test_refresh_additive_appends_new_copper_and_updates_existing(
+        main_window, tmp_path, monkeypatch):
+    """The pif_p5v scenario end-to-end through the dock: live copper the loaded
+    cell's records don't describe is no longer an 'extra copper' fatal — the
+    preview shows it in a 'New vias/tracks to add' tab and Apply APPENDS it
+    (extend), while the existing GND via is matched and its geometry updated."""
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    existing_via = dock._vias[0]
+    via_snapshot = dict(existing_via)
+    orig_cap = next(c for c in dock._components if c["role"] == "CAP")
+
+    # Live: ORIG (origin) + CAP moved, the existing GND via's live counterpart
+    # MOVED (so its geometry updates), and genuinely-new via + track copper the
+    # cell has no record for (the drawn-copper case).
+    board = _RefreshBoard(
+        [_refresh_dto_fp("R-ORIG", "ORIG", 10.0, 10.0),
+         _refresh_dto_fp("R-CAP", "CAP", 11.5, 9.0),
+         _refresh_dto_via("GND", 11.0, 13.0),
+         _refresh_dto_via("NEW_NET", 12.0, 13.0),
+         _import_dto_track("NEW_NET", 12.0, 12.0, 14.0, 12.0)],
+        roles={"R-ORIG": "ORIG", "R-CAP": "CAP"})
+
+    captured = {"sections": None}
+
+    class _AcceptDialog:
+        def __init__(self, sections, parent=None):
+            captured["sections"] = sections
+
+        def exec(self):
+            return 1  # QDialog.Accepted
+    monkeypatch.setattr(cell_editor_mod, "_RefreshPreviewDialog", _AcceptDialog)
+
+    result = dock._run_refresh_geometry(
+        {"board": board, "components": list(dock._components),
+         "vias": list(dock._vias), "tracks": list(dock._tracks)})
+    assert "plan" in result
+    plan = result["plan"]
+    assert [r["net"] for r in plan.new_via_records] == ["NEW_NET"]
+    assert [r["net"] for r in plan.new_track_records] == ["NEW_NET"]
+    # The existing GND via is matched for a geometry update, never re-imported.
+    assert len(plan.via_updates) == 1 and len(plan.new_via_records) == 1
+
+    dock._finish_refresh_geometry(result)
+
+    # Preview: geometry-edit tabs PLUS the new-record tab (3 columns) — the
+    # stub dialog captured the sections the real one would have shown.
+    sections = captured["sections"]
+    assert sections is not None
+    new_sec = next(s for s in sections if len(s.get("headers", [])) == 3)
+    assert len(new_sec["rows"]) == 2  # the NEW_NET via + track
+
+    # Existing GND via: same dict object, geometry updated to (1.0, 3.0).
+    assert dock._vias[0] is existing_via
+    assert dock._vias[0]["offset_along_mm"] == 1.0
+    assert dock._vias[0]["offset_across_mm"] == 3.0
+    # CAP component moved along with the refresh.
+    assert next(c for c in dock._components if c["role"] == "CAP") is orig_cap
+    assert next(c for c in dock._components if c["role"] == "CAP")["offset_along_mm"] == 1.5
+    # Brand-new records APPENDED (extend), geometry relative to the ORIG origin.
+    assert len(dock._vias) == 2
+    assert dock._vias[1]["net"] == "NEW_NET"
+    assert dock._vias[1]["offset_along_mm"] == 2.0
+    assert dock._vias[1]["offset_across_mm"] == 3.0
+    assert len(dock._tracks) == 1
+    assert dock._tracks[0]["net"] == "NEW_NET"
+    assert dock._tracks[0]["start_along_mm"] == 2.0
+    assert dock._tracks[0]["end_along_mm"] == 4.0
+    assert dock.vias_table.rowCount() == 2
+    assert dock.tracks_table.rowCount() == 1
+
+
+def test_refresh_new_records_section_lists_only_new_records(main_window,
+                                                            tmp_path):
+    """refresh_new_records_section is pure: a plan that adds nothing yields
+    None (no empty tab); a plan with new records yields a Kind/Position/Net
+    section — the same row shape as the Import preview."""
+    from kicadstamp.cell_geometry_refresh import RefreshPlan
+    empty = RefreshPlan([], [], [])
+    assert cell_editor_mod.refresh_new_records_section(empty) is None
+
+    plan = RefreshPlan([], [], [],
+                       new_via_records=[{"offset_along_mm": 2.0,
+                                         "offset_across_mm": 3.0,
+                                         "net": "NEW_NET"}],
+                       new_track_records=[{"start_along_mm": 0.0,
+                                           "start_across_mm": 0.0,
+                                           "end_along_mm": 4.0,
+                                           "end_across_mm": 0.0,
+                                           "width_mm": 0.25,
+                                           "net_from_role": "CAP"}])
+    sec = cell_editor_mod.refresh_new_records_section(plan)
+    assert sec is not None
+    assert sec["headers"] == ["Kind", "Position", "Net"]
+    assert sec["rows"] == [["Via", "(2.0000, 3.0000)", "NEW_NET"],
+                           ["Track", "(0.0000, 0.0000) → (4.0000, 0.0000)",
+                            "role:CAP"]]

@@ -212,7 +212,10 @@ class _RefreshPreviewDialog(QDialog):
     separate lightweight widget (not the dock's editable tables, whose
     semantics differ). Apply/Cancel; the actual record.update() happens in the
     caller AFTER this dialog returns Accepted (so mutation + autostage stay in
-    the dock's normal path)."""
+    the dock's normal path). Since 2026-09-05 the plan may also ADD brand-new
+    via/track records: a section may carry its own "headers" (a Kind/Position/
+    Net list, the import-preview shape) instead of the default 5-column
+    Item/Field/Old/New/Δ geometry shape — both render identically from rows."""
 
     def __init__(self, sections: List[Dict[str, Any]], parent=None):
         super().__init__(parent)
@@ -221,9 +224,10 @@ class _RefreshPreviewDialog(QDialog):
         layout = QVBoxLayout(self)
         tabs = QTabWidget()
         for section in sections:
-            table = QTableWidget(0, 5)
-            table.setHorizontalHeaderLabels(
-                [_("Item"), _("Field"), _("Old"), _("New"), _("Δ")])
+            headers = section.get("headers") or \
+                [_("Item"), _("Field"), _("Old"), _("New"), _("Δ")]
+            table = QTableWidget(0, len(headers))
+            table.setHorizontalHeaderLabels(headers)
             table.horizontalHeader().setSectionResizeMode(
                 QHeaderView.ResizeMode.Stretch)
             table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -267,13 +271,30 @@ def import_preview_rows(plan) -> List[List[str]]:
     net_source is the classified net (literal / role:[pad:] / rule-net null —
     the same _net_display convention as the dock's own via/track tables).
     Pure (no widget access) so the GUI test can exercise the exact rows the
-    dialog shows without a QDialog event loop."""
+    dialog shows without a QDialog event loop. Also reused by the additive
+    refresh preview (2026-09-05) — a RefreshPlan carries the same
+    new_via_records/new_track_records fields."""
     rows: List[List[str]] = []
     for record in plan.new_via_records:
         rows.append([_("Via"), _record_position(record, "via"), _net_display(record)])
     for record in plan.new_track_records:
         rows.append([_("Track"), _record_position(record, "track"), _net_display(record)])
     return rows
+
+
+def refresh_new_records_section(plan) -> Optional[Dict[str, Any]]:
+    """The preview tab for the via/track records build_refresh_plan would ADD
+    (add_new_copper mode, 2026-09-05) — one Kind/Position/Net row per NEW
+    record, the same shape as the Import preview. None when the plan adds
+    nothing, so the caller never shows an empty tab."""
+    rows = import_preview_rows(plan)
+    if not rows:
+        return None
+    return {
+        "title": _("New vias/tracks to add"),
+        "headers": [_("Kind"), _("Position"), _("Net")],
+        "rows": rows,
+    }
 
 
 class _ImportPreviewDialog(QDialog):
@@ -1524,7 +1545,8 @@ class CellDock(QWidget):
             plan = build_refresh_plan(
                 payload["components"], payload["vias"], payload["tracks"],
                 footprints, vias, tracks, adapter,
-                origin_role=payload.get("origin_role"))
+                origin_role=payload.get("origin_role"),
+                add_new_copper=True)
         except ValidationError as e:
             return {"error": str(e)}
         return {"plan": plan}
@@ -1541,6 +1563,9 @@ class CellDock(QWidget):
         plan = result["plan"]
         sections = refresh_preview_sections(
             self._components, self._vias, self._tracks, plan)
+        new_section = refresh_new_records_section(plan)
+        if new_section is not None:
+            sections.append(new_section)
         total = sum(len(s["rows"]) for s in sections)
         if not total:
             self._show_message(
@@ -1550,33 +1575,46 @@ class CellDock(QWidget):
         dialog = _RefreshPreviewDialog(sections, self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        applied = self._apply_refresh_plan(plan)
-        self._show_message(
-            _("Refreshed {name!r} from selection — {count} record(s) updated. "
-              "Save to write the change.").format(
-                name=self.name_edit.text().strip(), count=applied),
-            _SUCCESS_STYLE)
+        updated, added = self._apply_refresh_plan(plan)
+        if added:
+            self._show_message(
+                _("Updated {name!r} from selection — {updated} record(s) updated, "
+                  "{added} new via/track record(s) added. Save to write the change.")
+                .format(name=self.name_edit.text().strip(),
+                        updated=updated, added=added),
+                _SUCCESS_STYLE)
+        else:
+            self._show_message(
+                _("Refreshed {name!r} from selection — {count} record(s) updated. "
+                  "Save to write the change.").format(
+                    name=self.name_edit.text().strip(), count=updated),
+                _SUCCESS_STYLE)
 
     def _on_refresh_op_failed(self, message: str) -> None:
         self._active_op = None
         self._show_message(
             _("Refresh failed: {error}").format(error=message), _ERROR_STYLE)
 
-    def _apply_refresh_plan(self, plan) -> int:
+    def _apply_refresh_plan(self, plan) -> tuple:
         """Apply a RefreshPlan to the loaded cell: mutate ONLY the geometric
         keys on the SAME dict objects already in self._components/_vias/
-        _tracks (plan records ARE those dicts), then refresh tables + autostage
-        exactly like a manual row Update. Returns how many records changed.
-        Nothing is written to disk here — Save remains a separate explicit
-        action, as everywhere in this dock."""
-        count = 0
+        _tracks (plan records ARE those dicts), then APPEND the plan's
+        brand-new via/track records (add_new_copper mode, 2026-09-05) to
+        self._vias/_tracks (extend, never replace), then refresh tables +
+        autostage exactly like a manual row Update/Add. Returns
+        (updated_count, added_count). Nothing is written to disk here — Save
+        remains a separate explicit action, as everywhere in this dock."""
+        updated = 0
         for record, new_geo in (plan.component_updates + plan.via_updates
                                 + plan.track_updates):
             record.update(new_geo)
-            count += 1
+            updated += 1
+        added = len(plan.new_via_records) + len(plan.new_track_records)
+        self._vias.extend(plan.new_via_records)
+        self._tracks.extend(plan.new_track_records)
         self._refresh_all_tables()
         self._autostage()
-        return count
+        return updated, added
 
     def refresh_from_selection_requested(self, name: str, file_path) -> None:
         """ConfigTreeDock's cell_refresh_requested delegate (2026-09-03) — the

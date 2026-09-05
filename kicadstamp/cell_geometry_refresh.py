@@ -49,7 +49,7 @@ the first one.
 """
 import re
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from .constants import ROLE_FIELD_NAME
@@ -400,10 +400,18 @@ class RefreshPlan:
     track record from CellDock's lists); new_geo_dict holds ONLY the geometric
     keys to write onto it (offset/angle/width) — applying it as
     `record.update(new_geo)` can never touch a semantic key. The caller owns
-    the actual mutation + undo/preview story."""
+    the actual mutation + undo/preview story.
+
+    add_new_copper mode additionally returns brand-NEW via/track records
+    (new_via_records/new_track_records, already net-classified like Import's —
+    net_from_role(+pad) or a plain literal, NEVER `net: null`) for the live
+    copper the cell's current records do not describe; the caller appends them
+    (extend) after applying the geometry updates. Empty unless requested."""
     component_updates: list[tuple[dict, dict]]
     via_updates: list[tuple[dict, dict]]
     track_updates: list[tuple[dict, dict]]
+    new_via_records: list[dict] = field(default_factory=list)
+    new_track_records: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -515,6 +523,7 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
                        raw_track_items: list[Track], adapter: Any,
                        net_template_map: dict[str, str] | None = None,
                        origin_role: str | None = None,
+                       add_new_copper: bool = False,
                        ) -> RefreshPlan:
     """Build the full refresh plan for one loaded cell.
 
@@ -525,13 +534,29 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
     never matched against each other). adapter reads Role fields and resolves
     net_from_role.
 
+    add_new_copper — the tier-4 treatment of live copper the cell's current
+    records leave unclaimed after tiers 1-3 (plan 2026-09-05, "Update from
+    selection... just adds the copper"):
+      - False (default) — today's strict Refresh: every leftover item is a
+        collected "extra copper" fatal (leftover_is_fatal=True), exactly as
+        before; existing tests unchanged.
+      - True — the SAME additive semantics as Import's tier 4: leftover live
+        via/track items become NEW records (via _import_via_record/
+        _import_track_record + _classify_import_net — net_from_role(+pad) when
+        a selected role's pad carries the net, else a plain literal `net:`,
+        NEVER `net: null`), returned in RefreshPlan.new_via_records/
+        new_track_records for the caller to APPEND. Tier-3 net:null and
+        tier-1/2 named-net count mismatches and the symmetric role match are
+        NOT softened — they stay collected fatals exactly like Refresh and
+        Import.
+
     Raises ValidationError (format_fatal_error, EVERY problem collected into
     one message — missing/extra roles AND every per-net/template/net:null
-    count mismatch AND every bit of extra copper) on any structural mismatch.
-    Never mutates its inputs. net_template_map is accepted for signature
-    symmetry with extract_template_from_selection but unused in v1: the cell
-    does not store params, so existing parametrized literals are handled by
-    template-shape matching (§1.4), which needs no map.
+    count mismatch; extra copper only in the strict add_new_copper=False
+    mode) on any structural mismatch. Never mutates its inputs. net_template_map
+    is accepted for signature symmetry with extract_template_from_selection but
+    unused in v1: the cell does not store params, so existing parametrized
+    literals are handled by template-shape matching (§1.4), which needs no map.
     """
     role_to_ref, matched, origin, problems = _cell_selection_context(
         components, footprints, adapter,
@@ -551,29 +576,54 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
     # Vias / tracks — independent sections. Run only when the origin resolved
     # (the nearest-match it feeds needs a reference point); an unresolvable
     # origin is already reported loudly above as the wrong-cluster problem.
+    # add_new_copper softens ONLY tier 4 (leftover -> new records below); the
+    # strict leftover_is_fatal=True (extra-copper fatal) is the default.
     via_updates: list[tuple[dict, dict]] = []
     track_updates: list[tuple[dict, dict]] = []
     via_problems: list[str] = []
     track_problems: list[str] = []
+    via_leftover: list[Any] = []
+    track_leftover: list[Any] = []
     if origin is not None:
-        via_updates, via_problems, _via_leftover = _match_copper(
-            vias, raw_via_items, origin, role_to_ref, adapter, "via")
-        track_updates, track_problems, _track_leftover = _match_copper(
-            tracks, raw_track_items, origin, role_to_ref, adapter, "track")
+        via_updates, via_problems, via_leftover = _match_copper(
+            vias, raw_via_items, origin, role_to_ref, adapter, "via",
+            leftover_is_fatal=not add_new_copper)
+        track_updates, track_problems, track_leftover = _match_copper(
+            tracks, raw_track_items, origin, role_to_ref, adapter, "track",
+            leftover_is_fatal=not add_new_copper)
 
     # EVERY problem collected into ONE message (design §2.3-2.5) — role
     # mismatches and every per-net/template/net:null count problem and every
-    # extra-copper item, never the first one only.
+    # extra-copper item (only in the strict mode), never the first one only.
     all_problems = problems + via_problems + track_problems
     if all_problems:
         raise ValidationError(format_fatal_error(
             _("cannot refresh cell geometry from the current selection"),
             all_problems))
 
+    # Additive mode: turn the tier-4 leftover live copper into NEW records.
+    # Exactly the Import path (build_import_plan) — _selection_role_nets once
+    # + _classify_import_net per item (net_from_role(+pad), else literal net,
+    # never `net: null`). Never reached when a problem was raised above.
+    new_via_records: list[dict] = []
+    new_track_records: list[dict] = []
+    if add_new_copper and origin is not None and (via_leftover or track_leftover):
+        role_nets = _selection_role_nets(adapter, footprints)
+        for live in via_leftover:
+            rec = _import_via_record(live, origin)
+            _classify_import_net(rec, live, role_nets, components)
+            new_via_records.append(rec)
+        for live in track_leftover:
+            rec = _import_track_record(live, origin)
+            _classify_import_net(rec, live, role_nets, components)
+            new_track_records.append(rec)
+
     return RefreshPlan(
         component_updates=component_updates,
         via_updates=via_updates,
         track_updates=track_updates,
+        new_via_records=new_via_records,
+        new_track_records=new_track_records,
     )
 
 

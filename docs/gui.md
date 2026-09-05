@@ -1149,12 +1149,21 @@ selection. Vias/tracks are matched by resolved net (a `net_from_role` via/track 
 pad, a plain literal as-is); a parametrized literal net (a `{placeholder}` written at extract time)
 is matched by its SHAPE, not by guessing the parameter value; a `net: null` via/track (rule-net
 convention) is matched by pure position against whatever copper the named nets left unclaimed. A
-missing/extra component role, or a per-net count mismatch, or copper the cell does not describe is a
-fatal — all problems shown at once, nothing is changed, no Apply.
+missing/extra component role or a per-net count mismatch is a fatal — all problems shown at once,
+nothing is changed, no Apply.
 
-A clean match opens a read-only **preview dialog** (old/new/Δ per record, tabs by kind) — **Apply**
-mutates the loaded cell in memory and auto-stages it exactly like a manual row Update; nothing is
-written to disk until the project **Save**.
+Since 2026-09-05, live via/track copper the cell's current records do not describe is NO LONGER a
+fatal: it is ADDED to the cell as NEW records (the drawn-copper case — a cell saved before the copper
+was routed, then re-read after you drew it; e.g. `pif_p5v`). The preview shows them in a
+**"New vias/tracks to add"** tab (Kind / Position / Net) next to the geometry-edit tabs; **Apply**
+updates the matched existing records' geometry AND appends the new records (nothing is written to disk
+until the project **Save**). A new record's net is classified by the extractor's own heuristic (a net a
+selected role's pad carries -> `net_from_role`(+pad), else a plain literal net — never `net: null`),
+its geometry relative to the same zero-offset origin.
+
+A clean run opens a read-only **preview dialog** (old/new/Δ per record, tabs by kind, plus the new
+records tab) — **Apply** mutates the loaded cell in memory and auto-stages it exactly like a manual row
+Update/Add.
 
 **Import vias/tracks from selection** (2026-09-03) — the additive counterpart of Refresh: a button
 right next to it in the Cell dialog AND a right-click **Import from selection...** action on a Cell leaf
@@ -1163,13 +1172,17 @@ copper the cell's current records do not describe — the way to add vias/tracks
 the original extraction (e.g. not yet routed when the cell was extracted, the `fpga_oscill` case)
 without touching what is already there. Select the whole cluster on the board first, then run it.
 
-Where Refresh treats "copper the cell does not describe" as a fatal and refuses, Import turns that same
-leftover into NEW records. It is therefore purely ADDITIVE: it never modifies or removes an existing
-record, and it cannot ADD components. The same symmetric role match and the same named-net/count checks
-stay fatal in both — a wrong/incomplete cluster is rejected exactly like Refresh. A new record's net is
-classified by the extractor's own heuristic (a net a selected role's pad carries -> `net_from_role`
-(+pad); a rule net like GND -> `net: null`; anything else -> a literal net), and its geometry is
-relative to the same zero-offset origin.
+Refresh and Import now BOTH turn "copper the cell does not describe" into NEW records — the difference
+is the rest of the run: **Update from selection...** is a full sync (it ALSO re-reads the geometry of
+the existing records — components and already-saved vias/tracks — from the selection), while **Import**
+is purely ADDITIVE — it never modifies or removes an existing record and cannot add components. Choose
+Import when you only want to backfill new copper without touching the already-saved geometry; choose
+**Update from selection...** when the whole cluster should be pulled up to date (moved parts/routes AND
+new copper together). The same symmetric role match and the same named-net/count checks stay fatal in
+both — a wrong/incomplete cluster is rejected exactly the same way. A new record's net is classified by
+the extractor's own heuristic (a net a selected role's pad carries -> `net_from_role`(+pad), else a
+plain literal net — Import never writes `net: null`, 2026-09-04), and its geometry is relative to the
+same zero-offset origin.
 
 A clean plan opens a read-only **preview dialog** listing the NEW records (Kind / Position / Net) —
 **Apply** appends them to the loaded cell in memory and auto-stages it exactly like a manual row Add;

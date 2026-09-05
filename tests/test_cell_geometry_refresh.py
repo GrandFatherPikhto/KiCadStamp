@@ -905,3 +905,127 @@ def test_build_import_plan_missing_role_fatal_like_refresh():
                           [_via("GND", 1.0, 1.0)], [], adapter)
 
 
+# ── Refresh add_new_copper: 'Update from selection...' just ADDS the copper
+#    (2026-09-05, plan update_from_selection_adds_copper) ────────────────────
+
+def test_refresh_add_new_copper_empty_cell_adds_records_never_fatal():
+    """The pif_p5v case (cell read when there was no copper yet; copper drawn
+    later): with add_new_copper=True, live via/track copper the cell has NO
+    record for becomes NEW records instead of an 'extra copper' fatal — and
+    every new record carries a concrete net (never `net: null`)."""
+    components = [{"role": "ORIG", "offset_along_mm": 0.0,
+                   "offset_across_mm": 0.0}]
+    footprints = [_fp("R-ORIG", "ORIG", 0.0, 0.0)]
+    adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})  # no pads -> literal nets
+    plan = build_refresh_plan(
+        components, [], [], footprints,
+        [_via("GND", 1.0, 1.0), _via("+5V", 2.0, 2.0)],
+        [_track("+5V", 0.0, 0.0, 3.0, 0.0)],
+        adapter, add_new_copper=True)
+    assert isinstance(plan, RefreshPlan)
+    # The zero-slot ORIG component is matched as usual; its live position
+    # equals its stored (0,0) so the recomputed geometry is a no-op (the
+    # preview omits zero-Δ rows; the plan still carries the update).
+    assert len(plan.component_updates) == 1
+    assert plan.component_updates[0][1] == {
+        "offset_along_mm": 0.0, "offset_across_mm": 0.0, "angle_deg": 0.0}
+    assert len(plan.new_via_records) == 2
+    assert [r["net"] for r in plan.new_via_records] == ["GND", "+5V"]
+    assert plan.new_via_records[0]["offset_along_mm"] == 1.0
+    assert plan.new_via_records[1]["offset_across_mm"] == 2.0
+    assert len(plan.new_track_records) == 1
+    t = plan.new_track_records[0]
+    assert t["net"] == "+5V"
+    assert t["start_along_mm"] == 0.0 and t["end_along_mm"] == 3.0
+    # The structural invariant shared with Import: no NEW record ever net:null.
+    for rec in plan.new_via_records + plan.new_track_records:
+        assert rec.get("net") is not None or rec.get("net_from_role") is not None
+
+
+def test_refresh_add_new_copper_mixed_updates_existing_and_adds_only_new():
+    """Additive refresh = Refresh + Import in one run: an existing GND via is
+    matched and its geometry updated, while only the genuinely-new NEW_NET
+    via/track becomes NEW records (the GND via is never duplicated)."""
+    components = [{"role": "ORIG", "offset_along_mm": 0.0,
+                   "offset_across_mm": 0.0}]
+    existing_via = {"offset_along_mm": 1.0, "offset_across_mm": 1.0,
+                    "net": "GND"}
+    footprints = [_fp("R-ORIG", "ORIG", 0.0, 0.0)]
+    adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})
+    plan = build_refresh_plan(
+        components, [existing_via], [], footprints,
+        [_via("GND", 1.5, 1.0),        # the existing via's live counterpart
+         _via("NEW_NET", 4.0, 4.0)],   # genuinely new
+        [_track("NEW_NET", 4.0, 4.0, 6.0, 4.0)],
+        adapter, add_new_copper=True)
+    # Existing GND via updated (same dict object, geometry recomputed).
+    assert len(plan.via_updates) == 1
+    rec, new = plan.via_updates[0]
+    assert rec is existing_via
+    assert new == {"offset_along_mm": 1.5, "offset_across_mm": 1.0}
+    # Only the genuinely-new copper is added — GND never duplicated.
+    assert [r["net"] for r in plan.new_via_records] == ["NEW_NET"]
+    assert [r["net"] for r in plan.new_track_records] == ["NEW_NET"]
+
+
+def test_refresh_add_new_copper_never_mutates_inputs_and_default_false_empty():
+    """add_new_copper never mutates its inputs; NEW records are distinct dict
+    objects. Without the flag the new-record fields stay empty (strict
+    Refresh's behaviour is untouched — the no-leftover run below is clean)."""
+    components = [{"role": "ORIG", "offset_along_mm": 0.0,
+                   "offset_across_mm": 0.0}]
+    existing_via = {"offset_along_mm": 1.0, "offset_across_mm": 1.0,
+                    "net": "GND"}
+    footprints = [_fp("R-ORIG", "ORIG", 0.0, 0.0)]
+    adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})
+    via_snapshot = dict(existing_via)
+    # Leftover present -> additive plan; inputs untouched, new records distinct.
+    plan = build_refresh_plan(
+        components, [existing_via], [], footprints,
+        [_via("GND", 1.0, 1.0), _via("NEW_NET", 4.0, 4.0)],
+        [], adapter, add_new_copper=True)
+    assert existing_via == via_snapshot
+    assert len(plan.new_via_records) == 1
+    assert plan.new_via_records[0] is not existing_via
+    # Default False (no flag): same clean run -> no new records, strict shape.
+    strict = build_refresh_plan(
+        components, [existing_via], [], footprints,
+        [_via("GND", 1.0, 1.0)], [], adapter)
+    assert strict.new_via_records == [] and strict.new_track_records == []
+    assert len(strict.via_updates) == 1
+
+
+def test_refresh_add_new_copper_role_mismatch_still_fatal():
+    """add_new_copper softens ONLY tier 4 (extra copper); the symmetric role
+    match stays fatal exactly as strict Refresh and Import."""
+    components = [{"role": "ORIG"}, {"role": "CAP", "offset_along_mm": 1.0}]
+    footprints = [_fp("R-ORIG", "ORIG", 0.0, 0.0)]  # CAP missing
+    adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})
+    with pytest.raises(ValidationError,
+                       match="role 'CAP'.*not in the selection"):
+        build_refresh_plan(components, [], [], footprints,
+                           [_via("GND", 1.0, 1.0)], [], adapter,
+                           add_new_copper=True)
+
+
+def test_refresh_add_new_copper_net_from_role_via_gets_role_not_literal(
+        monkeypatch):
+    """A NEW record on a net one selected role's pad carries is classified
+    through the extractor's OWN classifier (_suggest_net_from_role) -> the NEW
+    record gets net_from_role, not a literal net (same route as Import)."""
+    components = [{"role": "ORIG", "offset_along_mm": 0.0,
+                   "offset_across_mm": 0.0}]
+    footprints = [_fp("R-ORIG", "ORIG", 0.0, 0.0)]
+    adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})
+    monkeypatch.setattr(
+        mod, "_selection_role_nets",
+        lambda a, fps: {"ORIG": {"1": {"GND"}}})
+    plan = build_refresh_plan(components, [], [], footprints,
+                              [_via("GND", 2.0, 2.0)], [], adapter,
+                              add_new_copper=True)
+    assert len(plan.new_via_records) == 1
+    rec = plan.new_via_records[0]
+    assert rec["net_from_role"] == "ORIG"
+    assert "net" not in rec
+
+
