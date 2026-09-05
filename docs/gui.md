@@ -164,18 +164,23 @@ state survives app restarts (stored as deviations in `gui_state.json`).
 Since 2026-09-01 (plan rules_to_chains) the **Chains** category is a NESTED tree, not a flat list:
 category → **anchor** (grouped by `anchor_ref`/`anchor_role`/`anchor_point`) → **chain** (labelled
 by its net or name) → **pad** leaves (one per spoke, sorted by pad number). There is no separate
-table of pads anywhere — a pad is a leaf. A DOUBLE click on a chain node opens the Chain dialog in
-chain mode; a DOUBLE click on a pad leaf opens it in pad mode; single clicks do nothing (like
-Points/Entities). The context menu adds chains-specific actions: on a chain node **Add spoke...** /
+table of pads anywhere — a pad is a leaf. Since 2026-09-05 (design
+config_qview_chain_entity_pages) the Config dock is a master-detail and the tree clicks drive the
+right QView pages: a SINGLE click on a **pad** leaf opens the **spoke editor** there with **Apply**
+(commit the spoke) and **Redraw** (apply the current spoke to the board) buttons; a SINGLE click on
+a **chain** node shows a clickable **pad list** in the chains-navigation QView; a SINGLE click on an
+**anchor** node shows its clickable **chain list**; a DOUBLE click on a chain node opens the editor
+in **chain mode**. The context menu adds chains-specific actions: on a chain node **Add spoke...** /
 **Redraw chain** / **Bulk set Cell for net...**, on a pad leaf **Redraw spoke** / **Delete pad...**,
 on an anchor node **Redraw chains...** (redraws all chains under that anchor).
 
 Since 2026-08-30 (Entity/Placement split, phase 5.6) each file node also shows **Entities** and
-**Trees** categories. Clicking an **Entities** leaf switches the Placer dock into Entity mode with
-that Entity loaded (`set_selected_entity`); a **double click** on an Entities leaf opens the
-non-modal "Edit template" dialog with that Entity loaded (its electrical fields, see the
-[Tools](#tools) section); the **Trees** category is navigation-only — editing lives in the Trees
-dock.
+**Trees** categories. Since 2026-09-05 a single click on an **Entities** leaf opens the Config
+right-QView **Entity page** (the record's "Справка": Name/Cell/Sheet/Cluster read-only, Comment
+editable, plus a clickable placements list that jumps to the entity's tree in TreesDock); a
+**double click** on an Entities leaf opens the non-modal "Edit template" dialog with that Entity
+loaded (its electrical fields, see the [Tools](#tools) section); the **Trees** category is
+navigation-only — editing lives in the Trees dock.
 
 Right-click any entry for:
 - **Rename...** — renames the entry; for Cells/Points, also rewrites every reference to it
@@ -976,16 +981,17 @@ with its own hand-tuned shift/rotation. Added 2026-08-05 (as "Rules") after Deni
 `fpga_spokes.sexp`/`fpga_cap_pair_spoke.sexp` to a real project and hit the long-standing "Rules
 has no edit form" gap.
 
-2026-09-01 (plan rules_to_chains): the form is now a standalone **non-modal Chain dialog**
-(`gui/docks/chain_dialog.py`), NOT a Detail dock page anymore — a chains: node in the Config tree
-is edited by a DOUBLE click, and the pads are no longer a table: they are LEAVES in the tree
-(category → anchor → chain → pad). The dialog has TWO modes behind one widget:
+2026-09-05 (design config_qview_chain_entity_pages): the Chain editor is now a page of the Config
+dock's right QView (it used to be a standalone ChainDialog — removed; before that a Detail-dock
+page). The pads are leaves in the tree (category → anchor → chain → pad). One widget, TWO modes:
 - **Chain mode** — Net/Name/Comment + **Origin** (anchor-mode combo + Sheet/Cluster, or Point) +
-  **Retired**/**Skip** (the old Net/Origin tabs). A double click on a chains: chain node opens it.
+  **Retired**/**Skip**. Reachable by double-clicking a chains: chain node (the chains-nav QView
+  also shows the chain's pad list on a single click).
 - **Pad mode** — one spoke's fields: **Pad**/**Cell**/**Cluster**/**Mode** (Cartesian/Polar)/
-  **Shift X,Y** (or **Radius+Angle** in Polar)/**Rotation**/**Retired**/**Skip**. A double click on
-  a chains: pad leaf opens it; **Add spoke...** (context menu / Tools menu) opens it blank to
-  append a pad to the selected chain.
+  **Shift X,Y** (or **Radius+Angle** in Polar)/**Rotation**/**Retired**/**Skip**, plus the page's
+  **Apply** (commit the spoke) and **Redraw** (apply the current spoke to the board) buttons. A
+  SINGLE click on a chains: pad leaf opens it; **Add spoke...** (context menu / Tools menu) opens
+  it blank to append a pad to the selected chain.
 
 The pads' ORDER is still semantically significant (the component pool consumes a chain's spokes in
 list order), but the tree shows them sorted by pad number — editing a pad rewrites its whole parent
