@@ -1467,6 +1467,14 @@ class CellDock(QWidget):
         self.refresh_geometry_button.setEnabled(enabled)
         self.import_vias_tracks_button.setEnabled(enabled)
 
+    def _refresh_origin_role(self) -> str | None:
+        """The cell's anchor_role to refresh/import geometry against (v2: the
+        MOUNT role, frame-preserving). Only in the dock's "Role/Pad anchor"
+        mode; None keeps the legacy zero-slot origin for un-anchored cells."""
+        if self.anchor_mode_combo.currentIndex() == 2:
+            return self.anchor_role_combo.currentText().strip() or None
+        return None
+
     def _on_refresh_geometry(self) -> None:
         """Button/context action: read the CURRENT board selection and refresh
         the loaded cell's geometry to match it. Board IPC (selection read +
@@ -1496,6 +1504,7 @@ class CellDock(QWidget):
             "components": list(self._components),
             "vias": list(self._vias),
             "tracks": list(self._tracks),
+            "origin_role": self._refresh_origin_role(),
         }
         self._active_op = start_long_op(
             connection, (self.refresh_geometry_button,),
@@ -1514,7 +1523,8 @@ class CellDock(QWidget):
             tracks = [i for i in items if isinstance(i, Track)]
             plan = build_refresh_plan(
                 payload["components"], payload["vias"], payload["tracks"],
-                footprints, vias, tracks, adapter)
+                footprints, vias, tracks, adapter,
+                origin_role=payload.get("origin_role"))
         except ValidationError as e:
             return {"error": str(e)}
         return {"plan": plan}
@@ -1610,6 +1620,7 @@ class CellDock(QWidget):
             "components": list(self._components),
             "vias": list(self._vias),
             "tracks": list(self._tracks),
+            "origin_role": self._refresh_origin_role(),
         }
         self._active_op = start_long_op(
             connection, (self.import_vias_tracks_button,),
@@ -1628,7 +1639,8 @@ class CellDock(QWidget):
             tracks = [i for i in items if isinstance(i, Track)]
             plan = build_import_plan(
                 payload["components"], payload["vias"], payload["tracks"],
-                footprints, vias, tracks, adapter)
+                footprints, vias, tracks, adapter,
+                origin_role=payload.get("origin_role"))
         except ValidationError as e:
             return {"error": str(e)}
         return {"plan": plan}

@@ -223,6 +223,53 @@ def test_build_refresh_plan_end_to_end():
                             "end_along_mm", "end_across_mm", "width_mm"}
 
 
+def test_build_refresh_plan_role_anchored_frame_preserving():
+    """Design_2026_09_05 v2: a role-anchored cell has NO component at the
+    stored (0,0). origin_role=MOUNT makes the MOUNT the surrogate and keeps its
+    STORED offset (2,1) — the cell's frame/anchor stay truthful — while every
+    other element is re-measured relative to the mount's live position."""
+    components = [
+        {"role": "MOUNT", "offset_along_mm": 2.0, "offset_across_mm": 1.0,
+         "angle_deg": 0.0},
+        {"role": "CAP", "offset_along_mm": 3.0, "offset_across_mm": 2.0,
+         "angle_deg": 0.0},
+    ]
+    vias = [{"offset_along_mm": 2.5, "offset_across_mm": 1.5, "net": "GND"}]
+    footprints = [
+        _fp("U-MOUNT", "MOUNT", 12.0, 21.0, angle=0.0),
+        _fp("R-CAP", "CAP", 13.5, 23.0, angle=90.0),
+    ]
+    adapter = _FakeAdapter(roles={"U-MOUNT": "MOUNT", "R-CAP": "CAP"})
+    plan = build_refresh_plan(
+        components, vias, [], footprints,
+        [_via("GND", 12.5, 22.0)], [], adapter,
+        origin_role="MOUNT")
+
+    by_role = {rec["role"]: new for rec, new in plan.component_updates}
+    # MOUNT keeps its stored offset (2,1) — the frame is preserved, not zeroed.
+    assert by_role["MOUNT"] == {"offset_along_mm": 2.0,
+                                "offset_across_mm": 1.0, "angle_deg": 0.0}
+    # CAP measured from the mount: stored (2,1) + live-relative (1.5, 2.0).
+    assert by_role["CAP"] == {"offset_along_mm": 3.5, "offset_across_mm": 3.0,
+                              "angle_deg": 90.0}
+    # Via measured from the mount: stored (2,1) + live-relative (0.5, 1.0).
+    rec, new = plan.via_updates[0]
+    assert new == {"offset_along_mm": 2.5, "offset_across_mm": 2.0}
+
+
+def test_build_refresh_plan_role_anchored_without_origin_role_is_fatal():
+    """Without origin_role the legacy zero-slot search runs — a v2 role-anchored
+    cell (no component at (0,0)) must fatal honestly, never guess."""
+    components = [
+        {"role": "MOUNT", "offset_along_mm": 2.0, "offset_across_mm": 1.0,
+         "angle_deg": 0.0},
+    ]
+    footprints = [_fp("U-MOUNT", "MOUNT", 12.0, 21.0, angle=0.0)]
+    adapter = _FakeAdapter(roles={"U-MOUNT": "MOUNT"})
+    with pytest.raises(ValidationError, match="no zero-offset component"):
+        build_refresh_plan(components, [], [], footprints, [], [], adapter)
+
+
 def test_build_refresh_plan_does_not_mutate_inputs():
     components = [{"role": "ORIG"}, {"role": "CAP", "offset_along_mm": 1.0}]
     vias = [{"offset_along_mm": 0.5, "offset_across_mm": 1.5, "net": "GND"}]

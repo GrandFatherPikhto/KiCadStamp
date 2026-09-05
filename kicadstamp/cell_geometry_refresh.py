@@ -54,7 +54,7 @@ from typing import Any
 
 from .constants import ROLE_FIELD_NAME
 from .domain.board import Footprint, Track, Via
-from .domain.geometry import BoardLayer, Vector2
+from .domain.geometry import Vector2
 from .exceptions import ValidationError, format_fatal_error
 from .i18n import _
 from .net_resolution import resolve_net_from_role
@@ -418,6 +418,7 @@ class ImportPlan:
 
 def _cell_selection_context(components: list[dict], footprints: list[Footprint],
                             adapter: Any, action_label: str,
+                            origin_role: str | None = None,
                             ) -> tuple[dict[str, str], list[dict], Vector2 | None,
                                        list[str]]:
     """Shared origin/role prelude for BOTH refresh and import (plan §B.2:
@@ -459,26 +460,52 @@ def _cell_selection_context(components: list[dict], footprints: list[Footprint],
                           "cell — {action} cannot add components")
                         .format(role=role, action=action_label))
 
-    # Origin — the zero-offset slot's LIVE footprint. A zero/multiple
-    # zero-slot cell is a cell-local config defect and raises immediately
+    # Origin surrogate — the live reference the whole refresh is measured from.
+    #   - origin_role set (v2: the cell's anchor_role, the MOUNT component): the
+    #     surrogate KEEPS its stored offset (frame-preserving) — every recomputed
+    #     offset = surrogate_stored + (live − live_surrogate), so the cell's own
+    #     frame and its anchor stay truthful even when the mount is NOT at the
+    #     stored (0,0).
+    #   - origin_role None (legacy): the single zero-offset slot component
+    #     (cell_zero_slot_role) is the surrogate and lands on stored (0,0),
+    #     exactly as before design_2026_09_05.
+    # A zero/multiple zero-slot LEGACY cell raises immediately
     # (cell_zero_slot_role). An origin ROLE absent from the selection is a
     # structural problem (wrong cluster selected), collected like the rest.
-    origin_role = cell_zero_slot_role(components)
+    if origin_role is not None:
+        comp = next((c for c in components if c.get("role") == origin_role), None)
+        if comp is None:
+            problems.append(_("role {role!r} (the cell's anchor origin) is not a "
+                              "component of this cell").format(role=origin_role))
+            surrogate_along = surrogate_across = 0.0
+        else:
+            surrogate_along = float(comp.get("offset_along_mm", 0.0))
+            surrogate_across = float(comp.get("offset_across_mm", 0.0))
+        origin_label = _("role {role!r} (the cell's anchor origin)").format(
+            role=origin_role)
+    else:
+        origin_role = cell_zero_slot_role(components)
+        surrogate_along = surrogate_across = 0.0
+        origin_label = _("role {role!r} (the cell's zero-offset origin)").format(
+            role=origin_role)
     origin_ref = role_to_ref.get(origin_role)
     origin: Vector2 | None = None
     ref_to_fp = {fp.ref: fp for fp in footprints}
     if origin_ref is None:
-        problems.append(_("role {role!r} (the cell's zero-offset origin) is not "
-                          "in the current selection")
-                        .format(role=origin_role))
+        problems.append(_("{label} is not in the current selection").format(
+            label=origin_label))
     else:
         origin_fp = ref_to_fp.get(origin_ref)
         if origin_fp is None:
-            problems.append(_("footprint {ref!r} (role {role!r}) not found in "
-                              "the selection")
-                            .format(ref=origin_ref, role=origin_role))
+            problems.append(_("footprint {ref!r} ({label}) not found in the "
+                              "selection").format(ref=origin_ref, label=origin_label))
         else:
-            origin = origin_fp.position
+            # Effective origin = live surrogate − its stored offset, so every
+            # recomputed offset = (live − origin) puts the surrogate back on its
+            # STORED offset (frame preserved); legacy (0,0) keeps old behaviour.
+            origin = Vector2.from_xy(
+                origin_fp.position.x - int(surrogate_along * MM),
+                origin_fp.position.y - int(surrogate_across * MM))
     return role_to_ref, matched, origin, problems
 
 
@@ -486,6 +513,7 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
                        footprints: list[Footprint], raw_via_items: list[Via],
                        raw_track_items: list[Track], adapter: Any,
                        net_template_map: dict[str, str] | None = None,
+                       origin_role: str | None = None,
                        ) -> RefreshPlan:
     """Build the full refresh plan for one loaded cell.
 
@@ -506,7 +534,7 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
     """
     role_to_ref, matched, origin, problems = _cell_selection_context(
         components, footprints, adapter,
-        _("refresh"))
+        _("refresh"), origin_role)
 
     # Components — every matched role recomputed from its own live footprint.
     # Built only once the origin is known (its position is the reference for
@@ -615,7 +643,8 @@ def _classify_import_net(record: dict, live: Via | Track, role_nets: dict,
 
 def build_import_plan(components: list[dict], vias: list[dict], tracks: list[dict],
                       footprints: list[Footprint], raw_via_items: list[Via],
-                      raw_track_items: list[Track], adapter: Any) -> ImportPlan:
+                      raw_track_items: list[Track], adapter: Any,
+                      origin_role: str | None = None) -> ImportPlan:
     """Build the plan for "Import vias/tracks from selection": append NEW via/
     track records to an EXISTING cell for live copper its current records do
     not describe — the additive counterpart of build_refresh_plan (Refresh
@@ -641,7 +670,7 @@ def build_import_plan(components: list[dict], vias: list[dict], tracks: list[dic
     """
     role_to_ref, _matched, origin, problems = _cell_selection_context(
         components, footprints, adapter,
-        _("import"))
+        _("import"), origin_role)
 
     via_leftover: list[Any] = []
     track_leftover: list[Any] = []
