@@ -600,6 +600,22 @@ class TreesDock(QDockWidget):
             splitter.addWidget(form_tabs)
             splitter.setStretchFactor(0, 1)
             splitter.setStretchFactor(1, 0)
+            # Per-tree splitter persistence (2026-09-05, same as the Config
+            # master-detail): re-apply the saved handle position to the fresh
+            # page QSplitter. The form panel (widget(1)) has stretch 0, so Qt
+            # holds it at the saved width once the page is laid out and the
+            # tree (widget(0), stretch 1) absorbs the dock-width difference —
+            # applying setSizes() before the page is even shown is reliable
+            # (unlike an equal-stretch splitter, where pre-show sizes would
+            # target a zero-width widget).
+            saved_entry = saved_tree_state.get(tree.name)
+            if isinstance(saved_entry, dict):
+                splitter_sizes = saved_entry.get("splitter_sizes")
+                if isinstance(splitter_sizes, list) and len(splitter_sizes) == splitter.count():
+                    try:
+                        splitter.setSizes([int(v) for v in splitter_sizes])
+                    except (TypeError, ValueError):
+                        logger.warning("Ignoring invalid saved splitter sizes for %r", tree.name)
             self.tree_tabs.addTab(splitter, tree.name)
         # (P1) Restore the active tab by name.
         desired = self._pending_active_name
@@ -628,7 +644,10 @@ class TreesDock(QDockWidget):
     # "active_tab" (P1) and the per-tree "trees" expansion map (P2). Settings
     # merges only TOP-LEVEL keys (gui/settings.py), so P1 and P2 must merge
     # with each other INSIDE that one value — _update_trees_dock_state is the
-    # single read-merge-mutate-write helper both phases go through.
+    # single read-merge-mutate-write helper both phases go through. Each P2
+    # per-tree entry also carries "splitter_sizes" (2026-09-05): the page's
+    # master-detail splitter position, flushed on quit and re-applied when the
+    # page splitter is (re)built.
 
     def _update_trees_dock_state(self, mutate) -> None:
         """Read-merge-mutate-write of the nested "trees_dock" settings key.
@@ -765,8 +784,9 @@ class TreesDock(QDockWidget):
         if not self._trees:
             return
         self._persist_active_tab()
-        # (P2) Also flush every rendered tree's expansion, from the widgets
-        # themselves (authoritative — drops refs whose nodes are gone).
+        # (P2) Also flush every rendered tree's expansion AND its page
+        # splitter's handle position, from the widgets themselves
+        # (authoritative — drops refs whose nodes are gone).
         def _fn(dock_state: dict) -> None:
             trees = dock_state.get("trees")
             if not isinstance(trees, dict):
@@ -776,7 +796,14 @@ class TreesDock(QDockWidget):
                 widget = self.tree_tabs.widget(i)
                 tree_widget = self._tree_widget_of_page(widget)
                 if tree_widget is not None:
-                    trees[tree.name] = self._capture_tree_expansion(tree_widget)
+                    entry = self._capture_tree_expansion(tree_widget)
+                    # Splitter position (2026-09-05): the tree | form-panel
+                    # divider of THIS tree's page (the page is the QSplitter).
+                    if isinstance(widget, QSplitter):
+                        sizes = list(widget.sizes())
+                        if len(sizes) == widget.count():
+                            entry["splitter_sizes"] = sizes
+                    trees[tree.name] = entry
         self._update_trees_dock_state(_fn)
 
     def _embedded_in(self, tree: Tree) -> list[str]:

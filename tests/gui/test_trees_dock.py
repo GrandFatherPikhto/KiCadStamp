@@ -3105,6 +3105,77 @@ def test_persist_ui_state_flushes_all_tree_expansion(main_window, tmp_path):
     assert "beta" in saved and saved["beta"]["anchor_expanded"] is False
 
 
+# ── Splitter persistence: per-tree master-detail divider (2026-09-05) ────────
+# Same feature as the Config dock's splitter: each tree page's
+# tree | form-panel divider is flushed on quit (persist_ui_state) and
+# re-applied to the fresh page QSplitter on the next build/restart. The form
+# panel (widget(1)) has stretch 0, so its width is what Qt preserves across
+# dock resizes — the tree (widget(0), stretch 1) absorbs the difference.
+
+def test_persist_ui_state_flushes_per_tree_splitter_sizes(main_window, tmp_path):
+    """The quit-flush captures alpha's page splitter into its per-tree entry
+    as a plain two-int pixel list (splitter_sizes), alongside expansion."""
+    root = tmp_path / "p2.sexp"
+    root.write_text(dict_to_sexp(P2_TREES), encoding="utf-8")
+    dock = TreesDock(main_window)
+    dock.set_root_file(root)
+
+    page = dock.tree_tabs.widget(0)  # alpha
+    page.resize(1200, 500)
+    page.setSizes([300, 900])        # tree=300, form=900
+    expected = list(page.sizes())
+
+    dock.persist_ui_state()
+
+    entry = settings.state.get("trees_dock")["trees"]["alpha"]
+    assert entry["splitter_sizes"] == expected
+    assert len(entry["splitter_sizes"]) == 2
+    # The form panel is the fixed pane — its saved width survives a restart.
+    assert abs(entry["splitter_sizes"][1] - 900) <= 5
+
+
+def test_tree_splitter_sizes_restored_on_dock_recreate(main_window, tmp_path, qapp):
+    """A fresh dock (== app restart) re-applies alpha's saved split to the new
+    page QSplitter — once the dock is shown/laid out, the form panel (stretch 0)
+    holds its saved width and the tree absorbs the rest."""
+    root = tmp_path / "p2.sexp"
+    root.write_text(dict_to_sexp(P2_TREES), encoding="utf-8")
+    settings.state.set("trees_dock", {"trees": {
+        "alpha": {"anchor_expanded": True, "splitter_sizes": [260, 720]}}})
+
+    dock = TreesDock(main_window)
+    main_window.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+    dock.set_root_file(root)
+    main_window.resize(1200, 600)
+    main_window.show()
+    qapp.processEvents()
+
+    page = dock.tree_tabs.widget(0)  # alpha
+    sizes = list(page.sizes())
+    assert len(sizes) == 2
+    assert abs(sizes[1] - 720) <= 2  # form-panel width preserved
+    main_window.hide()
+
+
+def test_tree_splitter_sizes_invalid_saved_value_is_ignored(main_window, tmp_path):
+    """A malformed saved splitter_sizes value must not crash the build — the
+    page falls back to the default split (same fatal-safe rule as expansion)."""
+    root = tmp_path / "p2.sexp"
+    root.write_text(dict_to_sexp(P2_TREES), encoding="utf-8")
+    settings.state.set("trees_dock", {"trees": {
+        "alpha": {"splitter_sizes": "not-a-list"},
+        "beta": {"splitter_sizes": [1, 2, 3]}}})
+
+    dock = TreesDock(main_window)
+    dock.set_root_file(root)
+
+    assert dock.tree_tabs.count() == 2
+    for i in range(2):
+        page = dock.tree_tabs.widget(i)
+        assert isinstance(page, QSplitter)
+        assert page.count() == 2
+
+
 # ── node editor Position tab / own_anchor (plan tree_node_own_anchor 2026-09-03)
 
 def test_node_dialog_has_position_tab_default_relative_to_parent(main_window, tmp_path):
