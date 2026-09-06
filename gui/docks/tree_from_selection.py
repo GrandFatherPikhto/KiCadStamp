@@ -36,6 +36,7 @@ from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.i18n import _
 from kicadstamp.net_resolution import RULE_NETS
+from kicadstamp.placement.anchor_identity import entity_is_self_anchor
 from kicadstamp.placement.services.component_resolver import (
     ComponentResolver,
     resolve_anchor_pad_position,
@@ -447,6 +448,31 @@ def _name_errors(tree_name: str, cfg: Any, allow_existing: bool = False) -> list
 
 # ── Tree construction ─────────────────────────────────────────────────────
 
+def cluster_is_anchor_duplicate(c: ReReadCluster, anchor: TreeAnchor,
+                                cfg: Any) -> bool:
+    """True when the fully-selected cluster `c` would become a top-level
+    placement node that duplicates the tree's EXPLICIT (role ...) anchor — the
+    node `build_tree_from_clusters` refuses to create and the dialog highlights
+    (plan_2026_09_05_tree_root_rotation_drift.md, layers 2/3). Uses the SAME
+    anchor_identity predicate as the runtime materializer (layer 1) and the
+    Trees-dock highlight.
+
+    Only an EXPLICIT role anchor is a candidate (auto/origin/ref/point -> False:
+    an is_auto tree's root node is structural — `_auto_anchor_base` needs it).
+    Only a cluster whose EXISTING Entity can be resolved to its own anchor
+    identity is checkable — an auto-derived Entity (phase A, cell generated at
+    save time) has no cell yet, so it is never flagged here."""
+    if anchor is None or anchor.is_auto or anchor.role is None:
+        return False
+    entity_name, _cell, is_new = resolve_cluster_entity(c, cfg)
+    if is_new:
+        return False
+    entity = next((e for e in cfg.entities if e.name == entity_name), None)
+    if entity is None:
+        return False
+    return entity_is_self_anchor(entity, cfg, anchor)
+
+
 def build_tree_from_clusters(
     clusters: Iterable[ReReadCluster], tree_name: str, anchor: TreeAnchor,
     entities, cfg,
@@ -464,6 +490,15 @@ def build_tree_from_clusters(
     (autopositioning), else None (live-position rule at apply). The anchor is
     preserved exactly as passed.
 
+    SELF-ANCHOR DUPLICATE SKIP (2026-09-06, plan_2026_09_05_tree_root_rotation
+    _drift.md): a checked cluster that IS the tree's own explicit (role ...)
+    anchor subject (cluster_is_anchor_duplicate) gets NO node — the anchor is
+    the tree's reference point, a node placing it on itself would be a
+    self-reference that compound-drifts on redraw. The row stays visible in the
+    dialog and is highlighted there (layer 3); it is simply not added here. An
+    auto-derived cluster (no existing Entity yet) or an is_auto anchor is never
+    skipped (its node is structural — the auto-anchor needs it).
+
     Returns (None, errors) when the tree name is empty/duplicate — the only
     remaining hard error. A cluster without an Entity/cell is auto-satisfiable
     (phase A) and no longer blocks the build.
@@ -477,6 +512,14 @@ def build_tree_from_clusters(
 
     nodes: list[TreeNode] = []
     for c in clusters:
+        if cluster_is_anchor_duplicate(c, anchor, cfg):
+            # This cluster IS the tree's own EXPLICIT (role ...) anchor
+            # subject (plan_2026_09_05_tree_root_rotation_drift §1): never
+            # create a duplicate node for it — the anchor is the tree's
+            # reference point, a node placing it on itself would be a
+            # self-reference that "rotates" the anchor on redraw. The anchor
+            # resolves independently of the node list, so skipping is safe.
+            continue
         # ref = the Entity that WILL place this cluster: an existing
         # (cluster, sheet)-matched Entity when there is one, else the
         # auto-derived Entity name persisted at save time (phase A).

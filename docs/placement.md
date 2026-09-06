@@ -56,6 +56,16 @@ pre-existing cycle-fatal). Config ambiguity (no mount role AND 0/2+ zero slots, 
 placement nodes) is a whole-run fatal, never a silent guess; a live role-resolution failure (role
 missing or ambiguous on the board) is the usual per-tree skip.
 
+A top-level `kind "placement"` node whose Entity's mount identity equals the tree's OWN EXPLICIT
+`(role ...)` anchor is a SELF-DUPLICATE (2026-09-06, plan `tree_root_rotation_drift`): node and anchor
+resolve the SAME physical part, so redrawing it can compound-rotate the anchor — the node's cell re-
+adds its mount slot's `angle_deg` on top of the very angle the anchor was just read from (e.g. cell
+`conn_pm5v`'s -90.0 under the CONN_PM5V anchor of "power"). "Extract tree from selection" no longer
+creates such a node (the checked cluster matching the explicit anchor is skipped — the anchor resolves
+independently of the node list), and the Trees dock highlights an existing duplicate so it is safe to
+delete. Materialization itself does not special-case the node; an `is_auto` tree's single root node is
+structural by construction and is never treated as a duplicate.
+
 **Migrating a legacy profile:** `tools/convert_placements.py` rewrites `clone_placements:` into
 `entities:` + placement trees in place (run on a COPY — it writes a timestamped `.bak` first), and
 rewrites pre-existing `kind "clone"` tree nodes to `kind "placement"`. See

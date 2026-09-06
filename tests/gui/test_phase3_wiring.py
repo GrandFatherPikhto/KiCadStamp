@@ -774,8 +774,11 @@ def test_extract_tree_happy_path_saves_tree_and_nets(real_main_window,
     assert tree["anchor"] == {"role": "DAC", "sheet": "Channel_1",
                               "cluster": "PIF_AVDD"}
     # Phase D: the checked inter-cluster net "SHARED" becomes a net_trace node.
-    assert [n["ref"] for n in tree["nodes"]] == ["CH1_PIF_AVDD", "CH1_PIF_CLKVDD", "SHARED"]
-    assert [n["kind"] for n in tree["nodes"]] == ["placement", "placement", "net_trace"]
+    # PIF_AVDD IS the tree's own explicit role anchor (role DAC / sheet
+    # Channel_1 / cluster PIF_AVDD) — since 2026-09-06 "Extract tree" no longer
+    # creates a self-duplicate node for the anchor cluster, so it is absent.
+    assert [n["ref"] for n in tree["nodes"]] == ["CH1_PIF_CLKVDD", "SHARED"]
+    assert [n["kind"] for n in tree["nodes"]] == ["placement", "net_trace"]
     # Autopositioning: entity (10,20) - anchor base (5,10) = (5,10).
     assert tree["nodes"][0]["xy"] == [5.0, 10.0]
     nets = data.get("net_traces") or []

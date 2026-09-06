@@ -14546,3 +14546,8 @@ msgstr ""
 msgid ""
 "Adopt existing copper into the registry?"
 msgstr ""
+
+# Tree node duplicating its own explicit tree anchor — gui/docks/trees_dock.py
+#, python-brace-format
+msgid "this node duplicates the tree's own anchor (role {role}) — safe to delete; the anchor resolves independently of the node list"
+msgstr ""

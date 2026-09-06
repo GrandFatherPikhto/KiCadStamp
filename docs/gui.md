@@ -588,6 +588,16 @@ is written into the root config's `trees:` section through the same `config_writ
 whose cluster has no Entity or a missing cell are marked and block OK; an empty/duplicate tree name
 or a missing Role also blocks OK.
 
+A cluster whose (role, sheet, cluster) identity equals the chosen EXPLICIT role anchor is NOT turned
+into a node (2026-09-06, plan `tree_root_rotation_drift`): such a cluster is the tree's own anchor
+subject — a placement node for it would be a self-duplicate that can "rotate" the anchor on every
+redraw. The anchor resolves independently of the node list, so skipping is safe. An `is_auto` anchor
+is never treated this way (its single top-level node is structurally required by the auto-anchor). A
+duplicate that already exists in a tree (hand-made, or from an older extract before this rule — e.g.
+`conn_pm5v_power` under the CONN_PM5V anchor of the "power" tree) is highlighted in the Trees dock
+with a neutral background + tooltip ("this node duplicates the tree's own anchor — safe to delete"),
+so it is visible without waiting for the redraw drift on the live board.
+
 The main menu's **Tools → Trees → Extract cluster...** (2026-09-03) is the NARROWER sibling of
 **Extract tree...** for the case where you want ONLY one fully-selected Cluster as a standalone, flat
 Entity (+ its Cell generated from the cluster's own selection when it doesn't exist yet) — with NO

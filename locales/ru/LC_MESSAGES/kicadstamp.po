@@ -13177,3 +13177,8 @@ msgid ""
 "Adopt existing copper into the registry?"
 msgstr ""
 "Зарегистрировать существующую медь в реестре?"
+
+# Tree node duplicating its own explicit tree anchor — gui/docks/trees_dock.py
+#, python-brace-format
+msgid "this node duplicates the tree's own anchor (role {role}) — safe to delete; the anchor resolves independently of the node list"
+msgstr "Этот узел дублирует собственный якорь дерева (роль {role}) — его можно безопасно удалить: якорь дерева резолвится независимо от списка узлов."

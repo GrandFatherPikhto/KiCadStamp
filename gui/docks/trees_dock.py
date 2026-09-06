@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QBrush, QColor
 from PyQt6.QtWidgets import (QComboBox, QDialog, QDockWidget,
                              QFormLayout, QHBoxLayout, QInputDialog, QLabel,
                              QLineEdit, QMenu, QMessageBox, QPushButton,
@@ -50,6 +51,7 @@ from kicadstamp.placement.services.component_resolver import (
     ComponentResolver,
     resolve_anchor_pad_position,
 )
+from kicadstamp.placement.anchor_identity import entity_is_self_anchor
 from kicadstamp.placement.services.point_resolver import resolve_point_chain
 from kicadstamp.trees import KINDS, Tree, TreeAnchor, TreeNode, tree_to_dict
 from kicadstamp.utils.units import MM
@@ -64,6 +66,16 @@ from .cascade import (run_curated_forest_redraw_worker, run_curated_tree_redraw_
 from .entity_delete import backup_file
 
 logger = logging.getLogger(__name__)
+
+# Neutral informational accent for a tree node that duplicates its OWN explicit
+# (role ...) anchor (plan_2026_09_05_tree_root_rotation_drift §2): the node and
+# the anchor resolve the SAME physical part, so the node is a redundant
+# no-op that can "rotate" the anchor on redraw. Amber-ish — informational
+# "look here / safe to delete", NEVER the red reserved for real problems.
+_ANCHOR_DUPLICATE_BG = QColor("#f5e6b8")
+_ANCHOR_DUPLICATE_TOOLTIP = _(
+    "this node duplicates the tree's own anchor (role {role}) — safe to "
+    "delete; the anchor resolves independently of the node list")
 
 # Short kind tags, shown next to a node's ref when the kind is set. "external"
 # is included here — trees need it.
@@ -849,8 +861,12 @@ class TreesDock(QDockWidget):
         anchor_item = QTreeWidgetItem(tree_widget.invisibleRootItem())
         anchor_item.setText(0, _anchor_label(tree.anchor))
         anchor_item.setFlags(anchor_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+        dup_refs = self._anchor_duplicate_refs(tree)
+        dup_tooltip = (_ANCHOR_DUPLICATE_TOOLTIP.format(role=tree.anchor.role)
+                       if dup_refs else None)
         for node in tree.nodes:
-            self._render_node(anchor_item, node, expanded_refs)
+            self._render_node(anchor_item, node, expanded_refs,
+                              dup_refs=dup_refs, dup_tooltip=dup_tooltip)
         # The anchor pseudo-root is the one item that shows/hides the tree's
         # ENTIRE content — persist/restore its expansion separately from nodes.
         anchor_item.setExpanded(anchor_expanded)
@@ -919,8 +935,38 @@ class TreesDock(QDockWidget):
                 tree_widget.setCurrentItem(item)
         self._focus_form_tab(1)
 
+    def _anchor_duplicate_refs(self, tree: Tree) -> set[str]:
+        """Refs of `tree`'s top-level kind="placement" nodes that duplicate the
+        tree's OWN EXPLICIT (role ...) anchor (plan_2026_09_05_tree_root_
+        rotation_drift §2): node and anchor resolve the SAME physical part, so
+        the node is a redundant no-op that can "rotate" the anchor on redraw.
+        The dock marks such nodes (neutral accent + tooltip) so a legacy/hand-
+        made duplicate like conn_pm5v_power in "power" is visible; deleting it
+        is safe (the anchor resolves independently of the node list).
+
+        Only an EXPLICIT role anchor is considered — an is_auto tree's single
+        top-level node is its anchor SOURCE by construction (never a duplicate)
+        and origin/ref/point anchors carry no role. Empty when the config is
+        not loaded or no node matches."""
+        if self._cfg is None or tree is None or tree.anchor is None \
+                or tree.anchor.is_auto or tree.anchor.role is None:
+            return set()
+        by_name = {e.name: e for e in self._cfg.entities}
+        dup: set[str] = set()
+        for node in tree.nodes:
+            if node.kind != "placement" or not node.ref:
+                continue
+            entity = by_name.get(node.ref)
+            if entity is None:
+                continue
+            if entity_is_self_anchor(entity, self._cfg, tree.anchor):
+                dup.add(node.ref)
+        return dup
+
     def _render_node(self, parent_item: QTreeWidgetItem, node: TreeNode,
-                     expanded_refs: Optional[set] = None) -> None:
+                     expanded_refs: Optional[set] = None,
+                     dup_refs: Optional[set] = None,
+                     dup_tooltip: Optional[str] = None) -> None:
         item = QTreeWidgetItem(parent_item)
         text = node.ref
         if node.kind is not None:
@@ -928,6 +974,16 @@ class TreesDock(QDockWidget):
             if tag:
                 text = f"{text} ({tag})"
         item.setText(0, text)
+        # A top-level placement node duplicating its tree's own EXPLICIT (role
+        # ...) anchor (plan_2026_09_05_tree_root_rotation_drift §2): neutral
+        # informational accent + tooltip so the duplicate is visible in the dock
+        # instead of only by the redraw drift on the live board. Informational,
+        # not an error — the node is safe to delete (the anchor resolves
+        # independently of the node list). Auto-anchor trees never produce dup
+        # refs (_anchor_duplicate_refs) — their single root is not a duplicate.
+        if dup_refs and node.ref in dup_refs and dup_tooltip:
+            item.setBackground(0, QBrush(_ANCHOR_DUPLICATE_BG))
+            item.setToolTip(0, dup_tooltip)
         # Keep the TreeNode itself on the item — needed by the static preview
         # and structural editing.
         item.setData(0, Qt.ItemDataRole.UserRole, node)
@@ -938,7 +994,8 @@ class TreesDock(QDockWidget):
         item.setCheckState(0, Qt.CheckState.Unchecked)
         self._node_items[node.ref] = item
         for child in node.children:
-            self._render_node(item, child, expanded_refs)
+            self._render_node(item, child, expanded_refs,
+                              dup_refs=dup_refs, dup_tooltip=dup_tooltip)
         # (P2) Re-apply the saved expansion for this node — done after the
         # children exist (setExpanded is only meaningful on a populated parent).
         if expanded_refs is None:

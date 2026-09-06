@@ -120,6 +120,19 @@ def _cfg_with_entities():
 
 
 def _anchor():
+    """A NON-colliding explicit role anchor for the generic build tests: role
+    "REMOTE" never equals any checked cluster's own mount role, so EVERY cluster
+    becomes a node (the N clusters -> N nodes shape these tests assert). The
+    self-anchor duplicate skip (plan_2026_09_05_tree_root_rotation_drift §1) is
+    exercised separately with _anchor_matching()."""
+    return TreeAnchor(role="REMOTE", anchor_sheet="Channel_1", anchor_cluster="PIF_AVDD")
+
+
+def _anchor_matching():
+    """An explicit role anchor that DOES coincide with one checked cluster
+    (PIF_AVDD mounts role DAC on sheet Channel_1 / cluster PIF_AVDD) — the
+    self-anchor duplicate case: the cluster is both the tree anchor's source
+    and a would-be placement node (like conn_pm5v_power under CONN_PM5V)."""
     return TreeAnchor(role="DAC", anchor_sheet="Channel_1", anchor_cluster="PIF_AVDD")
 
 
@@ -136,6 +149,42 @@ def test_build_tree_node_shape_and_anchor_preserved():
     assert [n.ref for n in tree.nodes] == ["CH1_PIF_AVDD", "CH1_PIF_CLKVDD"]
     assert all(n.kind == "placement" for n in tree.nodes)
     assert all(n.children == [] for n in tree.nodes)
+
+
+def test_build_tree_skips_cluster_matching_explicit_role_anchor():
+    """§1 (2026-09-06, plan_2026_09_05_tree_root_rotation_drift): a cluster
+    that IS the tree's EXPLICIT role anchor gets NO node — Extract-tree must
+    not create the root/self duplicate (the "power" bug: conn_pm5v_power as
+    both the anchor source and the first placement node). The anchor resolves
+    independently of the node list, so skipping is safe; other clusters are
+    still materialized."""
+    cfg = _cfg_with_entities()
+    tree, errors = build_tree_from_clusters(
+        _clusters(), "power_tree", _anchor_matching(), cfg.entities, cfg)
+    assert errors == []
+    assert [n.ref for n in tree.nodes] == ["CH1_PIF_CLKVDD"]
+
+
+def test_build_tree_keeps_cluster_for_auto_anchor():
+    """§3: for an is_auto anchor the node MUST stay — an auto tree's single
+    top-level placement node is its anchor SOURCE by construction
+    (_auto_anchor_base needs exactly one); the skip never applies to auto."""
+    cfg = _cfg_with_entities()
+    tree, errors = build_tree_from_clusters(
+        _clusters(), "power_tree", TreeAnchor(is_auto=True), cfg.entities, cfg)
+    assert errors == []
+    assert [n.ref for n in tree.nodes] == ["CH1_PIF_AVDD", "CH1_PIF_CLKVDD"]
+
+
+def test_build_tree_keeps_cluster_not_matching_anchor_control():
+    """Control ("as fpga"): an anchor that does NOT coincide with any checked
+    cluster leaves every node untouched — the skip fires only on a real
+    role+sheet+cluster identity match."""
+    cfg = _cfg_with_entities()
+    tree, errors = build_tree_from_clusters(
+        _clusters(), "power_tree", _anchor(), cfg.entities, cfg)
+    assert errors == []
+    assert [n.ref for n in tree.nodes] == ["CH1_PIF_AVDD", "CH1_PIF_CLKVDD"]
 
 
 def test_build_tree_autopositioning_offsets():
@@ -1099,4 +1148,4 @@ def test_tree_round_trip_and_link_trees_with_role_anchor_and_n_nodes():
     assert len(linked[0].nodes) == 2
     assert all(ln.record.kind == "placement" for ln in linked[0].nodes)
     # role anchor links to no config record (silently external) — no fatal.
-    assert linked[0].anchor.anchor.role == "DAC"
+    assert linked[0].anchor.anchor.role == "REMOTE"

@@ -3389,3 +3389,116 @@ def test_edit_dialog_double_apply_does_not_duplicate(main_window, tmp_path):
     assert dlg._on_apply() is True
     assert node.name == "first"
     assert len(tree.nodes) == before_children  # still one node, mutated in place
+
+
+# ── Self-anchor duplicate highlight (§2, plan_2026_09_05_tree_root_rotation_drift) ──
+
+def _power_like_cfg_tree():
+    """A "power"-shaped config: explicit (role ...) anchor CONN_PM5V + a
+    top-level placement node (conn_pm5v_power) whose Entity mounts the SAME
+    role/sheet/cluster — the self-anchor duplicate (the live bug); plus a
+    normal neighbour node (ldo) that must NOT be marked."""
+    from kicadstamp.config import Config
+    from kicadstamp.config.models import Cell, Entity, TemplateComponentSlot
+    cfg = Config(
+        entities=[
+            Entity(name="conn_pm5v_power", cell="conn_pm5v",
+                   cluster="CONN_PM5V", sheet="Power"),
+            Entity(name="ldo_adj_n2v5_power", cell="ldo_cell",
+                   cluster="LDO_ADJ", sheet="Power"),
+        ],
+        cells={
+            "conn_pm5v": Cell(name="conn_pm5v", components=[
+                TemplateComponentSlot(role="CONN_PM5V", angle_deg=-90.0)]),
+            "ldo_cell": Cell(name="ldo_cell", components=[
+                TemplateComponentSlot(role="LDO_ADJ")]),
+        },
+        trees=[],
+    )
+    tree = Tree(
+        name="power",
+        anchor=TreeAnchor(role="CONN_PM5V", anchor_sheet="Power",
+                          anchor_cluster="CONN_PM5V"),
+        nodes=[
+            TreeNode(ref="conn_pm5v_power", kind="placement", xy=(0.0, 0.0),
+                     polar=None, rotation=0.0, name=None, group=None),
+            TreeNode(ref="ldo_adj_n2v5_power", kind="placement", xy=(0.0, 0.0),
+                     polar=None, rotation=0.0, name=None, group=None),
+        ],
+    )
+    cfg.trees = [tree]
+    return cfg, tree
+
+
+def _render_tree_direct(dock, cfg, tree):
+    """Render ONE tree into a throwaway QTreeWidget with the dock's cfg loaded
+    in memory — the same path _rebuild_tabs uses per tree (_render_tree), no
+    file round-trip."""
+    from PyQt6.QtWidgets import QTreeWidget
+    dock._cfg = cfg
+    dock._trees = list(cfg.trees)
+    dock._instances = {}
+    widget = QTreeWidget()
+    dock._render_tree(widget, tree)
+    return widget
+
+
+def test_anchor_duplicate_node_is_marked_in_trees_dock(main_window):
+    """§2: a tree node duplicating its OWN explicit (role ...) anchor
+    (conn_pm5v_power under CONN_PM5V, the "power" case) is rendered with the
+    neutral duplicate accent + a tooltip, so a legacy/hand-made duplicate is
+    visible in the dock instead of only by redraw drift. Its neighbours are
+    not marked."""
+    from gui.docks.trees_dock import _ANCHOR_DUPLICATE_BG, TreesDock
+    cfg, tree = _power_like_cfg_tree()
+    dock = TreesDock(main_window)
+    widget = _render_tree_direct(dock, cfg, tree)  # keep alive (owns the items)
+
+    dup = dock._node_items["conn_pm5v_power"]
+    assert dup.background(0).color() == _ANCHOR_DUPLICATE_BG
+    assert dup.toolTip(0)
+    assert "anchor" in dup.toolTip(0)
+
+    normal = dock._node_items["ldo_adj_n2v5_power"]
+    assert normal.background(0).color() != _ANCHOR_DUPLICATE_BG
+    assert normal.toolTip(0) == ""
+
+
+def test_tree_without_duplicate_has_no_marked_node(main_window):
+    """§2 control ("as fpga"): a role-anchored tree whose placement nodes are
+    DIFFERENT parts than the anchor gets no duplicate mark at all."""
+    from gui.docks.trees_dock import _ANCHOR_DUPLICATE_BG, TreesDock
+    cfg, tree = _power_like_cfg_tree()
+    # Point the anchor at a role NO node's cell mounts -> no node is a duplicate.
+    tree.anchor = TreeAnchor(role="SOME_OTHER", anchor_sheet="Power",
+                             anchor_cluster="LDO_ADJ")
+    dock = TreesDock(main_window)
+    widget = _render_tree_direct(dock, cfg, tree)  # keep alive (owns the items)
+    for ref in ("conn_pm5v_power", "ldo_adj_n2v5_power"):
+        item = dock._node_items[ref]
+        assert item.background(0).color() != _ANCHOR_DUPLICATE_BG
+        assert item.toolTip(0) == ""
+
+
+def test_auto_anchor_tree_single_node_not_marked(main_window):
+    """§3: an auto-anchored tree's single top-level placement node is NOT a
+    duplicate (it IS the anchor source by construction — _auto_anchor_base
+    needs it) — never marked, even when it mounts the role the tree is about."""
+    from kicadstamp.config import Config
+    from kicadstamp.config.models import Cell, Entity, TemplateComponentSlot
+    from gui.docks.trees_dock import _ANCHOR_DUPLICATE_BG, TreesDock
+    cfg = Config(
+        entities=[Entity(name="fpga", cell="fpga_cell")],
+        cells={"fpga_cell": Cell(
+            name="fpga_cell", components=[TemplateComponentSlot(role="FPGA")])},
+        trees=[],
+    )
+    tree = Tree(name="fpga", anchor=TreeAnchor(is_auto=True),
+                nodes=[TreeNode(ref="fpga", kind="placement", xy=(0.0, 0.0),
+                                polar=None, rotation=0.0, name=None, group=None)])
+    cfg.trees = [tree]
+    dock = TreesDock(main_window)
+    widget = _render_tree_direct(dock, cfg, tree)  # keep alive (owns the items)
+    item = dock._node_items["fpga"]
+    assert item.background(0).color() != _ANCHOR_DUPLICATE_BG
+    assert item.toolTip(0) == ""
