@@ -1395,6 +1395,15 @@ class DockHub:
         Config tree's "Add cell...")."""
         self._open_cell_dialog()
 
+    def copy_placement_from_cell(self) -> None:
+        """Main menu "Tools -> Config -> Copy placement from cell..." (2026-09-06,
+        plan copy_placement_from_cell) — opens the (non-modal) Cell dialog and
+        runs the OFFLINE cell-to-cell placement copy against the cell currently
+        loaded in it (the CellDock's own form-button path; the dock guards with
+        a clear message when no cell is open to edit)."""
+        self._open_cell_dialog()
+        self.cells_dock.copy_placement_from_cell()
+
     def _open_project_dialog(self) -> None:
         """Show/raise the ONE live Project dialog (File > "Project...",
         2026-09-01, plan project_settings_dialogs) — non-modal, so the user can

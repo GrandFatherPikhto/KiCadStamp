@@ -1200,6 +1200,32 @@ A clean plan opens a read-only **preview dialog** listing the NEW records (Kind 
 **Apply** appends them to the loaded cell in memory and auto-stages it exactly like a manual row Add;
 nothing is written to disk until the project **Save**.
 
+**Copy placement from cell...** (2026-09-06) — the OFFLINE sibling of Refresh/Import: instead of reading
+live copper from a board selection, it copies the PLACEMENT of another cell onto the cell currently open
+in the Cell dialog. Use it to restore the missing copper/geometry of a structurally identical "twin"
+cell — e.g. the negative PI filter `pif_n5v`, extracted with its components but no vias/tracks, rebuilt
+from the fully-routed positive twin `pif_p5v`. Two entry points act on the cell loaded in the Cell
+dialog: the **Copy placement from cell...** button right next to Refresh/Import, and **Tools → Config →
+Copy placement from cell...**. No live board is needed — a purely config-level, one-shot action, not a
+live link.
+
+Pick the source cell (the current target is excluded); the dialog validates BEFORE anything is copied and
+shows exactly what will change:
+- **Components** — the donor's geometry is OVERLAID onto the target slot with the SAME role
+  (`offset_along_mm`/`offset_across_mm`/`angle_deg`/`layer`, plus the donor slot's per-component vias).
+  The target's own `net_template`/`net_template_pad`/`net_template_same_as_role` are never touched (they
+  are rail-correct for the target); an identical donor geometry contributes no change at all.
+- **Vias/tracks** — ADDITIVE append of the donor's records as-is. They must be `net_from_role`(+pad)
+  (role-relative — the actual net is defined by the placing Entity instance at apply time, so copying
+  them across rails re-resolves them to the target's own nets) or a rule-net literal (GND); a literal
+  rail-specific / parametrized / net-less record makes the whole copy a fatal — never a silent copy of
+  garbage. Every `net_from_role` role must exist among the target's components, or the copy is refused
+  with the missing roles listed.
+A clean selection opens a preview (a "Components to update" tab with Role/Field/Old/New, a
+"Vias/tracks to add" tab with Kind/Position/Net, and skipped source roles when the donor carries roles
+the target lacks) — **Apply** overlays the geometry and appends the copper to the loaded cell in memory
+and auto-stages it; nothing is written to disk until the project **Save**.
+
 ## Log
 
 A read-only, copyable, searchable panel fed by a `logging.Handler` attached to the **root**

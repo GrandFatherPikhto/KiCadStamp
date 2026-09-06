@@ -584,6 +584,23 @@ def test_tools_menu_edit_cell_opens_dialog_once(real_main_window):
     assert dialog.isVisible()
 
 
+def test_tools_menu_copy_placement_from_cell_routes(real_main_window, monkeypatch):
+    """2026-09-06 (plan copy_placement_from_cell): Tools → Config → "Copy
+    placement from cell..." routes to DockHub.copy_placement_from_cell, which
+    opens the (non-modal) Cell dialog and drives CellDock's own copy entry
+    point (the offline cell-to-cell overlay, no ConfigTree context menu)."""
+    hub = real_main_window._dock_hub
+    dialog = hub.cell_dialog
+    calls = []
+    monkeypatch.setattr(hub.cells_dock, "copy_placement_from_cell",
+                        lambda: calls.append(True))
+
+    real_main_window.copy_cell_placement_action.trigger()
+
+    assert calls == [True]
+    assert dialog.isVisible()
+
+
 def test_edit_cell_requested_loads_cell_and_opens_dialog(real_main_window, tmp_path):
     """ConfigTreeDock -> CellDock wiring (cell_edit_requested -> _edit_cell,
     see gui/dock_hub.py's _edit_cell) — the context menu's "Edit cell..." /

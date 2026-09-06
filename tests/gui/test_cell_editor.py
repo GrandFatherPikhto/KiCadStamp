@@ -1172,3 +1172,144 @@ def test_refresh_new_records_section_lists_only_new_records(main_window,
     assert sec["rows"] == [["Via", "(2.0000, 3.0000)", "NEW_NET"],
                            ["Track", "(0.0000, 0.0000) → (4.0000, 0.0000)",
                             "role:CAP"]]
+
+
+# ── Copy placement from cell (2026-09-06, plan copy_placement_from_cell) ──
+
+def _copy_donor_components():
+    """pif_p5v-like donor: components + geometry (net_template = donor rail)."""
+    return [
+        {"role": "C_IN_BYPASS", "offset_along_mm": 4.5, "offset_across_mm": -2.345,
+         "angle_deg": -90.0, "net_template": "+5V_DIRTY"},
+        {"role": "C_OUT_BULK", "offset_along_mm": 7.0, "offset_across_mm": -2.345,
+         "angle_deg": -90.0, "net_template": "+5V"},
+    ]
+
+
+def _copy_donor_vias():
+    return [{"offset_along_mm": 4.5, "offset_across_mm": 0.2925, "drill_mm": 0.4,
+             "diameter_mm": 0.8, "net_from_role": "C_IN_BYPASS",
+             "net_from_role_pad": "2"}]
+
+
+def _copy_donor_tracks():
+    return [{"start_along_mm": 7.0, "start_across_mm": -1.4825,
+             "end_along_mm": 9.8, "end_across_mm": -1.4825, "width_mm": 0.8,
+             "net_from_role": "C_OUT_BULK", "net_from_role_pad": "2"}]
+
+
+def _copy_target_components():
+    """pif_n5v-like target: same roles/geometry frame as the donor but its own
+    (-5V) net_templates; C_OUT_BULK deliberately mis-placed so the overlay is
+    observable."""
+    return [
+        {"role": "C_IN_BYPASS", "offset_along_mm": 4.5, "offset_across_mm": -2.345,
+         "angle_deg": -90.0, "net_template": "-5V_DIRTY"},
+        {"role": "C_OUT_BULK", "offset_along_mm": 99.0, "offset_across_mm": -2.345,
+         "angle_deg": -90.0, "net_template": "-5V"},
+    ]
+
+
+def test_copy_placement_button_gated_on_loaded_cell(main_window, tmp_path):
+    """The copy button is the OFFLINE sibling of Refresh/Import — gated on the
+    loaded cell with components (and the root), NOT on a live board adapter."""
+    dock, _ = _make_dock(main_window, tmp_path)
+    assert not dock.copy_placement_button.isEnabled()
+
+    dock._components = _copy_target_components()
+    dock._refresh_all_tables()
+    assert dock.copy_placement_button.isEnabled()
+
+    dock._components = []
+    dock._refresh_all_tables()
+    assert not dock.copy_placement_button.isEnabled()
+
+
+def test_copy_preview_sections_and_component_rows(main_window):
+    """The pure preview helpers render a PlacementCopyPlan: a Components
+    section (Role/Field/Old/New geometry changes) plus a Vias/tracks Kind/
+    Position/Net section — the same shape as the Import preview."""
+    from kicadstamp.cell_placement_copy import build_placement_copy_plan
+
+    plan = build_placement_copy_plan(
+        _copy_donor_components(), _copy_donor_vias(), _copy_donor_tracks(),
+        _copy_target_components())
+    sections = cell_editor_mod.copy_preview_sections(plan)
+    titles = [s["title"] for s in sections]
+    assert "Components to update" in titles
+    assert "Vias/tracks to add" in titles
+
+    comp = next(s for s in sections if s["title"] == "Components to update")
+    assert comp["headers"] == ["Role", "Field", "Old", "New"]
+    assert any(row[0] == "C_OUT_BULK" and row[1] == "Offset along"
+               for row in comp["rows"])
+
+    copper = next(s for s in sections if s["title"] == "Vias/tracks to add")
+    assert copper["headers"] == ["Kind", "Position", "Net"]
+    assert any(row[0] == "Via" for row in copper["rows"])
+    assert any(row[0] == "Track" for row in copper["rows"])
+
+
+def test_copy_placement_dialog_previews_and_gates_on_invalid_source(main_window):
+    """_CopyPlacementDialog collects the decision only: the first (valid)
+    source is previewed with Copy enabled; switching to a source whose copper
+    references a role the target lacks clears the plan, disables Copy and shows
+    why in the status line (no mutation anywhere)."""
+    from kicadstamp.cell_placement_copy import build_placement_copy_plan
+
+    source_cells = {
+        "donor": {"components": _copy_donor_components(),
+                  "vias": _copy_donor_vias(), "tracks": _copy_donor_tracks()},
+        "z_invalid": {"components": _copy_donor_components(),
+                      "vias": [{"offset_along_mm": 1.0, "offset_across_mm": 2.0,
+                                "drill_mm": 0.3, "diameter_mm": 0.6,
+                                "net_from_role": "GHOST"}],
+                      "tracks": []},
+    }
+    dialog = cell_editor_mod._CopyPlacementDialog(
+        source_cells, _copy_target_components())
+
+    assert dialog.source_name() == "donor"          # first source pre-selected
+    assert dialog.plan() is not None
+    assert dialog.copy_button.isEnabled()
+
+    dialog.source_combo.setCurrentText("z_invalid")
+    dialog._on_source_changed()
+
+    assert dialog.plan() is None
+    assert not dialog.copy_button.isEnabled()
+    assert "GHOST" in dialog.status_label.text()
+
+    # target untouched by dialog construction/planning
+    assert _copy_target_components()[1]["offset_along_mm"] == 99.0
+
+
+def test_apply_copy_plan_overlays_geometry_and_appends_copper(main_window,
+                                                              tmp_path):
+    """_apply_copy_plan runs the dock's normal path: overlay the donor geometry
+    onto the SAME target component dicts (net_template untouched), extend the
+    deep-copied donor vias/tracks, refresh tables + autostage."""
+    from kicadstamp.cell_placement_copy import build_placement_copy_plan
+
+    dock, target_file = _make_dock(main_window, tmp_path)
+    _write(target_file, {"cells": {"tgt": {"layer": "F.Cu",
+                                           "components": _copy_target_components(),
+                                           "vias": [], "tracks": []}}})
+    dock.load_entry("tgt", target_file)
+    orig_bulk = next(c for c in dock._components if c["role"] == "C_OUT_BULK")
+
+    plan = build_placement_copy_plan(
+        _copy_donor_components(), _copy_donor_vias(), _copy_donor_tracks(),
+        dock._components)
+    added = dock._apply_copy_plan(plan)
+
+    assert added == 2  # 1 via + 1 track
+    bulk = next(c for c in dock._components if c["role"] == "C_OUT_BULK")
+    assert bulk is orig_bulk              # same dict object updated in place
+    assert bulk["offset_along_mm"] == 7.0  # donor geometry applied
+    assert bulk["net_template"] == "-5V"   # target's own net_template kept
+    assert dock._vias[0]["net_from_role"] == "C_IN_BYPASS"
+    assert len(dock._tracks) == 1
+    assert dock.vias_table.rowCount() == 1
+    assert dock.tracks_table.rowCount() == 1
+    assert dock.components_table.item(1, 0).text() == "C_OUT_BULK"
