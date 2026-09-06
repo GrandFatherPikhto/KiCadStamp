@@ -813,8 +813,12 @@ def _load_entity(data: dict[str, Any]) -> Entity:
     if scheme_list is not None:
         # Role-resolution controls are meaningless on a recorded snapshot
         # (it already carries its literal refs and literal nets).
+        # mirror/layer join the forbidden set for a scheme_list Entity (P4 v1
+        # scope guard): the recorded copper carries literal layer strings and
+        # the Apply branch has no mirror formula — a mirror/layer on a
+        # scheme_list Entity would silently produce wrong geometry.
         for key in ('cluster', 'by_selection', 'refs', 'nets', 'params',
-                    'net_overrides'):
+                    'net_overrides', 'mirror', 'layer'):
             if data.get(key):
                 raise ValidationError(format_fatal_error(
                     _("field {key!r} on scheme_list-based entity {name!r}").format(

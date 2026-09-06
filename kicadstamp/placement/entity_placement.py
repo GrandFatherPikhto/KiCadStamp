@@ -450,7 +450,13 @@ def _walk(linked_nodes, parent_pos: Vector2, parent_rot: float, out: list[CloneP
         pos = node_position(node, base_pos, base_rot)
         rot = base_rot + node.rotation
         if node.kind == "placement" and ln.record is not None \
-                and isinstance(ln.record.obj, Entity):
+                and isinstance(ln.record.obj, Entity) \
+                and ln.record.obj.scheme_list is None:
+            # scheme_list-based Entities NEVER go through _to_clone (which would
+            # produce ClonePlacement(cell=None) and break the cell machinery) —
+            # plan_2026_09_05_scheme_list.md §4 invariant. Their Apply/Redraw
+            # branch runs at the caller level (scheme_list_apply.py). The node's
+            # abs pos/rot still feed its children below (frame composition).
             override = (position_overrides or {}).get(ln.record.name)
             if override is not None:
                 out.append(_to_clone(ln.record.obj, override.position,
