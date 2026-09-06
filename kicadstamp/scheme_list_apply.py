@@ -41,8 +41,6 @@ from .domain.geometry import Angle, BoardLayer, Vector2
 from .exceptions import ValidationError, format_fatal_error
 from .tree_position import (
     child_absolute_position,
-    node_own_anchor_base,
-    node_position,
     relative_rotation_deg,
 )
 from .geometry.spoke_layout import rotate_local_offset

@@ -13451,3 +13451,33 @@ msgstr "не удалось записать scheme list {name!r}: пэд {pad!r
 
 msgid "anchor_pad must be a pad number of the anchor footprint"
 msgstr "anchor_pad должен быть номером пэда anchor-футпринта"
+
+msgid "cannot apply scheme list: {count} problem(s)"
+msgstr "не удалось применить scheme list: проблем: {count}"
+
+msgid "anchor {ref!r} is not on the board"
+msgstr "якорь {ref!r} не найден на плате"
+
+msgid "anchor {ref!r} has no usable sheet hierarchy"
+msgstr "у якоря {ref!r} нет используемой иерархии листов"
+
+msgid "target sheet {sheet!r} is not a twin on the board"
+msgstr "целевой лист {sheet!r} не является твином на плате"
+
+msgid "recorded component {ref!r} is not on the source sheet"
+msgstr "записанный компонент {ref!r} не найден на исходном листе"
+
+msgid "recorded component {ref!r} has no usable sheet hierarchy"
+msgstr "у записанного компонента {ref!r} нет используемой иерархии листов"
+
+msgid "{ref!r} has no twin on sheet {sheet!r}"
+msgstr "{ref!r} не имеет твина на листе {sheet!r}"
+
+msgid "anchor {ref!r} has no twin on sheet {sheet!r}"
+msgstr "якорь {ref!r} не имеет твина на листе {sheet!r}"
+
+msgid "recorded component {ref!r} is not on the board"
+msgstr "записанный компонент {ref!r} не найден на плате"
+
+msgid "target {ref!r} is not on the board"
+msgstr "цель {ref!r} не найдена на плате"

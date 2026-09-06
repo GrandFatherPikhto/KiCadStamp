@@ -14820,3 +14820,33 @@ msgstr ""
 
 msgid "anchor_pad must be a pad number of the anchor footprint"
 msgstr ""
+
+msgid "cannot apply scheme list: {count} problem(s)"
+msgstr ""
+
+msgid "anchor {ref!r} is not on the board"
+msgstr ""
+
+msgid "anchor {ref!r} has no usable sheet hierarchy"
+msgstr ""
+
+msgid "target sheet {sheet!r} is not a twin on the board"
+msgstr ""
+
+msgid "recorded component {ref!r} is not on the source sheet"
+msgstr ""
+
+msgid "recorded component {ref!r} has no usable sheet hierarchy"
+msgstr ""
+
+msgid "{ref!r} has no twin on sheet {sheet!r}"
+msgstr ""
+
+msgid "anchor {ref!r} has no twin on sheet {sheet!r}"
+msgstr ""
+
+msgid "recorded component {ref!r} is not on the board"
+msgstr ""
+
+msgid "target {ref!r} is not on the board"
+msgstr ""
