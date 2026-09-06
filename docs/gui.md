@@ -579,10 +579,12 @@ from the cluster's own Entity — the "existing cluster anchor" — or explicit 
 narrowing into a `TreeAnchor`), and **Tracks and vias between clusters** (inter-cluster nets — the
 selected copper whose net touches 2+ clusters — with per-net checkboxes and a "select all /
 deselect all" master). On OK each checked cluster becomes a top-level `kind="placement"` node with
-`ref` = its Entity's name and `xy` = the Entity's live position minus the live anchor base
-(autopositioning, like "Reread current position" — the tree freezes the current geometry relative to
-the anchor; without a live read the node is saved without `xy` and positions are read live at
-apply). The checked inter-cluster nets are captured as `net_traces:` records alongside. The new tree
+`ref` = its Entity's name and, when the anchor's live rotation is resolved, `xy` = the offset in the
+anchor's LOCAL frame and `rotation` = the Entity's own angle relative to the anchor — (live mount
+angle − baked mount angle) − anchor angle (autopositioning, like "Reread current position": the tree
+freezes the current geometry relative to the anchor even when the anchor is not at 0°, so a redraw no
+longer double-rotates the node; without a live read the node is saved without `xy` and positions are
+read live at apply). The checked inter-cluster nets are captured as `net_traces:` records alongside. The new tree
 is written into the root config's `trees:` section through the same `config_writer` chokepoint
 (backup + round-trip `link_trees` check); TreesDock and the Config tree refresh immediately. Rows
 whose cluster has no Entity or a missing cell are marked and block OK; an empty/duplicate tree name

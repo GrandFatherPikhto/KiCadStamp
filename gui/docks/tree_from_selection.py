@@ -36,7 +36,10 @@ from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.i18n import _
 from kicadstamp.net_resolution import RULE_NETS
-from kicadstamp.placement.anchor_identity import entity_is_self_anchor
+from kicadstamp.placement.anchor_identity import (
+    entity_anchor_identity,
+    entity_is_self_anchor,
+)
 from kicadstamp.placement.services.component_resolver import (
     ComponentResolver,
     resolve_anchor_pad_position,
@@ -406,17 +409,18 @@ def missing_cluster_roles(cell: Any, cluster_footprints: Iterable[Any]) -> list[
 
 def resolve_cluster_live_position_mm(adapter, cfg, c: ReReadCluster, sheet_names,
                                      role: str, label: Optional[str] = None
-                                     ) -> tuple[float, float]:
-    """(x_mm, y_mm) of a cluster's role, live-resolved over the whole board with
-    the sheet/cluster narrowing — the phase-A autopositioning twin of
+                                     ) -> tuple[float, float, float]:
+    """(x_mm, y_mm, rot_deg) of a cluster's role, live-resolved over the whole
+    board with the sheet/cluster narrowing — the phase-A autopositioning twin of
     resolve_entity_live_position_mm for a cluster whose cell is generated only
     at save time. `role` is the cell's future zero-slot (cluster_origin_role),
-    so this reads the same point the Entity's own zero-slot live read would."""
+    so this reads the same point/angle the Entity's own zero-slot live read
+    would (the angle feeds the node's own `rotation` capture at build time)."""
     resolver = ComponentResolver(adapter, cfg, sheet_names)
     fp = resolver.resolve_anchor_fp(
         None, role, c.sheet, c.cluster,
         label=label or _("cluster {cluster!r} live position").format(cluster=c.cluster))
-    return fp.position.x / MM, fp.position.y / MM
+    return fp.position.x / MM, fp.position.y / MM, fp.angle_deg
 
 
 # ── Validation ────────────────────────────────────────────────────────────
@@ -473,11 +477,36 @@ def cluster_is_anchor_duplicate(c: ReReadCluster, anchor: TreeAnchor,
     return entity_is_self_anchor(entity, cfg, anchor)
 
 
+def _mount_baked_angle_deg(entity, cfg: Any) -> Optional[float]:
+    """The baked mount-component angle of an Entity's cell — `slot.angle_deg`
+    of the role the cell was extracted around (cell.anchor_role, else the single
+    zero-offset component, else the first component — the SAME identity
+    entity_anchor_identity derives). template_extraction stores component angles
+    AS-IS (the board angle at bake time), so at tree extraction this baked angle
+    must be subtracted from the Entity's LIVE angle when capturing the node's
+    rotation relative to a tree anchor (plan 2026-09-06 tree extract rotation,
+    Denis's formula). None when the Entity/cell/mount slot cannot be read — the
+    caller then treats the cell as freshly baked (baked == live) and the term
+    cancels."""
+    if entity is None or cfg is None:
+        return None
+    identity = entity_anchor_identity(entity, cfg)
+    if identity is None:
+        return None
+    role = identity[0]
+    cell = cfg.cells.get(entity.cell) if getattr(entity, "cell", None) else None
+    if cell is None:
+        return None
+    slot = next((c for c in cell.components if c.role == role), None)
+    return slot.angle_deg if slot is not None else None
+
+
 def build_tree_from_clusters(
     clusters: Iterable[ReReadCluster], tree_name: str, anchor: TreeAnchor,
     entities, cfg,
     *, entity_positions: Optional[dict] = None,
     anchor_base: Optional[tuple[float, float]] = None,
+    anchor_rot_deg: Optional[float] = None,
     net_nodes: Iterable[str] = (),
     allow_existing: bool = False,
 ) -> tuple[Optional[Tree], list[str]]:
@@ -485,9 +514,18 @@ def build_tree_from_clusters(
     top-level kind="placement" TreeNode with ref = the Entity that will place
     it — an existing (cluster, sheet)-matched Entity when there is one, else
     the auto-derived Entity name persisted at save time (phase A,
-    resolve_cluster_entity). xy (the offset from the anchor) is
-    entity_positions[entity] - anchor_base when both are available
-    (autopositioning), else None (live-position rule at apply). The anchor is
+    resolve_cluster_entity). When the ANCHOR's live rotation is resolved
+    (anchor_rot_deg is not None) AND the Entity's live rotation was resolved
+    (entity_positions carries (x_mm, y_mm, rot_deg)), the node's xy is captured
+    as the offset in the ANCHOR's LOCAL frame (child_local_offset) and its
+    rotation = the Entity's own angle relative to the anchor:
+    (live mount angle - baked mount angle) - anchor angle — so a NON-ZERO anchor
+    angle at capture no longer double-rotates the node on redraw (node_position
+    re-applies the anchor rotation to a local-frame xy), and an Entity whose own
+    live mount angle differs from its cell's baked angle is no longer flattened
+    to rotation 0.0. Otherwise xy is the historical entity_positions[entity] -
+    anchor_base (a raw world delta, correct only while the anchor sits at 0°) or
+    None (live-position rule at apply) and rotation stays 0.0. The anchor is
     preserved exactly as passed.
 
     SELF-ANCHOR DUPLICATE SKIP (2026-09-06, plan_2026_09_05_tree_root_rotation
@@ -525,16 +563,44 @@ def build_tree_from_clusters(
         # auto-derived Entity name persisted at save time (phase A).
         entity_name, _cell, _is_new = resolve_cluster_entity(c, cfg)
         xy = None
+        rotation = 0.0
         if entity_positions and anchor_base is not None:
             pos = entity_positions.get(entity_name)
             if pos is not None:
-                xy = (pos[0] - anchor_base[0], pos[1] - anchor_base[1])
+                if anchor_rot_deg is not None and len(pos) > 2 and pos[2] is not None:
+                    # Rotation-aware capture (plan 2026-09-06 tree extract
+                    # rotation): xy = the node's offset in the ANCHOR's LOCAL
+                    # frame (child_local_offset — the same round-trip the live
+                    # rigid redraw uses) and `rotation` = the Entity's own angle
+                    # relative to the anchor: (live mount angle - baked mount
+                    # angle) - anchor angle. A partial live read (no angle) keeps
+                    # the historical raw-world-delta xy + rotation 0.0.
+                    from kicadstamp.tree_position import (
+                        child_local_offset,
+                        relative_rotation_deg,
+                    )
+                    local = child_local_offset(
+                        Vector2.from_xy_mm(pos[0], pos[1]),
+                        Vector2.from_xy_mm(anchor_base[0], anchor_base[1]),
+                        anchor_rot_deg)
+                    xy = (local.x / MM, local.y / MM)
+                    baked = _mount_baked_angle_deg(
+                        next((e for e in entities if e.name == entity_name), None),
+                        cfg)
+                    if baked is None:
+                        # is_new/auto cell is generated at save time from the
+                        # CURRENT board -> its baked angle equals the live one
+                        # and the (live - baked) term cancels: -anchor_rot_deg.
+                        baked = pos[2]
+                    rotation = relative_rotation_deg(pos[2] - baked, anchor_rot_deg)
+                else:
+                    xy = (pos[0] - anchor_base[0], pos[1] - anchor_base[1])
         nodes.append(TreeNode(
             ref=entity_name,
             kind="placement",
             xy=xy,
             polar=None,
-            rotation=0.0,
+            rotation=rotation,
             name=None,
             group=None,
             children=[],
@@ -747,30 +813,36 @@ def detect_inter_cluster_nets(raw_items: Iterable[Any],
 
 def resolve_entity_live_position_mm(adapter, cfg, entity: Any, sheet_names,
                                     label: Optional[str] = None
-                                    ) -> tuple[float, float]:
-    """(x_mm, y_mm) of a cluster's Entity — its cell's zero-offset (local
-    (0,0)) component's role, live-resolved over the whole board (the SAME
-    derivation the tree auto-anchor and tree_position's "placement" branch
-    use — an Entity carries no position by design, so its current board
-    position IS its zero-slot component). Local import: entity_placement
-    imports tree_position at module level, so a module-level import here
-    would be circular on the entity_placement side."""
+                                    ) -> tuple[float, float, float]:
+    """(x_mm, y_mm, rot_deg) of a cluster's Entity — its cell's zero-offset
+    (local (0,0)) component's role, live-resolved over the whole board (the SAME
+    derivation the tree auto-anchor and tree_position's "placement" branch use —
+    an Entity carries no position by design, so its current board position IS its
+    zero-slot component). rot_deg is that component's live angle_deg (previously
+    discarded as `_rot`) — needed to capture the node's own rotation relative to
+    the anchor at build time. Local import: entity_placement imports
+    tree_position at module level, so a module-level import here would be
+    circular on the entity_placement side."""
     from kicadstamp.placement.entity_placement import _entity_own_zero_slot_live_position
-    pos, _rot = _entity_own_zero_slot_live_position(
+    pos, rot = _entity_own_zero_slot_live_position(
         adapter, cfg, entity, sheet_names, label=label)
-    return pos.x / MM, pos.y / MM
+    return pos.x / MM, pos.y / MM, rot
 
 
 def resolve_role_anchor_base_mm(adapter, cfg, anchor: TreeAnchor, sheet_names,
                                 label: Optional[str] = None
-                                ) -> tuple[float, float]:
-    """(x_mm, y_mm) of a role anchor's base point: resolve the role footprint
-    over the whole board (narrowed by sheet/cluster), then the pad centre
-    when anchor_pad is set, else the footprint centre — the same resolution
-    _anchor_base uses at materialization. Only role/origin anchors are
-    supported here (the dialog produces role anchors only; origin is trivial)."""
+                                ) -> tuple[float, float, float]:
+    """(x_mm, y_mm, rot_deg) of a role anchor's base point: resolve the role
+    footprint over the whole board (narrowed by sheet/cluster), then the pad
+    centre when anchor_pad is set, else the footprint centre — the same
+    resolution _anchor_base uses at materialization. rot_deg is the anchor
+    footprint's live angle_deg — build_tree_from_clusters needs it to capture
+    node offsets in the anchor's LOCAL frame and each node's rotation relative
+    to the anchor (a non-zero anchor angle at capture must not be re-applied on
+    redraw). Only role/origin anchors are supported here (the dialog produces
+    role anchors only; origin is trivial, rotation 0)."""
     if anchor.is_origin:
-        return 0.0, 0.0
+        return 0.0, 0.0, 0.0
     label = label or _("tree anchor (from selection)")
     resolver = ComponentResolver(adapter, cfg, sheet_names)
     fp = resolver.resolve_anchor_fp(
@@ -779,4 +851,4 @@ def resolve_role_anchor_base_mm(adapter, cfg, anchor: TreeAnchor, sheet_names,
         pos = resolve_anchor_pad_position(adapter, fp, anchor.anchor_pad, label)
     else:
         pos = fp.position
-    return pos.x / MM, pos.y / MM
+    return pos.x / MM, pos.y / MM, fp.angle_deg

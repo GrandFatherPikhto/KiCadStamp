@@ -738,13 +738,15 @@ def test_extract_tree_happy_path_saves_tree_and_nets(real_main_window,
                               anchor_cluster="PIF_AVDD")
 
     monkeypatch.setattr(tfsd_mod, "TreeFromSelectionDialog", _FakeDialog)
-    # Live positions (mocked) — Entity positions and the anchor base.
+    # Live positions (mocked) — Entity positions and the anchor base now carry
+    # the live angle too (x_mm, y_mm, rot_deg). Rotation 0 keeps the node at
+    # the historical raw world delta (5, 10) and rotation 0.0.
     monkeypatch.setattr(
         tfs_mod, "resolve_entity_live_position_mm",
-        lambda adapter, cfg, entity, sheet_names, label=None: (10.0, 20.0))
+        lambda adapter, cfg, entity, sheet_names, label=None: (10.0, 20.0, 0.0))
     monkeypatch.setattr(
         tfs_mod, "resolve_role_anchor_base_mm",
-        lambda adapter, cfg, anchor, sheet_names, label=None: (5.0, 10.0))
+        lambda adapter, cfg, anchor, sheet_names, label=None: (5.0, 10.0, 0.0))
     # Net capture: return a real NetTrace so write_net_trace persists it.
     def _fake_extract_net_trace(adapter, *, net, anchor_role, **kwargs):
         return NetTrace(net=net, anchor_role=anchor_role)

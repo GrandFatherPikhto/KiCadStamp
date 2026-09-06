@@ -66,6 +66,15 @@ independently of the node list), and the Trees dock highlights an existing dupli
 delete. Materialization itself does not special-case the node; an `is_auto` tree's single root node is
 structural by construction and is never treated as a duplicate.
 
+Extraction capture note (2026-09-06): when "Extract tree from selection" autopositions a node it
+records the node's offset in the ANCHOR's LOCAL frame (`xy`) and its `rotation` = (live mount angle −
+baked mount angle) − live anchor angle (normalized to (−180, 180]), where the baked mount angle is the
+cell's mount-slot `angle_deg` (cells store absolute board angles; for an auto-derived cell generated
+at save time the term cancels to `−anchor angle`). A tree extracted while its anchor sits at a
+non-zero angle therefore redraws in place instead of double-rotating around the anchor. A legacy tree
+whose nodes were captured under a 0° anchor only stays correct while the anchor is at 0° — restore the
+anchor's angle, or re-extract the tree (same name) to re-capture under the fixed code.
+
 **Migrating a legacy profile:** `tools/convert_placements.py` rewrites `clone_placements:` into
 `entities:` + placement trees in place (run on a COPY — it writes a timestamped `.bak` first), and
 rewrites pre-existing `kind "clone"` tree nodes to `kind "placement"`. See

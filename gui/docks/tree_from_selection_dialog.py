@@ -29,8 +29,10 @@ from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox,
                              QLineEdit, QMessageBox, QTabWidget, QTableWidget,
                              QTableWidgetItem, QVBoxLayout, QWidget)
 
+from kicadstamp.geometry.spoke_layout import rotate_local_offset
 from kicadstamp.i18n import _
 from kicadstamp.trees import TreeAnchor
+from kicadstamp.utils.units import MM
 
 from ._common import configure_searchable, set_combo_items
 from .reead import ReReadCluster
@@ -52,6 +54,19 @@ def _cluster_label(c: ReReadCluster) -> str:
     if c.cluster:
         return f"{c.cluster} ({c.sheet or '-'})"
     return c.sheet or "?"
+
+
+def _offset_mm(pos: tuple, base: tuple) -> tuple[float, float]:
+    """The (dx, dy) mm offset this row will actually be saved with: the raw
+    world delta (pos - base) when the anchor rotation is unknown (base has no
+    angle), else the delta expressed in the anchor's LOCAL frame (rotated by
+    -anchor_rotation_deg) — the SAME value build_tree_from_clusters stores, so
+    the ΔX/ΔY preview stays truthful when the anchor is not at 0° (plan 2026-09-06
+    tree extract rotation)."""
+    if len(base) > 2 and base[2] is not None:
+        v = rotate_local_offset(pos[0] - base[0], pos[1] - base[1], -base[2])
+        return v.x / MM, v.y / MM
+    return pos[0] - base[0], pos[1] - base[1]
 
 
 class TreeFromSelectionDialog(QDialog):
@@ -361,8 +376,7 @@ class TreeFromSelectionDialog(QDialog):
             dx = dy = None
             pos = self._entity_positions.get(c.entity_name) if c.entity_name else None
             if pos is not None and base is not None:
-                dx = pos[0] - base[0]
-                dy = pos[1] - base[1]
+                dx, dy = _offset_mm(pos, base)
             self._table.setItem(
                 row, 5, QTableWidgetItem(f"{dx:.3f}" if dx is not None else "—"))
             self._table.setItem(

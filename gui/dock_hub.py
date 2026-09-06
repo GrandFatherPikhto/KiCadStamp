@@ -1042,7 +1042,7 @@ class DockHub:
         # saved without xy — live-position rule at apply), never a crash.
         errors = cluster_errors(clusters, cfg.entities, cfg)
         prefills: dict[int, object] = {}
-        entity_positions: dict[str, tuple[float, float]] = {}
+        entity_positions: dict[str, tuple[float, float, float]] = {}
         for i, c in enumerate(clusters):
             entity_name, _cell, is_new = resolve_cluster_entity(c, cfg)
             if is_new:
@@ -1103,12 +1103,19 @@ class DockHub:
             return
 
         # Autopositioning: node xy = Entity live position - live anchor base.
+        # resolve_role_anchor_base_mm also returns the anchor's LIVE rotation,
+        # which build_tree_from_clusters needs to capture each node's offset in
+        # the anchor's LOCAL frame and its rotation relative to the anchor (a
+        # non-zero anchor angle at capture must not be re-applied on redraw).
         anchor_base = None
         try:
             anchor_base = resolve_role_anchor_base_mm(adapter, cfg, anchor, sheet_names)
         except Exception as e:  # noqa: BLE001 — without it nodes are saved without xy
             logging.warning("Extract tree: anchor base unavailable — nodes will "
                             "have no xy: %s", e)
+        anchor_rot_deg = (anchor_base[2]
+                          if anchor_base is not None and len(anchor_base) > 2
+                          else None)
 
         from .docks.tree_from_selection import build_tree_from_clusters
         # entity_positions already holds only the positions that resolved live
@@ -1120,6 +1127,7 @@ class DockHub:
         tree, build_errors = build_tree_from_clusters(
             selected, tree_name, anchor, cfg.entities, cfg,
             entity_positions=entity_positions, anchor_base=anchor_base,
+            anchor_rot_deg=anchor_rot_deg,
             net_nodes=[n.net for n in checked_nets],
             allow_existing=existing_tree is not None)
         if tree is None:

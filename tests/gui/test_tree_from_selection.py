@@ -28,6 +28,11 @@ from kicadstamp.domain.geometry import Vector2
 from kicadstamp.explore import Selected
 from kicadstamp.utils.units import MM
 from kicadstamp.link_trees import link_trees
+from kicadstamp.tree_position import (
+    child_absolute_position,
+    child_local_offset,
+    relative_rotation_deg,
+)
 from kicadstamp.trees import Tree, TreeAnchor, tree_to_dict
 
 
@@ -38,9 +43,9 @@ def _sel(ref, cluster, sheet, nets=None):
                     nets=nets or {}, fp=object())
 
 
-def _slot(role, along=0.0, across=0.0):
+def _slot(role, along=0.0, across=0.0, angle=0.0):
     return TemplateComponentSlot(role=role, offset_along_mm=along,
-                                 offset_across_mm=across)
+                                 offset_across_mm=across, angle_deg=angle)
 
 
 def _fp(ref):
@@ -203,6 +208,96 @@ def test_build_tree_autopositioning_offsets():
     assert errors == []
     assert tree.nodes[0].xy == (5.0, 10.0)      # 10-5, 20-10
     assert tree.nodes[1].xy == (11.0, 15.0)     # 16-5, 25-10
+
+
+def test_build_tree_rotation_aware_capture():
+    """plan 2026-09-06 tree extract rotation (the double-rotation bug): when the
+    anchor's live rotation at capture is non-zero AND the Entity's live rotation
+    resolved, the node stores xy in the anchor's LOCAL frame (child_local_offset)
+    and rotation = (live mount angle - baked mount angle) - anchor angle — so a
+    redraw (node_position re-rotates a local xy by the anchor angle) reproduces
+    the captured geometry instead of rotating it a second time. Round-trip
+    properties: child_absolute_position(anchor, R, xy) == the live position, and
+    R + rotation reproduces (live - baked) — materializing the cell then lands
+    the mount component on baked + (live - baked) == live."""
+    cfg = _cfg_with_entities()
+    # Absolute-angle baking convention (template_extraction stores fp.angle_deg
+    # as-is): give the CH1_PIF_AVDD cell's mount slot (role DAC, the zero-offset
+    # component) a NON-zero baked angle.
+    cfg.cells["dac_pif_avdd"].components[0].angle_deg = 30.0
+    positions = {"CH1_PIF_AVDD": (10.0, 20.0, 75.0),
+                 "CH1_PIF_CLKVDD": (16.0, 25.0, 15.0)}
+    anchor_base = (5.0, 10.0)
+    anchor_rot_deg = 270.0
+    tree, errors = build_tree_from_clusters(
+        _clusters(), "power_tree", _anchor(), cfg.entities, cfg,
+        entity_positions=positions, anchor_base=anchor_base,
+        anchor_rot_deg=anchor_rot_deg)
+    assert errors == []
+    node = tree.nodes[0]  # CH1_PIF_AVDD
+    assert node.xy is not None
+    # xy: offset in the anchor's LOCAL frame.
+    expected_xy = child_local_offset(
+        Vector2.from_xy_mm(*positions["CH1_PIF_AVDD"][:2]),
+        Vector2.from_xy_mm(*anchor_base), anchor_rot_deg)
+    assert node.xy[0] == pytest.approx(expected_xy.x / MM)
+    assert node.xy[1] == pytest.approx(expected_xy.y / MM)
+    # rotation: (live mount angle - baked mount angle) - anchor angle.
+    assert node.rotation == pytest.approx(
+        relative_rotation_deg(75.0 - 30.0, anchor_rot_deg))
+    # Round-trip: re-projecting from the anchor reproduces the live position.
+    replay = child_absolute_position(
+        Vector2.from_xy_mm(*anchor_base), anchor_rot_deg,
+        Vector2.from_xy_mm(*node.xy))
+    assert replay.x / MM == pytest.approx(10.0)
+    assert replay.y / MM == pytest.approx(20.0)
+    # R + rotation reproduces (live - baked): the baked mount angle then lands
+    # the mount component exactly on its live angle.
+    assert (anchor_rot_deg + node.rotation) % 360.0 == pytest.approx(
+        (75.0 - 30.0) % 360.0)
+
+
+def test_build_tree_rotation_aware_capture_auto_cell():
+    """A cluster with NO existing Entity yet (its auto cell is generated at save
+    time from the CURRENT board) has no baked mount angle to read — the
+    (live - baked) term cancels, so rotation = -anchor_rot_deg; xy is still
+    captured in the anchor's LOCAL frame."""
+    clusters = [ReReadCluster(cluster="DAC_BUF", sheet="Channel_0",
+                              entity_name=None, cell="dac_buf",
+                              profile_key=None, refs=["U7", "R36"])]
+    cfg = _cfg()
+    anchor_base = (5.0, 10.0)
+    positions = {"dac_buf_channel_0": (10.0, 20.0, 90.0)}
+    tree, errors = build_tree_from_clusters(
+        clusters, "dac_tree", _anchor(), cfg.entities, cfg,
+        entity_positions=positions, anchor_base=anchor_base,
+        anchor_rot_deg=270.0)
+    assert errors == []
+    node = tree.nodes[0]
+    assert node.ref == "dac_buf_channel_0"
+    assert node.xy is not None
+    assert node.rotation == pytest.approx(relative_rotation_deg(0.0, 270.0))
+    expected_xy = child_local_offset(
+        Vector2.from_xy_mm(10.0, 20.0), Vector2.from_xy_mm(*anchor_base), 270.0)
+    assert node.xy[0] == pytest.approx(expected_xy.x / MM)
+    assert node.xy[1] == pytest.approx(expected_xy.y / MM)
+
+
+def test_build_tree_rotation_capture_requires_anchor_rotation():
+    """Regression: a caller that still passes only the anchor base position (no
+    anchor_rot_deg) keeps the historical raw-world-delta xy and rotation 0.0,
+    even when entity_positions already carry an angle — nothing changes for
+    existing callers/tests."""
+    cfg = _cfg_with_entities()
+    positions = {"CH1_PIF_AVDD": (10.0, 20.0, 75.0)}
+    anchor_base = (5.0, 10.0)
+    tree, errors = build_tree_from_clusters(
+        _clusters(), "power_tree", _anchor(), cfg.entities, cfg,
+        entity_positions=positions, anchor_base=anchor_base)
+    assert errors == []
+    node = tree.nodes[0]
+    assert node.xy == (5.0, 10.0)  # 10-5, 20-10 — raw world delta
+    assert node.rotation == 0.0
 
 
 def test_build_tree_without_positions_saves_no_xy():
