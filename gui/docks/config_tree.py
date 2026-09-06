@@ -221,6 +221,13 @@ class ConfigTreeDock(QDockWidget):
     # copper the cell doesn't describe yet -> NEW records; existing ones are
     # never touched). Same (name, file_path) shape.
     cell_import_requested = pyqtSignal(str, object)
+    # Fired by the context menu's "Copy placement from cell..." (2026-09-06,
+    # plan copy_placement_from_cell) — CellDock listens via its
+    # copy_from_cell_requested() entry point: the OFFLINE cell-to-cell
+    # placement copy onto the requested cell (donor picked from a minimal
+    # role-set-fitted combobox, no live board needed). Same (name, file_path)
+    # shape.
+    cell_copy_requested = pyqtSignal(str, object)
     # Fired by the context menu's "Add cell..." (2026-08-06, replaces a raw
     # {"components": []} stub write straight to YAML with no form behind it
     # — the exact root cause of a live bug, see cell_editor.py's module
@@ -1213,6 +1220,12 @@ class ConfigTreeDock(QDockWidget):
                 # cannot MODIFY one — they complement, never overlap).
                 menu.addAction(_("Import from selection...")).triggered.connect(
                     lambda: self.cell_import_requested.emit(old_name, file_path))
+                # 2026-09-06 (plan copy_placement_from_cell): the OFFLINE
+                # sibling — copy another cell's placement (component geometry +
+                # vias/tracks) into this one; the donor is picked from a minimal
+                # role-set-fitted combobox (no live board selection involved).
+                menu.addAction(_("Copy placement from cell...")).triggered.connect(
+                    lambda: self.cell_copy_requested.emit(old_name, file_path))
             menu.addAction(_("Rename...")).triggered.connect(
                 lambda: self._on_rename(file_path, section, old_name))
             menu.addAction(_("Delete...")).triggered.connect(

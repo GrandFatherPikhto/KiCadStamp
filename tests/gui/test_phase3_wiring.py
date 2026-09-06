@@ -584,22 +584,27 @@ def test_tools_menu_edit_cell_opens_dialog_once(real_main_window):
     assert dialog.isVisible()
 
 
-def test_tools_menu_copy_placement_from_cell_routes(real_main_window, monkeypatch):
-    """2026-09-06 (plan copy_placement_from_cell): Tools → Config → "Copy
-    placement from cell..." routes to DockHub.copy_placement_from_cell, which
-    opens the (non-modal) Cell dialog and drives CellDock's own copy entry
-    point (the offline cell-to-cell overlay, no ConfigTree context menu)."""
+def test_cell_copy_requested_runs_copy_and_opens_dialog(real_main_window,
+                                                        monkeypatch, tmp_path):
+    """2026-09-06 (plan copy_placement_from_cell): the Config tree's cell
+    context-menu "Copy placement from cell..." (cell_copy_requested) routes to
+    DockHub._copy_cell_placement -> CellDock's copy_from_cell_requested and
+    opens the (non-modal) Cell dialog with the requested cell loaded."""
+    root = tmp_path / "root.sexp"
+    _write(root, {"cells": {"one_role": {"components": []}}})
     hub = real_main_window._dock_hub
+    hub.cells_dock.set_root_path(root)
     dialog = hub.cell_dialog
     calls = []
-    monkeypatch.setattr(hub.cells_dock, "copy_placement_from_cell",
-                        lambda: calls.append(True))
+    monkeypatch.setattr(hub.cells_dock, "copy_from_cell_requested",
+                        lambda name, file_path: calls.append((name, file_path)))
 
-    real_main_window.copy_cell_placement_action.trigger()
+    real_main_window.config_tree_dock.cell_copy_requested.emit("one_role", root)
 
-    assert calls == [True]
-    assert dialog.isVisible()
-
+    assert calls == [("one_role", root)]
+    # the copy is a pure context action — the Cell/entity editor dialog is NOT
+    # opened (Denis 2026-09-06: no "Edit template" window pops up on a copy)
+    assert not dialog.isVisible()
 
 def test_edit_cell_requested_loads_cell_and_opens_dialog(real_main_window, tmp_path):
     """ConfigTreeDock -> CellDock wiring (cell_edit_requested -> _edit_cell,

@@ -79,7 +79,7 @@ from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog,
                               QWidget)
 
 from kicadstamp.cell_geometry_refresh import build_import_plan, build_refresh_plan
-from kicadstamp.cell_placement_copy import PlacementCopyPlan, build_placement_copy_plan
+from kicadstamp.cell_placement_copy import build_placement_copy_plan, donor_candidates_for
 from kicadstamp.config import (load_cell, load_cell_placement, load_template_component_slot,
                                load_template_track, load_template_via)
 from kicadstamp.domain.board import Footprint, Track, Via
@@ -218,9 +218,10 @@ class _RefreshPreviewDialog(QDialog):
     Net list, the import-preview shape) instead of the default 5-column
     Item/Field/Old/New/Δ geometry shape — both render identically from rows."""
 
-    def __init__(self, sections: List[Dict[str, Any]], parent=None):
+    def __init__(self, sections: List[Dict[str, Any]], parent=None,
+                 title: Optional[str] = None):
         super().__init__(parent)
-        self.setWindowTitle(_("Refresh geometry from selection"))
+        self.setWindowTitle(title or _("Refresh geometry from selection"))
         self.resize(760, 420)
         layout = QVBoxLayout(self)
         tabs = QTabWidget()
@@ -298,68 +299,6 @@ def refresh_new_records_section(plan) -> Optional[Dict[str, Any]]:
     }
 
 
-def copy_component_preview_rows(plan) -> list[list[str]]:
-    """Component geometry-change rows for a PlacementCopyPlan (2026-09-06,
-    plan copy_placement_from_cell) — one row per CHANGED field of a matched
-    component slot: [role, field, old, new]. A slot whose donor geometry
-    equals its current one contributes no row (build_placement_copy_plan only
-    lists real differences). Per-component vias appear as an old→new count row
-    (their nets are net_from_role — role-relative, not enumerated here). Pure
-    (no widget access) so the GUI test can exercise the exact rows the dialog
-    shows without a QDialog event loop."""
-    rows: list[list[str]] = []
-    for slot, new_geo in plan.component_updates:
-        role = str(slot.get("role", ""))
-        for fld in ("offset_along_mm", "offset_across_mm", "angle_deg"):
-            if fld not in new_geo:
-                continue
-            old = float(slot.get(fld, 0.0) or 0.0)
-            new = float(new_geo[fld])
-            if abs(old - new) >= 1e-9:
-                rows.append([role, _GEO_FIELD_LABELS.get(fld, fld),
-                             _fmt_mm(old), _fmt_mm(new)])
-        if "layer" in new_geo and str(slot.get("layer")) != str(new_geo["layer"]):
-            rows.append([role, _GEO_FIELD_LABELS.get("layer", "Layer"),
-                         str(slot.get("layer") or _("(inherit cell layer)")),
-                         str(new_geo["layer"])])
-        if "vias" in new_geo:
-            rows.append([role, _("Component vias"),
-                         str(len(slot.get("vias") or [])),
-                         str(len(new_geo["vias"]))])
-    return rows
-
-
-def copy_preview_sections(plan) -> list[dict]:
-    """Read-only preview sections for a PlacementCopyPlan — the shape the
-    preview dialog renders as tabs: a "Components to update" section
-    (Role/Field/Old/New geometry changes), a "Vias/tracks to add" section in
-    the SAME Kind/Position/Net shape as the Import preview (a PlacementCopyPlan
-    carries the same new_via_records/new_track_records fields), and a
-    "Skipped source roles" note when the donor carries roles the target lacks
-    (not referenced by the copied copper). Pure (no widget access)."""
-    sections: list[dict] = []
-    comp_rows = copy_component_preview_rows(plan)
-    if comp_rows:
-        sections.append({
-            "title": _("Components to update"),
-            "headers": [_("Role"), _("Field"), _("Old"), _("New")],
-            "rows": comp_rows,
-        })
-    copper_rows = import_preview_rows(plan)
-    if copper_rows:
-        sections.append({
-            "title": _("Vias/tracks to add"),
-            "headers": [_("Kind"), _("Position"), _("Net")],
-            "rows": copper_rows,
-        })
-    if plan.skipped_roles:
-        sections.append({
-            "title": _("Skipped source roles"),
-            "headers": [_("Role")],
-            "rows": [[role] for role in plan.skipped_roles],
-        })
-    return sections
-
 
 class _ImportPreviewDialog(QDialog):
     """Read-only "these NEW via/track records will be appended" preview for one
@@ -395,131 +334,44 @@ class _ImportPreviewDialog(QDialog):
 
 
 class _CopyPlacementDialog(QDialog):
-    """Source picker + read-only preview for ONE "Copy placement from cell..."
-    operation (2026-09-06, plan copy_placement_from_cell). The dialog only
-    COLLECTS the decision (writes nothing itself): it holds the donor cell's
-    entries (name -> cell dict from the config graph, the current target cell
-    excluded) and the target's current component slots, and on every source
-    change rebuilds the PlacementCopyPlan via build_placement_copy_plan. A live
-    status line shows that plan builder's collected fatal text (why the chosen
-    source cannot be copied — missing net_from_role role, foreign literal net,
-    nothing to copy) or an ok summary; the preview tabs show the component
-    geometry updates and the vias/tracks that would be appended. Apply (enabled
-    only for a valid plan) returns the choice to the caller — source_name()/
-    plan() — and the actual mutation + autostage stay in the dock's normal
-    path, exactly like _RefreshPreviewDialog/_ImportPreviewDialog."""
+    """MINIMAL donor picker for one "Copy placement from cell..." (2026-09-06,
+    Denis: "В диалоге максимум что должно быть — комбобокс"): a searchable
+    combobox of the cells that FIT the target by role set plus Copy/Cancel —
+    nothing else, no preview tables. Writes nothing itself; the caller applies
+    the plan after this returns Accepted (mutation + autostage stay in the
+    dock's normal path)."""
 
-    def __init__(self, source_cells: Dict[str, Dict[str, Any]],
-                 target_components: List[Dict[str, Any]], parent=None):
+    def __init__(self, candidates: List[str], parent=None):
         super().__init__(parent)
         self.setWindowTitle(_("Copy placement from cell"))
-        self.resize(720, 460)
-        self._source_cells = dict(source_cells)
-        self._target_components = target_components
-        self._plan: Optional[Any] = None
-
+        self.resize(460, 130)
         layout = QVBoxLayout(self)
         form = QFormLayout()
         self.source_combo = QComboBox()
         configure_searchable(self.source_combo)
-        form.addRow(_("Source cell:"), self.source_combo)
+        form.addRow(_("Copy from cell:"), self.source_combo)
         layout.addLayout(form)
-        self.status_label = QLabel("")
-        self.status_label.setWordWrap(True)
-        layout.addWidget(self.status_label)
-
-        self._preview_tabs = QTabWidget()
-        layout.addWidget(self._preview_tabs, 1)
-
         buttons = QDialogButtonBox()
         self.copy_button = buttons.addButton(
             _("Copy"), QDialogButtonBox.ButtonRole.AcceptRole)
         buttons.addButton(_("Cancel"), QDialogButtonBox.ButtonRole.RejectRole)
         self.copy_button.setDefault(True)
-        self.copy_button.setEnabled(False)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
-
-        # Populate with the FIRST source pre-selected — NOT set_combo_items
-        # (whose preserve-current-text logic would leave this freshly opened
-        # editable combo displaying an empty string despite an item being
-        # selected; an explicit first pick is the honest default here).
-        names = sorted(source_cells)
+        names = sorted(candidates)
         if names:
             self.source_combo.addItems(names)
             self.source_combo.setCurrentIndex(0)
         self.source_combo.currentIndexChanged.connect(self._on_source_changed)
-        if self.source_combo.count():
-            self._on_source_changed()
-
-    def source_name(self) -> str:
-        """The chosen donor cell's name (text of the source combo)."""
-        return self.source_combo.currentText().strip()
-
-    def plan(self) -> Optional[PlacementCopyPlan]:
-        """The PlacementCopyPlan for the currently selected source, or None when
-        the source is invalid (status line shows why)."""
-        return self._plan
+        self._on_source_changed()
 
     def _on_source_changed(self) -> None:
-        """Rebuild the plan for the newly selected source: a ValidationError
-        shows its full collected text in the status line (red) and disables
-        Copy; a valid plan shows an ok summary + the preview tabs and enables
-        Copy."""
-        name = self.source_name()
-        self._plan = None
-        self.copy_button.setEnabled(False)
-        if not name:
-            self.status_label.setText(_("Pick a source cell."))
-            self._show_sections([])
-            return
-        entry = self._source_cells.get(name)
-        if entry is None:
-            self.status_label.setText(_("Unknown source cell {name!r}.").format(name=name))
-            self._show_sections([])
-            return
-        try:
-            plan = build_placement_copy_plan(
-                list(entry.get("components") or []),
-                list(entry.get("vias") or []),
-                list(entry.get("tracks") or []),
-                self._target_components)
-        except ValidationError as e:
-            self.status_label.setText(str(e))
-            self.status_label.setStyleSheet(_ERROR_STYLE)
-            self._show_sections([])
-            return
-        self._plan = plan
-        n_comp = len(plan.component_updates)
-        n_via = len(plan.new_via_records)
-        n_track = len(plan.new_track_records)
-        self.status_label.setText(
-            _("Copy {name!r} placement: {components} component geometry "
-              "update(s), {vias} via(s) and {tracks} track(s) to add.")
-            .format(name=name, components=n_comp, vias=n_via, tracks=n_track))
-        self.status_label.setStyleSheet(_SUCCESS_STYLE)
-        self._show_sections(copy_preview_sections(plan))
-        self.copy_button.setEnabled(True)
+        self.copy_button.setEnabled(bool(self.source_combo.currentText().strip()))
 
-    def _show_sections(self, sections: List[Dict[str, Any]]) -> None:
-        """Replace the preview tabs with one read-only table per section (the
-        same generic render the Refresh/Import previews use)."""
-        self._preview_tabs.clear()
-        for section in sections:
-            headers = section.get("headers") or \
-                [_("Item"), _("Field"), _("Old"), _("New"), _("Δ")]
-            table = QTableWidget(0, len(headers))
-            table.setHorizontalHeaderLabels(headers)
-            table.horizontalHeader().setSectionResizeMode(
-                QHeaderView.ResizeMode.Stretch)
-            table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-            table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-            for row_index, row in enumerate(section["rows"]):
-                table.insertRow(row_index)
-                for col, value in enumerate(row):
-                    table.setItem(row_index, col, QTableWidgetItem(str(value)))
-            self._preview_tabs.addTab(table, section["title"])
+    def source(self) -> str:
+        """The chosen donor cell's name."""
+        return self.source_combo.currentText().strip()
 
 
 class CellDock(QWidget):
@@ -629,17 +481,6 @@ class CellDock(QWidget):
         self.import_vias_tracks_button.clicked.connect(self._on_import_vias_tracks)
         self.import_vias_tracks_button.setEnabled(False)
         refresh_row.addWidget(self.import_vias_tracks_button)
-        # Copy placement from cell (2026-09-06, plan copy_placement_from_cell)
-        # — the OFFLINE sibling of Refresh/Import: instead of reading live
-        # copper from the board selection, it overlays the geometry of a donor
-        # cell (component offsets/angles + vias/tracks) onto THIS loaded cell.
-        # Purely config-level — no live board adapter, no worker thread — so it
-        # is gated on the loaded cell alone (see _update_refresh_enabled).
-        self.copy_placement_button = QPushButton(
-            _("Copy placement from cell..."))
-        self.copy_placement_button.clicked.connect(self._on_copy_placement)
-        self.copy_placement_button.setEnabled(False)
-        refresh_row.addWidget(self.copy_placement_button)
         layout.addLayout(refresh_row)
 
         self._tabs = QTabWidget()
@@ -1683,22 +1524,13 @@ class CellDock(QWidget):
         is loaded (Import needs the same clean role match as Refresh, see
         build_import_plan). CellDock receives no per-selection feed (only
         push_snapshot's role lists), so an EMPTY board selection is not gated
-        here — the worker reports it as a clear error at click time instead.
-
-        The copy-placement button is the OFFLINE sibling: it needs NO board
-        adapter — only a loaded cell with components (whose roles validate the
-        donor copper) and a project root to read the other cells from. This
-        method runs from _refresh_all_tables (after any load/change) so the
-        copy button tracks the loaded cell."""
+        here — the worker reports it as a clear error at click time instead."""
         connection = getattr(self._main_window, "connection", None)
         board = getattr(connection, "board", None) if connection is not None else None
         adapter = getattr(board, "adapter", None) if board is not None else None
         enabled = adapter is not None and bool(self._components)
         self.refresh_geometry_button.setEnabled(enabled)
         self.import_vias_tracks_button.setEnabled(enabled)
-        copy_enabled = bool(self._components) and self._root_path is not None \
-            and self._path is not None
-        self.copy_placement_button.setEnabled(copy_enabled)
 
     def _refresh_origin_role(self) -> str | None:
         """The cell's anchor_role to refresh/import geometry against (v2: the
@@ -1952,18 +1784,20 @@ class CellDock(QWidget):
 
     # ── Copy placement from cell (2026-09-06, plan copy_placement_from_cell)
 
-    def _on_copy_placement(self) -> None:
-        """Button/Tools action: pick a donor cell and overlay its component
-        geometry + append its vias/tracks onto the LOADED cell. Purely
-        config-level — no live board, no worker (build_placement_copy_plan is
-        board-free); the source-picker preview dialog runs the validation live,
-        and Apply lands on the dock's normal overlay/append/autostage path."""
+    def copy_placement_from_cell(self) -> None:
+        """Config tree's "Copy placement from cell..." (context menu on a Cells
+        leaf, via DockHub): copy the PLACEMENT of a suitable donor cell onto
+        THIS loaded cell. The donor is picked in a MINIMAL dialog holding only
+        a combobox of the cells that FIT by role set (Denis 2026-09-06 — no
+        preview tables). build_placement_copy_plan still validates on Apply: a
+        fatal is shown as a warning BEFORE anything changes; a clean plan is
+        applied through the dock's normal overlay/append/autostage path. Purely
+        config-level — no live board, no worker."""
         self._show_message("")
         current = self.name_edit.text().strip()
         if not current:
             self._show_message(
-                _("Name the cell first — copy placement targets the loaded, "
-                  "named cell."), _ERROR_STYLE)
+                _("Pick a cell to copy into first."), _ERROR_STYLE)
             return
         if self._root_path is None or self._path is None:
             self._show_message(_("Set the project root first."), _ERROR_STYLE)
@@ -1971,33 +1805,45 @@ class CellDock(QWidget):
         if not self._components:
             self._show_message(_("Load a cell with components first."), _ERROR_STYLE)
             return
-        all_cells = collect_section_entries(self._root_path, "cells")
-        source_cells = {name: entry for name, entry in all_cells.items()
-                        if name != current}
-        if not source_cells:
-            self._show_message(_("No other cell to copy from."), _ERROR_STYLE)
+        entries = collect_section_entries(self._root_path, "cells")
+        candidates = donor_candidates_for(entries, current, self._components)
+        if not candidates:
+            self._show_message(
+                _("No other cell fits this one's roles to copy from."), _ERROR_STYLE)
             return
-        # Snapshot the current component list — the dialog builds the plan
-        # against it; build_placement_copy_plan never mutates it, and the
-        # plan's component_updates reference the SAME dict objects, so Apply
-        # lands on the loaded list regardless of list identity (the same
-        # invariant as _apply_refresh_plan).
-        dialog = _CopyPlacementDialog(
-            source_cells, list(self._components), self)
+        dialog = _CopyPlacementDialog(candidates, self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        plan = dialog.plan()
-        if plan is None:
+        source = dialog.source()
+        entry = entries.get(source) or {}
+        try:
+            plan = build_placement_copy_plan(
+                list(entry.get("components") or []),
+                list(entry.get("vias") or []),
+                list(entry.get("tracks") or []),
+                list(self._components))
+        except ValidationError as e:
+            QMessageBox.warning(
+                self, _("Copy placement from cell"), str(e))
             return
         added_copper = self._apply_copy_plan(plan)
         self._show_message(
             _("Copied placement from {source!r} into {name!r} — {components} "
               "component(s) updated, {copper} via/track record(s) added. "
               "Save to write the change.")
-            .format(source=dialog.source_name(), name=current,
+            .format(source=source, name=current,
                     components=len(plan.component_updates),
                     copper=added_copper),
             _SUCCESS_STYLE)
+
+    def copy_from_cell_requested(self, name: str, file_path) -> None:
+        """ConfigTreeDock's cell_copy_requested delegate (2026-09-06) — the
+        context menu's "Copy placement from cell...": when the requested cell is
+        not the one currently loaded, load it first, then run the same
+        copy_placement_from_cell path as the context action."""
+        if self.name_edit.text().strip() != name or self._path != file_path:
+            self.load_entry(name, file_path)
+        self.copy_placement_from_cell()
 
     def _apply_copy_plan(self, plan) -> int:
         """Apply a PlacementCopyPlan to the loaded cell: overlay the geometric
@@ -2017,13 +1863,6 @@ class CellDock(QWidget):
         self._refresh_all_tables()
         self._autostage()
         return count
-
-    def copy_placement_from_cell(self) -> None:
-        """DockHub's Tools -> Config "Copy placement from cell..." delegate
-        (2026-09-06) — the same _on_copy_placement path as the dock's own
-        button. The Cell dialog is opened/raised by the caller (DockHub), which
-        also guarantees the loaded-cell guards fire with a visible context."""
-        self._on_copy_placement()
 
     # ── Starting a brand new entry (ConfigTreeDock's Add cell...) ────────
 

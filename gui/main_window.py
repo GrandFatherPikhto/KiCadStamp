@@ -346,18 +346,6 @@ class MainWindow(QMainWindow):
         self.edit_cell_action.triggered.connect(
             lambda: self._dock_hub.edit_cell())
         self.config_menu.addAction(self.edit_cell_action)
-        # "Copy placement from cell..." (2026-09-06, plan
-        # copy_placement_from_cell): the OFFLINE cell-to-cell placement copy —
-        # overlay another cell's component geometry + vias/tracks onto the cell
-        # currently loaded in the Cell dialog. The same sibling relation to
-        # Refresh/Import-from-selection as the CellDock's own form button (no
-        # live board needed); the target is the cell open in the Cell dialog
-        # (see gui/docks/cell_editor.py).
-        self.copy_cell_placement_action = QAction(
-            _("Copy placement from cell..."), self)
-        self.copy_cell_placement_action.triggered.connect(
-            lambda: self._dock_hub.copy_placement_from_cell())
-        self.config_menu.addAction(self.copy_cell_placement_action)
 
         # ── Tools root (non-tree entries) ────────────────────────────────
         # "Place thermal vias..." (2026-09-01, plan

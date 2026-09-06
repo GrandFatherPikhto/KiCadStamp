@@ -13244,3 +13244,17 @@ msgstr "{kind} имеет параметризованную литеральн�
 #, python-brace-format
 msgid "{kind} has no net (net: null) — it can only inherit a chain's rule net, which a copied cell cannot assume"
 msgstr "{kind} не имеет цепи (net: null) — он может только наследовать rule-цепь цепочки, чего скопированный шаблон не может предполагать"
+
+# ===== Copy placement from cell UI redesign (2026-09-06): inline source combobox =====
+
+msgid "Copy from cell:"
+msgstr "Копировать из шаблона:"
+msgid "Pick a source cell to copy from."
+msgstr "Выберите шаблон-источник для копирования."
+
+
+# ===== Copy placement from cell, context-menu flow (2026-09-06) =====
+msgid "No other cell fits this one's roles to copy from."
+msgstr "Ни один другой шаблон не подходит по ролям для копирования."
+msgid "Pick a cell to copy into first."
+msgstr "Сначала выберите шаблон, в который копировать."

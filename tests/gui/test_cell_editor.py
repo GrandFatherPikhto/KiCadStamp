@@ -1210,106 +1210,110 @@ def _copy_target_components():
     ]
 
 
-def test_copy_placement_button_gated_on_loaded_cell(main_window, tmp_path):
-    """The copy button is the OFFLINE sibling of Refresh/Import — gated on the
-    loaded cell with components (and the root), NOT on a live board adapter."""
-    dock, _ = _make_dock(main_window, tmp_path)
-    assert not dock.copy_placement_button.isEnabled()
-
-    dock._components = _copy_target_components()
-    dock._refresh_all_tables()
-    assert dock.copy_placement_button.isEnabled()
-
-    dock._components = []
-    dock._refresh_all_tables()
-    assert not dock.copy_placement_button.isEnabled()
-
-
-def test_copy_preview_sections_and_component_rows(main_window):
-    """The pure preview helpers render a PlacementCopyPlan: a Components
-    section (Role/Field/Old/New geometry changes) plus a Vias/tracks Kind/
-    Position/Net section — the same shape as the Import preview."""
-    from kicadstamp.cell_placement_copy import build_placement_copy_plan
-
-    plan = build_placement_copy_plan(
-        _copy_donor_components(), _copy_donor_vias(), _copy_donor_tracks(),
-        _copy_target_components())
-    sections = cell_editor_mod.copy_preview_sections(plan)
-    titles = [s["title"] for s in sections]
-    assert "Components to update" in titles
-    assert "Vias/tracks to add" in titles
-
-    comp = next(s for s in sections if s["title"] == "Components to update")
-    assert comp["headers"] == ["Role", "Field", "Old", "New"]
-    assert any(row[0] == "C_OUT_BULK" and row[1] == "Offset along"
-               for row in comp["rows"])
-
-    copper = next(s for s in sections if s["title"] == "Vias/tracks to add")
-    assert copper["headers"] == ["Kind", "Position", "Net"]
-    assert any(row[0] == "Via" for row in copper["rows"])
-    assert any(row[0] == "Track" for row in copper["rows"])
-
-
-def test_copy_placement_dialog_previews_and_gates_on_invalid_source(main_window):
-    """_CopyPlacementDialog collects the decision only: the first (valid)
-    source is previewed with Copy enabled; switching to a source whose copper
-    references a role the target lacks clears the plan, disables Copy and shows
-    why in the status line (no mutation anywhere)."""
-    from kicadstamp.cell_placement_copy import build_placement_copy_plan
-
-    source_cells = {
-        "donor": {"components": _copy_donor_components(),
+def _copy_cells_data():
+    """A root file carrying a copperless target (tgt), a fully-routed donor and
+    an invalid donor (copper references a role the target lacks)."""
+    return {"cells": {
+        "tgt": {"layer": "F.Cu", "components": _copy_target_components(),
+                "vias": [], "tracks": []},
+        "donor": {"layer": "F.Cu", "components": _copy_donor_components(),
                   "vias": _copy_donor_vias(), "tracks": _copy_donor_tracks()},
-        "z_invalid": {"components": _copy_donor_components(),
-                      "vias": [{"offset_along_mm": 1.0, "offset_across_mm": 2.0,
-                                "drill_mm": 0.3, "diameter_mm": 0.6,
-                                "net_from_role": "GHOST"}],
-                      "tracks": []},
-    }
-    dialog = cell_editor_mod._CopyPlacementDialog(
-        source_cells, _copy_target_components())
+        "ghost": {"layer": "F.Cu", "components": _copy_donor_components(),
+                  "vias": [{"offset_along_mm": 1.0, "offset_across_mm": 2.0,
+                            "drill_mm": 0.3, "diameter_mm": 0.6,
+                            "net_from_role": "GHOST"}],
+                  "tracks": []},
+    }}
 
-    assert dialog.source_name() == "donor"          # first source pre-selected
-    assert dialog.plan() is not None
+
+class _FakeCopyPicker:
+    """Replaces cell_editor._CopyPlacementDialog in the flow tests: reports the
+    chosen source and accepts (no event loop)."""
+    source_choice = "donor"
+
+    def __init__(self, candidates, parent=None):
+        self.candidates = list(candidates)
+
+    def exec(self):
+        return 1  # QDialog.DialogCode.Accepted
+
+    def source(self):
+        return self.source_choice
+
+
+def test_copy_placement_dialog_lists_candidates_and_gates_copy(main_window):
+    """The MINIMAL donor picker (Denis 2026-09-06) holds only a combobox of the
+    fitting donor cells + Copy/Cancel; Copy is disabled while no source text."""
+    dialog = cell_editor_mod._CopyPlacementDialog(["donor", "ghost"])
+    texts = [dialog.source_combo.itemText(i)
+             for i in range(dialog.source_combo.count())]
+    assert texts == ["donor", "ghost"]
+    assert dialog.source() == "donor"
     assert dialog.copy_button.isEnabled()
 
-    dialog.source_combo.setCurrentText("z_invalid")
+    dialog.source_combo.setCurrentText("")
     dialog._on_source_changed()
-
-    assert dialog.plan() is None
     assert not dialog.copy_button.isEnabled()
-    assert "GHOST" in dialog.status_label.text()
-
-    # target untouched by dialog construction/planning
-    assert _copy_target_components()[1]["offset_along_mm"] == 99.0
 
 
-def test_apply_copy_plan_overlays_geometry_and_appends_copper(main_window,
-                                                              tmp_path):
-    """_apply_copy_plan runs the dock's normal path: overlay the donor geometry
-    onto the SAME target component dicts (net_template untouched), extend the
-    deep-copied donor vias/tracks, refresh tables + autostage."""
-    from kicadstamp.cell_placement_copy import build_placement_copy_plan
-
-    dock, target_file = _make_dock(main_window, tmp_path)
-    _write(target_file, {"cells": {"tgt": {"layer": "F.Cu",
-                                           "components": _copy_target_components(),
-                                           "vias": [], "tracks": []}}})
+def test_copy_placement_from_cell_applies_selected_donor(main_window, tmp_path,
+                                                         monkeypatch):
+    """Picking the donor in the minimal picker copies: geometry overlaid onto
+    the SAME target dicts (net_template kept), donor copper appended."""
+    dock, target_file = _make_dock(main_window, tmp_path, _copy_cells_data())
     dock.load_entry("tgt", target_file)
-    orig_bulk = next(c for c in dock._components if c["role"] == "C_OUT_BULK")
+    _FakeCopyPicker.source_choice = "donor"
+    monkeypatch.setattr(cell_editor_mod, "_CopyPlacementDialog", _FakeCopyPicker)
 
-    plan = build_placement_copy_plan(
-        _copy_donor_components(), _copy_donor_vias(), _copy_donor_tracks(),
-        dock._components)
-    added = dock._apply_copy_plan(plan)
+    dock.copy_placement_from_cell()
 
-    assert added == 2  # 1 via + 1 track
     bulk = next(c for c in dock._components if c["role"] == "C_OUT_BULK")
-    assert bulk is orig_bulk              # same dict object updated in place
-    assert bulk["offset_along_mm"] == 7.0  # donor geometry applied
-    assert bulk["net_template"] == "-5V"   # target's own net_template kept
+    assert bulk["offset_along_mm"] == 7.0        # donor geometry applied
+    assert bulk["net_template"] == "-5V"         # target net_template kept
+    assert len(dock._vias) == 1
     assert dock._vias[0]["net_from_role"] == "C_IN_BYPASS"
     assert len(dock._tracks) == 1
-    assert dock.vias_table.rowCount() == 1
-    assert dock.tracks_table.rowCount() == 1
-    assert dock.components_table.item(1, 0).text() == "C_OUT_BULK"
+
+
+def test_copy_placement_from_cell_fatal_warns_without_applying(main_window,
+                                                               tmp_path,
+                                                               monkeypatch):
+    """A donor whose copper references a role the target lacks is rejected with
+    a warning BEFORE anything changes — no silent copy of garbage."""
+    dock, target_file = _make_dock(main_window, tmp_path, _copy_cells_data())
+    dock.load_entry("tgt", target_file)
+    _FakeCopyPicker.source_choice = "ghost"
+    monkeypatch.setattr(cell_editor_mod, "_CopyPlacementDialog", _FakeCopyPicker)
+
+    class _FakeMsgBox:
+        warnings = []
+
+        @classmethod
+        def warning(cls, parent, title, text):
+            cls.warnings.append((title, text))
+
+    monkeypatch.setattr(cell_editor_mod, "QMessageBox", _FakeMsgBox)
+
+    dock.copy_placement_from_cell()
+
+    assert len(_FakeMsgBox.warnings) == 1
+    assert "GHOST" in _FakeMsgBox.warnings[0][1]
+    assert dock._vias == [] and dock._tracks == []
+    bulk = next(c for c in dock._components if c["role"] == "C_OUT_BULK")
+    assert bulk["offset_along_mm"] == 99.0
+
+
+def test_copy_placement_no_fitting_donor_shows_message(main_window, tmp_path,
+                                                       caplog):
+    """With no other role-compatible cell in the graph the copy is a no-op with
+    a clear message (never opens an empty picker)."""
+    dock, target_file = _make_dock(main_window, tmp_path, {
+        "cells": {"tgt": {"layer": "F.Cu",
+                          "components": _copy_target_components(),
+                          "vias": [], "tracks": []}}})
+    dock.load_entry("tgt", target_file)
+
+    dock.copy_placement_from_cell()
+
+    assert dock._vias == [] and dock._tracks == []
+    assert any("fits" in r.message for r in caplog.records)

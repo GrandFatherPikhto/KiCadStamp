@@ -45,6 +45,7 @@ from .net_resolution import RULE_NETS
 __all__ = [
     "PlacementCopyPlan",
     "build_placement_copy_plan",
+    "donor_candidates_for",
 ]
 
 # Effective (model) defaults for the geometric keys a component overlay always
@@ -262,3 +263,30 @@ def build_placement_copy_plan(source_components: list[dict],
         new_track_records=new_track_records,
         skipped_roles=skipped_roles,
     )
+
+
+def donor_candidates_for(source_entries: dict[str, dict], target_name: str,
+                         target_components: list[dict]) -> list[str]:
+    """The donor-cell candidates for one "Copy placement from cell" target
+    (2026-09-06, Denis: "выбор целлов для копирования можно отлично сузить по
+    совпадению набора ролей").
+
+    A cell is a candidate only when EVERY one of its component roles is present
+    among the target's components (donor roles ⊆ target roles) and its name
+    differs from the target's: such a donor can only overlay geometry onto
+    existing target slots and can never reference a net_from_role role the
+    target lacks — the two failure classes the copy refuses. A cell with no
+    components is never a candidate.
+
+    source_entries — {name: cell dict} as collect_section_entries('cells')
+    returns; the caller (GUI dock / picker) feeds this the include graph. The
+    copy itself is still fully validated by build_placement_copy_plan."""
+    target_roles = {c.get("role") for c in target_components}
+    candidates = []
+    for name, entry in source_entries.items():
+        if name == target_name:
+            continue
+        roles = {c.get("role") for c in (entry.get("components") or [])}
+        if roles and roles <= target_roles:
+            candidates.append(name)
+    return sorted(candidates)

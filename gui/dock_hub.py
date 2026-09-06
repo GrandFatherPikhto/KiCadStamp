@@ -531,6 +531,12 @@ class DockHub:
         # existing records).
         self.config_tree_dock.cell_import_requested.connect(
             self._import_cell_from_selection)
+        # 2026-09-06 (plan copy_placement_from_cell): the context menu's "Copy
+        # placement from cell..." — the OFFLINE cell-to-cell placement copy
+        # onto the requested cell (donor picked from a minimal role-set-fitted
+        # combobox; no live board). Same delegate shape as the two above.
+        self.config_tree_dock.cell_copy_requested.connect(
+            self._copy_cell_placement)
         # Placer/Thermal via/Extract/Points/Chains -> Config tree: a
         # successful Save refreshes the whole tree (walk_include_tree() is
         # re-run) so a brand new (or renamed) entry shows up without
@@ -1395,15 +1401,6 @@ class DockHub:
         Config tree's "Add cell...")."""
         self._open_cell_dialog()
 
-    def copy_placement_from_cell(self) -> None:
-        """Main menu "Tools -> Config -> Copy placement from cell..." (2026-09-06,
-        plan copy_placement_from_cell) — opens the (non-modal) Cell dialog and
-        runs the OFFLINE cell-to-cell placement copy against the cell currently
-        loaded in it (the CellDock's own form-button path; the dock guards with
-        a clear message when no cell is open to edit)."""
-        self._open_cell_dialog()
-        self.cells_dock.copy_placement_from_cell()
-
     def _open_project_dialog(self) -> None:
         """Show/raise the ONE live Project dialog (File > "Project...",
         2026-09-01, plan project_settings_dialogs) — non-modal, so the user can
@@ -1492,6 +1489,17 @@ class DockHub:
         loaded cell."""
         self.cells_dock.import_from_selection_requested(name, file_path)
         self._open_cell_dialog()
+
+    def _copy_cell_placement(self, name, file_path) -> None:
+        """ConfigTreeDock's cell_copy_requested delegate (2026-09-06, plan
+        copy_placement_from_cell) — the context menu's "Copy placement from
+        cell...": the OFFLINE cell-to-cell placement copy onto the requested
+        cell. Deliberately does NOT open any editor: the cell is loaded into
+        CellDock's form invisibly, CellDock's own copy entry point runs the
+        minimal role-fitted donor picker (a combobox-only dialog), applies the
+        copy through its normal save path and reports the result in the Log —
+        no Cell dialog, no entity/net editor pops up (Denis 2026-09-06)."""
+        self.cells_dock.copy_from_cell_requested(name, file_path)
 
     def _attach_log_file_handler(self, handler) -> None:
         """Attach the root-config log_file: FileHandler either to the live

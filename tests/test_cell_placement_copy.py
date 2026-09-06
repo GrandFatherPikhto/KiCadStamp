@@ -17,6 +17,7 @@ import pytest
 from kicadstamp.cell_placement_copy import (
     PlacementCopyPlan,
     build_placement_copy_plan,
+    donor_candidates_for,
 )
 from kicadstamp.exceptions import ValidationError
 
@@ -192,3 +193,22 @@ def test_inputs_never_mutated():
               copy.deepcopy(source_tracks), copy.deepcopy(target))
     build_placement_copy_plan(source_comp, source_vias, source_tracks, target)
     assert (source_comp, source_vias, source_tracks, target) == before
+
+
+# ── Donor-candidate narrowing (Denis, 2026-09-06: role-set fit) ────────────
+
+def test_donor_candidates_filter_by_role_subset_and_exclude_current():
+    """donor_candidates_for offers a cell only when EVERY one of its component
+    roles is present among the target's (donor roles ⊆ target roles) and its
+    name differs from the target's; a component-less cell is never offered."""
+    entries = {
+        "tgt": {"components": [{"role": "A"}, {"role": "B"}]},
+        "donor": {"components": [{"role": "A"}]},                 # subset -> fit
+        "twin": {"components": [{"role": "A"}, {"role": "B"}]},   # equal -> fit
+        "extra": {"components": [{"role": "A"}, {"role": "C"}]},  # C absent -> no
+        "no_data": {"components": []},                            # no roles -> no
+    }
+    target = [{"role": "A"}, {"role": "B"}]
+    assert donor_candidates_for(entries, "tgt", target) == ["donor", "twin"]
+    # empty target accepts nothing (roles <= {} is false for any non-empty donor)
+    assert donor_candidates_for(entries, "tgt", []) == []

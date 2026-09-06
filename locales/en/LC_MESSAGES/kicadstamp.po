@@ -14613,3 +14613,17 @@ msgstr ""
 #, python-brace-format
 msgid "{kind} has no net (net: null) — it can only inherit a chain's rule net, which a copied cell cannot assume"
 msgstr ""
+
+# ===== Copy placement from cell UI redesign (2026-09-06): inline source combobox =====
+
+msgid "Copy from cell:"
+msgstr ""
+msgid "Pick a source cell to copy from."
+msgstr ""
+
+
+# ===== Copy placement from cell, context-menu flow (2026-09-06) =====
+msgid "No other cell fits this one's roles to copy from."
+msgstr ""
+msgid "Pick a cell to copy into first."
+msgstr ""
