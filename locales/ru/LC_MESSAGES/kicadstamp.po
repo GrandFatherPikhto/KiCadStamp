@@ -13699,6 +13699,9 @@ msgstr "Списки схем"
 msgid "Scheme lists"
 msgstr "Списки схем"
 
+msgid "Entity {name!r} is a Scheme List placement — Placer edits cell-based Entities only; edit its record via the Config tree and position it in Trees."
+msgstr "Entity {name!r} — это размещение Scheme List: Placer редактирует только cell-based Entity; её запись правится через дерево Config, а позиция — в Trees."
+
 msgid "Source sheet:"
 msgstr "Исходный лист:"
 

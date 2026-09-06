@@ -367,3 +367,70 @@ def test_entity_save_clears_fields_removed_in_the_form(main_window, tmp_path):
     assert "comment" not in e1  # cleared, not resurrected
     assert "mirror" not in e1   # cleared, not resurrected
     assert e1["nets"] == {"C_IN": "+3V3"}  # Tools-owned field preserved
+
+
+# ── P6 Stage 4: a scheme_list-based Entity (cell=None) in the Source combo ──
+
+def _make_scheme_entity_dock(main_window, tmp_path):
+    """An Entity-mode placer root that ALSO carries a scheme_lists: record and
+    a scheme_list-based Entity (S1, cell=None) beside the cell-based E1 — the
+    Stage-4 .cell audit case: a cell=None Entity sharing the Source combo with
+    cell-based ones. The root must LOAD (scheme_list refs resolve), so the
+    record is included."""
+    cells_file = tmp_path / "cells.sexp"
+    _write(cells_file, {"cells": {
+        "pi_filter": {"components": [{"role": "C_IN", "offset_along_mm": 0,
+                                       "offset_across_mm": 0, "angle_deg": 0,
+                                       "net_template": "{PWR_IN}"}],
+                       "vias": [], "tracks": [], "layer": "F.Cu"}}})
+    root_file = tmp_path / "root.sexp"
+    _write(root_file, {
+        "clone_placements": [],
+        "include": ["cells.sexp"],
+        "scheme_lists": [{
+            "name": "psu", "anchor_ref": "R1", "source_sheet": "Channel_0",
+            "anchor_rotation_deg": 0.0,
+            "components": [{"ref": "R1", "offset_along_mm": 0.0,
+                            "offset_across_mm": 0.0, "rotation_deg": 0.0}],
+        }],
+        "entities": [
+            {"name": "E1", "cell": "pi_filter", "cluster": "CL1"},
+            {"name": "S1", "scheme_list": "psu", "sheet": "Channel_1"},
+        ],
+    })
+    dock = PlacerDock(main_window)
+    dock.set_root_path(root_file)
+    return dock, root_file
+
+
+def test_scheme_list_entity_pick_is_readonly_and_save_refused(main_window, tmp_path, caplog):
+    """P6 Stage 4 .cell audit — a scheme_list-based Entity (cell=None) is in
+    the Source combo but Placer's cell-based Entity form cannot represent it:
+    picking it loads read-only (no crash, no cell), and a Save is refused with
+    a clear message — the record is NEVER silently rewritten into a cell-less
+    Entity (which load_entity would reject) or dropped."""
+    dock, root_file = _make_scheme_entity_dock(main_window, tmp_path)
+    _switch_to_entity(dock)
+    names = [dock.entity_combo.itemText(i) for i in range(dock.entity_combo.count())]
+    assert names == ["E1", "S1"]
+    dock.entity_combo.setCurrentText("S1")
+
+    # Read-only load: the scheme_list identity is remembered, no cell picked.
+    assert dock._selected_cell is None
+    assert dock._loaded_entity_scheme_list == "psu"
+    assert dock._loaded_entity_identity == "S1"
+    assert dock.placer_name_edit.text() == "S1"
+    assert dock.sheet_edit.currentText() == "Channel_1"
+
+    # Save is refused (no payload) with the scheme_list-specific message —
+    # the root config stays byte-identical (no rewrite, no drop).
+    before = _load(root_file)
+    assert dock._build_entry_dict() is None
+    dock._do_save()
+    assert _load(root_file) == before
+    assert "Scheme List placement" in caplog.text
+
+    # Switching back to a cell-based Entity clears the scheme_list identity.
+    dock.entity_combo.setCurrentText("E1")
+    assert dock._selected_cell == "pi_filter"
+    assert dock._loaded_entity_scheme_list is None

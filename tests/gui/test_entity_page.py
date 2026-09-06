@@ -49,6 +49,8 @@ def test_load_entity_renders_record(main_window, tmp_path):
     assert dock.cell_label.text() == "c1"
     assert dock.sheet_label.text() == "S"
     assert dock.cluster_label.text() == "CL"
+    # A cell-based Entity has no Scheme List identity — the row stays hidden.
+    assert dock.scheme_list_label.isVisibleTo(dock) is False
     # No trees -> unplaced.
     assert dock.placements_list.count() == 0
     assert "Not placed in any tree" in dock.placements_hint.text()
@@ -101,3 +103,45 @@ def test_comment_field_never_writes_without_loaded_entity(main_window, tmp_path,
     dock.comment_edit.setText("x")
     dock._on_comment_commit()  # nothing loaded -> no write, no crash
     assert dock._entity_data == {}
+
+
+def test_load_scheme_list_entity_shows_scheme_list_row(main_window, tmp_path):
+    """P6 Stage 4 .cell audit — a scheme_list-based Entity (cell=None) must not
+    render as a misleading blank "Cell: —": the dedicated Scheme List row shows
+    the recorded snapshot it clones, and the comment write path preserves the
+    record (never rewrites it into a cell-less Entity)."""
+    root = tmp_path / "root.sexp"
+    _write(root, {
+        "scheme_lists": [{
+            "name": "psu", "anchor_ref": "R1", "source_sheet": "Channel_0",
+            "anchor_rotation_deg": 0.0,
+            "components": [
+                {"ref": "R1", "offset_along_mm": 0.0, "offset_across_mm": 0.0,
+                 "rotation_deg": 0.0},
+            ],
+        }],
+        "entities": [{"name": "S1", "scheme_list": "psu", "sheet": "Channel_1"}],
+    })
+    dock = EntityInfoDock(main_window)
+    dock.set_root_path(root)
+    dock.load_entity("S1")
+
+    assert dock.name_label.text() == "S1"
+    assert dock.cell_label.text() == "—"
+    assert dock.scheme_list_label.text() == "psu"
+    assert dock.scheme_list_label.isVisibleTo(dock) is True
+    assert dock.sheet_label.text() == "Channel_1"
+
+    # Comment editing goes through the same upsert_entity path — the loaded
+    # record keeps its scheme_list (the write is never a cell-less rewrite).
+    from kicadstamp.config.sexp_format import sexp_to_dict
+    dock.comment_edit.setText("note")
+    fired = []
+    dock.saved.connect(lambda: fired.append(True))
+    dock._on_comment_commit()
+    assert len(fired) == 1
+    data = sexp_to_dict(root.read_text(encoding="utf-8"))
+    entry = next(e for e in data["entities"] if e.get("name") == "S1")
+    assert entry["scheme_list"] == "psu"
+    assert entry["comment"] == "note"
+    assert "cell" not in entry

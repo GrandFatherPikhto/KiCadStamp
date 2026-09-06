@@ -50,8 +50,18 @@ def entity_anchor_identity(entity: Entity, cfg: Any) -> tuple[str, str | None, s
 
     Returns None when no role can be derived (missing cell or no components) —
     such an Entity can never BE an anchor subject, so it is never a duplicate
-    self-anchor node."""
+    self-anchor node. A scheme_list-based Entity (design_2026_09_05_scheme_
+    list.md §5.1 — cell=None, a refdes-literal clone of a recorded snapshot)
+    has no cell/role identity by construction and is None for the SAME reason,
+    guarded EXPLICITLY here (Stage 4 .cell audit — no caller may rely on
+    cfg.cells.get(None) to infer it)."""
     if cfg is None:
+        return None
+    if entity.scheme_list is not None:
+        # A scheme_list Entity can never be a role-anchor subject: it has no
+        # cell (and therefore no anchor_role/zero-slot surrogate role) to
+        # derive an identity from. Return None instead of running
+        # cfg.cells.get(None) and relying on dict semantics.
         return None
     cell = cfg.cells.get(entity.cell)
     if cell is None:
@@ -100,6 +110,13 @@ def entity_cell_has_copper(entity: Entity, cfg: Any) -> bool:
     2026_09_05_tree_root_rotation_drift §Открытый вопрос). Live profile scan
     2026-09-06: the only self-anchor duplicate cell (conn_pm5v) has none."""
     if cfg is None:
+        return False
+    if entity.scheme_list is not None:
+        # A scheme_list-based Entity carries its literal copper in the recorded
+        # scheme_lists: snapshot (scheme_list_capture.py), never in a cell — it
+        # has no cell copper for the materializer to generate, so it is never a
+        # copper-carrying self-anchor duplicate (Stage 4 .cell audit). Guarded
+        # explicitly, not via cfg.cells.get(None).
         return False
     cell = cfg.cells.get(entity.cell)
     return bool(cell and (cell.vias or cell.tracks))

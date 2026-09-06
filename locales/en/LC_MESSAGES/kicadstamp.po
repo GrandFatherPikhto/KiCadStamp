@@ -15068,6 +15068,9 @@ msgstr ""
 msgid "Scheme lists"
 msgstr ""
 
+msgid "Entity {name!r} is a Scheme List placement — Placer edits cell-based Entities only; edit its record via the Config tree and position it in Trees."
+msgstr ""
+
 msgid "Source sheet:"
 msgstr ""
 

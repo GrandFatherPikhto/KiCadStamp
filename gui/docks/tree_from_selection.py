@@ -87,7 +87,13 @@ def _zero_slot_role(entity: Any, cfg: Any) -> Optional[str]:
     """The role of the Entity's cell's single zero-offset (local (0,0))
     component — the "existing cluster anchor" role. Falls back to the first
     component's role when the cell has no zero-offset slot (a hand-authored
-    cell without one), None when the cell has no components at all."""
+    cell without one), None when the cell has no components at all.
+
+    A scheme_list-based Entity (cell=None, plan_2026_09_05_scheme_list.md
+    §5.1) has no cell to derive a role from — None, guarded EXPLICITLY here
+    (Stage 4 .cell audit) instead of relying on cfg.cells.get(None)."""
+    if getattr(entity, "scheme_list", None) is not None:
+        return None
     cell = cfg.cells.get(entity.cell)
     if cell is None or not cell.components:
         return None
