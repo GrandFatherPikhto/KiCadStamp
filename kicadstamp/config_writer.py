@@ -409,6 +409,73 @@ def upsert_entity_placement(path: Path, entity_name: str, origin: Dict[str, Any]
     return changed
 
 
+def _find_node_by_ref(nodes: list, ref: str) -> Optional[dict]:
+    """Recursively find the node dict whose ref == ref inside `nodes` (a
+    tree's top-level "nodes" list, or a node's own nested "children" — the
+    grammar stores children under "children", NOT "nodes"; see
+    trees.py::_node_to_dict). Returns the node dict or None."""
+    for n in nodes:
+        if not isinstance(n, dict):
+            continue
+        if n.get("ref") == ref:
+            return n
+        hit = _find_node_by_ref(n.get("children") or [], ref)
+        if hit is not None:
+            return hit
+    return None
+
+
+def append_tree_child_node(path: Path, tree_name: str,
+                           parent_ref: Optional[str],
+                           node_dict: Dict[str, Any]) -> bool:
+    """Append ONE placement node to an EXISTING tree as a CHILD of an existing
+    node (parent_ref) — or as a new TOP-LEVEL node of that tree (parent_ref is
+    None) — P6 "Place Scheme List" (plan_2026_09_05_scheme_list.md §6.2): the
+    node is written INTO the already-existing tree named `tree_name`, NEVER a
+    new tree (Denis, 2026-09-06: "Нам не нужно новое дерево").
+
+    `path` is the physical file that OWNS the tree — the caller resolves it
+    via find_list_entry_file(root_path, "trees", {"name": tree_name}) in the
+    GUI layer before calling (config_writer is core and cannot walk the gui
+    include graph; the single-file read-merge-write here is the same shape as
+    every other config_writer helper). The node is appended to
+    parent["children"] (recursive ref lookup) or to tree["nodes"] (top-level).
+
+    Rules (position lives ONLY in trees, so the write must keep the link_trees
+    "a ref appears in at most one node" invariant): the caller guarantees the
+    node's ref is a NEW, unique Entity name (no existing node can carry it —
+    link_trees fatals on a placement ref that does not resolve to an Entity,
+    so a pre-existing node with this ref cannot exist).
+
+    Returns whether anything changed. Raises OSError when the trees: section
+    is not a list, the named tree does not exist in `path`, or parent_ref is
+    set but no node with that ref exists anywhere in the tree (a missing
+    tree/parent is a hard error — never a silent find-or-create)."""
+    data = copy.deepcopy(_read_data(path))
+    trees = data.setdefault("trees", [])
+    if not isinstance(trees, list):
+        raise OSError(_("trees: in {path} is not a list — refusing to touch it")
+                      .format(path=path))
+    tree_dict = next((t for t in trees
+                      if isinstance(t, dict) and t.get("name") == tree_name), None)
+    if tree_dict is None:
+        raise OSError(_("tree {name!r} not found in {path}")
+                      .format(name=tree_name, path=path))
+    if parent_ref is None:
+        target = tree_dict.setdefault("nodes", [])
+    else:
+        parent = _find_node_by_ref(tree_dict.get("nodes") or [], parent_ref)
+        if parent is None:
+            raise OSError(_("tree {name!r} has no node {ref!r} to append under")
+                          .format(name=tree_name, ref=parent_ref))
+        target = parent.setdefault("children", [])
+    if node_dict in target:
+        return False
+    target.append(node_dict)
+    _write_data(path, data)
+    return True
+
+
 def upsert_tree_instances(path: Path, template: str, rows: list) -> bool:
     """Replace every tree_instances: entry instantiating `template` with
     `rows` (each a {name, sheet, cluster?} dict — cluster OPTIONAL, 2026-09-03,

@@ -5422,6 +5422,16 @@ msgstr "{section}: в {path} не является списком — не тр�
 msgid "trees: in {path} is not a list — refusing to touch it"
 msgstr "include: в {path} не является списком — не трогаю"
 
+#: kicadstamp/config_writer.py:413
+#, python-brace-format
+msgid "tree {name!r} not found in {path}"
+msgstr "дерево {name!r} не найдено в {path}"
+
+#: kicadstamp/config_writer.py:418
+#, python-brace-format
+msgid "tree {name!r} has no node {ref!r} to append under"
+msgstr "у дерева {name!r} нет узла {ref!r}, под который добавить"
+
 #: kicadstamp/config_writer.py:466
 #, python-brace-format
 msgid "include: in {path} is not a list — refusing to touch it"

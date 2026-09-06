@@ -339,15 +339,37 @@ def extract_new_cell_for_instantiation(
         return None
 
 
-# ── "Instantiate from Cell…" helpers (2026-09-03, plan instantiate_from_entity) ──
-# Pure, Qt-free logic for the TreesDock action "instantiate a NEW group into the
-# CURRENT tree by reusing an EXISTING Cell": pick a Cell (the group's internal
-# layout), name a new Entity for the new physical cluster (cluster/sheet), place
-# a placement node into the current tree. Roles are NOT pinned from selection —
-# components of the new cluster may not be placed/selected yet, so they resolve
-# at Apply by cluster/sheet (the same path the template Entity uses). Selection
-# is only an OPTIONAL positioning aid: the geometric center of a single-cluster
-# selection gives the node's offset from the tree anchor.
+# ── Placement-Entity builders (2026-09-03, plan instantiate_from_entity; P6) ──
+# Pure, Qt-free logic for the actions that stage a NEW placement Entity +
+# (separately) the tree node that places it:
+#   * "Instantiate from Cell…" (2026-09-03) — reuse an EXISTING Cell: pick a
+#     Cell (the group's internal layout), name a new Entity for the new
+#     physical cluster (cluster/sheet), place a placement node into the
+#     current tree. Roles are NOT pinned from selection — components of the new
+#     cluster may not be placed/selected yet, so they resolve at Apply by
+#     cluster/sheet (the same path the template Entity uses). Selection is only
+#     an OPTIONAL positioning aid: the geometric center of a single-cluster
+#     selection gives the node's offset from the tree anchor.
+#   * "Place Scheme List…" (P6, plan_2026_09_05_scheme_list.md §6) — place a
+#     recorded Scheme List snapshot: a NEW scheme_list-based Entity (refdes-
+#     literal clone of a recorded snapshot) + a placement node appended as a
+#     child of an EXISTING tree node (never a new tree).
+# Both share _entity_payload: an Entity is {name} + a geometry-source
+# reference (cell+cluster / scheme_list) + optional sheet, and NEVER carries
+# position (the tree node owns xy/rotation).
+
+def _entity_payload(name: str, source: dict, sheet: Optional[str] = None) -> dict:
+    """The shared entities: payload of the placement builders — {name} + the
+    geometry-source reference fields (`source`) + optional sheet. Deliberately
+    NO refs/by_selection/position: an Entity stores WHAT to place and HOW
+    (cell/scheme_list identity + optional sheet target), never WHERE (that is
+    the placement node's job). Never writes to disk itself."""
+    ent: dict = {"name": name}
+    ent.update(source)
+    if sheet:
+        ent["sheet"] = sheet
+    return ent
+
 
 def build_instantiated_entity(cell_name: str, name: str, cluster: str,
                               sheet: Optional[str] = None) -> dict:
@@ -356,10 +378,23 @@ def build_instantiated_entity(cell_name: str, name: str, cluster: str,
     cluster's roles are resolved at Apply by (Cluster, Sheet), NOT pinned from a
     selection (which may not exist yet). Never generates a new Cell (that is
     create_cell_and_entity_for_cluster's job — here the Cell already exists)."""
-    ent: dict = {"name": name, "cell": cell_name, "cluster": cluster}
-    if sheet:
-        ent["sheet"] = sheet
-    return ent
+    return _entity_payload(name, {"cell": cell_name, "cluster": cluster}, sheet)
+
+
+def build_scheme_list_entity(name: str, scheme_list: str,
+                             sheet: Optional[str] = None) -> dict:
+    """The entities: dict for a NEW scheme_list-based Entity (P6, plan
+    plan_2026_09_05_scheme_list.md §6.2): {name, scheme_list, sheet?}.
+
+    A scheme_list Entity is a refdes-LITERAL clone of a recorded Scheme List
+    snapshot — it references the record by name (Entity.scheme_list:
+    <name from scheme_lists:>, the "указывает, не копирует" design §6 rule)
+    and deliberately carries NO cluster/refs/by_selection/nets: the snapshot
+    already has its literal refs and literal nets, and those fields are fatal
+    on a scheme_list Entity at load (config/entries.py::_load_entity). `sheet`,
+    when set, is the TARGET sheet for twin-resolution (design §5.2); empty/
+    None == the source sheet (mode "in place")."""
+    return _entity_payload(name, {"scheme_list": scheme_list}, sheet)
 
 
 def selection_cluster(selected: Iterable[Any]) -> Optional[str]:

@@ -5373,6 +5373,16 @@ msgstr "{section}: in {path} is not a list — refusing to touch it"
 msgid "trees: in {path} is not a list — refusing to touch it"
 msgstr "trees: in {path} is not a list — refusing to touch it"
 
+#: kicadstamp/config_writer.py:413
+#, python-brace-format
+msgid "tree {name!r} not found in {path}"
+msgstr ""
+
+#: kicadstamp/config_writer.py:418
+#, python-brace-format
+msgid "tree {name!r} has no node {ref!r} to append under"
+msgstr ""
+
 #: kicadstamp/config_writer.py:466
 #, python-brace-format
 msgid "include: in {path} is not a list — refusing to touch it"
