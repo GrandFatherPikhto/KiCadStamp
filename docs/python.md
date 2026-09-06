@@ -1,8 +1,8 @@
 # Coding placement in Python: `explore`/`author`
 
 Two additive, optional modules for using KiCadStamp as a library instead of (or alongside) the
-CLI/YAML workflow — neither changes the YAML config format or the `apply`/`extract` pipeline, both are
-thin wrappers around what already exists. For the YAML syntax itself, see
+CLI/config workflow — neither changes the `.sexp` config format or the `apply`/`extract` pipeline, both
+are thin wrappers around what already exists. For the `.sexp` syntax itself, see
 [docs/config.md](config.md); for the CLI commands, see [docs/commands.md](commands.md).
 
 This page has two parts: an API reference (`kicadstamp.explore`/`kicadstamp.author`), then a worked
@@ -68,12 +68,12 @@ for that one subsystem).
 
 ---
 
-## `kicadstamp.author` — coding placement instead of copy-pasting YAML
+## `kicadstamp.author` — coding placement instead of copy-pasting `.sexp`
 
 Per-channel `clone_placements` written by hand are exactly where copy-paste mistakes creep in (wrong
 `nets:` key, duplicate `anchor_pad:`, a sheet name copied from the wrong neighbour) — a `for` loop
 can't make those. `ClonePlacement`/`Chain` (`kicadstamp.config`) are plain dataclasses — build them
-directly, with real Python variables instead of `{placeholder}` YAML substitution:
+directly, with real Python variables instead of `{placeholder}` substitution in the config:
 
 ```python
 from kicadstamp.config import ClonePlacement
@@ -139,7 +139,7 @@ dump_clone_placements(clones, "boards/3ch-awg-tia/generated/dac_channels.sexp") 
 dump_rules(chains, "boards/3ch-awg-tia/generated/fpga_spokes.sexp")                # {'chains': [...]}
 dump_template({"my_cell": {"vias": [...], "components": [...]}}, "templates/my_cell.sexp")
 
-# straight into the live apply pipeline, bypassing the generated-YAML step entirely:
+# straight into the live apply pipeline, bypassing the generated-.sexp step entirely:
 from kicadstamp.config import load_config
 cfg, ctx = load_config("boards/3ch-awg-tia/profiles/power.sexp")
 cfg.clone_placements.extend(clones)
@@ -152,14 +152,14 @@ throwaway placeholder path here would misfile or collide registries between unre
 
 ---
 
-## Getting it wrong: skipping the generated-YAML step
+## Getting it wrong: skipping the generated-.sexp step
 
 It's tempting to skip writing `OUTPUT` and go straight from `build()` to `apply_config()` on a `Config`
 assembled from just this one script's `clones`. Don't — `registry.reconcile()`'s pruning
 (`known_anchor_ids`) needs the **full** `cfg.clone_placements` (every subsystem, via `include:`) to
 know what's still supposed to exist; a `Config` built from one script's slice alone would make pruning
 think every *other* subsystem's vias/tracks are stale and delete them. Always: write the generated
-YAML → load the real root config (which `include:`s it) → apply. `cli_main` already does exactly this.
+`.sexp` → load the real root config (which `include:`s it) → apply. `cli_main` already does exactly this.
 
 ---
 
@@ -211,8 +211,8 @@ def build() -> list:
     return clones
 ```
 
-A `for` loop physically cannot make the mistakes that come from copy-pasting three similar YAML blocks
-by hand: a wrong `nets:` key, a duplicated `anchor_pad:` line, a sheet name copied from the wrong
+A `for` loop physically cannot make the mistakes that come from copy-pasting three similar `.sexp`
+blocks by hand: a wrong `nets:` key, a duplicated `anchor_pad:` line, a sheet name copied from the wrong
 neighbour — all real bugs hit while writing this exact subsystem by hand before it was scripted.
 
 ### Step 3 — try it
@@ -225,7 +225,7 @@ Then re-run `board.refresh()` + `board.select(...)` to confirm the result with t
 investigate ambiguity in Step 1 — closes the "did it actually do what I meant" question without
 opening KiCad.
 
-### Step 4 — apply for real, keep the generated YAML in git
+### Step 4 — apply for real, keep the generated `.sexp` in git
 
 ```bash
 python boards/3ch-awg-tia/scripts/dac_channels.py --apply
@@ -258,7 +258,7 @@ dump_template({"p3v3_ldo_composite": {"clone_placements": [...]}},
               "boards/3ch-awg-tia/profiles/templates/p3v3_ldo_composite.sexp")
 ```
 
-This is the general pattern for anything geometry-dependent that isn't safely derivable from YAML
+This is the general pattern for anything geometry-dependent that isn't safely derivable from config
 numbers alone (component-centre-to-pad offsets, footprint dimensions) — measure it against the real
 board with `explore`, don't hand-guess it. See the script's own docstring for the full rationale (it
 exists specifically because `CellPlacement`, the nested-cell type, has no live anchor fields at all —
@@ -269,7 +269,7 @@ literal number needs a real measurement).
 
 ## See also
 
-- [docs/config.md](config.md) — the YAML schema these Python objects mirror field-for-field.
+- [docs/config.md](config.md) — the `.sexp` schema these Python objects mirror field-for-field.
 - [docs/commands.md](commands.md) — the CLI (`apply`/`extract`) these scripts wrap or replace.
 - [docs/placement.md](placement.md) — what `apply_config()` actually does once it's called
   (dependency ordering, the registry, collision handling) — same pipeline either way.

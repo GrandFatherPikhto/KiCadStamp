@@ -20,7 +20,7 @@ tests/
 ├── test_clone_anchor_id.py           # Разрешение anchor ID для клонов
 ├── test_clone_geometry.py            # Геометрия ClonePlacement (поворот, зеркало, треки)
 ├── test_clone_ignore_selection.py    # Флаг ignore_selection для клонов
-├── test_clone_placement_config.py    # Загрузка ClonePlacement из YAML
+├── test_clone_placement_config.py    # Загрузка ClonePlacement из s-expr
 ├── test_clone_placement_integration.py # Сквозной тест ClonePlacement (моки)
 ├── test_clone_role_resolver.py       # Разрешение ролей для клонирования (выделение, цепи, близость к якорю)
 ├── test_clone_selection_conflict.py  # Проверка конфликта нескольких клонов в режиме выделения
@@ -76,7 +76,7 @@ tests/
 |----------|---------|----------|
 | `adapter` | `session` | Один экземпляр `KiCadBoardAdapter` на всю сессию. |
 | `board` | `session` | Доска из адаптера. |
-| `test_config` | `session` | Загруженный тестовый конфиг из `kicadstamp_templates_example.yaml`. |
+| `test_config` | `session` | Загруженный тестовый конфиг из `kicadstamp_templates_example.sexp`. |
 | `test_component_ref` | `function` | Refdes компонента для тестов (по умолчанию `C5`). |
 | `test_pad_number` | `function` | Номер пада для тестов (по умолчанию `17`). |
 | `temp_via` | `function` | Создаёт временную via на GND, удаляет после теста. Возвращает `(via_id, position, net)`. |
@@ -128,12 +128,12 @@ pytest tests/integration_tests/ -v -s -m integration
 
 | Файл | Что тестирует |
 |------|---------------|
-| `test_author.py` | Скриптовые хелперы: `_prune_defaults` (удаление полей со значениями по умолчанию), YAML round‑trip для `ClonePlacement`/`Chain`, совместимость `apply_config` с `cmd_apply`, поведение `cli_main`. |
+| `test_author.py` | Скриптовые хелперы: `_prune_defaults` (удаление полей со значениями по умолчанию), s-expr round‑trip для `ClonePlacement`/`Chain`, совместимость `apply_config` с `cmd_apply`, поведение `cli_main`. |
 | `test_cli_filters.py` | Логику CLI-фильтров: `--only NAME` (сужение по имени/цепи), `--cluster PATH` (сужение по пути кластера), `drop_disabled_rules`, `drop_inactive_items`, композицию `--only`/`--cluster` (AND), `load_profile` и корневые значения по умолчанию. |
 | `test_clone_anchor_id.py` | Разрешение anchor ID для клонов: `clone_anchor_id()` возвращает ключ на основе `anchor_ref`/`anchor_role`/`name`. |
 | `test_clone_geometry.py` | Геометрию `ClonePlacement`: преобразование локальных координат в абсолютные, углы компонентов, via и треки, зеркалирование (`mirror`), разрешение цепей через `params` и `net_overrides`. Проверяет фатальность via без `net`. |
 | `test_clone_ignore_selection.py` | Флаг `ignore_selection`: временное снятие выделения при обработке клона. |
-| `test_clone_placement_config.py` | Загрузку `ClonePlacement` из YAML, проверку полей `name`, `template`, `origin_x_mm`, `origin_y_mm`, `rotation_deg`, `nets`, `params`, `net_overrides`, `enabled`. |
+| `test_clone_placement_config.py` | Загрузку `ClonePlacement` из s-expr, проверку полей `cluster`, `cell`, `xy`, `rotation_deg`, `nets`, `params`, `net_overrides`, `retired`/`skip`/`ignore_selection`, `layer`/`mirror`, якорных полей. |
 | `test_clone_placement_integration.py` | Сквозной тест `PlacementPlanner` с `ClonePlacement` (моки): совместная работа с `chains` (ManualSpoke) и клонами в одном прогоне, проверка `registry_key` для via. |
 | `test_clone_role_resolver.py` | Разрешение ролей для `ClonePlacement` двумя режимами: по выделению (`resolve_roles_by_selection`) и по цепям (`resolve_roles_by_nets`), включая плейсхолдеры, `net_overrides`, обработку неоднозначности и близость к якорю. |
 | `test_clone_selection_conflict.py` | Проверку, что в конфиге не более одного `ClonePlacement` в режиме «по выделению» (`check_single_selection_based_clone`), а также работу `clone_uses_selection_mode` с учётом `by_selection`, `nets`, `params`. |
@@ -145,7 +145,7 @@ pytest tests/integration_tests/ -v -s -m integration
 | `test_i18n.py` | Доступность функции `_()`, настройка gettext, проверка импорта во всех исходных файлах. |
 | `test_kicad.py` | Наличие всех методов интерфейса `IBoardAdapter` в `KiCadBoardAdapter`, импорт и конструктор (без реального IPC). |
 | `test_manual_position_calculator.py` | Логику `ManualPositionCalculator`: построение пула, расчёт позиций, планирование via для `chains`. |
-| `test_naming.py` | Доступоры `chain_effective_name`/`thermal_via_array_effective_name`, загрузка `name:` из YAML, проверка обязательности имён (фатальность при отсутствии и при повторе имени внутри `thermal_via_arrays:`), опциональность Chain.name, значения по умолчанию enabled/active. |
+| `test_naming.py` | Доступоры `chain_effective_name`/`thermal_via_array_effective_name`, загрузка `name:` из s-expr, проверка обязательности имён (фатальность при отсутствии и при повторе имени внутри `thermal_via_arrays:`), опциональность Chain.name, значения по умолчанию retired/skip. |
 | `test_net_resolution.py` | Разрешение цепей с плейсхолдерами: подстановка из `params`, применение `net_overrides`, ошибки при отсутствии параметров. |
 | `test_pad_projection.py` | Предсказание позиции пада после перемещения/поворота (без флипа и с флипом), инвариантность `local_pad_offset` к углу. |
 | `test_registry_integration.py` | Полный цикл реестра (создание, обновление, prune) на моках, включая сверку с реальными via. |

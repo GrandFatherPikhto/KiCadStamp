@@ -5,25 +5,25 @@
 ### 1️⃣ Повернуть шаблон на 180° и перенести начало координат на via с сетью `/Channel_0/DAC/+3V3_CLKVDD`
 
 ```bash
-python transform_template.py -i dac_pi_filter_P3V3.yaml -o dac_pi_filter_P3V3_rotated.yaml --rotate 180 --set-origin-by-via-net "/Channel_0/DAC/+3V3_CLKVDD"
+python transform_template.py -i dac_pi_filter_P3V3.sexp -o dac_pi_filter_P3V3_rotated.sexp --rotate 180 --set-origin-by-via-net "/Channel_0/DAC/+3V3_CLKVDD"
 ```
 
 ### 2️⃣ Зеркалировать по X и перенести начало на компонент с ролью `DAC_PI_FILTER_C1`
 
 ```bash
-python transform_template.py -i template.yaml -o new.yaml --mirror-x --set-origin-by-component-role DAC_PI_FILTER_C1
+python transform_template.py -i template.sexp -o new.sexp --mirror-x --set-origin-by-component-role DAC_PI_FILTER_C1
 ```
 
 ### 3️⃣ Зеркалировать по Y и повернуть на 90°, перенос начала по индексу via (первая via)
 
 ```bash
-python transform_template.py -i template.yaml -o new.yaml --mirror-y --rotate 90 --set-origin-by-via-index 0
+python transform_template.py -i template.sexp -o new.sexp --mirror-y --rotate 90 --set-origin-by-via-index 0
 ```
 
 ### 4️⃣ Явный сдвиг начала координат (без привязки к элементу)
 
 ```bash
-python transform_template.py -i template.yaml -o new.yaml --origin-x 1.5 --origin-y -2.0
+python transform_template.py -i template.sexp -o new.sexp --origin-x 1.5 --origin-y -2.0
 ```
 
 ---
@@ -45,7 +45,7 @@ python transform_template.py -i template.yaml -o new.yaml --origin-x 1.5 --origi
 
 ## ✅ Что получается на выходе
 
-Новый YAML-файл с тем же именем шаблона, но с преобразованными координатами и углами. Все `net` и другие поля сохраняются.
+Новый `.sexp`-файл с тем же именем шаблона, но с преобразованными координатами и углами. Все `net` и другие поля сохраняются.
 
 ---
 
@@ -62,7 +62,7 @@ python transform_template.py -i template.yaml -o new.yaml --origin-x 1.5 --origi
 У вас есть шаблон `dac_pi_filter_P3V3`, снятый с `Channel_0`. Вы хотите получить шаблон для `Channel_1` с поворотом на 180° и переносом начала на via `+3V3_CLKVDD` (которая уже есть в шаблоне). Тогда:
 
 ```bash
-python transform_template.py -i templates/dac_pi_filter_P3V3.yaml -o templates/dac_pi_filter_P3V3_ch1.yaml --rotate 180 --set-origin-by-via-net "/Channel_0/DAC/+3V3_CLKVDD"
+python transform_template.py -i templates/dac_pi_filter_P3V3.sexp -o templates/dac_pi_filter_P3V3_ch1.sexp --rotate 180 --set-origin-by-via-net "/Channel_0/DAC/+3V3_CLKVDD"
 ```
 
 После этого в новом шаблоне via питания будет находиться в (0,0), а все остальные элементы будут смещены относительно неё. Вы можете использовать этот шаблон для `Channel_1` с теми же параметрами `anchor_ref` и `origin_x/y` (уже без дополнительного сдвига).

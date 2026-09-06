@@ -126,7 +126,7 @@ OTHER, anchor component, not this placement's own identity. Same (Sheet,
 Cluster, Role) convention as the rest of the project.
 
 `comment` — OPTIONAL free-form note shown in the GUI (a plain schema field, not
-a YAML comment).
+a `;` comment in the file).
 
 `anchor` (`'center'`/`'pad'`, self-referential, absolute modes only) and
 `anchor_pad` (self pad in absolute modes, the ANCHOR component's pad in

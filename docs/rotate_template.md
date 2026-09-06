@@ -5,25 +5,25 @@
 ### 1️⃣ Rotate a template by 180° and move the origin to the via on net `/Channel_0/DAC/+3V3_CLKVDD`
 
 ```bash
-python transform_template.py -i dac_pi_filter_P3V3.yaml -o dac_pi_filter_P3V3_rotated.yaml --rotate 180 --set-origin-by-via-net "/Channel_0/DAC/+3V3_CLKVDD"
+python transform_template.py -i dac_pi_filter_P3V3.sexp -o dac_pi_filter_P3V3_rotated.sexp --rotate 180 --set-origin-by-via-net "/Channel_0/DAC/+3V3_CLKVDD"
 ```
 
 ### 2️⃣ Mirror across X and move the origin to the component with role `DAC_PI_FILTER_C1`
 
 ```bash
-python transform_template.py -i template.yaml -o new.yaml --mirror-x --set-origin-by-component-role DAC_PI_FILTER_C1
+python transform_template.py -i template.sexp -o new.sexp --mirror-x --set-origin-by-component-role DAC_PI_FILTER_C1
 ```
 
 ### 3️⃣ Mirror across Y and rotate by 90°, moving the origin by via index (the first via)
 
 ```bash
-python transform_template.py -i template.yaml -o new.yaml --mirror-y --rotate 90 --set-origin-by-via-index 0
+python transform_template.py -i template.sexp -o new.sexp --mirror-y --rotate 90 --set-origin-by-via-index 0
 ```
 
 ### 4️⃣ Explicit origin shift (not anchored to any element)
 
 ```bash
-python transform_template.py -i template.yaml -o new.yaml --origin-x 1.5 --origin-y -2.0
+python transform_template.py -i template.sexp -o new.sexp --origin-x 1.5 --origin-y -2.0
 ```
 
 ---
@@ -47,8 +47,8 @@ python transform_template.py -i template.yaml -o new.yaml --origin-x 1.5 --origi
 
 ## ✅ Output
 
-A new YAML file with the same template name, but with transformed coordinates and angles. All `net` and
-other fields are preserved as-is.
+A new `.sexp` file with the same template name, but with transformed coordinates and angles. All `net`
+and other fields are preserved as-is.
 
 ---
 
@@ -68,7 +68,7 @@ Suppose you have a template `dac_pi_filter_P3V3` extracted from `Channel_0`, and
 template). Then:
 
 ```bash
-python transform_template.py -i templates/dac_pi_filter_P3V3.yaml -o templates/dac_pi_filter_P3V3_ch1.yaml --rotate 180 --set-origin-by-via-net "/Channel_0/DAC/+3V3_CLKVDD"
+python transform_template.py -i templates/dac_pi_filter_P3V3.sexp -o templates/dac_pi_filter_P3V3_ch1.sexp --rotate 180 --set-origin-by-via-net "/Channel_0/DAC/+3V3_CLKVDD"
 ```
 
 After this, in the new template the power via sits at (0,0), and every other element is offset relative

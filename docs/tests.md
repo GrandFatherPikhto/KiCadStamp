@@ -20,7 +20,7 @@ tests/
 ├── test_clone_anchor_id.py           # Anchor ID resolution for clones
 ├── test_clone_geometry.py            # ClonePlacement geometry (rotation, mirror, tracks)
 ├── test_clone_ignore_selection.py    # ignore_selection flag for clones
-├── test_clone_placement_config.py    # ClonePlacement loading from YAML
+├── test_clone_placement_config.py    # ClonePlacement loading from s-expr
 ├── test_clone_placement_integration.py # End‑to‑end ClonePlacement test (mocks)
 ├── test_clone_role_resolver.py       # Role resolution for cloning (selection, nets, anchor proximity)
 ├── test_clone_selection_conflict.py  # Conflict check for multiple clones in selection mode
@@ -76,7 +76,7 @@ The following fixtures are provided for working with real KiCad:
 |---------|-------|-------------|
 | `adapter` | `session` | Single `KiCadBoardAdapter` instance for the entire session. |
 | `board` | `session` | Board from the adapter. |
-| `test_config` | `session` | Loaded test config from `kicadstamp_templates_example.yaml`. |
+| `test_config` | `session` | Loaded test config from `kicadstamp_templates_example.sexp`. |
 | `test_component_ref` | `function` | Refdes of a component for tests (default `C5`). |
 | `test_pad_number` | `function` | Pad number for tests (default `17`). |
 | `temp_via` | `function` | Creates a temporary via on GND, removes it after the test. Returns `(via_id, position, net)`. |
@@ -128,12 +128,12 @@ pytest tests/integration_tests/ -v -s -m integration
 
 | File | What it tests |
 |------|---------------|
-| `test_author.py` | Scripting helpers: `_prune_defaults` (drops dataclass default fields), YAML round‑trip for `ClonePlacement`/`Chain`, `apply_config` namespace compatibility with `cmd_apply`, `cli_main` entry‑point behaviour. |
+| `test_author.py` | Scripting helpers: `_prune_defaults` (drops dataclass default fields), s-expr round‑trip for `ClonePlacement`/`Chain`, `apply_config` namespace compatibility with `cmd_apply`, `cli_main` entry‑point behaviour. |
 | `test_cli_filters.py` | CLI filter logic: `--only NAME` (narrowing by name/net), `--cluster PATH` (narrowing by cluster path), `drop_disabled_rules`, `drop_inactive_items`, `--only`/`--cluster` composition (AND), `load_profile` root defaults and `include:` resolution. |
 | `test_clone_anchor_id.py` | Anchor ID resolution for clones: `clone_anchor_id()` returns correct key based on `anchor_ref`/`anchor_role`/`name`. |
 | `test_clone_geometry.py` | `ClonePlacement` geometry: local‑to‑global coordinate transformation, component angles, vias and tracks, mirroring (`mirror`), net resolution via `params` and `net_overrides`. Checks fatality of vias without a `net`. |
 | `test_clone_ignore_selection.py` | `ignore_selection` flag: temporarily deselects components when processing a clone that should not be affected by user selection. |
-| `test_clone_placement_config.py` | Loading `ClonePlacement` from YAML, checking fields `name`, `template`, `origin_x_mm`, `origin_y_mm`, `rotation_deg`, `nets`, `params`, `net_overrides`, `enabled`. |
+| `test_clone_placement_config.py` | Loading `ClonePlacement` from s-expr, checking fields `cluster`, `cell`, `xy`, `rotation_deg`, `nets`, `params`, `net_overrides`, `retired`/`skip`/`ignore_selection`, `layer`/`mirror`, anchor fields. |
 | `test_clone_placement_integration.py` | End‑to‑end test of `PlacementPlanner` with `ClonePlacement` (mocks): cooperation with `chains` (ManualSpoke) and clones in a single run, checking `registry_key` for vias. |
 | `test_clone_role_resolver.py` | Role resolution for `ClonePlacement` in two modes: by selection (`resolve_roles_by_selection`) and by nets (`resolve_roles_by_nets`), including placeholders, `net_overrides`, ambiguity handling, and anchor proximity. |
 | `test_clone_selection_conflict.py` | Check that no more than one `ClonePlacement` is in selection mode (`check_single_selection_based_clone`), and `clone_uses_selection_mode` works with `by_selection`, `nets`, `params`. |
@@ -145,7 +145,7 @@ pytest tests/integration_tests/ -v -s -m integration
 | `test_i18n.py` | `_()` function availability, gettext setup, and import verification across all source files. |
 | `test_kicad.py` | Presence of all `IBoardAdapter` methods in `KiCadBoardAdapter`, import, and constructor (without real IPC). |
 | `test_manual_position_calculator.py` | `ManualPositionCalculator` logic: pool building, position calculation, via planning for `chains`. |
-| `test_naming.py` | `chain_effective_name`/`thermal_via_array_effective_name` accessors, `name:` loading from YAML, required name validation (fatality on missing name, and on a duplicate name within `thermal_via_arrays:`), optional Chain.name, Chain.enabled/active defaults. |
+| `test_naming.py` | `chain_effective_name`/`thermal_via_array_effective_name` accessors, `name:` loading from s-expr, required name validation (fatality on missing name, and on a duplicate name within `thermal_via_arrays:`), optional Chain.name, Chain.retired/skip defaults. |
 | `test_net_resolution.py` | Net resolution with placeholders: substitution from `params`, application of `net_overrides`, errors on missing parameters. |
 | `test_pad_projection.py` | Pad position prediction after move/rotate (without and with flip), invariance of `local_pad_offset` to angle. |
 | `test_registry_integration.py` | Full registry cycle (create, update, prune) with mocks, including reconciliation with real vias. |

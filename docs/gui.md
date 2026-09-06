@@ -3,7 +3,7 @@
 A persistent window meant to stay open alongside KiCad while you work — not a one-shot script like
 the CLI. Wraps `kicadstamp.explore`/`kicadstamp.author`/`KiCadBoardAdapter`/`ApplyPipeline`
 directly; nothing new is reimplemented here that the CLI doesn't already do. For the underlying
-extraction/placement mechanics themselves, see [docs/config.md](config.md) (YAML shape) and
+extraction/placement mechanics themselves, see [docs/config.md](config.md) (`.sexp` shape) and
 [docs/commands.md](commands.md) (CLI equivalents of every action below).
 
 ## Launching
@@ -151,7 +151,7 @@ fieldstool edits `.kicad_sch` directly instead, which survives that resync — s
 
 ## Files
 
-A file tree (default root: `boards/`, changeable) for picking YAML/JSON config files, plus three
+A file tree (default root: `boards/`, changeable) for picking `.sexp`/JSON config files, plus three
 named **roles** other docks read their target file from:
 
 | Role | Consumed by | What goes there |
@@ -481,7 +481,7 @@ Detail wasn't already the visible group).
 `project_settings_dialogs`) is a standalone **modal dialog** — open it from the main menu's **Tools →
 Settings...**. It hosts pure GUI/app settings for THIS MACHINE — a GUI facade over
 [`gui/settings.py`](gui/settings.py)'s `gui_state.json`, deliberately NOT project config. The
-"Project" dialog (RootMetadataDock) edits the project YAML in the version-controlled project file;
+"Project" dialog (RootMetadataDock) edits the project config in the version-controlled project file;
 this dialog never touches it. Everything here is local per-machine state (the same storage
 `last_root_file`/`window_geometry`/`tree_group_by` already use).
 
@@ -799,7 +799,7 @@ the tabs — they act on the whole placement, not one tab.
   see `_on_cell_mode_changed`'s own docstring for why hiding them together avoids a silent no-op
   trap):
   - **Nets tab** —
-    - **Params** — one row per `{PLACEHOLDER}` found anywhere in the picked Cell's own YAML (auto-
+    - **Params** — one row per `{PLACEHOLDER}` found anywhere in the picked Cell's own config (auto-
       discovered, not hand-typed) — the literal net each placeholder should resolve to for *this*
       instance.
     - **Nets** (added 2026-08-06) — role → literal net, takes priority over the cell's own
@@ -893,7 +893,7 @@ the tabs — they act on the whole placement, not one tab.
   (its components plus every via/track the registry records under this placement's anchor) and
   highlights exactly those in pcbnew — a visual check of what this placement really owns, without
   moving anything. Nothing found (not placed yet) is a short Log message, never a crash.
-Not covered by the GUI yet (still reachable by hand-editing the saved YAML): `by_selection` mode.
+Not covered by the GUI yet (still reachable by hand-editing the saved config): `by_selection` mode.
 `anchor_sheet` narrowing WAS in this deferred list — closed 2026-08-15: every Sheet field is now a
 searchable combo sourced from the project's schematic files (see
 plan_2026_08_15_sheet_combo_everywhere.md), including ClonePlacement's Origin tab and
@@ -968,7 +968,7 @@ fields are only valid on an actual root (an included file setting any of them is
 Since 2026-09-04 (plan `root_metadata_path_defaults`), the four path fields
 `registry_path`/`track_registry_path`/`log_file`/`operation_log_dir` show their COMPUTED default
 (for the currently open root file) as a grey placeholder while left empty — nothing is written to
-the YAML unless you actually type a value. Those defaults now point into SUBFOLDERS next to the
+the config unless you actually type a value. Those defaults now point into SUBFOLDERS next to the
 config instead of beside it: `registry/<config-stem>.registry.json`, `tracks/<config-stem>.tracks.
 registry.json`, `logs/actions.log`, and `operational/` for the `operation_*.json` undo logs. Config
 backups made on Save live in a hidden `.history/` next to the root config.
@@ -1216,7 +1216,7 @@ Edits a `cells:` entry (see [docs/config.md](config.md) on `Cell`) — Component
 `along`/`across` offsets from the cell's own `(0,0)`) plus, recursively, nested `clone_placements:`
 referencing other cells/roles. Added 2026-08-06 after Denis hit a real bug caused by the ONLY
 existing way to create a cell — Config tree's **Add cell...** wrote a raw `{"components": []}` stub
-straight to YAML with no form behind it at all ("создавать экстрактор под один компонент, прости,
+straight to the config with no form behind it at all ("создавать экстрактор под один компонент, прости,
 тупняк" — a full select-on-board-and-extract round trip was the only way to add so much as one
 component slot by hand).
 

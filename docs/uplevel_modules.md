@@ -59,7 +59,7 @@ Contains `cmd_extract()` — the implementation of the `extract` command, extrac
 
 | Function | Description |
 |----------|-------------|
-| `cmd_extract(args)` | Loads profile/config, calls `template_extraction.extract_template_from_selection()`, writes output as JSON, s-expr (`.sexp`) or YAML (by output file suffix). |
+| `cmd_extract(args)` | Loads profile/config, calls `template_extraction.extract_template_from_selection()`, writes output as JSON or s-expr (`.sexp`) by output file suffix — a `.yaml`/`.yml` suffix is a fatal error (YAML support was removed 2026-08-28). |
 
 **Key dependencies:**  
 `template_extraction.extract_template_from_selection`, `config.load_config`, `config.includes.load_profile`.
@@ -134,15 +134,15 @@ Sets up gettext for Russian-language user-facing messages. Uses `kicadstamp` tra
 ## 8. `author.py` – Scripting Helpers
 
 **Purpose:**
-Provides helper functions for writing placement scripts (Python code instead of YAML configs). Includes dump functions and `apply_config()` for applying generated configs. The standard `--apply`/`--dry-run` CLI entry-point wrapper `cli_main()` was split out into `author_cli.py` (arch refactor 2026-08-11) so this module stays a pure library.
+Provides helper functions for writing placement scripts (Python code instead of `.sexp` configs). Includes dump functions and `apply_config()` for applying generated configs. The standard `--apply`/`--dry-run` CLI entry-point wrapper `cli_main()` was split out into `author_cli.py` (arch refactor 2026-08-11) so this module stays a pure library.
 
 **Main functions:**
 
 | Function | Description |
 |----------|-------------|
-| `dump_clone_placements(clones, path)` | Serialises `ClonePlacement` list to YAML, pruning defaults. |
-| `dump_rules(chains, path)` | Serialises `Chain` list to YAML, pruning defaults. |
-| `dump_template(template_dict, path)` | Writes a template dictionary as JSON or YAML. |
+| `dump_clone_placements(clones, path)` | Serialises `ClonePlacement` list to s-expr, pruning defaults. |
+| `dump_chains(chains, path)` | Serialises `Chain` list to s-expr, pruning defaults. |
+| `dump_template(template_dict, path)` | Writes a template dictionary as s-expr (the config graph is s-expr/`.json` only). |
 | `apply_config(cfg, config_path, *, dry_run, ...)` | Loads config and runs `cmd_apply` programmatically. |
 | `cli_main(build_fn, output_path, ...)` | Standard `if __name__ == "__main__":` body for placement scripts — **now in `author_cli.py`** (split out 2026-08-11). |
 
@@ -194,7 +194,7 @@ Replaced the old monolithic `config.py`. Now a package with separate modules for
 
 | Function | Description |
 |----------|-------------|
-| `load_config(path)` | Reads YAML, resolves `include:` (merges external `cells:`/`chains:`/etc. from other files). Parses all sections, returns a `Config` object and `RuntimeContext`. |
+| `load_config(path)` | Reads config (`.sexp`/`.json`), resolves `include:` (merges external `cells:`/`chains:`/etc. from other files). Parses all sections, returns a `Config` object and `RuntimeContext`. |
 | `_load_template_via(data)` | Loads `TemplateVia`. Checks that `net` is a string. |
 | `_load_template_track(data)` | Loads `TemplateTrack`. Checks that `net` is a string. |
 | `_load_template_component_slot(data)` | Loads `TemplateComponentSlot`. |
@@ -255,7 +255,7 @@ Provides three‑layer net name resolution for `ClonePlacement`. Allows substitu
 
 **Purpose:** the "net is a computed function" foundation
 (`plan_2026_08_28_auto_nets_full_automation.md`, Phase 0). Two PURE modules —
-no adapter, no YAML, no live board:
+no adapter, no config file, no live board:
 
 - `net_matching.py` — Role↔Net correspondence between a template cluster and a
   target cluster under a fixed role bijection: Weisfeiler-Leman color
@@ -325,7 +325,7 @@ Implements the `extract` command logic: from the current selection in the KiCad 
 | Function | Description |
 |----------|-------------|
 | `extract_template_from_selection(adapter, name, params, net_template_map, ...)` | Main function. Reads selection, filters tracks/vias by connected-components closure (kept only if their component reaches a KEPT footprint's pad), checks roles, computes origin, builds output dictionary. |
-| `render_uncertain_comments(yaml_text, name)` | Adds YAML comments marking uncertain geometry values. |
+| `render_uncertain_comments(yaml_text, name)` | Adds comments marking uncertain geometry values (a legacy YAML-writer helper kept alive and unit-tested; s-expr output carries no uncertainty annotations — the call was removed from the write path 2026-08-28). |
 
 **Used in:** `cli_extract.py` (`extract` command).
 
@@ -391,9 +391,9 @@ Holds global constants used across various modules.
 ## 18. `utils/file_cache.py` – Read Caches (single-file + graph-level)
 
 **Purpose:**
-Memoizes a single file's `open()+parse` by `(resolved path, mtime_ns)` — a changed mtime (typically an external hand-edit) is a cache miss on its own, and every raw reader shares one cache entry per file. Kills the GUI's startup redundancy: one `MainWindow()` construction used to re-parse the same `include:` graph of YAML files ~13× and the same `.kicad_sch` files 4× each (profiled: 15.0s → ~1.1s construction, `yaml.safe_load` 113 → ~8 calls on the real project — see `techdocs/handoff/plan_2026_08_15_config_read_cache_startup.md`).
+Memoizes a single file's `open()+parse` by `(resolved path, mtime_ns)` — a changed mtime (typically an external hand-edit) is a cache miss on its own, and every raw reader shares one cache entry per file. Kills the GUI's startup redundancy: one `MainWindow()` construction used to re-parse the same `include:` graph of config files ~13× and the same `.kicad_sch` files 4× each (profiled: 15.0s → ~1.1s construction — see `techdocs/handoff/plan_2026_08_15_config_read_cache_startup.md`).
 
-A second layer, `cached_graph_result` (2026-08-21), memoizes the RESULT of a whole-graph computation (`load_config()`, `walk_include_tree()`) keyed by `(kind, resolved_root_path)` plus the mtimes of every file that computation read: on a repeat call with unchanged files it re-checks a handful of `os.stat()`s and returns a deep copy without re-running any traversal/merge/validation. The same-day profiling also found the REAL remaining startup bottleneck: `gui/yaml_io.load_data()` was the one raw reader the 2026-08-15 cache missed, so `RootMetadataDock` re-parsed the root YAML outside the cache right before every dock re-read it through the cache (~1.9s of redundant parse). Routing it through `cached_file_read` cut `MainWindow()` construction from ~6.0s to ~4.1s (`yaml.safe_load` 4 → 2 calls) — see `techdocs/handoff/deepseek/plan_2026_08_21_startup_graph_level_cache.md`.
+A second layer, `cached_graph_result` (2026-08-21), memoizes the RESULT of a whole-graph computation (`load_config()`, `walk_include_tree()`) keyed by `(kind, resolved_root_path)` plus the mtimes of every file that computation read: on a repeat call with unchanged files it re-checks a handful of `os.stat()`s and returns a deep copy without re-running any traversal/merge/validation. The same-day profiling also found the REAL remaining startup bottleneck: `gui/yaml_io.load_data()` was the one raw reader the 2026-08-15 cache missed, so `RootMetadataDock` re-parsed the root config outside the cache right before every dock re-read it through the cache (~1.9s of redundant parse). Routing it through `cached_file_read` cut `MainWindow()` construction from ~6.0s to ~4.1s — see `techdocs/handoff/deepseek/plan_2026_08_21_startup_graph_level_cache.md`.
 
 **Main functions:**
 
