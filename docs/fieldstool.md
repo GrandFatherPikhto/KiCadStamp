@@ -29,7 +29,7 @@ was no real independence left to preserve):
   offset span-finding in `.kicad_sch` text), `schematic_discovery.py`
   (`walk_schematic_hierarchy()`), `schematic_safety.py` (non-ASCII check, `list_kicad_pids()`),
   `schematic_editing.py` (`apply_edits()`, the `.bak`/self-verify write pipeline),
-  `schematic_config.py` (shared `load_fields_config()` — the YAML config shape both
+  `schematic_config.py` (shared `load_fields_config()` — the `.sexp` config shape both
   `set` and `rename` read), `schematic_set_fields.py`/`schematic_rename_fields.py` (the
   `set`/`rename` planning logic).
   `FieldsToolError` joined `kicadstamp/exceptions.py` directly (a plain `Exception` subclass, NOT a
@@ -72,8 +72,8 @@ boundaries (there are none left):
 ## `fieldstool_cli.py`
 
 ```bash
-python fieldstool_cli.py set roles.yaml [--write] [--allow-non-ascii] [--force-with-kicad-running] [--verbose]
-python fieldstool_cli.py rename renames.yaml [--write] [--allow-non-ascii] [--force-with-kicad-running] [--verbose]
+python fieldstool_cli.py set roles.sexp [--write] [--allow-non-ascii] [--force-with-kicad-running] [--verbose]
+python fieldstool_cli.py rename renames.sexp [--write] [--allow-non-ascii] [--force-with-kicad-running] [--verbose]
 ```
 
 Both subcommands are dry-run by default (print what would change, touch nothing); `--write` is
@@ -81,15 +81,12 @@ required to actually edit files.
 
 ### `set` — refdes → `{field: value}`
 
-```yaml
-root_sheet: ../test_boards/3CH-AWG-TIA/3CH-AWG-TIA.kicad_sch   # the PROJECT's top sheet, not a folder
-fields:
-  C51:
-    Role: C_OUT_BULK
-    Cluster: FPGA_PWR_BANK/17
-  C52:
-    Role: C_OUT_BULK
-    Cluster: FPGA_PWR_BANK/26
+```sexp
+(kicadstamp-config
+  (root_sheet "../test_boards/3CH-AWG-TIA/3CH-AWG-TIA.kicad_sch")   ; the PROJECT's top sheet, not a folder
+  (fields
+    ("C51" ("Role" "C_OUT_BULK") ("Cluster" "FPGA_PWR_BANK/17"))
+    ("C52" ("Role" "C_OUT_BULK") ("Cluster" "FPGA_PWR_BANK/26"))))
 ```
 
 `root_sheet:` is walked recursively (`(sheet (property "Sheetfile" "...") ...)` references,
@@ -106,13 +103,12 @@ Two ways one refdes can appear in a file, both handled:
 
 ### `rename` — `field → {old_value: new_value}`, no refdes needed
 
-```yaml
-root_sheet: ../test_boards/3CH-AWG-TIA/3CH-AWG-TIA.kicad_sch
-renames:
-  Role:
-    OLD_ROLE_A: NEW_ROLE_A
-  Cluster:
-    Old_Cluster_Name: New_Cluster_Name
+```sexp
+(kicadstamp-config
+  (root_sheet "../test_boards/3CH-AWG-TIA/3CH-AWG-TIA.kicad_sch")
+  (renames
+    ("Role" ("OLD_ROLE_A" "NEW_ROLE_A"))
+    ("Cluster" ("Old_Cluster_Name" "New_Cluster_Name"))))
 ```
 
 Changes a value everywhere it currently occurs, across the whole schematic tree — you don't
@@ -121,14 +117,14 @@ multi-instance conflict above, since it always writes the *same* new value to ev
 `old_value` that matched nothing anywhere is reported as a **warning**, not a fatal error — it's
 just as likely a harmless re-run (renaming is idempotent) as a typo.
 
-`rename --also-profile <root.yaml>` additionally applies the SAME `renames:` map to the profile
-config YAML files reachable through that profile's `include:` graph — the answer to "rename a
-Role/Cluster on the schematic and have it propagate into the already-placed `profiles/*.yaml`
+`rename --also-profile <root.sexp>` additionally applies the SAME `renames:` map to the profile
+config `.sexp` files reachable through that profile's `include:` graph — the answer to "rename a
+Role/Cluster on the schematic and have it propagate into the already-placed `profiles/*.sexp`
 tree without a second, duplicating rename file". Only semantically-correct fields are edited:
 `Role` → `role:`/`anchor_role:`/`net_from_role:`/`net_template_same_as_role:` and the KEYS of the
 `refs:`/`nets:` dicts; `Cluster` → `cluster:`/`anchor_cluster:` and `name:` of `clone_placements:`
 (that `name` IS the Cluster tag written onto the board's components). The edit is a byte-offset
-text splice (comments/formatting preserved, `.bak` + `yaml.safe_load` self-verify), never a
+text splice (comments/formatting preserved, `.bak` + s-expr parser self-verify), never a
 parse→dump round trip. Renaming is exact-value only, mirroring the schematic side: a hierarchical
 cluster literal like `Channel_1/sub` is NOT rewritten when renaming `Channel_1` — segment/prefix
 renaming is deliberately out of scope (see `kicadstamp/config_rename.py`).

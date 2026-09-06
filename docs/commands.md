@@ -37,7 +37,7 @@ planned from one snapshot any more — each item's anchor (`anchor_ref`/`anchor_
 the board, and if that anchor is a ref that ANOTHER item in the same run is about to place, the producer
 is planned, moved, and committed first; only then is the dependent item planned against the real,
 post‑move board. Items with no such dependency (anchored on something nobody in this run moves, or on an
-absolute coordinate) go first, in their YAML order. Found via a real bug (2026‑07‑27): a clone anchored on
+absolute coordinate) go first, in their config-file order. Found via a real bug (2026‑07‑27): a clone anchored on
 a role inside another clone's own template landed at that role's OLD position, not where the same run was
 about to move it to. A config where two or more items anchor on each other's output has no valid order and
 is a fatal `ValidationError` before anything is touched on the board (see
@@ -69,12 +69,13 @@ python kicadstamp_cli.py apply <config.sexp> [options]
 `thermal_via_arrays:` are the **thermal vias**; `clone_placements:` (`ClonePlacement`) are the **clones**. All
 three are independent, uniformly `--only`/`--cluster`/`enabled`-filterable sections of one config.
 
-**`log_file:` in the config itself** – an optional root‑level YAML field (like
+**`log_file:` in the config itself** – an optional root‑level config field (like
 `registry_path`), resolved relative to the config file itself. If set, you don't need to pass
 `--log-file` by hand every time for the same board profile. The CLI flag `--log-file`, if given, takes
 priority over this field:
-```yaml
-log_file: ../logs/placer.log
+```sexp
+; at the top level of (kicadstamp-config ...)
+(log_file "../logs/placer.log")
 ```
 
 **`include:` – splitting a profile into subsystem files.** General‑purpose: merges `chains:`/
@@ -85,11 +86,11 @@ log_file: ../logs/placer.log
 carry the extract profile and the clone_placement for that subsystem together, or an external `Cell`
 file (wrap its content in a `cells:` key — the old separate `cells_file:`/`cell_files:` mechanism was
 folded into `include:` on 2026-08-02, one way to split ANY section across files instead of two):
-```yaml
-include:
-  - subsystems/ldo.sexp
-  - path: subsystems/dac_channels.sexp
-    enabled: false   # whole file skipped — not even opened — while iterating on something else
+```sexp
+(include
+  "subsystems/ldo.sexp"
+  (path "subsystems/dac_channels.sexp")
+  (enabled false))   ; whole file skipped — not even opened — while iterating on something else
 ```
 Each entry is either a path string, or `{path, enabled}` (`enabled` defaults to `true`). A duplicate
 `cells`/`extract_profiles`/`clone_profiles` key defined in two different files is fatal – these are meant
@@ -97,7 +98,7 @@ to be separate files, so a repeated name is far more likely a mistake. A file in
 reached from two different branches) is fatal too, whether or not it's a true cycle. Paths are resolved
 relative to the file that references them, not the top‑level config or the current working directory.
 
-**About the current production config:** the master config for the `3CH-AWG-TIA` board is `profiles/3ch-awg-tia.sexp` (merged `chains:`, `clone_placements:`, `thermal_via_arrays:`, with a reference to `profiles/templates/3ch-awg-tia.yaml` via `cells_file`). The file `profiles/generated/10CL006YE144C8G.yaml` written by `tools/generate_10cl006.py` is a self‑contained archival version (can be run separately, but is no longer used in `apply` for this board).
+**About the current production config:** the master config for the `3CH-AWG-TIA` board is `profiles/3ch-awg-tia-v103/config.sexp` (merged `chains:`, `clone_placements:`, `thermal_via_arrays:`, with an `include:`-d `cells:` file for the templates). The file `profiles/generated/10CL006YE144C8G.sexp` written by `tools/generate_10cl006.py` is a self‑contained archival version (can be run separately, but is no longer used in `apply` for this board).
 
 **`name:` is mandatory on every `thermal_via_arrays:` entry and every
 `clone_placements:` entry, but OPTIONAL on `chains:` entries** (a chain falls back to its `net` – this was
@@ -109,32 +110,36 @@ to `thermal_<pad>` – both gone, missing `name:` is fatal at config-load time f
 `thermal_via_arrays` entry's `name:` must also be unique across the whole list). For `chains:`, the
 loader instead fatals if **two chains resolve to the same effective identity** (same `net`, no distinguishing
 `name:`) – add a `name:` to disambiguate, don't rely on one being picked silently:
-```yaml
-chains:
-- net: +3V3_VCCIO
-  # name: optional – defaults to net "+3V3_VCCIO"; add one only if you want a
-  # more readable --only label, or two chains share the same net
-  anchor_role: FPGA
-  enabled: true          # optional, default true – see below
-  spokes: [...]
+```sexp
+(chains
+  (chain
+    (net "+3V3_VCCIO")
+    ; (name ...) — optional: defaults to the net "+3V3_VCCIO"; add one only if you
+    ;   want a more readable --only label, or two chains share the same net
+    (anchor_role "FPGA")
+    (spokes ...)))
 
-thermal_via_arrays:
-- name: fpga_thermal   # mandatory, and unique across the list
-  enabled: true
-  ...
+(thermal_via_arrays
+  (thermal_via_array
+    (name "fpga_thermal")   ; mandatory, and unique across the list
+    ...))
 
-clone_placements:
-- name: p5v_pi_filter   # mandatory
-  template: 5v_pi_filter
-  ...
+(clone_placements
+  (clone_placement
+    (name "p5v_pi_filter")  ; mandatory
+    (cell "5v_pi_filter")
+    ...))
 ```
 
-**`enabled: bool` (default `true`) on every `chains:`/`clone_placements:`/`thermal_via_arrays:` entry** –
-whole-entry on/off switch. `enabled: false` always wins, applied **before** `--only`/`--cluster` are even
-looked at – it means "does not exist on the board right now", not "excluded from this particular run", so
-it cannot be un-done by naming the entry explicitly on the command line. Use it to permanently park a
-section of the config without deleting it; use `--only`/`--cluster` for a one-off narrowed run of things
-that stay otherwise enabled.
+**`retired:`/`skip:` (both default `false`) on every `chains:`/`clone_placements:`/`thermal_via_arrays:`
+entry** – whole-entry on/off switches (the old single `enabled:` was renamed and inverted to `retired:` —
+`enabled: true` ≠ `retired: true`, don't do a literal find-and-replace on an old config — see
+`docs/config.md`). `retired: true` always wins, applied **before** `--only`/`--cluster` are even looked
+at – it means "does not exist on the board right now" (registry pruned), not "excluded from this
+particular run", so it cannot be un-done by naming the entry explicitly on the command line. `skip: true`
+skips just this run while keeping registry protection. Use `retired` to permanently park a section of the
+config without deleting it; use `--only`/`--cluster` for a one-off narrowed run of things that stay
+otherwise active.
 
 ### Examples
 
@@ -147,13 +152,13 @@ python kicadstamp_cli.py apply profiles/3ch-awg-tia.sexp
 #### Run with verbose logging to a file
 
 ```bash
-python kicadstamp_cli.py apply 10CL006YE144C8G.yaml --verbose --log-file logs/placer.log
+python kicadstamp_cli.py apply 10CL006YE144C8G.sexp --verbose --log-file logs/placer.log
 ```
 
 #### Preview (dry‑run) – does not modify the board
 
 ```bash
-python kicadstamp_cli.py apply 10CL006YE144C8G.yaml --dry-run
+python kicadstamp_cli.py apply 10CL006YE144C8G.sexp --dry-run
 ```
 
 #### Process only one clone (e.g., for debugging)
@@ -185,13 +190,13 @@ python kicadstamp_cli.py apply profiles/3ch-awg-tia.sexp --only p5v_pi_filter --
 #### Disable collision checking
 
 ```bash
-python kicadstamp_cli.py apply 10CL006YE144C8G.yaml --no-collision-check
+python kicadstamp_cli.py apply 10CL006YE144C8G.sexp --no-collision-check
 ```
 
 #### Increase timeout for slow KiCad sessions
 
 ```bash
-python kicadstamp_cli.py apply 10CL006YE144C8G.yaml --timeout-ms 30000
+python kicadstamp_cli.py apply 10CL006YE144C8G.sexp --timeout-ms 30000
 ```
 
 ---
@@ -229,7 +234,7 @@ python kicadstamp_cli.py extract --name <template_name> --output <file> [--timeo
 | Flag | Description |
 |------|-------------|
 | `--name` | Name of the template (key in the `templates` section). Optional in direct-flags mode (not `--profile`): if omitted, prompted for interactively. |
-| `--output` | Output file path. The extension determines the format: `.json` → JSON (flat dictionary), otherwise YAML. |
+| `--output` | Output file path. The extension determines the format: `.json` → JSON (flat dictionary), `.sexp` → s-expr (a `.yaml`/`.yml` suffix is a fatal error — YAML support was removed 2026-08-28). |
 | `--timeout-ms` | IPC timeout in milliseconds (default: `20000`). |
 | `--verbose` | Enable verbose output. |
 | `--log-file` | Save logs to a file. |
@@ -243,12 +248,12 @@ python kicadstamp_cli.py extract --name <template_name> --output <file> [--timeo
 | `--origin-by-component-cluster CLUSTER` | Refines `--origin-by-component-role`: narrow the same-role candidates to this Cluster (segment-prefix match, the same matching the role-anchor resolver uses). Fatal if several candidates remain even after narrowing. |
 | `--origin-by-component-sheet SHEET` | Refines `--origin-by-component-role`: narrow the same-role candidates to this schematic sheet (no-op without schematic sheet names — the standalone command has no config; prefer `--origin-by-component-cluster`). |
 | `--raw-selection` | Take the current selection as tracks/vias **as-is**, without the pad-connectivity filter — every selected track/via goes into the cell with no "connected to a kept footprint's pad" check. Off by default (the filter stays the default behaviour); opt in when you know all the selected copper is yours (e.g. a via array with no anchor component in the selection). |
-| `--profiles FILE` | YAML file with named profiles for `extract`. |
+| `--profiles FILE` | S-expr (`.sexp`) file with named profiles for `extract`. |
 | `--profile NAME` | Use a profile from the `--profiles` file instead of explicit flags (cannot be combined with `--name`, `--output`, `--param`, `--net-template`, `--raw-selection`, `--origin-by-*` – either everything from the profile or all explicit flags). |
 
-**Important:** Before running, select the desired components, vias, and tracks in the PCB editor. Roles must be unique. The output (YAML or JSON) is written wrapped under a `cells:` key, ready to be listed directly under `include:` in the main configuration.
+**Important:** Before running, select the desired components, vias, and tracks in the PCB editor. Roles must be unique. The output (s-expr or JSON) is written wrapped under a `cells:` key, ready to be listed directly under `include:` in the main configuration.
 
-**Automatic net definition (Phase 1, 2026-08-28):** a via/track whose net maps unambiguously to one selected role is written as `net_from_role` (with `net_from_role_pad` for multi‑net roles) — the net resolves live at apply time, so `--param`/`--net-template` are not needed for the common case. For a via/track net from a different channel instance, a single‑token `{param}` pattern is auto‑discovered across the same role's instances (guarded: only when exactly one path segment differs and the pattern round‑trips; otherwise the literal is kept — never guess silently). Bridging roles (two different nets on the pads — inductor/ferrite/fuse between rails) auto‑derive a designated `net_template` + `net_template_pad` without `--net-template-role`. When one of the manual flags is now redundant, extract logs a warning so you can drop it — the flags remain fully supported as explicit overrides (backward compatibility). The old fallback still exists for the rare case where a bridging role's nets are not in any map: `net_template` stays empty, a warning is logged, and (YAML output only) a commented `# net_template: could not determine automatically — ...` placeholder line is written right after that component's block.
+**Automatic net definition (Phase 1, 2026-08-28):** a via/track whose net maps unambiguously to one selected role is written as `net_from_role` (with `net_from_role_pad` for multi‑net roles) — the net resolves live at apply time, so `--param`/`--net-template` are not needed for the common case. For a via/track net from a different channel instance, a single‑token `{param}` pattern is auto‑discovered across the same role's instances (guarded: only when exactly one path segment differs and the pattern round‑trips; otherwise the literal is kept — never guess silently). Bridging roles (two different nets on the pads — inductor/ferrite/fuse between rails) auto‑derive a designated `net_template` + `net_template_pad` without `--net-template-role`. When one of the manual flags is now redundant, extract logs a warning so you can drop it — the flags remain fully supported as explicit overrides (backward compatibility). The old fallback still exists for the rare case where a bridging role's nets are not in any map: `net_template` stays empty and a warning is logged. The YAML-writer's commented `# net_template: ...` placeholder line is gone with the format — s-expr output carries no uncertainty annotations (the `render_uncertain_comments` splice was removed from the write path with the core YAML removal, 2026-08-28).
 
 **Inside a profile** (`extract_profiles:` in the `--profiles` file): `output:` can be set once at the file's
 root – a shared default for every profile, a specific profile only needs to set its own if it writes
@@ -272,24 +277,22 @@ python kicadstamp_cli.py extract --name pi_filter_4 --output templates/pi_filter
 #### Extract using a profile
 
 In `extract_profiles.sexp`:
-```yaml
-# output: shared by every profile below – set it once here if they all write
-# to the same file; a profile that needs a different one just sets its own
-# output: directly, overriding this value.
-output: templates/my_filter.json
+```sexp
+; output: shared by every profile below – set it once here if they all write
+; to the same file; a profile that needs a different one just sets its own
+; output: directly, overriding this value.
+(output "templates/my_filter.json")
 
-extract_profiles:
-  my_filter:
-    # name: not needed – defaults to the profile's own key ("my_filter").
-    # Set it explicitly only if the template name must differ from the
-    # profile name (e.g. several profiles feeding one shared template).
-    params:
-      PWR_IN: '+3V3'
-      PWR_OUT: '+3V3_VCCIO'
-    net_template:
-      '+3V3_VCCIO': '{PWR_OUT}'
-      '+3V3': '{PWR_IN}'
-    origin_by_via_net: '+3V3_VCCIO'
+(extract_profiles
+  (extract_profile "my_filter"
+    ; name: not needed – defaults to the profile's own key ("my_filter").
+    ; Set it explicitly only if the template name must differ from the
+    ; profile name (e.g. several profiles feeding one shared template).
+    (params ("PWR_IN" "+3V3")
+            ("PWR_OUT" "+3V3_VCCIO"))
+    (net_template ("+3V3_VCCIO" "{PWR_OUT}")
+                  ("+3V3" "{PWR_IN}"))
+    (origin_by_via_net "+3V3_VCCIO")))
 ```
 
 Run:
@@ -297,13 +300,13 @@ Run:
 python kicadstamp_cli.py extract --profiles extract_profiles.sexp --profile my_filter --verbose
 ```
 
-#### Extract a template to YAML (no parametrisation)
+#### Extract a template to s-expr (no parametrisation)
 
 ```bash
 python kicadstamp_cli.py extract --name my_filter --output my_filter.sexp --verbose
 ```
 
-#### Add a template to an existing config (YAML)
+#### Add a template to an existing config
 
 ```bash
 python kicadstamp_cli.py extract --name my_filter --output 10CL006YE144C8G.sexp --verbose
@@ -342,7 +345,7 @@ python kicadstamp_cli.py extract-net --net <NET> --anchor-role <ROLE> \
   here for disambiguation.
 - `--anchor-cluster` — narrow by Cluster field (prefix match).
 - `--anchor-pad` — anchor on this pad's centre instead of the footprint centre.
-- `--output` (required) — YAML/JSON file; appends/replaces the record under
+- `--output` (required) — `.sexp`/JSON file; appends/replaces the record under
   `net_traces:` (same net is replaced in place, everything else preserved).
 
 ### Example
@@ -358,7 +361,7 @@ python kicadstamp_cli.py apply 3ch-awg-tia.sexp --only DAC_DB0
 
 ## `clone-extract` – snapshot a channel (file‑based cloner)
 
-Analyzes a hierarchical project (without IPC) and extracts all components, tracks, and vias belonging to the specified channel, saving the snapshot as YAML. Useful for studying the channel structure before writing a ClonePlacement configuration.
+Analyzes a hierarchical project (without IPC) and extracts all components, tracks, and vias belonging to the specified channel, saving the snapshot as s-expr. Useful for studying the channel structure before writing a ClonePlacement configuration.
 
 ### Syntax
 
@@ -373,8 +376,8 @@ python kicadstamp_cli.py clone-extract --net <file.net> --pcb <file.kicad_pcb> -
 | `--net` | Path to the `.net` file (netlist). |
 | `--pcb` | Path to the `.kicad_pcb` file. |
 | `--channel` | Channel name (e.g., `Channel_0`). |
-| `--output` | Output YAML file. |
-| `--profiles FILE` | YAML file with named profiles for `clone-extract`. |
+| `--output` | Output `.sexp` file. |
+| `--profiles FILE` | S-expr (`.sexp`) file with named profiles for `clone-extract`. |
 | `--profile NAME` | Use a profile from the `--profiles` file instead of explicit flags. |
 | `--verbose` | Enable verbose output. |
 
@@ -385,13 +388,13 @@ python kicadstamp_cli.py clone-extract --net my_project.net --pcb my_project.kic
 ```
 
 Using a profile (`clone_profiles.sexp`):
-```yaml
-clone_profiles:
-  channel0:
-    net: my_project.net
-    pcb: my_project.kicad_pcb
-    channel: Channel_0
-    output: snapshot.sexp
+```sexp
+(clone_profiles
+  (clone_profile "channel0"
+    (net "my_project.net")
+    (pcb "my_project.kicad_pcb")
+    (channel "Channel_0")
+    (output "snapshot.sexp")))
 ```
 
 Run:
@@ -399,7 +402,7 @@ Run:
 python kicadstamp_cli.py clone-extract --profiles clone_profiles.sexp --profile channel0 --verbose
 ```
 
-The resulting YAML file contains a complete overview of the channel, which can be used to create a template and ClonePlacement entries.
+The resulting s-expr file contains a complete overview of the channel, which can be used to create a template and ClonePlacement entries.
 
 ---
 
@@ -484,7 +487,7 @@ python kicadstamp_cli.py channel-copy --src Channel_0 --dst Channel_1 --dst Chan
 ## `flatten` – merge an `include:` project into one self-contained file
 
 Consolidates a multi-file project (a root config that pulls subsystem files in
-via `include:`) into a single YAML file. It resolves the whole `include:`
+via `include:`) into a single s-expr (`.sexp`) file. It resolves the whole `include:`
 graph exactly the way `apply`/`load_config` does, then writes the fully merged
 content back out — every list section (`chains:`/`clone_placements:`/
 `thermal_via_arrays:`/`coordinate_placements:`/`net_traces:`) concatenated and
@@ -541,7 +544,7 @@ python kicadstamp_cli.py flatten --root profiles/3ch-awg-tia.sexp
 
 ### `transform_template.py` – template transformation utility (optional)
 
-A separate script for post‑processing existing templates (YAML or JSON). It allows rotating, mirroring, and shifting the origin without re‑extracting from the board.
+A separate script for post‑processing existing templates (s-expr, `.sexp`). It allows rotating, mirroring, and shifting the origin without re‑extracting from the board.
 
 #### Syntax
 
@@ -553,7 +556,7 @@ python tools/transform_template.py -i <input_file> -o <output_file> [options]
 
 | Flag | Description |
 |------|-------------|
-| `-i, --input` | Input YAML/JSON template file. |
+| `-i, --input` | Input `.sexp` template file. |
 | `-o, --output` | Output file (format determined by extension). |
 | `--rotate DEG` | Rotate counter‑clockwise by angle (degrees). |
 | `--mirror-x` | Mirror along X axis (flips `across` sign). |
@@ -566,26 +569,26 @@ python tools/transform_template.py -i <input_file> -o <output_file> [options]
 
 **Order of application:** first origin shift (if specified), then rotation and mirroring. This ensures that the target element ends up at (0,0) after all transformations.
 
-**Known limitation:** the script transforms only `vias` and `components`. The `tracks` section (if present – e.g., in `cap_pair_standard` / `cap_pair_standard_clone` in `profiles/templates/3ch-awg-tia.yaml`) **is not read or propagated** to the output – when transforming a template with tracks, they are silently lost in the output file. For templates containing tracks, do not use this script, or manually add the `tracks` section to the output file.
+**Known limitation:** the script transforms only `vias` and `components`. The `tracks` section (if present – e.g., in `cap_pair_standard` / `cap_pair_standard_clone` in `profiles/templates/3ch-awg-tia.sexp`) **is not read or propagated** to the output – when transforming a template with tracks, they are silently lost in the output file. For templates containing tracks, do not use this script, or manually add the `tracks` section to the output file.
 
 #### Examples
 
 #### Rotate 180° and shift origin to the via with net "GND"
 
 ```bash
-python tools/transform_template.py -i template.yaml -o template_rotated.yaml --rotate 180 --set-origin-by-via-net "GND"
+python tools/transform_template.py -i template.sexp -o template_rotated.sexp --rotate 180 --set-origin-by-via-net "GND"
 ```
 
 #### Mirror along X and shift origin to the component with role "FB"
 
 ```bash
-python tools/transform_template.py -i template.yaml -o template_mirrored.yaml --mirror-x --set-origin-by-component-role FB
+python tools/transform_template.py -i template.sexp -o template_mirrored.sexp --mirror-x --set-origin-by-component-role FB
 ```
 
 #### Explicit origin shift
 
 ```bash
-python tools/transform_template.py -i template.yaml -o template_shifted.yaml --origin-x 1.5 --origin-y -2.0
+python tools/transform_template.py -i template.sexp -o template_shifted.sexp --origin-x 1.5 --origin-y -2.0
 ```
 
 ### `generate_10cl006.py` – config generator for 10CL006YE144C8G
@@ -604,8 +607,8 @@ No arguments – output paths are hard‑coded inside the script (see `main()`);
 
 | File | Purpose |
 |------|---------|
-| `profiles/generated/10CL006YE144C8G.yaml` | Rules‑based config (`ManualSpoke`/`Chain`) – self‑contained and apply‑ready, uses the old inline (approximate) `templates:`. |
-| `profiles/generated/10CL006YE144C8G.clone_placements.yaml` | Equivalent geometry as `clone_placements:` (`ClonePlacement`). **Since 2026-07-26, `Chain`/`ManualSpoke` can also clone tracks** (see `spoke_layout.py`/`TemplateTrack`) – keeping this path around is now worthwhile for anchor resolution via `anchor_pad`/`anchor_cluster` and `{power_net}` placeholders through `params`, which `Chain` does not resolve, not for tracks. Requires template `cap_pair_standard_clone` from `profiles/templates/3ch-awg-tia.yaml` (via `cells_file`). Not automatically included – copy the block manually into `profiles/3ch-awg-tia.sexp` after verifying with `--dry-run`. |
+| `profiles/generated/10CL006YE144C8G.sexp` | Rules‑based config (`ManualSpoke`/`Chain`) – self‑contained and apply‑ready, uses the old inline (approximate) `templates:`. |
+| `profiles/generated/10CL006YE144C8G.clone_placements.sexp` | Equivalent geometry as `clone_placements:` (`ClonePlacement`). **Since 2026-07-26, `Chain`/`ManualSpoke` can also clone tracks** (see `spoke_layout.py`/`TemplateTrack`) – keeping this path around is now worthwhile for anchor resolution via `anchor_pad`/`anchor_cluster` and `{power_net}` placeholders through `params`, which `Chain` does not resolve, not for tracks. Requires template `cap_pair_standard_clone` from `profiles/templates/3ch-awg-tia.sexp` (an external cells file, listed under the root config's `include:`). Not automatically included – copy the block manually into `profiles/3ch-awg-tia-v103/config.sexp` after verifying with `--dry-run`. |
 | `profiles/generated/10CL006YE144C8G.cluster_table.md` | Table `net \| pad \| cluster` (`FPGA_PWR_BANK/<pad>`) – a cheat sheet for manually setting the `Cluster` field in Eeschema (Bulk Edit) for those pads for which proximity‑based resolution is not sufficient. |
 
 `anchor_cluster` in `clone_placements` is always set — since 2026-08-14 it narrows ONLY the anchor, while the narrowing of roles INSIDE the cell reads the placement's OWN Cluster (`name:`, see `docs/config.md`); in the working profiles `name:` equals `anchor_cluster`, so the two stay in sync. Even before `Cluster` is assigned in the schematic the resolver simply skips the corresponding narrowing step and falls back to the next one, so the generated file can be run with `apply --dry-run --verbose` before marking `Cluster` in Eeschema; the log will show which pads need explicit tagging.
@@ -614,15 +617,15 @@ No arguments – output paths are hard‑coded inside the script (see `main()`);
 
 ```bash
 python tools/generate_10cl006.py
-# Generated: profiles/generated/10CL006YE144C8G.yaml
-# Generated: profiles/generated/10CL006YE144C8G.clone_placements.yaml
+# Generated: profiles/generated/10CL006YE144C8G.sexp
+# Generated: profiles/generated/10CL006YE144C8G.clone_placements.sexp
 # Generated: profiles/generated/10CL006YE144C8G.cluster_table.md
 # Total spokes: 24
 ```
 
 ### `generate_config.py` – template stub (NOT a ready‑to‑run script)
 
-Unlike `generate_10cl006.py`, this is a **template stub** for writing a similar generator for a new chip, not a working tool. The `TEMPLATE` in it is filled with ellipsis `[...]` instead of real geometry – running it "as is" fails with a YAML serialisation error:
+Unlike `generate_10cl006.py`, this is a **template stub** for writing a similar generator for a new chip, not a working tool. The `TEMPLATE` in it is filled with ellipsis `[...]` instead of real geometry – running it "as is" fails with an s-expr serialisation error:
 
 ```bash
 python tools/generate_config.py
@@ -771,14 +774,14 @@ python -m kicadstamp.diagnostics.get_pad_bbox --ref IC1 --pad 17
 ### Analyze keepout and via positions
 
 ```bash
-python -m kicadstamp.diagnostics.diagnostic_keepout 10CL006YE144C8G.yaml
+python -m kicadstamp.diagnostics.diagnostic_keepout 10CL006YE144C8G.sexp
 ```
 
 ---
 
 ## Usage recommendations
 
-1. **Before the first run** – use `extract` on a correctly placed instance to obtain a template. Use JSON format if you prefer it over YAML for the external file.
+1. **Before the first run** – use `extract` on a correctly placed instance to obtain a template. Use JSON format if you prefer it over s-expr for the external file.
 2. **Check your configuration** with `--dry-run` to verify positions, vias, and tracks.
 3. **For debugging** – enable `--verbose` and log to a file.
 4. **When handling multiple clones in selection mode** – use `--only <name>` to process them one at a time.

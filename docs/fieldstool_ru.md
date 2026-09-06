@@ -29,7 +29,7 @@
   диапазонов в тексте `.kicad_sch`), `schematic_discovery.py` (`walk_schematic_hierarchy()`),
   `schematic_safety.py` (проверка не-ASCII, `list_kicad_pids()`), `schematic_editing.py`
   (`apply_edits()`, пайплайн записи `.bak`/самопроверка), `schematic_config.py` (общий
-  `load_fields_config()` — формат YAML-конфига, который читают и `set`, и `rename`),
+  `load_fields_config()` — формат `.sexp`-конфига, который читают и `set`, и `rename`),
   `schematic_set_fields.py`/`schematic_rename_fields.py` (логика планирования `set`/`rename`).
   `FieldsToolError` переехал
   прямо в `kicadstamp/exceptions.py` (обычный подкласс `Exception`, НЕ подкласс `PlacerError` —
@@ -72,8 +72,8 @@
 ## `fieldstool_cli.py`
 
 ```bash
-python fieldstool_cli.py set roles.yaml [--write] [--allow-non-ascii] [--force-with-kicad-running] [--verbose]
-python fieldstool_cli.py rename renames.yaml [--write] [--allow-non-ascii] [--force-with-kicad-running] [--verbose]
+python fieldstool_cli.py set roles.sexp [--write] [--allow-non-ascii] [--force-with-kicad-running] [--verbose]
+python fieldstool_cli.py rename renames.sexp [--write] [--allow-non-ascii] [--force-with-kicad-running] [--verbose]
 ```
 
 Оба подкоманды по умолчанию dry-run (печатают, что изменится, ничего не трогают); `--write`
@@ -81,15 +81,12 @@ python fieldstool_cli.py rename renames.yaml [--write] [--allow-non-ascii] [--fo
 
 ### `set` — refdes → `{field: value}`
 
-```yaml
-root_sheet: ../test_boards/3CH-AWG-TIA/3CH-AWG-TIA.kicad_sch   # КОРНЕВОЙ лист проекта, не папка
-fields:
-  C51:
-    Role: C_OUT_BULK
-    Cluster: FPGA_PWR_BANK/17
-  C52:
-    Role: C_OUT_BULK
-    Cluster: FPGA_PWR_BANK/26
+```sexp
+(kicadstamp-config
+  (root_sheet "../test_boards/3CH-AWG-TIA/3CH-AWG-TIA.kicad_sch")   ; КОРНЕВОЙ лист проекта, не папка
+  (fields
+    ("C51" ("Role" "C_OUT_BULK") ("Cluster" "FPGA_PWR_BANK/17"))
+    ("C52" ("Role" "C_OUT_BULK") ("Cluster" "FPGA_PWR_BANK/26"))))
 ```
 
 `root_sheet:` обходится рекурсивно (ссылки `(sheet (property "Sheetfile" "...") ...)`, безопасно
@@ -106,13 +103,12 @@ fields:
 
 ### `rename` — `field → {old_value: new_value}`, без refdes
 
-```yaml
-root_sheet: ../test_boards/3CH-AWG-TIA/3CH-AWG-TIA.kicad_sch
-renames:
-  Role:
-    OLD_ROLE_A: NEW_ROLE_A
-  Cluster:
-    Old_Cluster_Name: New_Cluster_Name
+```sexp
+(kicadstamp-config
+  (root_sheet "../test_boards/3CH-AWG-TIA/3CH-AWG-TIA.kicad_sch")
+  (renames
+    ("Role" ("OLD_ROLE_A" "NEW_ROLE_A"))
+    ("Cluster" ("Old_Cluster_Name" "New_Cluster_Name"))))
 ```
 
 Меняет значение везде, где оно СЕЙЧАС встречается, по всей иерархии схемы — перечислять затронутые
@@ -121,14 +117,14 @@ refdes не нужно. Проще `set` в одном отношении: ко�
 совпавший нигде, репортится как **предупреждение**, не фатал — это с равной вероятностью безобидный
 повторный запуск (переименование идемпотентно), как и опечатка.
 
-`rename --also-profile <root.yaml>` дополнительно применяет ТУ ЖЕ карту `renames:` к YAML-файлам
+`rename --also-profile <root.sexp>` дополнительно применяет ТУ ЖЕ карту `renames:` к `.sexp`-файлам
 профиля, достижимым через его `include:`-граф — ответ на вопрос «переименовать Role/Cluster на схеме
-и подхватить это в уже расставленное дерево `profiles/*.yaml` без второго, дублирующего файла
+и подхватить это в уже расставленное дерево `profiles/*.sexp` без второго, дублирующего файла
 переименований». Правятся только семантически верные поля: `Role` → `role:`/`anchor_role:`/
 `net_from_role:`/`net_template_same_as_role:` и КЛЮЧИ словарей `refs:`/`nets:`; `Cluster` →
 `cluster:`/`anchor_cluster:` и `name:` у `clone_placements:` (этот `name` и есть Cluster-тег, который
 пишется на компоненты платы). Правка — точечная подстановка текста (комментарии/форматирование
-сохраняются, `.bak` + самопроверка `yaml.safe_load`), никогда не parse→dump. Переименование — только
+сохраняются, `.bak` + самопроверка парсером s-expr), никогда не parse→dump. Переименование — только
 по точному совпадению значения, как и на стороне схемы: иерархический кластер-литерал вида
 `Channel_1/sub` НЕ перепишется при переименовании `Channel_1` — посегментное/префиксное
 переименование намеренно вне скоупа (см. `kicadstamp/config_rename.py`).

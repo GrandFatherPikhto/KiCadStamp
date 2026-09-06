@@ -36,7 +36,7 @@ override-ы. Неявный режим (без `nets`/`params`/`by_selection`) �
 резолвится относительно платы, и если этот якорь — ref, который в этом же прогоне размещает ДРУГОЙ
 элемент, то сначала планируется, перемещается и фиксируется он, и только потом зависимый элемент
 планируется уже против реальной, обновлённой платы. Элементы без такой зависимости (якорь — что-то, что
-в этом прогоне никто не двигает, либо абсолютная координата) идут первыми, в порядке YAML. Найдено на
+в этом прогоне никто не двигает, либо абсолютная координата) идут первыми, в порядке конфиг-файла. Найдено на
 реальном баге (2026‑07‑27): клон, заанкоренный на роль внутри шаблона ДРУГОГО клона, вставал на её СТАРОЕ
 место, а не туда, куда его в этом же прогоне должны были переставить. Если два и более элемента заанкорены
 друг на друга — валидного порядка не существует, и это fatal `ValidationError` ещё до того, как что-либо
@@ -69,12 +69,13 @@ python kicadstamp_cli.py apply <путь_к_конфигу.sexp> [опции]
 `thermal_via_arrays:` — это **термо-via**; `clone_placements:` (`ClonePlacement`) — это **клоны**. Все три —
 независимые секции одного конфига, одинаково фильтруемые через `--only`/`--cluster`/`enabled`.
 
-**`log_file:` в самом конфиге** – необязательное поле в корне YAML (как
+**`log_file:` в самом конфиге** – необязательное поле в корне конфига (как
 `registry_path`), путь резолвится относительно самого файла конфига. Если задано – не нужно каждый раз
 передавать `--log-file` руками для одного и того же профиля платы. CLI-флаг `--log-file`, если указан,
 имеет приоритет над этим полем:
-```yaml
-log_file: ../logs/placer.log
+```sexp
+; на верхнем уровне (kicadstamp-config ...)
+(log_file "../logs/placer.log")
 ```
 
 **`include:` — разбиение профиля на файлы подсистем.** Общего назначения: мёржит `chains:`/
@@ -85,11 +86,11 @@ log_file: ../logs/placer.log
 clone_placement для неё вместе, или внешний файл `Cell` (оберни его содержимое в ключ `cells:` — старый
 отдельный механизм `cells_file:`/`cell_files:` был слит в `include:` 2026-08-02, один способ разнести
 ЛЮБУЮ секцию по файлам вместо двух):
-```yaml
-include:
-  - subsystems/ldo.sexp
-  - path: subsystems/dac_channels.sexp
-    enabled: false   # весь файл пропущен — даже не открывается — пока работаете над другим
+```sexp
+(include
+  "subsystems/ldo.sexp"
+  (path "subsystems/dac_channels.sexp")
+  (enabled false))   ; весь файл пропущен — даже не открывается — пока работаете над другим
 ```
 Каждая запись — либо строка-путь, либо `{path, enabled}` (`enabled` по умолчанию `true`). Дубликат ключа
 `cells`/`extract_profiles`/`clone_profiles`, заданного в двух разных файлах, — фатал: тут файлы задуманы
@@ -98,7 +99,7 @@ include:
 нет. Пути резолвятся относительно файла, который на них ссылается, а не относительно корневого конфига
 или текущей директории.
 
-**Про текущий боевой конфиг:** мастер-конфиг платы `3CH-AWG-TIA` — `profiles/3ch-awg-tia.sexp` (слиты `chains:`, `clone_placements:`, `thermal_via_arrays:`, ссылка на `profiles/templates/3ch-awg-tia.yaml` через `cells_file`). Файл `profiles/generated/10CL006YE144C8G.yaml`, который пишет `tools/generate_10cl006.py`, — самодостаточный архивный вариант (можно прогнать отдельно, но в `apply` для этой платы больше не используется).
+**Про текущий боевой конфиг:** мастер-конфиг платы `3CH-AWG-TIA` — `profiles/3ch-awg-tia-v103/config.sexp` (слиты `chains:`, `clone_placements:`, `thermal_via_arrays:`, плюс подключённый через `include:` файл `cells:` с шаблонами). Файл `profiles/generated/10CL006YE144C8G.sexp`, который пишет `tools/generate_10cl006.py`, — самодостаточный архивный вариант (можно прогнать отдельно, но в `apply` для этой платы больше не используется).
 
 **`name:` обязателен у каждой записи `thermal_via_arrays:` и у каждого
 `clone_placements:`, но у `chains:` — НЕОБЯЗАТЕЛЕН** (цепейо падает на `net` как фоллбэк — это ненадолго
@@ -110,32 +111,37 @@ include:
 всему списку). Для `chains:` вместо этого — фатал, если **два цепи резолвятся в одну и ту же
 идентичность** (совпал `net`, не задан различающий `name:`) — добавьте `name:`, чтобы различить, не
 полагайтесь на то, что одно из двух будет тихо выбрано:
-```yaml
-chains:
-- net: +3V3_VCCIO
-  # name: необязателен – по умолчанию net "+3V3_VCCIO"; добавляйте, только
-  # если хочется более понятную метку для --only, или у двух цепей один net
-  anchor_role: FPGA
-  enabled: true          # необязательно, по умолчанию true — см. ниже
-  spokes: [...]
+```sexp
+(chains
+  (chain
+    (net "+3V3_VCCIO")
+    ; (name ...) — необязателен: по умолчанию net "+3V3_VCCIO"; добавляйте,
+    ;   только если хочется более понятную метку для --only, или у двух
+    ;   цепей один net
+    (anchor_role "FPGA")
+    (spokes ...)))
 
-thermal_via_arrays:
-- name: fpga_thermal   # обязательно, и уникально по всему списку
-  enabled: true
-  ...
+(thermal_via_arrays
+  (thermal_via_array
+    (name "fpga_thermal")   ; обязательно, и уникально по всему списку
+    ...))
 
-clone_placements:
-- name: p5v_pi_filter   # обязательно
-  template: 5v_pi_filter
-  ...
+(clone_placements
+  (clone_placement
+    (name "p5v_pi_filter")  ; обязательно
+    (cell "5v_pi_filter")
+    ...))
 ```
 
-**`enabled: bool` (по умолчанию `true`) у каждой записи `chains:`/`clone_placements:`/`thermal_via_arrays:`** —
-выключатель всей записи целиком. `enabled: false` побеждает всегда, применяется **до** того, как вообще
-смотрят на `--only`/`--cluster` — это означает «сейчас не существует на плате», а не «исключено из этого
-конкретного прогона», поэтому явное упоминание имени в командной строке это не отменяет. Используйте это,
-чтобы надолго припарковать кусок конфига, не удаляя его; `--only`/`--cluster` — для разового сужения прогона
-среди того, что в остальном включено.
+**`retired:`/`skip:` (оба по умолчанию `false`) у каждой записи `chains:`/`clone_placements:`/
+`thermal_via_arrays:`** — выключатели всей записи целиком (старый одиночный `enabled:` переименован и
+инвертирован в `retired:` — `enabled: true` ≠ `retired: true`, не делайте буквальный find-and-replace в
+старом конфиге — см. `docs/config.md`). `retired: true` побеждает всегда, применяется **до** того, как
+вообще смотрят на `--only`/`--cluster` — это означает «сейчас не существует на плате» (реестр
+вычищается), а не «исключено из этого конкретного прогона», поэтому явное упоминание имени в командной
+строке это не отменяет. `skip: true` пропускает только этот прогон, сохраняя защиту реестра. Используйте
+`retired`, чтобы надолго припарковать кусок конфига, не удаляя его; `--only`/`--cluster` — для разового
+сужения прогона среди того, что в остальном активно.
 
 ### Примеры
 
@@ -148,13 +154,13 @@ python kicadstamp_cli.py apply profiles/3ch-awg-tia.sexp
 #### Запуск с подробным логированием в файл
 
 ```bash
-python kicadstamp_cli.py apply 10CL006YE144C8G.yaml --verbose --log-file logs/placer.log
+python kicadstamp_cli.py apply 10CL006YE144C8G.sexp --verbose --log-file logs/placer.log
 ```
 
 #### Предварительный просмотр (dry-run) – ничего не меняет
 
 ```bash
-python kicadstamp_cli.py apply 10CL006YE144C8G.yaml --dry-run
+python kicadstamp_cli.py apply 10CL006YE144C8G.sexp --dry-run
 ```
 
 #### Обработка только одного клона (например, для отладки)
@@ -186,13 +192,13 @@ python kicadstamp_cli.py apply profiles/3ch-awg-tia.sexp --only p5v_pi_filter --
 #### Отключение проверки коллизий
 
 ```bash
-python kicadstamp_cli.py apply 10CL006YE144C8G.yaml --no-collision-check
+python kicadstamp_cli.py apply 10CL006YE144C8G.sexp --no-collision-check
 ```
 
 #### Увеличение таймаута для медленного KiCad
 
 ```bash
-python kicadstamp_cli.py apply 10CL006YE144C8G.yaml --timeout-ms 30000
+python kicadstamp_cli.py apply 10CL006YE144C8G.sexp --timeout-ms 30000
 ```
 
 ---
@@ -230,7 +236,7 @@ python kicadstamp_cli.py extract --name <имя_шаблона> --output <фай
 | Флаг | Описание |
 |------|----------|
 | `--name` | Имя шаблона (ключ в секции `templates`). В режиме явных флагов (не `--profile`) необязателен: если не задан, спрашивается интерактивно. |
-| `--output` | Путь к выходному файлу. Расширение определяет формат: `.json` → JSON (плоский словарь), иначе YAML. |
+| `--output` | Путь к выходному файлу. Расширение определяет формат: `.json` → JSON (плоский словарь), `.sexp` → s-expr (суффикс `.yaml`/`.yml` — фатальная ошибка: YAML убран 2026-08-28). |
 | `--timeout-ms` | Таймаут IPC (по умолчанию 20000 мс). |
 | `--verbose` | Подробный вывод. |
 | `--log-file` | Сохранять логи в файл. |
@@ -244,12 +250,12 @@ python kicadstamp_cli.py extract --name <имя_шаблона> --output <фай
 | `--origin-by-component-cluster CLUSTER` | Уточняет `--origin-by-component-role`: сужает кандидатов с этой ролью до данного Cluster (совпадение по префиксу сегмента — то же сопоставление, что использует резолвер ролевого якоря). Фатально, если после сужения осталось несколько кандидатов. |
 | `--origin-by-component-sheet SHEET` | Уточняет `--origin-by-component-role`: сужает кандидатов с этой ролью до данного листа схемы (без имён листов — no-op: отдельная команда не имеет конфига; предпочтительнее `--origin-by-component-cluster`). |
 | `--raw-selection` | Взять текущее выделение как треки/via **как есть**, без pad-connectivity фильтра — каждый выделенный трек/via попадёт в ячейку без проверки «связи с падом оставленного футпринта». По умолчанию выключено (фильтр остаётся дефолтным поведением); включайте, когда точно знаете, что вся выделенная медь ваша (например, массив via без якорного компонента в выделении). |
-| `--profiles FILE` | YAML-файл с именованными профилями для `extract`. |
+| `--profiles FILE` | S-expr-файл (`.sexp`) с именованными профилями для `extract`. |
 | `--profile NAME` | Использовать профиль из файла `--profiles` вместо явных флагов (нельзя сочетать с `--name`, `--output`, `--param`, `--net-template`, `--raw-selection`, `--origin-by-*` — либо всё из профиля, либо всё явными флагами). |
 
-**Важно:** перед запуском выделите в PCB-редакторе нужные компоненты, via и треки. Роли должны быть уникальны. Вывод (YAML или JSON) записывается обёрнутым в ключ `cells:`, готовый к тому, чтобы просто перечислить его в `include:` основного конфига.
+**Важно:** перед запуском выделите в PCB-редакторе нужные компоненты, via и треки. Роли должны быть уникальны. Вывод (s-expr или JSON) записывается обёрнутым в ключ `cells:`, готовый к тому, чтобы просто перечислить его в `include:` основного конфига.
 
-**Автоматическое определение сетей (Фаза 1, 2026-08-28):** via/track, чья цепь однозначно сопоставляется одной выбранной роли, пишется как `net_from_role` (с `net_from_role_pad` для многодетных ролей) — сеть разрешается live в момент применения, так что `--param`/`--net-template` для обычного случая не нужны. Для via/track-цепи с другого инстанса канала авто-обнаруживается одноконный `{param}`-паттерн по инстансам той же роли (с ограничителем: только когда различается РОВНО один сегмент пути и паттерн проходит round-trip; иначе — литерал, без угадывания). Bridging-роли (две разные цепи на падах — дроссель/феррит/предохранитель между шинами) авто-выводят главную `net_template` + `net_template_pad` без `--net-template-role`. Когда один из ручных флагов теперь избыточен, extract пишет warning, чтобы вы могли его убрать — флаги полностью остаются как явные override-ы (обратная совместимость). Старый fallback сохраняется для редкого случая, когда цепи bridging-роли нет ни в одной карте: `net_template` остаётся пустым, пишется warning и (только для YAML) закомментированная строка-заглушка `# net_template: could not determine automatically — ...` сразу после блока компонента.
+**Автоматическое определение сетей (Фаза 1, 2026-08-28):** via/track, чья цепь однозначно сопоставляется одной выбранной роли, пишется как `net_from_role` (с `net_from_role_pad` для многодетных ролей) — сеть разрешается live в момент применения, так что `--param`/`--net-template` для обычного случая не нужны. Для via/track-цепи с другого инстанса канала авто-обнаруживается одноконный `{param}`-паттерн по инстансам той же роли (с ограничителем: только когда различается РОВНО один сегмент пути и паттерн проходит round-trip; иначе — литерал, без угадывания). Bridging-роли (две разные цепи на падах — дроссель/феррит/предохранитель между шинами) авто-выводят главную `net_template` + `net_template_pad` без `--net-template-role`. Когда один из ручных флагов теперь избыточен, extract пишет warning, чтобы вы могли его убрать — флаги полностью остаются как явные override-ы (обратная совместимость). Старый fallback сохраняется для редкого случая, когда цепи bridging-роли нет ни в одной карте: `net_template` остаётся пустым и пишется warning. Закомментированная строка-заглушка `# net_template: ...` из YAML-писателя исчезла вместе с форматом — у s-expr-вывода нет аннотаций неопределённости (вставка `render_uncertain_comments` убрана из пути записи вместе с удалением YAML, 2026-08-28).
 
 **Внутри профиля** (`extract_profiles:` в файле `--profiles`): `output:` можно задать один раз на корне файла — общее значение для всех профилей, конкретный профиль переопределяет только если ему нужен другой файл. `name:` необязателен — по умолчанию берётся ключ самого профиля, писать явно нужно только когда имя шаблона должно отличаться от имени профиля. Параметры для верификации `--net-template` — ключ `params:` (не `param:` — тот же ключ, что и у `clone_placements`, специально сделано одинаковым, чтобы не путать).
 
@@ -268,24 +274,22 @@ python kicadstamp_cli.py extract --name pi_filter_4 --output templates/pi_filter
 #### Извлечение шаблона с использованием профиля
 
 В файле `extract_profiles.sexp`:
-```yaml
-# output: общий для всех профилей ниже — задайте один раз здесь, если все
-# пишут в один и тот же файл; профилю, которому нужен другой файл, просто
-# пропишите output: прямо в нём — это переопределит значение отсюда.
-output: templates/my_filter.json
+```sexp
+; output: общий для всех профилей ниже — задайте один раз здесь, если все
+; пишут в один и тот же файл; профилю, которому нужен другой файл, просто
+; пропишите output: прямо в нём — это переопределит значение отсюда.
+(output "templates/my_filter.json")
 
-extract_profiles:
-  my_filter:
-    # name: не нужен — по умолчанию берётся ключ профиля ("my_filter").
-    # Пишите явно, только если имя шаблона должно отличаться от имени
-    # профиля (например, несколько профилей извлекают в один общий шаблон).
-    params:
-      PWR_IN: '+3V3'
-      PWR_OUT: '+3V3_VCCIO'
-    net_template:
-      '+3V3_VCCIO': '{PWR_OUT}'
-      '+3V3': '{PWR_IN}'
-    origin_by_via_net: '+3V3_VCCIO'
+(extract_profiles
+  (extract_profile "my_filter"
+    ; name: не нужен — по умолчанию берётся ключ профиля ("my_filter").
+    ; Пишите явно, только если имя шаблона должно отличаться от имени
+    ; профиля (например, несколько профилей извлекают в один общий шаблон).
+    (params ("PWR_IN" "+3V3")
+            ("PWR_OUT" "+3V3_VCCIO"))
+    (net_template ("+3V3_VCCIO" "{PWR_OUT}")
+                  ("+3V3" "{PWR_IN}"))
+    (origin_by_via_net "+3V3_VCCIO")))
 ```
 
 Запуск:
@@ -293,13 +297,13 @@ extract_profiles:
 python kicadstamp_cli.py extract --profiles extract_profiles.sexp --profile my_filter --verbose
 ```
 
-#### Извлечение шаблона в YAML (без параметризации)
+#### Извлечение шаблона в s-expr (без параметризации)
 
 ```bash
 python kicadstamp_cli.py extract --name my_filter --output my_filter.sexp --verbose
 ```
 
-#### Добавление шаблона в существующий конфиг (YAML)
+#### Добавление шаблона в существующий конфиг
 
 ```bash
 python kicadstamp_cli.py extract --name my_filter --output 10CL006YE144C8G.sexp --verbose
@@ -339,7 +343,7 @@ python kicadstamp_cli.py extract-net --net <СЕТЬ> --anchor-role <РОЛЬ> \
   неоднозначности предпочитайте `--anchor-cluster`.
 - `--anchor-cluster` — сузить по полю Cluster (префиксное совпадение).
 - `--anchor-pad` — якорь на центр этого пада вместо центра футпринта.
-- `--output` (обязательно) — файл YAML/JSON; добавляет/заменяет запись под
+- `--output` (обязательно) — файл `.sexp`/JSON; добавляет/заменяет запись под
   `net_traces:` (та же сеть заменяется на месте, всё остальное сохраняется).
 
 ### Пример
@@ -355,12 +359,12 @@ python kicadstamp_cli.py apply 3ch-awg-tia.sexp --only DAC_DB0
 
 ## Команда `clone-extract` – снятие снимка канала (файловый клонер)
 
-Анализирует иерархический проект (без подключения к KiCad), извлекает все компоненты, дорожки и via, принадлежащие указанному каналу, и сохраняет снимок в YAML. Полезно для изучения структуры канала перед созданием конфигурации для `ClonePlacement`.
+Анализирует иерархический проект (без подключения к KiCad), извлекает все компоненты, дорожки и via, принадлежащие указанному каналу, и сохраняет снимок в s-expr. Полезно для изучения структуры канала перед созданием конфигурации для `ClonePlacement`.
 
 ### Синтаксис
 
 ```bash
-python kicadstamp_cli.py clone-extract --net <файл.net> --pcb <файл.kicad_pcb> --channel <имя_канала> --output <файл.yaml> [--profiles FILE] [--profile NAME] [--verbose]
+python kicadstamp_cli.py clone-extract --net <файл.net> --pcb <файл.kicad_pcb> --channel <имя_канала> --output <файл.sexp> [--profiles FILE] [--profile NAME] [--verbose]
 ```
 
 ### Опции
@@ -370,8 +374,8 @@ python kicadstamp_cli.py clone-extract --net <файл.net> --pcb <файл.kica
 | `--net` | Путь к файлу `.net` (нетлист). |
 | `--pcb` | Путь к файлу `.kicad_pcb`. |
 | `--channel` | Имя канала (например, `Channel_0`). |
-| `--output` | Выходной YAML-файл. |
-| `--profiles FILE` | YAML-файл с именованными профилями для `clone-extract`. |
+| `--output` | Выходной `.sexp`-файл. |
+| `--profiles FILE` | S-expr-файл (`.sexp`) с именованными профилями для `clone-extract`. |
 | `--profile NAME` | Использовать профиль из файла `--profiles` вместо явных флагов. |
 | `--verbose` | Подробный вывод. |
 
@@ -382,13 +386,13 @@ python kicadstamp_cli.py clone-extract --net my_project.net --pcb my_project.kic
 ```
 
 С использованием профиля (`clone_profiles.sexp`):
-```yaml
-clone_profiles:
-  channel0:
-    net: my_project.net
-    pcb: my_project.kicad_pcb
-    channel: Channel_0
-    output: snapshot.sexp
+```sexp
+(clone_profiles
+  (clone_profile "channel0"
+    (net "my_project.net")
+    (pcb "my_project.kicad_pcb")
+    (channel "Channel_0")
+    (output "snapshot.sexp")))
 ```
 
 Запуск:
@@ -396,7 +400,7 @@ clone_profiles:
 python kicadstamp_cli.py clone-extract --profiles clone_profiles.sexp --profile channel0 --verbose
 ```
 
-После выполнения вы получите YAML-файл с информацией о канале, который можно использовать для написания шаблона и `ClonePlacement`.
+После выполнения вы получите s-expr-файл с информацией о канале, который можно использовать для написания шаблона и `ClonePlacement`.
 
 ---
 
@@ -482,7 +486,7 @@ python kicadstamp_cli.py channel-copy --src Channel_0 --dst Channel_1 --dst Chan
 ## Команда `flatten` – слияние проекта с `include:` в один самодостаточный файл
 
 Собирает многофайловый проект (корневой конфиг, подключающий файлы подсистем
-через `include:`) в один YAML-файл. Разрешает весь граф `include:` ровно так
+через `include:`) в один s-expr-файл (`.sexp`). Разрешает весь граф `include:` ровно так
 же, как это делает `apply`/`load_config`, и записывает полностью слитое
 содержимое — все list-секции (`chains:`/`clone_placements:`/
 `thermal_via_arrays:`/`coordinate_placements:`/`net_traces:`) конкатенацией,
@@ -540,7 +544,7 @@ python kicadstamp_cli.py flatten --root profiles/3ch-awg-tia.sexp
 
 ### `transform_template.py` – трансформация шаблонов (опционально)
 
-Отдельный скрипт для постобработки уже существующих шаблонов (YAML или JSON). Позволяет поворачивать, зеркалировать и переносить начало координат без повторного извлечения с платы.
+Отдельный скрипт для постобработки уже существующих шаблонов (s-expr, `.sexp`). Позволяет поворачивать, зеркалировать и переносить начало координат без повторного извлечения с платы.
 
 #### Синтаксис
 
@@ -552,7 +556,7 @@ python tools/transform_template.py -i <входной_файл> -o <выходн
 
 | Флаг | Описание |
 |------|----------|
-| `-i, --input` | Входной YAML/JSON-файл с шаблоном. |
+| `-i, --input` | Входной `.sexp`-файл с шаблоном. |
 | `-o, --output` | Выходной файл (формат определяется расширением). |
 | `--rotate DEG` | Поворот против часовой стрелки на угол (градусы). |
 | `--mirror-x` | Зеркалирование по оси X (меняет знак `across`). |
@@ -565,26 +569,26 @@ python tools/transform_template.py -i <входной_файл> -o <выходн
 
 **Порядок применения:** сначала перенос начала (если задан), затем поворот и зеркалирование. Это гарантирует, что целевой элемент остаётся в (0,0) после всех преобразований.
 
-**Известное ограничение:** скрипт трансформирует только `vias` и `components`. Секция `tracks` (если она есть в шаблоне — например, у `cap_pair_standard`/`cap_pair_standard_clone` в `profiles/templates/3ch-awg-tia.yaml`) **не читается и не переносится в результат** — при трансформации шаблона с треками они молча теряются в выходном файле. Для шаблонов с треками пока не использовать, либо дописывать `tracks` в выходной файл руками.
+**Известное ограничение:** скрипт трансформирует только `vias` и `components`. Секция `tracks` (если она есть в шаблоне — например, у `cap_pair_standard`/`cap_pair_standard_clone` в `profiles/templates/3ch-awg-tia.sexp`) **не читается и не переносится в результат** — при трансформации шаблона с треками они молча теряются в выходном файле. Для шаблонов с треками пока не использовать, либо дописывать `tracks` в выходной файл руками.
 
 #### Примеры
 
 #### Поворот на 180° и перенос начала на via с цепью
 
 ```bash
-python tools/transform_template.py -i template.yaml -o template_rotated.yaml --rotate 180 --set-origin-by-via-net "GND"
+python tools/transform_template.py -i template.sexp -o template_rotated.sexp --rotate 180 --set-origin-by-via-net "GND"
 ```
 
 #### Зеркалирование по X и перенос начала на компонент с ролью
 
 ```bash
-python tools/transform_template.py -i template.yaml -o template_mirrored.yaml --mirror-x --set-origin-by-component-role FB
+python tools/transform_template.py -i template.sexp -o template_mirrored.sexp --mirror-x --set-origin-by-component-role FB
 ```
 
 #### Явный сдвиг начала координат
 
 ```bash
-python tools/transform_template.py -i template.yaml -o template_shifted.yaml --origin-x 1.5 --origin-y -2.0
+python tools/transform_template.py -i template.sexp -o template_shifted.sexp --origin-x 1.5 --origin-y -2.0
 ```
 
 ### `generate_10cl006.py` – генератор конфигов для 10CL006YE144C8G
@@ -603,8 +607,8 @@ python tools/generate_10cl006.py
 
 | Файл | Назначение |
 |------|------------|
-| `profiles/generated/10CL006YE144C8G.yaml` | Rules-конфиг (`ManualSpoke`/`Chain`) — apply-ready сам по себе, использует старый инлайновый (приблизительный) `templates:`. |
-| `profiles/generated/10CL006YE144C8G.clone_placements.yaml` | Эквивалентная геометрия, но как `clone_placements:` (`ClonePlacement`). **С 2026-07-26 `Chain`/`ManualSpoke` тоже умеет клонировать треки** (см. `spoke_layout.py`/`TemplateTrack`) — держать этот путь параллельно теперь имеет смысл ради резолва якоря по `anchor_pad`/`anchor_cluster` и `{power_net}`-плейсхолдеров через `params`, которых у `Chain` нет, а не ради треков. Требует шаблон `cap_pair_standard_clone` из `profiles/templates/3ch-awg-tia.yaml` (через `cells_file`). Автоматически никуда не подключается — блок копируется руками в `profiles/3ch-awg-tia.sexp` после проверки `--dry-run`. |
+| `profiles/generated/10CL006YE144C8G.sexp` | Rules-конфиг (`ManualSpoke`/`Chain`) — apply-ready сам по себе, использует старый инлайновый (приблизительный) `templates:`. |
+| `profiles/generated/10CL006YE144C8G.clone_placements.sexp` | Эквивалентная геометрия, но как `clone_placements:` (`ClonePlacement`). **С 2026-07-26 `Chain`/`ManualSpoke` тоже умеет клонировать треки** (см. `spoke_layout.py`/`TemplateTrack`) — держать этот путь параллельно теперь имеет смысл ради резолва якоря по `anchor_pad`/`anchor_cluster` и `{power_net}`-плейсхолдеров через `params`, которых у `Chain` нет, а не ради треков. Требует шаблон `cap_pair_standard_clone` из `profiles/templates/3ch-awg-tia.sexp` (внешний cells-файл, перечисленный в `include:` корневого конфига). Автоматически никуда не подключается — блок копируется руками в `profiles/3ch-awg-tia-v103/config.sexp` после проверки `--dry-run`. |
 | `profiles/generated/10CL006YE144C8G.cluster_table.md` | Таблица `net \| pad \| cluster` (`FPGA_PWR_BANK/<pad>`) — шпаргалка для ручной простановки поля `Cluster` в Eeschema (Bulk Edit) на тех падах, для которых резолву не хватит сужения по физической близости к якорю. |
 
 `anchor_cluster` в `clone_placements` проставлен всегда — с 2026-08-14 он сужает ТОЛЬКО якорь, а сужение ролей ВНУТРИ ячейки читает собственный Cluster размещения (`name:`, см. `docs/config.md`); в рабочих профилях `name:` совпадает с `anchor_cluster`, так что они не расходятся. Даже до разметки `Cluster` в схеме резолвер просто пропускает соответствующую ступень сужения и падает на следующую — поэтому сгенерированный файл можно сразу гонять через `apply --dry-run --verbose`, а по логу видно, для каких падов сужения по близости не хватило — только их и тегать.
@@ -613,15 +617,15 @@ python tools/generate_10cl006.py
 
 ```bash
 python tools/generate_10cl006.py
-# Сгенерирован: profiles/generated/10CL006YE144C8G.yaml
-# Сгенерирован: profiles/generated/10CL006YE144C8G.clone_placements.yaml
+# Сгенерирован: profiles/generated/10CL006YE144C8G.sexp
+# Сгенерирован: profiles/generated/10CL006YE144C8G.clone_placements.sexp
 # Сгенерирован: profiles/generated/10CL006YE144C8G.cluster_table.md
 # Всего спиц: 24
 ```
 
 ### `generate_config.py` – заготовка-пример (НЕ готовый к запуску скрипт)
 
-В отличие от `generate_10cl006.py`, это **шаблон-заготовка** для написания подобного генератора под новую микросхему, а не рабочий инструмент. `TEMPLATE` в нём заполнен литералами `[...]` (Ellipsis) вместо реальной геометрии — при запуске «как есть» падает с ошибкой сериализации YAML:
+В отличие от `generate_10cl006.py`, это **шаблон-заготовка** для написания подобного генератора под новую микросхему, а не рабочий инструмент. `TEMPLATE` в нём заполнен литералами `[...]` (Ellipsis) вместо реальной геометрии — при запуске «как есть» падает с ошибкой s-expr-сериализации:
 
 ```bash
 python tools/generate_config.py
@@ -653,8 +657,8 @@ fieldstool_ru.md)). Есть и GUI — первый правый таб `kicads
 #### Синтаксис
 
 ```bash
-python fieldstool_cli.py set <config.yaml> [--write] [--allow-non-ascii] [--force-with-kicad-running] [--verbose]
-python fieldstool_cli.py rename <config.yaml> [--write] [--allow-non-ascii] [--force-with-kicad-running] [--verbose] [--also-profile <профиль.yaml>]
+python fieldstool_cli.py set <config.sexp> [--write] [--allow-non-ascii] [--force-with-kicad-running] [--verbose]
+python fieldstool_cli.py rename <config.sexp> [--write] [--allow-non-ascii] [--force-with-kicad-running] [--verbose] [--also-profile <профиль.sexp>]
 ```
 
 #### Формат конфига
@@ -662,27 +666,24 @@ python fieldstool_cli.py rename <config.yaml> [--write] [--allow-non-ascii] [--f
 `set` (`root_sheet:` — путь к КОРНЕВОМУ листу проекта, а не к папке: остальные `.kicad_sch`
 находятся обходом иерархии `(sheet (property "Sheetfile" ...))`, не плоским glob'ом директории):
 
-```yaml
-root_sheet: ../test_boards/3CH-AWG-TIA/3CH-AWG-TIA.kicad_sch   # относительно этого YAML
-fields:
-  C51:
-    Role: C_OUT_BULK
-    Cluster: FPGA_PWR_BANK/17
-  C52:
-    Role: C_OUT_BULK
-    Cluster: FPGA_PWR_BANK/26
+```sexp
+; относительно этого конфиг-файла
+(kicadstamp-config
+  (root_sheet "../test_boards/3CH-AWG-TIA/3CH-AWG-TIA.kicad_sch")
+  (fields
+    ("C51" ("Role" "C_OUT_BULK") ("Cluster" "FPGA_PWR_BANK/17"))
+    ("C52" ("Role" "C_OUT_BULK") ("Cluster" "FPGA_PWR_BANK/26"))))
 ```
 
 `rename` (значение меняется у ЛЮБОГО символа, где оно СЕЙЧАС совпадает — refdes перечислять не
 нужно):
 
-```yaml
-root_sheet: ../test_boards/3CH-AWG-TIA/3CH-AWG-TIA.kicad_sch
-renames:
-  Role:
-    OLD_ROLE_A: NEW_ROLE_A
-  Cluster:
-    Old_Cluster_Name: New_Cluster_Name
+```sexp
+(kicadstamp-config
+  (root_sheet "../test_boards/3CH-AWG-TIA/3CH-AWG-TIA.kicad_sch")
+  (renames
+    ("Role" ("OLD_ROLE_A" "NEW_ROLE_A"))
+    ("Cluster" ("Old_Cluster_Name" "New_Cluster_Name"))))
 ```
 
 #### Опции
@@ -692,7 +693,7 @@ renames:
 | `--write` | Реально записать. Без флага — только dry-run (печатает, что изменится). |
 | `--allow-non-ascii` | Пропустить проверку значений на не-ASCII символы (по умолчанию — фатал). |
 | `--force-with-kicad-running` | Писать, даже если обнаружен запущенный процесс KiCad. |
-| `--also-profile ROOT.yaml` | (`rename` только) применить ТО ЖЕ `renames:` ещё и к YAML-файлам профиля, достижимым через `include:`-граф корневого `ROOT.yaml` (`profiles/*.yaml`) — одно переименование подхватывается и в схеме, и в расставленном дереве конфигурации. |
+| `--also-profile ROOT.sexp` | (`rename` только) применить ТО ЖЕ `renames:` ещё и к конфиг-файлам профиля, достижимым через `include:`-граф корневого `ROOT.sexp` (`profiles/*.sexp`) — одно переименование подхватывается и в схеме, и в расставленном дереве конфигурации. |
 | `--verbose` | Подробный вывод. |
 
 #### Что важно знать перед использованием
@@ -712,13 +713,13 @@ renames:
   затрагивается — проверено `diff` на реальном файле, диф в одну строку.
 - После `--write` обязательно `Update PCB from Schematic` в pcbnew — правка в `.kicad_sch` на плату сама не
   долетает.
-- `rename --also-profile <профиль.yaml>` переносит то же переименование в YAML-файлы профиля, достижимые
-  через его `include:`-граф (не голый glob `profiles/**/*.yaml` — файлы других профилей не трогаются).
+- `rename --also-profile <профиль.sexp>` переносит то же переименование в конфиг-файлы профиля, достижимые
+  через его `include:`-граф (не голый glob `profiles/**/*.sexp` — файлы других профилей не трогаются).
   Правятся только семантически верные поля: для `Role` — `role:`/`anchor_role:`/`net_from_role:`/
   `net_template_same_as_role:` и ключи словарей `refs:`/`nets:` (это `{роль: ...}`); для `Cluster` —
   `cluster:`/`anchor_cluster:` и `name:` у `clone_placements:` (это и есть Cluster-тег, который пишется на
   компоненты платы). Правка — точечная, комментарии и форматирование сохраняются (`.bak` + самопроверка
-  `yaml.safe_load`, как у схемной части). Про иерархические кластеры: переименование — только по ТОЧНОМУ
+  парсером s-expr, как у схемной части). Про иерархические кластеры: переименование — только по ТОЧНОМУ
   совпадению значения, как и на стороне схемы; `"Channel_1" -> "Channel_1_v2"` НЕ перепишет дочернее
   `"Channel_1/sub"` — посегментное (префиксное) переименование намеренно не реализовано (в текущих профилях
   кластеры-литералы с `/` не встречаются, `cluster_prefix_match` — это про разрешение на apply, не про
@@ -727,9 +728,9 @@ renames:
 #### Пример
 
 ```bash
-python fieldstool_cli.py set roles.yaml --verbose         # сначала dry-run
-python fieldstool_cli.py set roles.yaml --write            # затем реально записать
-python fieldstool_cli.py rename renames.yaml --write
+python fieldstool_cli.py set roles.sexp --verbose         # сначала dry-run
+python fieldstool_cli.py set roles.sexp --write            # затем реально записать
+python fieldstool_cli.py rename renames.sexp --write
 ```
 
 ### `update_i18n.py` – пересборка каталогов переводов (gettext)
@@ -873,14 +874,14 @@ python -m kicadstamp.diagnostics.get_pad_bbox --ref IC1 --pad 17
 ### Анализ keepout и позиций via
 
 ```bash
-python -m kicadstamp.diagnostics.diagnostic_keepout 10CL006YE144C8G.yaml
+python -m kicadstamp.diagnostics.diagnostic_keepout 10CL006YE144C8G.sexp
 ```
 
 ---
 
 ## Рекомендации по использованию
 
-1. **Перед первым запуском** выполните `extract` на существующем цепейьном экземпляре, чтобы получить шаблон. Используйте JSON-формат, если предпочитаете его YAML для внешнего файла.
+1. **Перед первым запуском** выполните `extract` на существующем цепейьном экземпляре, чтобы получить шаблон. Используйте JSON-формат, если предпочитаете его s-expr для внешнего файла.
 2. **Проверяйте конфигурацию** через `dry-run`, чтобы убедиться, что позиции, via и треки расставляются так, как вы ожидаете.
 3. **Для отладки** используйте `--verbose` и сохраняйте лог в файл.
 4. **При обработке нескольких клонов** в режиме «по выделению» используйте `--only <имя>`, чтобы обрабатывать их по одному.
