@@ -1593,6 +1593,15 @@ msgstr "Load a cell with components first."
 msgid "Nothing changed — the selection already matches this cell's geometry."
 msgstr "Nothing changed — the selection already matches this cell's geometry."
 
+#: gui/docks/cell_editor.py
+#, python-brace-format
+msgid ""
+"Updated cell {name!r} from selection — {updated} record(s) updated, {added} "
+"via/track record(s) added. Save to write the change."
+msgstr ""
+"Updated cell {name!r} from selection — {updated} record(s) updated, {added} "
+"via/track record(s) added. Save to write the change."
+
 #: gui/docks/cell_editor.py:294
 msgid "New vias/tracks to add"
 msgstr "New vias/tracks to add"

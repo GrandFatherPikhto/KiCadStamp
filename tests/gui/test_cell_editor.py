@@ -848,10 +848,11 @@ def test_refresh_geometry_button_enabled_only_with_board_and_components(main_win
 
 def test_refresh_geometry_apply_updates_geometry_keeps_other_fields(main_window, tmp_path,
                                                                    monkeypatch):
-    """Successful plan -> Apply mutates ONLY the geometric keys on the SAME
-    dicts already in _components/_vias, and every other field survives intact
-    (net_template_same_as_role/net_template stay). Preview dialog is stubbed
-    to Accept so the real finish->apply path runs."""
+    """Successful plan -> applied DIRECTLY, no preview dialog (2026-09-06):
+    mutates ONLY the geometric keys on the SAME dicts already in
+    _components/_vias, every other field survives intact
+    (net_template_same_as_role/net_template stay), and the success report goes
+    to _show_message."""
     dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
     dock.load_entry("t")
     orig_cap = next(c for c in dock._components if c["role"] == "CAP")
@@ -864,13 +865,9 @@ def test_refresh_geometry_apply_updates_geometry_keeps_other_fields(main_window,
          _refresh_dto_via("GND", 11.0, 13.0)],
         roles={"R-ORIG": "ORIG", "R-CAP": "CAP"})
 
-    accepted = {"value": False}
-    class _AcceptDialog:
-        def __init__(self, sections, parent=None):
-            self.sections = sections
-        def exec(self):
-            return 1  # QDialog.Accepted
-    monkeypatch.setattr(cell_editor_mod, "_RefreshPreviewDialog", _AcceptDialog)
+    messages = []
+    monkeypatch.setattr(dock, "_show_message",
+                        lambda text, style="": messages.append(text))
 
     result = dock._run_refresh_geometry(
         {"board": board, "components": list(dock._components),
@@ -890,6 +887,37 @@ def test_refresh_geometry_apply_updates_geometry_keeps_other_fields(main_window,
     assert orig_cap["net_template"] == "VCC"
     assert orig_cap["net_template_same_as_role"] == "ORIG"
     assert dock._vias[0]["net"] == "GND"
+
+    # The success report reached the status path — no dialog in between (the
+    # autostage "Overwrote..." line precedes it in the log).
+    assert "Updated cell 't' from selection" in messages[-1]
+    assert "record(s) updated" in messages[-1]
+    assert "Save to write the change." in messages[-1]
+
+
+def test_refresh_nothing_changed_shows_message_applies_nothing(main_window,
+                                                               tmp_path,
+                                                               monkeypatch):
+    """A plan with no edits and no new records (the selection already matches
+    the cell) is reported as 'Nothing changed' and touches none of the dock's
+    lists — the non-dialog branch of _finish_refresh_geometry."""
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    before_components = [dict(c) for c in dock._components]
+    before_vias = [dict(v) for v in dock._vias]
+
+    messages = []
+    monkeypatch.setattr(dock, "_show_message",
+                        lambda text, style="": messages.append(text))
+
+    from kicadstamp.cell_geometry_refresh import RefreshPlan
+    dock._finish_refresh_geometry({"plan": RefreshPlan([], [], [])})
+
+    assert len(messages) == 1
+    assert "Nothing changed" in messages[0]
+    assert dock._components == before_components
+    assert dock._vias == before_vias
+    assert dock._tracks == []
 
 
 def test_refresh_geometry_validation_error_shows_warning_tables_untouched(
@@ -1079,8 +1107,9 @@ def test_refresh_additive_appends_new_copper_and_updates_existing(
         main_window, tmp_path, monkeypatch):
     """The pif_p5v scenario end-to-end through the dock: live copper the loaded
     cell's records don't describe is no longer an 'extra copper' fatal — the
-    preview shows it in a 'New vias/tracks to add' tab and Apply APPENDS it
-    (extend), while the existing GND via is matched and its geometry updated."""
+    refresh applies the plan DIRECTLY (no preview dialog since 2026-09-06) and
+    APPENDS the new copper (extend), while the existing GND via is matched and
+    its geometry updated."""
     dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
     dock.load_entry("t")
     existing_via = dock._vias[0]
@@ -1098,15 +1127,9 @@ def test_refresh_additive_appends_new_copper_and_updates_existing(
          _import_dto_track("NEW_NET", 12.0, 12.0, 14.0, 12.0)],
         roles={"R-ORIG": "ORIG", "R-CAP": "CAP"})
 
-    captured = {"sections": None}
-
-    class _AcceptDialog:
-        def __init__(self, sections, parent=None):
-            captured["sections"] = sections
-
-        def exec(self):
-            return 1  # QDialog.Accepted
-    monkeypatch.setattr(cell_editor_mod, "_RefreshPreviewDialog", _AcceptDialog)
+    messages = []
+    monkeypatch.setattr(dock, "_show_message",
+                        lambda text, style="": messages.append(text))
 
     result = dock._run_refresh_geometry(
         {"board": board, "components": list(dock._components),
@@ -1119,13 +1142,6 @@ def test_refresh_additive_appends_new_copper_and_updates_existing(
     assert len(plan.via_updates) == 1 and len(plan.new_via_records) == 1
 
     dock._finish_refresh_geometry(result)
-
-    # Preview: geometry-edit tabs PLUS the new-record tab (3 columns) — the
-    # stub dialog captured the sections the real one would have shown.
-    sections = captured["sections"]
-    assert sections is not None
-    new_sec = next(s for s in sections if len(s.get("headers", [])) == 3)
-    assert len(new_sec["rows"]) == 2  # the NEW_NET via + track
 
     # Existing GND via: same dict object, geometry updated to (1.0, 3.0).
     assert dock._vias[0] is existing_via
@@ -1146,32 +1162,10 @@ def test_refresh_additive_appends_new_copper_and_updates_existing(
     assert dock.vias_table.rowCount() == 2
     assert dock.tracks_table.rowCount() == 1
 
-
-def test_refresh_new_records_section_lists_only_new_records(main_window,
-                                                            tmp_path):
-    """refresh_new_records_section is pure: a plan that adds nothing yields
-    None (no empty tab); a plan with new records yields a Kind/Position/Net
-    section — the same row shape as the Import preview."""
-    from kicadstamp.cell_geometry_refresh import RefreshPlan
-    empty = RefreshPlan([], [], [])
-    assert cell_editor_mod.refresh_new_records_section(empty) is None
-
-    plan = RefreshPlan([], [], [],
-                       new_via_records=[{"offset_along_mm": 2.0,
-                                         "offset_across_mm": 3.0,
-                                         "net": "NEW_NET"}],
-                       new_track_records=[{"start_along_mm": 0.0,
-                                           "start_across_mm": 0.0,
-                                           "end_along_mm": 4.0,
-                                           "end_across_mm": 0.0,
-                                           "width_mm": 0.25,
-                                           "net_from_role": "CAP"}])
-    sec = cell_editor_mod.refresh_new_records_section(plan)
-    assert sec is not None
-    assert sec["headers"] == ["Kind", "Position", "Net"]
-    assert sec["rows"] == [["Via", "(2.0000, 3.0000)", "NEW_NET"],
-                           ["Track", "(0.0000, 0.0000) → (4.0000, 0.0000)",
-                            "role:CAP"]]
+    # The success report reached the status path — applied, no dialog (the
+    # autostage "Overwrote..." line precedes it in the log).
+    assert "Updated cell 't' from selection" in messages[-1]
+    assert "via/track record(s) added" in messages[-1]
 
 
 # ── Copy placement from cell (2026-09-06, plan copy_placement_from_cell) ──

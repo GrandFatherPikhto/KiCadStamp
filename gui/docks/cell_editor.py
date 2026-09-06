@@ -122,26 +122,12 @@ def _net_display(entry: Dict[str, Any]) -> str:
     return str(entry.get("net", ""))
 
 
-# ── Refresh-geometry preview helpers (2026-09-03, plan cell_geometry_refresh)
-# Pure (no widget access) so the GUI test can exercise the exact rows the
-# dialog shows without a QDialog event loop.
-
-_GEO_FIELD_LABELS = {
-    "offset_along_mm": _("Offset along"),
-    "offset_across_mm": _("Offset across"),
-    "angle_deg": _("Angle"),
-    "start_along_mm": _("Start along"),
-    "start_across_mm": _("Start across"),
-    "end_along_mm": _("End along"),
-    "end_across_mm": _("End across"),
-    "width_mm": _("Width"),
-}
-
-_GEO_GROUP_LABELS = {
-    "components": _("Components"),
-    "vias": _("Vias"),
-    "tracks": _("Tracks"),
-}
+# ── Import-preview helpers (2026-09-03, plan
+#    fpga_oscill_missing_copper_and_cell_import §B.3) — pure (no widget
+#    access) so the GUI test can exercise the exact rows the dialog shows
+#    without a QDialog event loop. The refresh path's old/new/Δ preview
+#    helpers and dialog were removed 2026-09-06 (Denis: no line-by-line
+#    review — Update from selection applies the plan directly).
 
 
 def _fmt_mm(value: Optional[float]) -> str:
@@ -149,104 +135,6 @@ def _fmt_mm(value: Optional[float]) -> str:
     the extractor's storage precision), None rendered as '—' (not-yet-written
     offset key, means 0 in the refresh model)."""
     return "—" if value is None else f"{value:.4f}"
-
-
-def refresh_preview_sections(components: List[Dict[str, Any]],
-                             vias: List[Dict[str, Any]],
-                             tracks: List[Dict[str, Any]],
-                             plan) -> List[Dict[str, Any]]:
-    """Build the read-only preview tables for a RefreshPlan.
-
-    Returns one section dict per non-empty group: {"title", "rows"} where
-    each row is [item_label, field_label, old_str, new_str, delta_str]
-    (item_label = the role for a component, "via #i on {net}"/"track #i on
-    {net}" for copper). A field whose recomputed value equals its current one
-    (Δ ≈ 0) contributes NO row — a fully-unchanged selection yields an empty
-    list, which the caller surfaces as "Nothing changed" instead of an empty
-    dialog."""
-    sections: List[Dict[str, Any]] = []
-    groups = (
-        ("components", components, plan.component_updates),
-        ("vias", vias, plan.via_updates),
-        ("tracks", tracks, plan.track_updates),
-    )
-    for group_key, records, updates in groups:
-        if not updates:
-            continue
-        rows: List[List[str]] = []
-        for record, new_geo in updates:
-            idx = _identity_index(records, record)
-            if group_key == "components":
-                item = str(record.get("role", ""))
-            else:
-                kind = "via" if group_key == "vias" else "track"
-                item = _("{kind} #{index} on {net}").format(
-                    kind=kind, index=idx, net=_net_display(record))
-            for field, new_value in new_geo.items():
-                old_value = record.get(field)
-                # An offset key that the old dict never wrote IS zero in the
-                # refresh model — show it as such for a truthful Δ.
-                old_display = 0.0 if old_value is None else old_value
-                if abs(new_value - old_display) < 1e-9:
-                    continue
-                label = _GEO_FIELD_LABELS.get(field, field)
-                rows.append([item, label,
-                             _fmt_mm(old_value),
-                             _fmt_mm(new_value),
-                             f"{new_value - old_display:+.4f}"])
-        if rows:
-            sections.append({"title": _GEO_GROUP_LABELS[group_key], "rows": rows})
-    return sections
-
-
-def _identity_index(records: List[Dict[str, Any]], target: Dict[str, Any]) -> int:
-    """index() by OBJECT identity, not equality — two distinct dicts with the
-    same content would otherwise be conflated."""
-    for i, rec in enumerate(records):
-        if rec is target:
-            return i
-    return -1
-
-
-class _RefreshPreviewDialog(QDialog):
-    """Read-only old/new/Δ preview for one RefreshPlan — deliberately a
-    separate lightweight widget (not the dock's editable tables, whose
-    semantics differ). Apply/Cancel; the actual record.update() happens in the
-    caller AFTER this dialog returns Accepted (so mutation + autostage stay in
-    the dock's normal path). Since 2026-09-05 the plan may also ADD brand-new
-    via/track records: a section may carry its own "headers" (a Kind/Position/
-    Net list, the import-preview shape) instead of the default 5-column
-    Item/Field/Old/New/Δ geometry shape — both render identically from rows."""
-
-    def __init__(self, sections: List[Dict[str, Any]], parent=None,
-                 title: Optional[str] = None):
-        super().__init__(parent)
-        self.setWindowTitle(title or _("Refresh geometry from selection"))
-        self.resize(760, 420)
-        layout = QVBoxLayout(self)
-        tabs = QTabWidget()
-        for section in sections:
-            headers = section.get("headers") or \
-                [_("Item"), _("Field"), _("Old"), _("New"), _("Δ")]
-            table = QTableWidget(0, len(headers))
-            table.setHorizontalHeaderLabels(headers)
-            table.horizontalHeader().setSectionResizeMode(
-                QHeaderView.ResizeMode.Stretch)
-            table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-            table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-            for row_index, row in enumerate(section["rows"]):
-                table.insertRow(row_index)
-                for col, value in enumerate(row):
-                    table.setItem(row_index, col, QTableWidgetItem(str(value)))
-            tabs.addTab(table, section["title"])
-        layout.addWidget(tabs, 1)
-        buttons = QDialogButtonBox()
-        apply_button = buttons.addButton(_("Apply"), QDialogButtonBox.ButtonRole.AcceptRole)
-        buttons.addButton(_("Cancel"), QDialogButtonBox.ButtonRole.RejectRole)
-        apply_button.setDefault(True)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
 
 
 def _record_position(record: Dict[str, Any], kind: str) -> str:
@@ -266,16 +154,13 @@ def _record_position(record: Dict[str, Any], kind: str) -> str:
 
 def import_preview_rows(plan) -> List[List[str]]:
     """Build the read-only preview rows for an ImportPlan — one row per NEW
-    via/track record the Apply button would append (deliberately NOT the
-    old/new/Δ shape of refresh_preview_sections: Import creates records, it
-    edits none). Columns are [kind, position, net_source] where position is
-    the record's local geometry relative to the cell's zero-offset origin and
-    net_source is the classified net (literal / role:[pad:] / rule-net null —
-    the same _net_display convention as the dock's own via/track tables).
-    Pure (no widget access) so the GUI test can exercise the exact rows the
-    dialog shows without a QDialog event loop. Also reused by the additive
-    refresh preview (2026-09-05) — a RefreshPlan carries the same
-    new_via_records/new_track_records fields."""
+    via/track record the Apply button would append. Columns are [kind,
+    position, net_source] where position is the record's local geometry
+    relative to the cell's zero-offset origin and net_source is the
+    classified net (literal / role:[pad:] / rule-net null — the same
+    _net_display convention as the dock's own via/track tables). Pure (no
+    widget access) so the GUI test can exercise the exact rows the dialog
+    shows without a QDialog event loop."""
     rows: List[List[str]] = []
     for record in plan.new_via_records:
         rows.append([_("Via"), _record_position(record, "via"), _net_display(record)])
@@ -284,29 +169,12 @@ def import_preview_rows(plan) -> List[List[str]]:
     return rows
 
 
-def refresh_new_records_section(plan) -> Optional[Dict[str, Any]]:
-    """The preview tab for the via/track records build_refresh_plan would ADD
-    (add_new_copper mode, 2026-09-05) — one Kind/Position/Net row per NEW
-    record, the same shape as the Import preview. None when the plan adds
-    nothing, so the caller never shows an empty tab."""
-    rows = import_preview_rows(plan)
-    if not rows:
-        return None
-    return {
-        "title": _("New vias/tracks to add"),
-        "headers": [_("Kind"), _("Position"), _("Net")],
-        "rows": rows,
-    }
-
-
-
 class _ImportPreviewDialog(QDialog):
     """Read-only "these NEW via/track records will be appended" preview for one
-    ImportPlan — the additive counterpart of _RefreshPreviewDialog (which shows
-    Old/New/Δ edits to EXISTING records). One Kind/Position/Net table; Apply
-    appends the listed records to the dock's _vias/_tracks — the actual extend
-    happens in the caller AFTER this dialog returns Accepted, so mutation +
-    autostage stay in the dock's normal path."""
+    ImportPlan. One Kind/Position/Net table; Apply appends the listed records
+    to the dock's _vias/_tracks — the actual extend happens in the caller AFTER
+    this dialog returns Accepted, so mutation + autostage stay in the dock's
+    normal path."""
 
     def __init__(self, rows: List[List[str]], parent=None):
         super().__init__(parent)
@@ -1597,42 +1465,33 @@ class CellDock(QWidget):
 
     def _finish_refresh_geometry(self, result: Dict[str, Any]) -> None:
         """UI thread (worker finished): a plan error is shown as a warning with
-        the FULL collected text; a clean plan is previewed; on Apply the dock's
-        normal mutation/autostage path runs."""
+        the FULL collected text; a clean plan is applied DIRECTLY to the loaded
+        cell — no intermediate preview dialog (2026-09-06, Denis: the line-by-
+        line Item/Field/Old/New/Δ review is gone; click = apply immediately,
+        the report is a text line in the Log dock, exactly like Copy placement
+        from cell). Mutation/autostage run through the dock's normal path."""
         self._active_op = None
         if result.get("error"):
             QMessageBox.warning(
                 self, _("Refresh geometry from selection"), result["error"])
             return
         plan = result["plan"]
-        sections = refresh_preview_sections(
-            self._components, self._vias, self._tracks, plan)
-        new_section = refresh_new_records_section(plan)
-        if new_section is not None:
-            sections.append(new_section)
-        total = sum(len(s["rows"]) for s in sections)
-        if not total:
+        # A no-op plan (the selection already matches) is reported and NOT run
+        # through _apply_refresh_plan — no pointless autostage write.
+        has_work = bool(plan.component_updates or plan.via_updates
+                        or plan.track_updates or plan.new_via_records
+                        or plan.new_track_records)
+        if not has_work:
             self._show_message(
                 _("Nothing changed — the selection already matches this cell's geometry."),
                 _SUCCESS_STYLE)
             return
-        dialog = _RefreshPreviewDialog(sections, self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
         updated, added = self._apply_refresh_plan(plan)
-        if added:
-            self._show_message(
-                _("Updated {name!r} from selection — {updated} record(s) updated, "
-                  "{added} new via/track record(s) added. Save to write the change.")
-                .format(name=self.name_edit.text().strip(),
-                        updated=updated, added=added),
-                _SUCCESS_STYLE)
-        else:
-            self._show_message(
-                _("Refreshed {name!r} from selection — {count} record(s) updated. "
-                  "Save to write the change.").format(
-                    name=self.name_edit.text().strip(), count=updated),
-                _SUCCESS_STYLE)
+        self._show_message(
+            _("Updated cell {name!r} from selection — {updated} record(s) updated, "
+              "{added} via/track record(s) added. Save to write the change.")
+            .format(name=self.name_edit.text().strip(), updated=updated, added=added),
+            _SUCCESS_STYLE)
 
     def _on_refresh_op_failed(self, message: str) -> None:
         self._active_op = None

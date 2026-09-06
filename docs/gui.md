@@ -1272,15 +1272,17 @@ nothing is changed, no Apply.
 
 Since 2026-09-05, live via/track copper the cell's current records do not describe is NO LONGER a
 fatal: it is ADDED to the cell as NEW records (the drawn-copper case — a cell saved before the copper
-was routed, then re-read after you drew it; e.g. `pif_p5v`). The preview shows them in a
-**"New vias/tracks to add"** tab (Kind / Position / Net) next to the geometry-edit tabs; **Apply**
-updates the matched existing records' geometry AND appends the new records (nothing is written to disk
-until the project **Save**). A new record's net is classified by the extractor's own heuristic (a net a
-selected role's pad carries -> `net_from_role`(+pad), else a plain literal net — never `net: null`),
-its geometry relative to the same zero-offset origin.
+was routed, then re-read after you drew it; e.g. `pif_p5v`). The run updates the matched existing
+records' geometry AND appends the new records (nothing is written to disk until the project **Save**).
+A new record's net is classified by the extractor's own heuristic (a net a selected role's pad carries
+-> `net_from_role`(+pad), else a plain literal net — never `net: null`), its geometry relative to the
+same zero-offset origin.
 
-A clean run opens a read-only **preview dialog** (old/new/Δ per record, tabs by kind, plus the new
-records tab) — **Apply** mutates the loaded cell in memory and auto-stages it exactly like a manual row
+A clean run APPLIES the plan directly — since 2026-09-06 there is NO preview dialog (the old
+line-by-line Item/Field/Old/New/Δ review is gone; Denis: "построчный нахрен не нужен"). Click the
+button = apply immediately; the result is a text line in the Log dock ("Updated cell ... — N
+record(s) updated, M via/track record(s) added. Save to write the change."), and a selection that
+already matches reports "Nothing changed". Mutation/autostage go through the same path as a manual row
 Update/Add.
 
 **Import vias/tracks from selection** (2026-09-03) — the additive counterpart of Refresh: a button

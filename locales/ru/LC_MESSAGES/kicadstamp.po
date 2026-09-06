@@ -1598,6 +1598,15 @@ msgstr "Сначала загрузите шаблон с компонентам
 msgid "Nothing changed — the selection already matches this cell's geometry."
 msgstr "Ничего не изменилось — выделение уже совпадает с геометрией этого шаблона."
 
+#: gui/docks/cell_editor.py
+#, python-brace-format
+msgid ""
+"Updated cell {name!r} from selection — {updated} record(s) updated, {added} "
+"via/track record(s) added. Save to write the change."
+msgstr ""
+"Обновлён шаблон {name!r} по выделению — обновлено записей: {updated}, "
+"добавлено via/track записей: {added}. Сохраните, чтобы записать изменение."
+
 #: gui/docks/cell_editor.py:294
 msgid "New vias/tracks to add"
 msgstr "Новые via/треки для добавления"
