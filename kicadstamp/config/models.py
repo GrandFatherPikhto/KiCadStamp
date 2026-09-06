@@ -763,6 +763,16 @@ class SchemeListConfig:
     # components[] post-hoc — the anchor is a record-level property.
     anchor_rotation_deg: float = 0.0
     source_sheet: str | None = None
+    # For a "By sheet"-record (plan_2026_09_06_scheme_list_sheet_capture.md
+    # 5c.1, design_2026_09_05_scheme_list.md §3/§4): the CHECKED leaf paths of
+    # the capture checklist at Record/Re-source time. Reread recomputes the
+    # CURRENT scope by refs_on_sheet-union over THESE paths against the live
+    # snapshot, so it never confuses "sub-sheet deliberately excluded at
+    # capture" with "sub-sheet not present yet" (an unrecorded-but-excluded
+    # leaf must not silently pull back in). None for a "By selection"-record —
+    # there the scope is ephemeral: Reread asks for a NEW board selection each
+    # time and nothing about the scope itself is persisted.
+    scope_sheet_paths: list[list[str]] | None = None
     components: list[SchemeListComponentRecord] = field(default_factory=list)
     vias: list[SchemeListViaRecord] = field(default_factory=list)
     tracks: list[SchemeListTrackRecord] = field(default_factory=list)

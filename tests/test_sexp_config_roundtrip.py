@@ -574,13 +574,16 @@ def test_fatal_wrong_pair_shape():
 
 def test_scheme_lists_roundtrip():
     """A scheme_lists record with nested components/vias/tracks/boundary_nets
-    (incl. an internal copper layer string) round-trips bijectively."""
+    (incl. an internal copper layer string) and a "By sheet" scope
+    (scope_sheet_paths, 5c.1 — incl. a SINGLE-segment path that must not
+    collapse into a bare string) round-trips bijectively."""
     _roundtrip({
         "scheme_lists": [{
             "name": "psu",
             "anchor_ref": "C1",
             "anchor_rotation_deg": 90.0,  # addendum P2.x — non-default survives
             "source_sheet": "Channel_0",
+            "scope_sheet_paths": [["Top", "Channel_0"], ["Top"]],
             "components": [
                 {"ref": "C1"},
                 {"ref": "R1", "offset_along_mm": 1.0, "rotation_deg": 90.0},

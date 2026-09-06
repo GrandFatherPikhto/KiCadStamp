@@ -187,6 +187,7 @@ def capture_scheme_list(
     adapter=None,
     source_sheet: str | None = None,   # explicit override (Reread)
     sheet_names: dict[str, str] | None = None,  # for derivation (Record/Re-source)
+    scope_sheet_paths: list[list[str]] | None = None,  # 5c.1 — "By sheet" scope
 ) -> SchemeListConfig:
     """Capture the live board region identified by `refs` as a Scheme List.
 
@@ -301,6 +302,10 @@ def capture_scheme_list(
         anchor_pad=anchor_pad,
         anchor_rotation_deg=anchor_fp.angle_deg,
         source_sheet=source_sheet,
+        # 5c.1 — persisted verbatim, never interpreted here: for a "By sheet"
+        # capture it is the CHECKED leaf paths (so a later Reread recomputes
+        # the same scope); for a "By selection" capture it stays None.
+        scope_sheet_paths=scope_sheet_paths,
         components=components,
         vias=vias,
         tracks=tracks,
@@ -329,11 +334,21 @@ class SchemeListComponentChange:
 class SchemeListDiff:
     """Reread result — what changed between a stored SchemeListConfig and the
     live board. Pure calculation; the caller (GUI) decides whether to apply
-    (rewrite the stored record) after explicit confirmation."""
+    (rewrite the stored record) after explicit confirmation.
+
+    5c (plan_2026_09_06_scheme_list_sheet_capture.md 5c.2): two NEW categories
+    for a changeable REF SET, distinct from ``refs_not_found`` — that one means
+    "recorded but PHYSICALLY ABSENT from the board"; ``refs_removed_from_scope``
+    means "physically present, just no longer inside the CURRENT scope" (the
+    user un-selected / a sub-sheet was excluded), and ``components_added`` are
+    refs in the current scope but not in the stored record (their fresh
+    geometry comes from the same capture the diff builds)."""
 
     refs_not_found: list[str] = field(default_factory=list)
     anchor_missing: bool = False
     components_moved: list[SchemeListComponentChange] = field(default_factory=list)
+    components_added: list[SchemeListComponentRecord] = field(default_factory=list)
+    refs_removed_from_scope: list[str] = field(default_factory=list)
     vias_added: list[SchemeListViaRecord] = field(default_factory=list)
     vias_removed: list[SchemeListViaRecord] = field(default_factory=list)
     tracks_added: list[SchemeListTrackRecord] = field(default_factory=list)
@@ -344,6 +359,7 @@ class SchemeListDiff:
     @property
     def changed(self) -> bool:
         return bool(self.refs_not_found or self.anchor_missing or self.components_moved
+                    or self.components_added or self.refs_removed_from_scope
                     or self.vias_added or self.vias_removed
                     or self.tracks_added or self.tracks_removed
                     or self.boundary_nets_added or self.boundary_nets_gone)
@@ -396,7 +412,8 @@ def _split_changes(old: list, new: list, matches) -> tuple[list, list]:
     return unmatched_new, removed
 
 
-def build_scheme_list_diff(stored: SchemeListConfig, adapter) -> SchemeListDiff:
+def build_scheme_list_diff(stored: SchemeListConfig, adapter,
+                           scope_refs: list[str] | None = None) -> SchemeListDiff:
     """Re-read the region a stored Scheme List was recorded from and report what
     differs, within the Reread tolerances. Pure computation — applies nothing.
 
@@ -409,30 +426,73 @@ def build_scheme_list_diff(stored: SchemeListConfig, adapter) -> SchemeListDiff:
     direction) and reported as ``vias/tracks_added``/``removed``. New boundary
     nets (excluded-material copper that needs a fresh decision) and boundary
     nets that disappeared are reported separately.
+
+    5c (plan_2026_09_06_scheme_list_sheet_capture.md 5c.3): ``scope_refs`` is
+    the CURRENT scope (recomputed by the caller — for a "By sheet" record from
+    its stored ``scope_sheet_paths`` over the live snapshot, for a "By
+    selection" record from a fresh board selection). When given, refs inside
+    the scope but absent from the record are ``components_added`` (their fresh
+    geometry comes from the SAME capture as the rest of the diff), and refs
+    recorded but outside the scope are ``refs_removed_from_scope`` — computed
+    against ``found`` (physically present), NOT ``stored_refs``, so a ref that
+    is gone from the board stays a ``refs_not_found`` and is never
+    double-counted. When ``scope_refs`` is None (no scope change) the diff
+    keeps the legacy fixed-set behaviour: only the stored refs are re-read and
+    nothing is added/removed from the set.
     """
     present = {fp.ref for fp in adapter.get_footprints()}
     stored_refs = [c.ref for c in stored.components]
     refs_not_found = [r for r in stored_refs if r not in present]
     found = [r for r in stored_refs if r in present]
 
-    if not found or stored.anchor_ref not in present:
-        return SchemeListDiff(refs_not_found=refs_not_found,
-                              anchor_missing=stored.anchor_ref not in present)
+    if scope_refs is not None:
+        # Refs in the CURRENT scope but never recorded -> added. Refs recorded
+        # AND physically present but outside the current scope -> removed-from-
+        # scope (NOT refs_not_found — those stay the "must be, but absent"
+        # category). The capture set is (present stored refs still in scope) +
+        # (added refs), so one capture yields geometry for both old and new.
+        added_refs = sorted(set(scope_refs) - set(stored_refs))
+        removed_from_scope = sorted(set(found) - set(scope_refs))
+        refs_for_fresh = sorted((set(found) - set(removed_from_scope)) | set(added_refs))
+    else:
+        added_refs = []
+        removed_from_scope = []
+        refs_for_fresh = found
+
+    if not refs_for_fresh or stored.anchor_ref not in present:
+        # Nothing left to re-read (all stored refs left the scope / the board,
+        # or the anchor is gone) — report the scope change/absence, skip the
+        # copper diff (offsets would have no live anchor to be relative to).
+        return SchemeListDiff(
+            refs_not_found=refs_not_found,
+            anchor_missing=stored.anchor_ref not in present,
+            components_added=[],
+            refs_removed_from_scope=removed_from_scope,
+        )
 
     fresh = capture_scheme_list(
-        name=stored.name, refs=found,
+        name=stored.name, refs=refs_for_fresh,
         anchor_ref=stored.anchor_ref,
         anchor_pad=stored.anchor_pad, adapter=adapter,
         # Keep the STORED source_sheet as an explicit override — Reread's job
         # is re-reading the same source, never re-deriving the sheet (5a.2).
         source_sheet=stored.source_sheet)
 
-    # Components — the same literal ref in both sides; report when position or
-    # rotation moved beyond the tolerance. (The anchor itself is the offset
-    # origin and is always at (0,0), so it can never report as "moved".)
     fresh_by_ref = {c.ref: c for c in fresh.components}
+    # Added refs land in components_added WITH their fresh geometry (the
+    # capture above was built over refs_for_fresh, so they are already there).
+    components_added = [fresh_by_ref[r] for r in added_refs if r in fresh_by_ref]
+
+    removed_set = set(removed_from_scope)
+    # Components — report when position/rotation moved beyond the tolerance.
+    # (The anchor itself is the offset origin and is always at (0,0), so it
+    # can never report as "moved".) A ref that LEFT the scope is skipped here
+    # — it would otherwise surface both as "moved"/"missing" AND as
+    # removed-from-scope, which is misleading.
     components_moved: list[SchemeListComponentChange] = []
     for stored_comp in stored.components:
+        if stored_comp.ref in removed_set:
+            continue  # out of the current scope — reported as removed-from-scope
         new_comp = fresh_by_ref.get(stored_comp.ref)
         if new_comp is None:
             continue  # the ref is already reported in refs_not_found
@@ -462,6 +522,8 @@ def build_scheme_list_diff(stored: SchemeListConfig, adapter) -> SchemeListDiff:
         refs_not_found=refs_not_found,
         anchor_missing=False,
         components_moved=components_moved,
+        components_added=components_added,
+        refs_removed_from_scope=removed_from_scope,
         vias_added=vias_added,
         vias_removed=vias_removed,
         tracks_added=tracks_added,

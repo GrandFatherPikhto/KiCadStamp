@@ -198,6 +198,15 @@ def _norm(tp) -> tuple:
         elem = args[0] if args else Any
         if elem is str:
             return ("list_str",)
+        # list[list[str]] — nested string lists (e.g.
+        # SchemeListConfig.scope_sheet_paths: each inner list is ONE full sheet
+        # path). _norm's generic list_any cannot round-trip a list-of-lists
+        # (its all-scalar/all-mapping rule fatals on it), so it gets its own
+        # kind with an unambiguous (path "...")-list representation.
+        if get_origin(elem) is list:
+            inner = get_args(elem) or (Any,)
+            if inner and inner[0] is str:
+                return ("list_list_str",)
         if is_dataclass(elem):
             return ("list_record", elem)
         return ("list_any",)
@@ -351,6 +360,12 @@ def _field_to_sexp(name: str, value, desc: tuple):
     if kind == "list_record":
         sub = desc[1]
         return [sym(name), *[_record_to_sexp(sub, item) for item in value]]
+
+    if kind == "list_list_str":
+        # (scope_sheet_paths ("Top" "Channel_0") ("Top")) — one quoted-string
+        # LIST node per inner path, so a single-segment path ("Top") survives
+        # the round-trip as ["Top"], never collapsing into a bare string.
+        return [sym(name), *[list(path) for path in value]]
 
     if kind == "list_any":  # free-form list — type-driven children
         return _free_list_field_to_sexp(name, value)
@@ -647,6 +662,28 @@ def _parse_list_str(node, path: str):
     return out
 
 
+def _parse_list_list_str(node, path: str):
+    """list[list[str]] — (key ("a" "b") ("c")): each child is one quoted-string
+    list (one inner path); a child whose nodes are not all quoted strings is a
+    fatal. Empty field (no children) -> [] (a legitimately-empty list)."""
+    out = []
+    for child in node[1:]:
+        if not isinstance(child, list):
+            raise _fatal(
+                "s-expr: expected a quoted-string list in a nested string list",
+                [_("in {path}: got {value!r}; a list[list[str]] field must be "
+                   "a list of quoted-string lists").format(path=path, value=child)])
+        row = []
+        for atom in child:
+            if type(atom) is not str:  # exactly str, never a Symbol subclass
+                raise _fatal(
+                    "s-expr: expected a quoted string in a nested string list",
+                    [_("in {path}: every path segment must be a quoted string").format(path=path)])
+            row.append(atom)
+        out.append(row)
+    return out
+
+
 def _parse_record(dc, node, path: str) -> dict:
     known = {f.name for f in dataclasses.fields(dc)}
     out: dict = {}
@@ -678,6 +715,8 @@ def _parse_field(node, desc: tuple, path: str):
     if kind == "list_record":
         sub = desc[1]
         return [_parse_record(sub, item, f"{path}[]") for item in node[1:]]
+    if kind == "list_list_str":
+        return _parse_list_list_str(node, path)
     if kind == "list_any":
         return _parse_free_list_field(node, path)
     if kind == "dict_pairs":
@@ -948,6 +987,8 @@ def _strip_defaults(data: dict) -> dict:
             return dict(value)
         if kind == "list_str":
             return list(value)
+        if kind == "list_list_str":
+            return [list(path) for path in value]
         return value
 
     out = {}

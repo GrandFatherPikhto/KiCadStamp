@@ -322,6 +322,17 @@ def _line_board(c2_x_mm=24.0):
     return FakeAdapter(fps, [t1, t2], [v1], pads)
 
 
+def _line_board_plus(extra_refs, c2_x_mm=24.0):
+    """_line_board + extra footprints appended on the same line beyond C2
+    (pads only, no extra copper — enough for a 5c added-ref capture)."""
+    adapter = _line_board(c2_x_mm=c2_x_mm)
+    for i, ref in enumerate(extra_refs):
+        x = 24.0 + 6.0 * (i + 1)
+        adapter._fps.append(_fp(ref, x, 10))
+        adapter._pads[ref] = [_pad(ref, x, 10, _V5)]
+    return adapter
+
+
 class TestRereadDiff:
     def test_no_changes_when_board_is_identical(self):
         adapter, refs = _scenario()
@@ -413,4 +424,92 @@ class TestRereadDiff:
         diff = build_scheme_list_diff(stored, adapter)
         assert diff.boundary_nets_gone == [_GND]
         assert diff.boundary_nets_added == []
+        assert diff.changed is True
+
+
+# ── Reread with a CHANGEABLE ref set (5c.2/5c.3, plan scheme_list 5c) ───────
+# build_scheme_list_diff(stored, adapter, scope_refs=...) adds refs that are in
+# the CURRENT scope but not recorded (components_added) and reports recorded
+# refs that are physically present but outside the scope (refs_removed_from_
+# scope) — distinct from refs_not_found ("must be, but absent").
+
+class TestRereadDiffChangeableScope:
+    def test_no_scope_keeps_legacy_fixed_set_categories_empty(self):
+        """5c regression guard — scope_refs=None (no scope change) is the
+        legacy Reread: the new 5c categories stay empty, nothing is added or
+        removed from the set."""
+        adapter, refs = _scenario()
+        stored = capture_scheme_list("amp", refs, "R1", adapter=adapter)
+        diff = build_scheme_list_diff(stored, adapter)  # no scope_refs
+        assert diff.components_added == []
+        assert diff.refs_removed_from_scope == []
+        assert diff.changed is False
+
+    def test_added_ref_in_scope_reports_component_added_with_geometry(self):
+        """5c.3 — a ref in the CURRENT scope but never recorded lands in
+        components_added WITH its fresh offset/rotation (the diff's capture is
+        built over the widened set)."""
+        adapter0 = _line_board(24.0)
+        stored = capture_scheme_list("amp", ["R1", "C1", "C2"], "R1",
+                                     adapter=adapter0)
+        # C4 now physically exists on the board and is inside the scope.
+        adapter1 = _line_board_plus(["C4"])
+        diff = build_scheme_list_diff(stored, adapter1,
+                                      scope_refs=["R1", "C1", "C2", "C4"])
+        added = {c.ref: c for c in diff.components_added}
+        assert set(added) == {"C4"}
+        # C4 at (30,10); anchor R1 at (10,10) -> offset_along 20.0
+        assert added["C4"].offset_along_mm == pytest.approx(20.0)
+        assert added["C4"].offset_across_mm == pytest.approx(0.0)
+        assert diff.refs_removed_from_scope == []
+        assert diff.refs_not_found == []
+        assert diff.changed is True
+
+    def test_removed_present_ref_reports_removed_from_scope_not_moved(self):
+        """5c.3 — a ref that is physically PRESENT but no longer in the scope
+        goes to refs_removed_from_scope ONLY (never also components_moved)."""
+        adapter = _line_board(24.0)
+        stored = capture_scheme_list("amp", ["R1", "C1", "C2"], "R1",
+                                     adapter=adapter)
+        # C2 still on the board, but the current scope drops it.
+        diff = build_scheme_list_diff(stored, adapter,
+                                      scope_refs=["R1", "C1"])
+        assert diff.refs_removed_from_scope == ["C2"]
+        assert {c.ref for c in diff.components_moved} == set()
+        assert diff.components_added == []
+        assert diff.refs_not_found == []
+        assert diff.changed is True
+
+    def test_missing_and_out_of_scope_refs_do_not_overlap(self):
+        """5c.3 — C2 physically absent AND out of scope stays a refs_not_found;
+        C3 physically present but out of scope is refs_removed_from_scope. The
+        two categories never double-count the same ref."""
+        adapter0 = _line_board_plus(["C3"])  # C2 + C3 both physically present
+        stored = capture_scheme_list("amp", ["R1", "C1", "C2", "C3"], "R1",
+                                     adapter=adapter0)
+        # C2 is removed from the BOARD entirely; the scope drops both C2 and C3
+        # (only R1+C1 are re-selected / still on the recorded leaves).
+        adapter1 = _line_board_plus(["C3"])
+        adapter1._fps = [fp for fp in adapter1._fps if fp.ref != "C2"]
+        diff = build_scheme_list_diff(stored, adapter1,
+                                      scope_refs=["R1", "C1"])
+        # C2: absent + out of scope -> ONLY refs_not_found (not double-counted)
+        assert diff.refs_not_found == ["C2"]
+        # C3: present + out of scope -> removed-from-scope
+        assert diff.refs_removed_from_scope == ["C3"]
+        assert diff.changed is True
+
+    def test_combined_add_and_remove_reports_both_without_moved_noise(self):
+        """5c.3 — a single Reread can add AND remove: C4 enters the scope
+        (components_added), C2 leaves it while staying on the board
+        (refs_removed_from_scope) — C2 is not also reported as moved."""
+        adapter0 = _line_board(24.0)
+        stored = capture_scheme_list("amp", ["R1", "C1", "C2"], "R1",
+                                     adapter=adapter0)
+        adapter1 = _line_board_plus(["C4"])
+        diff = build_scheme_list_diff(stored, adapter1,
+                                      scope_refs=["R1", "C1", "C4"])
+        assert {c.ref for c in diff.components_added} == {"C4"}
+        assert diff.refs_removed_from_scope == ["C2"]
+        assert {c.ref for c in diff.components_moved} == set()
         assert diff.changed is True

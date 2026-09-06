@@ -8993,6 +8993,12 @@ msgstr ""
 msgid "in {path}: every element of a string list must be in double quotes"
 msgstr ""
 
+msgid "in {path}: every path segment must be a quoted string"
+msgstr ""
+
+msgid "in {path}: got {value!r}; a list[list[str]] field must be a list of quoted-string lists"
+msgstr ""
+
 #: kicadstamp/config/sexp_format.py:643 kicadstamp/config/sexp_format.py:747
 #: kicadstamp/config/sexp_format.py:766
 #, python-brace-format
@@ -13755,6 +13761,27 @@ msgstr "компонент {ref!r} сдвинут: ({old_x}, {old_y}) мм, {old
 
 msgid "component(s) no longer on the board: {refs}"
 msgstr "компонент(ы) отсутствуют на плате: {refs}"
+
+msgid "component(s) added to the scope: {refs}"
+msgstr "компонент(ы) добавлены в область чтения: {refs}"
+
+msgid "component(s) removed from the scope: {refs}"
+msgstr "компонент(ы) исключены из области чтения: {refs}"
+
+msgid "select footprints on the board first — this record's Reread scope is the current selection"
+msgstr "сначала выделите компоненты на плате — область чтения этой записи задаётся текущим выделением"
+
+msgid "scheme_lists entry {name!r}: scope_sheet_paths must be a list of sheet paths"
+msgstr "запись scheme_lists {name!r}: scope_sheet_paths должен быть списком путей листов"
+
+msgid "each scope path is a list of sheet-name strings, e.g. [['Top', 'Channel_0'], ['Top']] — the checked leaves of the capture checklist; got {raw!r}"
+msgstr "каждый путь области — список строк с именами листов, напр. [['Top', 'Channel_0'], ['Top']] — отмеченные листья чек-листа захвата; получено: {raw!r}"
+
+msgid "scheme_lists entry {name!r}: scope_sheet_paths[{i}] must be a sheet path"
+msgstr "запись scheme_lists {name!r}: scope_sheet_paths[{i}] должен быть путём листа"
+
+msgid "a sheet path is a non-empty list of non-empty sheet-name strings, e.g. ['Top', 'Channel_0']; got {path!r}"
+msgstr "путь листа — непустой список непустых строк-имён листов, напр. ['Top', 'Channel_0']; получено: {path!r}"
 
 msgid "name (used by --only and Entity.scheme_list, must be unique)"
 msgstr "имя (используется в --only и в Entity.scheme_list, должно быть уникальным)"

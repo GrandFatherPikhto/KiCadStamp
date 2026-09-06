@@ -9032,6 +9032,12 @@ msgstr ""
 msgid "in {path}: every element of a string list must be in double quotes"
 msgstr "in {path}: every element of a string list must be in double quotes"
 
+msgid "in {path}: every path segment must be a quoted string"
+msgstr "in {path}: every path segment must be a quoted string"
+
+msgid "in {path}: got {value!r}; a list[list[str]] field must be a list of quoted-string lists"
+msgstr "in {path}: got {value!r}; a list[list[str]] field must be a list of quoted-string lists"
+
 #: kicadstamp/config/sexp_format.py:643 kicadstamp/config/sexp_format.py:747
 #: kicadstamp/config/sexp_format.py:766
 #, python-brace-format
@@ -15123,6 +15129,27 @@ msgid "component {ref!r} moved: ({old_x}, {old_y}) mm, {old_rot} deg -> ({new_x}
 msgstr ""
 
 msgid "component(s) no longer on the board: {refs}"
+msgstr ""
+
+msgid "component(s) added to the scope: {refs}"
+msgstr ""
+
+msgid "component(s) removed from the scope: {refs}"
+msgstr ""
+
+msgid "select footprints on the board first — this record's Reread scope is the current selection"
+msgstr ""
+
+msgid "scheme_lists entry {name!r}: scope_sheet_paths must be a list of sheet paths"
+msgstr ""
+
+msgid "each scope path is a list of sheet-name strings, e.g. [['Top', 'Channel_0'], ['Top']] — the checked leaves of the capture checklist; got {raw!r}"
+msgstr ""
+
+msgid "scheme_lists entry {name!r}: scope_sheet_paths[{i}] must be a sheet path"
+msgstr ""
+
+msgid "a sheet path is a non-empty list of non-empty sheet-name strings, e.g. ['Top', 'Channel_0']; got {path!r}"
 msgstr ""
 
 msgid "name (used by --only and Entity.scheme_list, must be unique)"

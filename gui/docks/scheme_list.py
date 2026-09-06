@@ -114,6 +114,25 @@ def record_refs_for(snapshot: list, by_sheet: bool,
     return sorted(set(selection_refs))
 
 
+def reread_scope_refs(stored: SchemeListConfig, snapshot: list,
+                      selection_refs: List[str]) -> List[str]:
+    """The CURRENT Reread scope for a stored record (5c.4, plan_2026_09_06_
+    scheme_list_sheet_capture.md):
+      - "By sheet"-record (``scope_sheet_paths`` set): recomputed from the SAME
+        checked leaf paths over the LIVE snapshot (refs_on_sheet union) —
+        Reread stays one-click, live state alone decides what appeared/vanish-
+        ed on the recorded leaves;
+      - "By selection"-record (``scope_sheet_paths`` None): the CURRENT board
+        selection refs — the user re-selects the (possibly changed) set, then
+        clicks Reread. An empty list here is a caller decision point (warn,
+        never silently diff the stored set).
+    Sorted + deduplicated either way."""
+    if stored.scope_sheet_paths:
+        return sorted({r for p in stored.scope_sheet_paths
+                       for r in refs_on_sheet(snapshot, tuple(p))})
+    return sorted(set(selection_refs))
+
+
 # ── Pure storage helpers (shared by the Record... tool and Reread Apply) ────
 
 def scheme_list_to_dict(record: SchemeListConfig) -> Dict[str, Any]:
@@ -128,6 +147,10 @@ def scheme_list_to_dict(record: SchemeListConfig) -> Dict[str, Any]:
         d["anchor_rotation_deg"] = record.anchor_rotation_deg
     if record.source_sheet:
         d["source_sheet"] = record.source_sheet
+    if record.scope_sheet_paths:
+        # 5c.1 — a "By sheet" record's CHECKED leaf paths (Reread recomputes
+        # the current scope from these); None (By selection) is not written.
+        d["scope_sheet_paths"] = [list(p) for p in record.scope_sheet_paths]
     d["components"] = [
         {"ref": c.ref, "offset_along_mm": c.offset_along_mm,
          "offset_across_mm": c.offset_across_mm, "rotation_deg": c.rotation_deg}
@@ -259,6 +282,14 @@ def scheme_list_diff_lines(diff: SchemeListDiff) -> List[str]:
     if diff.anchor_missing:
         anchor = diff.refs_not_found[0] if diff.refs_not_found else "?"
         lines.append(_("the anchor {ref!r} is not on the board").format(ref=anchor))
+    if diff.components_added:
+        lines.append(
+            _("component(s) added to the scope: {refs}")
+            .format(refs=", ".join(c.ref for c in diff.components_added)))
+    if diff.refs_removed_from_scope:
+        lines.append(
+            _("component(s) removed from the scope: {refs}")
+            .format(refs=", ".join(diff.refs_removed_from_scope)))
     for c in diff.components_moved:
         lines.append(
             _("component {ref!r} moved: ({old_x}, {old_y}) mm, {old_rot} deg -> "
@@ -563,6 +594,11 @@ class SchemeListFormWidget(QWidget):
         self._root_path: Optional[Path] = None
         self._path: Optional[Path] = None
         self._entry: Dict[str, Any] = {}
+        # The polled live board selection (fed by DockHub.set_board_selection,
+        # 5c.4) — the Reread scope of a "By selection"-record is the CURRENT
+        # selection at click time, so this dock needs the same tick the other
+        # selection-aware docks get.
+        self._selection_footprints: list = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -610,6 +646,14 @@ class SchemeListFormWidget(QWidget):
 
     def set_root_path(self, path: Optional[Path]) -> None:
         self._root_path = path
+
+    def set_board_selection(self, items, selected) -> None:
+        """Live board selection tick (DockHub.set_board_selection fan-out,
+        5c.4) — the Reread scope of a "By selection"-record is the CURRENT
+        board selection at click time, so the user re-selects the (possibly
+        changed) set and THEN clicks Reread. `items` is unused (kept for the
+        shared fan-out signature)."""
+        self._selection_footprints = list(selected)
 
     def clear(self) -> None:
         """Blank the form (nothing loaded)."""
@@ -675,7 +719,10 @@ class SchemeListFormWidget(QWidget):
 
     def _collect_reread_payload(self) -> Optional[Dict[str, Any]]:
         """UI thread: validate that a record is loaded and a live board is
-        connected, then snapshot the plain-data payload for the worker."""
+        connected, then snapshot the plain-data payload for the worker. The
+        payload carries the CURRENT Reread ``scope_refs`` (5c.4) — recomputed
+        on the UI thread from the stored scope_sheet_paths / the live board
+        selection, so the worker's build_scheme_list_diff can add/remove refs."""
         board = getattr(self._connection, "board", None)
         if board is None:
             self._show_message(_("Connect to KiCad first."), _ERROR_STYLE)
@@ -683,7 +730,27 @@ class SchemeListFormWidget(QWidget):
         if not self._entry:
             self._show_message(_("Load a Scheme List record first."), _ERROR_STYLE)
             return None
+        try:
+            stored = load_scheme_list(self._entry)
+        except ValidationError as e:
+            # A hand-broken record must not crash the Reread flow either.
+            self._show_message(str(e), _ERROR_STYLE)
+            return None
+        snapshot = getattr(self._connection, "snapshot", None) or []
+        selection_refs = sorted({getattr(s, "ref", None)
+                                 for s in self._selection_footprints
+                                 if getattr(s, "ref", None)})
+        scope_refs = reread_scope_refs(stored, snapshot, selection_refs)
+        if stored.scope_sheet_paths is None and not scope_refs:
+            # A "By selection"-record's Reread scope is the CURRENT board
+            # selection — with none we cannot know what to re-read. Warn
+            # instead of silently diffing the stored fixed set (5c.4).
+            self._show_message(
+                _("select footprints on the board first — this record's Reread "
+                  "scope is the current selection"), _ERROR_STYLE)
+            return None
         return {"board": board, "stored": dict(self._entry),
+                "scope_refs": scope_refs,
                 "root": str(self._root_path) if self._root_path else None,
                 "path": str(self._path) if self._path else None}
 
@@ -707,10 +774,13 @@ class SchemeListFormWidget(QWidget):
 
     def _run_reread(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Worker thread: build the diff against the live board — never
-        touches a widget, applies nothing."""
+        touches a widget, applies nothing. The CURRENT scope (payload's
+        ``scope_refs``, 5c.4) makes the diff add/remove refs, not just diff the
+        stored fixed set."""
         try:
             stored = load_scheme_list(payload["stored"])
-            diff = build_scheme_list_diff(stored, payload["board"].adapter)
+            diff = build_scheme_list_diff(stored, payload["board"].adapter,
+                                          scope_refs=payload.get("scope_refs"))
         except ValidationError as e:
             return {"error": str(e)}
         except Exception as e:
@@ -754,13 +824,22 @@ class SchemeListFormWidget(QWidget):
     def _run_reread_apply(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Worker thread: fresh capture + write the record back to its owning
         file (or the default scheme_lists.json when none). Pure file/IPC work.
-        """
+
+        5c: the capture refs are the record's CURRENT ``scope_refs`` (the
+        payload's, = the diff's refs_for_fresh whenever Apply is allowed, i.e.
+        while no recorded ref is missing) — added refs land in the record and
+        refs removed from the scope fall out. The record's stored
+        ``scope_sheet_paths`` is PRESERVED, otherwise the first Reread-Apply
+        would silently drop the "By sheet" scope."""
         try:
             stored = load_scheme_list(payload["stored"])
             adapter = payload["board"].adapter
+            scope_refs = payload.get("scope_refs")
+            refs = (scope_refs if scope_refs is not None
+                    else [c.ref for c in stored.components])
             fresh = capture_scheme_list(
                 name=stored.name,
-                refs=[c.ref for c in stored.components],
+                refs=refs,
                 anchor_ref=stored.anchor_ref,
                 anchor_pad=stored.anchor_pad,
                 adapter=adapter,
@@ -768,7 +847,10 @@ class SchemeListFormWidget(QWidget):
                 # re-capture must NOT re-derive it (5a.2: source_sheet now
                 # comes from the anchor's own sheet path, and Reread's job is
                 # geometry, not re-sourcing).
-                source_sheet=stored.source_sheet)
+                source_sheet=stored.source_sheet,
+                # 5c: carry the stored "By sheet" scope into the rewritten
+                # record (None for a "By selection"-record).
+                scope_sheet_paths=stored.scope_sheet_paths)
             load_scheme_list(scheme_list_to_dict(fresh))  # validate before writing
             root_path = Path(payload["root"]) if payload.get("root") else Path(".")
             target_path = Path(payload["path"]) if payload.get("path") else None

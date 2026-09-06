@@ -31,6 +31,7 @@ from gui.docks.scheme_list import (
     read_scheme_list_records,
     record_refs_for,
     refs_on_sheet,
+    reread_scope_refs,
     scheme_list_duplicate_problems,
     scheme_list_to_dict,
     sheet_paths_under,
@@ -177,6 +178,14 @@ def _connect_board(dock, adapter) -> None:
     dock._connection.board = SimpleNamespace(adapter=adapter)
 
 
+def _select(dock, *refs) -> None:
+    """Emulate the polled live board selection (DockHub.set_board_selection,
+    5c.4) — the Reread scope of a "By selection"-record is the CURRENT
+    selection at click time, so the tests feed the recorded refs (or a
+    changed set) as the selection before _do_reread/_do_reread_apply."""
+    dock.set_board_selection([], [SimpleNamespace(ref=r) for r in refs])
+
+
 # ── scheme_list_to_dict round-trip ─────────────────────────────────────────
 
 def test_scheme_list_to_dict_round_trips_through_the_loader(main_window):
@@ -232,12 +241,16 @@ def test_reread_identical_board_reports_no_changes(main_window, tmp_path):
     root = _record_file(tmp_path, d)
     dock = _make_dock(main_window, root, d)
     _connect_board(dock, adapter)
+    # "By selection"-record (no scope_sheet_paths): Reread's scope is the
+    # CURRENT board selection (5c.4) — select the recorded region itself.
+    _select(dock, "R1", "C1", "C2")
 
     result = dock._do_reread()
     assert "diff" in result
     diff = result["diff"]
     assert diff.changed is False
     assert diff.components_moved == []
+    assert diff.components_added == [] and diff.refs_removed_from_scope == []
     assert diff.vias_added == [] and diff.tracks_removed == []
 
 
@@ -249,6 +262,8 @@ def test_reread_reports_moved_component_and_apply_rewrites_record(main_window, t
     # C2 moved +0.5 mm on the live board
     adapter1 = _line_board(c2_x_mm=24.5)
     _connect_board(dock, adapter1)
+    # same recorded region as the CURRENT selection -> the fixed-set diff
+    _select(dock, "R1", "C1", "C2")
 
     result = dock._do_reread()
     diff = result["diff"]
@@ -279,10 +294,14 @@ def test_reread_missing_ref_is_reported_not_silent(main_window, tmp_path):
     dock = _make_dock(main_window, root, d)
     adapter._fps = [fp for fp in adapter._fps if fp.ref != "C2"]
     _connect_board(dock, adapter)
+    # only the PRESENT refs can be re-selected (5c.4) — C2 stays a refs_not_found
+    _select(dock, "R1", "C1")
 
     result = dock._do_reread()
     diff = result["diff"]
     assert diff.refs_not_found == ["C2"]
+    # a physically-absent recorded ref is NEVER double-counted as removed-from-scope
+    assert diff.refs_removed_from_scope == []
     assert diff.anchor_missing is False
     assert diff.changed is True
 
@@ -408,6 +427,7 @@ def test_diff_dialog_gates_apply_when_a_ref_is_missing(main_window, tmp_path):
     # C2 moved on the live board -> clean diff, Apply allowed
     adapter1 = _line_board(c2_x_mm=24.5)
     _connect_board(dock, adapter1)
+    _select(dock, "R1", "C1", "C2")
     clean_diff = dock._do_reread()["diff"]
     dialog = SchemeListDiffDialog("amp", clean_diff, main_window)
     apply_btn = next(b for b in dialog.findChildren(QPushButton) if b.text() == "Apply")
@@ -416,6 +436,7 @@ def test_diff_dialog_gates_apply_when_a_ref_is_missing(main_window, tmp_path):
     # a missing ref -> the same dialog shows the problem and disables Apply
     adapter._fps = [fp for fp in adapter._fps if fp.ref != "C2"]
     _connect_board(dock, adapter)
+    _select(dock, "R1", "C1")
     missing_diff = dock._do_reread()["diff"]
     assert missing_diff.refs_not_found == ["C2"]
     dialog2 = SchemeListDiffDialog("amp", missing_diff, main_window)
@@ -696,6 +717,9 @@ def test_record_scheme_list_by_sheet_payload_refs_match_checked_sheets(
         assert len(payloads) == 1
         # Ch1's C3 is excluded; R1/C1/C2/U1 are the checked-sheet union.
         assert payloads[0]["refs"] == ["C1", "C2", "R1", "U1"]
+        # 5c.1 — the CHECKED leaf paths are persisted as the record's scope.
+        assert payloads[0]["scope_sheet_paths"] == [
+            ["Top"], ["Top", "Ch0"], ["Top", "Ch0", "Amp"]]
     finally:
         hub.log_dock.remove_handler()
         if hub._log_file_handler is not None:
@@ -756,6 +780,8 @@ def test_record_scheme_list_by_selection_payload_matches_selection_refs(
 
         assert len(payloads) == 1
         assert payloads[0]["refs"] == ["C1", "R1"]  # the board selection
+        # 5c.1 — a "By selection" Record persists NO scope (None).
+        assert payloads[0]["scope_sheet_paths"] is None
     finally:
         hub.log_dock.remove_handler()
         if hub._log_file_handler is not None:
@@ -987,8 +1013,195 @@ def test_run_resource_scheme_list_payload_uses_fixed_name_checked_refs_and_owner
         assert p["refs"] == ["C1", "C2", "R1", "U1"]
         assert p["anchor_ref"] == "R1"
         assert p["target_path"] == str(root)
+        # 5c.1 — a "By sheet" Re-source stores the NEW checked paths as scope.
+        assert p["scope_sheet_paths"] == [
+            ["Top"], ["Top", "Ch0"], ["Top", "Ch0", "Amp"]]
     finally:
         hub.log_dock.remove_handler()
         if hub._log_file_handler is not None:
             logging.getLogger().removeHandler(hub._log_file_handler)
             hub._log_file_handler.close()
+
+
+# ── Stage 5c: Reread with a changeable REF SET ──────────────────────────────
+# plan_2026_09_06_scheme_list_sheet_capture.md 5c — Reread recomputes the
+# CURRENT scope and adds/removes refs (no strict per-piece validation, design
+# §4): "By sheet"-records recompute it from the stored scope_sheet_paths over
+# the live snapshot (one click, no dialog); "By selection"-records take it from
+# the CURRENT board selection (empty -> warning, no crash). Reread-Apply must
+# preserve the stored scope_sheet_paths.
+
+def _add_fp_to(adapter, ref, x_mm, y_mm=10.0, angle=0.0):
+    """Append one footprint (pad only — no extra copper) to a _line_board
+    adapter, so a capture can resolve it as a recorded/added component."""
+    fp = _fp(ref, x_mm, y_mm, angle=angle)
+    adapter._fps.append(fp)
+    adapter._pads[ref] = [_pad(ref, x_mm, y_mm, _V5)]
+    return fp
+
+
+def test_reread_scope_refs_by_sheet_recomputes_from_stored_paths():
+    """5c.4 — the CURRENT scope of a "By sheet"-record is recomputed from the
+    STORED scope_sheet_paths against the live snapshot (refs_on_sheet union) —
+    no board selection is consulted."""
+    snapshot = _snap(("R1", ("Channel_0",)), ("C1", ("Channel_0",)),
+                     ("C2", ("Channel_0",)), ("X1", ("Other",)))
+    stored = load_scheme_list({"name": "amp", "anchor_ref": "R1",
+                               "scope_sheet_paths": [["Channel_0"]],
+                               "components": [{"ref": "R1"}, {"ref": "C1"}]})
+    assert reread_scope_refs(stored, snapshot, ["X1"]) == ["C1", "C2", "R1"]
+    # a narrowed checklist (only a sub-leaf) narrows the scope accordingly
+    stored2 = load_scheme_list({"name": "amp", "anchor_ref": "R1",
+                                "scope_sheet_paths": [["Channel_0", "Sub"]],
+                                "components": [{"ref": "R1"}]})
+    assert reread_scope_refs(stored2, snapshot, []) == []
+
+
+def test_reread_scope_refs_by_selection_uses_current_selection():
+    """5c.4 — the CURRENT scope of a "By selection"-record (no scope_sheet_
+    paths) IS the current board selection (possibly a CHANGED set); an empty
+    selection yields an empty scope (the caller warns, does not diff silently)."""
+    stored = load_scheme_list({"name": "amp", "anchor_ref": "R1",
+                               "components": [{"ref": "R1"}, {"ref": "C1"}]})
+    assert reread_scope_refs(stored, [], ["C4", "R1"]) == ["C4", "R1"]
+    assert reread_scope_refs(stored, [], []) == []
+
+
+def test_reread_by_selection_without_selection_warns_not_crash(
+        main_window, tmp_path, caplog):
+    """5c.4 — a "By selection"-record Reread with NO current board selection is
+    a warning (no crash, no silent fixed-set diff)."""
+    adapter = _line_board()
+    d = _record_dict(adapter)
+    root = _record_file(tmp_path, d)
+    dock = _make_dock(main_window, root, d)
+    _connect_board(dock, adapter)
+    # no _select(...) — the dock's tracked selection is empty
+    result = dock._do_reread()
+    assert result == {}  # _collect_reread_payload aborted on the empty scope
+    assert any("select footprints on the board first" in r.message
+               for r in caplog.records)
+
+
+def test_reread_by_selection_added_ref_lands_in_record_after_apply(
+        main_window, tmp_path):
+    """5c.4 Apply — a ref newly selected (present on the board, absent from the
+    stored record) is components_added in the diff and really lands in the
+    rewritten record's components after Apply (no per-item confirm dialog)."""
+    adapter0 = _line_board(c2_x_mm=24.0)
+    d0 = _record_dict(adapter0)  # R1/C1/C2, "By selection"-style (no scope)
+    root = _record_file(tmp_path, d0)
+    dock = _make_dock(main_window, root, d0)
+    adapter1 = _line_board(c2_x_mm=24.0)
+    _add_fp_to(adapter1, "C9", 30.0)  # the board gained a NEW component
+    _connect_board(dock, adapter1)
+    _select(dock, "R1", "C1", "C2", "C9")  # C9 now in the current selection
+
+    diff = dock._do_reread()["diff"]
+    assert {c.ref for c in diff.components_added} == {"C9"}
+    assert diff.refs_removed_from_scope == []
+    assert diff.changed is True
+
+    apply_result = dock._do_reread_apply()
+    assert "error" not in apply_result
+    entry = _load(root)["scheme_lists"][0]
+    assert "C9" in {c["ref"] for c in entry["components"]}
+
+
+def test_reread_by_selection_removed_ref_falls_out_after_apply(
+        main_window, tmp_path):
+    """5c.4 Apply — a recorded ref that is present on the board but OUT of the
+    current selection is refs_removed_from_scope and really falls OUT of the
+    rewritten record's components after Apply (no per-item confirm dialog)."""
+    adapter = _line_board(c2_x_mm=24.0)
+    d = _record_dict(adapter)  # R1/C1/C2
+    root = _record_file(tmp_path, d)
+    dock = _make_dock(main_window, root, d)
+    _connect_board(dock, adapter)
+    _select(dock, "R1", "C1")  # C2 left the current selection
+
+    diff = dock._do_reread()["diff"]
+    assert diff.refs_removed_from_scope == ["C2"]
+    assert {c.ref for c in diff.components_moved} == set()
+    assert diff.changed is True
+
+    apply_result = dock._do_reread_apply()
+    assert "error" not in apply_result
+    entry = _load(root)["scheme_lists"][0]
+    assert {c["ref"] for c in entry["components"]} == {"R1", "C1"}
+
+
+def test_reread_by_sheet_recomputes_scope_without_selection_and_apply_keeps_it(
+        main_window, tmp_path):
+    """5c.4 — a "By sheet"-record Reread stays ONE-CLICK: the scope is
+    recomputed from the STORED scope_sheet_paths against the live snapshot (no
+    selection/dialog), so a NEW footprint that appeared on the recorded leaf is
+    picked up as components_added — and Apply preserves the scope in the
+    rewritten record (it must not silently degrade to a selection-scoped one)."""
+    adapter0 = _line_board(c2_x_mm=24.0)
+    d0 = _record_dict(adapter0)  # R1/C1/C2, source_sheet Channel_0
+    d0["scope_sheet_paths"] = [["Channel_0"]]
+    root = _record_file(tmp_path, d0)
+    dock = _make_dock(main_window, root, d0)
+
+    adapter1 = _line_board(c2_x_mm=24.0)
+    _add_fp_to(adapter1, "C9", 30.0)  # C9 now ALSO on Channel_0
+    _connect_board(dock, adapter1)
+    dock._connection.snapshot = _snap(("R1", ("Channel_0",)),
+                                      ("C1", ("Channel_0",)),
+                                      ("C2", ("Channel_0",)),
+                                      ("C9", ("Channel_0",)))
+    # NO _select(...) — the By-sheet scope comes from the stored paths.
+
+    diff = dock._do_reread()["diff"]
+    assert {c.ref for c in diff.components_added} == {"C9"}
+    assert diff.refs_removed_from_scope == []
+    assert diff.changed is True
+
+    apply_result = dock._do_reread_apply()
+    assert "error" not in apply_result
+    entry = _load(root)["scheme_lists"][0]
+    assert entry["scope_sheet_paths"] == [["Channel_0"]]
+    assert {c["ref"] for c in entry["components"]} >= {"C9"}
+
+
+def test_reread_apply_keeps_placed_entity_resolvable(main_window, tmp_path):
+    """5c round-trip gate (plan) — a record already Placed (Entity with
+    scheme_list: "amp") still resolves through load_config + link_trees after a
+    Reread-Apply that REMOVED a ref from the scope: the record is rewritten to
+    the smaller set, but the Entity points at it by NAME, so the link survives."""
+    adapter0 = _line_board(c2_x_mm=24.0)
+    d0 = _record_dict(adapter0)  # R1/C1/C2
+    root = tmp_path / "root.sexp"
+    _write(root, {
+        "scheme_lists": [d0],
+        "entities": [{"name": "E_AMP", "scheme_list": "amp"}],
+        "trees": [{"name": "main", "anchor": {"origin": True},
+                   "nodes": [{"ref": "E_AMP", "kind": "placement",
+                              "xy": [0.0, 0.0]}]}],
+    })
+    entry = _load(root)["scheme_lists"][0]
+    dock = _make_dock(main_window, root, entry)
+    _connect_board(dock, adapter0)
+    _select(dock, "R1", "C1")  # C2 removed from the current scope
+
+    diff = dock._do_reread()["diff"]
+    assert diff.refs_removed_from_scope == ["C2"]
+    apply_result = dock._do_reread_apply()
+    assert "error" not in apply_result
+
+    # the record was rewritten to the smaller set...
+    rec = {e["name"]: e for e in _load(root)["scheme_lists"]}["amp"]
+    assert {c["ref"] for c in rec["components"]} == {"R1", "C1"}
+    # ...and the already-placed Entity still resolves via link_trees.
+    cfg, _ = load_config(str(root))
+    linked = link_trees(cfg, cfg.trees)[0]
+
+    def _walk(lnodes):
+        for ln in lnodes:
+            yield ln
+            yield from _walk(ln.children)
+
+    ln = next(ln for ln in _walk(linked.nodes) if ln.node.ref == "E_AMP")
+    assert ln.record is not None
+    assert ln.record.name == "E_AMP"

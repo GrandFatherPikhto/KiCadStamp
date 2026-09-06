@@ -74,6 +74,37 @@ def test_record_loads_explicit_anchor_rotation_deg():
     assert sl.anchor_rotation_deg == 90.0
 
 
+def test_record_scope_sheet_paths_defaults_to_none():
+    """5c.1 — scope_sheet_paths is OPTIONAL (None default): an absent/empty
+    value means a "By selection"-record (or a pre-5c legacy record) whose
+    Reread scope is NOT persisted."""
+    sl = load_scheme_list(_record())
+    assert sl.scope_sheet_paths is None
+    sl2 = load_scheme_list(_record(scope_sheet_paths=[]))
+    assert sl2.scope_sheet_paths is None
+
+
+def test_record_loads_scope_sheet_paths():
+    """5c.1 — the checked leaf paths of a "By sheet" record round-trip through
+    the loader as list[list[str]] (single-segment paths included)."""
+    sl = load_scheme_list(_record(
+        scope_sheet_paths=[["Top", "Channel_0"], ["Top"]]))
+    assert sl.scope_sheet_paths == [["Top", "Channel_0"], ["Top"]]
+
+
+def test_record_scope_sheet_paths_must_be_path_lists():
+    """5c.1 — a malformed scope_sheet_paths is a fatal (a path is a non-empty
+    list of non-empty sheet-name strings), never a silent garbage accept."""
+    with pytest.raises(ValidationError, match="scope_sheet_paths"):
+        load_scheme_list(_record(scope_sheet_paths="Channel_0"))
+    with pytest.raises(ValidationError, match="scope_sheet_paths"):
+        load_scheme_list(_record(scope_sheet_paths=[["Channel_0"], 42]))
+    with pytest.raises(ValidationError, match="scope_sheet_paths"):
+        load_scheme_list(_record(scope_sheet_paths=[["Channel_0"], []]))
+    with pytest.raises(ValidationError, match="scope_sheet_paths"):
+        load_scheme_list(_record(scope_sheet_paths=[["Channel_0"], [""]]))
+
+
 def test_record_requires_name_and_anchor_ref():
     with pytest.raises(ValidationError, match="without name"):
         load_scheme_list({"anchor_ref": "C1", "components": [{"ref": "C1"}]})

@@ -863,7 +863,7 @@ def _load_entity(data: dict[str, Any]) -> Entity:
 
 _SCHEME_LIST_KNOWN_KEYS = {
     'name', 'anchor_ref', 'anchor_pad', 'anchor_rotation_deg', 'source_sheet',
-    'components', 'vias', 'tracks', 'boundary_nets',
+    'scope_sheet_paths', 'components', 'vias', 'tracks', 'boundary_nets',
 }
 _SCHEME_LIST_COMPONENT_KNOWN_KEYS = {
     'ref', 'offset_along_mm', 'offset_across_mm', 'rotation_deg',
@@ -999,6 +999,35 @@ def _load_scheme_list_boundary_nets(raw: list | None,
     return out
 
 
+def _load_scheme_list_scope_paths(raw, owner: str) -> list[list[str]] | None:
+    """Parse scheme_lists' ``scope_sheet_paths`` (plan_2026_09_06_scheme_
+    list_sheet_capture.md 5c.1): the CHECKED leaf sheet paths of a "By sheet"
+    capture, stored as list[list[str]] (each inner list is one full path, e.g.
+    ['Top', 'Channel_0']). None when absent/empty (a "By selection"-record, or
+    a pre-5c legacy record — no persisted scope). Each row must be a non-empty
+    list of non-empty sheet-name strings."""
+    if not raw:
+        return None
+    if not isinstance(raw, list):
+        raise ValidationError(format_fatal_error(
+            _("scheme_lists entry {name!r}: scope_sheet_paths must be a list of sheet paths").format(
+                name=owner),
+            [_("each scope path is a list of sheet-name strings, e.g. "
+               "[['Top', 'Channel_0'], ['Top']] — the checked leaves of the "
+               "capture checklist; got {raw!r}").format(raw=raw)]))
+    out: list[list[str]] = []
+    for i, path in enumerate(raw):
+        if (not isinstance(path, list) or not path
+                or not all(isinstance(seg, str) and seg for seg in path)):
+            raise ValidationError(format_fatal_error(
+                _("scheme_lists entry {name!r}: scope_sheet_paths[{i}] must be a sheet path").format(
+                    name=owner, i=i),
+                [_("a sheet path is a non-empty list of non-empty sheet-name "
+                   "strings, e.g. ['Top', 'Channel_0']; got {path!r}").format(path=path)]))
+        out.append([str(seg) for seg in path])
+    return out
+
+
 def _load_scheme_list(data: dict[str, Any]) -> SchemeListConfig:
     """One scheme_lists: entry — a recorded live-board snapshot
     (design_2026_09_05_scheme_list.md §3). Pure single-entry validator,
@@ -1044,6 +1073,8 @@ def _load_scheme_list(data: dict[str, Any]) -> SchemeListConfig:
         anchor_pad=data.get('anchor_pad'),
         anchor_rotation_deg=float(data.get('anchor_rotation_deg', 0.0)),
         source_sheet=data.get('source_sheet'),
+        scope_sheet_paths=_load_scheme_list_scope_paths(
+            data.get('scope_sheet_paths'), name),
         components=components,
         vias=_load_scheme_list_vias(data.get('vias'), name),
         tracks=_load_scheme_list_tracks(data.get('tracks'), name),

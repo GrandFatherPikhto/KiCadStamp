@@ -479,11 +479,19 @@ class DockHub:
             logging.getLogger(__name__).warning(
                 "Re-source: could not load sheet_names from %s — source_sheet "
                 "will be left unset", root_path, exc_info=True)
+        # 5c.1 — same scope persistence as Record: a "By sheet" Re-source
+        # stores the NEW checked leaf paths as the record's scope; a "By
+        # selection" Re-source stores none.
+        if dialog.is_by_sheet():
+            scope_sheet_paths = [list(p) for p in (checked_paths or [])]
+        else:
+            scope_sheet_paths = None
         payload = {"board": board, "name": record_name, "refs": refs,
                    "anchor_ref": anchor_ref, "root": str(root_path),
                    "target_path": (str(file_path)
                                    if file_path is not None else None),
-                   "sheet_names": sheet_names}
+                   "sheet_names": sheet_names,
+                   "scope_sheet_paths": scope_sheet_paths}
         self._scheme_active_op = start_long_op(
             connection, (), self._run_resource_capture,
             self._finish_resource_capture, self._on_resource_op_failed, payload)
@@ -932,6 +940,10 @@ class DockHub:
         # Place page's opt-in "from selection" hint reads the current selection
         # center — fed by the same polled snapshot tick as Placer's auto-fill.
         self.scheme_list_place_dock.set_board_selection(items, selected)
+        # Scheme List record Reread (5c.4): a "By selection"-record's scope is
+        # the CURRENT board selection at click time — the record dock needs the
+        # same selection tick.
+        self.scheme_list_dock.set_board_selection(items, selected)
 
     def push_fieldstool_selection(self, refs) -> None:
         """Live board selection -> embedded fieldstool's target label (Phase
@@ -1193,9 +1205,17 @@ class DockHub:
             logging.getLogger(__name__).warning(
                 "Record: could not load sheet_names from %s — source_sheet "
                 "will be left unset", root_path, exc_info=True)
+        # 5c.1 — a "By sheet" Record persists the CHECKED leaf paths as the
+        # record's scope (a later Reread recomputes the current scope from
+        # them); a "By selection" Record persists no scope (None).
+        if dialog.is_by_sheet():
+            scope_sheet_paths = [list(p) for p in (checked_paths or [])]
+        else:
+            scope_sheet_paths = None
         payload = {"board": board, "name": name, "refs": refs,
                    "anchor_ref": anchor_ref, "root": str(root_path),
-                   "sheet_names": sheet_names}
+                   "sheet_names": sheet_names,
+                   "scope_sheet_paths": scope_sheet_paths}
         self._scheme_active_op = start_long_op(
             connection, (), self._run_record_capture, self._finish_record_capture,
             self._on_record_op_failed, payload)
@@ -1209,7 +1229,8 @@ class DockHub:
                 name=payload["name"], refs=payload["refs"],
                 anchor_ref=payload["anchor_ref"],
                 adapter=payload["board"].adapter,
-                sheet_names=payload.get("sheet_names"))
+                sheet_names=payload.get("sheet_names"),
+                scope_sheet_paths=payload.get("scope_sheet_paths"))
         except Exception as e:  # noqa: BLE001 — ValidationError family surfaces verbatim
             logging.getLogger(__name__).exception("Scheme List record capture failed")
             return {"error": str(e)}
@@ -1261,7 +1282,8 @@ class DockHub:
                 name=payload["name"], refs=payload["refs"],
                 anchor_ref=payload["anchor_ref"],
                 adapter=payload["board"].adapter,
-                sheet_names=payload.get("sheet_names"))
+                sheet_names=payload.get("sheet_names"),
+                scope_sheet_paths=payload.get("scope_sheet_paths"))
             root_path = Path(payload["root"])
             target_path = (Path(payload["target_path"])
                            if payload.get("target_path") else None)
