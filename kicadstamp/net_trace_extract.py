@@ -35,6 +35,7 @@ from .exceptions import (
     yaml_removed_config_error,
 )
 from .placement.services.clone_role_resolver import resolve_footprint_by_role
+from .utils.layers import layer_to_str
 from .utils.units import MM
 from .i18n import _
 
@@ -42,8 +43,9 @@ logger = logging.getLogger(__name__)
 
 
 def _layer_str(layer: BoardLayer) -> str:
-    """BoardLayer -> 'F.Cu'/'B.Cu'."""
-    return "B.Cu" if layer == BoardLayer.BL_B_Cu else "F.Cu"
+    """BoardLayer -> KiCad copper-layer name — delegates to the shared mapper
+    (utils/layers.py), which covers the full copper stack (F.Cu..B.Cu)."""
+    return layer_to_str(layer)
 
 
 def extract_net_trace(

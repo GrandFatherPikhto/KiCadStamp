@@ -146,9 +146,51 @@ class Angle:
 
 
 class BoardLayer(Enum):
-    """A copper board layer — mirrors kipy's BoardLayer BL_F_Cu/BL_B_Cu."""
+    """A copper board layer — the full copper set of kipy's BoardLayer
+    (BL_F_Cu, BL_In1_Cu..BL_In30_Cu, BL_B_Cu).
+
+    Values are domain-internal (the adapter maps kipy <-> domain explicitly;
+    nothing in the domain depends on them matching kipy's numbering). The two
+    historical members keep their values (BL_F_Cu == 0, BL_B_Cu == 32 — 31 is
+    left unused) so existing 2-layer logic is untouched.
+
+    Added 2026-09-06 (plan_2026_09_05_scheme_list.md Step 0): the project
+    boards are 4-copper-layer (F.Cu/In1.Cu/In2.Cu/B.Cu) and capture reads
+    "all copper layers of the real stack" — a binary F/B enum made
+    domain/board.py::_layer_from_kipy silently map inner-layer tracks to F.Cu.
+    """
 
     BL_F_Cu = 0
+    BL_In1_Cu = 1
+    BL_In2_Cu = 2
+    BL_In3_Cu = 3
+    BL_In4_Cu = 4
+    BL_In5_Cu = 5
+    BL_In6_Cu = 6
+    BL_In7_Cu = 7
+    BL_In8_Cu = 8
+    BL_In9_Cu = 9
+    BL_In10_Cu = 10
+    BL_In11_Cu = 11
+    BL_In12_Cu = 12
+    BL_In13_Cu = 13
+    BL_In14_Cu = 14
+    BL_In15_Cu = 15
+    BL_In16_Cu = 16
+    BL_In17_Cu = 17
+    BL_In18_Cu = 18
+    BL_In19_Cu = 19
+    BL_In20_Cu = 20
+    BL_In21_Cu = 21
+    BL_In22_Cu = 22
+    BL_In23_Cu = 23
+    BL_In24_Cu = 24
+    BL_In25_Cu = 25
+    BL_In26_Cu = 26
+    BL_In27_Cu = 27
+    BL_In28_Cu = 28
+    BL_In29_Cu = 29
+    BL_In30_Cu = 30
     BL_B_Cu = 32
 
 

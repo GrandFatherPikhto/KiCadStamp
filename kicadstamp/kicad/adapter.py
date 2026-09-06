@@ -22,6 +22,8 @@ from ..domain.board import (
     Zone,
     board_item_from_kipy,
     footprint_from_kipy,
+    layer_from_kipy,
+    layer_to_kipy,
     net_from_kipy,
     pad_from_kipy,
     track_from_kipy,
@@ -595,8 +597,7 @@ class KiCadBoardAdapter(IBoardAdapter):
         if isinstance(dto, Footprint):
             kipy_item.position = KipyVector2.from_xy(dto.position.x, dto.position.y)
             kipy_item.orientation = KipyAngle.from_degrees(dto.angle_deg)
-            kipy_item.layer = (KipyBoardLayer.BL_B_Cu if dto.layer == BoardLayer.BL_B_Cu
-                               else KipyBoardLayer.BL_F_Cu)
+            kipy_item.layer = layer_to_kipy(dto.layer)
 
     def update_items(self, items):
         logger.debug(_("Updating {count} items").format(count=len(items)))
@@ -694,7 +695,7 @@ class KiCadBoardAdapter(IBoardAdapter):
         track.end = KipyVector2.from_xy(end.x, end.y)
         track.width = int(width_mm * MM)
         track.net = unwrap(net)
-        track.layer = KipyBoardLayer.BL_B_Cu if layer == BoardLayer.BL_B_Cu else KipyBoardLayer.BL_F_Cu
+        track.layer = layer_to_kipy(layer)
         return Track(uuid="", start=start, end=end, net_name=net.name if net else None,
                      width_mm=width_mm, layer=layer, _kipy=track)
 

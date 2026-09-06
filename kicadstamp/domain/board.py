@@ -39,6 +39,8 @@ __all__ = [
     "Zone",
     "board_item_from_kipy",
     "footprint_from_kipy",
+    "layer_from_kipy",
+    "layer_to_kipy",
     "net_from_kipy",
     "pad_from_kipy",
     "track_from_kipy",
@@ -166,8 +168,58 @@ def _point_from_kipy(v) -> Vector2:
     return Vector2(v.x, v.y)
 
 
-def _layer_from_kipy(layer) -> BoardLayer:
-    return BoardLayer.BL_B_Cu if layer == KipyBoardLayer.BL_B_Cu else BoardLayer.BL_F_Cu
+# Full-copper mapping between kipy's BoardLayer and the domain BoardLayer.
+# Member names are identical on both sides (BL_F_Cu .. BL_B_Cu incl. the inner
+# BL_In1_Cu..BL_In30_Cu copper layers), so the tables are built by name rather
+# than hard-coding kipy's numeric values. Added 2026-09-06
+# (plan_2026_09_05_scheme_list.md Step 0): the old binary mapper silently
+# collapsed every inner layer to F.Cu, which would corrupt capture of a real
+# stack's inner-layer copper.
+_COPPER_LAYER_MEMBER_NAMES = (
+    ["BL_F_Cu"] + [f"BL_In{i}_Cu" for i in range(1, 31)] + ["BL_B_Cu"]
+)
+
+
+def _build_copper_layer_maps():
+    kipy_to_domain = {}
+    domain_to_kipy = {}
+    for member_name in _COPPER_LAYER_MEMBER_NAMES:
+        domain_layer = BoardLayer[member_name]
+        kipy_value = KipyBoardLayer.Value(member_name)
+        kipy_to_domain[kipy_value] = domain_layer
+        domain_to_kipy[domain_layer] = kipy_value
+    return kipy_to_domain, domain_to_kipy
+
+
+_KIPY_CU_TO_DOMAIN, _DOMAIN_CU_TO_KIPY = _build_copper_layer_maps()
+
+
+def layer_from_kipy(layer) -> BoardLayer:
+    """Map a kipy copper layer to the domain BoardLayer.
+
+    Explicit for every copper layer (F.Cu/In1.Cu..In30.Cu/B.Cu) — real
+    inner-layer copper is no longer silently collapsed to F.Cu (the old binary
+    mapper's bug). Anything NOT one of those 33 members keeps the historical
+    F.Cu fallback instead of raising: the table already covers every kipy
+    copper member, so an unknown value is only ever a non-copper sentinel or a
+    test double — never real routed copper.
+    """
+    try:
+        return _KIPY_CU_TO_DOMAIN[layer]
+    except (KeyError, TypeError):
+        return BoardLayer.BL_F_Cu
+
+
+def layer_to_kipy(layer: BoardLayer):
+    """Map a domain BoardLayer back to the kipy copper layer value (write path).
+
+    The inverse of :func:`layer_from_kipy` — one shared source of truth so the
+    adapter's ``create_track``/``update_items`` cannot drift from the reader.
+    """
+    try:
+        return _DOMAIN_CU_TO_KIPY[layer]
+    except KeyError:
+        raise ValueError(f"not a copper layer: {layer!r}") from None
 
 
 def net_from_kipy(net: KipyNet) -> Net:
@@ -187,7 +239,7 @@ def footprint_from_kipy(fp: FootprintInstance) -> Footprint:
         uuid=str(fp.id.value),
         position=_point_from_kipy(fp.position),
         angle_deg=fp.orientation.degrees,
-        layer=_layer_from_kipy(fp.layer),
+        layer=layer_from_kipy(fp.layer),
         value=fp.value_field.text.value if fp.value_field else None,
         sheet_path_uuids=sheet_path_uuids,
         _kipy=fp,
@@ -233,7 +285,7 @@ def track_from_kipy(track: KipyTrack) -> Track:
         end=_point_from_kipy(track.end),
         net_name=track.net.name if track.net else None,
         width_mm=track.width / MM,
-        layer=_layer_from_kipy(track.layer),
+        layer=layer_from_kipy(track.layer),
         _kipy=track,
     )
 
