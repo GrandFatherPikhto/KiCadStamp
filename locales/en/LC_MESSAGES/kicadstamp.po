@@ -14868,3 +14868,142 @@ msgstr ""
 
 msgid "Scheme List {entity} ({mode}):"
 msgstr ""
+
+msgid "(root sheet)"
+msgstr ""
+
+msgid "Anchor component:"
+msgstr ""
+
+msgid "Anchor pad:"
+msgstr ""
+
+msgid "Anchor rotation (at record):"
+msgstr ""
+
+msgid "Apply is disabled while component(s) are missing from the board — restore them and Reread again."
+msgstr ""
+
+msgid "Boundary nets"
+msgstr ""
+
+msgid "Cannot record Scheme List"
+msgstr ""
+
+msgid "Load a Scheme List record first."
+msgstr ""
+
+msgid "No footprints selected — select the footprints to record on the board first."
+msgstr ""
+
+msgid "Pick a Scheme List in the Config tree first."
+msgstr ""
+
+msgid "Record Scheme List"
+msgstr ""
+
+msgid "Record failed"
+msgstr ""
+
+msgid "Record with exclusions"
+msgstr ""
+
+msgid "Record..."
+msgstr ""
+
+msgid "Recorded Scheme List {name!r} — {components} components, {vias} vias, {tracks} tracks -> {path}"
+msgstr ""
+
+msgid "Recorded geometry:"
+msgstr ""
+
+msgid "Reread"
+msgstr ""
+
+msgid "Reread apply failed: {error}"
+msgstr ""
+
+msgid "Reread compares this record against the live board and, after an explicit Apply, rewrites it — it never places anything. Cloning a Scheme List onto another sheet happens through a tree Entity (scheme_list:), not here."
+msgstr ""
+
+msgid "Reread failed: {error}"
+msgstr ""
+
+msgid "Reread..."
+msgstr ""
+
+msgid "Scheme List Reread"
+msgstr ""
+
+msgid "Scheme List: {name}"
+msgstr ""
+
+msgid "Scheme Lists"
+msgstr ""
+
+msgid "Scheme lists"
+msgstr ""
+
+msgid "Source sheet:"
+msgstr ""
+
+msgid "The recorded region touches copper of components outside the selection on the following net(s):\n\n{nets}\n\nThis copper cannot be part of the Scheme List — v1 excludes it (drops each whole connected component). The exclusions are stored in the record; Reread will keep reporting changes to these nets."
+msgstr ""
+
+msgid "Updated Scheme List {name!r} from the live board -> {path}"
+msgstr ""
+
+msgid "What changed for {name!r} on the live board:"
+msgstr ""
+
+msgid "a Scheme List named {name!r} already exists — pick another name"
+msgstr ""
+
+msgid "boundary net(s) gone: {nets}"
+msgstr ""
+
+msgid "component ref(s) already recorded in another Scheme List: {refs}"
+msgstr ""
+
+msgid "component {ref!r} moved: ({old_x}, {old_y}) mm, {old_rot} deg -> ({new_x}, {new_y}) mm, {new_rot} deg"
+msgstr ""
+
+msgid "component(s) no longer on the board: {refs}"
+msgstr ""
+
+msgid "name (used by --only and Entity.scheme_list, must be unique)"
+msgstr ""
+
+msgid "new boundary net(s): {nets}"
+msgstr ""
+
+msgid "no differences"
+msgstr ""
+
+msgid "the anchor {ref!r} is not on the board"
+msgstr ""
+
+msgid "tracks added: {n}"
+msgstr ""
+
+msgid "tracks removed: {n}"
+msgstr ""
+
+msgid "vias added: {n}"
+msgstr ""
+
+msgid "vias removed: {n}"
+msgstr ""
+
+msgid "{components} components, {vias} vias, {tracks} tracks"
+msgstr ""
+
+msgid "{components} components, {vias} vias, {tracks} tracks, boundary: {nets}"
+msgstr ""
+
+msgid "{name!r} is up to date — nothing changed on the board."
+msgstr ""
+
+msgid "{net} (touched by {external_ref})"
+msgstr ""
+

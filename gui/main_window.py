@@ -347,6 +347,22 @@ class MainWindow(QMainWindow):
             lambda: self._dock_hub.edit_cell())
         self.config_menu.addAction(self.edit_cell_action)
 
+        # ── Scheme Lists submenu (2026-09-06, plan scheme_list §5.3) ──────
+        # "Record..." captures the CURRENT board selection as a named Scheme
+        # List record; "Reread..." re-syncs the Scheme List record currently
+        # selected in the Config tree against the live board (the form's Reread
+        # button + the tree's context-menu "Reread..." are the other two legs
+        # of the triple exposure). Both delegates live on DockHub.
+        self.scheme_lists_menu = tools_menu.addMenu(_("Scheme Lists"))
+        self.record_scheme_list_action = QAction(_("Record..."), self)
+        self.record_scheme_list_action.triggered.connect(
+            lambda: self._dock_hub.record_scheme_list())
+        self.scheme_lists_menu.addAction(self.record_scheme_list_action)
+        self.reread_scheme_list_action = QAction(_("Reread..."), self)
+        self.reread_scheme_list_action.triggered.connect(
+            lambda: self._dock_hub.reread_scheme_list())
+        self.scheme_lists_menu.addAction(self.reread_scheme_list_action)
+
         # ── Tools root (non-tree entries) ────────────────────────────────
         # "Place thermal vias..." (2026-09-01, plan
         # plan_2026_09_01_thermal_via_dialog.md): opens the standalone

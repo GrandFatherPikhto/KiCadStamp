@@ -17,12 +17,14 @@ from kicadstamp.config.models import (
 from kicadstamp.domain.board import Footprint, Pad
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.exceptions import ValidationError
+from kicadstamp.link_trees import link_trees
 from kicadstamp.placement.entity_placement import materialize_entity_placements
 from kicadstamp.scheme_list_apply import (
     execute_scheme_list_plans,
     plan_all_scheme_lists,
     plan_scheme_list,
 )
+from kicadstamp.tree_position import curated_redraw_plan
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode
 from kicadstamp.utils.units import MM
 
@@ -330,3 +332,23 @@ class TestExecutionIdempotency:
         plans = plan_all_scheme_lists(adapter, _scheme_cfg(), {})
         failed = execute_scheme_list_plans(adapter, plans)
         assert failed == ([], [], [])
+
+
+def test_gui_redraw_plan_emits_scheme_list_node_not_dropped():
+    """P5 gate D — the GUI Trees-Redraw path plans a checked node through
+    curated_redraw_plan and then runs ONE ApplyPipeline --only per emitted
+    name (gui/docks/cascade.py run_curated_tree_redraw), which is where the P4
+    scheme_list branch executes. A scheme_list placement node's Entity name
+    must REACH that plan (not be swallowed as a cell=None record / not be
+    silently skipped), so nothing crashes and nothing is dropped."""
+    cfg = _scheme_cfg()
+    linked = link_trees(cfg, cfg.trees)
+    assert len(linked) == 1
+    node = linked[0].nodes[0]
+    # link_trees resolves the scheme_list Entity node to a real record (its
+    # own kind, NOT the cell machinery) — the record is never cell=None.
+    assert node.record is not None
+    assert node.record.name == "E1"
+    names, warnings = curated_redraw_plan(linked[0], {"E1"})
+    assert names == ["E1"]
+    assert node.node.ref == "E1"

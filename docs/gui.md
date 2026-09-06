@@ -1096,6 +1096,38 @@ net_trace_dock.md`). Added 2026-08-21.
  Redraw uses), so a moved anchor re-places the captured copper live.
 - Clicking a `net_traces:` leaf in the Config tree loads that record into the form.
 
+## Scheme Lists
+
+The Config side of the Scheme List feature (plan `techdocs/handoff/deepseek/plan_2026_09_05_scheme_
+list.md` §5) — a named snapshot of a real, already-routed board region (see [docs/config.md](config.md)'s
+`scheme_lists:` section). Added 2026-09-06. Deliberately MINIMAL Config-side: recording and re-syncing
+a record, NOT placement — cloning a Scheme List onto another sheet happens only through a tree Entity
+with `scheme_list:` (Apply/Redraw), never from a Config form.
+
+- **Tools → Scheme Lists → Record...** — captures the CURRENT board selection as a named Scheme List:
+  1. reads the selected footprints' refs (the polled board selection — never a UI-thread IPC read);
+  2. asks a unique name + which ref is the `anchor_ref` (a combo of the selected refs);
+  3. pre-checks duplicates (duplicate name, or a ref already recorded in ANOTHER Scheme List) BEFORE the
+     expensive capture, so a record the loader would reject never wastes a board read;
+  4. captures on the worker thread (never blocking the UI);
+  5. when the connectivity closure dropped copper reaching only excluded footprints — confirms the
+     boundary-net exclusions (v1: each net is excluded as a whole connected component; the dialog shows
+     which external component dragged each net);
+  6. writes the record to the fixed `scheme_lists.json` next to the project profile, auto-wiring
+     `include: [scheme_lists.json]` on first use.
+  Nothing is applied to the board.
+- **Reread** — for the record currently SELECTED in the Config tree's `scheme_lists:` category; the same
+  flow is exposed three ways (the form's **Reread** button / the record's context-menu **Reread...** /
+  Tools → Scheme Lists → **Reread...**). It re-captures the region against the live board, shows a diff
+  dialog (component(s) no longer on the board / the anchor gone / components moved / vias & tracks added
+  & removed / new & gone boundary nets) and only on an explicit **Apply** rewrites the stored record in
+  its own file. Apply is disabled while a recorded component is missing from the board (the record
+  cannot be faithfully re-synced). Nothing is applied to the board.
+- Clicking a `scheme_lists:` leaf in the Config tree opens the record's READ-ONLY page in the Config
+  dock's right QView — the Anchor block (component-ref combo + `anchor_pad`/`anchor_rotation_deg`/
+  `source_sheet` readouts) plus a recorded-geometry summary. The record is edited only by re-recording
+  (Record...) or re-syncing (Reread), never by hand.
+
 ## Cells
 
 Edits a `cells:` entry (see [docs/config.md](config.md) on `Cell`) — Components/Vias/Tracks (local

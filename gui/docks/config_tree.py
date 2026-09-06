@@ -146,6 +146,10 @@ _SECTION_LABELS = {
     "thermal_via_arrays": _("Thermal via arrays"),
     "coordinate_placements": _("Coordinate placements"),
     "net_traces": _("Net traces"),
+    # scheme_lists: — recorded live-board snapshots (plan_2026_09_05_scheme_
+    # list.md P5): a list section shown with one leaf per record; a single
+    # click opens the record's read-only SchemeListFormWidget right page.
+    "scheme_lists": _("Scheme lists"),
     "cells": _("Cells"),
     "points": _("Points"),
     "extract_profiles": _("Extract profiles"),
@@ -338,6 +342,17 @@ class ConfigTreeDock(QDockWidget):
     # same list-section full-dict payload as rule_picked. NetTraceDock.
     # load_entry() listens.
     net_trace_picked = pyqtSignal(object)
+    # Fired by a SINGLE click on a scheme_lists leaf (2026-09-06, plan
+    # scheme_list P5) — the full record dict; DockHub loads it into the
+    # read-only SchemeListFormWidget Config right page. Same list-section
+    # full-dict payload as thermal_via_picked/net_trace_picked.
+    scheme_list_picked = pyqtSignal(object)
+    # Fired by the context menu's "Reread..." on a scheme_lists leaf
+    # (2026-09-06, plan scheme_list §5.3 — the triple exposure of Reread:
+    # form button / context menu / Tools menu). Payload is (record dict,
+    # owning file path), the same (name, file_path) shape as
+    # cell_refresh_requested; DockHub loads + runs the Reread flow.
+    scheme_list_reread_requested = pyqtSignal(object, object)
     # Fired on EVERY click in the tree (file header, category, or leaf) —
     # see module docstring for why this replaces the three independent
     # FilePickerDock role signals.
@@ -1035,6 +1050,11 @@ class ConfigTreeDock(QDockWidget):
             self.points_picked.emit(ref)
         elif section == "net_traces":
             self.net_trace_picked.emit(ref)
+        elif section == "scheme_lists":
+            # A SINGLE click on a scheme_lists leaf opens the record's
+            # read-only right page (2026-09-06, plan scheme_list P5): the
+            # payload is the full record dict (list section).
+            self.scheme_list_picked.emit(ref)
         elif section == "entities":
             # The payload is the full entity dict (list section) — emit the
             # NAME (phase 5.6), Placer's Entity source selects by name.
@@ -1203,6 +1223,16 @@ class ConfigTreeDock(QDockWidget):
         rename_target = self._rename_target_for_item(item)
         if rename_target is not None:
             section, old_name = rename_target[1], rename_target[2]
+            if section == "scheme_lists":
+                # Reread (2026-09-06, plan scheme_list §5.3): re-run the
+                # capture against the live board and, on explicit Apply, rewrite
+                # the record — the context-menu leg of the triple exposure.
+                leaf_data = item.data(0, Qt.ItemDataRole.UserRole)
+                payload = leaf_data[2] if leaf_data is not None else None
+                if payload is not None:
+                    menu.addAction(_("Reread...")).triggered.connect(
+                        lambda checked=False, p=payload:
+                        self.scheme_list_reread_requested.emit(p, file_path))
             if section == "cells":
                 menu.addAction(_("Edit cell...")).triggered.connect(
                     lambda: self.cell_edit_requested.emit(old_name, file_path))
@@ -1438,6 +1468,22 @@ class ConfigTreeDock(QDockWidget):
                 return
             for child in range(item.childCount()):
                 stack.append(item.child(child))
+
+    def selected_scheme_list(self) -> Optional[tuple]:
+        """The currently selected scheme_lists leaf as (file_path, record_dict),
+        or None when there is no selection or the selection is a different node
+        kind. The Tools menu's "Scheme Lists -> Reread..." (DockHub.
+        reread_scheme_list) operates on the Scheme List record currently
+        selected in the Config tree (2026-09-06, plan scheme_list §5.3) — the
+        mirror of selected_chain() above for the scheme_lists section."""
+        for tree_item in self.tree.selectedItems():
+            data = tree_item.data(0, Qt.ItemDataRole.UserRole)
+            if (data is not None and data[0] == "leaf"
+                    and data[1] == "scheme_lists"):
+                file_ctx = self._file_context_for_item(tree_item)
+                if file_ctx is not None:
+                    return file_ctx[0], data[2]
+        return None
 
     def _selected_export_items(self) -> list:
         """Currently selected tree leaves/nodes, as ExportItem tuples — file/

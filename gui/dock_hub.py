@@ -33,7 +33,7 @@ set_root_path and saved through the same single live instance.
 import logging
 from functools import partial
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtWidgets import QDialog, QMessageBox, QTabWidget
@@ -69,6 +69,13 @@ from .docks.thermal_via import ThermalViaArrayDock
 from .docks.tools import ToolsDock
 from .docks.tools_dialog import ToolsDialog
 from .docks.instances_dialog import TreeInstancesDialog
+from .docks.scheme_list import (
+    RecordSchemeListDialog,
+    SchemeListFormWidget,
+    confirm_boundary_exclusions,
+    scheme_list_duplicate_problems,
+    write_scheme_list_record,
+)
 
 
 class DockHub:
@@ -152,6 +159,18 @@ class DockHub:
         # the snapshot ticks / set_root_path / saved.
         self.thermal_via_dock = ThermalViaArrayDock(main_window)
         self._thermal_via_page = self.config_tree_dock.add_right_page(self.thermal_via_dock)
+        # Scheme List (2026-09-06, plan scheme_list P5, design §3): the same
+        # QView move as Thermal via/NetTrace — the single live
+        # SchemeListFormWidget is a Config right-QView page (a single click on
+        # a scheme_lists leaf opens the record read-only; Reread rewrites it on
+        # an explicit Apply). No Placement/Redraw here — that lives in Trees
+        # via the Entity(scheme_list:)/Placement machinery (P4/P6).
+        self.scheme_list_dock = SchemeListFormWidget(main_window, connection=connection)
+        self._scheme_list_page = self.config_tree_dock.add_right_page(self.scheme_list_dock)
+        # Held across the Record.../capture worker ops (worker.py keeps its own
+        # keep-alive too, but the dock keeps the returned controller for
+        # inspection/idempotency, the same shape as the docks' _active_op).
+        self._scheme_active_op = None
         # Project (2026-09-01, plan project_settings_dialogs): RootMetadataDock
         # is no longer a Detail dock page — it is hosted in the standalone
         # non-modal ProjectDialog (File > "Project...", see
@@ -286,6 +305,26 @@ class DockHub:
         dock."""
         self.config_tree_dock.show_page(self._net_trace_page)
 
+    def _show_config_scheme_list(self, *_args) -> None:
+        """Route a scheme_lists pick to the Scheme List right page of the
+        Config dock (2026-09-06, plan scheme_list P5)."""
+        self.config_tree_dock.show_page(self._scheme_list_page)
+
+    def _load_scheme_list_page(self, entry) -> None:
+        """Scheme List leaf single click (scheme_list_picked, 2026-09-06, plan
+        scheme_list P5) — load the record read-only and show it as a Config
+        right-QView page (no dialog)."""
+        self.scheme_list_dock.load_entry(entry)
+        self._show_config_scheme_list()
+
+    def _reread_scheme_list_from_tree(self, entry, file_path) -> None:
+        """Config-tree context menu's "Reread..." delegate (scheme_list_reread_
+        requested, 2026-09-06) — load the record (targeting its OWN file so an
+        Apply rewrites it there) and run the Reread flow on the same page."""
+        self.scheme_list_dock.load_entry(entry, file_path)
+        self._show_config_scheme_list()
+        self.scheme_list_dock.reread()
+
     def _show_config_chain(self, *_args) -> None:
         """Route a chains pick (pad leaf / chain edit / Add net / Add spoke) to
         the Chain right page of the Config dock (2026-09-05, design
@@ -386,6 +425,12 @@ class DockHub:
         self.root_metadata_dock.root_changed.connect(
             partial(self._safe_call, "thermal_via_dock.set_root_path",
                     self.thermal_via_dock.set_root_path))
+        # Scheme List (2026-09-06, plan scheme_list P5): Reread Apply needs the
+        # project root to resolve/write the record's owning file; the root also
+        # feeds the Record... duplicate pre-checks.
+        self.root_metadata_dock.root_changed.connect(
+            partial(self._safe_call, "scheme_list_dock.set_root_path",
+                    self.scheme_list_dock.set_root_path))
         self.root_metadata_dock.root_changed.connect(
             partial(self._safe_call, "cells_dock.set_root_path",
                     self.cells_dock.set_root_path))
@@ -510,6 +555,14 @@ class DockHub:
         self.chains_nav_dock.reveal_chain.connect(self.config_tree_dock.select_chains_chain)
         self.config_tree_dock.net_trace_picked.connect(self.net_trace_dock.load_entry)
         self.config_tree_dock.net_trace_picked.connect(self._show_config_net_trace)
+        # Scheme List (2026-09-06, plan scheme_list P5): a single click on a
+        # scheme_lists leaf opens the read-only record page; the context menu's
+        # "Reread..." loads the record and runs the Reread flow on the same
+        # page. No Add/Record here — a Scheme List can only be captured from
+        # the live board (Tools -> "Scheme Lists" -> "Record...").
+        self.config_tree_dock.scheme_list_picked.connect(self._load_scheme_list_page)
+        self.config_tree_dock.scheme_list_reread_requested.connect(
+            self._reread_scheme_list_from_tree)
         # "Edit cell..." (context menu, 2026-08-06) — deliberately NOT wired
         # to cell_picked, which keeps meaning "pick this cell as a
         # placement's content" (see config_tree.py's module docstring).
@@ -553,6 +606,9 @@ class DockHub:
         self.points_dock.saved.connect(self.config_tree_dock.refresh)
         self.chain_dock.saved.connect(self.config_tree_dock.refresh)
         self.net_trace_dock.saved.connect(self.config_tree_dock.refresh)
+        # Scheme List (2026-09-06, plan scheme_list P5): a successful Reread
+        # Apply rewrites the record — refresh the tree's leaf display.
+        self.scheme_list_dock.saved.connect(self.config_tree_dock.refresh)
         self.cells_dock.saved.connect(self.config_tree_dock.refresh)
         self.tools_dock.saved.connect(self.config_tree_dock.refresh)
         self.tools_dock.saved.connect(self._refresh_graph_dependent_choices)
@@ -871,6 +927,125 @@ class DockHub:
         the Config tree context menu's "Add thermal via pad..." (add_thermal_
         via_requested -> _start_new_thermal_via)."""
         self._start_new_thermal_via(self.root_metadata_dock.root_path)
+
+    # ── Tools → "Scheme Lists" (2026-09-06, plan scheme_list §5.3) ──────
+    # "Record..." captures the CURRENT board selection as a named Scheme List
+    # record; "Reread..." re-syncs the Scheme List record currently SELECTED in
+    # the Config tree against the live board (the form button + the context
+    # menu are the other two legs of the triple exposure). Neither ever applies
+    # anything to the board — this is the pure Config side (design §3).
+
+    def record_scheme_list(self) -> None:
+        """Main menu "Tools -> Scheme Lists -> Record..." (plan §5.3): read the
+        current board selection, ask a name + anchor_ref, run capture on the
+        worker (never blocking the UI — live-board IPC), confirm any boundary
+        exclusions, and write the record to scheme_lists.json (auto-including
+        it on first use)."""
+        from .worker import start_long_op
+        root_path = self.root_metadata_dock.root_path
+        if root_path is None:
+            QMessageBox.warning(self.main_window, _("Scheme Lists"),
+                                _("Set the project root first."))
+            return
+        connection = self.main_window.connection
+        board = getattr(connection, "board", None)
+        adapter = getattr(board, "adapter", None) if board is not None else None
+        if adapter is None:
+            QMessageBox.warning(self.main_window, _("Scheme Lists"),
+                                _("Connect to KiCad first."))
+            return
+        # The polled board selection (Footprint DTOs, refreshed off-thread by
+        # MainWindow — never a UI-thread IPC read, see worker.py's single-
+        # in-flight socket rule).
+        refs = sorted({getattr(s, "ref", None) for s in self._selection_footprints
+                       if getattr(s, "ref", None)})
+        if not refs:
+            QMessageBox.warning(
+                self.main_window, _("Scheme Lists"),
+                _("No footprints selected — select the footprints to record on "
+                  "the board first."))
+            return
+        dialog = RecordSchemeListDialog(refs, self.main_window)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        name, anchor_ref = dialog.result_data()
+        if not name:
+            QMessageBox.warning(self.main_window, _("Scheme Lists"),
+                                _("Name is required."))
+            return
+        # Duplicate pre-checks BEFORE the expensive capture (plan §2): the
+        # loader validates these at load, but a wasted board read must not
+        # happen over a record that cannot be saved.
+        problems = scheme_list_duplicate_problems(root_path, name, refs)
+        if problems:
+            QMessageBox.warning(self.main_window, _("Cannot record Scheme List"),
+                                "\n".join(problems))
+            return
+        payload = {"board": board, "name": name, "refs": refs,
+                   "anchor_ref": anchor_ref, "root": str(root_path)}
+        self._scheme_active_op = start_long_op(
+            connection, (), self._run_record_capture, self._finish_record_capture,
+            self._on_record_op_failed, payload)
+
+    def _run_record_capture(self, payload: Dict) -> Dict[str, Any]:
+        """Worker thread: the actual capture (live-board IPC) — never touches
+        a widget."""
+        from kicadstamp.scheme_list_capture import capture_scheme_list
+        try:
+            record = capture_scheme_list(
+                name=payload["name"], refs=payload["refs"],
+                anchor_ref=payload["anchor_ref"],
+                adapter=payload["board"].adapter)
+        except Exception as e:  # noqa: BLE001 — ValidationError family surfaces verbatim
+            logging.getLogger(__name__).exception("Scheme List record capture failed")
+            return {"error": str(e)}
+        return {"record": record, "root": payload["root"]}
+
+    def _finish_record_capture(self, result: Dict[str, Any]) -> None:
+        """UI thread: boundary-net decision dialog (v1 — exclude only), then
+        write the record to scheme_lists.json and refresh the Config tree."""
+        self._scheme_active_op = None
+        if result.get("error"):
+            QMessageBox.warning(self.main_window, _("Record failed"),
+                                result["error"])
+            return
+        record = result["record"]
+        if record.boundary_nets and not confirm_boundary_exclusions(
+                self.main_window, record.boundary_nets):
+            return
+        root_path = Path(result["root"])
+        try:
+            written = write_scheme_list_record(root_path, record)
+        except OSError as e:
+            QMessageBox.warning(self.main_window, _("Record failed"), str(e))
+            return
+        self.config_tree_dock.refresh()
+        self.config_tree_dock.graph_changed.emit()
+        show_message(
+            _("Recorded Scheme List {name!r} — {components} components, "
+              "{vias} vias, {tracks} tracks -> {path}").format(
+                name=record.name, components=len(record.components),
+                vias=len(record.vias), tracks=len(record.tracks),
+                path=display_path(written)),
+            "", logging.getLogger(__name__))
+
+    def _on_record_op_failed(self, message: str) -> None:
+        self._scheme_active_op = None
+        QMessageBox.warning(self.main_window, _("Record failed"),
+                            _("Operation failed: {error}").format(error=message))
+
+    def reread_scheme_list(self) -> None:
+        """Main menu "Tools -> Scheme Lists -> Reread..." (plan §5.3): the
+        Scheme List record currently SELECTED in the Config tree — load it into
+        the Scheme List right page and run the Reread flow there."""
+        selection = self.config_tree_dock.selected_scheme_list()
+        if selection is None:
+            show_message(_("Pick a Scheme List in the Config tree first."), "",
+                         logging.getLogger(__name__))
+            return
+        file_path, entry = selection
+        self._focus_config_tree_dock()
+        self._reread_scheme_list_from_tree(entry, file_path)
 
     def run_forest_full_redraw(self) -> None:
         """Main menu "Tools -> Trees -> Full redraw (all trees and modules)..."

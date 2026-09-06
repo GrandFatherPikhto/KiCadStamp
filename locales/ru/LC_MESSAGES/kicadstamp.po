@@ -13499,3 +13499,142 @@ msgstr "Применяю scheme list-размещения..."
 
 msgid "Scheme List {entity} ({mode}):"
 msgstr "Scheme List {entity} ({mode}):"
+
+msgid "(root sheet)"
+msgstr "(корневой лист)"
+
+msgid "Anchor component:"
+msgstr "Компонент-якорь:"
+
+msgid "Anchor pad:"
+msgstr "Пэд якоря:"
+
+msgid "Anchor rotation (at record):"
+msgstr "Поворот якоря (при записи):"
+
+msgid "Apply is disabled while component(s) are missing from the board — restore them and Reread again."
+msgstr "Apply отключён, пока компоненты отсутствуют на плате — верните их и повторите Reread."
+
+msgid "Boundary nets"
+msgstr "Пограничные сети"
+
+msgid "Cannot record Scheme List"
+msgstr "Не удаётся записать Scheme List"
+
+msgid "Load a Scheme List record first."
+msgstr "Сначала загрузите запись Scheme List."
+
+msgid "No footprints selected — select the footprints to record on the board first."
+msgstr "Футпринты не выбраны — сначала выберите на плате футпринты для записи."
+
+msgid "Pick a Scheme List in the Config tree first."
+msgstr "Сначала выберите Scheme List в дереве Config."
+
+msgid "Record Scheme List"
+msgstr "Записать Scheme List"
+
+msgid "Record failed"
+msgstr "Запись не удалась"
+
+msgid "Record with exclusions"
+msgstr "Записать с исключениями"
+
+msgid "Record..."
+msgstr "Записать..."
+
+msgid "Recorded Scheme List {name!r} — {components} components, {vias} vias, {tracks} tracks -> {path}"
+msgstr "Записан Scheme List {name!r} — {components} компон., {vias} виа, {tracks} треков -> {path}"
+
+msgid "Recorded geometry:"
+msgstr "Записанная геометрия:"
+
+msgid "Reread"
+msgstr "Перечитать"
+
+msgid "Reread apply failed: {error}"
+msgstr "Сбой применения Reread: {error}"
+
+msgid "Reread compares this record against the live board and, after an explicit Apply, rewrites it — it never places anything. Cloning a Scheme List onto another sheet happens through a tree Entity (scheme_list:), not here."
+msgstr "Reread сравнивает эту запись с живой платой и после явного Apply перезаписывает её — сам он ничего не размещает. Клонирование Scheme List на другой лист выполняется через Entity дерева (scheme_list:), а не здесь."
+
+msgid "Reread failed: {error}"
+msgstr "Сбой Reread: {error}"
+
+msgid "Reread..."
+msgstr "Перечитать..."
+
+msgid "Scheme List Reread"
+msgstr "Перечитать Scheme List"
+
+msgid "Scheme List: {name}"
+msgstr "Scheme List: {name}"
+
+msgid "Scheme Lists"
+msgstr "Списки схем"
+
+msgid "Scheme lists"
+msgstr "Списки схем"
+
+msgid "Source sheet:"
+msgstr "Исходный лист:"
+
+msgid "The recorded region touches copper of components outside the selection on the following net(s):\n\n{nets}\n\nThis copper cannot be part of the Scheme List — v1 excludes it (drops each whole connected component). The exclusions are stored in the record; Reread will keep reporting changes to these nets."
+msgstr "Записываемая область касается меди компонентов вне выделения по следующим сетям:\n\n{nets}\n\nЭта медь не может быть частью Scheme List — в v1 она исключается (отбрасывается целая связная компонента). Исключения сохраняются в записи; Reread продолжит сообщать об изменениях этих сетей."
+
+msgid "Updated Scheme List {name!r} from the live board -> {path}"
+msgstr "Scheme List {name!r} обновлён с живой платы -> {path}"
+
+msgid "What changed for {name!r} on the live board:"
+msgstr "Что изменилось для {name!r} на живой плате:"
+
+msgid "a Scheme List named {name!r} already exists — pick another name"
+msgstr "Scheme List с именем {name!r} уже существует — выберите другое имя"
+
+msgid "boundary net(s) gone: {nets}"
+msgstr "исчезли пограничные сети: {nets}"
+
+msgid "component ref(s) already recorded in another Scheme List: {refs}"
+msgstr "ref-ы компонентов уже записаны в другом Scheme List: {refs}"
+
+msgid "component {ref!r} moved: ({old_x}, {old_y}) mm, {old_rot} deg -> ({new_x}, {new_y}) mm, {new_rot} deg"
+msgstr "компонент {ref!r} сдвинут: ({old_x}, {old_y}) мм, {old_rot}° -> ({new_x}, {new_y}) мм, {new_rot}°"
+
+msgid "component(s) no longer on the board: {refs}"
+msgstr "компонент(ы) отсутствуют на плате: {refs}"
+
+msgid "name (used by --only and Entity.scheme_list, must be unique)"
+msgstr "имя (используется в --only и в Entity.scheme_list, должно быть уникальным)"
+
+msgid "new boundary net(s): {nets}"
+msgstr "новые пограничные сети: {nets}"
+
+msgid "no differences"
+msgstr "нет отличий"
+
+msgid "the anchor {ref!r} is not on the board"
+msgstr "якорь {ref!r} отсутствует на плате"
+
+msgid "tracks added: {n}"
+msgstr "треков добавлено: {n}"
+
+msgid "tracks removed: {n}"
+msgstr "треков удалено: {n}"
+
+msgid "vias added: {n}"
+msgstr "виа добавлено: {n}"
+
+msgid "vias removed: {n}"
+msgstr "виа удалено: {n}"
+
+msgid "{components} components, {vias} vias, {tracks} tracks"
+msgstr "{components} компон., {vias} виа, {tracks} треков"
+
+msgid "{components} components, {vias} vias, {tracks} tracks, boundary: {nets}"
+msgstr "{components} компон., {vias} виа, {tracks} треков, границы: {nets}"
+
+msgid "{name!r} is up to date — nothing changed on the board."
+msgstr "{name!r} актуален — на плате ничего не изменилось."
+
+msgid "{net} (touched by {external_ref})"
+msgstr "{net} (затронута внешним компонентом {external_ref})"
+

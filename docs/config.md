@@ -730,6 +730,14 @@ capture — Apply/Redraw (P4) compensates with it instead of scanning
 an Entity with `scheme_list:` (not `cell:`) — the stored-record format above
 is what capture/Reread write.
 
+GUI Config side (2026-09-06, plan §5 — see [docs/gui.md](gui.md)'s "Scheme Lists"
+section): records are captured from the live board (Tools → Scheme Lists →
+Record...) into the fixed `scheme_lists.json` (auto-included on first use);
+Reread (the form button / the record's context menu / Tools → Scheme Lists)
+shows the diff against the live board and, on an explicit Apply, rewrites the
+record in its own file. The Config-tree `scheme_lists:` category opens a
+read-only record viewer — no placement/redraw from the Config side.
+
 ---
 
 ## `net_traces:` — one net's copper, following one anchor pad
