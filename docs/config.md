@@ -686,7 +686,14 @@ scheme_lists:
     # anchor_rotation_deg: 0.0  # anchor's ABSOLUTE angle at capture — how the
     #                            # raw offsets/rotations below must be rotated
     #                            # back onto a target node (P4 apply); default 0.0
-    source_sheet: Channel_0   # the sheet the record was captured on (top-level name)
+    source_sheet: Top/Channel_0  # the FULL sheet path the record was captured on (5a) — the
+                                 # anchor footprint's whole Selected.sheet chain, '/' -joined
+                                 # (a top-level-only sheet is just its own name, e.g. 'Top')
+    # scope_sheet_paths: [[Top, Channel_0]]  # "By sheet" records ONLY: the CHECKED leaf paths of
+    #                                        # the capture checklist (5c). A later Reread recomputes
+    #                                        # the CURRENT scope from these over the live snapshot.
+    #                                        # Absent/None for "By selection" records (their Reread
+    #                                        # scope is the then-current board selection).
     components:               # literal refs, board-frame offsets from the anchor
       - ref: R1
         offset_along_mm: 0.0
@@ -730,13 +737,32 @@ capture — Apply/Redraw (P4) compensates with it instead of scanning
 an Entity with `scheme_list:` (not `cell:`) — the stored-record format above
 is what capture/Reread write.
 
+`source_sheet` is the record's FULL sheet path (5a — derived from the anchor
+footprint's own resolved sheet chain, never from a local-net prefix hack): a
+"By sheet" Record stores the anchor's `Top/Channel_0`-style path, an Entity
+that places the record "in place" carries the same path as its `sheet`.
+`scope_sheet_paths` (5c) is written only by "By sheet" Records/Re-sources — the
+CHECKED leaf paths of the capture checklist. Reread recomputes the CURRENT
+scope from them over the live snapshot and can therefore CHANGE the record's
+ref set: refs that appeared on a recorded leaf are added, refs that left it are
+removed from the record. A "By selection" record stores no scope — its Reread
+scope is the board selection at click time. There is deliberately NO strict
+per-piece copper validation on Reread-Apply: the whole change list is confirmed
+at once.
+
 GUI Config side (2026-09-06, plan §5 — see [docs/gui.md](gui.md)'s "Scheme Lists"
-section): records are captured from the live board (Tools → Scheme Lists →
-Record...) into the fixed `scheme_lists.json` (auto-included on first use);
+section): records are captured from the live board through the two-tab Record
+dialog (Tools → Scheme Lists → Record... — "By sheet" primary: root sheet +
+sub-sheet checklist; "By selection" secondary: the current board selection)
+into the fixed `scheme_lists.json` (auto-included on first use); Re-source...
+re-captures an EXISTING record from a different source under the same name;
 Reread (the form button / the record's context menu / Tools → Scheme Lists)
-shows the diff against the live board and, on an explicit Apply, rewrites the
-record in its own file. The Config-tree `scheme_lists:` category opens a
-read-only record viewer — no placement/redraw from the Config side.
+shows the diff against the live board (including refs added to / removed from
+the scope) and, on an explicit Apply, rewrites the record in its own file. The
+Config-tree `scheme_lists:` category opens a read-only record viewer; the
+separate "Place Scheme List..." page (Tools → Scheme Lists → Place...) turns a
+record into a tree Entity. The Config side never moves board copper by itself —
+that happens on a tree node's Redraw.
 
 ---
 

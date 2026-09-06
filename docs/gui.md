@@ -1098,35 +1098,104 @@ net_trace_dock.md`). Added 2026-08-21.
 
 ## Scheme Lists
 
-The Config side of the Scheme List feature (plan `techdocs/handoff/deepseek/plan_2026_09_05_scheme_
-list.md` §5) — a named snapshot of a real, already-routed board region (see [docs/config.md](config.md)'s
-`scheme_lists:` section). Added 2026-09-06. Deliberately MINIMAL Config-side: recording and re-syncing
-a record, NOT placement — cloning a Scheme List onto another sheet happens only through a tree Entity
-with `scheme_list:` (Apply/Redraw), never from a Config form.
+The Scheme List feature records a real, already-routed board region as a NAMED snapshot — an explicit
+list of literal refdes plus the copper that reaches their pads (see [docs/config.md](config.md)'s
+`scheme_lists:` section). Design and plans:
+`techdocs/handoff/deepseek/design_2026_09_05_scheme_list.md`,
+`techdocs/handoff/deepseek/plan_2026_09_05_scheme_list.md` (§5-§7) and
+`techdocs/handoff/deepseek/plan_2026_09_06_scheme_list_sheet_capture.md` (5a-5c). Added 2026-09-06.
+Recording/re-syncing a snapshot never touches the live board — only a tree node's Redraw does. The
+Config side lives on two pages of the Config dock's right QView: the read-only **record page** (record
++ Reread) and the separate **"Place Scheme List"** page that turns one record into a tree Entity.
 
-- **Tools → Scheme Lists → Record...** — captures the CURRENT board selection as a named Scheme List:
-  1. reads the selected footprints' refs (the polled board selection — never a UI-thread IPC read);
-  2. asks a unique name + which ref is the `anchor_ref` (a combo of the selected refs);
-  3. pre-checks duplicates (duplicate name, or a ref already recorded in ANOTHER Scheme List) BEFORE the
-     expensive capture, so a record the loader would reject never wastes a board read;
-  4. captures on the worker thread (never blocking the UI);
-  5. when the connectivity closure dropped copper reaching only excluded footprints — confirms the
-     boundary-net exclusions (v1: each net is excluded as a whole connected component; the dialog shows
-     which external component dragged each net);
-  6. writes the record to the fixed `scheme_lists.json` next to the project profile, auto-wiring
-     `include: [scheme_lists.json]` on first use.
-  Nothing is applied to the board.
-- **Reread** — for the record currently SELECTED in the Config tree's `scheme_lists:` category; the same
-  flow is exposed three ways (the form's **Reread** button / the record's context-menu **Reread...** /
-  Tools → Scheme Lists → **Reread...**). It re-captures the region against the live board, shows a diff
-  dialog (component(s) no longer on the board / the anchor gone / components moved / vias & tracks added
-  & removed / new & gone boundary nets) and only on an explicit **Apply** rewrites the stored record in
-  its own file. Apply is disabled while a recorded component is missing from the board (the record
-  cannot be faithfully re-synced). Nothing is applied to the board.
-- Clicking a `scheme_lists:` leaf in the Config tree opens the record's READ-ONLY page in the Config
-  dock's right QView — the Anchor block (component-ref combo + `anchor_pad`/`anchor_rotation_deg`/
-  `source_sheet` readouts) plus a recorded-geometry summary. The record is edited only by re-recording
-  (Record...) or re-syncing (Reread), never by hand.
+### Recording a record — Tools → Scheme Lists → Record...
+
+Captures a named Scheme List from the live board through a **two-tab** dialog:
+
+- **"By sheet" (primary, the default tab)** — pick a ROOT sheet from the live hierarchy; under it a
+  checklist of every sheet under that root (the root itself included, indented by depth), ALL CHECKED
+  by default — uncheck a sub-sheet to exclude its components from the capture (the checklist is hidden
+  when the chosen root has no sub-sheets). The `anchor_ref` combo lists the refs of the CHECKED sheets
+  and the captured refs are the union of the DIRECT footprints on those sheets (recursion is expressed
+  by the checklist itself).
+- **"By selection" (secondary)** — the pre-existing mode: the refs are the CURRENT board selection,
+  kept for irregular regions that do not line up with sheet boundaries.
+
+Both tabs end the same way: a unique record name, a duplicate pre-check BEFORE the expensive capture
+(a duplicate name, or a ref already recorded in ANOTHER Scheme List), a worker-thread capture (never
+blocking the UI) and — when the connectivity closure dropped copper that reached only excluded
+footprints — a boundary-net dialog (v1: each such net is excluded as a whole connected component; the
+dialog shows which outside footprint dragged each net). The new record is written to the fixed
+`scheme_lists.json` next to the profile (auto-`include:`d on first use). A **"By sheet"** record
+additionally stores the CHECKED leaf paths as its `scope_sheet_paths` — the source a later Reread
+recomputes the current scope from; a **"By selection"** record stores no scope. Nothing is applied to
+the board.
+
+### Re-sourcing a record — Tools → Scheme Lists → Re-source...
+
+Re-sources an EXISTING record from a DIFFERENT source under the SAME name. Reached from the record the
+user right-clicked in the Config tree (context-menu **Re-source...**) or the one currently SELECTED
+there (Tools → Scheme Lists → **Re-source...**; with no selection the Tools action warns). The dialog
+is the SAME two-tab Record dialog with the name pinned read-only, an explicit in-dialog warning that
+the record's refs/geometry are REPLACED (every Entity already placed from the record picks up the new
+geometry on its next Apply/Redraw — the sheet it currently comes from does NOT update by itself; Place
+onto it too if it should follow) and an OK button labeled **Re-source**. The rewritten record stays in
+the file that already owns it.
+
+### Rereading a record — Reread
+
+For the record currently loaded in the record page; three entry points (the page's **Reread** button /
+the record's context-menu **Reread...** / Tools → Scheme Lists → **Reread...** — the latter two load
+the selected record and run the same flow). Reread compares the record against the live board AND can
+now change the record's REF SET itself, not only diff fixed positions:
+
+- **"By sheet" record** — the current scope is recomputed AUTOMATICALLY from the record's stored
+  `scope_sheet_paths` over the live snapshot (one-click Reread, no dialog): a ref that appeared on a
+  recorded sheet is **added to the scope**, one that left the recorded sheets is **removed from the
+  scope**.
+- **"By selection" record** — the scope is the CURRENT board selection at the moment of the click:
+  re-select the (possibly changed) set on the board first, then click Reread. An empty selection shows
+  a warning instead of a silent diff.
+
+The diff dialog lists what changed — component(s) no longer on the board, the anchor gone, components
+moved, component(s) added to the scope, component(s) removed from the scope, vias & tracks added &
+removed, new/gone boundary nets — and **Apply** rewrites the stored record in its own file, all in
+one explicit confirmation (no per-piece copper validation). Apply is disabled while a recorded
+component is missing from the board (the record cannot be faithfully re-synced). Nothing is applied
+to the board.
+
+### The record page (Config tree → `scheme_lists:` leaf)
+
+Clicking a `scheme_lists:` leaf in the Config tree opens the record READ-ONLY in the Config dock's
+right QView — the Anchor block (component-ref combo + `anchor_pad`/`anchor_rotation_deg`/`source_sheet`
+readouts), a recorded-geometry summary and the **Reread** button. The record itself is edited only by
+re-recording (Record...), re-sourcing (Re-source...) or re-syncing (Reread), never by hand.
+
+### Placing a record — Tools → Scheme Lists → Place... (the "Place Scheme List" page)
+
+The Config side of CLONING a record onto a (possibly twin) sheet. The separate **"Place Scheme List"**
+QView page in the Config dock's right side (a plain Config right-page, deliberately NOT a tab of
+"Instantiate from Cell...") is opened by Tools → Scheme Lists → **Place...** (pre-filled with the record
+selected in the Config tree, if any) or a record's context-menu **Place...** (pre-filled with that
+record). The form holds:
+
+- **Scheme List** — which recorded snapshot to place (searchable combo of `cfg.scheme_lists`).
+- **Target sheet** — leave empty (or equal to the record's `source_sheet`) to place the record "in
+  place" on the sheet it was captured from; pick another live sheet to place onto its twin.
+- **Tree / Parent node** — the EXISTING tree the new node is appended to (generated `tree_instances`
+  are read-only and excluded) and the parent node inside it, DFS-listed with a "— top level (no
+  parent) —" sentinel (top level = offset relative to the tree anchor). A new tree is NEVER created.
+- **X/Y offset (mm)** — the node's `xy`: offset relative to the chosen parent (or the tree anchor for
+  a top-level node); the opt-in **"Take from selection"** checkbox fills them from the live board
+  selection's centre.
+- **Rotation (deg)** and **Entity name** — the rotation is written onto the node at creation; the
+  Entity name must be non-empty and unique.
+
+**Place** creates a NEW `scheme_list:`-based Entity (carrying only `name`/`scheme_list`/`sheet` — it
+references the record by name and never copies its geometry) plus a `placement` node appended under the
+chosen tree/parent. The live board is untouched until the tree node is **Redraw**-ed (twin resolution
++ net remap happen then). Reread, by contrast, only rewrites the stored snapshot and never places
+anything.
 
 ## Cells
 
