@@ -18,6 +18,7 @@ from kicadstamp.exceptions import ValidationError
 from kicadstamp.scheme_list_capture import (
     _prefilter_copper,
     _segment_intersects_box,
+    build_scheme_list_diff,
     capture_scheme_list,
 )
 from kicadstamp.utils.units import MM
@@ -233,3 +234,117 @@ class TestPrefilterHelpers:
         assert _segment_intersects_box(outside.start, outside.end, region) is False
         kept_t, _ = _prefilter_copper([outside], [], region)
         assert kept_t == []
+
+
+# --- Reread diff (P3) -------------------------------------------------------
+
+def _line_board(c2_x_mm=24.0):
+    """R1(10,10) --t1 F.Cu--> C1(20,10) --t2 In1.Cu--> C2(c2_x,10), via at C1.
+    No foreign component (no boundary nets)."""
+    r1 = _fp("R1", 10, 10)
+    c1 = _fp("C1", 20, 10, angle=90.0)
+    c2 = _fp("C2", c2_x_mm, 10)
+    fps = [r1, c1, c2]
+    pads = {
+        "R1": [_pad("R1", 10, 10, _V5)],
+        "C1": [_pad("C1", 20, 10, _V5)],
+        "C2": [_pad("C2", c2_x_mm, 10, _V5)],
+    }
+    t1 = _track(10, 10, 20, 10, _V5, layer=F)
+    t2 = _track(20, 10, c2_x_mm, 10, _V5, layer=IN1)
+    v1 = _via(20, 10, _V5)
+    return FakeAdapter(fps, [t1, t2], [v1], pads)
+
+
+class TestRereadDiff:
+    def test_no_changes_when_board_is_identical(self):
+        adapter, refs = _scenario()
+        stored = capture_scheme_list("amp", refs, "R1", adapter=adapter)
+        diff = build_scheme_list_diff(stored, adapter)
+        assert diff.changed is False
+        assert diff.components_moved == []
+        assert diff.vias_added == [] and diff.vias_removed == []
+        assert diff.tracks_added == [] and diff.tracks_removed == []
+        assert diff.boundary_nets_added == [] and diff.boundary_nets_gone == []
+        assert diff.refs_not_found == [] and diff.anchor_missing is False
+
+    def test_movement_within_tolerance_is_not_reported(self):
+        adapter = _line_board(24.0)
+        stored = capture_scheme_list("amp", ["R1", "C1", "C2"], "R1", adapter=adapter)
+        # C2 + 0.005 mm and its In1.Cu stub + 0.005 mm — inside the 0.01 mm tol
+        adapter2 = _line_board(24.005)
+        diff = build_scheme_list_diff(stored, adapter2)
+        assert diff.changed is False
+
+    def test_movement_beyond_tolerance_reports_component_and_redrawn_track(self):
+        adapter = _line_board(24.0)
+        stored = capture_scheme_list("amp", ["R1", "C1", "C2"], "R1", adapter=adapter)
+        adapter2 = _line_board(24.5)  # C2 moved +0.5 mm -> t2 re-drawn too
+        diff = build_scheme_list_diff(stored, adapter2)
+        moved = {c.ref for c in diff.components_moved}
+        assert moved == {"C2"}
+        change = next(c for c in diff.components_moved if c.ref == "C2")
+        assert change.old_offset_along_mm == pytest.approx(14.0)
+        assert change.new_offset_along_mm == pytest.approx(14.5)
+        # the old In1.Cu stub disappeared and a new one appeared
+        assert len(diff.tracks_removed) == 1
+        assert len(diff.tracks_added) == 1
+        assert not diff.vias_added and not diff.vias_removed
+        assert diff.changed is True
+
+    def test_rotation_beyond_tolerance_reports_moved(self):
+        adapter = _line_board(24.0)
+        stored = capture_scheme_list("amp", ["R1", "C1", "C2"], "R1", adapter=adapter)
+        adapter2 = _line_board(24.0)
+        # only C1's angle changes 90 -> 92 deg (> ANGLE_TOLERANCE_DEG)
+        c1 = next(fp for fp in adapter2._fps if fp.ref == "C1")
+        c1.angle_deg = 92.0
+        diff = build_scheme_list_diff(stored, adapter2)
+        assert {c.ref for c in diff.components_moved} == {"C1"}
+        assert diff.changed is True
+
+    def test_missing_ref_reported_not_fatal(self):
+        adapter, refs = _scenario()
+        stored = capture_scheme_list("amp", refs, "R1", adapter=adapter)
+        # C2 disappears from the board (copper stays behind, anchored at C1)
+        adapter._fps = [fp for fp in adapter._fps if fp.ref != "C2"]
+        diff = build_scheme_list_diff(stored, adapter)
+        assert diff.refs_not_found == ["C2"]
+        assert diff.anchor_missing is False
+        assert diff.changed is True
+
+    def test_anchor_missing_guards_the_diff(self):
+        adapter, refs = _scenario()
+        stored = capture_scheme_list("amp", refs, "R1", adapter=adapter)
+        adapter._fps = [fp for fp in adapter._fps if fp.ref != "R1"]
+        diff = build_scheme_list_diff(stored, adapter)
+        assert "R1" in diff.refs_not_found
+        assert diff.anchor_missing is True
+        assert diff.changed is True
+
+    def test_new_boundary_net_is_reported_for_decision(self):
+        adapter, refs = _scenario()
+        stored = capture_scheme_list("amp", refs, "R1", adapter=adapter)
+        assert [bn.net for bn in stored.boundary_nets] == [_GND]
+        # a NEW foreign component drags a NEW boundary net near the region
+        _CLK = "/Channel_0/AMP/CLK"
+        adapter._fps.append(_fp("JX", 18, 11))
+        adapter._pads["JX"] = [_pad("JX", 18, 11, _CLK)]
+        adapter._tracks.append(_track(18, 11, 18, 13, _CLK, layer=F))
+        diff = build_scheme_list_diff(stored, adapter)
+        assert diff.boundary_nets_added == [_CLK]
+        assert diff.boundary_nets_gone == []
+        assert diff.changed is True
+        # the new stub is a boundary, never silently captured into tracks
+        assert all(t.net != _CLK for t in diff.tracks_added)
+
+    def test_boundary_net_gone_is_reported(self):
+        adapter, refs = _scenario()
+        stored = capture_scheme_list("amp", refs, "R1", adapter=adapter)
+        # J1's GND stub disappears -> GND no longer a boundary net
+        adapter._tracks = [t for t in adapter._tracks if t.net_name != _GND]
+        adapter._fps = [fp for fp in adapter._fps if fp.ref != "J1"]
+        diff = build_scheme_list_diff(stored, adapter)
+        assert diff.boundary_nets_gone == [_GND]
+        assert diff.boundary_nets_added == []
+        assert diff.changed is True
