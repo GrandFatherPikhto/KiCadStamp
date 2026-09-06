@@ -15137,3 +15137,15 @@ msgstr ""
 msgid "Place..."
 msgstr ""
 
+msgid "By sheet"
+msgstr ""
+
+msgid "By selection"
+msgstr ""
+
+msgid "Sub-sheets (uncheck to exclude):"
+msgstr ""
+
+msgid "No footprints to record — pick a sheet that has footprints on the 'By sheet' tab, or select footprints on the board for 'By selection'."
+msgstr ""
+

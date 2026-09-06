@@ -13768,3 +13768,15 @@ msgstr "{net} (затронута внешним компонентом {externa
 msgid "Place..."
 msgstr "Разместить..."
 
+msgid "By sheet"
+msgstr "По листу"
+
+msgid "By selection"
+msgstr "По выделению"
+
+msgid "Sub-sheets (uncheck to exclude):"
+msgstr "Под-листы (снять галочку, чтобы исключить):"
+
+msgid "No footprints to record — pick a sheet that has footprints on the 'By sheet' tab, or select footprints on the board for 'By selection'."
+msgstr "Нет footprint'ов для записи — выберите на вкладке «По листу» лист с footprint'ами, либо выделите footprint'ы на плате для «По выделению»."
+

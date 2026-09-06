@@ -31,10 +31,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFormLayout,
-                             QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-                             QPlainTextEdit, QPushButton, QVBoxLayout, QWidget)
+                             QHBoxLayout, QLabel, QLineEdit, QListWidget,
+                             QListWidgetItem, QMessageBox, QPlainTextEdit,
+                             QPushButton, QTabWidget, QVBoxLayout, QWidget)
 
 from kicadstamp.config import SchemeListConfig, load_scheme_list
 from kicadstamp.exceptions import ValidationError
@@ -53,6 +54,64 @@ from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STY
 from .rename import collect_graph_files, find_list_entry_file
 
 logger = logging.getLogger(__name__)
+
+
+# ── Pure "By sheet" scope helpers (shared by Record / Re-source / Reread) ───
+#
+# Every "By sheet" capture picks a ROOT sheet from the LIVE hierarchy and
+# derives its footprint refs from the footprints' FULL resolved sheet-path
+# (Selected.sheet), NOT from Board.select(sheet=...) (explore.py) whose filter
+# is a single-segment membership test anywhere in the path — that would merge
+# two same-named sheets at different nesting levels. The three helpers below do
+# the prefix/equality matching correctly and are deliberately Qt-free so every
+# Scheme List write path (Tools Record... in DockHub, the Record dialog, the
+# future Re-source and the Reread scope recompute) shares ONE implementation.
+
+def live_sheet_paths(snapshot: list) -> list[tuple[str, ...]]:
+    """Distinct FULL sheet-path tuples across the live snapshot, sorted — the
+    WHOLE Selected.sheet chain of every footprint (not flattened leaf
+    segments, unlike TreesDock._live_sheets / scheme_list_place._live_sheets),
+    so a nested sheet stays distinguishable from a same-named sheet elsewhere
+    in the hierarchy. A path containing an unresolved (None/empty) segment is
+    skipped — resolve_sheet_path_names can leave a gap when a .kicad_sch
+    couldn't be parsed (sheet_names.py's own docstring), and a partial path
+    cannot be matched reliably. These are the ROOT candidates for the "By
+    sheet" tab's sheet_combo."""
+    return sorted({tuple(s.sheet) for s in snapshot
+                   if s.sheet and all(seg for seg in s.sheet)})
+
+
+def sheet_paths_under(paths: list, root: tuple[str, ...]) -> list[tuple[str, ...]]:
+    """Every path in `paths` that IS `root` or a descendant of it (prefix
+    match), sorted — the checklist ROWS once a root sheet is picked in "By
+    sheet" (root itself is included: a sheet can have footprints of its own
+    directly on it, in addition to whatever is on its sub-sheets)."""
+    return sorted(p for p in paths if p[:len(root)] == root)
+
+
+def refs_on_sheet(snapshot: list, path: tuple[str, ...]) -> list[str]:
+    """Refs of footprints whose FULL sheet path EQUALS `path` EXACTLY — direct
+    membership, NOT prefix/recursive (recursion is the checklist's job, not
+    this helper's: sum refs_on_sheet(...) over the CHECKED rows to get the
+    final capture set). Sorted, deduplicated."""
+    return sorted({s.ref for s in snapshot if tuple(s.sheet or []) == path})
+
+
+def record_refs_for(snapshot: list, by_sheet: bool,
+                    checked_paths: Optional[list],
+                    selection_refs: list) -> List[str]:
+    """Derive the capture refs from a Record/Re-source dialog result:
+      - "By sheet" — union of the DIRECT refs on every CHECKED sheet path
+        (refs_on_sheet over `checked_paths`; no recursion — the checklist
+        already expresses which sub-sheets to include);
+      - "By selection" — the caller's own `selection_refs` unchanged (the
+        pre-existing P2 behavior).
+    Sorted + deduplicated. Shared by DockHub's record_scheme_list and the
+    future Re-source so both modes resolve refs identically."""
+    if by_sheet:
+        return sorted({r for p in (checked_paths or [])
+                       for r in refs_on_sheet(snapshot, tuple(p))})
+    return sorted(set(selection_refs))
 
 
 # ── Pure storage helpers (shared by the Record... tool and Reread Apply) ────
@@ -221,29 +280,155 @@ def scheme_list_diff_lines(diff: SchemeListDiff) -> List[str]:
 # ── Dialogs ────────────────────────────────────────────────────────────────
 
 class RecordSchemeListDialog(QDialog):
-    """Minimal Record... dialog (plan §5.3): a unique name + which of the
-    selected footprints is the anchor_ref. anchor_pad is NOT asked here (v1 —
-    the footprint centre is the offset origin, matching capture's default)."""
+    """Record... / Re-source... dialog with TWO source tabs (design §2, plan
+    plan_2026_09_06_scheme_list_sheet_capture.md 5a.3 — the same two-tab
+    pattern "Instantiate from Cell..." already uses):
 
-    def __init__(self, refs: List[str], parent=None):
+      - "By sheet" (DEFAULT tab) — pick a ROOT sheet from the live hierarchy,
+        under it a CHECKLIST of every sub-sheet (root itself included; all
+        checked by default, uncheck a row to EXCLUDE that sheet). The anchor
+        candidates are the DIRECT refs of the CHECKED sheets only (a sheet
+        with children does not pull their refs in — the checklist is the only
+        recursion). The checklist is hidden for a leaf sheet (nothing to
+        prune).
+      - "By selection" (secondary tab) — the pre-existing P2 behavior: the
+        CURRENT board selection, unchanged, for irregular cases.
+
+    anchor_pad is NOT asked here (v1 — the footprint centre is the offset
+    origin, matching capture's default). The shared name_edit sits OUTSIDE the
+    tabs. This dialog only reports what was picked; the caller (DockHub)
+    derives the actual capture refs via record_refs_for()."""
+
+    def __init__(self, snapshot: list, selection_refs: List[str], parent=None):
         super().__init__(parent)
         self.setWindowTitle(_("Record Scheme List"))
-        form = QFormLayout(self)
+        self._snapshot = list(snapshot or [])
+        self._sheet_paths = live_sheet_paths(self._snapshot)
+        # Semantic state: does the CURRENT root have sub-sheets to prune?
+        # Tracked explicitly (not via isVisible) so a never-shown dialog in
+        # tests and the real shown dialog behave identically.
+        self._root_has_subsheets = False
+
+        layout = QVBoxLayout(self)
+        name_form = QFormLayout()
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText(
             _("name (used by --only and Entity.scheme_list, must be unique)"))
-        form.addRow(_("Name:"), self.name_edit)
-        self.anchor_combo = QComboBox()
-        self.anchor_combo.addItems(refs)
-        form.addRow(_("Anchor:"), self.anchor_combo)
+        name_form.addRow(_("Name:"), self.name_edit)
+        layout.addLayout(name_form)
+
+        # Two source tabs — "By sheet" is added/selected FIRST (the default).
+        self.tabs = QTabWidget()
+        layout.addWidget(self.tabs)
+
+        # Tab 1 — "By sheet": root sheet combo + sub-sheet checklist + anchor.
+        tab1 = QWidget()
+        tab1_form = QFormLayout(tab1)
+        self.sheet_combo = QComboBox()
+        for path in self._sheet_paths:
+            self.sheet_combo.addItem("/".join(path), path)
+        tab1_form.addRow(_("Sheet:"), self.sheet_combo)
+        self.sheet_checklist = QListWidget()
+        self.sheet_checklist.setVisible(False)  # until a root with sub-sheets
+        tab1_form.addRow(_("Sub-sheets (uncheck to exclude):"), self.sheet_checklist)
+        self.sheet_anchor_combo = QComboBox()
+        tab1_form.addRow(_("Anchor:"), self.sheet_anchor_combo)
+        self.sheet_combo.currentIndexChanged.connect(self._rebuild_checklist)
+        self.sheet_checklist.itemChanged.connect(self._rebuild_sheet_anchor_combo)
+        self.tabs.addTab(tab1, _("By sheet"))
+
+        # Tab 2 — "By selection": the current board selection (unchanged).
+        tab2 = QWidget()
+        tab2_form = QFormLayout(tab2)
+        self.selection_anchor_combo = QComboBox()
+        self.selection_anchor_combo.addItems(selection_refs)
+        tab2_form.addRow(_("Anchor:"), self.selection_anchor_combo)
+        self.tabs.addTab(tab2, _("By selection"))
+
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
                                    | QDialogButtonBox.StandardButton.Cancel, self)
+        self._ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        form.addRow(buttons)
+        layout.addWidget(buttons)
+
+        # OK is gated on a non-empty anchor combo of the ACTIVE tab.
+        self.tabs.currentChanged.connect(self._sync_ok_state)
+        self.sheet_anchor_combo.currentIndexChanged.connect(self._sync_ok_state)
+        self.selection_anchor_combo.currentIndexChanged.connect(self._sync_ok_state)
+        self._rebuild_checklist()  # populate for the default root sheet
+        self._sync_ok_state()
+
+    # ── "By sheet" helpers ──────────────────────────────────────────────
+
+    def _rebuild_checklist(self) -> None:
+        root = self.sheet_combo.currentData()
+        self.sheet_checklist.clear()
+        self._root_has_subsheets = False
+        if root is None:
+            self._sync_ok_state()
+            return
+        rows = sheet_paths_under(self._sheet_paths, root)
+        if len(rows) <= 1:
+            # Leaf sheet — nothing to prune, hide the checklist entirely
+            # (design §2 — no checklist when the root has no sub-sheets).
+            self.sheet_checklist.setVisible(False)
+        else:
+            self._root_has_subsheets = True
+            self.sheet_checklist.setVisible(True)
+            for path in rows:
+                depth = len(path) - len(root)
+                label = "  " * depth + path[-1]
+                item = QListWidgetItem(label)
+                item.setData(Qt.ItemDataRole.UserRole, path)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(Qt.CheckState.Checked)  # all on by default
+                self.sheet_checklist.addItem(item)
+        self._rebuild_sheet_anchor_combo()
+
+    def _checked_sheet_paths(self) -> List[Any]:
+        """The sheet paths actually included — the single source of truth for
+        "what is really checked". A root WITHOUT sub-sheets (no checklist rows)
+        means the root itself is the only row."""
+        root = self.sheet_combo.currentData()
+        if root is None:
+            return []
+        if not self._root_has_subsheets:
+            return [root]
+        return [self.sheet_checklist.item(i).data(Qt.ItemDataRole.UserRole)
+                for i in range(self.sheet_checklist.count())
+                if self.sheet_checklist.item(i).checkState() == Qt.CheckState.Checked]
+
+    def _rebuild_sheet_anchor_combo(self) -> None:
+        refs = sorted({r for p in self._checked_sheet_paths()
+                       for r in refs_on_sheet(self._snapshot, p)})
+        self.sheet_anchor_combo.clear()
+        self.sheet_anchor_combo.addItems(refs)
+        self._sync_ok_state()
+
+    def _sync_ok_state(self) -> None:
+        """OK needs a capturable set — a non-empty anchor combo on the ACTIVE
+        tab (an empty selection / all-unchecked sheet leaves nothing to anchor
+        to, so the user must change the source instead of recording an empty
+        capture)."""
+        anchor_combo = (self.sheet_anchor_combo if self.is_by_sheet()
+                        else self.selection_anchor_combo)
+        self._ok_button.setEnabled(anchor_combo.count() > 0)
+
+    def is_by_sheet(self) -> bool:
+        return self.tabs.currentIndex() == 0
 
     def result_data(self):
-        return (self.name_edit.text().strip(), self.anchor_combo.currentText())
+        """(name, anchor_ref, sheet_path_or_None, checked_paths_or_None).
+        sheet_path/checked_paths are None on the "By selection" tab; the caller
+        derives the capture refs itself (record_refs_for) from the CHECKED
+        paths for "By sheet", or uses its OWN selection_refs for "By selection"
+        (this dialog does not own that list)."""
+        name = self.name_edit.text().strip()
+        if self.is_by_sheet():
+            return (name, self.sheet_anchor_combo.currentText(),
+                    self.sheet_combo.currentData(), self._checked_sheet_paths())
+        return (name, self.selection_anchor_combo.currentText(), None, None)
 
 
 class SchemeListDiffDialog(QDialog):
@@ -536,7 +721,12 @@ class SchemeListFormWidget(QWidget):
                 refs=[c.ref for c in stored.components],
                 anchor_ref=stored.anchor_ref,
                 anchor_pad=stored.anchor_pad,
-                adapter=adapter)
+                adapter=adapter,
+                # Reread keeps the record's stored source_sheet — the live
+                # re-capture must NOT re-derive it (5a.2: source_sheet now
+                # comes from the anchor's own sheet path, and Reread's job is
+                # geometry, not re-sourcing).
+                source_sheet=stored.source_sheet)
             load_scheme_list(scheme_list_to_dict(fresh))  # validate before writing
             root_path = Path(payload["root"]) if payload.get("root") else Path(".")
             target_path = Path(payload["path"]) if payload.get("path") else None

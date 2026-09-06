@@ -73,6 +73,7 @@ from .docks.scheme_list import (
     RecordSchemeListDialog,
     SchemeListFormWidget,
     confirm_boundary_exclusions,
+    record_refs_for,
     scheme_list_duplicate_problems,
     write_scheme_list_record,
 )
@@ -1004,17 +1005,21 @@ class DockHub:
         via_requested -> _start_new_thermal_via)."""
         self._start_new_thermal_via(self.root_metadata_dock.root_path)
 
-    # ── Tools → "Scheme Lists" (2026-09-06, plan scheme_list §5.3) ──────
-    # "Record..." captures the CURRENT board selection as a named Scheme List
-    # record; "Reread..." re-syncs the Scheme List record currently SELECTED in
-    # the Config tree against the live board (the form button + the context
-    # menu are the other two legs of the triple exposure). Neither ever applies
-    # anything to the board — this is the pure Config side (design §3).
+    # ── Tools → "Scheme Lists" (2026-09-06, plan scheme_list §5.3 / Stage 5a)
+    # "Record..." captures the source the user picks in a TWO-tab dialog — "By
+    # sheet" (root sheet + sub-sheet checklist, the DEFAULT) or "By selection"
+    # (the current board selection, unchanged P2 behavior) — as a named Scheme
+    # List record; "Reread..." re-syncs the Scheme List record currently
+    # SELECTED in the Config tree against the live board (the form button + the
+    # context menu are the other two legs of the triple exposure). Neither ever
+    # applies anything to the board — this is the pure Config side (design §3).
 
     def record_scheme_list(self) -> None:
-        """Main menu "Tools -> Scheme Lists -> Record..." (plan §5.3): read the
-        current board selection, ask a name + anchor_ref, run capture on the
-        worker (never blocking the UI — live-board IPC), confirm any boundary
+        """Main menu "Tools -> Scheme Lists -> Record..." (plan §5.3 / Stage
+        5a.3): open the two-tab Record dialog ("By sheet" default / "By
+        selection"), derive the capture refs from what the user picked, ask a
+        unique name + anchor_ref inside the dialog, run capture on the worker
+        (never blocking the UI — live-board IPC), confirm any boundary
         exclusions, and write the record to scheme_lists.json (auto-including
         it on first use)."""
         from .worker import start_long_op
@@ -1030,24 +1035,28 @@ class DockHub:
             QMessageBox.warning(self.main_window, _("Scheme Lists"),
                                 _("Connect to KiCad first."))
             return
-        # The polled board selection (Footprint DTOs, refreshed off-thread by
-        # MainWindow — never a UI-thread IPC read, see worker.py's single-
-        # in-flight socket rule).
-        refs = sorted({getattr(s, "ref", None) for s in self._selection_footprints
-                       if getattr(s, "ref", None)})
-        if not refs:
-            QMessageBox.warning(
-                self.main_window, _("Scheme Lists"),
-                _("No footprints selected — select the footprints to record on "
-                  "the board first."))
-            return
-        dialog = RecordSchemeListDialog(refs, self.main_window)
+        # Full live snapshot (Board.select with no filters, refreshed off-
+        # thread) feeds the "By sheet" tab's sheet-combo/checklist; the polled
+        # board selection feeds the secondary "By selection" tab only.
+        snapshot = getattr(connection, "snapshot", None) or []
+        selection_refs = sorted({getattr(s, "ref", None) for s in self._selection_footprints
+                                 if getattr(s, "ref", None)})
+        dialog = RecordSchemeListDialog(snapshot, selection_refs, self.main_window)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        name, anchor_ref = dialog.result_data()
+        name, anchor_ref, _sheet_path, checked_paths = dialog.result_data()
         if not name:
             QMessageBox.warning(self.main_window, _("Scheme Lists"),
                                 _("Name is required."))
+            return
+        refs = record_refs_for(snapshot, dialog.is_by_sheet(), checked_paths,
+                               selection_refs)
+        if not refs:
+            QMessageBox.warning(
+                self.main_window, _("Scheme Lists"),
+                _("No footprints to record — pick a sheet that has footprints "
+                  "on the 'By sheet' tab, or select footprints on the board "
+                  "for 'By selection'."))
             return
         # Duplicate pre-checks BEFORE the expensive capture (plan §2): the
         # loader validates these at load, but a wasted board read must not
@@ -1057,8 +1066,22 @@ class DockHub:
             QMessageBox.warning(self.main_window, _("Cannot record Scheme List"),
                                 "\n".join(problems))
             return
+        # source_sheet derivation (capture_scheme_list's sheet_names parameter)
+        # needs the {uuid: sheetname} map the project config carries
+        # (ctx.sheet_names). Best-effort: a broken config must not block Record
+        # — it only leaves source_sheet None (record is "in place only").
+        sheet_names: Dict = {}
+        try:
+            from kicadstamp.config import load_config
+            _cfg, ctx = load_config(str(root_path))
+            sheet_names = dict(getattr(ctx, "sheet_names", {}) or {})
+        except Exception:  # noqa: BLE001
+            logging.getLogger(__name__).warning(
+                "Record: could not load sheet_names from %s — source_sheet "
+                "will be left unset", root_path, exc_info=True)
         payload = {"board": board, "name": name, "refs": refs,
-                   "anchor_ref": anchor_ref, "root": str(root_path)}
+                   "anchor_ref": anchor_ref, "root": str(root_path),
+                   "sheet_names": sheet_names}
         self._scheme_active_op = start_long_op(
             connection, (), self._run_record_capture, self._finish_record_capture,
             self._on_record_op_failed, payload)
@@ -1071,7 +1094,8 @@ class DockHub:
             record = capture_scheme_list(
                 name=payload["name"], refs=payload["refs"],
                 anchor_ref=payload["anchor_ref"],
-                adapter=payload["board"].adapter)
+                adapter=payload["board"].adapter,
+                sheet_names=payload.get("sheet_names"))
         except Exception as e:  # noqa: BLE001 — ValidationError family surfaces verbatim
             logging.getLogger(__name__).exception("Scheme List record capture failed")
             return {"error": str(e)}

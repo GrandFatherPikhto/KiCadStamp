@@ -18,7 +18,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from PyQt6.QtWidgets import QPushButton
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QPushButton, QTabWidget
 
 from gui.docks.config_tree import ConfigTreeDock
 from gui.docks.scheme_list import (
@@ -26,9 +27,13 @@ from gui.docks.scheme_list import (
     SchemeListDiffDialog,
     SchemeListFormWidget,
     default_scheme_list_path,
+    live_sheet_paths,
     read_scheme_list_records,
+    record_refs_for,
+    refs_on_sheet,
     scheme_list_duplicate_problems,
     scheme_list_to_dict,
+    sheet_paths_under,
     write_scheme_list_record,
 )
 from kicadstamp.config import load_scheme_list
@@ -50,6 +55,15 @@ def _mm_xy(x_mm, y_mm):
 def _fp(ref, x_mm, y_mm, angle=0.0, layer=F):
     return Footprint(ref=ref, uuid=f"uuid-{ref}", position=_mm_xy(x_mm, y_mm),
                      angle_deg=angle, layer=layer)
+
+
+def _stamp_sheet(adapter, sheet_uuid="sch-ch0", name="Channel_0") -> dict:
+    """Give every footprint of `adapter` a resolved top-level sheet path
+    (sheet_uuid -> name) and return the {uuid: name} map capture's source_sheet
+    derivation needs (5a.2) — replaces the removed network-prefix hack."""
+    for fp in adapter._fps:
+        fp.sheet_path_uuids = (sheet_uuid, fp.uuid)
+    return {sheet_uuid: name}
 
 
 def _pad(fp_ref, x_mm, y_mm, net, number="1"):
@@ -130,8 +144,9 @@ def _line_board(c2_x_mm=24.0, angle_anchor=0.0):
 
 
 def _record_dict(adapter, name="amp", anchor_ref="R1", c2_x_mm=24.0):
+    sheet_names = _stamp_sheet(adapter)
     record = capture_scheme_list(name, ["R1", "C1", "C2"], anchor_ref,
-                                 adapter=adapter)
+                                 adapter=adapter, sheet_names=sheet_names)
     # Normalise the anchor angle exactly as the caller expects (default 0).
     return scheme_list_to_dict(record)
 
@@ -366,11 +381,22 @@ def test_config_tree_shows_scheme_lists_section_and_click_emits_signal(main_wind
 
 # ── Dialogs (Record name/anchor; Reread diff with gated Apply) ─────────────
 
-def test_record_dialog_collects_name_and_anchor(main_window):
-    dialog = RecordSchemeListDialog(["R1", "C1", "C2"], main_window)
+def test_record_dialog_by_selection_collects_name_and_anchor(main_window):
+    """The secondary "By selection" tab keeps the pre-existing P2 behavior:
+    result_data returns (name, anchor_ref, None, None), the anchor picked from
+    the caller's OWN selection refs (Stage 5a.3 regression guard)."""
+    snapshot = [SimpleNamespace(ref="R1", sheet=["Channel_0"]),
+                SimpleNamespace(ref="C1", sheet=["Channel_0"]),
+                SimpleNamespace(ref="C2", sheet=["Channel_0"])]
+    dialog = RecordSchemeListDialog(snapshot, ["R1", "C1", "C2"], main_window)
+    assert isinstance(dialog.tabs, QTabWidget)
+    assert dialog.tabs.tabText(0) == "By sheet"
+    assert dialog.is_by_sheet()  # "By sheet" is the first/default tab
+    dialog.tabs.setCurrentIndex(1)  # -> "By selection"
     dialog.name_edit.setText("psu_front")
-    dialog.anchor_combo.setCurrentText("C1")
-    assert dialog.result_data() == ("psu_front", "C1")
+    dialog.selection_anchor_combo.setCurrentText("C1")
+    assert dialog.result_data() == ("psu_front", "C1", None, None)
+    assert not dialog.is_by_sheet()
 
 
 def test_diff_dialog_gates_apply_when_a_ref_is_missing(main_window, tmp_path):
@@ -416,5 +442,321 @@ def test_dock_hub_registers_scheme_list_page_and_routes_pick(main_window, tmp_pa
         hub.log_dock.remove_handler()
         if hub._log_file_handler is not None:
             import logging
+            logging.getLogger().removeHandler(hub._log_file_handler)
+            hub._log_file_handler.close()
+
+
+# ── Stage 5a: "By sheet" helpers + the two-tab Record dialog ───────────────
+# plan_2026_09_06_scheme_list_sheet_capture.md 5a — the pure sheet-scope
+# helpers (5a.1) and the two-tab RecordSchemeListDialog + DockHub ref
+# derivation (5a.3). Synthetic snapshot rows are SimpleNamespace(ref, sheet)
+# Selected stand-ins — the plan's headless style.
+
+def _snap(*rows):
+    """[(ref, path_tuple), ...] -> a synthetic Selected snapshot (list)."""
+    return [SimpleNamespace(ref=ref, sheet=list(path)) for ref, path in rows]
+
+
+_HIER = [
+    ("R1", ("Top",)),
+    ("C1", ("Top", "Ch0")),
+    ("C2", ("Top", "Ch0")),
+    ("C3", ("Top", "Ch1")),
+    ("U1", ("Top", "Ch0", "Amp")),
+    ("C4", ("Other",)),
+]
+
+
+# ── 5a.1 — pure helpers ────────────────────────────────────────────────────
+
+def test_live_sheet_paths_dedups_keeps_nesting_and_sorts():
+    snapshot = _snap(*_HIER)
+    paths = live_sheet_paths(snapshot)
+    # full path tuples, sorted; a nested path stays distinct from its parent
+    assert paths == [("Other",), ("Top",), ("Top", "Ch0"),
+                     ("Top", "Ch0", "Amp"), ("Top", "Ch1")]
+
+
+def test_live_sheet_paths_dedups_same_sheet_and_skips_unresolved():
+    snapshot = _snap(("R1", ("Top",)), ("R2", ("Top",)),       # same sheet -> one
+                     ("C1", ("Top", None)), ("X1", (None,)))   # None segments -> skip
+    assert live_sheet_paths(snapshot) == [("Top",)]
+
+
+def test_live_sheet_paths_empty_snapshot_is_empty():
+    assert live_sheet_paths([]) == []
+
+
+def test_sheet_paths_under_returns_root_and_all_descendants():
+    paths = [("Top",), ("Top", "Ch0"), ("Top", "Ch0", "Amp"),
+             ("Top", "Ch1"), ("Other",)]
+    assert sheet_paths_under(paths, ("Top",)) == [
+        ("Top",), ("Top", "Ch0"), ("Top", "Ch0", "Amp"), ("Top", "Ch1")]
+    assert sheet_paths_under(paths, ("Top", "Ch0")) == [
+        ("Top", "Ch0"), ("Top", "Ch0", "Amp")]
+    # leaf -> only itself
+    assert sheet_paths_under(paths, ("Top", "Ch1")) == [("Top", "Ch1")]
+    # a path that is NOT a descendant is excluded
+    assert ("Other",) not in sheet_paths_under(paths, ("Top",))
+    # root absent from `paths` -> nothing
+    assert sheet_paths_under(paths, ("Missing",)) == []
+
+
+def test_refs_on_sheet_is_direct_membership_not_recursive():
+    snapshot = _snap(*_HIER)
+    assert refs_on_sheet(snapshot, ("Top",)) == ["R1"]          # NOT C1/C2
+    assert refs_on_sheet(snapshot, ("Top", "Ch0")) == ["C1", "C2"]
+    assert refs_on_sheet(snapshot, ("Top", "Ch0", "Amp")) == ["U1"]
+    assert refs_on_sheet(snapshot, ("Other",)) == ["C4"]
+    assert refs_on_sheet(snapshot, ("Empty",)) == []
+
+
+def test_all_checked_rows_union_matches_naive_prefix_filter():
+    """The composition regression (plan 5a.1): summing refs_on_sheet over ALL
+    rows under a root equals what a naive whole-snapshot prefix filter would
+    give — i.e. the all-checked checklist is the old "take the whole subtree"
+    behavior, expressed as a special case of the new mechanism."""
+    snapshot = _snap(*_HIER)
+    paths = live_sheet_paths(snapshot)
+    rows = sheet_paths_under(paths, ("Top",))
+    union = sorted({r for p in rows for r in refs_on_sheet(snapshot, p)})
+    naive = sorted({s.ref for s in snapshot
+                    if tuple(s.sheet)[:len(("Top",))] == ("Top",)})
+    assert union == naive
+    assert "C4" not in union  # the Other sheet stays outside the subtree
+
+
+# ── 5a.3 — RecordSchemeListDialog (two tabs) ───────────────────────────────
+
+def test_record_dialog_two_tabs_with_by_sheet_default(main_window):
+    dialog = RecordSchemeListDialog(_snap(*_HIER), ["C4"], main_window)
+    assert dialog.tabs.count() == 2
+    assert dialog.tabs.tabText(0) == "By sheet"
+    assert dialog.tabs.tabText(1) == "By selection"
+    assert dialog.is_by_sheet()
+
+
+def test_record_dialog_by_sheet_leaf_hides_checklist_and_uses_root_refs(main_window):
+    snapshot = _snap(("R1", ("Top",)), ("C1", ("Top",)))
+    dialog = RecordSchemeListDialog(snapshot, [], main_window)
+    assert dialog.sheet_combo.count() == 1
+    assert not dialog._root_has_subsheets   # leaf -> nothing to prune
+    assert dialog._checked_sheet_paths() == [("Top",)]
+    refs = {dialog.sheet_anchor_combo.itemText(i)
+            for i in range(dialog.sheet_anchor_combo.count())}
+    assert refs == {"R1", "C1"}
+    assert dialog._ok_button.isEnabled()
+
+
+def test_record_dialog_by_sheet_all_checked_offers_every_subtree_ref(main_window):
+    snapshot = _snap(*_HIER)
+    dialog = RecordSchemeListDialog(snapshot, [], main_window)
+    # default root is the first sorted sheet ("Other",) — pick "Top" explicitly
+    dialog.sheet_combo.setCurrentText("Top")
+    assert dialog._root_has_subsheets
+    checked = dialog._checked_sheet_paths()
+    assert checked == [("Top",), ("Top", "Ch0"), ("Top", "Ch0", "Amp"),
+                       ("Top", "Ch1")]
+    refs = {dialog.sheet_anchor_combo.itemText(i)
+            for i in range(dialog.sheet_anchor_combo.count())}
+    assert refs == {"R1", "C1", "C2", "C3", "U1"}
+    assert dialog._ok_button.isEnabled()
+
+
+def test_record_dialog_by_sheet_unchecking_a_sub_sheet_drops_its_refs(main_window):
+    snapshot = _snap(*_HIER)
+    dialog = RecordSchemeListDialog(snapshot, [], main_window)
+    dialog.sheet_combo.setCurrentText("Top")
+    items = [dialog.sheet_checklist.item(i)
+             for i in range(dialog.sheet_checklist.count())]
+    ch0 = next(it for it in items
+               if it.data(Qt.ItemDataRole.UserRole) == ("Top", "Ch0"))
+    ch0.setCheckState(Qt.CheckState.Unchecked)
+    refs = {dialog.sheet_anchor_combo.itemText(i)
+            for i in range(dialog.sheet_anchor_combo.count())}
+    assert refs == {"R1", "C3", "U1"}          # Ch0's C1/C2 gone
+    assert ("Top", "Ch0") not in dialog._checked_sheet_paths()
+
+
+def test_record_dialog_by_sheet_unchecking_everything_disables_ok(main_window):
+    snapshot = _snap(*_HIER)
+    dialog = RecordSchemeListDialog(snapshot, [], main_window)
+    dialog.sheet_combo.setCurrentText("Top")
+    for i in range(dialog.sheet_checklist.count()):
+        dialog.sheet_checklist.item(i).setCheckState(Qt.CheckState.Unchecked)
+    assert dialog._checked_sheet_paths() == []
+    assert dialog.sheet_anchor_combo.count() == 0
+    assert not dialog._ok_button.isEnabled()
+
+
+def test_record_dialog_ok_gated_per_active_tab(main_window):
+    # By sheet has R1; the "By selection" selection is empty.
+    snapshot = _snap(("R1", ("Top",)))
+    dialog = RecordSchemeListDialog(snapshot, [], main_window)
+    assert dialog.is_by_sheet() and dialog._ok_button.isEnabled()
+    dialog.tabs.setCurrentIndex(1)  # By selection, no selection -> disabled
+    assert not dialog.is_by_sheet()
+    assert not dialog._ok_button.isEnabled()
+
+
+# ── 5a.3 — DockHub ref derivation + capture pass-through ───────────────────
+
+def test_record_refs_for_by_sheet_limited_to_checked_sheets():
+    snapshot = _snap(*_HIER)
+    # Ch1 (C3) unchecked -> its refs must NOT appear in the capture set
+    assert record_refs_for(snapshot, True, [("Top",), ("Top", "Ch0"),
+                                            ("Top", "Ch0", "Amp")],
+                           ["X1", "X2"]) == ["C1", "C2", "R1", "U1"]
+    # all checked -> the whole subtree under Top
+    assert record_refs_for(snapshot, True,
+                           [("Top",), ("Top", "Ch0"), ("Top", "Ch0", "Amp"),
+                            ("Top", "Ch1")], []) == ["C1", "C2", "C3", "R1", "U1"]
+
+
+def test_record_refs_for_by_selection_uses_selection_unchanged():
+    snapshot = _snap(*_HIER)
+    assert record_refs_for(snapshot, False, None, ["X1", "X2"]) == ["X1", "X2"]
+    assert record_refs_for(snapshot, False, None, ["C4"]) == ["C4"]
+
+
+def test_run_record_capture_honours_payload_refs_and_sheet_names():
+    """_run_record_capture (synchronous, no worker) must capture exactly the
+    payload's refs and feed sheet_names through for the source_sheet
+    derivation — the pass-through that makes a By-sheet-limited payload real."""
+    from gui.dock_hub import DockHub
+    from kicadstamp.scheme_list_capture import capture_scheme_list  # noqa: F401
+
+    hub = DockHub.__new__(DockHub)  # no __init__ side effects
+    adapter = _line_board()
+    names = _stamp_sheet(adapter)
+    payload = {"name": "amp", "refs": ["R1", "C1"], "anchor_ref": "R1",
+               "board": SimpleNamespace(adapter=adapter),
+               "root": ".", "sheet_names": names}
+    result = hub._run_record_capture(payload)
+    record = result["record"]
+    assert {c.ref for c in record.components} == {"R1", "C1"}
+    assert record.source_sheet == "Channel_0"
+
+
+def test_record_scheme_list_by_sheet_payload_refs_match_checked_sheets(
+        main_window, tmp_path, monkeypatch):
+    """record_scheme_list(): in "By sheet" mode the worker payload's refs are
+    really the union over the CHECKED sheets (unchecking a sub-sheet excludes
+    its refs from the capture). The dialog and worker are faked; the payload
+    construction itself is exercised synchronously."""
+    import logging
+
+    import gui.dock_hub as dock_hub_mod
+    from gui.dock_hub import DockHub
+    from PyQt6.QtWidgets import QDialog
+
+    root = tmp_path / "root.sexp"
+    _write(root, {"scheme_lists": [],
+                  "entities": [{"name": "PARENT", "cell": "c_parent"}],
+                  "trees": [{"name": "main", "anchor": {"origin": True},
+                             "nodes": [{"ref": "PARENT", "kind": "placement",
+                                        "xy": [0.0, 0.0]}]}]})
+    # DockHub is built with the board still None (the hub-fixture pattern) —
+    # the live snapshot + adapter are attached only for the Record call below.
+    connection = main_window.connection
+    hub = DockHub(main_window, connection=connection, verbose=False)
+    try:
+        connection.snapshot = _snap(*_HIER)
+        connection.board = SimpleNamespace(adapter=FakeAdapter([], [], [], {}))
+        hub.root_metadata_dock.set_root_file(root)
+
+        class _FakeDialog:
+            def __init__(self, snapshot, selection_refs, parent):
+                pass
+
+            def exec(self):
+                return QDialog.DialogCode.Accepted
+
+            def is_by_sheet(self):
+                return True
+
+            def result_data(self):
+                # User checked Top + Ch0 + its nested Amp, but NOT Ch1.
+                return ("amp", "R1", ("Top",), [("Top",), ("Top", "Ch0"),
+                                                ("Top", "Ch0", "Amp")])
+
+        payloads = []
+        monkeypatch.setattr(dock_hub_mod, "RecordSchemeListDialog", _FakeDialog)
+        # record_scheme_list imports start_long_op lazily (`from .worker import
+        # start_long_op`) — patch the worker module, not dock_hub's namespace.
+        import gui.worker as worker_mod
+        monkeypatch.setattr(
+            worker_mod, "start_long_op",
+            lambda _c, _w, worker, on_success, on_error, payload:
+                payloads.append(payload) or object())
+
+        hub.record_scheme_list()
+
+        assert len(payloads) == 1
+        # Ch1's C3 is excluded; R1/C1/C2/U1 are the checked-sheet union.
+        assert payloads[0]["refs"] == ["C1", "C2", "R1", "U1"]
+    finally:
+        hub.log_dock.remove_handler()
+        if hub._log_file_handler is not None:
+            logging.getLogger().removeHandler(hub._log_file_handler)
+            hub._log_file_handler.close()
+
+
+def test_record_scheme_list_by_selection_payload_matches_selection_refs(
+        main_window, tmp_path, monkeypatch):
+    """record_scheme_list(): in "By selection" mode the payload's refs are the
+    current board selection — identical to the pre-Stage-5a Record behavior
+    (regression guard, design §2)."""
+    import logging
+
+    import gui.dock_hub as dock_hub_mod
+    from gui.dock_hub import DockHub
+    from PyQt6.QtWidgets import QDialog
+
+    root = tmp_path / "root.sexp"
+    _write(root, {"scheme_lists": [],
+                  "entities": [{"name": "PARENT", "cell": "c_parent"}],
+                  "trees": [{"name": "main", "anchor": {"origin": True},
+                             "nodes": [{"ref": "PARENT", "kind": "placement",
+                                        "xy": [0.0, 0.0]}]}]})
+    connection = main_window.connection
+    hub = DockHub(main_window, connection=connection, verbose=False)
+    try:
+        connection.snapshot = []
+        connection.board = SimpleNamespace(adapter=FakeAdapter([], [], [], {}))
+        hub.root_metadata_dock.set_root_file(root)
+        hub._selection_footprints = [SimpleNamespace(ref="C1"),
+                                     SimpleNamespace(ref="R1")]
+
+        class _FakeDialog:
+            def __init__(self, snapshot, selection_refs, parent):
+                pass
+
+            def exec(self):
+                return QDialog.DialogCode.Accepted
+
+            def is_by_sheet(self):
+                return False
+
+            def result_data(self):
+                return ("amp", "C1", None, None)
+
+        payloads = []
+        monkeypatch.setattr(dock_hub_mod, "RecordSchemeListDialog", _FakeDialog)
+        # record_scheme_list imports start_long_op lazily (`from .worker import
+        # start_long_op`) — patch the worker module, not dock_hub's namespace.
+        import gui.worker as worker_mod
+        monkeypatch.setattr(
+            worker_mod, "start_long_op",
+            lambda _c, _w, worker, on_success, on_error, payload:
+                payloads.append(payload) or object())
+
+        hub.record_scheme_list()
+
+        assert len(payloads) == 1
+        assert payloads[0]["refs"] == ["C1", "R1"]  # the board selection
+    finally:
+        hub.log_dock.remove_handler()
+        if hub._log_file_handler is not None:
             logging.getLogger().removeHandler(hub._log_file_handler)
             hub._log_file_handler.close()

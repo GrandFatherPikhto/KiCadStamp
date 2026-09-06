@@ -26,7 +26,7 @@ from .domain.board import Footprint, Track, Via
 from .domain.geometry import Box2, Vector2
 from .exceptions import ValidationError, format_fatal_error
 from .template_selection import _filter_tracks_and_vias_within_selection
-from .channel_copy import _FOREIGN_BBOX_MARGIN_MM, sheet_name_of_fp
+from .channel_copy import _FOREIGN_BBOX_MARGIN_MM
 from .constants import ANGLE_TOLERANCE_DEG, POSITION_TOLERANCE_MM
 from .utils.layers import layer_to_str
 from .utils.units import MM
@@ -185,6 +185,8 @@ def capture_scheme_list(
     anchor_ref: str,
     anchor_pad: str | None = None,
     adapter=None,
+    source_sheet: str | None = None,   # explicit override (Reread)
+    sheet_names: dict[str, str] | None = None,  # for derivation (Record/Re-source)
 ) -> SchemeListConfig:
     """Capture the live board region identified by `refs` as a Scheme List.
 
@@ -194,6 +196,15 @@ def capture_scheme_list(
     literal nets and literal copper-layer strings in the anchor_ref frame, and
     reports dropped (excluded-material) copper as boundary_nets (v1 action
     "exclude"). Pure capture — writes nothing to the board.
+
+    ``source_sheet`` — the sheet the record was captured from. An explicit
+    value (Reread's override, keeping the STORED sheet) always wins; otherwise,
+    when ``sheet_names`` (the {uuid: Sheetname} map a Config/ctx carries) is
+    given, it is DERIVED from the anchor footprint's OWN full resolved sheet
+    path (resolve_sheet_path_names over the anchor's sheet_path_uuids) — the
+    same derivation for both Record tabs ("By sheet"/"By selection"), never a
+    network-prefix guess (channel_copy.sheet_name_of_fp). Without either the
+    record is "in place only" (source_sheet None).
     """
     anchor_ref = anchor_ref or (refs[0] if refs else "")
     if not refs:
@@ -271,16 +282,18 @@ def capture_scheme_list(
         for net, ref in sorted(boundary_by_net.items())
     ]
 
-    # source_sheet: the sheet the anchor (or, failing that, another recorded
-    # ref) currently sits on — the top-level sheet name from its local-net
-    # prefix (channel_copy.sheet_name_of_fp). None when every recorded ref is
-    # global-only (root sheet) — such a record is inherently "in place only".
-    source_sheet = None
-    for fp in [anchor_fp] + [f for f in footprints if f is not anchor_fp]:
-        sheet = sheet_name_of_fp(adapter, fp)
-        if sheet:
-            source_sheet = sheet
-            break
+    # source_sheet: an explicit value (Reread's override) wins; otherwise it is
+    # DERIVED from the anchor footprint's OWN full resolved sheet path (the
+    # same derivation for both Record tabs — every mode has exactly one anchor
+    # and its path resolves identically). Not a network-prefix guess:
+    # channel_copy.sheet_name_of_fp only sees one hierarchy level and fails on
+    # global-only footprints. None when no sheet_names are given or the path is
+    # unresolved — such a record is inherently "in place only".
+    if source_sheet is None and sheet_names:
+        from .sheet_names import resolve_sheet_path_names
+        path = resolve_sheet_path_names(anchor_fp, sheet_names)
+        if path and all(path):
+            source_sheet = "/".join(path)
 
     return SchemeListConfig(
         name=name,
@@ -406,9 +419,13 @@ def build_scheme_list_diff(stored: SchemeListConfig, adapter) -> SchemeListDiff:
         return SchemeListDiff(refs_not_found=refs_not_found,
                               anchor_missing=stored.anchor_ref not in present)
 
-    fresh = capture_scheme_list(name=stored.name, refs=found,
-                                anchor_ref=stored.anchor_ref,
-                                anchor_pad=stored.anchor_pad, adapter=adapter)
+    fresh = capture_scheme_list(
+        name=stored.name, refs=found,
+        anchor_ref=stored.anchor_ref,
+        anchor_pad=stored.anchor_pad, adapter=adapter,
+        # Keep the STORED source_sheet as an explicit override — Reread's job
+        # is re-reading the same source, never re-deriving the sheet (5a.2).
+        source_sheet=stored.source_sheet)
 
     # Components — the same literal ref in both sides; report when position or
     # rotation moved beyond the tolerance. (The anchor itself is the offset

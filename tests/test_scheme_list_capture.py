@@ -35,9 +35,10 @@ def _mm_xy(x_mm, y_mm):
     return Vector2.from_xy_mm(x_mm, y_mm)
 
 
-def _fp(ref, x_mm, y_mm, angle=0.0, layer=F):
+def _fp(ref, x_mm, y_mm, angle=0.0, layer=F, sheet_uuids=()):
     return Footprint(ref=ref, uuid=f"uuid-{ref}", position=_mm_xy(x_mm, y_mm),
-                     angle_deg=angle, layer=layer)
+                     angle_deg=angle, layer=layer,
+                     sheet_path_uuids=tuple(sheet_uuids))
 
 
 def _pad(fp_ref, x_mm, y_mm, net, number="1"):
@@ -186,8 +187,53 @@ class TestCaptureHappyPath:
         assert bn.action == "exclude"
         assert bn.external_ref == "J1"  # diagnostics: which external fp dragged it
 
-    def test_source_sheet_from_anchor_local_net(self):
-        assert self.cfg.source_sheet == "Channel_0"
+    def test_source_sheet_none_without_sheet_names(self):
+        # No sheet_names map -> no derivation; the record is "in place only".
+        assert self.cfg.source_sheet is None
+
+
+class TestSourceSheetDerivation:
+    """5a.2 (plan_2026_09_06_scheme_list_sheet_capture.md): source_sheet is
+    derived from the anchor footprint's OWN full resolved sheet path via the
+    sheet_names {uuid: name} map — NOT a network-prefix guess (the removed
+    channel_copy.sheet_name_of_fp hack only saw one hierarchy level and failed
+    on global-only footprints). Works the same for both Record tabs because
+    every mode has exactly one anchor and its path resolves identically."""
+
+    def _capture(self, sheet_uuids=(), names=None, **kwargs):
+        adapter, refs = _scenario()
+        for fp in adapter._fps:  # put every captured ref on the same sheet
+            if fp.ref in refs:
+                fp.sheet_path_uuids = tuple(sheet_uuids) + (fp.uuid,)
+        return capture_scheme_list("amp", refs, "R1", adapter=adapter,
+                                   sheet_names=names, **kwargs)
+
+    def test_derives_source_sheet_from_anchor_sheet_path(self):
+        cfg = self._capture(sheet_uuids=("sheet-ch0",),
+                            names={"sheet-ch0": "Channel_0"})
+        assert cfg.source_sheet == "Channel_0"
+
+    def test_nested_hierarchy_keeps_the_full_path(self):
+        names = {"sheet-top": "Top", "sheet-ch0": "Channel_0"}
+        cfg = self._capture(sheet_uuids=("sheet-top", "sheet-ch0"), names=names)
+        assert cfg.source_sheet == "Top/Channel_0"
+
+    def test_unresolved_segment_leaves_source_sheet_none(self):
+        # sheet-ch0 is NOT in the map -> a None path segment -> no derivation.
+        cfg = self._capture(sheet_uuids=("sheet-top", "sheet-ch0"),
+                            names={"sheet-top": "Top"})
+        assert cfg.source_sheet is None
+
+    def test_explicit_source_sheet_override_wins_over_derivation(self):
+        cfg = self._capture(sheet_uuids=("sheet-ch0",),
+                            names={"sheet-ch0": "Channel_0"},
+                            source_sheet="Top/Other")
+        assert cfg.source_sheet == "Top/Other"
+
+    def test_root_sheet_footprint_derives_nothing(self):
+        # A footprint with no parent-sheet uuids (chain empty) -> no path.
+        cfg = self._capture(names={"sheet-ch0": "Channel_0"})
+        assert cfg.source_sheet is None
 
 
 class TestCaptureFatals:
