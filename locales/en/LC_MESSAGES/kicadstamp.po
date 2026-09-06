@@ -14627,3 +14627,121 @@ msgid "No other cell fits this one's roles to copy from."
 msgstr ""
 msgid "Pick a cell to copy into first."
 msgstr ""
+
+
+msgid "a Scheme List is a recorded live-board snapshot that already carries its literal refs and literal nets — {key} has no meaning here. Remove it, or use a cell-based Entity instead"
+msgstr ""
+
+msgid "a recorded Scheme List is a snapshot of a real region — it must list at least one footprint (components: [{ref: C1, ...}])"
+msgstr ""
+
+msgid "an Entity is either a role-resolved use of a Cell template (cell: <name from cells:>) or a refdes-literal clone of a recorded Scheme List (scheme_list: <name from scheme_lists:>) — set exactly one of the two, not both and not neither"
+msgstr ""
+
+msgid "anchor_ref must be one of the recorded refs in components[].ref — it doubles as the offset origin and the clone anchor; got components: {refs}"
+msgstr ""
+
+msgid "anchor_ref: <one of the recorded refs> is REQUIRED — it is the origin of every offset AND the anchor point when cloning the record onto another sheet"
+msgstr ""
+
+msgid "each boundary-net diagnostic names the boundary net: net: <name>"
+msgstr ""
+
+msgid "entity {name!r} needs exactly one of cell:/scheme_list:"
+msgstr ""
+
+msgid "every recorded component needs a literal refdes: ref: <C1>"
+msgstr ""
+
+msgid "every scheme_lists entry needs a name — the identity for --only and the reference an Entity's scheme_list: points at"
+msgstr ""
+
+msgid "every scheme_lists entry needs a unique name — --only and Entity.scheme_list references cannot tell same-named records apart otherwise"
+msgstr ""
+
+msgid "field {key!r} on scheme_list-based entity {name!r}"
+msgstr ""
+
+msgid "got: {b!r}"
+msgstr ""
+
+msgid "got: {c!r}"
+msgstr ""
+
+msgid "got: {layer!r} — layer is the literal copper layer name (e.g. 'F.Cu', 'In1.Cu', 'B.Cu')"
+msgstr ""
+
+msgid "got: {t!r}"
+msgstr ""
+
+msgid "got: {v!r}"
+msgstr ""
+
+msgid "one component can belong to at most one Scheme List — cloning one record would move a component another record expects; duplicate refs are also fatal at \"Record...\" capture time"
+msgstr ""
+
+msgid "ref(s) recorded in more than one scheme_lists entry: {refs}"
+msgstr ""
+
+msgid "scheme_lists entry without name"
+msgstr ""
+
+msgid "scheme_lists entry {name!r} without anchor_ref"
+msgstr ""
+
+msgid "scheme_lists entry {name!r} without components"
+msgstr ""
+
+msgid "scheme_lists entry {name!r}: anchor_ref {ref!r} is not one of its own components"
+msgstr ""
+
+msgid "scheme_lists entry {name!r}: boundary net {net!r} action {action!r}"
+msgstr ""
+
+msgid "scheme_lists entry {name!r}: boundary_net {i} without net"
+msgstr ""
+
+msgid "scheme_lists entry {name!r}: boundary_nets[{i}] must be a mapping"
+msgstr ""
+
+msgid "scheme_lists entry {name!r}: component {i} without ref"
+msgstr ""
+
+msgid "scheme_lists entry {name!r}: components[{i}] must be a mapping"
+msgstr ""
+
+msgid "scheme_lists entry {name!r}: track {i} layer must be a string"
+msgstr ""
+
+msgid "scheme_lists entry {name!r}: tracks[{i}] must be a mapping"
+msgstr ""
+
+msgid "scheme_lists entry {name!r}: vias[{i}] must be a mapping"
+msgstr ""
+
+msgid "unknown fields in scheme_lists entry {name!r}"
+msgstr ""
+
+msgid "unknown fields in scheme_lists {name!r} boundary_nets[{i}]"
+msgstr ""
+
+msgid "unknown fields in scheme_lists {name!r} component {i}"
+msgstr ""
+
+msgid "unknown fields in scheme_lists {name!r} track {i}"
+msgstr ""
+
+msgid "unknown fields in scheme_lists {name!r} via {i}"
+msgstr ""
+
+msgid "v1 supports ONLY action: 'exclude' (drop the whole connected component with a warning, like Cell extraction). 'truncate' (geometric clipping of copper at the boundary) is an open future question, not yet implemented"
+msgstr ""
+
+msgid "{ref} (in both {a} and {b})"
+msgstr ""
+
+msgid "entity references a missing scheme_lists entry: {names}"
+msgstr ""
+
+msgid "a scheme_list-based Entity names the recorded Scheme List it clones; every such name must exist in scheme_lists: (which may live in an included .json file — check include:)"
+msgstr ""

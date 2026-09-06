@@ -55,6 +55,7 @@ from .entries import (
     _load_net_trace,
     _load_point,
     _load_chain,
+    _load_scheme_list,
     _load_template_component_slot,
     _load_template_track,
     _load_template_via,
@@ -68,9 +69,9 @@ from .sheet_templates import expand_sheet_templates
 from .tree_instances import expand_tree_instances
 from .models import (
     ThermalViaArrayConfig, CoordinatePlacement, NetTrace, Config,
-    chain_effective_name, coordinate_placement_effective_name,
+    SchemeListConfig, chain_effective_name, coordinate_placement_effective_name,
     clone_placement_effective_name, net_trace_effective_name,
-    entity_effective_name,
+    entity_effective_name, scheme_list_effective_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -201,6 +202,44 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
         _("every net_traces entry needs a unique net: — one record per net; "
           "--only=<net> cannot tell same-netted entries apart otherwise"))
 
+    # scheme_lists: — recorded live-board snapshots (design_2026_09_05_scheme_
+    # list.md, plan P1). A list section like thermal_via_arrays/clone_
+    # placements; records normally live in an included .json file but the
+    # section is format-agnostic (see _load_scheme_list in config/entries.py).
+    scheme_lists: list[SchemeListConfig] = [
+        _load_scheme_list(sl_data) for sl_data in data.get('scheme_lists', [])
+    ]
+
+    # Same duplicate-name collision check as the other list sections — the
+    # name is the Entity.scheme_list / --only identity.
+    _check_duplicate_names(
+        scheme_lists, scheme_list_effective_name, "scheme_lists",
+        _("every scheme_lists entry needs a unique name — --only and "
+          "Entity.scheme_list references cannot tell same-named records apart "
+          "otherwise"))
+
+    # Cross-record ref uniqueness (design §9.2, plan §0.2): a real ref may be
+    # recorded in at most ONE Scheme List. Cloning one record onto another
+    # sheet would otherwise move a component another record still expects, and
+    # "Record..." of a new snapshot over an already-recorded ref must be a
+    # clear error, not a silent double-ownership.
+    ref_owner: dict[str, str] = {}
+    dup_ref_problems: list[str] = []
+    for sl in scheme_lists:
+        for comp in sl.components:
+            prev = ref_owner.get(comp.ref)
+            if prev is not None and prev != sl.name:
+                dup_ref_problems.append(
+                    _("{ref} (in both {a} and {b})").format(ref=comp.ref, a=prev, b=sl.name))
+            ref_owner[comp.ref] = sl.name
+    if dup_ref_problems:
+        raise ValidationError(format_fatal_error(
+            _("ref(s) recorded in more than one scheme_lists entry: {refs}").format(
+                refs=", ".join(sorted(set(dup_ref_problems)))),
+            [_("one component can belong to at most one Scheme List — cloning "
+               "one record would move a component another record expects; "
+               "duplicate refs are also fatal at \"Record...\" capture time")]))
+
     cells_data = dict(data.get('cells', {}) or {})
 
     # Deprecated pre-rename key names (see handoff_2026_08_01_metalanguage_p2_p3.md) —
@@ -273,6 +312,26 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
         _("every entities entry needs a unique name: — --only and trees: node "
           "refs (kind 'placement') cannot tell same-named entities apart "
           "otherwise"))
+
+    # Cross-check: every scheme_list-based Entity's reference must name an
+    # existing scheme_lists entry (the cell-based symmetric check is
+    # validation.check_entity_cells_exist — cells: is a dict the loader does
+    # not own the existence of; scheme_lists: is a list section parsed right
+    # here, so this reference check belongs in the loader like the
+    # anchor_point cross-checks). A dangling name would otherwise only
+    # surface as a confusing fatal at Apply/Redraw time (P4).
+    scheme_names = {sl.name for sl in scheme_lists}
+    missing_scheme_refs = sorted(
+        e.scheme_list for e in entities
+        if e.scheme_list is not None and e.scheme_list not in scheme_names)
+    if missing_scheme_refs:
+        raise ValidationError(format_fatal_error(
+            _("entity references a missing scheme_lists entry: {names}").format(
+                names=", ".join(missing_scheme_refs)),
+            [_("a scheme_list-based Entity names the recorded Scheme List it "
+               "clones; every such name must exist in scheme_lists: (which may "
+               "live in an included .json file — check include:)")]))
+
     logger.debug(_("Config loaded: entities={entities}").format(entities=len(entities)))
 
     # trees: — optional curated-redraw list section (design_2026_08_27_trees_in_
@@ -461,6 +520,7 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
         cells=cells,
         points=points,
         thermal_via_arrays=thermal_vias,
+        scheme_lists=scheme_lists,
         chains=chains,
         entities=entities,
         clone_placements=clone_placements,

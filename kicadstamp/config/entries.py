@@ -21,7 +21,9 @@ from ..trees import Tree, tree_from_dict
 from .models import (
     ThermalViaArrayConfig, TemplateVia, TemplateComponentSlot, TemplateTrack,
     Cell, CellPlacement, ManualSpoke, Chain, ClonePlacement, CoordinatePlacement,
-    NetTrace, Entity, TreeInstance,
+    NetTrace, Entity, SchemeListConfig, SchemeListComponentRecord,
+    SchemeListViaRecord, SchemeListTrackRecord, SchemeListBoundaryNet,
+    TreeInstance,
 )
 from .points import Point
 
@@ -761,7 +763,7 @@ _ENTITY_FORBIDDEN_KEYS = (
 )
 
 _ENTITY_KNOWN_KEYS = {
-    'name', 'cell', 'nets', 'params', 'net_overrides',
+    'name', 'cell', 'scheme_list', 'nets', 'params', 'net_overrides',
     'cluster', 'sheet', 'retired', 'skip', 'ignore_selection',
     'by_selection', 'refs', 'layer', 'mirror', 'comment',
 }
@@ -770,9 +772,14 @@ _ENTITY_KNOWN_KEYS = {
 def _load_entity(data: dict[str, Any]) -> Entity:
     """One entities: entry — the "what" of a placement, WITHOUT position
     (see Entity's docstring in config/models.py). Loader mirrors
-    _load_clone_placement's per-field discipline: name/cell required,
-    unknown keys fatal, positional keys fatal, by_selection+nets fatal,
-    layer value checked."""
+    _load_clone_placement's per-field discipline: EXACTLY ONE of cell:/
+    scheme_list: required, unknown keys fatal, positional keys fatal,
+    by_selection+nets fatal, layer value checked.
+
+    2026-09-06 (design_2026_09_05_scheme_list.md §5.1): a scheme_list-based
+    Entity is a refdes-literal clone of a recorded snapshot, so the
+    role-resolution controls (cluster/by_selection/refs/nets/params/
+    net_overrides) are meaningless on it and fatal if set together."""
     name = data.get('name')
     if not name:
         raise ValidationError(format_fatal_error(
@@ -783,14 +790,6 @@ def _load_entity(data: dict[str, Any]) -> Entity:
     check_unknown_keys(data, _ENTITY_KNOWN_KEYS,
                        _("unknown fields in entity {name!r}").format(name=name))
 
-    cell = data.get('cell')
-    if not cell:
-        raise ValidationError(format_fatal_error(
-            _("entity {name!r} without cell").format(name=name),
-            [_("cell: <name from cells:> is REQUIRED — an Entity is a configured "
-               "use of a Cell (the reusable form library), exactly like "
-               "ClonePlacement.cell")]))
-
     for forbidden in _ENTITY_FORBIDDEN_KEYS:
         if forbidden in data:
             raise ValidationError(format_fatal_error(
@@ -800,6 +799,30 @@ def _load_entity(data: dict[str, Any]) -> Entity:
                    "trees: node (kind 'placement') or in a tree anchor. Move "
                    "{field!r} to the tree node / anchor grammar instead")
                  .format(field=forbidden)]))
+
+    cell = data.get('cell')
+    scheme_list = data.get('scheme_list')
+    if (cell is None) == (scheme_list is None):
+        raise ValidationError(format_fatal_error(
+            _("entity {name!r} needs exactly one of cell:/scheme_list:").format(name=name),
+            [_("an Entity is either a role-resolved use of a Cell template "
+               "(cell: <name from cells:>) or a refdes-literal clone of a "
+               "recorded Scheme List (scheme_list: <name from scheme_lists:>) "
+               "— set exactly one of the two, not both and not neither")]))
+
+    if scheme_list is not None:
+        # Role-resolution controls are meaningless on a recorded snapshot
+        # (it already carries its literal refs and literal nets).
+        for key in ('cluster', 'by_selection', 'refs', 'nets', 'params',
+                    'net_overrides'):
+            if data.get(key):
+                raise ValidationError(format_fatal_error(
+                    _("field {key!r} on scheme_list-based entity {name!r}").format(
+                        key=key, name=name),
+                    [_("a Scheme List is a recorded live-board snapshot that "
+                       "already carries its literal refs and literal nets — "
+                       "{key} has no meaning here. Remove it, or use a "
+                       "cell-based Entity instead").format(key=key)]))
 
     nets = data.get('nets', {}) or {}
     by_selection = bool(data.get('by_selection', False))
@@ -817,6 +840,7 @@ def _load_entity(data: dict[str, Any]) -> Entity:
     return Entity(
         name=name,
         cell=cell,
+        scheme_list=scheme_list,
         nets=nets,
         params=data.get('params', {}) or {},
         net_overrides=data.get('net_overrides', {}) or {},
@@ -830,6 +854,195 @@ def _load_entity(data: dict[str, Any]) -> Entity:
         layer=layer,
         mirror=bool(data.get('mirror', False)),
         comment=data.get('comment'),
+    )
+
+
+_SCHEME_LIST_KNOWN_KEYS = {
+    'name', 'anchor_ref', 'anchor_pad', 'source_sheet',
+    'components', 'vias', 'tracks', 'boundary_nets',
+}
+_SCHEME_LIST_COMPONENT_KNOWN_KEYS = {
+    'ref', 'offset_along_mm', 'offset_across_mm', 'rotation_deg',
+}
+_SCHEME_LIST_VIA_KNOWN_KEYS = {
+    'offset_along_mm', 'offset_across_mm', 'drill_mm', 'diameter_mm', 'net',
+}
+_SCHEME_LIST_TRACK_KNOWN_KEYS = {
+    'start_along_mm', 'start_across_mm', 'end_along_mm', 'end_across_mm',
+    'width_mm', 'layer', 'net',
+}
+_SCHEME_LIST_BOUNDARY_KNOWN_KEYS = {'net', 'action', 'external_ref'}
+
+
+def _load_scheme_list_components(raw: list | None, owner: str) -> list[SchemeListComponentRecord]:
+    """Parse the literal-ref components of one Scheme List record. The owner
+    refs are the record's own captured footprints (offset in the anchor_ref
+    frame); anchor_ref membership in this set is validated by the caller."""
+    out: list[SchemeListComponentRecord] = []
+    for i, c in enumerate(raw or []):
+        if not isinstance(c, dict):
+            raise ValidationError(format_fatal_error(
+                _("scheme_lists entry {name!r}: components[{i}] must be a mapping").format(
+                    name=owner, i=i),
+                [_("got: {c!r}").format(c=c)]))
+        check_unknown_keys(c, _SCHEME_LIST_COMPONENT_KNOWN_KEYS,
+                           _("unknown fields in scheme_lists {name!r} component {i}").format(
+                               name=owner, i=i))
+        ref = c.get('ref')
+        if not ref:
+            raise ValidationError(format_fatal_error(
+                _("scheme_lists entry {name!r}: component {i} without ref").format(
+                    name=owner, i=i),
+                [_("every recorded component needs a literal refdes: ref: <C1>")]))
+        out.append(SchemeListComponentRecord(
+            ref=ref,
+            offset_along_mm=float(c.get('offset_along_mm', 0.0)),
+            offset_across_mm=float(c.get('offset_across_mm', 0.0)),
+            rotation_deg=float(c.get('rotation_deg', 0.0)),
+        ))
+    return out
+
+
+def _load_scheme_list_vias(raw: list | None, owner: str) -> list[SchemeListViaRecord]:
+    out: list[SchemeListViaRecord] = []
+    for i, v in enumerate(raw or []):
+        if not isinstance(v, dict):
+            raise ValidationError(format_fatal_error(
+                _("scheme_lists entry {name!r}: vias[{i}] must be a mapping").format(
+                    name=owner, i=i),
+                [_("got: {v!r}").format(v=v)]))
+        check_unknown_keys(v, _SCHEME_LIST_VIA_KNOWN_KEYS,
+                           _("unknown fields in scheme_lists {name!r} via {i}").format(
+                               name=owner, i=i))
+        out.append(SchemeListViaRecord(
+            offset_along_mm=float(v.get('offset_along_mm', 0.0)),
+            offset_across_mm=float(v.get('offset_across_mm', 0.0)),
+            drill_mm=float(v.get('drill_mm', 0.0)),
+            diameter_mm=float(v.get('diameter_mm', 0.0)),
+            net=v.get('net'),
+        ))
+    return out
+
+
+def _load_scheme_list_tracks(raw: list | None, owner: str) -> list[SchemeListTrackRecord]:
+    out: list[SchemeListTrackRecord] = []
+    for i, t in enumerate(raw or []):
+        if not isinstance(t, dict):
+            raise ValidationError(format_fatal_error(
+                _("scheme_lists entry {name!r}: tracks[{i}] must be a mapping").format(
+                    name=owner, i=i),
+                [_("got: {t!r}").format(t=t)]))
+        check_unknown_keys(t, _SCHEME_LIST_TRACK_KNOWN_KEYS,
+                           _("unknown fields in scheme_lists {name!r} track {i}").format(
+                               name=owner, i=i))
+        layer = t.get('layer')
+        # Literal copper layer — a STRING, deliberately not restricted to the
+        # F.Cu/B.Cu-only BoardLayer enum (multilayer boards, P0.1).
+        if layer is not None and not isinstance(layer, str):
+            raise ValidationError(format_fatal_error(
+                _("scheme_lists entry {name!r}: track {i} layer must be a string").format(
+                    name=owner, i=i),
+                [_("got: {layer!r} — layer is the literal copper layer name "
+                   "(e.g. 'F.Cu', 'In1.Cu', 'B.Cu')").format(layer=layer)]))
+        out.append(SchemeListTrackRecord(
+            start_along_mm=float(t.get('start_along_mm', 0.0)),
+            start_across_mm=float(t.get('start_across_mm', 0.0)),
+            end_along_mm=float(t.get('end_along_mm', 0.0)),
+            end_across_mm=float(t.get('end_across_mm', 0.0)),
+            width_mm=float(t.get('width_mm', 0.0)),
+            layer=layer,
+            net=t.get('net'),
+        ))
+    return out
+
+
+def _load_scheme_list_boundary_nets(raw: list | None,
+                                    owner: str) -> list[SchemeListBoundaryNet]:
+    """Boundary-net diagnostics: per-NET decision key, one `action` for every
+    disconnected stub of the net (design §3). v1 supports ONLY "exclude" —
+    "truncate" (geometric clipping) is an open future question, fatal if
+    requested."""
+    out: list[SchemeListBoundaryNet] = []
+    for i, b in enumerate(raw or []):
+        if not isinstance(b, dict):
+            raise ValidationError(format_fatal_error(
+                _("scheme_lists entry {name!r}: boundary_nets[{i}] must be a mapping").format(
+                    name=owner, i=i),
+                [_("got: {b!r}").format(b=b)]))
+        check_unknown_keys(b, _SCHEME_LIST_BOUNDARY_KNOWN_KEYS,
+                           _("unknown fields in scheme_lists {name!r} boundary_nets[{i}]").format(
+                               name=owner, i=i))
+        net = b.get('net')
+        if not net:
+            raise ValidationError(format_fatal_error(
+                _("scheme_lists entry {name!r}: boundary_net {i} without net").format(
+                    name=owner, i=i),
+                [_("each boundary-net diagnostic names the boundary net: net: <name>")]))
+        action = b.get('action', 'exclude')
+        if action != 'exclude':
+            raise ValidationError(format_fatal_error(
+                _("scheme_lists entry {name!r}: boundary net {net!r} action {action!r}").format(
+                    name=owner, net=net, action=action),
+                [_("v1 supports ONLY action: 'exclude' (drop the whole connected "
+                   "component with a warning, like Cell extraction). 'truncate' "
+                   "(geometric clipping of copper at the boundary) is an open "
+                   "future question, not yet implemented")]))
+        out.append(SchemeListBoundaryNet(
+            net=net,
+            action=action,
+            external_ref=b.get('external_ref'),
+        ))
+    return out
+
+
+def _load_scheme_list(data: dict[str, Any]) -> SchemeListConfig:
+    """One scheme_lists: entry — a recorded live-board snapshot
+    (design_2026_09_05_scheme_list.md §3). Pure single-entry validator,
+    split out so a future GUI dock can validate/rebuild one record the same
+    way load_entity/load_thermal_via_array do for theirs. The list-level
+    duplicate-name and cross-record ref-uniqueness checks stay in
+    load_config() (they need the whole list, not one entry)."""
+    name = data.get('name')
+    if not name:
+        raise ValidationError(format_fatal_error(
+            _("scheme_lists entry without name"),
+            [_("every scheme_lists entry needs a name — the identity for "
+               "--only and the reference an Entity's scheme_list: points at")]))
+    check_unknown_keys(data, _SCHEME_LIST_KNOWN_KEYS,
+                       _("unknown fields in scheme_lists entry {name!r}").format(name=name))
+
+    anchor_ref = data.get('anchor_ref')
+    if not anchor_ref:
+        raise ValidationError(format_fatal_error(
+            _("scheme_lists entry {name!r} without anchor_ref").format(name=name),
+            [_("anchor_ref: <one of the recorded refs> is REQUIRED — it is the "
+               "origin of every offset AND the anchor point when cloning the "
+               "record onto another sheet")]))
+
+    components = _load_scheme_list_components(data.get('components'), name)
+    if not components:
+        raise ValidationError(format_fatal_error(
+            _("scheme_lists entry {name!r} without components").format(name=name),
+            [_("a recorded Scheme List is a snapshot of a real region — it must "
+               "list at least one footprint (components: [{ref: C1, ...}])")]))
+
+    if anchor_ref not in {c.ref for c in components}:
+        raise ValidationError(format_fatal_error(
+            _("scheme_lists entry {name!r}: anchor_ref {ref!r} is not one of its own components").format(
+                name=name, ref=anchor_ref),
+            [_("anchor_ref must be one of the recorded refs in components[].ref — "
+               "it doubles as the offset origin and the clone anchor; got components: {refs}")
+             .format(refs=sorted(c.ref for c in components))]))
+
+    return SchemeListConfig(
+        name=name,
+        anchor_ref=anchor_ref,
+        anchor_pad=data.get('anchor_pad'),
+        source_sheet=data.get('source_sheet'),
+        components=components,
+        vias=_load_scheme_list_vias(data.get('vias'), name),
+        tracks=_load_scheme_list_tracks(data.get('tracks'), name),
+        boundary_nets=_load_scheme_list_boundary_nets(data.get('boundary_nets'), name),
     )
 
 

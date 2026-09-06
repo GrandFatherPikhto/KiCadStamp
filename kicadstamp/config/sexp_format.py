@@ -47,6 +47,11 @@ from .models import (
     ManualSpoke,
     NetTrace,
     Chain,
+    SchemeListBoundaryNet,
+    SchemeListComponentRecord,
+    SchemeListConfig,
+    SchemeListTrackRecord,
+    SchemeListViaRecord,
     TemplateComponentSlot,
     TemplateTrack,
     TemplateVia,
@@ -76,6 +81,11 @@ _TAG_BY_CLASS = {
     NetTrace: "net_trace",
     Point: "point",
     TreeInstance: "tree_instance",
+    SchemeListConfig: "scheme_list",
+    SchemeListComponentRecord: "scheme_list_component",
+    SchemeListViaRecord: "scheme_list_via",
+    SchemeListTrackRecord: "scheme_list_track",
+    SchemeListBoundaryNet: "scheme_list_boundary_net",
 }
 _TAG_TO_CLASS = {v: k for k, v in _TAG_BY_CLASS.items()}
 
@@ -91,6 +101,10 @@ _LIST_SECTION_CLASS = {
     # records, unlike trees: which is _SPECIAL_SECTIONS — see below), handled
     # by the same schema-aware machinery as net_traces/entities.
     "tree_instances": TreeInstance,
+    # scheme_lists: — recorded live-board snapshots (design_2026_09_05_scheme_
+    # list.md): plain dataclass records with nested components/vias/tracks/
+    # boundary_nets lists, handled by the same schema-aware machinery.
+    "scheme_lists": SchemeListConfig,
 }
 
 # dict sections with a real dataclass (record name in the first position).

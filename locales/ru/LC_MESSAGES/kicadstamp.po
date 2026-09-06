@@ -13258,3 +13258,121 @@ msgid "No other cell fits this one's roles to copy from."
 msgstr "Ни один другой шаблон не подходит по ролям для копирования."
 msgid "Pick a cell to copy into first."
 msgstr "Сначала выберите шаблон, в который копировать."
+
+
+msgid "a Scheme List is a recorded live-board snapshot that already carries its literal refs and literal nets — {key} has no meaning here. Remove it, or use a cell-based Entity instead"
+msgstr "Scheme List — это записанный снимок реальной платы с уже готовыми литеральными рефами и сетями — {key} здесь не имеет смысла. Уберите его или используйте Entity на основе cell"
+
+msgid "a recorded Scheme List is a snapshot of a real region — it must list at least one footprint (components: [{ref: C1, ...}])"
+msgstr "Записанный Scheme List — это снимок реальной области платы: он обязан содержать хотя бы один футпринт (components: [{ref: C1, ...}])"
+
+msgid "an Entity is either a role-resolved use of a Cell template (cell: <name from cells:>) or a refdes-literal clone of a recorded Scheme List (scheme_list: <name from scheme_lists:>) — set exactly one of the two, not both and not neither"
+msgstr "Entity — это либо размещение по ролям из шаблона Cell (cell: <имя из cells:>), либо буквальный клон записанного Scheme List по рефдесам (scheme_list: <имя из scheme_lists:>) — задайте ровно одно из двух: не оба и не ни одного"
+
+msgid "anchor_ref must be one of the recorded refs in components[].ref — it doubles as the offset origin and the clone anchor; got components: {refs}"
+msgstr "anchor_ref должен быть одним из записанных рефов components[].ref — он служит и началом отсчёта смещений, и якорем клонирования; получены components: {refs}"
+
+msgid "anchor_ref: <one of the recorded refs> is REQUIRED — it is the origin of every offset AND the anchor point when cloning the record onto another sheet"
+msgstr "anchor_ref: <один из записанных рефов> ОБЯЗАТЕЛЕН — это начало отсчёта всех смещений и точка привязки при клонировании записи на другой лист"
+
+msgid "each boundary-net diagnostic names the boundary net: net: <name>"
+msgstr "каждая диагностика пограничной сети указывает её имя: net: <имя>"
+
+msgid "entity {name!r} needs exactly one of cell:/scheme_list:"
+msgstr "entity {name!r} требует ровно одно из cell:/scheme_list:"
+
+msgid "every recorded component needs a literal refdes: ref: <C1>"
+msgstr "каждый записанный компонент требует буквальный рефдес: ref: <C1>"
+
+msgid "every scheme_lists entry needs a name — the identity for --only and the reference an Entity's scheme_list: points at"
+msgstr "каждая запись scheme_lists требует имя — это идентичность для --only и цель ссылки Entity.scheme_list:"
+
+msgid "every scheme_lists entry needs a unique name — --only and Entity.scheme_list references cannot tell same-named records apart otherwise"
+msgstr "каждая запись scheme_lists требует уникальное имя — иначе --only и ссылки Entity.scheme_list не смогут различить записи с одинаковыми именами"
+
+msgid "field {key!r} on scheme_list-based entity {name!r}"
+msgstr "поле {key!r} у scheme_list-based entity {name!r}"
+
+msgid "got: {b!r}"
+msgstr "получено: {b!r}"
+
+msgid "got: {c!r}"
+msgstr "получено: {c!r}"
+
+msgid "got: {layer!r} — layer is the literal copper layer name (e.g. 'F.Cu', 'In1.Cu', 'B.Cu')"
+msgstr "получено: {layer!r} — layer это литеральное имя медного слоя (напр. 'F.Cu', 'In1.Cu', 'B.Cu')"
+
+msgid "got: {t!r}"
+msgstr "получено: {t!r}"
+
+msgid "got: {v!r}"
+msgstr "получено: {v!r}"
+
+msgid "one component can belong to at most one Scheme List — cloning one record would move a component another record expects; duplicate refs are also fatal at \"Record...\" capture time"
+msgstr "один компонент может входить не более чем в один Scheme List — иначе клонирование одной записи передвинет компонент, который ожидает другая; дубли рефов фатальны и при захвате \"Record...\""
+
+msgid "ref(s) recorded in more than one scheme_lists entry: {refs}"
+msgstr "реф(ы) записаны более чем в одной записи scheme_lists: {refs}"
+
+msgid "scheme_lists entry without name"
+msgstr "запись scheme_lists без имени"
+
+msgid "scheme_lists entry {name!r} without anchor_ref"
+msgstr "запись scheme_lists {name!r} без anchor_ref"
+
+msgid "scheme_lists entry {name!r} without components"
+msgstr "запись scheme_lists {name!r} без components"
+
+msgid "scheme_lists entry {name!r}: anchor_ref {ref!r} is not one of its own components"
+msgstr "запись scheme_lists {name!r}: anchor_ref {ref!r} не входит в её собственные components"
+
+msgid "scheme_lists entry {name!r}: boundary net {net!r} action {action!r}"
+msgstr "запись scheme_lists {name!r}: пограничная сеть {net!r} имеет действие {action!r}"
+
+msgid "scheme_lists entry {name!r}: boundary_net {i} without net"
+msgstr "запись scheme_lists {name!r}: boundary_net {i} без net"
+
+msgid "scheme_lists entry {name!r}: boundary_nets[{i}] must be a mapping"
+msgstr "запись scheme_lists {name!r}: boundary_nets[{i}] должно быть словарём"
+
+msgid "scheme_lists entry {name!r}: component {i} without ref"
+msgstr "запись scheme_lists {name!r}: компонент {i} без ref"
+
+msgid "scheme_lists entry {name!r}: components[{i}] must be a mapping"
+msgstr "запись scheme_lists {name!r}: components[{i}] должен быть словарём"
+
+msgid "scheme_lists entry {name!r}: track {i} layer must be a string"
+msgstr "запись scheme_lists {name!r}: layer трека {i} должна быть строкой"
+
+msgid "scheme_lists entry {name!r}: tracks[{i}] must be a mapping"
+msgstr "запись scheme_lists {name!r}: tracks[{i}] должен быть словарём"
+
+msgid "scheme_lists entry {name!r}: vias[{i}] must be a mapping"
+msgstr "запись scheme_lists {name!r}: vias[{i}] должен быть словарём"
+
+msgid "unknown fields in scheme_lists entry {name!r}"
+msgstr "неизвестные поля в записи scheme_lists {name!r}"
+
+msgid "unknown fields in scheme_lists {name!r} boundary_nets[{i}]"
+msgstr "неизвестные поля в scheme_lists {name!r} boundary_nets[{i}]"
+
+msgid "unknown fields in scheme_lists {name!r} component {i}"
+msgstr "неизвестные поля в scheme_lists {name!r} в компоненте {i}"
+
+msgid "unknown fields in scheme_lists {name!r} track {i}"
+msgstr "неизвестные поля в scheme_lists {name!r} в треке {i}"
+
+msgid "unknown fields in scheme_lists {name!r} via {i}"
+msgstr "неизвестные поля в scheme_lists {name!r} в виа {i}"
+
+msgid "v1 supports ONLY action: 'exclude' (drop the whole connected component with a warning, like Cell extraction). 'truncate' (geometric clipping of copper at the boundary) is an open future question, not yet implemented"
+msgstr "v1 поддерживает ТОЛЬКО action: 'exclude' (отбросить всю связную компоненту с предупреждением, как при извлечении Cell). 'truncate' (геометрическая обрезка меди по границе) — открытый вопрос на будущее, пока не реализован"
+
+msgid "{ref} (in both {a} and {b})"
+msgstr "{ref} (в обоих: {a} и {b})"
+
+msgid "entity references a missing scheme_lists entry: {names}"
+msgstr "entity ссылается на отсутствующую запись scheme_lists: {names}"
+
+msgid "a scheme_list-based Entity names the recorded Scheme List it clones; every such name must exist in scheme_lists: (which may live in an included .json file — check include:)"
+msgstr "запись scheme_list-based Entity называет записываемый Scheme List, который она клонирует; каждое такое имя обязано существовать в scheme_lists: (оно может жить во включённом .json-файле — проверьте include:)"

@@ -624,22 +624,39 @@ class Entity:
     name — REQUIRED, unique across the whole include graph — the --only /
     registry identity (replaces ClonePlacement's effective name).
 
-    cell — REQUIRED, a reference to a cells: entry (like ClonePlacement.cell).
+    cell — a reference to a cells: entry (like ClonePlacement.cell).
+    scheme_list — a reference to a scheme_lists: entry (a recorded live board
+    snapshot, see design_2026_09_05_scheme_list.md). EXACTLY ONE of
+    cell/scheme_list is required (fatal when both or neither — the same
+    "exactly one of N optional fields" pattern the loader applies to
+    TreeAnchor's anchor kinds and to mirror/layer): a cell-based Entity is a
+    role-resolved use of a Cell template, a scheme_list-based Entity is a
+    refdes-literal clone of a recorded snapshot onto a (possibly twin) sheet.
+
+    When scheme_list is set, cluster/by_selection/refs/nets/params/
+    net_overrides are meaningless (a recorded snapshot already carries its
+    literal refs and literal nets) — fatal at load if set together (see
+    config/entries.py). `sheet`, when set on a scheme_list Entity, is the
+    TARGET sheet for twin-resolution (design §5.2), not an addressing helper
+    for role resolution as on a cell-based Entity.
 
     cluster — the physical Cluster TAG written onto the board's components
     at Apply (formerly ClonePlacement.cluster). Optional here so an entity
-    may exist "not placed" (no tree node) without a tag.
+    may exist "not placed" (no tree node) without a tag. Not meaningful on a
+    scheme_list Entity (fatal at load, see above).
 
     by_selection/refs — per-instantiation role-resolution controls
     (formerly ClonePlacement.by_selection/refs): by_selection: true resolves
     roles by the live board selection; refs pins role -> ref explicitly.
+    Meaningless on a scheme_list Entity (fatal at load, see above).
 
     layer/mirror — physical placement facts/ops (formerly ClonePlacement.
     layer/mirror): a mirror without a layer change is physically meaningless
     and fatal at load (see config/entries.py).
     """
     name: str
-    cell: str
+    cell: str | None = None
+    scheme_list: str | None = None
     nets: dict[str, str] = field(default_factory=dict)
     params: dict[str, Any] = field(default_factory=dict)
     net_overrides: dict[str, str] = field(default_factory=dict)
@@ -659,6 +676,95 @@ def entity_effective_name(entity: "Entity") -> str:
     """Single point for reading the --only/registry identity of an Entity —
     just entity.name (required and unique by a load-time check)."""
     return entity.name
+
+
+@dataclass
+class SchemeListComponentRecord:
+    """One footprint of a recorded Scheme List — a literal refdes (NOT a
+    role), positioned in the LOCAL coordinate frame of the record's
+    anchor_ref (+ anchor_pad), in mm/deg. Same shape as a Cell's component
+    slot but keyed by ref instead of role (design_2026_09_05_scheme_list.md
+    §1/§3)."""
+
+    ref: str
+    offset_along_mm: float = 0.0
+    offset_across_mm: float = 0.0
+    rotation_deg: float = 0.0
+
+
+@dataclass
+class SchemeListViaRecord:
+    """One via of a recorded Scheme List — offset in the anchor_ref frame,
+    literal net (source of truth is the live board at record/Reread time;
+    no net_from_role/params)."""
+
+    offset_along_mm: float = 0.0
+    offset_across_mm: float = 0.0
+    drill_mm: float = 0.0
+    diameter_mm: float = 0.0
+    net: str | None = None
+
+
+@dataclass
+class SchemeListTrackRecord:
+    """One track of a recorded Scheme List — start/end in the anchor_ref
+    frame, literal net and literal copper layer (a STRING like 'F.Cu'/
+    'In1.Cu'/'B.Cu', deliberately not restricted to today's BoardLayer enum
+    which only models F.Cu/B.Cu — see P0.1 of
+    plan_2026_09_05_scheme_list.md)."""
+
+    start_along_mm: float = 0.0
+    start_across_mm: float = 0.0
+    end_along_mm: float = 0.0
+    end_across_mm: float = 0.0
+    width_mm: float = 0.0
+    layer: str | None = None
+    net: str | None = None
+
+
+@dataclass
+class SchemeListBoundaryNet:
+    """Diagnostics of one boundary net — copper that touched only EXCLUDED
+    footprints and was dropped as a whole connected component by the capture
+    closure (design §2/§3). The DECISION KEY is the net: one `action` for
+    every disconnected stub of the same net, so Reread is deterministic.
+    v1 action is ONLY "exclude" (drop the whole component with a warning,
+    like Cell extraction); "truncate" (geometric clipping) stays an open
+    question. external_ref is diagnostics only (which external component
+    dragged this copper), not part of the decision key."""
+
+    net: str
+    action: str = "exclude"
+    external_ref: str | None = None
+
+
+@dataclass
+class SchemeListConfig:
+    """One scheme_lists: entry — a named, recorded snapshot of a real,
+    already-routed region of the live board (its literal refs + copper on
+    all copper layers of the stack), with an anchor_ref chosen among its OWN
+    recorded refs as the origin for offsets AND the anchor point when
+    cloning onto another (twin) sheet (design_2026_09_05_scheme_list.md).
+
+    Physically stored in a separate .json file included via `include:`
+    (records can be large — real copper, not a parametric template); the
+    format of one record is identical whether it lives in .sexp or .json
+    (config/includes.py already treats .json as a first-class config format)."""
+
+    name: str
+    anchor_ref: str
+    anchor_pad: str | None = None
+    source_sheet: str | None = None
+    components: list[SchemeListComponentRecord] = field(default_factory=list)
+    vias: list[SchemeListViaRecord] = field(default_factory=list)
+    tracks: list[SchemeListTrackRecord] = field(default_factory=list)
+    boundary_nets: list[SchemeListBoundaryNet] = field(default_factory=list)
+
+
+def scheme_list_effective_name(sl: "SchemeListConfig") -> str:
+    """Single point for reading the --only identity of a Scheme List — just
+    sl.name (required and unique by a load-time check)."""
+    return sl.name
 
 
 @dataclass
@@ -863,6 +969,12 @@ class Config:
     cells: dict[str, Cell] = field(default_factory=dict)
     points: dict[str, Point] = field(default_factory=dict)
     thermal_via_arrays: list[ThermalViaArrayConfig] = field(default_factory=list)
+    # scheme_lists: — recorded live-board snapshots (design_2026_09_05_
+    # scheme_list.md). A LIST section (records concatenate across include:),
+    # loaded by config/entries.py::_load_scheme_list; Entity.scheme_list
+    # references these by name. Physically they live in an included .json
+    # file, but the section itself is format-agnostic.
+    scheme_lists: list[SchemeListConfig] = field(default_factory=list)
     # chains: — the rule-of-pads container (renamed from rules: 2026-09-01).
     # `rules` below is a READ-ONLY property alias so every existing cfg.rules
     # call site keeps working until it is migrated to cfg.chains (writes must

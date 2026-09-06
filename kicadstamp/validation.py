@@ -212,14 +212,18 @@ def check_clone_cells_exist(cfg: Config) -> None:
 
 
 def check_entity_cells_exist(cfg: Config) -> None:
-    """Every Entity must reference an existing cell — pure config check, no
-    live board (an Entity is the "what" of a former ClonePlacement and cell is
-    REQUIRED on it, see Entity's docstring in config/models.py). Mirrors
-    check_clone_cells_exist; the two coexist because the Entity/Placement
-    split is additive until the release cutover."""
+    """Every cell-based Entity must reference an existing cell — pure config
+    check, no live board. scheme_list-based Entities (design_2026_09_05_scheme_
+    list.md §5.1) reference a recorded Scheme List, not a Cell, and are skipped
+    here: the structural checks of the scheme_lists: records themselves live in
+    the loader (_load_scheme_list + loader.py's cross-record ref-uniqueness).
+    The `cell not in cfg.cells` guard below doubles as the canary that a
+    scheme_list-based Entity (cell=None) never reaches this check."""
     problems = []
     for ent in cfg.entities:
         if ent.retired:
+            continue
+        if ent.scheme_list is not None:
             continue
         if ent.cell not in cfg.cells:
             problems.append(_("entity {name!r}: cell {cell!r} not found in cells")

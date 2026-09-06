@@ -568,3 +568,39 @@ def test_fatal_wrong_pair_shape():
         "(clone_placement (cluster \"CH0\") (cell \"dac_buf\") (xy 0.0 0.0) "
         "(params (\"a\" \"b\" \"c\")))))",
         r"expected a key-value pair")
+
+
+# ── scheme_lists: (recorded live-board snapshots, design_2026_09_05) ────────
+
+def test_scheme_lists_roundtrip():
+    """A scheme_lists record with nested components/vias/tracks/boundary_nets
+    (incl. an internal copper layer string) round-trips bijectively."""
+    _roundtrip({
+        "scheme_lists": [{
+            "name": "psu",
+            "anchor_ref": "C1",
+            "source_sheet": "Channel_0",
+            "components": [
+                {"ref": "C1"},
+                {"ref": "R1", "offset_along_mm": 1.0, "rotation_deg": 90.0},
+            ],
+            "vias": [{"offset_along_mm": 2.0, "drill_mm": 0.3,
+                      "net": "/Channel_0/GND"}],
+            "tracks": [{"start_along_mm": 0.0, "end_along_mm": 1.0,
+                        "width_mm": 0.25, "layer": "In1.Cu",
+                        "net": "/Channel_0/+3V3"}],
+            "boundary_nets": [{"net": "/Channel_0/OUT", "external_ref": "J1",
+                               "action": "exclude"}],
+        }],
+    })
+
+
+def test_scheme_list_entity_roundtrip():
+    """A scheme_list-based Entity (cell omitted -> its None default) round-trips:
+    `cell` is legitimately dropped (None == default), `scheme_list` kept."""
+    back = _roundtrip({
+        "entities": [{"name": "E1", "scheme_list": "psu", "sheet": "Channel_1"}],
+    })
+    assert back["entities"][0]["scheme_list"] == "psu"
+    assert back["entities"][0]["sheet"] == "Channel_1"
+    assert "cell" not in back["entities"][0]
