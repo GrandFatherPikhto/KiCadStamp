@@ -335,17 +335,25 @@ class MainWindow(QMainWindow):
 
         # ── "Config" submenu (2026-09-04, plan plan_2026_09_04_celldock_to_
         #    dialog.md) ───────────────────────────────────────────────────
-        # A future home for Config-related Tools actions — the first (and for
-        # now only) entry is "Edit Cell...", which opens the standalone
-        # (non-modal) Cell dialog hosting the single live CellDock (the Cell
-        # form moved out of the Detail dock's Cells tab into a dialog — the
-        # same move as Points/Tools/Thermal via/Chain before it; see
-        # gui/dock_hub.py).
+        # The home for Config-related Tools actions: "Edit Cell..." opens the
+        # standalone (non-modal) Cell dialog hosting the single live CellDock
+        # (the Cell form moved out of the Detail dock's Cells tab into a
+        # dialog — the same move as Points/Tools/Thermal via/Chain before it;
+        # see gui/dock_hub.py). "Extract cluster (by selection)" (2026-09-06)
+        # is the same flat-Entity extraction the Trees submenu's "Extract
+        # cluster..." provides, exposed here too under its Config-y label — ONE
+        # DockHub delegate, TWO menu entry points (Denis: keep the Trees entry
+        # as well). A separate QAction object so each menu has its own label.
         self.config_menu = tools_menu.addMenu(_("Config"))
         self.edit_cell_action = QAction(_("Edit Cell..."), self)
         self.edit_cell_action.triggered.connect(
             lambda: self._dock_hub.edit_cell())
         self.config_menu.addAction(self.edit_cell_action)
+        self.extract_cluster_config_action = QAction(
+            _("Extract cluster (by selection)"), self)
+        self.extract_cluster_config_action.triggered.connect(
+            lambda: self._dock_hub.extract_cluster_from_selection())
+        self.config_menu.addAction(self.extract_cluster_config_action)
 
         # ── Scheme Lists submenu (2026-09-06, plan scheme_list §5.3) ──────
         # "Record..." captures the CURRENT board selection as a named Scheme

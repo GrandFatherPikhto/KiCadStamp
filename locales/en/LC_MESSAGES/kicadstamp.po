@@ -650,6 +650,10 @@ msgstr "Extract tree..."
 msgid "Extract cluster..."
 msgstr ""
 
+#: gui/main_window.py
+msgid "Extract cluster (by selection)"
+msgstr ""
+
 #: gui/main_window.py:266
 msgid "Create tree..."
 msgstr "Create tree..."

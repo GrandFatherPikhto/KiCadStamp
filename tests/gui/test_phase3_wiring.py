@@ -844,6 +844,32 @@ def test_tools_menu_extract_cluster_routes_to_dock_hub(real_main_window,
     assert called == [True]
 
 
+def test_tools_config_extract_cluster_routes_to_dock_hub(real_main_window,
+                                                         monkeypatch):
+    """2026-09-06 (plan refresh_geometry_no_preview, доп. задание): "Extract
+    cluster (by selection)" is ALSO exposed in Tools → Config (right after
+    "Edit Cell...") — a second, independent QAction wired to the SAME DockHub
+    delegate as the Trees submenu's "Extract cluster..." (which is kept, per
+    Denis)."""
+    tools = next(m for m in real_main_window.menuBar().actions()
+                 if m.text() == "Tools").menu()
+    config = next(a for a in tools.actions()
+                  if a.menu() is not None and a.text() == "Config").menu()
+    texts = [a.text() for a in config.actions()]
+    assert "Edit Cell..." in texts
+    assert "Extract cluster (by selection)" in texts
+    assert texts.index("Edit Cell...") < texts.index("Extract cluster (by selection)")
+
+    called = []
+    monkeypatch.setattr(real_main_window._dock_hub, "extract_cluster_from_selection",
+                        lambda: called.append(True))
+    real_main_window.extract_cluster_config_action.trigger()
+    assert called == [True]
+    # The Trees entry still routes through the same delegate.
+    real_main_window.extract_cluster_action.trigger()
+    assert called == [True, True]
+
+
 def test_tools_trees_submenu_groups_all_tree_actions(real_main_window):
     """2026-09-03 (plan plan_2026_09_03_trees_menu_tools.md): EVERY tree-related
     Tools entry lives in the one nested "Trees" submenu — the capture flows
@@ -867,9 +893,11 @@ def test_tools_trees_submenu_groups_all_tree_actions(real_main_window):
         assert label in texts, f"missing from Tools → Trees: {label}"
     # The capture entries sit before the manual whole-tree management entries.
     assert texts.index("Extract tree...") < texts.index("Create tree...")
-    # "Edit Cell..." lives in the Config submenu, NOT at the Tools root.
+    # "Edit Cell..."/"Extract cluster (by selection)" live in the Config
+    # submenu (2026-09-06), NOT at the Tools root.
     config_texts = [a.text() for a in submenus[1].menu().actions()]
     assert "Edit Cell..." in config_texts
+    assert "Extract cluster (by selection)" in config_texts
     # "Record..."/"Reread..." live in the Scheme Lists submenu, NOT the root.
     scheme_texts = [a.text() for a in submenus[2].menu().actions()]
     assert "Record..." in scheme_texts and "Reread..." in scheme_texts

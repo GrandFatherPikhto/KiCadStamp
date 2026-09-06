@@ -611,7 +611,9 @@ when an Entity for this Cluster + sheet already exists (reused, never duplicated
 is written to the root config's `entities:` (and the new Cell to `cells:`) through the same
 `config_writer` chokepoint; the Config tree refreshes immediately. An Entity stores no position, so
 placing this one (a manual tree node, a `tree_instances:` template, ...) is a separate, later step —
-"Extract cluster..." never writes a position.
+"Extract cluster..." never writes a position. The same flat extraction is also one click away under
+**Tools → Config → Extract cluster (by selection)** (2026-09-06) — the identical DockHub delegate,
+a second independent menu entry next to "Edit Cell..."; the Tools → Trees entry stays as-is.
 
 Just like the Instantiate-from-Cell tab above, the new Cell's origin is picked AUTOMATICALLY by
 default (the cluster role present exactly once). Since 2026-09-04 (plan `extract_origin_pad_restore`)

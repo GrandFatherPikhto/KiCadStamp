@@ -651,6 +651,10 @@ msgstr "Извлечь дерево..."
 msgid "Extract cluster..."
 msgstr "Извлечь кластер..."
 
+#: gui/main_window.py
+msgid "Extract cluster (by selection)"
+msgstr "Извлечь кластер (по выделению)"
+
 #: gui/main_window.py:266
 msgid "Create tree..."
 msgstr "Создать дерево..."
