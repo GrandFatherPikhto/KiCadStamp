@@ -562,6 +562,185 @@ def test_choose_boundary_actions_empty_boundary_nets_returns_empty():
     assert choose_boundary_actions(None, []) == {}
 
 
+# ── G2: Record two-phase capture (plan §5-G2) ───────────────────────────────
+# The phase-1 worker returns the record + the original payload; the phase-1
+# finish shows the per-net dialog (G1) and either writes phase-1 (no boundary
+# nets / all-exclude — v1 single-pass regression) or launches phase-2 with the
+# SAME payload + boundary_net_actions; the phase-2 finish writes THAT result
+# without ever re-opening the dialog.
+
+def _record_with_boundary(seed: str, boundary_raw):
+    """A minimal, loadable Scheme List record carrying raw boundary_nets — a
+    phase-1/phase-2 stand-in for the Record flow tests (the loader normalises
+    raw dicts into SchemeListBoundaryNet, so a phase-2 record can differ from
+    phase-1 by its action="truncate")."""
+    return load_scheme_list({
+        "name": f"amp{seed}",
+        "anchor_ref": "R1",
+        "components": [{"ref": "R1", "offset_along_mm": 0.0,
+                        "offset_across_mm": 0.0, "rotation_deg": 0.0}],
+        "boundary_nets": boundary_raw,
+    })
+
+
+def _record_hub(main_window):
+    """A DockHub stand-in for _finish_record_capture / _write_record_result /
+    _finish_record_capture_phase2 — no __init__ side effects, only the members
+    those methods touch."""
+    from gui.dock_hub import DockHub
+    hub = DockHub.__new__(DockHub)
+    hub.main_window = main_window
+    hub._scheme_active_op = None
+    hub.config_tree_dock = SimpleNamespace(
+        refresh=lambda: None,
+        graph_changed=SimpleNamespace(emit=lambda: None))
+    return hub
+
+
+def test_run_record_capture_forwards_boundary_net_actions(main_window, monkeypatch):
+    """G2 worker: the payload's optional boundary_net_actions reaches
+    capture_scheme_list; a payload WITHOUT the key forwards None (v1
+    byte-identical). The original payload rides back in the result so phase-1's
+    finish can re-run phase-2 with the same Record payload."""
+    import kicadstamp.scheme_list_capture as cap_mod
+    from gui.dock_hub import DockHub
+
+    hub = DockHub.__new__(DockHub)
+    seen = {}
+    monkeypatch.setattr(cap_mod, "capture_scheme_list",
+                        lambda **kw: seen.update(kw) or object())
+    payload = {"name": "amp", "refs": ["R1"], "anchor_ref": "R1",
+               "board": SimpleNamespace(adapter=None), "root": ".",
+               "boundary_net_actions": {"NET1": "truncate"}}
+    result = hub._run_record_capture(payload)
+    assert result["payload"] is payload
+    assert seen.get("boundary_net_actions") == {"NET1": "truncate"}
+
+    seen2 = {}
+    monkeypatch.setattr(cap_mod, "capture_scheme_list",
+                        lambda **kw: seen2.update(kw) or object())
+    hub._run_record_capture({"name": "amp", "refs": ["R1"],
+                             "anchor_ref": "R1",
+                             "board": SimpleNamespace(adapter=None),
+                             "root": "."})
+    assert seen2.get("boundary_net_actions") is None
+
+
+def test_finish_record_capture_no_boundary_nets_writes_without_dialog(
+        main_window, tmp_path, monkeypatch):
+    """G2 v1 regression: a record with NO boundary nets is written straight
+    away — the per-net dialog is never opened."""
+    root = tmp_path / "root.sexp"
+    _write(root, {})
+    import gui.dock_hub as dh_mod
+    hub = _record_hub(main_window)
+    record = _record_with_boundary("A", [])
+    calls = []
+    monkeypatch.setattr(dh_mod, "choose_boundary_actions",
+                        lambda *a, **k: calls.append(a) or {})
+    hub._finish_record_capture({"record": record, "root": str(root),
+                                "payload": {}})
+    assert calls == []
+    data = read_scheme_list_records(root)
+    assert [e["name"] for e in data] == ["ampA"]
+    # an empty boundary_nets list is not written (scheme_list_to_dict omits it)
+    assert data[0].get("boundary_nets", []) == []
+
+
+def test_finish_record_capture_all_exclude_single_pass_and_writes(
+        main_window, tmp_path, monkeypatch):
+    """G2: all-exclude (dialog {} ) writes the ALREADY-captured phase-1 record
+    with NO second IPC (the v1 record-with-exclusions regression)."""
+    root = tmp_path / "root.sexp"
+    _write(root, {})
+    import gui.dock_hub as dh_mod
+    import gui.worker as worker_mod
+    hub = _record_hub(main_window)
+    record = _record_with_boundary("A", [{"net": "NET1", "action": "exclude",
+                                          "external_ref": "R9"}])
+    monkeypatch.setattr(dh_mod, "choose_boundary_actions", lambda *a, **k: {})
+    launched = []
+    monkeypatch.setattr(worker_mod, "start_long_op",
+                        lambda *a, **k: launched.append(a) or object())
+    hub._finish_record_capture({"record": record, "root": str(root),
+                                "payload": {}})
+    assert launched == []  # no phase-2
+    data = read_scheme_list_records(root)
+    assert [e["name"] for e in data] == ["ampA"]
+    assert data[0]["boundary_nets"] == [{"net": "NET1", "action": "exclude",
+                                         "external_ref": "R9"}]
+
+
+def test_finish_record_capture_cancel_writes_nothing(
+        main_window, tmp_path, monkeypatch):
+    """G2: dialog Cancel (None) writes nothing and launches no phase-2."""
+    root = tmp_path / "root.sexp"
+    _write(root, {})
+    import gui.dock_hub as dh_mod
+    import gui.worker as worker_mod
+    hub = _record_hub(main_window)
+    record = _record_with_boundary("A", [{"net": "NET1", "action": "exclude"}])
+    monkeypatch.setattr(dh_mod, "choose_boundary_actions", lambda *a, **k: None)
+    launched = []
+    monkeypatch.setattr(worker_mod, "start_long_op",
+                        lambda *a, **k: launched.append(a) or object())
+    hub._finish_record_capture({"record": record, "root": str(root),
+                                "payload": {}})
+    assert launched == []
+    assert not default_scheme_list_path(root).exists()
+    assert read_scheme_list_records(root) == []
+
+
+def test_finish_record_capture_truncate_launches_phase2_with_actions(
+        main_window, tmp_path, monkeypatch):
+    """G2: a truncate choice launches phase-2 with the SAME Record payload +
+    boundary_net_actions (nothing is written by phase-1 itself)."""
+    root = tmp_path / "root.sexp"
+    _write(root, {})
+    import gui.dock_hub as dh_mod
+    import gui.worker as worker_mod
+    hub = _record_hub(main_window)
+    record = _record_with_boundary("A", [{"net": "NET1", "action": "exclude"}])
+    monkeypatch.setattr(dh_mod, "choose_boundary_actions",
+                        lambda *a, **k: {"NET1": "truncate"})
+    payloads = []
+    monkeypatch.setattr(
+        worker_mod, "start_long_op",
+        lambda _c, _w, worker, on_success, on_error, payload:
+            payloads.append(payload) or object())
+    payload = {"name": "ampA", "refs": ["R1"], "anchor_ref": "R1",
+               "root": str(root)}
+    hub._finish_record_capture({"record": record, "root": str(root),
+                                "payload": payload})
+    assert len(payloads) == 1
+    p = payloads[0]
+    assert p["boundary_net_actions"] == {"NET1": "truncate"}
+    # the phase-1 fields are preserved for the re-capture
+    assert p["name"] == "ampA" and p["refs"] == ["R1"]
+    # phase-2 has not been written yet (only launched)
+    assert not default_scheme_list_path(root).exists()
+
+
+def test_finish_record_capture_phase2_writes_phase2_result_without_dialog(
+        main_window, tmp_path, monkeypatch):
+    """G2: the phase-2 finish writes the phase-2 record (here: the net already
+    resolved action="truncate") and never re-opens the decision dialog."""
+    root = tmp_path / "root.sexp"
+    _write(root, {})
+    import gui.dock_hub as dh_mod
+    hub = _record_hub(main_window)
+    record2 = _record_with_boundary("A", [{"net": "NET1", "action": "truncate",
+                                           "external_ref": "R9"}])
+    monkeypatch.setattr(dh_mod, "choose_boundary_actions",
+                        lambda *a, **k: AssertionError("dialog must not reopen"))
+    hub._finish_record_capture_phase2({"record": record2, "root": str(root),
+                                       "payload": {}})
+    data = read_scheme_list_records(root)
+    assert [e["name"] for e in data] == ["ampA"]
+    assert data[0]["boundary_nets"] == [{"net": "NET1", "action": "truncate",
+                                         "external_ref": "R9"}]
+
+
 # ── DockHub wiring (page registered + single click opens it) ───────────────
 
 def test_dock_hub_registers_scheme_list_page_and_routes_pick(main_window, tmp_path):

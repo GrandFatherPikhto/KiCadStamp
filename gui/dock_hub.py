@@ -1252,7 +1252,11 @@ class DockHub:
 
     def _run_record_capture(self, payload: Dict) -> Dict[str, Any]:
         """Worker thread: the actual capture (live-board IPC) — never touches
-        a widget."""
+        a widget. Phase-1 (the plain Record capture) runs WITHOUT
+        boundary_net_actions — every boundary net defaults to exclude (v1).
+        G2's phase-2 re-runs the SAME worker with the user's per-net
+        boundary_net_actions, so a truncate choice re-captures the clipped
+        copper. A payload without the key is byte-identical to v1."""
         from kicadstamp.config.models import SchemeListScopePreset
         from kicadstamp.scheme_list_capture import capture_scheme_list
         try:
@@ -1263,42 +1267,67 @@ class DockHub:
                 sheet_names=payload.get("sheet_names"),
                 scope_sheet_paths=payload.get("scope_sheet_paths"),
                 scope_presets=[SchemeListScopePreset(**p)
-                               for p in (payload.get("scope_presets") or [])])
+                               for p in (payload.get("scope_presets") or [])],
+                boundary_net_actions=payload.get("boundary_net_actions"))
         except Exception as e:  # noqa: BLE001 — ValidationError family surfaces verbatim
             logging.getLogger(__name__).exception("Scheme List record capture failed")
             return {"error": str(e)}
-        return {"record": record, "root": payload["root"]}
+        # `payload` rides along so phase-1's finish can re-run this worker with
+        # the SAME Record payload + the chosen boundary_net_actions (G2).
+        return {"record": record, "root": payload["root"], "payload": payload}
 
     def _finish_record_capture(self, result: Dict[str, Any]) -> None:
-        """UI thread: boundary-net decision dialog (per-net Exclude/Truncate,
-        G1), then write the record to scheme_lists.json and refresh the Config
-        tree. TEMPORARY BRIDGE until G2 (plan_2026_09_06_boundary_truncate.md
-        §5-G1): the Record flow is not yet two-phase, so only the v1 outcomes
-        of the new dialog are honoured here (None = Cancel, {} = all-exclude →
-        write the phase-1 record as v1). A truncate choice needs G2's second
-        capture pass — refusing to write a record that would silently ignore
-        it."""
+        """UI thread, phase-1 (G2, plan §5-G2): boundary-net decision, then
+        either write phase-1 or launch phase-2:
+          - no boundary_nets -> write phase-1 straight away (no dialog);
+          - dialog Cancel (None) -> nothing is written (as v1 Cancel);
+          - all-exclude ({}) -> write the ALREADY-captured phase-1 record (no
+            second IPC — the v1 regression path);
+          - a truncate choice -> phase-2: re-run _run_record_capture with the
+            SAME payload + boundary_net_actions and write THAT result."""
         self._scheme_active_op = None
         if result.get("error"):
             QMessageBox.warning(self.main_window, _("Record failed"),
                                 result["error"])
             return
         record = result["record"]
-        if record.boundary_nets:
-            actions = choose_boundary_actions(
-                self.main_window, record.boundary_nets)
-            if actions is None:
-                return  # Cancel — nothing is written (as v1 Cancel)
-            if any(a == "truncate" for a in actions.values()):
-                # Temporary (G1): truncate cannot be applied without G2's
-                # second capture pass — do not write an all-exclude record
-                # over an explicit truncate choice.
-                QMessageBox.warning(
-                    self.main_window, _("Scheme Lists"),
-                    _("Truncate for boundary nets is not wired into the "
-                      "Record flow yet — it arrives in the next stage. "
-                      "Nothing was recorded."))
-                return
+        if not record.boundary_nets:
+            self._write_record_result(result)
+            return
+        actions = choose_boundary_actions(self.main_window, record.boundary_nets)
+        if actions is None:
+            return  # Cancel — nothing is written (as v1 Cancel)
+        if not any(a == "truncate" for a in actions.values()):
+            # All-exclude — the phase-1 record already IS what v1 would write.
+            self._write_record_result(result)
+            return
+        # Truncate chosen: phase-2 re-captures with the per-net actions.
+        from .worker import start_long_op
+        payload2 = dict(result["payload"])
+        payload2["boundary_net_actions"] = actions
+        connection = self.main_window.connection
+        self._scheme_active_op = start_long_op(
+            connection, (), self._run_record_capture,
+            self._finish_record_capture_phase2, self._on_record_op_failed,
+            payload2)
+
+    def _finish_record_capture_phase2(self, result: Dict[str, Any]) -> None:
+        """UI thread, phase-2 completion (G2): the record was re-captured WITH
+        the user's boundary_net_actions — write it directly and NEVER re-open
+        the decision dialog (every boundary net of the result already carries
+        the decided action)."""
+        self._scheme_active_op = None
+        if result.get("error"):
+            QMessageBox.warning(self.main_window, _("Record failed"),
+                                result["error"])
+            return
+        self._write_record_result(result)
+
+    def _write_record_result(self, result: Dict[str, Any]) -> None:
+        """Shared Record tail (phase-1 all-exclude and phase-2): persist the
+        record to scheme_lists.json, refresh the Config tree and show the v1
+        status message."""
+        record = result["record"]
         root_path = Path(result["root"])
         try:
             written = write_scheme_list_record(root_path, record)
