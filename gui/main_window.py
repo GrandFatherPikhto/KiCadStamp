@@ -371,6 +371,15 @@ class MainWindow(QMainWindow):
         self.place_scheme_list_action.triggered.connect(
             lambda: self._dock_hub.place_scheme_list())
         self.scheme_lists_menu.addAction(self.place_scheme_list_action)
+        # "Re-source..." (2026-09-06, plan scheme_list §7 / Stage 5b): the
+        # fourth action — re-points the Scheme List record currently SELECTED
+        # in the Config tree at a new source (sheet/selection) under the SAME
+        # name. Delegate on DockHub (resource_scheme_list requires a selected
+        # record, unlike Record's blank form).
+        self.resource_scheme_list_action = QAction(_("Re-source..."), self)
+        self.resource_scheme_list_action.triggered.connect(
+            lambda: self._dock_hub.resource_scheme_list())
+        self.scheme_lists_menu.addAction(self.resource_scheme_list_action)
 
         # ── Tools root (non-tree entries) ────────────────────────────────
         # "Place thermal vias..." (2026-09-01, plan

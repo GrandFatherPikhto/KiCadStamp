@@ -621,3 +621,117 @@ def test_config_tree_scheme_list_place_action_emits_signal_with_payload(
     payload, file_path = captured[0]
     assert payload["name"] == "amp"
     assert Path(file_path) == root
+
+
+# ── Section F — Re-source... wiring (plan_2026_09_06_scheme_list_sheet_
+#    capture.md 5b.4): the ConfigTreeDock context-menu "Re-source..." action,
+#    the DockHub signal -> delegate -> shared-flow path, and the Tools menu
+#    delegate (needs a selected record — a missing selection warns, never a
+#    blank dialog).
+
+def test_config_tree_scheme_list_context_menu_offers_re_source_next_to_place(
+        main_window, tmp_path, monkeypatch):
+    root = tmp_path / "root.sexp"
+    _write(root, {"scheme_lists": [_scheme_record("amp")]})
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    root_item = dock.tree.topLevelItem(0)
+    section = _find(root_item, "Scheme lists")
+    leaf = _find(section, "amp")
+
+    labels = [label for label, _action in _context_menu_actions(dock, leaf, monkeypatch)]
+    assert "Reread..." in labels
+    assert "Place..." in labels
+    assert "Re-source..." in labels
+
+
+def test_config_tree_scheme_list_re_source_action_emits_signal_with_payload(
+        main_window, tmp_path, monkeypatch):
+    root = tmp_path / "root.sexp"
+    record = _scheme_record("amp")
+    _write(root, {"scheme_lists": [record]})
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    root_item = dock.tree.topLevelItem(0)
+    section = _find(root_item, "Scheme lists")
+    leaf = _find(section, "amp")
+
+    actions = _context_menu_actions(dock, leaf, monkeypatch)
+    rs_action = next(action for label, action in actions if label == "Re-source...")
+
+    captured = []
+    dock.scheme_list_resource_requested.connect(
+        lambda payload, file_path: captured.append((payload, file_path)))
+    rs_action.trigger()
+
+    assert len(captured) == 1
+    payload, file_path = captured[0]
+    assert payload["name"] == "amp"
+    assert Path(file_path) == root
+
+
+def test_dock_hub_scheme_list_resource_requested_reaches_shared_flow(
+        hub, tmp_path, monkeypatch):
+    """The _wire() connection: scheme_list_resource_requested (context menu)
+    -> resource_scheme_list_record -> the shared _run_resource_scheme_list flow
+    with the right-clicked record + its OWNING file."""
+    root = tmp_path / "root.sexp"
+    _write_project(root)
+    _set_hub_root(hub, root)
+
+    calls = []
+    monkeypatch.setattr(hub, "_run_resource_scheme_list",
+                        lambda entry, file_path: calls.append((entry, file_path)))
+
+    record = _scheme_record("amp")
+    hub.config_tree_dock.scheme_list_resource_requested.emit(record, root)
+
+    assert len(calls) == 1
+    entry, file_path = calls[0]
+    assert entry["name"] == "amp"
+    assert Path(file_path) == root
+
+
+def test_dock_hub_resource_scheme_list_without_selection_warns(hub, tmp_path, monkeypatch):
+    """Tools delegate with no record selected in the Config tree -> a warning,
+    NOT a blank Re-source flow (mirror of place_scheme_list's no-selection
+    guard — Re-source is meaningless without a record to re-point)."""
+    root = tmp_path / "root.sexp"
+    _write_project(root)
+    _set_hub_root(hub, root)
+    hub.config_tree_dock.tree.clearSelection()
+
+    opened = []
+    monkeypatch.setattr(hub, "_run_resource_scheme_list",
+                        lambda entry, file_path: opened.append(entry))
+
+    hub.resource_scheme_list()
+
+    assert opened == []
+
+
+def test_dock_hub_resource_scheme_list_with_selection_reaches_shared_flow(
+        hub, tmp_path, monkeypatch):
+    """Tools delegate with a record selected in the Config tree passes that
+    record + its owning file to the shared Re-source flow."""
+    root = tmp_path / "root.sexp"
+    _write_project(root)
+    _set_hub_root(hub, root)
+
+    root_item = hub.config_tree_dock.tree.topLevelItem(0)
+    section = _find(root_item, "Scheme lists")
+    leaf = _find(section, "amp")
+    leaf.setSelected(True)
+
+    calls = []
+    monkeypatch.setattr(hub, "_run_resource_scheme_list",
+                        lambda entry, file_path: calls.append((entry, file_path)))
+
+    hub.resource_scheme_list()
+
+    assert len(calls) == 1
+    entry, file_path = calls[0]
+    assert entry["name"] == "amp"
+    assert Path(file_path) == root

@@ -360,6 +360,13 @@ class ConfigTreeDock(QDockWidget):
     # scheme_list_reread_requested; DockHub opens the
     # SchemeListPlaceFormWidget right page preset to that record.
     scheme_list_place_requested = pyqtSignal(object, object)
+    # Fired by the context menu's "Re-source..." on a scheme_lists leaf
+    # (2026-09-06, plan scheme_list §7 / Stage 5b — the exposure of Re-source:
+    # context menu + Tools menu; no QView form — the fixed-name Record dialog
+    # IS the whole operation). Payload is (record dict, owning file path), the
+    # same shape as scheme_list_reread_requested; DockHub re-sources the record
+    # under the same name and writes it back to that same file.
+    scheme_list_resource_requested = pyqtSignal(object, object)
     # Fired on EVERY click in the tree (file header, category, or leaf) —
     # see module docstring for why this replaces the three independent
     # FilePickerDock role signals.
@@ -1247,6 +1254,13 @@ class ConfigTreeDock(QDockWidget):
                     menu.addAction(_("Place...")).triggered.connect(
                         lambda checked=False, p=payload, f=file_path:
                         self.scheme_list_place_requested.emit(p, f))
+                    # Re-source... (2026-09-06, plan scheme_list §7 / Stage
+                    # 5b — the context-menu leg of the Re-source exposure):
+                    # re-point THIS record at a new source under the same name
+                    # (fixed-name Record dialog + replace in the owning file).
+                    menu.addAction(_("Re-source...")).triggered.connect(
+                        lambda checked=False, p=payload, f=file_path:
+                        self.scheme_list_resource_requested.emit(p, f))
             if section == "cells":
                 menu.addAction(_("Edit cell...")).triggered.connect(
                     lambda: self.cell_edit_requested.emit(old_name, file_path))

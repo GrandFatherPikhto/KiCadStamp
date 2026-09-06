@@ -192,16 +192,24 @@ def read_scheme_list_records(root_path: Path) -> List[Dict[str, Any]]:
         return []
 
 
-def scheme_list_duplicate_problems(root_path: Path, name: str, refs: list) -> List[str]:
+def scheme_list_duplicate_problems(root_path: Path, name: str, refs: list,
+                                   *, exclude_name: Optional[str] = None) -> List[str]:
     """Cross-record pre-checks the loader would otherwise surface at the next
     load (plan §2 — the "Record..." action checks BEFORE capture, so an
     expensive board read is never wasted on a record that cannot be saved):
       - duplicate ``name`` across scheme_lists: entries;
       - a ref already recorded in ANOTHER Scheme List (ref-uniqueness §0.2).
-    Returns localized problem strings; empty when the record is clean."""
+    ``exclude_name`` (Re-source, plan_2026_09_06_scheme_list_sheet_capture.md
+    5b.1): the record being re-sourced is SKIPPED entirely — its own name is
+    not a duplicate of itself and its own refs are being REPLACED (replace,
+    not conflict), so they must not count as "used by another record".
+    Existing Record... callers pass no exclude_name -> None -> behavior
+    unchanged. Returns localized problem strings; empty when clean."""
     used_names = set()
     used_refs: set = set()
     for e in read_scheme_list_records(root_path):
+        if exclude_name is not None and e.get("name") == exclude_name:
+            continue  # the record itself is being replaced, not duplicated
         used_names.add(e.get("name"))
         for c in e.get("components") or []:
             if isinstance(c, dict) and c.get("ref"):
@@ -297,11 +305,25 @@ class RecordSchemeListDialog(QDialog):
     anchor_pad is NOT asked here (v1 — the footprint centre is the offset
     origin, matching capture's default). The shared name_edit sits OUTSIDE the
     tabs. This dialog only reports what was picked; the caller (DockHub)
-    derives the actual capture refs via record_refs_for()."""
+    derives the actual capture refs via record_refs_for().
 
-    def __init__(self, snapshot: list, selection_refs: List[str], parent=None):
+    Re-source mode (``fixed_name``, plan_2026_09_06_scheme_list_sheet_capture.md
+    5b.2): the SAME dialog is reused to RE-SOURCE an existing record — the name
+    is pinned (read-only) to the record being replaced, the title/OK label say
+    "Re-source" and an explicit in-dialog warning explains the "points at, does
+    not copy" consequence (the record's refs/geometry are replaced; entities
+    placed from it pick the new geometry on their next Apply/Redraw). Both
+    source tabs stay available — re-sourcing can come from either mode."""
+
+    def __init__(self, snapshot: list, selection_refs: List[str], parent=None,
+                 fixed_name: Optional[str] = None):
         super().__init__(parent)
-        self.setWindowTitle(_("Record Scheme List"))
+        self._fixed_name = fixed_name
+        if fixed_name:
+            self.setWindowTitle(
+                _("Re-source Scheme List {name!r}").format(name=fixed_name))
+        else:
+            self.setWindowTitle(_("Record Scheme List"))
         self._snapshot = list(snapshot or [])
         self._sheet_paths = live_sheet_paths(self._snapshot)
         # Semantic state: does the CURRENT root have sub-sheets to prune?
@@ -311,11 +333,28 @@ class RecordSchemeListDialog(QDialog):
 
         layout = QVBoxLayout(self)
         name_form = QFormLayout()
-        self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText(
-            _("name (used by --only and Entity.scheme_list, must be unique)"))
-        name_form.addRow(_("Name:"), self.name_edit)
-        layout.addLayout(name_form)
+        if fixed_name:
+            # Re-source: the name is pinned — this is not a new record, it is
+            # the same record being re-pointed at a different source.
+            self.name_edit = QLineEdit(fixed_name)
+            self.name_edit.setReadOnly(True)
+            name_form.addRow(_("Name:"), self.name_edit)
+            layout.addLayout(name_form)
+            warn = QLabel(
+                _("This replaces the recorded refs/geometry of {name!r} — "
+                  "entities placed from it will pick up the new geometry on "
+                  "their next Apply/Redraw. The sheet/selection it currently "
+                  "comes from will NOT update automatically — Place onto it "
+                  "too if it should follow.").format(name=fixed_name))
+            warn.setWordWrap(True)
+            warn.setStyleSheet("color: #a60;")
+            layout.addWidget(warn)
+        else:
+            self.name_edit = QLineEdit()
+            self.name_edit.setPlaceholderText(
+                _("name (used by --only and Entity.scheme_list, must be unique)"))
+            name_form.addRow(_("Name:"), self.name_edit)
+            layout.addLayout(name_form)
 
         # Two source tabs — "By sheet" is added/selected FIRST (the default).
         self.tabs = QTabWidget()
@@ -348,6 +387,9 @@ class RecordSchemeListDialog(QDialog):
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
                                    | QDialogButtonBox.StandardButton.Cancel, self)
         self._ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        if fixed_name:
+            # Explicit irreversibility: the OK label says what will happen.
+            self._ok_button.setText(_("Re-source"))
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)

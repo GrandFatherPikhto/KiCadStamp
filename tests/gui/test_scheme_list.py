@@ -36,9 +36,10 @@ from gui.docks.scheme_list import (
     sheet_paths_under,
     write_scheme_list_record,
 )
-from kicadstamp.config import load_scheme_list
+from kicadstamp.config import load_config, load_scheme_list
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.domain.board import Footprint, Pad, Track, Via
+from kicadstamp.link_trees import link_trees
 from kicadstamp.domain.geometry import BoardLayer, Box2, Vector2
 from kicadstamp.scheme_list_capture import SchemeListDiff, capture_scheme_list
 from kicadstamp.utils.units import MM
@@ -755,6 +756,237 @@ def test_record_scheme_list_by_selection_payload_matches_selection_refs(
 
         assert len(payloads) == 1
         assert payloads[0]["refs"] == ["C1", "R1"]  # the board selection
+    finally:
+        hub.log_dock.remove_handler()
+        if hub._log_file_handler is not None:
+            logging.getLogger().removeHandler(hub._log_file_handler)
+            hub._log_file_handler.close()
+
+
+# ── Stage 5b: Re-source (exclude_name, fixed-name dialog, worker) ───────────
+# plan_2026_09_06_scheme_list_sheet_capture.md 5b — re-source re-points an
+# EXISTING record at a different source under the SAME name:
+#   5b.1 scheme_list_duplicate_problems(..., exclude_name) — the record being
+#        replaced is not a duplicate of itself (its own refs are freed);
+#   5b.2 RecordSchemeListDialog(fixed_name=...) — pinned read-only name, a
+#        distinct "Re-source" title/OK and an in-dialog warning;
+#   5b.3 DockHub worker — capture from the NEW source + write REPLACES the
+#        record in the file that OWNS it; the UI flow opens the fixed-name
+#        dialog, derives refs from the CHECKED sheets and passes exclude_name
+#        + the owning file as target_path.
+
+def test_duplicate_problems_exclude_name_allows_self_replacement(main_window, tmp_path):
+    """5b.1 — a re-sourced record is not a duplicate of itself: its own name +
+    its own (old) refs pass with exclude_name; a ref owned by ANOTHER record
+    still blocks. Without exclude_name the old Record behavior is unchanged."""
+    root = tmp_path / "root.sexp"
+    _write(root, {"scheme_lists": [
+        {"name": "amp", "anchor_ref": "R1",
+         "components": [{"ref": "R1", "offset_along_mm": 0.0,
+                         "offset_across_mm": 0.0, "rotation_deg": 0.0},
+                        {"ref": "C1", "offset_along_mm": 10.0,
+                         "offset_across_mm": 0.0, "rotation_deg": 0.0}]},
+        {"name": "psu", "anchor_ref": "X1",
+         "components": [{"ref": "X1", "offset_along_mm": 0.0,
+                         "offset_across_mm": 0.0, "rotation_deg": 0.0}]},
+    ]})
+    # Without exclude_name its own name AND its own refs are both duplicates
+    # (the behavior Record... relies on).
+    assert len(scheme_list_duplicate_problems(root, "amp", ["R1", "C1"])) == 2
+    # Re-source passes exclude_name=the record itself -> clean.
+    assert scheme_list_duplicate_problems(
+        root, "amp", ["R1", "C1"], exclude_name="amp") == []
+    # A ref owned by ANOTHER record stays fatal even for Re-source.
+    other = scheme_list_duplicate_problems(root, "amp", ["X1"],
+                                           exclude_name="amp")
+    assert len(other) == 1 and "X1" in other[0]
+
+
+def test_resource_dialog_fixed_name_read_only_title_and_re_source_ok(main_window):
+    """5b.2 — Re-source mode of RecordSchemeListDialog: the name is pinned
+    read-only, the title/OK say "Re-source" and both source tabs stay
+    available (re-sourcing can come from either mode)."""
+    dialog = RecordSchemeListDialog(_snap(*_HIER), ["C4"], main_window,
+                                    fixed_name="amp")
+    try:
+        assert dialog.name_edit.isReadOnly()
+        assert dialog.name_edit.text() == "amp"
+        assert dialog.windowTitle() == "Re-source Scheme List 'amp'"
+        assert dialog._ok_button.text() == "Re-source"
+        assert dialog.tabs.count() == 2
+        # result_data keeps the pinned name regardless of the active tab.
+        assert dialog.result_data()[0] == "amp"
+        dialog.tabs.setCurrentIndex(1)  # By selection
+        dialog.selection_anchor_combo.setCurrentText("C4")
+        assert dialog.result_data() == ("amp", "C4", None, None)
+    finally:
+        dialog.close()
+
+
+def test_record_dialog_without_fixed_name_keeps_record_behavior(main_window):
+    """5b.2 regression guard — omitting fixed_name leaves the Record dialog's
+    editable name, original title and OK label untouched."""
+    dialog = RecordSchemeListDialog([], [], main_window)
+    try:
+        assert not dialog.name_edit.isReadOnly()
+        assert dialog.windowTitle() == "Record Scheme List"
+        assert dialog._ok_button.text() == "OK"
+    finally:
+        dialog.close()
+
+
+def _line_board_ch1():
+    """A DIFFERENT clone — refs R5/C5/C6 on Channel_1 — the "new source" a
+    Re-source points an existing record at (other refs + geometry + sheet than
+    the record it replaces)."""
+    r5 = _fp("R5", 10, 10, angle=45.0)
+    c5 = _fp("C5", 20, 10)
+    c6 = _fp("C6", 27, 10)
+    net = "/Channel_1/AMP/+5V"
+    pads = {"R5": [_pad("R5", 10, 10, net)],
+            "C5": [_pad("C5", 20, 10, net)],
+            "C6": [_pad("C6", 27, 10, net)]}
+    t1 = _track(10, 10, 20, 10, net, layer=F)
+    t2 = _track(20, 10, 27, 10, net, layer=IN1)
+    v1 = _via(20, 10, net)
+    return FakeAdapter([r5, c5, c6], [t1, t2], [v1], pads)
+
+
+def test_run_resource_capture_replaces_record_under_same_name(main_window, tmp_path):
+    """5b.3 worker — capture from the NEW source + write REPLACES the record
+    under the same name IN THE FILE THAT OWNS IT; the other record in the file
+    is untouched and an Entity already placed on the record still resolves
+    (round-trip through load_config + link_trees)."""
+    from gui.dock_hub import DockHub
+
+    root = tmp_path / "root.sexp"
+    _write(root, {
+        "scheme_lists": [
+            {"name": "amp", "anchor_ref": "R1", "source_sheet": "Channel_0",
+             "anchor_rotation_deg": 0.0,
+             "components": [
+                 {"ref": "R1", "offset_along_mm": 0.0, "offset_across_mm": 0.0,
+                  "rotation_deg": 0.0},
+                 {"ref": "C1", "offset_along_mm": 10.0, "offset_across_mm": 0.0,
+                  "rotation_deg": 0.0},
+                 {"ref": "C2", "offset_along_mm": 14.0, "offset_across_mm": 0.0,
+                  "rotation_deg": 0.0}]},
+            {"name": "keep", "anchor_ref": "K1", "anchor_rotation_deg": 0.0,
+             "components": [
+                 {"ref": "K1", "offset_along_mm": 0.0, "offset_across_mm": 0.0,
+                  "rotation_deg": 0.0}]},
+        ],
+        # An Entity already PLACED on "amp" — after the record is replaced it
+        # must still resolve (it points at the record by NAME, not by content).
+        "entities": [{"name": "E_AMP", "scheme_list": "amp"}],
+        "trees": [{"name": "main", "anchor": {"origin": True},
+                   "nodes": [{"ref": "E_AMP", "kind": "placement",
+                              "xy": [0.0, 0.0]}]}],
+    })
+    keep_before = next(e for e in _load(root)["scheme_lists"]
+                       if e["name"] == "keep")
+
+    new_adapter = _line_board_ch1()
+    names = _stamp_sheet(new_adapter, sheet_uuid="sch-ch1", name="Channel_1")
+    hub = DockHub.__new__(DockHub)  # worker method — no __init__ side effects
+    payload = {"board": SimpleNamespace(adapter=new_adapter), "name": "amp",
+               "refs": ["R5", "C5", "C6"], "anchor_ref": "C5",
+               "root": str(root), "target_path": str(root),
+               "sheet_names": names}
+    result = hub._run_resource_capture(payload)
+
+    assert "error" not in result, result
+    assert Path(result["path"]) == root
+    records = {e["name"]: e for e in _load(root)["scheme_lists"]}
+    assert set(records) == {"amp", "keep"}
+    amp = records["amp"]
+    # NEW refs/anchor/source_sheet/geometry, from the NEW source.
+    assert [c["ref"] for c in amp["components"]] == ["R5", "C5", "C6"]
+    assert amp["anchor_ref"] == "C5"
+    assert amp["source_sheet"] == "Channel_1"
+    # the untouched record stayed identical.
+    assert records["keep"] == keep_before
+
+    # round-trip: record replaced, the placed Entity still resolves via
+    # link_trees (Stage-1 round-trip style).
+    cfg, _ = load_config(str(root))
+
+    def _all_ln(lnodes):
+        for ln in lnodes:
+            yield ln
+            yield from _all_ln(ln.children)
+
+    linked = link_trees(cfg, cfg.trees)[0]
+    ln = next(ln for ln in _all_ln(linked.nodes) if ln.node.ref == "E_AMP")
+    assert ln.record is not None
+    assert ln.record.name == "E_AMP"
+
+
+def test_run_resource_scheme_list_payload_uses_fixed_name_checked_refs_and_owner(
+        main_window, tmp_path, monkeypatch):
+    """5b.3 UI flow — resource_scheme_list_record opens the fixed-name dialog,
+    derives refs from the CHECKED sheets only (a partial checklist — Ch1
+    excluded), runs the duplicate pre-checks with exclude_name = the record
+    itself and sends the record's OWNING file as target_path."""
+    import logging
+
+    import gui.dock_hub as dock_hub_mod
+    from gui.dock_hub import DockHub
+    from PyQt6.QtWidgets import QDialog
+
+    root = tmp_path / "root.sexp"
+    _write(root, {"scheme_lists": [
+        {"name": "amp", "anchor_ref": "R1",
+         "components": [{"ref": "R1", "offset_along_mm": 0.0,
+                         "offset_across_mm": 0.0, "rotation_deg": 0.0}]}]})
+    connection = main_window.connection
+    hub = DockHub(main_window, connection=connection, verbose=False)
+    try:
+        connection.snapshot = _snap(*_HIER)
+        connection.board = SimpleNamespace(adapter=FakeAdapter([], [], [], {}))
+        hub.root_metadata_dock.set_root_file(root)
+        hub._selection_footprints = [SimpleNamespace(ref="C4")]
+
+        seen = {}
+
+        class _FakeDialog:
+            def __init__(self, snapshot, selection_refs, parent,
+                         fixed_name=None):
+                seen["fixed_name"] = fixed_name
+
+            def exec(self):
+                return QDialog.DialogCode.Accepted
+
+            def is_by_sheet(self):
+                return True
+
+            def result_data(self):
+                # User checked Top + Ch0 + its nested Amp, but NOT Ch1.
+                return ("amp", "R1", ("Top",),
+                        [("Top",), ("Top", "Ch0"), ("Top", "Ch0", "Amp")])
+
+        payloads = []
+        monkeypatch.setattr(dock_hub_mod, "RecordSchemeListDialog", _FakeDialog)
+        # start_long_op is imported lazily inside _run_resource_scheme_list —
+        # patch the worker module, not dock_hub's namespace.
+        import gui.worker as worker_mod
+        monkeypatch.setattr(
+            worker_mod, "start_long_op",
+            lambda _c, _w, worker, on_success, on_error, payload:
+                payloads.append(payload) or object())
+
+        entry = {"name": "amp", "anchor_ref": "R1",
+                 "components": [{"ref": "R1"}]}
+        hub.resource_scheme_list_record(entry, root)
+
+        assert seen.get("fixed_name") == "amp"
+        assert len(payloads) == 1
+        p = payloads[0]
+        assert p["name"] == "amp"
+        # Ch1's C3 is excluded — the capture set is the checked-sheet union.
+        assert p["refs"] == ["C1", "C2", "R1", "U1"]
+        assert p["anchor_ref"] == "R1"
+        assert p["target_path"] == str(root)
     finally:
         hub.log_dock.remove_handler()
         if hub._log_file_handler is not None:

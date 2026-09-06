@@ -15080,6 +15080,33 @@ msgstr ""
 msgid "Updated Scheme List {name!r} from the live board -> {path}"
 msgstr ""
 
+#, python-brace-format
+msgid "Re-source Scheme List {name!r}"
+msgstr ""
+
+#, python-brace-format
+msgid "This replaces the recorded refs/geometry of {name!r} — entities placed from it will pick up the new geometry on their next Apply/Redraw. The sheet/selection it currently comes from will NOT update automatically — Place onto it too if it should follow."
+msgstr ""
+
+msgid "Re-source"
+msgstr ""
+
+msgid "Re-source..."
+msgstr ""
+
+msgid "Select a Scheme List record first."
+msgstr ""
+
+msgid "Cannot re-source Scheme List"
+msgstr ""
+
+msgid "Re-source failed"
+msgstr ""
+
+#, python-brace-format
+msgid "Re-sourced Scheme List {name!r} — {components} components, {vias} vias, {tracks} tracks -> {path}"
+msgstr ""
+
 msgid "What changed for {name!r} on the live board:"
 msgstr ""
 

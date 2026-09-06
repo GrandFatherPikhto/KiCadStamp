@@ -13711,6 +13711,33 @@ msgstr "Записываемая область касается меди ком
 msgid "Updated Scheme List {name!r} from the live board -> {path}"
 msgstr "Scheme List {name!r} обновлён с живой платы -> {path}"
 
+#, python-brace-format
+msgid "Re-source Scheme List {name!r}"
+msgstr "Переисточить Scheme List {name!r}"
+
+#, python-brace-format
+msgid "This replaces the recorded refs/geometry of {name!r} — entities placed from it will pick up the new geometry on their next Apply/Redraw. The sheet/selection it currently comes from will NOT update automatically — Place onto it too if it should follow."
+msgstr "Это заменит записанные рефы/геометрию {name!r} — размещённые из неё сущности подхватят новую геометрию при следующем Apply/Redraw. Лист/выделение, из которого она сейчас получена, автоматически НЕ обновится — на него тоже нужен Place, если он должен следовать."
+
+msgid "Re-source"
+msgstr "Переисточить"
+
+msgid "Re-source..."
+msgstr "Переисточить..."
+
+msgid "Select a Scheme List record first."
+msgstr "Сначала выберите запись Scheme List."
+
+msgid "Cannot re-source Scheme List"
+msgstr "Нельзя переисточить Scheme List"
+
+msgid "Re-source failed"
+msgstr "Сбой Re-source"
+
+#, python-brace-format
+msgid "Re-sourced Scheme List {name!r} — {components} components, {vias} vias, {tracks} tracks -> {path}"
+msgstr "Переисточён Scheme List {name!r} — {components} компон., {vias} виа, {tracks} треков -> {path}"
+
 msgid "What changed for {name!r} on the live board:"
 msgstr "Что изменилось для {name!r} на живой плате:"
 

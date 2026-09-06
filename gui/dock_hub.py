@@ -379,6 +379,115 @@ class DockHub:
         name = entry.get("name") if isinstance(entry, dict) else None
         self._show_place_scheme_list_page(name)
 
+    # ── Scheme List Re-source (2026-09-06, plan scheme_list §7 / Stage 5b) ─
+    # "Re-source..." re-points an EXISTING record at a DIFFERENT source (sheet
+    # or selection) under the SAME name — the same two-tab Record dialog with
+    # the name pinned read-only (plan_2026_09_06_scheme_list_sheet_capture.md
+    # 5b.2). The record is REPLACED in the file that already owns it
+    # (target_path, like Reread Apply) — never moved to the default
+    # scheme_lists.json. Triple exposure: the context menu's "Re-source..."
+    # (scheme_list_resource_requested) and the Tools menu's "Re-source..."
+    # (needs a selected record); both converge on _run_resource_scheme_list.
+    # The capture itself runs on the worker (_run_resource_capture, mirror of
+    # Record's _run_record_capture) — never blocking the UI on live-board IPC.
+
+    def resource_scheme_list_record(self, entry, file_path) -> None:
+        """Config-tree context menu's "Re-source..." delegate
+        (scheme_list_resource_requested, plan 5b.3/5b.4): the record is
+        already known from the right-click — re-point it under the same name.
+        `file_path` is the record's owning file (the re-source write target)."""
+        self._run_resource_scheme_list(entry, file_path)
+
+    def resource_scheme_list(self) -> None:
+        """Main menu "Tools -> Scheme Lists -> Re-source..." (plan 5b.3): like
+        Reread, this acts on the Scheme List record currently SELECTED in the
+        Config tree — unlike Record there is no point in an empty re-source
+        form, so a missing selection is a warning, not a blank dialog."""
+        selection = self.config_tree_dock.selected_scheme_list()
+        if selection is None:
+            show_message(_("Select a Scheme List record first."), "",
+                         logging.getLogger(__name__))
+            return
+        file_path, entry = selection
+        self._run_resource_scheme_list(entry, file_path)
+
+    def _run_resource_scheme_list(self, entry, file_path) -> None:
+        """UI thread — the shared Re-source flow: guards, the fixed-name
+        RecordSchemeListDialog (both source tabs stay available), the ref
+        derivation (record_refs_for — same By-sheet/By-selection branch as
+        Record), the duplicate pre-checks with exclude_name = the record
+        itself, then the capture dispatched to the worker. Never touches the
+        board on this thread."""
+        from .worker import start_long_op
+        root_path = self.root_metadata_dock.root_path
+        if root_path is None:
+            QMessageBox.warning(self.main_window, _("Scheme Lists"),
+                                _("Set the project root first."))
+            return
+        record_name = entry.get("name") if isinstance(entry, dict) else None
+        if not record_name:
+            QMessageBox.warning(self.main_window, _("Scheme Lists"),
+                                _("Select a Scheme List record first."))
+            return
+        connection = self.main_window.connection
+        board = getattr(connection, "board", None)
+        adapter = getattr(board, "adapter", None) if board is not None else None
+        if adapter is None:
+            QMessageBox.warning(self.main_window, _("Scheme Lists"),
+                                _("Connect to KiCad first."))
+            return
+        # Full live snapshot + the polled board selection — the same two
+        # sources Record's dialog feeds on (the record can be re-sourced from
+        # either mode, not just "By sheet").
+        snapshot = getattr(connection, "snapshot", None) or []
+        selection_refs = sorted({getattr(s, "ref", None) for s in self._selection_footprints
+                                 if getattr(s, "ref", None)})
+        dialog = RecordSchemeListDialog(snapshot, selection_refs,
+                                        self.main_window, fixed_name=record_name)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        _name, anchor_ref, _sheet_path, checked_paths = dialog.result_data()
+        refs = record_refs_for(snapshot, dialog.is_by_sheet(), checked_paths,
+                               selection_refs)
+        if not refs:
+            QMessageBox.warning(
+                self.main_window, _("Cannot re-source Scheme List"),
+                _("No footprints to record — pick a sheet that has footprints "
+                  "on the 'By sheet' tab, or select footprints on the board "
+                  "for 'By selection'."))
+            return
+        # Duplicate pre-checks BEFORE the expensive capture (like Record) —
+        # but the record ITSELF is excluded: its own name is not a duplicate
+        # and its own old refs are being REPLACED (replace, not conflict).
+        # Only a ref owned by ANOTHER record stays fatal.
+        problems = scheme_list_duplicate_problems(
+            root_path, record_name, refs, exclude_name=record_name)
+        if problems:
+            QMessageBox.warning(self.main_window,
+                                _("Cannot re-source Scheme List"),
+                                "\n".join(problems))
+            return
+        # source_sheet derivation (capture_scheme_list's sheet_names parameter)
+        # needs the {uuid: sheetname} map — best-effort, same as Record (a
+        # broken config only leaves source_sheet None, never blocks).
+        sheet_names: Dict = {}
+        try:
+            from kicadstamp.config import load_config
+            _cfg, ctx = load_config(str(root_path))
+            sheet_names = dict(getattr(ctx, "sheet_names", {}) or {})
+        except Exception:  # noqa: BLE001
+            logging.getLogger(__name__).warning(
+                "Re-source: could not load sheet_names from %s — source_sheet "
+                "will be left unset", root_path, exc_info=True)
+        payload = {"board": board, "name": record_name, "refs": refs,
+                   "anchor_ref": anchor_ref, "root": str(root_path),
+                   "target_path": (str(file_path)
+                                   if file_path is not None else None),
+                   "sheet_names": sheet_names}
+        self._scheme_active_op = start_long_op(
+            connection, (), self._run_resource_capture,
+            self._finish_resource_capture, self._on_resource_op_failed, payload)
+
     def _show_config_chain(self, *_args) -> None:
         """Route a chains pick (pad leaf / chain edit / Add net / Add spoke) to
         the Chain right page of the Config dock (2026-09-05, design
@@ -627,6 +736,11 @@ class DockHub:
         # "Place..." — the Place page opens preset to the right-clicked record.
         self.config_tree_dock.scheme_list_place_requested.connect(
             self.place_scheme_list_record)
+        # "Re-source..." (Stage 5b) — the context-menu leg re-sources the
+        # right-clicked record under the same name (fixed-name dialog; the
+        # Tools-menu leg is resource_scheme_list, called from main_window).
+        self.config_tree_dock.scheme_list_resource_requested.connect(
+            self.resource_scheme_list_record)
         # "Edit cell..." (context menu, 2026-08-06) — deliberately NOT wired
         # to cell_picked, which keeps meaning "pick this cell as a
         # placement's content" (see config_tree.py's module docstring).
@@ -1132,6 +1246,54 @@ class DockHub:
     def _on_record_op_failed(self, message: str) -> None:
         self._scheme_active_op = None
         QMessageBox.warning(self.main_window, _("Record failed"),
+                            _("Operation failed: {error}").format(error=message))
+
+    def _run_resource_capture(self, payload: Dict) -> Dict[str, Any]:
+        """Worker thread — the actual Re-source capture + write; never touches
+        a widget. The fresh record (name/refs/anchor_ref/source_sheet/geometry
+        from the NEW source) REPLACES the stored record under the SAME name in
+        the file that owns it (target_path — like Reread Apply, NOT the default
+        scheme_lists.json): re-sourcing never moves a record between files.
+        Synchronous-callable in tests (mirror of _run_record_capture)."""
+        from kicadstamp.scheme_list_capture import capture_scheme_list
+        try:
+            record = capture_scheme_list(
+                name=payload["name"], refs=payload["refs"],
+                anchor_ref=payload["anchor_ref"],
+                adapter=payload["board"].adapter,
+                sheet_names=payload.get("sheet_names"))
+            root_path = Path(payload["root"])
+            target_path = (Path(payload["target_path"])
+                           if payload.get("target_path") else None)
+            written = write_scheme_list_record(root_path, record,
+                                               target_path=target_path)
+        except Exception as e:  # noqa: BLE001 — ValidationError family surfaces verbatim
+            logging.getLogger(__name__).exception("Scheme List re-source failed")
+            return {"error": str(e)}
+        return {"record": record, "root": payload["root"], "path": str(written)}
+
+    def _finish_resource_capture(self, result: Dict[str, Any]) -> None:
+        """UI thread — worker success: status message + refresh the Config
+        tree (the same reaction as Record/Reread Apply)."""
+        self._scheme_active_op = None
+        if result.get("error"):
+            QMessageBox.warning(self.main_window, _("Re-source failed"),
+                                result["error"])
+            return
+        record = result["record"]
+        self.config_tree_dock.refresh()
+        self.config_tree_dock.graph_changed.emit()
+        show_message(
+            _("Re-sourced Scheme List {name!r} — {components} components, "
+              "{vias} vias, {tracks} tracks -> {path}").format(
+                name=record.name, components=len(record.components),
+                vias=len(record.vias), tracks=len(record.tracks),
+                path=display_path(Path(result["path"]))),
+            "", logging.getLogger(__name__))
+
+    def _on_resource_op_failed(self, message: str) -> None:
+        self._scheme_active_op = None
+        QMessageBox.warning(self.main_window, _("Re-source failed"),
                             _("Operation failed: {error}").format(error=message))
 
     def reread_scheme_list(self) -> None:
