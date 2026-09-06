@@ -656,6 +656,66 @@ find-and-replace on an old config, re-check the intended sense).
 
 ---
 
+## `scheme_lists:` — a recorded snapshot of a real board region
+
+The answer to "I've already routed this region and want to replay it (or its
+twin) later": a Scheme List records a real, already-routed region as an
+explicit list of literal refdes + the copper that reaches their pads (tracks
+and vias on ALL copper layers of the stack — F.Cu/In1.Cu..In30.Cu/B.Cu).
+Unlike a Cell (abstract Role), identity here is the literal `ref`, so a record
+is a snapshot, not a template. Records are captured from the live board (Tools
+→ Scheme Lists → Record...) and physically live in an included
+`scheme_lists.json` (the section itself is format-agnostic — see `include:`).
+
+```yaml
+# scheme_lists.json — included via include: (the .sexp syntax is identical)
+scheme_lists:
+  - name: amp_avdd            # identity — the --only and Entity.scheme_list key
+    anchor_ref: R1            # one of the components below: offset origin + clone anchor
+    # anchor_pad: '1'         # optional — anchor on a pad's centre instead
+    source_sheet: Channel_0   # the sheet the record was captured on (top-level name)
+    components:               # literal refs, board-frame offsets from the anchor
+      - ref: R1
+        offset_along_mm: 0.0
+        offset_across_mm: 0.0
+        rotation_deg: 0.0
+      - ref: C1
+        offset_along_mm: 10.0
+        offset_across_mm: 0.0
+        rotation_deg: 90.0
+    vias:                     # literal nets; offsets in the anchor frame
+      - offset_along_mm: 10.0
+        offset_across_mm: 0.0
+        drill_mm: 0.3
+        diameter_mm: 0.6
+        net: "/Channel_0/AMP/+5V"
+    tracks:                   # literal nets + literal copper layer (a STRING)
+      - start_along_mm: 0.0
+        start_across_mm: 0.0
+        end_along_mm: 10.0
+        end_across_mm: 0.0
+        width_mm: 0.25
+        layer: F.Cu           # any copper layer: F.Cu/In1.Cu/.../In30.Cu/B.Cu
+        net: "/Channel_0/AMP/+5V"
+    boundary_nets:            # copper that only touched EXCLUDED footprints
+      - net: "/Channel_0/AMP/GND"
+        action: exclude       # v1: ONLY exclude (drop the whole component, warning)
+        external_ref: J1      # diagnostics: which outside footprint dragged this copper
+```
+
+Rules: one real `ref` may be recorded in at most ONE Scheme List (fatal at
+load — cloning one record must not move a component another expects);
+`anchor_ref` must be one of the record's own `components[].ref`. Capture runs
+the SAME connectivity-closure filter as Cell extraction (only copper reaching
+a recorded ref's pad is kept), pre-filtered to the refs' bbox + 1 mm; the
+dropped excluded-material copper becomes `boundary_nets` — one `action` per
+NET, so Reread stays deterministic. Track `layer` is a free string covering
+the full copper stack. Cloning a record onto another (twin) sheet goes through
+an Entity with `scheme_list:` (not `cell:`) — the stored-record format above
+is what capture/Reread write.
+
+---
+
 ## `net_traces:` — one net's copper, following one anchor pad
 
 The answer to "I hand-routed the FPGA↔DAC bus and don't want to re-route it

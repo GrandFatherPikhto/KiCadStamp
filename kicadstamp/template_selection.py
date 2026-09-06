@@ -74,7 +74,9 @@ def _point_in_box(point: Vector2, box) -> bool:
 def _filter_tracks_and_vias_within_selection(
     tracks: list[Track], vias: list[Via], footprints: list[Footprint],
     adapter: KiCadBoardAdapter,
-) -> tuple[list[Track], list[Via]]:
+    *,
+    collect_dropped: bool = False,
+) -> tuple[list[Track], list[Via]] | tuple[list[Track], list[Via], list[Track], list[Via]]:
     """
     Keeps only tracks/vias whose connected component (via coincident
     endpoints, track-to-track joints, or touching a via) reaches at least
@@ -112,6 +114,14 @@ def _filter_tracks_and_vias_within_selection(
     the closure at, so the historical behavior is preserved exactly: vias
     pass through unchanged, tracks are filtered by the old both-ends-match
     rule (a track whose end goes nowhere is dropped with a warning).
+
+    `collect_dropped` (added 2026-09-06, plan_2026_09_05_scheme_list.md P2):
+    when False (the default) the return is the historical 2-tuple
+    ``(kept_tracks, kept_vias)`` and the Cell-extraction caller is unchanged.
+    When True the return becomes a 4-tuple
+    ``(kept_tracks, kept_vias, dropped_tracks, dropped_vias)`` so Scheme List
+    capture can turn the dropped copper into boundary_nets diagnostics (copper
+    that only ever touched excluded footprints).
     """
     all_pads = [p for fp in footprints for p in adapter.get_footprint_pads(fp)]
     pad_boxes = _inflated_boxes(adapter, all_pads)
@@ -138,12 +148,14 @@ def _filter_tracks_and_vias_within_selection(
             return False
 
         kept_tracks = []
+        dropped_tracks = []
         for t in tracks:
             start_ok = endpoint_ok(t.start, t)
             end_ok = endpoint_ok(t.end, t)
             if start_ok and end_ok:
                 kept_tracks.append(t)
             else:
+                dropped_tracks.append(t)
                 missing = (_("both ends") if not start_ok and not end_ok
                            else _("start") if not start_ok else _("end"))
                 logger.warning(_("  track ({sx:.3f},{sy:.3f}) -> ({ex:.3f},{ey:.3f}) mm, net={net}: "
@@ -153,6 +165,9 @@ def _filter_tracks_and_vias_within_selection(
                                        ex=t.end.x/MM, ey=t.end.y/MM,
                                        net=t.net_name,
                                        missing=missing))
+        if collect_dropped:
+            # Vias pass through unchanged in the fallback — nothing dropped.
+            return kept_tracks, list(vias), dropped_tracks, []
         return kept_tracks, list(vias)
 
     ANCHOR = object()
@@ -213,6 +228,8 @@ def _filter_tracks_and_vias_within_selection(
                          "belongs to excluded material, skipped")
                        .format(x=v.position.x/MM, y=v.position.y/MM,
                                net=v.net_name))
+    if collect_dropped:
+        return kept_tracks, kept_vias, dropped_tracks, dropped_vias
     return kept_tracks, kept_vias
 
 

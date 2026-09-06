@@ -14796,3 +14796,27 @@ msgstr ""
 
 msgid "via"
 msgstr ""
+
+msgid "cannot record scheme list {name!r}: no refs given"
+msgstr ""
+
+msgid "a Scheme List needs at least one component ref to capture"
+msgstr ""
+
+msgid "cannot record scheme list {name!r}: refs not found on the board: {refs}"
+msgstr ""
+
+msgid "Scheme List capture is a snapshot of real footprints — every ref in the list must resolve on the live board (use the board selection / direct refdes lookup)"
+msgstr ""
+
+msgid "cannot record scheme list {name!r}: anchor_ref {ref!r} is not among the refs"
+msgstr ""
+
+msgid "the anchor_ref must be one of the captured components (it is the offset origin and the clone anchor point)"
+msgstr ""
+
+msgid "cannot record scheme list {name!r}: pad {pad!r} not found on {ref}"
+msgstr ""
+
+msgid "anchor_pad must be a pad number of the anchor footprint"
+msgstr ""

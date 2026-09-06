@@ -74,15 +74,36 @@ def _path_uuids(fp) -> list[str]:
     return list(fp.sheet_path_uuids)
 
 
-def _channel_name_of_fp(adapter, fp) -> str | None:
-    """Name of the channel a footprint belongs to, derived from the LOCAL
-    hierarchical net of any of its pads ("/Channel_0/DAC/+3V3_AVDD" -> "Channel_0").
-    None when the footprint carries no local net on any pad (e.g. a purely
-    global-net component, or a footprint whose pads have no nets yet)."""
+def sheet_name_of_fp(adapter, fp) -> str | None:
+    """Name of the TOP-LEVEL sheet (the child of the root sheet) a footprint
+    belongs to, derived from the first segment of any of its LOCAL hierarchical
+    pad nets ("/Channel_0/DAC/+3V3_AVDD" -> "Channel_0", "/Power/+5V" ->
+    "Power"). KiCad hierarchical nets local to a sheet always start with "/"
+    and their first segment is the sheet name; root-sheet nets have no leading
+    "/" (they are global). None when the footprint carries no local net on any
+    pad (a purely global-net component, or pads with no nets yet).
+
+    Generalization (2026-09-06, plan_2026_09_05_scheme_list.md P2) of the
+    channel-only helper below — used by Scheme List capture for `source_sheet`.
+    Only valid for footprints on a TOP-LEVEL sheet (the first net segment IS
+    the sheet of path[0]); a deeper-nested local net ("/A/B/net") would still
+    report the top-level name "A", not the real leaf sheet — same documented
+    top-level-clone limitation as channel_copy (design §9.10)."""
     for pad in adapter.get_footprint_pads(fp):
         net = getattr(pad, "net_name", None)
-        if net and net.startswith("/Channel_"):
+        if net and net.startswith("/"):
             return net.split("/")[1]
+    return None
+
+
+def _channel_name_of_fp(adapter, fp) -> str | None:
+    """Name of the CHANNEL a footprint belongs to — the shared helper limited
+    to "/Channel_" sheets, preserving the exact historical semantics (a
+    footprint with "/Power/..."-style local nets is NOT a channel and returns
+    None)."""
+    name = sheet_name_of_fp(adapter, fp)
+    if name and name.startswith("Channel_"):
+        return name
     return None
 
 
