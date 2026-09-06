@@ -286,6 +286,7 @@ def capture_scheme_list(
         name=name,
         anchor_ref=anchor_ref,
         anchor_pad=anchor_pad,
+        anchor_rotation_deg=anchor_fp.angle_deg,
         source_sheet=source_sheet,
         components=components,
         vias=vias,

@@ -115,6 +115,26 @@ def _scenario():
     return adapter, ["R1", "C1", "C2"]
 
 
+def test_capture_records_anchor_rotation_deg():
+    """Addendum P2.x: capture stores the anchor's live angle_deg EXPLICITLY on
+    the record, while the components keep their RAW absolute rotations (the
+    anchor rotation is NOT subtracted — same convention as a Cell)."""
+    adapter, refs = _scenario()
+    r1 = next(fp for fp in adapter._fps if fp.ref == "R1")
+    r1.angle_deg = 45.0
+    cfg = capture_scheme_list("amp", refs, "R1", adapter=adapter)
+    assert cfg.anchor_rotation_deg == pytest.approx(45.0)
+    # the anchor component stays raw: absolute fp angle, offset (0, 0)
+    anchor_comp = cfg.components[0]
+    assert anchor_comp.ref == "R1"
+    assert anchor_comp.rotation_deg == pytest.approx(45.0)
+    assert anchor_comp.offset_along_mm == 0.0 and anchor_comp.offset_across_mm == 0.0
+    # other components keep their raw board-frame offsets/rotations
+    c1 = next(c for c in cfg.components if c.ref == "C1")
+    assert c1.offset_along_mm == pytest.approx(10.0)
+    assert c1.rotation_deg == pytest.approx(90.0)
+
+
 class TestCaptureHappyPath:
     def setup_method(self):
         self.adapter, self.refs = _scenario()

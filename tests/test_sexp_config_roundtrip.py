@@ -579,6 +579,7 @@ def test_scheme_lists_roundtrip():
         "scheme_lists": [{
             "name": "psu",
             "anchor_ref": "C1",
+            "anchor_rotation_deg": 90.0,  # addendum P2.x — non-default survives
             "source_sheet": "Channel_0",
             "components": [
                 {"ref": "C1"},

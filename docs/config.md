@@ -673,6 +673,9 @@ scheme_lists:
   - name: amp_avdd            # identity — the --only and Entity.scheme_list key
     anchor_ref: R1            # one of the components below: offset origin + clone anchor
     # anchor_pad: '1'         # optional — anchor on a pad's centre instead
+    # anchor_rotation_deg: 0.0  # anchor's ABSOLUTE angle at capture — how the
+    #                            # raw offsets/rotations below must be rotated
+    #                            # back onto a target node (P4 apply); default 0.0
     source_sheet: Channel_0   # the sheet the record was captured on (top-level name)
     components:               # literal refs, board-frame offsets from the anchor
       - ref: R1
@@ -710,7 +713,10 @@ the SAME connectivity-closure filter as Cell extraction (only copper reaching
 a recorded ref's pad is kept), pre-filtered to the refs' bbox + 1 mm; the
 dropped excluded-material copper becomes `boundary_nets` — one `action` per
 NET, so Reread stays deterministic. Track `layer` is a free string covering
-the full copper stack. Cloning a record onto another (twin) sheet goes through
+the full copper stack. Component/via/track offsets and rotations are stored RAW
+(board frame) and `anchor_rotation_deg` records the anchor's absolute angle at
+capture — Apply/Redraw (P4) compensates with it instead of scanning
+`components[]`. Cloning a record onto another (twin) sheet goes through
 an Entity with `scheme_list:` (not `cell:`) — the stored-record format above
 is what capture/Reread write.
 

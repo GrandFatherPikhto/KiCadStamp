@@ -754,6 +754,14 @@ class SchemeListConfig:
     name: str
     anchor_ref: str
     anchor_pad: str | None = None
+    # Absolute rotation of anchor_ref (its live angle_deg) AT CAPTURE time,
+    # stored EXPLICITLY (added 2026-09-06, plan addendum P2.x). The recorded
+    # components/vias/tracks offsets and rotations are RAW (board frame, anchor
+    # rotation NOT subtracted — same convention as a Cell); Apply/Redraw (P4)
+    # uses this field to compensate when it rotates the recorded geometry onto
+    # the (possibly rotated) target node. Never derived by scanning
+    # components[] post-hoc — the anchor is a record-level property.
+    anchor_rotation_deg: float = 0.0
     source_sheet: str | None = None
     components: list[SchemeListComponentRecord] = field(default_factory=list)
     vias: list[SchemeListViaRecord] = field(default_factory=list)

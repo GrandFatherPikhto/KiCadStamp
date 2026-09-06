@@ -63,6 +63,15 @@ def test_single_record_loads_with_nested_copper():
     assert len(sl.vias) == 1 and sl.vias[0].drill_mm == 0.3
     assert len(sl.tracks) == 1 and sl.tracks[0].layer == "In1.Cu"
     assert sl.boundary_nets[0].action == "exclude"  # v1 default
+    # addendum P2.x — the new explicit anchor-rotation field
+    assert sl.anchor_rotation_deg == 0.0  # absent -> default
+
+
+def test_record_loads_explicit_anchor_rotation_deg():
+    """anchor_rotation_deg (addendum P2.x) is read from the record; non-zero
+    survives."""
+    sl = load_scheme_list(_record(anchor_rotation_deg=90.0))
+    assert sl.anchor_rotation_deg == 90.0
 
 
 def test_record_requires_name_and_anchor_ref():

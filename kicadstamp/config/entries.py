@@ -858,7 +858,7 @@ def _load_entity(data: dict[str, Any]) -> Entity:
 
 
 _SCHEME_LIST_KNOWN_KEYS = {
-    'name', 'anchor_ref', 'anchor_pad', 'source_sheet',
+    'name', 'anchor_ref', 'anchor_pad', 'anchor_rotation_deg', 'source_sheet',
     'components', 'vias', 'tracks', 'boundary_nets',
 }
 _SCHEME_LIST_COMPONENT_KNOWN_KEYS = {
@@ -1038,6 +1038,7 @@ def _load_scheme_list(data: dict[str, Any]) -> SchemeListConfig:
         name=name,
         anchor_ref=anchor_ref,
         anchor_pad=data.get('anchor_pad'),
+        anchor_rotation_deg=float(data.get('anchor_rotation_deg', 0.0)),
         source_sheet=data.get('source_sheet'),
         components=components,
         vias=_load_scheme_list_vias(data.get('vias'), name),
