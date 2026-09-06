@@ -1,37 +1,42 @@
-# Справочник по YAML-конфигу
+# Справочник по .sexp-конфигу
 
-Всё про то, как **писать** конфиг KiCadStamp с нуля: корневые поля, каждая секция (`cells:`/`chains:`/
-`clone_placements:`/`thermal_via_arrays:`/`points:`), `include:`, `extract_profiles:`/`clone_profiles:`.
+Всё про то, как **писать** конфиг KiCadStamp с нуля: корневые поля, каждая секция (`cells`/`chains`/
+`clone_placements`/`thermal_via_arrays`/`points`), `include`, `extract_profiles`/`clone_profiles`.
 Про запуск команд над конфигом — [docs/commands_ru.md](commands_ru.md); про написание расстановки на
-Python вместо ручного YAML — [docs/python_ru.md](python_ru.md); про архитектуру модулей/классов за этой
-схемой — [docs/architect_ru.md](architect_ru.md).
+Python вместо ручного `.sexp` — [docs/python_ru.md](python_ru.md); про архитектуру модулей/классов за
+этой схемой — [docs/architect_ru.md](architect_ru.md).
 
-Каждый пример на этой странице взят из реального, реально загружающегося конфига —
-`boards/3ch-awg-tia/profiles/*.sexp`, не придуманный синтаксис. Имена полей соответствуют
+Каждый пример на этой странице — фрагмент реального, реально загружающегося конфига — боевого профиля
+`profiles/3ch-awg-tia-v103/config.sexp`, не придуманный синтаксис. Имена полей соответствуют
 `kicadstamp/config/models.py` на 2026-08-01.
 
 ---
 
 ## Корневые поля
 
-```yaml
-# boards/3ch-awg-tia/profiles/fpga.sexp
-registry_path: registries/fpga.json
-track_registry_path: registries/fpga.tracks.registry.json
-log_file: ../logs/fpga.log
-schematic_dir: ../../../test_boards/3CH-AWG-TIA
-layer: B.Cu
-
-thermal_via_arrays:
-  - ...
-
-include:
-  - templates/fpga_pi_filters.sexp
-  - fpga_extracts.sexp
-  - chains/fpga_spokes.sexp
-
-clone_placements:
-  ...
+```sexp
+(kicadstamp-config
+  ; например, profiles/3ch-awg-tia-v103/config.sexp
+  (registry_path "registries/fpga.json")
+  (track_registry_path "registries/fpga.tracks.registry.json")
+  (log_file "../logs/fpga.log")
+  (schematic_dir "../../../test_boards/3CH-AWG-TIA")
+  (layer "B.Cu")
+  (thermal_via_arrays
+    (thermal_via_array
+      (name "ic1_thermal")
+      (anchor_ref "IC1")
+      (pad "145")))
+  (include
+    "templates/fpga_pi_filters.sexp"
+    "fpga_extracts.sexp"
+    "chains/fpga_spokes.sexp")
+  (clone_placements
+    (clone_placement
+      (name "p3v3_vccio_pi_filter")
+      (cluster "Pi_Filter_3V3_VCCIO")
+      (cell "fpga_in_pi_filter")
+      (xy -6.0 -6.0))))
 ```
 
 | Поле | Тип | Смысл |
@@ -39,7 +44,7 @@ clone_placements:
 | `layer` | строка | `F.Cu`\|`B.Cu` — слой по умолчанию только для пути `chains:`/ManualSpoke. У `clone_placements:` свой `layer:` на каждой записи, этим полем не затрагивается. |
 | `cells` | словарь | Инлайн-определения `Cell` (см. ниже). Руками пишутся редко — обычно заполняются `extract`; можно разнести по файлам через `include:` (см. ниже). |
 | `points` | словарь | Именованные переиспользуемые якоря (см. **Points** ниже). |
-| `include` | список | Другие YAML-файлы для подключения — см. **`include:`** ниже. |
+| `include` | список | Другие конфиг-файлы для подключения — см. **`include:`** ниже. |
 | `chains` | список | Правила ManualSpoke — см. **`chains:`** ниже. |
 | `clone_placements` | список | Размещения TemplatePlacer — см. **`clone_placements:`** ниже. |
 | `entities` | список | Записи Entity — «что» размещения, БЕЗ позиции — см. **`entities:`** ниже. |
@@ -48,7 +53,7 @@ clone_placements:
 | `place_components` | булево | По умолчанию `true`. `false` — перемещать/создавать via и треки, но не трогать позиции компонентов. |
 | `skip_existing_components` | булево | По умолчанию `false`. Пропускать компоненты (и их via/треки), уже стоящие в целевой позиции — дешёвая идемпотентность для повторных прогонов. Примечание (2026-08-31): позиционный пре-чек ТРЕКОВ выполняется независимо от этого флага — он лишь пропускает запланированный трек, который уже существует ровно на этой позиции/цепи/ширине/слое, поэтому никогда не удаляет медь, а только предотвращает буквальные дубликаты. |
 | `via_keepout_clearance_mm`, `via_search_step_mm`, `via_search_max_radius_mm`, `via_search_n_directions` | числа | Параметры поиска свободного места, используются только термо-via. |
-| `schematic_dir` | строка | Папка с `*.kicad_sch` проекта, для резолва `anchor_sheet`. Относительно расположения самого этого YAML, как `registry_path`. |
+| `schematic_dir` | строка | Папка с `*.kicad_sch` проекта, для резолва `anchor_sheet`. Относительно расположения самого этого конфиг-файла, как `registry_path`. |
 | `schematic_files` | список строк | Дополнительные `.kicad_sch`-файлы вне `schematic_dir` (например, корневой лист, если он лежит отдельно). |
 | `registry_path`, `track_registry_path` | строки | Явные пути к реестрам расстановки/треков (см. [docs/placement_ru.md](placement_ru.md)). По умолчанию — выводятся из имени/пути самого конфига. |
 | `log_file` | строка | Лог-файл для `apply` этого конфига — не нужно каждый раз указывать `--log-file`. Флаг CLI `--log-file`, если задан, побеждает. |
@@ -74,39 +79,42 @@ clone_placements:
 
 ### Лист-ячейка
 
-```yaml
-# boards/3ch-awg-tia/profiles/templates/ldo_3v3.sexp — файл, перечисленный
-# в include: у power.sexp (внешние файлы Cell оборачиваются в cells:, та
-# же форма, что инлайн-блок — cells_file:/cell_files: слиты в include:
-# 2026-08-02)
-cells:
-  p3v3_ldo:
-    layer: F.Cu
-    vias:
-      - offset_along_mm: -7.415
-        offset_across_mm: -2.28
-        net: GND
-        drill_mm: 0.5
-        diameter_mm: 1.0
-      - offset_along_mm: -7.415
-        offset_across_mm: 2.28
-        net: '{PWR_IN}'          # {placeholder} — резолвится из params: в момент размещения
-        drill_mm: 0.5
-        diameter_mm: 1.0
-    components:
-      - role: LDO_3V3             # матчится по кастомному полю Role, не по конкретному ref
-        offset_along_mm: 0.0
-        offset_across_mm: 0.0
-        angle_deg: 0.0
-        net_template: '{PWR_OUT}' # только для матчинга ролей по сетям у ClonePlacement
-        net_template_pad: '1'     # опционально: на каком паде резолвленного кандидата эта цепь
-    tracks:
-      - start_along_mm: -5.04
-        start_across_mm: -2.28
-        end_along_mm: -7.415
-        end_across_mm: -2.28
-        width_mm: 0.8
-        net: GND
+```sexp
+; внешний cells-файл, например перечисленный в include: вашего корневого конфига
+; (внешние файлы Cell оборачиваются в cells:, та же форма, что инлайн-блок —
+; cells_file:/cell_files: слиты в include: 2026-08-02)
+(cells
+  (cell "p3v3_ldo"
+    (layer "F.Cu")
+    (vias
+      (via
+        (offset_along_mm -7.415)
+        (offset_across_mm -2.28)
+        (net "GND")
+        (drill_mm 0.5)
+        (diameter_mm 1.0))
+      (via
+        (offset_along_mm -7.415)
+        (offset_across_mm 2.28)
+        (net "{PWR_IN}")          ; {placeholder} — резолвится из params в момент размещения
+        (drill_mm 0.5)
+        (diameter_mm 1.0)))
+    (components
+      (component
+        (role "LDO_3V3")            ; матчится по кастомному полю Role, не по конкретному ref
+        (offset_along_mm 0.0)
+        (offset_across_mm 0.0)
+        (angle_deg 0.0)
+        (net_template "{PWR_OUT}")  ; только для матчинга ролей по сетям у ClonePlacement
+        (net_template_pad "1")))    ; опционально: на каком паде резолвленного кандидата эта цепь
+    (tracks
+      (track
+        (start_along_mm -5.04)
+        (start_across_mm -2.28)
+        (end_along_mm -7.415)
+        (end_across_mm -2.28)
+        (width_mm 0.8)
+        (net "GND")))))
 ```
 
 - `vias:` — `offset_along_mm`/`offset_across_mm` (локальные), `net:` (`null`/пусто означает
@@ -162,7 +170,7 @@ cells:
   через `anchor_xy` (офсет пада из конфига не выводим). `anchor_role` обязан называть один из
   `components:` этой же ячейки; `anchor_xy` при role-без-pad обязан совпадать с центром роли.
 - `comment:` — опциональная свободная заметка, видна в редакторе ячеек GUI и маркером на листе
-  дерева конфига. Обычное поле схемы (переживает YAML/s-expr round-trip), НЕ YAML-комментарий `#`.
+  дерева конфига. Обычное поле схемы (переживает `.sexp` round-trip), НЕ комментарий `;` в файле.
 - Каждая запись `components:` **обязана** иметь непустой `role:` — раньше отсутствующий/`null` role
   либо падал голым `KeyError`, либо тихо протаскивался до плейсмента и всплывал невнятной рантайм-
   ошибкой «role None is in cell but not found anywhere on board»; теперь — понятная ошибка загрузки
@@ -170,24 +178,24 @@ cells:
 
 ### Композитная ячейка (рекурсивная, с 2026-07-31)
 
-```yaml
-# Cell, содержимое которой — другие cell, а не сырая геометрия
-p3v3_ldo_composite:
-  clone_placements:
-    - name: ldo_reg
-      cell: p3v3_ldo        # лист-ячейка выше
-      xy: [0.0, 0.0]        # относительно (0,0) САМОГО композита — см. примечание про xy: ниже
-      nets:
-        LDO_1V2: '+3V3_DIRTY'
-      params:
-        PWR_IN: '+5V'
-        PWR_OUT: '+3V3_DIRTY'
-    - name: led_spoke
-      cell: led_spoke
-      xy: [-2.0, 5.0]
-      params:
-        PWR_IN: '+3V3'
-        PWR_OUT: '/Power/+3V3_LED'
+```sexp
+; Cell, содержимое которой — другие cell, а не сырая геометрия
+(cells
+  (cell "p3v3_ldo_composite"
+    (clone_placements
+      (clone_placement
+        (name "ldo_reg")
+        (cell "p3v3_ldo")           ; лист-ячейка выше
+        (xy 0.0 0.0)                ; относительно (0,0) САМОГО композита — см. примечание про xy: ниже
+        (nets ("LDO_1V2" "+3V3_DIRTY"))
+        (params ("PWR_IN" "+5V")
+                ("PWR_OUT" "+3V3_DIRTY")))
+      (clone_placement
+        (name "led_spoke")
+        (cell "led_spoke")
+        (xy -2.0 5.0)
+        (params ("PWR_IN" "+3V3")
+                ("PWR_OUT" "/Power/+3V3_LED"))))))
 ```
 
 Каждая вложенная запись — это `CellPlacement`, **не тот же тип**, что top-level запись
@@ -233,7 +241,7 @@ top-level `clone_placement`, док пишет его ссылкой `clone_plac
 обороны, для конфигов, собранных в памяти — самим резолвером (чистая `ValidationError` с полным
 путём, а не Python `RecursionError`).
 
-> **Читая `xy:` в чужом YAML — одно имя поля в трёх разных системах координат, полезно понимать, в
+> **Читая `xy:` в чужом конфиге — одно имя поля в трёх разных системах координат, полезно понимать, в
 > какой именно:**
 > 1. У `ClonePlacement` **с** якорем (`anchor_ref`/`anchor_role`/`anchor_point`) — плоский сдвиг **от
 >    разрешённой позиции якоря**.
@@ -265,27 +273,30 @@ top-level `clone_placement`, док пишет его ссылкой `clone_plac
 > это заметно при Redraw одной спицы). Исправление: задайте спицам одного из них различающий
 > `cluster:`, чтобы каждое цепейо брало компоненты из своего пула.
 
-```yaml
-# boards/3ch-awg-tia/profiles/rules/fpga_spokes.sexp
-chains:
-- net: +3V3_VCCIO
-  name: +3V3_VCCIO       # опционально — по умолчанию берётся net, см. ниже
-  anchor_role: FPGA
-  retired: false
-  skip: false
-  spokes:
-  - pad: '17'
-    cell: fpga_cap_pair_spoke
-    shift_x_mm: 1.2
-    shift_y_mm: -0.5
-    rotation_deg: 90.0
-    cluster: FPGA_PWR_BANK
-  - pad: '26'
-    cell: fpga_cap_pair_spoke
-    shift_x_mm: 1.2
-    shift_y_mm: -2.4
-    rotation_deg: 90.0
-    cluster: FPGA_PWR_BANK
+```sexp
+; например, chains/fpga_spokes.sexp, подключённый из корневого конфига
+(chains
+  (chain
+    (net "+3V3_VCCIO")
+    (name "+3V3_VCCIO")       ; опционально — по умолчанию берётся net, см. ниже
+    (anchor_role "FPGA")
+    (retired false)
+    (skip false)
+    (spokes
+      (spoke
+        (pad "17")
+        (cell "fpga_cap_pair_spoke")
+        (shift_x_mm 1.2)
+        (shift_y_mm -0.5)
+        (rotation_deg 90.0)
+        (cluster "FPGA_PWR_BANK"))
+      (spoke
+        (pad "26")
+        (cell "fpga_cap_pair_spoke")
+        (shift_x_mm 1.2)
+        (shift_y_mm -2.4)
+        (rotation_deg 90.0)
+        (cluster "FPGA_PWR_BANK")))))
 ```
 
 **Поля `Chain`:**
@@ -297,7 +308,7 @@ chains:
 | `name` | Опционально, для `--only`. По умолчанию — `net` (см. `chain_effective_name`). **Не** механизм группировки — не переиспользуй один `name:` в нескольких цепих, чтобы объединить их для `--only`, используй общий `Cluster` (`anchor_cluster`/`spoke.cluster`). Если два цепи резолвятся в одно и то же эффективное имя — фатал при загрузке. |
 | `retired` | По умолчанию `false`. `true` = «не существует на плате» — вычищает via/треки этого цепи из реестра. Всегда побеждает `--only`/`--cluster`. |
 | `skip` | По умолчанию `false`. `true` = «не трогать в этом прогоне» — сужает работу как `--only`/`--cluster`, но инлайново, без защиты/вычистки реестра в любую сторону. |
-| `comment` | Опционально. Свободная заметка, видна в GUI — обычное поле схемы, не YAML-комментарий. |
+| `comment` | Опционально. Свободная заметка, видна в GUI — обычное поле схемы, не комментарий `;` в файле. |
 
 **Поля `ManualSpoke` (одна запись `spokes:`):**
 
@@ -323,20 +334,20 @@ chains:
 (`anchor_id` в реестре — `f"name:{name}"`), так что это механизм и для повторяющихся многокомпонентных
 секций (pi-фильтры, DAC-каналы, LDO-подсистемы), и для одноразовых.
 
-```yaml
-# boards/3ch-awg-tia/profiles/fpga.sexp
-clone_placements:
-  - name: p3v3_vccio_pi_filter
-    retired: false
-    skip: false
-    cell: fpga_in_pi_filter
-    anchor_cluster: Pi_Filter_3V3_VCCIO
-    anchor_role: FPGA
-    anchor_pad: '139'
-    xy: [-6.0, -6.0]
-    params:
-      PWR_IN: '+3V3'
-      PWR_OUT: '+3V3_VCCIO'
+```sexp
+; например, в вашем корневом config.sexp
+(clone_placements
+  (clone_placement
+    (name "p3v3_vccio_pi_filter")
+    (retired false)
+    (skip false)
+    (cell "fpga_in_pi_filter")
+    (anchor_cluster "Pi_Filter_3V3_VCCIO")
+    (anchor_role "FPGA")
+    (anchor_pad "139")
+    (xy -6.0 -6.0)
+    (params ("PWR_IN" "+3V3")
+            ("PWR_OUT" "+3V3_VCCIO"))))
 ```
 
 **Позиционирование — два режима:**
@@ -394,7 +405,7 @@ clone_placements:
 | `ignore_selection` | По умолчанию `false`. Поэлементный аналог `--no-selection` из CLI: считает живое выделение в GUI пустым для СОБСТВЕННОГО резолва ЭТОГО размещения, независимо от глобального флага — ИЛИ-композиция с ним. |
 | `layer` | `F.Cu`\|`B.Cu`\|не задан (наследовать слой ячейки, разместить как есть). |
 | `mirror` | По умолчанию `false`. Зеркалирует всю конструкцию — противоречие с `layer` (mirror без смены слоя, или наоборот) — фатальная ошибка при загрузке, поскольку физически бессмысленно. |
-| `comment` | Опционально. Свободная заметка, видна в GUI — обычное поле схемы, не YAML-комментарий. |
+| `comment` | Опционально. Свободная заметка, видна в GUI — обычное поле схемы, не комментарий `;` в файле. |
 
 **Устарело, фатал при загрузке:** `origin_x_mm`/`origin_y_mm` (переименованы в `xy: [x, y]`), `side`
 (заменён на явные `layer:`+`mirror:`).
@@ -520,11 +531,12 @@ Entity без узла размещения, размещённая более �
 СВОИМ реальным `sheet`/`anchor sheet`, чтобы шаблон оставался «живым» и перечитывался с платы по
 Role+Sheet+Cluster) — и инстанцирует его на каждый повтор:
 
-```yaml
-tree_instances:
-  - template: dac_buf_tpl        # имя существующей записи trees: (шаблон)
-    name: ch1_dac_buf            # имя генерируемого дерева
-    sheet: Channel_1             # подставляется в генерируемые копии
+```sexp
+(tree_instances
+  (tree_instance
+    (template "dac_buf_tpl")     ; имя существующей записи trees: (шаблон)
+    (name "ch1_dac_buf")         ; имя генерируемого дерева
+    (sheet "Channel_1")))        ; подставляется в генерируемые копии
 ```
 
 Расширение выполняется внутри `load_config()`, сразу после `include:` + `sheet_templates:` и до
@@ -574,32 +586,33 @@ Cluster/Role-метки ОДИНАКОВЫ на всех инстансах (fie
 рассинхронизируются при любом изменении Channel_0 — объявляем один раз и даём `load_config()`
 размножить по листам:
 
-```yaml
-sheet_templates:
-  channel:
-    sheets: [Channel_0, Channel_1, Channel_2]
-    coordinate_placements:
-    - cluster: OP_AMP
-      role: OP_AMP
-      # name: генерируется автоматически на лист (см. «Идентичность» ниже)
-      sheet: self
-      x_mm: 9.0
-      y_mm: 0.0
-      rotation_deg: 270.0
-      anchor_role: AD_DAC
-      anchor_sheet: self
-    clone_placements:
-    - name: PIF_AVDD          # Cluster-тег — expansion его НЕ трогает никогда
-      cell: dac_pi_filter
-      sheet: self
-      xy: [2.0, 1.0]
-      rotation_deg: 90.0
-      anchor_role: AD_DAC
-      anchor_pad: '18'
-      anchor_cluster: AD_DAC
-      anchor_sheet: self
-      params:
-        FB_PI_FLT: /$SHEET/DAC/+3V3_AVDD
+```sexp
+(sheet_templates
+  (sheet_template "channel"
+    (sheets "Channel_0" "Channel_1" "Channel_2")
+    (coordinate_placements
+      (coordinate_placement
+        (cluster "OP_AMP")
+        (role "OP_AMP")
+        ; name: генерируется автоматически на лист (см. «Идентичность» ниже)
+        (sheet "self")
+        (x_mm 9.0)
+        (y_mm 0.0)
+        (rotation_deg 270.0)
+        (anchor_role "AD_DAC")
+        (anchor_sheet "self")))
+    (clone_placements
+      (clone_placement
+        (name "PIF_AVDD")        ; Cluster-тег — expansion его НЕ трогает никогда
+        (cell "dac_pi_filter")
+        (sheet "self")
+        (xy 2.0 1.0)
+        (rotation_deg 90.0)
+        (anchor_role "AD_DAC")
+        (anchor_pad "18")
+        (anchor_cluster "AD_DAC")
+        (anchor_sheet "self")
+        (params ("FB_PI_FLT" "/$SHEET/DAC/+3V3_AVDD"))))))
 ```
 
 Expansion выполняется внутри `load_config()`, сразу после разрешения `include:` и до любого
@@ -632,21 +645,22 @@ Expansion выполняется внутри `load_config()`, сразу пос
 
 ## `thermal_via_arrays:` — термо-via-сетки
 
-```yaml
-# boards/3ch-awg-tia/profiles/fpga.sexp
-thermal_via_arrays:
-  - name: fpga_thermal
-    retired: false
-    skip: false
-    anchor_role: FPGA
-    pad: '145'
-    net: GND
-    rows: 4
-    cols: 4
-    margin_mm: 0.5
-    pattern: grid
-    drill_mm: 0.3
-    diameter_mm: 0.5
+```sexp
+; например, в вашем корневом config.sexp
+(thermal_via_arrays
+  (thermal_via_array
+    (name "fpga_thermal")
+    (retired false)
+    (skip false)
+    (anchor_role "FPGA")
+    (pad "145")
+    (net "GND")
+    (rows 4)
+    (cols 4)
+    (margin_mm 0.5)
+    (pattern "grid")
+    (drill_mm 0.3)
+    (diameter_mm 0.5)))
 ```
 
 Настоящий список (2026-08-02, обобщено, когда появилась вторая ИС с термо-via — AD9707, по одной на
@@ -667,10 +681,10 @@ thermal_via_arrays:
 | `drill_mm`/`diameter_mm` | Размеры via. |
 | `retired` | По умолчанию `false`. Тот же смысл «не существует», что и везде. |
 | `skip` | По умолчанию `false`. Тот же смысл «не трогать в этом прогоне», что и везде. |
-| `comment` | Опционально. Свободная заметка, видна в GUI — обычное поле схемы, не YAML-комментарий. |
+| `comment` | Опционально. Свободная заметка, видна в GUI — обычное поле схемы, не комментарий `;` в файле. |
 
 **Устарело, фатал при загрузке:** старый одиночный `thermal_via_array:` (словарь, не список —
-переименуй в `thermal_via_arrays:` и оберни блок в YAML-список), `target_ref` (переименован в
+переименуй в `thermal_via_arrays:` и оберни блок в список), `target_ref` (переименован в
 `anchor_ref`), старый `enabled:`
 (переименован и обратен по смыслу `retired:` — `enabled: true` ≠ `retired: true`, не делай буквальный
 find-and-replace в старом конфиге, перепроверь исходный смысл).
@@ -688,56 +702,64 @@ find-and-replace в старом конфиге, перепроверь исхо
 Scheme Lists → Record...) и физически живут во включаемом `scheme_lists.json`
 (сама секция не зависит от формата — см. `include:`).
 
-```yaml
-# scheme_lists.json — подключить через include: (s-expr синтаксис тот же)
-scheme_lists:
-  - name: amp_avdd            # идентификатор — ключ для --only и Entity.scheme_list
-    anchor_ref: R1            # один из components ниже: начало смещений + якорь клона
-    # anchor_pad: '1'         # опционально — якорь на центр пада, а не футпринта
-    # anchor_rotation_deg: 0.0  # АБСОЛЮТНЫЙ угол якоря на момент захвата — на
-    #                            # него компенсируются сырые offset/rotation ниже
-    #                            # при применении (P4); дефолт 0.0
-    source_sheet: Top/Channel_0  # ПОЛНЫЙ путь листа, с которого записан снимок (5a) — вся
-                                 # цепочка Selected.sheet якорного футпринта, сегменты через '/'
-                                 # (лист без вложенности — просто его имя, например 'Top')
-    # scope_sheet_paths: [[Top, Channel_0]]  # ТОЛЬКО у записей «By sheet»: ОТМЕЧЕННЫЕ пути чек-
-    #                                        # листа захвата (5c). Более поздний Reread пересчитывает
-    #                                        # по ним ТЕКУЩИЙ scope через живой снапшот. Отсутствует/
-    #                                        # None у записей «By selection» (их Reread-scope — это
-    #                                        # выделение на плате в момент клика).
-    # scope_presets:                         # ТОЛЬКО у записей «By sheet» (design §9 п.12, 2026-09-06):
-    #   - name: full                         # ИМЕНОВАННЫЕ сохранённые альтернативы scope_sheet_paths —
-    #     sheet_paths: [[Top, Channel_0], [Top, Channel_1]]   # библиотека вариантов чек-листа, между
-    #   - name: ch0-only                      # которыми комбобокс «Preset» на странице записи
-    #     sheet_paths: [[Top, Channel_0]]     # переключается ПЕРЕД Reread (Apply делает выбранный
-    #                                        # новым scope_sheet_paths). [] у записей «By selection».
-    components:               # литеральные refs, смещения в кадре платы от якоря
-      - ref: R1
-        offset_along_mm: 0.0
-        offset_across_mm: 0.0
-        rotation_deg: 0.0
-      - ref: C1
-        offset_along_mm: 10.0
-        offset_across_mm: 0.0
-        rotation_deg: 90.0
-    vias:                     # литеральные сети; смещения в кадре якоря
-      - offset_along_mm: 10.0
-        offset_across_mm: 0.0
-        drill_mm: 0.3
-        diameter_mm: 0.6
-        net: "/Channel_0/AMP/+5V"
-    tracks:                   # литеральные сети + литеральный медный слой (СТРОКА)
-      - start_along_mm: 0.0
-        start_across_mm: 0.0
-        end_along_mm: 10.0
-        end_across_mm: 0.0
-        width_mm: 0.25
-        layer: F.Cu           # любой медный слой: F.Cu/In1.Cu/.../In30.Cu/B.Cu
-        net: "/Channel_0/AMP/+5V"
-    boundary_nets:            # медь, касавшаяся только ИСКЛЮЧЁННЫХ футпринтов
-      - net: "/Channel_0/AMP/GND"
-        action: exclude       # v1: ТОЛЬКО exclude (отброс всей компоненты, warning)
-        external_ref: J1      # диагностика: какой внешний футпринт утащил эту медь
+```sexp
+; например, scheme_lists.json — подключить через include: (s-expr синтаксис тот же)
+(scheme_lists
+  (scheme_list
+    (name "amp_avdd")               ; идентификатор — ключ для --only и Entity.scheme_list
+    (anchor_ref "R1")               ; один из components ниже: начало смещений + якорь клона
+    ; (anchor_pad "1")              ; опционально — якорь на центр пада, а не футпринта
+    ; (anchor_rotation_deg 0.0)     ; АБСОЛЮТНЫЙ угол якоря на момент захвата — на него
+    ;                               ;   компенсируются сырые offset/rotation ниже при
+    ;                               ;   применении (P4); дефолт 0.0
+    (source_sheet "Top/Channel_0")  ; ПОЛНЫЙ путь листа, с которого записан снимок (5a) — вся
+                                    ;   цепочка Selected.sheet якорного футпринта, сегменты
+                                    ;   через '/' (лист без вложенности — просто его имя, 'Top')
+    ; (scope_sheet_paths ("Top" "Channel_0"))  ; ТОЛЬКО у записей «By sheet»: ОТМЕЧЕННЫЕ пути
+    ;                                           ;   чек-листа захвата (5c). Более поздний Reread
+    ;                                           ;   пересчитывает по ним ТЕКУЩИЙ scope через живой
+    ;                                           ;   снапшот. Отсутствует у записей «By selection»
+    ;                                           ;   (их Reread-scope — выделение на плате).
+    ; (scope_presets                  ; ТОЛЬКО у записей «By sheet» (design §9 п.12, 2026-09-06):
+    ;   (scheme_list_scope_preset
+    ;     (name "full")
+    ;     (sheet_paths ("Top" "Channel_0") ("Top" "Channel_1")))  ; ИМЕНОВАННЫЕ сохранённые
+    ;   (scheme_list_scope_preset      ;   альтернативы scope_sheet_paths — библиотека вариантов
+    ;     (name "ch0-only")            ;   чек-листа, между которыми комбобокс «Preset» на странице
+    ;     (sheet_paths ("Top" "Channel_0"))))  ;   записи переключается ПЕРЕД Reread (Apply делает
+                                              ;   выбранный новым scope_sheet_paths).
+    (components
+      (scheme_list_component
+        (ref "R1")
+        (offset_along_mm 0.0)
+        (offset_across_mm 0.0)
+        (rotation_deg 0.0))
+      (scheme_list_component
+        (ref "C1")
+        (offset_along_mm 10.0)
+        (offset_across_mm 0.0)
+        (rotation_deg 90.0)))
+    (vias
+      (scheme_list_via
+        (offset_along_mm 10.0)
+        (offset_across_mm 0.0)
+        (drill_mm 0.3)
+        (diameter_mm 0.6)
+        (net "/Channel_0/AMP/+5V")))
+    (tracks
+      (scheme_list_track
+        (start_along_mm 0.0)
+        (start_across_mm 0.0)
+        (end_along_mm 10.0)
+        (end_across_mm 0.0)
+        (width_mm 0.25)
+        (layer "F.Cu")        ; любой медный слой: F.Cu/In1.Cu/.../In30.Cu/B.Cu
+        (net "/Channel_0/AMP/+5V")))
+    (boundary_nets            ; медь, касавшаяся только ИСКЛЮЧЁННЫХ футпринтов
+      (scheme_list_boundary_net
+        (net "/Channel_0/AMP/GND")
+        (action "exclude")    ; v1: ТОЛЬКО exclude (отброс всей компоненты, warning)
+        (external_ref "J1")))))  ; диагностика: какой внешний футпринт утащил эту медь
 ```
 
 Правила: один реальный `ref` может быть записан максимум в ОДИН Scheme List
@@ -804,30 +826,33 @@ Entity дерева. Сама Config-сторона никогда не двиг
 позиции). Одна запись = ОДНА сеть (никаких списков сетей внутри записи —
 списки в этом проекте живут в единственном месте, в спицах).
 
-```yaml
-# boards/3ch-awg-tia/profiles/net_traces.sexp  (подключить через include:)
-net_traces:
-  - net: DAC_DB0            # имя сети — оно же идентификатор для --only
-    anchor_role: FPGA       # якорный футпринт по Role (поиск по всей плате)
-    # anchor_sheet: ...     # опционально — сузить поиск Role по листу
-    # anchor_cluster: ...   # опционально — сузить по Cluster (префиксное совпадение)
-    # anchor_pad: '42'      # опционально — якорь на центр этого пада, а не футпринта
-    tracks:
-      - start_along_mm: 1.0
-        start_across_mm: 2.0
-        end_along_mm: 3.0
-        end_across_mm: 4.0
-        width_mm: 0.2
-        net: DAC_DB0
-        layer: F.Cu
-    vias:
-      - offset_along_mm: 5.0
-        offset_across_mm: 6.0
-        net: DAC_DB0
-        drill_mm: 0.3
-        diameter_mm: 0.6
-    # retired: true   # «на плате сейчас не существует» (защита реестра снимается)
-    # skip: true      # «пропустить только этот прогон» (защита реестра остаётся)
+```sexp
+; например, net_traces.sexp, подключённый в конфиг
+(net_traces
+  (net_trace
+    (net "DAC_DB0")         ; имя сети — оно же идентификатор для --only
+    (anchor_role "FPGA")    ; якорный футпринт по Role (поиск по всей плате)
+    ; (anchor_sheet ...)    ; опционально — сузить поиск Role по листу
+    ; (anchor_cluster ...)  ; опционально — сузить по Cluster (префиксное совпадение)
+    ; (anchor_pad "42")     ; опционально — якорь на центр этого пада, а не футпринта
+    (tracks
+      (track
+        (start_along_mm 1.0)
+        (start_across_mm 2.0)
+        (end_along_mm 3.0)
+        (end_across_mm 4.0)
+        (width_mm 0.2)
+        (net "DAC_DB0")
+        (layer "F.Cu")))
+    (vias
+      (via
+        (offset_along_mm 5.0)
+        (offset_across_mm 6.0)
+        (net "DAC_DB0")
+        (drill_mm 0.3)
+        (diameter_mm 0.6)))))
+    ; (retired true)   ; «на плате сейчас не существует» (защита реестра снимается)
+    ; (skip true)      ; «пропустить только этот прогон» (защита реестра остаётся)
 ```
 
 - **`net`** (обязательно) — имя сети. Уникально на запись (фатал при загрузке,
@@ -845,7 +870,7 @@ net_traces:
   которого можно было бы унаследовать сеть).
 - **`retired`/`skip`** — та же конвенция, что во всех секциях.
 - **`comment`** — опциональная свободная заметка, видна в GUI (обычное поле
-  схемы, не YAML-комментарий).
+  схемы, не комментарий `;` в файле).
 - **`--only=<net>`** выбирает ровно одну запись для Redraw; реестр даёт
   идемпотентность (повторный прогон с неподвижным якорем создаёт 0 новых
   объектов).
@@ -864,23 +889,24 @@ anchor на apply — ОДИН И ТОТ ЖЕ набор, отсюда одна 
 
 ## `points:` — именованные переиспользуемые якоря
 
-```yaml
-# boards/3ch-awg-tia/profiles/points.sexp
-points:
-  p3v3_ldo_origin:
-    anchor_role: C_OUT_BYPASS
-    anchor_cluster: In_Pi_Filter_Pos
-    anchor_pad: '1'
+```sexp
+; например, points.sexp, подключённый в конфиг
+(points
+  (point "p3v3_ldo_origin"
+    (anchor_role "C_OUT_BYPASS")
+    (anchor_cluster "In_Pi_Filter_Pos")
+    (anchor_pad "1")))
 ```
 
 Затем на неё ссылаются по имени из `Chain`/`ClonePlacement`/`ThermalViaArrayConfig`:
 
-```yaml
-clone_placements:
-  - name: 3v3_ldo
-    cell: p3v3_ldo
-    anchor_point: p3v3_ldo_origin
-    xy: [-50.0, 35.0]
+```sexp
+(clone_placements
+  (clone_placement
+    (name "3v3_ldo")
+    (cell "p3v3_ldo")
+    (anchor_point "p3v3_ldo_origin")
+    (xy -50.0 35.0)))
 ```
 
 `Point` резолвится один раз, кэшируется, и все, кто ссылается на неё через `anchor_point:`, получают ту
@@ -896,7 +922,7 @@ clone_placements:
 | `xy` | Буквальная, абсолютная координата платы — вообще без живого якоря. **(0, 0) здесь — угол листа чертежа, не какая-либо физическая точка платы** — для этого см. `anchor_origin` ниже. |
 | `anchor_origin` | `'grid'` (Place > Set Grid Origin, чисто визуально — ни один экспортируемый файл на это не смотрит) или `'drill'` (Place > Drill/Place Origin, auxiliary axis — drill/position-файлы всегда считаются от неё, Gerber — опционально, через свою галочку в диалоге экспорта). Читается ЖИВЬЁМ через kipy, не литерал из конфига. |
 | `shift_x_mm`/`shift_y_mm` | Сдвиг в мм в абсолютных координатах платы поверх `anchor_ref`/`anchor_role`/`anchor_point`/`anchor_origin` (не поверх `xy:` — фатал, если заданы оба, просто отредактируй буквальную координату). |
-| `comment` | Опционально. Свободная заметка, видна в GUI — обычное поле схемы, не YAML-комментарий. |
+| `comment` | Опционально. Свободная заметка, видна в GUI — обычное поле схемы, не комментарий `;` в файле. |
 
 Ровно одно из `{anchor_ref или anchor_role, anchor_point, xy, anchor_origin}` должно быть базой —
 иначе фатал при загрузке. Собственный `anchor_point:` у `Chain`/`ThermalViaArrayConfig` требует, чтобы
@@ -909,13 +935,13 @@ clone_placements:
 
 ## `include:` — разбиение профиля на файлы
 
-```yaml
-# boards/3ch-awg-tia/profiles/power.sexp
-include:
-  - points.sexp
-  - power_extracts.sexp
-  - pn5v_filters.sexp
-  - p3v3_ldo.sexp
+```sexp
+; например, power.sexp, подключённый из корневого конфига
+(include
+  "points.sexp"
+  "power_extracts.sexp"
+  "pn5v_filters.sexp"
+  "p3v3_ldo.sexp")
 ```
 
 Каждая запись — либо строка-путь, либо `{path: <строка>, enabled: <булево>}`, чтобы выключить целый
@@ -923,7 +949,7 @@ include:
 
 - **Списочные секции** (`chains`, `clone_placements`, `thermal_via_arrays`) — конкатенируются: сначала
   записи этого файла, затем каждого подключённого, в порядке перечисления. (Реальный порядок размещения при `apply`
-  решается отдельно, по настоящим якорным зависимостям, не по порядку в YAML — см.
+  решается отдельно, по настоящим якорным зависимостям, не по порядку в конфиг-файле — см.
   [docs/placement_ru.md](placement_ru.md).)
 - **Словарные секции** (`cells`, `points`, `extract_profiles`, `clone_profiles`) — объединяются
   ключ-за-ключом, **фатал** при повторе ключа в двух разных файлах — подключаемые файлы задуманы как
@@ -949,21 +975,19 @@ include:
 
 Не часть `Config`/`load_config()` — отдельный, только-CLI механизм (`kicadstamp_cli.py extract
 --profiles ... --profile ...`) для сохранения повторяющихся вызовов `extract`/`clone-extract` как
-именованных YAML-записей вместо перепечатывания длинных списков флагов. Полный разбор на уровне CLI —
-[docs/commands_ru.md](commands_ru.md); синтаксис:
+именованных записей в файле профилей вместо перепечатывания длинных списков флагов. Полный разбор на
+уровне CLI — [docs/commands_ru.md](commands_ru.md); синтаксис:
 
-```yaml
-# boards/3ch-awg-tia/profiles/power_extracts.sexp
-extract_profiles:
-  p5v_pi_filter:
-    name: 5v_pi_filter
-    output: boards/3ch-awg-tia/profiles/templates/power_pi_filters.sexp
-    params:
-      PWR_IN: '+5V_DIRTY'
-      PWR_OUT: '+5V'
-    net_template:
-      '+5V_DIRTY': '{PWR_IN}'
-      '+5V': '{PWR_OUT}'
+```sexp
+; например, power_extracts.sexp, подключённый в конфиг
+(extract_profiles
+  (extract_profile "p5v_pi_filter"
+    (name "5v_pi_filter")
+    (output "templates/power_pi_filters.sexp")
+    (params ("PWR_IN" "+5V_DIRTY")
+            ("PWR_OUT" "+5V"))
+    (net_template ("+5V_DIRTY" "{PWR_IN}")
+                  ("+5V" "{PWR_OUT}"))))
 ```
 
 Записи `extract_profiles:` принимают: `name`, `output`, `params`, `net_template`, `net_template_role`,
@@ -999,7 +1023,7 @@ bridging-роли авто-выводят свой `net_template`, а `{param}`-
 - [docs/commands_ru.md](commands_ru.md) — команды CLI (`apply`/`extract`/`undo`/`clone-extract`),
   которые используют всё, описанное здесь.
 - [docs/python_ru.md](python_ru.md) — сборка тех же объектов `Chain`/`ClonePlacement`/`Cell` из Python
-  вместо ручного YAML.
+  вместо ручного `.sexp`.
 - [docs/architect_ru.md](architect_ru.md) — архитектура модулей (`config/`, `placement/`, `geometry/`)
   за этой схемой.
 - [docs/placement_ru.md](placement_ru.md) — что реально происходит с этим конфигом в момент `apply`

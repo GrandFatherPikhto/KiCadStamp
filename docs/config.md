@@ -1,38 +1,43 @@
-# YAML Configuration Reference
+# .sexp Configuration Reference
 
 Everything about **writing** a KiCadStamp config from scratch: root fields, every section
-(`cells:`/`chains:`/`clone_placements:`/`thermal_via_arrays:`/`points:`), `include:`, and
-`extract_profiles:`/`clone_profiles:`. For running commands against a config, see
-[docs/commands.md](commands.md); for coding placement in Python instead of hand-writing YAML, see
+(`cells`/`chains`/`clone_placements`/`thermal_via_arrays`/`points`), `include`, and
+`extract_profiles`/`clone_profiles`. For running commands against a config, see
+[docs/commands.md](commands.md); for coding placement in Python instead of hand-writing `.sexp`, see
 [docs/python.md](python.md); for the module/class architecture behind all of this, see
 [docs/architect.md](architect.md).
 
-Every example on this page is drawn from a real, currently-loading config —
-`boards/3ch-awg-tia/profiles/*.sexp` — not invented syntax. Field names match
-`kicadstamp/config/models.py` exactly as of 2026-08-01.
+Every example on this page is a fragment of a real, currently-loading config —
+the production profile `profiles/3ch-awg-tia-v103/config.sexp` — not invented syntax.
+Field names match `kicadstamp/config/models.py` exactly as of 2026-08-01.
 
 ---
 
 ## Root fields
 
-```yaml
-# boards/3ch-awg-tia/profiles/fpga.sexp
-registry_path: registries/fpga.json
-track_registry_path: registries/fpga.tracks.registry.json
-log_file: ../logs/fpga.log
-schematic_dir: ../../../test_boards/3CH-AWG-TIA
-layer: B.Cu
-
-thermal_via_arrays:
-  - ...
-
-include:
-  - templates/fpga_pi_filters.sexp
-  - fpga_extracts.sexp
-  - chains/fpga_spokes.sexp
-
-clone_placements:
-  ...
+```sexp
+(kicadstamp-config
+  ; e.g. profiles/3ch-awg-tia-v103/config.sexp
+  (registry_path "registries/fpga.json")
+  (track_registry_path "registries/fpga.tracks.registry.json")
+  (log_file "../logs/fpga.log")
+  (schematic_dir "../../../test_boards/3CH-AWG-TIA")
+  (layer "B.Cu")
+  (thermal_via_arrays
+    (thermal_via_array
+      (name "ic1_thermal")
+      (anchor_ref "IC1")
+      (pad "145")))
+  (include
+    "templates/fpga_pi_filters.sexp"
+    "fpga_extracts.sexp"
+    "chains/fpga_spokes.sexp")
+  (clone_placements
+    (clone_placement
+      (name "p3v3_vccio_pi_filter")
+      (cluster "Pi_Filter_3V3_VCCIO")
+      (cell "fpga_in_pi_filter")
+      (xy -6.0 -6.0))))
 ```
 
 | Field | Type | Meaning |
@@ -40,7 +45,7 @@ clone_placements:
 | `layer` | string | `F.Cu`\|`B.Cu` — default layer for the `chains:`/ManualSpoke path only. `clone_placements:` each carry their own `layer:`, unaffected by this. |
 | `cells` | mapping | Inline `Cell` definitions (see below). Rare to write by hand — usually populated by `extract`; can be split across files via `include:` (see below). |
 | `points` | mapping | Named, reusable anchors (see **Points** below). |
-| `include` | list | Other YAML files to merge in — see **`include:`** below. |
+| `include` | list | Other config files to merge in — see **`include:`** below. |
 | `chains` | list | ManualSpoke chains — see **`chains:`** below. (Legacy `chains:` is still read as an alias.) |
 | `clone_placements` | list | TemplatePlacer placements — see **`clone_placements:`** below. |
 | `entities` | list | Entity records — the "what" of a placement, WITHOUT any position — see **`entities:`** below. |
@@ -50,7 +55,7 @@ clone_placements:
 | `place_components` | bool | Default `true`. `false` moves/creates vias and tracks but leaves component positions untouched. |
 | `skip_existing_components` | bool | Default `false`. Skip components (and their vias/tracks) already at the target position — cheap idempotency for re-runs. Note (2026-08-31): the TRACK positional pre-check runs regardless of this flag — it only skips a planned track that already exists at the exact position/net/width/layer, so it can never remove copper, only prevent literal duplicates. |
 | `via_keepout_clearance_mm`, `via_search_step_mm`, `via_search_max_radius_mm`, `via_search_n_directions` | numbers | Free-space search parameters, used only by thermal via placement. |
-| `schematic_dir` | string | Folder with the project's `*.kicad_sch` files, for `anchor_sheet` resolution. Relative to this YAML file's own location, like `registry_path`. |
+| `schematic_dir` | string | Folder with the project's `*.kicad_sch` files, for `anchor_sheet` resolution. Relative to this config file's own location, like `registry_path`. |
 | `schematic_files` | list of strings | Extra `.kicad_sch` files outside `schematic_dir` (e.g. the root sheet, if it lives elsewhere). |
 | `registry_path`, `track_registry_path` | strings | Explicit paths for the placement/track registries (see [docs/placement.md](placement.md)). Default: derived from the config file's own name/path if unset. |
 | `log_file` | string | Log file for `apply` runs against this config — avoids retyping `--log-file` every time. The CLI's own `--log-file` flag wins if both are given. |
@@ -75,39 +80,42 @@ nesting other cells), or both at once.
 
 ### Leaf cell
 
-```yaml
-# boards/3ch-awg-tia/profiles/templates/ldo_3v3.sexp — a file listed under
-# power.sexp's include: (external Cell files are wrapped in cells:, same
-# shape as an inline block, since cells_file:/cell_files: were folded into
-# include: on 2026-08-02)
-cells:
-  p3v3_ldo:
-    layer: F.Cu
-    vias:
-      - offset_along_mm: -7.415
-        offset_across_mm: -2.28
-        net: GND
-        drill_mm: 0.5
-        diameter_mm: 1.0
-      - offset_along_mm: -7.415
-        offset_across_mm: 2.28
-        net: '{PWR_IN}'          # {placeholder} — resolved from params: at placement time
-        drill_mm: 0.5
-        diameter_mm: 1.0
-    components:
-      - role: LDO_3V3             # matched by the Role custom field, not a specific ref
-        offset_along_mm: 0.0
-        offset_across_mm: 0.0
-        angle_deg: 0.0
-        net_template: '{PWR_OUT}' # for ClonePlacement's by-nets role matching only
-        net_template_pad: '1'     # optional: which pad of the resolved candidate carries that net
-    tracks:
-      - start_along_mm: -5.04
-        start_across_mm: -2.28
-        end_along_mm: -7.415
-        end_across_mm: -2.28
-        width_mm: 0.8
-        net: GND
+```sexp
+; an external cells file, e.g. one listed under your root config's include:
+; (external Cell files are wrapped in cells:, the same shape as an inline
+; block, since cells_file:/cell_files: were folded into include: on 2026-08-02)
+(cells
+  (cell "p3v3_ldo"
+    (layer "F.Cu")
+    (vias
+      (via
+        (offset_along_mm -7.415)
+        (offset_across_mm -2.28)
+        (net "GND")
+        (drill_mm 0.5)
+        (diameter_mm 1.0))
+      (via
+        (offset_along_mm -7.415)
+        (offset_across_mm 2.28)
+        (net "{PWR_IN}")          ; {placeholder} — resolved from params at placement time
+        (drill_mm 0.5)
+        (diameter_mm 1.0)))
+    (components
+      (component
+        (role "LDO_3V3")            ; matched by the Role custom field, not a specific ref
+        (offset_along_mm 0.0)
+        (offset_across_mm 0.0)
+        (angle_deg 0.0)
+        (net_template "{PWR_OUT}")  ; for ClonePlacement's by-nets role matching only
+        (net_template_pad "1")))    ; optional: which pad of the resolved candidate carries that net
+    (tracks
+      (track
+        (start_along_mm -5.04)
+        (start_across_mm -2.28)
+        (end_along_mm -7.415)
+        (end_across_mm -2.28)
+        (width_mm 0.8)
+        (net "GND")))))
 ```
 
 - `vias:` — `offset_along_mm`/`offset_across_mm` (local), `net:` (`null`/omitted means "inherit the
@@ -161,31 +169,31 @@ cells:
   `anchor_xy` (a pad offset is not derivable from config). `anchor_role` must name one of this cell's
   own `components:`; a role-only `anchor_xy` must equal that role's centre.
 - `comment:` — optional free-form note shown in the GUI's Cell editor and as a marker on the config
-  tree leaf. A plain schema field (survives YAML/s-expr round-trips), NOT a YAML `#` comment.
+  tree leaf. A plain schema field (survives `.sexp` round-trips), NOT a `;` comment in the file.
 - Every `components:` entry **requires** a non-empty `role:` — a missing/`null` role used to either
   crash with a bare `KeyError` or silently propagate into placement as a confusing runtime "role None
   is in cell but not found anywhere on board"; now a clear load-time error (found live 2026-08-06).
 
 ### Composite cell (recursive, since 2026-07-31)
 
-```yaml
-# a Cell whose content is other cells, not raw geometry
-p3v3_ldo_composite:
-  clone_placements:
-    - name: ldo_reg
-      cell: p3v3_ldo        # the leaf cell above
-      xy: [0.0, 0.0]        # relative to THIS composite's own (0,0) — see the xy: note below
-      nets:
-        LDO_1V2: '+3V3_DIRTY'
-      params:
-        PWR_IN: '+5V'
-        PWR_OUT: '+3V3_DIRTY'
-    - name: led_spoke
-      cell: led_spoke
-      xy: [-2.0, 5.0]
-      params:
-        PWR_IN: '+3V3'
-        PWR_OUT: '/Power/+3V3_LED'
+```sexp
+; a Cell whose content is other cells, not raw geometry
+(cells
+  (cell "p3v3_ldo_composite"
+    (clone_placements
+      (clone_placement
+        (name "ldo_reg")
+        (cell "p3v3_ldo")           ; the leaf cell above
+        (xy 0.0 0.0)                ; relative to THIS composite's own (0,0) — see the xy: note below
+        (nets ("LDO_1V2" "+3V3_DIRTY"))
+        (params ("PWR_IN" "+5V")
+                ("PWR_OUT" "+3V3_DIRTY")))
+      (clone_placement
+        (name "led_spoke")
+        (cell "led_spoke")
+        (xy -2.0 5.0)
+        (params ("PWR_IN" "+3V3")
+                ("PWR_OUT" "/Power/+3V3_LED"))))))
 ```
 
 Each nested entry is a `CellPlacement` — **not** the same type as a top-level `clone_placements:`
@@ -228,7 +236,7 @@ A cyclic reference graph (A → B → A) is rejected both at load time and — a
 for configs assembled in memory — by the resolver itself (a clean `ValidationError` naming the full
 path, not a Python `RecursionError`).
 
-> **Reading `xy:` in someone else's YAML — it's the same field name in three different coordinate
+> **Reading `xy:` in someone else's config — it's the same field name in three different coordinate
 > frames, worth knowing which one you're in:**
 > 1. On a `ClonePlacement` **with** an anchor (`anchor_ref`/`anchor_role`/`anchor_point`) — a flat
 >    shift **from the resolved anchor position**.
@@ -258,27 +266,30 @@ an existing profile to `chains:`.
 > chain is where this is most visible). Fix: give the spokes of one of them a distinguishing
 > `cluster:` so each chain draws from its own pool.
 
-```yaml
-# boards/3ch-awg-tia/profiles/rules/fpga_spokes.sexp
-chains:
-- net: +3V3_VCCIO
-  name: +3V3_VCCIO       # optional — defaults to net if omitted, see below
-  anchor_role: FPGA
-  retired: false
-  skip: false
-  spokes:
-  - pad: '17'
-    cell: fpga_cap_pair_spoke
-    shift_x_mm: 1.2
-    shift_y_mm: -0.5
-    rotation_deg: 90.0
-    cluster: FPGA_PWR_BANK
-  - pad: '26'
-    cell: fpga_cap_pair_spoke
-    shift_x_mm: 1.2
-    shift_y_mm: -2.4
-    rotation_deg: 90.0
-    cluster: FPGA_PWR_BANK
+```sexp
+; e.g. chains/fpga_spokes.sexp, included from your root config
+(chains
+  (chain
+    (net "+3V3_VCCIO")
+    (name "+3V3_VCCIO")       ; optional — defaults to net if omitted, see below
+    (anchor_role "FPGA")
+    (retired false)
+    (skip false)
+    (spokes
+      (spoke
+        (pad "17")
+        (cell "fpga_cap_pair_spoke")
+        (shift_x_mm 1.2)
+        (shift_y_mm -0.5)
+        (rotation_deg 90.0)
+        (cluster "FPGA_PWR_BANK"))
+      (spoke
+        (pad "26")
+        (cell "fpga_cap_pair_spoke")
+        (shift_x_mm 1.2)
+        (shift_y_mm -2.4)
+        (rotation_deg 90.0)
+        (cluster "FPGA_PWR_BANK")))))
 ```
 
 **`Chain` fields:**
@@ -290,7 +301,7 @@ chains:
 | `name` | Optional, for `--only`. Defaults to `net` (see `chain_effective_name`). **Not** a grouping mechanism — don't reuse one `name:` across several chains to bundle them for `--only`; use a shared `Cluster` (`anchor_cluster`/`spoke.cluster`) instead. Two chains that resolve to the same effective name is a fatal load error. |
 | `retired` | Default `false`. `true` = "does not exist on the board" — prunes this chain's via/track registry entries. Always wins over `--only`/`--cluster`. |
 | `skip` | Default `false`. `true` = "leave alone this run" — narrows work like `--only`/`--cluster` would, but inline, without protecting/pruning the registry either way. |
-| `comment` | Optional. Free-form note shown in the GUI — a plain schema field, not a YAML comment. |
+| `comment` | Optional. Free-form note shown in the GUI — a plain schema field, not a `;` comment in the file. |
 
 **`ManualSpoke` (one entry of `spokes:`) fields:**
 
@@ -316,20 +327,20 @@ Applies a `Cell` at a new location — unlike `chains:` (anchor is always an IC 
 just a name (`anchor_id` in the registry is `f"name:{name}"`), so it's the mechanism for repeated
 multi-component sections (PI-filters, DAC channels, LDO subsystems) as well as one-off ones.
 
-```yaml
-# boards/3ch-awg-tia/profiles/fpga.sexp
-clone_placements:
-  - name: p3v3_vccio_pi_filter
-    retired: false
-    skip: false
-    cell: fpga_in_pi_filter
-    anchor_cluster: Pi_Filter_3V3_VCCIO
-    anchor_role: FPGA
-    anchor_pad: '139'
-    xy: [-6.0, -6.0]
-    params:
-      PWR_IN: '+3V3'
-      PWR_OUT: '+3V3_VCCIO'
+```sexp
+; e.g. in your root config.sexp
+(clone_placements
+  (clone_placement
+    (name "p3v3_vccio_pi_filter")
+    (retired false)
+    (skip false)
+    (cell "fpga_in_pi_filter")
+    (anchor_cluster "Pi_Filter_3V3_VCCIO")
+    (anchor_role "FPGA")
+    (anchor_pad "139")
+    (xy -6.0 -6.0)
+    (params ("PWR_IN" "+3V3")
+            ("PWR_OUT" "+3V3_VCCIO"))))
 ```
 
 **Positioning — two modes:**
@@ -385,7 +396,7 @@ clone_placements:
 | `ignore_selection` | Default `false`. Per-item counterpart of the CLI's `--no-selection`: treats the live GUI selection as empty for THIS placement's own resolution, regardless of the global flag — OR-composes with it. |
 | `layer` | `F.Cu`\|`B.Cu`\|unset (inherit the cell's own layer, place verbatim). |
 | `mirror` | Default `false`. Mirrors the whole construction — contradiction with `layer` (mirror without a layer change, or vice versa) is a fatal load error, since it would be physically meaningless. |
-| `comment` | Optional. Free-form note shown in the GUI — a plain schema field, not a YAML comment. |
+| `comment` | Optional. Free-form note shown in the GUI — a plain schema field, not a `;` comment in the file. |
 
 **Deprecated, fatal on load:** `origin_x_mm`/`origin_y_mm` (renamed to `xy: [x, y]`), `side` (replaced
 by explicit `layer:`+`mirror:`).
@@ -509,11 +520,12 @@ declares the tree ONCE — a normal `trees:` entry plus its Entity records (its 
 `sheet` set to a real sheet, so the template stays live-re-readable by Role+Sheet+Cluster) — and
 instantiates it per reuse:
 
-```yaml
-tree_instances:
-  - template: dac_buf_tpl        # name of an existing trees: entry (the template)
-    name: ch1_dac_buf            # the generated tree's name
-    sheet: Channel_1             # substituted into the generated copies
+```sexp
+(tree_instances
+  (tree_instance
+    (template "dac_buf_tpl")     ; name of an existing trees: entry (the template)
+    (name "ch1_dac_buf")         ; the generated tree's name
+    (sheet "Channel_1")))        ; substituted into the generated copies
 ```
 
 Expansion runs inside `load_config()`, right after `include:` + `sheet_templates:` resolution and
@@ -563,32 +575,33 @@ the same `clone_placements:`/`coordinate_placements:` entries N times — N inde
 silently drift the moment Channel_0's design changes again — declare them once and let
 `load_config()` expand them once per sheet:
 
-```yaml
-sheet_templates:
-  channel:
-    sheets: [Channel_0, Channel_1, Channel_2]
-    coordinate_placements:
-    - cluster: OP_AMP
-      role: OP_AMP
-      # name: is auto-generated per sheet for multi-sheet templates (see Identity below)
-      sheet: self
-      x_mm: 9.0
-      y_mm: 0.0
-      rotation_deg: 270.0
-      anchor_role: AD_DAC
-      anchor_sheet: self
-    clone_placements:
-    - name: PIF_AVDD          # Cluster tag — never touched by expansion
-      cell: dac_pi_filter
-      sheet: self
-      xy: [2.0, 1.0]
-      rotation_deg: 90.0
-      anchor_role: AD_DAC
-      anchor_pad: '18'
-      anchor_cluster: AD_DAC
-      anchor_sheet: self
-      params:
-        FB_PI_FLT: /$SHEET/DAC/+3V3_AVDD
+```sexp
+(sheet_templates
+  (sheet_template "channel"
+    (sheets "Channel_0" "Channel_1" "Channel_2")
+    (coordinate_placements
+      (coordinate_placement
+        (cluster "OP_AMP")
+        (role "OP_AMP")
+        ; name: is auto-generated per sheet for multi-sheet templates (see Identity below)
+        (sheet "self")
+        (x_mm 9.0)
+        (y_mm 0.0)
+        (rotation_deg 270.0)
+        (anchor_role "AD_DAC")
+        (anchor_sheet "self")))
+    (clone_placements
+      (clone_placement
+        (name "PIF_AVDD")        ; Cluster tag — never touched by expansion
+        (cell "dac_pi_filter")
+        (sheet "self")
+        (xy 2.0 1.0)
+        (rotation_deg 90.0)
+        (anchor_role "AD_DAC")
+        (anchor_pad "18")
+        (anchor_cluster "AD_DAC")
+        (anchor_sheet "self")
+        (params ("FB_PI_FLT" "/$SHEET/DAC/+3V3_AVDD"))))))
 ```
 
 Expansion runs inside `load_config()`, right after `include:` resolution and before any per-entry
@@ -622,21 +635,22 @@ loaders never need to know this mechanism exists).
 
 ## `thermal_via_arrays:` — thermal via grids
 
-```yaml
-# boards/3ch-awg-tia/profiles/fpga.sexp
-thermal_via_arrays:
-  - name: fpga_thermal
-    retired: false
-    skip: false
-    anchor_role: FPGA
-    pad: '145'
-    net: GND
-    rows: 4
-    cols: 4
-    margin_mm: 0.5
-    pattern: grid
-    drill_mm: 0.3
-    diameter_mm: 0.5
+```sexp
+; e.g. in your root config.sexp
+(thermal_via_arrays
+  (thermal_via_array
+    (name "fpga_thermal")
+    (retired false)
+    (skip false)
+    (anchor_role "FPGA")
+    (pad "145")
+    (net "GND")
+    (rows 4)
+    (cols 4)
+    (margin_mm 0.5)
+    (pattern "grid")
+    (drill_mm 0.3)
+    (diameter_mm 0.5)))
 ```
 
 A real list (2026-08-02, generalized once a second IC needing thermal vias — AD9707, one per channel —
@@ -657,10 +671,10 @@ for `--only` and the registry identity `f"thermal:{name}"`) and must be **unique
 | `drill_mm`/`diameter_mm` | Via dimensions. |
 | `retired` | Default `false`. Same "does not exist" meaning as elsewhere. |
 | `skip` | Default `false`. Same "leave alone this run" meaning as elsewhere. |
-| `comment` | Optional. Free-form note shown in the GUI — a plain schema field, not a YAML comment. |
+| `comment` | Optional. Free-form note shown in the GUI — a plain schema field, not a `;` comment in the file. |
 
 **Deprecated, fatal on load:** the old singular `thermal_via_array:` (a mapping, not a list — rename to
-`thermal_via_arrays:` and wrap the block in a YAML list), `target_ref` (renamed to `anchor_ref`), the old
+`thermal_via_arrays:` and wrap the block in a list), `target_ref` (renamed to `anchor_ref`), the old
 `enabled:` (renamed and inverted to `retired:` — `enabled: true` ≠ `retired: true`, don't do a literal
 find-and-replace on an old config, re-check the intended sense).
 
@@ -677,56 +691,64 @@ is a snapshot, not a template. Records are captured from the live board (Tools
 → Scheme Lists → Record...) and physically live in an included
 `scheme_lists.json` (the section itself is format-agnostic — see `include:`).
 
-```yaml
-# scheme_lists.json — included via include: (the .sexp syntax is identical)
-scheme_lists:
-  - name: amp_avdd            # identity — the --only and Entity.scheme_list key
-    anchor_ref: R1            # one of the components below: offset origin + clone anchor
-    # anchor_pad: '1'         # optional — anchor on a pad's centre instead
-    # anchor_rotation_deg: 0.0  # anchor's ABSOLUTE angle at capture — how the
-    #                            # raw offsets/rotations below must be rotated
-    #                            # back onto a target node (P4 apply); default 0.0
-    source_sheet: Top/Channel_0  # the FULL sheet path the record was captured on (5a) — the
-                                 # anchor footprint's whole Selected.sheet chain, '/' -joined
-                                 # (a top-level-only sheet is just its own name, e.g. 'Top')
-    # scope_sheet_paths: [[Top, Channel_0]]  # "By sheet" records ONLY: the CHECKED leaf paths of
-    #                                        # the capture checklist (5c). A later Reread recomputes
-    #                                        # the CURRENT scope from these over the live snapshot.
-    #                                        # Absent/None for "By selection" records (their Reread
-    #                                        # scope is the then-current board selection).
-    # scope_presets:                         # "By sheet" records ONLY (design §9 п.12, 2026-09-06):
-    #   - name: full                         # NAMED saved alternatives to scope_sheet_paths — a
-    #     sheet_paths: [[Top, Channel_0], [Top, Channel_1]]   # library of checklist variants the
-    #   - name: ch0-only                      # record page's "Preset" combo switches between BEFORE
-    #     sheet_paths: [[Top, Channel_0]]     # a Reread (Apply makes the picked one the new
-    #                                        # scope_sheet_paths). [] for "By selection" records.
-    components:               # literal refs, board-frame offsets from the anchor
-      - ref: R1
-        offset_along_mm: 0.0
-        offset_across_mm: 0.0
-        rotation_deg: 0.0
-      - ref: C1
-        offset_along_mm: 10.0
-        offset_across_mm: 0.0
-        rotation_deg: 90.0
-    vias:                     # literal nets; offsets in the anchor frame
-      - offset_along_mm: 10.0
-        offset_across_mm: 0.0
-        drill_mm: 0.3
-        diameter_mm: 0.6
-        net: "/Channel_0/AMP/+5V"
-    tracks:                   # literal nets + literal copper layer (a STRING)
-      - start_along_mm: 0.0
-        start_across_mm: 0.0
-        end_along_mm: 10.0
-        end_across_mm: 0.0
-        width_mm: 0.25
-        layer: F.Cu           # any copper layer: F.Cu/In1.Cu/.../In30.Cu/B.Cu
-        net: "/Channel_0/AMP/+5V"
-    boundary_nets:            # copper that only touched EXCLUDED footprints
-      - net: "/Channel_0/AMP/GND"
-        action: exclude       # v1: ONLY exclude (drop the whole component, warning)
-        external_ref: J1      # diagnostics: which outside footprint dragged this copper
+```sexp
+; e.g. scheme_lists.json — included via include: (the .sexp syntax is identical)
+(scheme_lists
+  (scheme_list
+    (name "amp_avdd")               ; identity — the --only and Entity.scheme_list key
+    (anchor_ref "R1")               ; one of the components below: offset origin + clone anchor
+    ; (anchor_pad "1")              ; optional — anchor on a pad's centre instead
+    ; (anchor_rotation_deg 0.0)     ; anchor's ABSOLUTE angle at capture — how the
+    ;                               ;   raw offsets/rotations below must be rotated
+    ;                               ;   back onto a target node (P4 apply); default 0.0
+    (source_sheet "Top/Channel_0")  ; the FULL sheet path the record was captured on (5a) — the
+                                    ;   anchor footprint's whole Selected.sheet chain, '/' -joined
+                                    ;   (a top-level-only sheet is just its own name, e.g. 'Top')
+    ; (scope_sheet_paths ("Top" "Channel_0"))  ; "By sheet" records ONLY: the CHECKED leaf paths
+    ;                                           ;   of the capture checklist (5c). A later Reread
+    ;                                           ;   recomputes the CURRENT scope from these over the
+    ;                                           ;   live snapshot. Absent for "By selection" records
+    ;                                           ;   (their Reread scope is the board selection).
+    ; (scope_presets                  ; "By sheet" records ONLY (design §9 п.12, 2026-09-06):
+    ;   (scheme_list_scope_preset
+    ;     (name "full")
+    ;     (sheet_paths ("Top" "Channel_0") ("Top" "Channel_1")))  ; NAMED saved alternatives to
+    ;   (scheme_list_scope_preset      ;   scope_sheet_paths — a library of checklist variants the
+    ;     (name "ch0-only")            ;   record page's "Preset" combo switches between BEFORE a
+    ;     (sheet_paths ("Top" "Channel_0"))))  ;   Reread (Apply makes the picked one the new
+                                              ;   scope_sheet_paths).
+    (components
+      (scheme_list_component
+        (ref "R1")
+        (offset_along_mm 0.0)
+        (offset_across_mm 0.0)
+        (rotation_deg 0.0))
+      (scheme_list_component
+        (ref "C1")
+        (offset_along_mm 10.0)
+        (offset_across_mm 0.0)
+        (rotation_deg 90.0)))
+    (vias
+      (scheme_list_via
+        (offset_along_mm 10.0)
+        (offset_across_mm 0.0)
+        (drill_mm 0.3)
+        (diameter_mm 0.6)
+        (net "/Channel_0/AMP/+5V")))
+    (tracks
+      (scheme_list_track
+        (start_along_mm 0.0)
+        (start_across_mm 0.0)
+        (end_along_mm 10.0)
+        (end_across_mm 0.0)
+        (width_mm 0.25)
+        (layer "F.Cu")        ; any copper layer: F.Cu/In1.Cu/.../In30.Cu/B.Cu
+        (net "/Channel_0/AMP/+5V")))
+    (boundary_nets            ; copper that only touched EXCLUDED footprints
+      (scheme_list_boundary_net
+        (net "/Channel_0/AMP/GND")
+        (action "exclude")    ; v1: ONLY exclude (drop the whole component, warning)
+        (external_ref "J1")))))  ; diagnostics: which outside footprint dragged this copper
 ```
 
 Rules: one real `ref` may be recorded in at most ONE Scheme List (fatal at
@@ -792,30 +814,33 @@ deleted by the registry, new one created at the new position). One record =
 ONE net (no net lists inside a record — lists live in only one place in this
 project, the spokes).
 
-```yaml
-# boards/3ch-awg-tia/profiles/net_traces.sexp  (include:'d into the config)
-net_traces:
-  - net: DAC_DB0            # the net's name — also the --only identity
-    anchor_role: FPGA       # anchor footprint by Role (whole-board search)
-    # anchor_sheet: ...     # optional — narrow the Role search by sheet
-    # anchor_cluster: ...   # optional — narrow by Cluster (prefix match)
-    # anchor_pad: '42'      # optional — anchor on this pad's centre, not the fp centre
-    tracks:
-      - start_along_mm: 1.0
-        start_across_mm: 2.0
-        end_along_mm: 3.0
-        end_across_mm: 4.0
-        width_mm: 0.2
-        net: DAC_DB0
-        layer: F.Cu
-    vias:
-      - offset_along_mm: 5.0
-        offset_across_mm: 6.0
-        net: DAC_DB0
-        drill_mm: 0.3
-        diameter_mm: 0.6
-    # retired: true   # "does not exist on the board right now" (registry protection dropped)
-    # skip: true      # "skip just this run" (registry protection kept)
+```sexp
+; e.g. net_traces.sexp, included into the config
+(net_traces
+  (net_trace
+    (net "DAC_DB0")         ; the net's name — also the --only identity
+    (anchor_role "FPGA")    ; anchor footprint by Role (whole-board search)
+    ; (anchor_sheet ...)    ; optional — narrow the Role search by sheet
+    ; (anchor_cluster ...)  ; optional — narrow by Cluster (prefix match)
+    ; (anchor_pad "42")     ; optional — anchor on this pad's centre, not the fp centre
+    (tracks
+      (track
+        (start_along_mm 1.0)
+        (start_across_mm 2.0)
+        (end_along_mm 3.0)
+        (end_across_mm 4.0)
+        (width_mm 0.2)
+        (net "DAC_DB0")
+        (layer "F.Cu")))
+    (vias
+      (via
+        (offset_along_mm 5.0)
+        (offset_across_mm 6.0)
+        (net "DAC_DB0")
+        (drill_mm 0.3)
+        (diameter_mm 0.6)))))
+    ; (retired true)   ; "does not exist on the board right now" (registry protection dropped)
+    ; (skip true)      ; "skip just this run" (registry protection kept)
 ```
 
 - **`net`** (required) — the network name. Unique per record (fatal at load if
@@ -834,7 +859,7 @@ net_traces:
   Chain to inherit a net from).
 - **`retired`/`skip`** — the same convention as every other section.
 - **`comment`** — optional free-form note shown in the GUI (a plain schema
-  field, not a YAML comment).
+  field, not a `;` comment in the file).
 - **`--only=<net>`** selects exactly one record for a Redraw; the registry
   gives idempotency (a repeat run with an unmoved anchor creates 0 new items).
 
@@ -852,23 +877,24 @@ field set, hence one flat record.
 
 ## `points:` — named, reusable anchors
 
-```yaml
-# boards/3ch-awg-tia/profiles/points.sexp
-points:
-  p3v3_ldo_origin:
-    anchor_role: C_OUT_BYPASS
-    anchor_cluster: In_Pi_Filter_Pos
-    anchor_pad: '1'
+```sexp
+; e.g. points.sexp, included into the config
+(points
+  (point "p3v3_ldo_origin"
+    (anchor_role "C_OUT_BYPASS")
+    (anchor_cluster "In_Pi_Filter_Pos")
+    (anchor_pad "1")))
 ```
 
 Then referenced by name from `Chain`/`ClonePlacement`/`ThermalViaArrayConfig`:
 
-```yaml
-clone_placements:
-  - name: 3v3_ldo
-    cell: p3v3_ldo
-    anchor_point: p3v3_ldo_origin
-    xy: [-50.0, 35.0]
+```sexp
+(clone_placements
+  (clone_placement
+    (name "3v3_ldo")
+    (cell "p3v3_ldo")
+    (anchor_point "p3v3_ldo_origin")
+    (xy -50.0 35.0)))
 ```
 
 A `Point` resolves once, is cached, and everything that references it by `anchor_point:` gets the
@@ -884,7 +910,7 @@ anchor dependency is.
 | `xy` | A literal, absolute board coordinate — no live anchor at all. **(0, 0) here is the drawing sheet's corner, not any physical board reference** — see `anchor_origin` below for that. |
 | `anchor_origin` | `'grid'` (Place > Set Grid Origin, visual only — no exported file uses it) or `'drill'` (Place > Drill/Place Origin, the auxiliary axis — drill/position files are always relative to it, Gerbers optionally via their own plot-dialog option). Read LIVE via kipy, not a config literal. |
 | `shift_x_mm`/`shift_y_mm` | Board-absolute mm shift layered on top of `anchor_ref`/`anchor_role`/`anchor_point`/`anchor_origin` (not on `xy:` — fatal if both are set, just edit the literal coordinate instead). |
-| `comment` | Optional. Free-form note shown in the GUI — a plain schema field, not a YAML comment. |
+| `comment` | Optional. Free-form note shown in the GUI — a plain schema field, not a `;` comment in the file. |
 
 Exactly one of `{anchor_ref or anchor_role, anchor_point, xy, anchor_origin}` must be the base —
 fatal at load otherwise. `Chain`/`ThermalViaArrayConfig`'s own `anchor_point:` requires the referenced
@@ -896,13 +922,13 @@ it; `ClonePlacement` only ever needs a coordinate, so any Point works there, `an
 
 ## `include:` — splitting a profile across files
 
-```yaml
-# boards/3ch-awg-tia/profiles/power.sexp
-include:
-  - points.sexp
-  - power_extracts.sexp
-  - pn5v_filters.sexp
-  - p3v3_ldo.sexp
+```sexp
+; e.g. power.sexp, included from your root config
+(include
+  "points.sexp"
+  "power_extracts.sexp"
+  "pn5v_filters.sexp"
+  "p3v3_ldo.sexp")
 ```
 
 Each entry is either a bare path string, or `{path: <str>, enabled: <bool>}` to switch a whole
@@ -910,7 +936,8 @@ included file off without deleting or commenting it out.
 
 - **List sections** (`chains`, `clone_placements`, `thermal_via_arrays`) — concatenated: this file's own
   entries first, then each included file's, in listed order. (Real placement order at `apply` time is
-  decided separately, by actual anchor dependencies, not YAML order — see [docs/placement.md](placement.md).)
+  decided separately, by actual anchor dependencies, not config-file order — see
+  [docs/placement.md](placement.md).)
 - **Dict sections** (`cells`, `points`, `extract_profiles`, `clone_profiles`) — merged key-by-key,
   **fatal** on a key defined in two different files — included files are meant to be genuinely
   independent subsystems, so a repeated name is far more likely a copy-paste mistake than an
@@ -933,22 +960,20 @@ external `Cell` files work now: list the file under `include:` and wrap its cont
 ## `extract_profiles:` / `clone_profiles:` — saved `extract`/`clone-extract` arguments
 
 Not part of `Config`/`load_config()` — a separate, CLI-only mechanism (`kicadstamp_cli.py extract
---profiles ... --profile ...`) for saving repeated `extract`/`clone-extract` invocations as named YAML
-entries instead of retyping long flag lists. See [docs/commands.md](commands.md) for the full
-CLI-level walkthrough; the syntax:
+--profiles ... --profile ...`) for saving repeated `extract`/`clone-extract` invocations as named
+entries in a profile file instead of retyping long flag lists. See [docs/commands.md](commands.md)
+for the full CLI-level walkthrough; the syntax:
 
-```yaml
-# boards/3ch-awg-tia/profiles/power_extracts.sexp
-extract_profiles:
-  p5v_pi_filter:
-    name: 5v_pi_filter
-    output: boards/3ch-awg-tia/profiles/templates/power_pi_filters.sexp
-    params:
-      PWR_IN: '+5V_DIRTY'
-      PWR_OUT: '+5V'
-    net_template:
-      '+5V_DIRTY': '{PWR_IN}'
-      '+5V': '{PWR_OUT}'
+```sexp
+; e.g. power_extracts.sexp, included into the config
+(extract_profiles
+  (extract_profile "p5v_pi_filter"
+    (name "5v_pi_filter")
+    (output "templates/power_pi_filters.sexp")
+    (params ("PWR_IN" "+5V_DIRTY")
+            ("PWR_OUT" "+5V"))
+    (net_template ("+5V_DIRTY" "{PWR_IN}")
+                  ("+5V" "{PWR_OUT}"))))
 ```
 
 `extract_profiles:` entries accept: `name`, `output`, `params`, `net_template`, `net_template_role`,
@@ -982,7 +1007,7 @@ all write to the same cells file — a profile that needs a different one still 
 - [docs/commands.md](commands.md) — the CLI commands (`apply`/`extract`/`undo`/`clone-extract`) that
   consume everything documented here.
 - [docs/python.md](python.md) — building the same `Chain`/`ClonePlacement`/`Cell` objects from Python
-  instead of hand-writing YAML.
+  instead of hand-writing `.sexp`.
 - [docs/architect.md](architect.md) — the module architecture (`config/`, `placement/`, `geometry/`)
   behind this schema.
 - [docs/placement.md](placement.md) — what actually happens with this config at `apply` time
