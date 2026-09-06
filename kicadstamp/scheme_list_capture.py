@@ -24,7 +24,7 @@ from .config.models import (
     SchemeListViaRecord,
 )
 from .domain.board import Footprint, Track, Via
-from .domain.geometry import Box2, Vector2
+from .domain.geometry import Box2, Vector2, clip_segment_to_box
 from .exceptions import ValidationError, format_fatal_error
 from .template_selection import _filter_tracks_and_vias_within_selection
 from .channel_copy import _FOREIGN_BBOX_MARGIN_MM
@@ -110,35 +110,10 @@ def _segment_intersects_box(a: Vector2, b: Vector2, box: Box2) -> bool:
     """True when the segment [a,b] intersects the axis-aligned box (endpoint
     inside OR crossing one of the four edges) — the plan's pre-filter criterion
     keeps a LONG track that passes through the capture region but has both ends
-    outside it."""
-    x1, y1 = float(a.x), float(a.y)
-    x2, y2 = float(b.x), float(b.y)
-    min_x, min_y = float(box.pos.x), float(box.pos.y)
-    max_x, max_y = float(box.pos.x + box.size.x), float(box.pos.y + box.size.y)
-
-    # Liang–Barsky slab test.
-    dx = x2 - x1
-    dy = y2 - y1
-    p = (-dx, dx, -dy, dy)
-    q = (x1 - min_x, max_x - x1, y1 - min_y, max_y - y1)
-    t0, t1 = 0.0, 1.0
-    for pi, qi in zip(p, q):
-        if pi == 0.0:
-            if qi < 0.0:
-                return False  # parallel and outside
-        else:
-            r = qi / pi
-            if pi < 0.0:
-                if r > t1:
-                    return False
-                if r > t0:
-                    t0 = r
-            else:
-                if r < t0:
-                    return False
-                if r < t1:
-                    t1 = r
-    return True
+    outside it. Delegates to the shared Liang-Barsky clip math in
+    domain.geometry (the SAME core Part A truncate uses for real clipping),
+    so the boolean pre-filter and the geometric clip cannot drift."""
+    return clip_segment_to_box(a, b, box) is not None
 
 
 def _prefilter_copper(tracks: list[Track], vias: list[Via], region: Box2 | None

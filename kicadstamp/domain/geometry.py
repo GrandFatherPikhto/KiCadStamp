@@ -216,3 +216,70 @@ class Box2:
                            self.pos.y - (new_height - self.size.y) // 2)
         self.size = Vector2(new_width, new_height)
         return self
+
+
+# --- Segment-vs-box clipping (Scheme List truncate, plan Part A stage 3) ----
+
+def _segment_box_interval(a: Vector2, b: Vector2, box: Box2
+                          ) -> tuple[float, float] | None:
+    """Liang-Barsky parametric interval [t0, t1] in [0, 1] of the segment
+    [a, b] that lies inside the axis-aligned box, or None when the segment
+    misses the box entirely. Extracted from the former bool-only test in
+    scheme_list_capture._segment_intersects_box so the SAME math both answers
+    the boolean pre-filter question and computes real clip points."""
+    x1, y1 = float(a.x), float(a.y)
+    x2, y2 = float(b.x), float(b.y)
+    min_x, min_y = float(box.pos.x), float(box.pos.y)
+    max_x, max_y = float(box.pos.x + box.size.x), float(box.pos.y + box.size.y)
+
+    dx = x2 - x1
+    dy = y2 - y1
+    p = (-dx, dx, -dy, dy)
+    q = (x1 - min_x, max_x - x1, y1 - min_y, max_y - y1)
+    t0, t1 = 0.0, 1.0
+    for pi, qi in zip(p, q):
+        if pi == 0.0:
+            if qi < 0.0:
+                return None  # parallel to this slab and outside it
+        else:
+            r = qi / pi
+            if pi < 0.0:
+                if r > t1:
+                    return None
+                if r > t0:
+                    t0 = r
+            else:
+                if r < t0:
+                    return None
+                if r < t1:
+                    t1 = r
+    return t0, t1
+
+
+def _lerp_nm(a: int, b: int, t: float) -> int:
+    """Linear interpolation on one nanometre axis, rounded to the nearest
+    integer nanometre (Vector2 is integer)."""
+    return int(round(a + (b - a) * t))
+
+
+def clip_segment_to_box(start: Vector2, end: Vector2, box: Box2
+                        ) -> tuple[Vector2, Vector2] | None:
+    """Clip segment [start, end] to the axis-aligned box — the endpoints of
+    the in-box portion, or None when the whole segment lies outside.
+
+    A segment fully inside returns the ORIGINAL (start, end) objects unchanged
+    (callers must not re-create the Track/Via identity they already hold).
+    An endpoint exactly on a box face counts as inside (coordinate equality,
+    not float noise) — consistent with the shared Liang-Barsky interval test
+    the boolean pre-filter uses."""
+    interval = _segment_box_interval(start, end, box)
+    if interval is None:
+        return None
+    t0, t1 = interval
+    if t0 == 0.0 and t1 == 1.0:
+        # Fully inside — return the same objects (identity + exactness).
+        return start, end
+    return (Vector2(_lerp_nm(start.x, end.x, t0),
+                    _lerp_nm(start.y, end.y, t0)),
+            Vector2(_lerp_nm(start.x, end.x, t1),
+                    _lerp_nm(start.y, end.y, t1)))
