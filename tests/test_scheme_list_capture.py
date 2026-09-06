@@ -236,6 +236,27 @@ class TestSourceSheetDerivation:
         assert cfg.source_sheet is None
 
 
+def test_capture_carries_scope_presets_verbatim():
+    """plan §4 — capture is a pure pass-through for the named-presets library:
+    whatever the caller hands in scope_presets lands VERBATIM on the record
+    (capture never interprets/merges/validates it — the caller, DockHub, does,
+    exactly like scope_sheet_paths in 5c)."""
+    from kicadstamp.config.models import SchemeListScopePreset
+    adapter, refs = _scenario()
+    presets = [
+        SchemeListScopePreset(name="full",
+                              sheet_paths=[["Top", "Channel_0"], ["Top"]]),
+        SchemeListScopePreset(name="ch0-only",
+                              sheet_paths=[["Top", "Channel_0"]]),
+    ]
+    cfg = capture_scheme_list("amp", refs, "R1", adapter=adapter,
+                              scope_presets=presets)
+    assert cfg.scope_presets == presets
+    # Absent/None -> the [] default (no preset library).
+    cfg2 = capture_scheme_list("amp", refs, "R1", adapter=adapter)
+    assert cfg2.scope_presets == []
+
+
 class TestCaptureFatals:
     def test_missing_refs_reported_in_one_fatal(self):
         adapter, refs = _scenario()

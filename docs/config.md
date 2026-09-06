@@ -694,6 +694,12 @@ scheme_lists:
     #                                        # the CURRENT scope from these over the live snapshot.
     #                                        # Absent/None for "By selection" records (their Reread
     #                                        # scope is the then-current board selection).
+    # scope_presets:                         # "By sheet" records ONLY (design §9 п.12, 2026-09-06):
+    #   - name: full                         # NAMED saved alternatives to scope_sheet_paths — a
+    #     sheet_paths: [[Top, Channel_0], [Top, Channel_1]]   # library of checklist variants the
+    #   - name: ch0-only                      # record page's "Preset" combo switches between BEFORE
+    #     sheet_paths: [[Top, Channel_0]]     # a Reread (Apply makes the picked one the new
+    #                                        # scope_sheet_paths). [] for "By selection" records.
     components:               # literal refs, board-frame offsets from the anchor
       - ref: R1
         offset_along_mm: 0.0
@@ -749,6 +755,15 @@ removed from the record. A "By selection" record stores no scope — its Reread
 scope is the board selection at click time. There is deliberately NO strict
 per-piece copper validation on Reread-Apply: the whole change list is confirmed
 at once.
+
+`scope_presets` (2026-09-06, design §9 п.12 — see
+plan_2026_09_06_scheme_list_named_presets.md) is the same idea one level up: a
+"By sheet" record may save SEVERAL NAMED checklist variants (each is
+`{name, sheet_paths: [[...]]}`) as an in-record library. Reread defaults to
+`scope_sheet_paths` (the "(current)" variant); the record page lets the user
+pick a saved preset so Reread recomputes the current scope from ITS paths
+instead, and Apply makes that preset the record's NEW `scope_sheet_paths`
+without touching the rest of the library.
 
 GUI Config side (2026-09-06, plan §5 — see [docs/gui.md](gui.md)'s "Scheme Lists"
 section): records are captured from the live board through the two-tab Record

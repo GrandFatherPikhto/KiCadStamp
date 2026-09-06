@@ -697,6 +697,9 @@ def test_record_scheme_list_by_sheet_payload_refs_match_checked_sheets(
             def is_by_sheet(self):
                 return True
 
+            def preset_name_to_save(self):
+                return None
+
             def result_data(self):
                 # User checked Top + Ch0 + its nested Amp, but NOT Ch1.
                 return ("amp", "R1", ("Top",), [("Top",), ("Top", "Ch0"),
@@ -762,6 +765,9 @@ def test_record_scheme_list_by_selection_payload_matches_selection_refs(
 
             def is_by_sheet(self):
                 return False
+
+            def preset_name_to_save(self):
+                return None
 
             def result_data(self):
                 return ("amp", "C1", None, None)
@@ -986,6 +992,9 @@ def test_run_resource_scheme_list_payload_uses_fixed_name_checked_refs_and_owner
             def is_by_sheet(self):
                 return True
 
+            def preset_name_to_save(self):
+                return None
+
             def result_data(self):
                 # User checked Top + Ch0 + its nested Amp, but NOT Ch1.
                 return ("amp", "R1", ("Top",),
@@ -1194,6 +1203,364 @@ def test_reread_apply_keeps_placed_entity_resolvable(main_window, tmp_path):
     rec = {e["name"]: e for e in _load(root)["scheme_lists"]}["amp"]
     assert {c["ref"] for c in rec["components"]} == {"R1", "C1"}
     # ...and the already-placed Entity still resolves via link_trees.
+    cfg, _ = load_config(str(root))
+    linked = link_trees(cfg, cfg.trees)[0]
+
+    def _walk(lnodes):
+        for ln in lnodes:
+            yield ln
+            yield from _walk(ln.children)
+
+    ln = next(ln for ln in _walk(linked.nodes) if ln.node.ref == "E_AMP")
+    assert ln.record is not None
+    assert ln.record.name == "E_AMP"
+
+
+# ── Named presets (plan_2026_09_06_scheme_list_named_presets.md §6-§10) ─────
+# The optional "Save as preset" Record/Re-source field + the record page's
+# preset_combo + Reread over a selected preset (Apply makes it the NEW stored
+# scope_sheet_paths; the scope_presets LIBRARY itself is never touched by
+# Apply — only an explicit Record/Re-source "Save as preset" edits it).
+
+def test_reread_scope_refs_active_preset_paths_override_stored():
+    """§9 — an active_scope_paths argument OVERRIDES the stored scope for THIS
+    Reread; None (the "(current)" sentinel / no presets) is byte-identical to
+    5c (uses stored.scope_sheet_paths)."""
+    snapshot = _snap(("R1", ("Channel_0",)), ("C1", ("Channel_0",)),
+                     ("C2", ("Channel_0",)), ("X1", ("Other",)),
+                     ("C9", ("Channel_0", "Sub")))
+    stored = load_scheme_list({"name": "amp", "anchor_ref": "R1",
+                               "scope_sheet_paths": [["Channel_0"]],
+                               "components": [{"ref": "R1"}, {"ref": "C1"}]})
+    assert reread_scope_refs(stored, snapshot, ["X1"]) == ["C1", "C2", "R1"]
+    # sentinel/None == 5c byte-identical.
+    assert reread_scope_refs(stored, snapshot, ["X1"],
+                             active_scope_paths=None) == ["C1", "C2", "R1"]
+    # a preset narrowing the scope to a sub-leaf -> only that leaf's refs.
+    assert reread_scope_refs(stored, snapshot, ["X1"],
+                             active_scope_paths=[["Channel_0", "Sub"]]) == ["C9"]
+
+
+def test_record_dialog_preset_name_to_save_is_by_sheet_only(main_window):
+    """§6 — the optional "Save as preset" field reports its non-empty (stripped)
+    text only on the "By sheet" tab; empty -> None; on "By selection" ALWAYS
+    None regardless of the text still sitting in the tab-1 field."""
+    dialog = RecordSchemeListDialog(_snap(*_HIER), ["C4"], main_window)
+    try:
+        assert dialog.preset_name_to_save() is None  # empty by default
+        dialog.save_preset_edit.setText("  full  ")
+        assert dialog.preset_name_to_save() == "full"
+        dialog.tabs.setCurrentIndex(1)  # "By selection"
+        assert not dialog.is_by_sheet()
+        assert dialog.preset_name_to_save() is None
+    finally:
+        dialog.close()
+
+
+def test_record_dialog_save_preset_field_is_optional_no_ok_gating(main_window):
+    """§6 — the preset field is FULLY optional: it must not change the OK
+    gating (5a regression guard)."""
+    snapshot = _snap(("R1", ("Top",)), ("C1", ("Top",)))
+    dialog = RecordSchemeListDialog(snapshot, [], main_window)
+    try:
+        assert dialog.is_by_sheet() and dialog._ok_button.isEnabled()
+        dialog.save_preset_edit.setText("anything")
+        assert dialog._ok_button.isEnabled()
+    finally:
+        dialog.close()
+
+
+def _preset_fake_dialog(preset_name, by_sheet=True, checked=None):
+    """Build a RecordSchemeListDialog stand-in that reports a fixed "Save as
+    preset" field value and (default) the full Top/Ch0/Amp checked checklist."""
+    from PyQt6.QtWidgets import QDialog
+
+    class _D:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+        def is_by_sheet(self):
+            return by_sheet
+
+        def preset_name_to_save(self):
+            return preset_name
+
+        def result_data(self):
+            return ("amp", "R1", ("Top",),
+                    checked or [("Top",), ("Top", "Ch0"),
+                                ("Top", "Ch0", "Amp")])
+
+    return _D
+
+
+def test_record_scheme_list_by_sheet_save_preset_adds_first_preset(
+        main_window, tmp_path, monkeypatch):
+    """§7 (Record) — a non-empty "Save as preset" field makes the CURRENT
+    checked checklist the brand-new record's FIRST named preset in the
+    worker payload (start-from-[] semantics: a new record has no prior
+    library)."""
+    import logging
+
+    import gui.dock_hub as dock_hub_mod
+    from gui.dock_hub import DockHub
+
+    root = tmp_path / "root.sexp"
+    _write(root, {"scheme_lists": [],
+                  "entities": [{"name": "PARENT", "cell": "c_parent"}],
+                  "trees": [{"name": "main", "anchor": {"origin": True},
+                             "nodes": [{"ref": "PARENT", "kind": "placement",
+                                        "xy": [0.0, 0.0]}]}]})
+    connection = main_window.connection
+    hub = DockHub(main_window, connection=connection, verbose=False)
+    try:
+        connection.snapshot = _snap(*_HIER)
+        connection.board = SimpleNamespace(adapter=FakeAdapter([], [], [], {}))
+        hub.root_metadata_dock.set_root_file(root)
+        payloads = []
+        monkeypatch.setattr(dock_hub_mod, "RecordSchemeListDialog",
+                            _preset_fake_dialog("full"))
+        import gui.worker as worker_mod
+        monkeypatch.setattr(
+            worker_mod, "start_long_op",
+            lambda _c, _w, worker, on_success, on_error, payload:
+                payloads.append(payload) or object())
+
+        hub.record_scheme_list()
+
+        assert len(payloads) == 1
+        assert payloads[0]["scope_presets"] == [
+            {"name": "full", "sheet_paths": [["Top"], ["Top", "Ch0"],
+                                             ["Top", "Ch0", "Amp"]]}]
+    finally:
+        hub.log_dock.remove_handler()
+        if hub._log_file_handler is not None:
+            logging.getLogger().removeHandler(hub._log_file_handler)
+            hub._log_file_handler.close()
+
+
+def test_resource_scheme_list_without_preset_save_keeps_existing_library(
+        main_window, tmp_path, monkeypatch):
+    """§7 (Re-source) — when the "Save as preset" field is EMPTY, the existing
+    record's scope_presets library SURVIVES the Re-source untouched (Re-source
+    changes the geometry source, it does not wipe saved checklist variants)."""
+    import logging
+
+    import gui.dock_hub as dock_hub_mod
+    from gui.dock_hub import DockHub
+
+    root = tmp_path / "root.sexp"
+    _write(root, {"scheme_lists": [{"name": "amp", "anchor_ref": "R1",
+                                    "components": [{"ref": "R1"}]}]})
+    connection = main_window.connection
+    hub = DockHub(main_window, connection=connection, verbose=False)
+    try:
+        connection.snapshot = _snap(*_HIER)
+        connection.board = SimpleNamespace(adapter=FakeAdapter([], [], [], {}))
+        hub.root_metadata_dock.set_root_file(root)
+        payloads = []
+        entry = {"name": "amp", "anchor_ref": "R1",
+                 "components": [{"ref": "R1"}],
+                 "scope_presets": [
+                     {"name": "full",
+                      "sheet_paths": [["Top"], ["Top", "Ch0"]]},
+                     {"name": "ch0-only", "sheet_paths": [["Top", "Ch0"]]}]}
+        monkeypatch.setattr(dock_hub_mod, "RecordSchemeListDialog",
+                            _preset_fake_dialog(None))
+        import gui.worker as worker_mod
+        monkeypatch.setattr(
+            worker_mod, "start_long_op",
+            lambda _c, _w, worker, on_success, on_error, payload:
+                payloads.append(payload) or object())
+
+        hub.resource_scheme_list_record(entry, root)
+
+        assert len(payloads) == 1
+        assert payloads[0]["scope_presets"] == [
+            {"name": "full", "sheet_paths": [["Top"], ["Top", "Ch0"]]},
+            {"name": "ch0-only", "sheet_paths": [["Top", "Ch0"]]},
+        ]
+    finally:
+        hub.log_dock.remove_handler()
+        if hub._log_file_handler is not None:
+            logging.getLogger().removeHandler(hub._log_file_handler)
+            hub._log_file_handler.close()
+
+
+def test_resource_scheme_list_save_preset_overwrites_only_same_name(
+        main_window, tmp_path, monkeypatch):
+    """§7 (Re-source) — a "Save as preset" whose name matches an EXISTING
+    preset overwrites ONLY that entry; the rest of the library stays intact."""
+    import logging
+
+    import gui.dock_hub as dock_hub_mod
+    from gui.dock_hub import DockHub
+
+    root = tmp_path / "root.sexp"
+    _write(root, {"scheme_lists": [{"name": "amp", "anchor_ref": "R1",
+                                    "components": [{"ref": "R1"}]}]})
+    connection = main_window.connection
+    hub = DockHub(main_window, connection=connection, verbose=False)
+    try:
+        connection.snapshot = _snap(*_HIER)
+        connection.board = SimpleNamespace(adapter=FakeAdapter([], [], [], {}))
+        hub.root_metadata_dock.set_root_file(root)
+        payloads = []
+        entry = {"name": "amp", "anchor_ref": "R1",
+                 "components": [{"ref": "R1"}],
+                 "scope_presets": [
+                     {"name": "full",
+                      "sheet_paths": [["Top"], ["Top", "Ch0"]]},
+                     {"name": "ch0-only", "sheet_paths": [["Top", "Ch0"]]}]}
+        # User re-saves "full" from a NARROWER current checklist (only Ch0).
+        checked = [("Top",), ("Top", "Ch0")]
+        monkeypatch.setattr(dock_hub_mod, "RecordSchemeListDialog",
+                            _preset_fake_dialog("full", checked=checked))
+        import gui.worker as worker_mod
+        monkeypatch.setattr(
+            worker_mod, "start_long_op",
+            lambda _c, _w, worker, on_success, on_error, payload:
+                payloads.append(payload) or object())
+
+        hub.resource_scheme_list_record(entry, root)
+
+        assert len(payloads) == 1
+        # ch0-only is untouched; "full" is REPLACED by the current checklist.
+        assert payloads[0]["scope_presets"] == [
+            {"name": "ch0-only", "sheet_paths": [["Top", "Ch0"]]},
+            {"name": "full", "sheet_paths": [["Top"], ["Top", "Ch0"]]},
+        ]
+    finally:
+        hub.log_dock.remove_handler()
+        if hub._log_file_handler is not None:
+            logging.getLogger().removeHandler(hub._log_file_handler)
+            hub._log_file_handler.close()
+
+
+def test_run_record_capture_carries_scope_presets_into_record():
+    """§7 — the record worker converts the payload's scope_presets dict list
+    into SchemeListScopePreset records (never interprets their content)."""
+    from gui.dock_hub import DockHub
+
+    hub = DockHub.__new__(DockHub)  # worker method — no __init__ side effects
+    adapter = _line_board()
+    payload = {"name": "amp", "refs": ["R1", "C1", "C2"], "anchor_ref": "R1",
+               "board": SimpleNamespace(adapter=adapter), "root": ".",
+               "scope_presets": [{"name": "full",
+                                  "sheet_paths": [["Channel_0"],
+                                                  ["Channel_0", "Sub"]]}]}
+    record = hub._run_record_capture(payload)["record"]
+    assert [(p.name, p.sheet_paths) for p in record.scope_presets] == [
+        ("full", [["Channel_0"], ["Channel_0", "Sub"]])]
+
+
+def _by_sheet_record_dict_with_presets(adapter):
+    """A "By sheet" record dict (stored scope = [Channel_0]) carrying a two-
+    entry named-presets library (full = stored + the Sub leaf, ch0-only)."""
+    d = _record_dict(adapter)
+    d["scope_sheet_paths"] = [["Channel_0"]]
+    d["scope_presets"] = [
+        {"name": "full", "sheet_paths": [["Channel_0"], ["Channel_0", "Sub"]]},
+        {"name": "ch0-only", "sheet_paths": [["Channel_0"]]},
+    ]
+    return d
+
+
+def test_record_page_preset_combo_hidden_without_presets(main_window, tmp_path):
+    """§8 — a record with NO scope_presets shows NO preset combo (nothing to
+    switch between); the page is 5c-identical."""
+    adapter = _line_board()
+    d0 = _record_dict(adapter)
+    root = _record_file(tmp_path, d0)
+    dock = _make_dock(main_window, root, d0)
+    assert not dock.preset_combo.isVisibleTo(dock)
+    assert dock.preset_combo.count() == 0
+
+
+def test_record_page_preset_combo_shows_sentinel_then_presets(main_window, tmp_path):
+    """§8 — a record WITH scope_presets shows the combo: the "(current)"
+    sentinel (data None = stored scope, the default) first, then one entry
+    per preset carrying its sheet_paths as item data."""
+    adapter = _line_board()
+    d = _by_sheet_record_dict_with_presets(adapter)
+    root = _record_file(tmp_path, d)
+    dock = _make_dock(main_window, root, d)
+    assert dock.preset_combo.isVisibleTo(dock)
+    assert dock.preset_combo.count() == 3  # sentinel + 2 presets
+    assert dock.preset_combo.currentIndex() == 0  # sentinel by default
+    assert dock.preset_combo.currentData() is None  # sentinel data
+    assert dock.preset_combo.itemData(1) == [["Channel_0"], ["Channel_0", "Sub"]]
+    assert dock.preset_combo.itemData(2) == [["Channel_0"]]
+
+
+def test_record_page_clear_resets_preset_combo(main_window, tmp_path):
+    """§8 — clear() blanks the preset selector too (no stale entries left from
+    a previously loaded record)."""
+    adapter = _line_board()
+    d = _by_sheet_record_dict_with_presets(adapter)
+    root = _record_file(tmp_path, d)
+    dock = _make_dock(main_window, root, d)
+    assert dock.preset_combo.count() == 3
+    dock.clear()
+    assert dock.preset_combo.count() == 0
+    assert not dock.preset_combo.isVisibleTo(dock)
+
+
+def test_reread_preset_switch_changes_scope_and_apply_makes_it_current(
+        main_window, tmp_path):
+    """§8/§10 — with a NAMED preset selected, Reread's scope comes from THAT
+    preset (not stored.scope_sheet_paths); an explicit Apply re-captures under
+    the preset's paths AND makes them the NEW stored scope_sheet_paths, while
+    the scope_presets LIBRARY stays fully intact. Round-trip canary: a placed
+    Entity still resolves after the rewrite."""
+    adapter0 = _line_board(c2_x_mm=24.0)
+    d0 = _by_sheet_record_dict_with_presets(adapter0)  # stored scope Channel_0
+    root = tmp_path / "root.sexp"
+    _write(root, {
+        "scheme_lists": [d0],
+        "entities": [{"name": "E_AMP", "scheme_list": "amp"}],
+        "trees": [{"name": "main", "anchor": {"origin": True},
+                   "nodes": [{"ref": "E_AMP", "kind": "placement",
+                              "xy": [0.0, 0.0]}]}],
+    })
+    entry = _load(root)["scheme_lists"][0]
+    dock = _make_dock(main_window, root, entry)
+
+    adapter1 = _line_board(c2_x_mm=24.0)
+    _add_fp_to(adapter1, "C9", 30.0)  # C9 sits on Channel_0's Sub leaf
+    _connect_board(dock, adapter1)
+    dock._connection.snapshot = _snap(("R1", ("Channel_0",)),
+                                      ("C1", ("Channel_0",)),
+                                      ("C2", ("Channel_0",)),
+                                      ("C9", ("Channel_0", "Sub")))
+
+    # Default (sentinel "(current)"): scope = stored [Channel_0] -> C9 (Sub
+    # leaf) is NOT part of the scope yet (5c byte-identical regression).
+    diff_sentinel = dock._do_reread()["diff"]
+    assert diff_sentinel.changed is False
+
+    # Switch to the "full" preset (stored paths + the Sub leaf) -> C9 is now
+    # in the CURRENT scope for THIS Reread.
+    dock.preset_combo.setCurrentText("full")
+    diff = dock._do_reread()["diff"]
+    assert {c.ref for c in diff.components_added} == {"C9"}
+    assert diff.changed is True
+
+    apply_result = dock._do_reread_apply()
+    assert "error" not in apply_result, apply_result
+    rec = {e["name"]: e for e in _load(root)["scheme_lists"]}["amp"]
+    # Apply made the PRESET's paths the new stored scope...
+    assert rec["scope_sheet_paths"] == [["Channel_0"], ["Channel_0", "Sub"]]
+    # ...C9 landed in the record...
+    assert "C9" in {c["ref"] for c in rec["components"]}
+    # ...and the preset LIBRARY is fully intact (untouched by Apply).
+    assert rec["scope_presets"] == [
+        {"name": "full", "sheet_paths": [["Channel_0"], ["Channel_0", "Sub"]]},
+        {"name": "ch0-only", "sheet_paths": [["Channel_0"]]},
+    ]
+    # Round-trip canary: the placed Entity still resolves via link_trees.
     cfg, _ = load_config(str(root))
     linked = link_trees(cfg, cfg.trees)[0]
 

@@ -486,12 +486,30 @@ class DockHub:
             scope_sheet_paths = [list(p) for p in (checked_paths or [])]
         else:
             scope_sheet_paths = None
+        # Named presets (plan_2026_09_06_scheme_list_named_presets.md §7,
+        # Re-source semantics): the EXISTING record's own scope_presets library
+        # is read from the record dict already in hand. A non-empty "Save as
+        # preset" field overwrites only the same-name entry with the CURRENT
+        # checked checklist; an EMPTY field leaves the existing library
+        # UNTOUCHED (Re-source changes the geometry source, it does not wipe
+        # saved checklist variants — unlike Record, where [] is the true
+        # "no presets yet" default).
+        preset_name = dialog.preset_name_to_save()
+        existing_presets = [dict(p) for p in (entry.get("scope_presets") or [])]
+        if preset_name:
+            merged = [p for p in existing_presets if p.get("name") != preset_name]
+            merged.append({"name": preset_name,
+                           "sheet_paths": [list(p) for p in checked_paths]})
+            payload_scope_presets = merged
+        else:
+            payload_scope_presets = existing_presets
         payload = {"board": board, "name": record_name, "refs": refs,
                    "anchor_ref": anchor_ref, "root": str(root_path),
                    "target_path": (str(file_path)
                                    if file_path is not None else None),
                    "sheet_names": sheet_names,
-                   "scope_sheet_paths": scope_sheet_paths}
+                   "scope_sheet_paths": scope_sheet_paths,
+                   "scope_presets": payload_scope_presets}
         self._scheme_active_op = start_long_op(
             connection, (), self._run_resource_capture,
             self._finish_resource_capture, self._on_resource_op_failed, payload)
@@ -1212,10 +1230,22 @@ class DockHub:
             scope_sheet_paths = [list(p) for p in (checked_paths or [])]
         else:
             scope_sheet_paths = None
+        # Named presets (plan_2026_09_06_scheme_list_named_presets.md §7): a
+        # non-empty "Save as preset" field makes the CURRENT checked checklist
+        # the record's FIRST named preset. A brand-new record has no prior
+        # library (capture's [] default when nothing to save).
+        preset_name = dialog.preset_name_to_save()
+        if preset_name:
+            payload_scope_presets = [
+                {"name": preset_name,
+                 "sheet_paths": [list(p) for p in checked_paths]}]
+        else:
+            payload_scope_presets = None
         payload = {"board": board, "name": name, "refs": refs,
                    "anchor_ref": anchor_ref, "root": str(root_path),
                    "sheet_names": sheet_names,
-                   "scope_sheet_paths": scope_sheet_paths}
+                   "scope_sheet_paths": scope_sheet_paths,
+                   "scope_presets": payload_scope_presets}
         self._scheme_active_op = start_long_op(
             connection, (), self._run_record_capture, self._finish_record_capture,
             self._on_record_op_failed, payload)
@@ -1223,6 +1253,7 @@ class DockHub:
     def _run_record_capture(self, payload: Dict) -> Dict[str, Any]:
         """Worker thread: the actual capture (live-board IPC) — never touches
         a widget."""
+        from kicadstamp.config.models import SchemeListScopePreset
         from kicadstamp.scheme_list_capture import capture_scheme_list
         try:
             record = capture_scheme_list(
@@ -1230,7 +1261,9 @@ class DockHub:
                 anchor_ref=payload["anchor_ref"],
                 adapter=payload["board"].adapter,
                 sheet_names=payload.get("sheet_names"),
-                scope_sheet_paths=payload.get("scope_sheet_paths"))
+                scope_sheet_paths=payload.get("scope_sheet_paths"),
+                scope_presets=[SchemeListScopePreset(**p)
+                               for p in (payload.get("scope_presets") or [])])
         except Exception as e:  # noqa: BLE001 — ValidationError family surfaces verbatim
             logging.getLogger(__name__).exception("Scheme List record capture failed")
             return {"error": str(e)}
@@ -1276,6 +1309,7 @@ class DockHub:
         the file that owns it (target_path — like Reread Apply, NOT the default
         scheme_lists.json): re-sourcing never moves a record between files.
         Synchronous-callable in tests (mirror of _run_record_capture)."""
+        from kicadstamp.config.models import SchemeListScopePreset
         from kicadstamp.scheme_list_capture import capture_scheme_list
         try:
             record = capture_scheme_list(
@@ -1283,7 +1317,9 @@ class DockHub:
                 anchor_ref=payload["anchor_ref"],
                 adapter=payload["board"].adapter,
                 sheet_names=payload.get("sheet_names"),
-                scope_sheet_paths=payload.get("scope_sheet_paths"))
+                scope_sheet_paths=payload.get("scope_sheet_paths"),
+                scope_presets=[SchemeListScopePreset(**p)
+                               for p in (payload.get("scope_presets") or [])])
             root_path = Path(payload["root"])
             target_path = (Path(payload["target_path"])
                            if payload.get("target_path") else None)

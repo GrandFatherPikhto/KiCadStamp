@@ -599,6 +599,36 @@ def test_scheme_lists_roundtrip():
     })
 
 
+def test_scheme_list_scope_presets_roundtrip():
+    """A scheme_lists record carrying NAMED scope presets (the nested
+    SchemeListScopePreset dataclass list, plan_2026_09_06_scheme_list_named_
+    presets.md §3) round-trips bijectively — the on-the-ground proof that the
+    generic list_record + inner list_list_str machinery needs NO new sexp code
+    beyond the _TAG_BY_CLASS registration (the plan's §3 hypothesis)."""
+    back = _roundtrip({
+        "scheme_lists": [{
+            "name": "psu",
+            "anchor_ref": "C1",
+            "source_sheet": "Channel_0",
+            "scope_sheet_paths": [["Top", "Channel_0"], ["Top"]],
+            "scope_presets": [
+                {"name": "full",
+                 "sheet_paths": [["Top", "Channel_0"], ["Top", "Channel_1"]]},
+                {"name": "ch0-only", "sheet_paths": [["Top", "Channel_0"]]},
+            ],
+            "components": [
+                {"ref": "C1"},
+                {"ref": "R1", "offset_along_mm": 1.0, "rotation_deg": 90.0},
+            ],
+        }],
+    })
+    assert back["scheme_lists"][0]["scope_presets"] == [
+        {"name": "full", "sheet_paths": [["Top", "Channel_0"],
+                                         ["Top", "Channel_1"]]},
+        {"name": "ch0-only", "sheet_paths": [["Top", "Channel_0"]]},
+    ]
+
+
 def test_scheme_list_entity_roundtrip():
     """A scheme_list-based Entity (cell omitted -> its None default) round-trips:
     `cell` is legitimately dropped (None == default), `scheme_list` kept."""

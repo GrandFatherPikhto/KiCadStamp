@@ -115,20 +115,28 @@ def record_refs_for(snapshot: list, by_sheet: bool,
 
 
 def reread_scope_refs(stored: SchemeListConfig, snapshot: list,
-                      selection_refs: List[str]) -> List[str]:
+                      selection_refs: List[str],
+                      active_scope_paths: Optional[list] = None) -> List[str]:
     """The CURRENT Reread scope for a stored record (5c.4, plan_2026_09_06_
     scheme_list_sheet_capture.md):
       - "By sheet"-record (``scope_sheet_paths`` set): recomputed from the SAME
         checked leaf paths over the LIVE snapshot (refs_on_sheet union) —
         Reread stays one-click, live state alone decides what appeared/vanish-
-        ed on the recorded leaves;
+        ed on the recorded leaves. ``active_scope_paths`` (named presets,
+        plan_2026_09_06_scheme_list_named_presets.md §8/§9) OVERRIDES the
+        stored paths for THIS Reread: the scope comes from the preset the user
+        picked on the record page, not from scope_sheet_paths. None (no preset
+        / the "(current)" sentinel) = stored paths unchanged — byte-identical
+        regression to 5c by default.
       - "By selection"-record (``scope_sheet_paths`` None): the CURRENT board
         selection refs — the user re-selects the (possibly changed) set, then
         clicks Reread. An empty list here is a caller decision point (warn,
         never silently diff the stored set).
     Sorted + deduplicated either way."""
-    if stored.scope_sheet_paths:
-        return sorted({r for p in stored.scope_sheet_paths
+    paths = (active_scope_paths if active_scope_paths is not None
+             else stored.scope_sheet_paths)
+    if paths:
+        return sorted({r for p in paths
                        for r in refs_on_sheet(snapshot, tuple(p))})
     return sorted(set(selection_refs))
 
@@ -151,6 +159,12 @@ def scheme_list_to_dict(record: SchemeListConfig) -> Dict[str, Any]:
         # 5c.1 — a "By sheet" record's CHECKED leaf paths (Reread recomputes
         # the current scope from these); None (By selection) is not written.
         d["scope_sheet_paths"] = [list(p) for p in record.scope_sheet_paths]
+    if record.scope_presets:
+        # Named presets library (plan_2026_09_06_scheme_list_named_presets.md
+        # §5) — written only when non-empty; [] (By selection) is not written.
+        d["scope_presets"] = [
+            {"name": p.name, "sheet_paths": [list(sp) for sp in p.sheet_paths]}
+            for p in record.scope_presets]
     d["components"] = [
         {"ref": c.ref, "offset_along_mm": c.offset_along_mm,
          "offset_across_mm": c.offset_across_mm, "rotation_deg": c.rotation_deg}
@@ -401,6 +415,14 @@ class RecordSchemeListDialog(QDialog):
         self.sheet_checklist = QListWidget()
         self.sheet_checklist.setVisible(False)  # until a root with sub-sheets
         tab1_form.addRow(_("Sub-sheets (uncheck to exclude):"), self.sheet_checklist)
+        # Optional "Save as preset" (plan_2026_09_06_scheme_list_named_presets.md
+        # §6): the CURRENT checked checklist becomes a NAMED preset saved in the
+        # record. Fully optional — empty text = nothing saved, zero effect on
+        # OK-gating or the 5a/5b result_data contract.
+        self.save_preset_edit = QLineEdit()
+        self.save_preset_edit.setPlaceholderText(
+            _("optional — save this checklist as a named preset (same name overwrites it)"))
+        tab1_form.addRow(_("Save as preset:"), self.save_preset_edit)
         self.sheet_anchor_combo = QComboBox()
         tab1_form.addRow(_("Anchor:"), self.sheet_anchor_combo)
         self.sheet_combo.currentIndexChanged.connect(self._rebuild_checklist)
@@ -502,6 +524,15 @@ class RecordSchemeListDialog(QDialog):
             return (name, self.sheet_anchor_combo.currentText(),
                     self.sheet_combo.currentData(), self._checked_sheet_paths())
         return (name, self.selection_anchor_combo.currentText(), None, None)
+
+    def preset_name_to_save(self) -> Optional[str]:
+        """Non-empty text of the optional "Save as preset" field on the "By
+        sheet" tab, or None (nothing to save — the default). Meaningless on
+        "By selection" (scope_sheet_paths/scope_presets stay [] there)."""
+        if not self.is_by_sheet():
+            return None
+        text = self.save_preset_edit.text().strip()
+        return text or None
 
 
 class SchemeListDiffDialog(QDialog):
@@ -617,6 +648,13 @@ class SchemeListFormWidget(QWidget):
         form.addRow(_("Anchor rotation (at record):"), self.anchor_rotation_label)
         self.source_sheet_label = QLabel("-")
         form.addRow(_("Source sheet:"), self.source_sheet_label)
+        # Named-presets selector (plan_2026_09_06_scheme_list_named_presets.md
+        # §8) — shown ONLY when the loaded record carries a scope_presets
+        # library; the first item is the "(current)" sentinel (data None =
+        # use stored.scope_sheet_paths as-is, 5c behavior unchanged).
+        self.preset_combo = QComboBox()
+        self.preset_combo.setVisible(False)
+        form.addRow(_("Preset:"), self.preset_combo)
         self.geometry_label = QLabel("")
         self.geometry_label.setWordWrap(True)
         form.addRow(_("Recorded geometry:"), self.geometry_label)
@@ -664,6 +702,10 @@ class SchemeListFormWidget(QWidget):
         self.anchor_pad_label.setText("-")
         self.anchor_rotation_label.setText("-")
         self.source_sheet_label.setText("-")
+        self.preset_combo.blockSignals(True)
+        self.preset_combo.clear()
+        self.preset_combo.blockSignals(False)
+        self.preset_combo.setVisible(False)
         self.geometry_label.setText("")
 
     def load_entry(self, entry: Dict[str, Any],
@@ -703,6 +745,7 @@ class SchemeListFormWidget(QWidget):
         self.anchor_pad_label.setText(record.anchor_pad or "-")
         self.anchor_rotation_label.setText(f"{record.anchor_rotation_deg:.1f} deg")
         self.source_sheet_label.setText(record.source_sheet or _("(root sheet)"))
+        self._render_preset_combo(record)
         boundary_nets = [bn.net for bn in record.boundary_nets]
         if boundary_nets:
             geometry = _("{components} components, {vias} vias, {tracks} tracks, "
@@ -714,6 +757,21 @@ class SchemeListFormWidget(QWidget):
                 components=len(record.components), vias=len(record.vias),
                 tracks=len(record.tracks))
         self.geometry_label.setText(geometry)
+
+    def _render_preset_combo(self, record: SchemeListConfig) -> None:
+        """Fill the named-presets selector from a loaded record (plan §8):
+        the "(current)" sentinel first (data None), then one item per
+        scope_presets entry carrying its sheet_paths as data. Hidden entirely
+        when the record carries no presets."""
+        self.preset_combo.blockSignals(True)
+        self.preset_combo.clear()
+        if record.scope_presets:
+            self.preset_combo.addItem(_("(current)"), None)
+            for p in record.scope_presets:
+                self.preset_combo.addItem(p.name, [list(sp) for sp in p.sheet_paths])
+            self.preset_combo.setCurrentIndex(0)  # sentinel selected by default
+        self.preset_combo.setVisible(bool(record.scope_presets))
+        self.preset_combo.blockSignals(False)
 
     # ── Reread ──────────────────────────────────────────────────────────
 
@@ -740,7 +798,12 @@ class SchemeListFormWidget(QWidget):
         selection_refs = sorted({getattr(s, "ref", None)
                                  for s in self._selection_footprints
                                  if getattr(s, "ref", None)})
-        scope_refs = reread_scope_refs(stored, snapshot, selection_refs)
+        # A named preset picked on the record page overrides the stored scope
+        # for THIS Reread (data None = the "(current)" sentinel = stored
+        # scope_sheet_paths unchanged, plan §8/§9/§10).
+        active_scope_paths = self.preset_combo.currentData()
+        scope_refs = reread_scope_refs(stored, snapshot, selection_refs,
+                                       active_scope_paths=active_scope_paths)
         if stored.scope_sheet_paths is None and not scope_refs:
             # A "By selection"-record's Reread scope is the CURRENT board
             # selection — with none we cannot know what to re-read. Warn
@@ -751,6 +814,10 @@ class SchemeListFormWidget(QWidget):
             return None
         return {"board": board, "stored": dict(self._entry),
                 "scope_refs": scope_refs,
+                # The preset (if any) whose paths became the current scope —
+                # Apply re-captures under THOSE paths and makes them the new
+                # stored scope_sheet_paths (plan §10). None = 5c behavior.
+                "active_scope_paths": active_scope_paths,
                 "root": str(self._root_path) if self._root_path else None,
                 "path": str(self._path) if self._path else None}
 
@@ -830,13 +897,24 @@ class SchemeListFormWidget(QWidget):
         while no recorded ref is missing) — added refs land in the record and
         refs removed from the scope fall out. The record's stored
         ``scope_sheet_paths`` is PRESERVED, otherwise the first Reread-Apply
-        would silently drop the "By sheet" scope."""
+        would silently drop the "By sheet" scope. Named presets (plan §10):
+        a preset picked on the page BEFORE Reread becomes the NEW stored
+        scope_sheet_paths (switch to the preset AND re-sync in one Apply);
+        the scope_presets LIBRARY itself is never rewritten here — only an
+        explicit Record/Re-source "Save as preset" does."""
         try:
             stored = load_scheme_list(payload["stored"])
             adapter = payload["board"].adapter
             scope_refs = payload.get("scope_refs")
             refs = (scope_refs if scope_refs is not None
                     else [c.ref for c in stored.components])
+            # The preset (if any) whose paths became the current scope —
+            # Apply makes it the new stored scope (plan §10); None (the
+            # "(current)" sentinel / no presets) keeps 5c behavior.
+            active_scope_paths = payload.get("active_scope_paths")
+            scope_sheet_paths = (active_scope_paths
+                                 if active_scope_paths is not None
+                                 else stored.scope_sheet_paths)
             fresh = capture_scheme_list(
                 name=stored.name,
                 refs=refs,
@@ -848,9 +926,13 @@ class SchemeListFormWidget(QWidget):
                 # comes from the anchor's own sheet path, and Reread's job is
                 # geometry, not re-sourcing).
                 source_sheet=stored.source_sheet,
-                # 5c: carry the stored "By sheet" scope into the rewritten
-                # record (None for a "By selection"-record).
-                scope_sheet_paths=stored.scope_sheet_paths)
+                # 5c: carry the (possibly preset-switched) "By sheet" scope
+                # into the rewritten record (None for a "By selection"-record).
+                scope_sheet_paths=scope_sheet_paths,
+                # plan §10 — the preset LIBRARY is carried over verbatim:
+                # Apply only switches WHICH paths are current, it never edits
+                # the saved library.
+                scope_presets=stored.scope_presets)
             load_scheme_list(scheme_list_to_dict(fresh))  # validate before writing
             root_path = Path(payload["root"]) if payload.get("root") else Path(".")
             target_path = Path(payload["path"]) if payload.get("path") else None

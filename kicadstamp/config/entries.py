@@ -22,8 +22,8 @@ from .models import (
     ThermalViaArrayConfig, TemplateVia, TemplateComponentSlot, TemplateTrack,
     Cell, CellPlacement, ManualSpoke, Chain, ClonePlacement, CoordinatePlacement,
     NetTrace, Entity, SchemeListConfig, SchemeListComponentRecord,
-    SchemeListViaRecord, SchemeListTrackRecord, SchemeListBoundaryNet,
-    TreeInstance,
+    SchemeListScopePreset, SchemeListViaRecord, SchemeListTrackRecord,
+    SchemeListBoundaryNet, TreeInstance,
 )
 from .points import Point
 
@@ -863,7 +863,8 @@ def _load_entity(data: dict[str, Any]) -> Entity:
 
 _SCHEME_LIST_KNOWN_KEYS = {
     'name', 'anchor_ref', 'anchor_pad', 'anchor_rotation_deg', 'source_sheet',
-    'scope_sheet_paths', 'components', 'vias', 'tracks', 'boundary_nets',
+    'scope_sheet_paths', 'scope_presets', 'components', 'vias', 'tracks',
+    'boundary_nets',
 }
 _SCHEME_LIST_COMPONENT_KNOWN_KEYS = {
     'ref', 'offset_along_mm', 'offset_across_mm', 'rotation_deg',
@@ -1028,6 +1029,45 @@ def _load_scheme_list_scope_paths(raw, owner: str) -> list[list[str]] | None:
     return out
 
 
+def _load_scheme_list_scope_presets(raw, owner: str) -> list[SchemeListScopePreset]:
+    """Parse scheme_lists' ``scope_presets`` (plan_2026_09_06_scheme_list_
+    named_presets.md §2): a list of {name, sheet_paths} — NAMED saved
+    alternatives to ``scope_sheet_paths`` (the checked-leaf-path library a user
+    switches between on the record page before a Reread). [] when absent/empty.
+    Each preset's name must be a non-empty string, UNIQUE within this record's
+    OWN preset list (fatal on duplicate — the same ambiguity scope_sheet_paths'
+    uniqueness-between-records already guards against, one level down). Each
+    sheet_paths is validated by the SHARED _load_scheme_list_scope_paths (no
+    duplicated "non-empty list of non-empty strings" logic)."""
+    if not raw:
+        return []
+    if not isinstance(raw, list):
+        raise ValidationError(format_fatal_error(
+            _("scheme_lists entry {name!r}: scope_presets must be a list of presets").format(
+                name=owner),
+            [_("each preset is {{'name': str, 'sheet_paths': [[...]]}}; got {raw!r}").format(
+                raw=raw)]))
+    out: list[SchemeListScopePreset] = []
+    seen_names: set[str] = set()
+    for i, entry in enumerate(raw):
+        if (not isinstance(entry, dict) or not entry.get('name')
+                or 'sheet_paths' not in entry):
+            raise ValidationError(format_fatal_error(
+                _("scheme_lists entry {name!r}: scope_presets[{i}] must have a "
+                  "non-empty name and sheet_paths").format(name=owner, i=i),
+                [_("got {entry!r}").format(entry=entry)]))
+        preset_name = str(entry['name'])
+        if preset_name in seen_names:
+            raise ValidationError(format_fatal_error(
+                _("scheme_lists entry {name!r}: duplicate preset name {preset!r}").format(
+                    name=owner, preset=preset_name),
+                [_("preset names must be unique WITHIN one record's scope_presets")]))
+        seen_names.add(preset_name)
+        sheet_paths = _load_scheme_list_scope_paths(entry['sheet_paths'], owner) or []
+        out.append(SchemeListScopePreset(name=preset_name, sheet_paths=sheet_paths))
+    return out
+
+
 def _load_scheme_list(data: dict[str, Any]) -> SchemeListConfig:
     """One scheme_lists: entry — a recorded live-board snapshot
     (design_2026_09_05_scheme_list.md §3). Pure single-entry validator,
@@ -1075,6 +1115,8 @@ def _load_scheme_list(data: dict[str, Any]) -> SchemeListConfig:
         source_sheet=data.get('source_sheet'),
         scope_sheet_paths=_load_scheme_list_scope_paths(
             data.get('scope_sheet_paths'), name),
+        scope_presets=_load_scheme_list_scope_presets(
+            data.get('scope_presets'), name),
         components=components,
         vias=_load_scheme_list_vias(data.get('vias'), name),
         tracks=_load_scheme_list_tracks(data.get('tracks'), name),

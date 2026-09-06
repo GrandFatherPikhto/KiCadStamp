@@ -13847,3 +13847,33 @@ msgstr "Под-листы (снять галочку, чтобы исключи�
 msgid "No footprints to record — pick a sheet that has footprints on the 'By sheet' tab, or select footprints on the board for 'By selection'."
 msgstr "Нет footprint'ов для записи — выберите на вкладке «По листу» лист с footprint'ами, либо выделите footprint'ы на плате для «По выделению»."
 
+msgid "optional — save this checklist as a named preset (same name overwrites it)"
+msgstr "необязательно — сохранить этот чек-лист как именованный пресет (то же имя перезапишет его)"
+
+msgid "Save as preset:"
+msgstr "Сохранить как пресет:"
+
+msgid "Preset:"
+msgstr "Пресет:"
+
+msgid "(current)"
+msgstr "(текущий)"
+
+msgid "scheme_lists entry {name!r}: scope_presets must be a list of presets"
+msgstr "запись scheme_lists {name!r}: scope_presets должен быть списком пресетов"
+
+msgid "each preset is {{'name': str, 'sheet_paths': [[...]]}}; got {raw!r}"
+msgstr "каждый пресет — это {{'name': str, 'sheet_paths': [[...]]}}; получено: {raw!r}"
+
+msgid "scheme_lists entry {name!r}: scope_presets[{i}] must have a non-empty name and sheet_paths"
+msgstr "запись scheme_lists {name!r}: scope_presets[{i}] должен иметь непустое имя и sheet_paths"
+
+msgid "got {entry!r}"
+msgstr "получено: {entry!r}"
+
+msgid "scheme_lists entry {name!r}: duplicate preset name {preset!r}"
+msgstr "запись scheme_lists {name!r}: повторяющееся имя пресета {preset!r}"
+
+msgid "preset names must be unique WITHIN one record's scope_presets"
+msgstr "имена пресетов должны быть уникальны ВНУТРИ scope_presets одной записи"
+

@@ -1131,7 +1131,9 @@ dialog shows which outside footprint dragged each net). The new record is writte
 `scheme_lists.json` next to the profile (auto-`include:`d on first use). A **"By sheet"** record
 additionally stores the CHECKED leaf paths as its `scope_sheet_paths` — the source a later Reread
 recomputes the current scope from; a **"By selection"** record stores no scope. Nothing is applied to
-the board.
+the board. The **"By sheet"** tab also has an OPTIONAL **"Save as preset"** field: a non-empty name
+stores the current checklist as a NAMED preset IN the record's `scope_presets` library (the same name
+overwrites it), so a later Reread can switch back to that variant without re-recording (design §9 п.12).
 
 ### Re-sourcing a record — Tools → Scheme Lists → Re-source...
 
@@ -1142,7 +1144,9 @@ is the SAME two-tab Record dialog with the name pinned read-only, an explicit in
 the record's refs/geometry are REPLACED (every Entity already placed from the record picks up the new
 geometry on its next Apply/Redraw — the sheet it currently comes from does NOT update by itself; Place
 onto it too if it should follow) and an OK button labeled **Re-source**. The rewritten record stays in
-the file that already owns it.
+the file that already owns it. Re-source keeps the record's existing `scope_presets` library INTACT:
+an empty "Save as preset" field leaves it untouched; a non-empty one overwrites only the same-name
+preset with the current checklist.
 
 ### Rereading a record — Reread
 
@@ -1158,6 +1162,11 @@ now change the record's REF SET itself, not only diff fixed positions:
 - **"By selection" record** — the scope is the CURRENT board selection at the moment of the click:
   re-select the (possibly changed) set on the board first, then click Reread. An empty selection shows
   a warning instead of a silent diff.
+- **Named presets** — a "By sheet" record carrying `scope_presets` shows a **Preset** combo on the
+  record page (default "(current)" = the stored `scope_sheet_paths`, i.e. the 5c behavior). Pick a
+  saved preset to compute THIS Reread's scope from ITS paths instead; Apply then makes that preset the
+  record's NEW stored `scope_sheet_paths` — the `scope_presets` library itself is never rewritten by
+  Apply (only Record/Re-source "Save as preset" edits it).
 
 The diff dialog lists what changed — component(s) no longer on the board, the anchor gone, components
 moved, component(s) added to the scope, component(s) removed from the scope, vias & tracks added &
@@ -1170,8 +1179,10 @@ to the board.
 
 Clicking a `scheme_lists:` leaf in the Config tree opens the record READ-ONLY in the Config dock's
 right QView — the Anchor block (component-ref combo + `anchor_pad`/`anchor_rotation_deg`/`source_sheet`
-readouts), a recorded-geometry summary and the **Reread** button. The record itself is edited only by
-re-recording (Record...), re-sourcing (Re-source...) or re-syncing (Reread), never by hand.
+readouts), a recorded-geometry summary, the **Reread** button and — for a "By sheet" record with a
+`scope_presets` library — a **Preset** combo for switching which saved checklist this Reread uses. The
+record itself is edited only by re-recording (Record...), re-sourcing (Re-source...) or re-syncing
+(Reread), never by hand.
 
 ### Placing a record — Tools → Scheme Lists → Place... (the "Place Scheme List" page)
 

@@ -19,6 +19,7 @@ from .config.models import (
     SchemeListBoundaryNet,
     SchemeListComponentRecord,
     SchemeListConfig,
+    SchemeListScopePreset,
     SchemeListTrackRecord,
     SchemeListViaRecord,
 )
@@ -188,6 +189,7 @@ def capture_scheme_list(
     source_sheet: str | None = None,   # explicit override (Reread)
     sheet_names: dict[str, str] | None = None,  # for derivation (Record/Re-source)
     scope_sheet_paths: list[list[str]] | None = None,  # 5c.1 — "By sheet" scope
+    scope_presets: list[SchemeListScopePreset] | None = None,  # named presets
 ) -> SchemeListConfig:
     """Capture the live board region identified by `refs` as a Scheme List.
 
@@ -306,6 +308,11 @@ def capture_scheme_list(
         # capture it is the CHECKED leaf paths (so a later Reread recomputes
         # the same scope); for a "By selection" capture it stays None.
         scope_sheet_paths=scope_sheet_paths,
+        # Named presets library — persisted VERBATIM, never interpreted here
+        # either (capture does not decide what is inside; the caller does —
+        # DockHub merges the save-as-preset into the payload, plan
+        # 2026_09_06_scheme_list_named_presets.md §4/§7).
+        scope_presets=scope_presets or [],
         components=components,
         vias=vias,
         tracks=tracks,

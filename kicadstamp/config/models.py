@@ -739,6 +739,17 @@ class SchemeListBoundaryNet:
 
 
 @dataclass
+class SchemeListScopePreset:
+    """A named, saved alternative to SchemeListConfig.scope_sheet_paths — the
+    checked leaf paths of a "By sheet" capture checklist, given a name so the
+    user can switch back to it on a later Reread without re-recording
+    (design §9 п.12 / §3, plan_2026_09_06_scheme_list_named_presets.md)."""
+
+    name: str
+    sheet_paths: list[list[str]]
+
+
+@dataclass
 class SchemeListConfig:
     """One scheme_lists: entry — a named, recorded snapshot of a real,
     already-routed region of the live board (its literal refs + copper on
@@ -773,6 +784,12 @@ class SchemeListConfig:
     # there the scope is ephemeral: Reread asks for a NEW board selection each
     # time and nothing about the scope itself is persisted.
     scope_sheet_paths: list[list[str]] | None = None
+    # Named saved alternatives to scope_sheet_paths (plan_2026_09_06_scheme_
+    # list_named_presets.md, design §9 п.12) — a library of checked-leaf-path
+    # variants the user can switch between on the record page BEFORE a Reread.
+    # Only for "By sheet"-records (like scope_sheet_paths): a "By selection"-
+    # record keeps [] and never fills it.
+    scope_presets: list[SchemeListScopePreset] = field(default_factory=list)
     components: list[SchemeListComponentRecord] = field(default_factory=list)
     vias: list[SchemeListViaRecord] = field(default_factory=list)
     tracks: list[SchemeListTrackRecord] = field(default_factory=list)

@@ -105,6 +105,60 @@ def test_record_scope_sheet_paths_must_be_path_lists():
         load_scheme_list(_record(scope_sheet_paths=[["Channel_0"], [""]]))
 
 
+def test_record_scope_presets_default_to_empty():
+    """Named presets (plan_2026_09_06_scheme_list_named_presets.md §2) are
+    OPTIONAL ([] default): an absent/empty value means the record simply has no
+    saved checklist variants (a "By selection"-record never fills it)."""
+    sl = load_scheme_list(_record())
+    assert sl.scope_presets == []
+    sl2 = load_scheme_list(_record(scope_presets=[]))
+    assert sl2.scope_presets == []
+
+
+def test_record_loads_named_scope_presets():
+    """plan §2 — scope_presets round-trip through the loader as
+    SchemeListScopePreset {name, sheet_paths: list[list[str]]} (single-segment
+    paths included)."""
+    sl = load_scheme_list(_record(scope_presets=[
+        {"name": "full",
+         "sheet_paths": [["Top", "Channel_0"], ["Top", "Channel_1"]]},
+        {"name": "ch0-only", "sheet_paths": [["Top"]]},
+    ]))
+    assert [(p.name, p.sheet_paths) for p in sl.scope_presets] == [
+        ("full", [["Top", "Channel_0"], ["Top", "Channel_1"]]),
+        ("ch0-only", [["Top"]]),
+    ]
+
+
+def test_record_duplicate_preset_name_within_record_is_fatal():
+    """plan §2 — a preset name must be UNIQUE within the record's OWN
+    scope_presets (the same ambiguity scope_sheet_paths' between-records
+    uniqueness guards against, one level down)."""
+    with pytest.raises(ValidationError, match="duplicate preset name"):
+        load_scheme_list(_record(scope_presets=[
+            {"name": "full", "sheet_paths": [["Top"]]},
+            {"name": "full", "sheet_paths": [["Top", "Channel_0"]]},
+        ]))
+
+
+def test_record_scope_presets_must_be_valid_presets():
+    """plan §2 — malformed scope_presets is a fatal: not a list / an entry
+    without a (non-empty) name or sheet_paths / an entry whose sheet_paths is
+    not a non-empty list of non-empty sheet-name strings."""
+    with pytest.raises(ValidationError, match="scope_presets"):
+        load_scheme_list(_record(scope_presets="full"))
+    with pytest.raises(ValidationError, match="scope_presets"):
+        load_scheme_list(_record(scope_presets=[{"name": ""}]))
+    with pytest.raises(ValidationError, match="scope_presets"):
+        load_scheme_list(_record(scope_presets=[{"name": "full"}]))
+    with pytest.raises(ValidationError, match="sheet_paths"):
+        load_scheme_list(_record(scope_presets=[
+            {"name": "full", "sheet_paths": "Top"}]))
+    with pytest.raises(ValidationError, match="sheet_paths"):
+        load_scheme_list(_record(scope_presets=[
+            {"name": "full", "sheet_paths": [["Top"], []]}]))
+
+
 def test_record_requires_name_and_anchor_ref():
     with pytest.raises(ValidationError, match="without name"):
         load_scheme_list({"anchor_ref": "C1", "components": [{"ref": "C1"}]})

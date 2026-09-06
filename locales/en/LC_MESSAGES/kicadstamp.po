@@ -15216,3 +15216,33 @@ msgstr ""
 msgid "No footprints to record — pick a sheet that has footprints on the 'By sheet' tab, or select footprints on the board for 'By selection'."
 msgstr ""
 
+msgid "optional — save this checklist as a named preset (same name overwrites it)"
+msgstr ""
+
+msgid "Save as preset:"
+msgstr ""
+
+msgid "Preset:"
+msgstr ""
+
+msgid "(current)"
+msgstr ""
+
+msgid "scheme_lists entry {name!r}: scope_presets must be a list of presets"
+msgstr ""
+
+msgid "each preset is {{'name': str, 'sheet_paths': [[...]]}}; got {raw!r}"
+msgstr ""
+
+msgid "scheme_lists entry {name!r}: scope_presets[{i}] must have a non-empty name and sheet_paths"
+msgstr ""
+
+msgid "got {entry!r}"
+msgstr ""
+
+msgid "scheme_lists entry {name!r}: duplicate preset name {preset!r}"
+msgstr ""
+
+msgid "preset names must be unique WITHIN one record's scope_presets"
+msgstr ""
+
