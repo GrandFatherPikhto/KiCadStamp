@@ -165,6 +165,7 @@ def capture_scheme_list(
     sheet_names: dict[str, str] | None = None,  # for derivation (Record/Re-source)
     scope_sheet_paths: list[list[str]] | None = None,  # 5c.1 — "By sheet" scope
     scope_presets: list[SchemeListScopePreset] | None = None,  # named presets
+    boundary_net_actions: dict[str, str] | None = None,  # net -> "exclude"|"truncate"
 ) -> SchemeListConfig:
     """Capture the live board region identified by `refs` as a Scheme List.
 
@@ -172,8 +173,20 @@ def capture_scheme_list(
     listing ALL of them), runs the shared connectivity-closure filter over the
     copper near the refs' bbox (+1 mm), records components/vias/tracks with
     literal nets and literal copper-layer strings in the anchor_ref frame, and
-    reports dropped (excluded-material) copper as boundary_nets (v1 action
-    "exclude"). Pure capture — writes nothing to the board.
+    reports dropped (excluded-material) copper as boundary_nets. Pure capture —
+    writes nothing to the board.
+
+    ``boundary_net_actions`` (Part A truncate): per-NET decision
+    ``{net: "exclude" | "truncate"}`` for copper the closure dropped (reaches
+    only EXCLUDED footprints). Default for any net not in the dict — and when
+    the parameter is None entirely — is ``"exclude"`` (drop the whole
+    connected component, v1 behavior, byte-for-byte backwards compatible).
+    ``"truncate"`` instead clips EVERY dropped stub of that net at the HONEST
+    capture boundary (the union bbox of the captured footprints, no
+    pre-filter margin) and keeps its in-region part; a dropped via is a point,
+    kept only when it lies inside the boundary, dropped otherwise. The net
+    STILL appears in boundary_nets with action="truncate" so Reread knows the
+    decision and re-clips deterministically.
 
     ``source_sheet`` — the sheet the record was captured from. An explicit
     value (Reread's override, keeping the STORED sheet) always wins; otherwise,
@@ -238,27 +251,64 @@ def capture_scheme_list(
         _filter_tracks_and_vias_within_selection(
             pre_tracks, pre_vias, footprints, adapter, collect_dropped=True))
 
-    vias = [_via_record(v, origin) for v in kept_vias]
-    tracks = [_track_record(t, origin) for t in kept_tracks]
-
-    # Boundary nets: group the dropped copper by its literal net; one decision
-    # (exclude) per NET, external_ref = first external footprint that contains
-    # a dropped stub (diagnostics only).
+    # External footprints (refs NOT in this capture) — feed the boundary-net
+    # diagnostics' external_ref ("which outside component dragged this net").
     external_refs = {ref for ref in fp_by_ref if ref not in set(refs)}
     external_fps = [fp_by_ref[r] for r in sorted(external_refs)]
-    dropped_items: list = list(dropped_tracks) + list(dropped_vias)
-    boundary_by_net: dict[str, str | None] = {}
-    for item in dropped_items:
-        if not item.net_name:
-            continue
-        if item.net_name in boundary_by_net:
-            continue
-        boundary_by_net[item.net_name] = _boundary_net_external_ref(
-            [item], external_fps, adapter)
-    boundary_nets = [
-        SchemeListBoundaryNet(net=net, action="exclude", external_ref=ref)
-        for net, ref in sorted(boundary_by_net.items())
-    ]
+
+    # Part A truncate (plan_2026_09_06_boundary_truncate.md §4): for a net with
+    # action="truncate" clip EVERY dropped stub at the HONEST capture boundary —
+    # the union bbox of the captured footprints WITHOUT the pre-filter margin
+    # (region above is inflated by _BBOX_MARGIN_MM only as a perf pre-filter,
+    # NOT a decision boundary) — and KEEP its in-region part. A dropped via is a
+    # point: kept only when inside the boundary. The net STILL lands in
+    # boundary_nets with action="truncate" (the decision is persisted, so Reread
+    # re-applies the same clip deterministically).
+    truncate_nets = {net for net, act in (boundary_net_actions or {}).items()
+                     if act == "truncate"}
+    clip_box = _union_box(fp_boxes) if truncate_nets else None
+
+    dropped_by_net: dict[str, list] = {}
+    for item in list(dropped_tracks) + list(dropped_vias):
+        if item.net_name:
+            dropped_by_net.setdefault(item.net_name, []).append(item)
+
+    boundary_nets: list[SchemeListBoundaryNet] = []
+    for net, items in sorted(dropped_by_net.items()):
+        if (boundary_net_actions or {}).get(net) == "truncate":
+            if clip_box is None:
+                # No real footprint bbox geometry to clip against (e.g. a mock
+                # adapter without boxes) — degrade to exclude, never crash.
+                logger.warning(
+                    "scheme list %r: boundary net %r requested 'truncate' but no "
+                    "footprint bbox is available — falling back to 'exclude'",
+                    name, net)
+                action = "exclude"
+            else:
+                action = "truncate"
+                for item in items:
+                    if isinstance(item, Track):
+                        clipped = clip_segment_to_box(item.start, item.end, clip_box)
+                        if clipped is not None:
+                            kept_tracks.append(Track(
+                                uuid=f"clipped-{item.uuid}",
+                                start=clipped[0], end=clipped[1],
+                                net_name=item.net_name,
+                                width_mm=item.width_mm,
+                                layer=item.layer,
+                                _kipy=None))
+                    elif _point_in_box(item.position, clip_box):
+                        # Via — a point: nothing to clip; keep when in-region.
+                        kept_vias.append(item)
+        else:
+            action = "exclude"
+        boundary_nets.append(SchemeListBoundaryNet(
+            net=net,
+            action=action,
+            external_ref=_boundary_net_external_ref(items, external_fps, adapter)))
+
+    vias = [_via_record(v, origin) for v in kept_vias]
+    tracks = [_track_record(t, origin) for t in kept_tracks]
 
     # source_sheet: an explicit value (Reread's override) wins; otherwise it is
     # DERIVED from the anchor footprint's OWN full resolved sheet path (the

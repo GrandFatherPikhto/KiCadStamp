@@ -534,3 +534,119 @@ class TestRereadDiffChangeableScope:
         assert diff.refs_removed_from_scope == ["C2"]
         assert {c.ref for c in diff.components_moved} == set()
         assert diff.changed is True
+
+
+# ── Part A truncate: boundary_net_actions={"<net>": "truncate"} ─────────────
+
+class _NoFootprintBBoxAdapter(FakeAdapter):
+    """FakeAdapter whose footprint bounding boxes are None (no geometry to clip
+    against) — exercises the truncate degrade-to-exclude fallback."""
+
+    def get_bounding_boxes(self, items):
+        out = []
+        for it in items:
+            if isinstance(it, Footprint):
+                out.append(None)
+            else:
+                out.append(super().get_bounding_boxes([it])[0])
+        return out
+
+
+def _truncate_scenario():
+    """Captured R1(10,10)/C1(20,10) joined by a +5V track; a FOREIGN J1's GND
+    pad at (15,14) drags a stub tg (15,10)->(15,14) whose in-region part crosses
+    the captured footprints' union bbox (x[8,22], y[8,12] — the honest capture
+    boundary, NO pre-filter margin) — the perfect truncate candidate. Two GND
+    vias: v_in (18,10) INSIDE the boundary, v_out (22.2,10) inside the +1 mm
+    pre-filter band but OUTSIDE the clip boundary."""
+    r1 = _fp("R1", 10, 10)
+    c1 = _fp("C1", 20, 10)
+    j1 = _fp("J1", 15, 14)
+    fps = [r1, c1, j1]
+    pads = {
+        "R1": [_pad("R1", 10, 10, _V5)],
+        "C1": [_pad("C1", 20, 10, _V5)],
+        "J1": [_pad("J1", 15, 14, _GND)],
+    }
+    t1 = _track(10, 10, 20, 10, _V5, layer=F)
+    tg = _track(15, 10, 15, 14, _GND, layer=F)
+    v_in = _via(18, 10, _GND)
+    v_out = _via(22.2, 10, _GND)
+    adapter = FakeAdapter(fps, [t1, tg], [v_in, v_out], pads)
+    return adapter, ["R1", "C1"]
+
+
+class TestTruncateCapture:
+    def test_exclude_default_is_regression(self):
+        """Without boundary_net_actions the whole GND stub is dropped and the
+        record carries a plain exclude boundary_net (v1 behavior)."""
+        adapter, refs = _truncate_scenario()
+        cfg = capture_scheme_list("amp", refs, "R1", adapter=adapter)
+        assert all(t.net != _GND for t in cfg.tracks)
+        assert len(cfg.boundary_nets) == 1
+        assert cfg.boundary_nets[0].net == _GND
+        assert cfg.boundary_nets[0].action == "exclude"
+        assert cfg.boundary_nets[0].external_ref == "J1"
+
+    def test_truncate_clips_stub_keeps_in_region_part(self):
+        """action="truncate" for GND: the stub's in-region part (15,10)->(15,12)
+        is KEPT (offset from origin R1 = (5,0)->(5,2)); the out-of-region tail
+        (to y=14) is clipped away."""
+        adapter, refs = _truncate_scenario()
+        cfg = capture_scheme_list("amp", refs, "R1", adapter=adapter,
+                                  boundary_net_actions={_GND: "truncate"})
+        gnd_tracks = [t for t in cfg.tracks if t.net == _GND]
+        assert len(gnd_tracks) == 1
+        gt = gnd_tracks[0]
+        # clipped to the boundary y=12: start (5,0), end (5,2)
+        assert gt.start_along_mm == pytest.approx(5.0)
+        assert gt.start_across_mm == pytest.approx(0.0)
+        assert gt.end_along_mm == pytest.approx(5.0)
+        assert gt.end_across_mm == pytest.approx(2.0)
+        assert gt.layer == "F.Cu"
+
+    def test_truncate_keeps_in_region_via_drops_out_region_via(self):
+        """A dropped via INSIDE the boundary is kept; one OUTSIDE the boundary
+        (but inside the pre-filter band) is dropped."""
+        adapter, refs = _truncate_scenario()
+        cfg = capture_scheme_list("amp", refs, "R1", adapter=adapter,
+                                  boundary_net_actions={_GND: "truncate"})
+        gnd_vias = [v for v in cfg.vias if v.net == _GND]
+        assert len(gnd_vias) == 1
+        assert gnd_vias[0].offset_along_mm == pytest.approx(8.0)  # (18,10)
+        assert gnd_vias[0].offset_across_mm == pytest.approx(0.0)
+        # v_out (22.2,10) is outside the clip boundary -> dropped.
+
+    def test_truncate_boundary_net_persists_action(self):
+        adapter, refs = _truncate_scenario()
+        cfg = capture_scheme_list("amp", refs, "R1", adapter=adapter,
+                                  boundary_net_actions={_GND: "truncate"})
+        assert len(cfg.boundary_nets) == 1
+        bn = cfg.boundary_nets[0]
+        assert bn.net == _GND
+        assert bn.action == "truncate"   # decision persisted -> Reread re-clips
+        assert bn.external_ref == "J1"
+
+    def test_truncate_plus_v5_still_recorded(self):
+        """Truncate must not disturb the normal +5V copper: the recorded region
+        still carries the V5 track between R1 and C1."""
+        adapter, refs = _truncate_scenario()
+        cfg = capture_scheme_list("amp", refs, "R1", adapter=adapter,
+                                  boundary_net_actions={_GND: "truncate"})
+        v5_tracks = [t for t in cfg.tracks if t.net == _V5]
+        assert len(v5_tracks) == 1
+        assert v5_tracks[0].start_along_mm == pytest.approx(0.0)
+        assert v5_tracks[0].end_along_mm == pytest.approx(10.0)
+
+    def test_truncate_with_no_footprint_bbox_degrades_to_exclude(self):
+        """A mock adapter without real footprint bbox geometry cannot clip:
+        the requested "truncate" degrades to "exclude" with a warning — never a
+        crash, never a silent partial clip."""
+        adapter, refs = _truncate_scenario()
+        no_bbox = _NoFootprintBBoxAdapter(adapter._fps, adapter._tracks,
+                                          adapter._vias, adapter._pads)
+        cfg = capture_scheme_list("amp", refs, "R1", adapter=no_bbox,
+                                  boundary_net_actions={_GND: "truncate"})
+        assert all(t.net != _GND for t in cfg.tracks)
+        assert len(cfg.boundary_nets) == 1
+        assert cfg.boundary_nets[0].action == "exclude"
