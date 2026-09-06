@@ -353,6 +353,13 @@ class ConfigTreeDock(QDockWidget):
     # owning file path), the same (name, file_path) shape as
     # cell_refresh_requested; DockHub loads + runs the Reread flow.
     scheme_list_reread_requested = pyqtSignal(object, object)
+    # Fired by the context menu's "Place..." on a scheme_lists leaf
+    # (2026-09-06, plan scheme_list §6.3 — the triple exposure of Place:
+    # context menu / Tools menu / the Place QView's own button). Payload is
+    # (record dict, owning file path), the same shape as
+    # scheme_list_reread_requested; DockHub opens the
+    # SchemeListPlaceFormWidget right page preset to that record.
+    scheme_list_place_requested = pyqtSignal(object, object)
     # Fired on EVERY click in the tree (file header, category, or leaf) —
     # see module docstring for why this replaces the three independent
     # FilePickerDock role signals.
@@ -1233,6 +1240,13 @@ class ConfigTreeDock(QDockWidget):
                     menu.addAction(_("Reread...")).triggered.connect(
                         lambda checked=False, p=payload:
                         self.scheme_list_reread_requested.emit(p, file_path))
+                    # Place... (2026-09-06, plan scheme_list §6.3 — the
+                    # context-menu leg of the Place triple exposure): open the
+                    # SchemeListPlaceFormWidget right page preset to this
+                    # record (P6 Stage 3).
+                    menu.addAction(_("Place...")).triggered.connect(
+                        lambda checked=False, p=payload, f=file_path:
+                        self.scheme_list_place_requested.emit(p, f))
             if section == "cells":
                 menu.addAction(_("Edit cell...")).triggered.connect(
                     lambda: self.cell_edit_requested.emit(old_name, file_path))

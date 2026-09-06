@@ -13762,3 +13762,6 @@ msgstr "{name!r} актуален — на плате ничего не изме
 msgid "{net} (touched by {external_ref})"
 msgstr "{net} (затронута внешним компонентом {external_ref})"
 
+msgid "Place..."
+msgstr "Разместить..."
+

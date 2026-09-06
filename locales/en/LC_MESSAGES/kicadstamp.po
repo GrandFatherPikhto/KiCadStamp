@@ -15131,3 +15131,6 @@ msgstr ""
 msgid "{net} (touched by {external_ref})"
 msgstr ""
 
+msgid "Place..."
+msgstr ""
+

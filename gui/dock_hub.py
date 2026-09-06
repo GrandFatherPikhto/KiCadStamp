@@ -76,6 +76,7 @@ from .docks.scheme_list import (
     scheme_list_duplicate_problems,
     write_scheme_list_record,
 )
+from .docks.scheme_list_place import SchemeListPlaceFormWidget
 
 
 class DockHub:
@@ -167,6 +168,17 @@ class DockHub:
         # via the Entity(scheme_list:)/Placement machinery (P4/P6).
         self.scheme_list_dock = SchemeListFormWidget(main_window, connection=connection)
         self._scheme_list_page = self.config_tree_dock.add_right_page(self.scheme_list_dock)
+        # Scheme List Place (2026-09-06, plan scheme_list §6 / P6 Stage 3): the
+        # SEPARATE "Place Scheme List..." QView page (NOT a tab of "Instantiate
+        # from Cell..." — Denis's anti-pattern §9.1). It turns ONE recorded
+        # snapshot into a NEW scheme_list-based Entity + a placement node in an
+        # EXISTING tree. Built once and registered as another Config right page,
+        # driven by root_changed (set_root_path -> refresh cfg combos) and the
+        # selection ticks (the opt-in "from selection" hint).
+        self.scheme_list_place_dock = SchemeListPlaceFormWidget(
+            main_window, connection=connection)
+        self._scheme_list_place_page = self.config_tree_dock.add_right_page(
+            self.scheme_list_place_dock)
         # Held across the Record.../capture worker ops (worker.py keeps its own
         # keep-alive too, but the dock keeps the returned controller for
         # inspection/idempotency, the same shape as the docks' _active_op).
@@ -325,6 +337,47 @@ class DockHub:
         self._show_config_scheme_list()
         self.scheme_list_dock.reread()
 
+    # ── Scheme List Place (2026-09-06, plan scheme_list §6.3 / P6 Stage 3) ─
+    # The Place QView is the Config side of turning ONE recorded snapshot into
+    # a NEW scheme_list-based Entity + a placement node in an EXISTING tree.
+    # Triple exposure: the context menu's "Place..." (scheme_list_place_
+    # requested), the Tools menu's "Place..." (blank form, presets the record
+    # currently selected in the Config tree when there is one) and the page's
+    # own button. All three land on the same SchemeListPlaceFormWidget page.
+
+    def _show_place_scheme_list_page(self, record_name) -> None:
+        """Shared leg of the Place triple exposure: focus the Config dock,
+        re-read the cfg at the current root (refresh() repopulates the cfg-
+        derived combos), preset the record when one was requested and show the
+        page. Order matters — preset_scheme_list needs a loaded cfg to resolve
+        the name, so refresh() runs before the preset."""
+        self._focus_config_tree_dock()
+        self.scheme_list_place_dock.refresh()
+        if record_name:
+            self.scheme_list_place_dock.preset_scheme_list(record_name)
+        self.config_tree_dock.show_page(self._scheme_list_place_page)
+
+    def place_scheme_list(self) -> None:
+        """Main menu "Tools -> Scheme Lists -> Place..." (plan §6.3): open the
+        SchemeListPlaceFormWidget QView page, preset to the Scheme List record
+        currently SELECTED in the Config tree when there is one (mirror of
+        reread_scheme_list), otherwise a blank form — the user picks the record
+        + tree + parent + offset/rotation in the page itself."""
+        name = None
+        selection = self.config_tree_dock.selected_scheme_list()
+        if selection is not None:
+            entry = selection[1]
+            name = entry.get("name") if isinstance(entry, dict) else None
+        self._show_place_scheme_list_page(name)
+
+    def place_scheme_list_record(self, entry, file_path) -> None:
+        """Config-tree context menu's "Place..." delegate
+        (scheme_list_place_requested, 2026-09-06): preset the Place page to
+        the right-clicked record (by its name) and show it. `file_path` is the
+        record's owning file — the page re-resolves the tree owner itself."""
+        name = entry.get("name") if isinstance(entry, dict) else None
+        self._show_place_scheme_list_page(name)
+
     def _show_config_chain(self, *_args) -> None:
         """Route a chains pick (pad leaf / chain edit / Add net / Add spoke) to
         the Chain right page of the Config dock (2026-09-05, design
@@ -431,6 +484,12 @@ class DockHub:
         self.root_metadata_dock.root_changed.connect(
             partial(self._safe_call, "scheme_list_dock.set_root_path",
                     self.scheme_list_dock.set_root_path))
+        # Scheme List Place (2026-09-06, plan scheme_list §6 / P6 Stage 3): the
+        # Place page's cfg combos (scheme lists / trees / parents) come from
+        # the root config — same root_changed source as every other dock.
+        self.root_metadata_dock.root_changed.connect(
+            partial(self._safe_call, "scheme_list_place_dock.set_root_path",
+                    self.scheme_list_place_dock.set_root_path))
         self.root_metadata_dock.root_changed.connect(
             partial(self._safe_call, "cells_dock.set_root_path",
                     self.cells_dock.set_root_path))
@@ -563,6 +622,10 @@ class DockHub:
         self.config_tree_dock.scheme_list_picked.connect(self._load_scheme_list_page)
         self.config_tree_dock.scheme_list_reread_requested.connect(
             self._reread_scheme_list_from_tree)
+        # 2026-09-06 (plan scheme_list §6.3 / P6 Stage 3): the context menu's
+        # "Place..." — the Place page opens preset to the right-clicked record.
+        self.config_tree_dock.scheme_list_place_requested.connect(
+            self.place_scheme_list_record)
         # "Edit cell..." (context menu, 2026-08-06) — deliberately NOT wired
         # to cell_picked, which keeps meaning "pick this cell as a
         # placement's content" (see config_tree.py's module docstring).
@@ -609,6 +672,15 @@ class DockHub:
         # Scheme List (2026-09-06, plan scheme_list P5): a successful Reread
         # Apply rewrites the record — refresh the tree's leaf display.
         self.scheme_list_dock.saved.connect(self.config_tree_dock.refresh)
+        # Scheme List Place (2026-09-06, plan scheme_list §6.3 / P6 Stage 3): a
+        # successful Place wrote a NEW Entity + a NEW tree node — refresh the
+        # Config tree's display, reload the Trees dock (its tree tabs hold the
+        # config's trees: in memory) and broadcast graph_changed so every
+        # graph-derived combo (Entity names, ...) hears about the new Entity.
+        self.scheme_list_place_dock.saved.connect(self.config_tree_dock.refresh)
+        self.scheme_list_place_dock.saved.connect(self.trees_dock.reload_trees)
+        self.scheme_list_place_dock.saved.connect(
+            self.config_tree_dock.graph_changed.emit)
         self.cells_dock.saved.connect(self.config_tree_dock.refresh)
         self.tools_dock.saved.connect(self.config_tree_dock.refresh)
         self.tools_dock.saved.connect(self._refresh_graph_dependent_choices)
@@ -741,6 +813,10 @@ class DockHub:
         self._selection_raw_items = list(items)
         self._selection_footprints = list(selected)
         self.placer_dock.set_board_selection(items, selected)
+        # Scheme List Place (2026-09-06, plan scheme_list §6 / P6 Stage 3): the
+        # Place page's opt-in "from selection" hint reads the current selection
+        # center — fed by the same polled snapshot tick as Placer's auto-fill.
+        self.scheme_list_place_dock.set_board_selection(items, selected)
 
     def push_fieldstool_selection(self, refs) -> None:
         """Live board selection -> embedded fieldstool's target label (Phase
@@ -1744,6 +1820,11 @@ class DockHub:
         self._safe_call("points_dock.set_root_path", self.points_dock.set_root_path, path)
         self._safe_call("net_trace_dock.set_root_path",
                         self.net_trace_dock.set_root_path, path)
+        # Scheme List Place (2026-09-06, plan scheme_list §6 / P6 Stage 3): the
+        # Place page reads its cfg combos from the root — must be in the same
+        # startup/discard sync list as every other root_changed consumer.
+        self._safe_call("scheme_list_place_dock.set_root_path",
+                        self.scheme_list_place_dock.set_root_path, path)
         self._safe_call("fieldstool_dock.set_root_path",
                         self.fieldstool_dock.set_root_path, path)
         self._safe_call("_on_root_file_changed_for_logging",

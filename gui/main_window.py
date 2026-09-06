@@ -362,6 +362,15 @@ class MainWindow(QMainWindow):
         self.reread_scheme_list_action.triggered.connect(
             lambda: self._dock_hub.reread_scheme_list())
         self.scheme_lists_menu.addAction(self.reread_scheme_list_action)
+        # "Place..." (2026-09-06, plan scheme_list §6.3 / P6): the third action
+        # of the triple exposure — opens the SchemeListPlaceFormWidget QView
+        # (Tools -> Scheme Lists, deliberately NOT Tools -> Trees — this is the
+        # Config side of turning a recorded snapshot into an Entity + placement
+        # node, even though the result lands in a tree). Delegate on DockHub.
+        self.place_scheme_list_action = QAction(_("Place..."), self)
+        self.place_scheme_list_action.triggered.connect(
+            lambda: self._dock_hub.place_scheme_list())
+        self.scheme_lists_menu.addAction(self.place_scheme_list_action)
 
         # ── Tools root (non-tree entries) ────────────────────────────────
         # "Place thermal vias..." (2026-09-01, plan
