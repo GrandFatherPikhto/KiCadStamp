@@ -14,6 +14,120 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
+#: gui/docks/scheme_list_place.py
+#, python-brace-format
+msgid "Unknown Scheme List {name!r}."
+msgstr "Неизвестный Scheme List {name!r}."
+
+#: gui/docks/scheme_list_place.py
+#, python-brace-format
+msgid "Unknown tree {name!r}."
+msgstr "Неизвестное дерево {name!r}."
+
+#: gui/docks/scheme_list_place.py
+msgid "— top level (no parent) —"
+msgstr "— верхний уровень (без родителя) —"
+
+#: gui/docks/scheme_list_place.py
+msgid "Place Scheme List"
+msgstr "Разместить Scheme List"
+
+#: gui/docks/scheme_list_place.py
+msgid "Scheme List:"
+msgstr "Scheme List:"
+
+#: gui/docks/scheme_list_place.py
+msgid "Target sheet:"
+msgstr "Целевой лист:"
+
+#: gui/docks/scheme_list_place.py
+msgid "Leave empty to place on the sheet the Scheme List was recorded from (in place); pick another sheet to place onto its twin."
+msgstr "Оставьте пустым, чтобы разместить на листе, с которого была записана Scheme List (на месте); выберите другой лист, чтобы разместить на его твине."
+
+#: gui/docks/scheme_list_place.py
+msgid "Tree:"
+msgstr "Дерево:"
+
+#: gui/docks/scheme_list_place.py
+msgid "Top level = relative to the tree anchor."
+msgstr "Верхний уровень = относительно якоря дерева."
+
+#: gui/docks/scheme_list_place.py
+msgid "Parent node:"
+msgstr "Родительский узел:"
+
+#: gui/docks/scheme_list_place.py
+msgid "Take from selection (center of the selected group)"
+msgstr "Взять из выделения (центр выбранной группы)"
+
+#: gui/docks/scheme_list_place.py
+msgid "X offset (mm):"
+msgstr "Смещение X (мм):"
+
+#: gui/docks/scheme_list_place.py
+msgid "Y offset (mm):"
+msgstr "Смещение Y (мм):"
+
+#: gui/docks/scheme_list_place.py
+msgid "new Entity name (must be unique)"
+msgstr "имя новой Entity (должно быть уникальным)"
+
+#: gui/docks/scheme_list_place.py
+msgid "Place"
+msgstr "Разместить"
+
+#: gui/docks/scheme_list_place.py
+msgid "Place adds a tree Entity that references the Scheme List by name — it never copies the recorded geometry and never touches the live board until you Redraw the tree node."
+msgstr "«Place» добавляет Entity дерева, которая ссылается на Scheme List по имени, — геометрия записи не копируется, и живая плата не затрагивается, пока вы не выполните Redraw узла дерева."
+
+#: gui/docks/scheme_list_place.py
+#, python-brace-format
+msgid "Failed to load the config: {error}"
+msgstr "Не удалось загрузить конфиг: {error}"
+
+#: gui/docks/scheme_list_place.py
+msgid "Failed to load the config."
+msgstr "Не удалось загрузить конфиг."
+
+#: gui/docks/scheme_list_place.py
+msgid "no Scheme Lists recorded — use Tools → Scheme Lists → Record..."
+msgstr "Scheme List ещё не записаны — используйте Tools → Scheme Lists → Record..."
+
+#: gui/docks/scheme_list_place.py
+msgid "no editable trees in this config"
+msgstr "в этом конфиге нет редактируемых деревьев"
+
+#: gui/docks/scheme_list_place.py
+msgid "Cannot derive the node offset from the selection — enter the X/Y offset manually."
+msgstr "Не удаётся вычислить смещение узла из выделения — введите смещение X/Y вручную."
+
+#: gui/docks/scheme_list_place.py
+msgid "Select a Scheme List to place."
+msgstr "Выберите Scheme List для размещения."
+
+#: gui/docks/scheme_list_place.py
+msgid "Pick a tree to place into."
+msgstr "Выберите дерево, в которое разместить."
+
+#: gui/docks/scheme_list_place.py
+msgid "Place failed — check the log."
+msgstr "Размещение не удалось — проверьте журнал."
+
+#: gui/docks/scheme_list_place.py
+#, python-brace-format
+msgid "Tree {name!r} not found in the config graph."
+msgstr "Дерево {name!r} не найдено в графе конфига."
+
+#: gui/docks/scheme_list_place.py
+#, python-brace-format
+msgid "Place failed: {error}"
+msgstr "Размещение не удалось: {error}"
+
+#: gui/docks/scheme_list_place.py
+#, python-brace-format
+msgid "Placed Scheme List {scheme!r} as Entity {entity!r} under tree {tree!r}."
+msgstr "Scheme List {scheme!r} размещена как Entity {entity!r} в дереве {tree!r}."
+
 #: gui/dock_hub.py:663 gui/dock_hub.py:674
 msgid "Pick a chain in the Config tree first."
 msgstr "Сначала выберите цепь в дереве Config."

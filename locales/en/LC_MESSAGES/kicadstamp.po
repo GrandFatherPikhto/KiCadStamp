@@ -14,6 +14,120 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
+#: gui/docks/scheme_list_place.py
+#, python-brace-format
+msgid "Unknown Scheme List {name!r}."
+msgstr ""
+
+#: gui/docks/scheme_list_place.py
+#, python-brace-format
+msgid "Unknown tree {name!r}."
+msgstr ""
+
+#: gui/docks/scheme_list_place.py
+msgid "— top level (no parent) —"
+msgstr ""
+
+#: gui/docks/scheme_list_place.py
+msgid "Place Scheme List"
+msgstr ""
+
+#: gui/docks/scheme_list_place.py
+msgid "Scheme List:"
+msgstr ""
+
+#: gui/docks/scheme_list_place.py
+msgid "Target sheet:"
+msgstr ""
+
+#: gui/docks/scheme_list_place.py
+msgid "Leave empty to place on the sheet the Scheme List was recorded from (in place); pick another sheet to place onto its twin."
+msgstr ""
+
+#: gui/docks/scheme_list_place.py
+msgid "Tree:"
+msgstr ""
+
+#: gui/docks/scheme_list_place.py
+msgid "Top level = relative to the tree anchor."
+msgstr ""
+
+#: gui/docks/scheme_list_place.py
+msgid "Parent node:"
+msgstr ""
+
+#: gui/docks/scheme_list_place.py
+msgid "Take from selection (center of the selected group)"
+msgstr ""
+
+#: gui/docks/scheme_list_place.py
+msgid "X offset (mm):"
+msgstr ""
+
+#: gui/docks/scheme_list_place.py
+msgid "Y offset (mm):"
+msgstr ""
+
+#: gui/docks/scheme_list_place.py
+msgid "new Entity name (must be unique)"
+msgstr ""
+
+#: gui/docks/scheme_list_place.py
+msgid "Place"
+msgstr ""
+
+#: gui/docks/scheme_list_place.py
+msgid "Place adds a tree Entity that references the Scheme List by name — it never copies the recorded geometry and never touches the live board until you Redraw the tree node."
+msgstr ""
+
+#: gui/docks/scheme_list_place.py
+#, python-brace-format
+msgid "Failed to load the config: {error}"
+msgstr ""
+
+#: gui/docks/scheme_list_place.py
+msgid "Failed to load the config."
+msgstr ""
+
+#: gui/docks/scheme_list_place.py
+msgid "no Scheme Lists recorded — use Tools → Scheme Lists → Record..."
+msgstr ""
+
+#: gui/docks/scheme_list_place.py
+msgid "no editable trees in this config"
+msgstr ""
+
+#: gui/docks/scheme_list_place.py
+msgid "Cannot derive the node offset from the selection — enter the X/Y offset manually."
+msgstr ""
+
+#: gui/docks/scheme_list_place.py
+msgid "Select a Scheme List to place."
+msgstr ""
+
+#: gui/docks/scheme_list_place.py
+msgid "Pick a tree to place into."
+msgstr ""
+
+#: gui/docks/scheme_list_place.py
+msgid "Place failed — check the log."
+msgstr ""
+
+#: gui/docks/scheme_list_place.py
+#, python-brace-format
+msgid "Tree {name!r} not found in the config graph."
+msgstr ""
+
+#: gui/docks/scheme_list_place.py
+#, python-brace-format
+msgid "Place failed: {error}"
+msgstr ""
+
+#: gui/docks/scheme_list_place.py
+#, python-brace-format
+msgid "Placed Scheme List {scheme!r} as Entity {entity!r} under tree {tree!r}."
+msgstr ""
+
 #: gui/dock_hub.py:663 gui/dock_hub.py:674
 msgid "Pick a chain in the Config tree first."
 msgstr "Pick a chain in the Config tree first."
