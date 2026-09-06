@@ -72,7 +72,7 @@ from .docks.instances_dialog import TreeInstancesDialog
 from .docks.scheme_list import (
     RecordSchemeListDialog,
     SchemeListFormWidget,
-    confirm_boundary_exclusions,
+    choose_boundary_actions,
     record_refs_for,
     scheme_list_duplicate_problems,
     write_scheme_list_record,
@@ -1270,17 +1270,35 @@ class DockHub:
         return {"record": record, "root": payload["root"]}
 
     def _finish_record_capture(self, result: Dict[str, Any]) -> None:
-        """UI thread: boundary-net decision dialog (v1 — exclude only), then
-        write the record to scheme_lists.json and refresh the Config tree."""
+        """UI thread: boundary-net decision dialog (per-net Exclude/Truncate,
+        G1), then write the record to scheme_lists.json and refresh the Config
+        tree. TEMPORARY BRIDGE until G2 (plan_2026_09_06_boundary_truncate.md
+        §5-G1): the Record flow is not yet two-phase, so only the v1 outcomes
+        of the new dialog are honoured here (None = Cancel, {} = all-exclude →
+        write the phase-1 record as v1). A truncate choice needs G2's second
+        capture pass — refusing to write a record that would silently ignore
+        it."""
         self._scheme_active_op = None
         if result.get("error"):
             QMessageBox.warning(self.main_window, _("Record failed"),
                                 result["error"])
             return
         record = result["record"]
-        if record.boundary_nets and not confirm_boundary_exclusions(
-                self.main_window, record.boundary_nets):
-            return
+        if record.boundary_nets:
+            actions = choose_boundary_actions(
+                self.main_window, record.boundary_nets)
+            if actions is None:
+                return  # Cancel — nothing is written (as v1 Cancel)
+            if any(a == "truncate" for a in actions.values()):
+                # Temporary (G1): truncate cannot be applied without G2's
+                # second capture pass — do not write an all-exclude record
+                # over an explicit truncate choice.
+                QMessageBox.warning(
+                    self.main_window, _("Scheme Lists"),
+                    _("Truncate for boundary nets is not wired into the "
+                      "Record flow yet — it arrives in the next stage. "
+                      "Nothing was recorded."))
+                return
         root_path = Path(result["root"])
         try:
             written = write_scheme_list_record(root_path, record)

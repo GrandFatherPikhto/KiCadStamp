@@ -34,7 +34,7 @@ from typing import Any, Dict, List, Optional
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFormLayout,
                              QHBoxLayout, QLabel, QLineEdit, QListWidget,
-                             QListWidgetItem, QMessageBox, QPlainTextEdit,
+                             QListWidgetItem, QPlainTextEdit,
                              QPushButton, QTabWidget, QVBoxLayout, QWidget)
 
 from kicadstamp.config import SchemeListConfig, load_scheme_list
@@ -569,40 +569,99 @@ class SchemeListDiffDialog(QDialog):
 
 
 @dataclass
-class _BoundaryRow:
+class BoundaryNetRow:
+    """One PURE row of the per-net boundary dialog (G1, plan §5-G1) — the net
+    plus the external component ref that dragged its copper to the capture
+    boundary (diagnostics only). Carries NO decision; the dialog's widgets
+    decide."""
     net: str
     external_ref: Optional[str]
 
 
-def confirm_boundary_exclusions(parent, boundary_nets: list) -> bool:
-    """v1 boundary-net decision dialog (plan §5.3): a capture whose closure
-    dropped whole connected components reaching only EXCLUDED footprints
-    reports them as boundary_nets. v1 has a single action per net — exclude —
-    so this dialog only CONFIRMS the exclusions (and shows the external ref
-    that dragged each net as diagnostics); there is no truncate option.
-    Returns True to record with the exclusions, False to cancel."""
-    rows = [
-        _BoundaryRow(net=bn.net, external_ref=bn.external_ref)
+def boundary_net_rows(boundary_nets: list) -> list:
+    """Filter a capture's boundary-net list down to real
+    ``SchemeListBoundaryNet`` rows (the capture always produces them, but a
+    stray non-model entry must not crash the dialog) — the pure input the
+    boundary dialog renders. Net + external_ref only; no decision lives
+    here."""
+    return [
+        BoundaryNetRow(net=bn.net, external_ref=bn.external_ref)
         for bn in boundary_nets if isinstance(bn, SchemeListBoundaryNet)
     ]
-    lines = "\n".join(
-        _("{net} (touched by {external_ref})").format(net=r.net, external_ref=r.external_ref)
-        if r.external_ref else r.net
-        for r in rows)
-    box = QMessageBox(parent)
-    box.setWindowTitle(_("Boundary nets"))
-    box.setText(
-        _("The recorded region touches copper of components outside the "
-          "selection on the following net(s):\n\n{nets}\n\n"
-          "This copper cannot be part of the Scheme List — v1 excludes it "
-          "(drops each whole connected component). The exclusions are stored "
-          "in the record; Reread will keep reporting changes to these nets.")
-        .format(nets=lines))
-    record_btn = box.addButton(_("Record with exclusions"),
-                               QMessageBox.ButtonRole.AcceptRole)
-    box.addButton(QMessageBox.StandardButton.Cancel)
-    box.exec()
-    return box.clickedButton() is record_btn
+
+
+class BoundaryNetDialog(QDialog):
+    """Per-net boundary decision (G1, plan §5-G1; replaces the v1
+    ``confirm_boundary_exclusions`` QMessageBox, which could only CONFIRM the
+    all-exclude outcome). One row per boundary net: the net + external-ref
+    diagnostics and an ``Exclude | Truncate`` combo, DEFAULT Exclude; an OK
+    ("Record") + Cancel button row. This dialog ONLY collects the per-net
+    choice — it never applies anything; applying the actions is the caller's
+    job (the two-phase Record flow re-runs capture with the chosen actions in
+    G2)."""
+
+    def __init__(self, rows, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(_("Boundary nets"))
+        self._combos: List[tuple] = []  # (net, QComboBox) in row order
+        layout = QVBoxLayout(self)
+        explain = QLabel(
+            _("Choose how to treat each boundary net. Exclude drops the whole "
+              "connected component; Truncate keeps only the copper inside the "
+              "capture region."))
+        explain.setWordWrap(True)
+        layout.addWidget(explain)
+
+        form = QFormLayout()
+        for row in rows:
+            if row.external_ref:
+                net_label = _("{net} (touched by {external_ref})").format(
+                    net=row.net, external_ref=row.external_ref)
+            else:
+                net_label = row.net
+            combo = QComboBox()
+            combo.addItem(_("Exclude"), "exclude")
+            combo.addItem(_("Truncate"), "truncate")
+            self._combos.append((row.net, combo))
+            form.addRow(QLabel(net_label), combo)
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox()
+        record_button = QPushButton(_("Record"))
+        buttons.addButton(record_button,
+                          QDialogButtonBox.ButtonRole.AcceptRole)
+        buttons.addButton(QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def selected_actions(self) -> Dict[str, str]:
+        """Read the widgets — the per-net truncate choices ONLY. A net left on
+        Exclude is omitted ({} = everything excluded); the capture (Stage 4)
+        defaults any net not mentioned in the dict to exclude. Pure widget
+        reading, no decision logic."""
+        return {net: "truncate" for net, combo in self._combos
+                if combo.currentData() == "truncate"}
+
+
+def choose_boundary_actions(parent, boundary_nets: list) -> Optional[Dict[str, str]]:
+    """Per-net boundary decision (G1, plan §5-G1) — replaces the v1
+    ``confirm_boundary_exclusions(...) -> bool``:
+      - ``None`` — user pressed Cancel (nothing is written — as v1 Cancel);
+      - ``{}`` — OK with every net left on Exclude (v1 record-with-exclusions,
+        byte-identical);
+      - ``{net: "truncate", ...}`` — OK after choosing truncate for specific
+        nets; every other boundary net stays exclude.
+    Building the dialog rows (boundary_net_rows) and reading the widgets
+    (BoundaryNetDialog.selected_actions) are separate pure steps so the
+    decision logic stays testable without showing a modal."""
+    rows = boundary_net_rows(boundary_nets)
+    if not rows:
+        return {}
+    dialog = BoundaryNetDialog(rows, parent)
+    if dialog.exec() != QDialog.DialogCode.Accepted:
+        return None
+    return dialog.selected_actions()
 
 
 # ── The Config right-page form ─────────────────────────────────────────────

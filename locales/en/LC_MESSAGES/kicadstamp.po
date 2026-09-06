@@ -15036,6 +15036,9 @@ msgstr ""
 msgid "Cannot record Scheme List"
 msgstr ""
 
+msgid "Exclude"
+msgstr ""
+
 msgid "Load a Scheme List record first."
 msgstr ""
 
@@ -15043,6 +15046,9 @@ msgid "No footprints selected — select the footprints to record on the board f
 msgstr ""
 
 msgid "Pick a Scheme List in the Config tree first."
+msgstr ""
+
+msgid "Record"
 msgstr ""
 
 msgid "Record Scheme List"
@@ -15097,6 +15103,15 @@ msgid "Source sheet:"
 msgstr ""
 
 msgid "The recorded region touches copper of components outside the selection on the following net(s):\n\n{nets}\n\nThis copper cannot be part of the Scheme List — v1 excludes it (drops each whole connected component). The exclusions are stored in the record; Reread will keep reporting changes to these nets."
+msgstr ""
+
+msgid "Choose how to treat each boundary net. Exclude drops the whole connected component; Truncate keeps only the copper inside the capture region."
+msgstr ""
+
+msgid "Truncate"
+msgstr ""
+
+msgid "Truncate for boundary nets is not wired into the Record flow yet — it arrives in the next stage. Nothing was recorded."
 msgstr ""
 
 msgid "Updated Scheme List {name!r} from the live board -> {path}"

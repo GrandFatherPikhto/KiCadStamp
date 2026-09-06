@@ -13667,6 +13667,9 @@ msgstr "Пограничные сети"
 msgid "Cannot record Scheme List"
 msgstr "Не удаётся записать Scheme List"
 
+msgid "Exclude"
+msgstr "Исключить"
+
 msgid "Load a Scheme List record first."
 msgstr "Сначала загрузите запись Scheme List."
 
@@ -13675,6 +13678,9 @@ msgstr "Футпринты не выбраны — сначала выберит
 
 msgid "Pick a Scheme List in the Config tree first."
 msgstr "Сначала выберите Scheme List в дереве Config."
+
+msgid "Record"
+msgstr "Записать"
 
 msgid "Record Scheme List"
 msgstr "Записать Scheme List"
@@ -13729,6 +13735,15 @@ msgstr "Исходный лист:"
 
 msgid "The recorded region touches copper of components outside the selection on the following net(s):\n\n{nets}\n\nThis copper cannot be part of the Scheme List — v1 excludes it (drops each whole connected component). The exclusions are stored in the record; Reread will keep reporting changes to these nets."
 msgstr "Записываемая область касается меди компонентов вне выделения по следующим сетям:\n\n{nets}\n\nЭта медь не может быть частью Scheme List — в v1 она исключается (отбрасывается целая связная компонента). Исключения сохраняются в записи; Reread продолжит сообщать об изменениях этих сетей."
+
+msgid "Choose how to treat each boundary net. Exclude drops the whole connected component; Truncate keeps only the copper inside the capture region."
+msgstr "Выберите, как поступить с каждой пограничной сетью. «Исключить» отбрасывает всю связную компоненту; «Обрезать» оставляет только медь внутри области захвата."
+
+msgid "Truncate"
+msgstr "Обрезать"
+
+msgid "Truncate for boundary nets is not wired into the Record flow yet — it arrives in the next stage. Nothing was recorded."
+msgstr "Truncate для пограничных сетей ещё не подключён к записи Record — появится на следующем этапе. Ничего не записано."
 
 msgid "Updated Scheme List {name!r} from the live board -> {path}"
 msgstr "Scheme List {name!r} обновлён с живой платы -> {path}"

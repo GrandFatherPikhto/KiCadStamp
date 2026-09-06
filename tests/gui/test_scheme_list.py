@@ -19,13 +19,17 @@ from types import SimpleNamespace
 
 import pytest
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QPushButton, QTabWidget
+from PyQt6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QLabel,
+                             QPushButton, QTabWidget)
 
 from gui.docks.config_tree import ConfigTreeDock
 from gui.docks.scheme_list import (
+    BoundaryNetDialog,
     RecordSchemeListDialog,
     SchemeListDiffDialog,
     SchemeListFormWidget,
+    boundary_net_rows,
+    choose_boundary_actions,
     default_scheme_list_path,
     live_sheet_paths,
     read_scheme_list_records,
@@ -38,6 +42,7 @@ from gui.docks.scheme_list import (
     write_scheme_list_record,
 )
 from kicadstamp.config import load_config, load_scheme_list
+from kicadstamp.config.models import SchemeListBoundaryNet
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.domain.board import Footprint, Pad, Track, Via
 from kicadstamp.link_trees import link_trees
@@ -444,6 +449,117 @@ def test_diff_dialog_gates_apply_when_a_ref_is_missing(main_window, tmp_path):
                       if b.text() == "Apply")
     assert not apply_btn2.isEnabled()
     dialog2.close()
+
+
+# ── G1: per-net boundary dialog (choose_boundary_actions) ───────────────────
+# plan_2026_09_06_boundary_truncate.md §5-G1 — the v1 bool
+# confirm_boundary_exclusions is replaced by a per-net Exclude|Truncate dialog
+# whose OK returns a dict: {net: "truncate"} for the nets switched off Exclude,
+# {} = all-exclude (v1 record-with-exclusions), None = Cancel. The dialog only
+# READS the widgets — it never applies anything (the two-phase Record flow that
+# honours a truncate choice is G2).
+
+def _boundary_net(net, external_ref=None, action="exclude"):
+    return SchemeListBoundaryNet(net=net, action=action,
+                                 external_ref=external_ref)
+
+
+def _two_boundary_nets():
+    return [_boundary_net("NET1", external_ref="R9"),
+            _boundary_net("NET2")]
+
+
+def test_boundary_net_rows_filters_real_models_and_keeps_diagnostics():
+    """The pure helper drops anything that is not a SchemeListBoundaryNet and
+    keeps net + external_ref — the input rows the dialog renders."""
+    rows = boundary_net_rows([_boundary_net("NET1", external_ref="R9"),
+                              _boundary_net("NET2"), "stray-not-a-model"])
+    assert [(r.net, r.external_ref) for r in rows] == [
+        ("NET1", "R9"), ("NET2", None)]
+    assert boundary_net_rows([]) == []
+
+
+def test_boundary_dialog_builds_one_exclude_default_row_per_net(main_window):
+    dialog = BoundaryNetDialog(boundary_net_rows(_two_boundary_nets()),
+                               main_window)
+    try:
+        assert dialog.windowTitle() == "Boundary nets"
+        assert len(dialog._combos) == 2
+        for _net, combo in dialog._combos:
+            assert combo.currentData() == "exclude"  # default Exclude
+            assert [combo.itemText(i) for i in range(combo.count())] == [
+                "Exclude", "Truncate"]
+        box = dialog.findChild(QDialogButtonBox)
+        assert box is not None
+        assert any(b.text() == "Record"
+                   for b in dialog.findChildren(QPushButton))
+        assert box.button(QDialogButtonBox.StandardButton.Cancel) is not None
+    finally:
+        dialog.close()
+
+
+def test_boundary_dialog_shows_external_ref_diagnostics(main_window):
+    dialog = BoundaryNetDialog(boundary_net_rows(_two_boundary_nets()),
+                               main_window)
+    try:
+        texts = [label.text() for label in dialog.findChildren(QLabel)]
+        # a net dragged by an external component shows "NET1 (touched by R9)"
+        assert any("NET1" in t and "R9" in t for t in texts)
+        # a net with no external ref is shown bare
+        assert any(t == "NET2" for t in texts)
+    finally:
+        dialog.close()
+
+
+def test_boundary_dialog_selected_actions_reflect_combo_choices(main_window):
+    dialog = BoundaryNetDialog(boundary_net_rows(_two_boundary_nets()),
+                               main_window)
+    try:
+        assert dialog.selected_actions() == {}  # all-exclude default
+        by_net = dict(dialog._combos)
+        by_net["NET1"].setCurrentIndex(1)  # -> Truncate
+        assert dialog.selected_actions() == {"NET1": "truncate"}
+        by_net["NET2"].setCurrentIndex(1)
+        assert dialog.selected_actions() == {"NET1": "truncate",
+                                             "NET2": "truncate"}
+    finally:
+        dialog.close()
+
+
+def test_choose_boundary_actions_cancel_returns_none(main_window, monkeypatch):
+    import gui.docks.scheme_list as sl_mod
+    monkeypatch.setattr(sl_mod.BoundaryNetDialog, "exec",
+                        lambda self: QDialog.DialogCode.Rejected)
+    assert choose_boundary_actions(main_window, _two_boundary_nets()) is None
+
+
+def test_choose_boundary_actions_all_exclude_returns_empty_dict(
+        main_window, monkeypatch):
+    import gui.docks.scheme_list as sl_mod
+    monkeypatch.setattr(sl_mod.BoundaryNetDialog, "exec",
+                        lambda self: QDialog.DialogCode.Accepted)
+    assert choose_boundary_actions(main_window, _two_boundary_nets()) == {}
+
+
+def test_choose_boundary_actions_truncate_choice_returns_dict(
+        main_window, monkeypatch):
+    import gui.docks.scheme_list as sl_mod
+
+    def _accepted_after_flipping_first_row(self):
+        # emulate the user switching the first net to Truncate before OK
+        self._combos[0][1].setCurrentIndex(1)
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(sl_mod.BoundaryNetDialog, "exec",
+                        _accepted_after_flipping_first_row)
+    assert choose_boundary_actions(main_window,
+                                   _two_boundary_nets()) == {"NET1": "truncate"}
+
+
+def test_choose_boundary_actions_empty_boundary_nets_returns_empty():
+    """No boundary nets -> {} without opening any dialog (the Record flow only
+    calls this on a non-empty list anyway)."""
+    assert choose_boundary_actions(None, []) == {}
 
 
 # ── DockHub wiring (page registered + single click opens it) ───────────────
