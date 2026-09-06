@@ -30,24 +30,34 @@ Modes:
                  fatal listing ALL missing targets — never a silent partial
                  apply.
 """
+import logging
 from dataclasses import dataclass, field
 
+from .config import Config
 from .config.models import (
     Entity,
     SchemeListComponentRecord,
     SchemeListConfig,
 )
+from .constants import ANGLE_TOLERANCE_DEG, DEFAULT_BATCH_SIZE, POSITION_TOLERANCE_MM
 from .domain.geometry import Angle, BoardLayer, Vector2
 from .exceptions import ValidationError, format_fatal_error
+from .link_trees import link_trees
+from .placement.entity_placement import _anchor_base
 from .tree_position import (
     child_absolute_position,
+    node_own_anchor_base,
+    node_position,
     relative_rotation_deg,
 )
 from .geometry.spoke_layout import rotate_local_offset
 from .utils.layers import layer_from_str
+from .utils.units import MM
 from .cloner.models import TwinMap
 from .channel_copy import build_channel_groups, sheet_name_of_fp
 from .i18n import _
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -338,3 +348,162 @@ def _track_command(start, end, width_mm, net, layer, owner_ref, key):
     from .placement.commands import TrackCommand
     return TrackCommand(start=start, end=end, width_mm=width_mm, net_name=net,
                         layer=layer, owner_ref=owner_ref, registry_key=key)
+
+
+# ── forest collection + aggregate planning + execution (P4.4) ───────────────
+
+def _lookup_scheme_list(cfg: Config, name: str) -> SchemeListConfig | None:
+    for rec in cfg.scheme_lists:
+        if rec.name == name:
+            return rec
+    return None
+
+
+def collect_scheme_list_nodes(adapter, cfg: Config, sheet_names: dict | None = None,
+                              forest: list | None = None) -> list[SchemeListNode]:
+    """Every scheme_list placement node in the tree forest, with its ABSOLUTE
+    (pos, rot) — the SAME anchor-base + node composition entity_placement uses
+    to materialize cell-based placement nodes (_anchor_base + _walk), so a
+    scheme-list node's position is computed identically. Entries whose Entity
+    is retired/skip are excluded (they are not placed, like the cell path).
+
+    Per-tree tolerance mirrors materialize_entity_placements: a tree whose
+    anchor cannot be resolved is local (warning + skip); config errors
+    (_EntityAnchorError) are not distinguishable here, so any ValidationError
+    during the anchor read is logged and the tree skipped.
+    """
+    if not cfg.entities or not cfg.trees:
+        return []
+    sheet_names = sheet_names or {}
+    forest = forest if forest is not None else link_trees(cfg, cfg.trees)
+    out: list[SchemeListNode] = []
+    for tree in forest:
+        try:
+            anchor_pos, anchor_rot = _anchor_base(
+                adapter, cfg, tree, sheet_names, forest=forest)
+        except Exception as exc:  # per-tree tolerance, like cell materialization
+            logger.warning(_("Scheme List apply: tree {tree!r} skipped — {error}")
+                           .format(tree=tree.name, error=exc))
+            continue
+        _collect_scheme_nodes(tree.nodes, anchor_pos, anchor_rot, out,
+                              adapter, cfg, sheet_names)
+    return out
+
+
+def _collect_scheme_nodes(linked_nodes, pos: Vector2, rot: float,
+                          out: list[SchemeListNode], adapter, cfg, sheet_names) -> None:
+    for ln in linked_nodes:
+        node = ln.node
+        base_pos, base_rot = pos, rot
+        if node.own_anchor is not None:
+            resolved = node_own_anchor_base(node, adapter, cfg, sheet_names)
+            if resolved is not None:
+                base_pos, base_rot = resolved
+        node_pos = node_position(node, base_pos, base_rot)
+        node_rot = base_rot + node.rotation
+        if node.kind == "placement" and ln.record is not None \
+                and isinstance(ln.record.obj, Entity):
+            ent = ln.record.obj
+            if ent.scheme_list is not None and not ent.retired and not ent.skip:
+                rec = _lookup_scheme_list(cfg, ent.scheme_list)
+                if rec is not None:
+                    out.append(SchemeListNode(entity=ent, scheme_list=rec,
+                                              position=node_pos, rotation_deg=node_rot))
+        _collect_scheme_nodes(ln.children, node_pos, node_rot, out,
+                              adapter, cfg, sheet_names)
+
+
+def plan_all_scheme_lists(adapter, cfg: Config, sheet_names: dict | None = None,
+                          *, only: list[str] | None = None,
+                          groups: dict[str, dict[str, str]] | None = None
+                          ) -> list[SchemeListApplyPlan]:
+    """Plan every scheme_list placement node in the config (the caller-level
+    branch of plan §4). `only` narrows by Entity name (Redraw-of-one); empty =
+    plan all. `groups` (the live twin map) is built ONCE and shared across all
+    nodes so a full apply does a single board scan."""
+    nodes = collect_scheme_list_nodes(adapter, cfg, sheet_names)
+    only_set = set(only) if only else None
+    plans: list[SchemeListApplyPlan] = []
+    for node in nodes:
+        if only_set and node.entity.name not in only_set:
+            continue
+        plan = plan_scheme_list(node.entity, node.scheme_list, adapter,
+                                node.position, node.rotation_deg, groups=groups)
+        plans.append(plan)
+    return plans
+
+
+def _point_close(a: Vector2, b: Vector2) -> bool:
+    return (abs(a.x - b.x) <= POSITION_TOLERANCE_MM * MM
+            and abs(a.y - b.y) <= POSITION_TOLERANCE_MM * MM)
+
+
+def _move_already_placed(adapter, move) -> bool:
+    """Idempotency of a component move: skip when the target footprint already
+    stands at (position, angle, layer) within the tolerances."""
+    fp = adapter.get_footprint(move.ref)
+    if fp is None:
+        return False
+    if not _point_close(fp.position, move.position):
+        return False
+    delta = abs(move.angle.degrees - fp.angle_deg) % 360.0
+    if min(delta, 360.0 - delta) > ANGLE_TOLERANCE_DEG:
+        return False
+    return fp.layer == move.layer
+
+
+def _via_already_exists(live_vias, cmd) -> bool:
+    """Skip a via when one already sits at the position on the same net."""
+    for live in live_vias:
+        if live.net_name != cmd.net_name:
+            continue
+        if _point_close(live.position, cmd.position):
+            return True
+    return False
+
+
+def execute_scheme_list_plans(adapter, plans: list[SchemeListApplyPlan], *,
+                              config: Config | None = None,
+                              batch_size: int = DEFAULT_BATCH_SIZE,
+                              check_collisions: bool = True,
+                              collision_margin_mm: float = 0.2,
+                              ) -> tuple[list[str], list[str], list[str]]:
+    """Execute the aggregated Scheme List plans through BatchExecutor — moves,
+    then vias, then tracks (one undo log), exactly like execute_channel_copy.
+    No registry participation: idempotency is positional (skip a move already
+    at target; skip a via/track already present at (position, net) — the
+    registry's shared track_matches predicate via filter_existing_tracks), so a
+    re-apply/Redraw never duplicates copper (plan §4 p.3 / §0.6).
+
+    Returns (failed_refs, failed_vias, failed_tracks)."""
+    from .placement.executor import BatchExecutor
+    from .registry import filter_existing_tracks
+
+    if not plans:
+        return [], [], []
+    moves = [m for p in plans for m in p.moves]
+    vias = [v for p in plans for v in p.vias]
+    tracks = [t for p in plans for t in p.tracks]
+    if not (moves or vias or tracks):
+        return [], [], []
+
+    moves = [m for m in moves if not _move_already_placed(adapter, m)]
+    live_vias = adapter.get_vias()
+    vias = [v for v in vias if not _via_already_exists(live_vias, v)]
+    live_tracks = adapter.get_tracks()
+    tracks = filter_existing_tracks(tracks, live_tracks)
+
+    if not (moves or vias or tracks):
+        logger.info(_("Scheme List apply: everything already in place — nothing to do"))
+        return [], [], []
+
+    cfg = config or Config()
+    executor = BatchExecutor(adapter, cfg, batch_size=batch_size,
+                             operation_log_dir=cfg.operation_log_dir)
+    failed_refs, failed_vias, failed_tracks = executor.execute(
+        moves, vias, tracks,
+        check_collisions=check_collisions,
+        collision_margin_mm=collision_margin_mm)
+    logger.info(_("Scheme List apply: {moves} moves, {vias} vias, {tracks} tracks")
+                .format(moves=len(moves), vias=len(vias), tracks=len(tracks)))
+    return failed_refs, failed_vias, failed_tracks

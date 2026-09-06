@@ -18,7 +18,11 @@ from kicadstamp.domain.board import Footprint, Pad
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.placement.entity_placement import materialize_entity_placements
-from kicadstamp.scheme_list_apply import plan_scheme_list
+from kicadstamp.scheme_list_apply import (
+    execute_scheme_list_plans,
+    plan_all_scheme_lists,
+    plan_scheme_list,
+)
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode
 from kicadstamp.utils.units import MM
 
@@ -61,11 +65,25 @@ def _rec(name="psu", anchor_ref="R1", anchor_rot=0.0, components=None,
 class FakeAdapter:
     """Minimal adapter for the pure planner: footprints + pads (sheet names)."""
 
-    def __init__(self, fps):
+    def __init__(self, fps, tracks=None, vias=None):
         self._fps = list(fps)
+        self._tracks = list(tracks or [])
+        self._vias = list(vias or [])
 
     def get_footprints(self):
         return list(self._fps)
+
+    def get_footprint(self, ref):
+        for fp in self._fps:
+            if fp.ref == ref:
+                return fp
+        return None
+
+    def get_tracks(self):
+        return list(self._tracks)
+
+    def get_vias(self):
+        return list(self._vias)
 
     def get_footprint_pads(self, fp):
         return [Pad(number="1", net_name=net, position=fp.position)
@@ -264,3 +282,51 @@ def test_scheme_list_entity_mirror_layer_fatal():
         load_entity({"name": "E1", "scheme_list": "psu", "mirror": True})
     with pytest.raises(VE, match="scheme_list-based"):
         load_entity({"name": "E1", "scheme_list": "psu", "layer": "B.Cu"})
+
+
+# ── P4.4: forest collection + aggregate planning + execution ────────────────
+
+def _scheme_cfg(entity=None, tree_nodes=None, rec=None):
+    rec = rec or _rec(anchor_ref="R1", components=[_comp("R1", 0, 0, 0.0)])
+    ent = entity if entity is not None else Entity(name="E1", scheme_list="psu")
+    return Config(scheme_lists=[rec], entities=[ent],
+                  trees=[_origin_tree(tree_nodes or [_node(ref="E1", xy=(5.0, 2.0),
+                                                          rotation=45.0)])])
+
+
+class TestForestPlanning:
+    def test_collect_origin_anchored_node_pos_and_rot(self):
+        """The tree collector computes the scheme node's ABSOLUTE pos/rot the
+        same way cell materialization does (origin anchor + node xy/rotation)."""
+        adapter = FakeAdapter([_fp("R1", 10, 10)])
+        plans = plan_all_scheme_lists(adapter, _scheme_cfg(), {})
+        assert len(plans) == 1
+        p = plans[0]
+        assert p.entity_name == "E1"
+        assert p.mode == "in_place"
+        move = p.moves[0]
+        assert move.ref == "R1"
+        _assert_xy_near(move.position, 5.0, 2.0)   # node xy (5,2) mm
+        assert move.angle.degrees == pytest.approx(45.0)  # node rotation
+
+    def test_only_filter_narrows_to_entity(self):
+        adapter = FakeAdapter([_fp("R1", 10, 10)])
+        cfg = _scheme_cfg()
+        assert len(plan_all_scheme_lists(adapter, cfg, {}, only=["E1"])) == 1
+        assert len(plan_all_scheme_lists(adapter, cfg, {}, only=["OTHER"])) == 0
+
+    def test_no_scheme_entities_is_empty(self):
+        adapter = FakeAdapter([_fp("R1", 10, 10)])
+        cfg = Config(entities=[Entity(name="E1", cell="c")], trees=[])
+        assert plan_all_scheme_lists(adapter, cfg, {}) == []
+
+
+class TestExecutionIdempotency:
+    def test_already_placed_move_and_no_copper_is_a_noop(self):
+        """Re-apply/Redraw when everything already sits at the target does not
+        touch the executor — positional idempotency (P4 plan §0.6)."""
+        # R1 already at the node target (5,2)
+        adapter = FakeAdapter([_fp("R1", 5, 2, angle=45.0)])
+        plans = plan_all_scheme_lists(adapter, _scheme_cfg(), {})
+        failed = execute_scheme_list_plans(adapter, plans)
+        assert failed == ([], [], [])

@@ -442,6 +442,16 @@ So "an Entity no tree node references" is a legitimate, explicitly *not placed* 
 | `layer` / `mirror` | Optional — same cross-validation as `ClonePlacement` (mirror without a layer change, or vice versa, is a fatal load error). |
 | `comment` | Optional free-form note shown in the GUI. |
 
+A `scheme_list`-based Entity (design_2026_09_05_scheme_list.md) is different:
+instead of `cell:` it references a recorded Scheme List and carries `sheet` = the
+TARGET sheet. Empty `sheet` (or equal to the record's `source_sheet`) means the
+record is replayed "in place" (its own refs move); a different `sheet` resolves
+the recorded components' TWINS on that sheet and remaps their local nets to it.
+Apply/Redraw of such an Entity never goes through the clone/cell machinery
+(`scheme_list_apply.py` — the recorded snapshot is refdes-literal, not a Role
+template). `mirror`/`layer` are meaningless here and are fatal at load (v1 has
+no mirror formula).
+
 ---
 
 ## `trees:` — the ONLY place a position can live

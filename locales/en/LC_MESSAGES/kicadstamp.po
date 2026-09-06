@@ -14850,3 +14850,21 @@ msgstr ""
 
 msgid "target {ref!r} is not on the board"
 msgstr ""
+
+msgid "Scheme List apply: tree {tree!r} skipped — {error}"
+msgstr ""
+
+msgid "Scheme List apply: everything already in place — nothing to do"
+msgstr ""
+
+msgid "Scheme List apply: {moves} moves, {vias} vias, {tracks} tracks"
+msgstr ""
+
+msgid "Planned {count} scheme list placement(s) from trees into the apply plan"
+msgstr ""
+
+msgid "Applying scheme list placements..."
+msgstr ""
+
+msgid "Scheme List {entity} ({mode}):"
+msgstr ""

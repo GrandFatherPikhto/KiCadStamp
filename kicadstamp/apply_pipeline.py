@@ -44,6 +44,7 @@ from .placement.services.manual_position_calculator import chain_anchor_ids
 from .placement.services.coordinate_position_calculator import build_coordinate_moves
 from .cluster_matching import cluster_prefix_match
 from .placement.executor import BatchExecutor
+from .scheme_list_apply import execute_scheme_list_plans, plan_all_scheme_lists
 from .exceptions import PlacerError
 from .validation import run_all_checks, check_config_structure
 from .registry import (PlacementRegistry, registry_path_for_config,
@@ -428,6 +429,10 @@ class ApplyPipeline:
         # the CLI layer prints and a future GUI panel could render. The
         # library itself never prints to stdout; it only produces this.
         self.dry_run_report: list[str] | None = None
+        # Scheme List placement plans (plan_2026_09_05_scheme_list.md §4) —
+        # built in _resolve_order over the FULL cfg, executed by _execute and
+        # reported by _dry_run. [] when there are no scheme_list Entities.
+        self._scheme_plans: list = []
 
     # ── Pipeline steps ──────────────────────────────────────────────────────
 
@@ -497,6 +502,19 @@ class ApplyPipeline:
                           "into the apply plan").format(count=len(materialized)))
             self.cfg = dataclasses.replace(
                 self.cfg, clone_placements=list(self.cfg.clone_placements) + materialized)
+        # Scheme List placements (plan_2026_09_05_scheme_list.md §4): the
+        # scheme_list-based Entities never materialize into clones (_walk skips
+        # them); their plans are built here over the FULL cfg (only narrowed)
+        # and executed by _execute / shown by _dry_run.
+        self._scheme_plans = []
+        if (self.adapter is not None
+                and any(e.scheme_list is not None for e in self._full_cfg.entities)):
+            self._scheme_plans = plan_all_scheme_lists(
+                self.adapter, self._full_cfg, self.sheet_names,
+                only=_split_comma_values(self.only))
+            if self._scheme_plans:
+                logger.info(_("Planned {count} scheme list placement(s) from trees "
+                              "into the apply plan").format(count=len(self._scheme_plans)))
         logger.info(_("Resolving item execution order (dependency chain — see dependency_order.py)..."))
         self.items = resolve_execution_order(
             self.adapter, self.cfg, sheet_names=self.sheet_names,
@@ -575,6 +593,22 @@ class ApplyPipeline:
         lines.append(_("(items later in the dependency chain above are ALSO planned from the CURRENT "
                        "board, not the post-move board of their prerequisite — a real apply may place "
                        "them differently; rerun without --dry-run for the true chained result)"))
+        for p in getattr(self, "_scheme_plans", []):
+            lines.append("\n" + _("Scheme List {entity} ({mode}):")
+                         .format(entity=p.entity_name, mode=p.mode))
+            for m in p.moves:
+                lines.append(_("  {ref}: ({x:.3f}, {y:.3f}) mm, angle={angle:.1f}°")
+                             .format(ref=m.ref, x=m.position.x / 1e6, y=m.position.y / 1e6,
+                                     angle=m.angle.degrees))
+            for v in p.vias:
+                lines.append(_("  via for {owner}: ({x:.3f}, {y:.3f}) mm, net={net}")
+                             .format(owner=v.owner_ref, x=v.position.x / 1e6, y=v.position.y / 1e6,
+                                     net=v.net_name))
+            for t in p.tracks:
+                lines.append(_("  track for {owner}: ({sx:.3f}, {sy:.3f}) -> ({ex:.3f}, {ey:.3f}) mm, "
+                               "net={net}, width={w} mm")
+                             .format(owner=t.owner_ref, sx=t.start.x / 1e6, sy=t.start.y / 1e6,
+                                     ex=t.end.x / 1e6, ey=t.end.y / 1e6, net=t.net_name, w=t.width_mm))
         self.dry_run_report = lines
         return lines
 
@@ -729,6 +763,19 @@ class ApplyPipeline:
         if failed_tracks:
             logger.warning(_("Failed to create tracks near: {refs}")
                            .format(refs=sorted(set(failed_tracks))))
+
+        # Scheme List placements (P4) — a self-contained command block (moves ->
+        # vias -> tracks, positional idempotency, no registry participation).
+        if getattr(self, "_scheme_plans", None):
+            logger.info(_("Applying scheme list placements..."))
+            s_refs, s_vias, s_tracks = execute_scheme_list_plans(
+                self.adapter, self._scheme_plans,
+                config=self.cfg, batch_size=self.batch_size,
+                check_collisions=not self.no_collision_check,
+                collision_margin_mm=self.collision_margin)
+            failed_refs.extend(s_refs)
+            failed_vias.extend(s_vias)
+            failed_tracks.extend(s_tracks)
 
         if not failed_refs and not failed_vias and not failed_tracks:
             logger.info(_("✅ All operations completed successfully"))
