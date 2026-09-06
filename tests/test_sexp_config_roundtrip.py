@@ -599,6 +599,35 @@ def test_scheme_lists_roundtrip():
     })
 
 
+def test_scheme_list_boundary_truncate_roundtrip():
+    """A scheme_lists record whose boundary_nets carry action="truncate"
+    (design_2026_09_06_boundary_truncate_and_zones.md Part A) round-trips
+    bijectively — the per-net decision survives .sexp write/read."""
+    back = _roundtrip({
+        "scheme_lists": [{
+            "name": "psu",
+            "anchor_ref": "C1",
+            "source_sheet": "Channel_0",
+            "components": [
+                {"ref": "C1"},
+                {"ref": "R1", "offset_along_mm": 1.0, "rotation_deg": 90.0},
+            ],
+            "boundary_nets": [
+                {"net": "/Channel_0/OUT", "external_ref": "J1",
+                 "action": "truncate"},
+                {"net": "/Channel_0/GND", "action": "exclude"},
+            ],
+        }],
+    })
+    # action="truncate" (non-default) must SURVIVE verbatim; the exclude row's
+    # action is the field default and is legitimately stripped by the generic
+    # serializer (same contract as every other default-valued field).
+    assert back["scheme_lists"][0]["boundary_nets"] == [
+        {"net": "/Channel_0/OUT", "external_ref": "J1", "action": "truncate"},
+        {"net": "/Channel_0/GND"},
+    ]
+
+
 def test_scheme_list_scope_presets_roundtrip():
     """A scheme_lists record carrying NAMED scope presets (the nested
     SchemeListScopePreset dataclass list, plan_2026_09_06_scheme_list_named_

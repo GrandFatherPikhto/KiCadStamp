@@ -13511,6 +13511,9 @@ msgstr "неизвестные поля в scheme_lists {name!r} в виа {i}"
 msgid "v1 supports ONLY action: 'exclude' (drop the whole connected component with a warning, like Cell extraction). 'truncate' (geometric clipping of copper at the boundary) is an open future question, not yet implemented"
 msgstr "v1 поддерживает ТОЛЬКО action: 'exclude' (отбросить всю связную компоненту с предупреждением, как при извлечении Cell). 'truncate' (геометрическая обрезка меди по границе) — открытый вопрос на будущее, пока не реализован"
 
+msgid "boundary-net action must be one of: 'exclude' (drop the whole connected component with a warning, like Cell extraction) or 'truncate' (geometric clipping of copper at the capture boundary)"
+msgstr "Действие boundary-net должно быть одним из: 'exclude' (отбросить всю связную компоненту с предупреждением, как при извлечении Cell) или 'truncate' (геометрическая обрезка меди по границе захвата)"
+
 msgid "{ref} (in both {a} and {b})"
 msgstr "{ref} (в обоих: {a} и {b})"
 

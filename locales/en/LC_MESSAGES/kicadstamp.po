@@ -14880,6 +14880,9 @@ msgstr ""
 msgid "v1 supports ONLY action: 'exclude' (drop the whole connected component with a warning, like Cell extraction). 'truncate' (geometric clipping of copper at the boundary) is an open future question, not yet implemented"
 msgstr ""
 
+msgid "boundary-net action must be one of: 'exclude' (drop the whole connected component with a warning, like Cell extraction) or 'truncate' (geometric clipping of copper at the capture boundary)"
+msgstr ""
+
 msgid "{ref} (in both {a} and {b})"
 msgstr ""
 

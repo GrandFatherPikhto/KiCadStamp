@@ -725,13 +725,15 @@ class SchemeListTrackRecord:
 @dataclass
 class SchemeListBoundaryNet:
     """Diagnostics of one boundary net — copper that touched only EXCLUDED
-    footprints and was dropped as a whole connected component by the capture
-    closure (design §2/§3). The DECISION KEY is the net: one `action` for
-    every disconnected stub of the same net, so Reread is deterministic.
-    v1 action is ONLY "exclude" (drop the whole component with a warning,
-    like Cell extraction); "truncate" (geometric clipping) stays an open
-    question. external_ref is diagnostics only (which external component
-    dragged this copper), not part of the decision key."""
+    footprints and was dropped (or truncated) by the capture closure (design
+    §2/§3). The DECISION KEY is the net: one `action` for every disconnected
+    stub of the same net, so Reread is deterministic.
+    ``action`` is either "exclude" — drop the whole connected component with
+    a warning, like Cell extraction (v1 behavior) — or "truncate": clip every
+    stub of the net geometrically at the capture boundary and keep its
+    in-region part (design_2026_09_06_boundary_truncate_and_zones.md Part A).
+    external_ref is diagnostics only (which external component dragged this
+    copper), not part of the decision key."""
 
     net: str
     action: str = "exclude"

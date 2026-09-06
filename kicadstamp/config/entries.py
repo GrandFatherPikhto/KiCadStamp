@@ -964,9 +964,10 @@ def _load_scheme_list_tracks(raw: list | None, owner: str) -> list[SchemeListTra
 def _load_scheme_list_boundary_nets(raw: list | None,
                                     owner: str) -> list[SchemeListBoundaryNet]:
     """Boundary-net diagnostics: per-NET decision key, one `action` for every
-    disconnected stub of the net (design §3). v1 supports ONLY "exclude" —
-    "truncate" (geometric clipping) is an open future question, fatal if
-    requested."""
+    disconnected stub of the net (design §3). Allowed actions are "exclude"
+    (drop the whole connected component, v1) and "truncate" (geometric
+    clipping at the capture boundary — design_2026_09_06_boundary_truncate_
+    and_zones.md Part A); ANY other value is fatal."""
     out: list[SchemeListBoundaryNet] = []
     for i, b in enumerate(raw or []):
         if not isinstance(b, dict):
@@ -984,14 +985,14 @@ def _load_scheme_list_boundary_nets(raw: list | None,
                     name=owner, i=i),
                 [_("each boundary-net diagnostic names the boundary net: net: <name>")]))
         action = b.get('action', 'exclude')
-        if action != 'exclude':
+        if action not in ('exclude', 'truncate'):
             raise ValidationError(format_fatal_error(
                 _("scheme_lists entry {name!r}: boundary net {net!r} action {action!r}").format(
                     name=owner, net=net, action=action),
-                [_("v1 supports ONLY action: 'exclude' (drop the whole connected "
-                   "component with a warning, like Cell extraction). 'truncate' "
-                   "(geometric clipping of copper at the boundary) is an open "
-                   "future question, not yet implemented")]))
+                [_("boundary-net action must be one of: 'exclude' (drop the "
+                   "whole connected component with a warning, like Cell "
+                   "extraction) or 'truncate' (geometric clipping of copper at "
+                   "the capture boundary)")]))
         out.append(SchemeListBoundaryNet(
             net=net,
             action=action,

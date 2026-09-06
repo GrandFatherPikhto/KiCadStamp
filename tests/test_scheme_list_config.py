@@ -181,12 +181,26 @@ def test_record_rejects_unknown_keys():
         load_scheme_list(_record(bogus=1))
 
 
-def test_record_rejects_truncate_action_v1():
-    """v1 supports ONLY action 'exclude'; 'truncate' (geometric clipping) is an
-    open future question and must be an explicit error, not a silent accept."""
-    with pytest.raises(ValidationError, match="truncate"):
+def test_record_accepts_truncate_action():
+    """action 'truncate' (geometric clipping at the capture boundary,
+    design_2026_09_06_boundary_truncate_and_zones.md Part A) now loads; the
+    net's decision is persisted verbatim so a later Reread re-clips with the
+    same choice."""
+    sl = load_scheme_list(_record(boundary_nets=[
+        {"net": "/Channel_0/OUT", "action": "truncate", "external_ref": "J1"}]))
+    assert len(sl.boundary_nets) == 1
+    bn = sl.boundary_nets[0]
+    assert bn.net == "/Channel_0/OUT"
+    assert bn.action == "truncate"
+    assert bn.external_ref == "J1"
+
+
+def test_record_rejects_unknown_boundary_action():
+    """ANY action other than 'exclude'/'truncate' must stay an explicit error,
+    not a silent accept."""
+    with pytest.raises(ValidationError, match="action"):
         load_scheme_list(_record(boundary_nets=[
-            {"net": "/Channel_0/OUT", "action": "truncate"}]))
+            {"net": "/Channel_0/OUT", "action": "something-else"}]))
 
 
 def test_record_track_layer_must_be_string():
