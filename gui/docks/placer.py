@@ -136,6 +136,7 @@ from ..ui_utils import busy
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from .live_position import (LiveRead, read_anchor_live,
+                            read_cell_anchor_offset_from_selection,
                             read_cell_anchor_offset_live,
                             read_clone_origin_live, read_coordinate_live)
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
@@ -961,6 +962,17 @@ class PlacerDock(QWidget):
         point_row.addWidget(self.cell_anchor_x_edit)
         point_row.addWidget(self.cell_anchor_y_edit)
         point_layout.addLayout(point_row)
+        take_selection_row = QHBoxLayout()
+        take_selection_row.setContentsMargins(0, 0, 0, 0)
+        self.cell_anchor_take_selection_button = QPushButton(
+            _("Take from selection"))
+        self.cell_anchor_take_selection_button.setToolTip(
+            _("Fill X/Y from the currently selected Via on the live board "
+              "(v1: only a Via is supported)."))
+        self.cell_anchor_take_selection_button.clicked.connect(
+            self._on_take_anchor_from_selection)
+        take_selection_row.addWidget(self.cell_anchor_take_selection_button)
+        point_layout.addLayout(take_selection_row)
         self.cell_anchor_source_tabs.addTab(point_page, _("Point"))
         # Tab 2 — Component (Role, optional Pad; no Sheet/Cluster needed — the
         # cell already carries them).
@@ -2186,6 +2198,97 @@ class PlacerDock(QWidget):
                             float(c.get("offset_across_mm", 0.0)))
         return (0.0, 0.0)
 
+    def _load_cell_entry_for_anchor(self) -> Optional[Tuple[Path, dict]]:
+        """The file that physically holds the selected cell and its CURRENT
+        entry dict (cells: is dict-keyed; the entry may live in any file of
+        the include: graph) — the shared prep both "Set as anchor" and the
+        Point tab's "Take from selection" start from (2026-09-06, plan
+        cell_anchor_from_selection). Returns (target_file, entry-copy) or
+        None after showing the error message."""
+        target_file = find_dict_entry_file(
+            self._root_path, "cells", self._selected_cell)
+        if target_file is None:
+            self._show_message(
+                _("Cell {name!r} not found in the project config")
+                .format(name=self._selected_cell), _ERROR_STYLE)
+            return None
+        try:
+            entry = (read_data(target_file).get("cells") or {}).get(self._selected_cell)
+        except (ValidationError, OSError) as e:
+            self._show_message(
+                _("Failed to read {path}: {error}")
+                .format(path=display_path(target_file), error=e), _ERROR_STYLE)
+            return None
+        if not isinstance(entry, dict):
+            self._show_message(
+                _("Cell {name!r} not found in {path}")
+                .format(name=self._selected_cell,
+                        path=display_path(target_file)), _ERROR_STYLE)
+            return None
+        return target_file, dict(entry)
+
+    def _on_take_anchor_from_selection(self) -> None:
+        """Point tab's "Take from selection" — fill the anchor X/Y fields from
+        the CURRENT live selection's single Via (bbox frame), WITHOUT writing
+        the config (the user then presses "Set as anchor" to apply; same
+        fill-then-commit UX as instantiate_cell_dialog's own "Take from
+        selection", 2026-09-06). Guards mirror the Role+Pad branch of
+        _on_set_cell_anchor (live board, clone, cfg); the geometry is
+        delegated to read_cell_anchor_offset_from_selection. Failures are
+        warnings, the fields stay untouched — never a silent partial write."""
+        # Same early guards as "Set as anchor" (Cell mode / Cell / root) —
+        # identical messages, so the two actions read the same (plan §3.1).
+        if self.is_coordinate or self.is_entity:
+            self._show_message(
+                _("Cell anchor applies to Cell (clone) mode only."), _ERROR_STYLE)
+            return
+        if not self._selected_cell:
+            self._show_message(_("Pick a Cell first."), _ERROR_STYLE)
+            return
+        if self._root_path is None:
+            self._show_message(_("Set the project root first."), _ERROR_STYLE)
+            return
+        board = self._main_window.connection.board
+        if board is None or getattr(board, "adapter", None) is None:
+            QMessageBox.warning(
+                self, _("Take from selection"),
+                _("No live board connection — select the Via on the live board "
+                  "and connect KiCad first."))
+            return
+        clone = self._build_clone_for_read()
+        if clone is None:
+            self._show_message(
+                _("Take from selection: Cluster name and a Cell are required "
+                  "to read the Via's position."), _ERROR_STYLE)
+            return
+        loaded = self._load_target_config(silent=True)
+        if loaded is None:
+            return
+        cfg, ctx = loaded
+        sheet_names = ctx.sheet_names if ctx is not None else {}
+        loaded_cell = self._load_cell_entry_for_anchor()
+        if loaded_cell is None:
+            return
+        _file, entry = loaded_cell
+        try:
+            ax_mm, ay_mm = read_cell_anchor_offset_from_selection(
+                board.adapter, cfg, clone, sheet_names)
+        except ValidationError as e:
+            QMessageBox.warning(self, _("Take from selection"), str(e))
+            return
+        # The reader returns the Via's offset relative to the CURRENT mount;
+        # add the current mount A to express it in the stored (bbox) frame —
+        # the same mandatory +a0,+a1 as the Role+Pad branch (plan §0).
+        a0, a1 = self._cell_entry_mount_offset(entry)
+        x = round(ax_mm + a0, 9)
+        y = round(ay_mm + a1, 9)
+        self.cell_anchor_x_edit.setText(f"{x:.6f}".rstrip("0").rstrip("."))
+        self.cell_anchor_y_edit.setText(f"{y:.6f}".rstrip("0").rstrip("."))
+        self._show_message(
+            _("Anchor point from the selected Via: ({x:.3f}, {y:.3f}) mm — "
+              "press “Set as anchor” to apply.").format(x=x, y=y),
+            _SUCCESS_STYLE)
+
     def _on_set_cell_anchor(self) -> None:
         """"Set as anchor" — RECORD the loaded CELL's MOUNT POINT on its OWN
         file WITHOUT rewriting any stored offset (design_2026_09_05 v2: stored
@@ -2232,30 +2335,11 @@ class PlacerDock(QWidget):
                     _ERROR_STYLE)
                 return
 
-        # The file that physically holds the cell (cells: is dict-keyed; the
-        # entry may live in any file of the include: graph).
-        target_file = find_dict_entry_file(
-            self._root_path, "cells", self._selected_cell)
-        if target_file is None:
-            self._show_message(
-                _("Set as anchor: cell {name!r} not found in the project config")
-                .format(name=self._selected_cell), _ERROR_STYLE)
+        loaded_cell = self._load_cell_entry_for_anchor()
+        if loaded_cell is None:
             return
-        try:
-            entry = (read_data(target_file).get("cells") or {}).get(self._selected_cell)
-        except (ValidationError, OSError) as e:
-            self._show_message(
-                _("Failed to read {path}: {error}")
-                .format(path=display_path(target_file), error=e), _ERROR_STYLE)
-            return
-        if not isinstance(entry, dict):
-            self._show_message(
-                _("Set as anchor: cell {name!r} not found in {path}")
-                .format(name=self._selected_cell,
-                        path=display_path(target_file)), _ERROR_STYLE)
-            return
+        target_file, entry = loaded_cell
         # Only the anchor bookkeeping fields are ever written — never offsets.
-        entry = dict(entry)
 
         desc = _("no anchor (bbox default)")
         if point_mode:

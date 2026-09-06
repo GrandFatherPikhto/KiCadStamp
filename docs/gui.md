@@ -861,7 +861,12 @@ the tabs — they act on the whole placement, not one tab.
   A)`), so the anchor can be changed freely and reversibly — no per-edit data rewrite. Anchor-source
   TABS pick **Bbox (0,0)** (the default mount — clears any custom anchor), **Point** (free X/Y in
   the bbox frame) or **Component** (Role, optional Pad — without a pad the anchor is the
-  component's geometric centre, with a pad the pad's centre). It writes
+  component's geometric centre, with a pad the pad's centre). The Point tab also has a
+  **Take from selection** button (2026-09-06): it reads the position of the CURRENTLY selected
+  single Via on the live board and fills the X/Y fields with its bbox-frame point (the current
+  mount A is added, same frame maths as the Role+Pad mode) — the user then presses "Set as anchor"
+  to record it. v1 limitation: only a Via is supported as the source (selecting 0 / more than one
+  object / a non-Via shows a clear error). It writes
   `anchor_xy` (the mount, real data) plus `anchor_role`/`anchor_pad` identity into the file that
   actually holds the cell — NOT the Origin section above, which is about THIS placement's own
   position. Moving the mount shifts every already-applied place of this cell (other clones, tree

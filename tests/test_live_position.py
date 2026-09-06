@@ -13,12 +13,13 @@ from unittest.mock import MagicMock
 
 from kicadstamp.config import Cell, ClonePlacement, TemplateComponentSlot
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
-from kicadstamp.domain.board import Footprint
+from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.exceptions import ValidationError
 
 from gui.docks.live_position import (
     read_anchor_live,
+    read_cell_anchor_offset_from_selection,
     read_clone_origin_live, read_coordinate_live,
 )
 
@@ -382,3 +383,103 @@ class TestReadCellAnchorOffsetLive:
                             lambda *a, **k: {"CAP_IN": "C10", "CAP_OUT": "C11"})
         with pytest.raises(ValidationError, match="has no pad"):
             lp.read_cell_anchor_offset_live(adapter, cfg, clone, {}, "CAP_OUT", "A1")
+
+
+class TestReadCellAnchorOffsetFromSelection:
+    """(ax_mm, ay_mm) of the CURRENT LIVE SELECTION's single Via expressed in
+    the cell's own local (unrotated, unmirrored) frame relative to the cell's
+    current mount — the Point tab's "Take from selection" reader (2026-09-06,
+    plan cell_anchor_from_selection). Same numeric-regression discipline as
+    TestReadCellAnchorOffsetLive: a synthetic Via's world position (hand-placed
+    from a known cell-local offset via the FORWARD geometry) must be inverted
+    back to that offset by the shared _world_pos_to_cell_local_offset tail.
+
+    Setup mirrors the Role+Pad class: CAP_IN at cell-local (0,0) so the
+    recovered cell origin == CAP_IN's live position regardless of
+    rotation/mirror; the selected Via stands in for CAP_OUT's pad at local
+    (3,1)."""
+
+    def _cell(self):
+        return Cell(name="fpga_flash", components=[
+            TemplateComponentSlot(role="CAP_IN", offset_along_mm=0.0,
+                                  offset_across_mm=0.0, angle_deg=0.0),
+            TemplateComponentSlot(role="CAP_OUT", offset_along_mm=2.0,
+                                  offset_across_mm=1.0, angle_deg=180.0),
+        ])
+
+    def _make_via(self, x_mm, y_mm):
+        return Via(uuid="via-1", position=Vector2.from_xy_mm(x_mm, y_mm),
+                   net_name="GND", drill_mm=0.3, diameter_mm=0.6)
+
+    def _run(self, monkeypatch, cap_in_angle, mirror, selected_items,
+             via_world_mm=(13.0, 21.0)):
+        import gui.docks.live_position as lp
+        cfg = MagicMock()
+        cfg.cells = {"fpga_flash": self._cell()}
+        c10 = _make_fp("C10", role="CAP_IN", cluster="FPGA_FLASH",
+                       position=Vector2.from_xy_mm(10.0, 20.0), angle=cap_in_angle)
+        c11 = _make_fp("C11", role="CAP_OUT", cluster="FPGA_FLASH")
+        clone = ClonePlacement(cluster="FPGA_FLASH", cell="fpga_flash",
+                               xy=(10.0, 20.0), mirror=mirror)
+        adapter = MagicMock()
+        adapter.get_footprint.side_effect = {c10.ref: c10, c11.ref: c11}.get
+        adapter.get_selected_items.return_value = list(selected_items)
+        monkeypatch.setattr(lp, "clone_uses_selection_mode", lambda *a, **k: False)
+        monkeypatch.setattr(lp, "resolve_roles_by_nets",
+                            lambda *a, **k: {"CAP_IN": "C10", "CAP_OUT": "C11"})
+        return lp.read_cell_anchor_offset_from_selection(adapter, cfg, clone, {})
+
+    def test_unrotated_returns_cell_local_via_offset(self, monkeypatch):
+        # Rotation 0, no mirror: origin == C10 at (10, 20); via at local (3,1)
+        # -> world (13, 21).
+        ax, ay = self._run(monkeypatch, cap_in_angle=0.0, mirror=False,
+                           selected_items=[self._make_via(13.0, 21.0)])
+        assert ax == pytest.approx(3.0, abs=1e-6)
+        assert ay == pytest.approx(1.0, abs=1e-6)
+
+    def test_rotation_90_is_inverted_back(self, monkeypatch):
+        # Placement rotation 90 — the same forward/inverse pair as the pad
+        # reader: world via = origin + R90(3,1) = (11, 17).
+        ax, ay = self._run(monkeypatch, cap_in_angle=90.0, mirror=False,
+                           selected_items=[self._make_via(11.0, 17.0)])
+        assert ax == pytest.approx(3.0, abs=1e-6)
+        assert ay == pytest.approx(1.0, abs=1e-6)
+
+    def test_mirrored_clone_is_unmirrored_back(self, monkeypatch):
+        # Mirror, rotation 0 (CAP_IN angle 180 under mirror). Forward world
+        # via = mirror_x(origin, origin + (3,1)) about x=10 -> (7, 21); the
+        # reader must report the UNMIRRORED local (3, 1).
+        ax, ay = self._run(monkeypatch, cap_in_angle=180.0, mirror=True,
+                           selected_items=[self._make_via(7.0, 21.0)])
+        assert ax == pytest.approx(3.0, abs=1e-6)
+        assert ay == pytest.approx(1.0, abs=1e-6)
+
+    def test_nothing_selected_is_fatal(self, monkeypatch):
+        with pytest.raises(ValidationError, match="nothing is selected"):
+            self._run(monkeypatch, cap_in_angle=0.0, mirror=False,
+                      selected_items=[])
+
+    def test_two_selected_is_fatal(self, monkeypatch):
+        with pytest.raises(ValidationError, match="exactly ONE object"):
+            self._run(monkeypatch, cap_in_angle=0.0, mirror=False,
+                      selected_items=[self._make_via(13.0, 21.0),
+                                      self._make_via(14.0, 22.0)])
+
+    def test_selected_non_via_is_fatal(self, monkeypatch):
+        fp = _make_fp("C12", role="OTHER", cluster="FPGA_FLASH",
+                      position=Vector2.from_xy_mm(13.0, 21.0))
+        with pytest.raises(ValidationError, match="only a Via"):
+            self._run(monkeypatch, cap_in_angle=0.0, mirror=False,
+                      selected_items=[fp])
+
+    def test_selected_track_is_fatal(self, monkeypatch):
+        """A Track reports its kind name in the fatal message (the label
+        branch of _selection_item_label a footprint does not hit) — v1 scope
+        is Via only; tracks are ambiguous (start/end/centre)."""
+        track = Track(uuid="t1", start=Vector2.from_xy_mm(13.0, 21.0),
+                      end=Vector2.from_xy_mm(14.0, 22.0),
+                      net_name="GND", width_mm=0.25,
+                      layer=BoardLayer.BL_F_Cu)
+        with pytest.raises(ValidationError, match="track"):
+            self._run(monkeypatch, cap_in_angle=0.0, mirror=False,
+                      selected_items=[track])

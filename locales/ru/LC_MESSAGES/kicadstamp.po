@@ -13376,3 +13376,54 @@ msgstr "entity ссылается на отсутствующую запись s
 
 msgid "a scheme_list-based Entity names the recorded Scheme List it clones; every such name must exist in scheme_lists: (which may live in an included .json file — check include:)"
 msgstr "запись scheme_list-based Entity называет записываемый Scheme List, который она клонирует; каждое такое имя обязано существовать в scheme_lists: (оно может жить во включённом .json-файле — проверьте include:)"
+
+msgid "Anchor point from the selected Via: ({x:.3f}, {y:.3f}) mm — press “Set as anchor” to apply."
+msgstr "Точка якоря из выбранной Via: ({x:.3f}, {y:.3f}) мм — нажмите «Set as anchor», чтобы применить."
+
+msgid "Cell {name!r} not found in the project config"
+msgstr "Ячейка {name!r} не найдена в конфигурации проекта"
+
+msgid "Cell {name!r} not found in {path}"
+msgstr "Ячейка {name!r} не найдена в {path}"
+
+msgid "Fill X/Y from the currently selected Via on the live board (v1: only a Via is supported)."
+msgstr "Заполнить X/Y из выбранной на живой плате Via (v1: поддерживается только Via)."
+
+msgid "No live board connection — select the Via on the live board and connect KiCad first."
+msgstr "Нет живого соединения с платой — выберите Via на живой плате и сначала подключите KiCad."
+
+msgid "Take from selection"
+msgstr "Взять из выделения"
+
+msgid "Take from selection: Cluster name and a Cell are required to read the Via's position."
+msgstr "Взять из выделения: для чтения позиции Via нужны имя кластера и ячейка."
+
+msgid "board item"
+msgstr "элемент платы"
+
+msgid "clone {name!r}: nothing is selected on the board — 'Take from selection' needs exactly one Via"
+msgstr "клон {name!r}: на плате ничего не выделено — «Взять из выделения» требует ровно одну Via"
+
+msgid "clone {name!r}: only a Via is supported as the anchor source (v1) — selected: {kind}"
+msgstr "клон {name!r}: в качестве источника якоря поддерживается только Via (v1) — выделено: {kind}"
+
+msgid "clone {name!r}: select exactly ONE object — {count} objects are currently selected"
+msgstr "клон {name!r}: выделите ровно ОДИН объект — сейчас выделено объектов: {count}"
+
+msgid "footprint"
+msgstr "компонент"
+
+msgid "select a Via — a footprint/pad source is covered by the Component tab's Role + Pad mode instead"
+msgstr "выберите Via — источник «компонент/контакт» покрыт вкладкой Component (Role + Pad)"
+
+msgid "select only the Via whose position should become the cell's mount point"
+msgstr "выделите только ту Via, позиция которой должна стать точкой монтажа ячейки"
+
+msgid "select the Via whose position should become the cell's mount point, then press the button again"
+msgstr "выберите Via, позиция которой должна стать точкой монтажа ячейки, затем нажмите кнопку снова"
+
+msgid "track"
+msgstr "дорожка"
+
+msgid "via"
+msgstr "переходное отверстие"

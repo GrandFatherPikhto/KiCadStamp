@@ -1546,6 +1546,113 @@ def test_cell_anchor_bbox_tab_clears_to_the_default(main_window, tmp_path):
     assert "anchor_xy" not in cell
 
 
+def test_cell_anchor_take_from_selection_fills_point_fields(main_window, tmp_path, monkeypatch):
+    """2026-09-06 (plan cell_anchor_from_selection): the Point tab's "Take
+    from selection" fills the X/Y anchor fields from the CURRENT live
+    selection's single Via — WITHOUT writing the config (the user then
+    presses "Set as anchor" to commit; fill-then-commit UX). The pure
+    geometry (read_cell_anchor_offset_from_selection) is covered in
+    tests/test_live_position.py; here we exercise the wiring: with a fake
+    adapter and a monkeypatched reader returning (2.55, 1.25), the fields
+    show the reader's value + the cell's current mount A ((0,0) for a fresh
+    cell — composite has no anchor yet)."""
+    dock, cells_file, _ = _make_cell_and_dock_anchor(main_window, tmp_path)
+    main_window.connection.board = SimpleNamespace(adapter=MagicMock())
+    dock.cluster_edit.setCurrentText("FPGA_FLASH")
+    monkeypatch.setattr(placer_mod, "read_cell_anchor_offset_from_selection",
+                        lambda *a, **k: (2.55, 1.25))
+    dock._on_take_anchor_from_selection()
+    assert dock.cell_anchor_x_edit.text() == "2.55"
+    assert dock.cell_anchor_y_edit.text() == "1.25"
+    # Only the fields are filled — no anchor written to the cell file yet.
+    cell = _load(cells_file)["cells"]["composite"]
+    assert "anchor_xy" not in cell
+    assert "anchor_role" not in cell
+    assert "anchor_pad" not in cell
+
+
+def test_cell_anchor_take_from_selection_adds_current_mount(main_window, tmp_path, monkeypatch):
+    """2026-09-06 (plan §0): the reader returns the Via's offset RELATIVE to
+    the current mount; the button must ADD the cell's current mount A so the
+    field value is in the stored (bbox) frame — the one subtle step of the
+    whole feature. A cell whose FPGA role was previously set as the anchor
+    (A = FPGA centre (2.5, 1.0)) plus a Via at cell-local (3.0, 0.5) -> the
+    Point fields show (5.5, 1.5)."""
+    dock, cells_file, _ = _make_cell_and_dock_anchor(main_window, tmp_path)
+    main_window.connection.board = SimpleNamespace(adapter=MagicMock())
+    dock.cluster_edit.setCurrentText("FPGA_FLASH")
+    # Prior "Set as anchor" on FPGA (Role mode, offline) -> anchor_xy = its
+    # centre (2.5, 1.0); that is the cell's current mount A.
+    dock.cell_anchor_source_tabs.setCurrentIndex(2)  # Component (Role)
+    dock.cell_anchor_role_combo.setCurrentText("FPGA")
+    dock.cell_anchor_pad_edit.setText("")
+    dock._on_set_cell_anchor()
+    assert _load(cells_file)["cells"]["composite"]["anchor_xy"] == [2.5, 1.0]
+
+    monkeypatch.setattr(placer_mod, "read_cell_anchor_offset_from_selection",
+                        lambda *a, **k: (3.0, 0.5))
+    dock._on_take_anchor_from_selection()
+    assert dock.cell_anchor_x_edit.text() == "5.5"
+    assert dock.cell_anchor_y_edit.text() == "1.5"
+
+
+def test_cell_anchor_take_from_selection_requires_connection(main_window, tmp_path, monkeypatch):
+    """No live board connection must warn (same guard as the Role+Pad branch
+    of "Set as anchor") and leave both the fields and the cell file
+    untouched — never a silent partial write."""
+    dock, cells_file, _ = _make_cell_and_dock_anchor(main_window, tmp_path)
+    warnings = []
+    monkeypatch.setattr(placer_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or None)
+    before = _load(cells_file)
+    dock._on_take_anchor_from_selection()
+    assert warnings  # the "no live board connection" warning fired
+    assert dock.cell_anchor_x_edit.text() == ""
+    assert dock.cell_anchor_y_edit.text() == ""
+    assert _load(cells_file) == before
+
+
+def test_cell_anchor_take_from_selection_reader_error_is_warning(main_window, tmp_path, monkeypatch):
+    """A fatal ValidationError from the selection reader (e.g. nothing
+    selected, or a non-Via) surfaces as a QMessageBox.warning and leaves the
+    X/Y fields + the cell file untouched — the GUI never crashes, never a
+    silent partial write (2026-09-06, plan §3.7)."""
+    dock, cells_file, _ = _make_cell_and_dock_anchor(main_window, tmp_path)
+    main_window.connection.board = SimpleNamespace(adapter=MagicMock())
+    dock.cluster_edit.setCurrentText("FPGA_FLASH")
+    warnings = []
+    monkeypatch.setattr(placer_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or None)
+    monkeypatch.setattr(
+        placer_mod, "read_cell_anchor_offset_from_selection",
+        lambda *a, **k: (_ for _ in ()).throw(
+            ValidationError("clone 'FPGA_FLASH': only a Via is supported")))
+    before = _load(cells_file)
+    dock._on_take_anchor_from_selection()
+    assert warnings  # the fatal ValidationError fired a warning
+    assert any("only a Via" in str(w) for w in warnings)
+    assert dock.cell_anchor_x_edit.text() == ""
+    assert dock.cell_anchor_y_edit.text() == ""
+    assert _load(cells_file) == before
+
+
+def test_cell_anchor_take_from_selection_guards_match_set_as_anchor(main_window, tmp_path, caplog):
+    """2026-09-06 (plan §4): the button's early guards (no Cell picked / no
+    project root) show the SAME messages as "Set as anchor" — shared prep,
+    never duplicated text."""
+    dock, _, _ = _make_cell_and_dock_anchor(main_window, tmp_path)
+    # No Cell picked: both actions report "Pick a Cell first.".
+    dock._selected_cell = None
+    dock._on_take_anchor_from_selection()
+    assert any("Pick a Cell first" in r.message for r in caplog.records)
+    caplog.clear()
+    # No project root: both actions report "Set the project root first.".
+    dock._selected_cell = "composite"  # restore a picked Cell
+    dock._root_path = None
+    dock._on_take_anchor_from_selection()
+    assert any("Set the project root first" in r.message for r in caplog.records)
+
+
 def test_unrelated_edit_preserves_stored_override_fields(main_window, tmp_path):
     """2026-09-05: the Nets/Net overrides/Refs tabs are gone, but a record
     that already stores nets:/params:/net_overrides:/refs: must survive an

@@ -14745,3 +14745,54 @@ msgstr ""
 
 msgid "a scheme_list-based Entity names the recorded Scheme List it clones; every such name must exist in scheme_lists: (which may live in an included .json file — check include:)"
 msgstr ""
+
+msgid "Anchor point from the selected Via: ({x:.3f}, {y:.3f}) mm — press “Set as anchor” to apply."
+msgstr ""
+
+msgid "Cell {name!r} not found in the project config"
+msgstr ""
+
+msgid "Cell {name!r} not found in {path}"
+msgstr ""
+
+msgid "Fill X/Y from the currently selected Via on the live board (v1: only a Via is supported)."
+msgstr ""
+
+msgid "No live board connection — select the Via on the live board and connect KiCad first."
+msgstr ""
+
+msgid "Take from selection"
+msgstr ""
+
+msgid "Take from selection: Cluster name and a Cell are required to read the Via's position."
+msgstr ""
+
+msgid "board item"
+msgstr ""
+
+msgid "clone {name!r}: nothing is selected on the board — 'Take from selection' needs exactly one Via"
+msgstr ""
+
+msgid "clone {name!r}: only a Via is supported as the anchor source (v1) — selected: {kind}"
+msgstr ""
+
+msgid "clone {name!r}: select exactly ONE object — {count} objects are currently selected"
+msgstr ""
+
+msgid "footprint"
+msgstr ""
+
+msgid "select a Via — a footprint/pad source is covered by the Component tab's Role + Pad mode instead"
+msgstr ""
+
+msgid "select only the Via whose position should become the cell's mount point"
+msgstr ""
+
+msgid "select the Via whose position should become the cell's mount point, then press the button again"
+msgstr ""
+
+msgid "track"
+msgstr ""
+
+msgid "via"
+msgstr ""
