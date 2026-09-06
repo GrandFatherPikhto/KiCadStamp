@@ -123,7 +123,7 @@ def apply_config(cfg: Config, config_path: str, *, ctx: RuntimeContext | None = 
                  timeout_ms: int = DEFAULT_TIMEOUT_MS, batch_size: int = DEFAULT_BATCH_SIZE,
                  no_collision_check: bool = False, collision_margin: float = 0.2
                  ) -> list[str] | None:
-    """Runs cfg through the exact same pipeline a YAML-driven `apply` run
+    """Runs cfg through the exact same pipeline a config-driven `apply` run
     uses (run_apply() already accepts a pre-built Config — this just builds
     the typed :class:`~kicadstamp.apply_pipeline.RunOptions` it needs).
 

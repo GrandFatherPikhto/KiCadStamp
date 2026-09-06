@@ -1,10 +1,12 @@
 # gui/yaml_io.py
 """
-Small shared YAML read helpers for the docks that browse an already-written
-config file's contents (PlacerDock's Cell list, and formerly the Extract
-dock's "Existing cells:"/"Existing profiles:" lists). Split out once
-PlacerDock needed the exact same "read this file, give me its top-level (or
-nested-section) keys" logic the Extract dock already had.
+Small shared config (.sexp/.json) read helpers for the docks that browse an
+already-written config file's contents (PlacerDock's Cell list, and formerly
+the Extract dock's "Existing cells:"/"Existing profiles:" lists). The module
+name predates the 2026-08-28 core_yaml_removal (kept for import stability);
+the file reads s-expr/JSON only. Split out once PlacerDock needed the exact
+same "read this file, give me its top-level (or nested-section) keys" logic
+the Extract dock already had.
 """
 import json
 import logging

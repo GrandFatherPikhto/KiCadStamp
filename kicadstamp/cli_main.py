@@ -71,8 +71,8 @@ def _looks_like_misspelled_subcommand(token: str) -> bool:
 
 
 def _rewrite_bare_config_to_apply(argv) -> bool:
-    """Bare-config shorthand: `kicadstamp_cli.py config.yaml` is the same as
-    `kicadstamp_cli.py apply config.yaml`.
+    """Bare-config shorthand: `kicadstamp_cli.py config.sexp` is the same as
+    `kicadstamp_cli.py apply config.sexp`.
 
     An unknown first argument (not a known subcommand and not --version/-V) is
     rewritten to be the config path of the 'apply' subcommand — unless it looks
@@ -98,14 +98,14 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(
         description=_("KiCad Decap Placer – capacitor placement (manual strategy)"),
-        epilog=_("Example: kicadstamp_cli.py config.yaml --dry-run")
+        epilog=_("Example: kicadstamp_cli.py config.sexp --dry-run")
     )
     parser.add_argument("--version", "-V", action="version",
                         version=f"kicadstamp {__version__}")
     subparsers = parser.add_subparsers(dest="command", required=True, help=_("Subcommand"))
 
     apply_parser = subparsers.add_parser("apply", help=_("Apply placement"))
-    apply_parser.add_argument("config", help=_("YAML configuration file"))
+    apply_parser.add_argument("config", help=_("S-expr (.sexp) configuration file"))
     apply_parser.add_argument("--dry-run", action="store_true", help=_("Only print the plan, do not apply"))
     apply_parser.add_argument("--timeout-ms", type=int, default=DEFAULT_TIMEOUT_MS, help=_("IPC timeout in ms"))
     apply_parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE, help=_("Batch size for commits"))
@@ -147,14 +147,14 @@ def main() -> int:
 
     clone_extract = subparsers.add_parser(
         "clone-extract",
-        help=_("Snapshot a channel to YAML (file‑based cloner, no IPC)")
+        help=_("Snapshot a channel to s-expr (file‑based cloner, no IPC)")
     )
     clone_extract.add_argument("--net", help=_("Path to .net file"))
     clone_extract.add_argument("--pcb", help=_("Path to .kicad_pcb file"))
     clone_extract.add_argument("--channel", help=_("Channel name, e.g. Channel_0"))
     clone_extract.add_argument("--output", help=_("s-expr snapshot file"))
     clone_extract.add_argument("--profiles", metavar="FILE",
-                               help=_("YAML file with named profiles for clone-extract"))
+                               help=_("S-expr (.sexp) file with named profiles for clone-extract"))
     clone_extract.add_argument("--profile", metavar="NAME",
                                help=_("Take net/pcb/channel/output from profile NAME in --profiles file "
                                       "(cannot combine with explicit flags)"))
@@ -181,9 +181,9 @@ def main() -> int:
 
     extract_parser = subparsers.add_parser("extract", help=_("Extract spoke cell from current selection"))
     extract_parser.add_argument("--name", help=_("Cell name (key in cells:)"))
-    extract_parser.add_argument("--output", help=_("Output YAML/JSON file"))
+    extract_parser.add_argument("--output", help=_("Output .sexp/JSON file"))
     extract_parser.add_argument("--profiles", metavar="FILE",
-                                help=_("YAML file with named profiles for extract"))
+                                help=_("S-expr (.sexp) file with named profiles for extract"))
     extract_parser.add_argument("--profile", metavar="NAME",
                                 help=_("Take name/output/param/net-template/origin-by-* from profile NAME "
                                        "in --profiles file (cannot combine with explicit flags)"))
@@ -271,7 +271,7 @@ def main() -> int:
                                     help=_("Narrow the anchor_role search by Cluster field (prefix match)"))
     extract_net_parser.add_argument("--anchor-pad", metavar="PAD",
                                     help=_("Anchor point = this pad's centre instead of the footprint centre"))
-    extract_net_parser.add_argument("--output", required=True, help=_("Output YAML/JSON file"))
+    extract_net_parser.add_argument("--output", required=True, help=_("Output .sexp/JSON file"))
     extract_net_parser.add_argument("--timeout-ms", type=int, default=20000, help=_("IPC timeout in ms"))
     extract_net_parser.add_argument("--verbose", action="store_true", help=_("Verbose output"))
     extract_net_parser.add_argument("--log-file", help=_("File to save logs"))

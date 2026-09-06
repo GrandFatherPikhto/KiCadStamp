@@ -5010,8 +5010,8 @@ msgid "KiCad Decap Placer – capacitor placement (manual strategy)"
 msgstr "KiCad Decap Placer – capacitor placement (manual strategy)"
 
 #: kicadstamp/cli_main.py:101
-msgid "Example: kicadstamp_cli.py config.yaml --dry-run"
-msgstr "Example: kicadstamp_cli.py config.yaml --dry-run"
+msgid "Example: kicadstamp_cli.py config.sexp --dry-run"
+msgstr "Example: kicadstamp_cli.py config.sexp --dry-run"
 
 #: kicadstamp/cli_main.py:105
 msgid "Subcommand"
@@ -5022,8 +5022,8 @@ msgid "Apply placement"
 msgstr "Apply placement"
 
 #: kicadstamp/cli_main.py:108
-msgid "YAML configuration file"
-msgstr "YAML configuration file"
+msgid "S-expr (.sexp) configuration file"
+msgstr "S-expr (.sexp) configuration file"
 
 #: kicadstamp/cli_main.py:109
 msgid "Only print the plan, do not apply"
@@ -5125,8 +5125,8 @@ msgstr ""
 "current working directory)"
 
 #: kicadstamp/cli_main.py:147
-msgid "Snapshot a channel to YAML (file‑based cloner, no IPC)"
-msgstr "Snapshot a channel to YAML (file‑based cloner, no IPC)"
+msgid "Snapshot a channel to s-expr (file‑based cloner, no IPC)"
+msgstr "Snapshot a channel to s-expr (file‑based cloner, no IPC)"
 
 #: kicadstamp/cli_main.py:149 kicadstamp/cli_main.py:164
 msgid "Path to .net file"
@@ -5145,8 +5145,8 @@ msgid "s-expr snapshot file"
 msgstr "s-expr snapshot file"
 
 #: kicadstamp/cli_main.py:154
-msgid "YAML file with named profiles for clone-extract"
-msgstr "YAML file with named profiles for clone-extract"
+msgid "S-expr (.sexp) file with named profiles for clone-extract"
+msgstr "S-expr (.sexp) file with named profiles for clone-extract"
 
 #: kicadstamp/cli_main.py:156
 msgid ""
@@ -5205,12 +5205,12 @@ msgid "Cell name (key in cells:)"
 msgstr "Cell name (key in cells:)"
 
 #: kicadstamp/cli_main.py:181 kicadstamp/cli_main.py:271
-msgid "Output YAML/JSON file"
-msgstr "Output YAML/JSON file"
+msgid "Output .sexp/JSON file"
+msgstr "Output .sexp/JSON file"
 
 #: kicadstamp/cli_main.py:183
-msgid "YAML file with named profiles for extract"
-msgstr "YAML file with named profiles for extract"
+msgid "S-expr (.sexp) file with named profiles for extract"
+msgstr "S-expr (.sexp) file with named profiles for extract"
 
 #: kicadstamp/cli_main.py:185
 msgid ""
