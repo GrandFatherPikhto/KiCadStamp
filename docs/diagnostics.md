@@ -435,6 +435,39 @@ python -m kicadstamp.diagnostics.recon_symbol_uuid_bridge boards/3CH-AWG-TIA
 
 ---
 
+### `audit_cell_net_templates.py`
+
+**Purpose:**
+Audits Cell templates for `net_template` values that are HARDCODED absolute net
+paths (`/Sheet/Group/Signal`) on Cells that are reused by Entities on more than
+one distinct sheet. A Cell's `net_template` lives at the Cell level (never
+sheet-parameterized), so every instance of a reused Cell shares the literal —
+and when the Cell is placed on a second sheet (e.g. materialized by a
+`tree_instances:` declaration), role resolution for that instance can only ever
+find — and move — the LOCKED sheet's real component, silently and without an
+ambiguity error. This is exactly the pattern behind a live bug (2026-09-07):
+a `tree_instances`-generated `ch1_dac_buf` redrew Channel 0's real
+bypass/bulk caps instead of Channel 1's. Read-only: loads each config through
+`load_config` and prints a report — it never fixes anything (replacing the
+literal with `net_from_role`/`net_from_role_pad`, or re-tagging the Cluster on
+the schematic, is a profile-data decision for the owner).
+
+**Usage:**
+```bash
+python -m kicadstamp.diagnostics.audit_cell_net_templates <config.sexp> [<another config.sexp> ...]
+```
+
+**Output:**
+A human-readable report grouped by Cell: for each role whose `net_template`
+starts with `/`, the full literal and the sheet it is locked to. When no
+findings — a single `No hardcoded sheet-specific net_template found.` line.
+Exit code is always `0` (diagnostic, not a CI gate).
+
+**Dependencies:**
+`kicadstamp.config.load_config` (offline — no live KiCad needed).
+
+---
+
 ## General recommendations
 
 - **Run with `--verbose`** for debugging, if the script supports the flag.
