@@ -1451,9 +1451,11 @@ def _tree_candidate_items(dialog):
             if it.data(0, Qt.ItemDataRole.UserRole) is not None]
 
 
-def test_record_dialog_by_sheet_unchecking_a_sub_sheet_drops_its_refs(main_window):
-    """Commit C (now a QTreeWidget) — semantics UNCHANGED: unchecking Ch0 drops
-    ONLY Ch0's own direct refs; the nested Amp sheet stays included."""
+def test_record_dialog_by_sheet_unchecking_a_parent_drops_the_whole_branch(main_window):
+    """Commit D (tri-state cascade): unchecking Top/Ch0 excludes its WHOLE
+    subtree — Ch0's own C1/C2 AND the nested Amp (U1) — only Top's R1 and
+    Ch1's C3 stay. (Commit C's per-sheet-independent rows were deliberately
+    replaced by the branch toggle.)"""
     snapshot = _snap(*_HIER)
     dialog = RecordSchemeListDialog(snapshot, [], main_window)
     dialog.sheet_combo.setCurrentText("Top")
@@ -1461,8 +1463,83 @@ def test_record_dialog_by_sheet_unchecking_a_sub_sheet_drops_its_refs(main_windo
     ch0 = _tree_item_by_path(dialog, ("Top", "Ch0"))
     assert ch0 is not None
     ch0.setCheckState(0, Qt.CheckState.Unchecked)
-    assert dialog._checked_refs() == ["C3", "R1", "U1"]  # Ch0's C1/C2 gone
+    assert _tree_item_by_path(dialog, ("Top", "Ch0", "Amp")).checkState(0) \
+        == Qt.CheckState.Unchecked
+    assert dialog._checked_refs() == ["C3", "R1"]  # Ch0 (C1/C2) + Amp (U1) gone
     assert ("Top", "Ch0") not in dialog._checked_sheet_paths()
+    assert ("Top", "Ch0", "Amp") not in dialog._checked_sheet_paths()
+
+
+def test_record_dialog_by_sheet_checking_a_parent_checks_the_whole_branch(main_window):
+    """Commit D: re-checking a parent turns on every sheet under it again."""
+    snapshot = _snap(*_HIER)
+    dialog = RecordSchemeListDialog(snapshot, [], main_window)
+    dialog.sheet_combo.setCurrentText("Top")
+    ch0 = _tree_item_by_path(dialog, ("Top", "Ch0"))
+    ch0.setCheckState(0, Qt.CheckState.Unchecked)  # branch off (Amp too)
+    assert _tree_item_by_path(dialog, ("Top", "Ch0", "Amp")).checkState(0) \
+        == Qt.CheckState.Unchecked
+    ch0.setCheckState(0, Qt.CheckState.Checked)    # branch back on
+    assert _tree_item_by_path(dialog, ("Top", "Ch0", "Amp")).checkState(0) \
+        == Qt.CheckState.Checked
+    assert dialog._checked_refs() == ["C1", "C2", "C3", "R1", "U1"]
+
+
+def test_record_dialog_by_sheet_partial_parent_is_still_read(main_window):
+    """Commit D: excluding ONE child leaves its parent PartiallyChecked and the
+    parent is STILL captured (its own direct refs stay in); only the excluded
+    child drops out."""
+    snapshot = _snap(*_HIER)
+    dialog = RecordSchemeListDialog(snapshot, [], main_window)
+    dialog.sheet_combo.setCurrentText("Top")
+    amp = _tree_item_by_path(dialog, ("Top", "Ch0", "Amp"))
+    amp.setCheckState(0, Qt.CheckState.Unchecked)
+    ch0 = _tree_item_by_path(dialog, ("Top", "Ch0"))
+    assert ch0.checkState(0) == Qt.CheckState.PartiallyChecked
+    assert _tree_item_by_path(dialog, ("Top",)).checkState(0) \
+        == Qt.CheckState.PartiallyChecked
+    # Ch0's own C1/C2 stay (it is read), U1 is out, everything else in.
+    assert dialog._checked_sheet_paths() == [("Top",), ("Top", "Ch0"), ("Top", "Ch1")]
+    assert dialog._checked_refs() == ["C1", "C2", "C3", "R1"]
+
+
+def test_record_dialog_by_sheet_cascade_passes_through_structural_branch(main_window):
+    """Commit D: toggling a sheet cascades to sheets nested under STRUCTURAL
+    (no-footprint) intermediate branches too (Top <-> structural Sub <-> Leaf)."""
+    snapshot = _snap(("R1", ("Top",)), ("U1", ("Top", "Sub", "Leaf")))
+    dialog = RecordSchemeListDialog(snapshot, [], main_window)
+    top = _tree_item_by_path(dialog, ("Top",))
+    leaf = _tree_item_by_path(dialog, ("Top", "Sub", "Leaf"))
+    assert top.checkState(0) == Qt.CheckState.Checked
+    assert leaf.checkState(0) == Qt.CheckState.Checked
+    top.setCheckState(0, Qt.CheckState.Unchecked)   # whole subtree off
+    assert leaf.checkState(0) == Qt.CheckState.Unchecked
+    assert dialog._checked_sheet_paths() == []
+    top.setCheckState(0, Qt.CheckState.Checked)      # whole subtree back on
+    assert leaf.checkState(0) == Qt.CheckState.Checked
+    assert dialog._checked_sheet_paths() == [("Top",), ("Top", "Sub", "Leaf")]
+
+
+def test_record_dialog_branch_state_all_on_all_off_mixed(main_window):
+    """_branch_state: all-on -> Checked, all-off -> Unchecked, mixed -> Partial."""
+    from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem
+    tree = QTreeWidget()
+    top = QTreeWidgetItem(tree.invisibleRootItem(), ["Top"])
+    a = QTreeWidgetItem(top, ["A"])
+    b = QTreeWidgetItem(top, ["B"])
+    for it in (top, a, b):
+        it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable
+                    | Qt.ItemFlag.ItemIsUserTristate)
+        it.setData(0, Qt.ItemDataRole.UserRole, "sheet")
+    top.setCheckState(0, Qt.CheckState.Checked)
+    a.setCheckState(0, Qt.CheckState.Checked)
+    b.setCheckState(0, Qt.CheckState.Checked)
+    assert RecordSchemeListDialog._branch_state(top) == Qt.CheckState.Checked
+    a.setCheckState(0, Qt.CheckState.Unchecked)  # mixed -> PartiallyChecked
+    assert RecordSchemeListDialog._branch_state(top) == Qt.CheckState.PartiallyChecked
+    b.setCheckState(0, Qt.CheckState.Unchecked)
+    top.setCheckState(0, Qt.CheckState.Unchecked)  # everything off
+    assert RecordSchemeListDialog._branch_state(top) == Qt.CheckState.Unchecked
 
 
 def test_record_dialog_by_sheet_unchecking_everything_disables_ok(main_window):
