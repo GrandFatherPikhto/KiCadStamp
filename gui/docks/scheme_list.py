@@ -7,11 +7,17 @@ A Scheme List is a NAMED snapshot of a real, already-routed board region
 (recorded via Tools -> "Scheme Lists" -> "Record..."). This dock is the
 MINIMAL Config side of that feature: it shows a loaded ``scheme_lists:``
 record — the CENTRE-frame geometry of the recorded region, a ``source_sheet``
-readout and (Commit B1) an EDITABLE ``pivot``: the record's anchor point in
+readout and an EDITABLE ``pivot`` (Commit B1): the record's anchor point in
 the centre-frame as x/y mm fields with a "Centre" quick-set (0,0 = the region
 centre) and an "Apply" (Save pivot) that rewrites the pivot into the file that
 owns the record (design_2026_09_07_scheme_list_pivot.md /
-plan_2026_09_07_scheme_list_pivot_commit_b.md) — plus the recorded-geometry
+plan_2026_09_07_scheme_list_pivot_commit_b.md). Commit B2 adds a
+"Take from selection" quick-set (pivot_from_selection_button): it reads the
+CENTRE of the CURRENT live board selection and writes it into x/y as a pivot
+in the centre-frame (selected centre minus the LIVE centre of the recorded
+region, design_2026_09_07_scheme_list_pivot_commit_b2.md §1) — a pure live
+read into the fields, still saved only by the explicit Apply — plus the
+recorded-geometry
 summary — and offers the one board action that belongs here,
 **Reread**: re-run the capture against the live board
 (kicadstamp.scheme_list_capture.build_scheme_list_diff), show the diff
@@ -47,15 +53,19 @@ from kicadstamp.i18n import _
 from kicadstamp.scheme_list_capture import (
     SchemeListBoundaryNet,
     SchemeListDiff,
+    _region_centre,
     build_scheme_list_diff,
     capture_scheme_list,
 )
+from kicadstamp.utils.units import MM
 
 from ..worker import start_long_op
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
+                      WARN_STYLE as _WARN_STYLE,
                       add_include, display_path, read_data, show_message,
                       upsert_list_entry)
 from .rename import collect_graph_files, find_list_entry_file
+from .tree_from_selection import selected_center_mm
 
 logger = logging.getLogger(__name__)
 
@@ -310,10 +320,76 @@ def write_scheme_list_record(root_path: Path, record: SchemeListConfig,
     return Path(target_path)
 
 
+# ── Pure live-pivot helpers (Commit B2) ────────────────────────────────────
+#
+# The "Take from selection" source on the record page: translate the CENTRE of
+# the CURRENT live board selection into the record's centre-frame (a pivot the
+# user can then Apply/save). The record stores offsets FROM the region centre,
+# but never that centre itself, so to move a live-board point into the
+# centre-frame we need the centre of the recorded region ON THE LIVE BOARD,
+# recomputed deterministically from the recorded refs' PRESENT positions (the
+# same _region_centre formula capture uses) — a pivot computed against the
+# current live centre stays consistent with how Reread/Apply re-centre the
+# region on the next live read (plan_2026_09_07_scheme_list_pivot_commit_b2.md
+# §1). Qt-free and side-effect-free so the math is unit-testable without a dock.
+
+def live_record_centre_mm(record_refs: list, adapter) -> tuple[float, float] | None:
+    """The centre of the recorded region ON THE LIVE BOARD (mm): the midpoint
+    of the position extents of the PRESENT recorded footprints (the same
+    _region_centre formula capture uses) — to translate a live-board point into
+    the record's centre-frame consistently with Reread/Apply. None when NONE of
+    the recorded refs is on the board (edge 1) — the centre cannot be computed;
+    we never guess (pattern read_cell_anchor_offset_from_selection)."""
+    live_by_ref = {fp.ref: fp for fp in adapter.get_footprints()}
+    present = [live_by_ref[r] for r in record_refs if r in live_by_ref]
+    if not present:
+        return None
+    centre_nm = _region_centre(present)  # nm Vector2, (min+max)/2 per axis
+    return (centre_nm.x / MM, centre_nm.y / MM)
+
+
+def missing_record_refs(record_refs: list, adapter) -> list:
+    """Recorded refs that are NOT on the live board (edge 2: "not all recorded
+    components are on the board") — for a UI warning. Empty when every recorded
+    ref is present."""
+    live_refs = {fp.ref for fp in adapter.get_footprints()}
+    return sorted(r for r in record_refs if r not in live_refs)
+
+
+def pivot_centre_frame_from_selection(record_refs: list, adapter, selected
+                                      ) -> tuple[float, float]:
+    """The pivot (mm, in the record's centre-frame) that puts the CENTRE of the
+    CURRENT live selection at the record's origin on a Redraw:
+    selected_center_mm(selected) minus the LIVE centre of the recorded region
+    (live_record_centre_mm). Fatal-like cases are a ValidationError with a clear
+    message (pattern read_cell_anchor_offset_from_selection — never guess):
+      - none of the recorded refs is on the board (edge 1 — centre unknown);
+      - the selection is empty / has no positions (edge 3)."""
+    centre_mm = live_record_centre_mm(record_refs, adapter)
+    if centre_mm is None:
+        raise ValidationError(
+            _("none of the recorded components is on the board — cannot "
+              "compute the region centre"))
+    sel_mm = selected_center_mm(selected)
+    if sel_mm is None:
+        raise ValidationError(
+            _("select footprints on the board first — 'Take from selection' "
+              "needs their positions"))
+    return (sel_mm[0] - centre_mm[0], sel_mm[1] - centre_mm[1])
+
+
 # ── Diff dialog text ────────────────────────────────────────────────────────
 
 def _fmt(v: float) -> str:
     """Compact mm/deg formatting for the diff dialog (0.1500 -> 0.15)."""
+    return f"{v:.4f}".rstrip("0").rstrip(".")
+
+
+def _pivot_mm_text(v: float) -> str:
+    """Compact mm formatting for the pivot x/y fields, the same trim `_fmt`
+    uses (0.0 -> "0", -7.0 -> "-7", 1.23456 -> "1.2346") — a value filled from
+    a live board read round-trips back through float() unchanged enough for the
+    Apply/round-trip tests' approx comparisons (Commit B2)."""
     return f"{v:.4f}".rstrip("0").rstrip(".")
 
 
@@ -711,7 +787,9 @@ class SchemeListFormWidget(QWidget):
     """A Config-tree right-QView page (plan §5.2 — embedded via DockHub's
     add_right_page on the ConfigTreeDock's QStackedWidget), the same "plain
     QWidget, not its own QDockWidget" shape as NetTraceDock/ThermalViaArrayDock.
-    Record page + Reread; the pivot is the one EDITABLE field (Commit B1),
+    Record page + Reread; the pivot is the one EDITABLE field — Commit B1 made
+    it editable (x/y + "Centre" + "Apply"), Commit B2 adds the live "Take from
+    selection" source that fills x/y from the current board selection — and
     everything else is read-only (see module docstring — no Placement/Redraw)."""
 
     # Fired after a write that rewrote the stored record — either a Reread
@@ -747,8 +825,10 @@ class SchemeListFormWidget(QWidget):
         # EDITABLE: two mm QLineEdits (x, y in the record's centre-frame) + a
         # "(0,0) = centre" hint + a "Centre" quick-set (writes 0.00/0.00 into
         # the fields) and an explicit "Apply" (Save pivot) that rewrites the
-        # record's owning file — a pure config write, NO live board (the
-        # "From selection" source is Commit B2).
+        # record's owning file. Commit B2 adds the "Take from selection" LIVE
+        # source (pivot_from_selection_button): it reads the centre of the
+        # CURRENT board selection and fills x/y with the pivot in the
+        # centre-frame — a preview only, the explicit Apply still saves.
         self.pivot_x_edit = QLineEdit()
         self.pivot_x_edit.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pivot_x_edit.setFixedWidth(110)
@@ -773,6 +853,13 @@ class SchemeListFormWidget(QWidget):
         pivot_editor_lay.addWidget(self.pivot_hint_label)
         pivot_btn_row = QHBoxLayout()
         pivot_btn_row.setSpacing(4)
+        # "Take from selection" (Commit B2) — a LIVE source for the pivot: reads
+        # the centre of the current board selection and writes x/y as the pivot
+        # in the record's centre-frame (preview; Apply still saves).
+        self.pivot_from_selection_button = QPushButton(_("Take from selection"))
+        self.pivot_from_selection_button.clicked.connect(
+            self._on_pivot_from_selection)
+        pivot_btn_row.addWidget(self.pivot_from_selection_button)
         self.pivot_centre_button = QPushButton(_("Centre"))
         self.pivot_centre_button.clicked.connect(self._on_pivot_centre)
         pivot_btn_row.addWidget(self.pivot_centre_button)
@@ -904,12 +991,16 @@ class SchemeListFormWidget(QWidget):
         self.preset_combo.setVisible(bool(record.scope_presets))
         self.preset_combo.blockSignals(False)
 
-    # ── Pivot editing (Commit B1, plan_2026_09_07_scheme_list_pivot_commit_b) ──
+    # ── Pivot editing (Commit B1 + B2, plan_2026_09_07_scheme_list_pivot_commit_b) ──
     # The record's pivot is EDITABLE on this page: x/y mm QLineEdits in the
     # record's centre-frame + a "Centre" quick-set (0/0 = the region centre)
     # and an explicit "Apply" (Save pivot) that rewrites the record's owning
-    # file (write_scheme_list_record). This is a pure config write — no live
-    # board (the "From selection" source is Commit B2).
+    # file (write_scheme_list_record) — a pure config write, no live board.
+    # Commit B2 adds "Take from selection" (_on_pivot_from_selection): a LIVE
+    # source that fills x/y from the current board selection's centre (pure
+    # helpers pivot_centre_frame_from_selection / live_record_centre_mm,
+    # plan_2026_09_07_scheme_list_pivot_commit_b2.md) — it only prefills the
+    # fields, the explicit Apply still saves.
 
     def _on_pivot_centre(self) -> None:
         """'Centre' — write the centre default 0/0 into the x/y fields (the
@@ -955,6 +1046,46 @@ class SchemeListFormWidget(QWidget):
             _("Pivot for Scheme List {name!r} saved -> {path}").format(
                 name=record.name, path=display_path(written)), _SUCCESS_STYLE)
         self.saved.emit()
+
+    def _on_pivot_from_selection(self) -> None:
+        """'Take from selection' — read the CURRENT live board selection's
+        centre and write it into the x/y fields as the pivot in the record's
+        centre-frame (selected centre minus the LIVE centre of the recorded
+        region, recomputed from the recorded refs' present positions). Pure live
+        read — fills the FIELDS as a preview; nothing is written until 'Apply'
+        (Save pivot) is pressed (Commit B2, plan_2026_09_07_scheme_list_pivot_
+        commit_b2.md §1)."""
+        self._show_message("")
+        if not self._entry or self._path is None:
+            self._show_message(_("Load a Scheme List record first."), _ERROR_STYLE)
+            return
+        board = getattr(self._connection, "board", None)
+        adapter = getattr(board, "adapter", None) if board is not None else None
+        if adapter is None:
+            self._show_message(_("Connect to KiCad first."), _ERROR_STYLE)
+            return
+        try:
+            record = load_scheme_list(self._entry)
+        except ValidationError as e:
+            self._show_message(str(e), _ERROR_STYLE)
+            return
+        record_refs = [c.ref for c in record.components]
+        missing = missing_record_refs(record_refs, adapter)
+        try:
+            pivot_mm = pivot_centre_frame_from_selection(
+                record_refs, adapter, self._selection_footprints)
+        except ValidationError as e:
+            self._show_message(str(e), _ERROR_STYLE)
+            return
+        self.pivot_x_edit.setText(_pivot_mm_text(pivot_mm[0]))
+        self.pivot_y_edit.setText(_pivot_mm_text(pivot_mm[1]))
+        if missing:
+            self._show_message(_("not all recorded components are on the board — "
+                                 "pivot computed from the present ones"), _WARN_STYLE)
+        else:
+            self._show_message(
+                _("Pivot taken from the board selection — press Apply to save it."),
+                _SUCCESS_STYLE)
 
     # ── Reread ──────────────────────────────────────────────────────────
 

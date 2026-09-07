@@ -15395,3 +15395,16 @@ msgstr ""
 
 msgid "Pivot save failed: {error}"
 msgstr ""
+
+# plan_2026_09_07_scheme_list_pivot_commit_b2.md - Commit B2 "Take from selection" live pivot source
+msgid "none of the recorded components is on the board — cannot compute the region centre"
+msgstr ""
+
+msgid "select footprints on the board first — 'Take from selection' needs their positions"
+msgstr ""
+
+msgid "not all recorded components are on the board — pivot computed from the present ones"
+msgstr ""
+
+msgid "Pivot taken from the board selection — press Apply to save it."
+msgstr ""

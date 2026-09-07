@@ -1180,11 +1180,17 @@ re-synced). Nothing is applied to the board.
 ### The record page (Config tree → `scheme_lists:` leaf)
 
 Clicking a `scheme_lists:` leaf in the Config tree opens the record in the Config dock's right QView.
-The **Pivot** is EDITABLE (Commit B1): an x/y pair in the record's CENTRE-frame (mm offsets from the
-recorded region's centre, `(0, 0)` = the centre) prefilled from the stored `pivot`, a **Centre**
+The **Pivot** is EDITABLE (Commit B1 + B2): an x/y pair in the record's CENTRE-frame (mm offsets from
+the recorded region's centre, `(0, 0)` = the centre) prefilled from the stored `pivot`, a **Centre**
 quick-set that writes 0/0 into the fields, and an **Apply** that SAVES the pivot into the record's
-owning file — a pure config write, no live board ("Take from selection" appears in a follow-up
-commit). The rest of the page is read-only: the `source_sheet` readout, a recorded-geometry summary,
+owning file — a pure config write, no live board. Commit B2 adds a **"Take from selection"** button:
+it reads the centre of the CURRENT live board selection and writes it into x/y as the pivot in the
+record's centre-frame (selected centre minus the LIVE centre of the recorded region — recomputed from
+the recorded components that are actually on the board). It only PREFILLS the fields as a preview —
+nothing is written until **Apply** is pressed. When some recorded components are missing from the
+board, the pivot is computed from the ones present and a warning is shown; the button needs a live
+KiCad connection (without a board the plain x/y + Centre + Apply still work — they are pure config
+writes). The rest of the page is read-only: the `source_sheet` readout, a recorded-geometry summary,
 the **Reread** button and — for a "By sheet" record with a `scope_presets` library — a **Preset**
 combo for switching which saved checklist this Reread uses. The record itself is edited by the Pivot
 Apply above, by re-recording (Record...), re-sourcing (Re-source...) or re-syncing (Reread), never by

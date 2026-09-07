@@ -14032,3 +14032,16 @@ msgstr "Точка pivot для Scheme List {name!r} сохранена -> {path
 
 msgid "Pivot save failed: {error}"
 msgstr "Не удалось сохранить точку pivot: {error}"
+
+# plan_2026_09_07_scheme_list_pivot_commit_b2.md - Commit B2 "Take from selection" live pivot source
+msgid "none of the recorded components is on the board — cannot compute the region centre"
+msgstr "ни один из записанных компонентов не на плате — невозможно вычислить центр региона"
+
+msgid "select footprints on the board first — 'Take from selection' needs their positions"
+msgstr "сначала выделите компоненты на плате — «Взять из выделения» требует их позиций"
+
+msgid "not all recorded components are on the board — pivot computed from the present ones"
+msgstr "не все записанные компоненты на плате — pivot вычислен по присутствующим"
+
+msgid "Pivot taken from the board selection — press Apply to save it."
+msgstr "Pivot взят из выделения на плате — нажмите «Применить», чтобы сохранить."

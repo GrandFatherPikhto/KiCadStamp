@@ -33,7 +33,10 @@ from gui.docks.scheme_list import (
     boundary_net_rows,
     choose_boundary_actions,
     default_scheme_list_path,
+    live_record_centre_mm,
     live_sheet_paths,
+    missing_record_refs,
+    pivot_centre_frame_from_selection,
     read_scheme_list_records,
     record_refs_for,
     refs_on_sheet,
@@ -47,6 +50,7 @@ from gui.docks.scheme_list import (
 from kicadstamp.config import load_config, load_scheme_list
 from kicadstamp.config.models import SchemeListBoundaryNet
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
+from kicadstamp.exceptions import ValidationError
 from kicadstamp.domain.board import Footprint, Pad, Track, Via
 from kicadstamp.explore import Selected
 from kicadstamp.link_trees import link_trees
@@ -197,6 +201,15 @@ def _select(dock, *refs) -> None:
     dock.set_board_selection([], [SimpleNamespace(ref=r) for r in refs])
 
 
+def _selection_from(*footprints) -> list:
+    """A live selection of RAW Footprints (each with .ref + .fp) — the shape
+    the dock's set_board_selection stores and the B2 "Take from selection"
+    pivot math reads (s.fp.position via selected_center_mm). Distinct from
+    `_select`'s ref-only items, which carry no .fp and therefore no position
+    (Commit B2 needs real positions)."""
+    return [SimpleNamespace(ref=fp.ref, fp=fp) for fp in footprints]
+
+
 # ── scheme_list_to_dict round-trip ─────────────────────────────────────────
 
 def test_scheme_list_to_dict_round_trips_through_the_loader(main_window):
@@ -319,6 +332,174 @@ def test_pivot_apply_without_loaded_record_is_reported_no_crash(main_window, tmp
     dock.pivot_apply_button.click()  # must not crash
 
     assert any("Load a Scheme List record first." in r.message for r in caplog.records)
+
+
+# ── Pivot "Take from selection" (Commit B2) ─────────────────────────────────
+# Pure helpers first (no dock, no Qt), then the button's GUI wiring. The
+# record R1/C1/C2 is captured from _line_board: R1(10,10), C1(20,10),
+# C2(24,10) -> the region's centre (midpoint of extents) is (17,10). NOTE:
+# selected_center_mm is the MEAN of the SELECTED positions, not the midpoint
+# of extents — selecting R1+C1+C2 has mean x = 18, NOT the region centre 17;
+# the "(0,0) when the selected centre == region centre" case must select
+# R1+C2 (mean x = (10+24)/2 = 17).
+
+def _fps_by_ref(adapter) -> dict:
+    """The adapter's live footprints keyed by ref (B2 helper)."""
+    return {fp.ref: fp for fp in adapter.get_footprints()}
+
+
+def test_live_record_centre_mm_is_midpoint_of_present_refs(main_window):
+    adapter = _line_board()
+    centre = live_record_centre_mm(["R1", "C1", "C2"], adapter)
+    assert centre is not None
+    assert centre[0] == pytest.approx(17.0)  # (10 + 24) / 2
+    assert centre[1] == pytest.approx(10.0)
+
+
+def test_live_record_centre_mm_none_when_no_recorded_ref_present(main_window):
+    adapter = _line_board()
+    adapter._fps = []  # the live board has none of the recorded refs (edge 1)
+    assert live_record_centre_mm(["R1", "C1", "C2"], adapter) is None
+    # partial presence still yields a centre (over the PRESENT refs)
+    adapter._fps = [_fp("R1", 10, 10), _fp("C1", 20, 10)]
+    centre = live_record_centre_mm(["R1", "C1", "C2"], adapter)
+    assert centre is not None
+    assert centre[0] == pytest.approx(15.0)
+
+
+def test_pivot_from_selection_centre_point_gives_0_0(main_window):
+    """Selected centre == the region centre -> the pivot is the (0,0) centre
+    default. Select R1+C2 (mean x = 17, exactly the region centre) — NOT
+    R1+C1+C2 whose mean x = 18 differs from the midpoint 17."""
+    adapter = _line_board()
+    fps = _fps_by_ref(adapter)
+    sel = _selection_from(fps["R1"], fps["C2"])
+    pivot = pivot_centre_frame_from_selection(["R1", "C1", "C2"], adapter, sel)
+    assert pivot[0] == pytest.approx(0.0)
+    assert pivot[1] == pytest.approx(0.0)
+
+
+def test_pivot_from_selection_shifted_point_is_centre_minus_region_centre(
+        main_window):
+    adapter = _line_board()
+    fps = _fps_by_ref(adapter)
+    # selection = R1 -> centre (10,10); region centre (17,10) -> pivot (-7,0)
+    sel = _selection_from(fps["R1"])
+    pivot = pivot_centre_frame_from_selection(["R1", "C1", "C2"], adapter, sel)
+    assert pivot[0] == pytest.approx(-7.0)
+    assert pivot[1] == pytest.approx(0.0)
+
+
+def test_pivot_from_selection_no_recorded_ref_on_board_is_fatal(main_window):
+    """Edge 1 — none of the recorded refs on the live board: the region centre
+    cannot be computed, so we raise instead of guessing."""
+    adapter = _line_board()
+    adapter._fps = []
+    with pytest.raises(ValidationError):
+        pivot_centre_frame_from_selection(["R1", "C1", "C2"], adapter, [])
+
+
+def test_pivot_from_selection_empty_selection_is_fatal(main_window):
+    """Edge 3 — the selection is empty: the selected centre cannot be computed,
+    so we raise instead of guessing."""
+    adapter = _line_board()
+    with pytest.raises(ValidationError):
+        pivot_centre_frame_from_selection(["R1", "C1", "C2"], adapter, [])
+
+
+def test_missing_record_refs_reports_only_absent_refs(main_window):
+    adapter = _line_board()
+    assert missing_record_refs(["R1", "C1", "C2"], adapter) == []
+    adapter._fps = [fp for fp in adapter._fps if fp.ref != "C2"]
+    assert missing_record_refs(["R1", "C1", "C2"], adapter) == ["C2"]
+    # a ref never present on the board is reported too (sorted)
+    assert missing_record_refs(["R1", "C9", "C2"], adapter) == ["C2", "C9"]
+
+
+def test_pivot_take_from_selection_fills_fields_from_live_selection(
+        main_window, tmp_path):
+    adapter = _line_board()
+    d = _record_dict(adapter)  # records R1/C1/C2, pivot defaults to (0,0)
+    root = _record_file(tmp_path, d)
+    dock = _make_dock(main_window, root, d)
+    _connect_board(dock, adapter)
+    fps = _fps_by_ref(adapter)
+    dock.set_board_selection([], _selection_from(fps["R1"]))  # live sel = R1
+
+    dock.pivot_from_selection_button.click()
+
+    # R1 centre (10,10) minus region centre (17,10) -> pivot (-7,0)
+    assert float(dock.pivot_x_edit.text()) == pytest.approx(-7.0)
+    assert float(dock.pivot_y_edit.text()) == pytest.approx(0.0)
+
+
+def test_pivot_take_from_selection_missing_recorded_ref_warns_and_computes(
+        main_window, tmp_path, caplog):
+    adapter = _line_board()
+    d = _record_dict(adapter)
+    root = _record_file(tmp_path, d)
+    dock = _make_dock(main_window, root, d)
+    adapter._fps = [fp for fp in adapter._fps if fp.ref != "C2"]  # C2 missing
+    _connect_board(dock, adapter)
+    fps = _fps_by_ref(adapter)
+    dock.set_board_selection([], _selection_from(fps["R1"]))
+
+    dock.pivot_from_selection_button.click()
+
+    # present refs R1/C1 -> region centre x = 15; pivot = 10 - 15 = -5
+    assert float(dock.pivot_x_edit.text()) == pytest.approx(-5.0)
+    assert any("not all recorded components are on the board" in r.message
+               for r in caplog.records)
+
+
+def test_pivot_take_from_selection_without_loaded_record_is_reported_no_crash(
+        main_window, tmp_path, caplog):
+    root = _record_file(tmp_path, _record_dict(_line_board()))
+    dock = SchemeListFormWidget(main_window)
+    dock.set_root_path(root)  # nothing loaded -> _entry empty, _path None
+    _connect_board(dock, _line_board())
+    dock.set_board_selection([], _selection_from(_line_board().get_footprints()[0]))
+
+    dock.pivot_from_selection_button.click()  # must not crash
+
+    assert any("Load a Scheme List record first." in r.message
+               for r in caplog.records)
+    assert dock.pivot_x_edit.text() == ""
+
+
+def test_pivot_take_from_selection_requires_live_board(main_window, tmp_path, caplog):
+    adapter = _line_board()
+    d = _record_dict(adapter)
+    root = _record_file(tmp_path, d)
+    dock = _make_dock(main_window, root, d)  # board NOT connected
+    dock.set_board_selection([], _selection_from(adapter.get_footprints()[0]))
+
+    dock.pivot_from_selection_button.click()  # must not crash
+
+    assert any("Connect to KiCad first." in r.message for r in caplog.records)
+    assert dock.pivot_x_edit.text() == "0.00"  # fields untouched
+
+
+def test_pivot_take_from_selection_is_preview_only_no_write_no_saved(
+        main_window, tmp_path):
+    adapter = _line_board()
+    d = _record_dict(adapter)
+    root = _record_file(tmp_path, d)
+    dock = _make_dock(main_window, root, d)
+    _connect_board(dock, adapter)
+    fps = _fps_by_ref(adapter)
+    dock.set_board_selection([], _selection_from(fps["R1"]))
+    before = root.read_text(encoding="utf-8")
+    emitted = []
+    dock.saved.connect(lambda: emitted.append(True))
+
+    dock.pivot_from_selection_button.click()
+
+    # the click only PREFILLS the fields — no file write, no saved.emit;
+    # the explicit Apply (Save pivot) is still required to persist.
+    assert root.read_text(encoding="utf-8") == before
+    assert emitted == []
+    assert float(dock.pivot_x_edit.text()) == pytest.approx(-7.0)
 
 
 # ── Reread ─────────────────────────────────────────────────────────────────
