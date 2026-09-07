@@ -563,6 +563,18 @@ layer/mirror checks as hand-written ones — nothing is validated twice.
   tree's own role-anchor `sheet` — a net whose leading segment isn't it is a fatal (it's not this
   template's copper), never silently rewritten. Distinct per-instance nets keep the one-record-per-net
   dedup happy for free.
+- **Per-declaration overrides** (`cluster:` v1.2 2026-09-03, `params:` v1.3 2026-09-07): besides
+  `sheet` (always substituted), a declaration may carry OPTIONAL `cluster:` and/or `params:` merged
+  into EVERY generated Entity copy — same "override wins, rest inherited" semantics as `sheet`, just
+  per-Entity (`cluster`) / per-key (`params`). `params:` is what makes a Cell role's net_template
+  parametrized by a placeholder resolve PER INSTANCE: e.g. a Cell role with
+  `net_template: "/{channel_sheet}/DAC/+3V3_AVDD"`, the template Entity carrying
+  `params: {channel_sheet: Channel_0}`, and a `tree_instances:` declaration
+  `sheet: Channel_1, params: {channel_sheet: Channel_1}` → the generated copy's role resolves to
+  `/Channel_1/DAC/+3V3_AVDD` (net_resolution.resolve_net reads Entity.params). A declaration without
+  `params:`/`cluster:` keeps the template's own values unchanged (100% back-compatible). Overrides are
+  NOT applied to `net_trace` materialization (a net_trace's nets are rewritten by leading-sheet
+  substitution, and its anchor_* narrows an external search — not {placeholder}-parametrized).
 - **Generated instances are never persisted** as literal `trees:` entries: the TreesDock Save writes
   only hand-written trees, and the untouched `tree_instances:` section regenerates the instances on
   every load — no duplication. An instance's geometry is edited by editing the template (in the Trees

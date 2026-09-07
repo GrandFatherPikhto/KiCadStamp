@@ -831,6 +831,24 @@ class TreeInstance:
         search — a different concept from "which physical group this is"
         (see design_cell_template_reuse §3).
 
+    params — OPTIONAL per-instance override (2026-09-07, plan
+        tree_instances_params_override): merged into EVERY generated Entity
+        copy's `params` dict — the values net_resolution.resolve_net uses to
+        substitute {placeholder}s in a component's net_template (see
+        net_resolution.py's own resolve_placeholder docstring for the exact
+        idiom this mirrors: a placement parametrized with
+        params: {channel_sheet: Channel_1} + a Cell role whose net_template is
+        "/{channel_sheet}/DAC/+3V3_AVDD" resolves per-instance to
+        "/Channel_1/DAC/+3V3_AVDD"). MERGE, not replace: keys not mentioned
+        here keep the template Entity's own params value unchanged — the same
+        "override wins, rest inherited" semantics as `cluster`, just per-key
+        instead of whole-field. None (the default) changes nothing: the deep
+        copy keeps the template's own params verbatim, today's behaviour.
+        Deliberately NOT applied to net_traces (same reason as `cluster` — a
+        net_trace's nets are rewritten by leading-sheet substitution, and its
+        anchor_* narrows an EXTERNAL search, not {placeholder}-parametrized
+        geometry).
+
     The declaration list stays on Config (cfg.tree_instances) even after
     expansion: the raw declarations are the single source of truth for the GUI
     to tell a materialized (read-only, never persisted) tree from a
@@ -839,6 +857,7 @@ class TreeInstance:
     name: str
     sheet: str
     cluster: str | None = None
+    params: dict[str, str] | None = None
 
 
 @dataclass

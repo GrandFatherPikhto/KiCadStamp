@@ -596,6 +596,128 @@ class TestClusterOverride:
         assert _entity_by_name(cfg, "dac_buf__ch1_dac_buf").cluster == "CLUST_A"
 
 
+class TestParamsOverride:
+    """v1.3 (2026-09-07, plan tree_instances_params_override): the OPTIONAL
+    `params:` declaration override is MERGED (per-key) into every generated
+    Entity copy's OWN `params` — the {placeholder}-substitution values
+    net_resolution.resolve_net reads from a role's net_template. Same
+    "override wins, rest inherited" semantics as `cluster`, per-key instead
+    of whole-field; a declaration WITHOUT `params` (None) inherits the
+    template Entity's params unchanged (back-compat)."""
+
+    def test_params_override_replaces_in_generated_entity(self, tmp_path):
+        """Template Entity parametrized to Channel_0; the declaration overrides
+        channel_sheet to Channel_1 -> every generated copy (top-level and
+        nested) resolves to Channel_1; the template Entity itself keeps its own
+        params untouched (deep-copy, never mutated)."""
+        data = _template_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1",
+             "params": {"channel_sheet": "Channel_1"}},
+        ])
+        data["entities"][0]["params"] = {"channel_sheet": "Channel_0"}
+        p = _write(tmp_path, "t.sexp", data)
+        cfg, _ = load_config(str(p))
+
+        # cfg.tree_instances keeps the RAW declaration including params.
+        assert cfg.tree_instances == [
+            TreeInstance(template="dac_buf_tpl", name="ch1_dac_buf",
+                         sheet="Channel_1", params={"channel_sheet": "Channel_1"}),
+        ]
+        # Template entities keep their OWN params (deep-copy, never mutated).
+        assert _entity_by_name(cfg, "dac_buf").params == \
+            {"channel_sheet": "Channel_0"}
+        assert _entity_by_name(cfg, "pif_avdd").params == {}
+        # Generated Entity copies (every nesting level) get the override; a
+        # nested template Entity with NO own params still gets the override.
+        assert _entity_by_name(cfg, "dac_buf__ch1_dac_buf").params == \
+            {"channel_sheet": "Channel_1"}
+        assert _entity_by_name(cfg, "pif_avdd__ch1_dac_buf").params == \
+            {"channel_sheet": "Channel_1"}
+
+    def test_params_override_merge_keeps_untouched_keys(self, tmp_path):
+        """MERGE, not whole-dict replace: a key NOT named in the declaration
+        keeps the template Entity's value; only the named key is overridden."""
+        data = _template_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1",
+             "params": {"b": "9"}},
+        ])
+        data["entities"][0]["params"] = {"a": "1", "b": "2"}
+        p = _write(tmp_path, "t.sexp", data)
+        cfg, _ = load_config(str(p))
+        assert _entity_by_name(cfg, "dac_buf__ch1_dac_buf").params == \
+            {"a": "1", "b": "9"}
+
+    def test_params_none_keeps_template_params_unchanged(self, tmp_path):
+        """THE back-compat regression: a declaration without `params:` must
+        behave EXACTLY as before — each generated copy inherits its template
+        Entity's own params 1:1."""
+        data = _template_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"},
+        ])
+        data["entities"][0]["params"] = {"a": "1"}
+        p = _write(tmp_path, "t.sexp", data)
+        cfg, _ = load_config(str(p))
+        assert cfg.tree_instances[0].params is None
+        assert _entity_by_name(cfg, "dac_buf__ch1_dac_buf").params == {"a": "1"}
+        # nested template Entity had no params -> generated copy has none either
+        assert _entity_by_name(cfg, "pif_avdd__ch1_dac_buf").params == {}
+
+    def test_params_override_not_a_dict_is_fatal_on_expansion(self):
+        """dict-level expansion runs BEFORE _load_tree_instance inside
+        load_config (see the module docstring), so a non-mapping params first
+        hits expand_tree_instances' own duplicated guard."""
+        from kicadstamp.config.tree_instances import expand_tree_instances
+        with pytest.raises(ValidationError, match="non-mapping params"):
+            expand_tree_instances({"entities": [], "trees": [], "net_traces": [],
+                                   "tree_instances": [
+                                       {"template": "dac_buf_tpl",
+                                        "name": "ch1_dac_buf",
+                                        "sheet": "Channel_1",
+                                        "params": "not-a-dict"}]})
+
+    def test_params_override_not_a_dict_is_fatal_on_loader(self):
+        """The loader's OWN guard (entries.py::_load_tree_instance) — the same
+        strictness when the declaration is parsed directly (e.g. GUI single-
+        entry validation), reached without dict-level expansion."""
+        from kicadstamp.config import load_tree_instance
+        with pytest.raises(ValidationError, match="non-mapping params"):
+            load_tree_instance({"template": "dac_buf_tpl",
+                                "name": "ch1_dac_buf",
+                                "sheet": "Channel_1",
+                                "params": "not-a-dict"})
+
+    def test_end_to_end_net_template_placeholder_resolves_per_instance(
+            self, tmp_path):
+        """The scenario this whole plan exists for: a role whose net_template
+        is '/{channel_sheet}/DAC/+3V3_AVDD', template Entity parametrized to
+        Channel_0, tree_instance declarations overriding channel_sheet per
+        instance — net_resolution.resolve_net must resolve each generated
+        Entity to ITS OWN channel (Channel_1 vs Channel_2), not the template's.
+        (net_resolution.py is untouched — this proves the fix is purely in
+        which params a generated Entity carries.)"""
+        from kicadstamp.net_resolution import resolve_net
+        data = _template_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1",
+             "params": {"channel_sheet": "Channel_1"}},
+            {"template": "dac_buf_tpl", "name": "ch2_dac_buf", "sheet": "Channel_2",
+             "params": {"channel_sheet": "Channel_2"}},
+        ])
+        # the template Entity is parametrized to its OWN channel (Channel_0)
+        data["entities"][0]["params"] = {"channel_sheet": "Channel_0"}
+        p = _write(tmp_path, "t.sexp", data)
+        cfg, _ = load_config(str(p))
+        net_template = "/{channel_sheet}/DAC/+3V3_AVDD"
+
+        tpl = _entity_by_name(cfg, "dac_buf")
+        assert resolve_net(net_template, tpl.params, tpl.net_overrides) == \
+            "/Channel_0/DAC/+3V3_AVDD"
+        for name, expected in (
+                ("dac_buf__ch1_dac_buf", "/Channel_1/DAC/+3V3_AVDD"),
+                ("dac_buf__ch2_dac_buf", "/Channel_2/DAC/+3V3_AVDD")):
+            ent = _entity_by_name(cfg, name)
+            assert resolve_net(net_template, ent.params, ent.net_overrides) == expected
+
+
 class TestTreeInstanceWriterCluster:
     """Persistence of the OPTIONAL cluster axis (2026-09-03, plan
     tree_instances_cluster): upsert_tree_instances writes a row's non-empty

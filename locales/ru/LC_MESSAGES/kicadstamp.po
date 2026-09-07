@@ -8346,6 +8346,20 @@ msgstr ""
 "cluster:, если присутствует, должен быть непустой строкой — опусти ключ "
 "целиком, чтобы унаследовать кластер шаблона без изменений"
 
+#: kicadstamp/config/entries.py:1306
+#, python-brace-format
+msgid "tree_instances: entry {name!r} has a non-mapping params:"
+msgstr "tree_instances: у записи {name!r} params: не является словарём"
+
+#: kicadstamp/config/entries.py:1307 kicadstamp/config/tree_instances.py:352
+msgid ""
+"params:, when present, must be a mapping of string keys to string values — "
+"omit the key entirely to inherit the template Entity's own params unchanged"
+msgstr ""
+"params:, если присутствует, должен быть словарём со строковыми ключами и "
+"строковыми значениями — опусти ключ целиком, чтобы унаследовать params "
+"шаблонной Entity без изменений"
+
 #: kicadstamp/config/entries.py:1307
 #, python-brace-format
 msgid "unknown fields in tree_instances entry {name!r}"
@@ -9398,6 +9412,11 @@ msgstr ""
 #, python-brace-format
 msgid "tree_instances: entry #{idx} has an empty cluster:"
 msgstr "tree_instances: у записи #{idx} пустой cluster:"
+
+#: kicadstamp/config/tree_instances.py:352
+#, python-brace-format
+msgid "tree_instances: entry #{idx} has a non-mapping params:"
+msgstr "tree_instances: у записи #{idx} params: не является словарём"
 
 #: kicadstamp/config/tree_instances.py:344
 #, python-brace-format

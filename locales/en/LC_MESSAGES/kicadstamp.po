@@ -8369,6 +8369,17 @@ msgid ""
 "entirely to inherit the template's own cluster unchanged"
 msgstr ""
 
+#: kicadstamp/config/entries.py:1306
+#, python-brace-format
+msgid "tree_instances: entry {name!r} has a non-mapping params:"
+msgstr ""
+
+#: kicadstamp/config/entries.py:1307 kicadstamp/config/tree_instances.py:352
+msgid ""
+"params:, when present, must be a mapping of string keys to string values — "
+"omit the key entirely to inherit the template Entity's own params unchanged"
+msgstr ""
+
 #: kicadstamp/config/entries.py:1307
 #, python-brace-format
 msgid "unknown fields in tree_instances entry {name!r}"
@@ -9418,6 +9429,11 @@ msgstr ""
 #: kicadstamp/config/tree_instances.py:336
 #, python-brace-format
 msgid "tree_instances: entry #{idx} has an empty cluster:"
+msgstr ""
+
+#: kicadstamp/config/tree_instances.py:352
+#, python-brace-format
+msgid "tree_instances: entry #{idx} has a non-mapping params:"
 msgstr ""
 
 #: kicadstamp/config/tree_instances.py:344

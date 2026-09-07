@@ -52,6 +52,23 @@ component the copper is anchored to) — a different concept from "which
 physical group this Entity is", and conflating them would be a semantic bug
 (see design_cell_template_reuse §3, "Явно ВНЕ рамок").
 
+v1.3 (2026-09-07, plan tree_instances_params_override): a declaration may
+OPTIONALLY carry `params:` — a mapping MERGED into every generated Entity
+copy's OWN `params` dict (per-key: a key mentioned here overrides the template
+Entity's value, a key not mentioned keeps the template's — the same
+"override wins, rest inherited" semantics as the v1.2 `cluster` override,
+just per-key instead of whole-field). The values are what
+net_resolution.resolve_net substitutes into {placeholder}s of a component's
+net_template, so this is the code half of making a net_template parametrized
+by e.g. `/{channel_sheet}/DAC/+3V3_AVDD` resolve PER-INSTANCE (template
+Entity params: {channel_sheet: Channel_0} + declaration params:
+{channel_sheet: Channel_1} -> the generated Channel-1 copy's role resolves to
+`/Channel_1/DAC/+3V3_AVDD`). When a declaration has NO `params` (None) nothing
+changes: the deep copy keeps the template Entity's own params verbatim — 100%
+back-compatible with pre-v1.3 declarations. Deliberately NOT applied to
+net_trace materialization (same reason as `cluster` in v1.2 — a net_trace's
+nets are rewritten by leading-sheet substitution, not {placeholder}-resolved).
+
 The materialized dicts then flow through the SAME _load_entity/_load_tree/
 _load_net_trace path as hand-written entries — duplicate-name checks, rule 2
 (shared seen_refs), the one-record-per-net net_traces dedup, unknown-key
@@ -123,7 +140,8 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
                  entities_by_name: dict, net_traces_by_net: dict,
                  generated_entities: list, generated_net_traces: list,
                  template_name: str, old_sheet: str | None,
-                 cluster: str | None = None) -> dict:
+                 cluster: str | None = None,
+                 params: dict[str, str] | None = None) -> dict:
     """Deep-copy one template node dict into the instance shape.
 
     kind=placement (or unset/auto): the node's ref is suffixed with
@@ -148,7 +166,13 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
     overwrites the generated Entity copy's `cluster`; when None the deep copy
     keeps the template Entity's own cluster unchanged (today's behaviour).
     The net_trace branch deliberately ignores it (a net_trace's
-    anchor_cluster is a different concept — see the module docstring)."""
+    anchor_cluster is a different concept — see the module docstring).
+
+    params (2026-09-07, plan tree_instances_params_override): a
+    declaration-level mapping MERGED into the generated Entity copy's OWN
+    `params` (per-key override of the template Entity's params — net_template
+    {placeholder} substitution values). Applied ONLY in the placement branch;
+    the net_trace branch deliberately ignores it (see the module docstring)."""
     orig_ref = node.get('ref')
     if orig_ref is None:
         raise ValidationError(format_fatal_error(
@@ -225,7 +249,7 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
         gen['children'] = [_expand_node(c, instance_name, sheet, entities_by_name,
                                         net_traces_by_net, generated_entities,
                                         generated_net_traces, template_name,
-                                        old_sheet, cluster)
+                                        old_sheet, cluster, params)
                            for c in children]
     ent = copy.deepcopy(entity)
     ent['name'] = new_ref
@@ -234,6 +258,14 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
         # Only when the declaration overrides — otherwise the deep copy keeps
         # the template Entity's own cluster unchanged (back-compat).
         ent['cluster'] = cluster
+    if params is not None:
+        # Per-key MERGE into the generated copy's OWN params — keys not named
+        # in the declaration keep the template Entity's value (back-compat);
+        # this is what makes a {channel_sheet}-style net_template placeholder
+        # resolve per-instance (net_resolution.resolve_net reads Entity.params).
+        merged_params = dict(ent.get('params') or {})
+        merged_params.update(params)
+        ent['params'] = merged_params
     generated_entities.append(ent)
     return gen
 
@@ -241,7 +273,8 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
 def _expand_template(template: dict, template_name: str, instance_name: str,
                      sheet: str, entities_by_name: dict,
                      net_traces_by_net: dict,
-                     cluster: str | None = None) -> tuple[dict, list, list]:
+                     cluster: str | None = None,
+                     params: dict[str, str] | None = None) -> tuple[dict, list, list]:
     """Materialize ONE instance from a template Tree dict: returns
     (tree dict, [entity dicts], [net_trace dicts]). The template dict is never
     mutated — deep copies only."""
@@ -271,7 +304,7 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
     gen['nodes'] = [_expand_node(n, instance_name, sheet, entities_by_name,
                                  net_traces_by_net, generated_entities,
                                  generated_net_traces, template_name, old_sheet,
-                                 cluster)
+                                 cluster, params)
                     for n in (template.get('nodes') or [])]
     return gen, generated_entities, generated_net_traces
 
@@ -338,6 +371,21 @@ def expand_tree_instances(data: dict) -> dict:
                 [_("cluster:, when present, must be a non-empty string — omit "
                    "the key entirely to inherit the template's own cluster "
                    "unchanged")]))
+        # v1.3 (plan tree_instances_params_override): OPTIONAL per-instance
+        # params merge. Validation duplicated here on purpose — this function
+        # runs on the raw dict BEFORE the _load_tree_instance loader (see the
+        # module docstring), so it cannot rely on entries.py having already
+        # validated the declaration (same duplication discipline as `cluster`
+        # just above). Only the "is it a mapping" guard — no per-value checks,
+        # same level as Entity.params elsewhere.
+        params = inst.get('params')
+        if params is not None and not isinstance(params, dict):
+            raise ValidationError(format_fatal_error(
+                _("tree_instances: entry #{idx} has a non-mapping params:")
+                .format(idx=idx + 1),
+                [_("params:, when present, must be a mapping of string keys to "
+                   "string values — omit the key entirely to inherit the "
+                   "template Entity's own params unchanged")]))
         template = trees_by_name.get(template_name)
         if template is None:
             raise ValidationError(format_fatal_error(
@@ -348,7 +396,7 @@ def expand_tree_instances(data: dict) -> dict:
         (generated_tree, generated_entities,
          generated_net_traces) = _expand_template(
             template, template_name, instance_name, sheet, entities_by_name,
-            net_traces_by_net, cluster)
+            net_traces_by_net, cluster, params)
         trees.append(generated_tree)
         entities.extend(generated_entities)
         net_traces.extend(generated_net_traces)
