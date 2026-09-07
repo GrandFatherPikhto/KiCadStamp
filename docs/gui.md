@@ -1132,10 +1132,12 @@ Captures a named Scheme List from the live board through a **three-tab** dialog:
 - **"Pivot / Anchor" (third tab, Commit F)** — the record's pivot set AT CREATION: an x/y pair in the
   record's CENTRE-frame (mm offsets from the region centre, `(0, 0)` = the centre), defaulting to
   `(0,0)`. **Centre** writes 0/0 into the fields; **"Take from selection"** reads the CURRENT live
-  board selection and fills x/y as the pivot in the centre-frame of the refs the ACTIVE source tab
-  would record (needs a live KiCad connection). The dialog OK (Record/Re-source) STORES these fields as
-  the new record's pivot — there is no separate Apply in the dialog, and OK stays disabled while the
-  x/y fields do not hold numbers.
+  board selection AT CLICK TIME (Commit G — the selection is polled live even while the modal dialog is
+  open, so a component selected on the board after Record was launched is honoured) and fills x/y as
+  the pivot in the centre-frame of the refs the ACTIVE source tab would record (selected component
+  centre minus the recorded region's centre; needs a live KiCad connection). The dialog OK
+  (Record/Re-source) STORES these fields as the new record's pivot — there is no separate Apply in the
+  dialog, and OK stays disabled while the x/y fields do not hold numbers.
 
 Both tabs end the same way: a unique record name, a duplicate pre-check BEFORE the expensive capture
 (a duplicate name, or a ref already recorded in ANOTHER Scheme List), a worker-thread capture (never

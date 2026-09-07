@@ -533,7 +533,8 @@ class RecordSchemeListDialog(QDialog):
 
     def __init__(self, snapshot: list, selection_refs: List[str], parent=None,
                  fixed_name: Optional[str] = None, *,
-                 adapter=None, selected_footprints=None, pivot_initial=None):
+                 adapter=None, selected_footprints=None, pivot_initial=None,
+                 selection_provider=None):
         super().__init__(parent)
         self._fixed_name = fixed_name
         # Pivot/Anchor tab context (Commit F): the live adapter + current board
@@ -541,6 +542,13 @@ class RecordSchemeListDialog(QDialog):
         # (Re-source = the stored record's pivot, Record = None -> (0,0) centre).
         self._adapter = adapter
         self._selected_footprints = list(selected_footprints or [])
+        # Commit G: the modal dialog outlives the selection it was opened with,
+        # so "Take from selection" must read the CURRENT board selection at
+        # click time, not the open-time snapshot. selection_provider is a
+        # callable returning the live selected footprints (DockHub's polled
+        # copy — kept fresh by the main window's selection timer even under the
+        # dialog's nested event loop). None -> fall back to the static copy.
+        self._selection_provider = selection_provider
         self._pivot_initial = (tuple(pivot_initial) if pivot_initial is not None
                                else (0.0, 0.0))
         if fixed_name:
@@ -725,6 +733,14 @@ class RecordSchemeListDialog(QDialog):
             return False
         return True
 
+    def _live_selection(self) -> list:
+        """The selected footprints "Take from selection" should use: the LIVE
+        board selection read at click time (selection_provider — Commit G), or
+        the open-time snapshot when no provider was given (tests/fallback)."""
+        if self._selection_provider is not None:
+            return list(self._selection_provider())
+        return list(self._selected_footprints)
+
     def _on_pivot_centre(self) -> None:
         """'Centre' — write the centre default 0/0 into the x/y fields."""
         self._set_pivot_fields(0.0, 0.0)
@@ -733,7 +749,9 @@ class RecordSchemeListDialog(QDialog):
         """'Take from selection' — read the CURRENT board selection's centre and
         write x/y as the pivot in the centre-frame of the refs we would record
         now (selected centre minus the live centre of those refs' footprints,
-        Commit B2 helpers). Needs the live adapter."""
+        Commit B2 helpers). Needs the live adapter; the selection is read LIVE
+        at click time (Commit G), so selecting on the board while the dialog is
+        open is honoured."""
         if self._adapter is None:
             QMessageBox.warning(self, _("Scheme Lists"),
                                 _("Connect to KiCad first."))
@@ -748,7 +766,7 @@ class RecordSchemeListDialog(QDialog):
             return
         try:
             x, y = pivot_centre_frame_from_selection(
-                refs, self._adapter, self._selected_footprints)
+                refs, self._adapter, self._live_selection())
         except ValidationError as e:
             QMessageBox.warning(self, _("Scheme Lists"), str(e))
             return
@@ -1296,6 +1314,10 @@ class SchemeListFormWidget(QWidget):
         owning file (write_scheme_list_record with target_path=self._path;
         scheme_list_to_dict omits a (0,0) pivot). Pure config write, no live
         board. Emits saved() so ConfigTreeDock refreshes (see gui/dock_hub.py)."""
+        # TEMPORARY G-DIAG (Commit G): catch the exact "ERROR Load Scheme Record
+        # list..." failure — remove after diagnosis.
+        logger.warning("[SchemeList Pivot] Apply: entry=%r path=%r",
+                       self._entry.get("name"), self._path)
         self._show_message("")
         if not self._entry or self._path is None:
             self._show_message(_("Load a Scheme List record first."), _ERROR_STYLE)
@@ -1309,6 +1331,8 @@ class SchemeListFormWidget(QWidget):
         try:
             record = load_scheme_list(self._entry)
         except ValidationError as e:
+            logger.warning("[SchemeList Pivot] Apply load_scheme_list failed: "
+                           "%r (%s)", str(e), type(e).__name__)
             self._show_message(str(e), _ERROR_STYLE)
             return
         record.pivot = (x, y)
@@ -1317,6 +1341,8 @@ class SchemeListFormWidget(QWidget):
             written = write_scheme_list_record(root_path, record,
                                                target_path=self._path)
         except (ValidationError, OSError) as e:
+            logger.warning("[SchemeList Pivot] Apply write failed: %r (%s)",
+                           str(e), type(e).__name__)
             self._show_message(_("Pivot save failed: {error}").format(error=e),
                                _ERROR_STYLE)
             return
@@ -1326,6 +1352,7 @@ class SchemeListFormWidget(QWidget):
         self._show_message(
             _("Pivot for Scheme List {name!r} saved -> {path}").format(
                 name=record.name, path=display_path(written)), _SUCCESS_STYLE)
+        logger.warning("[SchemeList Pivot] Apply OK -> %s", written)
         self.saved.emit()
 
     def _on_pivot_from_selection(self) -> None:
@@ -1345,19 +1372,34 @@ class SchemeListFormWidget(QWidget):
         if adapter is None:
             self._show_message(_("Connect to KiCad first."), _ERROR_STYLE)
             return
+        # TEMPORARY G-DIAG (Commit G): catch the exact "ERROR Load Scheme Record
+        # list..." failure — remove after diagnosis.
+        logger.warning("[SchemeList Pivot] TakeFromSel: entry=%r path=%r "
+                       "board=%s selection=%d",
+                       self._entry.get("name"), self._path,
+                       board is not None,
+                       len(getattr(self, "_selection_footprints", []) or []))
         try:
             record = load_scheme_list(self._entry)
         except ValidationError as e:
+            logger.warning("[SchemeList Pivot] TakeFromSel load_scheme_list "
+                           "failed: %r (%s)", str(e), type(e).__name__)
             self._show_message(str(e), _ERROR_STYLE)
             return
         record_refs = [c.ref for c in record.components]
         missing = missing_record_refs(record_refs, adapter)
+        logger.warning("[SchemeList Pivot] TakeFromSel record=%r refs=%r "
+                       "missing=%r", record.name, record_refs, missing)
         try:
             pivot_mm = pivot_centre_frame_from_selection(
                 record_refs, adapter, self._selection_footprints)
         except ValidationError as e:
+            logger.warning("[SchemeList Pivot] TakeFromSel pivot failed: %r "
+                           "(%s)", str(e), type(e).__name__)
             self._show_message(str(e), _ERROR_STYLE)
             return
+        logger.warning("[SchemeList Pivot] TakeFromSel OK pivot=%r",
+                       (pivot_mm[0], pivot_mm[1]))
         self.pivot_x_edit.setText(_pivot_mm_text(pivot_mm[0]))
         self.pivot_y_edit.setText(_pivot_mm_text(pivot_mm[1]))
         if missing:

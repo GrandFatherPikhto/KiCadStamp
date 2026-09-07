@@ -1682,11 +1682,13 @@ def test_record_scheme_list_by_sheet_payload_refs_match_checked_sheets(
         connection.board = SimpleNamespace(adapter=FakeAdapter([], [], [], {}))
         hub.root_metadata_dock.set_root_file(root)
 
+        captured = {}
+
         class _FakeDialog:
             def __init__(self, snapshot, selection_refs, parent,
                          *, adapter=None, selected_footprints=None,
-                         pivot_initial=None):
-                pass
+                         pivot_initial=None, selection_provider=None):
+                captured["selection_provider"] = selection_provider
 
             def exec(self):
                 return QDialog.DialogCode.Accepted
@@ -1716,6 +1718,14 @@ def test_record_scheme_list_by_sheet_payload_refs_match_checked_sheets(
                 payloads.append(payload) or object())
 
         hub.record_scheme_list()
+
+        # Commit G — the dialog receives a LIVE selection provider (a view over
+        # the hub's current selection, not an open-time snapshot), so "Take from
+        # selection" honours a component selected while the dialog is open.
+        assert captured["selection_provider"] is not None
+        assert captured["selection_provider"]() == []
+        hub._selection_footprints = [SimpleNamespace(ref="IC2")]
+        assert [s.ref for s in captured["selection_provider"]()] == ["IC2"]
 
         assert len(payloads) == 1
         # Ch1's C3 is excluded; R1/C1/C2/U1 are the checked-sheet union.
@@ -1763,7 +1773,7 @@ def test_record_scheme_list_by_selection_payload_matches_selection_refs(
         class _FakeDialog:
             def __init__(self, snapshot, selection_refs, parent,
                          *, adapter=None, selected_footprints=None,
-                         pivot_initial=None):
+                         pivot_initial=None, selection_provider=None):
                 pass
 
             def exec(self):
@@ -2008,8 +2018,10 @@ def test_run_resource_scheme_list_payload_uses_fixed_name_checked_refs_and_owner
         class _FakeDialog:
             def __init__(self, snapshot, selection_refs, parent,
                          fixed_name=None, *, adapter=None,
-                         selected_footprints=None, pivot_initial=None):
+                         selected_footprints=None, pivot_initial=None,
+                         selection_provider=None):
                 seen["fixed_name"] = fixed_name
+                seen["selection_provider"] = selection_provider
                 # Commit F — Re-source pre-fills the Pivot/Anchor tab from the
                 # stored record's pivot, so leaving it alone KEEPS the pivot.
                 seen["pivot_initial"] = pivot_initial
@@ -2048,6 +2060,8 @@ def test_run_resource_scheme_list_payload_uses_fixed_name_checked_refs_and_owner
         hub.resource_scheme_list_record(entry, root)
 
         assert seen.get("fixed_name") == "amp"
+        # Commit G — the Re-source dialog also gets the LIVE selection provider.
+        assert seen.get("selection_provider") is not None
         # Commit F — the Re-source dialog is pre-filled from the stored pivot...
         assert seen.get("pivot_initial") == [2.5, -1.0]
         assert len(payloads) == 1
@@ -2764,3 +2778,58 @@ def test_record_page_pivot_tab_apply_still_saves(main_window, tmp_path):
     entry = _load(root)["scheme_lists"][0]
     assert entry["pivot"] == [1.25, -0.5]
     assert load_scheme_list(entry).pivot == (1.25, -0.5)
+
+
+# ── Commit G — "Take from selection" reads the LIVE selection at click time ─
+# plan_2026_09_07_scheme_list_commit_g_live_selection_pivot.md: the Record/
+# Re-source dialog used the open-time selection snapshot, so a component
+# selected on the board while the dialog is open was invisible (Denis repro:
+# checked Channel_0, selected IC2 on the board -> pivot stayed 0,0). The
+# dialog now receives a selection_provider (a live view over the hub's polled
+# selection) and reads it at click time.
+
+def test_record_dialog_pivot_take_from_selection_reads_live_selection(
+        main_window):
+    """Commit G — select a component on the board AFTER the dialog is open (the
+    provider's backing list changes) and 'Take from selection' honours it:
+    checked Top subtree defines the recorded region, then selecting R1 live
+    fills pivot = R1(10,10) - region centre (17,10) = (-7, 0) instead of 0,0."""
+    adapter = _line_board()  # R1(10,10) C1(20,10) C2(24,10) -> centre (17,10)
+    fps = _fps_by_ref(adapter)
+    live: list = []  # nothing is selected when the dialog opens
+    dialog = RecordSchemeListDialog(_snap(*_HIER), [], main_window,
+                                    adapter=adapter,
+                                    selection_provider=lambda: list(live))
+    try:
+        # By-sheet (default tab): tick a sheet so the region is defined.
+        _tree_item_by_path(dialog, ("Top",)).setCheckState(
+            0, Qt.CheckState.Checked)
+        # ...then the user selects R1 on the board WHILE the dialog is open.
+        live[:] = _selection_from(fps["R1"])
+        dialog.pivot_from_selection_button.click()
+        x, y = dialog.pivot_value()
+        assert x == pytest.approx(-7.0)
+        assert y == pytest.approx(0.0)
+    finally:
+        dialog.close()
+
+
+def test_record_dialog_pivot_take_from_selection_falls_back_to_snapshot(
+        main_window):
+    """Commit G regression guard — without a selection_provider the dialog keeps
+    using the open-time snapshot (tests/Re-source callers that pass the static
+    list still behave as before)."""
+    adapter = _line_board()
+    fps = _fps_by_ref(adapter)
+    dialog = RecordSchemeListDialog(_snap(*_HIER), ["R1", "C1", "C2"],
+                                    main_window, adapter=adapter,
+                                    selected_footprints=_selection_from(
+                                        fps["R1"]))
+    try:
+        dialog.tabs.setCurrentIndex(1)  # By selection — refs = the selection
+        dialog.pivot_from_selection_button.click()
+        x, y = dialog.pivot_value()
+        assert x == pytest.approx(-7.0)  # R1 - region centre (R1/C1/C2)
+        assert y == pytest.approx(0.0)
+    finally:
+        dialog.close()

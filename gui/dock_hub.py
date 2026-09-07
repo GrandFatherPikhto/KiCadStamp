@@ -466,7 +466,10 @@ class DockHub:
             adapter=adapter, selected_footprints=self._selection_footprints,
             # Re-source pre-fills the Pivot/Anchor tab from the record's stored
             # pivot, so leaving it untouched KEEPS the pivot (Commit F).
-            pivot_initial=entry.get("pivot") if isinstance(entry, dict) else None)
+            pivot_initial=entry.get("pivot") if isinstance(entry, dict) else None,
+            # Commit G — "Take from selection" reads the CURRENT board selection
+            # at click time (see record_scheme_list).
+            selection_provider=lambda: list(self._selection_footprints))
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         _name, _sheet_path, checked_paths = dialog.result_data()
@@ -1228,7 +1231,11 @@ class DockHub:
                                  if getattr(s, "ref", None)})
         dialog = RecordSchemeListDialog(
             snapshot, selection_refs, self.main_window,
-            adapter=adapter, selected_footprints=self._selection_footprints)
+            adapter=adapter, selected_footprints=self._selection_footprints,
+            # Commit G — "Take from selection" reads the CURRENT board selection
+            # at click time (the dialog outlives the open-time snapshot; the
+            # polled copy stays fresh under its modal event loop).
+            selection_provider=lambda: list(self._selection_footprints))
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         name, _sheet_path, checked_paths = dialog.result_data()
