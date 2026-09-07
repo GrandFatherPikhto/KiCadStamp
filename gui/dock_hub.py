@@ -1350,12 +1350,17 @@ class DockHub:
                             _("Operation failed: {error}").format(error=message))
 
     def _run_resource_capture(self, payload: Dict) -> Dict[str, Any]:
-        """Worker thread — the actual Re-source capture + write; never touches
-        a widget. The fresh record (name/refs/anchor_ref/source_sheet/geometry
-        from the NEW source) REPLACES the stored record under the SAME name in
-        the file that owns it (target_path — like Reread Apply, NOT the default
-        scheme_lists.json): re-sourcing never moves a record between files.
-        Synchronous-callable in tests (mirror of _run_record_capture)."""
+        """Worker thread — phase-1 Re-source capture ONLY (G3, plan §5-G3);
+        never touches a widget. Captures the fresh record (name/refs/anchor_ref/
+        source_sheet/geometry from the NEW source) and returns it + root +
+        target_path (the file that OWNS the record — the Re-source write target;
+        the record is never moved between files, the §7 invariant) + the original
+        payload (so the phase-1 finish can re-run this worker with the SAME
+        payload + the user's boundary_net_actions). NO write happens here — G3
+        splits capture and write (before G3 this worker captured AND wrote, so a
+        truncate choice could never reach capture before the record was
+        persisted). A payload without the boundary_net_actions key is
+        byte-identical to v1."""
         from kicadstamp.config.models import SchemeListScopePreset
         from kicadstamp.scheme_list_capture import capture_scheme_list
         try:
@@ -1366,26 +1371,80 @@ class DockHub:
                 sheet_names=payload.get("sheet_names"),
                 scope_sheet_paths=payload.get("scope_sheet_paths"),
                 scope_presets=[SchemeListScopePreset(**p)
-                               for p in (payload.get("scope_presets") or [])])
-            root_path = Path(payload["root"])
-            target_path = (Path(payload["target_path"])
-                           if payload.get("target_path") else None)
-            written = write_scheme_list_record(root_path, record,
-                                               target_path=target_path)
+                               for p in (payload.get("scope_presets") or [])],
+                boundary_net_actions=payload.get("boundary_net_actions"))
         except Exception as e:  # noqa: BLE001 — ValidationError family surfaces verbatim
-            logging.getLogger(__name__).exception("Scheme List re-source failed")
+            logging.getLogger(__name__).exception(
+                "Scheme List re-source capture failed")
             return {"error": str(e)}
-        return {"record": record, "root": payload["root"], "path": str(written)}
+        return {"record": record, "root": payload["root"],
+                "target_path": payload.get("target_path"), "payload": payload}
 
     def _finish_resource_capture(self, result: Dict[str, Any]) -> None:
-        """UI thread — worker success: status message + refresh the Config
-        tree (the same reaction as Record/Reread Apply)."""
+        """UI thread, phase-1 (G3, plan §5-G3): boundary-net decision, then
+        either write phase-1 or launch phase-2:
+          - no boundary_nets -> write phase-1 straight away (no dialog);
+          - dialog Cancel (None) -> nothing is written (the owner file is
+            untouched);
+          - all-exclude ({}) -> write the ALREADY-captured phase-1 record (no
+            second IPC — the v1 record-with-exclusions regression);
+          - a truncate choice -> phase-2: re-run _run_resource_capture with the
+            SAME payload + boundary_net_actions and write THAT result to
+            target_path."""
         self._scheme_active_op = None
         if result.get("error"):
             QMessageBox.warning(self.main_window, _("Re-source failed"),
                                 result["error"])
             return
         record = result["record"]
+        if not record.boundary_nets:
+            self._write_resource_result(result)
+            return
+        actions = choose_boundary_actions(self.main_window, record.boundary_nets)
+        if actions is None:
+            return  # Cancel — nothing is written (owner file untouched)
+        if not any(a == "truncate" for a in actions.values()):
+            # All-exclude — the phase-1 record already IS what v1 would write.
+            self._write_resource_result(result)
+            return
+        # Truncate chosen: phase-2 re-captures with the per-net actions.
+        from .worker import start_long_op
+        payload2 = dict(result["payload"])
+        payload2["boundary_net_actions"] = actions
+        connection = self.main_window.connection
+        self._scheme_active_op = start_long_op(
+            connection, (), self._run_resource_capture,
+            self._finish_resource_capture_phase2, self._on_resource_op_failed,
+            payload2)
+
+    def _finish_resource_capture_phase2(self, result: Dict[str, Any]) -> None:
+        """UI thread, phase-2 completion (G3): the record was re-captured WITH
+        the user's boundary_net_actions — write it directly to target_path and
+        NEVER re-open the decision dialog (every boundary net of the result
+        already carries the decided action)."""
+        self._scheme_active_op = None
+        if result.get("error"):
+            QMessageBox.warning(self.main_window, _("Re-source failed"),
+                                result["error"])
+            return
+        self._write_resource_result(result)
+
+    def _write_resource_result(self, result: Dict[str, Any]) -> None:
+        """Shared Re-source tail (phase-1 all-exclude and phase-2): persist the
+        record under its SAME name IN THE FILE THAT OWNS IT (target_path — like
+        Reread Apply, NEVER the default scheme_lists.json: re-sourcing never
+        moves a record between files), refresh the Config tree and show the v1
+        status message."""
+        record = result["record"]
+        root_path = Path(result["root"])
+        target_path = (Path(result["target_path"])
+                       if result.get("target_path") else None)
+        try:
+            written = write_scheme_list_record(root_path, record,
+                                               target_path=target_path)
+        except OSError as e:
+            QMessageBox.warning(self.main_window, _("Re-source failed"), str(e))
+            return
         self.config_tree_dock.refresh()
         self.config_tree_dock.graph_changed.emit()
         show_message(
@@ -1393,7 +1452,7 @@ class DockHub:
               "{vias} vias, {tracks} tracks -> {path}").format(
                 name=record.name, components=len(record.components),
                 vias=len(record.vias), tracks=len(record.tracks),
-                path=display_path(Path(result["path"]))),
+                path=display_path(written)),
             "", logging.getLogger(__name__))
 
     def _on_resource_op_failed(self, message: str) -> None:

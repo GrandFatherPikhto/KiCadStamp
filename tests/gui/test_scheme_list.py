@@ -741,6 +741,218 @@ def test_finish_record_capture_phase2_writes_phase2_result_without_dialog(
                                          "external_ref": "R9"}]
 
 
+# ── G3: Re-source two-phase capture (plan §5-G3) ───────────────────────────
+# Same shape as G2 but for the Re-source flow: phase-1 worker captures ONLY
+# (no write — G3 split capture and write so a truncate choice can reach
+# capture before the record is persisted) and returns the record + root +
+# target_path + the original payload; the phase-1 finish shows the per-net
+# dialog (G1) and either writes phase-1 (no boundary nets / all-exclude — v1
+# single-pass) or launches phase-2 with the SAME payload +
+# boundary_net_actions; the phase-2 finish writes THAT result to the OWNING
+# file (target_path). Re-source never moves a record to the default
+# scheme_lists.json (the §7 invariant). The _record_hub stand-in (defined in
+# the G2 section above) is reused — it exposes exactly the members the
+# Re-source finish methods touch.
+
+def _resource_owner(tmp_path, amp_components=None):
+    """A root profile including an OWNER .sexp that carries the record being
+    re-sourced ("amp") plus a neighbour ("keep") — the file a Re-source
+    phase-1 finish writes INTO (target_path). (.sexp, NOT .json: _write emits
+    s-expr text, and the storage helpers pick the format by file extension —
+    a .json-named file holding s-expr would fail to parse on the write path,
+    and _write_resource_result's OSError branch opens a blocking QMessageBox
+    in headless tests.)"""
+    root = tmp_path / "root.sexp"
+    owner = tmp_path / "owner.sexp"
+    if amp_components is None:
+        amp_components = [{"ref": "R1", "offset_along_mm": 0.0,
+                           "offset_across_mm": 0.0, "rotation_deg": 0.0}]
+    _write(root, {"include": ["owner.sexp"]})
+    _write(owner, {"scheme_lists": [
+        {"name": "amp", "anchor_ref": "R1", "anchor_rotation_deg": 0.0,
+         "components": amp_components},
+        {"name": "keep", "anchor_ref": "K1", "anchor_rotation_deg": 0.0,
+         "components": [{"ref": "K1", "offset_along_mm": 0.0,
+                         "offset_across_mm": 0.0, "rotation_deg": 0.0}]}]})
+    return root, owner
+
+
+def _resource_boundary_record(boundary_raw, name="amp"):
+    """A minimal loadable Scheme List record carrying raw boundary_nets, named
+    after the EXISTING record a Re-source replaces (the owner-file upsert is by
+    name, so the phase-2/phase-1 record must carry the record's own name)."""
+    record = _record_with_boundary("X", boundary_raw)
+    record.name = name
+    return record
+
+
+def test_run_resource_capture_forwards_boundary_net_actions_and_no_write(
+        main_window, monkeypatch):
+    """G3 worker: phase-1 Re-source capture returns record + root + target_path
+    + the original payload and forwards the payload's optional
+    boundary_net_actions to capture_scheme_list; a payload WITHOUT the key
+    forwards None (v1 byte-identical). Phase-1 NEVER writes — the write is a
+    separate finish step (G3 split)."""
+    import kicadstamp.scheme_list_capture as cap_mod
+    from gui.dock_hub import DockHub
+
+    hub = DockHub.__new__(DockHub)
+    seen = {}
+    monkeypatch.setattr(cap_mod, "capture_scheme_list",
+                        lambda **kw: seen.update(kw) or object())
+    payload = {"name": "amp", "refs": ["R5"], "anchor_ref": "C5",
+               "board": SimpleNamespace(adapter=None),
+               "root": ".", "target_path": "/own/amp.json",
+               "boundary_net_actions": {"NET1": "truncate"}}
+    result = hub._run_resource_capture(payload)
+    assert result["payload"] is payload
+    assert result["target_path"] == "/own/amp.json"
+    assert seen.get("boundary_net_actions") == {"NET1": "truncate"}
+
+    seen2 = {}
+    monkeypatch.setattr(cap_mod, "capture_scheme_list",
+                        lambda **kw: seen2.update(kw) or object())
+    hub._run_resource_capture({"name": "amp", "refs": ["R5"],
+                               "anchor_ref": "C5",
+                               "board": SimpleNamespace(adapter=None),
+                               "root": "."})
+    assert seen2.get("boundary_net_actions") is None
+
+
+def test_finish_resource_capture_no_boundary_nets_writes_to_target_without_dialog(
+        main_window, tmp_path, monkeypatch):
+    """G3 v1 regression: a Re-source record with NO boundary nets is written
+    straight to the OWNING file (target_path) — the per-net dialog is never
+    opened and nothing lands in the default scheme_lists.json."""
+    root, owner = _resource_owner(tmp_path)
+    owner_before = _load(owner)
+    import gui.dock_hub as dh_mod
+    hub = _record_hub(main_window)
+    record = _resource_boundary_record([])
+    calls = []
+    monkeypatch.setattr(dh_mod, "choose_boundary_actions",
+                        lambda *a, **k: calls.append(a) or {})
+    hub._finish_resource_capture({"record": record, "root": str(root),
+                                  "target_path": str(owner), "payload": {}})
+    assert calls == []
+    # the record was REPLACED in the owner file (fresh capture — the new refs),
+    # the neighbour is untouched.
+    data = {e["name"]: e for e in _load(owner)["scheme_lists"]}
+    assert set(data) == {"amp", "keep"}
+    assert data["keep"] == owner_before["scheme_lists"][1]
+    assert data["amp"]["anchor_ref"] == "R1"
+    assert not default_scheme_list_path(root).exists()
+
+
+def test_finish_resource_capture_all_exclude_single_pass_and_writes_owner(
+        main_window, tmp_path, monkeypatch):
+    """G3: all-exclude (dialog {}) writes the ALREADY-captured phase-1 record
+    with NO second IPC, INTO THE OWNING FILE (target_path) — the record keeps
+    its name and the neighbour in that file is untouched."""
+    root, owner = _resource_owner(tmp_path)
+    import gui.dock_hub as dh_mod
+    import gui.worker as worker_mod
+    hub = _record_hub(main_window)
+    record = _resource_boundary_record([{"net": "NET1", "action": "exclude",
+                                         "external_ref": "R9"}])
+    monkeypatch.setattr(dh_mod, "choose_boundary_actions", lambda *a, **k: {})
+    launched = []
+    monkeypatch.setattr(worker_mod, "start_long_op",
+                        lambda *a, **k: launched.append(a) or object())
+    hub._finish_resource_capture({"record": record, "root": str(root),
+                                  "target_path": str(owner), "payload": {}})
+    assert launched == []  # no phase-2
+    data = {e["name"]: e for e in _load(owner)["scheme_lists"]}
+    assert set(data) == {"amp", "keep"}
+    # The .sexp writer omits DEFAULT-valued fields (unlike the .json writer
+    # G2 uses): an exclude boundary net is persisted WITHOUT its action key —
+    # the loader re-defaults it to exclude on read, so the v1 exclusion
+    # decision is preserved semantically.
+    assert data["amp"]["boundary_nets"] == [
+        {"net": "NET1", "external_ref": "R9"}]
+    amp_loaded = load_scheme_list(data["amp"])
+    assert [(bn.net, bn.action)
+            for bn in amp_loaded.boundary_nets] == [("NET1", "exclude")]
+    # nothing was written to the DEFAULT scheme_lists.json
+    assert not default_scheme_list_path(root).exists()
+
+
+def test_finish_resource_capture_cancel_writes_nothing(
+        main_window, tmp_path, monkeypatch):
+    """G3: dialog Cancel (None) writes nothing — the owner file is untouched —
+    and launches no phase-2."""
+    root, owner = _resource_owner(tmp_path)
+    owner_before = _load(owner)
+    import gui.dock_hub as dh_mod
+    import gui.worker as worker_mod
+    hub = _record_hub(main_window)
+    record = _resource_boundary_record([{"net": "NET1", "action": "exclude"}])
+    monkeypatch.setattr(dh_mod, "choose_boundary_actions", lambda *a, **k: None)
+    launched = []
+    monkeypatch.setattr(worker_mod, "start_long_op",
+                        lambda *a, **k: launched.append(a) or object())
+    hub._finish_resource_capture({"record": record, "root": str(root),
+                                  "target_path": str(owner), "payload": {}})
+    assert launched == []
+    assert _load(owner) == owner_before  # untouched
+
+
+def test_finish_resource_capture_truncate_launches_phase2_with_actions(
+        main_window, tmp_path, monkeypatch):
+    """G3: a truncate choice launches phase-2 with the SAME Re-source payload +
+    boundary_net_actions and the phase-2 finish (nothing is written by phase-1
+    itself)."""
+    root = tmp_path / "root.sexp"
+    _write(root, {})
+    import gui.dock_hub as dh_mod
+    import gui.worker as worker_mod
+    hub = _record_hub(main_window)
+    record = _resource_boundary_record([{"net": "NET1", "action": "exclude"}])
+    monkeypatch.setattr(dh_mod, "choose_boundary_actions",
+                        lambda *a, **k: {"NET1": "truncate"})
+    seen = {}
+    monkeypatch.setattr(
+        worker_mod, "start_long_op",
+        lambda _c, _w, worker, on_success, on_error, payload:
+            seen.update(worker=worker, success=on_success, payload=payload)
+            or object())
+    payload = {"name": "amp", "refs": ["R5"], "anchor_ref": "C5",
+               "root": str(root), "target_path": str(root)}
+    hub._finish_resource_capture({"record": record, "root": str(root),
+                                  "target_path": str(root), "payload": payload})
+    assert seen["worker"] == hub._run_resource_capture
+    assert seen["success"] == hub._finish_resource_capture_phase2
+    p = seen["payload"]
+    assert p["boundary_net_actions"] == {"NET1": "truncate"}
+    # the phase-1 fields are preserved for the re-capture
+    assert p["name"] == "amp" and p["refs"] == ["R5"]
+    assert p["target_path"] == str(root)
+    # phase-2 has not been written yet (only launched)
+    assert _load(root).get("scheme_lists") is None
+
+
+def test_finish_resource_capture_phase2_writes_to_owner_without_dialog(
+        main_window, tmp_path, monkeypatch):
+    """G3: the phase-2 finish writes the phase-2 record (here: the net already
+    resolved action="truncate") to the OWNING FILE (target_path) and never
+    re-opens the decision dialog."""
+    root, owner = _resource_owner(tmp_path)
+    import gui.dock_hub as dh_mod
+    hub = _record_hub(main_window)
+    record2 = _resource_boundary_record(
+        [{"net": "NET1", "action": "truncate", "external_ref": "R9"}])
+    monkeypatch.setattr(dh_mod, "choose_boundary_actions",
+                        lambda *a, **k: AssertionError("dialog must not reopen"))
+    hub._finish_resource_capture_phase2({"record": record2, "root": str(root),
+                                         "target_path": str(owner),
+                                         "payload": {}})
+    data = {e["name"]: e for e in _load(owner)["scheme_lists"]}
+    assert set(data) == {"amp", "keep"}
+    assert data["amp"]["boundary_nets"] == [
+        {"net": "NET1", "action": "truncate", "external_ref": "R9"}]
+    assert not default_scheme_list_path(root).exists()
+
+
 # ── DockHub wiring (page registered + single click opens it) ───────────────
 
 def test_dock_hub_registers_scheme_list_page_and_routes_pick(main_window, tmp_path):
@@ -1180,10 +1392,12 @@ def _line_board_ch1():
 
 
 def test_run_resource_capture_replaces_record_under_same_name(main_window, tmp_path):
-    """5b.3 worker — capture from the NEW source + write REPLACES the record
-    under the same name IN THE FILE THAT OWNS IT; the other record in the file
-    is untouched and an Entity already placed on the record still resolves
-    (round-trip through load_config + link_trees)."""
+    """5b.3 worker, G3-split — the phase-1 capture worker ONLY captures (no
+    write) and returns the fresh record + root + target_path; the phase-1
+    finish (this record has no boundary nets -> write straight away) then
+    REPLACES the record under the same name IN THE FILE THAT OWNS IT; the other
+    record in the file is untouched and an Entity already placed on the record
+    still resolves (round-trip through load_config + link_trees)."""
     from gui.dock_hub import DockHub
 
     root = tmp_path / "root.sexp"
@@ -1215,15 +1429,28 @@ def test_run_resource_capture_replaces_record_under_same_name(main_window, tmp_p
 
     new_adapter = _line_board_ch1()
     names = _stamp_sheet(new_adapter, sheet_uuid="sch-ch1", name="Channel_1")
-    hub = DockHub.__new__(DockHub)  # worker method — no __init__ side effects
+    hub = DockHub.__new__(DockHub)  # worker/finish — no __init__ side effects
+    hub.main_window = main_window
+    hub._scheme_active_op = None
+    hub.config_tree_dock = SimpleNamespace(
+        refresh=lambda: None,
+        graph_changed=SimpleNamespace(emit=lambda: None))
     payload = {"board": SimpleNamespace(adapter=new_adapter), "name": "amp",
                "refs": ["R5", "C5", "C6"], "anchor_ref": "C5",
                "root": str(root), "target_path": str(root),
                "sheet_names": names}
     result = hub._run_resource_capture(payload)
 
+    # G3: phase-1 captures ONLY — the owner file is NOT written by the worker.
     assert "error" not in result, result
-    assert Path(result["path"]) == root
+    assert "record" in result
+    assert result["target_path"] == str(root)
+    before = {e["name"]: e for e in _load(root)["scheme_lists"]}
+    assert [c["ref"] for c in before["amp"]["components"]] == ["R1", "C1", "C2"]
+
+    # The phase-1 finish (no boundary nets -> write straight to the owner file)
+    # persists the replacement.
+    hub._finish_resource_capture(result)
     records = {e["name"]: e for e in _load(root)["scheme_lists"]}
     assert set(records) == {"amp", "keep"}
     amp = records["amp"]
