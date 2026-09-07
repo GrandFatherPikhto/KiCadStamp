@@ -1115,12 +1115,15 @@ Config side lives on two pages of the Config dock's right QView: the read-only *
 Captures a named Scheme List from the live board through a **two-tab** dialog:
 
 - **"By sheet" (primary, the default tab)** — pick a ROOT sheet from the live hierarchy; under it a
-  checklist of every sheet under that root (the root itself included, indented by depth), ALL CHECKED
-  by default — uncheck a sub-sheet to exclude its components from the capture (the checklist is hidden
-  when the chosen root has no sub-sheets). The captured refs are the union of the DIRECT footprints on
-  the CHECKED sheets (recursion is expressed by the checklist itself). NO anchor is picked here
-  (design_2026_09_07_scheme_list_pivot.md): the record's frame is the captured region's CENTRE and its
-  pivot defaults to that centre.
+  REAL sub-sheet TREE (QTreeWidget, Commit C) of every sheet under that root (the root itself
+  included), ALL CHECKED by default — uncheck a node to exclude only that sheet's OWN DIRECT
+  footprints from the capture (each sheet is an independent checkbox, children included or not as
+  their own nodes; the tree is hidden when the chosen root has no sub-sheets). Intermediate sheets
+  with no footprints of their own appear as non-checkable grey branches so a nested sheet never hangs
+  without its parent; every node's tooltip shows its full "/"-joined path. The captured refs are the
+  union of the DIRECT footprints on the CHECKED sheets (recursion is expressed by the checklist
+  itself). NO anchor is picked here (design_2026_09_07_scheme_list_pivot.md): the record's frame is
+  the captured region's CENTRE and its pivot defaults to that centre.
 - **"By selection" (secondary)** — the pre-existing mode: the refs are the CURRENT board selection
   (shown read-only with a count), kept for irregular regions that do not line up with sheet boundaries.
 

@@ -42,10 +42,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QBrush
 from PyQt6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFormLayout,
-                             QHBoxLayout, QLabel, QLineEdit, QListWidget,
-                             QListWidgetItem, QPlainTextEdit,
-                             QPushButton, QTabWidget, QVBoxLayout, QWidget)
+                             QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
+                             QPushButton, QTabWidget, QTreeWidget,
+                             QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from kicadstamp.config import SchemeListConfig, load_scheme_list
 from kicadstamp.exceptions import ValidationError
@@ -135,6 +136,46 @@ def refs_on_sheet(snapshot: list, path: tuple[str, ...]) -> list[str]:
     this helper's: sum refs_on_sheet(...) over the CHECKED rows to get the
     final capture set). Sorted, deduplicated."""
     return sorted({s.ref for s in snapshot if tuple(s.sheet or []) == path})
+
+
+def sheet_subtree_plan(root: tuple[str, ...],
+                       candidates: list[tuple[str, ...]]) -> list:
+    """Qt-free plan of the "By sheet" sub-sheet TREE under `root` (Commit C,
+    plan_2026_09_07_scheme_list_commit_c_sheet_tree.md §3.2) — replaces the
+    flat indented checklist with a real hierarchy the dialog renders into a
+    QTreeWidget.
+
+    `candidates` — the SORTED sheet paths under `root` (root itself included,
+    i.e. `sheet_paths_under` output): every path that has >=1 footprint in the
+    live snapshot = one checkable "sheet row" (its DIRECT refs). Every
+    candidate nests under its nearest ancestor. An INTERMEDIATE sheet missing
+    from `candidates` (no footprints of its own) is inserted as a STRUCTURAL
+    node — the renderer must NOT give it a checkbox (it can contribute no
+    direct refs), it only keeps a nested sub-sheet from hanging without its
+    parent.
+
+    Returns a nested list starting with the single `root` node; each node is a
+    dict {"path": tuple, "name": str, "children": [node, ...]}. Whether a node
+    is a capturable candidate is decided by membership in `candidates` (a
+    structural node's path is not there). Empty when `candidates` is empty — a
+    leaf root with nothing under it hides the tree."""
+    if not candidates:
+        return []
+    top: dict = {"path": tuple(root), "name": root[-1], "children": []}
+    by_path = {tuple(root): top}
+    for path in candidates:
+        path = tuple(path)
+        # Sorted order guarantees a parent (shorter prefix) is handled before
+        # its child, so by the time we need `path[:depth]` it exists.
+        for depth in range(len(root), len(path)):
+            prefix = path[:depth + 1]
+            if prefix in by_path:
+                continue  # already present (a candidate or built earlier)
+            node = {"path": prefix, "name": prefix[-1], "children": []}
+            by_path[prefix] = node
+            # parent (a node dict) exists — sorted order guarantees it.
+            by_path[path[:depth]]["children"].append(node)
+    return [top]
 
 
 def record_refs_for(snapshot: list, by_sheet: bool,
@@ -442,12 +483,16 @@ class RecordSchemeListDialog(QDialog):
     plan_2026_09_06_scheme_list_sheet_capture.md 5a.3 — the same two-tab
     pattern "Instantiate from Cell..." already uses):
 
-      - "By sheet" (DEFAULT tab) — pick a ROOT sheet from the live hierarchy,
-        under it a CHECKLIST of every sub-sheet (root itself included; all
-        checked by default, uncheck a row to EXCLUDE that sheet). Only the
-        DIRECT refs of the CHECKED sheets are captured (a sheet with children
-        does not pull their refs in — the checklist is the only recursion).
-        The checklist is hidden for a leaf sheet (nothing to prune).
+      - "By sheet" (DEFAULT tab) — pick a ROOT sheet from the live hierarchy;
+        under it a REAL sub-sheet TREE (QTreeWidget, Commit C,
+        plan_2026_09_07_scheme_list_commit_c_sheet_tree.md): every sheet with
+        footprints is one CHECKABLE node (root itself included, nested under
+        its parent; intermediate sheets without footprints show as
+        non-checkable structural branches so a nested sheet never hangs
+        without its parent). All checked by default — uncheck a node to exclude
+        THAT sheet's DIRECT refs only (children stay independent — the tree is
+        the recursion, exactly like the old flat checklist; unchanged 5a
+        semantics). The tree is hidden for a leaf sheet (nothing to prune).
       - "By selection" (secondary tab) — the pre-existing P2 behavior: the
         CURRENT board selection, unchanged, for irregular cases.
 
@@ -512,26 +557,33 @@ class RecordSchemeListDialog(QDialog):
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs)
 
-        # Tab 1 — "By sheet": root sheet combo + sub-sheet checklist + anchor.
+        # Tab 1 — "By sheet": root sheet combo + sub-sheet TREE + save-preset.
         tab1 = QWidget()
         tab1_form = QFormLayout(tab1)
         self.sheet_combo = QComboBox()
         for path in self._sheet_paths:
             self.sheet_combo.addItem("/".join(path), path)
         tab1_form.addRow(_("Sheet:"), self.sheet_combo)
-        self.sheet_checklist = QListWidget()
-        self.sheet_checklist.setVisible(False)  # until a root with sub-sheets
-        tab1_form.addRow(_("Sub-sheets (uncheck to exclude):"), self.sheet_checklist)
+        # Sub-sheet HIERARCHY as a real tree (Commit C): one checkable node per
+        # sheet that has footprints (its DIRECT refs), nested under its parent;
+        # intermediate sheets without footprints are shown as non-checkable
+        # structural branches. All checked by default — uncheck a node to
+        # exclude only THAT sheet's direct refs (children stay independent,
+        # unchanged 5a semantics).
+        self.sheet_tree = QTreeWidget()
+        self.sheet_tree.setHeaderHidden(True)
+        self.sheet_tree.setVisible(False)  # until a root with sub-sheets
+        tab1_form.addRow(_("Sub-sheets (uncheck to exclude):"), self.sheet_tree)
         # Optional "Save as preset" (plan_2026_09_06_scheme_list_named_presets.md
-        # §6): the CURRENT checked checklist becomes a NAMED preset saved in the
+        # §6): the CURRENT checked tree becomes a NAMED preset saved in the
         # record. Fully optional — empty text = nothing saved, zero effect on
         # OK-gating or the 5a/5b result_data contract.
         self.save_preset_edit = QLineEdit()
         self.save_preset_edit.setPlaceholderText(
             _("optional — save this checklist as a named preset (same name overwrites it)"))
         tab1_form.addRow(_("Save as preset:"), self.save_preset_edit)
-        self.sheet_combo.currentIndexChanged.connect(self._rebuild_checklist)
-        self.sheet_checklist.itemChanged.connect(self._sync_ok_state)
+        self.sheet_combo.currentIndexChanged.connect(self._rebuild_sheet_tree)
+        self.sheet_tree.itemChanged.connect(self._sync_ok_state)
         self.tabs.addTab(tab1, _("By sheet"))
 
         # Tab 2 — "By selection": the current board selection (unchanged).
@@ -556,7 +608,7 @@ class RecordSchemeListDialog(QDialog):
 
         # OK is gated on a non-empty capturable ref set of the ACTIVE tab.
         self.tabs.currentChanged.connect(self._sync_ok_state)
-        self._rebuild_checklist()  # populate for the default root sheet
+        self._rebuild_sheet_tree()  # populate for the default root sheet
         self._sync_ok_state()
 
     # ── helpers ─────────────────────────────────────────────────────────
@@ -571,43 +623,97 @@ class RecordSchemeListDialog(QDialog):
 
     # ── "By sheet" helpers ──────────────────────────────────────────────
 
-    def _rebuild_checklist(self) -> None:
+    def _rebuild_sheet_tree(self) -> None:
+        """(Re)build the "By sheet" sub-sheet TREE for the CURRENT root — one
+        checkable node per sheet-with-footprints under the root (its DIRECT
+        refs), nested by the sheet_subtree_plan; all checked by default, the
+        same capture semantics as the pre-Commit-C flat checklist (unchecking a
+        node excludes only THAT sheet's direct refs — children stay
+        independent). Hidden for a leaf sheet (nothing to prune)."""
         root = self.sheet_combo.currentData()
-        self.sheet_checklist.clear()
+        self.sheet_tree.blockSignals(True)
+        self.sheet_tree.clear()
         self._root_has_subsheets = False
         if root is None:
+            self.sheet_tree.setVisible(False)
+            self.sheet_tree.blockSignals(False)
             self._sync_ok_state()
             return
         rows = sheet_paths_under(self._sheet_paths, root)
         if len(rows) <= 1:
-            # Leaf sheet — nothing to prune, hide the checklist entirely
-            # (design §2 — no checklist when the root has no sub-sheets).
-            self.sheet_checklist.setVisible(False)
-        else:
-            self._root_has_subsheets = True
-            self.sheet_checklist.setVisible(True)
-            for path in rows:
-                depth = len(path) - len(root)
-                label = "  " * depth + path[-1]
-                item = QListWidgetItem(label)
-                item.setData(Qt.ItemDataRole.UserRole, path)
-                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                item.setCheckState(Qt.CheckState.Checked)  # all on by default
-                self.sheet_checklist.addItem(item)
+            # Leaf sheet — nothing to prune, hide the tree entirely (design §2
+            # — no checklist when the root has no sub-sheets).
+            self.sheet_tree.setVisible(False)
+            self.sheet_tree.blockSignals(False)
+            self._sync_ok_state()
+            return
+        self._root_has_subsheets = True
+        candidate_set = {tuple(r) for r in rows}
+        plan = sheet_subtree_plan(root, rows)
+        self._add_tree_nodes(self.sheet_tree.invisibleRootItem(), plan,
+                             candidate_set)
+        self.sheet_tree.expandAll()
+        self.sheet_tree.setVisible(True)
+        self.sheet_tree.blockSignals(False)
         self._sync_ok_state()
+
+    def _add_tree_nodes(self, parent_item, nodes: list, candidate_set) -> None:
+        """Recursively append `nodes` (sheet_subtree_plan output) under
+        `parent_item`. A node whose path is in `candidate_set` is a real sheet
+        with footprints -> checkable (UserRole = the full path, tooltip = the
+        "/"-joined path), Checked by default. A STRUCTURAL node (intermediate
+        sheet with no footprints of its own) carries no path data and is NOT
+        checkable — shown grey so it reads as a container, not a capturable
+        row."""
+        for node in nodes:
+            path = node["path"]
+            item = QTreeWidgetItem(parent_item, [node["name"]])
+            if tuple(path) in candidate_set:
+                # Tuple (not list) so _checked_sheet_paths keeps returning the
+                # same tuple shape the flat checklist used (tests compare
+                # against ("Top",) style paths).
+                item.setData(0, Qt.ItemDataRole.UserRole, tuple(path))
+                item.setToolTip(0, "/".join(path))
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(0, Qt.CheckState.Checked)  # all on by default
+            else:
+                # Structural-only branch (no footprints of its own) — muted so
+                # it clearly reads as a container, not a capturable row.
+                # QTreeWidgetItem is UserCheckable BY DEFAULT — strip the flag
+                # so no empty checkbox renders, and store the full path in
+                # UserRole+1 (NOT UserRole) so _checked_sheet_paths never picks
+                # it up, yet the UI/tests can tell which real sheet the branch
+                # stands for.
+                flags = item.flags() & ~Qt.ItemFlag.ItemIsUserCheckable
+                item.setFlags(flags)
+                item.setData(0, Qt.ItemDataRole.UserRole + 1, tuple(path))
+                item.setToolTip(0, "/".join(path))
+                item.setForeground(0, QBrush(Qt.GlobalColor.gray))
+            self._add_tree_nodes(item, node["children"], candidate_set)
 
     def _checked_sheet_paths(self) -> List[Any]:
         """The sheet paths actually included — the single source of truth for
-        "what is really checked". A root WITHOUT sub-sheets (no checklist rows)
-        means the root itself is the only row."""
+        "what is really checked" (unchanged semantics: every CHECKED checkable
+        node's DIRECT refs). A root WITHOUT sub-sheets (no tree rows) means the
+        root itself is the only row. Structural nodes carry no path data and
+        never appear."""
         root = self.sheet_combo.currentData()
         if root is None:
             return []
         if not self._root_has_subsheets:
             return [root]
-        return [self.sheet_checklist.item(i).data(Qt.ItemDataRole.UserRole)
-                for i in range(self.sheet_checklist.count())
-                if self.sheet_checklist.item(i).checkState() == Qt.CheckState.Checked]
+        out: List[Any] = []
+
+        def _walk(parent_item) -> None:
+            for i in range(parent_item.childCount()):
+                child = parent_item.child(i)
+                path = child.data(0, Qt.ItemDataRole.UserRole)
+                if path is not None and child.checkState(0) == Qt.CheckState.Checked:
+                    out.append(path)
+                _walk(child)
+
+        _walk(self.sheet_tree.invisibleRootItem())
+        return out
 
     def _checked_refs(self) -> List[str]:
         """The refs the ACTIVE tab would capture — direct refs of the CHECKED

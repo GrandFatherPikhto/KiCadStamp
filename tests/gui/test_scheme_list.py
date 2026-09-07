@@ -44,6 +44,7 @@ from gui.docks.scheme_list import (
     scheme_list_duplicate_problems,
     scheme_list_to_dict,
     sheet_paths_under,
+    sheet_subtree_plan,
     snapshot_with_resolved_sheets,
     write_scheme_list_record,
 )
@@ -1328,6 +1329,51 @@ def test_refs_on_sheet_is_direct_membership_not_recursive():
     assert refs_on_sheet(snapshot, ("Empty",)) == []
 
 
+# ── Commit C — sheet_subtree_plan (Qt-free plan of the "By sheet" tree) ────
+
+def test_sheet_subtree_plan_nests_candidates_under_the_root():
+    """_HIER under "Top": Top -> Ch0 -> Amp and Top -> Ch1. Every sheet here has
+    its own footprints (Ch0 has C1/C2), so NO structural node appears."""
+    plan = sheet_subtree_plan(("Top",), [("Top",), ("Top", "Ch0"),
+                                         ("Top", "Ch0", "Amp"), ("Top", "Ch1")])
+    assert [n["name"] for n in plan] == ["Top"]
+    top = plan[0]
+    assert top["path"] == ("Top",)
+    assert [c["name"] for c in top["children"]] == ["Ch0", "Ch1"]
+    ch0 = top["children"][0]
+    assert ch0["path"] == ("Top", "Ch0")
+    assert [g["name"] for g in ch0["children"]] == ["Amp"]
+    assert ch0["children"][0]["path"] == ("Top", "Ch0", "Amp")
+
+
+def test_sheet_subtree_plan_inserts_structural_intermediate_without_footprints():
+    """Top/Sub has NO footprints of its own (not a candidate), but Top/Sub/Leaf
+    does -> a STRUCTURAL "Sub" branch keeps the nested Leaf under its parent
+    instead of hanging it directly off Top (the visual gap of the old flat
+    indented list, Commit C)."""
+    plan = sheet_subtree_plan(("Top",), [("Top",), ("Top", "Sub", "Leaf")])
+    top = plan[0]
+    assert top["path"] == ("Top",)
+    sub = top["children"][0]
+    assert sub["path"] == ("Top", "Sub")
+    assert [c["name"] for c in sub["children"]] == ["Leaf"]
+    assert sub["children"][0]["path"] == ("Top", "Sub", "Leaf")
+
+
+def test_sheet_subtree_plan_mid_root_builds_only_its_subtree():
+    plan = sheet_subtree_plan(("Top", "Ch0"), [("Top", "Ch0"),
+                                               ("Top", "Ch0", "Amp")])
+    assert [n["name"] for n in plan] == ["Ch0"]
+    assert plan[0]["children"][0]["path"] == ("Top", "Ch0", "Amp")
+
+
+def test_sheet_subtree_plan_leaf_or_empty_candidates_are_bare():
+    # A leaf root (only itself) yields the bare root node; empty -> nothing.
+    assert sheet_subtree_plan(("Top",), [("Top",)]) == \
+        [{"path": ("Top",), "name": "Top", "children": []}]
+    assert sheet_subtree_plan(("Top",), []) == []
+
+
 def test_all_checked_rows_union_matches_naive_prefix_filter():
     """The composition regression (plan 5a.1): summing refs_on_sheet over ALL
     rows under a root equals what a naive whole-snapshot prefix filter would
@@ -1376,15 +1422,45 @@ def test_record_dialog_by_sheet_all_checked_offers_every_subtree_ref(main_window
     assert dialog._ok_button.isEnabled()
 
 
+def _tree_walk(item):
+    """Every QTreeWidgetItem under `item`, depth-first (the dialog's sheet-tree
+    traversal shared by the Commit C GUI tests)."""
+    out = []
+    for i in range(item.childCount()):
+        child = item.child(i)
+        out.append(child)
+        out.extend(_tree_walk(child))
+    return out
+
+
+def _tree_item_by_path(dialog, path):
+    """The dialog.sheet_tree node whose path == `path`, or None. A candidate
+    (capturable) sheet stores its path in UserRole; a STRUCTURAL branch stores
+    it in UserRole+1 (UserRole stays empty so capture logic skips it)."""
+    for item in _tree_walk(dialog.sheet_tree.invisibleRootItem()):
+        if (item.data(0, Qt.ItemDataRole.UserRole) == path
+                or item.data(0, Qt.ItemDataRole.UserRole + 1) == path):
+            return item
+    return None
+
+
+def _tree_candidate_items(dialog):
+    """The dialog.sheet_tree nodes that are capturable sheets (carry a path —
+    structural branches have no path data and no checkbox)."""
+    return [it for it in _tree_walk(dialog.sheet_tree.invisibleRootItem())
+            if it.data(0, Qt.ItemDataRole.UserRole) is not None]
+
+
 def test_record_dialog_by_sheet_unchecking_a_sub_sheet_drops_its_refs(main_window):
+    """Commit C (now a QTreeWidget) — semantics UNCHANGED: unchecking Ch0 drops
+    ONLY Ch0's own direct refs; the nested Amp sheet stays included."""
     snapshot = _snap(*_HIER)
     dialog = RecordSchemeListDialog(snapshot, [], main_window)
     dialog.sheet_combo.setCurrentText("Top")
-    items = [dialog.sheet_checklist.item(i)
-             for i in range(dialog.sheet_checklist.count())]
-    ch0 = next(it for it in items
-               if it.data(Qt.ItemDataRole.UserRole) == ("Top", "Ch0"))
-    ch0.setCheckState(Qt.CheckState.Unchecked)
+    assert dialog._root_has_subsheets
+    ch0 = _tree_item_by_path(dialog, ("Top", "Ch0"))
+    assert ch0 is not None
+    ch0.setCheckState(0, Qt.CheckState.Unchecked)
     assert dialog._checked_refs() == ["C3", "R1", "U1"]  # Ch0's C1/C2 gone
     assert ("Top", "Ch0") not in dialog._checked_sheet_paths()
 
@@ -1393,11 +1469,52 @@ def test_record_dialog_by_sheet_unchecking_everything_disables_ok(main_window):
     snapshot = _snap(*_HIER)
     dialog = RecordSchemeListDialog(snapshot, [], main_window)
     dialog.sheet_combo.setCurrentText("Top")
-    for i in range(dialog.sheet_checklist.count()):
-        dialog.sheet_checklist.item(i).setCheckState(Qt.CheckState.Unchecked)
+    for it in _tree_candidate_items(dialog):
+        it.setCheckState(0, Qt.CheckState.Unchecked)
     assert dialog._checked_sheet_paths() == []
     assert dialog._checked_refs() == []
     assert not dialog._ok_button.isEnabled()
+
+
+def test_record_dialog_by_sheet_structural_branch_is_not_checkable(main_window):
+    """Top/Sub has NO footprints of its own -> a grey STRUCTURAL branch (no
+    checkbox, no path data) under which the real Top/Sub/Leaf sheet hangs; only
+    sheets with footprints are candidates in _checked_sheet_paths."""
+    snapshot = _snap(("R1", ("Top",)), ("U1", ("Top", "Sub", "Leaf")))
+    dialog = RecordSchemeListDialog(snapshot, [], main_window)
+    assert dialog._root_has_subsheets
+    sub = _tree_item_by_path(dialog, ("Top", "Sub"))
+    assert sub is not None
+    assert not (sub.flags() & Qt.ItemFlag.ItemIsUserCheckable)
+    assert sub.data(0, Qt.ItemDataRole.UserRole) is None  # structural
+    leaf = _tree_item_by_path(dialog, ("Top", "Sub", "Leaf"))
+    assert leaf is not None
+    assert (leaf.flags() & Qt.ItemFlag.ItemIsUserCheckable)
+    assert dialog._checked_sheet_paths() == [("Top",), ("Top", "Sub", "Leaf")]
+
+
+def test_record_dialog_by_sheet_tree_labels_and_tooltips(main_window):
+    snapshot = _snap(*_HIER)
+    dialog = RecordSchemeListDialog(snapshot, [], main_window)
+    dialog.sheet_combo.setCurrentText("Top")
+    ch0 = _tree_item_by_path(dialog, ("Top", "Ch0"))
+    assert ch0 is not None
+    assert ch0.text(0) == "Ch0"          # leaf label, not the whole path
+    assert ch0.toolTip(0) == "Top/Ch0"   # full path disambiguates
+
+
+def test_record_dialog_by_sheet_mid_root_rebuilds_tree_under_it(main_window):
+    """Picking a mid-level sheet as the root shows only ITS subtree (Ch0 with
+    its Amp child), not the whole Top hierarchy — the root is still a
+    capturable sheet itself."""
+    snapshot = _snap(*_HIER)
+    dialog = RecordSchemeListDialog(snapshot, [], main_window)
+    dialog.sheet_combo.setCurrentText("Top/Ch0")
+    assert dialog._root_has_subsheets
+    assert _tree_item_by_path(dialog, ("Top", "Ch0")) is not None
+    assert _tree_item_by_path(dialog, ("Top",)) is None       # not under Ch0
+    assert _tree_item_by_path(dialog, ("Top", "Ch1")) is None
+    assert dialog._checked_sheet_paths() == [("Top", "Ch0"), ("Top", "Ch0", "Amp")]
 
 
 def test_record_dialog_ok_gated_per_active_tab(main_window):
