@@ -1,10 +1,12 @@
 # tests/gui/test_scheme_list.py
-"""Scheme List Config-side GUI (plan_2026_09_05_scheme_list.md §5, P5) —
-headless Qt + mock adapter, following the tests/gui patterns of
-test_net_trace_dock.py / test_phase3_wiring.py:
-  - SchemeListFormWidget: a scheme_lists record loads READ-ONLY (the Anchor
-    block: component-ref combo + anchor_pad/anchor_rotation_deg/source_sheet
-    readouts + geometry summary); nothing here ever applies to the board.
+"""Scheme List Config-side GUI (plan_2026_09_05_scheme_list.md §5, P5;
+design_2026_09_07_scheme_list_pivot.md — the record carries a `pivot` in the
+region's CENTRE frame and has NO anchor component) — headless Qt + mock
+adapter, following the tests/gui patterns of test_net_trace_dock.py /
+test_phase3_wiring.py:
+  - SchemeListFormWidget: a scheme_lists record loads READ-ONLY (the pivot /
+    source_sheet readouts + geometry summary); nothing here ever applies to
+    the board.
   - Reread: identical board -> "no differences"; a moved component -> the
     diff; explicit Apply rewrites the stored record in its owning file.
   - Storage helpers: scheme_list_to_dict round-trips through the loader; a
@@ -137,7 +139,8 @@ class FakeAdapter:
 
 def _line_board(c2_x_mm=24.0, angle_anchor=0.0):
     """R1(10,10) --F.Cu--> C1(20,10, 90 deg) --In1.Cu--> C2(c2_x,10), via at C1.
-    No foreign component (no boundary nets)."""
+    No foreign component (no boundary nets). `angle_anchor` just tilts R1 (the
+    test boards' tilt knob — there is no anchor component any more)."""
     r1 = _fp("R1", 10, 10, angle=angle_anchor)
     c1 = _fp("C1", 20, 10, angle=90.0)
     c2 = _fp("C2", c2_x_mm, 10)
@@ -152,11 +155,12 @@ def _line_board(c2_x_mm=24.0, angle_anchor=0.0):
     return FakeAdapter([r1, c1, c2], [t1, t2], [v1], pads)
 
 
-def _record_dict(adapter, name="amp", anchor_ref="R1", c2_x_mm=24.0):
+def _record_dict(adapter, name="amp", c2_x_mm=24.0):
+    """Capture R1/C1/C2 from a live `adapter` and serialise to the record dict
+    (centre-frame offsets, pivot default (0,0))."""
     sheet_names = _stamp_sheet(adapter)
-    record = capture_scheme_list(name, ["R1", "C1", "C2"], anchor_ref,
+    record = capture_scheme_list(name, ["R1", "C1", "C2"],
                                  adapter=adapter, sheet_names=sheet_names)
-    # Normalise the anchor angle exactly as the caller expects (default 0).
     return scheme_list_to_dict(record)
 
 
@@ -200,7 +204,7 @@ def test_scheme_list_to_dict_round_trips_through_the_loader(main_window):
     d = _record_dict(adapter)
     again = load_scheme_list(d)
     assert again.name == "amp"
-    assert again.anchor_ref == "R1"
+    assert again.pivot == (0.0, 0.0)  # centre default; (0,0) is not written
     assert [c.ref for c in again.components] == ["R1", "C1", "C2"]
     assert len(again.tracks) == 2
     assert len(again.vias) == 1
@@ -210,34 +214,30 @@ def test_scheme_list_to_dict_round_trips_through_the_loader(main_window):
 
 # ── Load entry (Config-tree leaf click) ────────────────────────────────────
 
-def test_load_entry_fills_anchor_block_read_only(main_window, tmp_path):
+def test_load_entry_fills_pivot_and_source_sheet_read_only(main_window, tmp_path):
     adapter = _line_board(angle_anchor=45.0)
-    d = _record_dict(adapter, anchor_ref="R1")
+    d = _record_dict(adapter)
     root = _record_file(tmp_path, d)
     dock = _make_dock(main_window, root, d)
 
     assert dock.name_label.text() == "Scheme List: amp"
-    items = [dock.anchor_combo.itemText(i) for i in range(dock.anchor_combo.count())]
-    assert items == ["R1", "C1", "C2"]
-    assert dock.anchor_combo.currentText() == "R1"
-    # the closed set is a view — the combo must not be editable
-    assert not dock.anchor_combo.isEnabled()
-    assert dock.anchor_pad_label.text() == "-"
+    # pivot defaults to the centre (0,0) — shown as the region centre readout
+    assert "0.00, 0.00" in dock.pivot_label.text()
+    assert "region centre" in dock.pivot_label.text()
     assert dock.source_sheet_label.text() == "Channel_0"
     assert "3 components" in dock.geometry_label.text()
     assert "2 tracks" in dock.geometry_label.text()
     assert "1 vias" in dock.geometry_label.text()
 
 
-def test_load_entry_keeps_anchor_pad_and_recorded_anchor_rotation(main_window, tmp_path):
+def test_load_entry_shows_nondefault_pivot_readout(main_window, tmp_path):
     adapter = _line_board(angle_anchor=90.0)
-    # anchor_pad "1" + explicit anchor_rotation_deg (90) on the record
-    d = _record_dict(adapter, anchor_ref="R1")
-    d["anchor_pad"] = "1"
+    d = _record_dict(adapter)
+    d["pivot"] = [1.5, -2.25]  # a user-chosen pivot in the centre frame
     root = _record_file(tmp_path, d)
     dock = _make_dock(main_window, root, d)
-    assert dock.anchor_pad_label.text() == "1"
-    assert "90.0" in dock.anchor_rotation_label.text()
+    assert "1.50, -2.25" in dock.pivot_label.text()
+    assert "region centre" not in dock.pivot_label.text()
 
 
 # ── Reread ─────────────────────────────────────────────────────────────────
@@ -284,10 +284,9 @@ def test_reread_reports_moved_component_and_apply_rewrites_record(main_window, t
     data = _load(root)
     entry = data["scheme_lists"][0]
     comps = {c["ref"]: c for c in entry["components"]}
-    assert comps["C2"]["offset_along_mm"] == pytest.approx(14.5)
-    # the anchor sits at the origin — the .sexp writer omits default-valued
-    # fields (0.0 == the loader default), so read via .get
-    assert comps["R1"].get("offset_along_mm", 0.0) == pytest.approx(0.0)
+    # centre-frame offsets of the re-capture over R1/C1/C2 (centre x = 17.25)
+    assert comps["C2"]["offset_along_mm"] == pytest.approx(7.25)
+    assert comps["R1"]["offset_along_mm"] == pytest.approx(-7.25)
     # and the diff against the SAME live board is now clean
     dock.load_entry(data["scheme_lists"][0])
     result2 = dock._do_reread()
@@ -309,7 +308,6 @@ def test_reread_missing_ref_is_reported_not_silent(main_window, tmp_path):
     assert diff.refs_not_found == ["C2"]
     # a physically-absent recorded ref is NEVER double-counted as removed-from-scope
     assert diff.refs_removed_from_scope == []
-    assert diff.anchor_missing is False
     assert diff.changed is True
 
 
@@ -328,7 +326,7 @@ def test_write_record_auto_creates_json_and_includes_it(main_window, tmp_path):
     root = tmp_path / "root.sexp"
     _write(root, {})
     adapter = _line_board()
-    record = capture_scheme_list("amp", ["R1", "C1", "C2"], "R1", adapter=adapter)
+    record = capture_scheme_list("amp", ["R1", "C1", "C2"], adapter=adapter)
 
     written = write_scheme_list_record(root, record)
 
@@ -349,16 +347,17 @@ def test_write_record_upserts_by_name_into_existing_json(main_window, tmp_path):
     root = tmp_path / "root.sexp"
     _write(root, {})
     adapter = _line_board()
-    record = capture_scheme_list("amp", ["R1", "C1", "C2"], "R1", adapter=adapter)
+    record = capture_scheme_list("amp", ["R1", "C1", "C2"], adapter=adapter)
     write_scheme_list_record(root, record)
     # re-capture same name from a moved board -> replace in place (still 1 record)
     adapter2 = _line_board(c2_x_mm=25.0)
-    record2 = capture_scheme_list("amp", ["R1", "C1", "C2"], "R1", adapter=adapter2)
+    record2 = capture_scheme_list("amp", ["R1", "C1", "C2"], adapter=adapter2)
     write_scheme_list_record(root, record2)
     data = read_scheme_list_records(root)
     assert len(data) == 1
     comps = {c["ref"]: c for c in data[0]["components"]}
-    assert comps["C2"]["offset_along_mm"] == pytest.approx(15.0)
+    # centre-frame: centre x = (10+25)/2 = 17.5 -> C2 offset 7.5
+    assert comps["C2"]["offset_along_mm"] == pytest.approx(7.5)
 
 
 def test_duplicate_problems_catches_name_and_ref_before_capture(main_window, tmp_path):
@@ -403,15 +402,14 @@ def test_config_tree_shows_scheme_lists_section_and_click_emits_signal(main_wind
     assert len(captured) == 1
     assert isinstance(captured[0], dict)
     assert captured[0]["name"] == "amp"
-    assert captured[0]["anchor_ref"] == "R1"
 
 
-# ── Dialogs (Record name/anchor; Reread diff with gated Apply) ─────────────
+# ── Dialogs (Record name; Reread diff with gated Apply) ────────────────────
 
-def test_record_dialog_by_selection_collects_name_and_anchor(main_window):
-    """The secondary "By selection" tab keeps the pre-existing P2 behavior:
-    result_data returns (name, anchor_ref, None, None), the anchor picked from
-    the caller's OWN selection refs (Stage 5a.3 regression guard)."""
+def test_record_dialog_by_selection_collects_name_only(main_window):
+    """The secondary "By selection" tab: result_data returns (name, None, None)
+    — no anchor is picked at Record time (the frame is the region centre, the
+    pivot defaults to it, design_2026_09_07_scheme_list_pivot.md)."""
     snapshot = [SimpleNamespace(ref="R1", sheet=["Channel_0"]),
                 SimpleNamespace(ref="C1", sheet=["Channel_0"]),
                 SimpleNamespace(ref="C2", sheet=["Channel_0"])]
@@ -421,9 +419,11 @@ def test_record_dialog_by_selection_collects_name_and_anchor(main_window):
     assert dialog.is_by_sheet()  # "By sheet" is the first/default tab
     dialog.tabs.setCurrentIndex(1)  # -> "By selection"
     dialog.name_edit.setText("psu_front")
-    dialog.selection_anchor_combo.setCurrentText("C1")
-    assert dialog.result_data() == ("psu_front", "C1", None, None)
+    assert dialog.result_data() == ("psu_front", None, None)
     assert not dialog.is_by_sheet()
+    # the selection is shown read-only and OK is enabled (refs present)
+    assert "R1" in dialog.selection_refs_label.text()
+    assert dialog._ok_button.isEnabled()
 
 
 def test_diff_dialog_gates_apply_when_a_ref_is_missing(main_window, tmp_path):
@@ -575,10 +575,10 @@ def _record_with_boundary(seed: str, boundary_raw):
     """A minimal, loadable Scheme List record carrying raw boundary_nets — a
     phase-1/phase-2 stand-in for the Record flow tests (the loader normalises
     raw dicts into SchemeListBoundaryNet, so a phase-2 record can differ from
-    phase-1 by its action="truncate")."""
+    phase-1 by its action="truncate"). No anchor field — the centre-frame
+    record only needs its components."""
     return load_scheme_list({
         "name": f"amp{seed}",
-        "anchor_ref": "R1",
         "components": [{"ref": "R1", "offset_along_mm": 0.0,
                         "offset_across_mm": 0.0, "rotation_deg": 0.0}],
         "boundary_nets": boundary_raw,
@@ -611,7 +611,7 @@ def test_run_record_capture_forwards_boundary_net_actions(main_window, monkeypat
     seen = {}
     monkeypatch.setattr(cap_mod, "capture_scheme_list",
                         lambda **kw: seen.update(kw) or object())
-    payload = {"name": "amp", "refs": ["R1"], "anchor_ref": "R1",
+    payload = {"name": "amp", "refs": ["R1"],
                "board": SimpleNamespace(adapter=None), "root": ".",
                "boundary_net_actions": {"NET1": "truncate"}}
     result = hub._run_record_capture(payload)
@@ -622,7 +622,6 @@ def test_run_record_capture_forwards_boundary_net_actions(main_window, monkeypat
     monkeypatch.setattr(cap_mod, "capture_scheme_list",
                         lambda **kw: seen2.update(kw) or object())
     hub._run_record_capture({"name": "amp", "refs": ["R1"],
-                             "anchor_ref": "R1",
                              "board": SimpleNamespace(adapter=None),
                              "root": "."})
     assert seen2.get("boundary_net_actions") is None
@@ -710,8 +709,7 @@ def test_finish_record_capture_truncate_launches_phase2_with_actions(
         worker_mod, "start_long_op",
         lambda _c, _w, worker, on_success, on_error, payload:
             payloads.append(payload) or object())
-    payload = {"name": "ampA", "refs": ["R1"], "anchor_ref": "R1",
-               "root": str(root)}
+    payload = {"name": "ampA", "refs": ["R1"], "root": str(root)}
     hub._finish_record_capture({"record": record, "root": str(root),
                                 "payload": payload})
     assert len(payloads) == 1
@@ -771,11 +769,10 @@ def _resource_owner(tmp_path, amp_components=None):
                            "offset_across_mm": 0.0, "rotation_deg": 0.0}]
     _write(root, {"include": ["owner.sexp"]})
     _write(owner, {"scheme_lists": [
-        {"name": "amp", "anchor_ref": "R1", "anchor_rotation_deg": 0.0,
-         "components": amp_components},
-        {"name": "keep", "anchor_ref": "K1", "anchor_rotation_deg": 0.0,
-         "components": [{"ref": "K1", "offset_along_mm": 0.0,
-                         "offset_across_mm": 0.0, "rotation_deg": 0.0}]}]})
+        {"name": "amp", "components": amp_components},
+        {"name": "keep", "components": [{"ref": "K1", "offset_along_mm": 0.0,
+                                         "offset_across_mm": 0.0,
+                                         "rotation_deg": 0.0}]}]})
     return root, owner
 
 
@@ -802,7 +799,7 @@ def test_run_resource_capture_forwards_boundary_net_actions_and_no_write(
     seen = {}
     monkeypatch.setattr(cap_mod, "capture_scheme_list",
                         lambda **kw: seen.update(kw) or object())
-    payload = {"name": "amp", "refs": ["R5"], "anchor_ref": "C5",
+    payload = {"name": "amp", "refs": ["R5"],
                "board": SimpleNamespace(adapter=None),
                "root": ".", "target_path": "/own/amp.json",
                "boundary_net_actions": {"NET1": "truncate"}}
@@ -815,7 +812,6 @@ def test_run_resource_capture_forwards_boundary_net_actions_and_no_write(
     monkeypatch.setattr(cap_mod, "capture_scheme_list",
                         lambda **kw: seen2.update(kw) or object())
     hub._run_resource_capture({"name": "amp", "refs": ["R5"],
-                               "anchor_ref": "C5",
                                "board": SimpleNamespace(adapter=None),
                                "root": "."})
     assert seen2.get("boundary_net_actions") is None
@@ -842,7 +838,7 @@ def test_finish_resource_capture_no_boundary_nets_writes_to_target_without_dialo
     data = {e["name"]: e for e in _load(owner)["scheme_lists"]}
     assert set(data) == {"amp", "keep"}
     assert data["keep"] == owner_before["scheme_lists"][1]
-    assert data["amp"]["anchor_ref"] == "R1"
+    assert [c["ref"] for c in data["amp"]["components"]] == ["R1"]
     assert not default_scheme_list_path(root).exists()
 
 
@@ -918,8 +914,8 @@ def test_finish_resource_capture_truncate_launches_phase2_with_actions(
         lambda _c, _w, worker, on_success, on_error, payload:
             seen.update(worker=worker, success=on_success, payload=payload)
             or object())
-    payload = {"name": "amp", "refs": ["R5"], "anchor_ref": "C5",
-               "root": str(root), "target_path": str(root)}
+    payload = {"name": "amp", "refs": ["R5"], "root": str(root),
+               "target_path": str(root)}
     hub._finish_resource_capture({"record": record, "root": str(root),
                                   "target_path": str(root), "payload": payload})
     assert seen["worker"] == hub._run_resource_capture
@@ -1085,7 +1081,7 @@ def test_all_checked_rows_union_matches_naive_prefix_filter():
     assert "C4" not in union  # the Other sheet stays outside the subtree
 
 
-# ── 5a.3 — RecordSchemeListDialog (two tabs) ───────────────────────────────
+# ── 5a.3 — RecordSchemeListDialog (two tabs, NO anchor pick) ───────────────
 
 def test_record_dialog_two_tabs_with_by_sheet_default(main_window):
     dialog = RecordSchemeListDialog(_snap(*_HIER), ["C4"], main_window)
@@ -1101,9 +1097,7 @@ def test_record_dialog_by_sheet_leaf_hides_checklist_and_uses_root_refs(main_win
     assert dialog.sheet_combo.count() == 1
     assert not dialog._root_has_subsheets   # leaf -> nothing to prune
     assert dialog._checked_sheet_paths() == [("Top",)]
-    refs = {dialog.sheet_anchor_combo.itemText(i)
-            for i in range(dialog.sheet_anchor_combo.count())}
-    assert refs == {"R1", "C1"}
+    assert dialog._checked_refs() == ["C1", "R1"]
     assert dialog._ok_button.isEnabled()
 
 
@@ -1116,9 +1110,7 @@ def test_record_dialog_by_sheet_all_checked_offers_every_subtree_ref(main_window
     checked = dialog._checked_sheet_paths()
     assert checked == [("Top",), ("Top", "Ch0"), ("Top", "Ch0", "Amp"),
                        ("Top", "Ch1")]
-    refs = {dialog.sheet_anchor_combo.itemText(i)
-            for i in range(dialog.sheet_anchor_combo.count())}
-    assert refs == {"R1", "C1", "C2", "C3", "U1"}
+    assert dialog._checked_refs() == ["C1", "C2", "C3", "R1", "U1"]
     assert dialog._ok_button.isEnabled()
 
 
@@ -1131,9 +1123,7 @@ def test_record_dialog_by_sheet_unchecking_a_sub_sheet_drops_its_refs(main_windo
     ch0 = next(it for it in items
                if it.data(Qt.ItemDataRole.UserRole) == ("Top", "Ch0"))
     ch0.setCheckState(Qt.CheckState.Unchecked)
-    refs = {dialog.sheet_anchor_combo.itemText(i)
-            for i in range(dialog.sheet_anchor_combo.count())}
-    assert refs == {"R1", "C3", "U1"}          # Ch0's C1/C2 gone
+    assert dialog._checked_refs() == ["C3", "R1", "U1"]  # Ch0's C1/C2 gone
     assert ("Top", "Ch0") not in dialog._checked_sheet_paths()
 
 
@@ -1144,7 +1134,7 @@ def test_record_dialog_by_sheet_unchecking_everything_disables_ok(main_window):
     for i in range(dialog.sheet_checklist.count()):
         dialog.sheet_checklist.item(i).setCheckState(Qt.CheckState.Unchecked)
     assert dialog._checked_sheet_paths() == []
-    assert dialog.sheet_anchor_combo.count() == 0
+    assert dialog._checked_refs() == []
     assert not dialog._ok_button.isEnabled()
 
 
@@ -1188,7 +1178,7 @@ def test_run_record_capture_honours_payload_refs_and_sheet_names():
     hub = DockHub.__new__(DockHub)  # no __init__ side effects
     adapter = _line_board()
     names = _stamp_sheet(adapter)
-    payload = {"name": "amp", "refs": ["R1", "C1"], "anchor_ref": "R1",
+    payload = {"name": "amp", "refs": ["R1", "C1"],
                "board": SimpleNamespace(adapter=adapter),
                "root": ".", "sheet_names": names}
     result = hub._run_record_capture(payload)
@@ -1239,8 +1229,8 @@ def test_record_scheme_list_by_sheet_payload_refs_match_checked_sheets(
 
             def result_data(self):
                 # User checked Top + Ch0 + its nested Amp, but NOT Ch1.
-                return ("amp", "R1", ("Top",), [("Top",), ("Top", "Ch0"),
-                                                ("Top", "Ch0", "Amp")])
+                return ("amp", ("Top",), [("Top",), ("Top", "Ch0"),
+                                          ("Top", "Ch0", "Amp")])
 
         payloads = []
         monkeypatch.setattr(dock_hub_mod, "RecordSchemeListDialog", _FakeDialog)
@@ -1257,6 +1247,8 @@ def test_record_scheme_list_by_sheet_payload_refs_match_checked_sheets(
         assert len(payloads) == 1
         # Ch1's C3 is excluded; R1/C1/C2/U1 are the checked-sheet union.
         assert payloads[0]["refs"] == ["C1", "C2", "R1", "U1"]
+        # no anchor_ref is carried in the payload (no anchor in the dialog)
+        assert "anchor_ref" not in payloads[0]
         # 5c.1 — the CHECKED leaf paths are persisted as the record's scope.
         assert payloads[0]["scope_sheet_paths"] == [
             ["Top"], ["Top", "Ch0"], ["Top", "Ch0", "Amp"]]
@@ -1307,7 +1299,7 @@ def test_record_scheme_list_by_selection_payload_matches_selection_refs(
                 return None
 
             def result_data(self):
-                return ("amp", "C1", None, None)
+                return ("amp", None, None)
 
         payloads = []
         monkeypatch.setattr(dock_hub_mod, "RecordSchemeListDialog", _FakeDialog)
@@ -1350,12 +1342,12 @@ def test_duplicate_problems_exclude_name_allows_self_replacement(main_window, tm
     still blocks. Without exclude_name the old Record behavior is unchanged."""
     root = tmp_path / "root.sexp"
     _write(root, {"scheme_lists": [
-        {"name": "amp", "anchor_ref": "R1",
+        {"name": "amp",
          "components": [{"ref": "R1", "offset_along_mm": 0.0,
                          "offset_across_mm": 0.0, "rotation_deg": 0.0},
                         {"ref": "C1", "offset_along_mm": 10.0,
                          "offset_across_mm": 0.0, "rotation_deg": 0.0}]},
-        {"name": "psu", "anchor_ref": "X1",
+        {"name": "psu",
          "components": [{"ref": "X1", "offset_along_mm": 0.0,
                          "offset_across_mm": 0.0, "rotation_deg": 0.0}]},
     ]})
@@ -1386,8 +1378,7 @@ def test_resource_dialog_fixed_name_read_only_title_and_re_source_ok(main_window
         # result_data keeps the pinned name regardless of the active tab.
         assert dialog.result_data()[0] == "amp"
         dialog.tabs.setCurrentIndex(1)  # By selection
-        dialog.selection_anchor_combo.setCurrentText("C4")
-        assert dialog.result_data() == ("amp", "C4", None, None)
+        assert dialog.result_data() == ("amp", None, None)
     finally:
         dialog.close()
 
@@ -1433,8 +1424,7 @@ def test_run_resource_capture_replaces_record_under_same_name(main_window, tmp_p
     root = tmp_path / "root.sexp"
     _write(root, {
         "scheme_lists": [
-            {"name": "amp", "anchor_ref": "R1", "source_sheet": "Channel_0",
-             "anchor_rotation_deg": 0.0,
+            {"name": "amp", "source_sheet": "Channel_0",
              "components": [
                  {"ref": "R1", "offset_along_mm": 0.0, "offset_across_mm": 0.0,
                   "rotation_deg": 0.0},
@@ -1442,7 +1432,7 @@ def test_run_resource_capture_replaces_record_under_same_name(main_window, tmp_p
                   "rotation_deg": 0.0},
                  {"ref": "C2", "offset_along_mm": 14.0, "offset_across_mm": 0.0,
                   "rotation_deg": 0.0}]},
-            {"name": "keep", "anchor_ref": "K1", "anchor_rotation_deg": 0.0,
+            {"name": "keep",
              "components": [
                  {"ref": "K1", "offset_along_mm": 0.0, "offset_across_mm": 0.0,
                   "rotation_deg": 0.0}]},
@@ -1466,7 +1456,7 @@ def test_run_resource_capture_replaces_record_under_same_name(main_window, tmp_p
         refresh=lambda: None,
         graph_changed=SimpleNamespace(emit=lambda: None))
     payload = {"board": SimpleNamespace(adapter=new_adapter), "name": "amp",
-               "refs": ["R5", "C5", "C6"], "anchor_ref": "C5",
+               "refs": ["R5", "C5", "C6"],
                "root": str(root), "target_path": str(root),
                "sheet_names": names}
     result = hub._run_resource_capture(payload)
@@ -1484,9 +1474,9 @@ def test_run_resource_capture_replaces_record_under_same_name(main_window, tmp_p
     records = {e["name"]: e for e in _load(root)["scheme_lists"]}
     assert set(records) == {"amp", "keep"}
     amp = records["amp"]
-    # NEW refs/anchor/source_sheet/geometry, from the NEW source.
+    # NEW refs/source_sheet/geometry, from the NEW source (no anchor field).
     assert [c["ref"] for c in amp["components"]] == ["R5", "C5", "C6"]
-    assert amp["anchor_ref"] == "C5"
+    assert "anchor_ref" not in amp
     assert amp["source_sheet"] == "Channel_1"
     # the untouched record stayed identical.
     assert records["keep"] == keep_before
@@ -1520,7 +1510,7 @@ def test_run_resource_scheme_list_payload_uses_fixed_name_checked_refs_and_owner
 
     root = tmp_path / "root.sexp"
     _write(root, {"scheme_lists": [
-        {"name": "amp", "anchor_ref": "R1",
+        {"name": "amp",
          "components": [{"ref": "R1", "offset_along_mm": 0.0,
                          "offset_across_mm": 0.0, "rotation_deg": 0.0}]}]})
     connection = main_window.connection
@@ -1549,7 +1539,7 @@ def test_run_resource_scheme_list_payload_uses_fixed_name_checked_refs_and_owner
 
             def result_data(self):
                 # User checked Top + Ch0 + its nested Amp, but NOT Ch1.
-                return ("amp", "R1", ("Top",),
+                return ("amp", ("Top",),
                         [("Top",), ("Top", "Ch0"), ("Top", "Ch0", "Amp")])
 
         payloads = []
@@ -1562,8 +1552,7 @@ def test_run_resource_scheme_list_payload_uses_fixed_name_checked_refs_and_owner
             lambda _c, _w, worker, on_success, on_error, payload:
                 payloads.append(payload) or object())
 
-        entry = {"name": "amp", "anchor_ref": "R1",
-                 "components": [{"ref": "R1"}]}
+        entry = {"name": "amp", "components": [{"ref": "R1"}]}
         hub.resource_scheme_list_record(entry, root)
 
         assert seen.get("fixed_name") == "amp"
@@ -1572,7 +1561,7 @@ def test_run_resource_scheme_list_payload_uses_fixed_name_checked_refs_and_owner
         assert p["name"] == "amp"
         # Ch1's C3 is excluded — the capture set is the checked-sheet union.
         assert p["refs"] == ["C1", "C2", "R1", "U1"]
-        assert p["anchor_ref"] == "R1"
+        assert "anchor_ref" not in p
         assert p["target_path"] == str(root)
         # 5c.1 — a "By sheet" Re-source stores the NEW checked paths as scope.
         assert p["scope_sheet_paths"] == [
@@ -1601,20 +1590,27 @@ def _add_fp_to(adapter, ref, x_mm, y_mm=10.0, angle=0.0):
     return fp
 
 
+def _stored(components=None, scope_sheet_paths=None):
+    """A stored-record dict for the 5c pure helpers (records carry no anchor
+    field in the centre-frame format)."""
+    d = {"name": "amp", "components": components or [{"ref": "R1"},
+                                                     {"ref": "C1"}]}
+    if scope_sheet_paths is not None:
+        d["scope_sheet_paths"] = scope_sheet_paths
+    return load_scheme_list(d)
+
+
 def test_reread_scope_refs_by_sheet_recomputes_from_stored_paths():
     """5c.4 — the CURRENT scope of a "By sheet"-record is recomputed from the
     STORED scope_sheet_paths against the live snapshot (refs_on_sheet union) —
     no board selection is consulted."""
     snapshot = _snap(("R1", ("Channel_0",)), ("C1", ("Channel_0",)),
                      ("C2", ("Channel_0",)), ("X1", ("Other",)))
-    stored = load_scheme_list({"name": "amp", "anchor_ref": "R1",
-                               "scope_sheet_paths": [["Channel_0"]],
-                               "components": [{"ref": "R1"}, {"ref": "C1"}]})
+    stored = _stored(scope_sheet_paths=[["Channel_0"]])
     assert reread_scope_refs(stored, snapshot, ["X1"]) == ["C1", "C2", "R1"]
     # a narrowed checklist (only a sub-leaf) narrows the scope accordingly
-    stored2 = load_scheme_list({"name": "amp", "anchor_ref": "R1",
-                                "scope_sheet_paths": [["Channel_0", "Sub"]],
-                                "components": [{"ref": "R1"}]})
+    stored2 = _stored(components=[{"ref": "R1"}],
+                      scope_sheet_paths=[["Channel_0", "Sub"]])
     assert reread_scope_refs(stored2, snapshot, []) == []
 
 
@@ -1622,8 +1618,7 @@ def test_reread_scope_refs_by_selection_uses_current_selection():
     """5c.4 — the CURRENT scope of a "By selection"-record (no scope_sheet_
     paths) IS the current board selection (possibly a CHANGED set); an empty
     selection yields an empty scope (the caller warns, does not diff silently)."""
-    stored = load_scheme_list({"name": "amp", "anchor_ref": "R1",
-                               "components": [{"ref": "R1"}, {"ref": "C1"}]})
+    stored = _stored()
     assert reread_scope_refs(stored, [], ["C4", "R1"]) == ["C4", "R1"]
     assert reread_scope_refs(stored, [], []) == []
 
@@ -1781,9 +1776,7 @@ def test_reread_scope_refs_active_preset_paths_override_stored():
     snapshot = _snap(("R1", ("Channel_0",)), ("C1", ("Channel_0",)),
                      ("C2", ("Channel_0",)), ("X1", ("Other",)),
                      ("C9", ("Channel_0", "Sub")))
-    stored = load_scheme_list({"name": "amp", "anchor_ref": "R1",
-                               "scope_sheet_paths": [["Channel_0"]],
-                               "components": [{"ref": "R1"}, {"ref": "C1"}]})
+    stored = _stored(scope_sheet_paths=[["Channel_0"]])
     assert reread_scope_refs(stored, snapshot, ["X1"]) == ["C1", "C2", "R1"]
     # sentinel/None == 5c byte-identical.
     assert reread_scope_refs(stored, snapshot, ["X1"],
@@ -1841,7 +1834,7 @@ def _preset_fake_dialog(preset_name, by_sheet=True, checked=None):
             return preset_name
 
         def result_data(self):
-            return ("amp", "R1", ("Top",),
+            return ("amp", ("Top",),
                     checked or [("Top",), ("Top", "Ch0"),
                                 ("Top", "Ch0", "Amp")])
 
@@ -1904,7 +1897,7 @@ def test_resource_scheme_list_without_preset_save_keeps_existing_library(
     from gui.dock_hub import DockHub
 
     root = tmp_path / "root.sexp"
-    _write(root, {"scheme_lists": [{"name": "amp", "anchor_ref": "R1",
+    _write(root, {"scheme_lists": [{"name": "amp",
                                     "components": [{"ref": "R1"}]}]})
     connection = main_window.connection
     hub = DockHub(main_window, connection=connection, verbose=False)
@@ -1913,8 +1906,7 @@ def test_resource_scheme_list_without_preset_save_keeps_existing_library(
         connection.board = SimpleNamespace(adapter=FakeAdapter([], [], [], {}))
         hub.root_metadata_dock.set_root_file(root)
         payloads = []
-        entry = {"name": "amp", "anchor_ref": "R1",
-                 "components": [{"ref": "R1"}],
+        entry = {"name": "amp", "components": [{"ref": "R1"}],
                  "scope_presets": [
                      {"name": "full",
                       "sheet_paths": [["Top"], ["Top", "Ch0"]]},
@@ -1951,7 +1943,7 @@ def test_resource_scheme_list_save_preset_overwrites_only_same_name(
     from gui.dock_hub import DockHub
 
     root = tmp_path / "root.sexp"
-    _write(root, {"scheme_lists": [{"name": "amp", "anchor_ref": "R1",
+    _write(root, {"scheme_lists": [{"name": "amp",
                                     "components": [{"ref": "R1"}]}]})
     connection = main_window.connection
     hub = DockHub(main_window, connection=connection, verbose=False)
@@ -1960,8 +1952,7 @@ def test_resource_scheme_list_save_preset_overwrites_only_same_name(
         connection.board = SimpleNamespace(adapter=FakeAdapter([], [], [], {}))
         hub.root_metadata_dock.set_root_file(root)
         payloads = []
-        entry = {"name": "amp", "anchor_ref": "R1",
-                 "components": [{"ref": "R1"}],
+        entry = {"name": "amp", "components": [{"ref": "R1"}],
                  "scope_presets": [
                      {"name": "full",
                       "sheet_paths": [["Top"], ["Top", "Ch0"]]},
@@ -1998,7 +1989,7 @@ def test_run_record_capture_carries_scope_presets_into_record():
 
     hub = DockHub.__new__(DockHub)  # worker method — no __init__ side effects
     adapter = _line_board()
-    payload = {"name": "amp", "refs": ["R1", "C1", "C2"], "anchor_ref": "R1",
+    payload = {"name": "amp", "refs": ["R1", "C1", "C2"],
                "board": SimpleNamespace(adapter=adapter), "root": ".",
                "scope_presets": [{"name": "full",
                                   "sheet_paths": [["Channel_0"],

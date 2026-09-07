@@ -576,12 +576,13 @@ def test_scheme_lists_roundtrip():
     """A scheme_lists record with nested components/vias/tracks/boundary_nets
     (incl. an internal copper layer string) and a "By sheet" scope
     (scope_sheet_paths, 5c.1 — incl. a SINGLE-segment path that must not
-    collapse into a bare string) round-trips bijectively."""
+    collapse into a bare string) round-trips bijectively. A non-default pivot
+    (design_2026_09_07_scheme_list_pivot.md p.3.2) survives as the [x, y]
+    pair."""
     _roundtrip({
         "scheme_lists": [{
             "name": "psu",
-            "anchor_ref": "C1",
-            "anchor_rotation_deg": 90.0,  # addendum P2.x — non-default survives
+            "pivot": [1.5, -2.25],  # design p.3.2 — non-default survives
             "source_sheet": "Channel_0",
             "scope_sheet_paths": [["Top", "Channel_0"], ["Top"]],
             "components": [
@@ -606,7 +607,6 @@ def test_scheme_list_boundary_truncate_roundtrip():
     back = _roundtrip({
         "scheme_lists": [{
             "name": "psu",
-            "anchor_ref": "C1",
             "source_sheet": "Channel_0",
             "components": [
                 {"ref": "C1"},
@@ -637,7 +637,6 @@ def test_scheme_list_scope_presets_roundtrip():
     back = _roundtrip({
         "scheme_lists": [{
             "name": "psu",
-            "anchor_ref": "C1",
             "source_sheet": "Channel_0",
             "scope_sheet_paths": [["Top", "Channel_0"], ["Top"]],
             "scope_presets": [

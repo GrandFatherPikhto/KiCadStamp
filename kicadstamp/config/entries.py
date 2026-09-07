@@ -862,7 +862,7 @@ def _load_entity(data: dict[str, Any]) -> Entity:
 
 
 _SCHEME_LIST_KNOWN_KEYS = {
-    'name', 'anchor_ref', 'anchor_pad', 'anchor_rotation_deg', 'source_sheet',
+    'name', 'pivot', 'source_sheet',
     'scope_sheet_paths', 'scope_presets', 'components', 'vias', 'tracks',
     'boundary_nets',
 }
@@ -881,8 +881,8 @@ _SCHEME_LIST_BOUNDARY_KNOWN_KEYS = {'net', 'action', 'external_ref'}
 
 def _load_scheme_list_components(raw: list | None, owner: str) -> list[SchemeListComponentRecord]:
     """Parse the literal-ref components of one Scheme List record. The owner
-    refs are the record's own captured footprints (offset in the anchor_ref
-    frame); anchor_ref membership in this set is validated by the caller."""
+    refs are the record's own captured footprints (offset in the region's
+    centre frame, see SchemeListConfig)."""
     out: list[SchemeListComponentRecord] = []
     for i, c in enumerate(raw or []):
         if not isinstance(c, dict):
@@ -1070,12 +1070,12 @@ def _load_scheme_list_scope_presets(raw, owner: str) -> list[SchemeListScopePres
 
 
 def _load_scheme_list(data: dict[str, Any]) -> SchemeListConfig:
-    """One scheme_lists: entry — a recorded live-board snapshot
-    (design_2026_09_05_scheme_list.md §3). Pure single-entry validator,
-    split out so a future GUI dock can validate/rebuild one record the same
-    way load_entity/load_thermal_via_array do for theirs. The list-level
-    duplicate-name and cross-record ref-uniqueness checks stay in
-    load_config() (they need the whole list, not one entry)."""
+    """One scheme_lists: entry — a recorded live-board snapshot in the CENTRE
+    frame of the recorded region (design_2026_09_07_scheme_list_pivot.md).
+    Pure single-entry validator, split out so a future GUI dock can
+    validate/rebuild one record the same way load_entity/load_thermal_via_array
+    do for theirs. The list-level duplicate-name and cross-record ref-uniqueness
+    checks stay in load_config() (they need the whole list, not one entry)."""
     name = data.get('name')
     if not name:
         raise ValidationError(format_fatal_error(
@@ -1085,14 +1085,6 @@ def _load_scheme_list(data: dict[str, Any]) -> SchemeListConfig:
     check_unknown_keys(data, _SCHEME_LIST_KNOWN_KEYS,
                        _("unknown fields in scheme_lists entry {name!r}").format(name=name))
 
-    anchor_ref = data.get('anchor_ref')
-    if not anchor_ref:
-        raise ValidationError(format_fatal_error(
-            _("scheme_lists entry {name!r} without anchor_ref").format(name=name),
-            [_("anchor_ref: <one of the recorded refs> is REQUIRED — it is the "
-               "origin of every offset AND the anchor point when cloning the "
-               "record onto another sheet")]))
-
     components = _load_scheme_list_components(data.get('components'), name)
     if not components:
         raise ValidationError(format_fatal_error(
@@ -1100,19 +1092,20 @@ def _load_scheme_list(data: dict[str, Any]) -> SchemeListConfig:
             [_("a recorded Scheme List is a snapshot of a real region — it must "
                "list at least one footprint (components: [{ref: C1, ...}])")]))
 
-    if anchor_ref not in {c.ref for c in components}:
-        raise ValidationError(format_fatal_error(
-            _("scheme_lists entry {name!r}: anchor_ref {ref!r} is not one of its own components").format(
-                name=name, ref=anchor_ref),
-            [_("anchor_ref must be one of the recorded refs in components[].ref — "
-               "it doubles as the offset origin and the clone anchor; got components: {refs}")
-             .format(refs=sorted(c.ref for c in components))]))
+    pivot_raw = data.get('pivot')
+    if pivot_raw is None:
+        pivot = (0.0, 0.0)
+    else:
+        if not (isinstance(pivot_raw, (list, tuple)) and len(pivot_raw) == 2):
+            raise ValidationError(format_fatal_error(
+                _("scheme_lists entry {name!r}: pivot must be a 2-element "
+                  "[x, y] point in the region's centre frame").format(name=name),
+                [_("got: {pivot!r}").format(pivot=pivot_raw)]))
+        pivot = (float(pivot_raw[0]), float(pivot_raw[1]))
 
     return SchemeListConfig(
         name=name,
-        anchor_ref=anchor_ref,
-        anchor_pad=data.get('anchor_pad'),
-        anchor_rotation_deg=float(data.get('anchor_rotation_deg', 0.0)),
+        pivot=pivot,
         source_sheet=data.get('source_sheet'),
         scope_sheet_paths=_load_scheme_list_scope_paths(
             data.get('scope_sheet_paths'), name),

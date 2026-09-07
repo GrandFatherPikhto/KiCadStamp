@@ -464,7 +464,7 @@ class DockHub:
                                         self.main_window, fixed_name=record_name)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        _name, anchor_ref, _sheet_path, checked_paths = dialog.result_data()
+        _name, _sheet_path, checked_paths = dialog.result_data()
         refs = record_refs_for(snapshot, dialog.is_by_sheet(), checked_paths,
                                selection_refs)
         if not refs:
@@ -510,7 +510,7 @@ class DockHub:
         else:
             payload_scope_presets = existing_presets
         payload = {"board": board, "name": record_name, "refs": refs,
-                   "anchor_ref": anchor_ref, "root": str(root_path),
+                   "root": str(root_path),
                    "target_path": (str(file_path)
                                    if file_path is not None else None),
                    "sheet_names": sheet_names,
@@ -1168,10 +1168,12 @@ class DockHub:
         """Main menu "Tools -> Scheme Lists -> Record..." (plan §5.3 / Stage
         5a.3): open the two-tab Record dialog ("By sheet" default / "By
         selection"), derive the capture refs from what the user picked, ask a
-        unique name + anchor_ref inside the dialog, run capture on the worker
-        (never blocking the UI — live-board IPC), confirm any boundary
-        exclusions, and write the record to scheme_lists.json (auto-including
-        it on first use)."""
+        unique name inside the dialog, run capture on the worker (never
+        blocking the UI — live-board IPC), confirm any boundary exclusions,
+        and write the record to scheme_lists.json (auto-including it on first
+        use). No anchor is picked at Record time — the record's frame is the
+        captured region's centre and its pivot defaults to that centre
+        (design_2026_09_07_scheme_list_pivot.md)."""
         from .worker import start_long_op
         root_path = self.root_metadata_dock.root_path
         if root_path is None:
@@ -1215,7 +1217,7 @@ class DockHub:
         dialog = RecordSchemeListDialog(snapshot, selection_refs, self.main_window)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        name, anchor_ref, _sheet_path, checked_paths = dialog.result_data()
+        name, _sheet_path, checked_paths = dialog.result_data()
         if not name:
             QMessageBox.warning(self.main_window, _("Scheme Lists"),
                                 _("Name is required."))
@@ -1256,7 +1258,7 @@ class DockHub:
         else:
             payload_scope_presets = None
         payload = {"board": board, "name": name, "refs": refs,
-                   "anchor_ref": anchor_ref, "root": str(root_path),
+                   "root": str(root_path),
                    "sheet_names": sheet_names,
                    "scope_sheet_paths": scope_sheet_paths,
                    "scope_presets": payload_scope_presets}
@@ -1276,7 +1278,6 @@ class DockHub:
         try:
             record = capture_scheme_list(
                 name=payload["name"], refs=payload["refs"],
-                anchor_ref=payload["anchor_ref"],
                 adapter=payload["board"].adapter,
                 sheet_names=payload.get("sheet_names"),
                 scope_sheet_paths=payload.get("scope_sheet_paths"),
@@ -1365,7 +1366,7 @@ class DockHub:
 
     def _run_resource_capture(self, payload: Dict) -> Dict[str, Any]:
         """Worker thread — phase-1 Re-source capture ONLY (G3, plan §5-G3);
-        never touches a widget. Captures the fresh record (name/refs/anchor_ref/
+        never touches a widget. Captures the fresh record (name/refs/
         source_sheet/geometry from the NEW source) and returns it + root +
         target_path (the file that OWNS the record — the Re-source write target;
         the record is never moved between files, the §7 invariant) + the original
@@ -1380,7 +1381,6 @@ class DockHub:
         try:
             record = capture_scheme_list(
                 name=payload["name"], refs=payload["refs"],
-                anchor_ref=payload["anchor_ref"],
                 adapter=payload["board"].adapter,
                 sheet_names=payload.get("sheet_names"),
                 scope_sheet_paths=payload.get("scope_sheet_paths"),

@@ -765,9 +765,20 @@ class SchemeListScopePreset:
 class SchemeListConfig:
     """One scheme_lists: entry — a named, recorded snapshot of a real,
     already-routed region of the live board (its literal refs + copper on
-    all copper layers of the stack), with an anchor_ref chosen among its OWN
-    recorded refs as the origin for offsets AND the anchor point when
-    cloning onto another (twin) sheet (design_2026_09_05_scheme_list.md).
+    all copper layers of the stack). The geometry is stored in the CENTRE-
+    anchored frame of the recorded region: offsets of every component/via/
+    track are measured from the centre of the recorded region's bbox
+    (design_2026_09_07_scheme_list_pivot.md), NOT from any single anchor
+    component — so no recorded element is special, and a recorded region
+    survives ref re-annotation/clone via twin resolution alone.
+
+    `pivot` is the point of the region that lands on a placement node's
+    position at Redraw and around which the node's rotation turns the whole
+    region. Expressed in the same centre-frame as the stored offsets;
+    default (0,0) = the region centre. Rotation per element is stored as the
+    element's real (absolute-at-capture) angle; Apply/Redraw adds the node
+    rotation uniformly, so no separate `anchor_rotation_deg` compensation
+    exists (the d3326e4 double-rotation class is gone by construction).
 
     Physically stored in a separate .json file included via `include:`
     (records can be large — real copper, not a parametric template); the
@@ -775,16 +786,7 @@ class SchemeListConfig:
     (config/includes.py already treats .json as a first-class config format)."""
 
     name: str
-    anchor_ref: str
-    anchor_pad: str | None = None
-    # Absolute rotation of anchor_ref (its live angle_deg) AT CAPTURE time,
-    # stored EXPLICITLY (added 2026-09-06, plan addendum P2.x). The recorded
-    # components/vias/tracks offsets and rotations are RAW (board frame, anchor
-    # rotation NOT subtracted — same convention as a Cell); Apply/Redraw (P4)
-    # uses this field to compensate when it rotates the recorded geometry onto
-    # the (possibly rotated) target node. Never derived by scanning
-    # components[] post-hoc — the anchor is a record-level property.
-    anchor_rotation_deg: float = 0.0
+    pivot: tuple[float, float] = (0.0, 0.0)
     source_sheet: str | None = None
     # For a "By sheet"-record (plan_2026_09_06_scheme_list_sheet_capture.md
     # 5c.1, design_2026_09_05_scheme_list.md §3/§4): the CHECKED leaf paths of

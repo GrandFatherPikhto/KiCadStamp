@@ -1,6 +1,7 @@
 # kicadstamp/scheme_list_capture.py
 """Scheme List capture — record a real, already-routed region of the live
-board as a SchemeListConfig (plan_2026_09_05_scheme_list.md P2).
+board as a SchemeListConfig (plan_2026_09_05_scheme_list.md P2;
+design_2026_09_07_scheme_list_pivot.md — CENTRE-frame, no anchor).
 
 A Scheme List is a named snapshot identified by an explicit list of literal
 refdes (NOT a Role): resolve the refs directly on the live board, run the SAME
@@ -8,9 +9,16 @@ connectivity-closure copper filter Cell extraction uses
 (template_selection._filter_tracks_and_vias_within_selection), keep only the
 copper that reaches a pad of a recorded ref, and report whatever is dropped as
 boundary_nets diagnostics. Networks are literal (no net_from_role/
-classify_net); offsets are in the anchor_ref (+ anchor_pad) frame using the
-exact formulas cell_geometry_refresh._import_via_record/_import_track_record
-use. Nothing is applied to the board — this is pure capture.
+classify_net).
+
+The frame of the record is the CENTRE of the recorded region's bbox (the
+midpoint of the recorded footprints' position extents): every component/via/
+track offset is measured from that centre, and the record's `pivot` (a point
+in the same centre-frame, default (0,0) = the centre) is the point that lands
+on a placement node at Redraw. Each element keeps its REAL absolute angle at
+capture — no `anchor_rotation_deg` compensation exists (the d3326e4
+double-rotation class is gone by construction). Nothing is applied to the
+board — this is pure capture.
 """
 import logging
 from dataclasses import dataclass, field
@@ -44,6 +52,18 @@ def _mm(delta_nm: int) -> float:
     """nm delta -> mm, rounded to 4 dp (the exact rounding the Cell geometry
     refresh formulas use — cell_geometry_refresh._mm)."""
     return round(delta_nm / MM, 4)
+
+
+def _region_centre(footprints: list[Footprint]) -> Vector2:
+    """The centre of the recorded region — the midpoint of the recorded
+    footprints' POSITION extents (min/max over their origins). Deterministic
+    from the refs alone (no per-footprint bbox geometry), the frame origin of
+    the record (design_2026_09_07_scheme_list_pivot.md). Empty -> (0,0)."""
+    if not footprints:
+        return Vector2.from_xy(0, 0)
+    xs = [fp.position.x for fp in footprints]
+    ys = [fp.position.y for fp in footprints]
+    return Vector2.from_xy((min(xs) + max(xs)) // 2, (min(ys) + max(ys)) // 2)
 
 
 def _component_record(fp: Footprint, origin: Vector2) -> SchemeListComponentRecord:
@@ -158,9 +178,8 @@ def _boundary_net_external_ref(dropped: list[Track] | list[Via],
 def capture_scheme_list(
     name: str,
     refs: list[str],
-    anchor_ref: str,
-    anchor_pad: str | None = None,
     adapter=None,
+    pivot: tuple[float, float] | None = None,
     source_sheet: str | None = None,   # explicit override (Reread)
     sheet_names: dict[str, str] | None = None,  # for derivation (Record/Re-source)
     scope_sheet_paths: list[list[str]] | None = None,  # 5c.1 — "By sheet" scope
@@ -172,9 +191,17 @@ def capture_scheme_list(
     Resolves every ref by direct refdes lookup (missing refs -> one fatal
     listing ALL of them), runs the shared connectivity-closure filter over the
     copper near the refs' bbox (+1 mm), records components/vias/tracks with
-    literal nets and literal copper-layer strings in the anchor_ref frame, and
-    reports dropped (excluded-material) copper as boundary_nets. Pure capture —
-    writes nothing to the board.
+    literal nets and literal copper-layer strings in the record's CENTRE frame,
+    and reports dropped (excluded-material) copper as boundary_nets. Pure
+    capture — writes nothing to the board.
+
+    The record's frame origin is the CENTRE of the recorded region (the
+    midpoint of the recorded footprints' position extents, design_2026_09_07_
+    scheme_list_pivot.md): every recorded element's offset is measured from
+    that centre, NOT from any single anchor component. `pivot` (a point in the
+    same centre-frame, default (0,0) = the centre) is stored on the record —
+    the point that lands on a placement node at Redraw. Reread passes the
+    STORED pivot so a re-capture does not reset a user-chosen pivot.
 
     ``boundary_net_actions`` (Part A truncate): per-NET decision
     ``{net: "exclude" | "truncate"}`` for copper the closure dropped (reaches
@@ -191,13 +218,12 @@ def capture_scheme_list(
     ``source_sheet`` — the sheet the record was captured from. An explicit
     value (Reread's override, keeping the STORED sheet) always wins; otherwise,
     when ``sheet_names`` (the {uuid: Sheetname} map a Config/ctx carries) is
-    given, it is DERIVED from the anchor footprint's OWN full resolved sheet
-    path (resolve_sheet_path_names over the anchor's sheet_path_uuids) — the
-    same derivation for both Record tabs ("By sheet"/"By selection"), never a
-    network-prefix guess (channel_copy.sheet_name_of_fp). Without either the
-    record is "in place only" (source_sheet None).
+    given, it is DERIVED from the FIRST sorted recorded footprint's OWN full
+    resolved sheet path (resolve_sheet_path_names over its sheet_path_uuids) —
+    the same derivation for both Record tabs, never a network-prefix guess
+    (channel_copy.sheet_name_of_fp). Without either the record is "in place
+    only" (source_sheet None).
     """
-    anchor_ref = anchor_ref or (refs[0] if refs else "")
     if not refs:
         raise ValidationError(format_fatal_error(
             _("cannot record scheme list {name!r}: no refs given").format(name=name),
@@ -213,27 +239,12 @@ def capture_scheme_list(
             [_("Scheme List capture is a snapshot of real footprints — every "
                "ref in the list must resolve on the live board (use the board "
                "selection / direct refdes lookup)")]))
-    if anchor_ref not in refs:
-        raise ValidationError(format_fatal_error(
-            _("cannot record scheme list {name!r}: anchor_ref {ref!r} is not among the refs").format(
-                name=name, ref=anchor_ref),
-            [_("the anchor_ref must be one of the captured components (it is "
-               "the offset origin and the clone anchor point)")]))
     footprints = [fp_by_ref[r] for r in refs]
-    anchor_fp = fp_by_ref[anchor_ref]
 
-    # Origin: anchor_ref centre, or the anchor_pad centre when given.
-    origin = anchor_fp.position
-    if anchor_pad:
-        pads = {str(pad.number): pad for pad in adapter.get_footprint_pads(anchor_fp)}
-        pad = pads.get(anchor_pad) or pads.get(str(anchor_pad))
-        if pad is None:
-            raise ValidationError(format_fatal_error(
-                _("cannot record scheme list {name!r}: pad {pad!r} not found on {ref}").format(
-                    name=name, pad=anchor_pad, ref=anchor_ref),
-                [_("anchor_pad must be a pad number of the anchor footprint")]))
-        origin = pad.position
-
+    # Frame origin = centre of the recorded footprints' POSITION extents
+    # (deterministic, needs no per-footprint bbox geometry — mirror of the
+    # design's "centre of the recorded region's bbox").
+    origin = _region_centre(footprints)
     components = [_component_record(fp, origin) for fp in footprints]
 
     # Region + bbox pre-filter (perf), then the shared closure filter with the
@@ -311,23 +322,23 @@ def capture_scheme_list(
     tracks = [_track_record(t, origin) for t in kept_tracks]
 
     # source_sheet: an explicit value (Reread's override) wins; otherwise it is
-    # DERIVED from the anchor footprint's OWN full resolved sheet path (the
-    # same derivation for both Record tabs — every mode has exactly one anchor
-    # and its path resolves identically). Not a network-prefix guess:
-    # channel_copy.sheet_name_of_fp only sees one hierarchy level and fails on
-    # global-only footprints. None when no sheet_names are given or the path is
-    # unresolved — such a record is inherently "in place only".
+    # DERIVED from the FIRST SORTED recorded footprint's OWN full resolved
+    # sheet path (deterministic — the same derivation for both Record tabs).
+    # Not a network-prefix guess: channel_copy.sheet_name_of_fp only sees one
+    # hierarchy level and fails on global-only footprints. None when no
+    # sheet_names are given or the path is unresolved — such a record is
+    # inherently "in place only".
     if source_sheet is None and sheet_names:
         from .sheet_names import resolve_sheet_path_names
-        path = resolve_sheet_path_names(anchor_fp, sheet_names)
-        if path and all(path):
-            source_sheet = "/".join(path)
+        for fp in sorted(footprints, key=lambda f: f.ref):
+            path = resolve_sheet_path_names(fp, sheet_names)
+            if path and all(path):
+                source_sheet = "/".join(path)
+                break
 
     return SchemeListConfig(
         name=name,
-        anchor_ref=anchor_ref,
-        anchor_pad=anchor_pad,
-        anchor_rotation_deg=anchor_fp.angle_deg,
+        pivot=pivot if pivot is not None else (0.0, 0.0),
         source_sheet=source_sheet,
         # 5c.1 — persisted verbatim, never interpreted here: for a "By sheet"
         # capture it is the CHECKED leaf paths (so a later Reread recomputes
@@ -368,16 +379,28 @@ class SchemeListDiff:
     live board. Pure calculation; the caller (GUI) decides whether to apply
     (rewrite the stored record) after explicit confirmation.
 
-    5c (plan_2026_09_06_scheme_list_sheet_capture.md 5c.2): two NEW categories
+    5c (plan_2026_09_06_scheme_list_sheet_capture.md 5c.2): two categories
     for a changeable REF SET, distinct from ``refs_not_found`` — that one means
     "recorded but PHYSICALLY ABSENT from the board"; ``refs_removed_from_scope``
     means "physically present, just no longer inside the CURRENT scope" (the
     user un-selected / a sub-sheet was excluded), and ``components_added`` are
     refs in the current scope but not in the stored record (their fresh
-    geometry comes from the same capture the diff builds)."""
+    geometry comes from the same capture the diff builds).
+
+    Centre-frame semantics (design_2026_09_07_scheme_list_pivot.md): the
+    record's offsets live relative to the recorded region's CENTRE, which is a
+    function of the ref SET. The geometry diff (component moved / via/track
+    added-removed) is therefore only computed when the compared set is
+    UNCHANGED (no missing refs, no scope add/remove), and is TRANSLATION-
+    INVARIANT there: both sides are aligned through a transient reference
+    recorded component (see build_scheme_list_diff), so moving one part never
+    reports the whole frame drifting. On a set change the diff reports the
+    membership change (refs_not_found / components_added / refs_removed_from_
+    scope — added components WITH their fresh geometry) and skips the per-
+    element moved/via/track comparison (the record gets rewritten by Apply
+    anyway)."""
 
     refs_not_found: list[str] = field(default_factory=list)
-    anchor_missing: bool = False
     components_moved: list[SchemeListComponentChange] = field(default_factory=list)
     components_added: list[SchemeListComponentRecord] = field(default_factory=list)
     refs_removed_from_scope: list[str] = field(default_factory=list)
@@ -390,7 +413,7 @@ class SchemeListDiff:
 
     @property
     def changed(self) -> bool:
-        return bool(self.refs_not_found or self.anchor_missing or self.components_moved
+        return bool(self.refs_not_found or self.components_moved
                     or self.components_added or self.refs_removed_from_scope
                     or self.vias_added or self.vias_removed
                     or self.tracks_added or self.tracks_removed
@@ -449,28 +472,21 @@ def build_scheme_list_diff(stored: SchemeListConfig, adapter,
     """Re-read the region a stored Scheme List was recorded from and report what
     differs, within the Reread tolerances. Pure computation — applies nothing.
 
-    Component refs that no longer resolve on the live board go to
-    ``refs_not_found`` (NOT a fatal). If the ``anchor_ref`` itself is gone the
-    offsets cannot be recomputed consistently (they are relative to the dead
-    anchor), so ``anchor_missing`` is set and the copper diff is skipped.
-    Copper is matched greedily within ``POSITION_TOLERANCE_MM`` (vias by
-    net + position; tracks by net + layer + width + endpoints, either draw
-    direction) and reported as ``vias/tracks_added``/``removed``. New boundary
-    nets (excluded-material copper that needs a fresh decision) and boundary
-    nets that disappeared are reported separately.
+    Centre-frame semantics (design_2026_09_07_scheme_list_pivot.md): the
+    stored offsets are relative to the recorded region's centre, which is a
+    function of the recorded ref SET. The per-element geometry diff
+    (components_moved / vias / tracks / boundary nets) is therefore only
+    computed when the compared set is UNCHANGED — no missing refs AND no scope
+    add/remove — because only then do the stored and the freshly-captured
+    frames coincide. On a set change the diff reports the membership change
+    (refs_not_found / components_added / refs_removed_from_scope) and skips the
+    geometry comparison (the record is rewritten by Apply anyway).
 
-    5c (plan_2026_09_06_scheme_list_sheet_capture.md 5c.3): ``scope_refs`` is
-    the CURRENT scope (recomputed by the caller — for a "By sheet" record from
-    its stored ``scope_sheet_paths`` over the live snapshot, for a "By
-    selection" record from a fresh board selection). When given, refs inside
-    the scope but absent from the record are ``components_added`` (their fresh
-    geometry comes from the SAME capture as the rest of the diff), and refs
-    recorded but outside the scope are ``refs_removed_from_scope`` — computed
-    against ``found`` (physically present), NOT ``stored_refs``, so a ref that
-    is gone from the board stays a ``refs_not_found`` and is never
-    double-counted. When ``scope_refs`` is None (no scope change) the diff
-    keeps the legacy fixed-set behaviour: only the stored refs are re-read and
-    nothing is added/removed from the set.
+    ``scope_refs`` (5c) is the CURRENT scope (recomputed by the caller — for a
+    "By sheet" record from its stored ``scope_sheet_paths`` over the live
+    snapshot, for a "By selection" record from a fresh board selection). When
+    None (no scope change) only the stored refs are re-read and nothing is
+    added/removed from the set.
     """
     present = {fp.ref for fp in adapter.get_footprints()}
     stored_refs = [c.ref for c in stored.components]
@@ -481,8 +497,7 @@ def build_scheme_list_diff(stored: SchemeListConfig, adapter,
         # Refs in the CURRENT scope but never recorded -> added. Refs recorded
         # AND physically present but outside the current scope -> removed-from-
         # scope (NOT refs_not_found — those stay the "must be, but absent"
-        # category). The capture set is (present stored refs still in scope) +
-        # (added refs), so one capture yields geometry for both old and new.
+        # category).
         added_refs = sorted(set(scope_refs) - set(stored_refs))
         removed_from_scope = sorted(set(found) - set(scope_refs))
         refs_for_fresh = sorted((set(found) - set(removed_from_scope)) | set(added_refs))
@@ -491,45 +506,73 @@ def build_scheme_list_diff(stored: SchemeListConfig, adapter,
         removed_from_scope = []
         refs_for_fresh = found
 
-    if not refs_for_fresh or stored.anchor_ref not in present:
-        # Nothing left to re-read (all stored refs left the scope / the board,
-        # or the anchor is gone) — report the scope change/absence, skip the
-        # copper diff (offsets would have no live anchor to be relative to).
+    # A changed SET (missing / scope add-remove) means the region's centre —
+    # a function of the ref set — differs between stored and fresh, so a
+    # per-element offset comparison (components_moved / vias / tracks /
+    # boundary nets) is meaningless: the two centre-frames no longer coincide.
+    # Report ONLY the membership change:
+    #   refs_not_found           recorded but physically absent
+    #   refs_removed_from_scope  present but outside the current scope
+    #   components_added         in scope but never recorded — WITH their FRESH
+    #                            geometry from a capture over the widened scope
+    #                            (the frame the record is rewritten in by Apply;
+    #                            that capture skips the absent refs already
+    #                            reported above).
+    set_changed = bool(refs_not_found or added_refs or removed_from_scope)
+    if set_changed or not refs_for_fresh:
+        added_records: list = []
+        if added_refs and refs_for_fresh:
+            fresh = capture_scheme_list(
+                name=stored.name, refs=refs_for_fresh, adapter=adapter,
+                # Keep the STORED pivot and source_sheet as explicit overrides —
+                # Reread's job is re-reading the same source, never resetting a
+                # user-chosen pivot or re-deriving the sheet.
+                pivot=stored.pivot, source_sheet=stored.source_sheet)
+            fresh_by_ref = {c.ref: c for c in fresh.components}
+            added_records = [fresh_by_ref[r] for r in sorted(added_refs)
+                             if r in fresh_by_ref]
         return SchemeListDiff(
             refs_not_found=refs_not_found,
-            anchor_missing=stored.anchor_ref not in present,
-            components_added=[],
+            components_added=added_records,
             refs_removed_from_scope=removed_from_scope,
         )
 
     fresh = capture_scheme_list(
-        name=stored.name, refs=refs_for_fresh,
-        anchor_ref=stored.anchor_ref,
-        anchor_pad=stored.anchor_pad, adapter=adapter,
-        # Keep the STORED source_sheet as an explicit override — Reread's job
-        # is re-reading the same source, never re-deriving the sheet (5a.2).
-        source_sheet=stored.source_sheet)
-
+        name=stored.name, refs=refs_for_fresh, adapter=adapter,
+        # Keep the STORED pivot and source_sheet as explicit overrides —
+        # Reread's job is re-reading the same source, never resetting a
+        # user-chosen pivot or re-deriving the sheet.
+        pivot=stored.pivot, source_sheet=stored.source_sheet)
     fresh_by_ref = {c.ref: c for c in fresh.components}
-    # Added refs land in components_added WITH their fresh geometry (the
-    # capture above was built over refs_for_fresh, so they are already there).
-    components_added = [fresh_by_ref[r] for r in added_refs if r in fresh_by_ref]
 
-    removed_set = set(removed_from_scope)
+    # Centre-frame diff is TRANSLATION-INVARIANT ("центр сокращается",
+    # design_2026_09_07 p.6.2): both sides' offsets are relative to the region's
+    # CURRENT centre, and that centre moves whenever a component physically
+    # moves — comparing the raw offsets would report the WHOLE frame drifting
+    # instead of the true relative movement. So both sides are aligned through a
+    # deterministic REFERENCE recorded component (the first sorted ref present
+    # in both; this is a transient diff-comparison anchor, never stored — the
+    # record itself has no anchor component). Adding the reference component's
+    # own fresh-vs-stored shift to the stored side before comparing cancels the
+    # centre exactly: relative positions p_i - p_ref0 are what is compared, and
+    # reported new positions are expressed in the STORED frame.
+    stored_by_ref = {c.ref: c for c in stored.components}
+    ref0 = sorted(stored_by_ref)[0]
+    ref0_stored = stored_by_ref[ref0]
+    ref0_fresh = fresh_by_ref[ref0]
+    shift_along = ref0_fresh.offset_along_mm - ref0_stored.offset_along_mm
+    shift_across = ref0_fresh.offset_across_mm - ref0_stored.offset_across_mm
+
     # Components — report when position/rotation moved beyond the tolerance.
-    # (The anchor itself is the offset origin and is always at (0,0), so it
-    # can never report as "moved".) A ref that LEFT the scope is skipped here
-    # — it would otherwise surface both as "moved"/"missing" AND as
-    # removed-from-scope, which is misleading.
     components_moved: list[SchemeListComponentChange] = []
     for stored_comp in stored.components:
-        if stored_comp.ref in removed_set:
-            continue  # out of the current scope — reported as removed-from-scope
         new_comp = fresh_by_ref.get(stored_comp.ref)
         if new_comp is None:
-            continue  # the ref is already reported in refs_not_found
-        moved = (not (_pos_equal(stored_comp.offset_along_mm, new_comp.offset_along_mm)
-                      and _pos_equal(stored_comp.offset_across_mm, new_comp.offset_across_mm))
+            continue  # ref already reported in refs_not_found
+        aligned_x = stored_comp.offset_along_mm + shift_along
+        aligned_y = stored_comp.offset_across_mm + shift_across
+        moved = (not (_pos_equal(aligned_x, new_comp.offset_along_mm)
+                      and _pos_equal(aligned_y, new_comp.offset_across_mm))
                  or _angle_delta(stored_comp.rotation_deg, new_comp.rotation_deg)
                  > ANGLE_TOLERANCE_DEG)
         if moved:
@@ -538,12 +581,32 @@ def build_scheme_list_diff(stored: SchemeListConfig, adapter,
                 old_offset_along_mm=stored_comp.offset_along_mm,
                 old_offset_across_mm=stored_comp.offset_across_mm,
                 old_rotation_deg=stored_comp.rotation_deg,
-                new_offset_along_mm=new_comp.offset_along_mm,
-                new_offset_across_mm=new_comp.offset_across_mm,
+                # expressed in the STORED frame (fresh minus the ref0 shift)
+                new_offset_along_mm=round(new_comp.offset_along_mm - shift_along, 6),
+                new_offset_across_mm=round(new_comp.offset_across_mm - shift_across, 6),
                 new_rotation_deg=new_comp.rotation_deg))
 
-    vias_added, vias_removed = _split_changes(stored.vias, fresh.vias, _via_matches)
-    tracks_added, tracks_removed = _split_changes(stored.tracks, fresh.tracks, _track_matches)
+    # Vias/tracks: align the STORED side by the same ref0 shift, then match.
+    def _align_via(v: SchemeListViaRecord) -> SchemeListViaRecord:
+        return SchemeListViaRecord(
+            offset_along_mm=round(v.offset_along_mm + shift_along, 6),
+            offset_across_mm=round(v.offset_across_mm + shift_across, 6),
+            drill_mm=v.drill_mm, diameter_mm=v.diameter_mm, net=v.net)
+
+    def _align_track(t: SchemeListTrackRecord) -> SchemeListTrackRecord:
+        return SchemeListTrackRecord(
+            start_along_mm=round(t.start_along_mm + shift_along, 6),
+            start_across_mm=round(t.start_across_mm + shift_across, 6),
+            end_along_mm=round(t.end_along_mm + shift_along, 6),
+            end_across_mm=round(t.end_across_mm + shift_across, 6),
+            width_mm=t.width_mm, layer=t.layer, net=t.net)
+
+    aligned_stored_vias = [_align_via(v) for v in stored.vias]
+    aligned_stored_tracks = [_align_track(t) for t in stored.tracks]
+    vias_added, vias_removed = _split_changes(
+        aligned_stored_vias, fresh.vias, _via_matches)
+    tracks_added, tracks_removed = _split_changes(
+        aligned_stored_tracks, fresh.tracks, _track_matches)
 
     stored_boundary = {bn.net for bn in stored.boundary_nets}
     fresh_boundary = {bn.net for bn in fresh.boundary_nets}
@@ -552,10 +615,9 @@ def build_scheme_list_diff(stored: SchemeListConfig, adapter,
 
     return SchemeListDiff(
         refs_not_found=refs_not_found,
-        anchor_missing=False,
         components_moved=components_moved,
-        components_added=components_added,
-        refs_removed_from_scope=removed_from_scope,
+        components_added=[],
+        refs_removed_from_scope=[],
         vias_added=vias_added,
         vias_removed=vias_removed,
         tracks_added=tracks_added,

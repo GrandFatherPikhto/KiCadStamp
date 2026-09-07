@@ -52,14 +52,13 @@ def _load(path: Path) -> dict:
 
 
 def _scheme_record(name: str = "amp", source_sheet: str = "Channel_0") -> dict:
-    """A minimal VALID scheme_lists: entry (anchor_ref among its own
-    components) — the same shape tests/test_scheme_list_place.py uses for the
-    Stage-1 round-trip, good enough for load_config + the GUI cfg combos."""
+    """A minimal VALID scheme_lists: entry (no anchor — the record's frame is
+    the region's centre, pivot defaults to it) — the same shape
+    tests/test_scheme_list_place.py uses for the Stage-1 round-trip, good
+    enough for load_config + the GUI cfg combos."""
     return {
         "name": name,
-        "anchor_ref": "R1",
         "source_sheet": source_sheet,
-        "anchor_rotation_deg": 0.0,
         "components": [
             {"ref": "R1", "offset_along_mm": 0.0, "offset_across_mm": 0.0,
              "rotation_deg": 0.0},

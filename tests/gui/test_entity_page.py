@@ -113,8 +113,7 @@ def test_load_scheme_list_entity_shows_scheme_list_row(main_window, tmp_path):
     root = tmp_path / "root.sexp"
     _write(root, {
         "scheme_lists": [{
-            "name": "psu", "anchor_ref": "R1", "source_sheet": "Channel_0",
-            "anchor_rotation_deg": 0.0,
+            "name": "psu", "source_sheet": "Channel_0",
             "components": [
                 {"ref": "R1", "offset_along_mm": 0.0, "offset_across_mm": 0.0,
                  "rotation_deg": 0.0},

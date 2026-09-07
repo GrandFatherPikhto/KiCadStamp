@@ -1,9 +1,13 @@
 """Scheme List Apply/Redraw branch (plan_2026_09_05_scheme_list.md §4,
-plan_2026_09_06_scheme_list_p4_apply.md) — pure planning tests over a mock
-adapter: in-place + onto-sibling modes, the anchor-rotation compensation
-formula (a rotation round-trip regression — the d3326e4 double-rotation bug
-class), the incomplete-twin single fatal, and the canary that a scheme_list
-Entity never materializes into ClonePlacement(cell=None).
+plan_2026_09_06_scheme_list_p4_apply.md;
+design_2026_09_07_scheme_list_pivot.md) — pure planning tests over a mock
+adapter: in-place + onto-sibling modes, the centre-frame + pivot geometry
+(the record's pivot lands on the node position and the node rotation turns
+the WHOLE region around the pivot; each element keeps its real absolute
+angle — no anchor_rotation_deg compensation, so the d3326e4 double-rotation
+bug class is gone by construction), the incomplete-twin single fatal, and
+the canary that a scheme_list Entity never materializes into
+ClonePlacement(cell=None).
 """
 import pytest
 
@@ -55,12 +59,14 @@ def _comp(ref, along, across, rot):
                                      offset_across_mm=across, rotation_deg=rot)
 
 
-def _rec(name="psu", anchor_ref="R1", anchor_rot=0.0, components=None,
+def _rec(name="psu", pivot=(0.0, 0.0), components=None,
          vias=None, tracks=None, source_sheet=None):
+    """A recorded Scheme List in the CENTRE frame with a pivot (default (0,0)
+    = the region centre). No anchor component exists
+    (design_2026_09_07_scheme_list_pivot.md)."""
     return SchemeListConfig(
-        name=name, anchor_ref=anchor_ref, anchor_pad=None,
-        anchor_rotation_deg=anchor_rot, source_sheet=source_sheet,
-        components=components or [_comp(anchor_ref, 0.0, 0.0, anchor_rot)],
+        name=name, pivot=pivot, source_sheet=source_sheet,
+        components=components or [_comp("R1", 0.0, 0.0, 0.0)],
         vias=vias or [], tracks=tracks or [])
 
 
@@ -100,10 +106,10 @@ def _moves_by_ref(plan):
 
 class TestInPlace:
     def test_zero_rotation_simple_shift(self):
-        # Anchor recorded at 0°, comp C1 offset (10,0); node at (100,50) rot 0.
+        # Pivot = (0,0) (the default), comp offsets (0,0)/(10,0); node rot 0
+        # reproduces the record exactly: element world = node_pos + offset.
         adapter = FakeAdapter([_fp("R1", 10, 10), _fp("C1", 20, 10)])
-        rec = _rec(anchor_ref="R1", anchor_rot=0.0,
-                   components=[_comp("R1", 0, 0, 0.0), _comp("C1", 10, 0, 0.0)])
+        rec = _rec(components=[_comp("R1", 0, 0, 0.0), _comp("C1", 10, 0, 0.0)])
         plan = plan_scheme_list(Entity(name="E1", scheme_list="psu"), rec, adapter,
                                 Vector2.from_xy_mm(100, 50), 0.0)
         assert plan.mode == "in_place"
@@ -113,44 +119,73 @@ class TestInPlace:
         assert moves["C1"].position == Vector2.from_xy_mm(110, 50)
         assert plan.ref_map == {"R1": "R1", "C1": "C1"}
 
-    def test_anchor_captured_at_90_applied_at_0_compensates(self):
-        """The d3326e4 double-rotation regression: a comp recorded as (10,0)
-        with the anchor captured at 90° must land at node+(0,10) when the node
-        rotation is 0 (rotate the raw offset by -anchor_rotation_deg first).
-        The naive (no compensation) would put it at node+(10,0)."""
+    def test_node_rotation_turns_region_around_pivot(self):
+        """A non-zero node rotation turns the WHOLE region rigidly around the
+        pivot: element world = node_pos + Rot(node_rot)·(offset - pivot),
+        element angle = stored_absolute_angle + node_rot. Here pivot (0,0),
+        node_rot 90 -> (10,0) maps to (0,-10) (domain Y-down rotation)."""
         adapter = FakeAdapter([_fp("R1", 10, 10), _fp("C1", 10, 20)])
-        rec = _rec(anchor_ref="R1", anchor_rot=90.0,
-                   components=[_comp("R1", 0, 0, 90.0), _comp("C1", 10, 0, 120.0)])
+        rec = _rec(pivot=(0.0, 0.0),
+                   components=[_comp("R1", 0, 0, 30.0), _comp("C1", 10, 0, 45.0)])
+        plan = plan_scheme_list(Entity(name="E1", scheme_list="psu"), rec, adapter,
+                                Vector2.from_xy_mm(50, 50), 90.0)
+        moves = _moves_by_ref(plan)
+        # R1 sits at the pivot -> lands on node_pos whatever the node rotation
+        _assert_xy_near(moves["R1"].position, 50.0, 50.0)
+        assert moves["R1"].angle.degrees == pytest.approx(120.0)  # 30+90
+        # Rot(90)·(10,0) = (0,-10) under the domain's Y-down rotation
+        _assert_xy_near(moves["C1"].position, 50.0, 40.0)
+        assert moves["C1"].angle.degrees == pytest.approx(135.0)  # 45+90
+
+    def test_tilted_region_reproduced_exactly_at_node_rot_zero(self):
+        """The no-double-rotation gate (design_2026_09_07 p.3.4): a region
+        whose elements were captured at NON-zero absolute angles is reproduced
+        EXACTLY as captured at node_rot=0 — the recorded angles are kept, never
+        compensated against any anchor (that is what used to double-rotate)."""
+        adapter = FakeAdapter([_fp("R1", 10, 10), _fp("C1", 10, 20)])
+        rec = _rec(pivot=(0.0, 0.0),
+                   components=[_comp("R1", 0, 0, 30.0), _comp("C1", 10, 0, 45.0)])
         plan = plan_scheme_list(Entity(name="E1", scheme_list="psu"), rec, adapter,
                                 Vector2.from_xy_mm(50, 50), 0.0)
         moves = _moves_by_ref(plan)
-        assert moves["R1"].position == Vector2.from_xy_mm(50, 50)
-        # R(-90)·(10,0) = (0, +10) under the domain's Y-down rotation
-        _assert_xy_near(moves["C1"].position, 50.0, 60.0)
-        # anchor lands at node rotation; C1 relative angle 120-90=30 -> 30
-        assert moves["R1"].angle.degrees == pytest.approx(0.0)
-        assert moves["C1"].angle.degrees == pytest.approx(30.0)
-
-    def test_relative_geometry_preserved_roundtrip(self):
-        """Capture at A=90 (comp raw 120°, offset (10,0)); apply at T=30.
-        Relative geometry to the anchor must be preserved: the comp offset is
-        R(T-A)=R(-60)·(10,0) = (5, 8.66) and its angle is T+(120-90)=60."""
-        adapter = FakeAdapter([_fp("R1", 0, 0), _fp("C1", 10, 0)])
-        rec = _rec(anchor_ref="R1", anchor_rot=90.0,
-                   components=[_comp("R1", 0, 0, 90.0), _comp("C1", 10, 0, 120.0)])
-        plan = plan_scheme_list(Entity(name="E1", scheme_list="psu"), rec, adapter,
-                                Vector2.from_xy_mm(200, 200), 30.0)
-        moves = _moves_by_ref(plan)
-        _assert_xy_near(moves["R1"].position, 200.0, 200.0)
+        # node_rot=0 -> world = node_pos + (offset - pivot); angles untouched
+        _assert_xy_near(moves["R1"].position, 50.0, 50.0)
         assert moves["R1"].angle.degrees == pytest.approx(30.0)
-        # comp offset from the anchor = R(-60)·(10,0) = (5, 8.66), Y-down
-        _assert_xy_near(moves["C1"].position, 205.0, 208.66)
-        assert moves["C1"].angle.degrees == pytest.approx(60.0)
+        _assert_xy_near(moves["C1"].position, 60.0, 50.0)
+        assert moves["C1"].angle.degrees == pytest.approx(45.0)
+
+    def test_nondefault_pivot_lands_on_node_pos(self):
+        """The record's `pivot` is the point that lands on the node position:
+        an element whose stored offset EQUALS the pivot lands exactly at
+        node_pos; elements on the other side of the pivot land mirrored around
+        it. pivot (3,0) with node_pos (100,50): stored (5,0) -> dx 2 -> (102,50),
+        stored (1,0) -> dx -2 -> (98,50) (node_rot 0)."""
+        adapter = FakeAdapter([_fp("R1", 10, 10), _fp("C1", 20, 10)])
+        rec = _rec(pivot=(3.0, 0.0),
+                   components=[_comp("R1", 3, 0, 0.0), _comp("C1", 5, 0, 0.0)])
+        plan = plan_scheme_list(Entity(name="E1", scheme_list="psu"), rec, adapter,
+                                Vector2.from_xy_mm(100, 50), 0.0)
+        moves = _moves_by_ref(plan)
+        # the stored element at the pivot lands exactly on node_pos
+        _assert_xy_near(moves["R1"].position, 100.0, 50.0)
+        _assert_xy_near(moves["C1"].position, 102.0, 50.0)
+
+    def test_rotation_turns_around_nondefault_pivot(self):
+        """pivot (3,0), node_rot 90: stored (5,0) -> dx (2,0) -> Rot90=(0,-2)
+        -> (100,48); stored (3,0) [at pivot] stays at node_pos (100,50)."""
+        adapter = FakeAdapter([_fp("R1", 10, 10), _fp("C1", 20, 10)])
+        rec = _rec(pivot=(3.0, 0.0),
+                   components=[_comp("R1", 3, 0, 0.0), _comp("C1", 5, 0, 0.0)])
+        plan = plan_scheme_list(Entity(name="E1", scheme_list="psu"), rec, adapter,
+                                Vector2.from_xy_mm(100, 50), 90.0)
+        moves = _moves_by_ref(plan)
+        _assert_xy_near(moves["R1"].position, 100.0, 50.0)  # on the pivot
+        _assert_xy_near(moves["C1"].position, 100.0, 48.0)  # Rot90(2,0)=(0,-2)
+        assert moves["C1"].angle.degrees == pytest.approx(90.0)
 
     def test_vias_and_tracks_literal_nets_in_place(self):
         adapter = FakeAdapter([_fp("R1", 10, 10), _fp("C1", 20, 10)])
         rec = _rec(
-            anchor_ref="R1", anchor_rot=0.0,
             components=[_comp("R1", 0, 0, 0.0), _comp("C1", 10, 0, 0.0)],
             vias=[SchemeListViaRecord(offset_along_mm=10.0, drill_mm=0.3,
                                       diameter_mm=0.6, net=CH0)],
@@ -191,7 +226,7 @@ class TestOntoSibling:
     def test_twin_refs_and_net_remap(self):
         adapter = FakeAdapter(_twin_board())
         rec = _rec(
-            anchor_ref="R1s", anchor_rot=45.0, source_sheet="Channel_0",
+            source_sheet="Channel_0",
             components=[_comp("R1s", 0, 0, 45.0), _comp("C1s", 10, 0, 90.0)],
             vias=[SchemeListViaRecord(offset_along_mm=10.0, drill_mm=0.3,
                                       diameter_mm=0.6, net=CH0)],
@@ -206,22 +241,38 @@ class TestOntoSibling:
         assert plan.ref_map == {"R1s": "R1d", "C1s": "C1d"}
         moves = _moves_by_ref(plan)
         assert set(moves) == {"R1d", "C1d"}
+        # node_rot 0 + pivot (0,0): the region lands as captured — angles kept
+        # absolute (NO anchor-rotation compensation in the centre-frame model).
         _assert_xy_near(moves["R1d"].position, 100.0, 200.0)
-        assert moves["R1d"].angle.degrees == pytest.approx(0.0)
-        # same geometry as in-place: R(-45)·(10,0) = (7.071, 7.071)
-        _assert_xy_near(moves["C1d"].position, 107.071, 207.071)
-        assert moves["C1d"].angle.degrees == pytest.approx(45.0)  # 90-45
+        assert moves["R1d"].angle.degrees == pytest.approx(45.0)
+        _assert_xy_near(moves["C1d"].position, 110.0, 200.0)
+        assert moves["C1d"].angle.degrees == pytest.approx(90.0)
         # nets remapped to the dst sheet
         assert plan.vias[0].net_name == CH1
         assert plan.tracks[0].net_name == GND1
         # inner-layer literal survives on the twin
         assert plan.tracks[0].layer == BoardLayer.BL_In1_Cu
 
+    def test_twin_node_rotation_turns_region_around_pivot(self):
+        """Onto a sibling the node rotation turns the region the same rigid way
+        (node_rot 90 -> (10,0) maps to (0,-10), angles +90)."""
+        adapter = FakeAdapter(_twin_board())
+        rec = _rec(
+            source_sheet="Channel_0",
+            components=[_comp("R1s", 0, 0, 45.0), _comp("C1s", 10, 0, 90.0)])
+        plan = plan_scheme_list(Entity(name="E1", scheme_list="psu", sheet="Channel_1"),
+                                rec, adapter, Vector2.from_xy_mm(100, 200), 90.0)
+        moves = _moves_by_ref(plan)
+        _assert_xy_near(moves["R1d"].position, 100.0, 200.0)
+        assert moves["R1d"].angle.degrees == pytest.approx(135.0)  # 45+90
+        _assert_xy_near(moves["C1d"].position, 100.0, 190.0)  # Rot90(10,0)
+        assert moves["C1d"].angle.degrees == pytest.approx(180.0)  # 90+90
+
     def test_incomplete_twin_is_one_fatal_list(self):
         # C1 has NO twin on Channel_1 (drop C1d)
         adapter = FakeAdapter([fp for fp in _twin_board() if fp.ref != "C1d"])
         rec = _rec(
-            anchor_ref="R1s", anchor_rot=45.0, source_sheet="Channel_0",
+            source_sheet="Channel_0",
             components=[_comp("R1s", 0, 0, 45.0), _comp("C1s", 10, 0, 90.0)])
         with pytest.raises(ValidationError, match="problem"):
             plan_scheme_list(Entity(name="E1", scheme_list="psu", sheet="Channel_1"),
@@ -229,7 +280,7 @@ class TestOntoSibling:
 
     def test_unknown_target_sheet_fatal(self):
         adapter = FakeAdapter(_twin_board())
-        rec = _rec(anchor_ref="R1s", anchor_rot=0.0, source_sheet="Channel_0",
+        rec = _rec(source_sheet="Channel_0",
                    components=[_comp("R1s", 0, 0, 0.0), _comp("C1s", 10, 0, 0.0)])
         with pytest.raises(ValidationError, match="target sheet"):
             plan_scheme_list(Entity(name="E1", scheme_list="psu", sheet="Channel_9"),
@@ -252,7 +303,7 @@ def test_canary_materialize_never_emits_clone_with_cell_none():
     Entity materializes to ZERO ClonePlacements (the cell path skips it) — a
     scheme_list Entity can never become ClonePlacement(cell=None)."""
     cfg = Config(
-        scheme_lists=[_rec(anchor_ref="R1", components=[_comp("R1", 0, 0, 0.0)])],
+        scheme_lists=[_rec(components=[_comp("R1", 0, 0, 0.0)])],
         entities=[Entity(name="E1", scheme_list="psu", sheet="Channel_0")],
         trees=[_origin_tree([_node(ref="E1", xy=(5.0, 2.0))])],
     )
@@ -289,7 +340,7 @@ def test_scheme_list_entity_mirror_layer_fatal():
 # ── P4.4: forest collection + aggregate planning + execution ────────────────
 
 def _scheme_cfg(entity=None, tree_nodes=None, rec=None):
-    rec = rec or _rec(anchor_ref="R1", components=[_comp("R1", 0, 0, 0.0)])
+    rec = rec or _rec(components=[_comp("R1", 0, 0, 0.0)])
     ent = entity if entity is not None else Entity(name="E1", scheme_list="psu")
     return Config(scheme_lists=[rec], entities=[ent],
                   trees=[_origin_tree(tree_nodes or [_node(ref="E1", xy=(5.0, 2.0),
@@ -299,7 +350,9 @@ def _scheme_cfg(entity=None, tree_nodes=None, rec=None):
 class TestForestPlanning:
     def test_collect_origin_anchored_node_pos_and_rot(self):
         """The tree collector computes the scheme node's ABSOLUTE pos/rot the
-        same way cell materialization does (origin anchor + node xy/rotation)."""
+        same way cell materialization does (origin anchor + node xy/rotation);
+        the record's element at the pivot lands on that pos and gets the node
+        rotation added to its stored angle."""
         adapter = FakeAdapter([_fp("R1", 10, 10)])
         plans = plan_all_scheme_lists(adapter, _scheme_cfg(), {})
         assert len(plans) == 1
@@ -309,7 +362,7 @@ class TestForestPlanning:
         move = p.moves[0]
         assert move.ref == "R1"
         _assert_xy_near(move.position, 5.0, 2.0)   # node xy (5,2) mm
-        assert move.angle.degrees == pytest.approx(45.0)  # node rotation
+        assert move.angle.degrees == pytest.approx(45.0)  # 0 + node rotation
 
     def test_only_filter_narrows_to_entity(self):
         adapter = FakeAdapter([_fp("R1", 10, 10)])

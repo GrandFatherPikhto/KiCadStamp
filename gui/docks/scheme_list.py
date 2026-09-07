@@ -6,9 +6,10 @@ plan_2026_09_05_scheme_list.md §5.1, design §3).
 A Scheme List is a NAMED snapshot of a real, already-routed board region
 (recorded via Tools -> "Scheme Lists" -> "Record..."). This dock is the
 MINIMAL Config side of that feature: it shows a loaded ``scheme_lists:``
-record READ-ONLY — its Anchor block (the closed set of captured component
-refs plus the anchor_pad / anchor_rotation_deg / source_sheet readouts) and
-the recorded-geometry summary — and offers the one action that belongs here,
+record READ-ONLY — the CENTRE-frame geometry of the recorded region plus the
+record's ``pivot`` / ``source_sheet`` readouts
+(design_2026_09_07_scheme_list_pivot.md) and the recorded-geometry summary —
+and offers the one action that belongs here,
 **Reread**: re-run the capture against the live board
 (kicadstamp.scheme_list_capture.build_scheme_list_diff), show the diff
 dialog, and only on an explicit **Apply** rewrite the stored record in place
@@ -173,12 +174,14 @@ def scheme_list_to_dict(record: SchemeListConfig) -> Dict[str, Any]:
     """SchemeListConfig -> plain dict for JSON/.sexp writing (the compact,
     round-trippable shape load_scheme_list() reads back). Mirror of
     net_trace_extract.net_trace_to_dict: required fields first, optional
-    fields omitted when unset, geometry lists always written."""
-    d: Dict[str, Any] = {"name": record.name, "anchor_ref": record.anchor_ref}
-    if record.anchor_pad:
-        d["anchor_pad"] = record.anchor_pad
-    if record.anchor_rotation_deg:
-        d["anchor_rotation_deg"] = record.anchor_rotation_deg
+    fields omitted when unset, geometry lists always written.
+
+    `pivot` (the record's anchor point in the centre-frame,
+    design_2026_09_07_scheme_list_pivot.md) is written only when it differs
+    from the (0,0)=centre default — load defaults an absent pivot to (0,0)."""
+    d: Dict[str, Any] = {"name": record.name}
+    if record.pivot != (0.0, 0.0):
+        d["pivot"] = [record.pivot[0], record.pivot[1]]
     if record.source_sheet:
         d["source_sheet"] = record.source_sheet
     if record.scope_sheet_paths:
@@ -319,9 +322,6 @@ def scheme_list_diff_lines(diff: SchemeListDiff) -> List[str]:
         lines.append(
             _("component(s) no longer on the board: {refs}")
             .format(refs=", ".join(diff.refs_not_found)))
-    if diff.anchor_missing:
-        anchor = diff.refs_not_found[0] if diff.refs_not_found else "?"
-        lines.append(_("the anchor {ref!r} is not on the board").format(ref=anchor))
     if diff.components_added:
         lines.append(
             _("component(s) added to the scope: {refs}")
@@ -365,18 +365,19 @@ class RecordSchemeListDialog(QDialog):
 
       - "By sheet" (DEFAULT tab) — pick a ROOT sheet from the live hierarchy,
         under it a CHECKLIST of every sub-sheet (root itself included; all
-        checked by default, uncheck a row to EXCLUDE that sheet). The anchor
-        candidates are the DIRECT refs of the CHECKED sheets only (a sheet
-        with children does not pull their refs in — the checklist is the only
-        recursion). The checklist is hidden for a leaf sheet (nothing to
-        prune).
+        checked by default, uncheck a row to EXCLUDE that sheet). Only the
+        DIRECT refs of the CHECKED sheets are captured (a sheet with children
+        does not pull their refs in — the checklist is the only recursion).
+        The checklist is hidden for a leaf sheet (nothing to prune).
       - "By selection" (secondary tab) — the pre-existing P2 behavior: the
         CURRENT board selection, unchanged, for irregular cases.
 
-    anchor_pad is NOT asked here (v1 — the footprint centre is the offset
-    origin, matching capture's default). The shared name_edit sits OUTSIDE the
-    tabs. This dialog only reports what was picked; the caller (DockHub)
-    derives the actual capture refs via record_refs_for().
+    NO anchor is picked at Record time (design_2026_09_07_scheme_list_pivot.md):
+    the record's frame is the CENTRE of the captured region's bbox and its
+    pivot defaults to that centre — there is no anchor component to choose.
+    The shared name_edit sits OUTSIDE the tabs. This dialog only reports what
+    was picked; the caller (DockHub) derives the actual capture refs via
+    record_refs_for().
 
     Re-source mode (``fixed_name``, plan_2026_09_06_scheme_list_sheet_capture.md
     5b.2): the SAME dialog is reused to RE-SOURCE an existing record — the name
@@ -397,6 +398,7 @@ class RecordSchemeListDialog(QDialog):
             self.setWindowTitle(_("Record Scheme List"))
         self._snapshot = list(snapshot or [])
         self._sheet_paths = live_sheet_paths(self._snapshot)
+        self._selection_refs = list(selection_refs or [])
         # Semantic state: does the CURRENT root have sub-sheets to prune?
         # Tracked explicitly (not via isVisible) so a never-shown dialog in
         # tests and the real shown dialog behave identically.
@@ -449,18 +451,18 @@ class RecordSchemeListDialog(QDialog):
         self.save_preset_edit.setPlaceholderText(
             _("optional — save this checklist as a named preset (same name overwrites it)"))
         tab1_form.addRow(_("Save as preset:"), self.save_preset_edit)
-        self.sheet_anchor_combo = QComboBox()
-        tab1_form.addRow(_("Anchor:"), self.sheet_anchor_combo)
         self.sheet_combo.currentIndexChanged.connect(self._rebuild_checklist)
-        self.sheet_checklist.itemChanged.connect(self._rebuild_sheet_anchor_combo)
+        self.sheet_checklist.itemChanged.connect(self._sync_ok_state)
         self.tabs.addTab(tab1, _("By sheet"))
 
         # Tab 2 — "By selection": the current board selection (unchanged).
+        # Read-only summary (no anchor pick — the capture frame is the region
+        # centre, pivot defaults to the centre).
         tab2 = QWidget()
         tab2_form = QFormLayout(tab2)
-        self.selection_anchor_combo = QComboBox()
-        self.selection_anchor_combo.addItems(selection_refs)
-        tab2_form.addRow(_("Anchor:"), self.selection_anchor_combo)
+        self.selection_refs_label = QLabel(self._selection_summary_text())
+        self.selection_refs_label.setWordWrap(True)
+        tab2_form.addRow(_("Selection:"), self.selection_refs_label)
         self.tabs.addTab(tab2, _("By selection"))
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
@@ -473,12 +475,20 @@ class RecordSchemeListDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
-        # OK is gated on a non-empty anchor combo of the ACTIVE tab.
+        # OK is gated on a non-empty capturable ref set of the ACTIVE tab.
         self.tabs.currentChanged.connect(self._sync_ok_state)
-        self.sheet_anchor_combo.currentIndexChanged.connect(self._sync_ok_state)
-        self.selection_anchor_combo.currentIndexChanged.connect(self._sync_ok_state)
         self._rebuild_checklist()  # populate for the default root sheet
         self._sync_ok_state()
+
+    # ── helpers ─────────────────────────────────────────────────────────
+
+    def _selection_summary_text(self) -> str:
+        """Read-only summary of the "By selection" tab: the current board
+        selection refs, or a note when there is none."""
+        if self._selection_refs:
+            return _("current board selection ({n}): {refs}").format(
+                n=len(self._selection_refs), refs=", ".join(self._selection_refs))
+        return _("nothing is selected on the board")
 
     # ── "By sheet" helpers ──────────────────────────────────────────────
 
@@ -505,7 +515,7 @@ class RecordSchemeListDialog(QDialog):
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 item.setCheckState(Qt.CheckState.Checked)  # all on by default
                 self.sheet_checklist.addItem(item)
-        self._rebuild_sheet_anchor_combo()
+        self._sync_ok_state()
 
     def _checked_sheet_paths(self) -> List[Any]:
         """The sheet paths actually included — the single source of truth for
@@ -520,36 +530,38 @@ class RecordSchemeListDialog(QDialog):
                 for i in range(self.sheet_checklist.count())
                 if self.sheet_checklist.item(i).checkState() == Qt.CheckState.Checked]
 
-    def _rebuild_sheet_anchor_combo(self) -> None:
-        refs = sorted({r for p in self._checked_sheet_paths()
-                       for r in refs_on_sheet(self._snapshot, p)})
-        self.sheet_anchor_combo.clear()
-        self.sheet_anchor_combo.addItems(refs)
-        self._sync_ok_state()
+    def _checked_refs(self) -> List[str]:
+        """The refs the ACTIVE tab would capture — direct refs of the CHECKED
+        paths ("By sheet") or the caller's selection_refs ("By selection").
+        Used ONLY to gate OK on a non-empty capturable set; the caller
+        re-derives the final capture refs from result_data via
+        record_refs_for()."""
+        if self.is_by_sheet():
+            return sorted({r for p in self._checked_sheet_paths()
+                           for r in refs_on_sheet(self._snapshot, p)})
+        return sorted(set(self._selection_refs))
 
     def _sync_ok_state(self) -> None:
-        """OK needs a capturable set — a non-empty anchor combo on the ACTIVE
-        tab (an empty selection / all-unchecked sheet leaves nothing to anchor
-        to, so the user must change the source instead of recording an empty
-        capture)."""
-        anchor_combo = (self.sheet_anchor_combo if self.is_by_sheet()
-                        else self.selection_anchor_combo)
-        self._ok_button.setEnabled(anchor_combo.count() > 0)
+        """OK needs a capturable set — the ACTIVE tab must yield at least one
+        ref (an empty board selection / all-unchecked sheet leaves nothing to
+        record, so the user must change the source instead of recording an
+        empty capture). No anchor is picked at Record time
+        (design_2026_09_07_scheme_list_pivot.md)."""
+        self._ok_button.setEnabled(bool(self._checked_refs()))
 
     def is_by_sheet(self) -> bool:
         return self.tabs.currentIndex() == 0
 
     def result_data(self):
-        """(name, anchor_ref, sheet_path_or_None, checked_paths_or_None).
+        """(name, sheet_path_or_None, checked_paths_or_None).
         sheet_path/checked_paths are None on the "By selection" tab; the caller
         derives the capture refs itself (record_refs_for) from the CHECKED
         paths for "By sheet", or uses its OWN selection_refs for "By selection"
         (this dialog does not own that list)."""
         name = self.name_edit.text().strip()
         if self.is_by_sheet():
-            return (name, self.sheet_anchor_combo.currentText(),
-                    self.sheet_combo.currentData(), self._checked_sheet_paths())
-        return (name, self.selection_anchor_combo.currentText(), None, None)
+            return (name, self.sheet_combo.currentData(), self._checked_sheet_paths())
+        return (name, None, None)
 
     def preset_name_to_save(self) -> Optional[str]:
         """Non-empty text of the optional "Save as preset" field on the "By
@@ -724,13 +736,13 @@ class SchemeListFormWidget(QWidget):
         layout.addWidget(self.name_label)
 
         form = QFormLayout()
-        self.anchor_combo = QComboBox()
-        self.anchor_combo.setEnabled(False)  # closed set — view only
-        form.addRow(_("Anchor component:"), self.anchor_combo)
-        self.anchor_pad_label = QLabel("-")
-        form.addRow(_("Anchor pad:"), self.anchor_pad_label)
-        self.anchor_rotation_label = QLabel("-")
-        form.addRow(_("Anchor rotation (at record):"), self.anchor_rotation_label)
+        # Pivot — the record's anchor point in the centre-frame
+        # (design_2026_09_07_scheme_list_pivot.md), default (0,0) = the region
+        # centre. Read-only readout in Commit A — the editable Pivot UI (the
+        # "Centre"/"From selection" buttons + x,y input) lands in Commit B.
+        self.pivot_label = QLabel("-")
+        self.pivot_label.setWordWrap(True)
+        form.addRow(_("Pivot:"), self.pivot_label)
         self.source_sheet_label = QLabel("-")
         form.addRow(_("Source sheet:"), self.source_sheet_label)
         # Named-presets selector (plan_2026_09_06_scheme_list_named_presets.md
@@ -783,9 +795,7 @@ class SchemeListFormWidget(QWidget):
         self._entry = {}
         self._path = None
         self.name_label.setText("")
-        self.anchor_combo.clear()
-        self.anchor_pad_label.setText("-")
-        self.anchor_rotation_label.setText("-")
+        self.pivot_label.setText("-")
         self.source_sheet_label.setText("-")
         self.preset_combo.blockSignals(True)
         self.preset_combo.clear()
@@ -814,21 +824,20 @@ class SchemeListFormWidget(QWidget):
             self._show_message(str(e), _ERROR_STYLE)
             self.name_label.setText(
                 _("Scheme List: {name}").format(name=entry.get("name", "?")))
-            self.anchor_combo.clear()
+            self.pivot_label.setText("-")
             return
         self._render(record)
 
     def _render(self, record: SchemeListConfig) -> None:
         self.name_label.setText(
             _("Scheme List: {name}").format(name=record.name))
-        refs = [c.ref for c in record.components]
-        self.anchor_combo.blockSignals(True)
-        self.anchor_combo.clear()
-        self.anchor_combo.addItems(refs)
-        self.anchor_combo.setCurrentText(record.anchor_ref)
-        self.anchor_combo.blockSignals(False)
-        self.anchor_pad_label.setText(record.anchor_pad or "-")
-        self.anchor_rotation_label.setText(f"{record.anchor_rotation_deg:.1f} deg")
+        pivot = record.pivot if record.pivot is not None else (0.0, 0.0)
+        if pivot == (0.0, 0.0):
+            self.pivot_label.setText(
+                _("0.00, 0.00 ({region_centre})").format(
+                    region_centre=_("the region centre")))
+        else:
+            self.pivot_label.setText(f"{pivot[0]:.2f}, {pivot[1]:.2f}")
         self.source_sheet_label.setText(record.source_sheet or _("(root sheet)"))
         self._render_preset_combo(record)
         boundary_nets = [bn.net for bn in record.boundary_nets]
@@ -1003,13 +1012,12 @@ class SchemeListFormWidget(QWidget):
             fresh = capture_scheme_list(
                 name=stored.name,
                 refs=refs,
-                anchor_ref=stored.anchor_ref,
-                anchor_pad=stored.anchor_pad,
                 adapter=adapter,
-                # Reread keeps the record's stored source_sheet — the live
-                # re-capture must NOT re-derive it (5a.2: source_sheet now
-                # comes from the anchor's own sheet path, and Reread's job is
-                # geometry, not re-sourcing).
+                # Reread keeps the record's stored pivot and source_sheet —
+                # the live re-capture must NOT reset a user-chosen pivot or
+                # re-derive the sheet (design_2026_09_07_scheme_list_pivot.md:
+                # Reread's job is geometry, not re-sourcing).
+                pivot=stored.pivot,
                 source_sheet=stored.source_sheet,
                 # 5c: carry the (possibly preset-switched) "By sheet" scope
                 # into the rewritten record (None for a "By selection"-record).

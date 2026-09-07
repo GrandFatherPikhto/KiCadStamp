@@ -1117,11 +1117,12 @@ Captures a named Scheme List from the live board through a **two-tab** dialog:
 - **"By sheet" (primary, the default tab)** — pick a ROOT sheet from the live hierarchy; under it a
   checklist of every sheet under that root (the root itself included, indented by depth), ALL CHECKED
   by default — uncheck a sub-sheet to exclude its components from the capture (the checklist is hidden
-  when the chosen root has no sub-sheets). The `anchor_ref` combo lists the refs of the CHECKED sheets
-  and the captured refs are the union of the DIRECT footprints on those sheets (recursion is expressed
-  by the checklist itself).
-- **"By selection" (secondary)** — the pre-existing mode: the refs are the CURRENT board selection,
-  kept for irregular regions that do not line up with sheet boundaries.
+  when the chosen root has no sub-sheets). The captured refs are the union of the DIRECT footprints on
+  the CHECKED sheets (recursion is expressed by the checklist itself). NO anchor is picked here
+  (design_2026_09_07_scheme_list_pivot.md): the record's frame is the captured region's CENTRE and its
+  pivot defaults to that centre.
+- **"By selection" (secondary)** — the pre-existing mode: the refs are the CURRENT board selection
+  (shown read-only with a count), kept for irregular regions that do not line up with sheet boundaries.
 
 Both tabs end the same way: a unique record name, a duplicate pre-check BEFORE the expensive capture
 (a duplicate name, or a ref already recorded in ANOTHER Scheme List), a worker-thread capture (never
@@ -1168,18 +1169,20 @@ now change the record's REF SET itself, not only diff fixed positions:
   record's NEW stored `scope_sheet_paths` — the `scope_presets` library itself is never rewritten by
   Apply (only Record/Re-source "Save as preset" edits it).
 
-The diff dialog lists what changed — component(s) no longer on the board, the anchor gone, components
-moved, component(s) added to the scope, component(s) removed from the scope, vias & tracks added &
-removed, new/gone boundary nets — and **Apply** rewrites the stored record in its own file, all in
-one explicit confirmation (no per-piece copper validation). Apply is disabled while a recorded
-component is missing from the board (the record cannot be faithfully re-synced). Nothing is applied
-to the board.
+The diff dialog lists what changed — component(s) no longer on the board, components moved (compared
+in a translation-invariant way through a transient reference recorded component, so moving one part
+does not report the whole frame drifting), component(s) added to the scope, component(s) removed from
+the scope, vias & tracks added & removed, new/gone boundary nets — and **Apply** rewrites the stored
+record in its own file, all in one explicit confirmation (no per-piece copper validation). Apply is
+disabled while a recorded component is missing from the board (the record cannot be faithfully
+re-synced). Nothing is applied to the board.
 
 ### The record page (Config tree → `scheme_lists:` leaf)
 
 Clicking a `scheme_lists:` leaf in the Config tree opens the record READ-ONLY in the Config dock's
-right QView — the Anchor block (component-ref combo + `anchor_pad`/`anchor_rotation_deg`/`source_sheet`
-readouts), a recorded-geometry summary, the **Reread** button and — for a "By sheet" record with a
+right QView — the pivot / `source_sheet` readouts (the pivot shown as "0.00, 0.00 (the region
+centre)" by default; the editable Pivot UI — Centre / Take-from-selection / x,y — lands in a follow-up
+commit), a recorded-geometry summary, the **Reread** button and — for a "By sheet" record with a
 `scope_presets` library — a **Preset** combo for switching which saved checklist this Reread uses. The
 record itself is edited only by re-recording (Record...), re-sourcing (Re-source...) or re-syncing
 (Reread), never by hand.

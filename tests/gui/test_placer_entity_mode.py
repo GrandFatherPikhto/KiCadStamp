@@ -388,8 +388,7 @@ def _make_scheme_entity_dock(main_window, tmp_path):
         "clone_placements": [],
         "include": ["cells.sexp"],
         "scheme_lists": [{
-            "name": "psu", "anchor_ref": "R1", "source_sheet": "Channel_0",
-            "anchor_rotation_deg": 0.0,
+            "name": "psu", "source_sheet": "Channel_0",
             "components": [{"ref": "R1", "offset_along_mm": 0.0,
                             "offset_across_mm": 0.0, "rotation_deg": 0.0}],
         }],

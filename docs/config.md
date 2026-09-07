@@ -726,13 +726,15 @@ is a snapshot, not a template. Records are captured from the live board (Tools
 (scheme_lists
   (scheme_list
     (name "amp_avdd")               ; identity — the --only and Entity.scheme_list key
-    (anchor_ref "R1")               ; one of the components below: offset origin + clone anchor
-    ; (anchor_pad "1")              ; optional — anchor on a pad's centre instead
-    ; (anchor_rotation_deg 0.0)     ; anchor's ABSOLUTE angle at capture — how the
-    ;                               ;   raw offsets/rotations below must be rotated
-    ;                               ;   back onto a target node (P4 apply); default 0.0
+    ; (pivot (1.5 -2.25))           ; OPTIONAL — the record's anchor POINT in its centre frame
+    ;                               ;   (design_2026_09_07_scheme_list_pivot.md): the point of the
+    ;                               ;   recorded region that lands on a placement node at Redraw
+    ;                               ;   and around which the node's rotation turns the whole region.
+    ;                               ;   Default (absent) = (0.0 0.0) = the region CENTRE. There is
+    ;                               ;   NO anchor component — every offset below is measured from the
+    ;                               ;   centre of the recorded region's bbox.
     (source_sheet "Top/Channel_0")  ; the FULL sheet path the record was captured on (5a) — the
-                                    ;   anchor footprint's whole Selected.sheet chain, '/' -joined
+                                    ;   FIRST recorded footprint's whole Selected.sheet chain, '/'-joined
                                     ;   (a top-level-only sheet is just its own name, e.g. 'Top')
     ; (scope_sheet_paths ("Top" "Channel_0"))  ; "By sheet" records ONLY: the CHECKED leaf paths
     ;                                           ;   of the capture checklist (5c). A later Reread
@@ -782,23 +784,27 @@ is a snapshot, not a template. Records are captured from the live board (Tools
 ```
 
 Rules: one real `ref` may be recorded in at most ONE Scheme List (fatal at
-load — cloning one record must not move a component another expects);
-`anchor_ref` must be one of the record's own `components[].ref`. Capture runs
-the SAME connectivity-closure filter as Cell extraction (only copper reaching
-a recorded ref's pad is kept), pre-filtered to the refs' bbox + 1 mm; the
-dropped excluded-material copper becomes `boundary_nets` — one `action` per
-NET, so Reread stays deterministic. Track `layer` is a free string covering
-the full copper stack. Component/via/track offsets and rotations are stored RAW
-(board frame) and `anchor_rotation_deg` records the anchor's absolute angle at
-capture — Apply/Redraw (P4) compensates with it instead of scanning
-`components[]`. Cloning a record onto another (twin) sheet goes through
+load — cloning one record must not move a component another expects). There is
+NO anchor component and NO such "anchor must be among components" rule — the
+recorded refs are only "which footprints to move" (the twin-resolution handle).
+Capture runs the SAME connectivity-closure filter as Cell extraction (only
+copper reaching a recorded ref's pad is kept), pre-filtered to the refs' bbox +
+1 mm; the dropped excluded-material copper becomes `boundary_nets` — one
+`action` per NET, so Reread stays deterministic. Track `layer` is a free string
+covering the full copper stack. The record's frame is the CENTRE of the
+recorded region (the midpoint of the recorded footprints' position extents):
+every component/via/track offset is measured from that centre, and each element
+keeps its REAL absolute angle at capture (design_2026_09_07_scheme_list_pivot.
+md) — Apply/Redraw (P4) adds the node rotation on top, so there is NO
+`anchor_rotation_deg` compensation and the d3326e4 double-rotation bug class is
+gone by construction. Cloning a record onto another (twin) sheet goes through
 an Entity with `scheme_list:` (not `cell:`) — the stored-record format above
 is what capture/Reread write.
 
-`source_sheet` is the record's FULL sheet path (5a — derived from the anchor
-footprint's own resolved sheet chain, never from a local-net prefix hack): a
-"By sheet" Record stores the anchor's `Top/Channel_0`-style path, an Entity
-that places the record "in place" carries the same path as its `sheet`.
+`source_sheet` is the record's FULL sheet path (5a — derived from the FIRST
+recorded footprint's own resolved sheet chain, never from a local-net prefix
+hack): a "By sheet" Record stores a `Top/Channel_0`-style path, an Entity that
+places the record "in place" carries the same path as its `sheet`.
 `scope_sheet_paths` (5c) is written only by "By sheet" Records/Re-sources — the
 CHECKED leaf paths of the capture checklist. Reread recomputes the CURRENT
 scope from them over the live snapshot and can therefore CHANGE the record's

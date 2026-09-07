@@ -188,13 +188,11 @@ class TestAppendTreeChildNode:
 
 
 def _scheme_record_dict(name="psu"):
-    """A minimal valid scheme_lists: entry (anchor_ref among its own
-    components) for the round-trip load."""
+    """A minimal valid scheme_lists: entry (no anchor — the frame is the
+    region's centre, pivot defaults to it) for the round-trip load."""
     return {
         "name": name,
-        "anchor_ref": "R1",
         "source_sheet": "Channel_0",
-        "anchor_rotation_deg": 0.0,
         "components": [
             {"ref": "R1", "offset_along_mm": 0.0, "offset_across_mm": 0.0,
              "rotation_deg": 0.0},

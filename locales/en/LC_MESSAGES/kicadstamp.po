@@ -15354,3 +15354,28 @@ msgstr ""
 msgid "preset names must be unique WITHIN one record's scope_presets"
 msgstr ""
 
+
+# design_2026_09_07_scheme_list_pivot.md - centre-frame + pivot (no anchor)
+msgid "Pivot:"
+msgstr ""
+
+msgid "the region centre"
+msgstr ""
+
+msgid "0.00, 0.00 ({region_centre})"
+msgstr ""
+
+msgid "Selection:"
+msgstr ""
+
+msgid "current board selection ({n}): {refs}"
+msgstr ""
+
+msgid "nothing is selected on the board"
+msgstr ""
+
+msgid "scheme_lists entry {name!r}: pivot must be a 2-element [x, y] point in the region's centre frame"
+msgstr ""
+
+msgid "got: {pivot!r}"
+msgstr ""

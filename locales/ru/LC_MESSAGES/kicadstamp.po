@@ -13991,3 +13991,28 @@ msgstr "запись scheme_lists {name!r}: повторяющееся имя п
 msgid "preset names must be unique WITHIN one record's scope_presets"
 msgstr "имена пресетов должны быть уникальны ВНУТРИ scope_presets одной записи"
 
+
+# design_2026_09_07_scheme_list_pivot.md - centre-frame + pivot (no anchor)
+msgid "Pivot:"
+msgstr "Точка pivot:"
+
+msgid "the region centre"
+msgstr "центр региона"
+
+msgid "0.00, 0.00 ({region_centre})"
+msgstr "0.00, 0.00 ({region_centre})"
+
+msgid "Selection:"
+msgstr "Выделение:"
+
+msgid "current board selection ({n}): {refs}"
+msgstr "текущее выделение на плате ({n}): {refs}"
+
+msgid "nothing is selected on the board"
+msgstr "на плате ничего не выделено"
+
+msgid "scheme_lists entry {name!r}: pivot must be a 2-element [x, y] point in the region's centre frame"
+msgstr "запись scheme_lists {name!r}: pivot должна быть точкой [x, y] из двух элементов в центр-кадре региона"
+
+msgid "got: {pivot!r}"
+msgstr "получено: {pivot!r}"

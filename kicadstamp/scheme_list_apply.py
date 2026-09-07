@@ -1,6 +1,7 @@
 # kicadstamp/scheme_list_apply.py
 """Apply/Redraw branch for scheme_list-based Entities (plan_2026_09_05_scheme_
-list.md §4, plan_2026_09_06_scheme_list_p4_apply.md).
+list.md §4, plan_2026_09_06_scheme_list_p4_apply.md;
+design_2026_09_07_scheme_list_pivot.md — CENTRE-frame + pivot).
 
 A scheme_list Entity NEVER goes through the cell clone machinery
 (placement/entity_placement._to_clone would produce ClonePlacement(cell=None)).
@@ -8,17 +9,20 @@ Instead this module materializes each scheme_list placement node into the SAME
 commands the rest of the tool executes (MoveCommand/ViaCommand/TrackCommand +
 BatchExecutor), at the caller level (apply_pipeline, GUI Redraw).
 
-Recorded offsets/rotations are RAW (board frame at capture, see
-scheme_list_capture.py); the record carries the anchor's absolute angle at
-capture as `anchor_rotation_deg`. When a placement node moves the anchor to
-(node_pos, node_rot), every recorded element is first re-expressed in the
-record's LOCAL frame (rotate the raw offset by -anchor_rotation_deg, the same
-trick child_local_offset uses) and then rotated by the node's actual rotation
-(child_absolute_position) — otherwise a recorded region whose anchor was
-captured at a non-zero angle gets DOUBLE-rotated (the d3326e4 bug class). The
-element's absolute angle = node_rot + relative_rotation_deg(element.rotation,
-anchor_rotation_deg), so the anchor itself lands at node_rot and the region's
-relative geometry is preserved.
+The record's geometry lives in the CENTRE frame of the recorded region (all
+offsets measured from the region centre, each element's angle stored as its
+real absolute angle at capture — see scheme_list_capture.py). At Redraw the
+record's `pivot` (a point in that same centre frame, default (0,0) = the
+centre) lands on the node's position, and the node's rotation turns the WHOLE
+region around the pivot:
+
+    element_world = node_pos + Rot(node_rot) . (offset_mm - pivot_mm)
+    element_angle = stored_absolute_angle + node_rot
+
+No anchor_rotation_deg compensation exists (there is no anchor component), so
+the d3326e4 double-rotation bug class is gone by construction — a region whose
+elements were captured at non-zero angles is reproduced exactly at node_rot=0
+and rotated as a rigid whole by node_rot otherwise.
 
 Modes:
   in place       Entity.sheet empty or == record.source_sheet  -> move the
@@ -48,9 +52,7 @@ from .tree_position import (
     child_absolute_position,
     node_own_anchor_base,
     node_position,
-    relative_rotation_deg,
 )
-from .geometry.spoke_layout import rotate_local_offset
 from .utils.layers import layer_from_str
 from .utils.units import MM
 from .cloner.models import TwinMap
@@ -89,34 +91,30 @@ class SchemeListApplyPlan:
         return not (self.moves or self.vias or self.tracks)
 
 
-# ── geometry: the rotation-compensation formula (plan §4, KРИТИЧНО) ─────────
+# ── geometry: centre-frame + pivot (design_2026_09_07_scheme_list_pivot.md) ─
 
-def _local_offset_mm(along_mm: float, across_mm: float,
-                     anchor_rotation_deg: float) -> Vector2:
-    """Raw board-frame offset -> the element's offset in the record's LOCAL
-    frame: rotate by -anchor_rotation_deg (child_local_offset's trick)."""
-    return rotate_local_offset(along_mm, across_mm, -anchor_rotation_deg)
-
-
-def _absolute_target(local_offset: Vector2, node_pos: Vector2,
-                     node_rotation_deg: float) -> Vector2:
-    """Local (record-frame) offset -> absolute position at the node target:
-    rotate by the node's actual rotation and translate (child_absolute_position)."""
-    return child_absolute_position(node_pos, node_rotation_deg, local_offset)
-
-
-def _element_abs(along_mm: float, across_mm: float, anchor_rotation_deg: float,
+def _element_abs(along_mm: float, across_mm: float, pivot: tuple[float, float],
                  node_pos: Vector2, node_rotation_deg: float) -> Vector2:
-    """The full formula for one recorded offset: local frame, then node frame."""
-    return _absolute_target(
-        _local_offset_mm(along_mm, across_mm, anchor_rotation_deg),
-        node_pos, node_rotation_deg)
+    """World position of one recorded element: its centre-frame offset minus
+    the record's pivot, rotated by the node rotation around the pivot and
+    translated so the pivot lands on node_pos.
+
+        world = node_pos + Rot(node_rot) . (offset_mm - pivot_mm)
+
+    node_rot=0 reproduces the region exactly as captured (node_pos = where the
+    pivot lands); node_rot≠0 turns the whole region rigidly around the pivot.
+    No anchor rotation is involved — the frame is pure geometry."""
+    dx_mm = along_mm - pivot[0]
+    dy_mm = across_mm - pivot[1]
+    local = Vector2.from_xy(int(dx_mm * MM), int(dy_mm * MM))
+    return child_absolute_position(node_pos, node_rotation_deg, local)
 
 
-def _component_angle_deg(component_rotation_deg: float, anchor_rotation_deg: float,
-                         node_rotation_deg: float) -> float:
-    return (node_rotation_deg
-            + relative_rotation_deg(component_rotation_deg, anchor_rotation_deg)) % 360.0
+def _element_angle_deg(stored_absolute_angle: float, node_rotation_deg: float) -> float:
+    """Absolute angle of one recorded element at the target: its captured
+    absolute angle plus the node rotation (a rigid whole-region rotation around
+    the pivot)."""
+    return (stored_absolute_angle + node_rotation_deg) % 360.0
 
 
 # ── helpers shared by both modes ────────────────────────────────────────────
@@ -179,6 +177,26 @@ def _inner_key(chain: tuple[str, ...]) -> str | None:
     return "/" + "/".join(chain[1:])
 
 
+def _recorded_source_sheet_name(adapter, record: SchemeListConfig,
+                                fp_by_ref: dict[str, object]) -> str:
+    """Top-level sheet name of the recorded region for the net remap: the first
+    segment of `record.source_sheet` when set (a full path is fine), else the
+    live top-level sheet name of the first recorded component actually present
+    (the region has no anchor component — any present recorded ref is a valid
+    representative). Empty string when nothing usable is found."""
+    src = record.source_sheet
+    if src:
+        return src.split("/", 1)[0]
+    for comp in record.components:
+        fp = fp_by_ref.get(comp.ref)
+        if fp is None:
+            continue
+        name = sheet_name_of_fp(adapter, fp)
+        if name:
+            return name
+    return ""
+
+
 def _resolve_onto_sibling(adapter, record: SchemeListConfig, entity: Entity,
                           groups: dict[str, dict[str, str]],
                           ) -> tuple[str, str, dict[str, str], list[str]]:
@@ -192,20 +210,7 @@ def _resolve_onto_sibling(adapter, record: SchemeListConfig, entity: Entity,
     all_fps = adapter.get_footprints()
     fp_by_ref = {fp.ref: fp for fp in all_fps}
     dst_name = entity.sheet or ""
-
-    # Source name: explicit record.source_sheet, else the anchor's own local net.
-    anchor_fp = fp_by_ref.get(record.anchor_ref)
-    if anchor_fp is None:
-        problems.append(_("anchor {ref!r} is not on the board").format(ref=record.anchor_ref))
-        return record.source_sheet or "", dst_name, {}, problems
-    src_anchor_name = sheet_name_of_fp(adapter, anchor_fp)
-    src_name = record.source_sheet or src_anchor_name or ""
-    anchor_chain = tuple(anchor_fp.sheet_path_uuids)
-    anchor_inner = _inner_key(anchor_chain)
-    if anchor_inner is None:
-        problems.append(_("anchor {ref!r} has no usable sheet hierarchy").format(
-            ref=record.anchor_ref))
-        return src_name, dst_name, {}, problems
+    src_name = _recorded_source_sheet_name(adapter, record, fp_by_ref)
 
     name_to_uuid = _name_to_twin_uuid(adapter, groups)
     if not dst_name or dst_name not in name_to_uuid:
@@ -214,7 +219,6 @@ def _resolve_onto_sibling(adapter, record: SchemeListConfig, entity: Entity,
         return src_name, dst_name, {}, problems
     dst_uuid = name_to_uuid[dst_name]
 
-    group = groups.get(anchor_inner, {})
     ref_map: dict[str, str] = {}
     for comp in record.components:
         fp = fp_by_ref.get(comp.ref)
@@ -234,10 +238,6 @@ def _resolve_onto_sibling(adapter, record: SchemeListConfig, entity: Entity,
                 ref=comp.ref, sheet=dst_name))
             continue
         ref_map[comp.ref] = twin_ref
-    # Anchor's own twin must exist (its group is the anchor's channel).
-    if ref_map.get(record.anchor_ref) is None and not problems:
-        problems.append(_("anchor {ref!r} has no twin on sheet {sheet!r}").format(
-            ref=record.anchor_ref, sheet=dst_name))
     return src_name, dst_name, ref_map, problems
 
 
@@ -250,14 +250,16 @@ def plan_scheme_list(entity: Entity, record: SchemeListConfig, adapter,
     """Plan the commands that materialize one scheme_list placement node.
 
     Pure computation (no board writes): resolves target refdes (direct for in
-    place, twins for onto sibling), applies the anchor-rotation compensation
-    formula to every recorded component/via/track, remaps local nets for the
-    twin case and returns MoveCommand/ViaCommand/TrackCommand lists. Missing
-    refs/twins are a single fatal listing ALL problems.
+    place, twins for onto sibling), applies the centre-frame + pivot geometry
+    (design_2026_09_07_scheme_list_pivot.md) to every recorded component/via/
+    track, remaps local nets for the twin case and returns
+    MoveCommand/ViaCommand/TrackCommand lists. Missing refs/twins are a single
+    fatal listing ALL problems.
 
-    `node_pos`/`node_rotation_deg` are the node's ABSOLUTE target for the
-    anchor (the same composition entity_placement uses). `groups` may be passed
-    to reuse one full-board scan across several nodes; otherwise built here.
+    `node_pos` is where the record's `pivot` lands; `node_rotation_deg` turns
+    the whole region around the pivot (node_rot=0 reproduces the region exactly
+    as captured). `groups` may be passed to reuse one full-board scan across
+    several nodes; otherwise built here.
     """
     entity_name = entity.name or entity.scheme_list or "scheme_list"
     dst_name = entity.sheet or ""
@@ -271,6 +273,7 @@ def plan_scheme_list(entity: Entity, record: SchemeListConfig, adapter,
     mode = "onto_sibling" if onto else "in_place"
     ref_map: dict[str, str] = {}
     src_net_name = src_name
+    pivot = record.pivot
 
     if onto:
         if groups is None:
@@ -287,7 +290,6 @@ def plan_scheme_list(entity: Entity, record: SchemeListConfig, adapter,
     _fatal_problems(problems)
 
     # Layer of each target footprint (kept on its CURRENT side — no v1 mirror).
-    anchor_rot = record.anchor_rotation_deg
     moves = []
     for comp in record.components:
         target_ref = ref_map[comp.ref]
@@ -296,9 +298,8 @@ def plan_scheme_list(entity: Entity, record: SchemeListConfig, adapter,
             # Should be unreachable after the checks above; guard for safety.
             _fatal_problems([_("target {ref!r} is not on the board").format(ref=target_ref)])
         pos = _element_abs(comp.offset_along_mm, comp.offset_across_mm,
-                           anchor_rot, node_pos, node_rotation_deg)
-        angle_deg = _component_angle_deg(comp.rotation_deg, anchor_rot,
-                                         node_rotation_deg)
+                           pivot, node_pos, node_rotation_deg)
+        angle_deg = _element_angle_deg(comp.rotation_deg, node_rotation_deg)
         moves.append(_move_command(
             ref=target_ref, position=pos, angle_deg=angle_deg,
             layer=target_fp.layer, owner_ref=entity_name))
@@ -306,7 +307,7 @@ def plan_scheme_list(entity: Entity, record: SchemeListConfig, adapter,
     vias = []
     for i, via in enumerate(record.vias):
         pos = _element_abs(via.offset_along_mm, via.offset_across_mm,
-                           anchor_rot, node_pos, node_rotation_deg)
+                           pivot, node_pos, node_rotation_deg)
         vias.append(_via_command(
             position=pos, drill_mm=via.drill_mm, diameter_mm=via.diameter_mm,
             net=_remap_net(via.net, src_net_name, dst_name),
@@ -315,9 +316,9 @@ def plan_scheme_list(entity: Entity, record: SchemeListConfig, adapter,
     tracks = []
     for i, tr in enumerate(record.tracks):
         start = _element_abs(tr.start_along_mm, tr.start_across_mm,
-                             anchor_rot, node_pos, node_rotation_deg)
+                             pivot, node_pos, node_rotation_deg)
         end = _element_abs(tr.end_along_mm, tr.end_across_mm,
-                           anchor_rot, node_pos, node_rotation_deg)
+                           pivot, node_pos, node_rotation_deg)
         tracks.append(_track_command(
             start=start, end=end, width_mm=tr.width_mm,
             net=_remap_net(tr.net, src_net_name, dst_name),

@@ -1,9 +1,11 @@
 # tests/test_scheme_list_config.py
 """Config-side tests for the Scheme List feature (design_2026_09_05_scheme_
-list.md, plan P1): the SchemeListConfig dataclasses + loader validation +
-.json/.sexp round-trips + the Entity.cell-or-scheme_list cross-validation and
-the canary that a scheme_list-based Entity never trips the cell-existence
-structural check.
+list.md, plan P1; design_2026_09_07_scheme_list_pivot.md — the record now
+carries `pivot` instead of an `anchor_ref`/`anchor_pad`/`anchor_rotation_deg`
+and its geometry lives in the CENTRE frame): the SchemeListConfig dataclasses
++ loader validation + .json/.sexp round-trips + the Entity cell-or-scheme_list
+cross-validation and the canary that a scheme_list-based Entity never trips
+the cell-existence structural check.
 
 Pure config tests — no live board, no adapter, no GUI. The capture/Reread/
 Apply logic itself is P2/P3/P4 and lives in its own test files.
@@ -23,11 +25,11 @@ from kicadstamp.exceptions import ValidationError
 from kicadstamp.validation import check_entity_cells_exist
 
 
-def _record(name="psu", anchor_ref="C1", components=None, **extra):
-    """A valid scheme_lists entry dict (anchor_ref among its own components)."""
+def _record(name="psu", components=None, **extra):
+    """A valid scheme_lists entry dict (no anchor — the record's frame is the
+    captured region's CENTRE and its pivot defaults to the centre)."""
     rec = {
         "name": name,
-        "anchor_ref": anchor_ref,
         "source_sheet": "Channel_0",
         "components": components if components is not None else [
             {"ref": "C1"},
@@ -56,22 +58,41 @@ def test_single_record_loads_with_nested_copper():
         boundary_nets=[{"net": "/Channel_0/OUT", "external_ref": "J1"}],
     ))
     assert sl.name == "psu"
-    assert sl.anchor_ref == "C1"
+    # pivot absent -> the (0,0)=centre default (design_2026_09_07 p.3.2)
+    assert sl.pivot == (0.0, 0.0)
     assert sl.source_sheet == "Channel_0"
     assert [c.ref for c in sl.components] == ["C1", "R1"]
     assert sl.components[1].rotation_deg == 90.0
     assert len(sl.vias) == 1 and sl.vias[0].drill_mm == 0.3
     assert len(sl.tracks) == 1 and sl.tracks[0].layer == "In1.Cu"
     assert sl.boundary_nets[0].action == "exclude"  # v1 default
-    # addendum P2.x — the new explicit anchor-rotation field
-    assert sl.anchor_rotation_deg == 0.0  # absent -> default
 
 
-def test_record_loads_explicit_anchor_rotation_deg():
-    """anchor_rotation_deg (addendum P2.x) is read from the record; non-zero
-    survives."""
-    sl = load_scheme_list(_record(anchor_rotation_deg=90.0))
-    assert sl.anchor_rotation_deg == 90.0
+def test_record_pivot_defaults_to_centre():
+    """design_2026_09_07 p.3.2 — pivot is OPTIONAL and defaults to (0,0) = the
+    region centre; no anchor component exists any more."""
+    sl = load_scheme_list(_record())
+    assert sl.pivot == (0.0, 0.0)
+
+
+def test_record_loads_explicit_pivot():
+    """A non-default pivot (a point in the record's centre frame) is read from
+    the [x, y] pair and survives."""
+    sl = load_scheme_list(_record(pivot=[1.5, -2.25]))
+    assert sl.pivot == (1.5, -2.25)
+    sl2 = load_scheme_list(_record(pivot=(0.0, 3.0)))
+    assert sl2.pivot == (0.0, 3.0)
+
+
+def test_record_pivot_must_be_a_2_point():
+    """A malformed pivot is a fatal (a 2-element [x, y] point in the centre
+    frame), never a silent garbage accept."""
+    with pytest.raises(ValidationError, match="pivot"):
+        load_scheme_list(_record(pivot="0,0"))
+    with pytest.raises(ValidationError, match="pivot"):
+        load_scheme_list(_record(pivot=[1.0]))
+    with pytest.raises(ValidationError, match="pivot"):
+        load_scheme_list(_record(pivot=[1.0, 2.0, 3.0]))
 
 
 def test_record_scope_sheet_paths_defaults_to_none():
@@ -159,26 +180,36 @@ def test_record_scope_presets_must_be_valid_presets():
             {"name": "full", "sheet_paths": [["Top"], []]}]))
 
 
-def test_record_requires_name_and_anchor_ref():
+def test_record_requires_name_and_components():
+    """A record needs a name and at least one component. NO anchor is required
+    (design_2026_09_07_scheme_list_pivot.md — there is no anchor component:
+    the frame is the region centre, pivot defaults to it)."""
     with pytest.raises(ValidationError, match="without name"):
-        load_scheme_list({"anchor_ref": "C1", "components": [{"ref": "C1"}]})
-    with pytest.raises(ValidationError, match="without anchor_ref"):
-        load_scheme_list({"name": "psu", "components": [{"ref": "C1"}]})
+        load_scheme_list({"components": [{"ref": "C1"}]})
+    # a record with only a name + components (no anchor, no source_sheet) loads
+    sl = load_scheme_list({"name": "psu", "components": [{"ref": "C1"}]})
+    assert sl.pivot == (0.0, 0.0)
+    assert sl.source_sheet is None
 
 
 def test_record_requires_nonempty_components():
     with pytest.raises(ValidationError, match="without components"):
-        load_scheme_list({"name": "psu", "anchor_ref": "C1", "components": []})
-
-
-def test_record_anchor_ref_must_be_own_component():
-    with pytest.raises(ValidationError, match="not one of its own components"):
-        load_scheme_list(_record(anchor_ref="R9"))
+        load_scheme_list({"name": "psu", "components": []})
 
 
 def test_record_rejects_unknown_keys():
     with pytest.raises(ValidationError, match="unknown fields"):
         load_scheme_list(_record(bogus=1))
+
+
+def test_record_rejects_stale_anchor_keys():
+    """anchor_ref/anchor_pad/anchor_rotation_deg are GONE from the record
+    format (design_2026_09_07_scheme_list_pivot.md) — writing one is an
+    unknown-field fatal, not a silent accept."""
+    with pytest.raises(ValidationError, match="unknown fields"):
+        load_scheme_list(_record(anchor_ref="C1"))
+    with pytest.raises(ValidationError, match="unknown fields"):
+        load_scheme_list(_record(anchor_rotation_deg=90.0))
 
 
 def test_record_accepts_truncate_action():
@@ -293,7 +324,7 @@ def test_config_duplicate_scheme_list_name_fatal(tmp_path: Path):
     main = _write_json(tmp_path / "cfg.json", {
         "scheme_lists": [
             _record(name="psu"),
-            _record(name="psu", anchor_ref="C9", components=[{"ref": "C9"}]),
+            _record(name="psu", components=[{"ref": "C9"}]),
         ],
     })
     # same name, disjoint refs (so this isolates the name check from the
@@ -308,7 +339,7 @@ def test_config_duplicate_ref_across_scheme_lists_fatal(tmp_path: Path):
     main = _write_json(tmp_path / "cfg.json", {
         "scheme_lists": [
             _record(name="psu"),
-            _record(name="psu2", anchor_ref="R1", components=[{"ref": "R1"}, {"ref": "C1"}]),
+            _record(name="psu2", components=[{"ref": "R1"}, {"ref": "C1"}]),
         ],
     })
     with pytest.raises(ValidationError, match="more than one scheme_lists"):
@@ -323,8 +354,7 @@ def test_config_records_from_multiple_included_files_concatenate(tmp_path: Path)
     # disjoint refs from a_sl (C1/R1) — records concatenate across include
     # files, but the cross-record ref-uniqueness rule still applies.
     _write_json(tmp_path / "b.json", {
-        "scheme_lists": [_record(name="b_sl", anchor_ref="C2",
-                                 components=[{"ref": "C2"}])]})
+        "scheme_lists": [_record(name="b_sl", components=[{"ref": "C2"}])]})
     cfg, _ = load_config(str(main))
     assert [sl.name for sl in cfg.scheme_lists] == ["a_sl", "b_sl"]
     assert {c.ref for sl in cfg.scheme_lists for c in sl.components} == {"C1", "R1", "C2"}

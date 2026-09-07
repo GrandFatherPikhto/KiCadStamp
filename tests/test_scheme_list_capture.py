@@ -1,5 +1,6 @@
-"""Scheme List capture (plan_2026_09_05_scheme_list.md P2) — pure capture over
-a mock adapter.
+"""Scheme List capture (plan_2026_09_05_scheme_list.md P2;
+design_2026_09_07_scheme_list_pivot.md — CENTRE-frame + pivot, no anchor) —
+pure capture over a mock adapter.
 
 Scenario geometry (mm; Y-down board frame is irrelevant here since the closure
 is coordinate-only):
@@ -9,6 +10,11 @@ is coordinate-only):
   tf(15,12)->(15,14) — that stub is dropped by the closure and must surface as
   a boundary_net (not be silently captured). J1 sits inside the refs' bbox+1mm
   so its stub survives the pre-filter and reaches the closure.
+
+The recorded region's frame origin is the CENTRE of the recorded footprints'
+position extents: R1/C1/C2 x extents [10, 24] -> centre x = 17, y = 10. Every
+recorded offset is measured from (17,10); the record's pivot defaults to
+(0,0) = that centre (no anchor component exists).
 """
 import pytest
 
@@ -116,48 +122,48 @@ def _scenario():
     return adapter, ["R1", "C1", "C2"]
 
 
-def test_capture_records_anchor_rotation_deg():
-    """Addendum P2.x: capture stores the anchor's live angle_deg EXPLICITLY on
-    the record, while the components keep their RAW absolute rotations (the
-    anchor rotation is NOT subtracted — same convention as a Cell)."""
+def test_capture_keeps_each_element_absolute_rotation_and_centre_pivot():
+    """design_2026_09_07 p.3.1/3.2 — capture stores the REAL absolute angle of
+    every recorded element (no anchor-rotation field), records offsets from the
+    region CENTRE and defaults the record's pivot to (0,0)=that centre."""
     adapter, refs = _scenario()
     r1 = next(fp for fp in adapter._fps if fp.ref == "R1")
     r1.angle_deg = 45.0
-    cfg = capture_scheme_list("amp", refs, "R1", adapter=adapter)
-    assert cfg.anchor_rotation_deg == pytest.approx(45.0)
-    # the anchor component stays raw: absolute fp angle, offset (0, 0)
-    anchor_comp = cfg.components[0]
-    assert anchor_comp.ref == "R1"
-    assert anchor_comp.rotation_deg == pytest.approx(45.0)
-    assert anchor_comp.offset_along_mm == 0.0 and anchor_comp.offset_across_mm == 0.0
-    # other components keep their raw board-frame offsets/rotations
-    c1 = next(c for c in cfg.components if c.ref == "C1")
-    assert c1.offset_along_mm == pytest.approx(10.0)
-    assert c1.rotation_deg == pytest.approx(90.0)
+    cfg = capture_scheme_list("amp", refs, adapter=adapter)
+    assert cfg.pivot == (0.0, 0.0)  # default = centre
+    comps = {c.ref: c for c in cfg.components}
+    # R1 keeps its absolute 45; offset from the centre (17,10) is (-7, 0)
+    assert comps["R1"].rotation_deg == pytest.approx(45.0)
+    assert comps["R1"].offset_along_mm == pytest.approx(-7.0)
+    assert comps["C1"].rotation_deg == pytest.approx(90.0)
+    assert not hasattr(cfg, "anchor_ref")
+    assert not hasattr(cfg, "anchor_rotation_deg")
 
 
 class TestCaptureHappyPath:
     def setup_method(self):
         self.adapter, self.refs = _scenario()
-        self.cfg = capture_scheme_list("amp", self.refs, "R1", adapter=self.adapter)
+        self.cfg = capture_scheme_list("amp", self.refs, adapter=self.adapter)
 
-    def test_identity_and_anchor(self):
+    def test_identity_and_centre_frame(self):
         assert self.cfg.name == "amp"
-        assert self.cfg.anchor_ref == "R1"
-        assert self.cfg.anchor_pad is None
-        # anchor R1 is the offset origin -> offset (0, 0)
+        assert self.cfg.pivot == (0.0, 0.0)   # centre by default
+        assert self.cfg.source_sheet is None  # no sheet_names given
+        # R1 is the first recorded component but NOT an anchor: its offset is
+        # measured from the region centre (17,10), not zeroed.
         assert self.cfg.components[0].ref == "R1"
-        assert self.cfg.components[0].offset_along_mm == 0.0
-        assert self.cfg.components[0].offset_across_mm == 0.0
+        assert self.cfg.components[0].offset_along_mm == pytest.approx(-7.0)
+        assert self.cfg.components[0].offset_across_mm == pytest.approx(0.0)
 
     def test_components_literal_refs_and_offsets(self):
         comps = {c.ref: c for c in self.cfg.components}
         assert list(comps) == ["R1", "C1", "C2"]
-        # origin is R1 centre (10,10) — board-frame dx/dy offsets
-        assert comps["C1"].offset_along_mm == pytest.approx(10.0)
+        # offsets from the CENTRE (17,10): R1(-7,0), C1(3,0), C2(7,0)
+        assert comps["R1"].offset_along_mm == pytest.approx(-7.0)
+        assert comps["C1"].offset_along_mm == pytest.approx(3.0)
         assert comps["C1"].offset_across_mm == pytest.approx(0.0)
         assert comps["C1"].rotation_deg == pytest.approx(90.0)  # absolute rotation
-        assert comps["C2"].offset_along_mm == pytest.approx(14.0)
+        assert comps["C2"].offset_along_mm == pytest.approx(7.0)
 
     def test_tracks_literal_net_and_inner_layer_string(self):
         by_layer = {t.layer: t for t in self.cfg.tracks}
@@ -165,15 +171,15 @@ class TestCaptureHappyPath:
         assert by_layer["F.Cu"].net == _V5
         assert by_layer["In1.Cu"].net == _V5
         assert by_layer["F.Cu"].width_mm == pytest.approx(0.25)
-        # offsets in the anchor frame: t1 (10,10)->(20,10) becomes (0,0)->(10,0)
-        assert by_layer["F.Cu"].start_along_mm == pytest.approx(0.0)
-        assert by_layer["F.Cu"].end_along_mm == pytest.approx(10.0)
+        # offsets in the centre frame: t1 (10,10)->(20,10) becomes (-7,0)->(3,0)
+        assert by_layer["F.Cu"].start_along_mm == pytest.approx(-7.0)
+        assert by_layer["F.Cu"].end_along_mm == pytest.approx(3.0)
 
     def test_via_literal_record(self):
         assert len(self.cfg.vias) == 1
         via = self.cfg.vias[0]
         assert via.net == _V5
-        assert via.offset_along_mm == pytest.approx(10.0)  # at C1 (20,10)
+        assert via.offset_along_mm == pytest.approx(3.0)  # at C1 (20,10)
         assert via.offset_across_mm == pytest.approx(0.0)
         assert via.drill_mm == pytest.approx(0.3)
         assert via.diameter_mm == pytest.approx(0.6)
@@ -191,24 +197,30 @@ class TestCaptureHappyPath:
         # No sheet_names map -> no derivation; the record is "in place only".
         assert self.cfg.source_sheet is None
 
+    def test_explicit_pivot_is_stored(self):
+        """capture stores whatever pivot the caller passes (Reread passes the
+        STORED pivot; the Record path passes None -> default (0,0))."""
+        adapter, refs = _scenario()
+        cfg = capture_scheme_list("amp", refs, pivot=(2.0, 1.0), adapter=adapter)
+        assert cfg.pivot == (2.0, 1.0)
+
 
 class TestSourceSheetDerivation:
-    """5a.2 (plan_2026_09_06_scheme_list_sheet_capture.md): source_sheet is
-    derived from the anchor footprint's OWN full resolved sheet path via the
-    sheet_names {uuid: name} map — NOT a network-prefix guess (the removed
-    channel_copy.sheet_name_of_fp hack only saw one hierarchy level and failed
-    on global-only footprints). Works the same for both Record tabs because
-    every mode has exactly one anchor and its path resolves identically."""
+    """5a.2 (plan_2026_09_06_scheme_list_sheet_capture.md;
+    design_2026_09_07 p.6.2): with no anchor component, source_sheet is derived
+    from the FIRST SORTED recorded footprint's OWN full resolved sheet path via
+    the sheet_names {uuid: name} map — NOT a network-prefix guess. Every
+    recorded ref here sits on the same chain, so the derivation is stable."""
 
     def _capture(self, sheet_uuids=(), names=None, **kwargs):
         adapter, refs = _scenario()
         for fp in adapter._fps:  # put every captured ref on the same sheet
             if fp.ref in refs:
                 fp.sheet_path_uuids = tuple(sheet_uuids) + (fp.uuid,)
-        return capture_scheme_list("amp", refs, "R1", adapter=adapter,
+        return capture_scheme_list("amp", refs, adapter=adapter,
                                    sheet_names=names, **kwargs)
 
-    def test_derives_source_sheet_from_anchor_sheet_path(self):
+    def test_derives_source_sheet_from_first_recorded_component(self):
         cfg = self._capture(sheet_uuids=("sheet-ch0",),
                             names={"sheet-ch0": "Channel_0"})
         assert cfg.source_sheet == "Channel_0"
@@ -249,11 +261,11 @@ def test_capture_carries_scope_presets_verbatim():
         SchemeListScopePreset(name="ch0-only",
                               sheet_paths=[["Top", "Channel_0"]]),
     ]
-    cfg = capture_scheme_list("amp", refs, "R1", adapter=adapter,
+    cfg = capture_scheme_list("amp", refs, adapter=adapter,
                               scope_presets=presets)
     assert cfg.scope_presets == presets
     # Absent/None -> the [] default (no preset library).
-    cfg2 = capture_scheme_list("amp", refs, "R1", adapter=adapter)
+    cfg2 = capture_scheme_list("amp", refs, adapter=adapter)
     assert cfg2.scope_presets == []
 
 
@@ -261,32 +273,25 @@ class TestCaptureFatals:
     def test_missing_refs_reported_in_one_fatal(self):
         adapter, refs = _scenario()
         with pytest.raises(ValidationError) as ei:
-            capture_scheme_list("amp", refs + ["ZZ9", "QQ7"], "R1", adapter=adapter)
+            capture_scheme_list("amp", refs + ["ZZ9", "QQ7"], adapter=adapter)
         msg = str(ei.value)
         assert "ZZ9" in msg and "QQ7" in msg
 
     def test_empty_refs_fatal(self):
         adapter, _ = _scenario()
         with pytest.raises(ValidationError):
-            capture_scheme_list("amp", [], "R1", adapter=adapter)
+            capture_scheme_list("amp", [], adapter=adapter)
 
-    def test_anchor_not_among_refs_fatal(self):
+    def test_no_anchor_validation_exists(self):
+        """There is no anchor to validate — any recorded ref is just 'which
+        footprints to move'; a foreign ref is only rejected because it must be
+        on the board at all (the missing-ref fatal above covers it)."""
         adapter, refs = _scenario()
-        with pytest.raises(ValidationError):
-            capture_scheme_list("amp", refs, "J1", adapter=adapter)
-
-    def test_anchor_pad_not_found_fatal(self):
-        adapter, refs = _scenario()
-        with pytest.raises(ValidationError, match="pad"):
-            capture_scheme_list("amp", refs, "R1", anchor_pad="9", adapter=adapter)
-
-    def test_anchor_pad_origin_used_when_found(self):
-        adapter, refs = _scenario()
-        cfg = capture_scheme_list("amp", refs, "C1", anchor_pad="1", adapter=adapter)
-        # origin = C1's pad = C1 centre (20,10) -> C2 offset (4, 0)
-        comps = {c.ref: c for c in cfg.components}
-        assert comps["C2"].offset_along_mm == pytest.approx(4.0)
-        assert cfg.anchor_pad == "1"
+        # a FOREIGN component NOT among refs is fine to capture with (it is not
+        # part of the recorded set) — nothing here would 'not be among own
+        # components' because no component is special.
+        cfg = capture_scheme_list("amp", ["R1", "C1", "C2"], adapter=adapter)
+        assert [c.ref for c in cfg.components] == ["R1", "C1", "C2"]
 
 
 class TestFarForeignCopperIsOutOfRegion:
@@ -296,7 +301,7 @@ class TestFarForeignCopperIsOutOfRegion:
         adapter._fps.append(far)
         adapter._pads["J2"] = [_pad("J2", 100, 100, "/Channel_1/AMP/CLK")]
         adapter._tracks.append(_track(100, 100, 100, 104, "/Channel_1/AMP/CLK", layer=B))
-        cfg = capture_scheme_list("amp", refs, "R1", adapter=adapter)
+        cfg = capture_scheme_list("amp", refs, adapter=adapter)
         # far copper neither recorded nor reported — it is outside the region
         assert all(t.net != "/Channel_1/AMP/CLK" for t in cfg.tracks)
         assert all(bn.net != "/Channel_1/AMP/CLK" for bn in cfg.boundary_nets)
@@ -357,34 +362,38 @@ def _line_board_plus(extra_refs, c2_x_mm=24.0):
 class TestRereadDiff:
     def test_no_changes_when_board_is_identical(self):
         adapter, refs = _scenario()
-        stored = capture_scheme_list("amp", refs, "R1", adapter=adapter)
+        stored = capture_scheme_list("amp", refs, adapter=adapter)
         diff = build_scheme_list_diff(stored, adapter)
         assert diff.changed is False
         assert diff.components_moved == []
         assert diff.vias_added == [] and diff.vias_removed == []
         assert diff.tracks_added == [] and diff.tracks_removed == []
         assert diff.boundary_nets_added == [] and diff.boundary_nets_gone == []
-        assert diff.refs_not_found == [] and diff.anchor_missing is False
+        assert diff.refs_not_found == []
 
     def test_movement_within_tolerance_is_not_reported(self):
         adapter = _line_board(24.0)
-        stored = capture_scheme_list("amp", ["R1", "C1", "C2"], "R1", adapter=adapter)
+        stored = capture_scheme_list("amp", ["R1", "C1", "C2"], adapter=adapter)
         # C2 + 0.005 mm and its In1.Cu stub + 0.005 mm — inside the 0.01 mm tol
         adapter2 = _line_board(24.005)
         diff = build_scheme_list_diff(stored, adapter2)
         assert diff.changed is False
 
     def test_movement_beyond_tolerance_reports_component_and_redrawn_track(self):
+        """The centre-frame diff is translation-invariant (design_2026_09_07
+        p.6.2): moving C2 re-centres the region, but the ref0-aligned compare
+        still reports ONLY the truly moved component and its re-drawn track —
+        not the whole frame drifting."""
         adapter = _line_board(24.0)
-        stored = capture_scheme_list("amp", ["R1", "C1", "C2"], "R1", adapter=adapter)
+        stored = capture_scheme_list("amp", ["R1", "C1", "C2"], adapter=adapter)
         adapter2 = _line_board(24.5)  # C2 moved +0.5 mm -> t2 re-drawn too
         diff = build_scheme_list_diff(stored, adapter2)
         moved = {c.ref for c in diff.components_moved}
         assert moved == {"C2"}
         change = next(c for c in diff.components_moved if c.ref == "C2")
-        assert change.old_offset_along_mm == pytest.approx(14.0)
-        assert change.new_offset_along_mm == pytest.approx(14.5)
-        # the old In1.Cu stub disappeared and a new one appeared
+        assert change.old_offset_along_mm == pytest.approx(7.0)
+        assert change.new_offset_along_mm == pytest.approx(7.5)  # +0.5 physical
+        # the old In1.Cu stub disappeared and a new one appeared; t1 untouched
         assert len(diff.tracks_removed) == 1
         assert len(diff.tracks_added) == 1
         assert not diff.vias_added and not diff.vias_removed
@@ -392,7 +401,7 @@ class TestRereadDiff:
 
     def test_rotation_beyond_tolerance_reports_moved(self):
         adapter = _line_board(24.0)
-        stored = capture_scheme_list("amp", ["R1", "C1", "C2"], "R1", adapter=adapter)
+        stored = capture_scheme_list("amp", ["R1", "C1", "C2"], adapter=adapter)
         adapter2 = _line_board(24.0)
         # only C1's angle changes 90 -> 92 deg (> ANGLE_TOLERANCE_DEG)
         c1 = next(fp for fp in adapter2._fps if fp.ref == "C1")
@@ -403,26 +412,38 @@ class TestRereadDiff:
 
     def test_missing_ref_reported_not_fatal(self):
         adapter, refs = _scenario()
-        stored = capture_scheme_list("amp", refs, "R1", adapter=adapter)
-        # C2 disappears from the board (copper stays behind, anchored at C1)
+        stored = capture_scheme_list("amp", refs, adapter=adapter)
+        # C2 disappears from the board (copper stays behind)
         adapter._fps = [fp for fp in adapter._fps if fp.ref != "C2"]
         diff = build_scheme_list_diff(stored, adapter)
         assert diff.refs_not_found == ["C2"]
-        assert diff.anchor_missing is False
         assert diff.changed is True
 
-    def test_anchor_missing_guards_the_diff(self):
+    def test_missing_recorded_ref_guards_the_geometry_diff(self):
+        """design_2026_09_07 p.6.2 (the old 'anchor missing' case): when any
+        recorded ref is gone the region's centre-frame comparison is not
+        faithful, so the diff reports refs_not_found and skips the per-element
+        geometry (the record is rewritten by Apply anyway)."""
         adapter, refs = _scenario()
-        stored = capture_scheme_list("amp", refs, "R1", adapter=adapter)
+        stored = capture_scheme_list("amp", refs, adapter=adapter)
         adapter._fps = [fp for fp in adapter._fps if fp.ref != "R1"]
         diff = build_scheme_list_diff(stored, adapter)
         assert "R1" in diff.refs_not_found
-        assert diff.anchor_missing is True
+        assert diff.components_moved == []   # geometry skipped
+        assert diff.changed is True
+
+    def test_all_recorded_refs_gone_guards_the_geometry_diff(self):
+        adapter, refs = _scenario()
+        stored = capture_scheme_list("amp", refs, adapter=adapter)
+        adapter._fps = [fp for fp in adapter._fps if fp.ref in ("J1",)]
+        diff = build_scheme_list_diff(stored, adapter)
+        assert diff.refs_not_found == ["R1", "C1", "C2"]
+        assert diff.components_moved == []
         assert diff.changed is True
 
     def test_new_boundary_net_is_reported_for_decision(self):
         adapter, refs = _scenario()
-        stored = capture_scheme_list("amp", refs, "R1", adapter=adapter)
+        stored = capture_scheme_list("amp", refs, adapter=adapter)
         assert [bn.net for bn in stored.boundary_nets] == [_GND]
         # a NEW foreign component drags a NEW boundary net near the region
         _CLK = "/Channel_0/AMP/CLK"
@@ -438,7 +459,7 @@ class TestRereadDiff:
 
     def test_boundary_net_gone_is_reported(self):
         adapter, refs = _scenario()
-        stored = capture_scheme_list("amp", refs, "R1", adapter=adapter)
+        stored = capture_scheme_list("amp", refs, adapter=adapter)
         # J1's GND stub disappears -> GND no longer a boundary net
         adapter._tracks = [t for t in adapter._tracks if t.net_name != _GND]
         adapter._fps = [fp for fp in adapter._fps if fp.ref != "J1"]
@@ -460,7 +481,7 @@ class TestRereadDiffChangeableScope:
         legacy Reread: the new 5c categories stay empty, nothing is added or
         removed from the set."""
         adapter, refs = _scenario()
-        stored = capture_scheme_list("amp", refs, "R1", adapter=adapter)
+        stored = capture_scheme_list("amp", refs, adapter=adapter)
         diff = build_scheme_list_diff(stored, adapter)  # no scope_refs
         assert diff.components_added == []
         assert diff.refs_removed_from_scope == []
@@ -469,18 +490,19 @@ class TestRereadDiffChangeableScope:
     def test_added_ref_in_scope_reports_component_added_with_geometry(self):
         """5c.3 — a ref in the CURRENT scope but never recorded lands in
         components_added WITH its fresh offset/rotation (the diff's capture is
-        built over the widened set)."""
+        built over the widened set, whose centre-frame the record will be
+        rewritten in)."""
         adapter0 = _line_board(24.0)
-        stored = capture_scheme_list("amp", ["R1", "C1", "C2"], "R1",
-                                     adapter=adapter0)
+        stored = capture_scheme_list("amp", ["R1", "C1", "C2"], adapter=adapter0)
         # C4 now physically exists on the board and is inside the scope.
         adapter1 = _line_board_plus(["C4"])
         diff = build_scheme_list_diff(stored, adapter1,
                                       scope_refs=["R1", "C1", "C2", "C4"])
         added = {c.ref: c for c in diff.components_added}
         assert set(added) == {"C4"}
-        # C4 at (30,10); anchor R1 at (10,10) -> offset_along 20.0
-        assert added["C4"].offset_along_mm == pytest.approx(20.0)
+        # C4 at (30,10); widened centre (R1..C4 x extents [10,30]) = (20,10)
+        # -> offset_along 10.0
+        assert added["C4"].offset_along_mm == pytest.approx(10.0)
         assert added["C4"].offset_across_mm == pytest.approx(0.0)
         assert diff.refs_removed_from_scope == []
         assert diff.refs_not_found == []
@@ -490,8 +512,7 @@ class TestRereadDiffChangeableScope:
         """5c.3 — a ref that is physically PRESENT but no longer in the scope
         goes to refs_removed_from_scope ONLY (never also components_moved)."""
         adapter = _line_board(24.0)
-        stored = capture_scheme_list("amp", ["R1", "C1", "C2"], "R1",
-                                     adapter=adapter)
+        stored = capture_scheme_list("amp", ["R1", "C1", "C2"], adapter=adapter)
         # C2 still on the board, but the current scope drops it.
         diff = build_scheme_list_diff(stored, adapter,
                                       scope_refs=["R1", "C1"])
@@ -506,7 +527,7 @@ class TestRereadDiffChangeableScope:
         C3 physically present but out of scope is refs_removed_from_scope. The
         two categories never double-count the same ref."""
         adapter0 = _line_board_plus(["C3"])  # C2 + C3 both physically present
-        stored = capture_scheme_list("amp", ["R1", "C1", "C2", "C3"], "R1",
+        stored = capture_scheme_list("amp", ["R1", "C1", "C2", "C3"],
                                      adapter=adapter0)
         # C2 is removed from the BOARD entirely; the scope drops both C2 and C3
         # (only R1+C1 are re-selected / still on the recorded leaves).
@@ -525,7 +546,7 @@ class TestRereadDiffChangeableScope:
         (components_added), C2 leaves it while staying on the board
         (refs_removed_from_scope) — C2 is not also reported as moved."""
         adapter0 = _line_board(24.0)
-        stored = capture_scheme_list("amp", ["R1", "C1", "C2"], "R1",
+        stored = capture_scheme_list("amp", ["R1", "C1", "C2"],
                                      adapter=adapter0)
         adapter1 = _line_board_plus(["C4"])
         diff = build_scheme_list_diff(stored, adapter1,
@@ -558,7 +579,8 @@ def _truncate_scenario():
     the captured footprints' union bbox (x[8,22], y[8,12] — the honest capture
     boundary, NO pre-filter margin) — the perfect truncate candidate. Two GND
     vias: v_in (18,10) INSIDE the boundary, v_out (22.2,10) inside the +1 mm
-    pre-filter band but OUTSIDE the clip boundary."""
+    pre-filter band but OUTSIDE the clip boundary. The recorded region's CENTRE
+    is (15,10) — all offsets are measured from it."""
     r1 = _fp("R1", 10, 10)
     c1 = _fp("C1", 20, 10)
     j1 = _fp("J1", 15, 14)
@@ -581,7 +603,7 @@ class TestTruncateCapture:
         """Without boundary_net_actions the whole GND stub is dropped and the
         record carries a plain exclude boundary_net (v1 behavior)."""
         adapter, refs = _truncate_scenario()
-        cfg = capture_scheme_list("amp", refs, "R1", adapter=adapter)
+        cfg = capture_scheme_list("amp", refs, adapter=adapter)
         assert all(t.net != _GND for t in cfg.tracks)
         assert len(cfg.boundary_nets) == 1
         assert cfg.boundary_nets[0].net == _GND
@@ -590,18 +612,18 @@ class TestTruncateCapture:
 
     def test_truncate_clips_stub_keeps_in_region_part(self):
         """action="truncate" for GND: the stub's in-region part (15,10)->(15,12)
-        is KEPT (offset from origin R1 = (5,0)->(5,2)); the out-of-region tail
-        (to y=14) is clipped away."""
+        is KEPT; the out-of-region tail (to y=14) is clipped away. Offsets from
+        the CENTRE (15,10): the kept part is (0,0)->(0,2)."""
         adapter, refs = _truncate_scenario()
-        cfg = capture_scheme_list("amp", refs, "R1", adapter=adapter,
+        cfg = capture_scheme_list("amp", refs, adapter=adapter,
                                   boundary_net_actions={_GND: "truncate"})
         gnd_tracks = [t for t in cfg.tracks if t.net == _GND]
         assert len(gnd_tracks) == 1
         gt = gnd_tracks[0]
-        # clipped to the boundary y=12: start (5,0), end (5,2)
-        assert gt.start_along_mm == pytest.approx(5.0)
+        # clipped to the boundary y=12: start (0,0), end (0,2) (from the centre)
+        assert gt.start_along_mm == pytest.approx(0.0)
         assert gt.start_across_mm == pytest.approx(0.0)
-        assert gt.end_along_mm == pytest.approx(5.0)
+        assert gt.end_along_mm == pytest.approx(0.0)
         assert gt.end_across_mm == pytest.approx(2.0)
         assert gt.layer == "F.Cu"
 
@@ -609,17 +631,17 @@ class TestTruncateCapture:
         """A dropped via INSIDE the boundary is kept; one OUTSIDE the boundary
         (but inside the pre-filter band) is dropped."""
         adapter, refs = _truncate_scenario()
-        cfg = capture_scheme_list("amp", refs, "R1", adapter=adapter,
+        cfg = capture_scheme_list("amp", refs, adapter=adapter,
                                   boundary_net_actions={_GND: "truncate"})
         gnd_vias = [v for v in cfg.vias if v.net == _GND]
         assert len(gnd_vias) == 1
-        assert gnd_vias[0].offset_along_mm == pytest.approx(8.0)  # (18,10)
+        assert gnd_vias[0].offset_along_mm == pytest.approx(3.0)  # (18,10)
         assert gnd_vias[0].offset_across_mm == pytest.approx(0.0)
         # v_out (22.2,10) is outside the clip boundary -> dropped.
 
     def test_truncate_boundary_net_persists_action(self):
         adapter, refs = _truncate_scenario()
-        cfg = capture_scheme_list("amp", refs, "R1", adapter=adapter,
+        cfg = capture_scheme_list("amp", refs, adapter=adapter,
                                   boundary_net_actions={_GND: "truncate"})
         assert len(cfg.boundary_nets) == 1
         bn = cfg.boundary_nets[0]
@@ -631,12 +653,13 @@ class TestTruncateCapture:
         """Truncate must not disturb the normal +5V copper: the recorded region
         still carries the V5 track between R1 and C1."""
         adapter, refs = _truncate_scenario()
-        cfg = capture_scheme_list("amp", refs, "R1", adapter=adapter,
+        cfg = capture_scheme_list("amp", refs, adapter=adapter,
                                   boundary_net_actions={_GND: "truncate"})
         v5_tracks = [t for t in cfg.tracks if t.net == _V5]
         assert len(v5_tracks) == 1
-        assert v5_tracks[0].start_along_mm == pytest.approx(0.0)
-        assert v5_tracks[0].end_along_mm == pytest.approx(10.0)
+        # from the centre (15,10): R1 at (-5,0), C1 at (5,0)
+        assert v5_tracks[0].start_along_mm == pytest.approx(-5.0)
+        assert v5_tracks[0].end_along_mm == pytest.approx(5.0)
 
     def test_truncate_with_no_footprint_bbox_degrades_to_exclude(self):
         """A mock adapter without real footprint bbox geometry cannot clip:
@@ -645,7 +668,7 @@ class TestTruncateCapture:
         adapter, refs = _truncate_scenario()
         no_bbox = _NoFootprintBBoxAdapter(adapter._fps, adapter._tracks,
                                           adapter._vias, adapter._pads)
-        cfg = capture_scheme_list("amp", refs, "R1", adapter=no_bbox,
+        cfg = capture_scheme_list("amp", refs, adapter=no_bbox,
                                   boundary_net_actions={_GND: "truncate"})
         assert all(t.net != _GND for t in cfg.tracks)
         assert len(cfg.boundary_nets) == 1

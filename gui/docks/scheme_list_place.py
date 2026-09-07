@@ -9,7 +9,9 @@ gui/docks/scheme_list.py shows). It turns ONE recorded ``scheme_lists:``
 snapshot into a NEW scheme_list-based Entity plus a placement node in an
 EXISTING tree (design §6 — "указывает, не копирует": the Entity only carries
 ``scheme_list:``/``sheet:``, never a copy of the geometry; a placement node
-then says WHERE the snapshot's anchor lands).
+then says WHERE the snapshot's ``pivot`` lands
+(design_2026_09_07_scheme_list_pivot.md — the node's rotation turns the whole
+region around that pivot)).
 
 The page is deliberately a plain QWidget Config right-QView page (the same
 shape as SchemeListFormWidget / NetTraceDock / Placer), built once by DockHub
