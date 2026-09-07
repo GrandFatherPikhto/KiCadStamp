@@ -421,11 +421,11 @@ def test_save_trees_writes_non_default_fields(tmp_path):
 
 # ── module node (kind module) + pivot fields (2026-09-02, plan P0) ──────────
 
-def _module_node(ref, xy=None, pivot_xy=None, pivot_polar=None, rotation=0.0,
-                 children=None):
+def _module_node(ref, xy=None, pivot_xy=None, pivot_polar=None, pivot_ref=None,
+                 rotation=0.0, children=None):
     return TreeNode(ref=ref, kind="module", xy=xy, polar=None, rotation=rotation,
                     name=None, group=None, children=children or [],
-                    pivot_xy=pivot_xy, pivot_polar=pivot_polar)
+                    pivot_xy=pivot_xy, pivot_polar=pivot_polar, pivot_ref=pivot_ref)
 
 
 def test_module_kind_roundtrips_through_sexp(tmp_path):
@@ -517,20 +517,68 @@ def test_module_children_are_allowed_and_parse(tmp_path):
 
 def test_pivot_xy_polar_mutually_exclusive(tmp_path):
     """pivot-xy and pivot-polar on one module node are contradictory — fatal
-    (same discipline as xy/polar)."""
+    (same discipline as xy/polar). 2026-09-07: the mutex now spans a third
+    option, pivot-ref (design_2026_09_07_module_pivot_by_ref.md) — the
+    message text changed accordingly, the mutex itself did not."""
     text = """(kicadstamp-trees
   (tree (name "t") (anchor (origin))
     (node (ref "ch0") (kind module) (pivot-xy 1 1) (pivot-polar 3 45))))"""
     with pytest.raises(ValidationError,
-                       match="pivot-xy and pivot-polar are mutually exclusive"):
+                       match="pivot-xy, pivot-polar and pivot-ref are mutually exclusive"):
         load_trees(_write(tmp_path, text))
 
 
 def test_pivot_xy_polar_mutually_exclusive_dict():
-    """Same mutex in the config-dict shape."""
+    """Same mutex in the config-dict shape (2026-09-07: now a 3-way mutex,
+    see test_pivot_xy_polar_mutually_exclusive)."""
     d = {"name": "t", "nodes": [{"ref": "ch0", "kind": "module",
                                  "pivot_xy": [1, 1], "pivot_polar": [3, 45]}]}
-    with pytest.raises(ValidationError, match="pivot_xy and pivot_polar"):
+    with pytest.raises(ValidationError,
+                       match="pivot_xy, pivot_polar and pivot_ref are mutually exclusive"):
+        tree_from_dict(d)
+
+
+# ── pivot-ref (2026-09-07, design_2026_09_07_module_pivot_by_ref.md) ───────
+
+def test_module_pivot_ref_roundtrips_through_sexp(tmp_path):
+    """pivot_ref serializes as (pivot-ref "...") and round-trips — a THIRD
+    pivot source alongside pivot-xy/pivot-polar, an identity (a node's ref
+    inside the referenced tree) instead of a bare number."""
+    marker = _module_node(ref="ch0_dac_buf", pivot_ref="U3")
+    trees = [Tree(name="t", anchor=TreeAnchor(is_auto=True), nodes=[marker])]
+    path = tmp_path / "module.trees"
+    save_trees(str(path), trees)
+    assert '(pivot-ref "U3")' in path.read_text(encoding="utf-8")
+    assert load_trees(str(path)) == trees
+
+
+def test_module_pivot_ref_dict_bridge_roundtrips():
+    """Same round trip through the config-dict bridge (pivot_ref key)."""
+    marker = _module_node(ref="ch0_dac_buf", pivot_ref="U3")
+    tree = Tree(name="fpga", anchor=TreeAnchor(is_auto=True), nodes=[marker])
+    d = tree_to_dict(tree)
+    assert d["nodes"][0]["pivot_ref"] == "U3"
+    assert "pivot_xy" not in d["nodes"][0]
+    assert "pivot_polar" not in d["nodes"][0]
+    assert tree_from_dict(d) == tree
+
+
+def test_pivot_xy_and_pivot_ref_mutually_exclusive(tmp_path):
+    """pivot-xy and pivot-ref on one module node are contradictory — fatal,
+    same 3-way mutex as pivot-xy/pivot-polar."""
+    text = """(kicadstamp-trees
+  (tree (name "t") (anchor (origin))
+    (node (ref "ch0") (kind module) (pivot-xy 1 1) (pivot-ref "U3"))))"""
+    with pytest.raises(ValidationError,
+                       match="pivot-xy, pivot-polar and pivot-ref are mutually exclusive"):
+        load_trees(_write(tmp_path, text))
+
+
+def test_pivot_ref_must_be_a_string_in_dict():
+    """A hand-broken config-dict pivot_ref (wrong type) is a clear fatal, not
+    a crash deeper in the pipeline."""
+    d = {"name": "t", "nodes": [{"ref": "ch0", "kind": "module", "pivot_ref": 3}]}
+    with pytest.raises(ValidationError, match="pivot_ref must be a string"):
         tree_from_dict(d)
 
 
@@ -542,6 +590,17 @@ def test_config_dict_tree_with_pivot_passes_known_key_check():
                 nodes=[_module_node(ref="ch0_dac_buf", pivot_xy=(0.5, -0.25))])
     loaded = _load_tree(tree_to_dict(tree))
     assert loaded.nodes[0].pivot_xy == (0.5, -0.25)
+
+
+def test_config_dict_tree_with_pivot_ref_passes_known_key_check():
+    """Same known-key check for pivot_ref (2026-09-07) — must not regress
+    into an "unknown fields" fatal like the pre-existing pivot_xy/pivot_polar
+    keys already guard against."""
+    from kicadstamp.config.entries import _load_tree
+    tree = Tree(name="fpga", anchor=TreeAnchor(is_auto=True),
+                nodes=[_module_node(ref="ch0_dac_buf", pivot_ref="U3")])
+    loaded = _load_tree(tree_to_dict(tree))
+    assert loaded.nodes[0].pivot_ref == "U3"
 
 
 # ── node's own anchor (own_anchor, plan tree_node_own_anchor 2026-09-03) ──

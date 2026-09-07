@@ -2415,12 +2415,38 @@ class NodeFormWidget(QWidget):
         # land on this marker. The offset above stays the MARKER's own offset
         # in the parent; pivot is a second, independent field.
         self.pivot_widget = AnchorOriginWidget(modes=["xy"], polar=True)
+        self.pivot_widget.fieldChanged.connect(self._on_pivot_widget_field_changed)
         form.addRow(_("Pivot (child frame):"), self.pivot_widget)
         self.pivot_from_node_button = QPushButton(_("From child node..."))
+        self.pivot_from_node_button.setToolTip(_(
+            "Compute a static pivot-xy from a node's CURRENT position — a "
+            "one-time snapshot, does not track later changes to the "
+            "referenced tree."))
         self.pivot_from_node_button.clicked.connect(self._on_use_child_offset)
         form.addRow(self.pivot_from_node_button)
+        # pivot-ref (2026-09-07, design_2026_09_07_module_pivot_by_ref.md): a
+        # THIRD, persistent pivot source — names a node INSIDE the referenced
+        # tree instead of a bare number, re-resolved live on every redraw
+        # (unlike the static snapshot above). self._pivot_ref is the form's
+        # own state (TreeNode has no widget of its own to read back from);
+        # kept in sync with pivot_widget by _on_pivot_widget_field_changed
+        # (typing xy/polar cancels an active pivot-ref) and by
+        # _on_pick_pivot_ref (picking a ref clears xy/polar).
+        self._pivot_ref: Optional[str] = None
+        self.pivot_by_ref_button = QPushButton(_("Pivot by ref..."))
+        self.pivot_by_ref_button.setToolTip(_(
+            "Pin the pivot to a node's ref, re-resolved live at every "
+            "redraw — unlike 'From child node...' above, this follows the "
+            "referenced tree if its internal layout changes later."))
+        self.pivot_by_ref_button.clicked.connect(self._on_pick_pivot_ref)
+        form.addRow(self.pivot_by_ref_button)
+        self.pivot_ref_status_label = QLabel("")
+        self.pivot_ref_status_label.setWordWrap(True)
+        form.addRow("", self.pivot_ref_status_label)
         self.pivot_widget.setVisible(False)
         self.pivot_from_node_button.setVisible(False)
+        self.pivot_by_ref_button.setVisible(False)
+        self.pivot_ref_status_label.setVisible(False)
 
         self.rotation_edit = QLineEdit()
         self.rotation_edit.setPlaceholderText(_("0"))
@@ -2589,7 +2615,11 @@ class NodeFormWidget(QWidget):
         else:
             self.offset_widget.load()
         if existing.kind == "module":
-            # pivot round-trips through Edit (plan 2026-09-02 P4 п.1).
+            # pivot round-trips through Edit (plan 2026-09-02 P4 п.1; pivot_ref
+            # added 2026-09-07). pivot_widget.load() always runs FIRST (it
+            # fires fieldChanged, which would clear self._pivot_ref) — the
+            # authoritative value is set right after, so load()'s side effect
+            # never wins.
             if existing.pivot_xy is not None:
                 self.pivot_widget.load(x=existing.pivot_xy[0], y=existing.pivot_xy[1])
             elif existing.pivot_polar is not None:
@@ -2597,6 +2627,11 @@ class NodeFormWidget(QWidget):
                                        angle=existing.pivot_polar[1])
             else:
                 self.pivot_widget.load()
+            self._pivot_ref = existing.pivot_ref
+        else:
+            self.pivot_widget.load()
+            self._pivot_ref = None
+        self._update_pivot_ref_label()
         self.rotation_edit.setText(str(existing.rotation))
         self.name_edit.setText(existing.name or "")
         self.group_edit.setText(existing.group or "")
@@ -2685,6 +2720,8 @@ class NodeFormWidget(QWidget):
         # tree, not a record — is meaningless).
         self.pivot_widget.setVisible(is_module)
         self.pivot_from_node_button.setVisible(is_module)
+        self.pivot_by_ref_button.setVisible(is_module)
+        self.pivot_ref_status_label.setVisible(is_module)
         self.read_position_button.setVisible(not is_module)
         self.read_status_label.setVisible(not is_module)
         if kind == "module":
@@ -2735,24 +2772,22 @@ class NodeFormWidget(QWidget):
         self.kind_combo.setCurrentIndex(kind_idx)
         self.ref_combo.setCurrentText(name)
 
-    def _on_use_child_offset(self) -> None:
-        """P4 п.2 convenience (pure UI sugar over the pivot field, no extra
-        logic): pick a node of the currently referenced (child) tree and put
-        its static offset from the child tree's origin into the pivot fields —
-        computed by ordinary composition inside the child tree at zero anchor
-        rotation (a plain read, nothing is written anywhere)."""
-        from kicadstamp.tree_position import node_position
-        from kicadstamp.domain.geometry import Vector2
-
+    def _child_tree_for_pivot(self) -> Optional["Tree"]:
+        """The currently referenced (child) tree object for a module node —
+        None when no tree is picked yet or it isn't loaded. Shared lookup for
+        every pivot-picking action (the static 'From child node...' snapshot
+        and the persistent 'Pivot by ref...' picker)."""
         ref = self.ref_combo.currentText().strip()
         if not ref or not self._all_trees:
-            return
-        child = next((t for t in self._all_trees if t.name == ref), None)
-        if child is None:
-            QMessageBox.warning(
-                self, _("Add node"),
-                _("No tree named {name!r} is loaded.").format(name=ref))
-            return
+            return None
+        return next((t for t in self._all_trees if t.name == ref), None)
+
+    @staticmethod
+    def _child_tree_node_refs(child: "Tree") -> list[str]:
+        """Every node ref inside `child`, recursively through .children (NOT
+        through a nested module's OWN referenced tree — the same shallow
+        scope the pre-existing 'From child node...' convenience already
+        used). Shared candidate list for both pivot pickers."""
         refs: list[str] = []
 
         def collect(nodes: list) -> None:
@@ -2761,6 +2796,77 @@ class NodeFormWidget(QWidget):
                 collect(n.children)
 
         collect(child.nodes)
+        return refs
+
+    def _on_pick_pivot_ref(self) -> None:
+        """Pivot-by-ref (2026-09-07, design_2026_09_07_module_pivot_by_ref.md):
+        pick a node inside the referenced (child) tree whose position — LIVE-
+        resolved at every redraw, unlike the static 'From child node...'
+        snapshot — must land exactly on this module's marker. Stored as
+        self._pivot_ref (TreeNode.pivot_ref at build_node() time), mutually
+        exclusive with pivot_xy/pivot_polar: picking a ref here clears the
+        pivot_widget fields; typing into them cancels an active pivot-ref
+        (_on_pivot_widget_field_changed)."""
+        child = self._child_tree_for_pivot()
+        if child is None:
+            QMessageBox.warning(
+                self, _("Add node"),
+                _("No tree named {name!r} is loaded.").format(
+                    name=self.ref_combo.currentText().strip()))
+            return
+        refs = self._child_tree_node_refs(child)
+        if not refs:
+            QMessageBox.warning(self, _("Add node"),
+                                _("The referenced tree has no nodes."))
+            return
+        none_label = _("(none — use XY/Polar)")
+        items = [none_label] + refs
+        start_idx = (refs.index(self._pivot_ref) + 1
+                    if self._pivot_ref in refs else 0)
+        choice, ok = QInputDialog.getItem(
+            self, _("Pivot by ref"), _("Child node:"), items, start_idx, False)
+        if not ok:
+            return
+        # Clear the XY/Polar fields FIRST (fires fieldChanged, which would
+        # otherwise clear the ref we are about to set right back to None) —
+        # then set the authoritative value.
+        self.pivot_widget.load()
+        self._pivot_ref = None if choice == none_label else choice
+        self._update_pivot_ref_label()
+
+    def _update_pivot_ref_label(self) -> None:
+        self.pivot_ref_status_label.setText(
+            _("Pivot ref: {ref}").format(ref=self._pivot_ref)
+            if self._pivot_ref else "")
+
+    def _on_pivot_widget_field_changed(self) -> None:
+        """Typing into Pivot X/Y/Radius/Angle cancels an active pivot-ref —
+        the three pivot sources are mutually exclusive (build_node()/
+        link_trees.py enforce it at save time; this catches it live in the
+        form too, before the user is surprised by which one 'won')."""
+        if self._pivot_ref is not None:
+            self._pivot_ref = None
+            self._update_pivot_ref_label()
+
+    def _on_use_child_offset(self) -> None:
+        """P4 п.2 convenience (pure UI sugar over the pivot field, no extra
+        logic): pick a node of the currently referenced (child) tree and put
+        its static offset from the child tree's origin into the pivot fields —
+        computed by ordinary composition inside the child tree at zero anchor
+        rotation (a plain read, nothing is written anywhere). A ONE-TIME
+        snapshot — see 'Pivot by ref...' for a persistent, live-tracking
+        alternative (2026-09-07)."""
+        from kicadstamp.tree_position import node_position
+        from kicadstamp.domain.geometry import Vector2
+
+        child = self._child_tree_for_pivot()
+        if child is None:
+            QMessageBox.warning(
+                self, _("Add node"),
+                _("No tree named {name!r} is loaded.").format(
+                    name=self.ref_combo.currentText().strip()))
+            return
+        refs = self._child_tree_node_refs(child)
         if not refs:
             QMessageBox.warning(self, _("Add node"),
                                 _("The referenced tree has no nodes."))
@@ -2826,16 +2932,22 @@ class NodeFormWidget(QWidget):
         name = self.name_edit.text().strip() or None
         group = self.group_edit.text().strip() or None
         kind = self.kind_combo.currentData()
-        pivot_xy = pivot_polar = None
+        pivot_xy = pivot_polar = pivot_ref = None
         if kind == "module":
-            pfields, perr = self.pivot_widget.build()
-            if perr:
-                QMessageBox.warning(self, _("Add node"), perr)
-                return None
-            if "radius" in pfields:
-                pivot_polar = (pfields["radius"], pfields["angle"])
+            if self._pivot_ref is not None:
+                # Pivot-by-ref (2026-09-07): persistent, re-resolved live at
+                # every redraw — skips pivot_widget.build() entirely (its
+                # fields are required-if-touched, but irrelevant here).
+                pivot_ref = self._pivot_ref
             else:
-                pivot_xy = (pfields["x"], pfields["y"])
+                pfields, perr = self.pivot_widget.build()
+                if perr:
+                    QMessageBox.warning(self, _("Add node"), perr)
+                    return None
+                if "radius" in pfields:
+                    pivot_polar = (pfields["radius"], pfields["angle"])
+                else:
+                    pivot_xy = (pfields["x"], pfields["y"])
         # Position tab: "Relative to component" with no Role is a hard refusal
         # (never silently downgrade to the parent base) — same explicit style as
         # the other guards above.
@@ -2847,7 +2959,8 @@ class NodeFormWidget(QWidget):
             return None
         return TreeNode(ref=ref, kind=kind, xy=xy, polar=polar, rotation=rotation,
                         name=name, group=group, pivot_xy=pivot_xy,
-                        pivot_polar=pivot_polar, own_anchor=own_anchor)
+                        pivot_polar=pivot_polar, pivot_ref=pivot_ref,
+                        own_anchor=own_anchor)
 
 
 class _NodeDialog(QDialog):

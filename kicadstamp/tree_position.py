@@ -176,15 +176,48 @@ def child_absolute_position(parent_pos: Vector2, parent_rotation_deg: float,
 
 # ── module embedding geometry (2026-09-02, plan P2) ────────────────────────
 
-def pivot_offset(node: TreeNode) -> Vector2:
+def pivot_offset(node: TreeNode, child: "Tree | None" = None,
+                 forest: "dict[str, Tree] | None" = None, *,
+                 adapter=None, cfg=None, sheet_names=None) -> Vector2:
     """A module node's pivot point in its own local offset frame — the mirror
-    of node_offset() over pivot_xy/pivot_polar. Absent (None) = (0, 0): the
-    pivot is the referenced tree's own origin."""
+    of node_offset() over pivot_xy/pivot_polar/pivot_ref. Absent (None) =
+    (0, 0): the pivot is the referenced tree's own origin.
+
+    pivot_ref (2026-09-07, design_2026_09_07_module_pivot_by_ref.md): instead
+    of a bare number, names a node's `ref` INSIDE the referenced tree (`child`)
+    whose position must land on the marker. Resolved by laying `child` out
+    from a bare (0,0)/0deg base (layout_tree_from_base) — composing from a
+    zero base directly YIELDS the local-offset value pivot_xy/pivot_polar
+    already carry, with no separate "subtract the anchor" step needed — and
+    reading `node.pivot_ref`'s resolved position back out of the result. This
+    correctly handles a pivot_ref that sits behind a nested module or an
+    own_anchor node (both already handled by layout_tree_from_base itself);
+    it needs `child`/`forest` (and adapter/cfg/sheet_names only if something
+    inside `child` actually uses own_anchor) — every OTHER pivot mode stays
+    pure geometry, no live board, as before. Raises ValidationError if
+    `child`/`forest` are missing or the ref cannot be found (link_trees
+    already rejects an unreachable pivot_ref at Save time — reaching this at
+    apply time would mean the tree changed shape since the last Save)."""
     if node.pivot_xy is not None:
         return Vector2.from_xy(int(node.pivot_xy[0] * MM), int(node.pivot_xy[1] * MM))
     if node.pivot_polar is not None:
         radius_mm, angle_deg = node.pivot_polar
         return local_to_absolute(_ORIGIN, radius_mm, 0.0, angle_deg)
+    if node.pivot_ref is not None:
+        if child is None:
+            raise ValidationError(_(
+                "node {ref!r}: pivot-ref {pivot_ref!r} needs the referenced "
+                "tree to resolve").format(ref=node.ref, pivot_ref=node.pivot_ref))
+        resolved = layout_tree_from_base(
+            child, _ORIGIN, 0.0, forest,
+            adapter=adapter, cfg=cfg, sheet_names=sheet_names)
+        if node.pivot_ref not in resolved:
+            raise ValidationError(_(
+                "node {ref!r}: pivot-ref {pivot_ref!r} not found inside the "
+                "embedded tree {tree_name!r}").format(
+                    ref=node.ref, pivot_ref=node.pivot_ref, tree_name=child.name))
+        target_pos, _target_rot = resolved[node.pivot_ref]
+        return target_pos
     return Vector2.from_xy(0, 0)
 
 
@@ -252,7 +285,9 @@ def layout_tree_from_base(tree: Tree, base_pos: Vector2, base_rot_deg: float,
                 if child is None or child.name in stack:
                     continue
                 eff_pos, eff_rot = resolve_module_effective_base(
-                    abs_pos, abs_rot, pivot_offset(n))
+                    abs_pos, abs_rot,
+                    pivot_offset(n, child, forest,
+                                adapter=adapter, cfg=cfg, sheet_names=sheet_names))
                 stack.append(child.name)
                 lay(child.nodes, eff_pos, eff_rot)
                 stack.pop()

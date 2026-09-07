@@ -500,9 +500,15 @@ or a chain that loops back into itself is a CONFIG error (fatal, never silently 
 **Module embedding (2026-09-02, plan_2026_09_02_tree_module_embedding.md):** a `trees:` node may also
 have `kind "module"` — its `ref` is the NAME of ANOTHER tree, which is embedded as a rigid sub-layout
 (e.g. the `fpga` tree embeds the `ch0_dac_buf` tree). The module node's own `xy`/`polar`/`rotation`
-position its MARKER in the parent; an optional `(pivot-xy x y)` or `(pivot-polar r a)` (mutually
-exclusive, module only) says which point INSIDE the referenced tree's own local frame lands exactly on
-the marker (absent = the referenced tree's origin). A module ref is a tree name, NOT a config record —
+position its MARKER in the parent; an optional `(pivot-xy x y)`, `(pivot-polar r a)` or `(pivot-ref
+"...")` (mutually exclusive, module only) says which point INSIDE the referenced tree's own local
+frame lands exactly on the marker (absent = the referenced tree's origin). `pivot-ref` (2026-09-07,
+design_2026_09_07_module_pivot_by_ref.md) names a node's `ref` INSIDE the referenced tree instead of a
+bare number — an IDENTITY, matching how every other position source in this grammar works
+(TreeAnchor/own_anchor: ref/role+sheet+cluster+pad/point/origin), re-resolved live at every redraw
+instead of a one-time hand-computed snapshot; it must name something reachable inside the embedded
+tree (recursing through any tree IT embeds too) — a config fatal at link/Save otherwise, same
+discipline as an unknown module target. A module ref is a tree name, NOT a config record —
 it is exempt from the one-ref-per-node file-wide check, so the SAME child tree may be embedded by
 several different parents; a duplicate inside ONE parent, an unknown/self reference and a module cycle
 (A⊃B⊃A) are config fatals (validated at link/Save). When embedded, the referenced tree's OWN anchor is

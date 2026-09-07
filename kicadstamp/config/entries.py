@@ -1628,7 +1628,7 @@ _TREE_KNOWN_KEYS = {"name", "anchor", "nodes"}
 _TREE_ANCHOR_KNOWN_KEYS = {"ref", "origin", "external", "role", "point",
                            "sheet", "cluster", "pad"}
 _TREE_NODE_KNOWN_KEYS = {"ref", "kind", "xy", "polar", "rotation", "name", "group", "children",
-                         "pivot_xy", "pivot_polar",
+                         "pivot_xy", "pivot_polar", "pivot_ref",
                          # 2026-09-03 (plan tree_node_own_anchor): a node may
                          # carry its OWN (role ...) anchor to be positioned
                          # relative to a live component instead of its parent.

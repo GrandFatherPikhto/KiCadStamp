@@ -1356,6 +1356,78 @@ def test_pivot_offset_reads_xy_polar_and_default():
     assert pivot_offset(_mod(ref="m")) == _ORIGIN
 
 
+# ── pivot-ref (2026-09-07, design_2026_09_07_module_pivot_by_ref.md) ───────
+# A pivot-ref names a node's ref INSIDE the referenced tree instead of a bare
+# number — resolved by laying that tree out from a bare (0,0)/0deg base
+# (which directly yields the same local-offset value pivot_xy/pivot_polar
+# already carry) and reading the named ref's position back out.
+
+def _mod_ref(ref, xy=None, pivot_ref=None, rotation=0.0, children=None):
+    return TreeNode(ref=ref, kind="module", xy=xy, polar=None, rotation=rotation,
+                    name=None, group=None, children=children or [],
+                    pivot_ref=pivot_ref)
+
+
+def test_pivot_offset_ref_resolves_to_the_named_node_local_position():
+    """pivot_offset(node, child, forest) with pivot_ref returns the SAME
+    Vector2 a manually-computed pivot_xy for that node would — the whole
+    point of pivot-ref is to make this number automatic, not a new value."""
+    child = _leaf_tree("ch0", [_node_dc(ref="d0", xy=(1.0, 2.0))])
+    node = _mod_ref(ref="ch0", pivot_ref="d0")
+    got = pivot_offset(node, child, {"ch0": child})
+    assert _mm(got) == (1.0, 2.0)
+
+
+def test_pivot_offset_ref_missing_child_is_fatal():
+    """pivot_ref set but no `child` tree passed — a caller error (link_trees
+    already guarantees the ref exists BY THE TIME apply reaches this; a pure
+    caller must still fail loudly, never silently treat it as (0,0))."""
+    node = _mod_ref(ref="ch0", pivot_ref="d0")
+    with pytest.raises(ValidationError, match="needs the referenced tree"):
+        pivot_offset(node)
+
+
+def test_pivot_offset_ref_not_found_is_fatal():
+    """A pivot_ref not present in `child` (tree shape changed since Save,
+    since link_trees already rejects this at Save time) is a clear fatal,
+    never a silent (0,0)."""
+    child = _leaf_tree("ch0", [_node_dc(ref="d0", xy=(1.0, 2.0))])
+    node = _mod_ref(ref="ch0", pivot_ref="ghost")
+    with pytest.raises(ValidationError, match="not found inside the embedded tree"):
+        pivot_offset(node, child, {"ch0": child})
+
+
+def test_module_layout_pivot_ref_equivalent_to_manual_pivot_xy():
+    """End-to-end: a module using pivot-ref="d0" lays out IDENTICALLY to the
+    same module using the manually-computed pivot-xy for d0's local position
+    — pivot-ref is sugar over the same geometry, not a different mechanism."""
+    child = _leaf_tree("ch0", [_node_dc(ref="d0", xy=(1.0, 2.0)),
+                              _node_dc(ref="d1", xy=(4.0, -3.0))])
+    by_ref = _leaf_tree("p", [_mod_ref(ref="ch0", xy=(10.0, 0.0), rotation=30.0,
+                                       pivot_ref="d0")])
+    by_xy = _leaf_tree("p", [_mod(ref="ch0", xy=(10.0, 0.0), rotation=30.0,
+                                  pivot_xy=(1.0, 2.0))])
+    out_ref = layout_tree_from_base(by_ref, _ORIGIN, 0.0, {"ch0": child})
+    out_xy = layout_tree_from_base(by_xy, _ORIGIN, 0.0, {"ch0": child})
+    assert out_ref == out_xy
+
+
+def test_module_pivot_ref_reaches_through_nested_module_geometry():
+    """A pivot-ref may land on a ref reachable only through a NESTED module's
+    own referenced tree (mirrors test_module_nested_layout_a_b_c's shape) —
+    pivot resolution uses the SAME recursive layout as the outer walk, so it
+    sees exactly what the outer walk would eventually place."""
+    c = _leaf_tree("c", [_node_dc(ref="d0", xy=(1.0, 0.0))])
+    b = _leaf_tree("b", [_mod(ref="c", xy=(2.0, 0.0))])  # b embeds c, pivot 0
+    a = _leaf_tree("a", [_mod_ref(ref="b", xy=(10.0, 0.0), pivot_ref="d0")])
+    out = layout_tree_from_base(a, _ORIGIN, 0.0, {"b": b, "c": c})
+    # d0's position inside a standalone "b" (pivot 0) is (2+1, 0) = (3, 0) —
+    # that becomes the pivot, so eff_pos = marker(10,0) - (3,0) = (7,0), and
+    # d0 lands back on the marker exactly (the pivot invariant, same as
+    # test_module_pivot_lands_exactly_on_marker_with_rotation).
+    assert _mm(out["d0"][0]) == (10.0, 0.0)
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Module-aware forest planner — plan 2026-09-02 P3 п.1/1a, design P3
 # D2/D3/D4 (recursive module linking D1 is covered in test_link_trees.py).

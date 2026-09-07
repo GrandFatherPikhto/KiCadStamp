@@ -3884,6 +3884,41 @@ msgstr "Pivot (в системе координат дерева-ребёнка)
 msgid "From child node..."
 msgstr "Взять offset узла ребёнка..."
 
+#: gui/docks/trees_dock.py:2422
+msgid ""
+"Compute a static pivot-xy from a node's CURRENT position — a one-time "
+"snapshot, does not track later changes to the referenced tree."
+msgstr ""
+"Вычислить статичный pivot-xy по ТЕКУЩЕЙ позиции узла — разовый снимок, не "
+"отслеживает последующие изменения встраиваемого дерева."
+
+#: gui/docks/trees_dock.py:2436
+msgid "Pivot by ref..."
+msgstr "Закрепить pivot за узлом..."
+
+#: gui/docks/trees_dock.py:2438
+msgid ""
+"Pin the pivot to a node's ref, re-resolved live at every redraw — unlike "
+"'From child node...' above, this follows the referenced tree if its "
+"internal layout changes later."
+msgstr ""
+"Закрепить pivot за ref узла — разрешается заново при каждой перерисовке, в "
+"отличие от «Взять offset узла ребёнка...» выше, который следует за "
+"встраиваемым деревом при изменении его внутренней раскладки."
+
+#: gui/docks/trees_dock.py:2822
+msgid "(none — use XY/Polar)"
+msgstr "(нет — использовать XY/Polar)"
+
+#: gui/docks/trees_dock.py:2827
+msgid "Pivot by ref"
+msgstr "Pivot по ref"
+
+#: gui/docks/trees_dock.py:2839
+#, python-brace-format
+msgid "Pivot ref: {ref}"
+msgstr "Pivot ref: {ref}"
+
 #: gui/docks/trees_dock.py:1932
 msgid "0"
 msgstr ""
@@ -6621,12 +6656,54 @@ msgstr ""
 msgid "node {ref!r}: xy and polar are mutually exclusive (use exactly one)"
 msgstr "Якорь: Ref и Role взаимоисключающие — задайте одно."
 
-#: kicadstamp/trees.py:283
+#: kicadstamp/trees.py:297
 #, python-brace-format
 msgid ""
-"node {ref!r}: pivot-xy and pivot-polar are mutually exclusive (use "
-"exactly one)"
-msgstr "узел {ref!r}: pivot-xy и pivot-polar взаимоисключающие (задайте одно)"
+"node {ref!r}: pivot-xy, pivot-polar and pivot-ref are mutually exclusive "
+"(use at most one)"
+msgstr ""
+"узел {ref!r}: pivot-xy, pivot-polar и pivot-ref взаимоисключающие (задайте "
+"не более одного)"
+
+#: kicadstamp/trees.py:633
+#, python-brace-format
+msgid "node {ref!r}: pivot_ref must be a string"
+msgstr "узел {ref!r}: pivot_ref должен быть строкой"
+
+#: kicadstamp/trees.py:635
+#, python-brace-format
+msgid ""
+"node {ref!r}: pivot_xy, pivot_polar and pivot_ref are mutually exclusive "
+"(use at most one)"
+msgstr ""
+"узел {ref!r}: pivot_xy, pivot_polar и pivot_ref взаимоисключающие (задайте "
+"не более одного)"
+
+#: kicadstamp/link_trees.py:284
+#, python-brace-format
+msgid ""
+"module node embedding {tree!r}: pivot-ref {pivot_ref!r} is not found "
+"inside it"
+msgstr ""
+"узел-модуль, встраивающий {tree!r}: pivot-ref {pivot_ref!r} не найден "
+"внутри него"
+
+#: kicadstamp/tree_position.py:208
+#, python-brace-format
+msgid ""
+"node {ref!r}: pivot-ref {pivot_ref!r} needs the referenced tree to resolve"
+msgstr ""
+"узел {ref!r}: pivot-ref {pivot_ref!r} требует встраиваемое дерево для "
+"разрешения"
+
+#: kicadstamp/tree_position.py:215
+#, python-brace-format
+msgid ""
+"node {ref!r}: pivot-ref {pivot_ref!r} not found inside the embedded tree "
+"{tree_name!r}"
+msgstr ""
+"узел {ref!r}: pivot-ref {pivot_ref!r} не найден внутри встраиваемого "
+"дерева {tree_name!r}"
 
 #: kicadstamp/trees.py:316
 #, python-brace-format

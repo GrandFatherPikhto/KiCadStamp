@@ -115,6 +115,17 @@ class TreeNode:
     # tree-anchor-only concepts). None (default) = today's behaviour unchanged
     # (offset from the parent / the tree's anchor for a top-level node).
     own_anchor: TreeAnchor | None = None
+    # Module node only (kind "module", 2026-09-07 design_2026_09_07_module_
+    # pivot_by_ref.md): a THIRD pivot source, mutually exclusive with
+    # pivot_xy/pivot_polar — names a node's `ref` INSIDE the referenced tree
+    # whose LIVE-resolved position must land on the marker, instead of a raw
+    # number typed by hand. Fixes the one place in the tree grammar where
+    # "where do we position from" was a bare coordinate instead of an
+    # identity, unlike TreeAnchor/own_anchor (ref/role+sheet+cluster+pad/
+    # point/origin) everywhere else. Resolved in tree_position.pivot_offset()
+    # by laying the referenced tree out from a bare (0,0)/0 base and reading
+    # this ref's position back — see that function's docstring.
+    pivot_ref: str | None = None
 
 
 @dataclass
@@ -275,13 +286,16 @@ def _parse_node(node, seen_refs: set[str], location: str) -> TreeNode:
                  "(use exactly one)").format(ref=ref))
 
     # Module node: pivot point inside the referenced tree (default (0,0) = its
-    # own origin). pivot-xy/pivot-polar mutually exclusive, independent of the
-    # node's own xy/polar.
+    # own origin). pivot-xy/pivot-polar/pivot-ref mutually exclusive,
+    # independent of the node's own xy/polar (2026-09-07: pivot-ref added,
+    # design_2026_09_07_module_pivot_by_ref.md).
     pivot_xy = _parse_offset(node, "pivot-xy")
     pivot_polar = _parse_offset(node, "pivot-polar")
-    if pivot_xy is not None and pivot_polar is not None:
-        _fatal(_("node {ref!r}: pivot-xy and pivot-polar are mutually exclusive "
-                 "(use exactly one)").format(ref=ref))
+    raw_pivot_ref = atom(node, "pivot-ref")
+    pivot_ref = sval(raw_pivot_ref) if raw_pivot_ref is not None else None
+    if sum(v is not None for v in (pivot_xy, pivot_polar, pivot_ref)) > 1:
+        _fatal(_("node {ref!r}: pivot-xy, pivot-polar and pivot-ref are mutually "
+                 "exclusive (use at most one)").format(ref=ref))
 
     child_nodes = children(node, "node")
     parsed_children = [
@@ -301,6 +315,7 @@ def _parse_node(node, seen_refs: set[str], location: str) -> TreeNode:
         children=parsed_children,
         pivot_xy=pivot_xy,
         pivot_polar=pivot_polar,
+        pivot_ref=pivot_ref,
         own_anchor=_parse_own_anchor(node),
     )
 
@@ -383,6 +398,8 @@ def _node_to_sexp(node: TreeNode) -> list:
         out.append([sym("pivot-xy"), node.pivot_xy[0], node.pivot_xy[1]])
     elif node.pivot_polar is not None:
         out.append([sym("pivot-polar"), node.pivot_polar[0], node.pivot_polar[1]])
+    elif node.pivot_ref is not None:
+        out.append([sym("pivot-ref"), node.pivot_ref])
     if node.own_anchor is not None:
         # A node's own anchor serializes as a nested (anchor ...) child with
         # the SAME role shape as a tree-level role anchor (plan
@@ -504,6 +521,8 @@ def _node_to_dict(node: TreeNode) -> dict:
         out["pivot_xy"] = [node.pivot_xy[0], node.pivot_xy[1]]
     elif node.pivot_polar is not None:
         out["pivot_polar"] = [node.pivot_polar[0], node.pivot_polar[1]]
+    elif node.pivot_ref is not None:
+        out["pivot_ref"] = node.pivot_ref
     if node.own_anchor is not None:
         # A node's own anchor in the dict node shape — role-only (mirror of
         # the s-expr (anchor ...) child of a node), written explicitly so a
@@ -609,9 +628,12 @@ def _dict_node(data: dict, seen_refs: set[str], location: str) -> TreeNode:
 
     pivot_xy = _dict_offset(data, "pivot_xy", location)
     pivot_polar = _dict_offset(data, "pivot_polar", location)
-    if pivot_xy is not None and pivot_polar is not None:
-        _fatal(_("node {ref!r}: pivot_xy and pivot_polar are mutually exclusive "
-                 "(use exactly one)").format(ref=ref))
+    pivot_ref = data.get("pivot_ref")
+    if pivot_ref is not None and not isinstance(pivot_ref, str):
+        _fatal(_("node {ref!r}: pivot_ref must be a string").format(ref=ref))
+    if sum(v is not None for v in (pivot_xy, pivot_polar, pivot_ref)) > 1:
+        _fatal(_("node {ref!r}: pivot_xy, pivot_polar and pivot_ref are mutually "
+                 "exclusive (use at most one)").format(ref=ref))
 
     raw_rotation = data.get("rotation")
     if raw_rotation is not None and not isinstance(raw_rotation, (int, float)):
@@ -628,6 +650,7 @@ def _dict_node(data: dict, seen_refs: set[str], location: str) -> TreeNode:
         children=[_dict_node(c, seen_refs, f"{location}.node") for c in data.get("children") or []],
         pivot_xy=pivot_xy,
         pivot_polar=pivot_polar,
+        pivot_ref=pivot_ref,
         own_anchor=_dict_own_anchor(data, location),
     )
 

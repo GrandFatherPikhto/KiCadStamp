@@ -533,6 +533,56 @@ def test_module_cycle_is_fatal(tmp_path):
         link_trees(cfg, trees)
 
 
+# ── module pivot-ref (2026-09-07, design_2026_09_07_module_pivot_by_ref.md) ─
+
+def test_module_pivot_ref_found_inside_embedded_tree_links_ok(tmp_path):
+    """A pivot-ref naming a real node ref inside the embedded tree links
+    without error (structural existence only — no live board here)."""
+    cfg = _cfg()
+    trees = _tree(
+        '(tree (name "ch0") (anchor (origin))\n'
+        '  (node (ref "CL_A") (kind clone) (xy 0 0)))\n'
+        '(tree (name "p1") (anchor (origin))\n'
+        '  (node (ref "ch0") (kind module) (xy 1 2) (pivot-ref "CL_A")))',
+        tmp_path=tmp_path)
+    linked = link_trees(cfg, trees)  # must not raise
+    by_name = {lt.name: lt for lt in linked}
+    assert by_name["p1"].nodes[0].node.pivot_ref == "CL_A"
+
+
+def test_module_pivot_ref_not_found_inside_embedded_tree_is_fatal(tmp_path):
+    """A pivot-ref naming something NOT inside the referenced tree (typo, or a
+    ref from a DIFFERENT tree) is a config fatal at link time — the same
+    "fatal at Save, never a silent wrong position" discipline as unknown
+    module targets."""
+    cfg = _cfg()
+    trees = _tree(
+        '(tree (name "ch0") (anchor (origin))\n'
+        '  (node (ref "CL_A") (kind clone) (xy 0 0)))\n'
+        '(tree (name "p1") (anchor (origin))\n'
+        '  (node (ref "ch0") (kind module) (xy 1 2) (pivot-ref "CL_B")))',
+        tmp_path=tmp_path)
+    with pytest.raises(ValidationError, match="pivot-ref 'CL_B' is not found inside it"):
+        link_trees(cfg, trees)
+
+
+def test_module_pivot_ref_reaches_through_nested_module(tmp_path):
+    """A pivot-ref may name a ref that lives inside a NESTED module's own
+    referenced tree — pivot-ref's search space mirrors tree_position.
+    layout_tree_from_base's full recursive traversal, not just the immediate
+    tree's own top-level nodes."""
+    cfg = _cfg()
+    trees = _tree(
+        '(tree (name "inner") (anchor (origin))\n'
+        '  (node (ref "CL_A") (kind clone) (xy 0 0)))\n'
+        '(tree (name "ch0") (anchor (origin))\n'
+        '  (node (ref "inner") (kind module) (xy 0 0)))\n'
+        '(tree (name "p1") (anchor (origin))\n'
+        '  (node (ref "ch0") (kind module) (xy 1 2) (pivot-ref "CL_A")))',
+        tmp_path=tmp_path)
+    link_trees(cfg, trees)  # must not raise
+
+
 # ── module_linked: recursive CONTENT linking (2026-09-02, plan P3a / design
 #    P3 D1) ─────────────────────────────────────────────────────────────────
 

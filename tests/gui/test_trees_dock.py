@@ -2635,6 +2635,134 @@ def test_node_dialog_module_prefill_round_trips_pivot(main_window, tmp_path):
     assert node.xy == (10.0, 5.0)
 
 
+def test_node_dialog_pivot_by_ref_sets_pivot_ref_and_clears_xy_polar(
+        main_window, tmp_path, monkeypatch):
+    """2026-09-07 design_2026_09_07_module_pivot_by_ref.md: picking a node via
+    'Pivot by ref...' stores TreeNode.pivot_ref and clears any typed pivot_xy/
+    pivot_polar (the three pivot sources are mutually exclusive)."""
+    from PyQt6.QtWidgets import QInputDialog
+
+    dock, _root = _module_dock(main_window, tmp_path)
+    fpga = _tree_of(dock, "fpga")
+    dlg = _NodeDialog(dock, [], set(), "Add child", tree=fpga,
+                      module_candidates=["ch0_dac_buf", "dac_x"],
+                      all_trees=dock._trees)
+    idx = dlg.kind_combo.findData("module")
+    dlg.kind_combo.setCurrentIndex(idx)
+    dlg.ref_combo.setCurrentText("ch0_dac_buf")
+    # A module marker always has its own (marker) offset in the parent.
+    dlg.offset_widget.x_edit.setText("10.0")
+    dlg.offset_widget.y_edit.setText("5.0")
+    dlg.pivot_widget.load(x=1.5, y=-2.0)  # a stale manual pivot, to be cleared
+
+    monkeypatch.setattr(QInputDialog, "getItem",
+                        staticmethod(lambda *a, **k: ("D0", True)))
+    dlg._on_pick_pivot_ref()
+
+    assert dlg._pivot_ref == "D0"
+    assert dlg.pivot_widget.x_edit.text() == ""
+    assert dlg.pivot_widget.y_edit.text() == ""
+    assert "D0" in dlg.pivot_ref_status_label.text()
+
+    node = dlg.build_node()
+    assert node is not None
+    assert node.pivot_ref == "D0"
+    assert node.pivot_xy is None
+    assert node.pivot_polar is None
+
+
+def test_node_dialog_pivot_by_ref_none_sentinel_clears_existing_ref(
+        main_window, tmp_path, monkeypatch):
+    """Picking the leading '(none — use XY/Polar)' sentinel cancels an
+    already-active pivot-ref, going back to manual pivot_xy/pivot_polar."""
+    from PyQt6.QtWidgets import QInputDialog
+    from kicadstamp.i18n import _
+
+    dock, _root = _module_dock(main_window, tmp_path)
+    fpga = _tree_of(dock, "fpga")
+    dlg = _NodeDialog(dock, [], set(), "Add child", tree=fpga,
+                      module_candidates=["ch0_dac_buf", "dac_x"],
+                      all_trees=dock._trees)
+    idx = dlg.kind_combo.findData("module")
+    dlg.kind_combo.setCurrentIndex(idx)
+    dlg.ref_combo.setCurrentText("ch0_dac_buf")
+    # _NodeDialog.__getattr__ only proxies GETS to the embedded form, not
+    # assignments — `dlg._pivot_ref = ...` would shadow it with a plain
+    # attribute on the dialog itself. Set it on the real owner.
+    dlg._form._pivot_ref = "D0"
+    dlg._update_pivot_ref_label()
+
+    none_label = _("(none — use XY/Polar)")
+    monkeypatch.setattr(QInputDialog, "getItem",
+                        staticmethod(lambda *a, **k: (none_label, True)))
+    dlg._on_pick_pivot_ref()
+
+    assert dlg._pivot_ref is None
+    assert dlg.pivot_ref_status_label.text() == ""
+
+
+def test_node_dialog_pivot_widget_edit_clears_pivot_ref(main_window, tmp_path):
+    """Typing directly into Pivot X/Y after picking a ref cancels the ref —
+    the two pivot sources must never both silently apply."""
+    dock, _root = _module_dock(main_window, tmp_path)
+    fpga = _tree_of(dock, "fpga")
+    dlg = _NodeDialog(dock, [], set(), "Add child", tree=fpga,
+                      module_candidates=["ch0_dac_buf", "dac_x"],
+                      all_trees=dock._trees)
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("module"))
+    # _NodeDialog.__getattr__ only proxies GETS to the embedded form, not
+    # assignments — `dlg._pivot_ref = ...` would shadow it with a plain
+    # attribute on the dialog itself. Set it on the real owner.
+    dlg._form._pivot_ref = "D0"
+    dlg._update_pivot_ref_label()
+
+    dlg.pivot_widget.x_edit.setText("3")
+
+    assert dlg._pivot_ref is None
+    assert dlg.pivot_ref_status_label.text() == ""
+
+
+def test_node_dialog_pivot_by_ref_no_nodes_warns(main_window, tmp_path, monkeypatch):
+    """Picking pivot-by-ref against a childless tree warns instead of opening
+    an empty picker or crashing — mirrors 'From child node...''s own guard."""
+    import gui.docks.trees_dock as td_mod
+
+    dock, _root = _module_dock(main_window, tmp_path)
+    fpga = _tree_of(dock, "fpga")
+    dlg = _NodeDialog(dock, [], set(), "Add child", tree=fpga,
+                      module_candidates=["ch0_dac_buf", "dac_x"],
+                      all_trees=dock._trees)
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("module"))
+    dlg.ref_combo.setCurrentText("dac_x")  # MODULE_TREES: dac_x has NO nodes
+
+    shown = []
+    monkeypatch.setattr(td_mod.QMessageBox, "warning",
+                        lambda *a, **k: shown.append(a))
+    dlg._on_pick_pivot_ref()
+
+    assert len(shown) == 1
+    assert dlg._pivot_ref is None
+
+
+def test_node_dialog_module_prefill_round_trips_pivot_ref(main_window, tmp_path):
+    """pivot_ref survives an Edit open/rebuild, same as pivot_xy/pivot_polar
+    (test_node_dialog_module_prefill_round_trips_pivot)."""
+    dock, _root = _module_dock(main_window, tmp_path)
+    fpga = _tree_of(dock, "fpga")
+    existing = TreeNode(ref="ch0_dac_buf", kind="module", xy=(10.0, 5.0),
+                        polar=None, rotation=0.0, name=None, group=None,
+                        pivot_ref="D0")
+    dlg = _NodeDialog(dock, [], set(), "Edit node", tree=fpga, existing=existing,
+                      module_candidates=["ch0_dac_buf"], all_trees=dock._trees)
+    assert dlg._pivot_ref == "D0"
+    assert "D0" in dlg.pivot_ref_status_label.text()
+    node = dlg.build_node()
+    assert node is not None
+    assert node.pivot_ref == "D0"
+    assert node.pivot_xy is None
+    assert node.pivot_polar is None
+
+
 def test_prompt_node_module_ref_not_auto_numbered(main_window, tmp_path, monkeypatch):
     """P4 п.1a: a NEW module node's ref (a child tree name) is NEVER
     auto-numbered to ref_1 — it is chosen from the tree-name list, not a
