@@ -96,6 +96,18 @@ _KIND_TAGS = {
     "module": _("tree"),
 }
 
+# Node kinds the per-node Redraw button can actually place — a record kind
+# ApplyPipeline's --only can resolve by name. module/external/point nodes
+# have NO backing config record (module's ref is a TREE name, external/point
+# are live-board-only bases) — `only=[ref]` for one of these always fails
+# with "--only: names not found" deep inside ApplyPipeline. Shared by
+# _NodeDialog._update_redraw_state (modal Edit) and TreesDock._form_action_row
+# (master-detail Node tab) so the two Redraw buttons can never drift out of
+# sync again (found live 2026-09-07: the master-detail button had no guard at
+# all — clicking Redraw on a module node crashed run_single_node_redraw_worker).
+_REDRAWABLE_NODE_KINDS = frozenset(
+    {"placement", "clone", "chain", "rule", "coordinate", "net_trace"})
+
 
 def _anchor_label(anchor: TreeAnchor) -> str:
     """Human-readable label for a tree's anchor pseudo-root — one branch per
@@ -1116,6 +1128,21 @@ class TreesDock(QDockWidget):
         row.addWidget(redraw_btn)
         row.addStretch(1)
         lay.addLayout(row)
+        # A NodeFormWidget's Redraw only makes sense for a record kind
+        # ApplyPipeline can re-place by name (_REDRAWABLE_NODE_KINDS) — same
+        # guard _NodeDialog's modal Redraw button has (_update_redraw_state).
+        # This embedded row lacked it entirely until 2026-09-07 (found live:
+        # clicking Redraw on a module node crashed run_single_node_redraw_
+        # worker with "--only: names not found" — module/external/point nodes
+        # have no backing config record). AnchorFormWidget has no kind_combo —
+        # its own Redraw is a different mechanism, untouched here.
+        if isinstance(form, NodeFormWidget):
+            def _sync_redraw_enabled() -> None:
+                kind = form.kind_combo.currentData()
+                redraw_btn.setEnabled(form._dock is not None
+                                      and kind in _REDRAWABLE_NODE_KINDS)
+            form.kind_combo.currentIndexChanged.connect(_sync_redraw_enabled)
+            _sync_redraw_enabled()
         return page
 
     def _build_anchor_form(self, tree: Tree) -> "AnchorFormWidget":
@@ -3039,14 +3066,15 @@ class _NodeDialog(QDialog):
     def _update_redraw_state(self) -> None:
         """Phase B: Redraw only makes sense in EDIT mode with a dock (live board
         + config) and a record kind ApplyPipeline can re-place by name — a
-        module marker, an external live refdes or an auto node cannot."""
+        module marker, an external live refdes or an auto node cannot
+        (_REDRAWABLE_NODE_KINDS, shared with the master-detail Node tab's own
+        Redraw button — see _form_action_row)."""
         redraw = getattr(self, "redraw_button", None)
         if redraw is None:
             return
         kind = self._form.kind_combo.currentData()
         redraw.setEnabled(self._form._dock is not None
-                          and kind in ("placement", "clone", "chain", "rule",
-                                       "coordinate", "net_trace"))
+                          and kind in _REDRAWABLE_NODE_KINDS)
 
     def _on_apply(self) -> bool:
         """Edit-mode Apply: delegate to the form's apply() (Phase B — mutates

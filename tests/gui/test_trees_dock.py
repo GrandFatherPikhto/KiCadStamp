@@ -351,6 +351,20 @@ def _embedded_form(page):
     return item.widget() if item is not None else None
 
 
+def _embedded_redraw_button(page):
+    """The master-detail Redraw QPushButton inside a _form_action_row wrapper
+    page — the row's second QHBoxLayout item (Apply is itemAt(0))."""
+    lay = page.layout()
+    if lay is None:
+        return None
+    row_item = lay.itemAt(1)
+    row = row_item.layout() if row_item is not None else None
+    if row is None:
+        return None
+    btn_item = row.itemAt(1)
+    return btn_item.widget() if btn_item is not None else None
+
+
 def test_master_detail_right_panel_has_fixed_anchor_and_node_tabs(main_window, tmp_path):
     """§3.1/§3.2: each real-tree page is a QSplitter — the tree on the left, a
     fixed two-tab (Anchor/Node) QTabWidget on the right. The Anchor tab is
@@ -2838,6 +2852,67 @@ def test_master_detail_module_node_apply_copies_pivot(main_window, tmp_path):
     assert node.pivot_xy == (3.0, 4.0)
     assert node.pivot_polar is None
     assert dock._dirty is True
+
+
+def test_master_detail_redraw_button_disabled_for_module_node(main_window, tmp_path):
+    """2026-09-07 live bug: the master-detail Node tab's own Redraw button
+    (_form_action_row) had NO kind guard at all — unlike the modal _NodeDialog
+    (_update_redraw_state) — so clicking Redraw on a module node reached
+    run_single_node_redraw_worker with only=[<tree name>], which ApplyPipeline
+    can never resolve ("--only: names not found", since a module node's ref is
+    an embedded TREE's name, not a config record). Fixed by sharing
+    _REDRAWABLE_NODE_KINDS between both Redraw buttons."""
+    dock, _root = _module_dock(main_window, tmp_path)
+    fpga = _tree_of(dock, "fpga")
+    module_node = fpga.nodes[0]  # ref "ch0_dac_buf", kind "module"
+    dock.tree_tabs.setCurrentIndex(dock._trees.index(fpga))
+    tree_widget = dock._tree_widget_of_page(dock.tree_tabs.currentWidget())
+    tree_widget.expandAll()
+
+    tree_widget.setCurrentItem(dock._node_items[module_node.ref])
+    page = dock._active_form_tabs().widget(1)
+    form = _embedded_form(page)
+    assert isinstance(form, NodeFormWidget)
+    assert form.kind_combo.currentData() == "module"
+    redraw_btn = _embedded_redraw_button(page)
+    assert redraw_btn.isEnabled() is False
+
+
+def test_master_detail_redraw_button_enabled_for_placement_node(main_window, tmp_path):
+    """Regression guard for the fix above: a normal record-backed kind (here
+    "placement") must still get an ENABLED Redraw button — the new guard must
+    not accidentally disable everything."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
+    nodes = _children(_children(tree_widget.invisibleRootItem())[0])
+    tree_widget.setCurrentItem(nodes[0])
+    page = dock._active_form_tabs().widget(1)
+    form = _embedded_form(page)
+    assert isinstance(form, NodeFormWidget)
+    assert form.kind_combo.currentData() in ("placement", "clone")
+    redraw_btn = _embedded_redraw_button(page)
+    assert redraw_btn.isEnabled() is True
+
+
+def test_master_detail_redraw_button_tracks_live_kind_changes(main_window, tmp_path):
+    """The master-detail Redraw button must re-evaluate when the user changes
+    Kind live in the form — not just once at construction (a stale enabled
+    state would let the module-node crash back in through an edit)."""
+    dock, _root = _module_dock(main_window, tmp_path)
+    fpga = _tree_of(dock, "fpga")
+    module_node = fpga.nodes[0]  # ref "ch0_dac_buf", kind "module"
+    dock.tree_tabs.setCurrentIndex(dock._trees.index(fpga))
+    tree_widget = dock._tree_widget_of_page(dock.tree_tabs.currentWidget())
+    tree_widget.expandAll()
+    tree_widget.setCurrentItem(dock._node_items[module_node.ref])
+    page = dock._active_form_tabs().widget(1)
+    form = _embedded_form(page)
+    redraw_btn = _embedded_redraw_button(page)
+    assert redraw_btn.isEnabled() is False
+
+    idx = form.kind_combo.findData("placement")
+    form.kind_combo.setCurrentIndex(idx)
+    assert redraw_btn.isEnabled() is True
 
 
 def test_render_tree_shows_module_tag(main_window, tmp_path):
