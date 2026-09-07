@@ -1114,18 +1114,19 @@ Config side lives on two pages of the Config dock's right QView: the read-only *
 
 Captures a named Scheme List from the live board through a **two-tab** dialog:
 
-- **"By sheet" (primary, the default tab)** — pick a ROOT sheet from the live hierarchy; under it a
-  REAL sub-sheet TREE (QTreeWidget, Commit C + Commit D) of every sheet under that root (the root
-  itself included), ALL CHECKED by default. Each node's checkbox is a BRANCH toggle: checking a sheet
-  turns on every sheet under it, unchecking excludes the whole subtree at once; a parent whose
-  sub-sheets are in a MIXED state shows a partial checkbox and is itself still read (its own DIRECT
-  footprints stay in the capture — only the unchecked nodes are excluded). The tree is hidden when the
-  chosen root has no sub-sheets. Intermediate sheets with no footprints of their own appear as
-  non-checkable grey branches so a nested sheet never hangs without its parent; every node's tooltip
-  shows its full "/"-joined path. The captured refs are the union of the DIRECT footprints of every
-  sheet that is not unchecked. NO anchor is picked here
-  (design_2026_09_07_scheme_list_pivot.md): the record's frame is the captured region's CENTRE and its
-  pivot defaults to that centre.
+- **"By sheet" (primary, the default tab)** — the WHOLE live hierarchy as ONE tree (QTreeWidget,
+  Commit E): every real sheet is a checkable node — the top sheets first (Channel_0/1/2, FPGA, MCU,
+  Power…), nested under their parents down to the deepest sheets. Container sheets with no footprints
+  of their own (e.g. Channel_0 grouping DAC/OpAmp) are included, so the tree mirrors the schematic
+  instead of a flat list of leaf paths. ALL sheets start UNCHECKED — you tick what to record. A
+  node's checkbox is a BRANCH toggle (Commit D): checking a sheet turns on its whole subtree (tick
+  Channel_0 → DAC/OpAmp follow), unchecking excludes the whole subtree; a parent with a MIXED subtree
+  shows a partial checkbox and is itself still read (its own DIRECT footprints stay in the capture —
+  only the unchecked nodes are excluded). Container paths are stored in the scope too (they add no
+  refs today but keep a future Reread aware of the branch). Every node's tooltip shows its full
+  "/"-joined path. The captured refs are the union of the DIRECT footprints of every sheet that is not
+  unchecked. NO anchor is picked here (design_2026_09_07_scheme_list_pivot.md): the record's frame is
+  the captured region's CENTRE and its pivot defaults to that centre.
 - **"By selection" (secondary)** — the pre-existing mode: the refs are the CURRENT board selection
   (shown read-only with a count), kept for irregular regions that do not line up with sheet boundaries.
 

@@ -15408,3 +15408,7 @@ msgstr ""
 
 msgid "Pivot taken from the board selection — press Apply to save it."
 msgstr ""
+
+# plan_2026_09_07_scheme_list_by_sheet_full_tree.md - Commit E full-hierarchy By-sheet tree
+msgid "Sheets (check what to record):"
+msgstr ""

@@ -30,6 +30,7 @@ from gui.docks.scheme_list import (
     RecordSchemeListDialog,
     SchemeListDiffDialog,
     SchemeListFormWidget,
+    all_sheet_paths,
     boundary_net_rows,
     choose_boundary_actions,
     default_scheme_list_path,
@@ -1389,6 +1390,29 @@ def test_all_checked_rows_union_matches_naive_prefix_filter():
     assert "C4" not in union  # the Other sheet stays outside the subtree
 
 
+# ── Commit E — all_sheet_paths (full hierarchy incl. container sheets) ─────
+
+def test_all_sheet_paths_includes_container_sheets_as_prefixes():
+    """Channel_0 carries no footprint of its own but has DAC/OpAmp below — it
+    MUST still appear (as a prefix) so the By-sheet tree can show the hierarchy
+    (the live-board case: 9 leaf paths, containers missing -> flat combobox)."""
+    snapshot = _snap(("U1", ("Ch0", "DAC")), ("U2", ("Ch0", "OpAmp")))
+    assert all_sheet_paths(snapshot) == [("Ch0",), ("Ch0", "DAC"),
+                                         ("Ch0", "OpAmp")]
+
+
+def test_all_sheet_paths_matches_live_paths_when_every_container_has_refs():
+    snapshot = _snap(*_HIER)
+    # Here Top/Ch0 already have footprints, so prefixes add nothing new.
+    assert all_sheet_paths(snapshot) == live_sheet_paths(snapshot)
+
+
+def test_all_sheet_paths_skips_unresolved_and_empty():
+    assert all_sheet_paths([]) == []
+    snapshot = _snap(("R1", ("Top", None)), ("X1", (None,)))
+    assert all_sheet_paths(snapshot) == []
+
+
 # ── 5a.3 — RecordSchemeListDialog (two tabs, NO anchor pick) ───────────────
 
 def test_record_dialog_two_tabs_with_by_sheet_default(main_window):
@@ -1399,25 +1423,35 @@ def test_record_dialog_two_tabs_with_by_sheet_default(main_window):
     assert dialog.is_by_sheet()
 
 
-def test_record_dialog_by_sheet_leaf_hides_checklist_and_uses_root_refs(main_window):
+def test_record_dialog_by_sheet_defaults_unchecked_ok_disabled_until_tick(main_window):
+    """Commit E: EVERY sheet starts UNCHECKED (you tick what to record) — OK is
+    disabled until at least one sheet is marked; marking a sheet captures its
+    DIRECT refs."""
     snapshot = _snap(("R1", ("Top",)), ("C1", ("Top",)))
     dialog = RecordSchemeListDialog(snapshot, [], main_window)
-    assert dialog.sheet_combo.count() == 1
-    assert not dialog._root_has_subsheets   # leaf -> nothing to prune
+    assert dialog._checked_sheet_paths() == []
+    assert dialog._checked_refs() == []
+    assert not dialog._ok_button.isEnabled()
+    top = _tree_item_by_path(dialog, ("Top",))
+    top.setCheckState(0, Qt.CheckState.Checked)
     assert dialog._checked_sheet_paths() == [("Top",)]
     assert dialog._checked_refs() == ["C1", "R1"]
     assert dialog._ok_button.isEnabled()
 
 
-def test_record_dialog_by_sheet_all_checked_offers_every_subtree_ref(main_window):
+def test_record_dialog_by_sheet_marking_a_top_sheet_marks_its_whole_subtree(main_window):
+    """Commit E + D: marking a top sheet (Top) cascades to its whole subtree —
+    Ch0/Amp/Ch1 become Checked, capture = the whole Top subtree's direct refs."""
     snapshot = _snap(*_HIER)
     dialog = RecordSchemeListDialog(snapshot, [], main_window)
-    # default root is the first sorted sheet ("Other",) — pick "Top" explicitly
-    dialog.sheet_combo.setCurrentText("Top")
-    assert dialog._root_has_subsheets
-    checked = dialog._checked_sheet_paths()
-    assert checked == [("Top",), ("Top", "Ch0"), ("Top", "Ch0", "Amp"),
-                       ("Top", "Ch1")]
+    top = _tree_item_by_path(dialog, ("Top",))
+    top.setCheckState(0, Qt.CheckState.Checked)
+    assert _tree_item_by_path(dialog, ("Top", "Ch0")).checkState(0) \
+        == Qt.CheckState.Checked
+    assert _tree_item_by_path(dialog, ("Top", "Ch0", "Amp")).checkState(0) \
+        == Qt.CheckState.Checked
+    assert dialog._checked_sheet_paths() == [
+        ("Top",), ("Top", "Ch0"), ("Top", "Ch0", "Amp"), ("Top", "Ch1")]
     assert dialog._checked_refs() == ["C1", "C2", "C3", "R1", "U1"]
     assert dialog._ok_button.isEnabled()
 
@@ -1452,46 +1486,30 @@ def _tree_candidate_items(dialog):
 
 
 def test_record_dialog_by_sheet_unchecking_a_parent_drops_the_whole_branch(main_window):
-    """Commit D (tri-state cascade): unchecking Top/Ch0 excludes its WHOLE
-    subtree — Ch0's own C1/C2 AND the nested Amp (U1) — only Top's R1 and
-    Ch1's C3 stay. (Commit C's per-sheet-independent rows were deliberately
-    replaced by the branch toggle.)"""
+    """Commit D/E: unchecking Ch0 (after marking Top) excludes its WHOLE subtree
+    — Ch0's C1/C2 AND the nested Amp (U1); Top stays Partial (Ch1 on) so its own
+    R1 is still read."""
     snapshot = _snap(*_HIER)
     dialog = RecordSchemeListDialog(snapshot, [], main_window)
-    dialog.sheet_combo.setCurrentText("Top")
-    assert dialog._root_has_subsheets
-    ch0 = _tree_item_by_path(dialog, ("Top", "Ch0"))
-    assert ch0 is not None
-    ch0.setCheckState(0, Qt.CheckState.Unchecked)
-    assert _tree_item_by_path(dialog, ("Top", "Ch0", "Amp")).checkState(0) \
-        == Qt.CheckState.Unchecked
-    assert dialog._checked_refs() == ["C3", "R1"]  # Ch0 (C1/C2) + Amp (U1) gone
-    assert ("Top", "Ch0") not in dialog._checked_sheet_paths()
-    assert ("Top", "Ch0", "Amp") not in dialog._checked_sheet_paths()
-
-
-def test_record_dialog_by_sheet_checking_a_parent_checks_the_whole_branch(main_window):
-    """Commit D: re-checking a parent turns on every sheet under it again."""
-    snapshot = _snap(*_HIER)
-    dialog = RecordSchemeListDialog(snapshot, [], main_window)
-    dialog.sheet_combo.setCurrentText("Top")
+    top = _tree_item_by_path(dialog, ("Top",))
+    top.setCheckState(0, Qt.CheckState.Checked)  # whole Top subtree on
     ch0 = _tree_item_by_path(dialog, ("Top", "Ch0"))
     ch0.setCheckState(0, Qt.CheckState.Unchecked)  # branch off (Amp too)
     assert _tree_item_by_path(dialog, ("Top", "Ch0", "Amp")).checkState(0) \
         == Qt.CheckState.Unchecked
-    ch0.setCheckState(0, Qt.CheckState.Checked)    # branch back on
-    assert _tree_item_by_path(dialog, ("Top", "Ch0", "Amp")).checkState(0) \
-        == Qt.CheckState.Checked
-    assert dialog._checked_refs() == ["C1", "C2", "C3", "R1", "U1"]
+    assert dialog._checked_refs() == ["C3", "R1"]  # Top(partial) R1 + Ch1 C3
+    assert ("Top", "Ch0") not in dialog._checked_sheet_paths()
+    assert ("Top", "Ch0", "Amp") not in dialog._checked_sheet_paths()
 
 
 def test_record_dialog_by_sheet_partial_parent_is_still_read(main_window):
-    """Commit D: excluding ONE child leaves its parent PartiallyChecked and the
-    parent is STILL captured (its own direct refs stay in); only the excluded
-    child drops out."""
+    """Commit D/E: excluding ONE child (Amp) leaves Ch0 and Top PartiallyChecked
+    and they are STILL read (their direct refs stay in); only the excluded child
+    drops out."""
     snapshot = _snap(*_HIER)
     dialog = RecordSchemeListDialog(snapshot, [], main_window)
-    dialog.sheet_combo.setCurrentText("Top")
+    top = _tree_item_by_path(dialog, ("Top",))
+    top.setCheckState(0, Qt.CheckState.Checked)  # whole subtree on
     amp = _tree_item_by_path(dialog, ("Top", "Ch0", "Amp"))
     amp.setCheckState(0, Qt.CheckState.Unchecked)
     ch0 = _tree_item_by_path(dialog, ("Top", "Ch0"))
@@ -1503,21 +1521,59 @@ def test_record_dialog_by_sheet_partial_parent_is_still_read(main_window):
     assert dialog._checked_refs() == ["C1", "C2", "C3", "R1"]
 
 
-def test_record_dialog_by_sheet_cascade_passes_through_structural_branch(main_window):
-    """Commit D: toggling a sheet cascades to sheets nested under STRUCTURAL
-    (no-footprint) intermediate branches too (Top <-> structural Sub <-> Leaf)."""
-    snapshot = _snap(("R1", ("Top",)), ("U1", ("Top", "Sub", "Leaf")))
+def test_record_dialog_by_sheet_container_without_own_refs_is_checkable(main_window):
+    """Commit E core case: Ch0 (a top-level sheet) carries NO footprint of its
+    own but has DAC/OpAmp below — it is still a CHECKABLE node; marking it
+    cascades to its sheets (Commit D) and its OWN path is stored in the scope
+    (0 direct refs), while the capture refs come from the marked descendants."""
+    snapshot = _snap(("U_DAC", ("Ch0", "DAC")), ("U_OP", ("Ch0", "OpAmp")))
+    dialog = RecordSchemeListDialog(snapshot, [], main_window)
+    ch0 = _tree_item_by_path(dialog, ("Ch0",))
+    assert ch0 is not None
+    assert (ch0.flags() & Qt.ItemFlag.ItemIsUserCheckable)
+    ch0.setCheckState(0, Qt.CheckState.Checked)  # cascade: DAC/OpAmp on
+    assert _tree_item_by_path(dialog, ("Ch0", "DAC")).checkState(0) \
+        == Qt.CheckState.Checked
+    assert dialog._checked_sheet_paths() == [("Ch0",), ("Ch0", "DAC"),
+                                             ("Ch0", "OpAmp")]
+    assert dialog._checked_refs() == ["U_DAC", "U_OP"]
+    assert dialog._ok_button.isEnabled()
+
+
+def test_record_dialog_by_sheet_top_level_sheets_are_tree_roots(main_window):
+    """Commit E: each TOP-LEVEL sheet is its own root of the single tree (no
+    root combobox any more) — marking one does not touch the other."""
+    snapshot = _snap(*_HIER)
+    dialog = RecordSchemeListDialog(snapshot, [], main_window)
+    roots = [dialog.sheet_tree.topLevelItem(i).data(0, Qt.ItemDataRole.UserRole)
+             for i in range(dialog.sheet_tree.topLevelItemCount())]
+    assert roots == [("Other",), ("Top",)]
+    top = _tree_item_by_path(dialog, ("Top",))
+    top.setCheckState(0, Qt.CheckState.Checked)
+    assert _tree_item_by_path(dialog, ("Other",)).checkState(0) \
+        == Qt.CheckState.Unchecked  # the other root is untouched
+
+
+def test_record_dialog_by_sheet_labels_and_tooltips(main_window):
+    snapshot = _snap(*_HIER)
+    dialog = RecordSchemeListDialog(snapshot, [], main_window)
+    ch0 = _tree_item_by_path(dialog, ("Top", "Ch0"))
+    assert ch0 is not None
+    assert ch0.text(0) == "Ch0"          # leaf label, not the whole path
+    assert ch0.toolTip(0) == "Top/Ch0"   # full path disambiguates
+
+
+def test_record_dialog_by_sheet_unchecking_everything_disables_ok(main_window):
+    snapshot = _snap(*_HIER)
     dialog = RecordSchemeListDialog(snapshot, [], main_window)
     top = _tree_item_by_path(dialog, ("Top",))
-    leaf = _tree_item_by_path(dialog, ("Top", "Sub", "Leaf"))
-    assert top.checkState(0) == Qt.CheckState.Checked
-    assert leaf.checkState(0) == Qt.CheckState.Checked
-    top.setCheckState(0, Qt.CheckState.Unchecked)   # whole subtree off
-    assert leaf.checkState(0) == Qt.CheckState.Unchecked
+    top.setCheckState(0, Qt.CheckState.Checked)  # OK becomes enabled...
+    assert dialog._ok_button.isEnabled()
+    for it in _tree_candidate_items(dialog):     # ...then clear everything
+        it.setCheckState(0, Qt.CheckState.Unchecked)
     assert dialog._checked_sheet_paths() == []
-    top.setCheckState(0, Qt.CheckState.Checked)      # whole subtree back on
-    assert leaf.checkState(0) == Qt.CheckState.Checked
-    assert dialog._checked_sheet_paths() == [("Top",), ("Top", "Sub", "Leaf")]
+    assert dialog._checked_refs() == []
+    assert not dialog._ok_button.isEnabled()
 
 
 def test_record_dialog_branch_state_all_on_all_off_mixed(main_window):
@@ -1542,64 +1598,16 @@ def test_record_dialog_branch_state_all_on_all_off_mixed(main_window):
     assert RecordSchemeListDialog._branch_state(top) == Qt.CheckState.Unchecked
 
 
-def test_record_dialog_by_sheet_unchecking_everything_disables_ok(main_window):
-    snapshot = _snap(*_HIER)
-    dialog = RecordSchemeListDialog(snapshot, [], main_window)
-    dialog.sheet_combo.setCurrentText("Top")
-    for it in _tree_candidate_items(dialog):
-        it.setCheckState(0, Qt.CheckState.Unchecked)
-    assert dialog._checked_sheet_paths() == []
-    assert dialog._checked_refs() == []
-    assert not dialog._ok_button.isEnabled()
-
-
-def test_record_dialog_by_sheet_structural_branch_is_not_checkable(main_window):
-    """Top/Sub has NO footprints of its own -> a grey STRUCTURAL branch (no
-    checkbox, no path data) under which the real Top/Sub/Leaf sheet hangs; only
-    sheets with footprints are candidates in _checked_sheet_paths."""
-    snapshot = _snap(("R1", ("Top",)), ("U1", ("Top", "Sub", "Leaf")))
-    dialog = RecordSchemeListDialog(snapshot, [], main_window)
-    assert dialog._root_has_subsheets
-    sub = _tree_item_by_path(dialog, ("Top", "Sub"))
-    assert sub is not None
-    assert not (sub.flags() & Qt.ItemFlag.ItemIsUserCheckable)
-    assert sub.data(0, Qt.ItemDataRole.UserRole) is None  # structural
-    leaf = _tree_item_by_path(dialog, ("Top", "Sub", "Leaf"))
-    assert leaf is not None
-    assert (leaf.flags() & Qt.ItemFlag.ItemIsUserCheckable)
-    assert dialog._checked_sheet_paths() == [("Top",), ("Top", "Sub", "Leaf")]
-
-
-def test_record_dialog_by_sheet_tree_labels_and_tooltips(main_window):
-    snapshot = _snap(*_HIER)
-    dialog = RecordSchemeListDialog(snapshot, [], main_window)
-    dialog.sheet_combo.setCurrentText("Top")
-    ch0 = _tree_item_by_path(dialog, ("Top", "Ch0"))
-    assert ch0 is not None
-    assert ch0.text(0) == "Ch0"          # leaf label, not the whole path
-    assert ch0.toolTip(0) == "Top/Ch0"   # full path disambiguates
-
-
-def test_record_dialog_by_sheet_mid_root_rebuilds_tree_under_it(main_window):
-    """Picking a mid-level sheet as the root shows only ITS subtree (Ch0 with
-    its Amp child), not the whole Top hierarchy — the root is still a
-    capturable sheet itself."""
-    snapshot = _snap(*_HIER)
-    dialog = RecordSchemeListDialog(snapshot, [], main_window)
-    dialog.sheet_combo.setCurrentText("Top/Ch0")
-    assert dialog._root_has_subsheets
-    assert _tree_item_by_path(dialog, ("Top", "Ch0")) is not None
-    assert _tree_item_by_path(dialog, ("Top",)) is None       # not under Ch0
-    assert _tree_item_by_path(dialog, ("Top", "Ch1")) is None
-    assert dialog._checked_sheet_paths() == [("Top", "Ch0"), ("Top", "Ch0", "Amp")]
-
-
 def test_record_dialog_ok_gated_per_active_tab(main_window):
-    # By sheet has R1; the "By selection" selection is empty.
     snapshot = _snap(("R1", ("Top",)))
     dialog = RecordSchemeListDialog(snapshot, [], main_window)
-    assert dialog.is_by_sheet() and dialog._ok_button.isEnabled()
-    dialog.tabs.setCurrentIndex(1)  # By selection, no selection -> disabled
+    # By sheet: nothing marked yet -> OK off; marking the sheet -> OK on.
+    assert dialog.is_by_sheet()
+    assert not dialog._ok_button.isEnabled()
+    top = _tree_item_by_path(dialog, ("Top",))
+    top.setCheckState(0, Qt.CheckState.Checked)
+    assert dialog._ok_button.isEnabled()
+    dialog.tabs.setCurrentIndex(1)  # By selection, no selection -> off
     assert not dialog.is_by_sheet()
     assert not dialog._ok_button.isEnabled()
 
@@ -2264,6 +2272,10 @@ def test_record_dialog_save_preset_field_is_optional_no_ok_gating(main_window):
     snapshot = _snap(("R1", ("Top",)), ("C1", ("Top",)))
     dialog = RecordSchemeListDialog(snapshot, [], main_window)
     try:
+        # Commit E: sheets start UNCHECKED — mark one so OK gating is on, then
+        # prove the preset field neither enables nor disables it.
+        top = _tree_item_by_path(dialog, ("Top",))
+        top.setCheckState(0, Qt.CheckState.Checked)
         assert dialog.is_by_sheet() and dialog._ok_button.isEnabled()
         dialog.save_preset_edit.setText("anything")
         assert dialog._ok_button.isEnabled()

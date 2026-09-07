@@ -42,7 +42,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QBrush
 from PyQt6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFormLayout,
                              QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
                              QPushButton, QTabWidget, QTreeWidget,
@@ -120,6 +119,27 @@ def live_sheet_paths(snapshot: list) -> list[tuple[str, ...]]:
     sheet" tab's sheet_combo."""
     return sorted({tuple(s.sheet) for s in snapshot
                    if s.sheet and all(seg for seg in s.sheet)})
+
+
+def all_sheet_paths(snapshot: list) -> list[tuple[str, ...]]:
+    """Every REAL sheet of the live hierarchy — sorted distinct FULL paths AND
+    every PREFIX of them (Commit E, plan_2026_09_07_scheme_list_by_sheet_full_
+    tree.md). Unlike `live_sheet_paths` (which returns only the FULL leaf path
+    of each footprint-bearing sheet), this also includes the CONTAINER sheets
+    that carry no footprints of their own but have footprint-bearing
+    sub-sheets — without them the "By sheet" tree can never show the schematic
+    structure (on Denis's board it degenerated into a flat combobox of leaf
+    paths: 9 leaf paths, top-level Channel_0/1/2/FPGA/MCU/Power, 0 parents).
+    A path with an unresolved (None/empty) segment is skipped, as in
+    live_sheet_paths."""
+    paths = set()
+    for s in snapshot:
+        sheet = tuple(s.sheet or [])
+        if not sheet or not all(seg for seg in sheet):
+            continue
+        for i in range(1, len(sheet) + 1):
+            paths.add(sheet[:i])
+    return sorted(paths)
 
 
 def sheet_paths_under(paths: list, root: tuple[str, ...]) -> list[tuple[str, ...]]:
@@ -483,18 +503,16 @@ class RecordSchemeListDialog(QDialog):
     plan_2026_09_06_scheme_list_sheet_capture.md 5a.3 — the same two-tab
     pattern "Instantiate from Cell..." already uses):
 
-      - "By sheet" (DEFAULT tab) — pick a ROOT sheet from the live hierarchy;
-        under it a REAL sub-sheet TREE (QTreeWidget, Commit C + Commit D):
-        every sheet with footprints is one CHECKABLE node (root itself
-        included, nested under its parent; intermediate sheets without
-        footprints show as non-checkable structural branches so a nested sheet
-        never hangs without its parent). All checked by default; a node's
-        checkbox is a BRANCH toggle (Commit D) — checking it turns on every
-        sheet under it, unchecking turns the whole subtree off, and a parent
-        with a MIXED subtree shows PartiallyChecked. A sheet is captured (its
-        DIRECT refs included) whenever it is NOT unchecked — a partially
-        checked sheet (some sub-sheets excluded) is still read. The tree is
-        hidden for a leaf sheet (nothing to prune).
+      - "By sheet" (DEFAULT tab) — the WHOLE live hierarchy as ONE tree
+        (QTreeWidget, Commit E): every real sheet is a CHECKABLE node (top
+        sheets like Channel_0/1/2 first, nested under their parents down to
+        DAC/OpAmp...), container sheets with no footprints of their own
+        included. ALL start UNCHECKED — tick a sheet (its whole subtree
+        follows via the Commit D tri-state cascade: checking Channel_0 turns on
+        DAC/OpAmp, a parent with a mixed subtree shows PartiallyChecked) to
+        record it. A sheet is captured (its DIRECT refs included) whenever it
+        is NOT unchecked; container paths are stored in the scope too (they add
+        no refs today but keep a future Reread aware of the branch).
       - "By selection" (secondary tab) — the pre-existing P2 behavior: the
         CURRENT board selection, unchanged, for irregular cases.
 
@@ -523,12 +541,12 @@ class RecordSchemeListDialog(QDialog):
         else:
             self.setWindowTitle(_("Record Scheme List"))
         self._snapshot = list(snapshot or [])
-        self._sheet_paths = live_sheet_paths(self._snapshot)
+        # FULL live hierarchy — every real sheet incl. containers without own
+        # footprints (all_sheet_paths adds the prefixes), so the "By sheet"
+        # tree reflects the schematic instead of only footprint-bearing leaves
+        # (Commit E, plan_2026_09_07_scheme_list_by_sheet_full_tree.md).
+        self._sheet_paths = all_sheet_paths(self._snapshot)
         self._selection_refs = list(selection_refs or [])
-        # Semantic state: does the CURRENT root have sub-sheets to prune?
-        # Tracked explicitly (not via isVisible) so a never-shown dialog in
-        # tests and the real shown dialog behave identically.
-        self._root_has_subsheets = False
         # Reentrancy guard for the tri-state cascade (Commit D): our own
         # setCheckState calls re-enter itemChanged, so they are no-ops while a
         # cascade is already running.
@@ -563,23 +581,17 @@ class RecordSchemeListDialog(QDialog):
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs)
 
-        # Tab 1 — "By sheet": root sheet combo + sub-sheet TREE + save-preset.
+        # Tab 1 — "By sheet": the WHOLE sheet hierarchy as one tree (Commit E).
         tab1 = QWidget()
         tab1_form = QFormLayout(tab1)
-        self.sheet_combo = QComboBox()
-        for path in self._sheet_paths:
-            self.sheet_combo.addItem("/".join(path), path)
-        tab1_form.addRow(_("Sheet:"), self.sheet_combo)
-        # Sub-sheet HIERARCHY as a real tree (Commit C) with a tri-state BRANCH
-        # toggle (Commit D): one checkable node per sheet with footprints (its
-        # DIRECT refs), nested under its parent; intermediate sheets without
-        # footprints show as non-checkable structural branches. All checked by
-        # default — a node's checkbox turns its whole subtree on/off; a parent
-        # with a mixed subtree shows PartiallyChecked and is still read.
+        # Every real sheet of the live hierarchy is a checkable node (containers
+        # without own footprints included). ALL start UNCHECKED — you tick a
+        # sheet to record it; its whole subtree follows via the Commit D
+        # tri-state cascade. Captured = DIRECT refs of every sheet that is not
+        # unchecked; container paths are stored in the scope too.
         self.sheet_tree = QTreeWidget()
         self.sheet_tree.setHeaderHidden(True)
-        self.sheet_tree.setVisible(False)  # until a root with sub-sheets
-        tab1_form.addRow(_("Sub-sheets (uncheck to exclude):"), self.sheet_tree)
+        tab1_form.addRow(_("Sheets (check what to record):"), self.sheet_tree)
         # Optional "Save as preset" (plan_2026_09_06_scheme_list_named_presets.md
         # §6): the CURRENT checked tree becomes a NAMED preset saved in the
         # record. Fully optional — empty text = nothing saved, zero effect on
@@ -588,7 +600,6 @@ class RecordSchemeListDialog(QDialog):
         self.save_preset_edit.setPlaceholderText(
             _("optional — save this checklist as a named preset (same name overwrites it)"))
         tab1_form.addRow(_("Save as preset:"), self.save_preset_edit)
-        self.sheet_combo.currentIndexChanged.connect(self._rebuild_sheet_tree)
         # Tri-state cascade (Commit D): a sheet click toggles its whole subtree
         # and ancestors re-sync; _sync_ok_state re-gates OK on every change.
         self.sheet_tree.itemChanged.connect(self._on_sheet_item_changed)
@@ -617,7 +628,7 @@ class RecordSchemeListDialog(QDialog):
 
         # OK is gated on a non-empty capturable ref set of the ACTIVE tab.
         self.tabs.currentChanged.connect(self._sync_ok_state)
-        self._rebuild_sheet_tree()  # populate for the default root sheet
+        self._rebuild_sheet_tree()  # build the full hierarchy tree
         self._sync_ok_state()
 
     # ── helpers ─────────────────────────────────────────────────────────
@@ -633,76 +644,42 @@ class RecordSchemeListDialog(QDialog):
     # ── "By sheet" helpers ──────────────────────────────────────────────
 
     def _rebuild_sheet_tree(self) -> None:
-        """(Re)build the "By sheet" sub-sheet TREE for the CURRENT root — one
-        checkable node per sheet-with-footprints under the root (its DIRECT
-        refs), nested by the sheet_subtree_plan; all checked by default. With
-        the Commit D tri-state cascade a node's checkbox toggles its whole
-        subtree, and a sheet is captured whenever it is not Unchecked (a
-        PartiallyChecked parent — some sub-sheets excluded — is still read).
-        Hidden for a leaf sheet (nothing to prune)."""
-        root = self.sheet_combo.currentData()
+        """(Re)build the FULL-hierarchy "By sheet" tree (Commit E): one subtree
+        per TOP-LEVEL sheet (Channel_0/1/2, ...), every real sheet a checkable
+        node, ALL UNCHECKED by default — you tick what to record, and checking
+        a node turns its whole subtree on via the Commit D cascade (a parent
+        with a mixed subtree shows PartiallyChecked and is still read)."""
+        paths = self._sheet_paths
         self.sheet_tree.blockSignals(True)
         self.sheet_tree.clear()
-        self._root_has_subsheets = False
-        if root is None:
-            self.sheet_tree.setVisible(False)
-            self.sheet_tree.blockSignals(False)
-            self._sync_ok_state()
-            return
-        rows = sheet_paths_under(self._sheet_paths, root)
-        if len(rows) <= 1:
-            # Leaf sheet — nothing to prune, hide the tree entirely (design §2
-            # — no checklist when the root has no sub-sheets).
-            self.sheet_tree.setVisible(False)
-            self.sheet_tree.blockSignals(False)
-            self._sync_ok_state()
-            return
-        self._root_has_subsheets = True
-        candidate_set = {tuple(r) for r in rows}
-        plan = sheet_subtree_plan(root, rows)
-        self._add_tree_nodes(self.sheet_tree.invisibleRootItem(), plan,
-                             candidate_set)
+        if paths:
+            tops = sorted({p[:1] for p in paths if p})
+            for top in tops:
+                under = [p for p in paths if p[:1] == top]
+                plan = sheet_subtree_plan(top, under)
+                self._add_tree_nodes(self.sheet_tree.invisibleRootItem(), plan)
         self.sheet_tree.expandAll()
         self.sheet_tree.setVisible(True)
         self.sheet_tree.blockSignals(False)
         self._sync_ok_state()
 
-    def _add_tree_nodes(self, parent_item, nodes: list, candidate_set) -> None:
+    def _add_tree_nodes(self, parent_item, nodes: list) -> None:
         """Recursively append `nodes` (sheet_subtree_plan output) under
-        `parent_item`. A node whose path is in `candidate_set` is a real sheet
-        with footprints -> checkable (UserRole = the full path, tooltip = the
-        "/"-joined path), Checked by default. A STRUCTURAL node (intermediate
-        sheet with no footprints of its own) carries no path data and is NOT
-        checkable — shown grey so it reads as a container, not a capturable
-        row."""
+        `parent_item`. Every node is a REAL sheet of the hierarchy and is
+        CHECKABLE — UserRole = the full path (a tuple, so _checked_sheet_paths
+        keeps returning the same tuple shape the tests compare against),
+        tooltip = the "/"-joined path, ItemIsUserTristate lets the Commit D
+        cascade show PartiallyChecked parents. ALL start UNCHECKED — you tick
+        what to record (Commit E)."""
         for node in nodes:
             path = node["path"]
             item = QTreeWidgetItem(parent_item, [node["name"]])
-            if tuple(path) in candidate_set:
-                # Tuple (not list) so _checked_sheet_paths keeps returning the
-                # same tuple shape the flat checklist used (tests compare
-                # against ("Top",) style paths). ItemIsUserTristate lets a
-                # PartiallyChecked parent render (Commit D — partial states are
-                # set by the cascade, never picked by a single click).
-                item.setData(0, Qt.ItemDataRole.UserRole, tuple(path))
-                item.setToolTip(0, "/".join(path))
-                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable
-                              | Qt.ItemFlag.ItemIsUserTristate)
-                item.setCheckState(0, Qt.CheckState.Checked)  # all on by default
-            else:
-                # Structural-only branch (no footprints of its own) — muted so
-                # it clearly reads as a container, not a capturable row.
-                # QTreeWidgetItem is UserCheckable BY DEFAULT — strip the flag
-                # so no empty checkbox renders, and store the full path in
-                # UserRole+1 (NOT UserRole) so _checked_sheet_paths never picks
-                # it up, yet the UI/tests can tell which real sheet the branch
-                # stands for.
-                flags = item.flags() & ~Qt.ItemFlag.ItemIsUserCheckable
-                item.setFlags(flags)
-                item.setData(0, Qt.ItemDataRole.UserRole + 1, tuple(path))
-                item.setToolTip(0, "/".join(path))
-                item.setForeground(0, QBrush(Qt.GlobalColor.gray))
-            self._add_tree_nodes(item, node["children"], candidate_set)
+            item.setData(0, Qt.ItemDataRole.UserRole, tuple(path))
+            item.setToolTip(0, "/".join(path))
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable
+                          | Qt.ItemFlag.ItemIsUserTristate)
+            item.setCheckState(0, Qt.CheckState.Unchecked)  # tick to record
+            self._add_tree_nodes(item, node["children"])
 
     def _on_sheet_item_changed(self, item, column) -> None:
         """Tri-state cascade (Commit D, plan_2026_09_07_scheme_list_commit_d_
@@ -715,13 +692,13 @@ class RecordSchemeListDialog(QDialog):
         if column != 0 or item.data(0, Qt.ItemDataRole.UserRole) is None:
             return  # not a sheet row's checkbox
         on = item.checkState(0) != Qt.CheckState.Unchecked
-        # A tristate click on an OFF branch may land on PartiallyChecked first;
-        # treat any non-Unchecked state as "turn the branch on" (Partial states
-        # are otherwise only ever produced here for mixed ancestors).
+        state = Qt.CheckState.Checked if on else Qt.CheckState.Unchecked
         self._cascading = True
         try:
-            self._set_descendant_states(item, Qt.CheckState.Checked if on
-                                        else Qt.CheckState.Unchecked)
+            # A tristate click on an OFF row lands on PartiallyChecked first —
+            # normalize it to Checked so "tick to record" is a single click.
+            item.setCheckState(0, state)
+            self._set_descendant_states(item, state)
             self._sync_ancestors(item)
         finally:
             self._cascading = False
@@ -772,16 +749,11 @@ class RecordSchemeListDialog(QDialog):
 
     def _checked_sheet_paths(self) -> List[Any]:
         """The sheet paths actually included — the single source of truth for
-        "what is really read" (Commit D rule): every checkable node that is NOT
-        Unchecked (Checked OR PartiallyChecked) contributes its DIRECT refs — a
-        parent with some sub-sheets excluded is still read. A root WITHOUT
-        sub-sheets (no tree rows) means the root itself is the only row.
-        Structural nodes carry no path data and never appear."""
-        root = self.sheet_combo.currentData()
-        if root is None:
-            return []
-        if not self._root_has_subsheets:
-            return [root]
+        "what is really read" (Commit D/E rule): every checkable node that is
+        NOT Unchecked (Checked OR PartiallyChecked) contributes its DIRECT refs
+        — a parent with some sub-sheets excluded is still read. Container
+        sheets (no own footprints) are stored too: they add no refs today but
+        keep a future Reread aware of the branch."""
         out: List[Any] = []
 
         def _walk(parent_item) -> None:
@@ -819,13 +791,13 @@ class RecordSchemeListDialog(QDialog):
 
     def result_data(self):
         """(name, sheet_path_or_None, checked_paths_or_None).
-        sheet_path/checked_paths are None on the "By selection" tab; the caller
+        sheet_path is ALWAYS None (Commit E has no root combobox); the caller
         derives the capture refs itself (record_refs_for) from the CHECKED
         paths for "By sheet", or uses its OWN selection_refs for "By selection"
         (this dialog does not own that list)."""
         name = self.name_edit.text().strip()
         if self.is_by_sheet():
-            return (name, self.sheet_combo.currentData(), self._checked_sheet_paths())
+            return (name, None, self._checked_sheet_paths())
         return (name, None, None)
 
     def preset_name_to_save(self) -> Optional[str]:
