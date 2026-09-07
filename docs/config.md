@@ -152,6 +152,18 @@ nesting other cells), or both at once.
   for 3 of 13 roles. Prefer `net_template_same_as_role` whenever a lemma-2 sibling exists; extract
   writes it automatically when one is available in the same selection. Fixed-pinout parts (ICs/
   diodes/polarized caps) stay safe with `net_template_pad:` and keep using it.
+
+  Reserved `{sheet}`/`{cluster}` placeholders (2026-09-07, plan
+  net_template_reserved_sheet_placeholder): always available in any
+  `net_template:` (and via/track `net:`) WITHOUT a single `params:` entry —
+  `resolve_net` reads them as DEFAULTS from the placement/Entity's OWN
+  `sheet`/`cluster` fields, which every part of the pipeline already populates
+  (an Entity's sheet is always set for role resolution, and `tree_instances:`
+  substitutes it per instance, unchanged). Concrete use: a Cell reused by
+  several `tree_instances:` (different channels/sheets) can write
+  `net_template: "/{sheet}/DAC/+3V3_AVDD"` and every generated copy resolves to
+  its own sheet with no other record anywhere. An explicit
+  `params: {sheet: ...}` on the placement, if ever present, still wins.
 - `tracks:` — straight segments only (no arcs); a polyline is just several consecutive `tracks:`
   entries sharing an endpoint. Collisions with existing copper are **not** checked by this tool —
   KiCad's own DRC is the source of truth for that, by design (see [docs/geometry.md](geometry.md)).

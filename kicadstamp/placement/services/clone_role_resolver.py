@@ -658,12 +658,14 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement | CellPlace
             # unresolvable placeholder here is a genuine user error (fatal,
             # never silently auto-derived).
             net_template = clone.nets[role]
-            expected_net = resolve_net(net_template, clone.params, clone.net_overrides)
+            expected_net = resolve_net(net_template, clone.params, clone.net_overrides,
+                                       sheet=clone.sheet, cluster=clone.cluster)
             net_source = "nets"
         elif slot.net_template is not None:
             net_template = slot.net_template
             try:
-                expected_net = resolve_net(net_template, clone.params, clone.net_overrides)
+                expected_net = resolve_net(net_template, clone.params, clone.net_overrides,
+                                           sheet=clone.sheet, cluster=clone.cluster)
             except ValidationError:
                 # A cell net_template with an unresolved {placeholder} (no
                 # matching params) is NOT an actionable explicit net source —

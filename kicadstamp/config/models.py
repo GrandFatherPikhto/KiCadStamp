@@ -241,6 +241,16 @@ class TemplateComponentSlot:
     ManualSpoke/component_pool.py — there the role is looked up by (rule.net, Role)
     without any field here.
 
+    {sheet}/{cluster} are RESERVED placeholders, always available in a
+    net_template WITHOUT any params: entry (plan_2026_09_07_net_template_
+    reserved_sheet_placeholder.md): resolve_net reads them as defaults from
+    the placement/Entity's OWN sheet/cluster fields (which every part of the
+    pipeline already populates — Entity.sheet is always set for role
+    resolution, tree_instances.py substitutes it per-instance). Concrete
+    example: a Cell used by several tree_instances: (different
+    channels/sheets) may write net_template: "/{sheet}/DAC/+3V3_AVDD" and each
+    instance resolves to its OWN sheet with no additional record anywhere.
+
     net_template_pad — OPTIONAL, only meaningful together with net_template:
     which pad of the resolved candidate carries the role's net, for roles
     whose real component has MORE than one non-rule net (a multi-pin part —

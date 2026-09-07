@@ -1437,3 +1437,102 @@ class TestSuggestRoleNetsLive:
         fps = [_make_fp("U2", "LDO_ADJ", ["+5V", "+5V_DIRTY", "+5V"], cluster="c")]
         result = suggest_role_nets_live(self._adapter(fps), role_hints, "c")
         assert result == {"LDO_ADJ": "+5V"}
+
+
+class TestReservedSheetPlaceholderEndToEnd:
+    """Reserved {sheet}/{cluster} placeholders end-to-end (2026-09-07, plan
+    net_template_reserved_sheet_placeholder): a Cell whose role's net_template
+    is "/{sheet}/DAC/+3V3_AVDD", ONE Entity on Channel_0 with NO params and a
+    tree_instances: declaration on Channel_1 also with NO params — the
+    channel-1 COPY resolves by its own sheet, and neither Entity carries any
+    params. Denis's wording: "берётся cell оригинального канала, и
+    автоматически пересчитываются сети для клона" — ZERO manual params
+    anywhere, old or new."""
+
+    def _config_data(self):
+        return {
+            "cells": {
+                "c_dac": {
+                    "layer": "F.Cu",
+                    "components": [
+                        {"role": "DAC_BUF",
+                         "offset_along_mm": 0.0, "offset_across_mm": 0.0,
+                         "angle_deg": 0.0,
+                         "net_template": "/{sheet}/DAC/+3V3_AVDD"},
+                    ],
+                },
+            },
+            "entities": [
+                {"name": "ch0_dac_buf", "cell": "c_dac",
+                 "cluster": "DAC_BUF", "sheet": "Channel_0"},
+            ],
+            "trees": [{
+                "name": "dac_buf_tpl",
+                "anchor": {"role": "DAC_BUF"},
+                "nodes": [
+                    {"ref": "ch0_dac_buf", "kind": "placement", "xy": [0.0, 0.0]},
+                ],
+            }],
+            "tree_instances": [
+                {"template": "dac_buf_tpl", "name": "ch1_dac_buf",
+                 "sheet": "Channel_1"},
+            ],
+        }
+
+    def _load(self, tmp_path):
+        from kicadstamp.config import load_config
+        from kicadstamp.config.sexp_format import dict_to_sexp
+        p = tmp_path / "cfg.sexp"
+        p.write_text(dict_to_sexp(self._config_data()), encoding="utf-8")
+        return load_config(str(p))[0]
+
+    def test_entities_carry_sheet_but_no_params(self, tmp_path):
+        cfg = self._load(tmp_path)
+        ch0 = next(e for e in cfg.entities if e.name == "ch0_dac_buf")
+        ch1 = next(e for e in cfg.entities if e.name == "ch0_dac_buf__ch1_dac_buf")
+        assert ch0.sheet == "Channel_0"
+        assert ch1.sheet == "Channel_1"
+        # The core of the plan: NO params anywhere, old entity or new copy.
+        assert ch0.params == {}
+        assert ch1.params == {}
+
+    def test_both_instances_resolve_their_own_sheet_net_without_params(self, tmp_path):
+        cfg = self._load(tmp_path)
+        cell = cfg.cells["c_dac"]
+        # Both candidates share the SAME Cluster (a reused hierarchical sheet
+        # clones IDENTICAL Cluster fields onto every instance, so Cluster alone
+        # cannot tell two copies apart) — the ONLY signal that survives is the
+        # per-instance SHEET, exactly what the reserved {sheet} placeholder
+        # reads. (With the pre-plan resolver this scenario is ambiguous: the
+        # unresolvable net_template falls through to auto-derivation, which
+        # sees two same-Cluster candidates on two different nets and fails.)
+        fps = [
+            _make_fp("U_DAC0", "DAC_BUF", ["/Channel_0/DAC/+3V3_AVDD"],
+                     cluster="DAC_BUF"),
+            _make_fp("U_DAC1", "DAC_BUF", ["/Channel_1/DAC/+3V3_AVDD"],
+                     cluster="DAC_BUF"),
+        ]
+        adapter = MagicMock()
+        adapter.get_footprints.return_value = fps
+        adapter.get_field_value.side_effect = _role_or_cluster
+        adapter.get_footprint_pads.side_effect = _get_pads
+        adapter.get_pad_by_number.side_effect = _get_pad_by_number
+        adapter.get_selected_items.return_value = []
+
+        expected = {
+            "ch0_dac_buf": ("Channel_0", "U_DAC0"),
+            "ch0_dac_buf__ch1_dac_buf": ("Channel_1", "U_DAC1"),
+        }
+        for ent_name, (sheet, want_ref) in expected.items():
+            ent = next(e for e in cfg.entities if e.name == ent_name)
+            # The SAME transient conversion the apply pipeline performs
+            # (entity_placement._to_clone: Entity -> absolute ClonePlacement,
+            # which forwards entity.sheet/cluster unchanged).
+            clone = ClonePlacement(
+                cluster=ent.cluster or ent.name, cell=ent.cell, xy=(0.0, 0.0),
+                nets=dict(ent.nets), params=dict(ent.params),
+                net_overrides=dict(ent.net_overrides), sheet=ent.sheet,
+                name=ent.name)
+            assert clone.params == {}
+            mapping = resolve_roles_by_nets(adapter, cell, clone)
+            assert mapping == {"DAC_BUF": want_ref}

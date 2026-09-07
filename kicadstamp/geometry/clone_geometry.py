@@ -67,7 +67,8 @@ def _resolve_clone_via(origin: Vector2, via: TemplateVia, rotation_deg: float,
                    "so every via in a cloned cell must have a net explicitly set")
                  .format(along=via.offset_along_mm, across=via.offset_across_mm)]
             ))
-        net = resolve_net(via.net, clone.params, clone.net_overrides)
+        net = resolve_net(via.net, clone.params, clone.net_overrides,
+                          sheet=clone.sheet, cluster=clone.cluster)
     pos = local_to_absolute(origin, via.offset_along_mm - ax_mm,
                            via.offset_across_mm - ay_mm, rotation_deg)
     if mirror:
@@ -102,7 +103,8 @@ def _resolve_clone_track(origin: Vector2, track: TemplateTrack, rotation_deg: fl
                  .format(s_along=track.start_along_mm, s_across=track.start_across_mm,
                          e_along=track.end_along_mm, e_across=track.end_across_mm)]
             ))
-        net = resolve_net(track.net, clone.params, clone.net_overrides)
+        net = resolve_net(track.net, clone.params, clone.net_overrides,
+                          sheet=clone.sheet, cluster=clone.cluster)
     start = local_to_absolute(origin, track.start_along_mm - ax_mm,
                               track.start_across_mm - ay_mm, rotation_deg)
     end = local_to_absolute(origin, track.end_along_mm - ax_mm,

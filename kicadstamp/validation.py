@@ -541,7 +541,8 @@ def check_clone_nets_exist_on_board(adapter: KiCadBoardAdapter, cfg: Config) -> 
         if via.net is None:
             return
         try:
-            resolved = resolve_net(via.net, clone.params, clone.net_overrides)
+            resolved = resolve_net(via.net, clone.params, clone.net_overrides,
+                                   sheet=clone.sheet, cluster=clone.cluster)
         except ValidationError:
             return  # missing parameter — still a fatal in the geometry layer
         if resolved not in real_nets:
@@ -560,7 +561,8 @@ def check_clone_nets_exist_on_board(adapter: KiCadBoardAdapter, cfg: Config) -> 
         side (Phase 2 step 4.1). expected_template is the raw template
         (clone.nets[role] or slot.net_template)."""
         try:
-            resolved = resolve_net(expected_template, clone.params, clone.net_overrides)
+            resolved = resolve_net(expected_template, clone.params, clone.net_overrides,
+                                   sheet=clone.sheet, cluster=clone.cluster)
         except ValidationError:
             # Missing parameter — nothing resolved to check. For an explicit
             # nets:[role] override this stays a fatal in resolve_roles_by_nets;

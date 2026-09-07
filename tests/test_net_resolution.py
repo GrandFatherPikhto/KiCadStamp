@@ -52,6 +52,57 @@ class TestResolveNet:
         """Extra params not used in the template must not interfere."""
         assert resolve_net("GND", {"channel": 5, "unused": "x"}, {}) == "GND"
 
+    # --- Reserved {sheet}/{cluster} placeholders (plan 2026-09-07,
+    #     net_template_reserved_sheet_placeholder) ---
+    def test_sheet_placeholder_resolved_from_kwarg(self):
+        """A {sheet} in net_template resolves from the OPTIONAL sheet= kwarg —
+        the whole point of the plan: NO params: entry anywhere, the value comes
+        from the clone/Entity's OWN sheet (Entity.sheet is always set)."""
+        assert resolve_net("/{sheet}/DAC/+3V3", {}, {},
+                           sheet="Channel_1") == "/Channel_1/DAC/+3V3"
+
+    def test_cluster_placeholder_resolved_from_kwarg(self):
+        assert resolve_net("/{cluster}/DAC/+3V3", {}, {},
+                           cluster="ch1_dac_buf") == "/ch1_dac_buf/DAC/+3V3"
+
+    def test_sheet_and_cluster_kwargs_together(self):
+        assert resolve_net("/{sheet}/{cluster}/DAC", {}, {},
+                           sheet="Channel_1", cluster="ch1") == "/Channel_1/ch1/DAC"
+
+    def test_explicit_params_sheet_wins_over_sheet_kwarg(self):
+        """setdefault semantics — an (unusual but allowed) explicit
+        params: {sheet: ...} must still win over the sheet= kwarg, never the
+        other way round."""
+        result = resolve_net("/{sheet}/DAC/+3V3", {"sheet": "Explicit"}, {},
+                             sheet="Channel_1")
+        assert result == "/Explicit/DAC/+3V3"
+
+    def test_explicit_params_cluster_wins_over_cluster_kwarg(self):
+        result = resolve_net("/{cluster}/DAC/+3V3", {"cluster": "Explicit"}, {},
+                             cluster="Real_Cluster")
+        assert result == "/Explicit/DAC/+3V3"
+
+    def test_no_sheet_kwarg_is_backward_compatible(self):
+        """Regression: not passing sheet=/cluster= (every pre-2026-09-07
+        caller) must change nothing — keyword-only with a None default."""
+        assert resolve_net("GND", {}, {}) == "GND"
+        assert resolve_net("/STM32F4xx/BOOT0", {},
+                           {"/STM32F4xx/BOOT0": "/STM32F4xx_2/BOOT0"}) == "/STM32F4xx_2/BOOT0"
+        assert resolve_net("DAC{channel}_DB1", {"channel": 2}, {}) == "DAC2_DB1"
+
+    def test_sheet_kwarg_ignored_when_absent_from_template(self):
+        """Passing sheet=/cluster= must not affect a template that never uses
+        them (no {sheet}/{cluster} token) — no params pollution."""
+        assert resolve_net("DAC{channel}_DB1", {"channel": 2}, {},
+                           sheet="Channel_0", cluster="c0") == "DAC2_DB1"
+
+    def test_missing_sheet_placeholder_without_kwarg_still_fatal(self):
+        """Regression: {sheet} in the template but NO sheet= kwarg AND no
+        params — still a fatal, exactly as before the plan. The kwarg is
+        OPTIONAL; it must not soften the old behaviour when absent."""
+        with pytest.raises(ValidationError, match="sheet"):
+            resolve_net("/{sheet}/DAC/+3V3", {}, {})
+
 
 class TestResolvePlaceholder:
     """resolve_net's substitution engine, extracted so ClonePlacement.anchor_sheet

@@ -12,8 +12,20 @@ net_resolution.py — three‑layer net name resolution for cloned cells
      hierarchical paths (/STM32F4xx/BOOT0) that do not fit even into
      parametrisation.
 
+Reserved placeholders {sheet}/{cluster} (2026-09-07, plan
+net_template_reserved_sheet_placeholder): resolve_net additionally accepts
+OPTIONAL sheet=/cluster= keyword args (see its docstring below), seeded into
+the params dict as DEFAULTS before substitution. A Cell reused across
+channels/sheets (tree_instances) can therefore write a net_template like
+'/{sheet}/DAC/+3V3_AVDD' with NO params: entry anywhere — the value comes from
+the clone/Entity's OWN sheet/cluster, the very fields every other part of the
+pipeline already reads (Entity.sheet is always set; tree_instances.py already
+substitutes it per-instance, unchanged). An explicit params: {sheet: ...}, if
+a config ever carries one, still wins (setdefault semantics, not overwrite).
+
 No automatic guessing anywhere — both mechanisms (params and net_overrides)
-require explicit, hand‑written configuration.
+require explicit, hand‑written configuration; the reserved placeholders are
+NOT guessing — they are read from the placement's own identity fields.
 
 Net-from-role resolution (net_from_role / net_from_role_pad on
 TemplateVia/TemplateTrack) is the live counterpart: instead of a static net,
@@ -56,14 +68,33 @@ def resolve_placeholder(template: str, params: dict[str, Any], what: str = "valu
         ))
 
 
-def resolve_net(net_template: str, params: dict[str, Any], net_overrides: dict[str, str]) -> str:
+def resolve_net(net_template: str, params: dict[str, Any], net_overrides: dict[str, str],
+                *, sheet: str | None = None, cluster: str | None = None) -> str:
     """
     net_template — net name as written in the cell (TemplateVia.net),
     possibly with {placeholder}. params — substitution values (from
     ClonePlacement.params). net_overrides — point override of the final name
     (from ClonePlacement.net_overrides).
+
+    sheet/cluster — OPTIONAL reserved placeholders (2026-09-07, Denis: "берётся
+    cell оригинального канала, и АВТОМАТИЧЕСКИ пересчитываются сети для
+    клона" — the tree_instances-cloning design intent from day one): when
+    given, {sheet}/{cluster} become available in net_template WITHOUT a single
+    params: entry anywhere — sourced directly from the SAME
+    clone.sheet/clone.cluster every other part of the pipeline already reads
+    (Entity.sheet/ClonePlacement.sheet is always set for role resolution;
+    tree_instances.py already substitutes it per-instance, unchanged). Merged
+    as DEFAULTS (setdefault, not overwrite): an explicit params: {sheet: ...}
+    — unusual, but not forbidden — still wins if a config ever needs to
+    override it. When a kwarg is None (not passed) nothing is added — fully
+    backward-compatible with every pre-2026-09-07 caller.
     """
-    resolved = resolve_placeholder(net_template, params, what="net")
+    effective_params = dict(params)
+    if sheet is not None:
+        effective_params.setdefault("sheet", sheet)
+    if cluster is not None:
+        effective_params.setdefault("cluster", cluster)
+    resolved = resolve_placeholder(net_template, effective_params, what="net")
     return net_overrides.get(resolved, resolved)
 
 
