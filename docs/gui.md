@@ -1179,13 +1179,16 @@ re-synced). Nothing is applied to the board.
 
 ### The record page (Config tree → `scheme_lists:` leaf)
 
-Clicking a `scheme_lists:` leaf in the Config tree opens the record READ-ONLY in the Config dock's
-right QView — the pivot / `source_sheet` readouts (the pivot shown as "0.00, 0.00 (the region
-centre)" by default; the editable Pivot UI — Centre / Take-from-selection / x,y — lands in a follow-up
-commit), a recorded-geometry summary, the **Reread** button and — for a "By sheet" record with a
-`scope_presets` library — a **Preset** combo for switching which saved checklist this Reread uses. The
-record itself is edited only by re-recording (Record...), re-sourcing (Re-source...) or re-syncing
-(Reread), never by hand.
+Clicking a `scheme_lists:` leaf in the Config tree opens the record in the Config dock's right QView.
+The **Pivot** is EDITABLE (Commit B1): an x/y pair in the record's CENTRE-frame (mm offsets from the
+recorded region's centre, `(0, 0)` = the centre) prefilled from the stored `pivot`, a **Centre**
+quick-set that writes 0/0 into the fields, and an **Apply** that SAVES the pivot into the record's
+owning file — a pure config write, no live board ("Take from selection" appears in a follow-up
+commit). The rest of the page is read-only: the `source_sheet` readout, a recorded-geometry summary,
+the **Reread** button and — for a "By sheet" record with a `scope_presets` library — a **Preset**
+combo for switching which saved checklist this Reread uses. The record itself is edited by the Pivot
+Apply above, by re-recording (Record...), re-sourcing (Re-source...) or re-syncing (Reread), never by
+hand.
 
 ### Placing a record — Tools → Scheme Lists → Place... (the "Place Scheme List" page)
 

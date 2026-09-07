@@ -15379,3 +15379,19 @@ msgstr ""
 
 msgid "got: {pivot!r}"
 msgstr ""
+
+# plan_2026_09_07_scheme_list_pivot_commit_b.md - Commit B1 editable pivot UI
+msgid "(0, 0) = the region centre — x/y are mm offsets from it."
+msgstr ""
+
+msgid "Centre"
+msgstr ""
+
+msgid "Pivot x/y must be numbers (mm)."
+msgstr ""
+
+msgid "Pivot for Scheme List {name!r} saved -> {path}"
+msgstr ""
+
+msgid "Pivot save failed: {error}"
+msgstr ""

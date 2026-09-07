@@ -6,10 +6,13 @@ plan_2026_09_05_scheme_list.md §5.1, design §3).
 A Scheme List is a NAMED snapshot of a real, already-routed board region
 (recorded via Tools -> "Scheme Lists" -> "Record..."). This dock is the
 MINIMAL Config side of that feature: it shows a loaded ``scheme_lists:``
-record READ-ONLY — the CENTRE-frame geometry of the recorded region plus the
-record's ``pivot`` / ``source_sheet`` readouts
-(design_2026_09_07_scheme_list_pivot.md) and the recorded-geometry summary —
-and offers the one action that belongs here,
+record — the CENTRE-frame geometry of the recorded region, a ``source_sheet``
+readout and (Commit B1) an EDITABLE ``pivot``: the record's anchor point in
+the centre-frame as x/y mm fields with a "Centre" quick-set (0,0 = the region
+centre) and an "Apply" (Save pivot) that rewrites the pivot into the file that
+owns the record (design_2026_09_07_scheme_list_pivot.md /
+plan_2026_09_07_scheme_list_pivot_commit_b.md) — plus the recorded-geometry
+summary — and offers the one board action that belongs here,
 **Reread**: re-run the capture against the live board
 (kicadstamp.scheme_list_capture.build_scheme_list_diff), show the diff
 dialog, and only on an explicit **Apply** rewrite the stored record in place
@@ -708,10 +711,12 @@ class SchemeListFormWidget(QWidget):
     """A Config-tree right-QView page (plan §5.2 — embedded via DockHub's
     add_right_page on the ConfigTreeDock's QStackedWidget), the same "plain
     QWidget, not its own QDockWidget" shape as NetTraceDock/ThermalViaArrayDock.
-    Read-only record + Reread (see module docstring — no Placement/Redraw)."""
+    Record page + Reread; the pivot is the one EDITABLE field (Commit B1),
+    everything else is read-only (see module docstring — no Placement/Redraw)."""
 
-    # Fired after a successful Reread Apply that rewrote the stored record —
-    # ConfigTreeDock listens to refresh (see gui/dock_hub.py).
+    # Fired after a write that rewrote the stored record — either a Reread
+    # Apply or a pivot "Apply" (Save pivot). ConfigTreeDock listens to refresh
+    # (see gui/dock_hub.py).
     saved = pyqtSignal()
 
     def __init__(self, main_window, connection=None):
@@ -738,11 +743,45 @@ class SchemeListFormWidget(QWidget):
         form = QFormLayout()
         # Pivot — the record's anchor point in the centre-frame
         # (design_2026_09_07_scheme_list_pivot.md), default (0,0) = the region
-        # centre. Read-only readout in Commit A — the editable Pivot UI (the
-        # "Centre"/"From selection" buttons + x,y input) lands in Commit B.
-        self.pivot_label = QLabel("-")
-        self.pivot_label.setWordWrap(True)
-        form.addRow(_("Pivot:"), self.pivot_label)
+        # centre. Commit A showed a read-only readout; Commit B1 makes the pivot
+        # EDITABLE: two mm QLineEdits (x, y in the record's centre-frame) + a
+        # "(0,0) = centre" hint + a "Centre" quick-set (writes 0.00/0.00 into
+        # the fields) and an explicit "Apply" (Save pivot) that rewrites the
+        # record's owning file — a pure config write, NO live board (the
+        # "From selection" source is Commit B2).
+        self.pivot_x_edit = QLineEdit()
+        self.pivot_x_edit.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.pivot_x_edit.setFixedWidth(110)
+        self.pivot_y_edit = QLineEdit()
+        self.pivot_y_edit.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.pivot_y_edit.setFixedWidth(110)
+        pivot_editor = QWidget()
+        pivot_editor_lay = QVBoxLayout(pivot_editor)
+        pivot_editor_lay.setContentsMargins(0, 0, 0, 0)
+        pivot_editor_lay.setSpacing(2)
+        pivot_xy_row = QHBoxLayout()
+        pivot_xy_row.setSpacing(4)
+        pivot_xy_row.addWidget(QLabel("x"))
+        pivot_xy_row.addWidget(self.pivot_x_edit)
+        pivot_xy_row.addWidget(QLabel("y"))
+        pivot_xy_row.addWidget(self.pivot_y_edit)
+        pivot_xy_row.addStretch(1)
+        pivot_editor_lay.addLayout(pivot_xy_row)
+        self.pivot_hint_label = QLabel(
+            _("(0, 0) = the region centre — x/y are mm offsets from it."))
+        self.pivot_hint_label.setWordWrap(True)
+        pivot_editor_lay.addWidget(self.pivot_hint_label)
+        pivot_btn_row = QHBoxLayout()
+        pivot_btn_row.setSpacing(4)
+        self.pivot_centre_button = QPushButton(_("Centre"))
+        self.pivot_centre_button.clicked.connect(self._on_pivot_centre)
+        pivot_btn_row.addWidget(self.pivot_centre_button)
+        self.pivot_apply_button = QPushButton(_("Apply"))
+        self.pivot_apply_button.clicked.connect(self._on_pivot_apply)
+        pivot_btn_row.addWidget(self.pivot_apply_button)
+        pivot_btn_row.addStretch(1)
+        pivot_editor_lay.addLayout(pivot_btn_row)
+        form.addRow(_("Pivot:"), pivot_editor)
         self.source_sheet_label = QLabel("-")
         form.addRow(_("Source sheet:"), self.source_sheet_label)
         # Named-presets selector (plan_2026_09_06_scheme_list_named_presets.md
@@ -795,7 +834,8 @@ class SchemeListFormWidget(QWidget):
         self._entry = {}
         self._path = None
         self.name_label.setText("")
-        self.pivot_label.setText("-")
+        self.pivot_x_edit.clear()
+        self.pivot_y_edit.clear()
         self.source_sheet_label.setText("-")
         self.preset_combo.blockSignals(True)
         self.preset_combo.clear()
@@ -824,7 +864,8 @@ class SchemeListFormWidget(QWidget):
             self._show_message(str(e), _ERROR_STYLE)
             self.name_label.setText(
                 _("Scheme List: {name}").format(name=entry.get("name", "?")))
-            self.pivot_label.setText("-")
+            self.pivot_x_edit.clear()
+            self.pivot_y_edit.clear()
             return
         self._render(record)
 
@@ -832,12 +873,8 @@ class SchemeListFormWidget(QWidget):
         self.name_label.setText(
             _("Scheme List: {name}").format(name=record.name))
         pivot = record.pivot if record.pivot is not None else (0.0, 0.0)
-        if pivot == (0.0, 0.0):
-            self.pivot_label.setText(
-                _("0.00, 0.00 ({region_centre})").format(
-                    region_centre=_("the region centre")))
-        else:
-            self.pivot_label.setText(f"{pivot[0]:.2f}, {pivot[1]:.2f}")
+        self.pivot_x_edit.setText(f"{pivot[0]:.2f}")
+        self.pivot_y_edit.setText(f"{pivot[1]:.2f}")
         self.source_sheet_label.setText(record.source_sheet or _("(root sheet)"))
         self._render_preset_combo(record)
         boundary_nets = [bn.net for bn in record.boundary_nets]
@@ -866,6 +903,58 @@ class SchemeListFormWidget(QWidget):
             self.preset_combo.setCurrentIndex(0)  # sentinel selected by default
         self.preset_combo.setVisible(bool(record.scope_presets))
         self.preset_combo.blockSignals(False)
+
+    # ── Pivot editing (Commit B1, plan_2026_09_07_scheme_list_pivot_commit_b) ──
+    # The record's pivot is EDITABLE on this page: x/y mm QLineEdits in the
+    # record's centre-frame + a "Centre" quick-set (0/0 = the region centre)
+    # and an explicit "Apply" (Save pivot) that rewrites the record's owning
+    # file (write_scheme_list_record). This is a pure config write — no live
+    # board (the "From selection" source is Commit B2).
+
+    def _on_pivot_centre(self) -> None:
+        """'Centre' — write the centre default 0/0 into the x/y fields (the
+        record's pivot (0,0) = the region centre). No file write happens until
+        'Apply' is pressed."""
+        self.pivot_x_edit.setText("0.00")
+        self.pivot_y_edit.setText("0.00")
+
+    def _on_pivot_apply(self) -> None:
+        """'Apply' (Save pivot) — read/validate the x/y fields (mm in the
+        record's centre-frame), then rewrite the pivot into the record's
+        owning file (write_scheme_list_record with target_path=self._path;
+        scheme_list_to_dict omits a (0,0) pivot). Pure config write, no live
+        board. Emits saved() so ConfigTreeDock refreshes (see gui/dock_hub.py)."""
+        self._show_message("")
+        if not self._entry or self._path is None:
+            self._show_message(_("Load a Scheme List record first."), _ERROR_STYLE)
+            return
+        try:
+            x = float(self.pivot_x_edit.text().strip())
+            y = float(self.pivot_y_edit.text().strip())
+        except ValueError:
+            self._show_message(_("Pivot x/y must be numbers (mm)."), _ERROR_STYLE)
+            return
+        try:
+            record = load_scheme_list(self._entry)
+        except ValidationError as e:
+            self._show_message(str(e), _ERROR_STYLE)
+            return
+        record.pivot = (x, y)
+        root_path = self._root_path if self._root_path is not None else Path(".")
+        try:
+            written = write_scheme_list_record(root_path, record,
+                                               target_path=self._path)
+        except (ValidationError, OSError) as e:
+            self._show_message(_("Pivot save failed: {error}").format(error=e),
+                               _ERROR_STYLE)
+            return
+        # Keep the loaded raw entry in sync so a later Reread-Apply preserves
+        # the just-saved pivot instead of reverting to the stale stored one.
+        self._entry = scheme_list_to_dict(record)
+        self._show_message(
+            _("Pivot for Scheme List {name!r} saved -> {path}").format(
+                name=record.name, path=display_path(written)), _SUCCESS_STYLE)
+        self.saved.emit()
 
     # ── Reread ──────────────────────────────────────────────────────────
 

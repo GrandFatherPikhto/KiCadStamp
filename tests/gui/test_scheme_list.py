@@ -214,30 +214,111 @@ def test_scheme_list_to_dict_round_trips_through_the_loader(main_window):
 
 # ── Load entry (Config-tree leaf click) ────────────────────────────────────
 
-def test_load_entry_fills_pivot_and_source_sheet_read_only(main_window, tmp_path):
+def test_load_entry_fills_pivot_edits_and_source_sheet(main_window, tmp_path):
     adapter = _line_board(angle_anchor=45.0)
     d = _record_dict(adapter)
     root = _record_file(tmp_path, d)
     dock = _make_dock(main_window, root, d)
 
     assert dock.name_label.text() == "Scheme List: amp"
-    # pivot defaults to the centre (0,0) — shown as the region centre readout
-    assert "0.00, 0.00" in dock.pivot_label.text()
-    assert "region centre" in dock.pivot_label.text()
+    # pivot defaults to the centre (0,0) — the edits prefill 0.00/0.00
+    assert dock.pivot_x_edit.text() == "0.00"
+    assert dock.pivot_y_edit.text() == "0.00"
     assert dock.source_sheet_label.text() == "Channel_0"
     assert "3 components" in dock.geometry_label.text()
     assert "2 tracks" in dock.geometry_label.text()
     assert "1 vias" in dock.geometry_label.text()
 
 
-def test_load_entry_shows_nondefault_pivot_readout(main_window, tmp_path):
+def test_load_entry_prefills_nondefault_pivot_edits(main_window, tmp_path):
     adapter = _line_board(angle_anchor=90.0)
     d = _record_dict(adapter)
     d["pivot"] = [1.5, -2.25]  # a user-chosen pivot in the centre frame
     root = _record_file(tmp_path, d)
     dock = _make_dock(main_window, root, d)
-    assert "1.50, -2.25" in dock.pivot_label.text()
-    assert "region centre" not in dock.pivot_label.text()
+    assert dock.pivot_x_edit.text() == "1.50"
+    assert dock.pivot_y_edit.text() == "-2.25"
+
+
+# ── Pivot editing (Commit B1: x/y edits + "Centre" + "Apply") ──────────────
+
+def test_pivot_centre_button_writes_0_0_into_edits(main_window, tmp_path):
+    adapter = _line_board(angle_anchor=90.0)
+    d = _record_dict(adapter)
+    d["pivot"] = [1.5, -2.25]
+    root = _record_file(tmp_path, d)
+    dock = _make_dock(main_window, root, d)
+    assert dock.pivot_x_edit.text() == "1.50"
+
+    dock.pivot_centre_button.click()
+
+    assert dock.pivot_x_edit.text() == "0.00"
+    assert dock.pivot_y_edit.text() == "0.00"
+
+
+def test_pivot_apply_writes_nondefault_pivot_into_record_file(main_window, tmp_path):
+    adapter = _line_board()
+    d = _record_dict(adapter)  # no pivot key yet -> default (0,0)
+    root = _record_file(tmp_path, d)
+    dock = _make_dock(main_window, root, d)
+    emitted = []
+    dock.saved.connect(lambda: emitted.append(True))
+
+    dock.pivot_x_edit.setText("3.5")
+    dock.pivot_y_edit.setText("-1.25")
+    dock.pivot_apply_button.click()
+
+    assert emitted == [True]
+    data = _load(root)
+    entry = data["scheme_lists"][0]
+    assert entry["pivot"] == [3.5, -1.25]
+    assert load_scheme_list(entry).pivot == (3.5, -1.25)
+
+
+def test_pivot_apply_centre_leaves_record_without_pivot_key(main_window, tmp_path):
+    """(0,0) is the centre default — scheme_list_to_dict omits it, so applying
+    a centre pivot writes a record WITHOUT the pivot key (and removing a
+    previously-stored non-default pivot drops the key)."""
+    adapter = _line_board()
+    d = _record_dict(adapter)
+    d["pivot"] = [1.5, -2.25]
+    root = _record_file(tmp_path, d)
+    dock = _make_dock(main_window, root, d)
+
+    dock.pivot_centre_button.click()
+    dock.pivot_apply_button.click()
+
+    data = _load(root)
+    entry = data["scheme_lists"][0]
+    assert "pivot" not in entry
+    assert load_scheme_list(entry).pivot == (0.0, 0.0)
+
+
+def test_pivot_apply_invalid_number_is_reported_without_write(main_window, tmp_path, caplog):
+    adapter = _line_board()
+    d = _record_dict(adapter)
+    root = _record_file(tmp_path, d)
+    dock = _make_dock(main_window, root, d)
+    before = root.read_text(encoding="utf-8")
+
+    dock.pivot_x_edit.setText("abc")  # not a number
+    dock.pivot_y_edit.setText("1")
+    dock.pivot_apply_button.click()
+
+    assert any("must be numbers" in r.message for r in caplog.records)
+    assert root.read_text(encoding="utf-8") == before  # file untouched
+
+
+def test_pivot_apply_without_loaded_record_is_reported_no_crash(main_window, tmp_path, caplog):
+    root = _record_file(tmp_path, _record_dict(_line_board()))
+    dock = SchemeListFormWidget(main_window)
+    dock.set_root_path(root)  # nothing loaded -> _entry empty, _path None
+
+    dock.pivot_x_edit.setText("1")
+    dock.pivot_y_edit.setText("1")
+    dock.pivot_apply_button.click()  # must not crash
+
+    assert any("Load a Scheme List record first." in r.message for r in caplog.records)
 
 
 # ── Reread ─────────────────────────────────────────────────────────────────

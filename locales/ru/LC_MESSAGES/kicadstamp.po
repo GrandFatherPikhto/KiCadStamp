@@ -14016,3 +14016,19 @@ msgstr "запись scheme_lists {name!r}: pivot должна быть точк
 
 msgid "got: {pivot!r}"
 msgstr "получено: {pivot!r}"
+
+# plan_2026_09_07_scheme_list_pivot_commit_b.md - Commit B1 editable pivot UI
+msgid "(0, 0) = the region centre — x/y are mm offsets from it."
+msgstr "(0, 0) = центр региона — x/y это смещения в мм от него."
+
+msgid "Centre"
+msgstr "Центр"
+
+msgid "Pivot x/y must be numbers (mm)."
+msgstr "x/y точки pivot должны быть числами (мм)."
+
+msgid "Pivot for Scheme List {name!r} saved -> {path}"
+msgstr "Точка pivot для Scheme List {name!r} сохранена -> {path}"
+
+msgid "Pivot save failed: {error}"
+msgstr "Не удалось сохранить точку pivot: {error}"
