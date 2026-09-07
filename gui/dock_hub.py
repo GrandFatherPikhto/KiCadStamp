@@ -44,6 +44,7 @@ from .docks.rename import entry_effective_name
 
 from kicadstamp.cli_common import peek_log_file
 from kicadstamp.config_working_set import WORKING_SET
+from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
 from kicadstamp.logging_setup import get_log_listener
 
@@ -460,11 +461,21 @@ class DockHub:
             getattr(connection, "snapshot", None) or [], sheet_names)
         selection_refs = sorted({getattr(s, "ref", None) for s in self._selection_footprints
                                  if getattr(s, "ref", None)})
-        dialog = RecordSchemeListDialog(snapshot, selection_refs,
-                                        self.main_window, fixed_name=record_name)
+        dialog = RecordSchemeListDialog(
+            snapshot, selection_refs, self.main_window, fixed_name=record_name,
+            adapter=adapter, selected_footprints=self._selection_footprints,
+            # Re-source pre-fills the Pivot/Anchor tab from the record's stored
+            # pivot, so leaving it untouched KEEPS the pivot (Commit F).
+            pivot_initial=entry.get("pivot") if isinstance(entry, dict) else None)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         _name, _sheet_path, checked_paths = dialog.result_data()
+        try:
+            pivot = dialog.pivot_value()  # Pivot/Anchor tab (Commit F)
+        except ValidationError as e:
+            QMessageBox.warning(self.main_window, _("Cannot re-source Scheme List"),
+                                str(e))
+            return
         refs = record_refs_for(snapshot, dialog.is_by_sheet(), checked_paths,
                                selection_refs)
         if not refs:
@@ -514,6 +525,7 @@ class DockHub:
                    "target_path": (str(file_path)
                                    if file_path is not None else None),
                    "sheet_names": sheet_names,
+                   "pivot": list(pivot),
                    "scope_sheet_paths": scope_sheet_paths,
                    "scope_presets": payload_scope_presets}
         self._scheme_active_op = start_long_op(
@@ -1214,13 +1226,20 @@ class DockHub:
             getattr(connection, "snapshot", None) or [], sheet_names)
         selection_refs = sorted({getattr(s, "ref", None) for s in self._selection_footprints
                                  if getattr(s, "ref", None)})
-        dialog = RecordSchemeListDialog(snapshot, selection_refs, self.main_window)
+        dialog = RecordSchemeListDialog(
+            snapshot, selection_refs, self.main_window,
+            adapter=adapter, selected_footprints=self._selection_footprints)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         name, _sheet_path, checked_paths = dialog.result_data()
         if not name:
             QMessageBox.warning(self.main_window, _("Scheme Lists"),
                                 _("Name is required."))
+            return
+        try:
+            pivot = dialog.pivot_value()  # Pivot/Anchor tab (Commit F)
+        except ValidationError as e:
+            QMessageBox.warning(self.main_window, _("Scheme Lists"), str(e))
             return
         refs = record_refs_for(snapshot, dialog.is_by_sheet(), checked_paths,
                                selection_refs)
@@ -1260,6 +1279,7 @@ class DockHub:
         payload = {"board": board, "name": name, "refs": refs,
                    "root": str(root_path),
                    "sheet_names": sheet_names,
+                   "pivot": list(pivot),
                    "scope_sheet_paths": scope_sheet_paths,
                    "scope_presets": payload_scope_presets}
         self._scheme_active_op = start_long_op(
@@ -1280,6 +1300,7 @@ class DockHub:
                 name=payload["name"], refs=payload["refs"],
                 adapter=payload["board"].adapter,
                 sheet_names=payload.get("sheet_names"),
+                pivot=payload.get("pivot"),
                 scope_sheet_paths=payload.get("scope_sheet_paths"),
                 scope_presets=[SchemeListScopePreset(**p)
                                for p in (payload.get("scope_presets") or [])],
@@ -1383,6 +1404,7 @@ class DockHub:
                 name=payload["name"], refs=payload["refs"],
                 adapter=payload["board"].adapter,
                 sheet_names=payload.get("sheet_names"),
+                pivot=payload.get("pivot"),
                 scope_sheet_paths=payload.get("scope_sheet_paths"),
                 scope_presets=[SchemeListScopePreset(**p)
                                for p in (payload.get("scope_presets") or [])],

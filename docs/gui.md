@@ -1112,7 +1112,7 @@ Config side lives on two pages of the Config dock's right QView: the read-only *
 
 ### Recording a record — Tools → Scheme Lists → Record...
 
-Captures a named Scheme List from the live board through a **two-tab** dialog:
+Captures a named Scheme List from the live board through a **three-tab** dialog:
 
 - **"By sheet" (primary, the default tab)** — the WHOLE live hierarchy as ONE tree (QTreeWidget,
   Commit E): every real sheet is a checkable node — the top sheets first (Channel_0/1/2, FPGA, MCU,
@@ -1125,10 +1125,17 @@ Captures a named Scheme List from the live board through a **two-tab** dialog:
   only the unchecked nodes are excluded). Container paths are stored in the scope too (they add no
   refs today but keep a future Reread aware of the branch). Every node's tooltip shows its full
   "/"-joined path. The captured refs are the union of the DIRECT footprints of every sheet that is not
-  unchecked. NO anchor is picked here (design_2026_09_07_scheme_list_pivot.md): the record's frame is
-  the captured region's CENTRE and its pivot defaults to that centre.
+  unchecked. The record's frame is the captured region's CENTRE and its pivot is chosen on the dialog's
+  **Pivot / Anchor** tab (below), defaulting to that centre (design_2026_09_07_scheme_list_pivot.md).
 - **"By selection" (secondary)** — the pre-existing mode: the refs are the CURRENT board selection
   (shown read-only with a count), kept for irregular regions that do not line up with sheet boundaries.
+- **"Pivot / Anchor" (third tab, Commit F)** — the record's pivot set AT CREATION: an x/y pair in the
+  record's CENTRE-frame (mm offsets from the region centre, `(0, 0)` = the centre), defaulting to
+  `(0,0)`. **Centre** writes 0/0 into the fields; **"Take from selection"** reads the CURRENT live
+  board selection and fills x/y as the pivot in the centre-frame of the refs the ACTIVE source tab
+  would record (needs a live KiCad connection). The dialog OK (Record/Re-source) STORES these fields as
+  the new record's pivot — there is no separate Apply in the dialog, and OK stays disabled while the
+  x/y fields do not hold numbers.
 
 Both tabs end the same way: a unique record name, a duplicate pre-check BEFORE the expensive capture
 (a duplicate name, or a ref already recorded in ANOTHER Scheme List), a worker-thread capture (never
@@ -1147,13 +1154,15 @@ overwrites it), so a later Reread can switch back to that variant without re-rec
 Re-sources an EXISTING record from a DIFFERENT source under the SAME name. Reached from the record the
 user right-clicked in the Config tree (context-menu **Re-source...**) or the one currently SELECTED
 there (Tools → Scheme Lists → **Re-source...**; with no selection the Tools action warns). The dialog
-is the SAME two-tab Record dialog with the name pinned read-only, an explicit in-dialog warning that
+is the SAME three-tab Record dialog with the name pinned read-only, an explicit in-dialog warning that
 the record's refs/geometry are REPLACED (every Entity already placed from the record picks up the new
 geometry on its next Apply/Redraw — the sheet it currently comes from does NOT update by itself; Place
-onto it too if it should follow) and an OK button labeled **Re-source**. The rewritten record stays in
-the file that already owns it. Re-source keeps the record's existing `scope_presets` library INTACT:
-an empty "Save as preset" field leaves it untouched; a non-empty one overwrites only the same-name
-preset with the current checklist.
+onto it too if it should follow) and an OK button labeled **Re-source**. Its **Pivot / Anchor** tab is
+PREFILLED from the record's stored `pivot`, so re-sourcing a record with a saved pivot keeps that pivot
+unless the user changes it (re-sourcing changes the geometry source, it does not reset the pivot to the
+centre). The rewritten record stays in the file that already owns it. Re-source keeps the record's
+existing `scope_presets` library INTACT: an empty "Save as preset" field leaves it untouched; a
+non-empty one overwrites only the same-name preset with the current checklist.
 
 ### Rereading a record — Reread
 
@@ -1186,21 +1195,23 @@ re-synced). Nothing is applied to the board.
 ### The record page (Config tree → `scheme_lists:` leaf)
 
 Clicking a `scheme_lists:` leaf in the Config tree opens the record in the Config dock's right QView.
-The **Pivot** is EDITABLE (Commit B1 + B2): an x/y pair in the record's CENTRE-frame (mm offsets from
-the recorded region's centre, `(0, 0)` = the centre) prefilled from the stored `pivot`, a **Centre**
-quick-set that writes 0/0 into the fields, and an **Apply** that SAVES the pivot into the record's
-owning file — a pure config write, no live board. Commit B2 adds a **"Take from selection"** button:
-it reads the centre of the CURRENT live board selection and writes it into x/y as the pivot in the
-record's centre-frame (selected centre minus the LIVE centre of the recorded region — recomputed from
-the recorded components that are actually on the board). It only PREFILLS the fields as a preview —
-nothing is written until **Apply** is pressed. When some recorded components are missing from the
-board, the pivot is computed from the ones present and a warning is shown; the button needs a live
-KiCad connection (without a board the plain x/y + Centre + Apply still work — they are pure config
-writes). The rest of the page is read-only: the `source_sheet` readout, a recorded-geometry summary,
-the **Reread** button and — for a "By sheet" record with a `scope_presets` library — a **Preset**
-combo for switching which saved checklist this Reread uses. The record itself is edited by the Pivot
-Apply above, by re-recording (Record...), re-sourcing (Re-source...) or re-syncing (Reread), never by
-hand.
+Since Commit F the page is a **two-tab** page:
+
+- **"Record summary" tab** — read-only: the `source_sheet` readout, a recorded-geometry summary, the
+  **Reread** button and — for a "By sheet" record with a `scope_presets` library — a **Preset** combo
+  for switching which saved checklist this Reread uses.
+- **"Pivot / Anchor" tab** — the editable pivot block (Commit B1 + B2): an x/y pair in the record's
+  CENTRE-frame (mm offsets from the recorded region's centre, `(0, 0)` = the centre) prefilled from the
+  stored `pivot`, a **Centre** quick-set that writes 0/0 into the fields, a **"Take from selection"**
+  button that reads the centre of the CURRENT live board selection and writes it into x/y as the pivot
+  in the record's centre-frame (selected centre minus the LIVE centre of the recorded region —
+  recomputed from the recorded components that are actually on the board; a warning is shown when some
+  are missing; needs a live KiCad connection) and an **Apply** that SAVES the pivot into the record's
+  owning file — a pure config write, no live board. "Take from selection" only PREFILLS the fields as a
+  preview — nothing is written until **Apply** is pressed.
+
+The record itself is edited by the Pivot Apply above, by re-recording (Record...), re-sourcing
+(Re-source...) or re-syncing (Reread), never by hand.
 
 ### Placing a record — Tools → Scheme Lists → Place... (the "Place Scheme List" page)
 

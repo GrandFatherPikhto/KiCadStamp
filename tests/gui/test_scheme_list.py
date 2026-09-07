@@ -1416,11 +1416,15 @@ def test_all_sheet_paths_skips_unresolved_and_empty():
 # ── 5a.3 — RecordSchemeListDialog (two tabs, NO anchor pick) ───────────────
 
 def test_record_dialog_two_tabs_with_by_sheet_default(main_window):
+    """Commit F: the dialog now carries THREE tabs — the two source tabs plus
+    the Pivot/Anchor tab (defaults to 0,0 = record centre)."""
     dialog = RecordSchemeListDialog(_snap(*_HIER), ["C4"], main_window)
-    assert dialog.tabs.count() == 2
+    assert dialog.tabs.count() == 3
     assert dialog.tabs.tabText(0) == "By sheet"
     assert dialog.tabs.tabText(1) == "By selection"
+    assert dialog.tabs.tabText(2) == "Pivot / Anchor"
     assert dialog.is_by_sheet()
+    assert dialog.pivot_value() == (0.0, 0.0)
 
 
 def test_record_dialog_by_sheet_defaults_unchecked_ok_disabled_until_tick(main_window):
@@ -1679,7 +1683,9 @@ def test_record_scheme_list_by_sheet_payload_refs_match_checked_sheets(
         hub.root_metadata_dock.set_root_file(root)
 
         class _FakeDialog:
-            def __init__(self, snapshot, selection_refs, parent):
+            def __init__(self, snapshot, selection_refs, parent,
+                         *, adapter=None, selected_footprints=None,
+                         pivot_initial=None):
                 pass
 
             def exec(self):
@@ -1687,6 +1693,9 @@ def test_record_scheme_list_by_sheet_payload_refs_match_checked_sheets(
 
             def is_by_sheet(self):
                 return True
+
+            def pivot_value(self):
+                return (0.0, 0.0)
 
             def preset_name_to_save(self):
                 return None
@@ -1713,6 +1722,8 @@ def test_record_scheme_list_by_sheet_payload_refs_match_checked_sheets(
         assert payloads[0]["refs"] == ["C1", "C2", "R1", "U1"]
         # no anchor_ref is carried in the payload (no anchor in the dialog)
         assert "anchor_ref" not in payloads[0]
+        # Commit F — the Pivot/Anchor tab's value rides in the payload.
+        assert payloads[0]["pivot"] == [0.0, 0.0]
         # 5c.1 — the CHECKED leaf paths are persisted as the record's scope.
         assert payloads[0]["scope_sheet_paths"] == [
             ["Top"], ["Top", "Ch0"], ["Top", "Ch0", "Amp"]]
@@ -1750,7 +1761,9 @@ def test_record_scheme_list_by_selection_payload_matches_selection_refs(
                                      SimpleNamespace(ref="R1")]
 
         class _FakeDialog:
-            def __init__(self, snapshot, selection_refs, parent):
+            def __init__(self, snapshot, selection_refs, parent,
+                         *, adapter=None, selected_footprints=None,
+                         pivot_initial=None):
                 pass
 
             def exec(self):
@@ -1758,6 +1771,9 @@ def test_record_scheme_list_by_selection_payload_matches_selection_refs(
 
             def is_by_sheet(self):
                 return False
+
+            def pivot_value(self):
+                return (0.0, 0.0)
 
             def preset_name_to_save(self):
                 return None
@@ -1781,6 +1797,8 @@ def test_record_scheme_list_by_selection_payload_matches_selection_refs(
         assert payloads[0]["refs"] == ["C1", "R1"]  # the board selection
         # 5c.1 — a "By selection" Record persists NO scope (None).
         assert payloads[0]["scope_sheet_paths"] is None
+        # Commit F — the Pivot/Anchor tab's value rides in the payload.
+        assert payloads[0]["pivot"] == [0.0, 0.0]
     finally:
         hub.log_dock.remove_handler()
         if hub._log_file_handler is not None:
@@ -1838,7 +1856,7 @@ def test_resource_dialog_fixed_name_read_only_title_and_re_source_ok(main_window
         assert dialog.name_edit.text() == "amp"
         assert dialog.windowTitle() == "Re-source Scheme List 'amp'"
         assert dialog._ok_button.text() == "Re-source"
-        assert dialog.tabs.count() == 2
+        assert dialog.tabs.count() == 3  # By sheet + By selection + Pivot/Anchor
         # result_data keeps the pinned name regardless of the active tab.
         assert dialog.result_data()[0] == "amp"
         dialog.tabs.setCurrentIndex(1)  # By selection
@@ -1989,14 +2007,23 @@ def test_run_resource_scheme_list_payload_uses_fixed_name_checked_refs_and_owner
 
         class _FakeDialog:
             def __init__(self, snapshot, selection_refs, parent,
-                         fixed_name=None):
+                         fixed_name=None, *, adapter=None,
+                         selected_footprints=None, pivot_initial=None):
                 seen["fixed_name"] = fixed_name
+                # Commit F — Re-source pre-fills the Pivot/Anchor tab from the
+                # stored record's pivot, so leaving it alone KEEPS the pivot.
+                seen["pivot_initial"] = pivot_initial
 
             def exec(self):
                 return QDialog.DialogCode.Accepted
 
             def is_by_sheet(self):
                 return True
+
+            def pivot_value(self):
+                # Commit F — leaving the pre-filled pivot tab untouched KEEPS
+                # the stored pivot (the real dialog returns pivot_initial as-is).
+                return tuple(seen.get("pivot_initial") or (0.0, 0.0))
 
             def preset_name_to_save(self):
                 return None
@@ -2016,16 +2043,22 @@ def test_run_resource_scheme_list_payload_uses_fixed_name_checked_refs_and_owner
             lambda _c, _w, worker, on_success, on_error, payload:
                 payloads.append(payload) or object())
 
-        entry = {"name": "amp", "components": [{"ref": "R1"}]}
+        entry = {"name": "amp", "pivot": [2.5, -1.0],
+                 "components": [{"ref": "R1"}]}
         hub.resource_scheme_list_record(entry, root)
 
         assert seen.get("fixed_name") == "amp"
+        # Commit F — the Re-source dialog is pre-filled from the stored pivot...
+        assert seen.get("pivot_initial") == [2.5, -1.0]
         assert len(payloads) == 1
         p = payloads[0]
         assert p["name"] == "amp"
         # Ch1's C3 is excluded — the capture set is the checked-sheet union.
         assert p["refs"] == ["C1", "C2", "R1", "U1"]
         assert "anchor_ref" not in p
+        # ...and the untouched pivot is carried through to the payload (Re-source
+        # re-points geometry, it does not reset the pivot to the centre).
+        assert p["pivot"] == [2.5, -1.0]
         assert p["target_path"] == str(root)
         # 5c.1 — a "By sheet" Re-source stores the NEW checked paths as scope.
         assert p["scope_sheet_paths"] == [
@@ -2297,6 +2330,9 @@ def _preset_fake_dialog(preset_name, by_sheet=True, checked=None):
 
         def is_by_sheet(self):
             return by_sheet
+
+        def pivot_value(self):
+            return (0.0, 0.0)
 
         def preset_name_to_save(self):
             return preset_name
@@ -2583,3 +2619,148 @@ def test_reread_preset_switch_changes_scope_and_apply_makes_it_current(
     ln = next(ln for ln in _walk(linked.nodes) if ln.node.ref == "E_AMP")
     assert ln.record is not None
     assert ln.record.name == "E_AMP"
+
+
+# ── Commit F — Pivot/Anchor tab in the Record/Re-source dialog ─────────────
+# plan_2026_09_07_scheme_list_commit_f_pivot_tab_in_record.md: the pivot is
+# chosen AT CREATION — the dialog's THIRD tab (x/y mm in the record's centre-
+# frame, default (0,0) = centre, "Centre", "Take from selection"); the dialog
+# OK (Record/Re-source) stores those fields as the record's pivot (there is no
+# separate Apply in the dialog). The saved-record page keeps the same block on
+# its own "Pivot / Anchor" tab next to the read-only "Record summary" tab.
+
+def test_record_dialog_pivot_tab_prefills_pivot_initial(main_window):
+    """Commit F — Record: no pivot_initial -> the (0,0) centre default; a
+    supplied initial (Re-source prefill) lands in the x/y fields verbatim."""
+    dialog = RecordSchemeListDialog(_snap(*_HIER), ["C4"], main_window)
+    try:
+        assert dialog.pivot_value() == (0.0, 0.0)
+        assert dialog.pivot_centre_button.isEnabled()
+    finally:
+        dialog.close()
+    prefilled = RecordSchemeListDialog(_snap(*_HIER), ["C4"], main_window,
+                                       pivot_initial=(3.5, -2.0))
+    try:
+        assert prefilled.pivot_value() == (3.5, -2.0)
+    finally:
+        prefilled.close()
+
+
+def test_record_dialog_pivot_centre_button_writes_0_0(main_window):
+    """Commit F — 'Centre' writes the (0,0) centre default into the fields."""
+    dialog = RecordSchemeListDialog(_snap(*_HIER), ["C4"], main_window,
+                                    pivot_initial=(3.5, -2.0))
+    try:
+        dialog.pivot_x_edit.setText("9")
+        dialog.pivot_y_edit.setText("8")
+        dialog.pivot_centre_button.click()
+        assert dialog.pivot_value() == (0.0, 0.0)
+    finally:
+        dialog.close()
+
+
+def test_record_dialog_pivot_take_from_selection_fills_using_selection(
+        main_window):
+    """Commit F — 'Take from selection' reads the CURRENT board selection and
+    fills x/y as the pivot in the centre-frame of the refs the dialog would
+    record (the live adapter + selected footprints are the dialog's new
+    optional context). By-selection mode: refs = the selection R1/C1/C2 whose
+    live centre (17,10); live selection = R1 centre (10,10) -> pivot (-7,0)."""
+    adapter = _line_board()
+    fps = _fps_by_ref(adapter)
+    sel = _selection_from(fps["R1"])  # live board selection = R1 only
+    dialog = RecordSchemeListDialog(_snap(*_HIER), ["R1", "C1", "C2"],
+                                    main_window, adapter=adapter,
+                                    selected_footprints=sel)
+    try:
+        dialog.tabs.setCurrentIndex(1)  # By selection — refs = the selection
+        dialog.pivot_from_selection_button.click()
+        x, y = dialog.pivot_value()
+        assert x == pytest.approx(-7.0)
+        assert y == pytest.approx(0.0)
+    finally:
+        dialog.close()
+
+
+def test_record_dialog_pivot_take_from_selection_no_adapter_warns(
+        main_window, monkeypatch):
+    """Commit F — without a live adapter the handler warns and leaves the
+    (0,0) default untouched (it never guesses a pivot)."""
+    import gui.docks.scheme_list as sl_mod
+    warns = []
+    monkeypatch.setattr(sl_mod.QMessageBox, "warning",
+                        lambda parent, title, text: warns.append(text))
+    dialog = RecordSchemeListDialog(_snap(*_HIER), ["C4"], main_window)
+    try:
+        assert not dialog.pivot_from_selection_button.isEnabled()  # no adapter
+        dialog._on_pivot_from_selection()
+        assert warns and "Connect to KiCad first." in warns[0]
+        assert dialog.pivot_value() == (0.0, 0.0)
+    finally:
+        dialog.close()
+
+
+def test_record_dialog_pivot_invalid_numbers_disable_ok(main_window):
+    """Commit F — a malformed Pivot/Anchor tab gates OK OFF even when a sheet
+    is checked (a bad pivot must never reach the record) and pivot_value()
+    raises ValidationError for it."""
+    snapshot = _snap(("R1", ("Top",)))
+    dialog = RecordSchemeListDialog(snapshot, [], main_window)
+    try:
+        _tree_item_by_path(dialog, ("Top",)).setCheckState(
+            0, Qt.CheckState.Checked)
+        assert dialog._ok_button.isEnabled()
+        dialog.pivot_x_edit.setText("abc")  # not a number
+        assert not dialog._ok_button.isEnabled()
+        with pytest.raises(ValidationError):
+            dialog.pivot_value()
+        dialog.pivot_x_edit.setText("1.5")
+        assert dialog._ok_button.isEnabled()
+    finally:
+        dialog.close()
+
+
+def test_resource_dialog_pivot_tab_prefills_stored_pivot(main_window):
+    """Commit F — Re-source pre-fills the Pivot/Anchor tab from the stored
+    record's pivot, so an untouched dialog KEEPS the pivot on re-source."""
+    dialog = RecordSchemeListDialog(_snap(*_HIER), ["C4"], main_window,
+                                    fixed_name="amp",
+                                    pivot_initial=[2.0, 1.5])
+    try:
+        assert dialog.pivot_value() == (2.0, 1.5)
+    finally:
+        dialog.close()
+
+
+def test_record_page_has_record_summary_and_pivot_anchor_tabs(
+        main_window, tmp_path):
+    """Commit F — the saved-record page is a TWO-tab page: the read-only
+    "Record summary" tab (source/preset/geometry/Reread) and the "Pivot /
+    Anchor" tab (the editable pivot block from Commit B1/B2)."""
+    adapter = _line_board()
+    d = _record_dict(adapter)
+    root = _record_file(tmp_path, d)
+    dock = _make_dock(main_window, root, d)
+    assert dock.page_tabs.count() == 2
+    assert dock.page_tabs.tabText(0) == "Record summary"
+    assert dock.page_tabs.tabText(1) == "Pivot / Anchor"
+    # the summary tab still renders the loaded record
+    dock.page_tabs.setCurrentIndex(0)
+    assert dock.source_sheet_label.text() == "Channel_0"
+    assert dock.pivot_x_edit.text() == "0.00"
+
+
+def test_record_page_pivot_tab_apply_still_saves(main_window, tmp_path):
+    """Commit F — the pivot editor moved onto its own tab but 'Apply' (Save
+    pivot) still rewrites the record's owning file from that tab."""
+    adapter = _line_board()
+    d = _record_dict(adapter)
+    root = _record_file(tmp_path, d)
+    dock = _make_dock(main_window, root, d)
+    dock.page_tabs.setCurrentIndex(1)  # the Pivot / Anchor tab
+    dock.pivot_x_edit.setText("1.25")
+    dock.pivot_y_edit.setText("-0.5")
+    dock.pivot_apply_button.click()
+    entry = _load(root)["scheme_lists"][0]
+    assert entry["pivot"] == [1.25, -0.5]
+    assert load_scheme_list(entry).pivot == (1.25, -0.5)

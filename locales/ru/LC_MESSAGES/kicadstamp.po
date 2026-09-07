@@ -14049,3 +14049,10 @@ msgstr "Pivot взят из выделения на плате — нажмит�
 # plan_2026_09_07_scheme_list_by_sheet_full_tree.md - Commit E full-hierarchy By-sheet tree
 msgid "Sheets (check what to record):"
 msgstr "Листы (отметьте, что записать):"
+
+# plan_2026_09_07_scheme_list_commit_f_pivot_tab_in_record.md - Commit F Pivot/Anchor tabs
+msgid "Pivot / Anchor"
+msgstr "Pivot / Якорь"
+
+msgid "Record summary"
+msgstr "Сводка записи"

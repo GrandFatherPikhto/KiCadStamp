@@ -43,9 +43,9 @@ from typing import Any, Dict, List, Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFormLayout,
-                             QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
-                             QPushButton, QTabWidget, QTreeWidget,
-                             QTreeWidgetItem, QVBoxLayout, QWidget)
+                             QHBoxLayout, QLabel, QLineEdit, QMessageBox,
+                             QPlainTextEdit, QPushButton, QTabWidget,
+                             QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from kicadstamp.config import SchemeListConfig, load_scheme_list
 from kicadstamp.exceptions import ValidationError
@@ -532,9 +532,17 @@ class RecordSchemeListDialog(QDialog):
     source tabs stay available — re-sourcing can come from either mode."""
 
     def __init__(self, snapshot: list, selection_refs: List[str], parent=None,
-                 fixed_name: Optional[str] = None):
+                 fixed_name: Optional[str] = None, *,
+                 adapter=None, selected_footprints=None, pivot_initial=None):
         super().__init__(parent)
         self._fixed_name = fixed_name
+        # Pivot/Anchor tab context (Commit F): the live adapter + current board
+        # selection feed "Take from selection"; pivot_initial prefills the tab
+        # (Re-source = the stored record's pivot, Record = None -> (0,0) centre).
+        self._adapter = adapter
+        self._selected_footprints = list(selected_footprints or [])
+        self._pivot_initial = (tuple(pivot_initial) if pivot_initial is not None
+                               else (0.0, 0.0))
         if fixed_name:
             self.setWindowTitle(
                 _("Re-source Scheme List {name!r}").format(name=fixed_name))
@@ -616,6 +624,55 @@ class RecordSchemeListDialog(QDialog):
         tab2_form.addRow(_("Selection:"), self.selection_refs_label)
         self.tabs.addTab(tab2, _("By selection"))
 
+        # Tab 3 — "Pivot/Anchor": the record's pivot set AT CREATION (Commit F,
+        # plan_2026_09_07_scheme_list_commit_f_pivot_tab_in_record.md). x/y are
+        # mm in the record's centre-frame, default (0,0) = the region centre;
+        # "Centre" writes 0/0, "Take from selection" reads the live board.
+        # There is NO Apply here — the dialog OK (Record/Re-source) is the save
+        # and stores these fields as the new record's pivot.
+        tab3 = QWidget()
+        tab3_form = QFormLayout(tab3)
+        self.pivot_x_edit = QLineEdit()
+        self.pivot_x_edit.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.pivot_x_edit.setFixedWidth(110)
+        self.pivot_y_edit = QLineEdit()
+        self.pivot_y_edit.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.pivot_y_edit.setFixedWidth(110)
+        self._set_pivot_fields(*self._pivot_initial)
+        pivot_xy_row = QHBoxLayout()
+        pivot_xy_row.setSpacing(4)
+        pivot_xy_row.addWidget(QLabel("x"))
+        pivot_xy_row.addWidget(self.pivot_x_edit)
+        pivot_xy_row.addWidget(QLabel("y"))
+        pivot_xy_row.addWidget(self.pivot_y_edit)
+        pivot_xy_row.addStretch(1)
+        self.pivot_hint_label = QLabel(
+            _("(0, 0) = the region centre — x/y are mm offsets from it."))
+        self.pivot_hint_label.setWordWrap(True)
+        pivot_editor_lay = QVBoxLayout()
+        pivot_editor_lay.setContentsMargins(0, 0, 0, 0)
+        pivot_editor_lay.setSpacing(2)
+        pivot_editor_lay.addLayout(pivot_xy_row)
+        pivot_editor_lay.addWidget(self.pivot_hint_label)
+        pivot_btn_row = QHBoxLayout()
+        pivot_btn_row.setSpacing(4)
+        self.pivot_centre_button = QPushButton(_("Centre"))
+        self.pivot_centre_button.clicked.connect(self._on_pivot_centre)
+        pivot_btn_row.addWidget(self.pivot_centre_button)
+        self.pivot_from_selection_button = QPushButton(_("Take from selection"))
+        self.pivot_from_selection_button.clicked.connect(
+            self._on_pivot_from_selection)
+        self.pivot_from_selection_button.setEnabled(self._adapter is not None)
+        pivot_btn_row.addWidget(self.pivot_from_selection_button)
+        pivot_btn_row.addStretch(1)
+        pivot_editor_lay.addLayout(pivot_btn_row)
+        pivot_widget = QWidget()
+        pivot_widget.setLayout(pivot_editor_lay)
+        tab3_form.addRow(_("Pivot:"), pivot_widget)
+        self.tabs.addTab(tab3, _("Pivot / Anchor"))
+        self.pivot_x_edit.textChanged.connect(self._sync_ok_state)
+        self.pivot_y_edit.textChanged.connect(self._sync_ok_state)
+
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
                                    | QDialogButtonBox.StandardButton.Cancel, self)
         self._ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
@@ -640,6 +697,62 @@ class RecordSchemeListDialog(QDialog):
             return _("current board selection ({n}): {refs}").format(
                 n=len(self._selection_refs), refs=", ".join(self._selection_refs))
         return _("nothing is selected on the board")
+
+    # ── Pivot / Anchor tab (Commit F) ─────────────────────────────────────
+
+    def _set_pivot_fields(self, x: float, y: float) -> None:
+        """Write the x/y edits (mm, centre-frame)."""
+        self.pivot_x_edit.setText(_pivot_mm_text(x))
+        self.pivot_y_edit.setText(_pivot_mm_text(y))
+
+    def pivot_value(self) -> tuple[float, float]:
+        """(x, y) mm of the Pivot/Anchor tab in the record's centre-frame — the
+        pivot the OK'd record stores (Commit F). Invalid input -> ValidationError
+        (pattern: never write a malformed pivot)."""
+        try:
+            x = float(self.pivot_x_edit.text().strip())
+            y = float(self.pivot_y_edit.text().strip())
+        except ValueError:
+            raise ValidationError(_("Pivot x/y must be numbers (mm).")) from None
+        return (x, y)
+
+    def _pivot_fields_ok(self) -> bool:
+        """True when the Pivot/Anchor tab holds valid numbers (used to gate OK
+        on top of a non-empty capturable ref set)."""
+        try:
+            self.pivot_value()
+        except ValidationError:
+            return False
+        return True
+
+    def _on_pivot_centre(self) -> None:
+        """'Centre' — write the centre default 0/0 into the x/y fields."""
+        self._set_pivot_fields(0.0, 0.0)
+
+    def _on_pivot_from_selection(self) -> None:
+        """'Take from selection' — read the CURRENT board selection's centre and
+        write x/y as the pivot in the centre-frame of the refs we would record
+        now (selected centre minus the live centre of those refs' footprints,
+        Commit B2 helpers). Needs the live adapter."""
+        if self._adapter is None:
+            QMessageBox.warning(self, _("Scheme Lists"),
+                                _("Connect to KiCad first."))
+            return
+        refs = self._checked_refs()
+        if not refs:
+            QMessageBox.warning(
+                self, _("Scheme Lists"),
+                _("No footprints to record — pick a sheet that has footprints "
+                  "on the 'By sheet' tab, or select footprints on the board "
+                  "for 'By selection'."))
+            return
+        try:
+            x, y = pivot_centre_frame_from_selection(
+                refs, self._adapter, self._selected_footprints)
+        except ValidationError as e:
+            QMessageBox.warning(self, _("Scheme Lists"), str(e))
+            return
+        self._set_pivot_fields(x, y)
 
     # ── "By sheet" helpers ──────────────────────────────────────────────
 
@@ -779,12 +892,12 @@ class RecordSchemeListDialog(QDialog):
         return sorted(set(self._selection_refs))
 
     def _sync_ok_state(self) -> None:
-        """OK needs a capturable set — the ACTIVE tab must yield at least one
-        ref (an empty board selection / all-unchecked sheet leaves nothing to
-        record, so the user must change the source instead of recording an
-        empty capture). No anchor is picked at Record time
-        (design_2026_09_07_scheme_list_pivot.md)."""
-        self._ok_button.setEnabled(bool(self._checked_refs()))
+        """OK needs a capturable set AND a valid Pivot/Anchor tab: the ACTIVE
+        tab must yield at least one ref (an empty board selection / all-
+        unchecked sheet leaves nothing to record) and the pivot x/y must be
+        numbers (a malformed pivot must never reach the record)."""
+        ok = bool(self._checked_refs()) and self._pivot_fields_ok()
+        self._ok_button.setEnabled(ok)
 
     def is_by_sheet(self) -> bool:
         return self.tabs.currentIndex() == 0
@@ -976,7 +1089,6 @@ class SchemeListFormWidget(QWidget):
         self.name_label.setWordWrap(True)
         layout.addWidget(self.name_label)
 
-        form = QFormLayout()
         # Pivot — the record's anchor point in the centre-frame
         # (design_2026_09_07_scheme_list_pivot.md), default (0,0) = the region
         # centre. Commit A showed a read-only readout; Commit B1 makes the pivot
@@ -987,6 +1099,7 @@ class SchemeListFormWidget(QWidget):
         # source (pivot_from_selection_button): it reads the centre of the
         # CURRENT board selection and fills x/y with the pivot in the
         # centre-frame — a preview only, the explicit Apply still saves.
+        # Commit F moves this block onto its own "Pivot / Anchor" TAB.
         self.pivot_x_edit = QLineEdit()
         self.pivot_x_edit.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.pivot_x_edit.setFixedWidth(110)
@@ -1026,34 +1139,44 @@ class SchemeListFormWidget(QWidget):
         pivot_btn_row.addWidget(self.pivot_apply_button)
         pivot_btn_row.addStretch(1)
         pivot_editor_lay.addLayout(pivot_btn_row)
-        form.addRow(_("Pivot:"), pivot_editor)
+
+        # Two tabs (Commit F): "Record" (read-only summary + Reread) and
+        # "Pivot / Anchor" (the pivot editor; Apply = Save pivot still writes
+        # the record's owning file — the same config write as before, now on
+        # its own tab).
+        self.page_tabs = QTabWidget()
+        record_page = QWidget()
+        record_lay = QVBoxLayout(record_page)
+        record_form = QFormLayout()
         self.source_sheet_label = QLabel("-")
-        form.addRow(_("Source sheet:"), self.source_sheet_label)
+        record_form.addRow(_("Source sheet:"), self.source_sheet_label)
         # Named-presets selector (plan_2026_09_06_scheme_list_named_presets.md
         # §8) — shown ONLY when the loaded record carries a scope_presets
         # library; the first item is the "(current)" sentinel (data None =
         # use stored.scope_sheet_paths as-is, 5c behavior unchanged).
         self.preset_combo = QComboBox()
         self.preset_combo.setVisible(False)
-        form.addRow(_("Preset:"), self.preset_combo)
+        record_form.addRow(_("Preset:"), self.preset_combo)
         self.geometry_label = QLabel("")
         self.geometry_label.setWordWrap(True)
-        form.addRow(_("Recorded geometry:"), self.geometry_label)
-        layout.addLayout(form)
-
+        record_form.addRow(_("Recorded geometry:"), self.geometry_label)
+        record_lay.addLayout(record_form)
         note = QLabel(
             _("Reread compares this record against the live board and, after "
               "an explicit Apply, rewrites it — it never places anything. "
               "Cloning a Scheme List onto another sheet happens through a "
               "tree Entity (scheme_list:), not here."))
         note.setWordWrap(True)
-        layout.addWidget(note)
-
+        record_lay.addWidget(note)
         buttons = QHBoxLayout()
         self.reread_button = QPushButton(_("Reread"))
         self.reread_button.clicked.connect(self._on_reread)
         buttons.addWidget(self.reread_button)
-        layout.addLayout(buttons)
+        record_lay.addLayout(buttons)
+        record_lay.addStretch(1)
+        self.page_tabs.addTab(record_page, _("Record summary"))
+        self.page_tabs.addTab(pivot_editor, _("Pivot / Anchor"))
+        layout.addWidget(self.page_tabs)
         layout.addStretch(1)
 
     # ── Message helper ──────────────────────────────────────────────────
