@@ -96,17 +96,26 @@ _KIND_TAGS = {
     "module": _("tree"),
 }
 
-# Node kinds the per-node Redraw button can actually place — a record kind
-# ApplyPipeline's --only can resolve by name. module/external/point nodes
-# have NO backing config record (module's ref is a TREE name, external/point
-# are live-board-only bases) — `only=[ref]` for one of these always fails
-# with "--only: names not found" deep inside ApplyPipeline. Shared by
-# _NodeDialog._update_redraw_state (modal Edit) and TreesDock._form_action_row
-# (master-detail Node tab) so the two Redraw buttons can never drift out of
-# sync again (found live 2026-09-07: the master-detail button had no guard at
-# all — clicking Redraw on a module node crashed run_single_node_redraw_worker).
+# Node kinds the per-node Redraw button can actually act on. Most of these
+# are a record kind ApplyPipeline's --only can resolve by name directly
+# (_redraw_edited_node -> run_single_node_redraw_worker). "module" is the one
+# exception: its ref names an EMBEDDED TREE, not a config record, so --only
+# can never resolve it directly — but Denis pointed out (2026-09-07, live)
+# that Redraw on a module node should still DO something: activate that
+# module's own content, exactly like checking its marker does in the
+# forest-wide "Full redraw" (curated_redraw_plan_forest/design P3 D2).
+# _redraw_edited_node special-cases "module" to run_curated_forest_redraw_
+# worker with selected_refs={node.ref} instead — scoping the SAME mechanism
+# to just this one marker, so only ITS content moves (nothing else in the
+# owning tree is touched). external/point nodes stay excluded: they are
+# live-board-only bases with no content of their own to activate.
+# Shared by _NodeDialog._update_redraw_state (modal Edit) and
+# TreesDock._form_action_row (master-detail Node tab) so the two Redraw
+# buttons can never drift out of sync (found live 2026-09-07: the
+# master-detail button had no guard at all — clicking Redraw on a module node
+# crashed run_single_node_redraw_worker with "--only: names not found").
 _REDRAWABLE_NODE_KINDS = frozenset(
-    {"placement", "clone", "chain", "rule", "coordinate", "net_trace"})
+    {"placement", "clone", "chain", "rule", "coordinate", "net_trace", "module"})
 
 
 def _anchor_label(anchor: TreeAnchor) -> str:
@@ -1128,14 +1137,16 @@ class TreesDock(QDockWidget):
         row.addWidget(redraw_btn)
         row.addStretch(1)
         lay.addLayout(row)
-        # A NodeFormWidget's Redraw only makes sense for a record kind
-        # ApplyPipeline can re-place by name (_REDRAWABLE_NODE_KINDS) — same
-        # guard _NodeDialog's modal Redraw button has (_update_redraw_state).
-        # This embedded row lacked it entirely until 2026-09-07 (found live:
-        # clicking Redraw on a module node crashed run_single_node_redraw_
-        # worker with "--only: names not found" — module/external/point nodes
-        # have no backing config record). AnchorFormWidget has no kind_combo —
-        # its own Redraw is a different mechanism, untouched here.
+        # A NodeFormWidget's Redraw only makes sense for a kind
+        # _redraw_edited_node actually knows how to place — direct --only for
+        # most kinds, forest-content-activation for "module"
+        # (_REDRAWABLE_NODE_KINDS) — same guard _NodeDialog's modal Redraw
+        # button has (_update_redraw_state). This embedded row lacked it
+        # entirely until 2026-09-07 (found live: clicking Redraw on a module
+        # node crashed run_single_node_redraw_worker with "--only: names not
+        # found" before the forest-content routing existed). AnchorFormWidget
+        # has no kind_combo — its own Redraw is a different mechanism,
+        # untouched here.
         if isinstance(form, NodeFormWidget):
             def _sync_redraw_enabled() -> None:
                 kind = form.kind_combo.currentData()
@@ -1871,8 +1882,29 @@ class TreesDock(QDockWidget):
         redraw: after an offset edit the component must move to the new offset.
         Inherits the documented ApplyPipeline boundary (design §0) — a node that
         can't be resolved by the pipeline fails exactly as it would on a full
-        Apply, this phase does not soften it."""
+        Apply, this phase does not soften it.
+
+        "module" is special-cased (2026-09-07, Denis: Redraw on a module node
+        should activate its content, not just be blocked): node.ref names an
+        EMBEDDED TREE, which --only can never resolve, so this routes through
+        the SAME forest-content-activation machinery the "Full redraw" menu
+        action uses (run_curated_forest_redraw_worker), scoped to just this
+        one marker via selected_refs={node.ref} — its content is placed from
+        the owning tree's LIVE anchor, nothing else in that tree moves."""
         if node is None or not node.ref or self._cfg is None or self._ctx is None:
+            return
+        if node.kind == "module":
+            payload = {
+                "config_path": str(self._root_path) if self._root_path else "",
+                "cfg": self._cfg,
+                "ctx": self._ctx,
+                "trees": self._trees,
+                "selected_refs": {node.ref},
+            }
+            self._active_op = start_long_op(
+                self._main_window.connection, (),
+                run_curated_forest_redraw_worker, self._finish_redraw,
+                self._on_redraw_failed, payload)
             return
         payload = {
             "config_path": str(self._root_path) if self._root_path else "",
@@ -3065,8 +3097,9 @@ class _NodeDialog(QDialog):
 
     def _update_redraw_state(self) -> None:
         """Phase B: Redraw only makes sense in EDIT mode with a dock (live board
-        + config) and a record kind ApplyPipeline can re-place by name — a
-        module marker, an external live refdes or an auto node cannot
+        + config) and a kind _redraw_edited_node knows how to place — most
+        kinds directly by name, "module" via forest-content-activation; an
+        external live refdes or a point base cannot
         (_REDRAWABLE_NODE_KINDS, shared with the master-detail Node tab's own
         Redraw button — see _form_action_row)."""
         redraw = getattr(self, "redraw_button", None)

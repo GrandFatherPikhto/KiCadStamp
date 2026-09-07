@@ -1544,6 +1544,65 @@ def test_run_forest_redraw_no_trees_shows_hint(main_window, tmp_path, monkeypatc
     assert "Nothing to redraw" in dock.status_label.text()
 
 
+def test_redraw_edited_node_module_kind_uses_forest_content_worker(
+        main_window, tmp_path, monkeypatch):
+    """2026-09-07 round 2 (Denis: Redraw on a module node should DO something,
+    not just be disabled): _redraw_edited_node special-cases kind=="module" —
+    instead of run_single_node_redraw_worker (only=[ref], which ApplyPipeline
+    can never resolve for a tree-name ref), it dispatches
+    run_curated_forest_redraw_worker scoped to selected_refs={node.ref} — the
+    SAME "checking a marker activates its content" mechanism the "Full
+    redraw" menu action uses (curated_redraw_plan_forest design P3 D2), just
+    scoped to this one marker instead of every tree's every node."""
+    dock, _root = _module_dock(main_window, tmp_path)
+    from gui.docks.trees_dock import run_curated_forest_redraw_worker
+    fpga = _tree_of(dock, "fpga")
+    module_node = fpga.nodes[0]  # ref "ch0_dac_buf", kind "module"
+
+    captured = {}
+    def fake_start(connection, widgets, worker, finish, failed, payload):
+        captured["worker"] = worker
+        captured["payload"] = payload
+        return object()
+    import gui.docks.trees_dock as td_mod
+    monkeypatch.setattr(td_mod, "start_long_op", fake_start)
+
+    dock._redraw_edited_node(module_node)
+
+    assert captured
+    assert captured["worker"] is run_curated_forest_redraw_worker
+    assert captured["payload"]["trees"] is dock._trees
+    assert captured["payload"]["selected_refs"] == {"ch0_dac_buf"}
+    assert "ref" not in captured["payload"]
+    assert "tree_name" not in captured["payload"]
+
+
+def test_redraw_edited_node_normal_kind_uses_single_node_worker(
+        main_window, tmp_path, monkeypatch):
+    """Regression guard for the fix above: a normal record-backed node still
+    goes through the plain single-node --only worker, unaffected."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    from gui.docks.trees_dock import run_single_node_redraw_worker
+    tree = dock._trees[0]
+    node = tree.nodes[0]
+    assert node.kind != "module"
+
+    captured = {}
+    def fake_start(connection, widgets, worker, finish, failed, payload):
+        captured["worker"] = worker
+        captured["payload"] = payload
+        return object()
+    import gui.docks.trees_dock as td_mod
+    monkeypatch.setattr(td_mod, "start_long_op", fake_start)
+
+    dock._redraw_edited_node(node)
+
+    assert captured
+    assert captured["worker"] is run_single_node_redraw_worker
+    assert captured["payload"]["ref"] == node.ref
+    assert "selected_refs" not in captured["payload"]
+
+
 def test_refresh_anchor_live_position_origin_shows_trivial(main_window, tmp_path):
     """§5.1: an origin anchor is trivially (0,0)/0° — shown WITHOUT any live
     board read (no IPC needed)."""
@@ -2854,14 +2913,23 @@ def test_master_detail_module_node_apply_copies_pivot(main_window, tmp_path):
     assert dock._dirty is True
 
 
-def test_master_detail_redraw_button_disabled_for_module_node(main_window, tmp_path):
-    """2026-09-07 live bug: the master-detail Node tab's own Redraw button
-    (_form_action_row) had NO kind guard at all — unlike the modal _NodeDialog
-    (_update_redraw_state) — so clicking Redraw on a module node reached
-    run_single_node_redraw_worker with only=[<tree name>], which ApplyPipeline
-    can never resolve ("--only: names not found", since a module node's ref is
-    an embedded TREE's name, not a config record). Fixed by sharing
-    _REDRAWABLE_NODE_KINDS between both Redraw buttons."""
+def test_master_detail_redraw_button_enabled_for_module_node(main_window, tmp_path):
+    """2026-09-07 live bug (round 1): the master-detail Node tab's own Redraw
+    button (_form_action_row) had NO kind guard at all — unlike the modal
+    _NodeDialog (_update_redraw_state) — so clicking Redraw on a module node
+    reached run_single_node_redraw_worker with only=[<tree name>], which
+    ApplyPipeline can never resolve ("--only: names not found", since a module
+    node's ref is an embedded TREE's name, not a config record).
+
+    Round 1 fixed this by disabling Redraw for "module" — but Denis pointed
+    out that's the wrong fix: Redraw on a module node should DO something
+    (place that module's own content), not just be blocked. Round 2
+    (_redraw_edited_node) routes "module" through the SAME forest-content-
+    activation machinery the "Full redraw" menu action uses
+    (run_curated_forest_redraw_worker, selected_refs={ref}) instead of the
+    plain --only worker — so the button stays ENABLED for "module" too; see
+    test_redraw_edited_node_module_kind_uses_forest_content_worker for the
+    actual dispatch."""
     dock, _root = _module_dock(main_window, tmp_path)
     fpga = _tree_of(dock, "fpga")
     module_node = fpga.nodes[0]  # ref "ch0_dac_buf", kind "module"
@@ -2875,7 +2943,7 @@ def test_master_detail_redraw_button_disabled_for_module_node(main_window, tmp_p
     assert isinstance(form, NodeFormWidget)
     assert form.kind_combo.currentData() == "module"
     redraw_btn = _embedded_redraw_button(page)
-    assert redraw_btn.isEnabled() is False
+    assert redraw_btn.isEnabled() is True
 
 
 def test_master_detail_redraw_button_enabled_for_placement_node(main_window, tmp_path):
@@ -2897,7 +2965,9 @@ def test_master_detail_redraw_button_enabled_for_placement_node(main_window, tmp
 def test_master_detail_redraw_button_tracks_live_kind_changes(main_window, tmp_path):
     """The master-detail Redraw button must re-evaluate when the user changes
     Kind live in the form — not just once at construction (a stale enabled
-    state would let the module-node crash back in through an edit)."""
+    state would let a name neither worker can resolve back in through an
+    edit). "external" (a live-board-only base, no content of its own to
+    place) is the still-disabled kind now that "module" is enabled too."""
     dock, _root = _module_dock(main_window, tmp_path)
     fpga = _tree_of(dock, "fpga")
     module_node = fpga.nodes[0]  # ref "ch0_dac_buf", kind "module"
@@ -2908,6 +2978,9 @@ def test_master_detail_redraw_button_tracks_live_kind_changes(main_window, tmp_p
     page = dock._active_form_tabs().widget(1)
     form = _embedded_form(page)
     redraw_btn = _embedded_redraw_button(page)
+
+    idx = form.kind_combo.findData("external")
+    form.kind_combo.setCurrentIndex(idx)
     assert redraw_btn.isEnabled() is False
 
     idx = form.kind_combo.findData("placement")
