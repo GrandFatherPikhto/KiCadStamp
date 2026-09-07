@@ -67,6 +67,32 @@ logger = logging.getLogger(__name__)
 # Scheme List write path (Tools Record... in DockHub, the Record dialog, the
 # future Re-source and the Reread scope recompute) shares ONE implementation.
 
+def snapshot_with_resolved_sheets(snapshot: list, sheet_names: dict) -> list:
+    """A copy of `snapshot` whose .sheet is re-resolved against `sheet_names`
+    (the config-based {uuid: name} map, ctx.sheet_names) instead of the live
+    Board's OWN resolution — Board.connect() (gui/connection.py) never passes
+    schematic_dir, so a live Board's own sheet_names is always {} and every
+    .sheet ends up a list of None. Selected.fp is the raw footprint handle
+    kept exactly for this kind of re-resolution (its own docstring). Record/
+    Re-source call this on the snapshot BEFORE building RecordSchemeListDialog
+    so its "By sheet" tab has real sheet paths to offer (2026-09-07 fix,
+    plan_2026_09_07_scheme_list_sheet_names_empty.md).
+
+    An empty `sheet_names` is a no-op (returns `snapshot` unchanged, untouched
+    — not even read via .fp): resolving against an empty map could only
+    produce all-None anyway, so there is nothing to gain from re-resolving,
+    and callers/tests that build a synthetic snapshot without a real .fp
+    (only .sheet, already whatever they intend) are not forced to fake one
+    just because this helper runs unconditionally upstream."""
+    if not sheet_names:
+        return snapshot
+    from dataclasses import replace
+
+    from kicadstamp.sheet_names import resolve_sheet_path_names
+    return [replace(s, sheet=resolve_sheet_path_names(s.fp, sheet_names))
+            for s in snapshot]
+
+
 def live_sheet_paths(snapshot: list) -> list[tuple[str, ...]]:
     """Distinct FULL sheet-path tuples across the live snapshot, sorted — the
     WHOLE Selected.sheet chain of every footprint (not flattened leaf

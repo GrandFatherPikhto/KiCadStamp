@@ -75,6 +75,7 @@ from .docks.scheme_list import (
     choose_boundary_actions,
     record_refs_for,
     scheme_list_duplicate_problems,
+    snapshot_with_resolved_sheets,
     write_scheme_list_record,
 )
 from .docks.scheme_list_place import SchemeListPlaceFormWidget
@@ -436,10 +437,27 @@ class DockHub:
             QMessageBox.warning(self.main_window, _("Scheme Lists"),
                                 _("Connect to KiCad first."))
             return
+        # source_sheet derivation (capture_scheme_list's sheet_names parameter)
+        # needs the {uuid: sheetname} map — best-effort, same as Record (a
+        # broken config only leaves source_sheet None, never blocks). Loaded
+        # BEFORE the dialog (2026-09-07 fix, symmetric to Record — see
+        # plan_2026_09_07_scheme_list_sheet_names_empty.md): the live Board's
+        # OWN sheet_names is always {}, so the snapshot the dialog is built
+        # from needs the config-based map re-resolved into it first.
+        sheet_names: Dict = {}
+        try:
+            from kicadstamp.config import load_config
+            _cfg, ctx = load_config(str(root_path))
+            sheet_names = dict(getattr(ctx, "sheet_names", {}) or {})
+        except Exception:  # noqa: BLE001
+            logging.getLogger(__name__).warning(
+                "Re-source: could not load sheet_names from %s — source_sheet "
+                "will be left unset", root_path, exc_info=True)
         # Full live snapshot + the polled board selection — the same two
         # sources Record's dialog feeds on (the record can be re-sourced from
         # either mode, not just "By sheet").
-        snapshot = getattr(connection, "snapshot", None) or []
+        snapshot = snapshot_with_resolved_sheets(
+            getattr(connection, "snapshot", None) or [], sheet_names)
         selection_refs = sorted({getattr(s, "ref", None) for s in self._selection_footprints
                                  if getattr(s, "ref", None)})
         dialog = RecordSchemeListDialog(snapshot, selection_refs,
@@ -467,18 +485,6 @@ class DockHub:
                                 _("Cannot re-source Scheme List"),
                                 "\n".join(problems))
             return
-        # source_sheet derivation (capture_scheme_list's sheet_names parameter)
-        # needs the {uuid: sheetname} map — best-effort, same as Record (a
-        # broken config only leaves source_sheet None, never blocks).
-        sheet_names: Dict = {}
-        try:
-            from kicadstamp.config import load_config
-            _cfg, ctx = load_config(str(root_path))
-            sheet_names = dict(getattr(ctx, "sheet_names", {}) or {})
-        except Exception:  # noqa: BLE001
-            logging.getLogger(__name__).warning(
-                "Re-source: could not load sheet_names from %s — source_sheet "
-                "will be left unset", root_path, exc_info=True)
         # 5c.1 — same scope persistence as Record: a "By sheet" Re-source
         # stores the NEW checked leaf paths as the record's scope; a "By
         # selection" Re-source stores none.
@@ -1179,10 +1185,31 @@ class DockHub:
             QMessageBox.warning(self.main_window, _("Scheme Lists"),
                                 _("Connect to KiCad first."))
             return
+        # source_sheet derivation (capture_scheme_list's sheet_names parameter)
+        # needs the {uuid: sheetname} map the project config carries
+        # (ctx.sheet_names). Best-effort: a broken config must not block Record
+        # — it only leaves source_sheet None (record is "in place only").
+        # Loaded BEFORE the dialog (2026-09-07 fix,
+        # plan_2026_09_07_scheme_list_sheet_names_empty.md): the live Board's
+        # OWN sheet_names is always {} (Board.connect() in gui/connection.py
+        # never passes schematic_dir), so every Selected.sheet from the raw
+        # snapshot is a list of None — the config-based map is the only real
+        # source, and the "By sheet" tab needs it re-resolved into the
+        # snapshot it is built from, not just for source_sheet afterwards.
+        sheet_names: Dict = {}
+        try:
+            from kicadstamp.config import load_config
+            _cfg, ctx = load_config(str(root_path))
+            sheet_names = dict(getattr(ctx, "sheet_names", {}) or {})
+        except Exception:  # noqa: BLE001
+            logging.getLogger(__name__).warning(
+                "Record: could not load sheet_names from %s — source_sheet "
+                "will be left unset", root_path, exc_info=True)
         # Full live snapshot (Board.select with no filters, refreshed off-
         # thread) feeds the "By sheet" tab's sheet-combo/checklist; the polled
         # board selection feeds the secondary "By selection" tab only.
-        snapshot = getattr(connection, "snapshot", None) or []
+        snapshot = snapshot_with_resolved_sheets(
+            getattr(connection, "snapshot", None) or [], sheet_names)
         selection_refs = sorted({getattr(s, "ref", None) for s in self._selection_footprints
                                  if getattr(s, "ref", None)})
         dialog = RecordSchemeListDialog(snapshot, selection_refs, self.main_window)
@@ -1210,19 +1237,6 @@ class DockHub:
             QMessageBox.warning(self.main_window, _("Cannot record Scheme List"),
                                 "\n".join(problems))
             return
-        # source_sheet derivation (capture_scheme_list's sheet_names parameter)
-        # needs the {uuid: sheetname} map the project config carries
-        # (ctx.sheet_names). Best-effort: a broken config must not block Record
-        # — it only leaves source_sheet None (record is "in place only").
-        sheet_names: Dict = {}
-        try:
-            from kicadstamp.config import load_config
-            _cfg, ctx = load_config(str(root_path))
-            sheet_names = dict(getattr(ctx, "sheet_names", {}) or {})
-        except Exception:  # noqa: BLE001
-            logging.getLogger(__name__).warning(
-                "Record: could not load sheet_names from %s — source_sheet "
-                "will be left unset", root_path, exc_info=True)
         # 5c.1 — a "By sheet" Record persists the CHECKED leaf paths as the
         # record's scope (a later Reread recomputes the current scope from
         # them); a "By selection" Record persists no scope (None).

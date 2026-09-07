@@ -39,12 +39,14 @@ from gui.docks.scheme_list import (
     scheme_list_duplicate_problems,
     scheme_list_to_dict,
     sheet_paths_under,
+    snapshot_with_resolved_sheets,
     write_scheme_list_record,
 )
 from kicadstamp.config import load_config, load_scheme_list
 from kicadstamp.config.models import SchemeListBoundaryNet
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.domain.board import Footprint, Pad, Track, Via
+from kicadstamp.explore import Selected
 from kicadstamp.link_trees import link_trees
 from kicadstamp.domain.geometry import BoardLayer, Box2, Vector2
 from kicadstamp.scheme_list_capture import SchemeListDiff, capture_scheme_list
@@ -1014,6 +1016,34 @@ def test_live_sheet_paths_dedups_same_sheet_and_skips_unresolved():
 
 def test_live_sheet_paths_empty_snapshot_is_empty():
     assert live_sheet_paths([]) == []
+
+
+# ── 2026-09-07 fix — Record/Re-source's "By sheet" tab was structurally
+# always empty: Board.connect() (gui/connection.py) never passes
+# schematic_dir, so a live Board's OWN sheet_names is always {} and every
+# Selected.sheet is a list of None, which live_sheet_paths() filters out
+# entirely. snapshot_with_resolved_sheets() re-resolves .sheet against the
+# ALREADY-loaded config-based ctx.sheet_names before the snapshot reaches
+# RecordSchemeListDialog (plan_2026_09_07_scheme_list_sheet_names_empty.md).
+
+def test_snapshot_with_resolved_sheets_resolves_against_config_map():
+    fp = _fp("U1", 0, 0)
+    fp.sheet_path_uuids = ("sch-top", "sch-ch0", fp.uuid)
+    stale = Selected(ref="U1", role=None, cluster=None, sheet=[None, None],
+                     nets={}, fp=fp)
+    resolved = snapshot_with_resolved_sheets(
+        [stale], {"sch-top": "Top", "sch-ch0": "Ch0"})
+    assert resolved[0].sheet == ["Top", "Ch0"]
+    # the input snapshot itself is untouched (a copy is returned)
+    assert stale.sheet == [None, None]
+
+
+def test_snapshot_with_resolved_sheets_empty_map_is_a_no_op():
+    # No `.fp` on these rows at all — an empty sheet_names must not even try
+    # to read it (every caller upstream of this helper now runs it
+    # unconditionally, including tests that build snapshot rows without fp).
+    snapshot = _snap(*_HIER)
+    assert snapshot_with_resolved_sheets(snapshot, {}) is snapshot
 
 
 def test_sheet_paths_under_returns_root_and_all_descendants():
