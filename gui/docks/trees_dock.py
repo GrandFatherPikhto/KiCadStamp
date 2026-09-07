@@ -89,7 +89,11 @@ _KIND_TAGS = {
     "coordinate": _("coordinate"),
     "point": _("point"),
     "external": _("external"),
-    "module": _("module"),
+    # Display-only relabel (2026-09-07, Denis: "module -- это tree", not
+    # discoverable as a label on its own) — the grammar/data value stays
+    # "module" everywhere (files, KINDS, link_trees, ...); only what the user
+    # reads here and in the Kind combo (NodeFormWidget, below) changes.
+    "module": _("tree"),
 }
 
 
@@ -1665,6 +1669,12 @@ class TreesDock(QDockWidget):
             tree=tree,
             parent_node=parent_node,
             existing=existing,
+            # kind=="module" candidate wiring (2026-09-07 fix): mirrors
+            # _build_node_form's Edit-mode wiring exactly — without these two,
+            # the module Ref combo and "From child node..." are always empty,
+            # regardless of how many trees actually exist (found live).
+            module_candidates=self._module_tree_candidates(tree),
+            all_trees=self._trees,
             # Position-tab (own_anchor) candidate lists — the same live sources
             # the anchor dialog uses (plan tree_node_own_anchor §3.1).
             role_candidates=self._live_roles(),
@@ -2379,7 +2389,10 @@ class NodeFormWidget(QWidget):
         self.kind_combo = QComboBox()
         self.kind_combo.addItem(_("auto"), None)
         for k in KINDS:
-            self.kind_combo.addItem(k, k)
+            # Display label from _KIND_TAGS when one exists (2026-09-07:
+            # "module" reads as "tree" here too) — data stays the raw kind
+            # value `k`, so currentData()/build_node() are unaffected.
+            self.kind_combo.addItem(_KIND_TAGS.get(k, k), k)
         self.kind_combo.currentIndexChanged.connect(self._on_kind_changed)
         form.addRow(_("Kind:"), self.kind_combo)
 

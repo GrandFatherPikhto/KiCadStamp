@@ -3562,8 +3562,8 @@ msgid "coordinate"
 msgstr "coordinate"
 
 #: gui/docks/trees_dock.py:82
-msgid "module"
-msgstr "module"
+msgid "tree"
+msgstr "tree"
 
 #: gui/docks/trees_dock.py:93
 msgid "⚓ (origin)"

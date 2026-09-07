@@ -2555,6 +2555,37 @@ def test_module_tree_candidates_exclude_self_dup_and_cycle(main_window, tmp_path
     assert dock2._module_tree_candidates(_tree_of(dock2, "fpga")) == ["dac_x"]
 
 
+def test_prompt_node_wires_module_candidates_and_all_trees(main_window, tmp_path, monkeypatch):
+    """2026-09-07 live-found fix: _prompt_node (the shared "Add child"/"Add
+    sibling"/"Add node" path) must wire module_candidates/all_trees into
+    _NodeDialog exactly like _build_node_form already does for Edit — without
+    them the module Ref combo and "From child node..." are silently empty
+    regardless of how many trees actually exist in the project. Spies on
+    _NodeDialog itself (not build_node/exec) so a regression that drops the
+    kwargs again is caught even though other module tests stub exec/build_node
+    and would not notice."""
+    import gui.docks.trees_dock as td_mod
+    from PyQt6.QtWidgets import QDialog
+
+    dock, _root = _module_dock(main_window, tmp_path)
+    fpga = _tree_of(dock, "fpga")
+    captured = {}
+
+    class _SpyDialog:
+        def __init__(self, *args, **kwargs):
+            captured.update(kwargs)
+
+        def exec(self):
+            return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(td_mod, "_NodeDialog", _SpyDialog)
+
+    assert dock._prompt_node("Add node", fpga, parent_node=None) is None
+    assert captured.get("module_candidates") == ["dac_x"]
+    assert captured.get("module_candidates") == dock._module_tree_candidates(fpga)
+    assert captured.get("all_trees") == dock._trees
+
+
 def test_node_dialog_module_kind_lists_trees_and_builds_pivot(main_window, tmp_path):
     """P4 п.1: kind==module lists the CHILD TREE NAMES (not records), shows the
     pivot widget, and build_node returns a module TreeNode with pivot fields."""
@@ -2682,10 +2713,13 @@ def test_master_detail_module_node_apply_copies_pivot(main_window, tmp_path):
 
 
 def test_render_tree_shows_module_tag(main_window, tmp_path):
-    """P4 п.1: the module kind gets its "(module)" tag next to the ref."""
+    """P4 п.1: the module kind gets a "(tree)" tag next to the ref — relabeled
+    2026-09-07 (Denis: "module" alone was not discoverable as "this embeds a
+    whole other tree"); the underlying kind value stays "module" everywhere
+    else (data/grammar unaffected, display-only)."""
     dock, _root = _module_dock(main_window, tmp_path)
     item = dock._node_items["ch0_dac_buf"]
-    assert "(module)" in item.text(0)
+    assert "(tree)" in item.text(0)
 
 
 def test_double_click_navigation_module_and_embedded_in(main_window, tmp_path):
