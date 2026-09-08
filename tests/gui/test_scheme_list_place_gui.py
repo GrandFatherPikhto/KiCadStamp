@@ -36,6 +36,7 @@ from gui.docks.scheme_list_place import (
 )
 from kicadstamp.config import load_config
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
+from kicadstamp.explore import Selected
 from kicadstamp.link_trees import link_trees
 
 _TOP_LEVEL_LABEL = "— top level (no parent) —"
@@ -433,6 +434,99 @@ def test_do_place_append_os_error_is_caught_into_error_dict(main_window, tmp_pat
 
     assert "error" in result
     assert "simulated append failure" in result["error"]
+
+
+# ── Section C2 — target-sheet combo: live-sheet re-resolution (2026-09-08) ──
+#
+# The live Board's own sheet_names is ALWAYS {} (Board.connect() never passes
+# schematic_dir, gui/connection.py), so a raw snapshot's Selected.sheet is a
+# list of None and _live_sheets() used to return [] — the "Target sheet" combo
+# then offered only the record's source_sheet and the Channel_1/Channel_2
+# twins (real on the live board) were never reachable (Denis' repro,
+# plan_2026_09_08_scheme_list_place_target_sheet_unresolved.md). The fix
+# re-resolves the snapshot against the CONFIG's sheet_names (self._ctx) first,
+# the same snapshot_with_resolved_sheets Record/Re-source already apply.
+
+class _SheetFakeFp:
+    """Raw-footprint stand-in exposing the sheet-UUID chain
+    resolve_sheet_path_names reads (fp.sheet_path_uuids — see
+    kicadstamp/sheet_names.py:171)."""
+
+    def __init__(self, uuids):
+        self.sheet_path_uuids = uuids
+
+
+def _sheet_selected(ref, uuids):
+    """A raw-board Selected whose .sheet is ALL None (the GUI Board's own
+    resolution is always empty — Board.connect() never passes schematic_dir)
+    but whose .fp keeps the real sheet UUID chain, so
+    snapshot_with_resolved_sheets can rebuild the segment names."""
+    return Selected(ref=ref, role=None, cluster=None,
+                    sheet=[None] * (len(uuids) - 1), nets={},
+                    fp=_SheetFakeFp(uuids))
+
+
+def _combo_items(combo):
+    return [combo.itemText(i) for i in range(combo.count())]
+
+
+def test_sheet_combo_offers_resolved_sibling_sheets(main_window, tmp_path):
+    """Regression 2026-09-08: a snapshot whose .sheet is resolved through the
+    config's sheet_names (not all-None) must make the Target sheet combo offer
+    the live siblings Channel_1/Channel_2 — not just the record's source_sheet."""
+    root = tmp_path / "root.sexp"
+    _write_project(root)  # scheme "amp", source_sheet "Channel_0"
+    dock = _make_place_dock(main_window, root)
+    # Select the record first so the combo knows its source_sheet (Channel_0)
+    # — a fresh dock opens with no Scheme List chosen yet.
+    dock.scheme_list_combo.setCurrentText("amp")
+    # This test config has no schematic_dir, so ctx.sheet_names is empty —
+    # replace the ctx with one carrying the map a real project would have
+    # resolved (_live_sheets reads ONLY _ctx.sheet_names, nothing else).
+    dock._ctx = SimpleNamespace(sheet_names={"ch1": "Channel_1",
+                                             "ch2": "Channel_2"})
+    dock._connection.snapshot = [
+        _sheet_selected("U1", ("ch1", "u1")),
+        _sheet_selected("U2", ("ch2", "u2")),
+    ]
+    dock._on_scheme_list_changed()  # rebuild the sheet combo from the live set
+
+    items = _combo_items(dock.sheet_combo)
+    # "Channel_0" is the record's own source_sheet — always there. The FIX is
+    # that the resolved Channel_1/Channel_2 siblings are now offered too.
+    assert "Channel_0" in items
+    assert "Channel_1" in items
+    assert "Channel_2" in items
+
+
+def test_sheet_combo_raw_all_none_snapshot_offers_only_source(main_window, tmp_path):
+    """Raw board snapshot with all-None .sheet AND an empty config sheet_names
+    (no schematic_dir — nothing CAN be resolved) = exactly the pre-fix reality:
+    the combo must stay [""] + [source_sheet], never a crash or garbage from a
+    half-resolved snapshot (old behaviour preserved when sheet_names is empty)."""
+    root = tmp_path / "root.sexp"
+    _write_project(root)
+    dock = _make_place_dock(main_window, root)
+    dock.scheme_list_combo.setCurrentText("amp")  # source_sheet becomes Channel_0
+    dock._connection.snapshot = [_sheet_selected("U1", ("ch1", "u1"))]
+    dock._on_scheme_list_changed()
+
+    # ctx.sheet_names is empty for this schematic-less config -> resolution is
+    # a no-op -> the all-None .sheet contributes no segment.
+    assert _combo_items(dock.sheet_combo) == ["", "Channel_0"]
+
+
+def test_live_sheets_is_safe_before_first_refresh(main_window, tmp_path):
+    """_live_sheets() must not require _ctx to be loaded (it is None before the
+    first set_root_path/refresh) — the getattr-guard falls back to an empty
+    sheet_names map and the all-None raw snapshot yields [] instead of crashing."""
+    root = tmp_path / "root.sexp"
+    _write_project(root)
+    dock = SchemeListPlaceFormWidget(main_window)  # no set_root_path -> _ctx None
+    assert dock._ctx is None
+    dock._connection.snapshot = [_sheet_selected("U1", ("ch1", "u1"))]
+
+    assert dock._live_sheets() == []
 
 
 # ── Section D — DockHub wiring ────────────────────────────────────────────

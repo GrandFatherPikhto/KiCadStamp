@@ -63,6 +63,7 @@ from kicadstamp.i18n import _
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       configure_searchable, set_combo_items, show_message)
 from .rename import find_list_entry_file
+from .scheme_list import snapshot_with_resolved_sheets
 from .tree_from_selection import (
     build_scheme_list_entity,
     selected_center_mm,
@@ -346,9 +347,18 @@ class SchemeListPlaceFormWidget(QWidget):
     def _live_sheets(self) -> List[str]:
         """Distinct sheet-instance segments from the current live snapshot,
         sorted — the same source TreesDock._live_sheets uses for its Sheet
-        combo (Selected.sheet is a tuple of path segments). connection may be
-        a fake without a snapshot attribute (tests) — getattr-guarded."""
-        snapshot = getattr(self._connection, "snapshot", None) or []
+        combo (Selected.sheet is a tuple of path segments). The raw board
+        snapshot's own sheet_names is always {} (Board.connect() never passes
+        schematic_dir, gui/connection.py) — re-resolve against the CONFIG's
+        sheet_names (self._ctx, already loaded by refresh()) first, the same
+        fix Record/Re-source already applies (snapshot_with_resolved_sheets,
+        plan_2026_09_07_scheme_list_sheet_names_empty.md), or every segment is
+        silently None and no sibling sheet is ever offered (Denis' repro,
+        plan_2026_09_08_scheme_list_place_target_sheet_unresolved.md). connection
+        may be a fake without a snapshot attribute (tests) — getattr-guarded."""
+        raw_snapshot = getattr(self._connection, "snapshot", None) or []
+        sheet_names = dict(getattr(self._ctx, "sheet_names", {}) or {})
+        snapshot = snapshot_with_resolved_sheets(raw_snapshot, sheet_names)
         return sorted({seg for s in snapshot
                        for seg in (getattr(s, "sheet", None) or ()) if seg})
 
