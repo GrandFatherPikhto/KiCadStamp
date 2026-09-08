@@ -29,7 +29,11 @@ from ...config import (Config, ClonePlacement, CellPlacement, Cell, Entity,
                        entity_effective_name)
 from ...exceptions import ValidationError, format_fatal_error
 from ...kicad.adapter import KiCadBoardAdapter
-from ...geometry.clone_geometry import apply_clone_geometry, clone_shift_mm
+from ...geometry.clone_geometry import (
+    apply_clone_geometry,
+    clone_layout_origin,
+    clone_shift_mm,
+)
 from ...net_resolution import resolve_net_from_role
 from ...registry import make_registry_key
 from ..commands import PlacedComponentInfo, ViaCommand, TrackCommand
@@ -325,6 +329,25 @@ class ClonePositionCalculator:
         # such field at all (closed boundary, no selection mode either —
         # see below) — always False for it, a plain no-op here.
         with self.adapter.temporarily_ignore_selection(getattr(placement, "ignore_selection", False)):
+            # 2026-09-07 (Denis: "Мы автоматизировать этот процесс не можем?" —
+            # geometric role narrowing for absolute-coordinate clones):
+            # resolve_roles_by_nets' step 5 (physical-proximity narrowing,
+            # role_narrowing._narrow_ambiguous_candidates) needs an
+            # anchor_position — but Entity/tree_instances-materialized clones
+            # (and any absolute-coordinate ClonePlacement) are always absolute
+            # (no anchor_ref/anchor_role/anchor_point set), so _resolve_anchor
+            # returns None here and step 5 never fires, even though this
+            # clone's OWN world position is already knowable from its xy.
+            # Compute a SEPARATE fallback for role-narrowing ONLY, reusing
+            # clone_layout_origin — the exact function that will later place
+            # this clone's origin — so it always matches the real geometry.
+            # The REAL anchor_position (used below in apply_clone_geometry for
+            # actual placement) is deliberately left untouched: feeding this
+            # fallback back into apply_clone_geometry would double-apply
+            # clone.xy's shift and corrupt the final position (see plan §0).
+            role_narrowing_anchor = (anchor_position if anchor_position is not None
+                                     else clone_layout_origin(placement, None, parent_rotation_deg))
+
             # Selection mode only exists for a top-level ClonePlacement (the
             # old cluster: branch — an exact Cluster-tag match — was migrated
             # to coordinate_placements on 2026-08-12, Group 0); a nested
@@ -334,11 +357,11 @@ class ClonePositionCalculator:
                     placement, adapter=self.adapter, cell=cell,
                     sheet_names=self.sheet_names):
                 role_to_ref = resolve_roles_by_selection(self.adapter, cell, placement,
-                                                          anchor_position=anchor_position,
+                                                          anchor_position=role_narrowing_anchor,
                                                           sheet_names=self.sheet_names)
             else:
                 role_to_ref = resolve_roles_by_nets(self.adapter, cell, placement,
-                                                     anchor_position=anchor_position,
+                                                     anchor_position=role_narrowing_anchor,
                                                      sheet_names=self.sheet_names)
 
         # Cell is assumed to be front; back = mirror (see apply_clone_geometry).
