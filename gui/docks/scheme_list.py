@@ -605,6 +605,12 @@ class RecordSchemeListDialog(QDialog):
         # setCheckState calls re-enter itemChanged, so they are no-ops while a
         # cascade is already running.
         self._cascading = False
+        # The SOURCE tab (0="By sheet", 1="By selection"), tracked separately
+        # from the widget's currentIndex(): the Pivot/Anchor tab (index 2) is
+        # NOT a source — visiting it must not silently flip is_by_sheet()'s
+        # answer (plan_2026_09_08_scheme_list_pivot_tab_source_tracking_fix.md).
+        # Default "By sheet" (0) matches the tab the dialog opens on.
+        self._source_tab_index: int = 0
 
         layout = QVBoxLayout(self)
         name_form = QFormLayout()
@@ -730,7 +736,7 @@ class RecordSchemeListDialog(QDialog):
         layout.addWidget(buttons)
 
         # OK is gated on a non-empty capturable ref set of the ACTIVE tab.
-        self.tabs.currentChanged.connect(self._sync_ok_state)
+        self.tabs.currentChanged.connect(self._on_tab_changed)
         self._rebuild_sheet_tree()  # build the full hierarchy tree
         self._sync_ok_state()
 
@@ -962,14 +968,24 @@ class RecordSchemeListDialog(QDialog):
 
     def _sync_ok_state(self) -> None:
         """OK needs a capturable set AND a valid Pivot/Anchor tab: the ACTIVE
-        tab must yield at least one ref (an empty board selection / all-
-        unchecked sheet leaves nothing to record) and the pivot x/y must be
-        numbers (a malformed pivot must never reach the record)."""
+        SOURCE tab (By sheet / By selection — NOT the Pivot tab, index 2) must
+        yield at least one ref (an empty board selection / all-unchecked sheet
+        leaves nothing to record) and the pivot x/y must be numbers (a malformed
+        pivot must never reach the record)."""
         ok = bool(self._checked_refs()) and self._pivot_fields_ok()
         self._ok_button.setEnabled(ok)
 
+    def _on_tab_changed(self, index: int) -> None:
+        """Track which SOURCE tab (0=By sheet, 1=By selection) is active,
+        ignoring visits to the Pivot/Anchor tab (index 2) — it is not a source,
+        switching to it must not silently change is_by_sheet()'s answer
+        (plan_2026_09_08_scheme_list_pivot_tab_source_tracking_fix.md §0)."""
+        if index in (0, 1):
+            self._source_tab_index = index
+        self._sync_ok_state()
+
     def is_by_sheet(self) -> bool:
-        return self.tabs.currentIndex() == 0
+        return self._source_tab_index == 0
 
     def result_data(self):
         """(name, sheet_path_or_None, checked_paths_or_None).

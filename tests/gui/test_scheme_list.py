@@ -2994,3 +2994,175 @@ def test_record_dialog_pivot_take_from_selection_falls_back_to_snapshot(
         assert y == pytest.approx(0.0)
     finally:
         dialog.close()
+
+
+# ── 2026-09-08 — the Pivot/Anchor tab must not flip is_by_sheet() ────────────
+# plan_2026_09_08_scheme_list_pivot_tab_source_tracking_fix.md: is_by_sheet()
+# used to answer literally "the current tab is index 0", so standing on the
+# THIRD tab (Pivot/Anchor, index 2) — which is NOT a source — made the whole
+# dialog silently behave as "By selection". The source is now a tracked state
+# that only a 0<->1 tab switch changes; these tests reproduce Denis' repro and
+# its dock_hub consequence by REALLY switching to tab 2 before acting.
+
+def test_record_dialog_pivot_tab_keeps_by_sheet_source_take_from_selection_fills(
+        main_window, monkeypatch):
+    """§0.1 repro — checked a sheet on "By sheet", moved to the Pivot/Anchor
+    tab (index 2) and clicked 'Take from selection': with the tab-based source
+    the dialog read the (here empty) open-time selection, gated on an empty set
+    and warned 'No footprints to record' with x/y staying 0,0. The tracked
+    source keeps the By-sheet checklist authoritative on tab 2, so the pivot is
+    filled from the checked sheet's region and no warning fires."""
+    import gui.docks.scheme_list as sl_mod
+    warns = []
+    monkeypatch.setattr(sl_mod.QMessageBox, "warning",
+                        lambda parent, title, text: warns.append(text))
+    adapter = _line_board()  # R1(10,10) C1(20,10) C2(24,10) -> centre (17,10)
+    fps = _fps_by_ref(adapter)
+    dialog = RecordSchemeListDialog(_snap_live(adapter), [], main_window,
+                                    adapter=adapter,
+                                    selection_provider=lambda: list(
+                                        _selection_from(fps["R1"])))
+    try:
+        # "By sheet" (the default tab): tick the whole Top subtree — the region.
+        _tree_item_by_path(dialog, ("Top",)).setCheckState(
+            0, Qt.CheckState.Checked)
+        assert dialog.is_by_sheet()
+        assert dialog._checked_refs() == ["C1", "C2", "C3", "R1", "U1"]
+        assert dialog._ok_button.isEnabled()
+        # The user then opens the Pivot/Anchor tab (natural flow: fill the
+        # pivot last) and clicks 'Take from selection'.
+        dialog.tabs.setCurrentIndex(2)
+        assert dialog.tabs.currentIndex() == 2
+        assert dialog.is_by_sheet()            # tracked, not the open tab
+        assert dialog._checked_refs() == ["C1", "C2", "C3", "R1", "U1"]
+        assert dialog._ok_button.isEnabled()   # OK not gated off by the visit
+        dialog.pivot_from_selection_button.click()
+        assert not warns                       # no 'No footprints to record'
+        x, y = dialog.pivot_value()
+        assert x == pytest.approx(-7.0)        # R1(10,10) - centre (17,10)
+        assert y == pytest.approx(0.0)
+    finally:
+        dialog.close()
+
+
+def test_record_dialog_pivot_tab_keeps_by_selection_source(main_window):
+    """§1.2 symmetric — after choosing "By selection" (tab 1) the visit to the
+    Pivot/Anchor tab (index 2) must NOT revert the source to "By sheet":
+    is_by_sheet() stays False, the capturable refs stay the selection, and
+    result_data() keeps the no-paths selection contract."""
+    adapter = _line_board()
+    fps = _fps_by_ref(adapter)
+    dialog = RecordSchemeListDialog(_snap_live(adapter), ["R1", "C1", "C2"],
+                                    main_window, adapter=adapter,
+                                    selected_footprints=_selection_from(
+                                        fps["R1"]))
+    try:
+        dialog.tabs.setCurrentIndex(1)  # "By selection" — refs = the selection
+        assert not dialog.is_by_sheet()
+        assert dialog._checked_refs() == ["C1", "C2", "R1"]
+        dialog.tabs.setCurrentIndex(2)  # Pivot/Anchor — NOT a source
+        assert dialog.tabs.currentIndex() == 2
+        assert not dialog.is_by_sheet()             # source unchanged
+        assert dialog._checked_refs() == ["C1", "C2", "R1"]
+        assert dialog.result_data() == ("", None, None)  # no sheet paths
+        dialog.pivot_from_selection_button.click()
+        x, y = dialog.pivot_value()
+        assert x == pytest.approx(-7.0)  # R1 - centre of the selection's region
+        assert y == pytest.approx(0.0)
+    finally:
+        dialog.close()
+
+
+def test_record_dialog_ok_stays_enabled_after_pivot_tab_visit_with_by_sheet_source(
+        main_window):
+    """§0.2 OK gate — with a non-empty "By sheet" checklist, moving to the
+    Pivot/Anchor tab (index 2) must NOT disable OK (the old code re-derived
+    _checked_refs() as the empty selection on tab 2 and switched OK off)."""
+    dialog = RecordSchemeListDialog(_snap(("R1", ("Top",))), [], main_window)
+    try:
+        _tree_item_by_path(dialog, ("Top",)).setCheckState(
+            0, Qt.CheckState.Checked)
+        assert dialog._ok_button.isEnabled()
+        dialog.tabs.setCurrentIndex(2)  # Pivot/Anchor
+        assert dialog.tabs.currentIndex() == 2
+        assert dialog.is_by_sheet()     # source still "By sheet"
+        assert dialog._ok_button.isEnabled()
+    finally:
+        dialog.close()
+
+
+def test_record_scheme_list_ok_from_pivot_tab_uses_by_sheet_source(
+        main_window, tmp_path, monkeypatch):
+    """§0.3 — the most serious consequence (silent corruption): pressing OK
+    DIRECTLY from the Pivot/Anchor tab (the natural flow — fill the pivot last,
+    then OK). dock_hub's record_scheme_list() reads result_data()/is_by_sheet()
+    only AFTER exec() returns; with the tab-based source a dialog left on tab 2
+    would report "By selection", derive refs from the (here empty) board
+    selection and abort with 'No footprints to record' instead of recording the
+    checked "By sheet" region. Uses the REAL dialog (exec only switches to the
+    Pivot tab before returning Accepted) so the tracked source is exercised."""
+    import logging
+
+    import gui.dock_hub as dock_hub_mod
+    from gui.dock_hub import DockHub
+    from PyQt6.QtWidgets import QDialog
+
+    root = tmp_path / "root.sexp"
+    _write(root, {"scheme_lists": [],
+                  "entities": [{"name": "PARENT", "cell": "c_parent"}],
+                  "trees": [{"name": "main", "anchor": {"origin": True},
+                             "nodes": [{"ref": "PARENT", "kind": "placement",
+                                        "xy": [0.0, 0.0]}]}]})
+    connection = main_window.connection
+    hub = DockHub(main_window, connection=connection, verbose=False)
+    try:
+        connection.snapshot = _snap(*_HIER)
+        connection.board = SimpleNamespace(adapter=FakeAdapter([], [], [], {}))
+        hub.root_metadata_dock.set_root_file(root)
+
+        real_cls = dock_hub_mod.RecordSchemeListDialog
+
+        class _DialogOkFromPivot(real_cls):
+            """The real dialog; exec() emulates the user typing a unique name,
+            ticking the whole Top subtree, then pressing OK straight from the
+            Pivot/Anchor tab (index 2)."""
+
+            def exec(self):
+                self.name_edit.setText("amp")
+                top = _tree_item_by_path(self, ("Top",))
+                assert top is not None
+                top.setCheckState(0, Qt.CheckState.Checked)
+                self.tabs.setCurrentIndex(2)  # Pivot/Anchor — the ACTIVE tab
+                return QDialog.DialogCode.Accepted
+
+        payloads = []
+        warns = []
+        # A regression (source lost on the Pivot tab -> empty refs) would make
+        # dock_hub pop a REAL modal "No footprints to record" warning — record
+        # it instead so the test fails fast rather than hangs headless.
+        monkeypatch.setattr(dock_hub_mod.QMessageBox, "warning",
+                            lambda parent, title, text: warns.append(text))
+        monkeypatch.setattr(dock_hub_mod, "RecordSchemeListDialog",
+                            _DialogOkFromPivot)
+        # record_scheme_list imports start_long_op lazily (`from .worker import
+        # start_long_op`) — patch the worker module, not dock_hub's namespace.
+        import gui.worker as worker_mod
+        monkeypatch.setattr(
+            worker_mod, "start_long_op",
+            lambda _c, _w, worker, on_success, on_error, payload:
+                payloads.append(payload) or object())
+
+        hub.record_scheme_list()
+
+        assert len(payloads) == 1
+        # refs = the CHECKED Top subtree union — NOT the empty board selection;
+        # staying on the Pivot tab at OK must not change the recorded source.
+        assert payloads[0]["refs"] == ["C1", "C2", "C3", "R1", "U1"]
+        assert payloads[0]["scope_sheet_paths"] == [
+            ["Top"], ["Top", "Ch0"], ["Top", "Ch0", "Amp"], ["Top", "Ch1"]]
+        assert not warns  # no "No footprints to record" — the source was kept
+    finally:
+        hub.log_dock.remove_handler()
+        if hub._log_file_handler is not None:
+            logging.getLogger().removeHandler(hub._log_file_handler)
+            hub._log_file_handler.close()

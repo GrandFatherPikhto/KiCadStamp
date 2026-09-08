@@ -1139,7 +1139,10 @@ Captures a named Scheme List from the live board through a **three-tab** dialog:
   centre is read from the polled full-board snapshot, never from a blocking board IPC on the shared
   KiCad socket (Commit H) — the click stays instant and cannot race the poll. The dialog OK
   (Record/Re-source) STORES these fields as the new record's pivot — there is no separate Apply in the
-  dialog, and OK stays disabled while the x/y fields do not hold numbers.
+  dialog, and OK stays disabled while the x/y fields do not hold numbers. This third tab is NOT a
+  source: visiting it never changes the chosen source ("By sheet"/"By selection"), and pressing OK
+  straight from it records from the source that was active before the visit
+  (plan_2026_09_08_scheme_list_pivot_tab_source_tracking_fix.md).
 
 Both tabs end the same way: a unique record name, a duplicate pre-check BEFORE the expensive capture
 (a duplicate name, or a ref already recorded in ANOTHER Scheme List), a worker-thread capture (never
