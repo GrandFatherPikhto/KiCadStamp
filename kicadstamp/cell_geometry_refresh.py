@@ -71,6 +71,7 @@ __all__ = [
     "match_components",
     "net_template_regex",
     "normalize_cell_anchor_frame",
+    "resolve_anchor_point",
 ]
 
 # One str.format placeholder, as resolve_placeholder (net_resolution.py)
@@ -516,6 +517,70 @@ def _cell_selection_context(components: list[dict], footprints: list[Footprint],
                 origin_fp.position.x - int(surrogate_along * MM),
                 origin_fp.position.y - int(surrogate_across * MM))
     return role_to_ref, matched, origin, problems
+
+
+def resolve_anchor_point(
+    fp: Footprint,
+    components: list[dict],
+    adapter: Any,
+    pad: str | None = None,
+) -> tuple[str, float, float]:
+    """Given ONE live footprint (the intended anchor subject) and the cell's
+    own component list, resolves (role, along_mm, across_mm) — the bbox-local
+    point of either fp's own centre (pad is None) or one of its pads (pad
+    given) — for use as Cell.anchor_xy (+anchor_role/anchor_pad).
+
+    Reuses the SAME frame-preserving surrogate formula as
+    _cell_selection_context's origin_role branch: fp's Role must already be
+    one of this cell's OWN components (that component's stored
+    offset_along_mm/offset_across_mm is the only way to know where the cell's
+    local (0,0) currently lives on the real board), so
+
+        origin = fp.position - stored_offset_of_that_role (mm -> nm)
+        target = get_pad_by_number(fp, pad).position if pad else fp.position
+        (along_mm, across_mm) = (target - origin) in mm
+
+    Raises ValidationError (format_fatal_error) when: fp carries no Role
+    field; that role is not one of this cell's own components; pad is given
+    but the footprint has no such pad."""
+    role = adapter.get_field_value(fp, ROLE_FIELD_NAME)
+    if role is None:
+        raise ValidationError(format_fatal_error(
+            _("selected footprint {ref!r} has no {field!r} field").format(
+                ref=fp.ref, field=ROLE_FIELD_NAME),
+            [_("the anchor subject must already be one of this cell's own "
+               "components — its {field!r} field is how the cell's stored "
+               "offset for that role is found").format(field=ROLE_FIELD_NAME)]))
+    comp = next((c for c in components if c.get("role") == role), None)
+    if comp is None:
+        raise ValidationError(format_fatal_error(
+            _("role {role!r} of selected footprint {ref!r} is not a component "
+              "of this cell").format(role=role, ref=fp.ref),
+            [_("the anchor subject's role must already be one of this cell's "
+               "own components — only that component's stored offset can tell "
+               "where the cell's local (0,0) lives on the board")]))
+    surrogate_along = float(comp.get("offset_along_mm", 0.0))
+    surrogate_across = float(comp.get("offset_across_mm", 0.0))
+    # Frame-preserving surrogate — IDENTICAL to _cell_selection_context's
+    # origin_role branch: the cell's local (0,0) currently lives at
+    # fp.position - that role's stored offset (in nm). Reusing the same int()
+    # truncation keeps the anchor exactly consistent with what a refresh would
+    # write for the same role.
+    origin = Vector2.from_xy(
+        fp.position.x - int(surrogate_along * MM),
+        fp.position.y - int(surrogate_across * MM))
+    if pad is None:
+        target = fp.position
+    else:
+        p = adapter.get_pad_by_number(fp, pad)
+        if p is None:
+            raise ValidationError(format_fatal_error(
+                _("footprint {ref!r} has no pad {pad!r}").format(
+                    ref=fp.ref, pad=pad),
+                [_("the pad number must match a real pad of the selected "
+                   "component — type it exactly as KiCad shows it")]))
+        target = p.position
+    return role, _mm(target.x - origin.x), _mm(target.y - origin.y)
 
 
 def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[dict],

@@ -23,6 +23,7 @@ from kicadstamp.cell_geometry_refresh import (
     match_components,
     net_template_regex,
     normalize_cell_anchor_frame,
+    resolve_anchor_point,
 )
 from kicadstamp.config import ClonePlacement, load_cell
 from kicadstamp.domain.board import Footprint, Track, Via
@@ -1027,5 +1028,123 @@ def test_refresh_add_new_copper_net_from_role_via_gets_role_not_literal(
     rec = plan.new_via_records[0]
     assert rec["net_from_role"] == "ORIG"
     assert "net" not in rec
+
+
+# ── resolve_anchor_point (2026-09-08, plan cell_anchor_take_from_selection) ─
+
+class _AnchorPad:
+    """A stub pad with a LIVE absolute position (what get_pad_by_number's real
+    Pad carries — the adapter returns pad.position in board coords)."""
+    def __init__(self, x_mm, y_mm):
+        self.position = Vector2.from_xy_mm(x_mm, y_mm)
+
+
+class _AnchorAdapter:
+    """Minimal adapter for resolve_anchor_point: get_field_value returns the
+    role by ref; get_pad_by_number returns a positioned stub pad (by ref and
+    number) or None."""
+    def __init__(self, roles=None, pads_by_ref=None):
+        self.roles = roles or {}
+        self.pads_by_ref = pads_by_ref or {}
+
+    def get_field_value(self, fp, name):
+        return self.roles.get(fp.ref)
+
+    def get_pad_by_number(self, fp, pad):
+        return (self.pads_by_ref.get(fp.ref) or {}).get(str(pad))
+
+
+def test_resolve_anchor_point_no_pad_is_the_roles_own_stored_centre():
+    """pad=None -> the anchor point is the component's OWN stored centre: the
+    frame-preserving surrogate formula collapses to (target - origin) = the
+    role's stored offset. A centre (role-only) anchor therefore never needs a
+    live read beyond the one component itself."""
+    fp = _fp("U-MOUNT", "MOUNT", 10.0, 20.0)
+    components = [{"role": "MOUNT", "offset_along_mm": -5.05,
+                   "offset_across_mm": -0.295}]
+    adapter = _AnchorAdapter(roles={"U-MOUNT": "MOUNT"})
+    assert resolve_anchor_point(fp, components, adapter) == (
+        "MOUNT", -5.05, -0.295)
+
+
+def test_resolve_anchor_point_with_pad_reads_pad_live_position():
+    """pad given -> target = the pad's live absolute position, minus the
+    cell's reconstructed live origin: the pad's correct bbox-local point (the
+    anchor_xy a v2 Role+Pad anchor needs; closes the yesterday (0,0) bug)."""
+    fp = _fp("U-MOUNT", "MOUNT", 10.0, 20.0)
+    components = [{"role": "MOUNT", "offset_along_mm": -5.05,
+                   "offset_across_mm": -0.295}]
+    # Cell local (0,0) lives at (15.05, 20.295); pad "1" sits 3.05/1.295 mm
+    # to its lower-left -> bbox-local anchor (-3.05, -1.295).
+    adapter = _AnchorAdapter(
+        roles={"U-MOUNT": "MOUNT"},
+        pads_by_ref={"U-MOUNT": {"1": _AnchorPad(12.0, 19.0)}})
+    assert resolve_anchor_point(fp, components, adapter, pad="1") == (
+        "MOUNT", -3.05, -1.295)
+
+
+def test_resolve_anchor_point_footprint_without_role_is_fatal():
+    fp = _fp("U-NOROLE", None, 10.0, 20.0)
+    components = [{"role": "MOUNT", "offset_along_mm": -5.05,
+                   "offset_across_mm": -0.295}]
+    adapter = _AnchorAdapter(roles={})
+    with pytest.raises(ValidationError, match="no .* field"):
+        resolve_anchor_point(fp, components, adapter)
+
+
+def test_resolve_anchor_point_role_not_a_cell_component_is_fatal():
+    fp = _fp("U-OTHER", "OTHER", 10.0, 20.0)
+    components = [{"role": "MOUNT", "offset_along_mm": -5.05,
+                   "offset_across_mm": -0.295}]
+    adapter = _AnchorAdapter(roles={"U-OTHER": "OTHER"})
+    with pytest.raises(ValidationError, match="not a component of this cell"):
+        resolve_anchor_point(fp, components, adapter)
+
+
+def test_resolve_anchor_point_missing_pad_is_fatal():
+    fp = _fp("U-MOUNT", "MOUNT", 10.0, 20.0)
+    components = [{"role": "MOUNT", "offset_along_mm": -5.05,
+                   "offset_across_mm": -0.295}]
+    adapter = _AnchorAdapter(roles={"U-MOUNT": "MOUNT"}, pads_by_ref={})
+    with pytest.raises(ValidationError, match="no pad"):
+        resolve_anchor_point(fp, components, adapter, pad="9")
+
+
+def test_resolve_anchor_point_pif3v3_vdd_shaped_round_trips_through_mount():
+    """The live regression shape from the plan (pif_3v3_vdd: Role=C_OUT_BYPASS,
+    Pad=1, the role stored at (-5.05,-0.295), the live fp standing at an
+    ARBITRARY point): resolve_anchor_point -> the cell_mount_offset of a cell
+    written with that anchor_xy (+role+pad) gives EXACTLY the pad's live
+    position minus the reconstructed live origin — i.e. the pad really is the
+    mount, not the silent (0,0) of yesterday's legacy branch."""
+    from kicadstamp.geometry.cell_anchor import cell_mount_offset
+
+    fp = _fp("C-OUT", "C_OUT_BYPASS", 100.0, 55.0)
+    components = [{"role": "C_OUT_BYPASS", "offset_along_mm": -5.05,
+                   "offset_across_mm": -0.295, "angle_deg": 0.0}]
+    # Pad "1" of the live fp at (97.0, 52.5): the anchor it should resolve to.
+    adapter = _AnchorAdapter(
+        roles={"C-OUT": "C_OUT_BYPASS"},
+        pads_by_ref={"C-OUT": {"1": _AnchorPad(97.0, 52.5)}})
+    role, along_mm, across_mm = resolve_anchor_point(
+        fp, components, adapter, pad="1")
+    assert role == "C_OUT_BYPASS"
+
+    # Rebuild a loader-validated Cell from the resolved fields, exactly as
+    # CellEditor's _build_cell_dict (mode 2) would write it now.
+    cell = load_cell("t", {
+        "components": components,
+        "anchor_role": role,
+        "anchor_pad": "1",
+        "anchor_xy": [along_mm, across_mm],
+    })
+    mount = cell_mount_offset(cell)
+    # The mount must NOT be the legacy (0,0): it is the pad's bbox-local point.
+    assert mount == (along_mm, across_mm)
+    assert mount != (0.0, 0.0)
+    # And (mount + reconstructed live origin) == the pad's live position.
+    origin_mm = (100.0 + 5.05, 55.0 + 0.295)
+    assert (round(origin_mm[0] + mount[0], 4),
+            round(origin_mm[1] + mount[1], 4)) == (97.0, 52.5)
 
 

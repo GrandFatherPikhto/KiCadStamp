@@ -414,16 +414,231 @@ def test_remove_nested(main_window, tmp_path):
 # ── Anchor UI ─────────────────────────────────────────────────────────────
 
 def test_anchor_mode_toggles_row_visibility(main_window, tmp_path):
+    """2026-09-08 (take-from-selection): the X/Y row is now visible in Role
+    mode TOO (the take button writes the computed bbox-local numbers there,
+    and Denis wants to see them); the take button shows in both XY and Role
+    modes, never in (none)."""
     dock, _ = _make_dock(main_window, tmp_path)
 
     dock.anchor_mode_combo.setCurrentIndex(0)
-    assert not dock._anchor_xy_row.isVisibleTo(dock) and not dock._anchor_role_row.isVisibleTo(dock)
+    assert not dock._anchor_xy_row.isVisibleTo(dock)
+    assert not dock._anchor_role_row.isVisibleTo(dock)
+    assert not dock.anchor_take_button.isVisibleTo(dock)
 
     dock.anchor_mode_combo.setCurrentIndex(1)
-    assert dock._anchor_xy_row.isVisibleTo(dock) and not dock._anchor_role_row.isVisibleTo(dock)
+    assert dock._anchor_xy_row.isVisibleTo(dock)
+    assert not dock._anchor_role_row.isVisibleTo(dock)
+    assert dock.anchor_take_button.isVisibleTo(dock)
 
     dock.anchor_mode_combo.setCurrentIndex(2)
-    assert dock._anchor_role_row.isVisibleTo(dock) and not dock._anchor_xy_row.isVisibleTo(dock)
+    assert dock._anchor_role_row.isVisibleTo(dock)
+    assert dock._anchor_xy_row.isVisibleTo(dock)  # was hidden before 2026-09-08
+    assert dock.anchor_take_button.isVisibleTo(dock)
+
+
+# ── "Take coordinates from selection" (2026-09-08, plan
+#    cell_anchor_take_from_selection) — headless, run/finish driven like the
+#    Refresh geometry tests below.
+
+class _AnchorPad:
+    def __init__(self, number, x_mm, y_mm):
+        self.number = str(number)
+        self.position = Vector2.from_xy_mm(x_mm, y_mm)
+
+
+class _AnchorBoard:
+    """connection.board stand-in for the anchor take button: fixed selection +
+    Role-by-ref + pads-by-ref-with-positions (resolve_anchor_point reads the
+    live pad position, unlike the refresh tests' net-keyed pads)."""
+    def __init__(self, items, roles=None, pads=None):
+        self.adapter = SimpleNamespace(
+            get_selected_items=lambda: list(items),
+            get_field_value=lambda fp, name: (roles or {}).get(fp.ref),
+            get_pad_by_number=lambda fp, num:
+                (pads or {}).get(fp.ref, {}).get(str(num)))
+
+
+def _pif3v3_cell_data():
+    """The live bug's cell shape (pif_3v3_vdd, tree mcu): one component
+    C_OUT_BYPASS stored at (-5.05, -0.295)."""
+    return {"cells": {"t": {"components": [
+        {"role": "C_OUT_BYPASS", "offset_along_mm": -5.05,
+         "offset_across_mm": -0.295, "angle_deg": 0.0},
+    ]}}}
+
+
+def test_anchor_take_button_enabled_only_with_board_and_components(main_window,
+                                                                  tmp_path):
+    """Same activity gate as Refresh/Import: adapter present (push_snapshot
+    fires) AND the loaded cell has components."""
+    dock, _ = _make_dock(main_window, tmp_path, {"cells": {"t": {"components": []}}})
+    dock.load_entry("t")
+    assert not dock.anchor_take_button.isEnabled()
+
+    main_window.connection.board = _AnchorBoard([])
+    dock.refresh_known_roles([])
+    assert not dock.anchor_take_button.isEnabled()
+
+    dock.load_entry("t", None)
+    dock._components.append({"role": "C_OUT_BYPASS", "offset_along_mm": 0.0,
+                             "offset_across_mm": 0.0})
+    dock._refresh_all_tables()
+    assert dock.anchor_take_button.isEnabled()
+
+
+def test_anchor_take_run_zero_selection_shows_fatal_writes_nothing(main_window,
+                                                                   tmp_path,
+                                                                   monkeypatch):
+    """0 selected footprints -> collected fatal shown in a QMessageBox, X/Y
+    untouched, nothing staged."""
+    dock, _ = _make_dock(main_window, tmp_path, _pif3v3_cell_data())
+    dock.load_entry("t")
+    dock.anchor_mode_combo.setCurrentIndex(2)
+    warnings = []
+    monkeypatch.setattr(cell_editor_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a))
+
+    result = dock._run_anchor_take_from_selection(
+        {"board": _AnchorBoard([]), "components": list(dock._components),
+         "pad": "1"})
+    assert "error" in result
+    dock._finish_anchor_take_from_selection(result)
+
+    assert len(warnings) == 1
+    assert "select exactly one footprint" in warnings[0][2]
+    assert dock.anchor_x_edit.text() == ""
+    assert dock.anchor_y_edit.text() == ""
+
+
+def test_anchor_take_run_two_selection_shows_fatal(main_window, tmp_path,
+                                                   monkeypatch):
+    """2+ selected footprints -> the anchor subject is ambiguous -> fatal."""
+    dock, _ = _make_dock(main_window, tmp_path, _pif3v3_cell_data())
+    dock.load_entry("t")
+    dock.anchor_mode_combo.setCurrentIndex(2)
+    warnings = []
+    monkeypatch.setattr(cell_editor_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a))
+    fps = [_refresh_dto_fp("C-OUT1", "C_OUT_BYPASS", 100.0, 55.0),
+           _refresh_dto_fp("C-OUT2", "C_OUT_BYPASS", 90.0, 50.0)]
+
+    result = dock._run_anchor_take_from_selection(
+        {"board": _AnchorBoard(fps, roles={"C-OUT1": "C_OUT_BYPASS",
+                                           "C-OUT2": "C_OUT_BYPASS"}),
+         "components": list(dock._components), "pad": "1"})
+    assert "error" in result
+    dock._finish_anchor_take_from_selection(result)
+
+    assert len(warnings) == 1
+    assert "2 footprint(s) currently selected" in warnings[0][2]
+
+
+def test_anchor_take_mode2_fills_fields_and_stages_xy_role_pad(main_window,
+                                                               tmp_path,
+                                                               monkeypatch):
+    """Mode=2 (Role+Pad), ONE selected fp whose Role matches a cell component:
+    X/Y get the computed bbox-local pad point, and autostage lands
+    anchor_xy+anchor_role+anchor_pad ALL THREE on disk — the actual fix for
+    the yesterday bug (role+pad alone was silently (0,0))."""
+    dock, target = _make_dock(main_window, tmp_path, _pif3v3_cell_data())
+    dock.load_entry("t")
+    dock.anchor_mode_combo.setCurrentIndex(2)
+    dock.anchor_role_combo.setCurrentText("C_OUT_BYPASS")
+    dock.anchor_pad_edit.setText("1")
+    messages = []
+    monkeypatch.setattr(dock, "_show_message",
+                        lambda text, style="": messages.append(text))
+
+    board = _AnchorBoard(
+        [_refresh_dto_fp("C-OUT", "C_OUT_BYPASS", 100.0, 55.0)],
+        roles={"C-OUT": "C_OUT_BYPASS"},
+        pads={"C-OUT": {"1": _AnchorPad("1", 97.0, 52.5)}})
+    result = dock._run_anchor_take_from_selection(
+        {"board": board, "components": list(dock._components), "pad": "1"})
+    assert "error" not in result
+    dock._finish_anchor_take_from_selection(result)
+
+    # Live origin of this cell = fp.position - stored offset =
+    # (105.05, 55.295); pad at (97.0, 52.5) -> bbox-local (-8.05, -2.795).
+    assert dock.anchor_x_edit.text() == "-8.05"
+    assert dock.anchor_y_edit.text() == "-2.795"
+    assert any("Anchor set from 'C_OUT_BYPASS': (-8.05, -2.795)" in m
+               for m in messages)
+
+    saved = _load(target)["cells"]["t"]
+    assert saved["anchor_xy"] == [-8.05, -2.795]
+    assert saved["anchor_role"] == "C_OUT_BYPASS"
+    assert saved["anchor_pad"] == "1"
+
+
+def test_anchor_take_mode1_fills_xy_only(main_window, tmp_path, monkeypatch):
+    """Mode=1 (XY): no Role/Pad are written — the button still resolves the
+    selected component's own bbox-local centre into anchor_xy."""
+    dock, target = _make_dock(main_window, tmp_path, _pif3v3_cell_data())
+    dock.load_entry("t")
+    dock.anchor_mode_combo.setCurrentIndex(1)
+    messages = []
+    monkeypatch.setattr(dock, "_show_message",
+                        lambda text, style="": messages.append(text))
+
+    board = _AnchorBoard(
+        [_refresh_dto_fp("C-OUT", "C_OUT_BYPASS", 100.0, 55.0)],
+        roles={"C-OUT": "C_OUT_BYPASS"})
+    result = dock._run_anchor_take_from_selection(
+        {"board": board, "components": list(dock._components), "pad": None})
+    assert "error" not in result
+    dock._finish_anchor_take_from_selection(result)
+
+    saved = _load(target)["cells"]["t"]
+    assert saved.get("anchor_xy") == [-5.05, -0.295]
+    assert "anchor_role" not in saved
+    assert "anchor_pad" not in saved
+
+
+def test_anchor_take_mode2_role_not_in_cell_shows_fatal(main_window, tmp_path,
+                                                        monkeypatch):
+    """The selected fp's Role is NOT one of the cell's own components -> the
+    origin cannot be reconstructed -> collected fatal, nothing written."""
+    dock, _ = _make_dock(main_window, tmp_path, _pif3v3_cell_data())
+    dock.load_entry("t")
+    dock.anchor_mode_combo.setCurrentIndex(2)
+    warnings = []
+    monkeypatch.setattr(cell_editor_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a))
+    board = _AnchorBoard(
+        [_refresh_dto_fp("R-OTHER", "OTHER", 100.0, 55.0)],
+        roles={"R-OTHER": "OTHER"})
+
+    result = dock._run_anchor_take_from_selection(
+        {"board": board, "components": list(dock._components), "pad": "1"})
+    assert "error" in result
+    dock._finish_anchor_take_from_selection(result)
+
+    assert len(warnings) == 1
+    assert "not a component of this cell" in warnings[0][2]
+
+
+def test_anchor_take_mode2_missing_pad_shows_fatal(main_window, tmp_path,
+                                                   monkeypatch):
+    """Pad typed but the selected footprint has no such pad -> collected
+    fatal, nothing written."""
+    dock, _ = _make_dock(main_window, tmp_path, _pif3v3_cell_data())
+    dock.load_entry("t")
+    dock.anchor_mode_combo.setCurrentIndex(2)
+    warnings = []
+    monkeypatch.setattr(cell_editor_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a))
+    board = _AnchorBoard(
+        [_refresh_dto_fp("C-OUT", "C_OUT_BYPASS", 100.0, 55.0)],
+        roles={"C-OUT": "C_OUT_BYPASS"})  # no pads at all
+
+    result = dock._run_anchor_take_from_selection(
+        {"board": board, "components": list(dock._components), "pad": "9"})
+    assert "error" in result
+    dock._finish_anchor_take_from_selection(result)
+
+    assert len(warnings) == 1
+    assert "no pad" in warnings[0][2]
 
 
 def test_anchor_role_choices_follow_the_components_list(main_window, tmp_path):
@@ -476,6 +691,47 @@ def test_build_cell_dict_with_anchor_role(main_window, tmp_path):
     name, entry = dock._build_cell_dict()
     assert entry["anchor_role"] == "A"
     assert entry["anchor_pad"] == "1"
+    # Both X/Y blank (legacy role-only) -> NO anchor_xy is written, byte for
+    # byte the pre-2026-09-08 behaviour (cell_mount_offset's role-centre
+    # branch stays the resolution path).
+    assert "anchor_xy" not in entry
+
+
+def test_build_cell_dict_role_mode_with_xy_writes_anchor_xy(main_window, tmp_path):
+    """2026-09-08 (take-from-selection fix): Role+Pad anchors now CARRY an
+    anchor_xy — a Role-mode cell whose X/Y fields are filled saves the point,
+    so cell_mount_offset uses the real pad point instead of the legacy (0,0)."""
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock.name_edit.setText("t")
+    dock.comp_role_edit.setCurrentText("A")
+    dock._on_add_component()
+    dock.anchor_mode_combo.setCurrentIndex(2)
+    dock.anchor_role_combo.setCurrentText("A")
+    dock.anchor_pad_edit.setText("1")
+    dock.anchor_x_edit.setText("-8.05")
+    dock.anchor_y_edit.setText("-2.795")
+
+    name, entry = dock._build_cell_dict()
+    assert entry["anchor_role"] == "A"
+    assert entry["anchor_pad"] == "1"
+    assert entry["anchor_xy"] == [-8.05, -2.795]
+
+
+def test_build_cell_dict_role_mode_with_only_x_is_rejected(main_window, tmp_path, caplog):
+    """An X/Y pair is atomic in Role mode too: filling only one field must be
+    rejected the same way as the XY mode (an anchor_xy is meaningless without
+    both coordinates)."""
+    dock, _ = _make_dock(main_window, tmp_path)
+    dock.name_edit.setText("t")
+    dock.comp_role_edit.setCurrentText("A")
+    dock._on_add_component()
+    dock.anchor_mode_combo.setCurrentIndex(2)
+    dock.anchor_role_combo.setCurrentText("A")
+    dock.anchor_x_edit.setText("1.0")
+    dock.anchor_y_edit.setText("")
+
+    assert dock._build_cell_dict() is None
+    assert any("Anchor XY requires both X and Y" in r.message for r in caplog.records)
 
 
 # ── comment field (handoff_2026_08_27_entity_comment_field.md) ────────────
@@ -740,6 +996,47 @@ def test_load_entry_with_anchor_xy(main_window, tmp_path):
     assert dock.anchor_mode_combo.currentIndex() == 1
     assert dock.anchor_x_edit.text() == "1.5"
     assert dock.anchor_y_edit.text() == "-2.0"
+
+
+def test_load_entry_role_pad_xy_shows_computed_numbers(main_window, tmp_path):
+    """2026-09-08 (take-from-selection fix): a saved v2 Role+Pad+XY cell (the
+    shape the take button writes) reloads in Role mode WITH both X/Y fields
+    showing the stored bbox-local numbers — previously the X/Y fields showed
+    STALE text from whatever cell was loaded before (or blank)."""
+    dock, _ = _make_dock(main_window, tmp_path, {"cells": {
+        "t": {
+            "components": [{"role": "C_OUT_BYPASS", "offset_along_mm": -5.05,
+                            "offset_across_mm": -0.295, "angle_deg": 0.0}],
+            "anchor_role": "C_OUT_BYPASS",
+            "anchor_pad": "1",
+            "anchor_xy": [-8.05, -2.795],
+        },
+    }})
+    dock.load_entry("t")
+    assert dock.anchor_mode_combo.currentIndex() == 2
+    assert dock.anchor_role_combo.currentText() == "C_OUT_BYPASS"
+    assert dock.anchor_pad_edit.text() == "1"
+    assert dock.anchor_x_edit.text() == "-8.05"
+    assert dock.anchor_y_edit.text() == "-2.795"
+
+
+def test_load_entry_role_only_clears_xy_fields(main_window, tmp_path):
+    """A legacy role-only cell (no anchor_xy) reloads in Role mode with X/Y
+    blank — no stale numbers from the previously loaded cell leak through."""
+    dock, _ = _make_dock(main_window, tmp_path, {"cells": {
+        "t": {
+            "components": [{"role": "A", "offset_along_mm": 1.0,
+                            "offset_across_mm": 0.0}],
+            "anchor_role": "A",
+        },
+    }})
+    dock.anchor_x_edit.setText("99.0")  # stale from a prior edit
+    dock.anchor_y_edit.setText("88.0")
+    dock.load_entry("t")
+    assert dock.anchor_mode_combo.currentIndex() == 2
+    assert dock.anchor_role_combo.currentText() == "A"
+    assert dock.anchor_x_edit.text() == ""
+    assert dock.anchor_y_edit.text() == ""
 
 
 def test_load_entry_with_no_anchor(main_window, tmp_path):

@@ -1564,6 +1564,58 @@ msgstr "Для якоря XY нужны и X, и Y."
 msgid "Anchor: pick a Role first."
 msgstr "Якорь: сначала выберите Role."
 
+#: gui/docks/cell_editor.py
+msgid "Take coordinates from selection"
+msgstr "Взять координаты из выделения"
+
+#: gui/docks/cell_editor.py
+msgid "select exactly one footprint on the board"
+msgstr "выделите на плате ровно один футпринт"
+
+#: gui/docks/cell_editor.py
+#, python-brace-format
+msgid "{n} footprint(s) currently selected — the anchor subject must be unambiguous"
+msgstr "сейчас выделено футпринтов: {n} — субъект якоря должен быть однозначным"
+
+#: gui/docks/cell_editor.py
+#, python-brace-format
+msgid "Anchor set from {role!r}: ({along}, {across})"
+msgstr "Якорь задан от {role!r}: ({along}, {across})"
+
+#: gui/docks/cell_editor.py
+#, python-brace-format
+msgid "Take from selection failed: {error}"
+msgstr "Не удалось взять из выделения: {error}"
+
+#: kicadstamp/cell_geometry_refresh.py
+#, python-brace-format
+msgid "selected footprint {ref!r} has no {field!r} field"
+msgstr "у выбранного футпринта {ref!r} нет поля {field!r}"
+
+#: kicadstamp/cell_geometry_refresh.py
+#, python-brace-format
+msgid "the anchor subject must already be one of this cell's own components — its {field!r} field is how the cell's stored offset for that role is found"
+msgstr "субъект якоря должен уже быть одной из собственных компонент ячейки — по полю {field!r} находится сохранённое смещение этой роли"
+
+#: kicadstamp/cell_geometry_refresh.py
+#, python-brace-format
+msgid "role {role!r} of selected footprint {ref!r} is not a component of this cell"
+msgstr "роль {role!r} выбранного футпринта {ref!r} не является компонентой этой ячейки"
+
+#: kicadstamp/cell_geometry_refresh.py
+#, python-brace-format
+msgid "the anchor subject's role must already be one of this cell's own components — only that component's stored offset can tell where the cell's local (0,0) lives on the board"
+msgstr "роль субъекта якоря должна уже быть одной из собственных компонент ячейки — только сохранённое смещение этой компоненты показывает, где на плате живёт локальный (0,0) ячейки"
+
+#: kicadstamp/cell_geometry_refresh.py
+#, python-brace-format
+msgid "footprint {ref!r} has no pad {pad!r}"
+msgstr "у футпринта {ref!r} нет пада {pad!r}"
+
+#: kicadstamp/cell_geometry_refresh.py
+msgid "the pad number must match a real pad of the selected component — type it exactly as KiCad shows it"
+msgstr "номер пада должен совпадать с реальным падом выбранного компонента — введите его точно так, как его показывает KiCad"
+
 #: gui/docks/cell_editor.py:1444 gui/docks/chain.py:563 gui/docks/chain.py:611
 #: gui/docks/net_trace.py:415 gui/docks/placer.py:2832 gui/docks/placer.py:2894
 #: gui/docks/placer.py:2911 gui/docks/placer.py:2945 gui/docks/points.py:392

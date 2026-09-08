@@ -22,16 +22,22 @@ meant is ConfigTreeDock's own Cells category showing a composite cell's
 nested clone_placements as child nodes (read-only navigation), not this
 dock's internal editor; see config_tree.py's _build_file_item.
 
-Anchor (added 2026-08-06) — Cell.anchor_xy/anchor_role/anchor_pad,
-DISPLAY-ONLY metadata, see Cell's own docstring in config/models.py: never
-read by clone_position_calculator.py or any resolver. All offset_along_mm/
-offset_across_mm fields already are self-consistent relative to the cell's
-local (0,0) regardless of what anchor is set here — this only lets the
-editor (and a human reading the YAML) see which existing component/pad was
-treated as that origin, instead of it being an untracked fact only the
-original extractor run knew. anchor_role is a searchable combo sourced from
-THIS cell's own current Components list (not the live board) — it must
-name one of them (validated on Save, see config/entries.py's _load_cell).
+Anchor (added 2026-08-06; real geometry since design_2026_09_05 v2) —
+Cell.anchor_xy/anchor_role/anchor_pad describe the cell's MOUNT POINT A in
+its stored bbox-local frame; the single source of truth for resolving A is
+cell_mount_offset (kicadstamp/geometry/cell_anchor.py), which every cell
+consumer reads. The form offers three shapes: XY (explicit anchor_xy),
+Role (anchor_role, optional anchor_pad) and, since 2026-09-08, the
+"Take coordinates from selection" button that COMPUTES a correct
+bbox-local anchor_xy from ONE selected live component (or its pad) whose
+role is already one of this cell's own components — see
+resolve_anchor_point (kicadstamp/cell_geometry_refresh.py). Without an
+explicit anchor_xy, a Role+Pad anchor is treated as the LEGACY rebase-by-
+pad shape by cell_mount_offset and resolves to (0,0) — so a pad-narrowed
+v2 anchor MUST be written with anchor_xy, and this button is how the form
+produces it. anchor_role is a closed combo sourced from THIS cell's own
+current Components list (not the live board) — it must name one of them
+(validated on Save, see config/entries.py's _load_cell).
 
 Net from role (added 2026-08-11) — Vias/Tracks each get a Net source
 choice: Literal (the existing free-typed net:, unchanged) or From role
@@ -78,12 +84,16 @@ from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog,
                               QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout,
                               QWidget)
 
-from kicadstamp.cell_geometry_refresh import build_import_plan, build_refresh_plan
+from kicadstamp.cell_geometry_refresh import (
+    build_import_plan,
+    build_refresh_plan,
+    resolve_anchor_point,
+)
 from kicadstamp.cell_placement_copy import build_placement_copy_plan, donor_candidates_for
 from kicadstamp.config import (load_cell, load_cell_placement, load_template_component_slot,
                                load_template_track, load_template_via)
 from kicadstamp.domain.board import Footprint, Track, Via
-from kicadstamp.exceptions import ValidationError
+from kicadstamp.exceptions import ValidationError, format_fatal_error
 from kicadstamp.i18n import _
 
 from ..worker import start_long_op
@@ -324,6 +334,22 @@ class CellDock(QWidget):
         self.anchor_pad_edit.setPlaceholderText(_("pad (optional)"))
         anchor_role_form.addRow(_("Pad:"), self.anchor_pad_edit)
         layout.addWidget(self._anchor_role_row)
+
+        # "Take coordinates from selection" (2026-09-08, plan
+        # cell_anchor_take_from_selection) — ONE button for BOTH anchor modes
+        # (XY and Role): reads the CURRENT live selection, resolves a correct
+        # bbox-local anchor point from a single selected component/pad whose
+        # role is already one of this cell's own components (resolve_anchor_point,
+        # kicadstamp/cell_geometry_refresh.py) and fills anchor_x_edit/
+        # anchor_y_edit with it — the only way this form can produce a real
+        # v2 pad-narrowed anchor_xy (Role+Pad without anchor_xy is the legacy
+        # rebase-by-pad shape, cell_mount_offset -> (0,0)). Same
+        # start_long_op worker-thread pattern as the refresh button below (no
+        # direct synchronous adapter IPC), and same enable gate.
+        self.anchor_take_button = QPushButton(_("Take coordinates from selection"))
+        self.anchor_take_button.clicked.connect(self._on_anchor_take_from_selection)
+        self.anchor_take_button.setEnabled(False)
+        layout.addWidget(self.anchor_take_button)
 
         # Refresh geometry from selection (2026-09-03, plan
         # cell_geometry_refresh) — an operation over the WHOLE loaded cell
@@ -684,8 +710,12 @@ class CellDock(QWidget):
 
     def _on_anchor_mode_changed(self) -> None:
         mode = self.anchor_mode_combo.currentIndex()
-        self._anchor_xy_row.setVisible(mode == 1)
+        # _anchor_xy_row is visible in BOTH XY and Role modes — in Role mode
+        # the "Take coordinates from selection" button writes the computed
+        # bbox-local numbers here, and Denis wants to SEE them (2026-09-08).
+        self._anchor_xy_row.setVisible(mode in (1, 2))
         self._anchor_role_row.setVisible(mode == 2)
+        self.anchor_take_button.setVisible(mode in (1, 2))
 
     def _refresh_role_choices(self) -> None:
         """Repopulates every combo whose valid values are THIS cell's own
@@ -1336,6 +1366,25 @@ class CellDock(QWidget):
             pad = self.anchor_pad_edit.text().strip()
             if pad:
                 entry["anchor_pad"] = pad
+            # Since 2026-09-08 (take-from-selection fix): a v2 anchor with a pad
+            # MUST carry anchor_xy (Role+Pad WITHOUT it is the legacy
+            # rebase-by-pad shape -> cell_mount_offset returns (0,0)). If the
+            # X/Y fields are filled (manually or by the "Take coordinates from
+            # selection" button) write anchor_xy; both blank keeps today's
+            # role-only (component-centre) behaviour byte for byte.
+            x_text = self.anchor_x_edit.text().strip()
+            y_text = self.anchor_y_edit.text().strip()
+            if x_text or y_text:
+                x = self._parse_float(self.anchor_x_edit, _("Anchor X"), None)
+                if x is None and x_text:
+                    return None
+                y = self._parse_float(self.anchor_y_edit, _("Anchor Y"), None)
+                if y is None and y_text:
+                    return None
+                if x is None or y is None:
+                    self._show_message(_("Anchor XY requires both X and Y."), _ERROR_STYLE)
+                    return None
+                entry["anchor_xy"] = [x, y]
 
         try:
             load_cell(name, entry)
@@ -1390,15 +1439,98 @@ class CellDock(QWidget):
         """The refresh-geometry AND import-vias/tracks buttons are meaningful
         only when a live board adapter is present AND a cell with components
         is loaded (Import needs the same clean role match as Refresh, see
-        build_import_plan). CellDock receives no per-selection feed (only
-        push_snapshot's role lists), so an EMPTY board selection is not gated
-        here — the worker reports it as a clear error at click time instead."""
+        build_import_plan). The anchor "Take coordinates from selection"
+        button shares the same gate (resolve_anchor_point needs this cell's
+        components AND the live adapter). CellDock receives no per-selection
+        feed (only push_snapshot's role lists), so an EMPTY board selection
+        is not gated here — the worker reports it as a clear error at click
+        time instead."""
         connection = getattr(self._main_window, "connection", None)
         board = getattr(connection, "board", None) if connection is not None else None
         adapter = getattr(board, "adapter", None) if board is not None else None
         enabled = adapter is not None and bool(self._components)
         self.refresh_geometry_button.setEnabled(enabled)
         self.import_vias_tracks_button.setEnabled(enabled)
+        self.anchor_take_button.setEnabled(enabled)
+
+    def _on_anchor_take_from_selection(self) -> None:
+        """Button action: read the CURRENT live selection and fill the anchor
+        X/Y fields with the bbox-local point of the ONE selected footprint (or
+        its pad) — see resolve_anchor_point. Selection read runs on the worker
+        thread via start_long_op (the SAME pattern as the Refresh geometry
+        button — NO direct synchronous adapter IPC on the UI thread, per
+        today's scheme_list modal-hang fix, commit e10c338)."""
+        self._show_message("")
+        connection = getattr(self._main_window, "connection", None)
+        board = getattr(connection, "board", None) if connection is not None else None
+        adapter = getattr(board, "adapter", None) if board is not None else None
+        if adapter is None:
+            self._show_message(_("Connect to KiCad first."), _ERROR_STYLE)
+            return
+        if not self._components:
+            self._show_message(_("Load a cell with components first."), _ERROR_STYLE)
+            return
+        if self._active_op is not None:
+            return
+        mode = self.anchor_mode_combo.currentIndex()
+        pad = self.anchor_pad_edit.text().strip() or None if mode == 2 else None
+        payload = {
+            "board": board,
+            "components": list(self._components),
+            "pad": pad,
+        }
+        self._active_op = start_long_op(
+            connection, (self.anchor_take_button,),
+            self._run_anchor_take_from_selection,
+            self._finish_anchor_take_from_selection,
+            self._on_anchor_take_op_failed, payload)
+
+    def _run_anchor_take_from_selection(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Worker thread: selection read + resolve — never touches a widget.
+        Returns {"role", "along_mm", "across_mm"} or {"error": ...}."""
+        try:
+            adapter = payload["board"].adapter
+            items = adapter.get_selected_items()
+            footprints = [i for i in items if isinstance(i, Footprint)]
+            if len(footprints) != 1:
+                raise ValidationError(format_fatal_error(
+                    _("select exactly one footprint on the board"),
+                    [_("{n} footprint(s) currently selected — the anchor subject "
+                       "must be unambiguous").format(n=len(footprints))]))
+            role, along_mm, across_mm = resolve_anchor_point(
+                footprints[0], payload["components"], adapter, payload["pad"])
+        except ValidationError as e:
+            return {"error": str(e)}
+        return {"role": role, "along_mm": along_mm, "across_mm": across_mm}
+
+    def _finish_anchor_take_from_selection(self, result: Dict[str, Any]) -> None:
+        """UI thread (worker finished): a resolve error is shown as a warning
+        with the FULL collected text; a clean result fills the anchor X/Y
+        fields (and, in Role mode, pins the Role combo to the resolved role),
+        then autostages — programmatic setText/setCurrentText do NOT fire
+        editingFinished/currentIndexChanged, so the explicit _autostage() at
+        the end is what records the computed anchor into the saved cell."""
+        self._active_op = None
+        if result.get("error"):
+            QMessageBox.warning(
+                self, _("Take coordinates from selection"), result["error"])
+            return
+        self.anchor_x_edit.setText(str(result["along_mm"]))
+        self.anchor_y_edit.setText(str(result["across_mm"]))
+        if self.anchor_mode_combo.currentIndex() == 2:
+            self.anchor_role_combo.setCurrentText(result["role"])
+        self._autostage()
+        self._show_message(
+            _("Anchor set from {role!r}: ({along}, {across})").format(
+                role=result["role"], along=result["along_mm"],
+                across=result["across_mm"]),
+            _SUCCESS_STYLE)
+
+    def _on_anchor_take_op_failed(self, message: str) -> None:
+        self._active_op = None
+        self._show_message(
+            _("Take from selection failed: {error}").format(error=message),
+            _ERROR_STYLE)
 
     def _refresh_origin_role(self) -> str | None:
         """The cell's anchor_role to refresh/import geometry against (v2: the
@@ -1791,15 +1923,31 @@ class CellDock(QWidget):
             self.comment_edit.setText(str(entry.get("comment") or ""))
             self.layer_combo.setCurrentIndex(self._findable(self.layer_combo, entry.get("layer", "F.Cu")))
 
-            if "anchor_xy" in entry:
+            # Anchor-mode dispatch (2026-09-08 take-from-selection fix): a
+            # Role-anchored cell is checked FIRST — a v2 Role+Pad+XY cell (the
+            # shape the "Take coordinates from selection" button now produces)
+            # carries anchor_role AND anchor_xy, and must load in Role mode
+            # with X/Y filled, never fall into the XY-only branch. A role-only
+            # (no anchor_xy) cell keeps today's component-centre semantics,
+            # with X/Y blank. XY-only cells load in XY mode; nothing clears.
+            if "anchor_role" in entry:
+                self.anchor_mode_combo.setCurrentIndex(2)
+                self.anchor_role_combo.setCurrentText(str(entry["anchor_role"]))
+                self.anchor_pad_edit.setText(str(entry.get("anchor_pad", "")))
+                if "anchor_xy" in entry:
+                    xy = entry["anchor_xy"] or [0, 0]
+                    self.anchor_x_edit.setText(str(xy[0]))
+                    self.anchor_y_edit.setText(str(xy[1]))
+                else:
+                    self.anchor_x_edit.setText("")
+                    self.anchor_y_edit.setText("")
+            elif "anchor_xy" in entry:
                 self.anchor_mode_combo.setCurrentIndex(1)
                 xy = entry["anchor_xy"] or [0, 0]
                 self.anchor_x_edit.setText(str(xy[0]))
                 self.anchor_y_edit.setText(str(xy[1]))
-            elif "anchor_role" in entry:
-                self.anchor_mode_combo.setCurrentIndex(2)
-                self.anchor_role_combo.setCurrentText(str(entry["anchor_role"]))
-                self.anchor_pad_edit.setText(str(entry.get("anchor_pad", "")))
+                self.anchor_role_combo.setCurrentText("")
+                self.anchor_pad_edit.setText("")
             else:
                 self.anchor_mode_combo.setCurrentIndex(0)
                 self.anchor_x_edit.setText("")

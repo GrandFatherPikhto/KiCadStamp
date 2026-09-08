@@ -1306,11 +1306,19 @@ recurse — that tree is Config tree's own Cells category, which now shows a com
 `clone_placements:` as child nodes for read-only navigation, not this dock's internal editor.)
 
 - **Name**/**Layer** — the cell's own identity and absolute layer (`F.Cu`/`B.Cu`).
-- **Anchor** — **(none)** / **XY** / **Role** (`+Pad`, optional) — **display-only metadata**, see
-  `Cell.anchor_xy`/`anchor_role`/`anchor_pad` in [docs/config.md](config.md): marks which point of
-  the cell's own local `(0,0)` already IS the origin by construction, never changes how any offset
-  resolves. **Role** is a searchable combo sourced from THIS cell's own current Components list (not
-  the live board) — it must name one of them.
+- **Anchor** — **(none)** / **XY** / **Role** (`+Pad`, optional) — the cell's **mount point A** in its
+  stored bbox-local frame (design_2026_09_05 v2), read by `cell_mount_offset`
+  (kicadstamp/geometry/cell_anchor.py) at every cell consumer — see
+  `Cell.anchor_xy`/`anchor_role`/`anchor_pad` in [docs/config.md](config.md). **Role** is a closed
+  combo sourced from THIS cell's own current Components list (not the live board) — it must name one
+  of them. In Role mode the X/Y row is ALSO visible (since 2026-09-08): it shows the resolved
+  bbox-local numbers when they exist. **Take coordinates from selection** (a button under the anchor
+  block, enabled when the live board is connected and the cell has components) fills X/Y by resolving
+  ONE selected live component — its centre, or one of its pads if **Pad** is filled — whose Role is
+  already one of this cell's own components. That is how a Role+Pad anchor gets its required
+  `anchor_xy`: without it a Role+Pad pair is the LEGACY rebase-by-pad shape and `cell_mount_offset`
+  treats it as (0,0), so the anchor would be silently ignored. `anchor_xy` stays bbox-local
+  throughout — the button does the live-to-bbox arithmetic, there is no absolute-coordinate display.
 - **Components** — Role (searchable, autocompleted from the live board's `Role` field, same source
   as Chain's own anchor-role combo), Offset along/across, Angle, Layer (inherit/`F.Cu`/`B.Cu`), Net
   template (for `clone_placements:`'s by-nets role matching only).

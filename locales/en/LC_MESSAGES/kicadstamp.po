@@ -1559,6 +1559,58 @@ msgstr "Anchor XY requires both X and Y."
 msgid "Anchor: pick a Role first."
 msgstr "Anchor: pick a Role first."
 
+#: gui/docks/cell_editor.py
+msgid "Take coordinates from selection"
+msgstr "Take coordinates from selection"
+
+#: gui/docks/cell_editor.py
+msgid "select exactly one footprint on the board"
+msgstr "select exactly one footprint on the board"
+
+#: gui/docks/cell_editor.py
+#, python-brace-format
+msgid "{n} footprint(s) currently selected — the anchor subject must be unambiguous"
+msgstr "{n} footprint(s) currently selected — the anchor subject must be unambiguous"
+
+#: gui/docks/cell_editor.py
+#, python-brace-format
+msgid "Anchor set from {role!r}: ({along}, {across})"
+msgstr "Anchor set from {role!r}: ({along}, {across})"
+
+#: gui/docks/cell_editor.py
+#, python-brace-format
+msgid "Take from selection failed: {error}"
+msgstr "Take from selection failed: {error}"
+
+#: kicadstamp/cell_geometry_refresh.py
+#, python-brace-format
+msgid "selected footprint {ref!r} has no {field!r} field"
+msgstr "selected footprint {ref!r} has no {field!r} field"
+
+#: kicadstamp/cell_geometry_refresh.py
+#, python-brace-format
+msgid "the anchor subject must already be one of this cell's own components — its {field!r} field is how the cell's stored offset for that role is found"
+msgstr "the anchor subject must already be one of this cell's own components — its {field!r} field is how the cell's stored offset for that role is found"
+
+#: kicadstamp/cell_geometry_refresh.py
+#, python-brace-format
+msgid "role {role!r} of selected footprint {ref!r} is not a component of this cell"
+msgstr "role {role!r} of selected footprint {ref!r} is not a component of this cell"
+
+#: kicadstamp/cell_geometry_refresh.py
+#, python-brace-format
+msgid "the anchor subject's role must already be one of this cell's own components — only that component's stored offset can tell where the cell's local (0,0) lives on the board"
+msgstr "the anchor subject's role must already be one of this cell's own components — only that component's stored offset can tell where the cell's local (0,0) lives on the board"
+
+#: kicadstamp/cell_geometry_refresh.py
+#, python-brace-format
+msgid "footprint {ref!r} has no pad {pad!r}"
+msgstr "footprint {ref!r} has no pad {pad!r}"
+
+#: kicadstamp/cell_geometry_refresh.py
+msgid "the pad number must match a real pad of the selected component — type it exactly as KiCad shows it"
+msgstr "the pad number must match a real pad of the selected component — type it exactly as KiCad shows it"
+
 #: gui/docks/cell_editor.py:1444 gui/docks/chain.py:563 gui/docks/chain.py:611
 #: gui/docks/net_trace.py:415 gui/docks/placer.py:2832 gui/docks/placer.py:2894
 #: gui/docks/placer.py:2911 gui/docks/placer.py:2945 gui/docks/points.py:392
