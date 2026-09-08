@@ -12,11 +12,15 @@ fields serve both the extraction-time origin and the apply-time anchor (one
 flat record, no Cell+ClonePlacement pair — see
 techdocs/handoff/deepseek/plan_2026_08_21_net_traces.md §0).
 
-Round-trip geometry: at extract, local = absolute - anchor (a plain
-translation, no rotation — a net trace is a translation-following bundle, not
-a rotatable cell). At apply (net_trace_planner.py), absolute = anchor + local
-via the shared local_to_absolute with rotation_deg=0, so the copper keeps its
-shape relative to the anchor wherever the anchor moves.
+Round-trip geometry: at extract, local = absolute - anchor (a PLAIN board-frame
+difference — along/across are NOT rotated into the anchor's local frame). The
+anchor's OWN live rotation at capture is additionally stored
+(NetTrace.anchor_rotation_deg), so apply (net_trace_planner.py) can compose
+the DELTA between the anchor's capture-time and current rotations and feed it
+to the shared local_to_absolute as rotation_deg — the same rotation-aware
+capture pattern tree extraction uses (plan_2026_09_08_net_trace_rotation_aware.
+md). Pre-fix records (anchor_rotation_deg=None) keep rotation_deg=0.0 exactly
+as before — 100% back-compat.
 """
 import json
 import logging
@@ -100,6 +104,12 @@ def extract_net_trace(
         adapter, anchor_role, anchor_sheet, anchor_cluster,
         sheet_names or {}, label=label,
     )
+    # Rotation-aware net trace (plan_2026_09_08_net_trace_rotation_aware.md):
+    # store the anchor's OWN live rotation at capture so apply can compose the
+    # DELTA (current - captured) instead of the old hardcoded rotation_deg=0.
+    # along/across below stay a RAW board-frame difference — the whole rotation
+    # correction lives at apply time, NOT here.
+    anchor_rotation_deg = round(anchor_fp.angle_deg, 4)
 
     if anchor_pad is not None:
         pad = adapter.get_pad_by_number(anchor_fp, anchor_pad)
@@ -162,6 +172,7 @@ def extract_net_trace(
         anchor_sheet=anchor_sheet,
         anchor_cluster=anchor_cluster,
         anchor_pad=anchor_pad,
+        anchor_rotation_deg=anchor_rotation_deg,
         tracks=[load_template_track(t) for t in tracks],
         vias=[load_template_via(v) for v in vias],
         retired=retired,
@@ -201,7 +212,8 @@ def net_trace_to_dict(nt: NetTrace) -> dict[str, Any]:
         "net": nt.net,
         "anchor_role": nt.anchor_role,
     }
-    for key in ("anchor_sheet", "anchor_cluster", "anchor_pad"):
+    for key in ("anchor_sheet", "anchor_cluster", "anchor_pad",
+                "anchor_rotation_deg"):
         value = getattr(nt, key)
         if value is not None:
             d[key] = value

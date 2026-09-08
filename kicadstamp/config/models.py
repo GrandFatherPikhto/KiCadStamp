@@ -582,13 +582,25 @@ class NetTrace:
     the footprint centre to a specific pad's centre (same semantics as
     ClonePlacement.anchor_pad).
 
+    anchor_rotation_deg — the anchor footprint's OWN live rotation (angle_deg)
+    AT CAPTURE TIME, stored so apply can compose the DELTA rotation. On apply
+    the anchor's CURRENT live rotation is resolved and the captured-vs-current
+    difference (relative_rotation_deg) is passed as rotation_deg to
+    local_to_absolute, instead of the old hardcoded 0.0. None (default) means
+    a PRE-rotation-aware record (extracted before this field existed): apply
+    keeps using rotation_deg=0.0 exactly as before — 100% back-compat, nothing
+    silently replays for existing profiles (see
+    techdocs/handoff/deepseek/plan_2026_09_08_net_trace_rotation_aware.md).
+    Filled ONLY on a fresh (re)extract via extract_net_trace.
+
     tracks/vias — the copper as LOCAL (along/across) offsets from the anchor
     point, reusing the exact TemplateTrack/TemplateVia shape Cell.tracks/
-    Cell.vias use (same local_to_absolute formula at apply time, just always
-    with rotation_deg=0 — a net trace is a translation-following bundle, not
-    a rotatable cell). Track/via net is ALWAYS written explicitly (the whole
-    record is about ONE net; there is no enclosing Chain to inherit a net
-    from, unlike Cell contents).
+    Cell.vias use (same local_to_absolute formula at apply time; the along/
+    across deltas are a RAW board-frame difference from the anchor, NOT rotated
+    into the anchor's local frame at capture — the whole rotation correction
+    lives at apply time via anchor_rotation_deg above). Track/via net is ALWAYS
+    written explicitly (the whole record is about ONE net; there is no
+    enclosing Chain to inherit a net from, unlike Cell contents).
 
     retired/skip — the same convention as every other section (Rule/
     ClonePlacement/ThermalViaArrayConfig): retired: true = "does not exist on
@@ -602,6 +614,7 @@ class NetTrace:
     anchor_sheet: str | None = None
     anchor_cluster: str | None = None
     anchor_pad: str | None = None
+    anchor_rotation_deg: float | None = None
     tracks: list[TemplateTrack] = field(default_factory=list)
     vias: list[TemplateVia] = field(default_factory=list)
     retired: bool = False

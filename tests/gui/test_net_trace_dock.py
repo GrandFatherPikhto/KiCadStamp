@@ -246,6 +246,37 @@ def test_save_updates_anchor_retired_and_preserves_geometry(main_window, tmp_pat
     assert any("Overwrote" in r.message for r in caplog.records)
 
 
+def test_save_preserves_anchor_rotation_deg(main_window, tmp_path, caplog):
+    """A rotation-aware record's anchor_rotation_deg (machine-written, like
+    tracks:/vias:) must survive a Save of the controllable fields — a Save
+    replaces the whole entry by net, so without carrying it across the field
+    would be silently erased and the record would fall back to rotation_deg=0
+    on apply (plan_2026_09_08_net_trace_rotation_aware.md)."""
+    dock, target = _make_dock(main_window, tmp_path, data={
+        "net_traces": [{
+            "net": "/Channel_0/DAC_DB2", "anchor_role": "FPGA",
+            "anchor_rotation_deg": 180.0,
+            "tracks": [{"start_along_mm": 1.0, "start_across_mm": 2.0,
+                        "end_along_mm": 3.0, "end_across_mm": 4.0,
+                        "net": "/Channel_0/DAC_DB2", "layer": "F.Cu"}],
+            "vias": [],
+        }]
+    })
+    dock.load_entry({
+        "net": "/Channel_0/DAC_DB2", "anchor_role": "FPGA",
+        "anchor_rotation_deg": 180.0,
+        "tracks": [{"start_along_mm": 1.0}], "vias": [],
+    })
+    dock.retired_checkbox.setChecked(True)
+
+    dock._on_save()
+
+    entry = _load(target)["net_traces"][0]
+    assert entry["retired"] is True
+    assert entry["anchor_rotation_deg"] == 180.0  # not silently dropped
+    assert len(entry["tracks"]) == 1
+
+
 def test_save_requires_anchor_role(main_window, tmp_path, caplog):
     dock, target = _make_dock(main_window, tmp_path)
     dock.net_edit.setCurrentText("DAC_DB0")
@@ -294,6 +325,45 @@ def test_redraw_runs_apply_with_only_net(main_window, tmp_path, monkeypatch):
     # the pipeline receives it via preloaded_cfg (ApplyPipeline's kwarg name).
     nt = captured["preloaded_cfg"].net_traces[0]
     assert len(nt.tracks) == 1
+
+
+def test_redraw_carries_anchor_rotation_deg(main_window, tmp_path, monkeypatch):
+    """A rotation-aware Redraw must place the copper with the SAVED
+    anchor_rotation_deg — a Redraw rebuilds the record from the form + saved
+    geometry, and dropping the field there would silently fall back to
+    rotation_deg=0 (the pre-fix bug, plan_2026_09_08_net_trace_rotation_aware).
+    """
+    dock, target = _make_dock(main_window, tmp_path, data={
+        "net_traces": [{
+            "net": "/Channel_0/DAC_DB2", "anchor_role": "FPGA",
+            "anchor_rotation_deg": 180.0,
+            "tracks": [{"start_along_mm": 1.0, "start_across_mm": 2.0,
+                        "end_along_mm": 3.0, "end_across_mm": 4.0,
+                        "net": "/Channel_0/DAC_DB2", "layer": "F.Cu"}],
+            "vias": [],
+        }]
+    })
+    dock.load_entry({
+        "net": "/Channel_0/DAC_DB2", "anchor_role": "FPGA",
+        "anchor_rotation_deg": 180.0,
+        "tracks": [{"start_along_mm": 1.0}], "vias": [],
+    })
+
+    captured = {}
+
+    class _FakePipeline:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def run(self):
+            return None
+
+    monkeypatch.setattr(net_trace_mod, "ApplyPipeline", _FakePipeline)
+    result = dock._do_redraw()
+
+    assert "error" not in result
+    nt = captured["preloaded_cfg"].net_traces[0]
+    assert nt.anchor_rotation_deg == 180.0
 
 
 def test_extract_preserves_existing_retired_flag(main_window, tmp_path, caplog):

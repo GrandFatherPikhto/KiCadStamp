@@ -30,10 +30,11 @@ from kicadstamp.constants import SPOKE_LEVEL_ROLE_PLACEHOLDER
 from kicadstamp.utils.units import MM
 
 
-def _make_fp(ref, role, x_mm, y_mm):
+def _make_fp(ref, role, x_mm, y_mm, angle_deg=0.0):
     fp = MagicMock()
     fp.ref = ref
     fp.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
+    fp.angle_deg = angle_deg
     fp._role = role
     return fp
 
@@ -78,10 +79,13 @@ def _net_trace(anchor_x_mm=52.0, anchor_y_mm=52.0):
     )
 
 
-def _adapter(anchor_x_mm, anchor_y_mm, live_tracks=(), live_vias=()):
+def _adapter(anchor_x_mm, anchor_y_mm, live_tracks=(), live_vias=(),
+             angle_deg=0.0):
     """Adapter whose FPGA (role) has its pad 42 at the given anchor point and
-    whose board carries the given live tracks/vias."""
-    fpga = _make_fp("U1", "FPGA", anchor_x_mm - 2, anchor_y_mm - 2)
+    whose board carries the given live tracks/vias. angle_deg is the anchor
+    footprint's OWN live rotation (for rotation-aware net traces)."""
+    fpga = _make_fp("U1", "FPGA", anchor_x_mm - 2, anchor_y_mm - 2,
+                    angle_deg=angle_deg)
     pad42 = _make_pad(anchor_x_mm, anchor_y_mm)
     adapter = MagicMock()
     adapter.get_footprints.return_value = [fpga]
@@ -310,3 +314,96 @@ def test_cluster_filter_composes_with_only_via_and():
     clustered = apply_cluster_filter(cfg, ["Channel_0"])
     only = apply_only_filter(clustered, ["DAC_DB1"])
     assert [nt.net for nt in only.net_traces] == ["DAC_DB1"]
+
+
+# ── rotation-aware apply (plan_2026_09_08_net_trace_rotation_aware.md) ───────
+
+
+def test_rotation_apply_uses_delta_between_captured_and_live_angle():
+    """Live-shaped scenario: captured at 180 deg, apply resolves the anchor at
+    90 deg -> every track/via position matches the MANUAL
+    relative_rotation_deg(90, 180)-based computation, NOT the old
+    rotation_deg=0.0 one (proves the rotation is really applied)."""
+    from kicadstamp.geometry.spoke_layout import local_to_absolute
+    from kicadstamp.tree_position import relative_rotation_deg
+
+    nt = _net_trace()
+    nt.anchor_rotation_deg = 180.0
+    adapter = _adapter(52, 52, angle_deg=90.0)  # live anchor now at 90 deg
+    anchor = Vector2.from_xy(int(52 * MM), int(52 * MM))  # pad42 centre
+
+    vias, tracks = plan_net_traces(adapter, [nt])
+
+    rot = relative_rotation_deg(90.0, 180.0)
+    assert tracks[0].start == local_to_absolute(anchor, 1, 2, rot)
+    assert tracks[0].end == local_to_absolute(anchor, 3, 4, rot)
+    assert vias[0].position == local_to_absolute(anchor, 5, 6, rot)
+    # Proves rotation is applied, not merely stored: the result differs from
+    # the pre-fix rotation_deg=0.0 geometry for at least one non-zero-relative
+    # axis (90-180 = -90 deg -> (1,2) local lands off-axis, so start differs).
+    assert tracks[0].start != local_to_absolute(anchor, 1, 2, 0.0)
+
+
+def test_rotation_apply_legacy_without_field_uses_rotation_zero():
+    """100% back-compat: a legacy record (anchor_rotation_deg=None) applies
+    with rotation_deg=0.0 EXACTLY as before the fix, even when the live anchor
+    sits at a nonzero angle — existing profiles never replay silently."""
+    from kicadstamp.geometry.spoke_layout import local_to_absolute
+    nt = _net_trace()  # anchor_rotation_deg stays None (default)
+    assert nt.anchor_rotation_deg is None
+    adapter = _adapter(52, 52, angle_deg=90.0)  # live anchor at 90 deg
+    anchor = Vector2.from_xy(int(52 * MM), int(52 * MM))
+
+    vias, tracks = plan_net_traces(adapter, [nt])
+
+    # Identical to today's (pre-fix) geometry: pure translation.
+    assert tracks[0].start == local_to_absolute(anchor, 1, 2, 0.0)
+    assert tracks[0].end == local_to_absolute(anchor, 3, 4, 0.0)
+    assert vias[0].position == local_to_absolute(anchor, 5, 6, 0.0)
+
+
+def test_rotation_apply_matching_angles_produce_no_net_rotation():
+    """Capture and apply under the SAME angle (both 90 deg) ->
+    relative_rotation_deg gives 0 -> geometry identical to today's (no
+    "extra" rotation where there shouldn't be any)."""
+    from kicadstamp.geometry.spoke_layout import local_to_absolute
+
+    nt = _net_trace()
+    nt.anchor_rotation_deg = 90.0
+    adapter = _adapter(52, 52, angle_deg=90.0)
+    anchor = Vector2.from_xy(int(52 * MM), int(52 * MM))
+
+    vias, tracks = plan_net_traces(adapter, [nt])
+
+    assert tracks[0].start == local_to_absolute(anchor, 1, 2, 0.0)
+    assert tracks[0].end == local_to_absolute(anchor, 3, 4, 0.0)
+    assert vias[0].position == local_to_absolute(anchor, 5, 6, 0.0)
+
+
+def test_rotation_apply_track_rotates_as_one_whole():
+    """A track's two endpoints rotate TOGETHER under a nonzero angle delta:
+    the end-minus-start vector equals the SAME rotated local (2,2) delta —
+    the segment keeps its own shape/length/orientation (not "each point
+    somewhere rotated independently")."""
+    from kicadstamp.geometry.spoke_layout import local_to_absolute
+    from kicadstamp.tree_position import relative_rotation_deg
+
+    nt = _net_trace()
+    nt.anchor_rotation_deg = 0.0
+    adapter = _adapter(52, 52, angle_deg=90.0)  # delta = +90
+    anchor = Vector2.from_xy(int(52 * MM), int(52 * MM))
+
+    vias, tracks = plan_net_traces(adapter, [nt])
+
+    rot = relative_rotation_deg(90.0, 0.0)
+    start = tracks[0].start
+    end = tracks[0].end
+    # Both endpoints individually match the manual rotation-based placement.
+    assert start == local_to_absolute(anchor, 1, 2, rot)
+    assert end == local_to_absolute(anchor, 3, 4, rot)
+    # The segment as a WHOLE: end - start == the local delta (2,2) rotated by
+    # the same rot -> shape/length preserved (a rigid body, not independent
+    # points).
+    rotated_delta = (local_to_absolute(Vector2.from_xy(0, 0), 3, 4, rot)
+                     - local_to_absolute(Vector2.from_xy(0, 0), 1, 2, rot))
+    assert end - start == rotated_delta

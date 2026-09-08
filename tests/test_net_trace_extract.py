@@ -32,10 +32,11 @@ from kicadstamp.net_trace_extract import (extract_net_trace, write_net_trace,
 from kicadstamp.utils.units import MM
 
 
-def _make_fp(ref, role, x_mm, y_mm):
+def _make_fp(ref, role, x_mm, y_mm, angle_deg=0.0):
     fp = MagicMock()
     fp.ref = ref
     fp.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
+    fp.angle_deg = angle_deg
     fp._role = role
     return fp
 
@@ -525,3 +526,65 @@ def test_reextract_keeps_retired_flag_through_sexp(tmp_path):
     entry = data["net_traces"][0]
     assert entry.get("retired") is True  # survived the re-extract
     assert len(entry["tracks"]) == 1  # geometry refreshed
+
+
+# ── rotation-aware net traces (plan_2026_09_08_net_trace_rotation_aware.md) ───
+
+
+def test_extract_stores_anchor_rotation_and_keeps_raw_delta():
+    """Capture under a NONZERO anchor footprint angle stores that angle in
+    NetTrace.anchor_rotation_deg, while along_mm/across_mm stay the RAW
+    board-frame difference (NOT rotated at capture — the whole rotation
+    correction lives at apply time)."""
+    fpga = _make_fp("U1", "FPGA", 50, 50, angle_deg=180.0)
+    adapter = _adapter(
+        [fpga],
+        [_make_track(53, 54, 55, 56, "DAC_DB0")],   # rel centre (50,50): (3,4)->(5,6)
+        [_make_via(57, 58, "DAC_DB0")],              # rel centre: (7,8)
+    )
+
+    nt = extract_net_trace(adapter, net="DAC_DB0", anchor_role="FPGA")
+
+    assert nt.anchor_rotation_deg == 180.0
+    # Raw difference, NOT the 180-degree-rotated (-3,-4)-(-5,-6) — regression
+    # guard that capture never starts rotating.
+    assert nt.tracks[0].start_along_mm == 3.0 and nt.tracks[0].start_across_mm == 4.0
+    assert nt.tracks[0].end_along_mm == 5.0 and nt.tracks[0].end_across_mm == 6.0
+    assert nt.vias[0].offset_along_mm == 7.0 and nt.vias[0].offset_across_mm == 8.0
+
+
+def test_extract_rounds_anchor_rotation_to_4_dp():
+    fpga = _make_fp("U1", "FPGA", 50, 50, angle_deg=180.123456789)
+    adapter = _adapter(
+        [fpga],
+        [_make_track(53, 54, 55, 56, "DAC_DB0")],
+        [],
+    )
+    nt = extract_net_trace(adapter, net="DAC_DB0", anchor_role="FPGA")
+    assert nt.anchor_rotation_deg == 180.1235
+
+
+def test_anchor_rotation_dict_roundtrip_and_legacy_none(tmp_path):
+    """net_trace_to_dict writes the field when set; a save->load over s-expr
+    keeps it as a float; a legacy record WITHOUT the field loads as None
+    (100% back-compat)."""
+    from kicadstamp.config import load_config
+
+    nt = NetTrace(net="DAC_DB0", anchor_role="FPGA", anchor_rotation_deg=180.0,
+                  tracks=[], vias=[])
+    d = net_trace_to_dict(nt)
+    assert d["anchor_rotation_deg"] == 180.0
+
+    out = tmp_path / "trace.sexp"
+    out.write_text(dict_to_sexp({"net_traces": [d]}), encoding="utf-8")
+    cfg, _ctx = load_config(str(out))
+    assert cfg.net_traces[0].anchor_rotation_deg == 180.0
+
+    # Legacy file (pre-fix) with no field -> None after load.
+    legacy = NetTrace(net="DAC_DB1", anchor_role="FPGA", tracks=[], vias=[])
+    assert "anchor_rotation_deg" not in net_trace_to_dict(legacy)
+    out2 = tmp_path / "legacy.sexp"
+    out2.write_text(dict_to_sexp({"net_traces": [net_trace_to_dict(legacy)]}),
+                    encoding="utf-8")
+    cfg2, _ctx2 = load_config(str(out2))
+    assert cfg2.net_traces[0].anchor_rotation_deg is None

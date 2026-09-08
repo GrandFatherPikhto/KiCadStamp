@@ -5,12 +5,16 @@ record's anchor LIVE on the current board, expand the local along/across
 offsets back to absolute positions, and produce TrackCommand/ViaCommand that
 flow through the SAME registry-based idempotency as any Cell's copper.
 
-Key decisions (see techdocs/handoff/deepseek/plan_2026_08_21_net_traces.md §3):
+Key decisions (see techdocs/handoff/deepseek/plan_2026_08_21_net_traces.md §3
+and plan_2026_09_08_net_trace_rotation_aware.md):
   - the anchor fields (anchor_role/anchor_sheet/anchor_cluster/anchor_pad) are
     the SAME set extract-net used as its origin — resolve_footprint_by_role,
     the shared Rule/ClonePlacement search over the whole live board;
-  - local -> absolute via the shared local_to_absolute with rotation_deg=0
-    (a net trace is a translation-following bundle, not a rotatable cell);
+  - local -> absolute via the shared local_to_absolute, with rotation_deg =
+    relative_rotation_deg(current_anchor_rotation, captured_anchor_rotation)
+    when the record stores anchor_rotation_deg (rotation-aware, the same
+    delta-composition tree extraction uses), else rotation_deg=0 for legacy
+    pre-fix records — see NetTrace.anchor_rotation_deg in config/models.py;
   - the registry IS used (unlike channel-copy): the record's net is a stable,
     unique config identity, so it becomes the registry key's template_name —
     standard idempotency (position change -> delete old UUID + create new),
@@ -38,6 +42,7 @@ from .geometry.spoke_layout import local_to_absolute
 from .placement.commands import ViaCommand, TrackCommand
 from .placement.services.clone_role_resolver import resolve_footprint_by_role
 from .registry import make_registry_key, track_matches
+from .tree_position import relative_rotation_deg
 from .i18n import _
 
 logger = logging.getLogger(__name__)
@@ -111,13 +116,20 @@ def plan_net_traces(adapter, net_traces: list[NetTrace],
         # NOTE: never name the discarded footprint `_` here — the i18n helper
         # is imported as `_` at module level, and an assignment would shadow it
         # for the whole function (UnboundLocalError on the logger calls above).
-        _anchor_fp, anchor = _resolve_anchor(adapter, nt, _sn)
+        anchor_fp, anchor = _resolve_anchor(adapter, nt, _sn)
+        # Rotation-aware net trace (plan_2026_09_08_net_trace_rotation_aware.md):
+        # the captured along/across deltas are a RAW board-frame difference, so
+        # the correct placement composes the anchor's current-vs-captured delta
+        # rotation. Legacy records (anchor_rotation_deg=None) keep rotation_deg
+        # =0.0 exactly as before — 100% back-compat, nothing replays silently.
+        rotation_deg = (relative_rotation_deg(anchor_fp.angle_deg, nt.anchor_rotation_deg)
+                        if nt.anchor_rotation_deg is not None else 0.0)
         anchor_id = net_trace_anchor_id(nt)
         for i, t in enumerate(nt.tracks):
             net_name = t.net or nt.net  # explicit; fall back to the record's net
             tracks.append(TrackCommand(
-                start=local_to_absolute(anchor, t.start_along_mm, t.start_across_mm, 0.0),
-                end=local_to_absolute(anchor, t.end_along_mm, t.end_across_mm, 0.0),
+                start=local_to_absolute(anchor, t.start_along_mm, t.start_across_mm, rotation_deg),
+                end=local_to_absolute(anchor, t.end_along_mm, t.end_across_mm, rotation_deg),
                 width_mm=t.width_mm,
                 net_name=net_name,
                 layer=_layer_to_board(t.layer),
@@ -127,7 +139,7 @@ def plan_net_traces(adapter, net_traces: list[NetTrace],
         for i, v in enumerate(nt.vias):
             net_name = v.net or nt.net
             vias.append(ViaCommand(
-                position=local_to_absolute(anchor, v.offset_along_mm, v.offset_across_mm, 0.0),
+                position=local_to_absolute(anchor, v.offset_along_mm, v.offset_across_mm, rotation_deg),
                 drill_mm=v.drill_mm,
                 diameter_mm=v.diameter_mm,
                 net_name=net_name,

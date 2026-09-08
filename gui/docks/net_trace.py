@@ -393,10 +393,12 @@ class NetTraceDock(QWidget):
             self._show_message(str(e), _ERROR_STYLE)
             return
         # Save edits ONLY the controllable fields — the machine-written
-        # geometry (tracks:/vias:) of an already-saved record must survive.
-        # upsert_list_entry replaces the whole entry by identity (net), so
-        # carry the existing record's tracks/vias across, or a Save would
-        # silently erase them (found by the dock's own test, 2026-08-21).
+        # geometry (tracks:/vias:/anchor_rotation_deg:) of an already-saved
+        # record must survive. upsert_list_entry replaces the whole entry by
+        # identity (net), so carry the existing record's machine-written
+        # fields across, or a Save would silently erase them (found by the
+        # dock's own test, 2026-08-21; anchor_rotation_deg added 2026-09-08,
+        # plan_2026_09_08_net_trace_rotation_aware.md).
         try:
             existing = read_data(self._path)
         except OSError:
@@ -407,6 +409,8 @@ class NetTraceDock(QWidget):
                     entry["tracks"] = saved["tracks"]
                 if "vias" in saved:
                     entry["vias"] = saved["vias"]
+                if "anchor_rotation_deg" in saved:
+                    entry["anchor_rotation_deg"] = saved["anchor_rotation_deg"]
                 break
         try:
             overwritten = upsert_list_entry(self._path, "net_traces", entry,
@@ -467,6 +471,13 @@ class NetTraceDock(QWidget):
                 saved_dict = net_trace_to_dict(saved)
                 entry["tracks"] = saved_dict.get("tracks", [])
                 entry["vias"] = saved_dict.get("vias", [])
+                # Rotation-aware net traces: the anchor-rotation-at-capture is
+                # machine-written (like tracks:/vias:) and lives on the SAVED
+                # record — carry it across, or a Redraw would silently drop it
+                # and place the copper with rotation_deg=0 (the pre-fix bug,
+                # plan_2026_09_08_net_trace_rotation_aware.md).
+                if saved_dict.get("anchor_rotation_deg") is not None:
+                    entry["anchor_rotation_deg"] = saved_dict["anchor_rotation_deg"]
                 break
 
         nt = load_net_trace(entry)  # full NetTrace incl. carried geometry

@@ -657,7 +657,7 @@ def _load_chain(chain_data: dict[str, Any]) -> Chain:
 
 _NET_TRACE_KNOWN_KEYS = {
     'net', 'anchor_role', 'anchor_sheet', 'anchor_cluster', 'anchor_pad',
-    'tracks', 'vias', 'retired', 'skip', 'comment',
+    'anchor_rotation_deg', 'tracks', 'vias', 'retired', 'skip', 'comment',
 }
 
 
@@ -696,6 +696,13 @@ def _load_net_trace(data: dict[str, Any]) -> NetTrace:
     anchor_sheet = data.get('anchor_sheet')
     anchor_cluster = data.get('anchor_cluster')
     anchor_pad = data.get('anchor_pad')
+    # Rotation-aware net traces (plan_2026_09_08_net_trace_rotation_aware.md):
+    # the anchor's OWN rotation at capture time. Absent on pre-fix records
+    # (None) -> apply keeps rotation_deg=0.0 exactly as before; any float is
+    # legal here, it is just a stored angle (rounded to 4 dp by extract).
+    anchor_rotation_deg = data.get('anchor_rotation_deg')
+    if anchor_rotation_deg is not None:
+        anchor_rotation_deg = float(anchor_rotation_deg)
 
     tracks = [_load_template_track(t) for t in data.get('tracks', [])]
     vias = [_load_template_via(v) for v in data.get('vias', [])]
@@ -723,6 +730,7 @@ def _load_net_trace(data: dict[str, Any]) -> NetTrace:
         anchor_sheet=anchor_sheet,
         anchor_cluster=anchor_cluster,
         anchor_pad=str(anchor_pad) if anchor_pad is not None else None,
+        anchor_rotation_deg=anchor_rotation_deg,
         tracks=tracks,
         vias=vias,
         retired=data.get('retired', False),

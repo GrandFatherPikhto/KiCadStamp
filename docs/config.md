@@ -919,6 +919,13 @@ project, the spokes).
   anchor point, the exact `TemplateTrack`/`TemplateVia` shape `cells:` use.
   The net is ALWAYS written explicitly on each element (there is no enclosing
   Chain to inherit a net from).
+- **`anchor_rotation_deg`** (machine-written, optional) — the anchor footprint's
+  OWN rotation at capture time. On apply the copper is placed with the delta
+  between the anchor's *current* live rotation and this captured value
+  (rotation-aware: rotate the anchor in KiCad, re-redraw, and the whole net
+  trace follows the anchor's rotation, not just its position). Omitted on
+  pre-fix records (extracted before 2026-09-08) — those keep placing with
+  rotation_deg=0 exactly as before (100% back-compat), until re-extracted.
 - **`retired`/`skip`** — the same convention as every other section.
 - **`comment`** — optional free-form note shown in the GUI (a plain schema
   field, not a `;` comment in the file).
