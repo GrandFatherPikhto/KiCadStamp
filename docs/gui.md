@@ -590,15 +590,28 @@ is written into the root config's `trees:` section through the same `config_writ
 whose cluster has no Entity or a missing cell are marked and block OK; an empty/duplicate tree name
 or a missing Role also blocks OK.
 
-A cluster whose (role, sheet, cluster) identity equals the chosen EXPLICIT role anchor is NOT turned
-into a node (2026-09-06, plan `tree_root_rotation_drift`): such a cluster is the tree's own anchor
-subject — a placement node for it would be a self-duplicate that can "rotate" the anchor on every
-redraw. The anchor resolves independently of the node list, so skipping is safe. An `is_auto` anchor
-is never treated this way (its single top-level node is structurally required by the auto-anchor). A
-duplicate that already exists in a tree (hand-made, or from an older extract before this rule — e.g.
-`conn_pm5v_power` under the CONN_PM5V anchor of the "power" tree) is highlighted in the Trees dock
-with a neutral background + tooltip ("this node duplicates the tree's own anchor — safe to delete"),
-so it is visible without waiting for the redraw drift on the live board.
+A cluster whose (role, sheet, cluster) identity equals the chosen EXPLICIT role anchor is the tree's
+OWN anchor subject and is treated specially (2026-09-08, plan `extract_tree_self_anchor_as_auto_root`,
+which replaced the 2026-09-06 anti-drift skip of plan `tree_root_rotation_drift`). Instead of being
+dropped, that cluster becomes the tree's SOLE top-level auto-root node (`xy=(0,0)`, `rotation=0` — it
+is the point its siblings are measured from); every other checked cluster AND every checked inter-
+cluster `net_trace` becomes its CHILD, and the tree's anchor is switched to `is_auto` regardless of
+what the Anchor tab held. The old skip was correct for a standalone tree redraw (the anchor live-
+resolves that block on its own), but it silently removed the block when the SAME tree was later
+embedded as a module: `layout_tree_from_base` lays a module's content from the parent marker, NOT
+from the tree's own anchor, so the anchor-subject block had nothing to place it with (Denis's live
+`ch0_dac_buf` — its PIF/OA nodes travelled with the marker, the DAC_BUF block stayed put). All numeric
+offsets are unchanged by the reparenting (the anchor base already equalled the root's own live
+position by definition of the match), and the `net_trace` nodes must be reparented too because an
+auto anchor requires exactly one top-level node. Two exceptions: an `anchor_pad` on the matched
+anchor (a specific-pad narrowing the auto root cannot represent) keeps the old skip and returns a
+warning instead of converting; more than one checked cluster matching the anchor is a config
+conflict and blocks the build. An `is_auto` anchor is never treated this way (its single top-level
+node is structurally required by the auto-anchor). A self-anchor duplicate that already exists in a
+tree (hand-made, or from an older extract before this rule — e.g. `conn_pm5v_power` under the
+CONN_PM5V anchor of the "power" tree) is highlighted in the Trees dock with a neutral background +
+tooltip ("this node duplicates the tree's own anchor — safe to delete"), so it is visible without
+waiting for the redraw drift on the live board.
 
 The main menu's **Tools → Trees → Extract cluster...** (2026-09-03) is the NARROWER sibling of
 **Extract tree...** for the case where you want ONLY one fully-selected Cluster as a standalone, flat

@@ -15438,3 +15438,10 @@ msgstr ""
 
 msgid "Record summary"
 msgstr ""
+
+# plan_2026_09_08_extract_tree_self_anchor_as_auto_root.md - auto-root conversion
+msgid "Checked clusters {clusters} all match the tree's own explicit role anchor — exactly one cluster can be its subject"
+msgstr ""
+
+msgid "Cluster {cluster!r} is the tree's own anchor subject, but the anchor also narrows to pad {pad!r} — an auto root cannot preserve the pad point; the cluster's node is skipped and the tree keeps its explicit role anchor"
+msgstr ""

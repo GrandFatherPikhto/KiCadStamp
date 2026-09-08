@@ -18,7 +18,11 @@ tree freezes the current geometry of the selection relative to the anchor). At
 apply the clusters stand relative to the anchor by the captured offsets. An
 explicit role anchor permits N top-level placement nodes (the "exactly one
 top-level placement" rule is only for is_auto anchors) — so N clusters = N
-top-level nodes.
+top-level nodes WHEN NO checked cluster is the tree's own explicit role anchor
+subject. If one IS (self-anchor auto-root, 2026-09-08, plan
+extract_tree_self_anchor_as_auto_root.md), it becomes the sole top-level node
+and the other N-1 clusters + net_trace nodes become its children, with the tree
+anchor switched to is_auto — see build_tree_from_clusters below.
 
 Inter-cluster copper (tracks/vias between 2+ selected Clusters) is captured
 separately as `net_traces:` records — NOT as tree nodes (KINDS has no
@@ -31,6 +35,8 @@ import logging
 import re
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional
+
+logger = logging.getLogger(__name__)
 
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import Vector2
@@ -542,6 +548,74 @@ def _mount_baked_angle_deg(entity, cfg: Any) -> Optional[float]:
     return slot.angle_deg if slot is not None else None
 
 
+def _cluster_placement_node(c: ReReadCluster, entities, cfg,
+                            entity_positions: Optional[dict],
+                            anchor_base: Optional[tuple[float, float]],
+                            anchor_rot_deg: Optional[float],
+                            *, children: Optional[list[TreeNode]] = None,
+                            ) -> TreeNode:
+    """One checked cluster -> its kind="placement" TreeNode, ref = the Entity
+    that will place it — an existing (cluster, sheet)-matched Entity when there
+    is one, else the auto-derived Entity name persisted at save time (phase A,
+    resolve_cluster_entity). The xy/rotation capture is the EXACT arithmetic of
+    the pre-2026-09-08 flat loop (plan 2026-09-06 tree extract rotation): when
+    the anchor's live rotation is resolved (anchor_rot_deg is not None) AND the
+    Entity's live position carries its angle, xy = the offset in the anchor's
+    LOCAL frame (child_local_offset) and rotation = (live mount angle - baked
+    mount angle) - anchor angle; otherwise xy = entity_positions[entity] -
+    anchor_base and rotation 0.0. Shared by the flat path (children=None -> a
+    top-level node) and the auto-root reparenting (plan_2026_09_08_extract_tree_
+    self_anchor_as_auto_root.md §1 p.3 — the SAME node hung as a CHILD of the
+    auto root), so the numeric offsets are unchanged by construction in both
+    shapes."""
+    entity_name, _cell, _is_new = resolve_cluster_entity(c, cfg)
+    xy = None
+    rotation = 0.0
+    if entity_positions and anchor_base is not None:
+        pos = entity_positions.get(entity_name)
+        if pos is not None:
+            if anchor_rot_deg is not None and len(pos) > 2 and pos[2] is not None:
+                # Rotation-aware capture (plan 2026-09-06 tree extract rotation):
+                # xy = the node's offset in the ANCHOR's LOCAL frame
+                # (child_local_offset — the same round-trip the live rigid
+                # redraw uses) and `rotation` = the Entity's own angle relative
+                # to the anchor: (live mount angle - baked mount angle) - anchor
+                # angle. A partial live read (no angle) keeps the historical
+                # raw-world-delta xy + rotation 0.0.
+                from kicadstamp.tree_position import (
+                    child_local_offset,
+                    relative_rotation_deg,
+                )
+                local = child_local_offset(
+                    Vector2.from_xy_mm(pos[0], pos[1]),
+                    Vector2.from_xy_mm(anchor_base[0], anchor_base[1]),
+                    anchor_rot_deg)
+                xy = (local.x / MM, local.y / MM)
+                baked = _mount_baked_angle_deg(
+                    next((e for e in entities if e.name == entity_name), None),
+                    cfg)
+                if baked is None:
+                    # is_new/auto cell is generated at save time from the
+                    # CURRENT board -> its baked angle equals the live one and
+                    # the (live - baked) term cancels: -anchor_rot_deg.
+                    baked = pos[2]
+                rotation = relative_rotation_deg(pos[2] - baked, anchor_rot_deg)
+            else:
+                xy = (pos[0] - anchor_base[0], pos[1] - anchor_base[1])
+    return TreeNode(ref=entity_name, kind="placement", xy=xy, polar=None,
+                    rotation=rotation, name=None, group=None,
+                    children=children or [])
+
+
+def _net_trace_node(net: str) -> TreeNode:
+    """One checked inter-cluster net -> its kind="net_trace" TreeNode (ref =
+    the net name, resolved to a net_traces: record by link_trees). No xy — a
+    net trace is stored as local offsets from its own anchor; live-position at
+    apply. Phase D (2026-09-01)."""
+    return TreeNode(ref=net, kind="net_trace", xy=None, polar=None,
+                    rotation=0.0, name=None, group=None, children=[])
+
+
 def build_tree_from_clusters(
     clusters: Iterable[ReReadCluster], tree_name: str, anchor: TreeAnchor,
     entities, cfg,
@@ -552,9 +626,9 @@ def build_tree_from_clusters(
     allow_existing: bool = False,
 ) -> tuple[Optional[Tree], list[str]]:
     """Build the Tree from the checked clusters. Every cluster becomes a
-    top-level kind="placement" TreeNode with ref = the Entity that will place
-    it — an existing (cluster, sheet)-matched Entity when there is one, else
-    the auto-derived Entity name persisted at save time (phase A,
+    kind="placement" TreeNode with ref = the Entity that will place it — an
+    existing (cluster, sheet)-matched Entity when there is one, else the
+    auto-derived Entity name persisted at save time (phase A,
     resolve_cluster_entity). When the ANCHOR's live rotation is resolved
     (anchor_rot_deg is not None) AND the Entity's live rotation was resolved
     (entity_positions carries (x_mm, y_mm, rot_deg)), the node's xy is captured
@@ -566,21 +640,45 @@ def build_tree_from_clusters(
     live mount angle differs from its cell's baked angle is no longer flattened
     to rotation 0.0. Otherwise xy is the historical entity_positions[entity] -
     anchor_base (a raw world delta, correct only while the anchor sits at 0°) or
-    None (live-position rule at apply) and rotation stays 0.0. The anchor is
-    preserved exactly as passed.
+    None (live-position rule at apply) and rotation stays 0.0.
 
-    SELF-ANCHOR DUPLICATE SKIP (2026-09-06, plan_2026_09_05_tree_root_rotation
-    _drift.md): a checked cluster that IS the tree's own explicit (role ...)
-    anchor subject (cluster_is_anchor_duplicate) gets NO node — the anchor is
-    the tree's reference point, a node placing it on itself would be a
-    self-reference that compound-drifts on redraw. The row stays visible in the
-    dialog and is highlighted there (layer 3); it is simply not added here. An
-    auto-derived cluster (no existing Entity yet) or an is_auto anchor is never
-    skipped (its node is structural — the auto-anchor needs it).
+    SELF-ANCHOR AUTO-ROOT (2026-09-08, plan_2026_09_08_extract_tree_self_anchor_
+    as_auto_root.md — REPLACES the 2026-09-06 anti-drift skip of plan_2026_09_05_
+    tree_root_rotation_drift.md): a checked cluster that IS the tree's own
+    explicit (role ...) anchor subject (cluster_is_anchor_duplicate) used to get
+    NO node — the anti-drift skip, correct for a STANDALONE tree redraw (the
+    anchor live-resolves that block). That is invisible while the tree stands
+    alone, but breaks when the SAME tree is later embedded as a module:
+    layout_tree_from_base (kicadstamp/tree_position.py) lays content from the
+    parent marker INSTEAD of the tree's own anchor, so a tree with NO node for
+    its anchor subject has nothing to place that block at (Denis's live
+    ch0_dac_buf — only the PIF/OA nodes travelled with the marker, the DAC_BUF
+    block stayed put). The fix (§1): when exactly ONE checked cluster matches
+    the explicit anchor, that cluster becomes the SOLE top-level node
+    (xy=(0.0, 0.0), rotation=0.0 — it IS the point its siblings are measured
+    from); EVERY other checked cluster AND every checked net_trace node becomes
+    its CHILD (not a flat top-level sibling), and the tree's anchor is replaced
+    with TreeAnchor(is_auto=True) regardless of what the dialog's Anchor tab
+    held. is_auto derives the SAME live base the explicit role anchor resolved
+    (the root's own cell zero slot — see plan §0), so every numeric offset is
+    unchanged by the reparenting (§1). Reparenting the net_trace nodes too is
+    REQUIRED — _root_entity_ref/_auto_anchor_base need EXACTLY ONE top-level
+    node with no exceptions (tree_position.py / entity_placement.py), so a
+    net_trace left top-level would make is_auto unreachable (§2).
 
-    Returns (None, errors) when the tree name is empty/duplicate — the only
-    remaining hard error. A cluster without an Entity/cell is auto-satisfiable
-    (phase A) and no longer blocks the build.
+    Guards (§3/§4): an anchor_pad on the matched explicit anchor (a specific-
+    pad narrowing the auto root cannot represent) keeps TODAY's skip-and-warn —
+    no node for that cluster, the tree keeps its explicit anchor, and a warning
+    is returned (never a silent precision loss). More than one checked cluster
+    matching the anchor is a config conflict — fatal (None, errors), never
+    silently resolved. An auto-derived cluster (no existing Entity yet) or an
+    is_auto anchor never matches (its node is structural — the auto-anchor
+    needs it).
+
+    Returns (None, errors) when the tree name is empty/duplicate or the §4
+    multi-match conflict fires. Non-fatal warnings (the §3 anchor_pad guard)
+    are returned alongside a valid tree. A cluster without an Entity/cell is
+    auto-satisfiable (phase A) and no longer blocks the build.
     """
     errors = _name_errors(tree_name, cfg, allow_existing=allow_existing)
     if errors:
@@ -589,79 +687,77 @@ def build_tree_from_clusters(
     if any(errors):
         return None, errors
 
-    nodes: list[TreeNode] = []
+    clusters = list(clusters)
+    net_nodes = list(net_nodes)
+    # Stage 1 (plan §1): ONE pre-pass splits the checked clusters into the
+    # anchor's OWN subject (root_candidates — cluster_is_anchor_duplicate) and
+    # everything else (rest), BEFORE the node loop, so the tail below can pick
+    # the single auto root instead of silently dropping the anchor's subject.
+    root_candidates: list[ReReadCluster] = []
+    rest: list[ReReadCluster] = []
     for c in clusters:
         if cluster_is_anchor_duplicate(c, anchor, cfg):
-            # This cluster IS the tree's own EXPLICIT (role ...) anchor
-            # subject (plan_2026_09_05_tree_root_rotation_drift §1): never
-            # create a duplicate node for it — the anchor is the tree's
-            # reference point, a node placing it on itself would be a
-            # self-reference that "rotates" the anchor on redraw. The anchor
-            # resolves independently of the node list, so skipping is safe.
-            continue
-        # ref = the Entity that WILL place this cluster: an existing
-        # (cluster, sheet)-matched Entity when there is one, else the
-        # auto-derived Entity name persisted at save time (phase A).
-        entity_name, _cell, _is_new = resolve_cluster_entity(c, cfg)
-        xy = None
-        rotation = 0.0
-        if entity_positions and anchor_base is not None:
-            pos = entity_positions.get(entity_name)
-            if pos is not None:
-                if anchor_rot_deg is not None and len(pos) > 2 and pos[2] is not None:
-                    # Rotation-aware capture (plan 2026-09-06 tree extract
-                    # rotation): xy = the node's offset in the ANCHOR's LOCAL
-                    # frame (child_local_offset — the same round-trip the live
-                    # rigid redraw uses) and `rotation` = the Entity's own angle
-                    # relative to the anchor: (live mount angle - baked mount
-                    # angle) - anchor angle. A partial live read (no angle) keeps
-                    # the historical raw-world-delta xy + rotation 0.0.
-                    from kicadstamp.tree_position import (
-                        child_local_offset,
-                        relative_rotation_deg,
-                    )
-                    local = child_local_offset(
-                        Vector2.from_xy_mm(pos[0], pos[1]),
-                        Vector2.from_xy_mm(anchor_base[0], anchor_base[1]),
-                        anchor_rot_deg)
-                    xy = (local.x / MM, local.y / MM)
-                    baked = _mount_baked_angle_deg(
-                        next((e for e in entities if e.name == entity_name), None),
-                        cfg)
-                    if baked is None:
-                        # is_new/auto cell is generated at save time from the
-                        # CURRENT board -> its baked angle equals the live one
-                        # and the (live - baked) term cancels: -anchor_rot_deg.
-                        baked = pos[2]
-                    rotation = relative_rotation_deg(pos[2] - baked, anchor_rot_deg)
-                else:
-                    xy = (pos[0] - anchor_base[0], pos[1] - anchor_base[1])
-        nodes.append(TreeNode(
-            ref=entity_name,
-            kind="placement",
-            xy=xy,
-            polar=None,
-            rotation=rotation,
-            name=None,
-            group=None,
-            children=[],
-        ))
-    # Phase D (2026-09-01): the checked inter-cluster nets become top-level
-    # kind="net_trace" nodes (ref = the net name, resolved to a net_traces:
-    # record by link_trees). No xy — a net trace is stored as local offsets
-    # from its own anchor; live-position at apply.
-    for net in net_nodes:
-        nodes.append(TreeNode(
-            ref=net,
-            kind="net_trace",
-            xy=None,
-            polar=None,
-            rotation=0.0,
-            name=None,
-            group=None,
-            children=[],
-        ))
-    return Tree(name=tree_name.strip(), anchor=anchor, nodes=nodes), []
+            root_candidates.append(c)
+        else:
+            rest.append(c)
+
+    messages: list[str] = []
+
+    if len(root_candidates) > 1:
+        # Guard (plan §4): role+sheet+cluster identity is unique by design, so
+        # 2+ checked clusters matching the SAME explicit anchor means a
+        # corrupted config — which of them would be the root? A hard error
+        # naming every candidate's Entity (their cluster tags may coincide on a
+        # corrupt config), never a silent arbitrary pick (the _name_errors
+        # shape).
+        names = ", ".join(
+            repr(resolve_cluster_entity(c, cfg)[0]) for c in root_candidates)
+        return None, [_("Checked clusters {clusters} all match the tree's own "
+                        "explicit role anchor — exactly one cluster can be its "
+                        "subject").format(clusters=names)]
+
+    matched = root_candidates[0] if root_candidates else None
+    if matched is not None and anchor.anchor_pad is not None:
+        # Guard (plan §3): the matched explicit anchor carries anchor_pad — it
+        # narrows the anchor point to a specific pad of the anchor component
+        # (NOT the component centre), a precision is_auto cannot represent
+        # (cell.anchor_pad is a different, cell-level concept). Keep today's
+        # skip-and-warn: no node for this cluster, the tree anchor stays the
+        # ORIGINAL explicit one, and the warning is returned — never silently
+        # convert to auto with the pad point lost.
+        messages.append(_(
+            "Cluster {cluster!r} is the tree's own anchor subject, but the "
+            "anchor also narrows to pad {pad!r} — an auto root cannot preserve "
+            "the pad point; the cluster's node is skipped and the tree keeps "
+            "its explicit role anchor").format(cluster=matched.cluster,
+                                               pad=anchor.anchor_pad))
+        matched = None
+
+    if matched is not None:
+        # ── Auto-root conversion (plan §1/§2) ──
+        root_entity_name, _cell, _is_new = resolve_cluster_entity(matched, cfg)
+        children = [_cluster_placement_node(
+                        c, entities, cfg, entity_positions, anchor_base,
+                        anchor_rot_deg) for c in rest]
+        children += [_net_trace_node(net) for net in net_nodes]
+        root_node = TreeNode(ref=root_entity_name, kind="placement",
+                             xy=(0.0, 0.0), polar=None, rotation=0.0,
+                             name=None, group=None, children=children)
+        logger.info(
+            "Extract tree %r: checked cluster %r IS the tree's own explicit "
+            "role anchor subject — promoted to the sole top-level auto root "
+            "node (its %d siblings are now its children); the tree's anchor is "
+            "switched to is_auto (plan extract_tree_self_anchor_as_auto_root)",
+            tree_name, matched.cluster, len(children))
+        return Tree(name=tree_name.strip(), anchor=TreeAnchor(is_auto=True),
+                    nodes=[root_node]), messages
+
+    # ── Flat path (no match, or the §3 anchor_pad skip) ──
+    nodes = [_cluster_placement_node(
+                 c, entities, cfg, entity_positions, anchor_base,
+                 anchor_rot_deg) for c in rest]
+    nodes += [_net_trace_node(net) for net in net_nodes]
+    return Tree(name=tree_name.strip(), anchor=anchor, nodes=nodes), messages
 
 
 # ── Inter-cluster copper detection ────────────────────────────────────────

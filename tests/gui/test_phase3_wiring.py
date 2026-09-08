@@ -795,16 +795,24 @@ def test_extract_tree_happy_path_saves_tree_and_nets(real_main_window,
     trees = data.get("trees") or []
     assert any(t["name"] == "power_tree" for t in trees)
     tree = next(t for t in trees if t["name"] == "power_tree")
-    assert tree["anchor"] == {"role": "DAC", "sheet": "Channel_1",
-                              "cluster": "PIF_AVDD"}
-    # Phase D: the checked inter-cluster net "SHARED" becomes a net_trace node.
     # PIF_AVDD IS the tree's own explicit role anchor (role DAC / sheet
-    # Channel_1 / cluster PIF_AVDD) — since 2026-09-06 "Extract tree" no longer
-    # creates a self-duplicate node for the anchor cluster, so it is absent.
-    assert [n["ref"] for n in tree["nodes"]] == ["CH1_PIF_CLKVDD", "SHARED"]
-    assert [n["kind"] for n in tree["nodes"]] == ["placement", "net_trace"]
-    # Autopositioning: entity (10,20) - anchor base (5,10) = (5,10).
-    assert tree["nodes"][0]["xy"] == [5.0, 10.0]
+    # Channel_1 / cluster PIF_AVDD) — since 2026-09-08 (plan
+    # extract_tree_self_anchor_as_auto_root) "Extract tree" promotes that
+    # cluster to the SOLE top-level auto root instead of dropping it, so the
+    # tree no longer carries an explicit (anchor ...) (is_auto = absent).
+    assert "anchor" not in tree
+    assert [n["ref"] for n in tree["nodes"]] == ["CH1_PIF_AVDD"]
+    assert [n["kind"] for n in tree["nodes"]] == ["placement"]
+    root = tree["nodes"][0]
+    # The auto root is the origin of its own frame.
+    assert root["xy"] == [0.0, 0.0]
+    # ...and every other checked cluster AND the net_trace node become its
+    # children (is_auto needs EXACTLY ONE top-level placement node).
+    assert [c["ref"] for c in root["children"]] == ["CH1_PIF_CLKVDD", "SHARED"]
+    assert [c["kind"] for c in root["children"]] == ["placement", "net_trace"]
+    # Autopositioning of the reparented child: entity (10,20) - anchor base
+    # (5,10) = (5,10) — numerically unchanged by the reparenting.
+    assert root["children"][0]["xy"] == [5.0, 10.0]
     nets = data.get("net_traces") or []
     assert any(n["net"] == "SHARED" for n in nets)
 

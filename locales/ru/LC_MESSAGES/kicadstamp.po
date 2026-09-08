@@ -14081,3 +14081,10 @@ msgstr "Pivot / Якорь"
 
 msgid "Record summary"
 msgstr "Сводка записи"
+
+# plan_2026_09_08_extract_tree_self_anchor_as_auto_root.md - auto-root conversion
+msgid "Checked clusters {clusters} all match the tree's own explicit role anchor — exactly one cluster can be its subject"
+msgstr "Отмеченные кластеры {clusters} все совпадают с собственным явным role-якорем дерева — ровно один кластер может быть его субъектом"
+
+msgid "Cluster {cluster!r} is the tree's own anchor subject, but the anchor also narrows to pad {pad!r} — an auto root cannot preserve the pad point; the cluster's node is skipped and the tree keeps its explicit role anchor"
+msgstr "Кластер {cluster!r} — субъект якоря дерева, но якорь также сужен до пада {pad!r} — auto-корень не может сохранить точку пада; узел кластера пропущен, и дерево сохраняет явный role-якорь"
