@@ -6117,6 +6117,16 @@ msgstr "  track for {owner}: already exists, skipped (positional pre-check)"
 msgid "Skipped {count} tracks already present on the board (positional pre-check)"
 msgstr "Skipped {count} tracks already present on the board (positional pre-check)"
 
+#: kicadstamp/registry.py:506
+#, python-brace-format
+msgid "  via for {owner}: already exists, skipped (positional pre-check)"
+msgstr "  via for {owner}: already exists, skipped (positional pre-check)"
+
+#: kicadstamp/registry.py:511
+#, python-brace-format
+msgid "Skipped {count} vias already present on the board (positional pre-check)"
+msgstr "Skipped {count} vias already present on the board (positional pre-check)"
+
 #: kicadstamp/sheet_names.py:50
 #, python-brace-format
 msgid ""

@@ -6156,6 +6156,17 @@ msgstr ""
 "Пропущено {count} дорожек, уже присутствующих на плате (позиционная "
 "проверка)"
 
+#: kicadstamp/registry.py:506
+#, python-brace-format
+msgid "  via for {owner}: already exists, skipped (positional pre-check)"
+msgstr "  via для {owner}: уже существует, пропущено (позиционная проверка)"
+
+#: kicadstamp/registry.py:511
+#, python-brace-format
+msgid "Skipped {count} vias already present on the board (positional pre-check)"
+msgstr ""
+"Пропущено {count} via, уже присутствующих на плате (позиционная проверка)"
+
 #: kicadstamp/sheet_names.py:50
 #, python-brace-format
 msgid ""

@@ -360,19 +360,11 @@ class PlacementRegistry(BaseRegistry[RegistryEntry]):
         return self.adapter.get_vias()
 
     def _live_matches(self, live_via, via: ViaCommand) -> bool:
-        """Checks PLANNED via against REAL via on the board (not against JSON entry)."""
-        x_mm = via.position.x / MM
-        y_mm = via.position.y / MM
-        live_x_mm = live_via.position.x / MM
-        live_y_mm = live_via.position.y / MM
-        live_net = live_via.net_name
-        return (
-            abs(live_x_mm - x_mm) <= _POSITION_TOLERANCE_MM
-            and abs(live_y_mm - y_mm) <= _POSITION_TOLERANCE_MM
-            and live_net == via.net_name
-            and abs(live_via.drill_mm - via.drill_mm) < 1e-6
-            and abs(live_via.diameter_mm - via.diameter_mm) < 1e-6
-        )
+        """Checks PLANNED via against REAL via on the board (not against JSON
+        entry). Delegates to the shared via_matches() predicate — see its
+        docstring (mirrors how TrackRegistry._live_matches delegates to
+        track_matches)."""
+        return via_matches(live_via, via)
 
     def _build_entry(self, via: ViaCommand, uuid: str) -> RegistryEntry:
         return RegistryEntry(
@@ -464,6 +456,59 @@ def filter_existing_tracks(to_create: list[TrackCommand], live_tracks) -> list[T
         kept.append(cmd)
     if skipped:
         logger.info(_("Skipped {count} tracks already present on the board (positional pre-check)")
+                    .format(count=skipped))
+    return kept
+
+
+def via_matches(live_via, via: ViaCommand) -> bool:
+    """Shared predicate: does the live board via match the planned ViaCommand?
+    Position (within POSITION_TOLERANCE_MM) + net + drill + diameter. Used by
+    BOTH the UUID-path reconcile (PlacementRegistry._live_matches) and the
+    positional pre-check (filter_existing_vias) — one predicate, so the two can
+    never disagree (mirrors track_matches / filter_existing_tracks, 2026-08-31;
+    extended to vias 2026-09-08, plan_2026_09_08_via_positional_precheck.md:
+    vias never got the same positional protection tracks got 2026-08-31)."""
+    x_mm = via.position.x / MM
+    y_mm = via.position.y / MM
+    live_x_mm = live_via.position.x / MM
+    live_y_mm = live_via.position.y / MM
+    live_net = live_via.net_name
+    return (
+        abs(live_x_mm - x_mm) <= _POSITION_TOLERANCE_MM
+        and abs(live_y_mm - y_mm) <= _POSITION_TOLERANCE_MM
+        and live_net == via.net_name
+        and abs(live_via.drill_mm - via.drill_mm) < 1e-6
+        and abs(live_via.diameter_mm - via.diameter_mm) < 1e-6
+    )
+
+
+def filter_existing_vias(to_create: list[ViaCommand], live_vias) -> list[ViaCommand]:
+    """Positional pre-check of vias — unregistered-copper idempotency (analog of
+    filter_existing_tracks, extended 2026-09-08 — plan_2026_09_08_via_
+    positional_precheck.md): vias never got the same protection tracks got
+    2026-08-31, so a chain-produced via (chains: spokes, e.g. the live profile's
+    FPGA power-bank chains) whose registry entry stops matching the live board
+    for ANY reason — lost/overwritten registry state, a run interrupted between
+    via creation and registry save, etc. — was recreated unconditionally on every
+    subsequent redraw; a live profile accumulated up to 4 literal duplicates per
+    via this way. Applied STRICTLY AFTER registry.reconcile(), on its to_create
+    list — same ordering rule as filter_existing_tracks (a pre-reconcile skip
+    would drop the key from seen_keys and make prune delete the REGISTERED via).
+    SKIP-ONLY: never removes and never adopts foreign copper into the registry.
+    Returns the filtered list, logs a skip counter."""
+    if not to_create:
+        return to_create
+    kept: list[ViaCommand] = []
+    skipped = 0
+    for cmd in to_create:
+        if any(via_matches(live, cmd) for live in live_vias):
+            skipped += 1
+            logger.debug(_("  via for {owner}: already exists, skipped (positional pre-check)")
+                         .format(owner=cmd.owner_ref))
+            continue
+        kept.append(cmd)
+    if skipped:
+        logger.info(_("Skipped {count} vias already present on the board (positional pre-check)")
                     .format(count=skipped))
     return kept
 

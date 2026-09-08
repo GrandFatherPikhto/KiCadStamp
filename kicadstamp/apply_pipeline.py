@@ -50,7 +50,8 @@ from .validation import run_all_checks, check_config_structure
 from .registry import (PlacementRegistry, registry_path_for_config,
                        TrackRegistry, track_registry_path_for_config,
                        default_operation_log_dir_for_config,
-                       filter_existing_tracks, adopt_matching_unowned)
+                       filter_existing_tracks, filter_existing_vias,
+                       adopt_matching_unowned)
 from .i18n import _
 
 logger = logging.getLogger(__name__)
@@ -687,12 +688,20 @@ class ApplyPipeline:
 
         # --- Phase 2: vias ---
         all_vias = self.planner.plan_vias()
+        # Live vias fetched ONCE for all consumers below (mirrors the track
+        # phase, ~line 728) — reconcile()/adopt_matching_unowned() would
+        # otherwise each call adapter.get_vias() again internally just to
+        # build their own uuid index, and the positional pre-check (2026-09-08)
+        # needs the same list.
+        live_vias = self.adapter.get_vias()
         # net_traces are captured from ALREADY-EXISTING hand-routed copper, so
         # the first apply (board unchanged since extract) must not duplicate
         # it: claim any planned net-trace via/track already sitting exactly at
         # the planned position into the registries (one-time migration, see
         # net_trace_planner.adopt_net_trace_copper). plan_vias() above already
-        # populated the planner's net-trace caches.
+        # populated the planner's net-trace caches. This call reads live
+        # vias/tracks through its OWN net-trace-specific paths and does not
+        # take live_items — untouched by the single-fetch above.
         adopt_net_trace_copper(
             self.adapter, registry, track_registry,
             self.planner._net_trace_vias or [], self.planner._net_trace_tracks or [])
@@ -703,13 +712,22 @@ class ApplyPipeline:
         # cross-key copper) too — adopt_net_trace_copper keys are already in
         # the registry, so this is a no-op for them. A later reposition then
         # deletes the claimed UUID instead of orphaning the old copper.
-        adopt_matching_unowned(registry, all_vias)
-        vias_to_create, vias_to_delete = registry.reconcile(all_vias,
-                                                            known_anchor_ids=self.all_anchor_ids)
+        adopt_matching_unowned(registry, all_vias, live_items=live_vias)
+        vias_to_create, vias_to_delete = registry.reconcile(
+            all_vias, known_anchor_ids=self.all_anchor_ids, live_items=live_vias)
         # Batch deletion — kipy's remove_items_by_id() accepts a list, so N
         # stale vias go out as a single IPC request (see adapter.remove_by_ids).
         if vias_to_delete:
             self.adapter.remove_by_ids(vias_to_delete)
+        # Positional pre-check of vias (2026-09-08, plan_2026_09_08_via_
+        # positional_precheck.md) — the via analog of the track pre-check added
+        # 2026-08-31 (filter_existing_tracks below): vias never got the same
+        # protection, so a chain-produced via (chains: spokes, e.g. the live
+        # profile's FPGA power-bank chains) whose registry entry stops matching
+        # the live board for any reason was recreated unconditionally on every
+        # subsequent redraw. STRICTLY AFTER reconcile(), same ordering rule as
+        # tracks (a pre-reconcile skip would corrupt seen_keys/prune). Skip-only.
+        vias_to_create = filter_existing_vias(vias_to_create, live_vias)
         logger.info(_("Planned vias: {total}, actually to create (registry filtered already "
                        "correctly placed): {to_create}")
                     .format(total=len(all_vias), to_create=len(vias_to_create)))
