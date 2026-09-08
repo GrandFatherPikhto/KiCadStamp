@@ -9418,15 +9418,36 @@ msgstr ""
 msgid "tree_instance: template {template!r} must be role-anchored (v1)"
 msgstr "tree_instance: шаблон {template!r} должен иметь role-якорь (v1)"
 
-#: kicadstamp/config/tree_instances.py:254
+#: kicadstamp/config/tree_instances.py:414
+#, python-brace-format
 msgid ""
-"only an (anchor (role ...)) template is supported — the instance sheet "
-"substitutes the role anchor's sheet at load; origin/ref/point/auto "
-"anchors are not parameterized by sheet yet"
+"tree_instance: template {template!r} must be role-anchored OR auto-anchored "
+"with exactly one top-level placement node (v1.4)"
 msgstr ""
-"поддерживается только шаблон с (anchor (role ...)) — sheet экземпляра "
-"подставляется в sheet role-якоря при загрузке; якоря "
-"origin/ref/point/auto пока не параметризуются по sheet"
+"tree_instance: шаблон {template!r} обязан иметь role-якорь ЛИБО auto-якорь "
+"ровно с одним top-level placement-узлом (v1.4)"
+
+#: kicadstamp/config/tree_instances.py:417
+msgid ""
+"either an (anchor (role ...)) template, or NO (anchor ...) at all with "
+"exactly one top-level placement node (the same shape auto-anchor resolution "
+"itself requires) — the instance sheet substitutes the role anchor's sheet, or"
+" (for an auto template) the root Entity's own sheet; origin/ref/point anchors"
+" are still not parameterized by sheet"
+msgstr ""
+"либо шаблон с (anchor (role ...)), либо вообще БЕЗ (anchor ...) ровно с "
+"одним top-level placement-узлом (та же форма, которую требует и сама "
+"авто-резолюция якоря) — sheet экземпляра подставляется в sheet role-якоря "
+"или (для auto-шаблона) в собственный sheet корневой Entity; якоря "
+"origin/ref/point по-прежнему не параметризуются по sheet"
+
+#: kicadstamp/config/tree_instances.py:439
+msgid ""
+"the auto-anchored template's single top-level node must reference an existing"
+" entities: entry by its name"
+msgstr ""
+"единственный top-level узел auto-якорного шаблона должен ссылаться на "
+"существующую запись entities: по имени"
 
 #: kicadstamp/config/tree_instances.py:293
 msgid "'tree_instances' must be a list of template/name/sheet declarations"

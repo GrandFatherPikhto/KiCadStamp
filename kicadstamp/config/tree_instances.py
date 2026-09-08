@@ -86,6 +86,26 @@ substitution (the EXTERNAL anchor_cluster narrowing) is a separate concept and
 is NOT affected by this guard (set unconditionally whenever `cluster:` is
 given, see _expand_template).
 
+v1.4 (2026-09-08, plan tree_instances_auto_root_template_support): an
+auto-anchored template — NO (anchor ...) at all (TreeAnchor.is_auto, trees.py:
+the anchor is derived from the tree's OWN single top-level placement node)
+with EXACTLY ONE top-level placement node — is now also a valid tree_instances
+template, alongside the role-anchored one (the old "must be role-anchored"
+fatal is relaxed). For an auto template the anchor IS that root node (the
+whole point of is_auto), so there is no separate anchor.sheet/anchor.cluster
+substitution to make: the instance sheet lands on every generated copy — root
+included — through the SAME unconditional _expand_node `ent['sheet'] = sheet`
+path, and the v1.2.1 composite-guard walks template nodes generically (the
+root is not special-cased), so cluster behaves identically for both shapes.
+The only genuinely new work: (a) the entry gate admits the shape — checked
+HERE with the same EXACTLY-ONE rule auto-anchor resolution itself requires
+(_template_root_entity_ref), and (b) `old_sheet` for net_trace
+leading-segment rewriting, which for an auto template comes from the root
+Entity's OWN sheet (there is no anchor.sheet). The generated instance tree
+stays auto-anchored (deep copy of a template with no 'anchor' key) — exactly
+right, since a generated clone needs the identical self-resolving root-node
+anchor its template has, especially when it too gets embedded as a module.
+
 The materialized dicts then flow through the SAME _load_entity/_load_tree/
 _load_net_trace path as hand-written entries — duplicate-name checks, rule 2
 (shared seen_refs), the one-record-per-net net_traces dedup, unknown-key
@@ -99,8 +119,10 @@ and the GUI's read-only-instance index. Materialized trees/entities/net_traces
 are never persisted as such (the GUI's TreesDock save path excludes them).
 
 v1 template constraints (each is a hard fatal, never a silent skip):
-  - the template tree's anchor must be `role`-based (origin/ref/point/auto
-    anchors are not parameterized by sheet yet);
+  - the template tree must be role-anchored ((anchor (role ...))) OR — v1.4 —
+    auto-anchored (no (anchor ...) at all, with exactly ONE top-level placement
+    node, the same shape auto-anchor resolution itself requires);
+    origin/ref/point anchors are not parameterized by sheet;
   - every template node must be kind=placement (or unset/auto) or kind=
     net_trace (chain/coordinate/clone/module nodes inside a template are not
     instantiated yet);
@@ -181,6 +203,25 @@ def _template_generated_clusters(nodes: list, entities_by_name: dict) -> set[str
         if children:
             clusters |= _template_generated_clusters(children, entities_by_name)
     return clusters
+
+
+def _template_root_entity_ref(template: dict) -> str | None:
+    """Mirror of tree_position._root_entity_ref for a RAW (pre-parse) template
+    dict: the ref of the template's OWN single top-level placement node, or
+    None when there is no such canonical root (0 or 2+ top-level nodes, or the
+    sole node isn't kind=placement/unset) — the same shape auto-anchor
+    resolution (_root_entity_ref/_auto_anchor_base) requires at materialization
+    time, checked HERE too so an auto template that could never resolve its own
+    anchor fails at EXPANSION time with a clear message, not later during a live
+    redraw of the generated instance."""
+    nodes = template.get('nodes') or []
+    if len(nodes) != 1:
+        return None
+    top = nodes[0]
+    kind = top.get('kind')
+    if kind is not None and kind != 'placement':
+        return None
+    return top.get('ref')
 
 
 def _expand_node(node: dict, instance_name: str, sheet: str,
@@ -326,41 +367,95 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
     (tree dict, [entity dicts], [net_trace dicts]). The template dict is never
     mutated — deep copies only.
 
-    cluster (2026-09-03, plan tree_instances_cluster): when a declaration
-    carries `cluster:`, it lands on BOTH the generated role anchor (unconditional
-    — the anchor is guaranteed role-based above) AND, via _expand_node, every
-    generated Entity copy. The per-copy half got a COMPOSITE-guard (v1.2.1,
-    2026-09-08, plan tree_instances_cluster_composite_guard): a template whose
-    placement nodes would generate >1 distinct non-empty cluster values is
-    composite, and a blanket per-copy override there would erase exactly the
-    per-node distinction role_narrowing's Cluster step depends on — so for a
-    composite template the per-copy override is skipped (effective_node_cluster
-    becomes None) and each copy keeps its own template cluster, while the role
-    anchor is STILL overridden (the two substitutions are separate concepts —
-    external-anchor narrowing vs each copy's own identity). A homogeneous
-    template (<=1 distinct value) keeps the unconditional per-copy override
-    exactly as before (back-compat)."""
-    anchor = template.get('anchor')
-    if not (isinstance(anchor, dict) and isinstance(anchor.get('role'), str)
-            and anchor.get('role')):
-        raise ValidationError(format_fatal_error(
-            _("tree_instance: template {template!r} must be role-anchored (v1)")
-            .format(template=template_name),
-            [_("only an (anchor (role ...)) template is supported — the instance "
-               "sheet substitutes the role anchor's sheet at load; origin/ref/"
-               "point/auto anchors are not parameterized by sheet yet")]))
+    The template may be role-anchored (an (anchor (role ...)) at the top) OR —
+    v1.4 (plan tree_instances_auto_root_template_support) — auto-anchored (no
+    (anchor ...) at all, with exactly ONE top-level placement node,
+    TreeAnchor.is_auto; the shape is checked at the entry gate via
+    _template_root_entity_ref, mirroring auto-anchor resolution's own rule). For
+    a ROLE template the instance sheet is written into the deep-copied anchor
+    (gen['anchor']['sheet']) and `old_sheet` (the net_trace leading-segment
+    rewrite's source) is anchor.sheet. For an AUTO template there is no 'anchor'
+    key to mutate — the generated tree stays auto-anchored and `old_sheet` is
+    the root Entity record's own sheet; the instance sheet/cluster reach the
+    copies through the SAME per-node mechanism as any other node (_expand_node),
+    because for an auto template the anchor IS its root node.
 
-    old_sheet = anchor.get('sheet')
+    cluster (2026-09-03, plan tree_instances_cluster): when a declaration
+    carries `cluster:`, it lands on the generated ROLE anchor (only when the
+    template is role-anchored — an auto template has no anchor to carry it) AND,
+    via _expand_node, every generated Entity copy. The per-copy half got a
+    COMPOSITE-guard (v1.2.1, 2026-09-08, plan
+    tree_instances_cluster_composite_guard): a template whose placement nodes
+    would generate >1 distinct non-empty cluster values is composite, and a
+    blanket per-copy override there would erase exactly the per-node distinction
+    role_narrowing's Cluster step depends on — so for a composite template the
+    per-copy override is skipped (effective_node_cluster becomes None) and each
+    copy keeps its own template cluster, while a role anchor is STILL overridden
+    (the two substitutions are separate concepts — external-anchor narrowing vs
+    each copy's own identity). A homogeneous template (<=1 distinct value) keeps
+    the unconditional per-copy override exactly as before (back-compat)."""
+    anchor = template.get('anchor')
+    is_role_anchor = (isinstance(anchor, dict)
+                      and isinstance(anchor.get('role'), str)
+                      and bool(anchor.get('role')))
+    # v1.4 (plan tree_instances_auto_root_template_support): the entry gate now
+    # admits TWO template shapes — a role-anchored one AND an auto-anchored one
+    # (no (anchor ...) at all = TreeAnchor.is_auto). An explicit NON-role anchor
+    # (origin/ref/point) is neither and stays a fatal (not parameterized by
+    # sheet). For an auto template the anchor IS its own single top-level
+    # placement node (the whole point of is_auto) — so the gate mirrors
+    # auto-anchor resolution's EXACTLY-ONE rule (tree_position._root_entity_ref
+    # / entity_placement._auto_anchor_base) at EXPANSION time: an auto template
+    # that could never resolve its own anchor fails HERE with a clear message,
+    # not later during a live redraw of the generated instance.
+    root_ref = None if is_role_anchor else _template_root_entity_ref(template)
+    if not is_role_anchor and (anchor or root_ref is None):
+        raise ValidationError(format_fatal_error(
+            _("tree_instance: template {template!r} must be role-anchored OR "
+              "auto-anchored with exactly one top-level placement node (v1.4)")
+            .format(template=template_name),
+            [_("either an (anchor (role ...)) template, or NO (anchor ...) at "
+               "all with exactly one top-level placement node (the same shape "
+               "auto-anchor resolution itself requires) — the instance sheet "
+               "substitutes the role anchor's sheet, or (for an auto template) "
+               "the root Entity's own sheet; origin/ref/point anchors are still "
+               "not parameterized by sheet")]))
+
+    if is_role_anchor:
+        old_sheet = anchor.get('sheet')
+    else:
+        # Auto template: the old sheet for net_trace leading-segment rewriting
+        # comes from the root node's OWN Entity record (there is no anchor.sheet
+        # to read). The missing-record fatal deliberately duplicates
+        # _expand_node's "no matching entities:" wording — identical cause,
+        # identical message (and _expand_node still repeats the same check for
+        # non-root nodes further down, as always — not removed).
+        root_entity = entities_by_name.get(root_ref)
+        if root_entity is None:
+            raise ValidationError(format_fatal_error(
+                _("tree_instance: template {template!r} node {ref!r} has no "
+                  "matching entities: record").format(template=template_name,
+                                                       ref=root_ref),
+                [_("the auto-anchored template's single top-level node must "
+                   "reference an existing entities: entry by its name")]))
+        old_sheet = root_entity.get('sheet')
     gen = copy.deepcopy(template)
     gen['name'] = instance_name
-    gen['anchor']['sheet'] = sheet
-    if cluster is not None and isinstance(gen['anchor'].get('role'), str):
-        # Cluster override lands on the role anchor too (the anchor is already
-        # guaranteed role-based by the fatal above — the isinstance guard only
-        # documents that cluster substitution is a role-anchor concept). Set
-        # UNCONDITIONALLY when cluster is given, same pattern as sheet — even
-        # if the template anchor carried no cluster of its own.
-        gen['anchor']['cluster'] = cluster
+    if is_role_anchor:
+        gen['anchor']['sheet'] = sheet
+        if cluster is not None and isinstance(gen['anchor'].get('role'), str):
+            # Cluster override lands on the role anchor too (we are in the role
+            # branch, so the isinstance guard only documents that cluster
+            # substitution is a role-anchor concept). Set UNCONDITIONALLY when
+            # cluster is given, same pattern as sheet — even if the template
+            # anchor carried no cluster of its own.
+            gen['anchor']['cluster'] = cluster
+    # else (auto-anchored template): there is no 'anchor' key to mutate — the
+    # generated tree stays auto-anchored too (gen has no 'anchor' key, same as
+    # the template), which is exactly right: the generated instance's own root
+    # Entity copy (its sheet already substituted unconditionally by
+    # _expand_node, its cluster by the same composite-guard rule as every other
+    # node) already carries everything a NEW auto-anchor resolution needs.
 
     # 2026-09-08 (plan tree_instances_cluster_composite_guard): the per-node
     # Entity cluster override below is a DIFFERENT concept from the anchor's

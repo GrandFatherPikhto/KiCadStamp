@@ -195,17 +195,13 @@ class TestFatals:
         assert _tree_by_name(cfg, "dac_buf_tpl").nodes[0].ref == "dac_buf"
 
     def test_non_role_anchor_is_fatal(self, tmp_path):
+        """Regression (v1.4 keeps it fatal): an explicit NON-role anchor
+        (origin/ref/point) is neither a role-anchored NOR an auto-anchored
+        template — the fix only relaxes the NO-(anchor ...)-at-all auto case;
+        origin/ref/point anchors are still not parameterized by sheet."""
         p = _write(tmp_path, "t.sexp", _template_data(
             [{"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"}],
             anchor={"origin": True}))
-        with pytest.raises(ValidationError, match="must be role-anchored"):
-            load_config(str(p))
-
-    def test_auto_anchor_missing_is_fatal(self, tmp_path):
-        data = _template_data(
-            [{"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"}])
-        data["trees"][0].pop("anchor")  # no (anchor ...) at all -> AUTO anchor
-        p = _write(tmp_path, "t.sexp", data)
         with pytest.raises(ValidationError, match="must be role-anchored"):
             load_config(str(p))
 
@@ -972,3 +968,208 @@ class TestClusterCompositeGuard:
             clone_name=materialized.name, role="C_IN_BYPASS",
             sheet_names={"ch1-sheet-uuid": "Channel_1"})
         assert [fp.ref for fp in narrowed] == ["C149"]
+
+
+def _auto_net_trace_template_data(instances) -> dict:
+    """An AUTO-anchored template shaped like the live ch0_dac_buf copper: NO
+    (anchor ...) at all and EXACTLY ONE top-level placement node (the root
+    `dac_buf`) — the only legal auto shape — whose children mix a nested
+    placement (`pif_avdd`) with kind=net_trace DAC-copper nodes. Every net (and
+    the root Entity's own sheet) starts on /Channel_0/: `old_sheet` for the
+    net_trace leading-segment rewrite must come from the ROOT ENTITY record —
+    there is no anchor.sheet to read (exactly the case the v1.4 fix adds)."""
+    nets = ["/Channel_0/DAC/+3V3_AVDD", "/Channel_0/DAC/+3V3A_AVDD"]
+    records = []
+    for net in nets:
+        records.append({
+            "net": net, "anchor_role": "DAC_BUF", "anchor_sheet": "Channel_0",
+            "tracks": [{
+                "start_along_mm": 0.0, "start_across_mm": 0.0,
+                "end_along_mm": 1.0, "end_across_mm": 2.0,
+                "width_mm": 0.3, "layer": "F.Cu", "net": net}],
+            "vias": [{
+                "offset_along_mm": 0.5, "offset_across_mm": 0.5,
+                "drill_mm": 0.3, "diameter_mm": 0.6, "net": net}],
+        })
+    return {
+        "cells": {},
+        "entities": [
+            {"name": "dac_buf", "cell": "c_dac", "cluster": "DAC_BUF",
+             "sheet": "Channel_0"},
+            {"name": "pif_avdd", "cell": "c_pif", "cluster": "PIF_AVDD",
+             "sheet": "Channel_0"},
+        ],
+        "net_traces": records,
+        "trees": [{
+            "name": "dac_buf_tpl",     # NO (anchor ...) -> auto-anchored
+            "nodes": [{
+                "ref": "dac_buf", "kind": "placement", "xy": [1.0, 2.0],
+                "rotation": 90.0,
+                "children": [
+                    {"ref": "pif_avdd", "kind": "placement",
+                     "xy": [0.5, 0.0]},
+                    {"ref": nets[0], "kind": "net_trace"},
+                    {"ref": nets[1], "kind": "net_trace"},
+                ],
+            }],
+        }],
+        "tree_instances": instances,
+    }
+
+
+class TestAutoAnchorTemplates:
+    """v1.4 (2026-09-08, plan tree_instances_auto_root_template_support): an
+    auto-anchored template — NO (anchor ...) at all (TreeAnchor.is_auto) with
+    EXACTLY ONE top-level placement node — is now a valid tree_instances
+    template, alongside the role-anchored one. For an auto template the anchor
+    IS its root node, so sheet/cluster reach the generated copies through the
+    same per-node machinery (no separate anchor substitution), old_sheet for
+    net_trace rewriting is the root Entity's own sheet, and the generated tree
+    stays auto-anchored. The old test_auto_anchor_missing_is_fatal is rewritten
+    here as the success case — its fixture is exactly the valid auto shape."""
+
+    @staticmethod
+    def _pop_anchor(data):
+        del data["trees"][0]["anchor"]  # no (anchor ...) at all -> AUTO
+        return data
+
+    def test_single_top_level_node_without_anchor_is_valid(self, tmp_path):
+        """Rewrite of the old test_auto_anchor_missing_is_fatal: the default
+        single-top-level-node template WITHOUT (anchor ...) is now a VALID auto
+        template — load succeeds, the generated tree is auto-anchored, every
+        copy (nested included) gets the instance sheet, and the composite
+        template's per-copy clusters are left untouched (DAC_BUF/PIF_AVDD)."""
+        data = self._pop_anchor(_template_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf",
+             "sheet": "Channel_1"}]))
+        p = _write(tmp_path, "t.sexp", data)
+        cfg, _ = load_config(str(p))
+        tree = _tree_by_name(cfg, "ch1_dac_buf")
+        assert tree.anchor.is_auto is True
+        assert tree.anchor.role is None
+        # template itself stays auto too (deep-copy expansion, never mutates)
+        assert _tree_by_name(cfg, "dac_buf_tpl").anchor.is_auto is True
+        # every copy (root + nested child) gets the instance sheet
+        assert _entity_by_name(cfg, "dac_buf__ch1_dac_buf").sheet == "Channel_1"
+        assert _entity_by_name(cfg, "pif_avdd__ch1_dac_buf").sheet == "Channel_1"
+        # composite template (DAC_BUF/PIF_AVDD) -> per-copy clusters untouched
+        assert _entity_by_name(cfg, "dac_buf__ch1_dac_buf").cluster == "DAC_BUF"
+        assert _entity_by_name(cfg, "pif_avdd__ch1_dac_buf").cluster == "PIF_AVDD"
+        # the root node got the __{instance} suffix like any other node
+        assert tree.nodes[0].ref == "dac_buf__ch1_dac_buf"
+        assert tree.nodes[0].children[0].ref == "pif_avdd__ch1_dac_buf"
+
+    def test_multiple_top_level_nodes_without_anchor_is_fatal(self, tmp_path):
+        """An auto template with TWO top-level nodes can never auto-anchor
+        (auto-anchor resolution needs EXACTLY ONE) — a clear fatal at expansion
+        time (the new v1.4 message), not a crash later at redraw."""
+        nodes = [
+            {"ref": "dac_buf", "kind": "placement", "xy": [1.0, 2.0]},
+            {"ref": "pif_avdd", "kind": "placement", "xy": [0.5, 0.0]},
+        ]
+        data = self._pop_anchor(_template_data(
+            [{"template": "dac_buf_tpl", "name": "ch1_dac_buf",
+              "sheet": "Channel_1"}],
+            nodes=nodes))
+        p = _write(tmp_path, "t.sexp", data)
+        with pytest.raises(ValidationError,
+                           match="auto-anchored with exactly one top-level "
+                                 "placement node"):
+            load_config(str(p))
+
+    def test_top_level_node_missing_entity_is_fatal(self, tmp_path):
+        """An auto template whose single top-level node references no existing
+        entities: record is a fatal at expansion time (same "no matching
+        entities:" wording as the non-root case), separately from the
+        >1-top-level-node fatal above."""
+        data = self._pop_anchor(_template_data(
+            [{"template": "dac_buf_tpl", "name": "ch1_dac_buf",
+              "sheet": "Channel_1"}],
+            nodes=[{"ref": "no_entity", "kind": "placement",
+                    "xy": [0.0, 0.0]}]))
+        p = _write(tmp_path, "t.sexp", data)
+        with pytest.raises(ValidationError, match="no matching entities"):
+            load_config(str(p))
+
+    def test_generated_tree_stays_auto(self, tmp_path):
+        """The generated tree must itself stay auto-anchored: the deep copy of
+        a template with no (anchor ...) carries no 'anchor' key at all (raw
+        dict level), so it loads with is_auto=True — the generated Channel_1
+        clone keeps the SAME self-resolving root-node anchor its template has
+        (important when it too gets embedded as a module)."""
+        from kicadstamp.config.tree_instances import expand_tree_instances
+        data = self._pop_anchor(_template_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf",
+             "sheet": "Channel_1"}]))
+        out = expand_tree_instances(data)
+        gen_raw = out["trees"][1]
+        assert gen_raw["name"] == "ch1_dac_buf"
+        assert "anchor" not in gen_raw   # never inherited an explicit one
+        p = _write(tmp_path, "t.sexp", data)
+        cfg, _ = load_config(str(p))
+        gen = _tree_by_name(cfg, "ch1_dac_buf")
+        assert gen.anchor.is_auto is True
+        assert not gen.anchor.is_origin and gen.anchor.role is None
+
+    def test_composite_cluster_override_guard_still_applies(self, tmp_path):
+        """§1 claim, pinned: the v1.2.1 composite-guard walks the template's
+        nodes generically — an auto-anchored COMPOSITE template (default
+        DAC_BUF/PIF_AVDD fixture, no anchor) with a declaration `cluster:
+        OVERRIDE` still skips the per-copy override for EVERY copy, the root one
+        included; and since an auto tree has no anchor, the override lands
+        nowhere else either (generated anchor_cluster stays None)."""
+        data = self._pop_anchor(_template_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf",
+             "sheet": "Channel_1", "cluster": "OVERRIDE"}]))
+        p = _write(tmp_path, "t.sexp", data)
+        cfg, _ = load_config(str(p))
+        assert _entity_by_name(cfg, "dac_buf__ch1_dac_buf").cluster == "DAC_BUF"
+        assert _entity_by_name(cfg, "pif_avdd__ch1_dac_buf").cluster == "PIF_AVDD"
+        assert _tree_by_name(cfg, "ch1_dac_buf").anchor.anchor_cluster is None
+
+    def test_homogeneous_cluster_override_applies_to_root_too(self, tmp_path):
+        """Back-compat mirror of the non-auto homogeneous case: an auto template
+        whose nodes all share one cluster (uniform_cluster="SAME") keeps the
+        unconditional per-copy override — the root copy gets OVERRIDE too."""
+        data = self._pop_anchor(_template_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf",
+             "sheet": "Channel_1", "cluster": "OVERRIDE"}],
+            uniform_cluster="SAME"))
+        p = _write(tmp_path, "t.sexp", data)
+        cfg, _ = load_config(str(p))
+        assert _entity_by_name(cfg, "dac_buf__ch1_dac_buf").cluster == "OVERRIDE"
+        assert _entity_by_name(cfg, "pif_avdd__ch1_dac_buf").cluster == "OVERRIDE"
+
+    def test_net_trace_children_rewritten_from_root_entity_sheet(self, tmp_path):
+        """ch0_dac_buf-shaped end-to-end (plan regression): an AUTO template
+        (root `dac_buf` + a nested PIF placement + DAC copper net_trace
+        children, all on /Channel_0/) instantiated to Channel_1 with a
+        `cluster: DAC_BUF` declaration. Expansion must NOT fatal — old_sheet is
+        derived from the ROOT ENTITY's sheet (there is no anchor.sheet), every
+        net_trace copy is rewritten /Channel_0/... -> /Channel_1/..., and the
+        composite-guard keeps the PIF copy's own cluster (per-copy override
+        skipped)."""
+        p = _write(tmp_path, "t.sexp", _auto_net_trace_template_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf",
+             "sheet": "Channel_1", "cluster": "DAC_BUF"}]))
+        cfg, _ = load_config(str(p))
+        tree = _tree_by_name(cfg, "ch1_dac_buf")
+        assert tree.anchor.is_auto is True
+        # the generated tree's net_trace child nodes point at the REWRITTEN nets
+        nt_refs = sorted(n.ref for n in tree.nodes[0].children
+                         if n.kind == "net_trace")
+        assert nt_refs == ["/Channel_1/DAC/+3V3A_AVDD",
+                           "/Channel_1/DAC/+3V3_AVDD"]
+        # net_traces: generated copies on Channel_1, template ones untouched /0
+        for net in ("/Channel_1/DAC/+3V3_AVDD", "/Channel_1/DAC/+3V3A_AVDD"):
+            nt = next(x for x in cfg.net_traces if x.net == net)
+            assert nt.anchor_sheet == "Channel_1"
+            assert nt.tracks[0].net == net and nt.vias[0].net == net
+        for net in ("/Channel_0/DAC/+3V3_AVDD", "/Channel_0/DAC/+3V3A_AVDD"):
+            nt = next(x for x in cfg.net_traces if x.net == net)
+            assert nt.anchor_sheet == "Channel_0"
+        # placement copies: instance sheet; composite-guard kept per-copy
+        # clusters (root DAC_BUF, PIF child PIF_AVDD — NOT the DAC_BUF override)
+        assert _entity_by_name(cfg, "dac_buf__ch1_dac_buf").sheet == "Channel_1"
+        assert _entity_by_name(cfg, "dac_buf__ch1_dac_buf").cluster == "DAC_BUF"
+        assert _entity_by_name(cfg, "pif_avdd__ch1_dac_buf").cluster == "PIF_AVDD"

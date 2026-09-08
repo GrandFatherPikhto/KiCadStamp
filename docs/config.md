@@ -562,18 +562,32 @@ layer/mirror checks as hand-written ones — nothing is validated twice.
   `sheet` — needed for live re-reading by Role+Sheet+Cluster (Q2, revised 2026-09-02) — while the
   generated COPY unconditionally gets the instance's `sheet`. Expansion only ever deep-copies; the
   template and the file on disk are never mutated.
-- **v1.1 template constraints (each a load-time fatal):** the template's anchor must be `role`-based;
-  every template node is `kind "placement"` (or unset/auto) and must reference an existing
-  `entities:` record, OR `kind "net_trace"` and reference an existing `net_traces:` record by its net.
+- **Template constraints (v1.1; auto-anchored templates added v1.4 2026-09-08, each a load-time
+  fatal):** the template tree must be role-anchored (`(anchor (role ...))`) OR auto-anchored — no
+  `(anchor ...)` at all, with exactly ONE top-level `placement` node (the same shape auto-anchor
+  resolution itself requires). `origin`/`ref`/`point` anchors are not parameterized by sheet. Every
+  template node is `kind "placement"` (or unset/auto) and must reference an existing `entities:`
+  record, OR `kind "net_trace"` and reference an existing `net_traces:` record by its net.
   (chain/coordinate/clone/module nodes inside a template stay unsupported.)
+- **Auto-anchored templates are supported too (v1.4, 2026-09-08, plan
+  tree_instances_auto_root_template_support):** a template with no `(anchor ...)` at all — the
+  `is_auto` shape (its anchor derives from its own single top-level placement Entity) — may also be a
+  `tree_instances:` target, provided it has exactly ONE top-level `placement` node. For such a
+  template the anchor IS that root node, so no separate anchor substitution exists: the instance
+  `sheet` (and any per-copy `cluster`/`params`) reaches the generated copies through the same per-node
+  mechanism as any other template, `old_sheet` (net_trace rewriting) comes from the root Entity's own
+  sheet, and the generated instance tree stays auto-anchored itself (a deep copy of a template that
+  has no `anchor`).
 - **net_trace nodes inside a template (v1.1):** a `kind "net_trace"` node's `ref` is a real board NET
   (e.g. `/Channel_0/DAC/+3V3_AVDD`) that must stay a valid net name for the planner/KiCad — so it is
   NOT suffixed with `__{instance.name}` like a placement ref. Instead the net's LEADING SHEET SEGMENT
   is replaced with the instance `sheet` (`/Channel_1/DAC/+3V3_AVDD`), independently on the record's
   `net`, on every `tracks[].net` and every `vias[].net`; the generated `net_traces:` copy's
   `anchor_sheet` is unconditionally set to the instance `sheet`. The old sheet comes from the template
-  tree's own role-anchor `sheet` — a net whose leading segment isn't it is a fatal (it's not this
-  template's copper), never silently rewritten. Distinct per-instance nets keep the one-record-per-net
+  tree's own role-anchor `sheet` (or, for an auto-anchored template — v1.4 — from its root Entity's
+  own `sheet`, since there is no `anchor.sheet`) — a net whose leading segment isn't it is a fatal
+  (it's not this template's copper), never silently rewritten. Distinct per-instance nets keep the
+  one-record-per-net
   dedup happy for free.
 - **Per-declaration overrides** (`cluster:` v1.2 2026-09-03, `params:` v1.3 2026-09-07): besides
   `sheet` (always substituted), a declaration may carry OPTIONAL `cluster:` and/or `params:` merged

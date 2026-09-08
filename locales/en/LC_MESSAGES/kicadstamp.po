@@ -9443,11 +9443,26 @@ msgstr ""
 msgid "tree_instance: template {template!r} must be role-anchored (v1)"
 msgstr ""
 
-#: kicadstamp/config/tree_instances.py:254
+#: kicadstamp/config/tree_instances.py:414
+#, python-brace-format
 msgid ""
-"only an (anchor (role ...)) template is supported — the instance sheet "
-"substitutes the role anchor's sheet at load; origin/ref/point/auto "
-"anchors are not parameterized by sheet yet"
+"tree_instance: template {template!r} must be role-anchored OR auto-anchored "
+"with exactly one top-level placement node (v1.4)"
+msgstr ""
+
+#: kicadstamp/config/tree_instances.py:417
+msgid ""
+"either an (anchor (role ...)) template, or NO (anchor ...) at all with "
+"exactly one top-level placement node (the same shape auto-anchor resolution "
+"itself requires) — the instance sheet substitutes the role anchor's sheet, or"
+" (for an auto template) the root Entity's own sheet; origin/ref/point anchors"
+" are still not parameterized by sheet"
+msgstr ""
+
+#: kicadstamp/config/tree_instances.py:439
+msgid ""
+"the auto-anchored template's single top-level node must reference an existing"
+" entities: entry by its name"
 msgstr ""
 
 #: kicadstamp/config/tree_instances.py:293
