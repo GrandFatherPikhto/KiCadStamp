@@ -69,6 +69,23 @@ back-compatible with pre-v1.3 declarations. Deliberately NOT applied to
 net_trace materialization (same reason as `cluster` in v1.2 — a net_trace's
 nets are rewritten by leading-sheet substitution, not {placeholder}-resolved).
 
+v1.2.1 (2026-09-08, plan tree_instances_cluster_composite_guard): the v1.2
+per-copy `cluster:` override now carries a COMPOSITE-guard. A template whose
+placement nodes carry genuinely DIFFERENT non-empty cluster values (e.g.
+ch0_dac_buf: one DAC_BUF main entity + three PIF_AVDD/PIF_CLKVDD/PIF_DVDD
+sub-blocks) is composite — a blanket override would erase the very per-node
+distinction the Cluster step of role_narrowing's cascade depends on
+(confirmed live: ch1_dac_buf, done_2026_09_08_role_narrowing_live_probe.md).
+The rule is deterministic and structural (never guesses the author's intent):
+the set of distinct non-empty clusters the template's OWN nodes would generate
+is computed BEFORE any override; a HOMOGENEOUS template (0 or 1 distinct
+value) keeps the unconditional per-copy override exactly as v1.2 (back-compat);
+a COMPOSITE one (>1) skips the per-copy override entirely — each copy keeps
+its own template cluster. The generated tree's role-anchor cluster
+substitution (the EXTERNAL anchor_cluster narrowing) is a separate concept and
+is NOT affected by this guard (set unconditionally whenever `cluster:` is
+given, see _expand_template).
+
 The materialized dicts then flow through the SAME _load_entity/_load_tree/
 _load_net_trace path as hand-written entries — duplicate-name checks, rule 2
 (shared seen_refs), the one-record-per-net net_traces dedup, unknown-key
@@ -134,6 +151,36 @@ def _substitute_net_sheet(net: str, old_sheet: str, new_sheet: str,
                "this template and is rewritten per instance")]))
     parts[1] = new_sheet
     return '/'.join(parts)
+
+
+def _template_generated_clusters(nodes: list, entities_by_name: dict) -> set[str]:
+    """The set of distinct non-empty `cluster` values the given template
+    placement nodes (recursively through children) would generate BEFORE any
+    declaration-level cluster: override — used to detect whether a template is
+    homogeneous (<=1 distinct value, override safe to apply everywhere, today's
+    behaviour) or composite (>1 distinct value — e.g. ch0_dac_buf's DAC_BUF main
+    entity + PIF_AVDD/PIF_CLKVDD/PIF_DVDD sub-blocks — where a blanket override
+    would erase the very distinction role_narrowing.py's Cluster step depends
+    on, confirmed live 2026-09-08, done_2026_09_08_role_narrowing_live_probe.md).
+
+    net_trace nodes are skipped (their ref names a net, not an entity, and the
+    override never applies to them anyway — see the module docstring's v1.2
+    note); a placement node whose ref has no entities: entry is skipped too (it
+    would be a load-time fatal elsewhere, here it must not crash the probe)."""
+    clusters: set[str] = set()
+    for node in nodes:
+        if node.get('kind') == 'net_trace':
+            continue
+        ref = node.get('ref')
+        entity = entities_by_name.get(ref) if ref is not None else None
+        if entity is not None:
+            c = entity.get('cluster')
+            if c:
+                clusters.add(c)
+        children = node.get('children') or []
+        if children:
+            clusters |= _template_generated_clusters(children, entities_by_name)
+    return clusters
 
 
 def _expand_node(node: dict, instance_name: str, sheet: str,
@@ -277,7 +324,22 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
                      params: dict[str, str] | None = None) -> tuple[dict, list, list]:
     """Materialize ONE instance from a template Tree dict: returns
     (tree dict, [entity dicts], [net_trace dicts]). The template dict is never
-    mutated — deep copies only."""
+    mutated — deep copies only.
+
+    cluster (2026-09-03, plan tree_instances_cluster): when a declaration
+    carries `cluster:`, it lands on BOTH the generated role anchor (unconditional
+    — the anchor is guaranteed role-based above) AND, via _expand_node, every
+    generated Entity copy. The per-copy half got a COMPOSITE-guard (v1.2.1,
+    2026-09-08, plan tree_instances_cluster_composite_guard): a template whose
+    placement nodes would generate >1 distinct non-empty cluster values is
+    composite, and a blanket per-copy override there would erase exactly the
+    per-node distinction role_narrowing's Cluster step depends on — so for a
+    composite template the per-copy override is skipped (effective_node_cluster
+    becomes None) and each copy keeps its own template cluster, while the role
+    anchor is STILL overridden (the two substitutions are separate concepts —
+    external-anchor narrowing vs each copy's own identity). A homogeneous
+    template (<=1 distinct value) keeps the unconditional per-copy override
+    exactly as before (back-compat)."""
     anchor = template.get('anchor')
     if not (isinstance(anchor, dict) and isinstance(anchor.get('role'), str)
             and anchor.get('role')):
@@ -299,12 +361,43 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
         # UNCONDITIONALLY when cluster is given, same pattern as sheet — even
         # if the template anchor carried no cluster of its own.
         gen['anchor']['cluster'] = cluster
+
+    # 2026-09-08 (plan tree_instances_cluster_composite_guard): the per-node
+    # Entity cluster override below is a DIFFERENT concept from the anchor's
+    # own cluster just set above (external-anchor narrowing vs each copy's OWN
+    # internal identity — role_narrowing.py's anchor_cluster/cluster split).
+    # Unconditional substitution is only correct for a HOMOGENEOUS template; a
+    # COMPOSITE one (multiple nodes with genuinely different template clusters)
+    # would have the override erase real per-node distinctions that
+    # role_narrowing's Cluster step depends on — confirmed live
+    # (done_2026_09_08_role_narrowing_live_probe.md). Deterministic, structural
+    # detection — never guesses the declaration author's intent: a homogeneous
+    # template keeps today's unconditional-override behaviour exactly (0
+    # distinct or 1 distinct value), a composite one skips the per-node
+    # override entirely (each copy keeps its own template cluster).
+    effective_node_cluster = cluster
+    if cluster is not None:
+        generated_clusters = _template_generated_clusters(
+            template.get('nodes') or [], entities_by_name)
+        if len(generated_clusters) > 1:
+            logger.info(_("tree_instance {name!r}: template {template!r} is "
+                          "composite ({count} distinct clusters among its "
+                          "nodes: {clusters}) — cluster override {cluster!r} is "
+                          "NOT applied to individual Entity copies (each keeps "
+                          "its own template cluster); the tree's own role-anchor "
+                          "cluster is still overridden as requested")
+                        .format(name=instance_name, template=template_name,
+                                count=len(generated_clusters),
+                                clusters=", ".join(sorted(generated_clusters)),
+                                cluster=cluster))
+            effective_node_cluster = None
+
     generated_entities: list = []
     generated_net_traces: list = []
     gen['nodes'] = [_expand_node(n, instance_name, sheet, entities_by_name,
                                  net_traces_by_net, generated_entities,
                                  generated_net_traces, template_name, old_sheet,
-                                 cluster, params)
+                                 effective_node_cluster, params)
                     for n in (template.get('nodes') or [])]
     return gen, generated_entities, generated_net_traces
 

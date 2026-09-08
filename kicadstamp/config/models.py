@@ -843,6 +843,19 @@ class TreeInstance:
         search — a different concept from "which physical group this is"
         (see design_cell_template_reuse §3).
 
+        COMPOSITE-guard (2026-09-08, plan tree_instances_cluster_composite_guard):
+        the per-Entity-copy half of the substitution is skipped when the
+        referenced template is COMPOSITE — its placement nodes would generate
+        >1 distinct non-empty cluster values (e.g. ch0_dac_buf: a DAC_BUF main
+        entity + PIF_AVDD/PIF_CLKVDD/PIF_DVDD sub-blocks). A blanket per-copy
+        override there would erase exactly the per-node distinction
+        role_narrowing's Cluster step resolves on, so each copy keeps its own
+        template cluster instead (deterministic, structural detection — never
+        guesses intent). The generated role anchor's cluster is STILL
+        overridden unconditionally (an external-anchor narrowing, a separate
+        concept). A homogeneous template (0 or 1 distinct value) keeps the
+        unconditional per-copy override exactly as before.
+
     params — OPTIONAL per-instance override (2026-09-07, plan
         tree_instances_params_override): merged into EVERY generated Entity
         copy's `params` dict — the values net_resolution.resolve_net uses to

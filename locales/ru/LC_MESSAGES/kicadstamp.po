@@ -9448,6 +9448,20 @@ msgstr ""
 "Развёрнуто {count} деклараций tree_instances: в "
 "деревья/сущности/net_traces"
 
+#: kicadstamp/config/tree_instances.py:356
+#, python-brace-format
+msgid ""
+"tree_instance {name!r}: template {template!r} is composite ({count} distinct "
+"clusters among its nodes: {clusters}) — cluster override {cluster!r} is NOT "
+"applied to individual Entity copies (each keeps its own template cluster); "
+"the tree's own role-anchor cluster is still overridden as requested"
+msgstr ""
+"tree_instance {name!r}: шаблон {template!r} — составной ({count} различных "
+"кластеров среди его узлов: {clusters}) — оверрайд cluster {cluster!r} НЕ "
+"применяется к отдельным копиям Entity (каждая сохраняет свой шаблонный "
+"кластер); собственный кластер role-якоря дерева всё равно переопределяется "
+"как запрошено"
+
 #: kicadstamp/diagnostics/diagnose_first_write_crash.py:102
 #, python-brace-format
 msgid "Failed to get kicad PIDs: {e}"

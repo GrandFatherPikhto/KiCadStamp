@@ -587,6 +587,18 @@ layer/mirror checks as hand-written ones — nothing is validated twice.
   `params:`/`cluster:` keeps the template's own values unchanged (100% back-compatible). Overrides are
   NOT applied to `net_trace` materialization (a net_trace's nets are rewritten by leading-sheet
   substitution, and its anchor_* narrows an external search — not {placeholder}-parametrized).
+- **Composite-guard on the per-copy `cluster:` override** (v1.2.1 2026-09-08, plan
+  tree_instances_cluster_composite_guard): the "`cluster:` into EVERY generated Entity copy" sentence
+  above is exact only for a HOMOGENEOUS template — one whose placement nodes carry at most one
+  distinct non-empty cluster value. A COMPOSITE template (several nodes with genuinely different
+  cluster values, e.g. `ch0_dac_buf`'s single `DAC_BUF` main entity + `PIF_AVDD`/`PIF_CLKVDD`/
+  `PIF_DVDD` sub-blocks) detects structurally (walking the template's own nodes BEFORE any override)
+  and SKIPS the per-copy `cluster:` override entirely: each generated copy keeps its own template
+  cluster, because a blanket overwrite would erase exactly the per-node distinction the Cluster step
+  of role resolution depends on (sheet → Cluster → selection cascade). Deterministic, never guesses
+  intent — a homogeneous template keeps the unconditional per-copy override byte-for-byte as before.
+  The generated tree's role-anchor `cluster` is a SEPARATE, external-anchor narrowing and is still
+  overridden whenever `cluster:` is given (composite or not).
 - **Generated instances are never persisted** as literal `trees:` entries: the TreesDock Save writes
   only hand-written trees, and the untouched `tree_instances:` section regenerates the instances on
   every load — no duplication. An instance's geometry is edited by editing the template (in the Trees

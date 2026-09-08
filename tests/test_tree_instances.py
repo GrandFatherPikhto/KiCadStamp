@@ -24,14 +24,23 @@ def _write(tmp_path, name, data) -> Path:
 
 
 def _template_data(instances, entity_sheet=None, anchor=None,
-                   node_kind="placement", nodes=None) -> dict:
+                   node_kind="placement", nodes=None,
+                   uniform_cluster=None) -> dict:
     """A minimal valid config: one role-anchored template tree `dac_buf_tpl`
-    whose two entities `dac_buf`/`pif_avdd` live on one nested level."""
+    whose two entities `dac_buf`/`pif_avdd` live on one nested level.
+
+    The template is COMPOSITE by default (the two entities carry genuinely
+    different clusters DAC_BUF/PIF_AVDD — the ch0_dac_buf shape). Pass
+    `uniform_cluster` to make it HOMOGENEOUS (both entities share one cluster)
+    — the only case where the v1.2 `cluster:` override still applies to every
+    generated copy (see TestClusterCompositeGuard)."""
+    main_cluster = uniform_cluster if uniform_cluster is not None else "DAC_BUF"
+    sub_cluster = uniform_cluster if uniform_cluster is not None else "PIF_AVDD"
     return {
         "cells": {},
         "entities": [
-            {"name": "dac_buf", "cell": "c_dac", "cluster": "DAC_BUF"},
-            {"name": "pif_avdd", "cell": "c_pif", "cluster": "PIF_AVDD",
+            {"name": "dac_buf", "cell": "c_dac", "cluster": main_cluster},
+            {"name": "pif_avdd", "cell": "c_pif", "cluster": sub_cluster,
              **({"sheet": entity_sheet} if entity_sheet is not None else {})},
         ],
         "trees": [{
@@ -515,17 +524,22 @@ class TestNetTrace:
 
 
 class TestClusterOverride:
-    """v1.2 (2026-09-03, plan tree_instances_cluster): the OPTIONAL `cluster:`
-    declaration override is substituted into every generated Entity copy's
-    cluster AND the generated role anchor's cluster — mirroring `sheet`. When a
-    declaration carries NO cluster, nothing changes (back-compat: the copies
-    inherit the template Entity's own cluster exactly as before)."""
+    """v1.2 (2026-09-03, plan tree_instances_cluster) on a HOMOGENEOUS template:
+    the OPTIONAL `cluster:` declaration override is substituted into every
+    generated Entity copy's cluster AND the generated role anchor's cluster —
+    mirroring `sheet`. v1.2.1 (2026-09-08, composite-guard) RESTRICTS this
+    unconditional per-copy substitution to homogeneous templates (see
+    TestClusterCompositeGuard) — these fixtures carry a homogeneous template
+    (uniform_cluster) on purpose, so the v1.2 behaviour they pin is exactly the
+    pre-fix behaviour (the non-regression). When a declaration carries NO
+    cluster, nothing changes (back-compat: the copies inherit the template
+    Entity's own cluster exactly as before)."""
 
     def test_cluster_override_substituted_into_copies_and_role_anchor(self, tmp_path):
         p = _write(tmp_path, "t.sexp", _template_data([
             {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1",
              "cluster": "CLUST_A"},
-        ]))
+        ], uniform_cluster="DAC_BUF"))
         cfg, _ = load_config(str(p))
 
         # cfg.tree_instances keeps the RAW declaration including cluster.
@@ -533,9 +547,10 @@ class TestClusterOverride:
             TreeInstance(template="dac_buf_tpl", name="ch1_dac_buf",
                          sheet="Channel_1", cluster="CLUST_A"),
         ]
-        # Template entities keep their OWN clusters (deep-copy, never mutated).
+        # Template entities keep their OWN clusters (deep-copy, never mutated);
+        # the homogeneous fixture's template entities both carry DAC_BUF.
         assert _entity_by_name(cfg, "dac_buf").cluster == "DAC_BUF"
-        assert _entity_by_name(cfg, "pif_avdd").cluster == "PIF_AVDD"
+        assert _entity_by_name(cfg, "pif_avdd").cluster == "DAC_BUF"
         # Generated Entity copies (every nesting level) get the override.
         assert _entity_by_name(cfg, "dac_buf__ch1_dac_buf").cluster == "CLUST_A"
         assert _entity_by_name(cfg, "pif_avdd__ch1_dac_buf").cluster == "CLUST_A"
@@ -721,7 +736,10 @@ class TestParamsOverride:
 class TestTreeInstanceWriterCluster:
     """Persistence of the OPTIONAL cluster axis (2026-09-03, plan
     tree_instances_cluster): upsert_tree_instances writes a row's non-empty
-    `cluster` into the declaration; an empty/absent cluster omits the key."""
+    `cluster` into the declaration; an empty/absent cluster omits the key.
+    The fixture template is HOMOGENEOUS (uniform_cluster) so the materialized
+    per-copy override the writer tests reach is the v1.2 behaviour (the
+    composite-guard's per-copy skip is covered by TestClusterCompositeGuard)."""
 
     @staticmethod
     def _read_instances(p) -> list:
@@ -730,7 +748,7 @@ class TestTreeInstanceWriterCluster:
                     .get("tree_instances") or [])
 
     def _file(self, tmp_path):
-        p = _write(tmp_path, "w.sexp", _template_data([]))
+        p = _write(tmp_path, "w.sexp", _template_data([], uniform_cluster="DAC_BUF"))
         return p
 
     def test_row_with_cluster_writes_cluster_key_and_materializes(self, tmp_path):
@@ -756,3 +774,201 @@ class TestTreeInstanceWriterCluster:
         assert changed is True
         assert self._read_instances(p) == [{
             "template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"}]
+
+
+def _composite_dac_buf_data(instances) -> dict:
+    """A template shaped like the live ch0_dac_buf: one DAC_BUF main entity
+    plus three PIF_AVDD/PIF_CLKVDD/PIF_DVDD sub-blocks (four placement nodes,
+    four genuinely different template clusters) — the COMPOSITE case that the
+    v1.2.1 composite-guard must NOT blanket-override per copy."""
+    return {
+        "cells": {},
+        "entities": [
+            {"name": "dac_buf", "cell": "c_dac", "cluster": "DAC_BUF"},
+            {"name": "pif_avdd", "cell": "c_pif", "cluster": "PIF_AVDD"},
+            {"name": "pif_clkvdd", "cell": "c_pif", "cluster": "PIF_CLKVDD"},
+            {"name": "pif_dvdd", "cell": "c_pif", "cluster": "PIF_DVDD"},
+        ],
+        "trees": [{
+            "name": "dac_buf_tpl",
+            "anchor": {"role": "DAC_BUF"},
+            "nodes": [
+                {"ref": "dac_buf", "kind": "placement", "xy": [1.0, 2.0],
+                 "rotation": 90.0},
+                {"ref": "pif_avdd", "kind": "placement", "xy": [0.5, 0.0]},
+                {"ref": "pif_clkvdd", "kind": "placement", "xy": [1.5, 0.0]},
+                {"ref": "pif_dvdd", "kind": "placement", "xy": [2.5, 0.0]},
+            ],
+        }],
+        "tree_instances": instances,
+    }
+
+
+class TestClusterCompositeGuard:
+    """v1.2.1 (2026-09-08, plan tree_instances_cluster_composite_guard): the
+    per-copy half of the declaration's `cluster:` override only applies to a
+    HOMOGENEOUS template (its nodes carry at most ONE distinct cluster value).
+    A COMPOSITE template (several genuinely different clusters — the ch0_dac_buf
+    shape: a DAC_BUF main entity + PIF_AVDD/PIF_CLKVDD/PIF_DVDD sub-blocks)
+    skips the per-copy override entirely (each copy keeps its own template
+    cluster), because a blanket overwrite would erase exactly the per-node
+    distinction role_narrowing's Cluster step resolves on (live bug
+    done_2026_09_08_role_narrowing_live_probe.md). The generated role anchor's
+    cluster is STILL overridden (an external-anchor narrowing, separate)."""
+
+    # ── 1. unit tests on the structural helper ────────────────────────────────
+
+    def test_helper_empty_node_list(self):
+        from kicadstamp.config.tree_instances import _template_generated_clusters
+        assert _template_generated_clusters([], {}) == set()
+
+    def test_helper_single_shared_cluster_is_homogeneous(self):
+        from kicadstamp.config.tree_instances import _template_generated_clusters
+        entities = {"a": {"cluster": "DAC_BUF"}, "b": {"cluster": "DAC_BUF"}}
+        nodes = [{"ref": "a", "kind": "placement"},
+                 {"ref": "b", "kind": "placement"}]
+        assert _template_generated_clusters(nodes, entities) == {"DAC_BUF"}
+
+    def test_helper_mixed_clusters_are_composite(self):
+        from kicadstamp.config.tree_instances import _template_generated_clusters
+        entities = {"a": {"cluster": "DAC_BUF"}, "b": {"cluster": "PIF_AVDD"}}
+        nodes = [{"ref": "a", "kind": "placement"},
+                 {"ref": "b", "kind": "placement"}]
+        assert _template_generated_clusters(nodes, entities) == \
+            {"DAC_BUF", "PIF_AVDD"}
+
+    def test_helper_missing_entity_record_is_skipped(self):
+        """A placement node whose ref has no entities: entry would be a
+        load-time fatal elsewhere — the probe must not crash on it."""
+        from kicadstamp.config.tree_instances import _template_generated_clusters
+        entities = {"a": {"cluster": "DAC_BUF"}}
+        nodes = [{"ref": "a", "kind": "placement"},
+                 {"ref": "no_such_entity", "kind": "placement"}]
+        assert _template_generated_clusters(nodes, entities) == {"DAC_BUF"}
+
+    def test_helper_nested_children_counted_recursively(self):
+        from kicadstamp.config.tree_instances import _template_generated_clusters
+        entities = {"a": {"cluster": "DAC_BUF"},
+                    "b": {"cluster": "PIF_AVDD"},
+                    "c": {"cluster": "PIF_DVDD"}}
+        nodes = [{"ref": "a", "kind": "placement", "children": [
+            {"ref": "b", "kind": "placement", "children": [
+                {"ref": "c", "kind": "placement"}]}]}]
+        assert _template_generated_clusters(nodes, entities) == \
+            {"DAC_BUF", "PIF_AVDD", "PIF_DVDD"}
+
+    def test_helper_net_trace_nodes_skipped(self):
+        """net_trace nodes never carry a per-copy override (v1.2 design §3) and
+        their ref names a net, not an entity — the probe ignores them."""
+        from kicadstamp.config.tree_instances import _template_generated_clusters
+        entities = {"a": {"cluster": "DAC_BUF"}}
+        nodes = [{"ref": "a", "kind": "placement"},
+                 {"ref": "/Channel_0/DAC/+3V3", "kind": "net_trace"}]
+        assert _template_generated_clusters(nodes, entities) == {"DAC_BUF"}
+
+    # ── 2. homogeneous non-regression: byte-identical pre-fix behaviour ───────
+
+    def test_homogeneous_template_override_applied_to_every_copy(self, tmp_path):
+        """THE back-compat guarantee: on a HOMOGENEOUS template the per-copy
+        `cluster:` override still lands on EVERY generated Entity copy (every
+        nesting level) exactly as before the composite-guard — a composite
+        template (default _template_data fixture) is the ONLY case whose
+        behaviour changed."""
+        p = _write(tmp_path, "t.sexp", _template_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1",
+             "cluster": "CLUST_A"},
+        ], uniform_cluster="DAC_BUF"))
+        cfg, _ = load_config(str(p))
+        assert _entity_by_name(cfg, "dac_buf__ch1_dac_buf").cluster == "CLUST_A"
+        assert _entity_by_name(cfg, "pif_avdd__ch1_dac_buf").cluster == "CLUST_A"
+        # Role anchor override is unconditional (external-anchor concept) ...
+        assert _tree_by_name(cfg, "ch1_dac_buf").anchor.anchor_cluster == "CLUST_A"
+
+    # ── 3. composite end-to-end (ch0_dac_buf form) ────────────────────────────
+
+    def test_composite_override_skipped_each_copy_keeps_own_cluster(self, tmp_path):
+        """The live scenario of plan_2026_09_08_role_narrowing_live_probe.md,
+        synthetic: a ch0_dac_buf-shaped COMPOSITE template (DAC_BUF + 3 PIF
+        sub-blocks), declaration `cluster: DAC_BUF`. The per-copy override is
+        SKIPPED — the DAC_BUF main copy keeps DAC_BUF only because that is its
+        OWN template cluster (proving the override did NOT run: the three PIF
+        copies keep PIF_AVDD/PIF_CLKVDD/PIF_DVDD, NOT DAC_BUF)."""
+        p = _write(tmp_path, "t.sexp", _composite_dac_buf_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1",
+             "cluster": "DAC_BUF"},
+        ]))
+        cfg, _ = load_config(str(p))
+        assert _entity_by_name(cfg, "dac_buf__ch1_dac_buf").cluster == "DAC_BUF"
+        assert _entity_by_name(cfg, "pif_avdd__ch1_dac_buf").cluster == "PIF_AVDD"
+        assert _entity_by_name(cfg, "pif_clkvdd__ch1_dac_buf").cluster == "PIF_CLKVDD"
+        assert _entity_by_name(cfg, "pif_dvdd__ch1_dac_buf").cluster == "PIF_DVDD"
+        # Template entities themselves are never mutated (deep-copy expansion).
+        assert _entity_by_name(cfg, "pif_avdd").cluster == "PIF_AVDD"
+        assert _entity_by_name(cfg, "dac_buf").cluster == "DAC_BUF"
+
+    # ── 4. anchor override is NOT affected by compositeness ───────────────────
+
+    def test_composite_anchor_cluster_still_overridden(self, tmp_path):
+        """The declaration's `cluster:` lands on the generated role anchor EVEN
+        for a composite template — the two substitutions (per-copy vs role
+        anchor / anchor_cluster) are separate concepts, per the module
+        docstring's anchor_cluster/cluster split."""
+        p = _write(tmp_path, "t.sexp", _composite_dac_buf_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1",
+             "cluster": "CLUST_OVERRIDE"},
+        ]))
+        cfg, _ = load_config(str(p))
+        assert _tree_by_name(cfg, "ch1_dac_buf").anchor.anchor_cluster == "CLUST_OVERRIDE"
+        # ... while the copies keep their own template clusters (no per-copy
+        # override) — proving the anchor line was not the only thing set.
+        assert _entity_by_name(cfg, "pif_avdd__ch1_dac_buf").cluster == "PIF_AVDD"
+
+    # ── 5. live-shaped role_narrowing regression (no step-5 reliance) ─────────
+
+    def test_role_narrowing_cluster_step_now_narrows_3_to_1(self, tmp_path):
+        """Closes the chain from done_2026_09_08_role_narrowing_live_probe.md:
+        a MATERIALIZED pif_avdd copy (post-composite-guard, so it carries
+        cluster=PIF_AVDD, sheet=Channel_1) run through the real cascade
+        (_narrow_ambiguous_candidates -> sheet -> Cluster) with three live
+        Channel_1 PIF candidates (C144=PIF_CLKVDD, C149=PIF_AVDD,
+        C153=PIF_DVDD, all on net +3V3) — the Cluster step now narrows 3->1 by
+        PIF_AVDD. No anchor_position is passed at all, so step 5 (physical
+        proximity) is provably unused."""
+        from unittest.mock import MagicMock
+        from kicadstamp.constants import CLUSTER_FIELD_NAME
+        from kicadstamp.placement.services.role_narrowing import (
+            _narrow_ambiguous_candidates,
+        )
+
+        p = _write(tmp_path, "t.sexp", _composite_dac_buf_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1",
+             "cluster": "DAC_BUF"},
+        ]))
+        cfg, _ = load_config(str(p))
+        materialized = _entity_by_name(cfg, "pif_avdd__ch1_dac_buf")
+        assert materialized.cluster == "PIF_AVDD"
+        assert materialized.sheet == "Channel_1"
+
+        # Three live PIF candidates of Channel_1, each with a different live
+        # Cluster (the form of C144/C149/C153 from the live probe).
+        candidates = []
+        live_fields = {}
+        for ref, cluster in (("C144", "PIF_CLKVDD"),
+                             ("C149", "PIF_AVDD"),
+                             ("C153", "PIF_DVDD")):
+            fp = MagicMock()
+            fp.ref = ref
+            fp.sheet_path_uuids = ("ch1-sheet-uuid", f"{ref}-own-uuid")
+            candidates.append(fp)
+            live_fields[fp] = {CLUSTER_FIELD_NAME: cluster}
+
+        adapter = MagicMock()
+        adapter.get_field_value.side_effect = \
+            lambda fp, field, default=None: live_fields[fp].get(field, default)
+
+        narrowed, _note = _narrow_ambiguous_candidates(
+            candidates, materialized, adapter,
+            selected_refs=set(), anchor_position=None,
+            clone_name=materialized.name, role="C_IN_BYPASS",
+            sheet_names={"ch1-sheet-uuid": "Channel_1"})
+        assert [fp.ref for fp in narrowed] == ["C149"]
