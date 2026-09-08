@@ -112,6 +112,55 @@ def placement_node_payload(entity_name: str, x_mm: float, y_mm: float,
     return node
 
 
+def _twin_sibling_sheet_names(snapshot: list) -> List[str]:
+    """Top-level sheet names that are REAL twins on the live board (2+ board
+    instances sharing the same sub-sheet structure) — the ONLY valid
+    ``entity.sheet`` targets for the onto-sibling twin resolve:
+    kicadstamp/scheme_list_apply.py::_resolve_onto_sibling matches
+    ``entity.sheet`` against exactly this set (built there via its own
+    ``_twin_sheet_uuids`` + ``_name_to_twin_uuid`` over a LIVE
+    ``adapter.get_footprints()``) — mirrored HERE so the Target-sheet combo
+    never offers a sheet Apply would reject as "not a twin on the board".
+
+    The twin rule is the one already battle-tested in
+    channel_copy.py::_channel_sheet_uuids / scheme_list_apply.py::
+    _twin_sheet_uuids: group every footprint by its inner_key = path[1:] of
+    the sheet_path_uuids chain; a path[0] (top-level) sheet is a twin only
+    when it is a member of a 2+ member group. Single-instance sheets
+    (FPGA/Power/MCU-style) never qualify, and DAC/OpAmp-style SUB-sheets never
+    appear at all — the result is top-level names only (the Place page places
+    the whole recorded region as one rigid body onto a channel twin; there is
+    no sub-sheet selectivity at Place time, design_2026_09_07_scheme_list_
+    pivot.md).
+
+    Computed from the CACHED, already sheet_names-resolved snapshot
+    (Selected.fp.sheet_path_uuids gives the uuid chain — the same object
+    channel_copy.build_channel_groups reads from the live footprint;
+    Selected.sheet[0] gives the resolved top-level NAME), NEVER a fresh
+    adapter call — a direct adapter.get_footprints()/build_channel_groups
+    (adapter) from the GUI thread would race the background poll on the
+    shared kipy REQ socket exactly like the pivot hang Commit H fixed
+    (plan_2026_09_08_scheme_list_place_target_sheet_twin_filter.md §3).
+    Qt-free: callable straight from a unit test."""
+    groups: dict[str, dict[str, str]] = {}
+    for s in snapshot:
+        chain = list(getattr(getattr(s, "fp", None), "sheet_path_uuids", None) or ())
+        if len(chain) < 2:
+            continue
+        inner = "/" + "/".join(chain[1:])
+        groups.setdefault(inner, {})[chain[0]] = getattr(s, "ref", "")
+    twin_uuids = {uuid for members in groups.values() if len(members) >= 2
+                  for uuid in members}
+    names: dict[str, str] = {}
+    for s in snapshot:
+        chain = list(getattr(getattr(s, "fp", None), "sheet_path_uuids", None) or ())
+        sheet_path = getattr(s, "sheet", None) or ()
+        if not chain or chain[0] not in twin_uuids or not sheet_path or not sheet_path[0]:
+            continue
+        names.setdefault(sheet_path[0], chain[0])
+    return sorted(names)
+
+
 class SchemeListPlaceFormWidget(QWidget):
     """Config right-QView "Place Scheme List..." page (P6, plan §6.1). See
     the module docstring for the flow and the fixed decisions (existing tree,
@@ -328,7 +377,8 @@ class SchemeListPlaceFormWidget(QWidget):
 
     def _on_scheme_list_changed(self) -> None:
         """Record selection changed — refresh the target-sheet candidates
-        from the record's source_sheet + the live snapshot's sheet segments."""
+        from the record's source_sheet + the live board's REAL twin
+        top-level sheets (module-level _twin_sibling_sheet_names)."""
         self._selected_source_sheet = self._record_source_sheet(
             self.scheme_list_combo.currentText().strip())
         self._rebuild_sheet_combo()
@@ -344,35 +394,44 @@ class SchemeListPlaceFormWidget(QWidget):
                 return getattr(sl, "source_sheet", None)
         return None
 
-    def _live_sheets(self) -> List[str]:
-        """Distinct sheet-instance segments from the current live snapshot,
-        sorted — the same source TreesDock._live_sheets uses for its Sheet
-        combo (Selected.sheet is a tuple of path segments). The raw board
-        snapshot's own sheet_names is always {} (Board.connect() never passes
-        schematic_dir, gui/connection.py) — re-resolve against the CONFIG's
-        sheet_names (self._ctx, already loaded by refresh()) first, the same
-        fix Record/Re-source already applies (snapshot_with_resolved_sheets,
-        plan_2026_09_07_scheme_list_sheet_names_empty.md), or every segment is
-        silently None and no sibling sheet is ever offered (Denis' repro,
-        plan_2026_09_08_scheme_list_place_target_sheet_unresolved.md). connection
-        may be a fake without a snapshot attribute (tests) — getattr-guarded."""
-        raw_snapshot = getattr(self._connection, "snapshot", None) or []
-        sheet_names = dict(getattr(self._ctx, "sheet_names", {}) or {})
-        snapshot = snapshot_with_resolved_sheets(raw_snapshot, sheet_names)
-        return sorted({seg for s in snapshot
-                       for seg in (getattr(s, "sheet", None) or ()) if seg})
-
     def _rebuild_sheet_combo(self) -> None:
         """Target-sheet choices: blank (in place) first, then the record's own
-        source_sheet and every live sheet instance (distinct). Picking a value
-        equal to source_sheet still means in place (design §5.2 p2), so only a
-        genuinely different value is written to the Entity."""
+        source_sheet and every REAL twin top-level sheet on the live board
+        (via the module-level _twin_sibling_sheet_names — computed from the
+        CACHED, re-resolved snapshot, never a fresh adapter call). Picking a
+        value equal to source_sheet still means in place (design §5.2 p2), so
+        only a genuinely different top-level value is written to the Entity.
+        connection may be a fake without a snapshot attribute (tests) —
+        getattr-guarded."""
         current = self.sheet_combo.currentText()
         source = self._selected_source_sheet or ""
+        raw_snapshot = getattr(self._connection, "snapshot", None) or []
+        # The raw board snapshot's own sheet_names is always {} (Board.connect()
+        # never passes schematic_dir, gui/connection.py) — re-resolve against
+        # the CONFIG's sheet_names (self._ctx, already loaded by refresh())
+        # first, the same fix Record/Re-source already applies
+        # (snapshot_with_resolved_sheets, plan_2026_09_07_scheme_list_sheet_
+        # names_empty.md), or every .sheet segment is None and no twin is
+        # ever offered (Denis' repro, plan_2026_09_08_scheme_list_place_target_
+        # sheet_unresolved.md).
+        sheet_names = dict(getattr(self._ctx, "sheet_names", {}) or {})
+        resolved = snapshot_with_resolved_sheets(raw_snapshot, sheet_names)
+        twins = _twin_sibling_sheet_names(resolved)
+        source_top = source.split("/", 1)[0] if source else ""
         candidates: List[str] = []
-        for value in ([source] if source else []) + self._live_sheets():
-            if value and value not in candidates:
-                candidates.append(value)
+        for value in ([source] if source else []) + twins:
+            if not value or value in candidates:
+                continue
+            # The source's OWN top-level sheet is not re-offered as a bare
+            # twin target: it carries the same "in place" semantics as the
+            # blank/source option (design §5.2 p2), so selecting it would only
+            # duplicate that choice — and _collect_payload would write it as
+            # entity.sheet, i.e. an onto-sibling place against the source
+            # channel itself. The source stays reachable (its full recorded
+            # path) as the FIRST candidate above.
+            if value != source and value == source_top:
+                continue
+            candidates.append(value)
         choices = [""] + candidates
         set_combo_items(self.sheet_combo, choices)
         # Blank (in place) is the default after a rebuild; a previously chosen

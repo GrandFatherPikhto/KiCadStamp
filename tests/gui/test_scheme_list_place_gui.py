@@ -31,6 +31,7 @@ import gui.docks.scheme_list_place as slp_mod
 from gui.docks.config_tree import ConfigTreeDock
 from gui.docks.scheme_list_place import (
     SchemeListPlaceFormWidget,
+    _twin_sibling_sheet_names,
     collect_parent_candidates,
     placement_node_payload,
 )
@@ -436,16 +437,23 @@ def test_do_place_append_os_error_is_caught_into_error_dict(main_window, tmp_pat
     assert "simulated append failure" in result["error"]
 
 
-# ── Section C2 — target-sheet combo: live-sheet re-resolution (2026-09-08) ──
+# ── Section C2 — target-sheet combo: real-twin filter (2026-09-08) ─────────
 #
-# The live Board's own sheet_names is ALWAYS {} (Board.connect() never passes
-# schematic_dir, gui/connection.py), so a raw snapshot's Selected.sheet is a
-# list of None and _live_sheets() used to return [] — the "Target sheet" combo
-# then offered only the record's source_sheet and the Channel_1/Channel_2
-# twins (real on the live board) were never reachable (Denis' repro,
-# plan_2026_09_08_scheme_list_place_target_sheet_unresolved.md). The fix
-# re-resolves the snapshot against the CONFIG's sheet_names (self._ctx) first,
-# the same snapshot_with_resolved_sheets Record/Re-source already apply.
+# Two linked fixes. (1) The live Board's own sheet_names is ALWAYS {}
+# (Board.connect() never passes schematic_dir, gui/connection.py), so a raw
+# snapshot's Selected.sheet is a list of None — the combo re-resolves it
+# against the CONFIG's sheet_names (self._ctx) first
+# (snapshot_with_resolved_sheets, the same fix Record/Re-source already apply,
+# plan_2026_09_08_scheme_list_place_target_sheet_unresolved.md). (2) THIS fix:
+# the candidates are then filtered to REAL twin top-level sheets only — a
+# top-level sheet must be a member of a 2+ inner_key group (path[1:] identical
+# across 2+ channel instances), the same rule as
+# scheme_list_apply._twin_sheet_uuids / channel_copy._channel_sheet_uuids.
+# Single-instance sheets (FPGA/Power/MCU) and bare sub-sheets (DAC/OpAmp)
+# never qualify — the combo can no longer offer a sheet Apply would reject as
+# "not a twin on the board" (Denis' repro, plan_2026_09_08_scheme_list_place_
+# target_sheet_twin_filter.md). Both run over the CACHED snapshot, never a
+# fresh adapter call (that would race the background kipy poll — Commit H).
 
 class _SheetFakeFp:
     """Raw-footprint stand-in exposing the sheet-UUID chain
@@ -466,14 +474,61 @@ def _sheet_selected(ref, uuids):
                     fp=_SheetFakeFp(uuids))
 
 
+def _resolved_selected(ref, names, uuids):
+    """A Selected whose .sheet is ALREADY resolved to `names` (what
+    snapshot_with_resolved_sheets produces) and whose .fp keeps the real
+    sheet-UUID chain `uuids`. For the pure _twin_sibling_sheet_names tests,
+    names/uuids must line up like a real footprint: sheet_path_uuids =
+    [top_uuid, ...leaf_uuid, fp_instance_uuid] and .sheet = the resolved names
+    of uuids[:-1], so .sheet[0] is the resolved name of uuids[0] (the
+    top-level sheet)."""
+    return Selected(ref=ref, role=None, cluster=None,
+                    sheet=list(names), nets={},
+                    fp=_SheetFakeFp(tuple(uuids)))
+
+
 def _combo_items(combo):
     return [combo.itemText(i) for i in range(combo.count())]
 
 
-def test_sheet_combo_offers_resolved_sibling_sheets(main_window, tmp_path):
-    """Regression 2026-09-08: a snapshot whose .sheet is resolved through the
-    config's sheet_names (not all-None) must make the Target sheet combo offer
-    the live siblings Channel_1/Channel_2 — not just the record's source_sheet."""
+def test_twin_sibling_sheet_names_returns_only_real_twin_top_levels():
+    """Pure _twin_sibling_sheet_names unit test: a top-level sheet qualifies as
+    a target ONLY when it is a member of a 2+ inner_key group (two channel
+    instances sharing the same path[1:] chain). Single-instance sheets (FPGA)
+    never qualify, and bare sub-sheet segments (DAC, here at .sheet[1]) are
+    never returned — the result is top-level twin names, sorted."""
+    snapshot = [
+        # Channel_1 / Channel_2 twin pair: U1 and U2 live on the shared DAC
+        # sub-sheet of each channel — identical inner chain (path[1:]),
+        # different path[0] (the channel uuid).
+        _resolved_selected("U1", ["Channel_1", "DAC"], ("ch1", "dac", "u1")),
+        _resolved_selected("U2", ["Channel_1", "DAC"], ("ch1", "dac", "u2")),
+        _resolved_selected("U1", ["Channel_2", "DAC"], ("ch2", "dac", "u1")),
+        _resolved_selected("U2", ["Channel_2", "DAC"], ("ch2", "dac", "u2")),
+        # A single-instance top-level sheet — on the board but NOT a twin.
+        _resolved_selected("U9", ["FPGA"], ("fpga", "u9")),
+    ]
+    assert _twin_sibling_sheet_names(snapshot) == ["Channel_1", "Channel_2"]
+
+
+def test_twin_sibling_sheet_names_excludes_single_members_and_shallow_rows():
+    """Every footprint needs a usable hierarchy chain (len >= 2) AND its
+    top-level sheet must end up in a 2+ member group — a lone row, a root-sheet
+    (chain length 1) footprint and a row with no .fp all yield nothing."""
+    snapshot = [
+        _resolved_selected("U1", ["Power"], ("power", "u1")),   # 1 member
+        _resolved_selected("U0", [], ("u0",)),                  # no hierarchy
+        SimpleNamespace(ref="U2", sheet=(), fp=None),           # no fp at all
+    ]
+    assert _twin_sibling_sheet_names(snapshot) == []
+
+
+def test_sheet_combo_offers_resolved_sibling_twins(main_window, tmp_path):
+    """Regression 2026-09-08: a snapshot resolved through the config's
+    sheet_names must make the Target sheet combo offer the live twin siblings
+    Channel_1/Channel_2 — not just the record's source_sheet. A sibling
+    qualifies only as a REAL twin (2+ members per inner_key), so the synthetic
+    snapshot builds full twin pairs, the way the live board looks."""
     root = tmp_path / "root.sexp"
     _write_project(root)  # scheme "amp", source_sheet "Channel_0"
     dock = _make_place_dock(main_window, root)
@@ -482,21 +537,66 @@ def test_sheet_combo_offers_resolved_sibling_sheets(main_window, tmp_path):
     dock.scheme_list_combo.setCurrentText("amp")
     # This test config has no schematic_dir, so ctx.sheet_names is empty —
     # replace the ctx with one carrying the map a real project would have
-    # resolved (_live_sheets reads ONLY _ctx.sheet_names, nothing else).
+    # resolved (_rebuild_sheet_combo reads ONLY _ctx.sheet_names).
     dock._ctx = SimpleNamespace(sheet_names={"ch1": "Channel_1",
                                              "ch2": "Channel_2"})
+    # Channel_1 / Channel_2 twin pair (each channel's U1/U2 share the inner
+    # chain with the other channel — 2+ members per inner_key).
     dock._connection.snapshot = [
-        _sheet_selected("U1", ("ch1", "u1")),
-        _sheet_selected("U2", ("ch2", "u2")),
+        _sheet_selected("U1", ("ch1", "dac", "u1")),
+        _sheet_selected("U1", ("ch2", "dac", "u1")),
+        _sheet_selected("U2", ("ch1", "dac", "u2")),
+        _sheet_selected("U2", ("ch2", "dac", "u2")),
     ]
     dock._on_scheme_list_changed()  # rebuild the sheet combo from the live set
 
     items = _combo_items(dock.sheet_combo)
     # "Channel_0" is the record's own source_sheet — always there. The FIX is
-    # that the resolved Channel_1/Channel_2 siblings are now offered too.
-    assert "Channel_0" in items
-    assert "Channel_1" in items
-    assert "Channel_2" in items
+    # that the resolved twin siblings Channel_1/Channel_2 are now offered too
+    # (and only them — no DAC/OpAmp sub-sheet noise).
+    assert items == ["", "Channel_0", "Channel_1", "Channel_2"]
+
+
+def test_repro_sheet_combo_offers_only_real_twin_top_levels(main_window, tmp_path):
+    """Denis' repro (plan_2026_09_08_scheme_list_place_target_sheet_twin_
+    filter.md §0/§6): on the `channel` record the Target sheet combo must show
+    ROUNDLY its source_sheet plus the REAL twin top-level channels — NO
+    FPGA/Power/MCU (single instances, never clones), NO bare DAC/OpAmp
+    sub-sheets, and NO bare duplicate of the record's own source channel
+    (Channel_0 is itself a real twin on the live board, but selecting it would
+    be the same "in place" as the source_sheet option — _collect_payload would
+    even write it as entity.sheet, i.e. an onto-sibling place against the
+    source channel)."""
+    root = tmp_path / "root.sexp"
+    _write(root, _project_dict(schemes=("channel",)))
+    # The channel record was captured from Channel_0/DAC + Channel_0/OpAmp, so
+    # its source_sheet is the FULL path of the first recorded sheet.
+    data = _load(root)
+    data["scheme_lists"][0]["source_sheet"] = "Channel_0/DAC"
+    _write(root, data)
+    dock = _make_place_dock(main_window, root)
+    dock.scheme_list_combo.setCurrentText("channel")
+    dock._ctx = SimpleNamespace(sheet_names={
+        "ch0": "Channel_0", "ch1": "Channel_1", "ch2": "Channel_2",
+        "fpga": "FPGA", "power": "Power", "mcu": "MCU",
+        "dac": "DAC", "opamp": "OpAmp"})
+    # Channel_0/1/2 are three instances of the same channel design (the
+    # record's own Channel_0 included); FPGA/Power/MCU are single instances.
+    dock._connection.snapshot = [
+        _sheet_selected("U1", ("ch0", "dac", "u1")),
+        _sheet_selected("U1", ("ch1", "dac", "u1")),
+        _sheet_selected("U1", ("ch2", "dac", "u1")),
+        _sheet_selected("U2", ("ch0", "opamp", "u2")),
+        _sheet_selected("U2", ("ch1", "opamp", "u2")),
+        _sheet_selected("U2", ("ch2", "opamp", "u2")),
+        _sheet_selected("U9", ("fpga", "u9")),
+        _sheet_selected("U10", ("power", "u10")),
+        _sheet_selected("U11", ("mcu", "u11")),
+    ]
+    dock._on_scheme_list_changed()
+
+    assert _combo_items(dock.sheet_combo) == [
+        "", "Channel_0/DAC", "Channel_1", "Channel_2"]
 
 
 def test_sheet_combo_raw_all_none_snapshot_offers_only_source(main_window, tmp_path):
@@ -512,21 +612,24 @@ def test_sheet_combo_raw_all_none_snapshot_offers_only_source(main_window, tmp_p
     dock._on_scheme_list_changed()
 
     # ctx.sheet_names is empty for this schematic-less config -> resolution is
-    # a no-op -> the all-None .sheet contributes no segment.
+    # a no-op -> the all-None .sheet contributes no twin names.
     assert _combo_items(dock.sheet_combo) == ["", "Channel_0"]
 
 
-def test_live_sheets_is_safe_before_first_refresh(main_window, tmp_path):
-    """_live_sheets() must not require _ctx to be loaded (it is None before the
-    first set_root_path/refresh) — the getattr-guard falls back to an empty
-    sheet_names map and the all-None raw snapshot yields [] instead of crashing."""
-    root = tmp_path / "root.sexp"
-    _write_project(root)
+def test_rebuild_sheet_combo_is_safe_before_first_refresh(main_window, tmp_path):
+    """_rebuild_sheet_combo() must not require _ctx to be loaded (it is None
+    before the first set_root_path/refresh) nor a snapshot attribute on the
+    connection (a bare fake has none) — the getattr-guards fall back to an
+    empty sheet_names map / empty snapshot and the combo degrades to [""]
+    instead of crashing (the old _live_sheets() safety contract, now carried
+    by the rebuilt combo path)."""
     dock = SchemeListPlaceFormWidget(main_window)  # no set_root_path -> _ctx None
     assert dock._ctx is None
-    dock._connection.snapshot = [_sheet_selected("U1", ("ch1", "u1"))]
+    assert getattr(dock._connection, "snapshot", None) is None  # fake, no attr
 
-    assert dock._live_sheets() == []
+    dock._on_scheme_list_changed()  # must not crash
+
+    assert _combo_items(dock.sheet_combo) == [""]
 
 
 # ── Section D — DockHub wiring ────────────────────────────────────────────

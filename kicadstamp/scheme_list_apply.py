@@ -146,7 +146,13 @@ def _layer_board(layer_str: str | None) -> BoardLayer:
 def _twin_sheet_uuids(groups: dict[str, dict[str, str]]) -> set[str]:
     """Sheet uuids that are REAL twins: path[0] members of a twin group with
     2+ members (shared-root footprints with /Channel_N/-style local nets are
-    excluded — the same rule as channel_copy._channel_sheet_uuids)."""
+    excluded — the same rule as channel_copy._channel_sheet_uuids).
+
+    Mirrored by gui/docks/scheme_list_place.py::_twin_sibling_sheet_names,
+    which computes the SAME twin set over the GUI's CACHED snapshot (it must
+    stay in lock-step with this rule so the Place page's "Target sheet" combo
+    never offers a sheet Apply would reject here — if the "twin = 2+ members"
+    rule ever changes, update BOTH places)."""
     out: set[str] = set()
     for members in groups.values():
         if len(members) >= 2:

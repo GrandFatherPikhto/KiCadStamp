@@ -1230,7 +1230,12 @@ record). The form holds:
 
 - **Scheme List** — which recorded snapshot to place (searchable combo of `cfg.scheme_lists`).
 - **Target sheet** — leave empty (or equal to the record's `source_sheet`) to place the record "in
-  place" on the sheet it was captured from; pick another live sheet to place onto its twin.
+  place" on the sheet it was captured from. The other offered values are the REAL twin top-level
+  sheets on the live board only (2+ channel instances sharing the same sub-sheet structure, computed
+  from the cached board snapshot — never a fresh board call) — single-instance sheets
+  (FPGA/Power/MCU) and sub-sheets (DAC/OpAmp) are never offered, because they are not valid
+  `entity.sheet` targets for the onto-sibling apply (the same twin rule
+  `scheme_list_apply` uses at Redraw time).
 - **Tree / Parent node** — the EXISTING tree the new node is appended to (generated `tree_instances`
   are read-only and excluded) and the parent node inside it, DFS-listed with a "— top level (no
   parent) —" sentinel (top level = offset relative to the tree anchor). A new tree is NEVER created.
