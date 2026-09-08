@@ -111,6 +111,24 @@ The grouping choice and the live/schematic toggle are both remembered across res
 matches ref/role/cluster in either mode; **regex** switches from substring to a case-insensitive
 regex (an invalid pattern just flags the field red, it doesn't crash or hide everything).
 
+**Writing Role/Cluster from the live board (live mode only — the write row is disabled in the
+"Not yet applied" schematic mode, which has no real footprint to write to).** Between the tree and
+the mode checkbox sit three controls. **Delete selected** and **Clear all** (2026-08-03) blank out
+Role AND Cluster on the board footprints — Delete selected on whatever the tree currently has
+selected (a leaf or a whole group), Clear all on every footprint in the live snapshot behind a
+confirmation dialog (its blast radius is the whole board). **Tag selected** (2026-09-08, plan
+role_cluster_selection_tagging) is the SET-side counterpart: type a Role and/or a Cluster value
+(two editable combo boxes, either independently optional — an empty field means "don't touch it",
+NOT "erase it"; if both are empty the button does nothing) and write it onto every footprint in the
+current tree selection. Both fields in one click become ONE commit, so KiCad's Ctrl+Z undoes the
+whole batch; a footprint missing a field you're actually writing is skipped and reported, it never
+rolls back the batch. The combo boxes offer as suggestions the sorted unique Role/Cluster values
+already present in the live snapshot — there is no separate fixed vocabulary, the board is its own
+source of known values, and a value you just typed stays on the board and in the suggestions. This
+covers "one Cluster for a whole group" (Role left empty), "a narrowed subgroup, one Role" (Cluster
+left empty), or both at once — authoring Role/Cluster no longer requires the offline
+fieldstool/.kicad_sch round-trip.
+
 Since 2026-09-05 (plan components_fieldstool_master_detail) the Components dock is a
 **master-detail**: the tree (and the shared **Pending changes** view) live in a left tab widget with
 the tabs **on top**, and the embedded [fieldstool pane](#fieldstool-tab) is the right half of a

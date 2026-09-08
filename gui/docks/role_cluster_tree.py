@@ -50,6 +50,20 @@ confirmation already uses for a comparably consequential action. Runs
 through gui/worker.py's start_long_op like every other board-writing
 action in this codebase (Placer's Redraw, Extract) — never a bespoke
 synchronous board write.
+
+Tag selected (2026-09-08, plan role_cluster_selection_tagging) — the SET-side
+mirror of Delete selected/Clear all, so authoring Role/Cluster no longer needs
+an offline fieldstool/.kicad_sch round-trip: a second row (two editable combo
+boxes + one button) writes a typed Role and/or Cluster value onto every
+footprint in the current tree selection in ONE set_field_values_bulk commit.
+Both fields are independently optional (empty field = "don't touch it", NOT
+"erase it" — erasure stays Clear all's job), which covers both "one Cluster for
+a whole group" and "narrowed subgroup, one Role". Combo suggestions are
+repopulated from the Role/Cluster values already visible in the live snapshot
+— no separate fixed vocabulary to maintain, the board is its own source of
+known values. Same has_field skip protection as _run_clear, but PER-FIELD:
+a footprint missing only the field we're actually writing is skipped, a
+footprint missing an unrelated field is not.
 """
 import logging
 import re
@@ -194,6 +208,28 @@ class RoleClusterTreeDock(QDockWidget):
         self.clear_all_button.clicked.connect(self._on_clear_all)
         write_row.addWidget(self.clear_all_button)
         layout.addLayout(write_row)
+
+        # Tag selected (2026-09-08, plan role_cluster_selection_tagging) — the
+        # SET-side sibling of Delete selected/Clear all above: type a Role
+        # and/or Cluster value (either independently optional — empty means
+        # "don't touch this field", NOT "erase it") and write it onto every
+        # footprint in the current selection in ONE commit. Editable combos
+        # because Role/Cluster are open-ended per Cell/profile — a fixed enum
+        # would be wrong; suggestions are auto-filled from values already on
+        # the board (see _refresh_tag_combo_suggestions).
+        tag_row = QHBoxLayout()
+        self.tag_role_combo = QComboBox()
+        self.tag_role_combo.setEditable(True)
+        self.tag_role_combo.setPlaceholderText(_("Role (leave empty to skip)"))
+        tag_row.addWidget(self.tag_role_combo)
+        self.tag_cluster_combo = QComboBox()
+        self.tag_cluster_combo.setEditable(True)
+        self.tag_cluster_combo.setPlaceholderText(_("Cluster (leave empty to skip)"))
+        tag_row.addWidget(self.tag_cluster_combo)
+        self.tag_selected_button = QPushButton(_("Tag selected"))
+        self.tag_selected_button.clicked.connect(self._on_tag_selected)
+        tag_row.addWidget(self.tag_selected_button)
+        layout.addLayout(tag_row)
 
         # NOT restored from settings here — see restore_mode_from_settings()
         # below for why (main_window.fieldstool_dock doesn't exist yet at
@@ -346,9 +382,13 @@ class RoleClusterTreeDock(QDockWidget):
         """Called by MainWindow after every successful poll/refresh with the
         full current snapshot (Board.select() with no filters). Only
         rebuilds the tree if currently showing live data — must not
-        clobber an active schematic view on every ~2s poll tick."""
+        clobber an active schematic view on every ~2s poll tick. In live mode
+        also refreshes the Tag selected combos' suggestion lists (their values
+        come from whatever is currently on the board — no separate
+        vocabulary, see _refresh_tag_combo_suggestions)."""
         self._selected = selected
         if not self.mode_checkbox.isChecked():
+            self._refresh_tag_combo_suggestions()
             self._rebuild()
 
     def refresh_schematic_view(self) -> None:
@@ -421,6 +461,9 @@ class RoleClusterTreeDock(QDockWidget):
         # board footprints) — see module docstring.
         self.delete_selected_button.setEnabled(not checked)
         self.clear_all_button.setEnabled(not checked)
+        self.tag_selected_button.setEnabled(not checked)
+        self.tag_role_combo.setEnabled(not checked)
+        self.tag_cluster_combo.setEnabled(not checked)
         self._rebuild()
 
     def _current_rows(self) -> List[_Row]:
@@ -803,3 +846,152 @@ class RoleClusterTreeDock(QDockWidget):
 
     def _on_clear_failed(self, message: str) -> None:
         self._show_message(_("Clear failed: {error}").format(error=message), _ERROR_STYLE)
+
+    # ── Tag selected (2026-09-08, plan role_cluster_selection_tagging) ────
+    #
+    # The SET-side mirror of Delete selected/Clear all above: instead of
+    # blanking Role/Cluster, write the typed Role and/or Cluster value(s) onto
+    # every footprint in the current selection. Same worker pattern
+    # (start_long_op + _run_/ _finish_/ _failed_ trio), same
+    # set_field_values_bulk one-commit path, same has_field skip protection —
+    # but PER-FIELD rather than per-footprint (see _run_tag), because here an
+    # empty value legitimately means "don't touch this field".
+
+    @staticmethod
+    def _add_combo_item_if_missing(combo: QComboBox, value: str) -> None:
+        """Ensure `value` is offered as a combo item — used right after a
+        successful Tag write, so the just-written value shows up in the
+        suggestions immediately instead of waiting for the next poll tick to
+        refresh the snapshot (mirror of fieldstool_window's same helper)."""
+        if value and combo.findText(value) < 0:
+            combo.addItem(value)
+
+    def _refresh_tag_combo_suggestions(self) -> None:
+        """Re-populate the Role/Cluster combo suggestion lists from whatever
+        values are currently visible in the live board snapshot — no separate
+        fixed vocabulary to maintain, the board itself is the source of known
+        values. Preserves whatever the user is currently typing (editable
+        combo's current text survives the rebuild, so a poll tick never eats
+        a half-typed value)."""
+        roles = sorted({s.role for s in self._selected if s.role})
+        clusters = sorted({s.cluster for s in self._selected if s.cluster})
+        for combo, values in ((self.tag_role_combo, roles),
+                              (self.tag_cluster_combo, clusters)):
+            current_text = combo.currentText()
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItems(values)
+            combo.setCurrentText(current_text)
+            combo.blockSignals(False)
+
+    def _on_tag_selected(self) -> None:
+        self._show_message("")
+        if self._connection.board is None:
+            self._show_message(_("Not connected."), _ERROR_STYLE)
+            return
+        role_value = self.tag_role_combo.currentText().strip()
+        cluster_value = self.tag_cluster_combo.currentText().strip()
+        if not role_value and not cluster_value:
+            self._show_message(_("Enter a Role and/or a Cluster value first."), _ERROR_STYLE)
+            return
+        refs = self._selected_tree_refs()
+        if not refs:
+            self._show_message(_("Nothing selected."), _ERROR_STYLE)
+            return
+        footprints = [s.fp for s in self._selected if s.ref in refs]
+        self._start_tag_op(footprints, role_value, cluster_value)
+
+    def _start_tag_op(self, footprints: List[Any], role_value: str, cluster_value: str) -> None:
+        payload = {"footprints": footprints, "role_value": role_value,
+                   "cluster_value": cluster_value}
+        self._active_op = start_long_op(
+            self._connection, (self.tag_selected_button,),
+            self._run_tag, self._finish_tag, self._on_tag_failed, payload)
+
+    def _do_tag(self, footprints: List[Any], role_value: str, cluster_value: str) -> None:
+        """Synchronous composition of run + finish — the same behaviour the
+        async button path would produce, kept for tests and any caller that
+        must not return until the tag is complete (same shape as PlacerDock's
+        _do_redraw / this dock's own _do_clear)."""
+        result = self._run_tag({"footprints": footprints, "role_value": role_value,
+                                "cluster_value": cluster_value})
+        self._finish_tag(result)
+
+    def _run_tag(self, payload: dict) -> dict:
+        """Worker thread: board IPC only — never touches a widget. Writes the
+        requested non-empty Role and/or Cluster value onto the selected
+        footprints in ONE commit via set_field_values_bulk — same "batch undo
+        in one Ctrl+Z" reasoning as _run_clear.
+
+        Footprints missing a field we actually intend to write are skipped
+        BEFORE the batch is built, not sent — set_field_value is fatal on a
+        missing field, and set_field_values_bulk wraps the whole batch in one
+        commit, so a single such footprint would otherwise roll back every
+        other footprint in the batch too (the exact live bug _run_clear
+        guards against, found 2026-08-03). The check is PER-FIELD here (not
+        _run_clear's per-footprint "needs both" check): a footprint without a
+        Cluster field is only a problem when we're actually writing Cluster —
+        writing Role alone must not skip it."""
+        footprints = payload["footprints"]
+        role_value = payload["role_value"]
+        cluster_value = payload["cluster_value"]
+        adapter = self._connection.board.adapter
+        usable = []
+        skipped_refs = []
+        for fp in footprints:
+            missing_role = bool(role_value) and not adapter.has_field(fp, ROLE_FIELD_NAME)
+            missing_cluster = bool(cluster_value) and not adapter.has_field(fp, CLUSTER_FIELD_NAME)
+            if missing_role or missing_cluster:
+                skipped_refs.append(fp.ref if fp.ref else "?")
+                continue
+            usable.append(fp)
+
+        updates = []
+        for fp in usable:
+            if role_value:
+                updates.append((fp, ROLE_FIELD_NAME, role_value))
+            if cluster_value:
+                updates.append((fp, CLUSTER_FIELD_NAME, cluster_value))
+        if updates:
+            try:
+                adapter.set_field_values_bulk(
+                    updates, _("Tag Role/Cluster on {count} component(s)").format(count=len(usable)))
+            except ValidationError as e:
+                return {"error": str(e)}
+        return {"count": len(usable), "role_value": role_value, "cluster_value": cluster_value,
+                "skipped_refs": skipped_refs}
+
+    def _finish_tag(self, result: dict) -> None:
+        """UI thread: reflect the worker's result into the Log dock, then
+        make the just-written value(s) available as combo suggestions for the
+        next tag (immediately — no waiting for the next poll to refresh the
+        snapshot) and fire on_board_written() exactly like _finish_clear
+        does."""
+        if result.get("error"):
+            self._show_message(result["error"], _ERROR_STYLE)
+            return
+        if result["role_value"] and result["cluster_value"]:
+            message = _("Tagged Role and Cluster on {count} component(s).").format(count=result["count"])
+        elif result["role_value"]:
+            message = _("Tagged Role on {count} component(s).").format(count=result["count"])
+        else:
+            message = _("Tagged Cluster on {count} component(s).").format(count=result["count"])
+        skipped = result.get("skipped_refs") or []
+        if skipped:
+            shown = ", ".join(skipped[:_MAX_SKIPPED_REFS_SHOWN])
+            if len(skipped) > _MAX_SKIPPED_REFS_SHOWN:
+                shown += _(" and {more} more").format(more=len(skipped) - _MAX_SKIPPED_REFS_SHOWN)
+            message += " " + _("Skipped {count} missing a Role/Cluster field: {refs}").format(
+                count=len(skipped), refs=shown)
+        self._show_message(message, _SUCCESS_STYLE)
+        # The just-written value may not be in the CURRENT snapshot yet (the
+        # poll that picks it up runs after this), so add it straight to the
+        # combo item lists; the next _refresh_tag_combo_suggestions() keeps
+        # whatever's on the board as the source of truth from then on.
+        self._add_combo_item_if_missing(self.tag_role_combo, result["role_value"])
+        self._add_combo_item_if_missing(self.tag_cluster_combo, result["cluster_value"])
+        if self.on_board_written:
+            self.on_board_written()
+
+    def _on_tag_failed(self, message: str) -> None:
+        self._show_message(_("Tag failed: {error}").format(error=message), _ERROR_STYLE)

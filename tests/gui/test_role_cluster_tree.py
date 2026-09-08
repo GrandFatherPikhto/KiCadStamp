@@ -534,14 +534,23 @@ def test_buttons_disabled_in_schematic_mode(main_window):
     dock = RoleClusterTreeDock(main_window, connection=main_window.connection)
     assert dock.delete_selected_button.isEnabled()
     assert dock.clear_all_button.isEnabled()
+    assert dock.tag_selected_button.isEnabled()
+    assert dock.tag_role_combo.isEnabled()
+    assert dock.tag_cluster_combo.isEnabled()
 
     dock.mode_checkbox.setChecked(True)
     assert not dock.delete_selected_button.isEnabled()
     assert not dock.clear_all_button.isEnabled()
+    assert not dock.tag_selected_button.isEnabled()
+    assert not dock.tag_role_combo.isEnabled()
+    assert not dock.tag_cluster_combo.isEnabled()
 
     dock.mode_checkbox.setChecked(False)
     assert dock.delete_selected_button.isEnabled()
     assert dock.clear_all_button.isEnabled()
+    assert dock.tag_selected_button.isEnabled()
+    assert dock.tag_role_combo.isEnabled()
+    assert dock.tag_cluster_combo.isEnabled()
 
 
 def test_clear_op_surfaces_validation_error_from_adapter(main_window, caplog):
@@ -593,4 +602,210 @@ def test_on_delete_selected_dispatches_to_worker(main_window, monkeypatch):
     assert captured["connection"] is main_window.connection
     assert captured["widgets"] == (dock.delete_selected_button, dock.clear_all_button)
     assert captured["args"][0]["footprints"] == [c1.fp]
+    assert board.adapter.calls == []  # not actually run — dispatch only
+
+
+# ── Tag selected (2026-09-08, plan role_cluster_selection_tagging) ────────
+
+def _set_tag_values(dock, role="", cluster=""):
+    dock.tag_role_combo.setCurrentText(role)
+    dock.tag_cluster_combo.setCurrentText(cluster)
+
+
+def test_tag_selected_writes_role_and_cluster(main_window, monkeypatch, caplog):
+    monkeypatch.setattr(role_cluster_tree_mod, "start_long_op", _run_sync)
+    board = FakeBoard()
+    main_window.connection.board = board
+    dock = RoleClusterTreeDock(main_window, connection=main_window.connection)
+    c1, c2 = FakeSelected("C1", "C_IN", "Channel_1"), FakeSelected("C2", "C_IN", "Channel_2")
+    dock.set_footprints([c1, c2])
+
+    # Select two leaves (values must come from the combos, not from the
+    # snapshot's current values — use values that aren't suggestions).
+    _select_item(dock, _find_item(dock.tree.model(), "C1"))
+    _select_item(dock, _find_item(dock.tree.model(), "C2"))
+    _set_tag_values(dock, role="OUT_AMP", cluster="Channel_9")
+
+    dock._on_tag_selected()
+
+    assert len(board.adapter.calls) == 1
+    updates, _description = board.adapter.calls[0]
+    assert set(updates) == {
+        (c1.fp, "Role", "OUT_AMP"), (c1.fp, "Cluster", "Channel_9"),
+        (c2.fp, "Role", "OUT_AMP"), (c2.fp, "Cluster", "Channel_9"),
+    }
+    assert any("Tagged Role and Cluster on 2 component" in r.message for r in caplog.records)
+
+
+def test_tag_selected_role_only_does_not_touch_cluster(main_window, monkeypatch, caplog):
+    monkeypatch.setattr(role_cluster_tree_mod, "start_long_op", _run_sync)
+    board = FakeBoard()
+    main_window.connection.board = board
+    dock = RoleClusterTreeDock(main_window, connection=main_window.connection)
+    c1 = FakeSelected("C1", "C_IN", "Channel_1")
+    dock.set_footprints([c1])
+    _select_item(dock, _find_item(dock.tree.model(), "C1"))
+    _set_tag_values(dock, role="OUT_AMP")  # cluster left empty
+
+    dock._on_tag_selected()
+
+    assert len(board.adapter.calls) == 1
+    updates, _description = board.adapter.calls[0]
+    assert updates == [(c1.fp, "Role", "OUT_AMP")]  # Cluster untouched, not blanked
+    assert any("Tagged Role on 1 component" in r.message for r in caplog.records)
+
+
+def test_tag_selected_skips_footprint_missing_target_field(main_window, monkeypatch, caplog):
+    """A footprint lacking a field we're about to write must be skipped
+    (reported), not sent — same "one missing field rolls back the whole
+    batch" protection Clear all already has (found live 2026-08-03)."""
+    monkeypatch.setattr(role_cluster_tree_mod, "start_long_op", _run_sync)
+    ok_fp = Mock()
+    missing_fp = Mock()
+    missing_fp.ref = "FB15"
+    board = FakeBoard()
+    board.adapter._missing_fields = {missing_fp: {"Role"}}  # FB15 has no Role field
+    main_window.connection.board = board
+    dock = RoleClusterTreeDock(main_window, connection=main_window.connection)
+    c1 = FakeSelected("C1", "C_IN", "Channel_1")
+    c1.fp = ok_fp
+    c2 = FakeSelected("FB15", None, None)
+    c2.fp = missing_fp
+    dock.set_footprints([c1, c2])
+
+    _select_item(dock, _find_item(dock.tree.model(), "C1"))
+    _select_item(dock, _find_item(dock.tree.model(), "FB15"))
+    _set_tag_values(dock, role="OUT_AMP", cluster="Channel_9")
+
+    dock._on_tag_selected()
+
+    assert len(board.adapter.calls) == 1
+    updates, _description = board.adapter.calls[0]
+    touched_fps = {fp for fp, _field, _value in updates}
+    assert touched_fps == {ok_fp}  # FB15 excluded up front
+    assert any("Tagged Role and Cluster on 1 component" in r.message for r in caplog.records)
+    assert any("Skipped 1 missing a Role/Cluster field: FB15" in r.message for r in caplog.records)
+
+
+def test_tag_selected_empty_both_fields_is_noop(main_window, caplog):
+    board = FakeBoard()
+    main_window.connection.board = board
+    dock = RoleClusterTreeDock(main_window, connection=main_window.connection)
+    c1 = FakeSelected("C1", "C_IN", "Channel_1")
+    dock.set_footprints([c1])
+    _select_item(dock, _find_item(dock.tree.model(), "C1"))
+    _set_tag_values(dock, role="", cluster="")  # both empty
+
+    dock._on_tag_selected()
+
+    assert board.adapter.calls == []
+    assert any("Enter a Role and/or a Cluster value first" in r.message for r in caplog.records)
+
+
+def test_tag_selected_nothing_selected_is_noop(main_window, caplog):
+    board = FakeBoard()
+    main_window.connection.board = board
+    dock = RoleClusterTreeDock(main_window, connection=main_window.connection)
+    dock.set_footprints([FakeSelected("C1", "C_IN", "Channel_1")])
+    _set_tag_values(dock, role="OUT_AMP")
+
+    dock._on_tag_selected()  # values filled, but nothing selected in the tree
+
+    assert board.adapter.calls == []
+    assert any("Nothing selected" in r.message for r in caplog.records)
+
+
+def test_combo_suggestions_reflect_live_board_values(main_window):
+    dock = RoleClusterTreeDock(main_window)
+    dock.set_footprints([
+        FakeSelected("C1", "C_IN", "Channel_1"),
+        FakeSelected("C2", "OUT_AMP", "Channel_1"),
+        FakeSelected("C3", None, None),  # empty values must not appear
+    ])
+
+    role_items = [dock.tag_role_combo.itemText(i) for i in range(dock.tag_role_combo.count())]
+    cluster_items = [dock.tag_cluster_combo.itemText(i) for i in range(dock.tag_cluster_combo.count())]
+    assert role_items == ["C_IN", "OUT_AMP"]  # sorted, deduped, non-empty only
+    assert cluster_items == ["Channel_1"]
+
+
+def test_tag_selected_not_connected_shows_message(main_window, caplog):
+    dock = RoleClusterTreeDock(main_window, connection=main_window.connection)
+    dock.set_footprints([FakeSelected("C1", "C_IN", "Channel_1")])
+    _select_item(dock, _find_item(dock.tree.model(), "C1"))
+    _set_tag_values(dock, role="OUT_AMP")
+
+    dock._on_tag_selected()  # main_window.connection.board is None by default
+
+    assert any("Not connected" in r.message for r in caplog.records)
+
+
+def test_tag_selected_success_fires_on_board_written_callback(main_window, monkeypatch):
+    """Parity with _finish_clear: Pending changes' diff must pick up a Tag
+    write immediately via the on_board_written hook, not on the next manual
+    Refresh (the automatic poll never refreshes once connected)."""
+    monkeypatch.setattr(role_cluster_tree_mod, "start_long_op", _run_sync)
+    board = FakeBoard()
+    main_window.connection.board = board
+    dock = RoleClusterTreeDock(main_window, connection=main_window.connection)
+    dock.set_footprints([FakeSelected("C1", "C_IN", "Channel_1")])
+    _select_item(dock, _find_item(dock.tree.model(), "C1"))
+    calls = []
+    dock.on_board_written = lambda: calls.append(1)
+    _set_tag_values(dock, role="OUT_AMP")
+
+    dock._on_tag_selected()
+
+    assert calls == [1]
+
+
+def test_tag_op_surfaces_validation_error_from_adapter(main_window, caplog):
+    class _FailingAdapter:
+        def has_field(self, fp, field_name):
+            return True
+
+        def set_field_values_bulk(self, updates, description):
+            raise ValidationError("boom: missing field")
+
+    class _FailingBoard:
+        adapter = _FailingAdapter()
+
+    main_window.connection.board = _FailingBoard()
+    dock = RoleClusterTreeDock(main_window, connection=main_window.connection)
+    dock.set_footprints([FakeSelected("C1", "C_IN", "Channel_1")])
+
+    dock._do_tag([FakeSelected("C1", "C_IN", "Channel_1").fp], "OUT_AMP", "Channel_9")
+
+    assert any("boom" in r.message for r in caplog.records)
+
+
+def test_on_tag_selected_dispatches_to_worker(main_window, monkeypatch):
+    """The Tag button must not block the UI thread — collect/validate on the
+    UI thread, hand off to start_long_op (parity with _on_delete_selected)."""
+    board = FakeBoard()
+    main_window.connection.board = board
+    dock = RoleClusterTreeDock(main_window, connection=main_window.connection)
+    c1 = FakeSelected("C1", "C_IN", "Channel_1")
+    dock.set_footprints([c1])
+    _select_item(dock, _find_item(dock.tree.model(), "C1"))
+
+    captured = {}
+
+    def _fake_start(connection, widgets, fn, on_success, on_error, *args):
+        captured["connection"] = connection
+        captured["widgets"] = widgets
+        captured["args"] = args
+        return "fake-controller"
+
+    monkeypatch.setattr(role_cluster_tree_mod, "start_long_op", _fake_start)
+
+    _set_tag_values(dock, role="OUT_AMP", cluster="Channel_9")
+    dock._on_tag_selected()
+
+    assert dock._active_op == "fake-controller"
+    assert captured["connection"] is main_window.connection
+    assert captured["widgets"] == (dock.tag_selected_button,)
+    assert captured["args"][0]["footprints"] == [c1.fp]
+    assert captured["args"][0]["role_value"] == "OUT_AMP"
+    assert captured["args"][0]["cluster_value"] == "Channel_9"
     assert board.adapter.calls == []  # not actually run — dispatch only

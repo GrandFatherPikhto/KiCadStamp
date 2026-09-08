@@ -3222,6 +3222,52 @@ msgstr "Пропущено без поля Role/Cluster: {count}: {refs}"
 msgid "Clear failed: {error}"
 msgstr "Очистка не удалась: {error}"
 
+#: gui/docks/role_cluster_tree.py:223
+msgid "Role (leave empty to skip)"
+msgstr "Role (пусто — пропустить)"
+
+#: gui/docks/role_cluster_tree.py:227
+msgid "Cluster (leave empty to skip)"
+msgstr "Cluster (пусто — пропустить)"
+
+#: gui/docks/role_cluster_tree.py:229
+msgid "Tag selected"
+msgstr "Проставить выбранным"
+
+#: gui/docks/role_cluster_tree.py:895
+msgid "Enter a Role and/or a Cluster value first."
+msgstr "Сначала введите значение Role и/или Cluster."
+
+#: gui/docks/role_cluster_tree.py:958
+#, python-brace-format
+msgid "Tag Role/Cluster on {count} component(s)"
+msgstr "Проставить Role/Cluster компонентам: {count}"
+
+#: gui/docks/role_cluster_tree.py:974
+#, python-brace-format
+msgid "Tagged Role and Cluster on {count} component(s)."
+msgstr "Проставлены Role и Cluster компонентам: {count}."
+
+#: gui/docks/role_cluster_tree.py:976
+#, python-brace-format
+msgid "Tagged Role on {count} component(s)."
+msgstr "Проставлен Role компонентам: {count}."
+
+#: gui/docks/role_cluster_tree.py:978
+#, python-brace-format
+msgid "Tagged Cluster on {count} component(s)."
+msgstr "Проставлен Cluster компонентам: {count}."
+
+#: gui/docks/role_cluster_tree.py:984
+#, python-brace-format
+msgid "Skipped {count} missing a Role/Cluster field: {refs}"
+msgstr "Пропущено без нужного поля Role/Cluster: {count}: {refs}"
+
+#: gui/docks/role_cluster_tree.py:997
+#, python-brace-format
+msgid "Tag failed: {error}"
+msgstr "Простановка не удалась: {error}"
+
 #: gui/docks/root_metadata.py:132
 msgid "Root sheet:"
 msgstr "Корневой лист:"
