@@ -469,7 +469,13 @@ class DockHub:
             pivot_initial=entry.get("pivot") if isinstance(entry, dict) else None,
             # Commit G — "Take from selection" reads the CURRENT board selection
             # at click time (see record_scheme_list).
-            selection_provider=lambda: list(self._selection_footprints))
+            selection_provider=lambda: list(self._selection_footprints),
+            # Commit H — the recorded refs' positions come from the LIVE
+            # full-board snapshot (connection.snapshot, refreshed by the poll
+            # timer under the dialog's modal event loop), never from a direct
+            # adapter.get_footprints() IPC on the shared kipy REQ socket
+            # (plan_2026_09_08_scheme_list_pivot_direct_ipc_hang_fix.md §0).
+            snapshot_provider=lambda: getattr(connection, "snapshot", None) or [])
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         _name, _sheet_path, checked_paths = dialog.result_data()
@@ -1235,7 +1241,13 @@ class DockHub:
             # Commit G — "Take from selection" reads the CURRENT board selection
             # at click time (the dialog outlives the open-time snapshot; the
             # polled copy stays fresh under its modal event loop).
-            selection_provider=lambda: list(self._selection_footprints))
+            selection_provider=lambda: list(self._selection_footprints),
+            # Commit H — the recorded refs' positions come from the LIVE
+            # full-board snapshot (connection.snapshot, refreshed by the poll
+            # timer under the dialog's modal event loop), never from a direct
+            # adapter.get_footprints() IPC on the shared kipy REQ socket
+            # (plan_2026_09_08_scheme_list_pivot_direct_ipc_hang_fix.md §0).
+            snapshot_provider=lambda: getattr(connection, "snapshot", None) or [])
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         name, _sheet_path, checked_paths = dialog.result_data()

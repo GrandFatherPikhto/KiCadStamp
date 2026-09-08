@@ -1135,7 +1135,9 @@ Captures a named Scheme List from the live board through a **three-tab** dialog:
   board selection AT CLICK TIME (Commit G — the selection is polled live even while the modal dialog is
   open, so a component selected on the board after Record was launched is honoured) and fills x/y as
   the pivot in the centre-frame of the refs the ACTIVE source tab would record (selected component
-  centre minus the recorded region's centre; needs a live KiCad connection). The dialog OK
+  centre minus the recorded region's centre; needs a live KiCad connection). The recorded region's
+  centre is read from the polled full-board snapshot, never from a blocking board IPC on the shared
+  KiCad socket (Commit H) — the click stays instant and cannot race the poll. The dialog OK
   (Record/Re-source) STORES these fields as the new record's pivot — there is no separate Apply in the
   dialog, and OK stays disabled while the x/y fields do not hold numbers.
 

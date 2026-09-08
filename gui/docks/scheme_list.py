@@ -381,7 +381,7 @@ def write_scheme_list_record(root_path: Path, record: SchemeListConfig,
     return Path(target_path)
 
 
-# ── Pure live-pivot helpers (Commit B2) ────────────────────────────────────
+# ── Pure live-pivot helpers (Commit B2 / H) ────────────────────────────────
 #
 # The "Take from selection" source on the record page: translate the CENTRE of
 # the CURRENT live board selection into the record's centre-frame (a pivot the
@@ -393,15 +393,35 @@ def write_scheme_list_record(root_path: Path, record: SchemeListConfig,
 # current live centre stays consistent with how Reread/Apply re-centre the
 # region on the next live read (plan_2026_09_07_scheme_list_pivot_commit_b2.md
 # §1). Qt-free and side-effect-free so the math is unit-testable without a dock.
+#
+# Commit H (plan_2026_09_08_scheme_list_pivot_direct_ipc_hang_fix.md): the
+# helpers read the recorded refs' PRESENT POSITIONS from the full-board
+# footprint SNAPSHOT (BoardConnection.snapshot — a list of Selected, each with
+# .ref and the raw .fp handle), NOT by a fresh adapter.get_footprints() IPC
+# call. The kipy REQ socket allows exactly ONE request in flight for the whole
+# app (gui/connection.py); under a modal dialog's nested event loop the main
+# window's poll ticks keep running on that same socket, so a click handler
+# firing a second, unsynchronized adapter.get_footprints() collided with them
+# and hung the "Take from selection" dialog. The snapshot is the same cache
+# record_scheme_list/"By sheet" already build from, so zero extra IPC and zero
+# race.
 
-def live_record_centre_mm(record_refs: list, adapter) -> tuple[float, float] | None:
+def live_record_centre_mm(record_refs: list, footprints) -> tuple[float, float] | None:
     """The centre of the recorded region ON THE LIVE BOARD (mm): the midpoint
     of the position extents of the PRESENT recorded footprints (the same
     _region_centre formula capture uses) — to translate a live-board point into
     the record's centre-frame consistently with Reread/Apply. None when NONE of
     the recorded refs is on the board (edge 1) — the centre cannot be computed;
-    we never guess (pattern read_cell_anchor_offset_from_selection)."""
-    live_by_ref = {fp.ref: fp for fp in adapter.get_footprints()}
+    we never guess (pattern read_cell_anchor_offset_from_selection).
+
+    `footprints` is the full-board footprint SNAPSHOT (Iterable[Selected] —
+    BoardConnection.snapshot), NOT a live adapter: each Selected carries .ref
+    and the raw .fp handle whose .position feeds _region_centre. Reading from
+    the snapshot instead of a direct adapter call is what keeps this off the
+    shared kipy REQ socket (see the section comment above)."""
+    live_by_ref = {s.ref: s.fp for s in footprints
+                   if getattr(s, "ref", None) is not None
+                   and getattr(s, "fp", None) is not None}
     present = [live_by_ref[r] for r in record_refs if r in live_by_ref]
     if not present:
         return None
@@ -409,24 +429,32 @@ def live_record_centre_mm(record_refs: list, adapter) -> tuple[float, float] | N
     return (centre_nm.x / MM, centre_nm.y / MM)
 
 
-def missing_record_refs(record_refs: list, adapter) -> list:
+def missing_record_refs(record_refs: list, footprints) -> list:
     """Recorded refs that are NOT on the live board (edge 2: "not all recorded
     components are on the board") — for a UI warning. Empty when every recorded
-    ref is present."""
-    live_refs = {fp.ref for fp in adapter.get_footprints()}
+    ref is present. Reads the refs from the footprint SNAPSHOT (see
+    live_record_centre_mm — never a direct adapter IPC call)."""
+    live_refs = {s.ref for s in footprints
+                 if getattr(s, "ref", None) is not None}
     return sorted(r for r in record_refs if r not in live_refs)
 
 
-def pivot_centre_frame_from_selection(record_refs: list, adapter, selected
+def pivot_centre_frame_from_selection(record_refs: list, footprints, selected
                                       ) -> tuple[float, float]:
     """The pivot (mm, in the record's centre-frame) that puts the CENTRE of the
     CURRENT live selection at the record's origin on a Redraw:
     selected_center_mm(selected) minus the LIVE centre of the recorded region
-    (live_record_centre_mm). Fatal-like cases are a ValidationError with a clear
-    message (pattern read_cell_anchor_offset_from_selection — never guess):
+    (live_record_centre_mm). `footprints` is the full-board footprint SNAPSHOT
+    (see live_record_centre_mm for WHY the snapshot and not the adapter: the
+    shared kipy REQ socket allows one in-flight request, so a click handler
+    running under the modal dialog's nested event loop must never issue a
+    second, unsynchronized adapter.get_footprints() while a poll tick is
+    mid-flight on the same socket). Fatal-like cases are a ValidationError
+    with a clear message (pattern read_cell_anchor_offset_from_selection —
+    never guess):
       - none of the recorded refs is on the board (edge 1 — centre unknown);
       - the selection is empty / has no positions (edge 3)."""
-    centre_mm = live_record_centre_mm(record_refs, adapter)
+    centre_mm = live_record_centre_mm(record_refs, footprints)
     if centre_mm is None:
         raise ValidationError(
             _("none of the recorded components is on the board — cannot "
@@ -534,12 +562,15 @@ class RecordSchemeListDialog(QDialog):
     def __init__(self, snapshot: list, selection_refs: List[str], parent=None,
                  fixed_name: Optional[str] = None, *,
                  adapter=None, selected_footprints=None, pivot_initial=None,
-                 selection_provider=None):
+                 selection_provider=None, snapshot_provider=None):
         super().__init__(parent)
         self._fixed_name = fixed_name
         # Pivot/Anchor tab context (Commit F): the live adapter + current board
         # selection feed "Take from selection"; pivot_initial prefills the tab
         # (Re-source = the stored record's pivot, Record = None -> (0,0) centre).
+        # `adapter` is kept ONLY as a "live board connected" gate (button enable
+        # + the Connect-first warning) — position data comes from the snapshot,
+        # never from a direct adapter.get_footprints() call (Commit H).
         self._adapter = adapter
         self._selected_footprints = list(selected_footprints or [])
         # Commit G: the modal dialog outlives the selection it was opened with,
@@ -549,6 +580,13 @@ class RecordSchemeListDialog(QDialog):
         # copy — kept fresh by the main window's selection timer even under the
         # dialog's nested event loop). None -> fall back to the static copy.
         self._selection_provider = selection_provider
+        # Commit H: the recorded refs' POSITIONS must be read the same way —
+        # from the full-board footprint SNAPSHOT, and LIVE at click time (the
+        # open-time `snapshot` argument is stale once the board has moved under
+        # the modal dialog). snapshot_provider returns the current snapshot
+        # (DockHub's connection.snapshot, refreshed by the poll timer); None ->
+        # fall back to the constructor snapshot (tests/fallback).
+        self._snapshot_provider = snapshot_provider
         self._pivot_initial = (tuple(pivot_initial) if pivot_initial is not None
                                else (0.0, 0.0))
         if fixed_name:
@@ -741,6 +779,17 @@ class RecordSchemeListDialog(QDialog):
             return list(self._selection_provider())
         return list(self._selected_footprints)
 
+    def _live_snapshot(self) -> list:
+        """The full-board footprint snapshot "Take from selection" reads the
+        recorded refs' POSITIONS from: the LIVE snapshot at click time
+        (snapshot_provider — Commit H), or the open-time snapshot when no
+        provider was given (tests/fallback). Reading positions from this cache
+        (not the adapter) keeps the click off the shared kipy REQ socket — see
+        live_record_centre_mm's docstring."""
+        if self._snapshot_provider is not None:
+            return list(self._snapshot_provider())
+        return list(self._snapshot)
+
     def _on_pivot_centre(self) -> None:
         """'Centre' — write the centre default 0/0 into the x/y fields."""
         self._set_pivot_fields(0.0, 0.0)
@@ -749,9 +798,11 @@ class RecordSchemeListDialog(QDialog):
         """'Take from selection' — read the CURRENT board selection's centre and
         write x/y as the pivot in the centre-frame of the refs we would record
         now (selected centre minus the live centre of those refs' footprints,
-        Commit B2 helpers). Needs the live adapter; the selection is read LIVE
-        at click time (Commit G), so selecting on the board while the dialog is
-        open is honoured."""
+        Commit B2 helpers). Needs a live board; the selection AND the snapshot
+        are read LIVE at click time (Commit G + H), so selecting on the board
+        — or the board moving — while the dialog is open is honoured. The
+        region centre comes from the LIVE snapshot, never from a direct
+        adapter.get_footprints() call (Commit H — see live_record_centre_mm)."""
         if self._adapter is None:
             QMessageBox.warning(self, _("Scheme Lists"),
                                 _("Connect to KiCad first."))
@@ -766,7 +817,7 @@ class RecordSchemeListDialog(QDialog):
             return
         try:
             x, y = pivot_centre_frame_from_selection(
-                refs, self._adapter, self._live_selection())
+                refs, self._live_snapshot(), self._live_selection())
         except ValidationError as e:
             QMessageBox.warning(self, _("Scheme Lists"), str(e))
             return
@@ -1362,7 +1413,10 @@ class SchemeListFormWidget(QWidget):
         region, recomputed from the recorded refs' present positions). Pure live
         read — fills the FIELDS as a preview; nothing is written until 'Apply'
         (Save pivot) is pressed (Commit B2, plan_2026_09_07_scheme_list_pivot_
-        commit_b2.md §1)."""
+        commit_b2.md §1). The recorded refs' positions come from the full-board
+        footprint SNAPSHOT (self._connection.snapshot), never from a direct
+        adapter.get_footprints() call on this GUI thread (Commit H,
+        plan_2026_09_08_scheme_list_pivot_direct_ipc_hang_fix.md §0)."""
         self._show_message("")
         if not self._entry or self._path is None:
             self._show_message(_("Load a Scheme List record first."), _ERROR_STYLE)
@@ -1379,6 +1433,10 @@ class SchemeListFormWidget(QWidget):
                        self._entry.get("name"), self._path,
                        board is not None,
                        len(getattr(self, "_selection_footprints", []) or []))
+        # The polled full-board footprint snapshot (BoardConnection.snapshot) —
+        # the same cache Reread already reads (see _collect_reread_payload).
+        # `adapter` above is only the live-board gate; positions come from here.
+        snapshot = getattr(self._connection, "snapshot", None) or []
         try:
             record = load_scheme_list(self._entry)
         except ValidationError as e:
@@ -1387,12 +1445,12 @@ class SchemeListFormWidget(QWidget):
             self._show_message(str(e), _ERROR_STYLE)
             return
         record_refs = [c.ref for c in record.components]
-        missing = missing_record_refs(record_refs, adapter)
+        missing = missing_record_refs(record_refs, snapshot)
         logger.warning("[SchemeList Pivot] TakeFromSel record=%r refs=%r "
                        "missing=%r", record.name, record_refs, missing)
         try:
             pivot_mm = pivot_centre_frame_from_selection(
-                record_refs, adapter, self._selection_footprints)
+                record_refs, snapshot, self._selection_footprints)
         except ValidationError as e:
             logger.warning("[SchemeList Pivot] TakeFromSel pivot failed: %r "
                            "(%s)", str(e), type(e).__name__)

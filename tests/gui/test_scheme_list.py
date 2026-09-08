@@ -352,7 +352,8 @@ def _fps_by_ref(adapter) -> dict:
 
 def test_live_record_centre_mm_is_midpoint_of_present_refs(main_window):
     adapter = _line_board()
-    centre = live_record_centre_mm(["R1", "C1", "C2"], adapter)
+    snap = _fp_snapshot(adapter)  # the BoardConnection.snapshot-shaped cache
+    centre = live_record_centre_mm(["R1", "C1", "C2"], snap)
     assert centre is not None
     assert centre[0] == pytest.approx(17.0)  # (10 + 24) / 2
     assert centre[1] == pytest.approx(10.0)
@@ -361,10 +362,12 @@ def test_live_record_centre_mm_is_midpoint_of_present_refs(main_window):
 def test_live_record_centre_mm_none_when_no_recorded_ref_present(main_window):
     adapter = _line_board()
     adapter._fps = []  # the live board has none of the recorded refs (edge 1)
-    assert live_record_centre_mm(["R1", "C1", "C2"], adapter) is None
+    assert live_record_centre_mm(["R1", "C1", "C2"],
+                                 _fp_snapshot(adapter)) is None
     # partial presence still yields a centre (over the PRESENT refs)
     adapter._fps = [_fp("R1", 10, 10), _fp("C1", 20, 10)]
-    centre = live_record_centre_mm(["R1", "C1", "C2"], adapter)
+    centre = live_record_centre_mm(["R1", "C1", "C2"],
+                                   _fp_snapshot(adapter))
     assert centre is not None
     assert centre[0] == pytest.approx(15.0)
 
@@ -376,7 +379,8 @@ def test_pivot_from_selection_centre_point_gives_0_0(main_window):
     adapter = _line_board()
     fps = _fps_by_ref(adapter)
     sel = _selection_from(fps["R1"], fps["C2"])
-    pivot = pivot_centre_frame_from_selection(["R1", "C1", "C2"], adapter, sel)
+    snap = _fp_snapshot(adapter)
+    pivot = pivot_centre_frame_from_selection(["R1", "C1", "C2"], snap, sel)
     assert pivot[0] == pytest.approx(0.0)
     assert pivot[1] == pytest.approx(0.0)
 
@@ -387,7 +391,8 @@ def test_pivot_from_selection_shifted_point_is_centre_minus_region_centre(
     fps = _fps_by_ref(adapter)
     # selection = R1 -> centre (10,10); region centre (17,10) -> pivot (-7,0)
     sel = _selection_from(fps["R1"])
-    pivot = pivot_centre_frame_from_selection(["R1", "C1", "C2"], adapter, sel)
+    snap = _fp_snapshot(adapter)
+    pivot = pivot_centre_frame_from_selection(["R1", "C1", "C2"], snap, sel)
     assert pivot[0] == pytest.approx(-7.0)
     assert pivot[1] == pytest.approx(0.0)
 
@@ -397,25 +402,50 @@ def test_pivot_from_selection_no_recorded_ref_on_board_is_fatal(main_window):
     cannot be computed, so we raise instead of guessing."""
     adapter = _line_board()
     adapter._fps = []
+    snap = _fp_snapshot(adapter)  # empty snapshot = no recorded ref present
     with pytest.raises(ValidationError):
-        pivot_centre_frame_from_selection(["R1", "C1", "C2"], adapter, [])
+        pivot_centre_frame_from_selection(["R1", "C1", "C2"], snap, [])
 
 
 def test_pivot_from_selection_empty_selection_is_fatal(main_window):
     """Edge 3 — the selection is empty: the selected centre cannot be computed,
     so we raise instead of guessing."""
     adapter = _line_board()
+    snap = _fp_snapshot(adapter)
     with pytest.raises(ValidationError):
-        pivot_centre_frame_from_selection(["R1", "C1", "C2"], adapter, [])
+        pivot_centre_frame_from_selection(["R1", "C1", "C2"], snap, [])
 
 
 def test_missing_record_refs_reports_only_absent_refs(main_window):
     adapter = _line_board()
-    assert missing_record_refs(["R1", "C1", "C2"], adapter) == []
+    assert missing_record_refs(["R1", "C1", "C2"],
+                               _fp_snapshot(adapter)) == []
     adapter._fps = [fp for fp in adapter._fps if fp.ref != "C2"]
-    assert missing_record_refs(["R1", "C1", "C2"], adapter) == ["C2"]
+    assert missing_record_refs(["R1", "C1", "C2"],
+                               _fp_snapshot(adapter)) == ["C2"]
     # a ref never present on the board is reported too (sorted)
-    assert missing_record_refs(["R1", "C9", "C2"], adapter) == ["C2", "C9"]
+    assert missing_record_refs(["R1", "C9", "C2"],
+                               _fp_snapshot(adapter)) == ["C2", "C9"]
+
+
+def test_pivot_helpers_take_a_snapshot_not_an_adapter(main_window):
+    """Commit H regression guard — the pivot helpers read positions from the
+    footprint SNAPSHOT (Selected-like objects with .ref + .fp), never from a
+    live adapter. The snapshot entries below expose ONLY .ref/.fp — no
+    .get_footprints or any other adapter method — so a helper that regressed
+    to calling adapter methods would raise AttributeError, proving a GUI-
+    thread click can never fire a second adapter.get_footprints() IPC on the
+    shared kipy REQ socket (plan_2026_09_08_scheme_list_pivot_direct_ipc_hang_
+    fix.md §0)."""
+    adapter = _line_board()
+    fps = _fps_by_ref(adapter)
+    snap = [SimpleNamespace(ref=s.ref, fp=s.fp) for s in _fp_snapshot(adapter)]
+    sel = _selection_from(fps["R1"])
+    assert live_record_centre_mm(["R1", "C1", "C2"], snap) == pytest.approx(
+        (17.0, 10.0))
+    assert missing_record_refs(["R1", "C1", "C2"], snap) == []
+    pivot = pivot_centre_frame_from_selection(["R1", "C1", "C2"], snap, sel)
+    assert pivot[0] == pytest.approx(-7.0)
 
 
 def test_pivot_take_from_selection_fills_fields_from_live_selection(
@@ -425,6 +455,9 @@ def test_pivot_take_from_selection_fills_fields_from_live_selection(
     root = _record_file(tmp_path, d)
     dock = _make_dock(main_window, root, d)
     _connect_board(dock, adapter)
+    # Commit H — positions come from the polled full-board snapshot cache
+    # (connection.snapshot), not from a direct adapter IPC.
+    dock._connection.snapshot = _fp_snapshot(adapter)
     fps = _fps_by_ref(adapter)
     dock.set_board_selection([], _selection_from(fps["R1"]))  # live sel = R1
 
@@ -443,6 +476,8 @@ def test_pivot_take_from_selection_missing_recorded_ref_warns_and_computes(
     dock = _make_dock(main_window, root, d)
     adapter._fps = [fp for fp in adapter._fps if fp.ref != "C2"]  # C2 missing
     _connect_board(dock, adapter)
+    # Commit H — the snapshot mirrors the LIVE board (C2 already gone).
+    dock._connection.snapshot = _fp_snapshot(adapter)
     fps = _fps_by_ref(adapter)
     dock.set_board_selection([], _selection_from(fps["R1"]))
 
@@ -489,6 +524,7 @@ def test_pivot_take_from_selection_is_preview_only_no_write_no_saved(
     root = _record_file(tmp_path, d)
     dock = _make_dock(main_window, root, d)
     _connect_board(dock, adapter)
+    dock._connection.snapshot = _fp_snapshot(adapter)
     fps = _fps_by_ref(adapter)
     dock.set_board_selection([], _selection_from(fps["R1"]))
     before = root.read_text(encoding="utf-8")
@@ -501,6 +537,36 @@ def test_pivot_take_from_selection_is_preview_only_no_write_no_saved(
     # the explicit Apply (Save pivot) is still required to persist.
     assert root.read_text(encoding="utf-8") == before
     assert emitted == []
+    assert float(dock.pivot_x_edit.text()) == pytest.approx(-7.0)
+
+
+def test_record_page_take_from_selection_never_calls_adapter_for_positions(
+        main_window, tmp_path):
+    """Commit H regression guard — the record page's 'Take from selection'
+    reads the recorded refs' positions from connection.snapshot, never from
+    adapter.get_footprints(): an adapter that records every get_footprints()
+    call must see NONE from the click (a GUI-thread adapter IPC is exactly the
+    hang this fix removes — plan_2026_09_08_..._hang_fix.md §0)."""
+    adapter = _line_board()
+    d = _record_dict(adapter)
+    root = _record_file(tmp_path, d)
+    dock = _make_dock(main_window, root, d)
+
+    calls = []
+
+    class _GuardedAdapter(FakeAdapter):
+        def get_footprints(self):
+            calls.append("get_footprints")
+            return super().get_footprints()
+
+    _connect_board(dock, _GuardedAdapter(adapter.get_footprints(), [], [], {}))
+    dock._connection.snapshot = _fp_snapshot(adapter)  # the polled cache
+    fps = _fps_by_ref(adapter)
+    dock.set_board_selection([], _selection_from(fps["R1"]))
+
+    dock.pivot_from_selection_button.click()
+
+    assert calls == []  # the adapter was never reached for footprint positions
     assert float(dock.pivot_x_edit.text()) == pytest.approx(-7.0)
 
 
@@ -1258,6 +1324,35 @@ _HIER = [
 ]
 
 
+# ── Commit H — footprint-bearing snapshots (live-position source) ───────────
+# plan_2026_09_08_scheme_list_pivot_direct_ipc_hang_fix.md: "Take from
+# selection" now reads the recorded refs' positions from the full-board
+# footprint SNAPSHOT (BoardConnection.snapshot — Selected.ref + Selected.fp),
+# never from a direct adapter.get_footprints() IPC on the GUI thread. The two
+# helpers below build that snapshot shape from a FakeAdapter so the pivot
+# tests exercise the same cache the real GUI feeds the helpers with.
+
+def _fp_snapshot(adapter):
+    """A footprint-bearing snapshot (Selected-like .ref + .fp) mirroring
+    BoardConnection.snapshot — the cache the pivot helpers now read positions
+    from instead of the adapter (the record page reads
+    connection.snapshot directly)."""
+    return [SimpleNamespace(ref=fp.ref, fp=fp)
+            for fp in adapter.get_footprints()]
+
+
+def _snap_live(adapter, rows=_HIER):
+    """A footprint-bearing dialog snapshot: `rows` [(ref, path), ...] (default
+    the whole _HIER) merged with each row's raw .fp from `adapter` — rows whose
+    ref is not on the adapter keep their sheet identity but carry fp=None (they
+    define the "By sheet" tree yet contribute no live position, like a real
+    snapshot whose recorded refs are a subset of the board). Mirrors
+    BoardConnection.snapshot (Selected.ref + Selected.fp)."""
+    by_ref = {fp.ref: fp for fp in adapter.get_footprints()}
+    return [SimpleNamespace(ref=ref, sheet=list(path), fp=by_ref.get(ref))
+            for ref, path in rows]
+
+
 # ── 5a.1 — pure helpers ────────────────────────────────────────────────────
 
 def test_live_sheet_paths_dedups_keeps_nesting_and_sorts():
@@ -1687,8 +1782,10 @@ def test_record_scheme_list_by_sheet_payload_refs_match_checked_sheets(
         class _FakeDialog:
             def __init__(self, snapshot, selection_refs, parent,
                          *, adapter=None, selected_footprints=None,
-                         pivot_initial=None, selection_provider=None):
+                         pivot_initial=None, selection_provider=None,
+                         snapshot_provider=None):
                 captured["selection_provider"] = selection_provider
+                captured["snapshot_provider"] = snapshot_provider
 
             def exec(self):
                 return QDialog.DialogCode.Accepted
@@ -1726,6 +1823,14 @@ def test_record_scheme_list_by_sheet_payload_refs_match_checked_sheets(
         assert captured["selection_provider"]() == []
         hub._selection_footprints = [SimpleNamespace(ref="IC2")]
         assert [s.ref for s in captured["selection_provider"]()] == ["IC2"]
+        # Commit H — the dialog also receives a LIVE full-board snapshot
+        # provider (a view over connection.snapshot), so "Take from selection"
+        # reads the recorded refs' CURRENT positions, not the open-time copy.
+        assert captured["snapshot_provider"] is not None
+        assert [s.ref for s in captured["snapshot_provider"]()] == [
+            s.ref for s in _snap(*_HIER)]
+        connection.snapshot = [SimpleNamespace(ref="Moved1")]
+        assert [s.ref for s in captured["snapshot_provider"]()] == ["Moved1"]
 
         assert len(payloads) == 1
         # Ch1's C3 is excluded; R1/C1/C2/U1 are the checked-sheet union.
@@ -1773,8 +1878,11 @@ def test_record_scheme_list_by_selection_payload_matches_selection_refs(
         class _FakeDialog:
             def __init__(self, snapshot, selection_refs, parent,
                          *, adapter=None, selected_footprints=None,
-                         pivot_initial=None, selection_provider=None):
-                pass
+                         pivot_initial=None, selection_provider=None,
+                         snapshot_provider=None):
+                # Commit H — connection.snapshot is live when the dialog opens.
+                assert snapshot_provider is not None
+                assert [s.ref for s in snapshot_provider()] == []
 
             def exec(self):
                 return QDialog.DialogCode.Accepted
@@ -2019,9 +2127,10 @@ def test_run_resource_scheme_list_payload_uses_fixed_name_checked_refs_and_owner
             def __init__(self, snapshot, selection_refs, parent,
                          fixed_name=None, *, adapter=None,
                          selected_footprints=None, pivot_initial=None,
-                         selection_provider=None):
+                         selection_provider=None, snapshot_provider=None):
                 seen["fixed_name"] = fixed_name
                 seen["selection_provider"] = selection_provider
+                seen["snapshot_provider"] = snapshot_provider
                 # Commit F — Re-source pre-fills the Pivot/Anchor tab from the
                 # stored record's pivot, so leaving it alone KEEPS the pivot.
                 seen["pivot_initial"] = pivot_initial
@@ -2062,6 +2171,14 @@ def test_run_resource_scheme_list_payload_uses_fixed_name_checked_refs_and_owner
         assert seen.get("fixed_name") == "amp"
         # Commit G — the Re-source dialog also gets the LIVE selection provider.
         assert seen.get("selection_provider") is not None
+        # Commit H — and the LIVE full-board snapshot provider (connection.
+        # snapshot, refreshed under the modal loop) for the recorded refs'
+        # positions in "Take from selection".
+        assert seen.get("snapshot_provider") is not None
+        assert [s.ref for s in seen["snapshot_provider"]()] == [
+            s.ref for s in _snap(*_HIER)]
+        connection.snapshot = [SimpleNamespace(ref="Moved2")]
+        assert [s.ref for s in seen["snapshot_provider"]()] == ["Moved2"]
         # Commit F — the Re-source dialog is pre-filled from the stored pivot...
         assert seen.get("pivot_initial") == [2.5, -1.0]
         assert len(payloads) == 1
@@ -2679,11 +2796,13 @@ def test_record_dialog_pivot_take_from_selection_fills_using_selection(
     fills x/y as the pivot in the centre-frame of the refs the dialog would
     record (the live adapter + selected footprints are the dialog's new
     optional context). By-selection mode: refs = the selection R1/C1/C2 whose
-    live centre (17,10); live selection = R1 centre (10,10) -> pivot (-7,0)."""
+    live centre (17,10); live selection = R1 centre (10,10) -> pivot (-7,0).
+    The recorded refs' positions come from the dialog's footprint-bearing
+    SNAPSHOT (_snap_live), not from the adapter (Commit H)."""
     adapter = _line_board()
     fps = _fps_by_ref(adapter)
     sel = _selection_from(fps["R1"])  # live board selection = R1 only
-    dialog = RecordSchemeListDialog(_snap(*_HIER), ["R1", "C1", "C2"],
+    dialog = RecordSchemeListDialog(_snap_live(adapter), ["R1", "C1", "C2"],
                                     main_window, adapter=adapter,
                                     selected_footprints=sel)
     try:
@@ -2797,7 +2916,7 @@ def test_record_dialog_pivot_take_from_selection_reads_live_selection(
     adapter = _line_board()  # R1(10,10) C1(20,10) C2(24,10) -> centre (17,10)
     fps = _fps_by_ref(adapter)
     live: list = []  # nothing is selected when the dialog opens
-    dialog = RecordSchemeListDialog(_snap(*_HIER), [], main_window,
+    dialog = RecordSchemeListDialog(_snap_live(adapter), [], main_window,
                                     adapter=adapter,
                                     selection_provider=lambda: list(live))
     try:
@@ -2814,14 +2933,56 @@ def test_record_dialog_pivot_take_from_selection_reads_live_selection(
         dialog.close()
 
 
+def test_record_dialog_pivot_take_from_selection_reads_live_snapshot(
+        main_window):
+    """Commit H — the dialog's recorded-ref positions also come from a LIVE
+    full-board snapshot (snapshot_provider), not the open-time copy: moving C2
+    on the board AFTER the dialog is open shifts the region centre, and the
+    second click honours the NEW position (R1/C1/C2 at (10,20,34) -> centre 22
+    -> pivot 10 - 22 = -12 instead of -7). Reading self._snapshot (the static
+    constructor copy) would keep returning -7, so the assert distinguishes the
+    live source from a stale one."""
+    adapter = _line_board()  # R1(10,10) C1(20,10) C2(24,10) -> centre (17,10)
+    fps = _fps_by_ref(adapter)
+    static = _snap_live(adapter)  # the board as it was when the dialog opened
+    live_snap = list(static)      # connection.snapshot — mutated by the test
+    dialog = RecordSchemeListDialog(static, ["R1", "C1", "C2"], main_window,
+                                    adapter=adapter,
+                                    selected_footprints=_selection_from(
+                                        fps["R1"]),
+                                    selection_provider=lambda: list(
+                                        _selection_from(fps["R1"])),
+                                    snapshot_provider=lambda: list(live_snap))
+    try:
+        dialog.tabs.setCurrentIndex(1)  # By selection — refs = R1/C1/C2
+        dialog.pivot_from_selection_button.click()
+        x0, _y0 = dialog.pivot_value()
+        assert x0 == pytest.approx(-7.0)
+        # ...then C2 is MOVED to x=34 while the dialog is open (a fresh board
+        # whose rows replace the live snapshot's; the static copy keeps C2@24).
+        moved = _line_board(c2_x_mm=34.0)
+        by_ref = {f.ref: f for f in moved.get_footprints()}
+        live_snap[:] = [SimpleNamespace(ref=s.ref, sheet=list(s.sheet),
+                                        fp=by_ref.get(s.ref))
+                        for s in live_snap]
+        dialog.pivot_from_selection_button.click()
+        x1, y1 = dialog.pivot_value()
+        assert x1 == pytest.approx(-12.0)  # 10 - midpoint(10, 34)
+        assert y1 == pytest.approx(0.0)
+    finally:
+        dialog.close()
+
+
 def test_record_dialog_pivot_take_from_selection_falls_back_to_snapshot(
         main_window):
-    """Commit G regression guard — without a selection_provider the dialog keeps
-    using the open-time snapshot (tests/Re-source callers that pass the static
-    list still behave as before)."""
+    """Commit G + H regression guard — without selection_provider /
+    snapshot_provider the dialog keeps using the OPEN-TIME static copies (the
+    constructor `snapshot` for positions, the selected_footprints for the
+    selection): tests/Re-source callers that pass the static list still behave
+    as before."""
     adapter = _line_board()
     fps = _fps_by_ref(adapter)
-    dialog = RecordSchemeListDialog(_snap(*_HIER), ["R1", "C1", "C2"],
+    dialog = RecordSchemeListDialog(_snap_live(adapter), ["R1", "C1", "C2"],
                                     main_window, adapter=adapter,
                                     selected_footprints=_selection_from(
                                         fps["R1"]))
