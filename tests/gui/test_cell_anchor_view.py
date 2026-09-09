@@ -19,6 +19,7 @@ from gui.docks.cell_anchor_view import (
     find_pad_owner,
     read_anchor_source,
     resolve_clone_context,
+    resolve_clone_context_live,
     roles_for_cluster,
 )
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
@@ -210,6 +211,195 @@ def test_resolve_clone_context_none_one_many(monkeypatch):
         resolve_clone_context(cfg, "cell1", "PIF_3V3_VDD", "")
     assert "several clone placements" in str(ei.value)
     assert "p1" in str(ei.value) and "p2" in str(ei.value)
+
+
+# ── C.5.1: the Marker tab sees Entity placements (union with materialized) ──
+
+def _entity_clone(name="pif_3v3_vdd_mcu", cell="cell1", cluster="PIF_3V3_VDD",
+                  sheet="MCU"):
+    """A transient clone SHAPE as materialize_entity_placements produces for a
+    tree entity placement node (Entity fields + absolute position)."""
+    return SimpleNamespace(name=name, cell=cell, cluster=cluster, sheet=sheet,
+                           mirror=False, ignore_selection=False)
+
+
+def _monkeypatch_materialize(monkeypatch, clones):
+    """Replace view_mod.materialize_entity_placements with a fake returning
+    `clones` — the live-tree IPC is out of scope of these unit tests (it is
+    covered by tests/test_entity_placement.py); here we test OUR union logic."""
+    monkeypatch.setattr(view_mod, "materialize_entity_placements",
+                        lambda adapter, cfg_, sheet_names=None,
+                        position_overrides=None: list(clones))
+    monkeypatch.setattr(view_mod, "clone_placement_effective_name",
+                        lambda cp: cp.name)
+
+
+def test_resolve_clone_context_live_finds_entity_placed_cell(monkeypatch):
+    """THE C.5.1 regression: a cell placed ONLY through an entity in the tree
+    (no own clone_placement) is found by its Cluster and Sheet via the union
+    with the materialized entity placements. Before the fix the top-level-only
+    scan returned None and the Marker tab dead-ended."""
+    _monkeypatch_materialize(monkeypatch, [_entity_clone()])
+    cfg = SimpleNamespace(clone_placements=[], entities=[object()],
+                          trees=[object()])
+    found = resolve_clone_context_live(object(), cfg, "cell1", "PIF_3V3_VDD",
+                                       "MCU", {"MCU": "MCU"})
+    assert found is not None
+    assert found.name == "pif_3v3_vdd_mcu"
+    # A cell with no entity/clone placement in context -> None, never a guess.
+    assert resolve_clone_context_live(object(), cfg, "absent_cell",
+                                      "PIF_3V3_VDD", "", {}) is None
+
+
+def test_resolve_clone_context_live_entity_must_match_cluster_and_sheet(monkeypatch):
+    """The entity placement only counts when its OWN cluster_prefix_matches the
+    working Cluster and its Sheet equals the working Sheet — the same
+    selection as the top-level clone path."""
+    _monkeypatch_materialize(monkeypatch, [
+        _entity_clone(name="a_mcu", cluster="PIF_3V3_VDD", sheet="MCU"),
+        _entity_clone(name="b_fpga", cluster="PIF_3V3_VDD", sheet="FPGA"),
+        _entity_clone(name="c_dac", cluster="AD_DAC", sheet="MCU"),
+    ])
+    cfg = SimpleNamespace(clone_placements=[], entities=[object()],
+                          trees=[object()])
+    # Cluster matches but Sheet differs -> the a_mcu placement is excluded.
+    found = resolve_clone_context_live(object(), cfg, "cell1", "PIF_3V3_VDD",
+                                       "FPGA", {"FPGA": "FPGA"})
+    assert found is not None and found.name == "b_fpga"
+    # Different cluster entirely -> nothing.
+    assert resolve_clone_context_live(object(), cfg, "cell1", "AD_DAC", "MCU",
+                                      {"MCU": "MCU"}) is not None
+    assert resolve_clone_context_live(object(), cfg, "cell1", "NOPE", "", {}) is None
+
+
+def test_resolve_clone_context_live_union_keeps_top_level_clones(monkeypatch):
+    """A top-level clone_placement is still found when there are also entity
+    placements materialized for OTHER cells — the union never hides the
+    offline-represented placements."""
+    _monkeypatch_materialize(monkeypatch, [
+        _entity_clone(cell="other_cell", cluster="AD_DAC")])
+    top = _entity_clone(name="cell1_clone", cell="cell1", cluster="PIF_3V3_VDD",
+                        sheet=None)
+    cfg = SimpleNamespace(clone_placements=[top], entities=[object()],
+                          trees=[object()])
+    found = resolve_clone_context_live(object(), cfg, "cell1", "PIF_3V3_VDD",
+                                       "", {})
+    assert found is top
+
+
+def test_resolve_clone_context_live_dedupes_same_placement_across_sources(monkeypatch):
+    """The SAME physical placement represented BOTH as a top-level clone and as
+    a tree entity node counts ONCE — no spurious "several matched" fatal."""
+    _monkeypatch_materialize(monkeypatch, [
+        _entity_clone(name="cell1_mcu", sheet=None)])
+    top = _entity_clone(name="cell1_mcu", sheet=None)
+    cfg = SimpleNamespace(clone_placements=[top], entities=[object()],
+                          trees=[object()])
+    found = resolve_clone_context_live(object(), cfg, "cell1", "PIF_3V3_VDD",
+                                       "", {})
+    assert found is top
+
+
+def test_resolve_clone_context_live_several_distinct_placements_fatal(monkeypatch):
+    """Two DISTINCT entity placements of the same cell on the same cluster are
+    ambiguous — fatal with enumeration, never "take the first" (the C.5.1 rule
+    carried over from the top-level clone path)."""
+    _monkeypatch_materialize(monkeypatch, [
+        _entity_clone(name="pif_3v3_vdd_mcu_a"),
+        _entity_clone(name="pif_3v3_vdd_mcu_b")])
+    cfg = SimpleNamespace(clone_placements=[], entities=[object()],
+                          trees=[object()])
+    with pytest.raises(ValidationError) as ei:
+        resolve_clone_context_live(object(), cfg, "cell1", "PIF_3V3_VDD", "MCU",
+                                   {"MCU": "MCU"})
+    message = str(ei.value)
+    assert "several clone placements" in message
+    assert "_a" in message and "_b" in message
+
+
+def test_resolve_context_then_returns_sentinel_without_placement(monkeypatch):
+    """The worker wrapper returns _NO_CLONE (never raises) when the cell has no
+    placed instance in the working context, and the delegated op is NOT run."""
+    _monkeypatch_materialize(monkeypatch, [])
+    cfg = SimpleNamespace(clone_placements=[], entities=[object()],
+                          trees=[object()])
+
+    def _boom(*_args, **_kwargs):      # must never be reached
+        raise AssertionError("op must not run without a placed instance")
+
+    result = view_mod._resolve_context_then(
+        object(), cfg, "cell1", "PIF_3V3_VDD", "MCU", {"MCU": "MCU"}, _boom)
+    assert result is view_mod._NO_CLONE
+
+
+def test_entity_placed_cell_show_bbox_worker_draws(main_window, tmp_path,
+                                                   monkeypatch):
+    """THE C.5.1 acceptance: a cell placed ONLY through an entity in the tree
+    is resolved by the worker wrapper and "Show bbox" actually draws the
+    rectangle — the flow that previously dead-ended on the "no clone
+    placement" warning."""
+    import gui.board_overlay as bo
+    from kipy.board_types import BoardLayer
+    from kicadstamp.config.models import Cell
+    from kicadstamp.domain.geometry import Vector2
+    from kicadstamp.utils.units import MM
+    from gui.docks.live_position import LiveRead
+
+    KS_LAYER = BoardLayer.BL_User_5
+
+    class _Board:
+        def __init__(self):
+            self.names = {KS_LAYER: "User.KiCadStamp"}
+
+        def get_enabled_layers(self):
+            return list(self.names)
+
+        def get_layer_name(self, layer):
+            return self.names.get(layer, str(layer))
+
+        def get_shapes(self):
+            return []
+
+    class _Adapter:
+        def __init__(self):
+            self._board = _Board()
+            self.created = []
+
+        def refresh_board(self):
+            pass
+
+        def create_items(self, items):
+            items = list(items)
+            self.created.extend(items)
+            return items
+
+        def select_items(self, items):
+            pass
+
+        def remove_by_ids(self, uuids):
+            return True
+
+    view_mod.settings.state.set(bo.OVERLAY_LAYER_KEY, "User.KiCadStamp")
+    _monkeypatch_materialize(monkeypatch, [_entity_clone()])
+    monkeypatch.setattr(
+        view_mod, "read_clone_origin_live",
+        lambda adapter_, cfg_, clone_, sheet_names:
+            LiveRead(position=Vector2.from_xy(int(100 * MM), int(200 * MM)),
+                     rotation_deg=0.0, footprint=None))
+    monkeypatch.setattr(view_mod, "cell_content_bbox",
+                        lambda entry: (0.0, 10.0, 0.0, 10.0))
+
+    cell = Cell(name="cell1")
+    cfg = SimpleNamespace(cells={"cell1": cell}, clone_placements=[],
+                          entities=[object()], trees=[object()])
+    adapter = _Adapter()
+    result = view_mod._resolve_context_then(
+        adapter, cfg, "cell1", "PIF_3V3_VDD", "MCU", {"MCU": "MCU"},
+        view_mod._draw_bbox_worker, "User.KiCadStamp")
+    assert result is not view_mod._NO_CLONE
+    assert result is not None
+    assert len(adapter.created) == 1
+    assert adapter.created[0].layer == KS_LAYER
 
 
 # ── Widget: the offline write path (board = None) ─────────────────────────

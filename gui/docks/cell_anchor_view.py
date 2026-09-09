@@ -24,10 +24,15 @@ the Sheet/Cluster pickers (Denis, 2026-09-09: "У нас должны быть �
 работать"). A Cell is abstract and may be placed several times (channels), so
 the Marker tab's world<->cell-local mapping (read_clone_origin_live,
 _world_pos_to_cell_local_offset — reused, NOT reimplemented) needs to know
-WHICH placed instance is meant: the view finds the clone placement of this
-cell whose own cluster matches the working Cluster (optionally narrowed by
-Sheet). Without such a placed instance the Marker buttons explain what to do
-(place the cell first); they never guess.
+WHICH placed instance is meant: the view finds the placement of this cell
+whose own cluster matches the working Cluster (optionally narrowed by Sheet)
+among the UNION of the top-level clone_placements and the placements
+materialized from the entity trees (C.5.1 — a cell may be placed only as an
+entity, e.g. pif_3v3_vdd -> entity pif_3v3_vdd_mcu). The lookup runs on the
+WORKER thread (_resolve_context_then), because materializing the entity half
+reads the trees' anchors live from the board. Without such a placed instance
+the Marker buttons explain what to do (place the cell first); they never
+guess.
 
 Entry read/write uses the SAME path CellDock/Placer use
 (find_dict_entry_file + read_data / merge_write — the pair that Phase B will
@@ -68,6 +73,7 @@ from kicadstamp.exceptions import ValidationError, format_fatal_error
 from kicadstamp.geometry.cell_anchor import cell_mount_offset
 from kicadstamp.geometry.spoke_layout import rotate_local_offset
 from kicadstamp.i18n import _
+from kicadstamp.placement.entity_placement import materialize_entity_placements
 from kicadstamp.utils.units import MM
 
 from .. import board_overlay, settings
@@ -94,6 +100,15 @@ from .live_position import (
 from .rename import find_dict_entry_file
 
 logger = logging.getLogger(__name__)
+
+# C.5.1 — a worker's "no result" marker: the cell has NO placed instance in
+# the working Cluster/Sheet (neither a top-level clone_placement nor an entity
+# placement materialized from the trees). Resolution runs on the worker thread
+# (materializing the entities reads the live tree anchors), so the sentinel is
+# returned instead of a value and the UI turns it into the "place the cell
+# first" hint — never a crash. `None` is NOT usable here: it is a legitimate
+# worker result ("no geometry" / "marker gone").
+_NO_CLONE = object()
 
 # The gui_state.json key holding the currently-drawn overlay uuids, scoped by
 # the root config and the cell. Owned by gui.board_overlay (Phase D — the
@@ -329,32 +344,51 @@ def roles_for_cluster(adapter, cell_roles, cluster: str) -> list:
     return sorted(present) if present else sorted(cell_roles)
 
 
+def _matches_clone_context(cp, cell_name: str, cluster: str, sheet: str) -> bool:
+    """True when ONE placed instance (a top-level ClonePlacement or a
+    materialized entity clone — C.5.1) is a placement of `cell_name` for the
+    working Cluster (+ optional Sheet). A placement matches by its OWN cluster
+    field (cluster_prefix_match — the same convention as role_narrowing) and,
+    when Sheet is given and the placement carries one, by exact sheet."""
+    if getattr(cp, "cell", None) != cell_name:
+        return False
+    cp_cluster = getattr(cp, "cluster", None) or ""
+    if cluster and not cluster_prefix_match(cp_cluster, cluster):
+        return False
+    if sheet and getattr(cp, "sheet", None):
+        if cp.sheet != sheet:
+            return False
+    return True
+
+
+def _placement_key(cp):
+    """Identity of ONE physical placement across representations. Two
+    candidates are the SAME placement — NOT an ambiguity — when they share
+    (cell, effective name, cluster, sheet). A placed cell may legitimately
+    exist BOTH as a top-level clone_placement and as a tree entity node
+    (e.g. after a migration); the union in resolve_clone_context_live must
+    not count such a duplicate twice."""
+    return (getattr(cp, "cell", None),
+            clone_placement_effective_name(cp),
+            getattr(cp, "cluster", None) or "",
+            getattr(cp, "sheet", None))
+
+
 def context_clone_candidates(cfg, cell_name: str, cluster: str,
                              sheet: str) -> list:
-    """ClonePlacements of this cell matching the working Cluster (+ optional
-    Sheet) — the placed instance context the Marker tab maps through. A clone
-    matches by its OWN cluster field (cluster_prefix_match, the same
-    convention as role_narrowing) and, when Sheet is given and the clone
-    carries one, by exact sheet."""
-    out = []
-    for cp in getattr(cfg, "clone_placements", []) or []:
-        if getattr(cp, "cell", None) != cell_name:
-            continue
-        cp_cluster = getattr(cp, "cluster", None) or ""
-        if cluster and not cluster_prefix_match(cp_cluster, cluster):
-            continue
-        if sheet and getattr(cp, "sheet", None):
-            if cp.sheet != sheet:
-                continue
-        out.append(cp)
-    return out
+    """Top-level ClonePlacements of this cell matching the working Cluster
+    (+ optional Sheet) — the OFFLINE (board-free) candidate list. The Marker
+    tab's full lookup also covers placements materialized from entity trees —
+    see resolve_clone_context_live (C.5.1)."""
+    return [cp for cp in getattr(cfg, "clone_placements", []) or []
+            if _matches_clone_context(cp, cell_name, cluster, sheet)]
 
 
-def resolve_clone_context(cfg, cell_name: str, cluster: str, sheet: str):
-    """The ONE clone placement of this cell for the working Cluster/Sheet —
-    None when nothing matches; fatal when several match (never "take the
-    first")."""
-    candidates = context_clone_candidates(cfg, cell_name, cluster, sheet)
+def _single_candidate(candidates, cell_name: str, cluster: str):
+    """None when nothing matches; the sole candidate when exactly one; fatal
+    when several DISTINCT placements match (never "take the first" — the C.3 /
+    C.5.1 "several matched -> fatal with enumeration" rule, shared by the
+    offline and the live resolvers)."""
     if not candidates:
         return None
     if len(candidates) > 1:
@@ -368,11 +402,73 @@ def resolve_clone_context(cfg, cell_name: str, cluster: str, sheet: str):
     return candidates[0]
 
 
+def resolve_clone_context(cfg, cell_name: str, cluster: str, sheet: str):
+    """The ONE top-level clone placement of this cell for the working
+    Cluster/Sheet — None when nothing matches; fatal when several match
+    (never "take the first"). The OFFLINE (board-free) twin; the live lookup
+    that also covers entity placements is resolve_clone_context_live."""
+    return _single_candidate(
+        context_clone_candidates(cfg, cell_name, cluster, sheet),
+        cell_name, cluster)
+
+
+def resolve_clone_context_live(adapter, cfg, cell_name: str, cluster: str,
+                               sheet: str, sheet_names):
+    """The ONE placement of this cell for the working Cluster/Sheet among the
+    UNION of the top-level clone_placements and the entity placements
+    materialized from cfg.trees (C.5.1). A cell may be placed ONLY as an
+    entity — e.g. pif_3v3_vdd is placed as entity pif_3v3_vdd_mcu (cluster
+    PIF_3V3_VDD, sheet MCU), not as its own clone_placement; the
+    top-level-only scan (resolve_clone_context) found nothing for it and the
+    Marker tab dead-ended on 23 of 24 cells. None when nothing matches; fatal
+    when several DISTINCT placements match (never "take the first").
+
+    Runs on the WORKER thread (the Marker tab's dispatch): materialize_entity_placements
+    resolves the trees' anchors LIVE from the board, so this must never be
+    called on the UI thread. With no entities/trees the union degrades to the
+    top-level clones and the materialization is a cheap empty pass."""
+    candidates: list = []
+    keys: set = set()
+    for cp in getattr(cfg, "clone_placements", []) or []:
+        if _matches_clone_context(cp, cell_name, cluster, sheet):
+            keys.add(_placement_key(cp))
+            candidates.append(cp)
+    for cp in materialize_entity_placements(adapter, cfg, sheet_names=sheet_names):
+        if not _matches_clone_context(cp, cell_name, cluster, sheet):
+            continue
+        key = _placement_key(cp)
+        if key in keys:
+            continue            # the SAME placement, already in the union
+        keys.add(key)
+        candidates.append(cp)
+    return _single_candidate(candidates, cell_name, cluster)
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # Overlay worker functions (run on the worker thread via start_long_op —
 # pure IPC/file work, NO widget access). The overlay layer is resolved from
 # the LIVE board inside the worker (never on the UI thread).
 # ────────────────────────────────────────────────────────────────────────────
+
+def _resolve_context_then(adapter, cfg, cell_name: str, cluster: str,
+                          sheet: str, sheet_names, fn, *extra):
+    """Resolve the ONE placed instance of this cell for the working
+    Cluster/Sheet (top-level clone_placement + entity placements materialized
+    from the trees — C.5.1) ON THE WORKER THREAD, then run
+    `fn(adapter, cfg, clone, cell_name, sheet_names, *extra)`.
+
+    This is where the placement lookup lives (not on the UI thread): the
+    union's entity half is materialize_entity_placements, which resolves the
+    trees' anchors LIVE from the board. Returns _NO_CLONE (never raises) when
+    the cell has no placed instance in the working context — the caller turns
+    it into the "place the cell first" hint; a several-matches ambiguity is a
+    ValidationError raised here and routed to the op's failure handler."""
+    clone = resolve_clone_context_live(
+        adapter, cfg, cell_name, cluster, sheet, sheet_names)
+    if clone is None:
+        return _NO_CLONE
+    return fn(adapter, cfg, clone, cell_name, sheet_names, *extra)
+
 
 def _resolve_layer(adapter, layer_name: str):
     """Live layer enum for the overlay display name — shared fatal when the
@@ -1036,8 +1132,15 @@ class CellAnchorView(QWidget):
     # ── Marker tab: context + worker dispatch ─────────────────────────────
 
     def _context(self):
-        """(cfg, clone, sheet_names) for the Marker tab's live frame, or None
-        with a message shown when the working context can't be resolved."""
+        """(cfg, sheet_names, cluster, sheet) for the Marker tab's live frame,
+        or None with a message shown when the working context can't be
+        resolved.
+
+        The placed-instance lookup itself (top-level clone_placement + entity
+        placements — C.5.1) runs on the WORKER thread (_resolve_context_then):
+        its entity half is materialized from the trees, which reads their
+        anchors LIVE from the board. Here we only validate the project/working
+        Cluster and hand the inputs over."""
         if self._root_path is None or self._cell_name is None:
             show_message(_("Marker needs a project root — open a project "
                            "first."), _WARN_STYLE, logger)
@@ -1054,16 +1157,7 @@ class CellAnchorView(QWidget):
             show_message(_("Marker: failed to load the project config: {error}")
                          .format(error=e), _ERROR_STYLE, logger)
             return None
-        clone = resolve_clone_context(cfg, self._cell_name, cluster, sheet)
-        if clone is None:
-            show_message(
-                _("Marker: no clone placement of cell {cell!r} on cluster "
-                  "{cluster!r} is placed — the live frame cannot be derived. "
-                  "Place the cell on that cluster first.")
-                .format(cell=self._cell_name, cluster=cluster),
-                _WARN_STYLE, logger)
-            return None
-        return cfg, clone, ctx.sheet_names
+        return cfg, ctx.sheet_names, cluster, sheet
 
     def _adapter_required(self):
         """The live adapter, or None + a message (used by marker IPC ops)."""
@@ -1077,21 +1171,40 @@ class CellAnchorView(QWidget):
     def _dispatch(self, fn, on_success, on_error, *extra_args):
         """Resolve the working context + live adapter and dispatch one overlay
         worker function on the worker thread via start_long_op (inputs
-        collected on the UI thread, IPC on the worker, completion back on the
-        UI thread)."""
+        collected on the UI thread, the placed-instance lookup + IPC on the
+        worker, completion back on the UI thread).
+
+        The worker resolves the placed instance of this cell among the UNION
+        of top-level clones and entity placements (C.5.1) and returns the
+        _NO_CLONE sentinel when the cell has none in the working context — we
+        then explain what to do (the previous "no clone placement ... is
+        placed" hint), never a crash."""
         adapter = self._adapter_required()
         if adapter is None:
             return
         ctx = self._context()
         if ctx is None:
             return
-        cfg, clone, sheet_names = ctx
+        cfg, sheet_names, cluster, sheet = ctx
         widgets = [self._place_marker_button, self._read_marker_button,
                    self._remove_marker_button, self._show_bbox_button,
                    self._hide_bbox_button, self._remove_overlay_button]
+
+        def _ok(result):
+            if result is _NO_CLONE:
+                show_message(
+                    _("Marker: no clone placement of cell {cell!r} on cluster "
+                      "{cluster!r} is placed — the live frame cannot be "
+                      "derived. Place the cell on that cluster first.")
+                    .format(cell=self._cell_name, cluster=cluster),
+                    _WARN_STYLE, logger)
+                return
+            on_success(result)
+
         self._active_op = start_long_op(
-            self._connection, widgets, fn, on_success, on_error,
-            adapter, cfg, clone, self._cell_name, sheet_names, *extra_args)
+            self._connection, widgets, _resolve_context_then, _ok, on_error,
+            adapter, cfg, self._cell_name, cluster, sheet, sheet_names,
+            fn, *extra_args)
 
     def _dispatch_draw(self, worker_fn, success_msg_ok, on_error):
         """Dispatch a DRAW overlay op (worker takes the layer name — Phase D:
