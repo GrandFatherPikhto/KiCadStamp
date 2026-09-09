@@ -617,6 +617,13 @@ class MainWindow(QMainWindow):
         self._dock_hub.tree_dock.persist_ui_state()
         self._dock_hub.trees_dock.persist_ui_state()
         self._dock_hub.config_tree_dock.persist_ui_state()
+        # Cell-anchor overlay cleanup on GUI exit (Phase D of
+        # plan_2026_09_09_cell_anchor_v2_declarative_and_board_overlay, D.2):
+        # remove the drawn marker/bbox shapes (by their persisted uuids) so no
+        # orphan graphics stay on the board. Bounded + best-effort (a dead
+        # socket never stalls quit). _persist_settings is the choke point both
+        # real-quit paths share (closeEvent and the tray's _quit).
+        self._dock_hub.cleanup_overlay_on_quit(self.connection)
 
     def closeEvent(self, event) -> None:
         """While the tray icon is enabled, the title-bar X hides instead of

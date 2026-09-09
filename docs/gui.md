@@ -504,7 +504,7 @@ this dialog never touches it. Everything here is local per-machine state (the sa
 `last_root_file`/`window_geometry`/`tree_group_by` already use).
 
 The dialog is a two-pane browser: a **category tree on the left** (General / Appearance / KiCad /
-Config tree / Hotkeys / MCP server) and the matching settings page on the right. Settings apply
+Config tree / Hotkeys / MCP server / Board overlay) and the matching settings page on the right. Settings apply
 **explicitly** via the **OK / Apply / Cancel** buttons — a widget change is only a draft until
 **Apply** (persists and stays open) or **OK** (persists and closes) commits it; **Cancel** (or the
 window X) discards the draft. Side effects (always-on-top flag, tray icon, highlight re-apply,
@@ -568,6 +568,21 @@ connection timeout, hotkey rebinding) fire only on Apply/OK.
 - **MCP server** (the **MCP server** page) — the `kicad_raw_move_footprint` raw-write gate the
   headless MCP server reads from `gui_state.json` (see [docs/mcp.md](mcp.md)); the same effect as
   the `KICADSTAMP_MCP_ALLOW_RAW_WRITE=1` env var.
+- **Board overlay** (the **Board overlay** page, 2026-09-09, Phase D of
+  `plan_2026_09_09_cell_anchor_v2_declarative_and_board_overlay.md`) — the geometry of the
+  cell-anchor editor's drawn bbox/marker overlay. **Overlay layer** — the KiCad USER layer the
+  overlay is drawn on (default `User.Drawings`; the combo is filled LIVE from the open board's
+  enabled user layers via `board_overlay.overlay_layers()` — never a hardcoded list — and shows
+  the remembered value when KiCad is not connected). **Bbox line width** / **Marker radius** /
+  **Marker line width** are in mm (defaults 0.15 / 0.3 / 0.1). There is deliberately NO colour
+  setting: overlay graphics take their LAYER's colour (measured fact §0.6) — the page's hint
+  recommends a dedicated user layer (Denis uses `User.KiCadStamp`) so colour/visibility are set
+  once in KiCad and whole-layer cleanup is safe. The values persist to `gui_state.json`
+  (`overlay_layer`/`overlay_bbox_stroke_mm`/`overlay_marker_radius_mm`/`overlay_marker_stroke_mm`)
+  and the drawing reads them via `board_overlay.overlay_*()` — changing a value here changes the
+  next drawn overlay. The same page carries the **Remove entire overlay layer** button — the
+  guaranteed cleanup that sweeps EVERY graphic shape off the chosen layer (confirmed first), for
+  recovering from lost overlay uuids.
 
 ## Extract
 
@@ -1376,14 +1391,21 @@ It is the v2 declarative anchor UI — the anchor is a REFERENCE resolved at app
   board is needed ONLY for Read from selection; picking Role/Pad by hand and saving works with no
   board, proven by test).
 - **Marker** — draws the cell's bbox rectangle and a draggable marker circle as REAL KiCad graphics
-  on the overlay layer (`User.Drawings` by default; colour comes from the LAYER, no colour setting),
-  all IPC on the worker thread. It maps through the placed instance of this cell on the working
-  Cluster (Sheet optional); without such a placed instance the buttons explain to place the cell
-  first. **Place marker** puts the marker at the current anchor (or bbox centre when there is no
-  anchor), you drag it with KiCad's own tools, **Read position** converts the dragged world point
-  into the cell's bbox frame (reusing `_world_pos_to_cell_local_offset`) and writes `anchor_xy`,
-  clearing any Role/Pad anchor. Marker/bbox uuids are persisted in `gui_state.json` (key
-  `cell_anchor_overlay`) so a GUI restart does not leave orphan graphics behind.
+  on the overlay layer (the **Settings → Board overlay** layer, `User.Drawings` by default; the
+  stroke/radius come from the same page too; colour comes from the LAYER, no colour setting), all IPC
+  on the worker thread. It maps through the placed instance of this cell on the working Cluster (Sheet
+  optional); without such a placed instance the buttons explain to place the cell first. **Place
+  marker** puts the marker at the current anchor (or bbox centre when there is no anchor), you drag it
+  with KiCad's own tools, **Read position** converts the dragged world point into the cell's bbox
+  frame (reusing `_world_pos_to_cell_local_offset`) and writes `anchor_xy`, clearing any Role/Pad
+  anchor. Marker/bbox uuids are persisted in `gui_state.json` (key `cell_anchor_overlay`).
+
+  **Overlay cleanup** (Phase D, 2026-09-09): the drawn marker/bbox are an editing aid, removed
+  explicitly when done — the Marker tab's **Remove overlay** button (by-uuid), when you leave the
+  anchor page (open another Config tree node) or open a different cell/root, and at GUI exit (all
+  persisted uuids, bounded + best-effort). The guaranteed recovery from a uuid leak is the
+  Settings → Board overlay **Remove entire overlay layer** button, which sweeps the WHOLE chosen
+  user layer (confirmed first; only that layer is affected).
 
 **Refresh geometry from selection** (2026-09-03) — a button in the Cell dialog AND a
 right-click **Update from selection...** action on a Cell leaf in the Config tree's Cells category

@@ -8,13 +8,13 @@ from the Tools menu ("Settings...").
 
 Since 2026-09-01 (plan project_settings_dialogs) this is no longer a Detail
 dock tab: it is a two-pane browser — a QTreeWidget of categories on the left
-(General / Appearance / KiCad / Config tree / Hotkeys / MCP server) and the
-matching settings page on the right (QStackedWidget). And settings are applied
-EXPLICITLY (OK/Cancel/Apply, modal), not live: every widget holds the "draft";
-ConfiguratorDock.apply() writes the draft to gui_state.json and fires the side
-effects (window-flag / tray / highlight / timeout / hotkeys); cancel() /
-reload_from_state() re-seed the widgets from the persisted state, discarding
-the draft.
+(General / Appearance / KiCad / Config tree / Hotkeys / MCP server /
+Board overlay) and the matching settings page on the right (QStackedWidget).
+And settings are applied EXPLICITLY (OK/Cancel/Apply, modal), not live: every
+widget holds the "draft"; ConfiguratorDock.apply() writes the draft to
+gui_state.json and fires the side effects (window-flag / tray / highlight /
+timeout / hotkeys / overlay geometry); cancel() / reload_from_state() re-seed
+the widgets from the persisted state, discarding the draft.
 
 All state lives in gui/settings.py's flat gui_state.json — the same storage
 last_root_file/window_geometry/always_on_top/tray_enabled already use — so this
@@ -52,22 +52,40 @@ from typing import Dict
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (QApplication, QCheckBox, QColorDialog, QComboBox,
-                             QGroupBox, QHBoxLayout, QKeySequenceEdit, QLabel,
-                             QPushButton, QRadioButton, QSpinBox, QStackedWidget,
+                             QDoubleSpinBox, QFormLayout, QGroupBox, QHBoxLayout,
+                             QKeySequenceEdit, QLabel, QMessageBox, QPushButton,
+                             QRadioButton, QSpinBox, QStackedWidget,
                              QStyleFactory, QTreeWidget, QTreeWidgetItem,
                              QVBoxLayout, QWidget)
 
 from kicadstamp.constants import DEFAULT_TIMEOUT_MS
 from kicadstamp.i18n import _
 
-from .. import settings
+from .. import board_overlay, settings
 from ..color_schemes import available_color_schemes, load_color_scheme
 from ..hotkeys import get_shortcut, registered_hotkeys, set_shortcut
+from ..worker import start_long_op
 from ._common import DEFAULT_HIGHLIGHT_COLOR
 
 # Sensible bounds for the connection timeout spinbox, in milliseconds.
 TIMEOUT_MIN_MS = 1000
 TIMEOUT_MAX_MS = 120000
+
+
+# ── Overlay worker functions (run on the worker thread via start_long_op —
+# pure IPC/file work, no widget access; the live board is only touched here,
+# never on the UI thread). ────────────────────────────────────────────────
+
+def _fetch_overlay_layers(adapter):
+    """[(layer, display name)] of every enabled USER layer of the live board —
+    what the Board-overlay page's layer combo is populated from."""
+    return board_overlay.overlay_layers(adapter)
+
+
+def _sweep_overlay_layer(adapter, layer_name: str) -> int:
+    """Delete EVERY graphic shape on the configured overlay user layer
+    (display name resolved to the live layer enum inside the worker)."""
+    return board_overlay.sweep_layer_by_name(adapter, layer_name)
 
 
 class ConfiguratorDock(QWidget):
@@ -123,6 +141,11 @@ class ConfiguratorDock(QWidget):
         self.config_tree_page = self._build_config_tree_page()
         self.hotkeys_page = self._build_hotkeys_page()
         self.mcp_page = self._build_mcp_page()
+        self.overlay_page = self._build_overlay_page()
+        # The last-dispatched overlay sweep op (worker.py keeps its own
+        # keep-alive too — this is for inspection/idempotency, the same shape
+        # as the docks' _active_op).
+        self._active_overlay_op = None
 
         for label, page in (
             (_("General"), self.general_page),
@@ -131,6 +154,7 @@ class ConfiguratorDock(QWidget):
             (_("Config tree"), self.config_tree_page),
             (_("Hotkeys"), self.hotkeys_page),
             (_("MCP server"), self.mcp_page),
+            (_("Board overlay"), self.overlay_page),
         ):
             self.tree.addTopLevelItem(QTreeWidgetItem([label]))
             self.stack.addWidget(page)
@@ -311,6 +335,185 @@ class ConfiguratorDock(QWidget):
         layout.addStretch(1)
         return page
 
+    # ── Board overlay page (Phase D of plan_2026_09_09_cell_anchor_v2_ ─────
+    # declarative_and_board_overlay.md)
+    #
+    # The cell-anchor editor's bbox/marker geometry (layer, line widths,
+    # marker radius) is persisted here via settings.state (gui_state.json)
+    # with the board_overlay module constants as DEFAULTS — the drawing code
+    # reads the same keys, so the dialog and the drawing share one source of
+    # truth. The layer combo is filled LIVE from the board
+    # (board_overlay.overlay_layers — only USER layers) when KiCad is
+    # connected; without a board the remembered value is shown and nothing
+    # crashes. There is NO colour setting (§0.6): graphics take their layer's
+    # colour, so the only knob is "which layer" — the hint says so and
+    # recommends a dedicated user layer.
+
+    def _build_overlay_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        geometry_group = QGroupBox(_("Overlay geometry"))
+        geometry_form = QFormLayout(geometry_group)
+        self.overlay_layer_combo = QComboBox()
+        self.overlay_layer_combo.setToolTip(
+            _("The KiCad user layer the anchor bbox and marker are drawn on. "
+              "Filled LIVE from the open board; without KiCad the remembered "
+              "layer is shown."))
+        geometry_form.addRow(_("Overlay layer:"), self.overlay_layer_combo)
+        self.overlay_bbox_stroke_spin = QDoubleSpinBox()
+        self.overlay_bbox_stroke_spin.setRange(0.01, 10.0)
+        self.overlay_bbox_stroke_spin.setDecimals(2)
+        self.overlay_bbox_stroke_spin.setSingleStep(0.05)
+        self.overlay_bbox_stroke_spin.setSuffix(" mm")
+        geometry_form.addRow(_("Bbox line width:"), self.overlay_bbox_stroke_spin)
+        self.overlay_marker_radius_spin = QDoubleSpinBox()
+        self.overlay_marker_radius_spin.setRange(0.05, 50.0)
+        self.overlay_marker_radius_spin.setDecimals(2)
+        self.overlay_marker_radius_spin.setSingleStep(0.1)
+        self.overlay_marker_radius_spin.setSuffix(" mm")
+        geometry_form.addRow(_("Marker radius:"), self.overlay_marker_radius_spin)
+        self.overlay_marker_stroke_spin = QDoubleSpinBox()
+        self.overlay_marker_stroke_spin.setRange(0.01, 10.0)
+        self.overlay_marker_stroke_spin.setDecimals(2)
+        self.overlay_marker_stroke_spin.setSingleStep(0.05)
+        self.overlay_marker_stroke_spin.setSuffix(" mm")
+        geometry_form.addRow(_("Marker line width:"), self.overlay_marker_stroke_spin)
+        geometry_hint = QLabel(
+            _("There is no colour setting — overlay graphics take their "
+              "layer's colour, managed in KiCad. Tip: dedicate a separate "
+              "user layer (e.g. User.KiCadStamp) to the overlay — its colour "
+              "and visibility are then configured once in KiCad, and "
+              "whole-layer cleanup is safe."))
+        geometry_hint.setWordWrap(True)
+        geometry_form.addRow(geometry_hint)
+        layout.addWidget(geometry_group)
+
+        cleanup_group = QGroupBox(_("Cleanup"))
+        cleanup_layout = QVBoxLayout(cleanup_group)
+        self.overlay_sweep_button = QPushButton(_("Remove entire overlay layer"))
+        self.overlay_sweep_button.setToolTip(
+            _("Deletes EVERY graphic shape on the overlay layer chosen above — "
+              "including shapes you drew in KiCad yourself. Only that user "
+              "layer is affected."))
+        self.overlay_sweep_button.clicked.connect(self._on_sweep_overlay)
+        cleanup_layout.addWidget(self.overlay_sweep_button)
+        cleanup_hint = QLabel(
+            _("The guaranteed cleanup against lost overlay shapes: it sweeps "
+              "the whole chosen layer rather than individual marker/bbox "
+              "shapes."))
+        cleanup_hint.setWordWrap(True)
+        cleanup_layout.addWidget(cleanup_hint)
+        layout.addWidget(cleanup_group)
+        layout.addStretch(1)
+        return page
+
+    def _overlay_adapter(self):
+        """The live board adapter the overlay page's IPC goes through, or
+        None when not connected."""
+        connection = getattr(self, "_connection", None)
+        board = getattr(connection, "board", None) if connection is not None \
+            else None
+        if board is None:
+            return None
+        return getattr(board, "adapter", None)
+
+    def _seed_overlay_layer_combo(self) -> None:
+        """Offline-safe seed of the overlay-layer combo: the remembered layer
+        (a single item). The live refresh (refresh_overlay_layers) replaces
+        the items with the board's user layers once KiCad is connected."""
+        layer = board_overlay.overlay_layer_name()
+        self.overlay_layer_combo.blockSignals(True)
+        self.overlay_layer_combo.clear()
+        self.overlay_layer_combo.addItem(layer)
+        self.overlay_layer_combo.blockSignals(False)
+
+    def _apply_overlay_layers(self, layers) -> None:
+        """Fill the overlay-layer combo from [(layer, display name)] — the
+        LIVE board's enabled USER layers (never a hardcoded list, §0.7).
+        Keeps the remembered layer when it is on the board; otherwise falls
+        back to the default, then the first offered layer. An empty live set
+        falls back to the remembered value."""
+        names = [display for _layer, display in (layers or [])]
+        remembered = board_overlay.overlay_layer_name()
+        if not names:
+            self._seed_overlay_layer_combo()
+            return
+        if remembered in names:
+            target = remembered
+        elif board_overlay.OVERLAY_DEFAULT_LAYER in names:
+            target = board_overlay.OVERLAY_DEFAULT_LAYER
+        else:
+            target = names[0]
+        self.overlay_layer_combo.blockSignals(True)
+        self.overlay_layer_combo.clear()
+        self.overlay_layer_combo.addItems(names)
+        self.overlay_layer_combo.setCurrentText(target)
+        self.overlay_layer_combo.blockSignals(False)
+
+    def refresh_overlay_layers(self) -> None:
+        """(Re)populate the overlay-layer combo from the LIVE board — called
+        when the Settings dialog opens (SettingsDialog.open_modal). Without a
+        board connection it just shows the remembered value (never crashes,
+        never an empty combo)."""
+        self._seed_overlay_layer_combo()
+        adapter = self._overlay_adapter()
+        if adapter is None:
+            return
+        self._active_overlay_op = start_long_op(
+            self._connection, [], _fetch_overlay_layers,
+            self._apply_overlay_layers, lambda _msg: None, adapter)
+
+    def _on_sweep_overlay(self) -> None:
+        """'Remove entire overlay layer' — the guaranteed whole-layer cleanup.
+        Confirms first (it deletes EVERY graphic on the chosen layer), then
+        sweeps it on the worker thread. The sweep_layer user-layer guard is
+        NOT weakened — a layer that is not an enabled user layer is a fatal
+        and nothing is deleted."""
+        adapter = self._overlay_adapter()
+        if adapter is None:
+            QMessageBox.warning(
+                self, _("Board overlay"),
+                _("No live board — sweeping the overlay layer needs a KiCad "
+                  "connection."))
+            return
+        layer_name = self.overlay_layer_combo.currentText().strip()
+        if not layer_name:
+            QMessageBox.warning(self, _("Board overlay"),
+                                _("Pick an overlay layer first."))
+            return
+        reply = QMessageBox.question(
+            self, _("Remove entire overlay layer"),
+            _("This deletes EVERY graphic shape on the layer “{layer}” — "
+              "including shapes you added in KiCad yourself. Other layers are "
+              "untouched. Continue?").format(layer=layer_name),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self._active_overlay_op = start_long_op(
+            self._connection, [self.overlay_sweep_button],
+            _sweep_overlay_layer,
+            self._on_overlay_sweep_done, self._on_overlay_sweep_failed,
+            adapter, layer_name)
+
+    def _on_overlay_sweep_done(self, count) -> None:
+        # The whole layer is gone, so the persisted by-uuid map is stale.
+        board_overlay.clear_persisted_overlay()
+        layer_name = self.overlay_layer_combo.currentText().strip() \
+            or board_overlay.OVERLAY_DEFAULT_LAYER
+        QMessageBox.information(
+            self, _("Board overlay"),
+            _("Removed {count} shape(s) from the layer “{layer}”.")
+            .format(count=count, layer=layer_name))
+
+    def _on_overlay_sweep_failed(self, message: str) -> None:
+        QMessageBox.warning(
+            self, _("Board overlay"),
+            _("Sweeping the overlay layer failed: {message}")
+            .format(message=message))
+
     # ── Draft / apply / cancel (OK/Cancel/Apply contract) ────────────────
 
     def reload_from_state(self) -> None:
@@ -350,6 +553,15 @@ class ConfiguratorDock(QWidget):
             bool(settings.state.get("rename_confirmation_enabled", True)))
         self.raw_write_checkbox.setChecked(
             bool(settings.state.get("mcp_allow_raw_write", False)))
+        # Board overlay (Phase D): re-seed the geometry spinboxes from the
+        # persisted values (board_overlay accessors fall back to the module
+        # constants = the defaults) and show the remembered layer offline —
+        # the LIVE layer list is (re)filled by refresh_overlay_layers() when
+        # the Settings dialog opens with a board.
+        self.overlay_bbox_stroke_spin.setValue(board_overlay.overlay_bbox_stroke_mm())
+        self.overlay_marker_radius_spin.setValue(board_overlay.overlay_marker_radius_mm())
+        self.overlay_marker_stroke_spin.setValue(board_overlay.overlay_marker_stroke_mm())
+        self._seed_overlay_layer_combo()
         for action_id, edit in self.hotkey_edits.items():
             edit.setKeySequence(get_shortcut(action_id))
 
@@ -419,6 +631,20 @@ class ConfiguratorDock(QWidget):
         settings.state.set("rename_confirmation_enabled",
                            self.rename_confirmation_checkbox.isChecked())
         settings.state.set("mcp_allow_raw_write", self.raw_write_checkbox.isChecked())
+
+        # Board overlay (Phase D): persist the overlay geometry. The layer is
+        # stored as its KiCad display name; the combo always carries a value
+        # (the live board's user layers, or the remembered layer when offline),
+        # so the stored value is never empty.
+        settings.state.set(board_overlay.OVERLAY_LAYER_KEY,
+                           self.overlay_layer_combo.currentText().strip()
+                           or board_overlay.OVERLAY_DEFAULT_LAYER)
+        settings.state.set(board_overlay.OVERLAY_BBOX_STROKE_KEY,
+                           self.overlay_bbox_stroke_spin.value())
+        settings.state.set(board_overlay.OVERLAY_MARKER_RADIUS_KEY,
+                           self.overlay_marker_radius_spin.value())
+        settings.state.set(board_overlay.OVERLAY_MARKER_STROKE_KEY,
+                           self.overlay_marker_stroke_spin.value())
 
         for action_id, edit in self.hotkey_edits.items():
             # Only persist hotkeys that actually CHANGED: set_shortcut writes a

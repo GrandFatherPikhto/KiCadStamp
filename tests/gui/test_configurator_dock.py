@@ -6,9 +6,13 @@ tree + pages, and the EXPLICIT apply model (OK/Apply/Cancel, hosted in the
 modal SettingsDialog) — a widget change is only a draft; apply() persists to
 gui_state.json and fires the side effects, cancel()/reload_from_state()
 discards the draft."""
+from types import SimpleNamespace
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QKeySequence, QPalette
 from PyQt6.QtWidgets import QStyleFactory
+
+from kipy.board_types import BoardLayer
 
 from gui import hotkeys
 from gui import settings
@@ -19,6 +23,7 @@ from gui.docks.role_cluster_tree import RoleClusterTreeDock
 
 from gui.hotkeys import build_action
 
+import gui.board_overlay as overlay_mod
 import gui.docks.configurator as configurator_mod
 
 
@@ -29,7 +34,7 @@ def test_tree_lists_expected_categories(main_window, qapp):
     labels = [dock.tree.topLevelItem(i).text(0)
               for i in range(dock.tree.topLevelItemCount())]
     assert labels == ["General", "Appearance", "KiCad", "Config tree",
-                      "Hotkeys", "MCP server"]
+                      "Hotkeys", "MCP server", "Board overlay"]
     assert dock.stack.count() == len(labels)
 
 
@@ -670,3 +675,94 @@ def test_hotkeys_refresh_removes_previous_rows(main_window, qapp):
 
     assert set(dock.hotkey_edits) == {"test.a", "test.b"}
     assert len(dock.findChildren(QKeySequenceEdit)) == 2  # old row deleted
+
+
+# ── Board overlay page (Phase D of plan_2026_09_09_cell_anchor_v2_...) ─────
+#
+# Overlay geometry (layer + strokes + marker radius) persists through
+# settings.state under the board_overlay keys; the module constants are only
+# the DEFAULTS. The layer combo is filled from the LIVE board's USER layers
+# when connected, otherwise it shows the remembered value and never crashes.
+
+def _overlay_dock(main_window):
+    return ConfiguratorDock(main_window, connection=main_window.connection)
+
+
+def test_overlay_geometry_defaults_when_keys_absent(main_window, qapp):
+    dock = _overlay_dock(main_window)
+    # Absent keys -> the board_overlay module constants (the defaults).
+    assert dock.overlay_bbox_stroke_spin.value() == overlay_mod.OVERLAY_BBOX_STROKE_MM
+    assert dock.overlay_marker_radius_spin.value() == overlay_mod.OVERLAY_MARKER_RADIUS_MM
+    assert dock.overlay_marker_stroke_spin.value() == overlay_mod.OVERLAY_MARKER_STROKE_MM
+    # Offline (board = None): the layer combo shows the remembered layer
+    # (default) — never empty, never a crash.
+    assert dock.overlay_layer_combo.currentText() == overlay_mod.OVERLAY_DEFAULT_LAYER
+    assert dock.overlay_layer_combo.count() == 1
+    dock.refresh_overlay_layers()          # no adapter -> offline seed, no worker
+    assert dock.overlay_layer_combo.currentText() == overlay_mod.OVERLAY_DEFAULT_LAYER
+
+
+def test_overlay_values_roundtrip_through_apply_and_restart(main_window, qapp):
+    dock = _overlay_dock(main_window)
+    dock.overlay_layer_combo.clear()
+    dock.overlay_layer_combo.addItem("User.KiCadStamp")
+    dock.overlay_bbox_stroke_spin.setValue(0.22)
+    dock.overlay_marker_radius_spin.setValue(0.9)
+    dock.overlay_marker_stroke_spin.setValue(0.05)
+    dock.apply()
+    # Persisted under the board_overlay keys (apply() writes the draft).
+    assert settings.state.get(overlay_mod.OVERLAY_LAYER_KEY) == "User.KiCadStamp"
+    assert settings.state.get(overlay_mod.OVERLAY_BBOX_STROKE_KEY) == 0.22
+    assert settings.state.get(overlay_mod.OVERLAY_MARKER_RADIUS_KEY) == 0.9
+    assert settings.state.get(overlay_mod.OVERLAY_MARKER_STROKE_KEY) == 0.05
+    # A fresh dock ('restart') re-seeds from the persisted state.
+    dock2 = _overlay_dock(main_window)
+    assert dock2.overlay_bbox_stroke_spin.value() == 0.22
+    assert dock2.overlay_marker_radius_spin.value() == 0.9
+    assert dock2.overlay_marker_stroke_spin.value() == 0.05
+    assert dock2.overlay_layer_combo.currentText() == "User.KiCadStamp"
+
+
+def test_overlay_layer_combo_shows_remembered_layer_offline(main_window, qapp):
+    settings.state.set(overlay_mod.OVERLAY_LAYER_KEY, "User.KiCadStamp")
+    dock = _overlay_dock(main_window)
+    assert dock.overlay_layer_combo.currentText() == "User.KiCadStamp"
+    assert dock.overlay_layer_combo.count() == 1
+
+
+def test_overlay_layer_combo_filled_from_live_board_user_layers(main_window, qapp):
+    """The layer combo is fed from the LIVE board's get_enabled_layers +
+    get_layer_name (through board_overlay.overlay_layers — USER layers only),
+    never a hardcoded list. F.Cu is filtered out; the remembered layer is
+    kept when it is on the board."""
+    class _Board:
+        def __init__(self):
+            self.layers = [BoardLayer.BL_User_5, BoardLayer.BL_F_Cu,
+                           BoardLayer.BL_Dwgs_User]
+            self.names = {BoardLayer.BL_User_5: "User.KiCadStamp",
+                          BoardLayer.BL_Dwgs_User: "User.Drawings",
+                          BoardLayer.BL_F_Cu: "F.Cu"}
+
+        def get_enabled_layers(self):
+            return list(self.layers)
+
+        def get_layer_name(self, layer):
+            return self.names.get(layer, str(layer))
+
+    adapter = SimpleNamespace(_board=_Board())
+    layers = overlay_mod.overlay_layers(adapter)   # the worker's output shape
+
+    settings.state.set(overlay_mod.OVERLAY_LAYER_KEY, "User.KiCadStamp")
+    dock = _overlay_dock(main_window)
+    dock._apply_overlay_layers(layers)             # what the worker callback does
+    names = [dock.overlay_layer_combo.itemText(i)
+             for i in range(dock.overlay_layer_combo.count())]
+    assert names == ["User.KiCadStamp", "User.Drawings"]   # F.Cu filtered out
+    assert dock.overlay_layer_combo.currentText() == "User.KiCadStamp"
+
+    # Remembered layer NOT on the board -> falls back to the default, then the
+    # first offered user layer (never an empty/stale selection).
+    settings.state.set(overlay_mod.OVERLAY_LAYER_KEY, "Gone.Layer")
+    dock2 = _overlay_dock(main_window)
+    dock2._apply_overlay_layers(layers)
+    assert dock2.overlay_layer_combo.currentText() == overlay_mod.OVERLAY_DEFAULT_LAYER

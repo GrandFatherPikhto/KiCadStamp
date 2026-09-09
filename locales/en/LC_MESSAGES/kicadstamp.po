@@ -15825,3 +15825,82 @@ msgstr ""
 #, python-brace-format
 msgid "sweep_layer: refusing to delete graphics on layer “{layer}” — only USER layers can be swept"
 msgstr ""
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "Bbox line width:"
+msgstr ""
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "Board overlay"
+msgstr ""
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "Cleanup"
+msgstr ""
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "Deletes EVERY graphic shape on the overlay layer chosen above — including shapes you drew in KiCad yourself. Only that user layer is affected."
+msgstr ""
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "Marker line width:"
+msgstr ""
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "Marker radius:"
+msgstr ""
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "No live board — sweeping the overlay layer needs a KiCad connection."
+msgstr ""
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "Overlay geometry"
+msgstr ""
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "Overlay layer:"
+msgstr ""
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "Pick an overlay layer first."
+msgstr ""
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "Remove entire overlay layer"
+msgstr ""
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "Remove overlay"
+msgstr ""
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+#, python-brace-format
+msgid "Removed {count} shape(s) from the layer “{layer}”."
+msgstr ""
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "Removes this cell's drawn marker and bbox from the board."
+msgstr ""
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+#, python-brace-format
+msgid "Sweeping the overlay layer failed: {message}"
+msgstr ""
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "The KiCad user layer the anchor bbox and marker are drawn on. Filled LIVE from the open board; without KiCad the remembered layer is shown."
+msgstr ""
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "The guaranteed cleanup against lost overlay shapes: it sweeps the whole chosen layer rather than individual marker/bbox shapes."
+msgstr ""
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "There is no colour setting — overlay graphics take their layer's colour, managed in KiCad. Tip: dedicate a separate user layer (e.g. User.KiCadStamp) to the overlay — its colour and visibility are then configured once in KiCad, and whole-layer cleanup is safe."
+msgstr ""
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+#, python-brace-format
+msgid "This deletes EVERY graphic shape on the layer “{layer}” — including shapes you added in KiCad yourself. Other layers are untouched. Continue?"
+msgstr ""

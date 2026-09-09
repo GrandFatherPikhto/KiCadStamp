@@ -49,7 +49,10 @@ from kicadstamp.i18n import _
 from kicadstamp.logging_setup import get_log_listener
 
 from .docks.cell_dialog import CellDialog
-from .docks.cell_anchor_view import CellAnchorView
+from .docks.cell_anchor_view import (
+    CellAnchorView,
+    cleanup_all_overlays_sync,
+)
 from .docks.cell_editor import CellDock
 from .docks.chain import ChainDock
 from .docks.chains_nav import ChainsNavDock
@@ -81,6 +84,8 @@ from .docks.scheme_list import (
     write_scheme_list_record,
 )
 from .docks.scheme_list_place import SchemeListPlaceFormWidget
+
+logger = logging.getLogger(__name__)
 
 
 class DockHub:
@@ -872,6 +877,11 @@ class DockHub:
         # Cell anchor (Phase C, 2026-09-09): a saved anchor rewrites the cell
         # entry — refresh the Config tree's leaf display.
         self.cell_anchor_view.saved.connect(self.config_tree_dock.refresh)
+        # Cell anchor (Phase D, 2026-09-09, D.2): leaving the anchor editor
+        # page (a Config right-QView page) drops the cell's drawn overlay —
+        # the overlay is an editing aid shown only while the page is open.
+        self.config_tree_dock.right_stack.currentChanged.connect(
+            self._on_config_right_page_changed)
         self.tools_dock.saved.connect(self.config_tree_dock.refresh)
         self.tools_dock.saved.connect(self._refresh_graph_dependent_choices)
         # Auto-close after a SUCCESSFUL edit (2026-09-01, Denis: "диалог должен
@@ -2189,6 +2199,37 @@ class DockHub:
         self.cell_anchor_view.load_entry(name, file_path)
         self._focus_config_tree_dock()
         self.config_tree_dock.show_page(self._cell_anchor_page)
+
+    # ── Cell-anchor overlay cleanup (Phase D of plan_2026_09_09_cell_anchor_ ──
+    # v2_declarative_and_board_overlay, D.2) ────────────────────────────────
+
+    def _on_config_right_page_changed(self, index: int) -> None:
+        """Config right-QView page switch — Phase D cleanup: when the user
+        navigates AWAY from the cell-anchor editor page, its drawn overlay
+        (marker + bbox) is removed from the board and forgotten. The overlay
+        is an editing aid shown only while the page is open; leaving it
+        (opening another Config tree node) is the explicit 'page close'."""
+        prev = getattr(self, "_config_right_page_index", 0)
+        self._config_right_page_index = index
+        anchor_page = getattr(self, "_cell_anchor_page", None)
+        if anchor_page is None or prev != anchor_page or index == anchor_page:
+            return
+        try:
+            self.cell_anchor_view.cleanup()
+        except Exception:  # noqa: BLE001 — cleanup must never break the GUI
+            logger.exception("cell-anchor page-leave overlay cleanup failed")
+
+    def cleanup_overlay_on_quit(self, connection) -> None:
+        """GUI-shutdown overlay cleanup (Phase D D.2) — remove EVERY persisted
+        overlay shape (marker/bbox across all roots/cells) from the board,
+        bounded and best-effort. Called by MainWindow._persist_settings — the
+        one choke point shared by the real-quit closeEvent and the tray
+        Quit. Never blocks quit for more than a bounded wait; never crashes
+        quit on a dead socket."""
+        try:
+            cleanup_all_overlays_sync(connection)
+        except Exception:  # noqa: BLE001 — quit must never be blocked
+            logger.exception("overlay cleanup on quit failed")
 
     def _attach_log_file_handler(self, handler) -> None:
         """Attach the root-config log_file: FileHandler either to the live

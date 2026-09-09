@@ -26,8 +26,10 @@ three gotchas (§0.5 of the plan) are baked into the helpers:
 Per-shape colour is deliberately NOT part of the API (§0.6): KiCad returns
 shapes without a colour, graphics take their LAYER's colour, so the only
 user-facing knob is "which layer" (see Phase D — settings). The overlay layer
-defaults / stroke / marker geometry are module-level constants here; Phase D
-will replace them with settings reads.
+defaults / stroke / marker geometry are module-level constants here that serve
+as the SETTINGS DEFAULTS (Phase D): drawing reads them through the accessor
+functions below, which look the values up in gui_state.json (Settings >
+"Board overlay" writes the same keys).
 
 Raw kipy objects (BoardRectangle/BoardCircle/BoardLayer/Vector2) are confined
 to this module. Every function takes a duck-typed `adapter` (the real
@@ -49,10 +51,17 @@ from kicadstamp.exceptions import ValidationError, format_fatal_error
 from kicadstamp.i18n import _
 from kicadstamp.utils.units import MM
 
-# ── Phase-C default overlay geometry (Phase D moves these into settings). ──
-# Default layer for overlay graphics — a plain KiCad name; the real layer is
-# resolved from the LIVE board via resolve_overlay_layer() (never hardcoded
-# as an enum value — the user-layer set is not fixed, §0.7).
+from . import settings
+
+# ── Overlay geometry defaults (Phase D: these are now SETTINGS DEFAULTS). ──
+# Phase C put the geometry here as module constants precisely so Phase D could
+# route the reads through gui_state.json without losing the defaults. The
+# constants stay as the DEFAULTS; drawing reads them via the accessor
+# functions below (the Settings dialog's "Board overlay" page writes the same
+# keys, so configurator.py, cell_anchor_view.py and this module share ONE
+# source of truth). The layer is a plain KiCad display name; the real layer
+# enum is resolved from the LIVE board via resolve_overlay_layer() (never
+# hardcoded as an enum value — the user-layer set is not fixed, §0.7).
 OVERLAY_DEFAULT_LAYER = "User.Drawings"
 # Bbox rectangle outline width, mm.
 OVERLAY_BBOX_STROKE_MM = 0.15
@@ -60,6 +69,73 @@ OVERLAY_BBOX_STROKE_MM = 0.15
 OVERLAY_MARKER_RADIUS_MM = 0.3
 # Marker circle outline width, mm.
 OVERLAY_MARKER_STROKE_MM = 0.1
+
+# gui_state.json keys (settings.state) the overlay geometry is stored under.
+OVERLAY_LAYER_KEY = "overlay_layer"
+OVERLAY_BBOX_STROKE_KEY = "overlay_bbox_stroke_mm"
+OVERLAY_MARKER_RADIUS_KEY = "overlay_marker_radius_mm"
+OVERLAY_MARKER_STROKE_KEY = "overlay_marker_stroke_mm"
+
+# gui_state.json key holding the marker/bbox uuids currently drawn per
+# (root config, cell) — written by cell_anchor_view, read back by the by-uuid
+# cleanup paths (page close / GUI exit) and cleared after a whole-layer sweep
+# (see persisted_overlay_uuids / clear_persisted_overlay).
+OVERLAY_STATE_KEY = "cell_anchor_overlay"
+
+
+def overlay_layer_name() -> str:
+    """The configured overlay layer's DISPLAY name (e.g. 'User.KiCadStamp') —
+    OVERLAY_DEFAULT_LAYER when the key is absent."""
+    return str(settings.state.get(OVERLAY_LAYER_KEY, OVERLAY_DEFAULT_LAYER))
+
+
+def overlay_bbox_stroke_mm() -> float:
+    """The configured bbox outline width in mm (OVERLAY_BBOX_STROKE_MM when
+    the key is absent)."""
+    return float(settings.state.get(OVERLAY_BBOX_STROKE_KEY, OVERLAY_BBOX_STROKE_MM))
+
+
+def overlay_marker_radius_mm() -> float:
+    """The configured marker radius in mm (OVERLAY_MARKER_RADIUS_MM when the
+    key is absent)."""
+    return float(settings.state.get(OVERLAY_MARKER_RADIUS_KEY, OVERLAY_MARKER_RADIUS_MM))
+
+
+def overlay_marker_stroke_mm() -> float:
+    """The configured marker outline width in mm (OVERLAY_MARKER_STROKE_MM
+    when the key is absent)."""
+    return float(settings.state.get(OVERLAY_MARKER_STROKE_KEY, OVERLAY_MARKER_STROKE_MM))
+
+
+def persisted_overlay_uuids() -> list[str]:
+    """Every marker/bbox uuid persisted under OVERLAY_STATE_KEY across all
+    roots and cells — the by-uuid fast cleanup path (page close / GUI exit)."""
+    try:
+        raw = settings.state.get(OVERLAY_STATE_KEY, {}) or {}
+    except Exception:  # noqa: BLE001 — a state read must never fail cleanup
+        return []
+    uuids: list[str] = []
+    for per_cell in (raw if isinstance(raw, dict) else {}).values():
+        if not isinstance(per_cell, dict):
+            continue
+        for shapes in per_cell.values():
+            if not isinstance(shapes, dict):
+                continue
+            for slot in ("marker", "bbox"):
+                value = shapes.get(slot)
+                if value:
+                    uuids.append(str(value))
+    return uuids
+
+
+def clear_persisted_overlay() -> None:
+    """Drop the whole persisted overlay-uuid map — after a successful by-uuid
+    removal or a whole-layer sweep (the shapes are gone, tracking them would
+    be stale). Best-effort: a failed write must never crash cleanup."""
+    try:
+        settings.state.set(OVERLAY_STATE_KEY, {})
+    except Exception:  # noqa: BLE001 — best-effort by design
+        pass
 
 # kipy layer-enum member name lookup (value -> 'BL_User_5', ...), used ONLY to
 # classify a layer as user-drawn; the user-visible name always comes from the
@@ -125,6 +201,22 @@ def resolve_overlay_layer(adapter, wanted: str):
         if display == wanted:
             return layer
     return None
+
+
+def require_overlay_layer(adapter, layer_name: str):
+    """Resolve `layer_name` (a KiCad display name) to the LIVE layer enum,
+    raising the shared "enable the layer first" fatal when it is not enabled
+    on this board. Used by the draw workers AND the whole-layer sweep — all of
+    which run on the worker thread, so the live read is safe here."""
+    layer = resolve_overlay_layer(adapter, layer_name)
+    if layer is None:
+        raise ValidationError(format_fatal_error(
+            _("Overlay layer {layer!r} is not enabled on this board — enable "
+              "it in KiCad first (or pick another overlay layer).")
+            .format(layer=layer_name),
+            [_("the overlay is drawn as real KiCad graphics on a user layer; "
+               "without the layer enabled nothing can be drawn")]))
+    return layer
 
 
 def _make_rectangle(x1_mm, y1_mm, x2_mm, y2_mm, layer, stroke_mm) -> BoardRectangle:
@@ -233,3 +325,14 @@ def sweep_layer(adapter, layer) -> int:
     adapter.remove_by_ids(_uuids(shapes))
     adapter.select_items([])  # gotcha 2 — repaint after the delete
     return len(shapes)
+
+
+def sweep_layer_by_name(adapter, layer_name: str) -> int:
+    """Whole-layer guaranteed cleanup for the Settings/Tools "Remove entire
+    overlay" button: resolve the KiCad display name and delete EVERY graphic
+    shape on that user layer. The underlying sweep_layer() user-layer guard
+    is NOT weakened — a name that does not resolve to an enabled USER layer
+    is a fatal (nothing is swept), so the button can never erase real board
+    content by pointing the sweep at copper/silkscreen/Edge.Cuts."""
+    layer = require_overlay_layer(adapter, layer_name)
+    return sweep_layer(adapter, layer)

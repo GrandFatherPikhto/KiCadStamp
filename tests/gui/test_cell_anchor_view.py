@@ -326,3 +326,238 @@ def test_cluster_narrowing_updates_role_combo(main_window, tmp_path):
     view._cluster_combo.setCurrentText("PIF_3V3_VDD")   # triggers narrowing
     items = [view._role_combo.itemText(i) for i in range(view._role_combo.count())]
     assert items == ["C1"]
+
+
+# ── Phase D: settings-driven overlay geometry + cleanup (D.1/D.2) ──────────
+
+def test_set_root_path_same_path_keeps_overlay_state(main_window, tmp_path):
+    """Regression (Phase D): DockHub re-sends the SAME root on every graph
+    refresh (_refresh_graph_dependent_choices), so re-setting it must NOT drop
+    the marker/bbox the user is mid-edit with — only an ACTUAL root switch
+    cleans up."""
+    view, target = _make_view(main_window, tmp_path)
+    view._marker_uuid = "marker-uuid-1"
+    view._bbox_uuid = "bbox-uuid-1"
+    view._remember_overlay("marker-uuid-1", "bbox-uuid-1")
+
+    view.set_root_path(target)                # same root (graph refresh)
+    assert view._marker_uuid == "marker-uuid-1"
+    assert view._bbox_uuid == "bbox-uuid-1"
+
+    view.set_root_path(tmp_path / "other.sexp")   # real project switch
+    assert view._marker_uuid is None
+    assert view._bbox_uuid is None
+
+
+def test_marker_worker_draws_with_settings_layer_and_radius(main_window, tmp_path,
+                                                            monkeypatch):
+    """THE Phase-D acceptance criterion: a layer/radius changed in the Settings
+    "Board overlay" page really reaches create_items — the drawing is wired to
+    the settings, not merely stored in gui_state.json."""
+    import gui.board_overlay as bo
+    from kipy.board_types import BoardLayer
+    from kicadstamp.config.models import Cell
+    from kicadstamp.domain.geometry import Vector2
+    from kicadstamp.utils.units import MM
+    from gui.docks.live_position import LiveRead
+
+    KS_LAYER = BoardLayer.BL_User_5
+
+    class _Board:
+        def __init__(self):
+            self.names = {KS_LAYER: "User.KiCadStamp",
+                          BoardLayer.BL_Dwgs_User: "User.Drawings"}
+
+        def get_enabled_layers(self):
+            return list(self.names)
+
+        def get_layer_name(self, layer):
+            return self.names.get(layer, str(layer))
+
+        def get_shapes(self):
+            return []
+
+    class _Adapter:
+        def __init__(self):
+            self._board = _Board()
+            self.created = []
+            self.selected = []
+
+        def refresh_board(self):
+            pass
+
+        def create_items(self, items):
+            items = list(items)
+            self.created.extend(items)
+            return items
+
+        def select_items(self, items):
+            self.selected.append(list(items))
+
+        def remove_by_ids(self, uuids):
+            return True
+
+    # The values the Settings page would have persisted.
+    view_mod.settings.state.set(bo.OVERLAY_LAYER_KEY, "User.KiCadStamp")
+    view_mod.settings.state.set(bo.OVERLAY_MARKER_RADIUS_KEY, 0.9)
+    view_mod.settings.state.set(bo.OVERLAY_MARKER_STROKE_KEY, 0.05)
+
+    cell = Cell(name="cell1", anchor_xy=(10.0, 5.0))
+    cfg = SimpleNamespace(cells={"cell1": cell})
+    clone = SimpleNamespace(cell="cell1", mirror=False)
+
+    def _fake_read_live(adapter_, cfg_, clone_, sheet_names):
+        return LiveRead(position=Vector2.from_xy(int(100 * MM), int(200 * MM)),
+                        rotation_deg=0.0, footprint=None)
+
+    monkeypatch.setattr(view_mod, "read_clone_origin_live", _fake_read_live)
+
+    adapter = _Adapter()
+    uuid = view_mod._place_marker_worker(adapter, cfg, clone, "cell1", [],
+                                         "User.KiCadStamp")
+    assert uuid is not None
+    assert len(adapter.created) == 1
+    circle = adapter.created[0]
+    # Layer resolved from the settings DISPLAY name ('User.KiCadStamp').
+    assert circle.layer == KS_LAYER
+    assert circle.center.x == int(100 * MM)
+    # Radius = the configured 0.9 mm (radius_point sits ON the circle).
+    assert circle.radius_point.x == int((100 + 0.9) * MM)
+    # Marker stroke = the configured 0.05 mm.
+    assert circle.attributes.stroke.width == int(0.05 * MM)
+
+
+def test_draw_bbox_worker_uses_settings_stroke(main_window, tmp_path, monkeypatch):
+    """The bbox outline width also comes from the settings (0.22 seeded below)
+    — the draw reaches create_items with the configured stroke."""
+    import gui.board_overlay as bo
+    from kipy.board_types import BoardLayer
+    from kicadstamp.config.models import Cell
+    from kicadstamp.domain.geometry import Vector2
+    from kicadstamp.utils.units import MM
+    from gui.docks.live_position import LiveRead
+
+    KS_LAYER = BoardLayer.BL_User_5
+
+    class _Board:
+        def __init__(self):
+            self.names = {KS_LAYER: "User.KiCadStamp"}
+
+        def get_enabled_layers(self):
+            return list(self.names)
+
+        def get_layer_name(self, layer):
+            return self.names.get(layer, str(layer))
+
+        def get_shapes(self):
+            return []
+
+    class _Adapter:
+        def __init__(self):
+            self._board = _Board()
+            self.created = []
+
+        def refresh_board(self):
+            pass
+
+        def create_items(self, items):
+            items = list(items)
+            self.created.extend(items)
+            return items
+
+        def select_items(self, items):
+            pass
+
+        def remove_by_ids(self, uuids):
+            return True
+
+    view_mod.settings.state.set(bo.OVERLAY_BBOX_STROKE_KEY, 0.22)
+
+    cell = Cell(name="cell1")
+    cfg = SimpleNamespace(cells={"cell1": cell})
+    clone = SimpleNamespace(cell="cell1", mirror=False)
+
+    def _fake_read_live(adapter_, cfg_, clone_, sheet_names):
+        return LiveRead(position=Vector2.from_xy(int(100 * MM), int(200 * MM)),
+                        rotation_deg=0.0, footprint=None)
+
+    monkeypatch.setattr(view_mod, "read_clone_origin_live", _fake_read_live)
+    monkeypatch.setattr(view_mod, "cell_content_bbox", lambda entry: (0.0, 10.0, 0.0, 10.0))
+
+    adapter = _Adapter()
+    uuid = view_mod._draw_bbox_worker(adapter, cfg, clone, "cell1", [],
+                                      "User.KiCadStamp")
+    assert uuid is not None
+    assert len(adapter.created) == 1
+    rect = adapter.created[0]
+    assert rect.layer == KS_LAYER
+    assert rect.attributes.stroke.width == int(0.22 * MM)
+
+
+def test_overlay_uuids_persist_across_view_recreation(main_window, tmp_path):
+    """Persisted marker/bbox uuids survive a 'restart' — a fresh CellAnchorView
+    over the same gui_state.json re-reads them (Phase D reuses the Phase-C
+    cell_anchor_overlay mechanism; no second store)."""
+    view1, _ = _make_view(main_window, tmp_path)
+    view1._marker_uuid = "marker-uuid-1"
+    view1._bbox_uuid = "bbox-uuid-1"
+    view1._remember_overlay("marker-uuid-1", "bbox-uuid-1")
+
+    view2, _ = _make_view(main_window, tmp_path)   # 'restart'
+    assert view2._marker_uuid == "marker-uuid-1"
+    assert view2._bbox_uuid == "bbox-uuid-1"
+
+
+def test_cleanup_forgets_overlay_and_drops_persisted_uuids(main_window, tmp_path):
+    """The explicit per-cell cleanup (button / page leave / root change): the
+    in-memory + persisted uuids are dropped; offline it never dispatches IPC
+    and never raises."""
+    view, target = _make_view(main_window, tmp_path)
+    view._marker_uuid = "marker-uuid-1"
+    view._bbox_uuid = "bbox-uuid-1"
+    view._remember_overlay("marker-uuid-1", "bbox-uuid-1")
+
+    view.cleanup()                     # no live board -> state only
+
+    assert view._marker_uuid is None
+    assert view._bbox_uuid is None
+    root = str(target)
+    per_cell = (view_mod.settings.state.get(view_mod.board_overlay.OVERLAY_STATE_KEY, {})
+                .get(root, {}))
+    assert per_cell.get("cell1") == {"marker": None, "bbox": None}
+
+
+def test_cleanup_all_overlays_sync_removes_every_persisted_uuid(qapp, main_window):
+    """The GUI-exit cleanup: every persisted marker/bbox uuid is removed from
+    the board (by uuid, on the worker thread) and the map is cleared."""
+    from types import SimpleNamespace as _NS
+
+    class _Adapter:
+        def __init__(self):
+            self.removed = []
+            self._board = _NS()
+
+        def refresh_board(self):
+            pass
+
+        def create_items(self, items):
+            return list(items)
+
+        def select_items(self, items):
+            pass
+
+        def remove_by_ids(self, uuids):
+            self.removed.extend(uuids)
+            return True
+
+    adapter = _Adapter()
+    main_window.connection.board = _NS(adapter=adapter)
+    view_mod.settings.state.set(view_mod.board_overlay.OVERLAY_STATE_KEY, {
+        "/root/a": {"cellA": {"marker": "m1", "bbox": "b1"}},
+        "/root/b": {"cellB": {"marker": "m2", "bbox": None}},
+    })
+
+    view_mod.cleanup_all_overlays_sync(main_window.connection, timeout_s=5.0)
+
+    assert sorted(adapter.removed) == ["b1", "m1", "m2"]
+    assert view_mod.board_overlay.persisted_overlay_uuids() == []

@@ -199,3 +199,80 @@ def test_sweep_layer_noop_when_layer_empty():
     adapter = FakeAdapter(board)
     assert overlay.sweep_layer(adapter, LAYER) == 0
     assert adapter.removed == []
+
+
+# ── Phase D: settings accessors + persisted-uuid map ───────────────────────
+
+def test_settings_accessors_default_to_module_constants():
+    """Absent gui_state.json keys -> the module constants (the defaults the
+    Settings dialog seeds and the drawing code falls back to)."""
+    assert overlay.overlay_layer_name() == overlay.OVERLAY_DEFAULT_LAYER
+    assert overlay.overlay_bbox_stroke_mm() == overlay.OVERLAY_BBOX_STROKE_MM
+    assert overlay.overlay_marker_radius_mm() == overlay.OVERLAY_MARKER_RADIUS_MM
+    assert overlay.overlay_marker_stroke_mm() == overlay.OVERLAY_MARKER_STROKE_MM
+
+
+def test_settings_accessors_read_persisted_values():
+    """Values written by the Settings dialog's Board-overlay page are read
+    back by the accessors — the drawing code's single source of truth."""
+    from gui import settings as gui_settings
+    gui_settings.state.set(overlay.OVERLAY_LAYER_KEY, "User.KiCadStamp")
+    gui_settings.state.set(overlay.OVERLAY_BBOX_STROKE_KEY, 0.22)
+    gui_settings.state.set(overlay.OVERLAY_MARKER_RADIUS_KEY, 0.9)
+    gui_settings.state.set(overlay.OVERLAY_MARKER_STROKE_KEY, 0.05)
+    assert overlay.overlay_layer_name() == "User.KiCadStamp"
+    assert overlay.overlay_bbox_stroke_mm() == 0.22
+    assert overlay.overlay_marker_radius_mm() == 0.9
+    assert overlay.overlay_marker_stroke_mm() == 0.05
+
+
+def test_persisted_overlay_uuids_collects_across_roots_and_cells():
+    """The whole-map view the by-uuid cleanup (page close / GUI exit) sweeps:
+    every non-None marker/bbox uuid across every root and cell."""
+    from gui import settings as gui_settings
+    gui_settings.state.set(overlay.OVERLAY_STATE_KEY, {
+        "/root/a": {"cellA": {"marker": "m1", "bbox": "b1"},
+                    "cellB": {"marker": "m2", "bbox": None}},
+        "/root/b": {"cellC": {"marker": None, "bbox": "b3"},
+                    "cellD": {"marker": "", "bbox": "b4"}},
+        "/root/c": "not-a-dict",          # defensive: stray values ignored
+    })
+    uuids = overlay.persisted_overlay_uuids()
+    assert sorted(uuids) == ["b1", "b3", "b4", "m1", "m2"]
+    overlay.clear_persisted_overlay()
+    assert overlay.persisted_overlay_uuids() == []
+
+
+# ── Phase D: whole-layer sweep by display name ─────────────────────────────
+
+def test_sweep_layer_by_name_resolves_display_then_sweeps():
+    mine = BoardRectangle()
+    mine.layer = LAYER
+    other = BoardRectangle()
+    other.layer = OTHER_LAYER
+    board = _FakeBoard(shapes=[mine, other])
+    adapter = FakeAdapter(board)
+    # Display-name -> live layer resolution happens INSIDE the worker, so the
+    # button can be driven purely by the combo's text.
+    count = overlay.sweep_layer_by_name(adapter, "User.Drawings")
+    assert count == 1
+    assert adapter.removed == [str(mine.id.value)]
+    assert adapter.selected and adapter.selected[-1] == []
+
+
+def test_sweep_layer_by_name_refuses_a_layer_not_enabled_as_user_layer():
+    """A display name that resolves to nothing on the board is a fatal — the
+    sweep never touches anything (the user-layer guard is not weakened)."""
+    adapter = FakeAdapter()
+    with pytest.raises(ValidationError) as ei:
+        overlay.sweep_layer_by_name(adapter, "No.Such.Layer")
+    assert "not enabled" in str(ei.value)
+    assert adapter.removed == []
+
+
+def test_require_overlay_layer_resolves_and_raises():
+    adapter = FakeAdapter()
+    assert overlay.require_overlay_layer(adapter, "User.Drawings") == LAYER
+    with pytest.raises(ValidationError) as ei:
+        overlay.require_overlay_layer(adapter, "F.Cu")   # not a user layer
+    assert "not enabled" in str(ei.value)

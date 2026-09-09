@@ -39,8 +39,9 @@ thread (§0.9): read-from-selection is an explicit button. Live board is needed
 ONLY for that button and for the Marker tab's live frame — hand-picking
 Role/Pad and saving works with connection.board = None (proven by test).
 
-The overlay layer / stroke / marker geometry are module constants read from
-gui.board_overlay (Phase D replaces them with settings reads). No colour is
+The overlay layer / stroke / marker geometry are read from gui_state.json
+(Settings > "Board overlay") through gui.board_overlay's accessors — the
+board_overlay module constants are only the DEFAULTS (Phase D). No colour is
 set anywhere — graphics take their LAYER's colour (§0.6).
 """
 import logging
@@ -70,12 +71,6 @@ from kicadstamp.i18n import _
 from kicadstamp.utils.units import MM
 
 from .. import board_overlay, settings
-from ..board_overlay import (
-    OVERLAY_BBOX_STROKE_MM,
-    OVERLAY_DEFAULT_LAYER,
-    OVERLAY_MARKER_RADIUS_MM,
-    OVERLAY_MARKER_STROKE_MM,
-)
 from ..worker import start_long_op
 from ._common import (
     ERROR_STYLE as _ERROR_STYLE,
@@ -95,9 +90,68 @@ from .rename import find_dict_entry_file
 
 logger = logging.getLogger(__name__)
 
-# gui_state.json key holding the currently-drawn overlay uuids, scoped by the
-# root config and the cell (Phase D builds the full cleanup on top of it).
-_OVERLAY_STATE_KEY = "cell_anchor_overlay"
+# The gui_state.json key holding the currently-drawn overlay uuids, scoped by
+# the root config and the cell. Owned by gui.board_overlay (Phase D — the
+# whole-map helpers persisted_overlay_uuids/clear_persisted_overlay and the
+# exit sweep live there); this alias keeps the existing per-cell call sites.
+_OVERLAY_STATE_KEY = board_overlay.OVERLAY_STATE_KEY
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Phase-D shutdown cleanup (D.2) — remove EVERY persisted overlay shape.
+# ────────────────────────────────────────────────────────────────────────────
+
+def _wait_long_op_done(controller, timeout_s: float) -> bool:
+    """Spin a nested event loop until the long op finishes or `timeout_s`
+    passes; returns True when an event loop was actually spun. The shutdown
+    path must never race the worker thread (the op runs on it via
+    start_long_op), so quitting waits for the removal to land."""
+    from PyQt6.QtCore import QEventLoop, QTimer
+    from PyQt6.QtWidgets import QApplication
+    app = QApplication.instance()
+    if app is None:
+        return False
+    loop = QEventLoop()
+    controller.finished.connect(loop.quit)
+    controller.failed.connect(loop.quit)
+    timer = QTimer()
+    timer.setSingleShot(True)
+    timer.timeout.connect(loop.quit)
+    timer.start(int(timeout_s * 1000))
+    loop.exec()
+    timer.stop()
+    return True
+
+
+def cleanup_all_overlays_sync(connection, timeout_s: float = 5.0) -> None:
+    """GUI-shutdown cleanup of EVERY persisted overlay shape (Phase D D.2) —
+    the by-uuid fast path across all roots/cells of cell_anchor_overlay. The
+    removal IPC runs on the worker thread via start_long_op (never a
+    synchronous adapter call on the UI thread); this function then waits for
+    it with a BOUNDED nested event loop, so quitting never races the worker
+    and a dead socket never stalls shutdown for more than timeout_s.
+
+    No-op (persisted map left for a later whole-layer sweep) when there is
+    nothing persisted, no live board, another long op is already on the
+    shared kipy socket, or the removal did not finish within timeout_s."""
+    uuids = board_overlay.persisted_overlay_uuids()
+    if not uuids:
+        return
+    board = getattr(connection, "board", None)
+    adapter = getattr(board, "adapter", None) if board is not None else None
+    if adapter is None:
+        return
+    if getattr(connection, "long_op_active", False):
+        return  # never interleave on the shared kipy REQ socket
+    controller = start_long_op(
+        connection, [], board_overlay.remove_overlay,
+        lambda _ok: None, lambda _message: None, adapter, uuids)
+    waited = _wait_long_op_done(controller, timeout_s)
+    # Clear the persisted map only once the removal has genuinely finished (a
+    # timeout while the op is still on the socket means the shapes may still
+    # be there — leave the state for a later whole-layer sweep).
+    if waited and not getattr(connection, "long_op_active", False):
+        board_overlay.clear_persisted_overlay()
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -316,17 +370,11 @@ def resolve_clone_context(cfg, cell_name: str, cluster: str, sheet: str):
 # ────────────────────────────────────────────────────────────────────────────
 
 def _resolve_layer(adapter, layer_name: str):
-    """Live layer enum for the overlay display name; fatal when the layer is
-    not enabled on this board (the user enables it in KiCad)."""
-    layer = board_overlay.resolve_overlay_layer(adapter, layer_name)
-    if layer is None:
-        raise ValidationError(format_fatal_error(
-            _("Overlay layer {layer!r} is not enabled on this board — enable "
-              "it in KiCad first (or pick another overlay layer).")
-            .format(layer=layer_name),
-            [_("the overlay is drawn as real KiCad graphics on a user layer; "
-               "without the layer enabled nothing can be drawn")]))
-    return layer
+    """Live layer enum for the overlay display name — shared fatal when the
+    layer is not enabled on this board (see
+    board_overlay.require_overlay_layer; the same helper the whole-layer
+    sweep uses, so the two surface one message)."""
+    return board_overlay.require_overlay_layer(adapter, layer_name)
 
 
 def _cell_entry_mount_offset(entry: dict) -> tuple[float, float]:
@@ -424,8 +472,10 @@ def _draw_bbox_worker(adapter, cfg, clone, cell_name, sheet_names,
     if box is None:
         return None
     x1, y1, x2, y2 = box
+    # Phase D: the stroke width comes from the Settings "Board overlay" page
+    # (board_overlay module constants are only the DEFAULTS).
     return board_overlay.draw_bbox(adapter, layer, x1, y1, x2, y2,
-                                   OVERLAY_BBOX_STROKE_MM)
+                                   board_overlay.overlay_bbox_stroke_mm())
 
 
 def _place_marker_worker(adapter, cfg, clone, cell_name, sheet_names,
@@ -447,9 +497,11 @@ def _place_marker_worker(adapter, cfg, clone, cell_name, sheet_names,
         x_mm, y_mm = _cell_point_to_world_mm(
             read.position, read.rotation_deg, bool(getattr(clone, "mirror", False)),
             0.0, 0.0, centre[0], centre[1])
+    # Phase D: radius/stroke come from the Settings "Board overlay" page
+    # (board_overlay module constants are only the DEFAULTS).
     return board_overlay.draw_marker(adapter, layer, x_mm, y_mm,
-                                     OVERLAY_MARKER_RADIUS_MM,
-                                     OVERLAY_MARKER_STROKE_MM)
+                                     board_overlay.overlay_marker_radius_mm(),
+                                     board_overlay.overlay_marker_stroke_mm())
 
 
 def _read_marker_worker(adapter, cfg, clone, cell_name, sheet_names,
@@ -579,14 +631,11 @@ class CellAnchorView(QWidget):
 
         marker_box = QGroupBox(_("Marker"))
         marker_form = QFormLayout(marker_box)
-        layer_note = QLabel(_("Overlay is drawn on the layer “{layer}” as real "
-                              "KiCad graphics; there is no colour setting — "
-                              "graphics take their layer's colour (managed in "
-                              "KiCad). Use a dedicated user layer so cleanup "
-                              "by layer is safe.")
-                            .format(layer=OVERLAY_DEFAULT_LAYER))
+        layer_note = QLabel()
         layer_note.setWordWrap(True)
+        self._overlay_layer_note = layer_note
         marker_form.addRow(layer_note)
+        self._refresh_overlay_layer_note()
         m_row = QHBoxLayout()
         self._place_marker_button = QPushButton(_("Place marker"))
         self._place_marker_button.clicked.connect(self._on_place_marker)
@@ -606,6 +655,15 @@ class CellAnchorView(QWidget):
         self._hide_bbox_button.clicked.connect(self._on_hide_bbox)
         b_row.addWidget(self._hide_bbox_button)
         marker_form.addRow(b_row)
+        # Phase D (D.2) — the explicit "по кнопке" cleanup: removes BOTH the
+        # marker and the bbox of this cell from the board (by their uuids).
+        r_row = QHBoxLayout()
+        self._remove_overlay_button = QPushButton(_("Remove overlay"))
+        self._remove_overlay_button.setToolTip(
+            _("Removes this cell's drawn marker and bbox from the board."))
+        self._remove_overlay_button.clicked.connect(self._on_remove_overlay)
+        r_row.addWidget(self._remove_overlay_button)
+        marker_form.addRow(r_row)
         m_note = QLabel(_("Places a marker at the cell's current anchor (or "
                           "the bbox centre when there is no anchor). Drag it "
                           "with KiCad's own tools, then “Read position” "
@@ -626,7 +684,17 @@ class CellAnchorView(QWidget):
     def set_root_path(self, path: Optional[Path]) -> None:
         """The project root changed (root_changed broadcast) — refresh the
         Sheet choices (from the loaded config) and drop overlay state that is
-        only valid for the previous root."""
+        only valid for the previous root.
+
+        Phase D (D.2): an ACTUAL root switch closes the current cell's editing
+        session for the PREVIOUS project, so its drawn overlay (marker + bbox)
+        is cleaned up first (the board may be the same physical board). The
+        guard against re-setting the SAME path matters: DockHub also calls
+        set_root_path on every graph-shape refresh
+        (_refresh_graph_dependent_choices) with the unchanged root — that must
+        NOT drop a marker/bbox the user is mid-edit with."""
+        if path != self._root_path:
+            self.cleanup()
         self._root_path = path
         if path is not None:
             try:
@@ -645,7 +713,13 @@ class CellAnchorView(QWidget):
     def load_entry(self, name: str, file_path) -> None:
         """Open the requested cell for anchor editing — (name, owning file),
         the same shape as the Config tree's cell_edit_requested. Reads the
-        entry live and fills the form (safe to re-open on a changed file)."""
+        entry live and fills the form (safe to re-open on a changed file).
+
+        Phase D (D.2): opening a DIFFERENT cell closes the previous cell's
+        editing session, so its drawn overlay (marker + bbox) is cleaned up
+        first."""
+        if name != self._cell_name and self._cell_name is not None:
+            self.cleanup()
         self._cell_name = name
         self._file_path = Path(file_path) if file_path is not None else None
         self._reload_form()
@@ -704,6 +778,7 @@ class CellAnchorView(QWidget):
     def _reload_form(self) -> None:
         """Refill the whole form from the current cell entry — called on open,
         on tab switch and after a save so both tabs stay in sync."""
+        self._refresh_overlay_layer_note()
         if self._cell_name is None:
             self._title.setText(_("Pick a Cell in the Config tree, then use "
                                   "“Cell anchor...” from its context menu."))
@@ -714,7 +789,7 @@ class CellAnchorView(QWidget):
             self._pad_edit.clear()
             for b in (self._place_marker_button, self._read_marker_button,
                       self._remove_marker_button, self._show_bbox_button,
-                      self._hide_bbox_button):
+                      self._hide_bbox_button, self._remove_overlay_button):
                 b.setEnabled(False)
             return
 
@@ -749,6 +824,9 @@ class CellAnchorView(QWidget):
         self._read_marker_button.setEnabled(bool(self._marker_uuid))
         self._remove_marker_button.setEnabled(bool(self._marker_uuid))
         self._hide_bbox_button.setEnabled(bool(self._bbox_uuid))
+        self._remove_overlay_button.setEnabled(
+            bool(self._marker_uuid or self._bbox_uuid))
+        self._refresh_overlay_layer_note()
 
     def _fill_role_choices(self, roles: list, cluster: str) -> None:
         cluster = cluster or self._cluster_combo.currentText().strip()
@@ -945,17 +1023,19 @@ class CellAnchorView(QWidget):
         cfg, clone, sheet_names = ctx
         widgets = [self._place_marker_button, self._read_marker_button,
                    self._remove_marker_button, self._show_bbox_button,
-                   self._hide_bbox_button]
+                   self._hide_bbox_button, self._remove_overlay_button]
         self._active_op = start_long_op(
             self._connection, widgets, fn, on_success, on_error,
             adapter, cfg, clone, self._cell_name, sheet_names, *extra_args)
 
     def _dispatch_draw(self, worker_fn, success_msg_ok, on_error):
-        """Dispatch a DRAW overlay op (worker takes the layer name)."""
+        """Dispatch a DRAW overlay op (worker takes the layer name — Phase D:
+        the CURRENT configured overlay layer from Settings, read on the UI
+        thread and passed into the worker)."""
         def ok(uuid: Optional[str]) -> None:
             success_msg_ok(uuid)
 
-        self._dispatch(worker_fn, ok, on_error, OVERLAY_DEFAULT_LAYER)
+        self._dispatch(worker_fn, ok, on_error, board_overlay.overlay_layer_name())
 
     def _on_place_marker(self) -> None:
         def ok(uuid: Optional[str]) -> None:
@@ -1055,4 +1135,50 @@ class CellAnchorView(QWidget):
         self._remove_overlay_uuid(self._bbox_uuid)
         self._bbox_uuid = None
         self._remember_overlay(self._marker_uuid, None)
+        self._reload_form()
+
+    # ── Phase D: explicit overlay cleanup (D.2) ────────────────────────────
+
+    def _refresh_overlay_layer_note(self) -> None:
+        """The Marker tab's layer note — shows the CURRENT configured overlay
+        layer (Settings > "Board overlay"), so a setting change is visible on
+        every form reload without reopening the page."""
+        note = getattr(self, "_overlay_layer_note", None)
+        if note is None:
+            return
+        note.setText(_("Overlay is drawn on the layer “{layer}” as real KiCad "
+                       "graphics; there is no colour setting — graphics take "
+                       "their layer's colour (managed in KiCad). Use a "
+                       "dedicated user layer so cleanup by layer is safe.")
+                     .format(layer=board_overlay.overlay_layer_name()))
+
+    def cleanup(self) -> None:
+        """Remove THIS cell's drawn overlay (marker + bbox) from the live
+        board by the persisted uuids, then forget them (Phase D D.2 — the
+        by-uuid fast path). Called when the anchor page is left, when a
+        DIFFERENT cell is opened, when the root changes, and by the page's
+        own "Remove overlay" button.
+
+        State is cleared FIRST so a missing/dead board never leaves stale
+        tracking behind; the shape removal itself is a by-uuid IPC on the
+        worker thread via start_long_op (never a synchronous adapter call on
+        the UI thread)."""
+        if self._cell_name is None:
+            return
+        marker, bbox = self._marker_uuid, self._bbox_uuid
+        self._marker_uuid = None
+        self._bbox_uuid = None
+        self._remember_overlay(None, None)  # also drops any stale persisted uuid
+        uuids = [u for u in (marker, bbox) if u]
+        adapter = self._adapter()
+        if not uuids or adapter is None:
+            return
+        self._active_op = start_long_op(
+            self._connection, [], board_overlay.remove_overlay,
+            lambda _ok: None, lambda _message: None, adapter, uuids)
+
+    def _on_remove_overlay(self) -> None:
+        """'Remove overlay' button — the explicit 'по кнопке' cleanup of Phase
+        D: removes BOTH the marker and the bbox of this cell from the board."""
+        self.cleanup()
         self._reload_form()

@@ -77,6 +77,12 @@ class SettingsDialog(QDialog):
         effective shortcut, so reload_from_state() below just re-confirms it."""
         self.configurator_dock.refresh_hotkeys()
         self.configurator_dock.reload_from_state()
+        # Phase D — Board overlay page: (re)fill the overlay-layer combo from
+        # the LIVE board before/while the modal loop runs (offline it just
+        # shows the remembered layer). Dispatched here so a layer added to the
+        # board since the ConfiguratorDock was built appears without a GUI
+        # restart.
+        self.configurator_dock.refresh_overlay_layers()
         self.exec()
 
     def _on_apply(self) -> None:

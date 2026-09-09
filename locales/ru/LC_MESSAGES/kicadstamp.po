@@ -14474,3 +14474,82 @@ msgstr "выберите отдельный пользовательский с�
 #, python-brace-format
 msgid "sweep_layer: refusing to delete graphics on layer “{layer}” — only USER layers can be swept"
 msgstr "sweep_layer: отказ удалять графику на слое «{layer}» — можно подметать только пользовательские слои"
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "Bbox line width:"
+msgstr "Ширина линии bbox:"
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "Board overlay"
+msgstr "Оверлей на плате"
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "Cleanup"
+msgstr "Уборка"
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "Deletes EVERY graphic shape on the overlay layer chosen above — including shapes you drew in KiCad yourself. Only that user layer is affected."
+msgstr "Удаляет КАЖДУЮ графическую фигуру на выбранном выше слое оверлея — включая фигуры, добавленные вами вручную в KiCad. Затронут только этот пользовательский слой."
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "Marker line width:"
+msgstr "Ширина линии маркера:"
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "Marker radius:"
+msgstr "Радиус маркера:"
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "No live board — sweeping the overlay layer needs a KiCad connection."
+msgstr "Нет живой платы — для подметания слоя оверлея нужно подключение к KiCad."
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "Overlay geometry"
+msgstr "Геометрия оверлея"
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "Overlay layer:"
+msgstr "Слой оверлея:"
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "Pick an overlay layer first."
+msgstr "Сначала выберите слой оверлея."
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "Remove entire overlay layer"
+msgstr "Убрать весь оверлей со слоя"
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "Remove overlay"
+msgstr "Убрать оверлей"
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+#, python-brace-format
+msgid "Removed {count} shape(s) from the layer “{layer}”."
+msgstr "Со слоя «{layer}» удалено {count} шт."
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "Removes this cell's drawn marker and bbox from the board."
+msgstr "Убирает нарисованные маркер и bbox этой ячейки с платы."
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+#, python-brace-format
+msgid "Sweeping the overlay layer failed: {message}"
+msgstr "Не удалось подмести слой оверлея: {message}"
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "The KiCad user layer the anchor bbox and marker are drawn on. Filled LIVE from the open board; without KiCad the remembered layer is shown."
+msgstr "Пользовательский слой KiCad, на котором рисуются bbox и маркер якоря. Наполняется ЖИВЬЁМ из открытой платы; без KiCad показывается запомненный слой."
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "The guaranteed cleanup against lost overlay shapes: it sweeps the whole chosen layer rather than individual marker/bbox shapes."
+msgstr "Гарантированная уборка от потерянных фигур оверлея: подметается весь выбранный слой, а не отдельные маркеры/bbox."
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+msgid "There is no colour setting — overlay graphics take their layer's colour, managed in KiCad. Tip: dedicate a separate user layer (e.g. User.KiCadStamp) to the overlay — its colour and visibility are then configured once in KiCad, and whole-layer cleanup is safe."
+msgstr "Настройки цвета НЕТ — графика оверлея берёт цвет своего слоя (управляется в KiCad). Совет: заведите под оверлей отдельный пользовательский слой (например, User.KiCadStamp) — тогда цвет и видимость настраиваются один раз в KiCad, а уборка целого слоя безопасна."
+
+#: gui/docks/configurator.py gui/docks/cell_anchor_view.py
+#, python-brace-format
+msgid "This deletes EVERY graphic shape on the layer “{layer}” — including shapes you added in KiCad yourself. Other layers are untouched. Continue?"
+msgstr "Это удалит КАЖДУЮ графическую фигуру на слое «{layer}» — включая фигуры, добавленные вами вручную в KiCad. Остальные слои не затрагиваются. Продолжить?"
