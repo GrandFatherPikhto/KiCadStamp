@@ -15818,3 +15818,10 @@ msgstr ""
 #, python-brace-format
 msgid "{label}: the selection spans several clusters — {listing}"
 msgstr ""
+#: gui/board_overlay.py
+msgid "choose the dedicated overlay user layer (e.g. User.KiCadStamp); a sweep on copper, silkscreen or Edge.Cuts would erase real board content"
+msgstr ""
+#: gui/board_overlay.py
+#, python-brace-format
+msgid "sweep_layer: refusing to delete graphics on layer “{layer}” — only USER layers can be swept"
+msgstr ""

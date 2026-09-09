@@ -42,9 +42,11 @@ every new abstract method would break the test doubles across the project.
 """
 from typing import Any
 
-from kipy.board_types import BoardCircle, BoardRectangle
+from kipy.board_types import BoardCircle, BoardLayer, BoardRectangle
 from kipy.geometry import Vector2 as KipyVector2
 
+from kicadstamp.exceptions import ValidationError, format_fatal_error
+from kicadstamp.i18n import _
 from kicadstamp.utils.units import MM
 
 # ── Phase-C default overlay geometry (Phase D moves these into settings). ──
@@ -59,24 +61,60 @@ OVERLAY_MARKER_RADIUS_MM = 0.3
 # Marker circle outline width, mm.
 OVERLAY_MARKER_STROKE_MM = 0.1
 
+# kipy layer-enum member name lookup (value -> 'BL_User_5', ...), used ONLY to
+# classify a layer as user-drawn; the user-visible name always comes from the
+# LIVE board's get_layer_name() (never hardcoded — user layers can be renamed).
+_LAYER_NAMES = {value: name for name, value in BoardLayer.items()}
+
+# Sweepable-by-default user layers OTHER than BL_User_N (the probe's set) —
+# the four KiCad "user-drawing" layers. The overlay must never sweep real
+# board content (copper/silkscreen/Edge.Cuts/fab), so only user layers are
+# ever offered or swept.
+_USER_LAYER_NAMES = frozenset(
+    ("BL_Dwgs_User", "BL_Cmts_User", "BL_Eco1_User", "BL_Eco2_User"))
+
+
+def _is_user_layer(layer) -> bool:
+    """True for a USER layer (BL_User_N + the Dwgs/Cmts/Eco user layers) —
+    the ONLY layers safe to draw an overlay on and to sweep. This mirrors the
+    reference probe's user_layers() filter (probe_board_overlay.py:70-76)."""
+    name = _LAYER_NAMES.get(layer)
+    return bool(name) and (name.startswith("BL_User_") or name in _USER_LAYER_NAMES)
+
 
 def _board(adapter):
     """The adapter's live-board handle the shape/layer reads go through."""
     return adapter._board
 
 
+def _layer_display(adapter, layer) -> str:
+    """The LIVE display name of a layer (get_layer_name), falling back to the
+    raw value for a layer that is not on this board at all."""
+    try:
+        return _board(adapter).get_layer_name(layer)
+    except Exception:  # noqa: BLE001 — a display string must never fail
+        return str(layer)
+
+
 def overlay_layers(adapter) -> list[tuple[Any, str]]:
-    """[(layer, KiCad's display name)] for every ENABLED layer of the live
-    board, read from the board itself.
+    """[(layer, KiCad's display name)] for every ENABLED USER layer of the
+    live board, read from the board itself.
 
     The set is NOT fixed: KiCad 10 allows BL_User_1..BL_User_45 and user
     layers can be renamed (Denis added 'User.KiCadStamp' as BL_User_5), so
     any UI listing them must read the board rather than hardcode a list
     (§0.7). The display name (get_layer_name) is what the user sees and what
     resolve_overlay_layer() matches against.
+
+    ONLY user layers are returned (BL_User_* plus the Dwgs/Cmts/Eco user
+    layers — the reference probe's user_layers() filter): the overlay is
+    drawn on and swept from a dedicated user layer, and this list is what a
+    Phase-D layer combo would offer, so a user can never be offered (and
+    later sweep) Edge.Cuts / a silkscreen / a copper layer.
     """
     return [(layer, _board(adapter).get_layer_name(layer))
-            for layer in _board(adapter).get_enabled_layers()]
+            for layer in _board(adapter).get_enabled_layers()
+            if _is_user_layer(layer)]
 
 
 def resolve_overlay_layer(adapter, wanted: str):
@@ -173,7 +211,21 @@ def sweep_layer(adapter, layer) -> int:
     """Guaranteed cleanup: delete EVERY graphic shape on `layer` (the
     get_shapes() filter verified live in §0.7) and return how many were
     removed. The safe path against uuid leaks — call this on the dedicated
-    overlay layer, never on a copper/real-content layer."""
+    overlay user layer, never on a copper/real-content layer.
+
+    Guard: REFUSES (fatal ValidationError) to sweep a layer that is not in
+    the enabled USER-layer set — sweeping Edge.Cuts / a silkscreen / a copper
+    layer would delete real board content (the very data-loss path a Phase-D
+    "sweep the overlay layer" button must never be able to reach)."""
+    known = {lay for lay, _name in overlay_layers(adapter)}
+    if layer not in known:
+        display = _layer_display(adapter, layer)
+        raise ValidationError(format_fatal_error(
+            _("sweep_layer: refusing to delete graphics on layer “{layer}” — "
+              "only USER layers can be swept").format(layer=display),
+            [_("choose the dedicated overlay user layer (e.g. "
+               "User.KiCadStamp); a sweep on copper, silkscreen or Edge.Cuts "
+               "would erase real board content")]))
     adapter.refresh_board()
     shapes = [s for s in _board(adapter).get_shapes() if s.layer == layer]
     if not shapes:

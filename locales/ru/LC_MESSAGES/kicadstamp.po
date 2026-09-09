@@ -14467,3 +14467,10 @@ msgstr "{label}: выделение содержит несколько роле
 #, python-brace-format
 msgid "{label}: the selection spans several clusters — {listing}"
 msgstr "{label}: выделение охватывает несколько кластеров — {listing}"
+#: gui/board_overlay.py
+msgid "choose the dedicated overlay user layer (e.g. User.KiCadStamp); a sweep on copper, silkscreen or Edge.Cuts would erase real board content"
+msgstr "выберите отдельный пользовательский слой оверлея (например User.KiCadStamp); подметание меди, шелкографии или Edge.Cuts сотрёт реальное содержимое платы"
+#: gui/board_overlay.py
+#, python-brace-format
+msgid "sweep_layer: refusing to delete graphics on layer “{layer}” — only USER layers can be swept"
+msgstr "sweep_layer: отказ удалять графику на слое «{layer}» — можно подметать только пользовательские слои"

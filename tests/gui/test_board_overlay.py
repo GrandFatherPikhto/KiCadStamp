@@ -17,11 +17,17 @@ No live KiCad — the adapter and its `_board` are fakes.
 from kipy.board_types import BoardCircle, BoardLayer, BoardRectangle
 from kipy.geometry import Vector2 as KipyVector2
 
+import pytest
+
 import gui.board_overlay as overlay
+from kicadstamp.exceptions import ValidationError
 from kicadstamp.utils.units import MM
 
 LAYER = BoardLayer.BL_Dwgs_User
 OTHER_LAYER = BoardLayer.BL_User_5
+# Non-user layers that must NEVER be offered/swept as overlay layers.
+COPPER = BoardLayer.BL_F_Cu
+EDGE = BoardLayer.BL_Edge_Cuts
 
 
 class _FakeBoard:
@@ -30,7 +36,10 @@ class _FakeBoard:
     def __init__(self, layers=None, shapes=None):
         self.layers = layers if layers is not None else [LAYER, OTHER_LAYER]
         self.shapes = shapes if shapes is not None else []
-        self.names = {LAYER: "User.Drawings", OTHER_LAYER: "User.KiCadStamp"}
+        self.names = {
+            LAYER: "User.Drawings", OTHER_LAYER: "User.KiCadStamp",
+            COPPER: "F.Cu", EDGE: "Edge.Cuts",
+        }
 
     def get_enabled_layers(self):
         return list(self.layers)
@@ -83,6 +92,19 @@ def test_overlay_layers_reads_live_board_not_hardcoded():
     # resolve by the DISPLAY name — never a hardcoded enum list.
     assert overlay.resolve_overlay_layer(adapter, "User.Drawings") == LAYER
     assert overlay.resolve_overlay_layer(adapter, "No.Such.Layer") is None
+
+
+def test_overlay_layers_filters_out_non_user_layers():
+    """The reference probe's user_layers() filter must survive the port — only
+    BL_User_* + Dwgs/Cmts/Eco layers are ever offered, NEVER copper,
+    silkscreen or Edge.Cuts (a sweep on those would delete real content)."""
+    board = _FakeBoard(layers=[LAYER, COPPER, EDGE, OTHER_LAYER])
+    adapter = FakeAdapter(board)
+    layers = overlay.overlay_layers(adapter)
+    assert layers == [(LAYER, "User.Drawings"), (OTHER_LAYER, "User.KiCadStamp")]
+    # 'F.Cu' must NOT resolve to a layer anymore — it is not a user layer.
+    assert overlay.resolve_overlay_layer(adapter, "F.Cu") is None
+    assert overlay.resolve_overlay_layer(adapter, "Edge.Cuts") is None
 
 
 def test_draw_bbox_sets_layer_stroke_and_repaints():
@@ -158,6 +180,18 @@ def test_sweep_layer_removes_only_shapes_of_that_layer():
     assert count == 1
     assert adapter.removed == [str(mine.id.value)]
     assert adapter.selected and adapter.selected[-1] == []
+
+
+def test_sweep_layer_refuses_non_user_layer():
+    """Data-loss guard: a sweep on a copper/silkscreen/Edge.Cuts layer is a
+    fatal ValidationError — the caller can never erase real board content by
+    pointing the overlay sweep at a wrong layer."""
+    board = _FakeBoard(layers=[LAYER, COPPER])
+    adapter = FakeAdapter(board)
+    with pytest.raises(ValidationError) as ei:
+        overlay.sweep_layer(adapter, COPPER)
+    assert "only USER layers" in str(ei.value)
+    assert adapter.removed == []          # nothing deleted
 
 
 def test_sweep_layer_noop_when_layer_empty():
