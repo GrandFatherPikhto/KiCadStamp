@@ -707,13 +707,31 @@ class CellAnchorView(QWidget):
             except (ValidationError, OSError):
                 ctx = None
             if ctx is not None:
-                set_combo_items(self._sheet_combo, sorted(ctx.sheet_names or []))
+                # ctx.sheet_names is a "sheet path -> readable name" dict; the
+                # combo shows the NAMES, not the uuid-path keys (same as
+                # rename.py's sorted(set(ctx.sheet_names.values()))).
+                sheet_names = ctx.sheet_names or {}
+                set_combo_items(self._sheet_combo,
+                                sorted(set(sheet_names.values())))
         else:
             self._sheet_combo.clear()
         self._marker_uuid = None
         self._bbox_uuid = None
         if self._cell_name is not None:
             self._reload_form()
+
+    def refresh_known_roles(self, snapshot) -> None:
+        """Feed the live-board snapshot into the working-context Cluster combo
+        (wired into DockHub.push_snapshot like every other dock's
+        refresh_known_roles — a Phase C gap fixed with Phase E: the combo was
+        never populated, so the anchor page could only be narrowed by hand or
+        by "Read from selection"). Fill, never restrict: the combo stays an
+        editable picker, the list is only a hint (a typed cluster not on the
+        board is still accepted). The Role combo is deliberately NOT touched —
+        it is a closed list of THIS cell's own components, not a live-board
+        value."""
+        clusters = sorted({s.cluster for s in snapshot if s.cluster})
+        set_combo_items(self._cluster_combo, clusters)
 
     def load_entry(self, name: str, file_path) -> None:
         """Open the requested cell for anchor editing — (name, owning file),

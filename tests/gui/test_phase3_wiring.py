@@ -1175,6 +1175,34 @@ def test_extract_tree_remembers_new_cells_context(real_main_window,
                                         "sheet": "Channel_1"}
 
 
+def test_push_snapshot_feeds_cell_anchor_view(real_main_window, monkeypatch):
+    """Phase C gap fixed in Phase E: DockHub.push_snapshot now feeds the
+    cell-anchor view like every other dock — its working-context Cluster combo
+    is populated from the live snapshot (the view previously had no
+    refresh_known_roles and was never subscribed)."""
+    hub = real_main_window._dock_hub
+    # Stub the sibling docks' refresh handlers — this test is about the wiring.
+    for name in ("tree_dock", "placer_dock", "thermal_via_dock", "points_dock",
+                 "chain_dock", "net_trace_dock", "cells_dock", "tools_dock"):
+        dock = getattr(hub, name, None)
+        if dock is None:
+            continue
+        monkeypatch.setattr(dock, "set_footprints",
+                            lambda snapshot: None, raising=False)
+        monkeypatch.setattr(dock, "refresh_known_roles",
+                            lambda snapshot: None, raising=False)
+        monkeypatch.setattr(dock, "refresh_known_nets",
+                            lambda board: None, raising=False)
+    received = []
+    monkeypatch.setattr(hub.cell_anchor_view, "refresh_known_roles",
+                        lambda snapshot: received.append(snapshot))
+
+    snapshot = [SimpleNamespace(cluster="PIF_3V3_VDD", role="C1")]
+    hub.push_snapshot(snapshot, board=object())
+
+    assert received == [snapshot]
+
+
 def test_extract_cluster_existing_entity_reuse_writes_nothing(
         real_main_window, tmp_path, monkeypatch):
     """A cluster whose (cluster, sheet) Entity already exists -> OK REUSES it:
@@ -1783,6 +1811,10 @@ def test_dock_hub_delegates_route_to_the_right_docks(real_main_window, monkeypat
     # before — the regression fix).
     monkeypatch.setattr(hub.tools_dock, "refresh_known_nets",
                         lambda b: pushed.setdefault("tools_nets", []).append(b))
+    # cell_anchor_view (Phase E, 2026-09-09) — the working-context Cluster
+    # combo is populated from the live snapshot on the same tick.
+    monkeypatch.setattr(hub.cell_anchor_view, "refresh_known_roles",
+                        lambda s: pushed.setdefault("anchor_roles", []).append(s))
 
     board, snapshot = object(), object()
     hub.push_snapshot(snapshot, board)
@@ -1794,6 +1826,7 @@ def test_dock_hub_delegates_route_to_the_right_docks(real_main_window, monkeypat
     assert pushed["rules_roles"] == [snapshot]
     assert pushed["rules_nets"] == [board]
     assert pushed["cells_roles"] == [snapshot]
+    assert pushed["anchor_roles"] == [snapshot]
     assert pushed["net_trace_roles"] == [snapshot]
     assert pushed["net_trace_nets"] == [board]
     assert pushed["tools_nets"] == [board]

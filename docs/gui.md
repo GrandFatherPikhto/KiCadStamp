@@ -1422,6 +1422,11 @@ It is a HINT, never a source of truth: a remembered cluster/sheet that no longer
 current board (renamed / deleted / another board) leaves the fields empty and selects nothing — no
 fatal, no hard dependency (stale remembered values are the norm, not an edge case).
 
+Two Phase C gaps in the same page are fixed in this phase: the **Sheet** combo lists the project's
+readable sheet names (the `ctx.sheet_names` VALUES, not the uuid-path keys), and the working
+**Cluster** combo is now populated from the live-board snapshot via `DockHub.push_snapshot` (an
+editable picker — fill, never restrict, so a typed cluster not in the list still works).
+
 **Refresh geometry from selection** (2026-09-03) — a button in the Cell dialog AND a
 right-click **Update from selection...** action on a Cell leaf in the Config tree's Cells category
 (one click from the tree — no need to open the dialog and hunt for the button first). It re-reads an

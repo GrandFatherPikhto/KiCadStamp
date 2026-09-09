@@ -308,6 +308,64 @@ def test_read_from_selection_updates_remembered_context(main_window, tmp_path,
     assert remembered_cell_edit_context(root, "cell1") == ("PIF_3V3_VDD", None)
 
 
+# ── Two Phase C gaps fixed in this phase (same file, same commit) ─────────
+
+def test_sheet_combo_shows_names_not_uuid_keys(main_window, tmp_path,
+                                               monkeypatch):
+    """The Sheet combo lists ctx.sheet_names VALUES (readable sheet names), not
+    the uuid-path KEYS — ctx.sheet_names is a "path -> name" dict, iterating it
+    gives keys (rename.py / trees_dock take .values())."""
+    root = tmp_path / "root.sexp"
+    _write(root, _cell_data())
+    ctx = SimpleNamespace(sheet_names={
+        "aaaaaaaaaaaaaaaa/aaaaaaaa": "Channel_0",
+        "bbbbbbbbbbbbbbbb/bbbbbbbb": "Channel_1",
+    })
+    monkeypatch.setattr(view_mod, "load_config", lambda path: (object(), ctx))
+
+    view = CellAnchorView(main_window, connection=main_window.connection)
+    view.set_root_path(root)
+
+    items = [view._sheet_combo.itemText(i)
+             for i in range(view._sheet_combo.count())]
+    assert items == ["Channel_0", "Channel_1"]
+    assert not any("aaaa" in t or "bbbb" in t for t in items)
+
+
+def test_refresh_known_roles_populates_cluster_combo(main_window, tmp_path):
+    """The snapshot feed (wired into DockHub.push_snapshot, Phase C gap) makes
+    the working-context Cluster combo non-empty with distinct live clusters."""
+    view, _ = _make_view(main_window, tmp_path)
+    assert view._cluster_combo.count() == 0       # nothing fed yet
+
+    view.refresh_known_roles([
+        SimpleNamespace(cluster="PIF_3V3_VDD", role="C1"),
+        SimpleNamespace(cluster="PIF_AVDD", role="DAC"),
+        SimpleNamespace(cluster="PIF_3V3_VDD", role="C2"),  # duplicate cluster
+    ])
+
+    items = [view._cluster_combo.itemText(i)
+             for i in range(view._cluster_combo.count())]
+    assert items == ["PIF_3V3_VDD", "PIF_AVDD"]   # sorted, deduped
+
+
+def test_cluster_combo_stays_editable_after_snapshot_feed(main_window,
+                                                          tmp_path):
+    """Fill, never restrict: after the snapshot feed the Cluster combo still
+    accepts a typed cluster that is NOT in the list (the value is read back,
+    and the list is not polluted — NoInsert)."""
+    view, _ = _make_view(main_window, tmp_path)
+    view.refresh_known_roles([SimpleNamespace(cluster="PIF_3V3_VDD",
+                                              role="C1")])
+
+    view._cluster_combo.setCurrentText("HAND_TYPED_CLUSTER")
+
+    assert view._cluster_combo.currentText().strip() == "HAND_TYPED_CLUSTER"
+    items = [view._cluster_combo.itemText(i)
+             for i in range(view._cluster_combo.count())]
+    assert "HAND_TYPED_CLUSTER" not in items       # NoInsert — no pollution
+
+
 # ── cell_editor: "Select cluster of this cell on the board" ──────────────
 
 def _make_cell_dock(main_window, tmp_path, data=None):

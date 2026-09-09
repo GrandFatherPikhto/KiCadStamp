@@ -992,6 +992,7 @@ class DockHub:
         self.net_trace_dock.refresh_known_roles(snapshot)
         self.net_trace_dock.refresh_known_nets(board)
         self.cells_dock.refresh_known_roles(snapshot)
+        self.cell_anchor_view.refresh_known_roles(snapshot)
         self.tools_dock.refresh_known_nets(board)
 
     def clear_components(self) -> None:
