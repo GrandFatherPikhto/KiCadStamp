@@ -47,6 +47,7 @@ from .component_resolver import (
     resolve_anchor_identity,
     resolve_anchor_pad_position,
     resolve_footprint_by_ref,
+    resolve_pad_mount,
 )
 from ...i18n import _
 
@@ -370,11 +371,21 @@ class ClonePositionCalculator:
         # then hand the pre-resolved map to geometry so it stays free of any
         # live-board access.
         resolved_role_nets = self._resolve_role_nets(cell, role_to_ref)
+        # A pad-anchor cell's mount A is resolved NOW against the live board
+        # (phase A, plan_2026_09_09_cell_anchor_v2 §A.4): resolve_pad_mount
+        # returns None for every offline case (anchor_xy set — GUARD 1 — or
+        # no pad anchor), letting geometry fall back to cell_mount_offset. The
+        # splice here covers NESTED CellPlacements too (the recursion goes
+        # through this same _resolve_one_level) — do NOT re-resolve in the
+        # recursive branch (§A.1).
+        resolved_mount = resolve_pad_mount(self.adapter, cell, role_to_ref,
+                                           placement_label)
         layout = apply_clone_geometry(placement, cell, role_to_ref,
                                       anchor_position=anchor_position,
                                       mirror=mirror,
                                       parent_rotation_deg=parent_rotation_deg,
-                                      resolved_role_nets=resolved_role_nets)
+                                      resolved_role_nets=resolved_role_nets,
+                                      resolved_mount=resolved_mount)
         logger.info(_("  [{name}] cell {tpl!r} on {layer}{mirror_suffix}")
                     .format(name=placement_label, tpl=cell.name, layer=cell.layer,
                             mirror_suffix=_(" -> mirrored as a whole") if mirror else _(" -> as written")))

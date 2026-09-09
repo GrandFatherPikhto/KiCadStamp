@@ -11,7 +11,11 @@ for ClonePlacement (TemplatePlacer), unlike spoke_layout.py:
     via.net=None is FATAL here — there is no sensible default to fall back to,
     unlike in spoke_layout.py.
 """
-from ..domain.geometry import Vector2
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from ..domain.geometry import BoardLayer, Vector2
 
 from ..config import (ClonePlacement, Cell, TemplateVia, TemplateTrack,
                       TemplateComponentSlot, clone_placement_effective_name)
@@ -23,6 +27,9 @@ from .spoke_layout import (
     local_to_absolute, rotate_local_offset, ResolvedVia, ResolvedTrack, ComponentLayout, SpokeLayout,
 )
 from ..i18n import _
+
+if TYPE_CHECKING:
+    from ..domain.board import Footprint
 
 
 def _net_from_resolved(role: str, pad: str | None, resolved_role_nets: dict,
@@ -204,6 +211,52 @@ def clone_origin_from_component(fp_position: Vector2, fp_angle_deg: float,
     return origin, rotation_deg
 
 
+def resolve_pad_anchor_offset(
+    fp: Footprint,
+    slot: TemplateComponentSlot,
+    pad_position: Vector2,
+    cell_layer: str,
+) -> tuple[float, float]:
+    """(along_mm, across_mm) of ONE pad of a live footprint, expressed in the
+    cell's OWN reference (stored, angle-0) bbox frame — the typed-data twin of
+    resolve_anchor_point (kicadstamp/cell_geometry_refresh.py, GUI dict
+    shape), with the role lookup dropped (the role is already known) and the
+    live pad read hoisted to the caller so geometry stays board-free.
+
+    fp — the LIVE instance of the cell's anchor_role component (its slot is
+    `slot`); pad_position — the ABSOLUTE live position of the anchor pad (the
+    caller reads it via the adapter, geometry does not touch the live board);
+    cell_layer is the cell's own reference layer ('F.Cu'|'B.Cu'); mirror is
+    inferred from fp's live side against it. Returns the pad's point in the
+    cell's REFERENCE frame — exactly the value that, stored as the cell's
+    anchor A, makes the pad the mount at materialization.
+
+    Same rotation/mirror inverse as resolve_anchor_point — see that docstring
+    and plan_2026_09_09_placer_cell_anchor_selection_unify.md §2b for the
+    derivation. Math is byte-identical to resolve_anchor_point's
+    (cell_geometry_refresh.py): the component's STORED offset is rotated into
+    the live instance's frame to reconstruct the reference origin, then the
+    target delta is un-mirrored (about the vertical axis through that origin)
+    and un-rotated back into the reference frame. Returns mm (unlike the
+    reference's nm->mm helper, this function returns the mount value directly
+    for cell_mount_offset-style consumption). Pure math, no adapter.
+    """
+    mirror = (fp.layer == BoardLayer.BL_B_Cu) != (cell_layer == "B.Cu")
+    rotation_deg = clone_rotation_from_component(fp.angle_deg, slot.angle_deg, mirror)
+    rotated = rotate_local_offset(slot.offset_along_mm, slot.offset_across_mm,
+                                  rotation_deg)
+    if mirror:
+        origin = Vector2.from_xy(fp.position.x + rotated.x, fp.position.y - rotated.y)
+    else:
+        origin = Vector2.from_xy(fp.position.x - rotated.x, fp.position.y - rotated.y)
+    delta_x = pad_position.x - origin.x
+    delta_y = pad_position.y - origin.y
+    if mirror:
+        delta_x = -delta_x
+    local = rotate_local_offset(delta_x / MM, delta_y / MM, -rotation_deg)
+    return (round(local.x / MM, 9), round(local.y / MM, 9))
+
+
 def clone_layout_origin(clone: ClonePlacement,
                         anchor_position: Vector2 | None,
                         parent_rotation_deg: float = 0.0) -> Vector2:
@@ -247,6 +300,7 @@ def apply_clone_geometry(
     mirror: bool = False,
     parent_rotation_deg: float = 0.0,
     resolved_role_nets: dict | None = None,
+    resolved_mount: tuple[float, float] | None = None,
 ) -> SpokeLayout:
     """
     Computes absolute positions of everything in the cell for a specific
@@ -278,6 +332,17 @@ def apply_clone_geometry(
     This is what keeps nested Cells (Phase 4 recursion) correct with a polar
     shift — skipping the + parent_rotation_deg here would silently misplace
     them, exactly the failure the plan's "КЛЮЧЕВОЕ различие" warns about.
+
+    resolved_mount (plan_2026_09_09_cell_anchor_v2 §A.3) — the cell's mount A
+    (ax_mm/ay_mm) as ALREADY RESOLVED by the caller (a pad-anchor cell's A
+    derived from a LIVE instance of its anchor_role's pad via
+    resolve_pad_anchor_offset). Default None = 100% the historical behaviour:
+    A falls back to cell_mount_offset(cell) — the stored anchor_xy, the
+    role-centre, or the legacy (0,0) — and every existing caller/test is
+    unchanged. A pad-anchor cell (anchor_role+anchor_pad, no anchor_xy) has NO
+    derivable stored A (its legacy mount IS (0,0)), so the caller resolves A
+    against the live board and hands it in here — keeping geometry free of
+    live-board access.
     """
     # getattr for the polar fields: apply_clone_geometry is ALSO called with a
     # nested CellPlacement (Phase 4 recursion — see clone_position_calculator.py),
@@ -299,7 +364,12 @@ def apply_clone_geometry(
     # stored offsets are ALWAYS in the cell's bbox frame and A is subtracted at
     # placement so A coincides with `origin`. Absent anchor -> A=(0,0) -> no-op
     # for a default (bbox-corner) cell, so every existing caller is unchanged.
-    ax_mm, ay_mm = cell_mount_offset(cell)
+    # resolved_mount (not None) replaces cell_mount_offset entirely — the
+    # caller pre-resolved A for a pad-anchor cell against the live board (the
+    # anchor_xy WINS rule — GUARD 1 — is the caller's job: resolve_pad_mount
+    # returns None whenever anchor_xy is set, so cell_mount_offset keeps
+    # winning for those cells).
+    ax_mm, ay_mm = resolved_mount if resolved_mount is not None else cell_mount_offset(cell)
 
     def place(along_mm: float, across_mm: float) -> Vector2:
         p = local_to_absolute(origin, along_mm - ax_mm, across_mm - ay_mm, rotation_deg)

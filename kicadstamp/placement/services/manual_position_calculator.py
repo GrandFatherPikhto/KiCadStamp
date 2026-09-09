@@ -13,7 +13,11 @@ from ...net_resolution import resolve_net_from_role
 from ...registry import make_registry_key
 from ..commands import PlacedComponentInfo, ViaCommand, TrackCommand
 from .clone_role_resolver import resolve_footprint_by_role
-from .component_resolver import ComponentResolver, resolve_anchor_identity
+from .component_resolver import (
+    ComponentResolver,
+    resolve_anchor_identity,
+    resolve_pad_mount,
+)
 from .component_pool import ComponentPool
 from ...i18n import _
 
@@ -312,9 +316,18 @@ class ManualPositionCalculator:
                 # is ready and the live read belongs here, outside the geometry
                 # layer (Bug 3 spoke-path fix, 2026-09-05; see _resolve_role_nets).
                 resolved_role_nets = self._resolve_role_nets(cell, role_to_ref)
+                # A pad-anchor cell's mount A is resolved NOW against the live
+                # board (phase A, plan_2026_09_09_cell_anchor_v2 §A.4 — the spoke
+                # path mirrors the clone path): resolve_pad_mount returns None
+                # for every offline case (anchor_xy set — GUARD 1 — or no pad
+                # anchor), letting geometry fall back to cell_mount_offset.
+                resolved_mount = resolve_pad_mount(
+                    self.adapter, cell, role_to_ref,
+                    _("spoke on pad {pad}").format(pad=spoke.pad))
                 layout = apply_spoke_geometry(pad_position, spoke, cell, chain.net,
                                               role_to_ref,
-                                              resolved_role_nets=resolved_role_nets)
+                                              resolved_role_nets=resolved_role_nets,
+                                              resolved_mount=resolved_mount)
                 anchor_id = f"pad:{spoke.pad}"
 
                 # Spoke‑level vias

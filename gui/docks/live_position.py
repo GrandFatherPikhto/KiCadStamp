@@ -38,6 +38,7 @@ from kicadstamp.placement.services.clone_role_resolver import (
 from kicadstamp.placement.services.component_resolver import (
     resolve_anchor_pad_position,
     resolve_footprint_by_ref,
+    resolve_pad_mount,
 )
 from kicadstamp.placement.services.coordinate_position_calculator import (
     resolve_footprint_by_cluster_role,
@@ -158,8 +159,19 @@ def read_clone_origin_live(adapter, cfg, clone, sheet_names) -> LiveRead:
     # The inverse recovers the cell's MOUNT point (its anchor A, or the
     # default bbox corner when no anchor is set) — pass A so the reference
     # slot's stored (bbox-frame) offset is reduced exactly as apply_clone_geometry
-    # does (design_2026_09_05 v2).
-    ax_mm, ay_mm = cell_mount_offset(cell)
+    # does (design_2026_09_05 v2). For a pad-anchor cell (anchor_role+anchor_pad
+    # without anchor_xy) the forward path (apply_clone_geometry) uses a LIVE
+    # resolved_mount, so the inverse MUST use the same value — otherwise
+    # "Read current position" and the direct geometry would drift apart
+    # (plan_2026_09_09_cell_anchor_v2 §A.7). resolve_pad_mount returns None for
+    # every offline case (anchor_xy set — GUARD 1 — or no pad anchor), so
+    # cell_mount_offset keeps its role there, exactly like the forward path.
+    resolved_mount = resolve_pad_mount(adapter, cell, role_to_ref,
+                                       clone_placement_effective_name(clone))
+    if resolved_mount is None:
+        ax_mm, ay_mm = cell_mount_offset(cell)
+    else:
+        ax_mm, ay_mm = resolved_mount
     origin, rotation = clone_origin_from_component(
         fp.position, fp.angle_deg, slot, clone.mirror, ax_mm, ay_mm)
     return LiveRead(position=origin, rotation_deg=rotation, footprint=fp)

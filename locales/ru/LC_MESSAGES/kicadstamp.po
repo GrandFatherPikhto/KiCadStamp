@@ -14238,3 +14238,22 @@ msgstr "clone {name!r}: в качестве источника якоря под
 
 msgid "select a Via or a footprint whose position should become the cell's mount point"
 msgstr "выделите Via или футпринт, чья позиция должна стать точкой монтажа ячейки"
+
+# phase A, plan_2026_09_09_cell_anchor_v2 — resolve_pad_mount guards (component_resolver.py / manual_position_calculator.py)
+msgid "cell {cell!r}: anchor_role {role!r} is not resolved on the board ({where})"
+msgstr "ячейка {cell!r}: якорная роль {role!r} не резолвится на плате ({where})"
+
+msgid "a pad anchor cannot fall back to (0,0) — that would silently shift the whole cell content; place the anchor component on the board and check that its role resolves by net/selection, then apply again"
+msgstr "pad-якорь не может молча откатиться к (0,0) — это незаметно сдвинет всё содержимое ячейки; поставьте якорный компонент на плату и проверьте, что его роль резолвится по сетям/выделению, затем примените снова"
+
+msgid "cell {cell!r}: anchor_role {role!r} resolved to {ref!r}, but that ref is not on the live board ({where})"
+msgstr "ячейка {cell!r}: якорная роль {role!r} зарезолвилась в {ref!r}, но этого ref нет на живой плате ({where})"
+
+msgid "the board changed since the roles were resolved — place the anchor component on the board, then apply again"
+msgstr "плата изменилась после резолва ролей — поставьте якорный компонент на плату и примените снова"
+
+msgid "cell {cell!r}: anchor footprint {ref!r} has no pad {pad!r} ({where})"
+msgstr "ячейка {cell!r}: у якорного футпринта {ref!r} нет пада {pad!r} ({where})"
+
+msgid "spoke on pad {pad}"
+msgstr "спица на паде {pad}"

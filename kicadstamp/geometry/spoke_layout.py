@@ -179,6 +179,7 @@ def apply_spoke_geometry(
     rule_net: str,
     role_to_ref: dict[str, str],
     resolved_role_nets: dict | None = None,
+    resolved_mount: tuple[float, float] | None = None,
 ) -> SpokeLayout:
     """
     Computes absolute positions of EVERYTHING in the cell for this spoke,
@@ -191,6 +192,15 @@ def apply_spoke_geometry(
     ManualPositionCalculator._resolve_role_nets — preserving the boundary
     above). None/empty = the historical behaviour: net_from_role is ignored
     and every via/track falls back to `net or rule_net`.
+
+    resolved_mount (plan_2026_09_09_cell_anchor_v2 §A.3) — the cell's mount A
+    (ax_mm/ay_mm) as ALREADY RESOLVED by the caller (a pad-anchor cell's A
+    derived from a LIVE instance of its anchor_role's pad). Default None =
+    100% the historical behaviour: A falls back to cell_mount_offset(cell).
+    A pad-anchor cell (anchor_role+anchor_pad, no anchor_xy) has NO derivable
+    stored A (its legacy mount IS (0,0)), so the caller resolves A against the
+    live board and hands it in here — keeping geometry free of live-board
+    access.
     """
     if spoke.radius_mm is not None:
         # Polar mode (config/entries.py guarantees radius_mm AND angle_deg are
@@ -211,7 +221,12 @@ def apply_spoke_geometry(
     # The cell's mount point A (bbox-anchored frame, design_2026_09_05 v2): the
     # stored offsets are ALWAYS in the cell's bbox frame and A is subtracted at
     # placement so A coincides with the spoke origin. Absent anchor -> (0,0).
-    ax_mm, ay_mm = cell_mount_offset(cell)
+    # resolved_mount (not None) replaces cell_mount_offset entirely — the
+    # caller pre-resolved A for a pad-anchor cell against the live board (the
+    # anchor_xy WINS rule — GUARD 1 — is the caller's job: resolve_pad_mount
+    # returns None whenever anchor_xy is set, so cell_mount_offset keeps
+    # winning for those cells).
+    ax_mm, ay_mm = resolved_mount if resolved_mount is not None else cell_mount_offset(cell)
     layout = SpokeLayout(origin=origin)
 
     layout.vias = [_resolve_via(origin, v, spoke.rotation_deg, rule_net, ax_mm, ay_mm,

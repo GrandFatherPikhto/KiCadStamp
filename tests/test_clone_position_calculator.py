@@ -222,3 +222,130 @@ class TestGeometryUnchangedRegression:
         placed, _vias, _tracks = calc.compute_raw_positions([clone])
 
         assert [p.ref for p in placed] == ["C_NEAR"]
+
+
+class _Pad:
+    """A live pad with a REAL absolute position (what get_pad_by_number returns
+    on the anchor footprint) — the standard _pads() MagicMocks only carry
+    number/net_name, which is not enough for the pad-anchor mount resolution."""
+
+    def __init__(self, num, net, x_mm, y_mm):
+        self.number = str(num)
+        self.net_name = net
+        self.position = Vector2.from_xy_mm(x_mm, y_mm)
+
+
+class TestPadAnchorDeclarativeMount:
+    """Phase A (plan_2026_09_09_cell_anchor_v2 §A.4/§A.5): a pad-anchor cell
+    (anchor_role + anchor_pad, NO anchor_xy) has its mount A resolved from the
+    LIVE anchor component at apply time and handed to apply_clone_geometry as
+    resolved_mount. End-to-end through ClonePositionCalculator.
+    compute_raw_positions on a mock board: the placed geometry must match a
+    manual recomputation through the pad-as-mount semantics (never the silent
+    legacy (0,0) that would shift the content)."""
+
+    def _cell(self, **kw):
+        return Cell(name="padcell", components=[
+            TemplateComponentSlot(role="MOUNT", offset_along_mm=0.0,
+                                  offset_across_mm=0.0, angle_deg=0.0),
+            TemplateComponentSlot(role="CAP", offset_along_mm=4.0,
+                                  offset_across_mm=0.0, angle_deg=0.0),
+        ], **kw)
+
+    def _anchor_fp(self, x_mm, y_mm, angle, back=False, pad_x_mm=None, pad_y_mm=None):
+        fp = Footprint(ref="C-OUT", uuid="uuid-C-OUT",
+                       position=Vector2.from_xy_mm(x_mm, y_mm),
+                       angle_deg=angle,
+                       layer=BoardLayer.BL_B_Cu if back else BoardLayer.BL_F_Cu)
+        fp._role = "MOUNT"
+        fp._cluster = "PAD"
+        fp._nets = ["+MOUNT"]
+        fp._pad = _Pad("1", "+MOUNT", pad_x_mm or 0.0, pad_y_mm or 0.0)
+        return fp
+
+    def _adapter(self, anchor_fp, forbid_pad_lookup=False):
+        cap_fp = _make_fp("C-CAP", "CAP", ["+CAP"], cluster="PAD",
+                          x_mm=0.0, y_mm=0.0)
+        fps = [anchor_fp, cap_fp]
+        by_ref = {fp.ref: fp for fp in fps}
+        by_pad = {"C-OUT": [p for p in [anchor_fp._pad] if p is not None],
+                  "C-CAP": [_Pad("1", "+CAP", 0.0, 0.0)]}
+
+        adapter = MagicMock()
+        adapter.get_footprints.return_value = fps
+        adapter.get_field_value.side_effect = _field
+        adapter.get_footprint.side_effect = by_ref.get
+        adapter.get_footprint_pads.side_effect = lambda fp: by_pad.get(fp.ref, [])
+        if forbid_pad_lookup:
+            def _no_pad_lookup(*_a, **_k):
+                raise AssertionError("GUARD 1: live pad read must not happen "
+                                     "when anchor_xy is set")
+            adapter.get_pad_by_number.side_effect = _no_pad_lookup
+        else:
+            adapter.get_pad_by_number.side_effect = (
+                lambda fp, num: next((p for p in by_pad.get(fp.ref, [])
+                                      if p.number == str(num)), None))
+        adapter.get_selected_items.return_value = []
+        return adapter
+
+    def _clone(self, cell, **kw):
+        return ClonePlacement(cluster="PAD", cell=cell.name, xy=(100.0, 200.0),
+                              nets={"MOUNT": "+MOUNT", "CAP": "+CAP"}, **kw)
+
+    def _run(self, anchor_fp, cell):
+        adapter = self._adapter(anchor_fp)
+        calc = ClonePositionCalculator(
+            adapter, Config(layer="F.Cu", cells={cell.name: cell}))
+        placed, _vias, _tracks = calc.compute_raw_positions([self._clone(cell)])
+        return {p.ref: p.dest for p in placed}
+
+    def test_live_rotated_anchor_pad_becomes_the_mount(self):
+        """A live anchor fp UNDER ANGLE (90°) — the resolved A is the pad's
+        bbox-local (-3.05,-1.295) (MOUNT stored at (0,0), pad at origin_ref +
+        R90(-3.05,-1.295)); apply places content from A so the MOUNT lands at
+        origin + (3.05, 1.295), i.e. the pad IS the mount, not legacy (0,0)."""
+        anchor = self._anchor_fp(200.0, 100.0, angle=90.0,
+                                 pad_x_mm=198.705, pad_y_mm=103.05)
+        by_ref = self._run(anchor, self._cell(anchor_role="MOUNT", anchor_pad="1"))
+        mount = by_ref["C-OUT"]
+        cap = by_ref["C-CAP"]
+        # Manual recompute: A = (-3.05,-1.295); rotation_deg 0 ->
+        # MOUNT world = origin + (0 - A) = (100+3.05, 200+1.295),
+        # CAP world   = origin + ((4,0) - A) = (100+7.05, 200+1.295).
+        assert mount.x / MM == pytest.approx(103.05, abs=1e-6)
+        assert mount.y / MM == pytest.approx(201.295, abs=1e-6)
+        assert cap.x / MM == pytest.approx(107.05, abs=1e-6)
+        assert cap.y / MM == pytest.approx(201.295, abs=1e-6)
+
+    def test_legacy_zero_mount_would_misplace(self):
+        """Negative control proving the mount is NOT (0,0): if the legacy
+        cell_mount_offset (0,0) were used, MOUNT would land at the origin
+        (100,200) — the pad-anchor geometry must land it at (103.05, 201.295)
+        instead, exactly the offset the pad's live position implies."""
+        anchor = self._anchor_fp(200.0, 100.0, angle=90.0,
+                                 pad_x_mm=198.705, pad_y_mm=103.05)
+        mount = self._run(anchor, self._cell(anchor_role="MOUNT", anchor_pad="1"))["C-OUT"]
+        assert mount.x / MM != pytest.approx(100.0, abs=1e-9)
+        assert mount.y / MM != pytest.approx(200.0, abs=1e-9)
+
+    def test_anchor_xy_wins_no_live_resolve(self):
+        """GUARD 1: anchor_xy present (+anchor_role+anchor_pad, the v2 form the
+        2026-09-08/09 commits wrote) — the stored mount wins and NO live pad
+        read happens. The anchor fp still resolves by net, but any pad-number
+        lookup is FORBIDDEN here (it would fatal "has no pad" if the mount were
+        wrongly re-derived live); the content is placed from the STORED
+        anchor_xy=(2,3)."""
+        cell = self._cell(anchor_role="MOUNT", anchor_pad="1", anchor_xy=(2.0, 3.0))
+        anchor = self._anchor_fp(200.0, 100.0, angle=90.0,
+                                 pad_x_mm=198.705, pad_y_mm=103.05)
+        adapter = self._adapter(anchor, forbid_pad_lookup=True)
+        calc = ClonePositionCalculator(
+            adapter, Config(layer="F.Cu", cells={cell.name: cell}))
+        placed, _vias, _tracks = calc.compute_raw_positions([self._clone(cell)])
+        by_ref = {p.ref: p.dest for p in placed}
+        mount = by_ref["C-OUT"]
+        # A = stored (2,3) -> MOUNT world = origin + (0-2, 0-3) = (98, 197).
+        assert mount.x / MM == pytest.approx(98.0, abs=1e-6)
+        assert mount.y / MM == pytest.approx(197.0, abs=1e-6)
+        assert by_ref["C-CAP"].x / MM == pytest.approx(102.0, abs=1e-6)
+        assert by_ref["C-CAP"].y / MM == pytest.approx(197.0, abs=1e-6)

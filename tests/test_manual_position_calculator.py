@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import pytest
 from unittest.mock import MagicMock
 from kicadstamp.domain.geometry import Vector2
 from kipy.board_types import Pad, FootprintInstance
@@ -255,3 +256,45 @@ def test_spoke_net_from_role_pad2_vias_planned_as_gnd_not_rail():
     assert [v.net_name for v in vias] == [rail, "GND", "GND"]
     # cell-level track with net_from_role pad2 -> GND (was the rail before the fix).
     assert [t.net_name for t in tracks] == ["GND"]
+
+
+# ---- Phase A (2026-09-09): pad-anchor cell on the spoke path (plan §A.4) ----
+
+def test_spoke_pad_anchor_mount_resolved_live():
+    """The spoke-path twin of the clone-path pad-anchor test: a pad-anchor
+    cell (anchor_role+anchor_pad, NO anchor_xy) used by a spoke has its mount A
+    resolved from the LIVE component instance (C1) and passed to
+    apply_spoke_geometry as resolved_mount. Legacy cell_mount_offset (0,0)
+    would place the component exactly at the spoke origin (100,200); the
+    resolved mount (A = C1's pad bbox-local (-3.05,-1.295)) shifts it to
+    (103.05, 201.295)."""
+    rail = "NET1"
+    anchor_fp = _make_fp_with_pads("IC1", [("1", rail)])
+    anchor_fp._pads_by_num["1"].position = Vector2.from_xy_mm(100.0, 200.0)
+    # C1 is the live R1 instance the pool consumes; its own pad '1' sits at
+    # C1(10,20) + (-3.05,-1.295) -> A = (-3.05,-1.295).
+    comp_fp = _make_fp_with_pads("C1", [("1", rail)], role="R1")
+    comp_fp.position = Vector2.from_xy_mm(10.0, 20.0)
+    comp_fp.angle_deg = 0.0
+    comp_fp.layer = BoardLayer.BL_F_Cu
+    comp_fp._pads_by_num["1"].position = Vector2.from_xy_mm(6.95, 18.705)
+    adapter = _adapter_with_pads(anchor_fp, comp_fp)
+
+    cell = Cell(name="tpl", layer="F.Cu", anchor_role="R1", anchor_pad="1",
+                components=[TemplateComponentSlot(role="R1", offset_along_mm=0.0,
+                                                  offset_across_mm=0.0, angle_deg=0.0)])
+    rule = Rule(net=rail, anchor_ref="IC1",
+                spokes=[ManualSpoke(pad="1", cell="tpl")])
+    cfg = Config(layer="F.Cu", cells={"tpl": cell}, chains=[rule])
+    calc = ManualPositionCalculator(adapter, cfg)
+
+    placed, _vias, _tracks = calc.compute_raw_positions([rule])
+    assert len(placed) == 1
+    assert placed[0].ref == "C1"
+    # spoke origin = IC1's anchor pad (100,200); R1 slot (0,0) reduced by
+    # A=(-3.05,-1.295) -> world (103.05, 201.295), NOT the legacy-origin
+    # (100,200) that the silent (0,0) mount would have produced.
+    assert placed[0].dest.x / MM == pytest.approx(103.05, abs=1e-6)
+    assert placed[0].dest.y / MM == pytest.approx(201.295, abs=1e-6)
+    assert (placed[0].dest.x / MM, placed[0].dest.y / MM) != pytest.approx(
+        (100.0, 200.0), abs=1e-9)

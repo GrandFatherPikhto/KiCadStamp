@@ -399,3 +399,50 @@ class TestApplySpokeGeometryRoleNets:
                                       rule_net="+3V3", role_to_ref={},
                                       resolved_role_nets={})
         assert layout.vias[0].net == "GND"
+
+
+class TestApplySpokeGeometryResolvedMount:
+    """plan_2026_09_09_cell_anchor_v2 §A.3: resolved_mount replaces
+    cell_mount_offset — the spoke path's twin of the clone-path behaviour. A
+    pad-anchor cell has NO derivable stored A (its legacy mount IS (0,0)), so
+    the caller resolves A against the live board and hands it in. None
+    (default) = 100% the historical behaviour."""
+
+    def _clone_like_cell(self, **cell_kw):
+        return Cell(name="a", components=[
+            TemplateComponentSlot(role="R1", offset_along_mm=1.0,
+                                  offset_across_mm=2.0, angle_deg=0.0),
+        ], **cell_kw)
+
+    def _comp_pos_mm(self, cell, resolved_mount=None):
+        pad_pos = Vector2.from_xy(50 * MM, 50 * MM)
+        spoke = ManualSpoke(pad="1", cell="a", rotation_deg=0.0)
+        layout = apply_spoke_geometry(pad_pos, spoke, cell, rule_net="GND",
+                                      role_to_ref={"R1": "C1"},
+                                      resolved_mount=resolved_mount)
+        comp = next(c for c in layout.components if c.role == "R1")
+        return (comp.position.x / MM - 50.0, comp.position.y / MM - 50.0)
+
+    def test_none_uses_stored_anchor_xy(self):
+        """resolved_mount=None keeps cell_mount_offset: anchor_xy=(2,3) ->
+        comp at spoke origin + (1-2, 2-3) = (-1, -1)."""
+        x, y = self._comp_pos_mm(self._clone_like_cell(anchor_xy=(2.0, 3.0)))
+        assert x == pytest.approx(-1.0, abs=1e-6)
+        assert y == pytest.approx(-1.0, abs=1e-6)
+
+    def test_resolved_mount_replaces_stored_anchor(self):
+        """A passed resolved_mount wins over the stored anchor_xy: A=(0.5,1.5)
+        -> comp at (1-0.5, 2-1.5) = (0.5, 0.5)."""
+        cell = self._clone_like_cell(anchor_xy=(2.0, 3.0))
+        x, y = self._comp_pos_mm(cell, resolved_mount=(0.5, 1.5))
+        assert x == pytest.approx(0.5, abs=1e-6)
+        assert y == pytest.approx(0.5, abs=1e-6)
+
+    def test_pad_anchor_without_xy_defaults_to_legacy_zero(self):
+        """anchor_role+anchor_pad, no anchor_xy, resolved_mount NOT given:
+        cell_mount_offset -> legacy (0,0), so the component stays at its stored
+        (1, 2) — the historical behaviour a migrated legacy cell keeps."""
+        cell = self._clone_like_cell(anchor_role="R1", anchor_pad="1")
+        x, y = self._comp_pos_mm(cell)
+        assert x == pytest.approx(1.0, abs=1e-6)
+        assert y == pytest.approx(2.0, abs=1e-6)

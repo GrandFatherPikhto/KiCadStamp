@@ -15589,3 +15589,22 @@ msgstr ""
 
 msgid "select a Via or a footprint whose position should become the cell's mount point"
 msgstr ""
+
+# phase A, plan_2026_09_09_cell_anchor_v2 — resolve_pad_mount guards (component_resolver.py / manual_position_calculator.py)
+msgid "cell {cell!r}: anchor_role {role!r} is not resolved on the board ({where})"
+msgstr ""
+
+msgid "a pad anchor cannot fall back to (0,0) — that would silently shift the whole cell content; place the anchor component on the board and check that its role resolves by net/selection, then apply again"
+msgstr ""
+
+msgid "cell {cell!r}: anchor_role {role!r} resolved to {ref!r}, but that ref is not on the live board ({where})"
+msgstr ""
+
+msgid "the board changed since the roles were resolved — place the anchor component on the board, then apply again"
+msgstr ""
+
+msgid "cell {cell!r}: anchor footprint {ref!r} has no pad {pad!r} ({where})"
+msgstr ""
+
+msgid "spoke on pad {pad}"
+msgstr ""

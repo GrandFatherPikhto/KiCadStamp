@@ -5,11 +5,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
-from kicadstamp.domain.geometry import Vector2
+from kicadstamp.domain.board import Footprint
+from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.config import ClonePlacement, Cell, TemplateVia, TemplateTrack, TemplateComponentSlot
 from kicadstamp.geometry.clone_geometry import (
     apply_clone_geometry, clone_layout_origin, clone_shift_mm,
     clone_origin_from_component, clone_rotation_from_component,
+    resolve_pad_anchor_offset,
 )
 from kicadstamp.geometry.spoke_layout import local_to_absolute, rotate_local_offset
 from kicadstamp.exceptions import ValidationError
@@ -421,3 +423,133 @@ class TestCloneOriginFromComponent:
         assert clone_rotation_from_component(45.0, 0.0, mirror=True) == 135.0
         assert clone_rotation_from_component(30.0, 20.0, mirror=False) == 10.0
         assert clone_rotation_from_component(200.0, 30.0, mirror=True) == -50.0
+
+
+# ── resolve_pad_anchor_offset (phase A, plan_2026_09_09_cell_anchor_v2 §A.2) ──
+# The typed-data twin of cell_geometry_refresh.resolve_anchor_point (role
+# dropped, live pad read hoisted to the caller). These tests MUST reproduce the
+# SAME numbers as the resolve_anchor_point tests in
+# tests/test_cell_geometry_refresh.py (identity/rotated/mirrored/
+# rotated+mirrored all resolve to the reference-frame (-3.05, -1.295)) — that
+# is the proof the math was not lost in the move.
+
+def _mount_slot():
+    """The anchor component slot used by the resolve_anchor_point reference
+    tests (role MOUNT stored at (-5.05, -0.295), angle 0)."""
+    return TemplateComponentSlot(role="MOUNT", offset_along_mm=-5.05,
+                                 offset_across_mm=-0.295, angle_deg=0.0)
+
+
+def _mount_fp(x_mm, y_mm, angle=0.0, back=False):
+    return Footprint(ref="U-MOUNT", uuid="uuid-U-MOUNT",
+                     position=Vector2.from_xy_mm(x_mm, y_mm),
+                     angle_deg=angle,
+                     layer=BoardLayer.BL_B_Cu if back else BoardLayer.BL_F_Cu)
+
+
+class TestResolvePadAnchorOffset:
+    """Same inputs as the resolve_anchor_point reference tests
+    (tests/test_cell_geometry_refresh.py:1151-1215) -> SAME numbers: the pad's
+    bbox-local (-3.05, -1.295) regardless of the live instance's
+    rotation/mirror."""
+
+    def test_identity_matches_resolve_anchor_point(self):
+        """fp at (10,20) identity; cell local (0,0) lives at (15.05, 20.295);
+        pad at (12,19) -> bbox-local (-3.05, -1.295) — the exact anchor_xy
+        test_resolve_anchor_point_with_pad_reads_pad_live_position resolves."""
+        fp = _mount_fp(10.0, 20.0)
+        result = resolve_pad_anchor_offset(
+            fp, _mount_slot(), Vector2.from_xy_mm(12.0, 19.0), "F.Cu")
+        assert result[0] == pytest.approx(-3.05, abs=1e-6)
+        assert result[1] == pytest.approx(-1.295, abs=1e-6)
+
+    def test_rotated_matches_resolve_anchor_point(self):
+        """§2b rotated case (reference test_resolve_anchor_point_rotated_live_
+        instance_is_unrotated_back): a 90° live instance must still report the
+        reference-frame (-3.05, -1.295)."""
+        fp = _mount_fp(9.705, 25.05, angle=90.0)
+        result = resolve_pad_anchor_offset(
+            fp, _mount_slot(), Vector2.from_xy_mm(8.705, 23.05), "F.Cu")
+        assert result[0] == pytest.approx(-3.05, abs=1e-6)
+        assert result[1] == pytest.approx(-1.295, abs=1e-6)
+
+    def test_mirrored_matches_resolve_anchor_point(self):
+        """§2b mirror case (reference test_resolve_anchor_point_mirrored_live_
+        instance_is_unmirrored_back): fp on B.Cu (mirror) angle 180 — still
+        (-3.05, -1.295)."""
+        fp = _mount_fp(15.05, 19.705, angle=180.0, back=True)
+        result = resolve_pad_anchor_offset(
+            fp, _mount_slot(), Vector2.from_xy_mm(13.05, 18.705), "F.Cu")
+        assert result[0] == pytest.approx(-3.05, abs=1e-6)
+        assert result[1] == pytest.approx(-1.295, abs=1e-6)
+
+    def test_rotated_and_mirrored_matches_resolve_anchor_point(self):
+        """§2b combined rotation+mirror (reference test_resolve_anchor_point_
+        rotation_and_mirror_together): fp angle 90 on B.Cu — still
+        (-3.05, -1.295)."""
+        fp = _mount_fp(10.295, 25.05, angle=90.0, back=True)
+        result = resolve_pad_anchor_offset(
+            fp, _mount_slot(), Vector2.from_xy_mm(11.295, 23.05), "F.Cu")
+        assert result[0] == pytest.approx(-3.05, abs=1e-6)
+        assert result[1] == pytest.approx(-1.295, abs=1e-6)
+
+    def test_back_cell_mirrors_front_instance(self):
+        """cell_layer='B.Cu' with a front (F.Cu) fp is a mirror too: the pad's
+        reference-frame point must be recovered regardless of which side the
+        cell's own layer is on. Mirror of the identity case about the vertical
+        axis through the reference origin O=(15.05, 20.295): MOUNT's world
+        position is (O.x - s.x, O.y + s.y) = (20.1, 20.0) at angle 180, and the
+        pad (stored (-3.05,-1.295)) sits at (O.x + 3.05, O.y - 1.295) =
+        (18.1, 19.0)."""
+        fp = _mount_fp(20.1, 20.0, angle=180.0)  # front fp, but cell on B.Cu
+        result = resolve_pad_anchor_offset(
+            fp, _mount_slot(), Vector2.from_xy_mm(18.1, 19.0), "B.Cu")
+        assert result[0] == pytest.approx(-3.05, abs=1e-6)
+        assert result[1] == pytest.approx(-1.295, abs=1e-6)
+
+
+class TestApplyCloneGeometryResolvedMount:
+    """plan_2026_09_09_cell_anchor_v2 §A.3: resolved_mount replaces
+    cell_mount_offset — a pad-anchor cell has NO derivable stored A (its
+    legacy mount IS (0,0)), so the caller resolves A against the live board and
+    hands it in. None (default) = 100% the historical behaviour."""
+
+    def _clone(self):
+        return ClonePlacement(cluster="f", cell="a", xy=(0.0, 0.0))
+
+    def _one_comp_cell(self, **cell_kw):
+        return Cell(name="a", components=[
+            TemplateComponentSlot(role="R1", offset_along_mm=1.0,
+                                  offset_across_mm=2.0, angle_deg=0.0),
+        ], **cell_kw)
+
+    def _comp_pos_mm(self, cell, resolved_mount=None):
+        layout = apply_clone_geometry(self._clone(), cell, {"R1": "C1"},
+                                      resolved_mount=resolved_mount)
+        comp = next(c for c in layout.components if c.role == "R1")
+        return (comp.position.x / MM, comp.position.y / MM)
+
+    def test_none_uses_stored_anchor_xy(self):
+        """resolved_mount=None keeps cell_mount_offset: anchor_xy=(2,3) ->
+        comp at origin + (1-2, 2-3) = (-1, -1)."""
+        x, y = self._comp_pos_mm(self._one_comp_cell(anchor_xy=(2.0, 3.0)))
+        assert x == pytest.approx(-1.0, abs=1e-6)
+        assert y == pytest.approx(-1.0, abs=1e-6)
+
+    def test_resolved_mount_replaces_stored_anchor(self):
+        """A passed resolved_mount wins over the stored anchor_xy (GUARD 1 is
+        the CALLER's job — geometry must honour a resolved value): A=(0.5,1.5)
+        -> comp at (1-0.5, 2-1.5) = (0.5, 0.5)."""
+        cell = self._one_comp_cell(anchor_xy=(2.0, 3.0))
+        x, y = self._comp_pos_mm(cell, resolved_mount=(0.5, 1.5))
+        assert x == pytest.approx(0.5, abs=1e-6)
+        assert y == pytest.approx(0.5, abs=1e-6)
+
+    def test_pad_anchor_without_xy_defaults_to_legacy_zero(self):
+        """anchor_role+anchor_pad, no anchor_xy, resolved_mount NOT given:
+        cell_mount_offset -> legacy (0,0), so the component stays at its stored
+        (1, 2) — the historical behaviour a migrated legacy cell keeps."""
+        cell = self._one_comp_cell(anchor_role="R1", anchor_pad="1")
+        x, y = self._comp_pos_mm(cell)
+        assert x == pytest.approx(1.0, abs=1e-6)
+        assert y == pytest.approx(2.0, abs=1e-6)

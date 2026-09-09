@@ -282,6 +282,45 @@ class TestReadCloneOriginLive:
         with pytest.raises(ValidationError, match="not on the live board"):
             read_clone_origin_live(adapter, cfg, clone, {})
 
+    def test_pad_anchor_uses_live_resolved_mount(self, monkeypatch):
+        """§A.7 (plan_2026_09_09_cell_anchor_v2): a pad-anchor cell
+        (anchor_role+anchor_pad, NO anchor_xy) — read_clone_origin_live MUST
+        invert apply_clone_geometry with the SAME live-resolved mount. Forward:
+        origin=(10,20), A=(-3.05,-1.295) (the pad's bbox-local point) -> MOUNT
+        at origin - A = (13.05,21.295), its pad at the origin (10,20). The
+        inverse must recover (10,20); the legacy cell_mount_offset (0,0) would
+        wrongly return the fp's own position (13.05,21.295)."""
+        import gui.docks.live_position as lp
+        cell = Cell(name="padcell", anchor_role="MOUNT", anchor_pad="1",
+                    components=[
+                        TemplateComponentSlot(role="MOUNT", offset_along_mm=0.0,
+                                              offset_across_mm=0.0, angle_deg=0.0),
+                        TemplateComponentSlot(role="CAP", offset_along_mm=4.0,
+                                              offset_across_mm=0.0, angle_deg=0.0),
+                    ])
+        cfg = MagicMock()
+        cfg.cells = {"padcell": cell}
+        mount = _make_fp("C10", role="MOUNT", cluster="PAD",
+                         position=Vector2.from_xy_mm(13.05, 21.295))
+        cap = _make_fp("C11", role="CAP", cluster="PAD",
+                       position=Vector2.from_xy_mm(14.0, 20.0))
+        adapter = _adapter([mount, cap])
+
+        def _pad_by_num(fp, num):
+            if fp.ref == "C10" and str(num) == "1":
+                return _StubPad(10.0, 20.0)  # the mount = the clone origin
+            return _get_pad_by_number(fp, num)
+        adapter.get_pad_by_number.side_effect = _pad_by_num
+        clone = ClonePlacement(cluster="PAD", cell="padcell", xy=(10.0, 20.0))
+        monkeypatch.setattr(lp, "clone_uses_selection_mode", lambda *a, **k: False)
+        monkeypatch.setattr(lp, "resolve_roles_by_nets",
+                            lambda *a, **k: {"MOUNT": "C10", "CAP": "C11"})
+
+        read = read_clone_origin_live(adapter, cfg, clone, {})
+        assert read.position == Vector2.from_xy_mm(10.0, 20.0)
+        assert read.rotation_deg == 0.0
+        assert read.footprint is mount
+
 
 class TestReadCellAnchorOffsetFromSelection:
     """(ax_mm, ay_mm) of the CURRENT LIVE SELECTION's single Via or footprint

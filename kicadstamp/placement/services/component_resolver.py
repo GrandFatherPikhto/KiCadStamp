@@ -8,9 +8,10 @@ from ...domain.geometry import Vector2
 
 from ...domain.board import Footprint
 
-from ...config import Config
+from ...config import Cell, Config
 from ...kicad.adapter import KiCadBoardAdapter
 from ...exceptions import ValidationError, format_fatal_error
+from ...geometry.clone_geometry import resolve_pad_anchor_offset
 from .component_pool import ComponentPool
 from .clone_role_resolver import resolve_footprint_by_role
 from ...i18n import _
@@ -116,6 +117,69 @@ def resolve_footprint_by_ref(adapter: KiCadBoardAdapter, anchor_ref: str, label:
             [hint]
         ))
     return fp
+
+
+def resolve_pad_mount(adapter: KiCadBoardAdapter, cell: Cell,
+                      role_to_ref: dict[str, str], where: str) -> tuple[float, float] | None:
+    """The cell's mount A resolved from a LIVE instance of its anchor_role's
+    pad, or None when this cell has no pad anchor (every offline case —
+    anchor_xy, role-only, no anchor — is left to cell_mount_offset).
+
+    anchor_xy WINS: an explicitly stored mount is the real data (see Cell's
+    docstring) and must not be silently overridden by a live re-derivation —
+    GUARD 1 (plan_2026_09_09_cell_anchor_v2 §A.5, phase A). The caller passes
+    the result to apply_clone_geometry/apply_spoke_geometry as resolved_mount;
+    None keeps those functions' historical cell_mount_offset path intact.
+
+    Every unresolvable piece of a DECLARED pad anchor is a FATAL
+    ValidationError — never a silent fallback to (0,0), which would shift the
+    whole cell content: the anchor role not resolved on the board (GUARD 3),
+    its ref missing live, the role not among this cell's own components
+    (GUARD 4 — next(..., None) + explicit fatal, never a bare next() whose
+    StopIteration would escape), or the anchor pad missing on the footprint.
+    The pure frame math is resolve_pad_anchor_offset
+    (geometry/clone_geometry.py): the pad's LIVE position is read HERE (via
+    the adapter) and handed in, so geometry stays free of live-board access.
+
+    where — caller-supplied human label (clone/chain context) for the fatal
+    messages.
+    """
+    if cell.anchor_xy is not None:
+        return None                       # GUARD 1 — anchor_xy wins
+    if not (cell.anchor_role and cell.anchor_pad):
+        return None
+    role = cell.anchor_role
+    ref = role_to_ref.get(role)
+    if ref is None:                       # GUARD 3
+        raise ValidationError(format_fatal_error(
+            _("cell {cell!r}: anchor_role {role!r} is not resolved on the board ({where})")
+            .format(cell=cell.name, role=role, where=where),
+            [_("a pad anchor cannot fall back to (0,0) — that would silently shift "
+               "the whole cell content; place the anchor component on the board and "
+               "check that its role resolves by net/selection, then apply again")]))
+    fp = adapter.get_footprint(ref)
+    if fp is None:
+        raise ValidationError(format_fatal_error(
+            _("cell {cell!r}: anchor_role {role!r} resolved to {ref!r}, but that "
+               "ref is not on the live board ({where})").format(
+                cell=cell.name, role=role, ref=ref, where=where),
+            [_("the board changed since the roles were resolved — place the anchor "
+               "component on the board, then apply again")]))
+    slot = next((c for c in cell.components if c.role == role), None)
+    if slot is None:                      # GUARD 4 — not a bare next()
+        raise ValidationError(format_fatal_error(
+            _("cell {name!r}: anchor_role {role!r} is not a component of this cell")
+            .format(name=cell.name, role=role),
+            [_("anchor_role must name one of this cell's own components; the "
+               "mount point cannot be derived from a role that does not "
+               "exist")]))
+    pad = adapter.get_pad_by_number(fp, cell.anchor_pad)
+    if pad is None:
+        raise ValidationError(format_fatal_error(
+            _("cell {cell!r}: anchor footprint {ref!r} has no pad {pad!r} ({where})")
+            .format(cell=cell.name, ref=ref, pad=cell.anchor_pad, where=where),
+            [_("check anchor_pad — pad numbers are strings as in KiCad ('1', '17', 'A3')")]))
+    return resolve_pad_anchor_offset(fp, slot, pad.position, cell.layer)
 
 
 class ComponentResolver:
