@@ -54,8 +54,10 @@ from typing import Any
 
 from .constants import ROLE_FIELD_NAME
 from .domain.board import Footprint, Track, Via
-from .domain.geometry import Vector2
+from .domain.geometry import BoardLayer, Vector2
 from .exceptions import ValidationError, format_fatal_error
+from .geometry.clone_geometry import clone_rotation_from_component
+from .geometry.spoke_layout import rotate_local_offset
 from .i18n import _
 from .net_resolution import resolve_net_from_role
 from .template_extraction import _selection_role_nets, _suggest_net_from_role
@@ -524,21 +526,34 @@ def resolve_anchor_point(
     components: list[dict],
     adapter: Any,
     pad: str | None = None,
+    layer: str = "F.Cu",
 ) -> tuple[str, float, float]:
     """Given ONE live footprint (the intended anchor subject) and the cell's
     own component list, resolves (role, along_mm, across_mm) — the bbox-local
     point of either fp's own centre (pad is None) or one of its pads (pad
-    given) — for use as Cell.anchor_xy (+anchor_role/anchor_pad).
+    given), expressed in the cell's REFERENCE (stored, angle-0) frame — for
+    use as Cell.anchor_xy (+anchor_role/anchor_pad).
 
-    Reuses the SAME frame-preserving surrogate formula as
-    _cell_selection_context's origin_role branch: fp's Role must already be
-    one of this cell's OWN components (that component's stored
-    offset_along_mm/offset_across_mm is the only way to know where the cell's
-    local (0,0) currently lives on the real board), so
+    fp's Role must already be one of this cell's OWN components; that
+    component's stored offset_along_mm/offset_across_mm/angle_deg is the only
+    way to know where the cell's reference local (0,0) currently lives on the
+    real board. Rotation/mirror-aware (2026-09-09, plan
+    placer_cell_anchor_selection_unify §2b): fp's LIVE angle_deg/layer are
+    compared against the matched component's OWN stored angle_deg (+ the cell's
+    own layer, passed in) via clone_rotation_from_component — the SAME proven
+    inverse the project's clone-placement machinery (clone_origin_from_
+    component, read_clone_origin_live) already uses for exactly this "recover
+    the cell's own frame from one live component" problem. The component's
+    stored offset is rotated into the live instance's frame to reconstruct the
+    reference origin, then the target delta is un-mirrored (about the vertical
+    axis through that origin) and un-rotated back into the reference frame.
+    The cell's currently-stored anchor A cancels out of the delta, so the
+    result is the pad/centre's reference-frame point regardless of how the
+    cell was previously anchored — a plain (unrotated) subtraction is correct
+    only for the identity-orientation special case this generalizes.
 
-        origin = fp.position - stored_offset_of_that_role (mm -> nm)
-        target = get_pad_by_number(fp, pad).position if pad else fp.position
-        (along_mm, across_mm) = (target - origin) in mm
+    layer — the cell's own reference layer ('F.Cu' | 'B.Cu'); mirror is
+    inferred by comparing fp's live side against it.
 
     Raises ValidationError (format_fatal_error) when: fp carries no Role
     field; that role is not one of this cell's own components; pad is given
@@ -561,14 +576,24 @@ def resolve_anchor_point(
                "where the cell's local (0,0) lives on the board")]))
     surrogate_along = float(comp.get("offset_along_mm", 0.0))
     surrogate_across = float(comp.get("offset_across_mm", 0.0))
-    # Frame-preserving surrogate — IDENTICAL to _cell_selection_context's
-    # origin_role branch: the cell's local (0,0) currently lives at
-    # fp.position - that role's stored offset (in nm). Reusing the same int()
-    # truncation keeps the anchor exactly consistent with what a refresh would
-    # write for the same role.
-    origin = Vector2.from_xy(
-        fp.position.x - int(surrogate_along * MM),
-        fp.position.y - int(surrogate_across * MM))
+    slot_angle_deg = float(comp.get("angle_deg", 0.0))
+    # Mirror is a physical fact of the LIVE instance vs the cell's own stored
+    # side: an F.Cu-extracted cell placed mirrored has its footprints on B.Cu.
+    mirror = (fp.layer == BoardLayer.BL_B_Cu) != (layer == "B.Cu")
+    rotation_deg = clone_rotation_from_component(
+        fp.angle_deg, slot_angle_deg, mirror)
+    # Reconstruct the cell's reference origin from this live component: its
+    # STORED offset rotated into the live instance's frame, subtracted (or
+    # X-added under mirror — the mirror flip about the vertical axis through
+    # the origin, exactly clone_origin_from_component's inverse branch).
+    rotated = rotate_local_offset(surrogate_along, surrogate_across,
+                                  rotation_deg)
+    if mirror:
+        origin = Vector2.from_xy(
+            fp.position.x + rotated.x, fp.position.y - rotated.y)
+    else:
+        origin = Vector2.from_xy(
+            fp.position.x - rotated.x, fp.position.y - rotated.y)
     if pad is None:
         target = fp.position
     else:
@@ -580,7 +605,14 @@ def resolve_anchor_point(
                 [_("the pad number must match a real pad of the selected "
                    "component — type it exactly as KiCad shows it")]))
         target = p.position
-    return role, _mm(target.x - origin.x), _mm(target.y - origin.y)
+    # Target delta in the live instance frame -> un-mirror -> un-rotate back
+    # into the cell's reference (stored, angle-0) frame.
+    delta_x = target.x - origin.x
+    delta_y = target.y - origin.y
+    if mirror:
+        delta_x = -delta_x
+    local = rotate_local_offset(delta_x / MM, delta_y / MM, -rotation_deg)
+    return role, _mm(local.x), _mm(local.y)
 
 
 def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[dict],

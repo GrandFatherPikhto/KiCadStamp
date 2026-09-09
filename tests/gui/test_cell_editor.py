@@ -500,7 +500,7 @@ def test_anchor_take_run_zero_selection_shows_fatal_writes_nothing(main_window,
 
     result = dock._run_anchor_take_from_selection(
         {"board": _AnchorBoard([]), "components": list(dock._components),
-         "pad": "1"})
+         "pad": "1", "layer": "F.Cu"})
     assert "error" in result
     dock._finish_anchor_take_from_selection(result)
 
@@ -525,7 +525,7 @@ def test_anchor_take_run_two_selection_shows_fatal(main_window, tmp_path,
     result = dock._run_anchor_take_from_selection(
         {"board": _AnchorBoard(fps, roles={"C-OUT1": "C_OUT_BYPASS",
                                            "C-OUT2": "C_OUT_BYPASS"}),
-         "components": list(dock._components), "pad": "1"})
+         "components": list(dock._components), "pad": "1", "layer": "F.Cu"})
     assert "error" in result
     dock._finish_anchor_take_from_selection(result)
 
@@ -554,7 +554,8 @@ def test_anchor_take_mode2_fills_fields_and_stages_xy_role_pad(main_window,
         roles={"C-OUT": "C_OUT_BYPASS"},
         pads={"C-OUT": {"1": _AnchorPad("1", 97.0, 52.5)}})
     result = dock._run_anchor_take_from_selection(
-        {"board": board, "components": list(dock._components), "pad": "1"})
+        {"board": board, "components": list(dock._components), "pad": "1",
+         "layer": "F.Cu"})
     assert "error" not in result
     dock._finish_anchor_take_from_selection(result)
 
@@ -585,7 +586,8 @@ def test_anchor_take_mode1_fills_xy_only(main_window, tmp_path, monkeypatch):
         [_refresh_dto_fp("C-OUT", "C_OUT_BYPASS", 100.0, 55.0)],
         roles={"C-OUT": "C_OUT_BYPASS"})
     result = dock._run_anchor_take_from_selection(
-        {"board": board, "components": list(dock._components), "pad": None})
+        {"board": board, "components": list(dock._components), "pad": None,
+         "layer": "F.Cu"})
     assert "error" not in result
     dock._finish_anchor_take_from_selection(result)
 
@@ -610,7 +612,8 @@ def test_anchor_take_mode2_role_not_in_cell_shows_fatal(main_window, tmp_path,
         roles={"R-OTHER": "OTHER"})
 
     result = dock._run_anchor_take_from_selection(
-        {"board": board, "components": list(dock._components), "pad": "1"})
+        {"board": board, "components": list(dock._components), "pad": "1",
+         "layer": "F.Cu"})
     assert "error" in result
     dock._finish_anchor_take_from_selection(result)
 
@@ -633,12 +636,50 @@ def test_anchor_take_mode2_missing_pad_shows_fatal(main_window, tmp_path,
         roles={"C-OUT": "C_OUT_BYPASS"})  # no pads at all
 
     result = dock._run_anchor_take_from_selection(
-        {"board": board, "components": list(dock._components), "pad": "9"})
+        {"board": board, "components": list(dock._components), "pad": "9",
+         "layer": "F.Cu"})
     assert "error" in result
     dock._finish_anchor_take_from_selection(result)
 
     assert len(warnings) == 1
     assert "no pad" in warnings[0][2]
+
+
+def test_anchor_take_mode2_rotated_live_fp_is_unrotated_back(main_window,
+                                                             tmp_path,
+                                                             monkeypatch):
+    """§2b (plan placer_cell_anchor_selection_unify, 2026-09-09): the anchor
+    subject standing on a NON-identity live instance (fp angle 90, cell layer
+    F.Cu) must resolve the SAME reference-frame pad point a 0deg instance
+    does — the old plain-subtraction surrogate silently returned a WRONG
+    anchor for a rotated instance. The dock passes the cell's own layer
+    (layer_combo) through the payload into resolve_anchor_point."""
+    dock, target = _make_dock(main_window, tmp_path, _pif3v3_cell_data())
+    dock.load_entry("t")
+    dock.anchor_mode_combo.setCurrentIndex(2)
+    dock.anchor_role_combo.setCurrentText("C_OUT_BYPASS")
+    dock.anchor_pad_edit.setText("1")
+    assert dock.layer_combo.currentData() == "F.Cu"  # the cell's layer flows
+
+    # Live instance placed at rotation 90: fp centre = O + R90(stored),
+    # pad = O + R90(reference pad point), with O = (100, 55), R90(x,y)=(y,-x),
+    # the reference pad at (-8.05, -2.795).
+    board = _AnchorBoard(
+        [_refresh_dto_fp("C-OUT", "C_OUT_BYPASS", 99.705, 60.05, angle=90.0)],
+        roles={"C-OUT": "C_OUT_BYPASS"},
+        pads={"C-OUT": {"1": _AnchorPad("1", 97.205, 63.05)}})
+    result = dock._run_anchor_take_from_selection(
+        {"board": board, "components": list(dock._components), "pad": "1",
+         "layer": dock.layer_combo.currentData() or "F.Cu"})
+    assert "error" not in result
+    assert result["along_mm"] == pytest.approx(-8.05, abs=1e-6)
+    assert result["across_mm"] == pytest.approx(-2.795, abs=1e-6)
+
+    dock._finish_anchor_take_from_selection(result)
+    saved = _load(target)["cells"]["t"]
+    assert saved["anchor_xy"] == [-8.05, -2.795]
+    assert saved["anchor_role"] == "C_OUT_BYPASS"
+    assert saved["anchor_pad"] == "1"
 
 
 def test_anchor_role_choices_follow_the_components_list(main_window, tmp_path):

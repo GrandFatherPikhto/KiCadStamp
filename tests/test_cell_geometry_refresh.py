@@ -1148,3 +1148,67 @@ def test_resolve_anchor_point_pif3v3_vdd_shaped_round_trips_through_mount():
             round(origin_mm[1] + mount[1], 4)) == (97.0, 52.5)
 
 
+def test_resolve_anchor_point_rotated_live_instance_is_unrotated_back():
+    """§2b (plan placer_cell_anchor_selection_unify, 2026-09-09): a live
+    instance placed at rotation 90 (role stored at (-5.05,-0.295), slot angle
+    0) — the old plain-subtraction surrogate (origin = fp.position -
+    stored_offset, no rotation inversion) would silently return a WRONG
+    anchor. The rotation-aware path must recover the pad's reference-frame
+    (-3.05, -1.295) — the SAME bbox-local point an identity instance resolves
+    to. World geometry: fp centre = O + R90(s), pad = O + R90(p0) with
+    O = (10, 20), R90(x, y) = (y, -x) (real kipy rotate convention)."""
+    fp = _fp("U-MOUNT", "MOUNT", 9.705, 25.05, angle=90.0)
+    components = [{"role": "MOUNT", "offset_along_mm": -5.05,
+                   "offset_across_mm": -0.295, "angle_deg": 0.0}]
+    adapter = _AnchorAdapter(
+        roles={"U-MOUNT": "MOUNT"},
+        pads_by_ref={"U-MOUNT": {"1": _AnchorPad(8.705, 23.05)}})
+    role, along_mm, across_mm = resolve_anchor_point(
+        fp, components, adapter, pad="1")
+    assert role == "MOUNT"
+    assert along_mm == pytest.approx(-3.05, abs=1e-6)
+    assert across_mm == pytest.approx(-1.295, abs=1e-6)
+
+
+def test_resolve_anchor_point_mirrored_live_instance_is_unmirrored_back():
+    """§2b mirror case: the SAME cell content placed mirrored (fp on B.Cu
+    while the cell's own layer is F.Cu, fp angle 180 for a 0-rotation
+    mirrored placement). World geometry mirrors every point about the vertical
+    axis through O: fp centre = mirror_x(O, O + s), pad = mirror_x(O, O + p0)
+    with s = (-5.05,-0.295), p0 = (-3.05,-1.295), O = (10, 20). The resolver
+    must still return the reference-frame (-3.05, -1.295)."""
+    fp = Footprint(ref="U-MOUNT", uuid="uuid-U-MOUNT",
+                   position=Vector2.from_xy_mm(15.05, 19.705),
+                   angle_deg=180.0, layer=BoardLayer.BL_B_Cu)
+    components = [{"role": "MOUNT", "offset_along_mm": -5.05,
+                   "offset_across_mm": -0.295, "angle_deg": 0.0}]
+    adapter = _AnchorAdapter(
+        roles={"U-MOUNT": "MOUNT"},
+        pads_by_ref={"U-MOUNT": {"1": _AnchorPad(13.05, 18.705)}})
+    role, along_mm, across_mm = resolve_anchor_point(
+        fp, components, adapter, pad="1")
+    assert role == "MOUNT"
+    assert along_mm == pytest.approx(-3.05, abs=1e-6)
+    assert across_mm == pytest.approx(-1.295, abs=1e-6)
+
+
+def test_resolve_anchor_point_rotation_and_mirror_together():
+    """§2b combined rotation+mirror: fp angle = (180 - (slot + R)) % 360, so a
+    mirrored 90-rotation instance shows fp angle 90 on B.Cu. World geometry =
+    mirror_x(O, O + R90(c)). The resolver must recover the SAME
+    reference-frame (-3.05, -1.295) a pure identity instance resolves to."""
+    fp = Footprint(ref="U-MOUNT", uuid="uuid-U-MOUNT",
+                   position=Vector2.from_xy_mm(10.295, 25.05),
+                   angle_deg=90.0, layer=BoardLayer.BL_B_Cu)
+    components = [{"role": "MOUNT", "offset_along_mm": -5.05,
+                   "offset_across_mm": -0.295, "angle_deg": 0.0}]
+    adapter = _AnchorAdapter(
+        roles={"U-MOUNT": "MOUNT"},
+        pads_by_ref={"U-MOUNT": {"1": _AnchorPad(11.295, 23.05)}})
+    role, along_mm, across_mm = resolve_anchor_point(
+        fp, components, adapter, pad="1")
+    assert role == "MOUNT"
+    assert along_mm == pytest.approx(-3.05, abs=1e-6)
+    assert across_mm == pytest.approx(-1.295, abs=1e-6)
+
+

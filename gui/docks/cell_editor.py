@@ -1478,6 +1478,7 @@ class CellDock(QWidget):
             "board": board,
             "components": list(self._components),
             "pad": pad,
+            "layer": self.layer_combo.currentData() or "F.Cu",
         }
         self._active_op = start_long_op(
             connection, (self.anchor_take_button,),
@@ -1498,7 +1499,8 @@ class CellDock(QWidget):
                     [_("{n} footprint(s) currently selected — the anchor subject "
                        "must be unambiguous").format(n=len(footprints))]))
             role, along_mm, across_mm = resolve_anchor_point(
-                footprints[0], payload["components"], adapter, payload["pad"])
+                footprints[0], payload["components"], adapter, payload["pad"],
+                layer=payload["layer"])
         except ValidationError as e:
             return {"error": str(e)}
         return {"role": role, "along_mm": along_mm, "across_mm": across_mm}

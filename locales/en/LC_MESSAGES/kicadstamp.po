@@ -15558,3 +15558,34 @@ msgstr ""
 
 msgid "Cluster {cluster!r} is the tree's own anchor subject, but the anchor also narrows to pad {pad!r} — an auto root cannot preserve the pad point; the cluster's node is skipped and the tree keeps its explicit role anchor"
 msgstr ""
+
+# plan_2026_09_09_placer_cell_anchor_selection_unify.md - merge Bbox/Point, Via+footprint take-from-selection, Cluster-free Role+Pad
+msgid "Fill X/Y from the currently selected Via or footprint on the live board."
+msgstr ""
+
+msgid "Take from selection: Cluster name and a Cell are required to read the selected Via or footprint's position."
+msgstr ""
+
+msgid "Anchor point from the selected Via or footprint: ({x:.3f}, {y:.3f}) mm — press “Set as anchor” to apply."
+msgstr ""
+
+msgid "Set as anchor: select exactly ONE footprint with Role {role!r} on the board to read pad {pad!r}'s position."
+msgstr ""
+
+msgid "Set as anchor: selected footprint's Role is {found!r}, not the picked {role!r} — select the right footprint."
+msgstr ""
+
+msgid "clone {name!r}: nothing is selected on the board — 'Take from selection' needs exactly one Via or footprint"
+msgstr ""
+
+msgid "select the Via or footprint whose position should become the cell's mount point, then press the button again"
+msgstr ""
+
+msgid "select only the Via or footprint whose position should become the cell's mount point"
+msgstr ""
+
+msgid "clone {name!r}: only a Via or a footprint is supported as the anchor source — selected: {kind}"
+msgstr ""
+
+msgid "select a Via or a footprint whose position should become the cell's mount point"
+msgstr ""

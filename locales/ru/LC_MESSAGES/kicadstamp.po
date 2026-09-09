@@ -14207,3 +14207,34 @@ msgstr "Отмеченные кластеры {clusters} все совпадаю
 
 msgid "Cluster {cluster!r} is the tree's own anchor subject, but the anchor also narrows to pad {pad!r} — an auto root cannot preserve the pad point; the cluster's node is skipped and the tree keeps its explicit role anchor"
 msgstr "Кластер {cluster!r} — субъект якоря дерева, но якорь также сужен до пада {pad!r} — auto-корень не может сохранить точку пада; узел кластера пропущен, и дерево сохраняет явный role-якорь"
+
+# plan_2026_09_09_placer_cell_anchor_selection_unify.md - merge Bbox/Point, Via+footprint take-from-selection, Cluster-free Role+Pad
+msgid "Fill X/Y from the currently selected Via or footprint on the live board."
+msgstr "Заполнить X/Y из текущей выделенной Via или футпринта на живой плате."
+
+msgid "Take from selection: Cluster name and a Cell are required to read the selected Via or footprint's position."
+msgstr "Взять из выделения: для чтения позиции выбранной Via или футпринта требуются Cluster и Cell."
+
+msgid "Anchor point from the selected Via or footprint: ({x:.3f}, {y:.3f}) mm — press “Set as anchor” to apply."
+msgstr "Точка якоря из выделенной Via или футпринта: ({x:.3f}, {y:.3f}) мм — нажмите “Set as anchor”, чтобы применить."
+
+msgid "Set as anchor: select exactly ONE footprint with Role {role!r} on the board to read pad {pad!r}'s position."
+msgstr "Set as anchor: выделите РОВНО ОДИН футпринт с ролью {role!r} на плате, чтобы прочитать позицию пада {pad!r}."
+
+msgid "Set as anchor: selected footprint's Role is {found!r}, not the picked {role!r} — select the right footprint."
+msgstr "Set as anchor: роль выбранного футпринта — {found!r}, а не выбранная {role!r} — выделите правильный футпринт."
+
+msgid "clone {name!r}: nothing is selected on the board — 'Take from selection' needs exactly one Via or footprint"
+msgstr "clone {name!r}: на плате ничего не выделено — «Взять из выделения» требует ровно одну Via или футпринт"
+
+msgid "select the Via or footprint whose position should become the cell's mount point, then press the button again"
+msgstr "выделите Via или футпринт, чья позиция должна стать точкой монтажа ячейки, и нажмите кнопку снова"
+
+msgid "select only the Via or footprint whose position should become the cell's mount point"
+msgstr "выделите только ту Via или футпринт, чья позиция должна стать точкой монтажа ячейки"
+
+msgid "clone {name!r}: only a Via or a footprint is supported as the anchor source — selected: {kind}"
+msgstr "clone {name!r}: в качестве источника якоря поддерживается только Via или футпринт — выбрано: {kind}"
+
+msgid "select a Via or a footprint whose position should become the cell's mount point"
+msgstr "выделите Via или футпринт, чья позиция должна стать точкой монтажа ячейки"

@@ -18,6 +18,8 @@ from gui.docks.placer import PlacerDock
 from kicadstamp.config import (Cell, Config, RuntimeContext, load_clone_placement)
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.constants import CLUSTER_FIELD_NAME
+from kicadstamp.domain.board import Footprint
+from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.exceptions import ValidationError
 
 
@@ -1392,7 +1394,7 @@ def test_set_cell_anchor_role_mode_writes_anchor_without_mutation(main_window, t
     offsets are NEVER rewritten (the bbox frame stays stable)."""
     dock, cells_file, _ = _make_cell_and_dock_anchor(main_window, tmp_path)
     assert main_window.connection.board is None  # offline regression guard
-    dock.cell_anchor_source_tabs.setCurrentIndex(2)  # Component (Role)
+    dock.cell_anchor_source_tabs.setCurrentIndex(1)  # Component (Role)
     dock.cell_anchor_role_combo.setCurrentText("FPGA")
     dock.cell_anchor_pad_edit.setText("")
     dock.cell_anchor_x_edit.setText("")
@@ -1425,7 +1427,7 @@ def test_set_cell_anchor_role_pad_requires_connection(main_window, tmp_path, mon
     monkeypatch.setattr(placer_mod.QMessageBox, "warning",
                         lambda *a, **k: warnings.append(a) or None)
     before = _load(cells_file)
-    dock.cell_anchor_source_tabs.setCurrentIndex(2)  # Component (Role + Pad)
+    dock.cell_anchor_source_tabs.setCurrentIndex(1)  # Component (Role + Pad)
     dock.cell_anchor_role_combo.setCurrentText("FPGA")
     dock.cell_anchor_pad_edit.setText("A1")
     dock._on_set_cell_anchor()
@@ -1434,19 +1436,27 @@ def test_set_cell_anchor_role_pad_requires_connection(main_window, tmp_path, mon
     assert _load(cells_file) == before  # nothing written
 
 
-def test_set_cell_anchor_role_pad_stages_with_adapter(main_window, tmp_path, monkeypatch):
-    """Role+Pad mode with a (fake) live adapter delegates the geometry to
-    read_cell_anchor_offset_live and RECORDS the pad's stored point as
-    anchor_xy (+ anchor_role/anchor_pad identity) — offsets untouched."""
+def test_set_cell_anchor_role_pad_stages_with_adapter(main_window, tmp_path):
+    """Role+Pad mode with a (fake) live adapter resolves the pad through the
+    REAL resolve_anchor_point path (mocking get_selected_items/get_field_
+    value/get_pad_by_number) and RECORDS the pad's bbox-local point as
+    anchor_xy (+ anchor_role/anchor_pad identity) — offsets untouched.
+    cluster_edit is NEVER filled: this test proves the Cluster/Cell
+    dependency is gone (2026-09-09, plan placer_cell_anchor_selection_unify)."""
     dock, cells_file, _ = _make_cell_and_dock_anchor(main_window, tmp_path)
-    main_window.connection.board = SimpleNamespace(adapter=MagicMock())
-    dock.cluster_edit.setCurrentText("FPGA_FLASH")
-    # The pad's stored-frame offset (2.5, 1.0); the cell has no prior anchor
-    # (A=(0,0)), so anchor_xy == the reader's value. The pure reader is
-    # covered by tests/test_live_position.py; here we exercise the wiring.
-    monkeypatch.setattr(placer_mod, "read_cell_anchor_offset_live",
-                        lambda *a, **k: (2.5, 1.0))
-    dock.cell_anchor_source_tabs.setCurrentIndex(2)  # Component (Role + Pad)
+    board = SimpleNamespace(adapter=MagicMock())
+    main_window.connection.board = board
+    assert dock.cluster_edit.currentText() == ""  # no Cluster set on purpose
+    fp = Footprint(ref="U-FPGA", uuid="uuid-fpga",
+                   position=Vector2.from_xy_mm(10.0, 20.0), angle_deg=0.0,
+                   layer=BoardLayer.BL_F_Cu)
+    board.adapter.get_selected_items.return_value = [fp]
+    board.adapter.get_field_value.side_effect = lambda f, n: "FPGA"
+    board.adapter.get_pad_by_number.return_value = SimpleNamespace(
+        position=Vector2.from_xy_mm(10.0, 22.0))
+    # FPGA stored at (2.5, 1.0) -> reconstructed live origin (7.5, 19.0); the
+    # pad at (10, 22) -> bbox-local anchor (2.5, 3.0).
+    dock.cell_anchor_source_tabs.setCurrentIndex(1)  # Component (Role + Pad)
     dock.cell_anchor_role_combo.setCurrentText("FPGA")
     dock.cell_anchor_pad_edit.setText("A1")
     dock._on_set_cell_anchor()
@@ -1459,32 +1469,39 @@ def test_set_cell_anchor_role_pad_stages_with_adapter(main_window, tmp_path, mon
     assert _close(by_role["CAP"].get("offset_across_mm"), -1.0)
     assert cell["anchor_role"] == "FPGA"
     assert cell["anchor_pad"] == "A1"
-    assert cell["anchor_xy"] == [2.5, 1.0]
+    assert _close(cell["anchor_xy"][0], 2.5)
+    assert _close(cell["anchor_xy"][1], 3.0)
 
 
-def test_set_cell_anchor_switching_forms_updates_fields_without_mutation(main_window, tmp_path, monkeypatch):
+def test_set_cell_anchor_switching_forms_updates_fields_without_mutation(main_window, tmp_path):
     """A second "Set as anchor" with a DIFFERENT form must not leave the
     previous fields behind (role+pad first, then a role-only and finally a
     point): every write replaces the anchor fields, offsets stay untouched."""
     dock, cells_file, _ = _make_cell_and_dock_anchor(main_window, tmp_path)
-    main_window.connection.board = SimpleNamespace(adapter=MagicMock())
-    dock.cluster_edit.setCurrentText("FPGA_FLASH")
-    monkeypatch.setattr(placer_mod, "read_cell_anchor_offset_live",
-                        lambda *a, **k: (2.5, 1.0))
+    board = SimpleNamespace(adapter=MagicMock())
+    main_window.connection.board = board
+    fp = Footprint(ref="U-FPGA", uuid="uuid-fpga",
+                   position=Vector2.from_xy_mm(10.0, 20.0), angle_deg=0.0,
+                   layer=BoardLayer.BL_F_Cu)
+    board.adapter.get_selected_items.return_value = [fp]
+    board.adapter.get_field_value.side_effect = lambda f, n: "FPGA"
+    board.adapter.get_pad_by_number.return_value = SimpleNamespace(
+        position=Vector2.from_xy_mm(10.0, 22.0))
 
-    # 1st: role+pad anchor onto FPGA pad A1.
-    dock.cell_anchor_source_tabs.setCurrentIndex(2)  # Component (Role + Pad)
+    # 1st: role+pad anchor onto FPGA pad A1 -> bbox-local (2.5, 3.0).
+    dock.cell_anchor_source_tabs.setCurrentIndex(1)  # Component (Role + Pad)
     dock.cell_anchor_role_combo.setCurrentText("FPGA")
     dock.cell_anchor_pad_edit.setText("A1")
     dock._on_set_cell_anchor()
     cell = _load(cells_file)["cells"]["composite"]
     assert cell["anchor_role"] == "FPGA"
     assert cell["anchor_pad"] == "A1"
-    assert cell["anchor_xy"] == [2.5, 1.0]
+    assert _close(cell["anchor_xy"][0], 2.5)
+    assert _close(cell["anchor_xy"][1], 3.0)
 
     # 2nd: role-only anchor onto CAP — the old pad and xy must vanish, and the
     # mount point moves to CAP's centre (3.5, -1.0) — offsets unchanged.
-    dock.cell_anchor_source_tabs.setCurrentIndex(2)  # Component (Role)
+    dock.cell_anchor_source_tabs.setCurrentIndex(1)  # Component (Role)
     dock.cell_anchor_role_combo.setCurrentText("CAP")
     dock.cell_anchor_pad_edit.setText("")
     dock._on_set_cell_anchor()
@@ -1497,7 +1514,7 @@ def test_set_cell_anchor_switching_forms_updates_fields_without_mutation(main_wi
     assert _off(by_role["CAP"], "offset_across_mm") == -1.0
 
     # 3rd: point anchor — role/pad vanish, only anchor_xy remains.
-    dock.cell_anchor_source_tabs.setCurrentIndex(1)  # Point
+    dock.cell_anchor_source_tabs.setCurrentIndex(0)  # Point
     dock.cell_anchor_x_edit.setText("0.0")
     dock.cell_anchor_y_edit.setText("0.0")
     dock._on_set_cell_anchor()
@@ -1506,8 +1523,9 @@ def test_set_cell_anchor_switching_forms_updates_fields_without_mutation(main_wi
     assert "anchor_pad" not in cell3
     assert cell3["anchor_xy"] == [0.0, 0.0]
 
-    # 4th: reset — back to the bbox default.
-    dock.cell_anchor_source_tabs.setCurrentIndex(0)  # Bbox (0,0) — reset
+    # 4th: reset — empty X/Y on the Point tab clears back to the bbox default.
+    dock.cell_anchor_x_edit.setText("")
+    dock.cell_anchor_y_edit.setText("")
     dock._on_set_cell_anchor()
     cell4 = _load(cells_file)["cells"]["composite"]
     assert "anchor_role" not in cell4
@@ -1515,30 +1533,33 @@ def test_set_cell_anchor_switching_forms_updates_fields_without_mutation(main_wi
     assert "anchor_xy" not in cell4
 
 
-def test_cell_anchor_source_is_three_tabs(main_window, tmp_path):
+def test_cell_anchor_source_is_two_tabs(main_window, tmp_path):
     """S-D (plan config_qview_placer_nettrace): the anchor source is a
-    QTabWidget with exactly three tabs — Bbox (0,0) / Point / Component
-    (Denis: "источник якоря — табы")."""
+    QTabWidget with exactly two tabs — Point / Component (2026-09-09, plan
+    placer_cell_anchor_selection_unify: the separate "Bbox (0,0)" tab was
+    merged into Point — empty X/Y is the bbox default)."""
     dock, _, _ = _make_cell_and_dock_anchor(main_window, tmp_path)
     tabs = dock.cell_anchor_source_tabs
     assert [tabs.tabText(i) for i in range(tabs.count())] == [
-        "Bbox (0,0)", "Point", "Component"]
+        "Point", "Component"]
 
 
-def test_cell_anchor_bbox_tab_clears_to_the_default(main_window, tmp_path):
-    """S-D: the Bbox (0,0) tab is the always-defined default — "Set as anchor"
-    there clears any custom anchor back to the bbox corner."""
+def test_cell_anchor_empty_point_fields_clear_to_the_default(main_window, tmp_path):
+    """The merged Point tab: "Set as anchor" with BOTH X/Y fields empty clears
+    any custom anchor back to the bbox default (the old "Bbox (0,0)" tab)."""
     dock, cells_file, _ = _make_cell_and_dock_anchor(main_window, tmp_path)
     # First set a role anchor (Component tab).
-    dock.cell_anchor_source_tabs.setCurrentIndex(2)
+    dock.cell_anchor_source_tabs.setCurrentIndex(1)
     dock.cell_anchor_role_combo.setCurrentText("FPGA")
     dock.cell_anchor_pad_edit.setText("")
     dock._on_set_cell_anchor()
     cell = _load(cells_file)["cells"]["composite"]
     assert cell["anchor_role"] == "FPGA"
     assert cell["anchor_xy"] == [2.5, 1.0]
-    # Then clear via the Bbox tab.
-    dock.cell_anchor_source_tabs.setCurrentIndex(0)
+    # Then clear via the Point tab with both fields empty.
+    dock.cell_anchor_source_tabs.setCurrentIndex(0)  # Point
+    dock.cell_anchor_x_edit.setText("")
+    dock.cell_anchor_y_edit.setText("")
     dock._on_set_cell_anchor()
     cell = _load(cells_file)["cells"]["composite"]
     assert "anchor_role" not in cell
@@ -1583,7 +1604,7 @@ def test_cell_anchor_take_from_selection_adds_current_mount(main_window, tmp_pat
     dock.cluster_edit.setCurrentText("FPGA_FLASH")
     # Prior "Set as anchor" on FPGA (Role mode, offline) -> anchor_xy = its
     # centre (2.5, 1.0); that is the cell's current mount A.
-    dock.cell_anchor_source_tabs.setCurrentIndex(2)  # Component (Role)
+    dock.cell_anchor_source_tabs.setCurrentIndex(1)  # Component (Role)
     dock.cell_anchor_role_combo.setCurrentText("FPGA")
     dock.cell_anchor_pad_edit.setText("")
     dock._on_set_cell_anchor()
@@ -1614,7 +1635,7 @@ def test_cell_anchor_take_from_selection_requires_connection(main_window, tmp_pa
 
 def test_cell_anchor_take_from_selection_reader_error_is_warning(main_window, tmp_path, monkeypatch):
     """A fatal ValidationError from the selection reader (e.g. nothing
-    selected, or a non-Via) surfaces as a QMessageBox.warning and leaves the
+    selected, or a Track) surfaces as a QMessageBox.warning and leaves the
     X/Y fields + the cell file untouched — the GUI never crashes, never a
     silent partial write (2026-09-06, plan §3.7)."""
     dock, cells_file, _ = _make_cell_and_dock_anchor(main_window, tmp_path)
@@ -1626,11 +1647,12 @@ def test_cell_anchor_take_from_selection_reader_error_is_warning(main_window, tm
     monkeypatch.setattr(
         placer_mod, "read_cell_anchor_offset_from_selection",
         lambda *a, **k: (_ for _ in ()).throw(
-            ValidationError("clone 'FPGA_FLASH': only a Via is supported")))
+            ValidationError("clone 'FPGA_FLASH': only a Via or a footprint is "
+                            "supported as the anchor source")))
     before = _load(cells_file)
     dock._on_take_anchor_from_selection()
     assert warnings  # the fatal ValidationError fired a warning
-    assert any("only a Via" in str(w) for w in warnings)
+    assert any("only a Via or a footprint" in str(w) for w in warnings)
     assert dock.cell_anchor_x_edit.text() == ""
     assert dock.cell_anchor_y_edit.text() == ""
     assert _load(cells_file) == before
@@ -1651,6 +1673,80 @@ def test_cell_anchor_take_from_selection_guards_match_set_as_anchor(main_window,
     dock._root_path = None
     dock._on_take_anchor_from_selection()
     assert any("Set the project root first" in r.message for r in caplog.records)
+
+
+def test_set_cell_anchor_role_pad_footprint_role_mismatch_is_fatal(main_window,
+                                                                   tmp_path,
+                                                                   monkeypatch):
+    """Role+Pad: the selected footprint's live Role is a DIFFERENT component
+    of this cell than the picked Role -> fatal via _show_message, nothing
+    written (never a silent anchor on the wrong role's pad)."""
+    dock, cells_file, _ = _make_cell_and_dock_anchor(main_window, tmp_path)
+    board = SimpleNamespace(adapter=MagicMock())
+    main_window.connection.board = board
+    fp = Footprint(ref="U-CAP", uuid="uuid-cap",
+                   position=Vector2.from_xy_mm(10.0, 20.0), angle_deg=0.0,
+                   layer=BoardLayer.BL_F_Cu)
+    board.adapter.get_selected_items.return_value = [fp]
+    board.adapter.get_field_value.side_effect = lambda f, n: "CAP"
+    board.adapter.get_pad_by_number.return_value = SimpleNamespace(
+        position=Vector2.from_xy_mm(10.0, 21.0))
+    messages = []
+    monkeypatch.setattr(dock, "_show_message",
+                        lambda text, style="": messages.append(text))
+
+    before = _load(cells_file)
+    dock.cell_anchor_source_tabs.setCurrentIndex(1)  # Component (Role + Pad)
+    dock.cell_anchor_role_combo.setCurrentText("FPGA")
+    dock.cell_anchor_pad_edit.setText("A1")
+    dock._on_set_cell_anchor()
+
+    assert any("Role is 'CAP', not the picked 'FPGA'" in m for m in messages)
+    assert _load(cells_file) == before
+
+
+def test_set_cell_anchor_role_pad_wrong_selection_count_is_fatal(main_window,
+                                                                 tmp_path,
+                                                                 monkeypatch):
+    """Role+Pad needs exactly ONE selected footprint as the anchor subject —
+    0 or 2+ footprints selected -> fatal, nothing written."""
+    dock, cells_file, _ = _make_cell_and_dock_anchor(main_window, tmp_path)
+    board = SimpleNamespace(adapter=MagicMock())
+    main_window.connection.board = board
+    board.adapter.get_selected_items.return_value = []  # nothing selected
+    messages = []
+    monkeypatch.setattr(dock, "_show_message",
+                        lambda text, style="": messages.append(text))
+
+    before = _load(cells_file)
+    dock.cell_anchor_source_tabs.setCurrentIndex(1)  # Component (Role + Pad)
+    dock.cell_anchor_role_combo.setCurrentText("FPGA")
+    dock.cell_anchor_pad_edit.setText("A1")
+    dock._on_set_cell_anchor()
+
+    assert any("select exactly ONE footprint" in m for m in messages)
+    assert _load(cells_file) == before
+
+    # A 2+-footprint selection is equally fatal.
+    messages.clear()
+    two = [Footprint(ref=f"U-{i}", uuid=f"uuid-{i}",
+                     position=Vector2.from_xy_mm(10.0, 20.0), angle_deg=0.0,
+                     layer=BoardLayer.BL_F_Cu) for i in (1, 2)]
+    board.adapter.get_selected_items.return_value = two
+    dock._on_set_cell_anchor()
+    assert any("select exactly ONE footprint" in m for m in messages)
+    assert _load(cells_file) == before
+
+
+def test_cell_anchor_take_selection_button_tooltip_accepts_footprint(main_window,
+                                                                     tmp_path):
+    """The Point tab's "Take from selection" button tooltip advertises the
+    Via OR footprint source (2026-09-09) — the reader-level acceptance is
+    covered in tests/test_live_position.py's footprint happy-path."""
+    dock, _, _ = _make_cell_and_dock_anchor(main_window, tmp_path)
+    tip = dock.cell_anchor_take_selection_button.toolTip()
+    assert "Via or footprint" in tip
+    assert "v1" not in tip
 
 
 def test_unrelated_edit_preserves_stored_override_fields(main_window, tmp_path):

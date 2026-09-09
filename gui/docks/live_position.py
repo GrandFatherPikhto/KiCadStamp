@@ -100,9 +100,9 @@ def read_anchor_live(adapter, fields: dict, points: dict, sheet_names,
 
 
 def _resolve_clone_role_to_ref(adapter, cfg, clone, cell, sheet_names) -> dict[str, str]:
-    """The clone's role -> live-ref map — the resolution block both
-    read_clone_origin_live and read_cell_anchor_offset_live need. by-nets or
-    by-selection (the SAME branch as apply/Select-on-board), honoring
+    """The clone's role -> live-ref map — the resolution block
+    read_clone_origin_live needs. by-nets or by-selection (the SAME branch as
+    apply/Select-on-board), honoring
     clone.ignore_selection through the adapter's temporarily_ignore_selection
     when present. Shared (2026-09-04, design cell_internal_anchor) so the
     Role+Pad rebase never duplicates the resolver logic blindly."""
@@ -193,52 +193,10 @@ def _world_pos_to_cell_local_offset(adapter, cfg, clone, sheet_names,
     return (offset.x / MM, offset.y / MM)
 
 
-def read_cell_anchor_offset_live(adapter, cfg, clone, sheet_names,
-                                 role: str, pad: str) -> tuple[float, float]:
-    """(ax_mm, ay_mm) of ONE pad of the live-resolved role's footprint,
-    expressed in the CELL's own local (unrotated, unmirrored) frame RELATIVE
-    TO THE CELL'S CURRENT MOUNT (the point read_clone_origin_live returns) —
-    the value the Placer's "Role + Pad" anchor adds to the cell's current
-    mount A to get the pad's stored-frame anchor_xy (design_2026_09_05 v2;
-    the mutation-based rebase of design_2026_09-04 is gone).
-
-    Resolves role + pad -> the pad's absolute world position, then delegates
-    the "world -> cell-local offset" inversion to the shared
-    _world_pos_to_cell_local_offset tail (the same one
-    read_cell_anchor_offset_from_selection uses).
-
-    Fatal ValidationError when the cell/role doesn't resolve to a live ref, or
-    that ref has no such pad — same "never guess" discipline as every other
-    resolver in this module."""
-    cell = cfg.cells.get(clone.cell)
-    if cell is None:
-        raise ValidationError(format_fatal_error(
-            _("cell {cell!r} not found in config").format(cell=clone.cell),
-            [_("extract/save the cell and make sure include: is wired (see Extract)")]))
-    role_to_ref = _resolve_clone_role_to_ref(adapter, cfg, clone, cell, sheet_names)
-    ref = role_to_ref.get(role)
-    name = clone_placement_effective_name(clone)
-    if ref is None:
-        raise ValidationError(format_fatal_error(
-            _("clone {name!r}: role {role!r} is not on the live board").format(
-                name=name, role=role),
-            [_("place the cell on the board first, or check its nets/selection "
-               "resolution — never a guess")]))
-    fp = adapter.get_footprint(ref)
-    if fp is None:
-        raise ValidationError(format_fatal_error(
-            _("clone {name!r}: role {role!r} resolved to {ref!r}, but that ref "
-              "is not on the live board").format(name=name, role=role, ref=ref),
-            [_("the board changed since the last apply — place the component first")]))
-    pad_pos = resolve_anchor_pad_position(adapter, fp, pad, name)
-    return _world_pos_to_cell_local_offset(
-        adapter, cfg, clone, sheet_names, pad_pos, clone.mirror)
-
-
 def _selection_item_label(item) -> str:
     """A short user-facing kind name for one raw get_selected_items() item,
-    used by read_cell_anchor_offset_from_selection's "only a Via is
-    supported" fatal message."""
+    used by read_cell_anchor_offset_from_selection's "select a Via or a
+    footprint" fatal message."""
     if isinstance(item, Via):
         return _("via")
     if isinstance(item, Footprint):
@@ -250,17 +208,21 @@ def _selection_item_label(item) -> str:
 
 def read_cell_anchor_offset_from_selection(adapter, cfg, clone,
                                            sheet_names) -> tuple[float, float]:
-    """(ax_mm, ay_mm) of the CURRENT LIVE SELECTION's single Via, expressed in
-    the cell's own local (unrotated, unmirrored) frame RELATIVE TO THE CELL'S
-    CURRENT MOUNT — the Placer "Point" tab's "Take from selection"
-    (2026-09-06; v1 scope — only a Via is a supported source, see the plan
-    §6). Like read_cell_anchor_offset_live, the world point comes from the
-    live board, but the source is the current selection (exactly ONE Via), not
-    a Role+Pad resolve; the mount inversion is the same
-    _world_pos_to_cell_local_offset shared tail.
+    """(ax_mm, ay_mm) of the CURRENT LIVE SELECTION's single Via or footprint
+    centre, expressed in the cell's own local (unrotated, unmirrored) frame
+    RELATIVE TO THE CELL'S CURRENT MOUNT — the Placer "Point" tab's "Take
+    from selection" (2026-09-06; a Via or footprint is a supported source
+    since plan placer_cell_anchor_selection_unify §1.3, 2026-09-09). The
+    world point comes from the live board — the current selection (exactly
+    ONE Via or footprint) — and the mount inversion is the shared
+    _world_pos_to_cell_local_offset tail. This tab's point is an ARBITRARY
+    board point (not necessarily a pad/centre of THIS cell's component), so
+    its local meaning genuinely needs the named clone's own mount/rotation to
+    invert through — the Cluster+Cell dependency stays here by design (§0).
 
     Fatal ValidationError (never a guess): nothing selected, more than one
-    object selected, or the single selected object is not a Via."""
+    object selected, or the single selected object is neither a Via nor a
+    footprint."""
     cell = cfg.cells.get(clone.cell)
     if cell is None:
         raise ValidationError(format_fatal_error(
@@ -271,23 +233,23 @@ def read_cell_anchor_offset_from_selection(adapter, cfg, clone,
     if not items:
         raise ValidationError(format_fatal_error(
             _("clone {name!r}: nothing is selected on the board — 'Take from "
-              "selection' needs exactly one Via").format(name=name),
-            [_("select the Via whose position should become the cell's mount "
-               "point, then press the button again")]))
+              "selection' needs exactly one Via or footprint").format(name=name),
+            [_("select the Via or footprint whose position should become the "
+               "cell's mount point, then press the button again")]))
     if len(items) != 1:
         raise ValidationError(format_fatal_error(
             _("clone {name!r}: select exactly ONE object — {count} objects are "
               "currently selected").format(name=name, count=len(items)),
-            [_("select only the Via whose position should become the cell's "
-               "mount point")]))
+            [_("select only the Via or footprint whose position should become "
+               "the cell's mount point")]))
     item = items[0]
-    if not isinstance(item, Via):
+    if not isinstance(item, (Via, Footprint)):
         raise ValidationError(format_fatal_error(
-            _("clone {name!r}: only a Via is supported as the anchor source "
-              "(v1) — selected: {kind}").format(
+            _("clone {name!r}: only a Via or a footprint is supported as the "
+              "anchor source — selected: {kind}").format(
                   name=name, kind=_selection_item_label(item)),
-            [_("select a Via — a footprint/pad source is covered by the "
-               "Component tab's Role + Pad mode instead")]))
+            [_("select a Via or a footprint whose position should become the "
+               "cell's mount point")]))
     return _world_pos_to_cell_local_offset(
         adapter, cfg, clone, sheet_names, item.position, clone.mirror)
 

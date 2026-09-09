@@ -891,18 +891,28 @@ the tabs — they act on the whole placement, not one tab.
 - **Cell anchor** (2026-09-04; reworked 2026-09-05, design_2026_09_05 v2) — RECORDS the *cell's*
   mount point A on its own file WITHOUT rewriting any stored offset. Stored offsets always live in
   the bbox-anchored frame; geometry subtracts A at placement (`element = origin + rotate(offset −
-  A)`), so the anchor can be changed freely and reversibly — no per-edit data rewrite. Anchor-source
-  TABS pick **Bbox (0,0)** (the default mount — clears any custom anchor), **Point** (free X/Y in
-  the bbox frame) or **Component** (Role, optional Pad — without a pad the anchor is the
-  component's geometric centre, with a pad the pad's centre). The Point tab also has a
-  **Take from selection** button (2026-09-06): it reads the position of the CURRENTLY selected
-  single Via on the live board and fills the X/Y fields with its bbox-frame point (the current
-  mount A is added, same frame maths as the Role+Pad mode) — the user then presses "Set as anchor"
-  to record it. v1 limitation: only a Via is supported as the source (selecting 0 / more than one
-  object / a non-Via shows a clear error). It writes
-  `anchor_xy` (the mount, real data) plus `anchor_role`/`anchor_pad` identity into the file that
-  actually holds the cell — NOT the Origin section above, which is about THIS placement's own
-  position. Moving the mount shifts every already-applied place of this cell (other clones, tree
+  A)`), so the anchor can be changed freely and reversibly — no per-edit data rewrite. Two anchor-
+  source TABS (2026-09-09, plan placer_cell_anchor_selection_unify — the old separate "Bbox (0,0)"
+  tab was merged into Point; the bbox default is simply BOTH X/Y fields empty):
+  - **Point** (free X/Y in the bbox frame) — "Set as anchor" with both fields empty CLEARS any
+    custom anchor back to the bbox default; with X/Y filled it records that bbox point as
+    `anchor_xy`. The tab also has a **Take from selection** button (2026-09-06): it reads the
+    position of the CURRENTLY selected single Via or footprint on the live board and fills the X/Y
+    fields with its bbox-frame point (the current mount A is added, same frame maths as the Role+Pad
+    mode) — the user then presses "Set as anchor" to record it. This tab's point is an ARBITRARY
+    board point, so the read still goes through a named Clone (Cluster+Cell required) — unchanged
+    by design.
+  - **Component** (Role, optional Pad — without a pad the anchor is the component's geometric
+    centre, with a pad the pad's centre). **Role only** is a pure offline write of the role's stored
+    centre. **Role + Pad** resolves the pad's position from ONE footprint selected on the board
+    carrying that Role (the shared `resolve_anchor_point`, rotation/mirror-aware since 2026-09-09):
+    `anchor_role/anchor_pad/anchor_xy` are fields of the Cell itself, so NO Cluster/Cell is read or
+    required on this path — select the live component, done. `resolve_anchor_point` compares the
+    live footprint's angle/layer against the cell's own layer, so a rotated or mirrored instance
+    resolves the SAME reference-frame anchor an identity instance does.
+  It writes `anchor_xy` (the mount, real data) plus `anchor_role`/`anchor_pad` identity into the
+  file that actually holds the cell — NOT the Origin section above, which is about THIS placement's
+  own position. Moving the mount shifts every already-applied place of this cell (other clones, tree
   materialization) on the next Redraw/Apply — expected, no blocking warning (design §2.4). The Role
   picker lists the picked cell's own `components:` roles.
 - **Rotation / Layer / Mirror** — as in `ClonePlacement`'s own fields (see
@@ -1319,6 +1329,9 @@ recurse — that tree is Config tree's own Cells category, which now shows a com
   `anchor_xy`: without it a Role+Pad pair is the LEGACY rebase-by-pad shape and `cell_mount_offset`
   treats it as (0,0), so the anchor would be silently ignored. `anchor_xy` stays bbox-local
   throughout — the button does the live-to-bbox arithmetic, there is no absolute-coordinate display.
+  The resolution is rotation/mirror-aware since 2026-09-09: the live component's angle and layer
+  (against the cell's own layer) are inverted back, so a rotated or mirrored instance resolves the
+  same reference-frame anchor an identity instance does.
 - **Components** — Role (searchable, autocompleted from the live board's `Role` field, same source
   as Chain's own anchor-role combo), Offset along/across, Angle, Layer (inherit/`F.Cu`/`B.Cu`), Net
   template (for `clone_placements:`'s by-nets role matching only).
