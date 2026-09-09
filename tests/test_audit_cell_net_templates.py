@@ -284,10 +284,16 @@ class TestMain:
                     reason="real 3ch-awg-tia-v103 profile not present")
 class TestRealProfile:
     def test_pif_avdd_hardcoded_roles_flagged(self):
-        """The live case that started this plan: pif_avdd is used on
-        Channel_0 AND Channel_1 (the latter via the ch1_dac_buf tree_
-        instance), and roles C_OUT_BULK/C_OUT_BYPASS are hardcoded to
-        '/Channel_0/DAC/+3V3_AVDD' — they must be in the audit output."""
+        """The live case that started this plan: pif_avdd is reused across
+        several channel sheets while roles C_OUT_BULK/C_OUT_BYPASS are
+        hardcoded to '/Channel_0/DAC/+3V3_AVDD' — they must be in the audit
+        output, sheet-locked to Channel_0.
+
+        The sheet list is asserted as a SUPERSET, not an exact list: this test
+        reads the developer's live (gitignored) profile, which keeps growing —
+        it was pinned to exactly [Channel_0, Channel_1] and broke the moment a
+        third channel instance was added, which is not what this test is for.
+        What matters is that the reuse spans more than the locked sheet."""
         cfg, _ctx = load_config(str(REAL_PROFILE))
         findings = find_hardcoded_net_templates(cfg)
         pif = {f.role: f for f in findings if f.cell == "pif_avdd"}
@@ -295,7 +301,8 @@ class TestRealProfile:
         for role, f in pif.items():
             assert f.net_template == "/Channel_0/DAC/+3V3_AVDD"
             assert f.locked_sheet == "Channel_0"
-            assert f.sheets == ["Channel_0", "Channel_1"]
+            assert {"Channel_0", "Channel_1"} <= set(f.sheets)
+            assert f.locked_sheet in f.sheets
 
     def test_render_of_real_profile_contains_pif_avdd(self):
         cfg, _ctx = load_config(str(REAL_PROFILE))
