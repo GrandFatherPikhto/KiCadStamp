@@ -211,6 +211,12 @@ class ConfigTreeDock(QDockWidget):
     # via its load_entry() entry point. (name, file_path), same "leaf name +
     # owning file" shape points_picked/rule_picked's file context carries.
     cell_edit_requested = pyqtSignal(str, object)
+    # Fired by the context menu's "Cell anchor..." (2026-09-09, Phase C of
+    # plan_2026_09_09_cell_anchor_v2_declarative_and_board_overlay) — opens
+    # the dedicated cell-anchor editor (gui/docks/cell_anchor_view.py) as a
+    # Config right-QView page, next to "Edit cell...". Same (name, file_path)
+    # shape as cell_edit_requested.
+    cell_anchor_requested = pyqtSignal(str, object)
     # Fired by the context menu's "Update from selection..." (2026-09-03,
     # plan cell_geometry_refresh) — CellDock listens via its
     # refresh_from_selection_requested() entry point: load the requested cell
@@ -1264,6 +1270,11 @@ class ConfigTreeDock(QDockWidget):
             if section == "cells":
                 menu.addAction(_("Edit cell...")).triggered.connect(
                     lambda: self.cell_edit_requested.emit(old_name, file_path))
+                # 2026-09-09 (Phase C of plan_2026_09_09_cell_anchor_v2_
+                # declarative_and_board_overlay): the dedicated anchor editor
+                # (Component/Marker tabs) as a Config right-QView page.
+                menu.addAction(_("Cell anchor...")).triggered.connect(
+                    lambda: self.cell_anchor_requested.emit(old_name, file_path))
                 # 2026-09-03 (plan cell_geometry_refresh): refresh an existing
                 # cell's geometry from the current board selection — the
                 # one-click path Denis originally looked for ("как перечитать

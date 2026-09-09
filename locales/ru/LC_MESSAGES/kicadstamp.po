@@ -14257,3 +14257,213 @@ msgstr "ячейка {cell!r}: у якорного футпринта {ref!r} н
 
 msgid "spoke on pad {pad}"
 msgstr "спица на паде {pad}"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "A Via (or a non-component item) is selected — that is the Marker tab's case: switch to the Marker tab, place the marker at the desired point, then press “Read position”."
+msgstr "Выделена виа (или элемент-не-компонент) — это случай таба «Маркер»: переключитесь на таб «Маркер», поставьте маркер в нужную точку и нажмите «Считать позицию»."
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+#, python-brace-format
+msgid "Bbox drawn (uuid {uuid})."
+msgstr "Bbox нарисован (uuid {uuid})."
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "Cell anchor..."
+msgstr "Якорь ячейки..."
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+#, python-brace-format
+msgid "Cell {name!r} — anchor"
+msgstr "Ячейка {name!r} — якорь"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+#, python-brace-format
+msgid "Cell {name!r}: {desc} stored — placed instances shift on the next Redraw/Apply."
+msgstr "Ячейка {name!r}: {desc} сохранён — размещённые инстансы сдвинутся при следующем Redraw/Apply."
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "Clear anchor"
+msgstr "Очистить якорь"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "Cluster of the placed cell"
+msgstr "Кластер размещённой ячейки"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "Component anchor"
+msgstr "Компонентный якорь"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "Fill Role (+ Pad) and Cluster from ONE selected component or pad of this cell on the live board."
+msgstr "Заполнить Role (+ Pad) и Cluster из ОДНОГО выделенного компонента или пада этой ячейки на живой плате."
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "Hide bbox"
+msgstr "Скрыть bbox"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "Marker"
+msgstr "Маркер"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "Marker needs a project root — open a project first."
+msgstr "Маркеру нужен корень проекта — сначала откройте проект."
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "Marker not found on the board (deleted or swept?) — place a new one."
+msgstr "Маркер не найден на плате (удалён или подметён?) — поставьте новый."
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+#, python-brace-format
+msgid "Marker placed (uuid {uuid}) — drag it in KiCad, then press “Read position”."
+msgstr "Маркер поставлен (uuid {uuid}) — перетащите его в KiCad и нажмите «Считать позицию»."
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+#, python-brace-format
+msgid "Marker: failed to load the project config: {error}"
+msgstr "Маркер: не удалось загрузить конфиг проекта: {error}"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+#, python-brace-format
+msgid "Marker: no clone placement of cell {cell!r} on cluster {cluster!r} is placed — the live frame cannot be derived. Place the cell on that cluster first."
+msgstr "Маркер: на кластере {cluster!r} нет размещённого clone-размещения ячейки {cell!r} — живой кадр вывести нельзя. Сначала разместите ячейку на этом кластере."
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "Marker: pick the working Cluster first (Component tab)."
+msgstr "Маркер: сначала выберите рабочий Кластер (таб «Компонент»)."
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "No live board connection — the overlay needs KiCad."
+msgstr "Нет подключения к живой плате — оверлею нужен KiCad."
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "No live board — “Read from selection” needs KiCad. Pick Role/Pad and Cluster by hand instead."
+msgstr "Нет живой платы — «Считать из выделения» требует KiCad. Выберите Role/Pad и Cluster вручную."
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "No marker to read — place one first."
+msgstr "Нечего считывать — сначала поставьте маркер."
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+#, python-brace-format
+msgid "Overlay is drawn on the layer “{layer}” as real KiCad graphics; there is no colour setting — graphics take their layer's colour (managed in KiCad). Use a dedicated user layer so cleanup by layer is safe."
+msgstr "Оверлей рисуется на слое «{layer}» как настоящая графика KiCad; настройки цвета нет — графика берёт цвет своего слоя (управляется в KiCad). Используйте отдельный пользовательский слой, чтобы подметание по слою было безопасным."
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+#, python-brace-format
+msgid "Overlay layer {layer!r} is not enabled on this board — enable it in KiCad first (or pick another overlay layer)."
+msgstr "Слой оверлея {layer!r} не включён на этой плате — сначала включите его в KiCad (или выберите другой слой оверлея)."
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "Pick a Cell in the Config tree, then use “Cell anchor...” from its context menu."
+msgstr "Выберите ячейку в дереве Config, затем используйте «Якорь ячейки...» из её контекстного меню."
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "Place marker"
+msgstr "Поставить маркер"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+#, python-brace-format
+msgid "Place marker failed: {message}"
+msgstr "Не удалось поставить маркер: {message}"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "Place marker: the cell has no geometry on the board."
+msgstr "Поставить маркер: у ячейки нет геометрии на плате."
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "Places a marker at the cell's current anchor (or the bbox centre when there is no anchor). Drag it with KiCad's own tools, then “Read position” stores the point as anchor_xy and clears any Role/Pad anchor. Requires the cell to be placed on the chosen Cluster."
+msgstr "Ставит маркер в текущий якорь ячейки (или в центр bbox, если якоря нет). Перетащите его штатными средствами KiCad, затем «Считать позицию» сохранит точку как anchor_xy и очистит Role/Pad-якорь. Требуется, чтобы ячейка была размещена на выбранном Кластере."
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "Read from selection"
+msgstr "Считать из выделения"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+#, python-brace-format
+msgid "Read from selection: {what} of role {role!r} (cluster {cluster!r}) — press “Set as anchor” to store it."
+msgstr "Считано из выделения: {what} роли {role!r} (кластер {cluster!r}) — нажмите «Задать как якорь», чтобы сохранить."
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+#, python-brace-format
+msgid "Read marker failed: {message}"
+msgstr "Не удалось считать маркер: {message}"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "Read position"
+msgstr "Считать позицию"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "Remove marker"
+msgstr "Убрать маркер"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+#, python-brace-format
+msgid "Remove overlay failed: {message}"
+msgstr "Не удалось убрать оверлей: {message}"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "Sheet (optional)"
+msgstr "Лист (необязательно)"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "Show bbox"
+msgstr "Показать bbox"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+#, python-brace-format
+msgid "Show bbox failed: {message}"
+msgstr "Не удалось показать bbox: {message}"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "Show bbox: the cell has no geometry."
+msgstr "Показать bbox: у ячейки нет геометрии."
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "The Marker tab maps through the placed instance of this cell on the chosen Cluster — the live board is used only then and for “Read from selection”."
+msgstr "Таб «Маркер» работает через размещённый инстанс этой ячейки на выбранном Кластере — живая плата нужна только там и для «Считать из выделения»."
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "Without a pad the anchor is the component's stored centre (offline). With a pad the pad's point is resolved at Apply from a live instance of this role — anchor_xy is removed so that live resolution actually runs."
+msgstr "Без пада якорь — сохранённый центр компонента (офлайн). С падом точка пада резолвится при Apply из живого инстанса этой роли — anchor_xy удаляется, чтобы живой резолв действительно включился."
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "Working context (Sheet/Cluster of the placed instance)"
+msgstr "Рабочий контекст (Лист/Кластер размещённого инстанса)"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "an anchor belongs to ONE placed instance of the cell; select components of a single cluster only, then press the button again"
+msgstr "якорь относится к ОДНОМУ размещённому инстансу ячейки; выделяйте компоненты только одного кластера и нажмите кнопку снова"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "cell anchor"
+msgstr "якорь ячейки"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+#, python-brace-format
+msgid "cell {cell!r}: several clone placements match cluster {cluster!r} — {names}"
+msgstr "ячейка {cell!r}: кластеру {cluster!r} соответствует несколько clone-размещений — {names}"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "click a component (or one of its pads) of this cell in the PCB editor, then press the button again"
+msgstr "кликните компонент (или один из его падов) этой ячейки в редакторе PCB и нажмите кнопку снова"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "marker point"
+msgstr "точка маркера"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "pad number (optional)"
+msgstr "номер пада (необязательно)"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+#, python-brace-format
+msgid "pad {pad!r}"
+msgstr "пад {pad!r}"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "pick a more specific Cluster/Sheet, or edit the anchor while exactly one placement of this cell is in context"
+msgstr "выберите более конкретный Кластер/Лист или редактируйте якорь, когда в контексте ровно одно размещение этой ячейки"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "reload the config and try again"
+msgstr "перезагрузите конфиг и попробуйте снова"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "select exactly ONE component (or its pad) of this cell, then press the button again"
+msgstr "выделите ровно ОДИН компонент (или его пад) этой ячейки и нажмите кнопку снова"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "tag the component with a Role (Tools -> tree -> Tag selected) or pick another component"
+msgstr "пометите компонент ролью (Tools -> дерево -> Tag selected) или выберите другой компонент"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "the board changed since it was loaded — press Refresh and select the pad again"
+msgstr "плата изменилась с момента загрузки — нажмите Refresh и снова выберите пад"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+#, python-brace-format
+msgid "the cell anchor must name one of this cell's own components — select a component of cell {cell!r}"
+msgstr "якорь ячейки должен указывать на один из собственных компонентов ячейки — выберите компонент ячейки {cell!r}"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+msgid "the overlay is drawn as real KiCad graphics on a user layer; without the layer enabled nothing can be drawn"
+msgstr "оверлей рисуется как настоящая графика KiCad на пользовательском слое; без включённого слоя ничего нарисовать нельзя"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+#, python-brace-format
+msgid "{desc} failed: no config file for cell {name!r}"
+msgstr "{desc} не удалось: нет конфиг-файла для ячейки {name!r}"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+#, python-brace-format
+msgid "{desc} failed: {error}"
+msgstr "{desc} не удалось: {error}"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+#, python-brace-format
+msgid "{label}: nothing is selected on the board — select one component (or one of its pads) of cell {cell!r}"
+msgstr "{label}: на плате ничего не выделено — выберите один компонент (или один из его падов) ячейки {cell!r}"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+#, python-brace-format
+msgid "{label}: role {role!r} is not a component of cell {cell!r}"
+msgstr "{label}: роль {role!r} не является компонентом ячейки {cell!r}"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+#, python-brace-format
+msgid "{label}: the selected footprint has no Role field"
+msgstr "{label}: у выбранного футпринта нет поля Role"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+#, python-brace-format
+msgid "{label}: the selected pad {pad!r} has no footprint owner on the live board"
+msgstr "{label}: у выбранного пада {pad!r} нет футпринта-владельца на живой плате"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+#, python-brace-format
+msgid "{label}: the selection contains several roles — {listing}"
+msgstr "{label}: выделение содержит несколько ролей — {listing}"
+#: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
+#, python-brace-format
+msgid "{label}: the selection spans several clusters — {listing}"
+msgstr "{label}: выделение охватывает несколько кластеров — {listing}"

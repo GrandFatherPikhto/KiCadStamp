@@ -49,6 +49,7 @@ from kicadstamp.i18n import _
 from kicadstamp.logging_setup import get_log_listener
 
 from .docks.cell_dialog import CellDialog
+from .docks.cell_anchor_view import CellAnchorView
 from .docks.cell_editor import CellDock
 from .docks.chain import ChainDock
 from .docks.chains_nav import ChainsNavDock
@@ -238,6 +239,13 @@ class DockHub:
         # set_root_path / saved. connection is needed for Resolve.
         self.points_dock = PointsDock(main_window, connection=connection)
         self._points_page = self.config_tree_dock.add_right_page(self.points_dock)
+        # Cell anchor (2026-09-09, Phase C of plan_2026_09_09_cell_anchor_v2_
+        # declarative_and_board_overlay): the dedicated anchor editor
+        # (Component/Marker tabs) is a Config right-QView page, opened from the
+        # Cells context menu ("Cell anchor..." -> cell_anchor_requested).
+        self.cell_anchor_view = CellAnchorView(main_window, connection=connection)
+        self._cell_anchor_page = self.config_tree_dock.add_right_page(
+            self.cell_anchor_view)
         # Settings (2026-09-01, plan project_settings_dialogs): ConfiguratorDock
         # is no longer a Detail dock page either — it is a two-pane settings
         # browser (QTreeWidget of categories on the left, pages on the right,
@@ -656,6 +664,12 @@ class DockHub:
         self.root_metadata_dock.root_changed.connect(
             partial(self._safe_call, "cells_dock.set_root_path",
                     self.cells_dock.set_root_path))
+        # Cell anchor (Phase C, 2026-09-09): the marker/bbox live frame and the
+        # Sheet combo need the project root — same root_changed source as every
+        # other dock.
+        self.root_metadata_dock.root_changed.connect(
+            partial(self._safe_call, "cell_anchor_view.set_root_path",
+                    self.cell_anchor_view.set_root_path))
         self.root_metadata_dock.root_changed.connect(
             partial(self._safe_call, "tools_dock.set_root_path",
                     self.tools_dock.set_root_path))
@@ -803,6 +817,11 @@ class DockHub:
         # explicitly before loading, same reasoning as _start_new_placement
         # etc. below for "Add ...".
         self.config_tree_dock.cell_edit_requested.connect(self._edit_cell)
+        # 2026-09-09 (Phase C of plan_2026_09_09_cell_anchor_v2_declarative_
+        # and_board_overlay): the context menu's "Cell anchor..." opens the
+        # dedicated anchor editor as a Config right-QView page (same explicit
+        # file handling as _edit_cell).
+        self.config_tree_dock.cell_anchor_requested.connect(self._edit_cell_anchor)
         # 2026-09-03 (plan cell_geometry_refresh): the context menu's "Update
         # from selection..." — same delegate shape as _edit_cell (explicit
         # file, then show the cell page), driving the cell's geometry refresh.
@@ -850,6 +869,9 @@ class DockHub:
         self.scheme_list_place_dock.saved.connect(
             self.config_tree_dock.graph_changed.emit)
         self.cells_dock.saved.connect(self.config_tree_dock.refresh)
+        # Cell anchor (Phase C, 2026-09-09): a saved anchor rewrites the cell
+        # entry — refresh the Config tree's leaf display.
+        self.cell_anchor_view.saved.connect(self.config_tree_dock.refresh)
         self.tools_dock.saved.connect(self.config_tree_dock.refresh)
         self.tools_dock.saved.connect(self._refresh_graph_dependent_choices)
         # Auto-close after a SUCCESSFUL edit (2026-09-01, Denis: "диалог должен
@@ -2110,6 +2132,7 @@ class DockHub:
         self.tools_dock.set_root_path(root_path)
         self.entity_dock.set_root_path(root_path)
         self.points_dock.set_root_path(root_path)
+        self.cell_anchor_view.set_root_path(root_path)
         self.trees_dock.refresh_ref_candidates()
         self.root_metadata_dock.refresh_working_file_choices()
 
@@ -2156,6 +2179,16 @@ class DockHub:
         copy through its normal save path and reports the result in the Log —
         no Cell dialog, no entity/net editor pops up (Denis 2026-09-06)."""
         self.cells_dock.copy_from_cell_requested(name, file_path)
+
+    def _edit_cell_anchor(self, name, file_path) -> None:
+        """ConfigTreeDock's cell_anchor_requested delegate (2026-09-09, Phase C
+        of plan_2026_09_09_cell_anchor_v2_declarative_and_board_overlay) — the
+        context menu's "Cell anchor...": load the cell into the dedicated
+        anchor editor and show it as the Config dock's right-QView page (never
+        goes through _on_clicked, so the owning file is passed explicitly)."""
+        self.cell_anchor_view.load_entry(name, file_path)
+        self._focus_config_tree_dock()
+        self.config_tree_dock.show_page(self._cell_anchor_page)
 
     def _attach_log_file_handler(self, handler) -> None:
         """Attach the root-config log_file: FileHandler either to the live
@@ -2223,6 +2256,8 @@ class DockHub:
         self._safe_call("tools_dock.set_root_path", self.tools_dock.set_root_path, path)
         self._safe_call("entity_dock.set_root_path", self.entity_dock.set_root_path, path)
         self._safe_call("points_dock.set_root_path", self.points_dock.set_root_path, path)
+        self._safe_call("cell_anchor_view.set_root_path",
+                        self.cell_anchor_view.set_root_path, path)
         self._safe_call("net_trace_dock.set_root_path",
                         self.net_trace_dock.set_root_path, path)
         # Scheme List Place (2026-09-06, plan scheme_list §6 / P6 Stage 3): the

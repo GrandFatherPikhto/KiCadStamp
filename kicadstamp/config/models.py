@@ -405,17 +405,23 @@ class Cell:
     exclusive.
 
     anchor_xy/anchor_role(+anchor_pad) — the cell's MOUNT POINT and its
-    identity (design_2026_09_05 v2; formerly display-only metadata from
-    2026-08-06). The stored local offsets always live in the bbox-anchored
-    frame; the mount point A is the cell point that coincides with a
-    placement's origin at materialization (geometry reads it via
-    cell_mount_offset and places content as origin + rotate(offset - A)).
+    identity (design_2026_09_05 v2; declarative v2 since
+    plan_2026_09_09_cell_anchor_v2_declarative_and_board_overlay). The stored
+    local offsets always live in the bbox-anchored frame; the mount point A
+    is the cell point that coincides with a placement's origin at
+    materialization (geometry reads it via cell_mount_offset and places
+    content as origin + rotate(offset - A)).
       - anchor_xy [x, y] — A, in the bbox frame; the REAL data geometry reads.
+        Valid on its own; when present it WINS over any pad-role resolution
+        (GUARD 1 of the v2 model — an explicitly stored mount is the real
+        data and is never silently overridden by a live re-derivation).
       - anchor_role — the mount's component (identity / live surrogate).
-        Without a pad and without anchor_xy, A is derived as that component's
-        centre.
-      - anchor_pad — narrows anchor_role to a specific pad; the pad's point is
-        expressed by anchor_xy (a pad offset is not derivable from config).
+        Valid WITHOUT anchor_xy and WITHOUT anchor_pad: A is that component's
+        stored centre offset (offline — no live board needed at save time).
+      - anchor_role + anchor_pad (WITHOUT anchor_xy) — a DECLARATIVE pad
+        anchor: A is resolved at Apply time from a LIVE instance of that
+        role's pad (resolve_pad_mount, Phase A of the v2 plan); the stored
+        fields are a reference, not a precomputed number.
     Absent all three = A = (0,0) (the default bbox corner — the extraction
     default mount; no-op for a freshly extracted default cell).
     """

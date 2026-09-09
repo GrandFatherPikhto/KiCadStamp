@@ -1357,6 +1357,34 @@ a plain left-click on a Cell leaf (which keeps its original meaning, "pick this 
 content" — Placer's own Cell field), so opening a placement form and opening the cell editor never
 fight over one click.
 
+**Cell anchor...** (2026-09-09, Phase C of `plan_2026_09_09_cell_anchor_v2_declarative_and_
+board_overlay.md`) — a NEW dedicated anchor editor, separate from the full Cell dialog above: right
+click a Cell leaf in the Cells category → **Cell anchor...** opens it as a Config right-QView page
+(the full cell form keeps editing Components/Vias/Tracks/Nested; this page edits ONLY the anchor).
+It is the v2 declarative anchor UI — the anchor is a REFERENCE resolved at apply time (Phase A's
+`resolve_pad_mount`), no board round-trip at save time. Two tabs:
+
+- **Component** (the first tab) hosts the **working context — Sheet (optional) / Cluster** of the
+  placed instance, then **Role** (closed combo from THIS cell's own components, narrowed by the
+  working Cluster — the roles actually present on that cluster) and an optional **Pad**. **Read from
+  selection** understands the three selection cases: a selected **pad** → its owner footprint's
+  Role + Cluster and the pad number; a selected **footprint** → Role + Cluster (Pad untouched); a
+  selected **Via** → an explicit "this is the Marker tab's case" message, never "nothing selected".
+  A selection spanning SEVERAL clusters is a fatal listing them (never "take the first"). **Set as
+  anchor** writes `anchor_role` (+`anchor_pad`) and REMOVES any stale `anchor_xy` (GUARD 1 — so the
+  live pad resolution actually runs). Role-only = the component's stored centre (offline — the live
+  board is needed ONLY for Read from selection; picking Role/Pad by hand and saving works with no
+  board, proven by test).
+- **Marker** — draws the cell's bbox rectangle and a draggable marker circle as REAL KiCad graphics
+  on the overlay layer (`User.Drawings` by default; colour comes from the LAYER, no colour setting),
+  all IPC on the worker thread. It maps through the placed instance of this cell on the working
+  Cluster (Sheet optional); without such a placed instance the buttons explain to place the cell
+  first. **Place marker** puts the marker at the current anchor (or bbox centre when there is no
+  anchor), you drag it with KiCad's own tools, **Read position** converts the dragged world point
+  into the cell's bbox frame (reusing `_world_pos_to_cell_local_offset`) and writes `anchor_xy`,
+  clearing any Role/Pad anchor. Marker/bbox uuids are persisted in `gui_state.json` (key
+  `cell_anchor_overlay`) so a GUI restart does not leave orphan graphics behind.
+
 **Refresh geometry from selection** (2026-09-03) — a button in the Cell dialog AND a
 right-click **Update from selection...** action on a Cell leaf in the Config tree's Cells category
 (one click from the tree — no need to open the dialog and hunt for the button first). It re-reads an

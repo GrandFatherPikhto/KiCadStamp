@@ -1,0 +1,1058 @@
+# gui/docks/cell_anchor_view.py
+"""Cell-anchor editor — a Config right-QView page + context-menu action (Phase C
+of plan_2026_09_09_cell_anchor_v2_declarative_and_board_overlay.md).
+
+The Cell's full form (Components/Vias/Tracks/Nested — CellDock in its dialog)
+is deliberately untouched by this plan; this widget edits ONLY the anchor.
+It replaces the old "compute the number at save time" mechanism with the v2
+declarative model (§0.1): the anchor is a REFERENCE, resolved at apply time
+(Phase A — resolve_pad_mount). Two source shapes, two tabs:
+
+  - Component: writes anchor_role (+ optional anchor_pad), popping anchor_xy
+    so the live pad-role resolution (Phase A) actually kicks in (GUARD 1).
+    Role-only = the component's stored centre offset (offline, no board);
+    Role+Pad = resolved at apply time from a LIVE instance of that role's pad.
+  - Marker: the user places a draggable marker circle (and the cell's bbox
+    rectangle) as REAL KiCad graphics on a user layer (gui/board_overlay.py),
+    drags the marker with KiCad's own tools, then "Read position" converts the
+    dragged world point into the cell's own bbox frame and writes anchor_xy,
+    clearing anchor_role/anchor_pad.
+
+Working context (Sheet optional / Cluster) — the first (Component) tab hosts
+the Sheet/Cluster pickers (Denis, 2026-09-09: "У нас должны быть выбраны в
+первом табе Лист(если он нужен)/Кластер. Тогда живой инстанс будет
+работать"). A Cell is abstract and may be placed several times (channels), so
+the Marker tab's world<->cell-local mapping (read_clone_origin_live,
+_world_pos_to_cell_local_offset — reused, NOT reimplemented) needs to know
+WHICH placed instance is meant: the view finds the clone placement of this
+cell whose own cluster matches the working Cluster (optionally narrowed by
+Sheet). Without such a placed instance the Marker buttons explain what to do
+(place the cell first); they never guess.
+
+Entry read/write uses the SAME path CellDock/Placer use
+(find_dict_entry_file + read_data / merge_write — the pair that Phase B will
+move here from placer.py; original placer copies stay untouched until B).
+
+All overlay IPC runs on a worker thread via gui/worker.start_long_op (no
+synchronous adapter calls on the UI thread). No background selection-polling
+thread (§0.9): read-from-selection is an explicit button. Live board is needed
+ONLY for that button and for the Marker tab's live frame — hand-picking
+Role/Pad and saving works with connection.board = None (proven by test).
+
+The overlay layer / stroke / marker geometry are module constants read from
+gui.board_overlay (Phase D replaces them with settings reads). No colour is
+set anywhere — graphics take their LAYER's colour (§0.6).
+"""
+import logging
+from pathlib import Path
+from typing import Any, Optional
+
+from kipy.board_types import Pad as KipyPad
+
+from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtWidgets import (QComboBox, QFormLayout, QGroupBox, QHBoxLayout,
+                             QLabel, QLineEdit, QPushButton, QTabWidget,
+                             QVBoxLayout, QWidget)
+
+from kicadstamp.cell_geometry_refresh import cell_content_bbox
+from kicadstamp.cluster_matching import cluster_prefix_match
+from kicadstamp.config import (
+    clone_placement_effective_name,
+    load_config,
+)
+from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
+from kicadstamp.domain.board import Footprint, Track, Via
+from kicadstamp.domain.geometry import Vector2
+from kicadstamp.exceptions import ValidationError, format_fatal_error
+from kicadstamp.geometry.cell_anchor import cell_mount_offset
+from kicadstamp.geometry.spoke_layout import rotate_local_offset
+from kicadstamp.i18n import _
+from kicadstamp.utils.units import MM
+
+from .. import board_overlay, settings
+from ..board_overlay import (
+    OVERLAY_BBOX_STROKE_MM,
+    OVERLAY_DEFAULT_LAYER,
+    OVERLAY_MARKER_RADIUS_MM,
+    OVERLAY_MARKER_STROKE_MM,
+)
+from ..worker import start_long_op
+from ._common import (
+    ERROR_STYLE as _ERROR_STYLE,
+    SUCCESS_STYLE as _SUCCESS_STYLE,
+    WARN_STYLE as _WARN_STYLE,
+    configure_searchable,
+    merge_write,
+    read_data,
+    set_combo_items,
+    show_message,
+)
+from .live_position import (
+    _world_pos_to_cell_local_offset,
+    read_clone_origin_live,
+)
+from .rename import find_dict_entry_file
+
+logger = logging.getLogger(__name__)
+
+# gui_state.json key holding the currently-drawn overlay uuids, scoped by the
+# root config and the cell (Phase D builds the full cleanup on top of it).
+_OVERLAY_STATE_KEY = "cell_anchor_overlay"
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Pure selection helpers (no Qt — unit-testable without a QApplication)
+# ────────────────────────────────────────────────────────────────────────────
+
+def _pad_uuid(pad: Any) -> Optional[str]:
+    """The uuid of a pad object (domain Pad DTO or a raw kipy pad)."""
+    k = getattr(pad, "_kipy", None)
+    if k is not None and getattr(k, "id", None) is not None:
+        return str(k.id.value)
+    raw_id = getattr(pad, "id", None)
+    if raw_id is not None:
+        return str(getattr(raw_id, "value", raw_id))
+    return None
+
+
+def find_pad_owner(adapter, footprints, pad_uuid: str):
+    """The footprint owning the pad with this uuid — a Pad carries NO reference
+    to its footprint (§0.2); the owner is found by matching the pad uuid
+    against every footprint's cached pads (get_footprint_pads reads the cached
+    definition, not the API — ~2 ms over 325 footprints)."""
+    for fp in footprints or []:
+        for pad in adapter.get_footprint_pads(fp):
+            if _pad_uuid(pad) == pad_uuid:
+                return fp
+    return None
+
+
+def read_anchor_source(adapter, items, cell_roles, cell_name: str,
+                       label: str = "cell anchor") -> dict:
+    """Read the current board selection and classify it into the Component
+    tab's three cases (§0.2 / C.2):
+
+      - a pad is selected -> its owner footprint is found by uuid scan; the
+        footprint's Role + Cluster and the pad's number are returned;
+      - a footprint is selected -> Role + Cluster, pad left unset;
+      - only a Via/Track (or non-content graphics) -> kind 'via'/'other' (NOT
+        an error — the caller tells the user this is the Marker tab's case,
+        never "nothing selected").
+
+    Fatal (ValidationError, never a silent guess — the project's convention):
+      * nothing selected;
+      * the selection spans SEVERAL different Clusters (C.3 — never "take the
+        first"); the message enumerates them;
+      * several different roles among the selected content;
+      * a pad whose owner footprint is not on the board;
+      * the inferred role is not one of this cell's own components.
+
+    Returns {kind: 'pad'|'footprint'|'via'|'other', role, pad, cluster}.
+    `cell_roles` may be [] (unknown cell) — role-vs-cell validation is skipped.
+    """
+    items = list(items or [])
+    if not items:
+        raise ValidationError(format_fatal_error(
+            _("{label}: nothing is selected on the board — select one component "
+              "(or one of its pads) of cell {cell!r}").format(
+                  label=label, cell=cell_name),
+            [_("click a component (or one of its pads) of this cell in the PCB "
+               "editor, then press the button again")]))
+
+    content: list = []
+    pad_numbers: dict = {}
+
+    for item in items:
+        if isinstance(item, KipyPad):
+            pad_uuid = _pad_uuid(item)
+            owner = find_pad_owner(adapter, adapter.get_footprints(), pad_uuid)
+            if owner is None:
+                raise ValidationError(format_fatal_error(
+                    _("{label}: the selected pad {pad!r} has no footprint "
+                      "owner on the live board").format(label=label,
+                                                        pad=item.number),
+                    [_("the board changed since it was loaded — press Refresh "
+                       "and select the pad again")]))
+            if owner not in content:
+                content.append(owner)
+            pad_numbers.setdefault(owner.uuid, str(item.number))
+        elif isinstance(item, Footprint):
+            if item not in content:
+                content.append(item)
+
+    if not content:
+        has_via_track = any(isinstance(i, (Via, Track)) for i in items)
+        return {"kind": "via" if has_via_track else "other",
+                "role": None, "pad": None, "cluster": None}
+
+    # Distinct Clusters over the selected content footprints.
+    clusters: dict = {}
+    for fp in content:
+        cluster = adapter.get_field_value(fp, CLUSTER_FIELD_NAME) or ""
+        if cluster:
+            clusters.setdefault(cluster, []).append(fp.ref)
+    if len(clusters) > 1:
+        listing = ", ".join(
+            "{c!r} ({refs})".format(c=cluster, refs=", ".join(refs))
+            for cluster, refs in sorted(clusters.items()))
+        raise ValidationError(format_fatal_error(
+            _("{label}: the selection spans several clusters — {listing}")
+            .format(label=label, listing=listing),
+            [_("an anchor belongs to ONE placed instance of the cell; select "
+               "components of a single cluster only, then press the button "
+               "again")]))
+    cluster = next(iter(clusters), None)
+
+    roles: dict = {}
+    for fp in content:
+        role = adapter.get_field_value(fp, ROLE_FIELD_NAME) or ""
+        if role:
+            roles.setdefault(role, []).append(fp.ref)
+
+    if len(content) == 1:
+        fp = content[0]
+        role = adapter.get_field_value(fp, ROLE_FIELD_NAME)
+        pad = pad_numbers.get(fp.uuid)
+    elif pad_numbers:
+        # Several content footprints but a pad picked one of them — that owner
+        # is the intended anchor component.
+        owner = next(fp for fp in content if fp.uuid in pad_numbers)
+        role = adapter.get_field_value(owner, ROLE_FIELD_NAME)
+        pad = pad_numbers[owner.uuid]
+    else:
+        if len(roles) > 1:
+            listing = ", ".join(
+                "{r!r} ({refs})".format(r=role, refs=", ".join(refs))
+                for role, refs in sorted(roles.items()))
+            raise ValidationError(format_fatal_error(
+                _("{label}: the selection contains several roles — {listing}")
+                .format(label=label, listing=listing),
+                [_("select exactly ONE component (or its pad) of this cell, "
+                   "then press the button again")]))
+        role = next(iter(roles), None)
+        pad = None
+
+    if not role:
+        raise ValidationError(format_fatal_error(
+            _("{label}: the selected footprint has no Role field").format(label=label),
+            [_("tag the component with a Role (Tools -> tree -> Tag selected) "
+               "or pick another component")]))
+    if cell_roles and role not in cell_roles:
+        raise ValidationError(format_fatal_error(
+            _("{label}: role {role!r} is not a component of cell {cell!r}")
+            .format(label=label, role=role, cell=cell_name),
+            [_("the cell anchor must name one of this cell's own components — "
+               "select a component of cell {cell!r}").format(cell=cell_name)]))
+    return {"kind": "pad" if pad is not None else "footprint",
+            "role": role, "pad": pad, "cluster": cluster}
+
+
+def roles_for_cluster(adapter, cell_roles, cluster: str) -> list:
+    """The cell roles that are actually present among the live footprints of
+    `cluster` (cluster_prefix_match against the Cluster field), sorted. Falls
+    back to the FULL cell_roles when the board/adapter is unavailable or
+    nothing of this cell is on the cluster — the narrowing is a HINT (C.3),
+    never a hard filter that hides a valid role."""
+    if not cell_roles or not cluster:
+        return sorted(cell_roles)
+    if adapter is None:
+        return sorted(cell_roles)
+    present: set = set()
+    try:
+        for fp in adapter.get_footprints():
+            fp_cluster = adapter.get_field_value(fp, CLUSTER_FIELD_NAME) or ""
+            if cluster_prefix_match(fp_cluster, cluster):
+                role = adapter.get_field_value(fp, ROLE_FIELD_NAME)
+                if role in cell_roles:
+                    present.add(role)
+    except Exception:  # noqa: BLE001 — narrowing is best-effort
+        return sorted(cell_roles)
+    return sorted(present) if present else sorted(cell_roles)
+
+
+def context_clone_candidates(cfg, cell_name: str, cluster: str,
+                             sheet: str) -> list:
+    """ClonePlacements of this cell matching the working Cluster (+ optional
+    Sheet) — the placed instance context the Marker tab maps through. A clone
+    matches by its OWN cluster field (cluster_prefix_match, the same
+    convention as role_narrowing) and, when Sheet is given and the clone
+    carries one, by exact sheet."""
+    out = []
+    for cp in getattr(cfg, "clone_placements", []) or []:
+        if getattr(cp, "cell", None) != cell_name:
+            continue
+        cp_cluster = getattr(cp, "cluster", None) or ""
+        if cluster and not cluster_prefix_match(cp_cluster, cluster):
+            continue
+        if sheet and getattr(cp, "sheet", None):
+            if cp.sheet != sheet:
+                continue
+        out.append(cp)
+    return out
+
+
+def resolve_clone_context(cfg, cell_name: str, cluster: str, sheet: str):
+    """The ONE clone placement of this cell for the working Cluster/Sheet —
+    None when nothing matches; fatal when several match (never "take the
+    first")."""
+    candidates = context_clone_candidates(cfg, cell_name, cluster, sheet)
+    if not candidates:
+        return None
+    if len(candidates) > 1:
+        names = ", ".join(sorted(
+            clone_placement_effective_name(c) for c in candidates))
+        raise ValidationError(format_fatal_error(
+            _("cell {cell!r}: several clone placements match cluster {cluster!r} "
+              "— {names}").format(cell=cell_name, cluster=cluster, names=names),
+            [_("pick a more specific Cluster/Sheet, or edit the anchor while "
+               "exactly one placement of this cell is in context")]))
+    return candidates[0]
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Overlay worker functions (run on the worker thread via start_long_op —
+# pure IPC/file work, NO widget access). The overlay layer is resolved from
+# the LIVE board inside the worker (never on the UI thread).
+# ────────────────────────────────────────────────────────────────────────────
+
+def _resolve_layer(adapter, layer_name: str):
+    """Live layer enum for the overlay display name; fatal when the layer is
+    not enabled on this board (the user enables it in KiCad)."""
+    layer = board_overlay.resolve_overlay_layer(adapter, layer_name)
+    if layer is None:
+        raise ValidationError(format_fatal_error(
+            _("Overlay layer {layer!r} is not enabled on this board — enable "
+              "it in KiCad first (or pick another overlay layer).")
+            .format(layer=layer_name),
+            [_("the overlay is drawn as real KiCad graphics on a user layer; "
+               "without the layer enabled nothing can be drawn")]))
+    return layer
+
+
+def _cell_entry_mount_offset(entry: dict) -> tuple[float, float]:
+    """The cell entry's CURRENT mount A in its stored frame (anchor_xy, else
+    anchor_role's centre offset, else (0,0)) — the dict twin of
+    cell_mount_offset (copied here verbatim; the placer.py original stays
+    until Phase B moves it)."""
+    xy = entry.get("anchor_xy")
+    if xy is not None:
+        return (float(xy[0]), float(xy[1]))
+    role = entry.get("anchor_role")
+    if role:
+        for c in entry.get("components", []) or []:
+            if c.get("role") == role:
+                return (float(c.get("offset_along_mm", 0.0)),
+                        float(c.get("offset_across_mm", 0.0)))
+    return (0.0, 0.0)
+
+
+def _cell_to_entry(cell) -> dict:
+    """A typed Cell -> its dict entry shape (enough for bbox/mount helpers) —
+    the overlay helpers stay on one dict path regardless of whether a typed or
+    a raw entry is in hand."""
+    if cell is None:
+        return {}
+    return {
+        "anchor_xy": list(cell.anchor_xy) if cell.anchor_xy is not None else None,
+        "anchor_role": cell.anchor_role,
+        "components": [
+            {"role": c.role,
+             "offset_along_mm": c.offset_along_mm,
+             "offset_across_mm": c.offset_across_mm}
+            for c in cell.components],
+        "vias": [{"offset_along_mm": v.offset_along_mm,
+                  "offset_across_mm": v.offset_across_mm} for v in cell.vias],
+        "tracks": [{"start_along_mm": t.start_along_mm,
+                    "start_across_mm": t.start_across_mm,
+                    "end_along_mm": t.end_along_mm,
+                    "end_across_mm": t.end_across_mm} for t in cell.tracks],
+        "clone_placements": [
+            {"xy": list(cp.xy) if getattr(cp, "xy", None) is not None else None}
+            for cp in cell.clone_placements],
+    }
+
+
+def _cell_point_to_world_mm(origin: Vector2, rotation_deg: float, mirror: bool,
+                            ax_mm: float, ay_mm: float,
+                            along_mm: float, across_mm: float) -> tuple[float, float]:
+    """A cell bbox-frame point (along, across) -> world mm, through the SAME
+    mapping apply_clone_geometry uses for content: world = origin + R(o - A),
+    mirrored about the vertical axis through the placement origin. `origin` is
+    the live mount's world position (nm) and A its bbox-frame point — both
+    come from a resolved placed instance."""
+    rotated = rotate_local_offset(along_mm - ax_mm, across_mm - ay_mm, rotation_deg)
+    px = origin.x + rotated.x
+    py = origin.y + rotated.y
+    if mirror:
+        px = 2 * origin.x - px
+    return (px / MM, py / MM)
+
+
+def overlay_world_bbox_mm(entry: dict, origin: Vector2, rotation_deg: float,
+                          mirror: bool) -> tuple[float, float, float, float] | None:
+    """The cell bbox's WORLD, axis-aligned bounding box (x1, y1, x2, y2 in mm)
+    for the live instance frame (origin/rotation/mirror) — the four stored-bbox
+    corners mapped through _cell_point_to_world_mm, then min/max'd. KiCad's
+    BoardRectangle is axis-aligned, so a rotated cell is shown as the bounding
+    box of its bbox corners. None when the cell entry has no geometry."""
+    bbox = cell_content_bbox(entry)
+    if bbox is None:
+        return None
+    min_along, max_along, min_across, max_across = bbox
+    ax, ay = _cell_entry_mount_offset(entry)
+    xs, ys = [], []
+    for along, across in ((min_along, min_across), (max_along, min_across),
+                          (max_along, max_across), (min_along, max_across)):
+        x_mm, y_mm = _cell_point_to_world_mm(
+            origin, rotation_deg, mirror, ax, ay, along, across)
+        xs.append(x_mm)
+        ys.append(y_mm)
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def _draw_bbox_worker(adapter, cfg, clone, cell_name, sheet_names,
+                      layer_name) -> Optional[str]:
+    """Draw the cell's bbox rectangle around the placed instance of this
+    clone — returns the created rectangle's uuid. Resolves the live frame via
+    read_clone_origin_live (the same mount read as "Read current position")."""
+    layer = _resolve_layer(adapter, layer_name)
+    read = read_clone_origin_live(adapter, cfg, clone, sheet_names)
+    cell = cfg.cells.get(cell_name)
+    box = overlay_world_bbox_mm(_cell_to_entry(cell), read.position,
+                                read.rotation_deg,
+                                bool(getattr(clone, "mirror", False)))
+    if box is None:
+        return None
+    x1, y1, x2, y2 = box
+    return board_overlay.draw_bbox(adapter, layer, x1, y1, x2, y2,
+                                   OVERLAY_BBOX_STROKE_MM)
+
+
+def _place_marker_worker(adapter, cfg, clone, cell_name, sheet_names,
+                         layer_name) -> Optional[str]:
+    """Draw the draggable marker circle at the cell's CURRENT anchor (the
+    mount's world position) or, when the cell has no anchor, at the centre of
+    its bbox — returns the marker's uuid."""
+    layer = _resolve_layer(adapter, layer_name)
+    read = read_clone_origin_live(adapter, cfg, clone, sheet_names)
+    cell = cfg.cells.get(cell_name)
+    entry = _cell_to_entry(cell)
+    ax, ay = _cell_entry_mount_offset(entry)
+    if ax or ay:
+        x_mm, y_mm = read.position.x / MM, read.position.y / MM
+    else:
+        bbox = cell_content_bbox(entry)
+        centre = ((bbox[0] + bbox[1]) / 2.0, (bbox[2] + bbox[3]) / 2.0) \
+            if bbox else (0.0, 0.0)
+        x_mm, y_mm = _cell_point_to_world_mm(
+            read.position, read.rotation_deg, bool(getattr(clone, "mirror", False)),
+            0.0, 0.0, centre[0], centre[1])
+    return board_overlay.draw_marker(adapter, layer, x_mm, y_mm,
+                                     OVERLAY_MARKER_RADIUS_MM,
+                                     OVERLAY_MARKER_STROKE_MM)
+
+
+def _read_marker_worker(adapter, cfg, clone, cell_name, sheet_names,
+                        marker_uuid) -> Optional[tuple[float, float]]:
+    """Read the (user-dragged) marker's world position and convert it into the
+    cell's own bbox-frame anchor (anchor_xy) — the world->local inversion
+    reuses _world_pos_to_cell_local_offset (live_position.py, NOT a second
+    implementation); the result is the ABSOLUTE bbox offset (the current mount
+    + the offset relative to it), exactly what the old placer Point flow
+    computed. None when the marker is no longer on the board."""
+    pos = board_overlay.read_marker(adapter, marker_uuid)
+    if pos is None:
+        return None
+    world = Vector2.from_xy(int(round(pos[0] * MM)), int(round(pos[1] * MM)))
+    rel = _world_pos_to_cell_local_offset(
+        adapter, cfg, clone, sheet_names, world,
+        bool(getattr(clone, "mirror", False)))
+    cell = cfg.cells.get(cell_name)
+    if cell is None:
+        raise ValidationError(format_fatal_error(
+            _("cell {cell!r} not found in config").format(cell=cell_name),
+            [_("reload the config and try again")]))
+    a0, a1 = cell_mount_offset(cell)
+    return (round(a0 + rel[0], 9), round(a1 + rel[1], 9))
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# The widget
+# ────────────────────────────────────────────────────────────────────────────
+
+class CellAnchorView(QWidget):
+    """The cell-anchor editor — a Config right-QView page (added via
+    config_tree_dock.add_right_page) and opened from the Config tree's Cells
+    context menu ("Cell anchor..." next to "Edit cell...")."""
+
+    saved = pyqtSignal()
+
+    def __init__(self, main_window, connection=None, parent=None):
+        super().__init__(parent)
+        self._main_window = main_window
+        self._connection = connection
+        self._cell_name: Optional[str] = None
+        self._file_path: Optional[Path] = None
+        self._root_path: Optional[Path] = None
+        self._active_op = None
+        # Persisted overlay uuids (survive an app restart, see _OVERLAY_STATE_KEY).
+        self._marker_uuid: Optional[str] = None
+        self._bbox_uuid: Optional[str] = None
+
+        self._build_ui()
+        self._reload_form()
+
+    # ── UI ────────────────────────────────────────────────────────────────
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 6, 6, 6)
+
+        self._title = QLabel()
+        self._title.setWordWrap(True)
+        layout.addWidget(self._title)
+
+        self._tabs = QTabWidget()
+        layout.addWidget(self._tabs)
+
+        # ── Tab 1 — Component (also hosts the working Sheet/Cluster context) ──
+        comp_page = QWidget()
+        comp_layout = QVBoxLayout(comp_page)
+        comp_layout.setContentsMargins(4, 4, 4, 4)
+
+        ctx_box = QGroupBox(_("Working context (Sheet/Cluster of the placed "
+                              "instance)"))
+        ctx_form = QFormLayout(ctx_box)
+        self._cluster_combo = QComboBox()
+        configure_searchable(self._cluster_combo)
+        self._cluster_combo.setPlaceholderText(_("Cluster of the placed cell"))
+        ctx_form.addRow(_("Cluster:"), self._cluster_combo)
+        self._sheet_combo = QComboBox()
+        configure_searchable(self._sheet_combo)
+        self._sheet_combo.setPlaceholderText(_("Sheet (optional)"))
+        ctx_form.addRow(_("Sheet:"), self._sheet_combo)
+        ctx_note = QLabel(_("The Marker tab maps through the placed instance "
+                            "of this cell on the chosen Cluster — the live "
+                            "board is used only then and for “Read from "
+                            "selection”."))
+        ctx_note.setWordWrap(True)
+        ctx_form.addRow(ctx_note)
+        comp_layout.addWidget(ctx_box)
+
+        comp_box = QGroupBox(_("Component anchor"))
+        comp_form = QFormLayout(comp_box)
+        self._role_combo = QComboBox()
+        self._role_combo.setPlaceholderText(_("pick this cell's component role"))
+        comp_form.addRow(_("Role:"), self._role_combo)
+        self._pad_edit = QLineEdit()
+        self._pad_edit.setPlaceholderText(_("pad number (optional)"))
+        comp_form.addRow(_("Pad:"), self._pad_edit)
+        row = QHBoxLayout()
+        self._read_selection_button = QPushButton(_("Read from selection"))
+        self._read_selection_button.setToolTip(
+            _("Fill Role (+ Pad) and Cluster from ONE selected component or "
+              "pad of this cell on the live board."))
+        self._read_selection_button.clicked.connect(self._on_read_from_selection)
+        row.addWidget(self._read_selection_button)
+        self._set_anchor_button = QPushButton(_("Set as anchor"))
+        self._set_anchor_button.clicked.connect(self._on_set_component_anchor)
+        row.addWidget(self._set_anchor_button)
+        self._clear_anchor_button = QPushButton(_("Clear anchor"))
+        self._clear_anchor_button.clicked.connect(self._on_clear_anchor)
+        row.addWidget(self._clear_anchor_button)
+        comp_form.addRow(row)
+        comp_note = QLabel(_("Without a pad the anchor is the component's "
+                             "stored centre (offline). With a pad the pad's "
+                             "point is resolved at Apply from a live instance "
+                             "of this role — anchor_xy is removed so that "
+                             "live resolution actually runs."))
+        comp_note.setWordWrap(True)
+        comp_form.addRow(comp_note)
+        comp_layout.addWidget(comp_box)
+        comp_layout.addStretch(1)
+        self._tabs.addTab(comp_page, _("Component"))
+
+        # ── Tab 2 — Marker ────────────────────────────────────────────────
+        marker_page = QWidget()
+        marker_layout = QVBoxLayout(marker_page)
+        marker_layout.setContentsMargins(4, 4, 4, 4)
+
+        marker_box = QGroupBox(_("Marker"))
+        marker_form = QFormLayout(marker_box)
+        layer_note = QLabel(_("Overlay is drawn on the layer “{layer}” as real "
+                              "KiCad graphics; there is no colour setting — "
+                              "graphics take their layer's colour (managed in "
+                              "KiCad). Use a dedicated user layer so cleanup "
+                              "by layer is safe.")
+                            .format(layer=OVERLAY_DEFAULT_LAYER))
+        layer_note.setWordWrap(True)
+        marker_form.addRow(layer_note)
+        m_row = QHBoxLayout()
+        self._place_marker_button = QPushButton(_("Place marker"))
+        self._place_marker_button.clicked.connect(self._on_place_marker)
+        m_row.addWidget(self._place_marker_button)
+        self._read_marker_button = QPushButton(_("Read position"))
+        self._read_marker_button.clicked.connect(self._on_read_marker)
+        m_row.addWidget(self._read_marker_button)
+        self._remove_marker_button = QPushButton(_("Remove marker"))
+        self._remove_marker_button.clicked.connect(self._on_remove_marker)
+        m_row.addWidget(self._remove_marker_button)
+        marker_form.addRow(m_row)
+        b_row = QHBoxLayout()
+        self._show_bbox_button = QPushButton(_("Show bbox"))
+        self._show_bbox_button.clicked.connect(self._on_show_bbox)
+        b_row.addWidget(self._show_bbox_button)
+        self._hide_bbox_button = QPushButton(_("Hide bbox"))
+        self._hide_bbox_button.clicked.connect(self._on_hide_bbox)
+        b_row.addWidget(self._hide_bbox_button)
+        marker_form.addRow(b_row)
+        m_note = QLabel(_("Places a marker at the cell's current anchor (or "
+                          "the bbox centre when there is no anchor). Drag it "
+                          "with KiCad's own tools, then “Read position” "
+                          "stores the point as anchor_xy and clears any "
+                          "Role/Pad anchor. Requires the cell to be placed on "
+                          "the chosen Cluster."))
+        m_note.setWordWrap(True)
+        marker_form.addRow(m_note)
+        marker_layout.addWidget(marker_box)
+        marker_layout.addStretch(1)
+        self._tabs.addTab(marker_page, _("Marker"))
+
+        self._cluster_combo.currentTextChanged.connect(self._on_cluster_changed)
+        self._tabs.currentChanged.connect(lambda _i: self._reload_form())
+
+    # ── Loading / context ─────────────────────────────────────────────────
+
+    def set_root_path(self, path: Optional[Path]) -> None:
+        """The project root changed (root_changed broadcast) — refresh the
+        Sheet choices (from the loaded config) and drop overlay state that is
+        only valid for the previous root."""
+        self._root_path = path
+        if path is not None:
+            try:
+                _cfg, ctx = load_config(str(path))
+            except (ValidationError, OSError):
+                ctx = None
+            if ctx is not None:
+                set_combo_items(self._sheet_combo, sorted(ctx.sheet_names or []))
+        else:
+            self._sheet_combo.clear()
+        self._marker_uuid = None
+        self._bbox_uuid = None
+        if self._cell_name is not None:
+            self._reload_form()
+
+    def load_entry(self, name: str, file_path) -> None:
+        """Open the requested cell for anchor editing — (name, owning file),
+        the same shape as the Config tree's cell_edit_requested. Reads the
+        entry live and fills the form (safe to re-open on a changed file)."""
+        self._cell_name = name
+        self._file_path = Path(file_path) if file_path is not None else None
+        self._reload_form()
+
+    # ── Persisted overlay uuids ───────────────────────────────────────────
+
+    def _overlay_state(self) -> dict:
+        """The persisted overlay-uuid map {root: {cell: {marker, bbox}}}."""
+        try:
+            raw = settings.state.get(_OVERLAY_STATE_KEY, {}) or {}
+            return raw if isinstance(raw, dict) else {}
+        except Exception:  # noqa: BLE001
+            return {}
+
+    def _cell_overlay_state(self) -> dict:
+        root = str(self._root_path) if self._root_path is not None else ""
+        return (self._overlay_state().get(root, {}) or {}).get(
+            self._cell_name or "", {})
+
+    def _remember_overlay(self, marker: Optional[str], bbox: Optional[str]) -> None:
+        if self._cell_name is None:
+            return
+        root = str(self._root_path) if self._root_path is not None else ""
+        state = self._overlay_state()
+        per_root = state.setdefault(root, {})
+        per_root[self._cell_name] = {"marker": marker, "bbox": bbox}
+        settings.state.set(_OVERLAY_STATE_KEY, state)
+
+    # ── Entry / form state ────────────────────────────────────────────────
+
+    def _current_entry(self) -> Optional[dict]:
+        """Read the CURRENT cell entry from disk (dict or None)."""
+        if self._cell_name is None:
+            return None
+        target_file = find_dict_entry_file(self._root_path, "cells", self._cell_name)
+        if target_file is None:
+            target_file = self._file_path
+        if target_file is None or not Path(target_file).exists():
+            return None
+        try:
+            entry = (read_data(Path(target_file)).get("cells") or {}).get(
+                self._cell_name)
+        except (ValidationError, OSError):
+            return None
+        return entry if isinstance(entry, dict) else None
+
+    def _cell_roles(self) -> list:
+        """Roles from the CURRENT loaded cell entry (its own components — the
+        only legitimate Role choices, never the live board)."""
+        entry = self._current_entry()
+        if entry is None:
+            return []
+        return sorted({c.get("role") for c in entry.get("components", [])
+                       if c.get("role")})
+
+    def _reload_form(self) -> None:
+        """Refill the whole form from the current cell entry — called on open,
+        on tab switch and after a save so both tabs stay in sync."""
+        if self._cell_name is None:
+            self._title.setText(_("Pick a Cell in the Config tree, then use "
+                                  "“Cell anchor...” from its context menu."))
+            self._set_anchor_button.setEnabled(False)
+            self._clear_anchor_button.setEnabled(False)
+            self._read_selection_button.setEnabled(False)
+            self._role_combo.clear()
+            self._pad_edit.clear()
+            for b in (self._place_marker_button, self._read_marker_button,
+                      self._remove_marker_button, self._show_bbox_button,
+                      self._hide_bbox_button):
+                b.setEnabled(False)
+            return
+
+        self._title.setText(_("Cell {name!r} — anchor").format(name=self._cell_name))
+        entry = self._current_entry()
+        if entry is None:
+            show_message(_("Cell {name!r} not found in the project config")
+                         .format(name=self._cell_name), _ERROR_STYLE, logger)
+            self._set_anchor_button.setEnabled(False)
+            self._clear_anchor_button.setEnabled(False)
+            self._read_selection_button.setEnabled(False)
+            return
+
+        # Persisted overlay uuids for this cell/root.
+        cell_state = self._cell_overlay_state()
+        self._marker_uuid = cell_state.get("marker")
+        self._bbox_uuid = cell_state.get("bbox")
+
+        roles = sorted({c.get("role") for c in entry.get("components", [])
+                        if c.get("role")})
+        self._fill_role_choices(roles, self._cluster_combo.currentText().strip())
+        role = entry.get("anchor_role")
+        if role:
+            self._role_combo.setCurrentText(str(role))
+        self._pad_edit.setText(str(entry.get("anchor_pad") or ""))
+
+        self._read_selection_button.setEnabled(True)
+        self._set_anchor_button.setEnabled(True)
+        self._clear_anchor_button.setEnabled(True)
+        self._place_marker_button.setEnabled(True)
+        self._show_bbox_button.setEnabled(True)
+        self._read_marker_button.setEnabled(bool(self._marker_uuid))
+        self._remove_marker_button.setEnabled(bool(self._marker_uuid))
+        self._hide_bbox_button.setEnabled(bool(self._bbox_uuid))
+
+    def _fill_role_choices(self, roles: list, cluster: str) -> None:
+        cluster = cluster or self._cluster_combo.currentText().strip()
+        narrowed = roles_for_cluster(self._adapter(), roles, cluster)
+        current = self._role_combo.currentText()
+        set_combo_items(self._role_combo, narrowed)
+        if current and current in narrowed:
+            self._role_combo.setCurrentText(current)
+
+    def _adapter(self):
+        board = getattr(self._connection, "board", None)
+        if board is None:
+            return None
+        return getattr(board, "adapter", None)
+
+    # ── Component tab handlers ────────────────────────────────────────────
+
+    def _on_cluster_changed(self) -> None:
+        if self._cell_name is None:
+            return
+        entry = self._current_entry()
+        if entry is None:
+            return
+        roles = sorted({c.get("role") for c in entry.get("components", [])
+                        if c.get("role")})
+        self._fill_role_choices(roles, self._cluster_combo.currentText().strip())
+
+    def _on_read_from_selection(self) -> None:
+        adapter = self._adapter()
+        if adapter is None:
+            show_message(_("No live board — “Read from selection” needs KiCad. "
+                           "Pick Role/Pad and Cluster by hand instead."),
+                         _WARN_STYLE, logger)
+            return
+        entry = self._current_entry()
+        if entry is None:
+            show_message(_("Cell {name!r} not found in the project config")
+                         .format(name=self._cell_name), _ERROR_STYLE, logger)
+            return
+        try:
+            read = read_anchor_source(
+                adapter, adapter.get_selected_items(), self._cell_roles(),
+                self._cell_name or "", _("cell anchor"))
+        except ValidationError as e:
+            show_message(str(e), _ERROR_STYLE, logger)
+            return
+        if read["kind"] in ("via", "other"):
+            show_message(
+                _("A Via (or a non-component item) is selected — that is the "
+                  "Marker tab's case: switch to the Marker tab, place the "
+                  "marker at the desired point, then press “Read position”."),
+                _WARN_STYLE, logger)
+            return
+        if read["cluster"]:
+            self._cluster_combo.setCurrentText(read["cluster"])
+        roles = sorted({c.get("role") for c in entry.get("components", [])
+                        if c.get("role")})
+        self._fill_role_choices(roles, read["cluster"] or "")
+        self._role_combo.setCurrentText(read["role"] or "")
+        self._pad_edit.setText(read["pad"] or "")
+        what = _("pad {pad!r}").format(pad=read["pad"]) if read["pad"] \
+            else _("footprint")
+        show_message(
+            _("Read from selection: {what} of role {role!r} (cluster "
+              "{cluster!r}) — press “Set as anchor” to store it.")
+            .format(what=what, role=read["role"], cluster=read["cluster"]),
+            _SUCCESS_STYLE, logger)
+
+    def _on_set_component_anchor(self) -> None:
+        """Write anchor_role (+ anchor_pad) and REMOVE anchor_xy (else Phase
+        A's GUARD 1 keeps the stale anchor_xy winning over the live pad
+        resolution). Role-only = component centre (offline)."""
+        if self._cell_name is None:
+            return
+        entry = self._current_entry()
+        if entry is None:
+            show_message(_("Cell {name!r} not found in the project config")
+                         .format(name=self._cell_name), _ERROR_STYLE, logger)
+            return
+        role = self._role_combo.currentText().strip()
+        if not role:
+            show_message(_("Set as anchor: pick a Role of this cell first."),
+                         _ERROR_STYLE, logger)
+            return
+        roles = self._cell_roles()
+        if role not in roles:
+            show_message(_("Set as anchor: role {role!r} is not a component of "
+                           "cell {name!r}").format(role=role, name=self._cell_name),
+                         _ERROR_STYLE, logger)
+            return
+        pad = self._pad_edit.text().strip() or None
+        entry["anchor_role"] = role
+        if pad:
+            entry["anchor_pad"] = pad
+        else:
+            entry.pop("anchor_pad", None)
+        # GUARD 1 (Phase A): anchor_xy must be dropped so the live pad-role
+        # resolution actually runs; a Role-only anchor has no pad, so its
+        # mount is the component centre (cell_mount_offset).
+        entry.pop("anchor_xy", None)
+        self._write_entry(entry, _("Set as anchor"))
+
+    def _on_clear_anchor(self) -> None:
+        """Drop all three anchor fields — the cell's mount returns to the
+        default bbox corner (0,0)."""
+        if self._cell_name is None:
+            return
+        entry = self._current_entry()
+        if entry is None:
+            return
+        entry.pop("anchor_xy", None)
+        entry.pop("anchor_role", None)
+        entry.pop("anchor_pad", None)
+        self._write_entry(entry, _("Clear anchor"))
+        self._role_combo.setCurrentText("")
+        self._pad_edit.clear()
+
+    def _write_entry(self, entry: dict, desc: str) -> None:
+        """merge_write the edited entry to the file that actually holds the
+        cell, then refresh the form + emit saved so the Config tree refreshes."""
+        target_file = find_dict_entry_file(self._root_path, "cells", self._cell_name)
+        if target_file is None:
+            target_file = self._file_path
+        if target_file is None:
+            show_message(_("{desc} failed: no config file for cell {name!r}")
+                         .format(desc=desc, name=self._cell_name),
+                         _ERROR_STYLE, logger)
+            return
+        try:
+            merge_write(Path(target_file), {"cells": {self._cell_name: entry}},
+                        section="cells")
+        except (ValidationError, OSError) as e:
+            show_message(_("{desc} failed: {error}").format(desc=desc, error=e),
+                         _ERROR_STYLE, logger)
+            return
+        show_message(_("Cell {name!r}: {desc} stored — placed instances shift "
+                       "on the next Redraw/Apply.")
+                     .format(name=self._cell_name, desc=desc), _SUCCESS_STYLE, logger)
+        self.saved.emit()
+        self._reload_form()
+
+    # ── Marker tab: context + worker dispatch ─────────────────────────────
+
+    def _context(self):
+        """(cfg, clone, sheet_names) for the Marker tab's live frame, or None
+        with a message shown when the working context can't be resolved."""
+        if self._root_path is None or self._cell_name is None:
+            show_message(_("Marker needs a project root — open a project "
+                           "first."), _WARN_STYLE, logger)
+            return None
+        cluster = self._cluster_combo.currentText().strip()
+        sheet = self._sheet_combo.currentText().strip()
+        if not cluster:
+            show_message(_("Marker: pick the working Cluster first (Component "
+                           "tab)."), _WARN_STYLE, logger)
+            return None
+        try:
+            cfg, ctx = load_config(str(self._root_path))
+        except (ValidationError, OSError) as e:
+            show_message(_("Marker: failed to load the project config: {error}")
+                         .format(error=e), _ERROR_STYLE, logger)
+            return None
+        clone = resolve_clone_context(cfg, self._cell_name, cluster, sheet)
+        if clone is None:
+            show_message(
+                _("Marker: no clone placement of cell {cell!r} on cluster "
+                  "{cluster!r} is placed — the live frame cannot be derived. "
+                  "Place the cell on that cluster first.")
+                .format(cell=self._cell_name, cluster=cluster),
+                _WARN_STYLE, logger)
+            return None
+        return cfg, clone, ctx.sheet_names
+
+    def _adapter_required(self):
+        """The live adapter, or None + a message (used by marker IPC ops)."""
+        adapter = self._adapter()
+        if adapter is None:
+            show_message(_("No live board connection — the overlay needs "
+                           "KiCad."), _WARN_STYLE, logger)
+            return None
+        return adapter
+
+    def _dispatch(self, fn, on_success, on_error, *extra_args):
+        """Resolve the working context + live adapter and dispatch one overlay
+        worker function on the worker thread via start_long_op (inputs
+        collected on the UI thread, IPC on the worker, completion back on the
+        UI thread)."""
+        adapter = self._adapter_required()
+        if adapter is None:
+            return
+        ctx = self._context()
+        if ctx is None:
+            return
+        cfg, clone, sheet_names = ctx
+        widgets = [self._place_marker_button, self._read_marker_button,
+                   self._remove_marker_button, self._show_bbox_button,
+                   self._hide_bbox_button]
+        self._active_op = start_long_op(
+            self._connection, widgets, fn, on_success, on_error,
+            adapter, cfg, clone, self._cell_name, sheet_names, *extra_args)
+
+    def _dispatch_draw(self, worker_fn, success_msg_ok, on_error):
+        """Dispatch a DRAW overlay op (worker takes the layer name)."""
+        def ok(uuid: Optional[str]) -> None:
+            success_msg_ok(uuid)
+
+        self._dispatch(worker_fn, ok, on_error, OVERLAY_DEFAULT_LAYER)
+
+    def _on_place_marker(self) -> None:
+        def ok(uuid: Optional[str]) -> None:
+            if uuid is None:
+                show_message(_("Place marker: the cell has no geometry on the "
+                               "board."), _WARN_STYLE, logger)
+                return
+            self._marker_uuid = uuid
+            self._remember_overlay(self._marker_uuid, self._bbox_uuid)
+            show_message(_("Marker placed (uuid {uuid}) — drag it in KiCad, "
+                           "then press “Read position”.").format(uuid=uuid),
+                         _SUCCESS_STYLE, logger)
+            self._reload_form()
+
+        def err(message: str) -> None:
+            show_message(_("Place marker failed: {message}").format(message=message),
+                         _ERROR_STYLE, logger)
+
+        self._dispatch_draw(_place_marker_worker, ok, err)
+
+    def _on_show_bbox(self) -> None:
+        def ok(uuid: Optional[str]) -> None:
+            if uuid is None:
+                show_message(_("Show bbox: the cell has no geometry."),
+                             _WARN_STYLE, logger)
+                return
+            self._bbox_uuid = uuid
+            self._remember_overlay(self._marker_uuid, self._bbox_uuid)
+            show_message(_("Bbox drawn (uuid {uuid}).").format(uuid=uuid),
+                         _SUCCESS_STYLE, logger)
+            self._reload_form()
+
+        def err(message: str) -> None:
+            show_message(_("Show bbox failed: {message}").format(message=message),
+                         _ERROR_STYLE, logger)
+
+        self._dispatch_draw(_draw_bbox_worker, ok, err)
+
+    def _on_read_marker(self) -> None:
+        if not self._marker_uuid:
+            show_message(_("No marker to read — place one first."),
+                         _WARN_STYLE, logger)
+            return
+        marker_uuid = self._marker_uuid
+
+        def ok(xy: Optional[tuple]) -> None:
+            if xy is None:
+                show_message(_("Marker not found on the board (deleted or "
+                               "swept?) — place a new one."), _WARN_STYLE, logger)
+                self._marker_uuid = None
+                self._remember_overlay(None, self._bbox_uuid)
+                return
+            entry = self._current_entry()
+            if entry is None:
+                return
+            entry["anchor_xy"] = [xy[0], xy[1]]
+            entry.pop("anchor_role", None)
+            entry.pop("anchor_pad", None)
+            self._write_entry(entry, _("marker point"))
+            self._remove_marker_only()
+
+        def err(message: str) -> None:
+            show_message(_("Read marker failed: {message}").format(message=message),
+                         _ERROR_STYLE, logger)
+
+        self._dispatch(_read_marker_worker, ok, err, marker_uuid)
+
+    def _remove_overlay_uuid(self, uuid: Optional[str]) -> None:
+        if not uuid:
+            return
+        adapter = self._adapter_required()
+        if adapter is None:
+            return
+        self._active_op = start_long_op(
+            self._connection,
+            [self._read_marker_button, self._remove_marker_button,
+             self._hide_bbox_button],
+            board_overlay.remove_overlay,
+            lambda _ok: None,
+            lambda message: show_message(
+                _("Remove overlay failed: {message}").format(message=message),
+                _ERROR_STYLE, logger),
+            adapter, [uuid])
+
+    def _remove_marker_only(self) -> None:
+        """Clear the marker uuid + remove the marker shape (after “Read
+        position” stored the point)."""
+        self._remove_overlay_uuid(self._marker_uuid)
+        self._marker_uuid = None
+        self._remember_overlay(None, self._bbox_uuid)
+        self._reload_form()
+
+    def _on_remove_marker(self) -> None:
+        self._remove_marker_only()
+
+    def _on_hide_bbox(self) -> None:
+        self._remove_overlay_uuid(self._bbox_uuid)
+        self._bbox_uuid = None
+        self._remember_overlay(self._marker_uuid, None)
+        self._reload_form()
