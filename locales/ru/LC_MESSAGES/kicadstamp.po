@@ -14553,3 +14553,31 @@ msgstr "Настройки цвета НЕТ — графика оверлея �
 #, python-brace-format
 msgid "This deletes EVERY graphic shape on the layer “{layer}” — including shapes you added in KiCad yourself. Other layers are untouched. Continue?"
 msgstr "Это удалит КАЖДУЮ графическую фигуру на слое «{layer}» — включая фигуры, добавленные вами вручную в KiCad. Остальные слои не затрагиваются. Продолжить?"
+
+#: gui/docks/cell_editor.py
+#, python-brace-format
+msgid "No footprint of cluster {cluster!r} is on the current board — the remembered context no longer resolves; select the cluster by hand."
+msgstr "На текущей плате нет ни одного футпринта кластера {cluster!r} — запомненный контекст больше не резолвится; выберите кластер вручную."
+
+#: gui/docks/cell_editor.py
+#, python-brace-format
+msgid "No remembered cluster for cell {name!r} — extract it from a board cluster, or remember one via the cell-anchor page’s “Read from selection”."
+msgstr "Для ячейки {name!r} нет запомненного кластера — создайте ячейку из кластера на плате или запомните его через «Считать из выделения» на странице якоря ячейки."
+
+#: gui/docks/cell_editor.py
+#, python-brace-format
+msgid "Select cluster failed: {error}"
+msgstr "Не удалось выделить кластер: {error}"
+
+#: gui/docks/cell_editor.py
+msgid "Select cluster of this cell on the board"
+msgstr "Выделить на плате кластер этой ячейки"
+
+#: gui/docks/cell_editor.py
+msgid "Select cluster on the board"
+msgstr "Выделить кластер на плате"
+
+#: gui/docks/cell_editor.py
+#, python-brace-format
+msgid "Selected {count} footprint(s) of cluster {cluster!r} on the board — ready for “Refresh geometry from selection”."
+msgstr "На плате выделено {count} футпринтов кластера {cluster!r} — кластер готов для «Обновить геометрию из выделения»."

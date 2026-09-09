@@ -15904,3 +15904,31 @@ msgstr ""
 #, python-brace-format
 msgid "This deletes EVERY graphic shape on the layer “{layer}” — including shapes you added in KiCad yourself. Other layers are untouched. Continue?"
 msgstr ""
+
+#: gui/docks/cell_editor.py
+#, python-brace-format
+msgid "No footprint of cluster {cluster!r} is on the current board — the remembered context no longer resolves; select the cluster by hand."
+msgstr ""
+
+#: gui/docks/cell_editor.py
+#, python-brace-format
+msgid "No remembered cluster for cell {name!r} — extract it from a board cluster, or remember one via the cell-anchor page’s “Read from selection”."
+msgstr ""
+
+#: gui/docks/cell_editor.py
+#, python-brace-format
+msgid "Select cluster failed: {error}"
+msgstr ""
+
+#: gui/docks/cell_editor.py
+msgid "Select cluster of this cell on the board"
+msgstr ""
+
+#: gui/docks/cell_editor.py
+msgid "Select cluster on the board"
+msgstr ""
+
+#: gui/docks/cell_editor.py
+#, python-brace-format
+msgid "Selected {count} footprint(s) of cluster {cluster!r} on the board — ready for “Refresh geometry from selection”."
+msgstr ""

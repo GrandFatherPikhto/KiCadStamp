@@ -1906,6 +1906,17 @@ class DockHub:
                 entities=list(cfg.entities) + new_entities,
                 net_traces=list(cfg.net_traces) + new_net_traces)
             link_trees(link_cfg, reloaded)
+            # Phase E (plan_2026_09_09_..._phase_e): remember the (Cluster,
+            # Sheet) each newly-created Entity's cell was extracted from — the
+            # page-opening hint for the cell-anchor page / CellDock's "Select
+            # cluster on the board" button. Only for NEW Entities (an existing
+            # Entity's cluster was already remembered at its own creation);
+            # a reused existing cell gets re-pointed to the new sheet instance.
+            from .cell_edit_context import remember_cell_edit_context
+            for _entity in new_entities:
+                if getattr(_entity, "cell", None):
+                    remember_cell_edit_context(
+                        root_path, _entity.cell, _entity.cluster, _entity.sheet)
         except Exception as e:  # noqa: BLE001 — .bak is fresh; report, don't roll back
             QMessageBox.warning(self.main_window, _("Extract tree"),
                                 _("Saved, but the round-trip check failed: {error}")
@@ -2032,6 +2043,13 @@ class DockHub:
             QMessageBox.warning(self.main_window, _("Extract cluster"),
                                 _("Failed to save the Entity: {error}").format(error=e))
             return
+
+        # Phase E (plan_2026_09_09_..._phase_e): remember the (Cluster, Sheet)
+        # this cell was just created/extracted from — the page-opening hint for
+        # the cell-anchor page and the CellDock "Select cluster on the board"
+        # button. GUI-local state only, never written into the cell itself.
+        from .cell_edit_context import remember_cell_edit_context
+        remember_cell_edit_context(root_path, ent["cell"], c.cluster, c.sheet)
 
         # ── Refresh: the new cells:/entities: appear without a restart ──────
         self.config_tree_dock.refresh()

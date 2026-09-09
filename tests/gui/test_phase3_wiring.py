@@ -1063,6 +1063,118 @@ def test_extract_cluster_happy_path_writes_cell_and_entity(
     assert infos, "a success message must be shown"
 
 
+def test_extract_cluster_remembers_cell_edit_context(real_main_window,
+                                                     tmp_path, monkeypatch):
+    """Phase E (plan_2026_09_09_..._phase_e): creating a cell via "Extract
+    cluster..." records its (Cluster, Sheet) under gui_state.json's
+    cell_edit_context, scoped by the root config path (the DockHub wiring)."""
+    from gui.cell_edit_context import CELL_EDIT_CONTEXT_KEY
+    root = tmp_path / "root.sexp"
+    _write(root)
+    real_main_window.root_metadata_dock.set_root_file(root)
+    hub = real_main_window._dock_hub
+    sel = _selected_tree("R1", "PIF_AVDD", "Channel_1", {})
+    real_main_window.connection = SimpleNamespace(
+        board=SimpleNamespace(adapter=object()), snapshot=[sel],
+        long_op_active=False)
+    hub._selection_footprints = [sel]
+    hub._selection_raw_items = [sel.fp]
+
+    class _FakeDialog:
+        def __init__(self, parent, clusters, cfg, selection_footprints=()):
+            self._clusters = clusters
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+        def selected_cluster(self):
+            return self._clusters[0]
+
+        def entity_name(self):
+            return "pif_avdd_channel_1"
+
+        @property
+        def existing(self):
+            return False
+
+        def origin_override(self):
+            return (None, None)
+
+    monkeypatch.setattr("gui.docks.extract_cluster_dialog.ExtractClusterDialog",
+                        _FakeDialog)
+    monkeypatch.setattr(tfs_mod, "extract_template_from_selection",
+                        lambda adapter, name, items=None, **kw:
+                        {name: {"components": [
+                            {"role": "DAC", "offset_along_mm": 0.0,
+                             "offset_across_mm": 0.0}]}})
+    monkeypatch.setattr(dock_hub_mod.QMessageBox, "information",
+                        lambda *a, **k: None)
+
+    hub.extract_cluster_from_selection()
+    WORKING_SET.flush(root)
+
+    context = settings.state.get(CELL_EDIT_CONTEXT_KEY, {})
+    assert context.get(str(root)) == {
+        "pif_avdd": {"cluster": "PIF_AVDD", "sheet": "Channel_1"}}
+
+
+def test_extract_tree_remembers_new_cells_context(real_main_window,
+                                                  tmp_path, monkeypatch):
+    """Phase E: "Extract tree..." over NEW clusters records each newly-created
+    Entity's cell (Cluster, Sheet) under cell_edit_context — the second DockHub
+    caller of the shared create_cell_and_entity_for_cluster step."""
+    from gui.cell_edit_context import CELL_EDIT_CONTEXT_KEY
+    root = tmp_path / "root.sexp"
+    _write(root)                     # empty config -> the cluster is new
+    real_main_window.root_metadata_dock.set_root_file(root)
+    hub = real_main_window._dock_hub
+    sel = _selected_tree("R1", "PIF_AVDD", "Channel_1", {})
+    real_main_window.connection = SimpleNamespace(
+        board=SimpleNamespace(adapter=object()), snapshot=[sel],
+        long_op_active=False)
+    hub._selection_footprints = [sel]
+    hub._selection_raw_items = [sel.fp]
+
+    class _FakeDialog:
+        def __init__(self, clusters, inter_nets, existing_names, **kwargs):
+            self._clusters = clusters
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+        def selected_clusters(self):
+            return self._clusters
+
+        def selected_nets(self):
+            return []
+
+        def tree_name(self):
+            return "power_tree"
+
+        def build_anchor(self):
+            return TreeAnchor(role="DAC", anchor_sheet="Channel_1",
+                              anchor_cluster="PIF_AVDD")
+
+    monkeypatch.setattr(tfsd_mod, "TreeFromSelectionDialog", _FakeDialog)
+    monkeypatch.setattr(tfs_mod, "extract_template_from_selection",
+                        lambda adapter, name, items=None, **kw:
+                        {name: {"components": [
+                            {"role": "DAC", "offset_along_mm": 0.0,
+                             "offset_across_mm": 0.0}]}})
+    monkeypatch.setattr(dock_hub_mod.QMessageBox, "warning",
+                        lambda *a, **k: None)
+    monkeypatch.setattr(dock_hub_mod.QMessageBox, "information",
+                        lambda *a, **k: None)
+
+    hub.extract_tree_from_selection()
+    WORKING_SET.flush(root)
+
+    context = settings.state.get(CELL_EDIT_CONTEXT_KEY, {})
+    per_root = context.get(str(root)) or {}
+    assert per_root.get("pif_avdd") == {"cluster": "PIF_AVDD",
+                                        "sheet": "Channel_1"}
+
+
 def test_extract_cluster_existing_entity_reuse_writes_nothing(
         real_main_window, tmp_path, monkeypatch):
     """A cluster whose (cluster, sheet) Entity already exists -> OK REUSES it:

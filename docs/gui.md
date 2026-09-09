@@ -1407,6 +1407,21 @@ It is the v2 declarative anchor UI — the anchor is a REFERENCE resolved at app
   Settings → Board overlay **Remove entire overlay layer** button, which sweeps the WHOLE chosen
   user layer (confirmed first; only that layer is affected).
 
+**Remembered cell context** (2026-09-09, Phase E of the same plan): when a Cell is created
+(`Extract cluster...` / `Extract tree...`) or its anchor is re-read with the Component tab's
+**Read from selection**, the (Cluster, Sheet) of the instance it was taken from is remembered in
+`gui_state.json` (key `cell_edit_context`, scoped by the root config path — the cell name is a
+Cluster-tag slug, so the same name in two profiles means different boards). Two consumers:
+  - the **Cell anchor...** page prefills its working **Sheet/Cluster** from that context when the
+    cell is opened, so the Role combo is already narrowed to the cluster the cell was last worked
+    in — no click on the board required;
+  - the Cell dialog gains a **Select cluster of this cell on the board** button next to
+    Refresh geometry / Import vias/tracks: it highlights the whole remembered (Cluster, Sheet)
+    instance on the live board, so those whole-cluster operations no longer need a manual hunt.
+It is a HINT, never a source of truth: a remembered cluster/sheet that no longer resolves on the
+current board (renamed / deleted / another board) leaves the fields empty and selects nothing — no
+fatal, no hard dependency (stale remembered values are the norm, not an edge case).
+
 **Refresh geometry from selection** (2026-09-03) — a button in the Cell dialog AND a
 right-click **Update from selection...** action on a Cell leaf in the Config tree's Cells category
 (one click from the tree — no need to open the dialog and hunt for the button first). It re-reads an

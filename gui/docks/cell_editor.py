@@ -97,9 +97,13 @@ from kicadstamp.exceptions import ValidationError, format_fatal_error
 from kicadstamp.i18n import _
 
 from ..worker import start_long_op
+from ..cell_edit_context import (
+    remembered_cell_edit_context,
+    resolve_context_footprints,
+)
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
-                      configure_searchable, display_path, merge_write, parse_float_field,
-                      set_combo_items, show_message)
+                      WARN_STYLE as _WARN_STYLE, configure_searchable, display_path,
+                      merge_write, parse_float_field, set_combo_items, show_message)
 from .rename import collect_all_cell_names, collect_section_entries, find_dict_entry_file
 
 logger = logging.getLogger(__name__)
@@ -375,6 +379,16 @@ class CellDock(QWidget):
         self.import_vias_tracks_button.clicked.connect(self._on_import_vias_tracks)
         self.import_vias_tracks_button.setEnabled(False)
         refresh_row.addWidget(self.import_vias_tracks_button)
+        # Phase E (plan_2026_09_09_..._phase_e): "Refresh geometry" / "Import
+        # vias/tracks" fatal on any role missing from the selection, so they
+        # need the WHOLE placed cluster instance selected — this button picks it
+        # from the remembered (Cluster, Sheet) the cell was last extracted in,
+        # removing the manual hunt before every re-read. Same activity gate.
+        self.select_cluster_button = QPushButton(
+            _("Select cluster of this cell on the board"))
+        self.select_cluster_button.clicked.connect(self._on_select_cluster_on_board)
+        self.select_cluster_button.setEnabled(False)
+        refresh_row.addWidget(self.select_cluster_button)
         layout.addLayout(refresh_row)
 
         self._tabs = QTabWidget()
@@ -1452,6 +1466,7 @@ class CellDock(QWidget):
         self.refresh_geometry_button.setEnabled(enabled)
         self.import_vias_tracks_button.setEnabled(enabled)
         self.anchor_take_button.setEnabled(enabled)
+        self.select_cluster_button.setEnabled(enabled)
 
     def _on_anchor_take_from_selection(self) -> None:
         """Button action: read the CURRENT live selection and fill the anchor
@@ -1774,6 +1789,106 @@ class CellDock(QWidget):
         if self.name_edit.text().strip() != name or self._path != file_path:
             self.load_entry(name, file_path)
         self._on_import_vias_tracks()
+
+    # ── Select cluster on the board (Phase E, plan ..._phase_e) ──────────
+
+    def _on_select_cluster_on_board(self) -> None:
+        """Button action: highlight the WHOLE placed cluster instance this cell
+        was last created/edited in — the remembered (Cluster, Sheet) context —
+        so "Refresh geometry from selection" / "Import vias/tracks from
+        selection" (which fatal on any role missing from the selection) have
+        the fully-selected cluster without the user hunting for it by hand.
+
+        The remembered context is a HINT (§E.5): when it no longer resolves on
+        the current board the button reports it and selects NOTHING (never a
+        fatal). Board IPC (footprint scan + select_items) runs on the worker
+        thread via start_long_op — no synchronous adapter call on the UI
+        thread."""
+        self._show_message("")
+        connection = getattr(self._main_window, "connection", None)
+        board = getattr(connection, "board", None) if connection is not None else None
+        adapter = getattr(board, "adapter", None) if board is not None else None
+        if adapter is None:
+            self._show_message(_("Connect to KiCad first."), _ERROR_STYLE)
+            return
+        if self._root_path is None:
+            self._show_message(_("Set the project root first."), _ERROR_STYLE)
+            return
+        if not self._components:
+            self._show_message(_("Load a cell with components first."), _ERROR_STYLE)
+            return
+        if self._active_op is not None:
+            return
+        cell_name = self.name_edit.text().strip()
+        cluster, sheet = remembered_cell_edit_context(self._root_path, cell_name)
+        if not cluster:
+            self._show_message(
+                _("No remembered cluster for cell {name!r} — extract it from a "
+                  "board cluster, or remember one via the cell-anchor page’s "
+                  "“Read from selection”.").format(name=cell_name),
+                _ERROR_STYLE)
+            return
+        payload = {
+            "board": board,
+            "root_path": str(self._root_path),
+            "cell_name": cell_name,
+            "cluster": cluster,
+            "sheet": sheet,
+        }
+        self._active_op = start_long_op(
+            connection, (self.select_cluster_button,),
+            self._run_select_cluster_on_board,
+            self._finish_select_cluster_on_board,
+            self._on_select_cluster_failed, payload)
+
+    def _run_select_cluster_on_board(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Worker thread: resolve the remembered (Cluster, Sheet) footprints on
+        the live board and set the KiCad GUI selection to them — never touches
+        a widget. Returns {"selected": n, "cluster": ..., "sheet": ...}. The
+        stale-context (no footprints) case is NOT an error: nothing is selected
+        and the finish handler reports it as a hint."""
+        try:
+            adapter = payload["board"].adapter
+            from kicadstamp.config import load_config
+            _cfg, ctx = load_config(payload["root_path"])
+            footprints = resolve_context_footprints(
+                adapter, adapter.get_footprints(), payload["cluster"],
+                payload["sheet"], dict(ctx.sheet_names or {}))
+            if footprints:
+                adapter.select_items(footprints)
+        except Exception as e:  # noqa: BLE001
+            return {"error": str(e)}
+        return {"selected": len(footprints), "cluster": payload["cluster"],
+                "sheet": payload["sheet"]}
+
+    def _finish_select_cluster_on_board(self, result: Dict[str, Any]) -> None:
+        """UI thread (worker finished): report how many footprints of the
+        remembered cluster got selected, or — when none did (stale context) —
+        tell the user to pick the cluster by hand. A stale context is never a
+        fatal."""
+        self._active_op = None
+        if result.get("error"):
+            QMessageBox.warning(
+                self, _("Select cluster on the board"), result["error"])
+            return
+        if result["selected"]:
+            self._show_message(
+                _("Selected {count} footprint(s) of cluster {cluster!r} on the "
+                  "board — ready for “Refresh geometry from selection”.")
+                .format(count=result["selected"], cluster=result["cluster"]),
+                _SUCCESS_STYLE)
+        else:
+            self._show_message(
+                _("No footprint of cluster {cluster!r} is on the current board "
+                  "— the remembered context no longer resolves; select the "
+                  "cluster by hand.").format(cluster=result["cluster"]),
+                _WARN_STYLE)
+
+    def _on_select_cluster_failed(self, message: str) -> None:
+        self._active_op = None
+        self._show_message(
+            _("Select cluster failed: {error}").format(error=message),
+            _ERROR_STYLE)
 
     # ── Copy placement from cell (2026-09-06, plan copy_placement_from_cell)
 

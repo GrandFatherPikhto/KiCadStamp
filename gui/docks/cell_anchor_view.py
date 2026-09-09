@@ -71,6 +71,11 @@ from kicadstamp.i18n import _
 from kicadstamp.utils.units import MM
 
 from .. import board_overlay, settings
+from ..cell_edit_context import (
+    cluster_present_on_board,
+    remember_cell_edit_context,
+    remembered_cell_edit_context,
+)
 from ..worker import start_long_op
 from ._common import (
     ERROR_STYLE as _ERROR_STYLE,
@@ -717,12 +722,47 @@ class CellAnchorView(QWidget):
 
         Phase D (D.2): opening a DIFFERENT cell closes the previous cell's
         editing session, so its drawn overlay (marker + bbox) is cleaned up
-        first."""
+        first.
+
+        Phase E: the remembered (Cluster, Sheet) context is applied BEFORE the
+        form renders, so the Role combo opens already narrowed to the last
+        cluster this cell was worked in — no click on the board required."""
         if name != self._cell_name and self._cell_name is not None:
             self.cleanup()
         self._cell_name = name
         self._file_path = Path(file_path) if file_path is not None else None
+        self._prefill_cell_context()
         self._reload_form()
+
+    # ── Phase E: remembered (Cluster, Sheet) context ──────────────────────
+
+    def _prefill_cell_context(self) -> None:
+        """Seed the working Sheet/Cluster combos from the remembered (Cluster,
+        Sheet) this cell was last created/edited in — the page opens already
+        narrowed to the Role combo, with no click on the board.
+
+        Strict §E.5 hint semantics: a remembered cluster that does NOT resolve
+        on the current live board (renamed/deleted/other board), or a missing
+        record, leaves BOTH fields empty — exactly the pre-Phase-E "ask again"
+        state. A stale Sheet (not among the current config's sheet names) is
+        dropped too. Never a fatal, never an exception."""
+        # A reused view must not leak the PREVIOUS cell's working context.
+        self._sheet_combo.setCurrentText("")
+        self._cluster_combo.setCurrentText("")
+        if self._cell_name is None or self._root_path is None:
+            return
+        cluster, sheet = remembered_cell_edit_context(
+            self._root_path, self._cell_name)
+        if not cluster:
+            return
+        if not cluster_present_on_board(self._adapter(), cluster):
+            return                      # stale context -> fields stay empty
+        self._cluster_combo.setCurrentText(cluster)
+        if sheet:
+            sheets = {self._sheet_combo.itemText(i)
+                      for i in range(self._sheet_combo.count())}
+            if sheet in sheets:
+                self._sheet_combo.setCurrentText(sheet)
 
     # ── Persisted overlay uuids ───────────────────────────────────────────
 
@@ -882,6 +922,13 @@ class CellAnchorView(QWidget):
             return
         if read["cluster"]:
             self._cluster_combo.setCurrentText(read["cluster"])
+            # Phase E: "Read from selection" brought a fresh Cluster — update
+            # this cell's remembered (last-used) context. Sheet is optional:
+            # whatever narrowing the user keeps in the Sheet combo is stored
+            # with it (the read itself carries no sheet).
+            remember_cell_edit_context(
+                self._root_path, self._cell_name, read["cluster"],
+                self._sheet_combo.currentText().strip() or None)
         roles = sorted({c.get("role") for c in entry.get("components", [])
                         if c.get("role")})
         self._fill_role_choices(roles, read["cluster"] or "")
