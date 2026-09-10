@@ -376,13 +376,24 @@ class AnchorOriginWidget(QWidget):
 
     # ── Build: validate the current form, return a generic field dict ─────
 
-    def build(self) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    def build(self, for_highlight: bool = False
+              ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         """(fields, error) — error is None on success. fields only ever
         carries GENERIC keys (mode/x/y/ref/role/sheet/pad/cluster/point/
         kind/shift_x/shift_y), never a model's own YAML key names — see
         module docstring on why that mapping stays with each caller.
         Optional text fields (ref/role/sheet/pad/cluster) are present only
-        if non-blank, same "if x:" omission the originals used."""
+        if non-blank, same "if x:" omission the originals used.
+
+        for_highlight=True (PlacerDock's read-only "Select on board", plan
+        Фаза F): in Absolute XY mode the coordinates are NOT required — a
+        placeholder (0, 0) is emitted instead of the "X is required." fatal.
+        The highlight resolves a placement by its IDENTITY only (the caller's
+        cell/roles + cluster/name/sheet and the ANCHOR for clone_anchor_id),
+        never by the absolute coordinates, so those may be filled in later.
+        Anchor/Point mode stays strict even here — the anchor IS part of
+        clone_anchor_id, so it must not be guessed. Every other caller keeps
+        the default (for_highlight=False, full strictness)."""
         mode = self.mode
         fields: Dict[str, Any] = {"mode": mode}
 
@@ -392,7 +403,19 @@ class AnchorOriginWidget(QWidget):
             return fields, None
 
         if mode == "xy":
-            if self._polar and self._polar_combo is not None and self._polar_combo.currentIndex() == 1:
+            polar = (self._polar and self._polar_combo is not None
+                     and self._polar_combo.currentIndex() == 1)
+            if for_highlight:
+                # The absolute coordinates are irrelevant to the highlight —
+                # substitute a placeholder rather than fatal on empty fields.
+                if polar:
+                    fields["radius"] = 0.0
+                    fields["angle"] = 0.0
+                else:
+                    fields["x"] = 0.0
+                    fields["y"] = 0.0
+                return fields, None
+            if polar:
                 radius, err = self._parse_required_float(self.radius_edit, _("Radius"))
                 if err:
                     return None, err

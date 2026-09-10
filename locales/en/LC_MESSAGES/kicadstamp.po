@@ -817,6 +817,9 @@ msgstr "Grid (visual only — Place > Set Grid Origin)"
 #: gui/docks/_anchor_origin.py:89
 msgid "Origin:"
 msgstr "Origin:"
+#: gui/docks/placer.py
+msgid "Origin is set to Absolute XY, but an anchor/point is filled in — switch the Origin mode to “Anchor (ref/role)” or “Point” instead of typing X/Y (or clear those fields)."
+msgstr ""
 
 #: gui/docks/_anchor_origin.py:103 gui/docks/cell_editor.py:365
 #: gui/docks/placer.py:240 gui/docks/placer.py:300 gui/docks/placer.py:481

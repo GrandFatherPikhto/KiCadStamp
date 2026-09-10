@@ -383,11 +383,19 @@ class _CoordinatePlacementForm(QWidget):
 
     # ── Build: read the form into a CoordinatePlacement-shaped dict ──────
 
-    def build(self) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    def build(self, for_highlight: bool = False) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         """(entry dict, error) — error is None on success. Mode-specific
         fields are written with their exact YAML key names (x_mm/y_mm/
         center_x_mm/.../anchor_ref/...), the same keys the table dock's
-        _row_to_entry wrote."""
+        _row_to_entry wrote.
+
+        for_highlight=True (PlacerDock's read-only "Select on board", plan
+        Фаза F): the position is NOT validated — a placeholder absolute
+        position is emitted instead. The highlight resolves a
+        CoordinatePlacement by its cluster/role/sheet ONLY
+        (board_items_resolver.resolve_clone_board_items), never by the
+        position or the anchor, so a half-filled position form must not block
+        the read-only action. Save/Redraw keep the default (False)."""
         cluster = self.cluster_combo.currentText().strip()
         role = self.role_combo.currentText().strip()
         entry: Dict[str, Any] = {"cluster": cluster, "role": role}
@@ -400,6 +408,18 @@ class _CoordinatePlacementForm(QWidget):
         comment = self.comment_edit.text().strip()
         if comment:
             entry["comment"] = comment
+
+        if for_highlight:
+            # Placeholder Cartesian-absolute position — load_coordinate_placement()
+            # requires ONE valid position mode, but the highlight never uses it.
+            entry["x_mm"] = 0.0
+            entry["y_mm"] = 0.0
+            entry["rotation_deg"] = 0.0
+            if self.retired_checkbox.isChecked():
+                entry["retired"] = True
+            if self.skip_checkbox.isChecked():
+                entry["skip"] = True
+            return entry, None
 
         rotation, err = self._parse_float(self.rotation_edit, _("Rotation"))
         if err:
@@ -1548,14 +1568,26 @@ class PlacerDock(QWidget):
             self._show_message(_("{label}: {text!r} is not a number.").format(label=label, text=text), _ERROR_STYLE)
             return None
 
-    def _build_entry_dict(self) -> Optional[Dict[str, Any]]:
+    def _build_entry_dict(self, for_highlight: bool = False) -> Optional[Dict[str, Any]]:
+        """Build the placement entry from the current form. Save/Redraw call
+        this with the default (for_highlight=False) and keep the FULL strictness
+        — every identity field AND the origin position are validated.
+
+        for_highlight=True (plan Фаза F, read-only "Select on board"): the
+        ABSOLUTE origin coordinates are not required — a placeholder is
+        substituted (see AnchorOriginWidget.build / _CoordinatePlacementForm.build)
+        because the highlight resolvers (board_items_resolver.resolve_clone_board_items)
+        use ONLY the placement's identity (cell/roles + cluster/name/sheet, plus
+        the anchor for clone_anchor_id), never the absolute position. Identity
+        fields and the anchor stay validated exactly as for a Save — a value
+        that affects clone_anchor_id is never silently substituted."""
         # Source-mode branch (2026-08-12, Group 1): Single component =
         # CoordinatePlacement form, Cell = the clone path below. Entity
         # (2026-08-30, phase 5.2) builds a NO-position Entity record.
         if self.is_entity:
             return self._build_entity_dict()
         if self.is_coordinate:
-            entry, err = self.coordinate_form.build()
+            entry, err = self.coordinate_form.build(for_highlight=for_highlight)
             if err:
                 self._show_message(err, _ERROR_STYLE)
                 return None
@@ -1590,9 +1622,20 @@ class PlacerDock(QWidget):
         if comment:
             entry["comment"] = comment
 
-        origin_fields, err = self.origin_widget.build()
+        origin_fields, err = self.origin_widget.build(for_highlight=for_highlight)
         if err:
-            self._show_message(err, _ERROR_STYLE)
+            if (not for_highlight and self.origin_widget.mode == "xy"
+                    and any(self._anchor_origin_filled(self.origin_widget))):
+                # F.4: the empty X/Y is not what the user should be told to
+                # fix — they filled the Anchor/Point fields and left the Origin
+                # mode on Absolute XY, so the real advice is to switch the mode.
+                self._show_message(
+                    _("Origin is set to Absolute XY, but an anchor/point is "
+                      "filled in — switch the Origin mode to “Anchor (ref/role)” "
+                      "or “Point” instead of typing X/Y (or clear those fields)."),
+                    _ERROR_STYLE)
+            else:
+                self._show_message(err, _ERROR_STYLE)
             return None
         mode = origin_fields["mode"]
         if mode == "xy":
@@ -1629,9 +1672,15 @@ class PlacerDock(QWidget):
             else:  # Point
                 entry["anchor_point"] = origin_fields["point"]
 
-        rotation = self._parse_float(self.rotation_edit, _("Rotation"), default=0.0)
-        if rotation is None:
-            return None
+        if for_highlight:
+            # Rotation is position-only and irrelevant to the highlight — do
+            # not let a typo here block a read-only action (Save/Redraw keep
+            # the strict parse below).
+            rotation = 0.0
+        else:
+            rotation = self._parse_float(self.rotation_edit, _("Rotation"), default=0.0)
+            if rotation is None:
+                return None
         if rotation:
             entry["rotation_deg"] = rotation
 
@@ -1937,13 +1986,21 @@ class PlacerDock(QWidget):
         pcbnew through adapter.select_items(). Read-only: never moves/tags/
         writes. Short synchronous board reads only (same discipline as
         refresh_known_roles), wrapped in busy() so no two board-touching
-        actions overlap."""
+        actions overlap.
+
+        Фаза F: the origin coordinates are NOT required here. The resolver uses
+        the placement's identity only (cell/roles + cluster/name/sheet + the
+        anchor for clone_anchor_id) — never the absolute origin — so this path
+        builds the entry with for_highlight=True (placeholder origin), instead
+        of failing with "X is required." on a form whose Origin tab was never
+        filled. Save/Redraw keep the full strictness (_build_entry_dict's
+        default)."""
         with busy(self._action_buttons()):
             board = self._main_window.connection.board
             if board is None or getattr(board, "adapter", None) is None:
                 self._show_message(_("Not connected."), _ERROR_STYLE)
                 return
-            entry = self._build_entry_dict()
+            entry = self._build_entry_dict(for_highlight=True)
             if entry is None:
                 return
             if self._placer_path is None:
