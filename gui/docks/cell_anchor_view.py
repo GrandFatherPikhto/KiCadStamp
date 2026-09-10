@@ -73,20 +73,11 @@ from kicadstamp.config import (
 )
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.domain.board import Footprint, Track, Via
-from kicadstamp.domain.geometry import BoardLayer, Vector2
+from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import ValidationError, format_fatal_error
-from kicadstamp.cell_frame import (
-    CellFrame,
-    fit_cell_frame,
-    reference_relative_pairs,
-)
 from kicadstamp.geometry.cell_anchor import cell_mount_offset
 from kicadstamp.geometry.spoke_layout import rotate_local_offset
 from kicadstamp.i18n import _
-from kicadstamp.placement.services.component_resolver import resolve_pad_mount
-from kicadstamp.placement.services.coordinate_position_calculator import (
-    resolve_footprint_by_cluster_role,
-)
 from kicadstamp.placement.services.role_narrowing import narrow_candidates_by_sheet
 from kicadstamp.utils.units import MM
 
@@ -108,7 +99,11 @@ from ._common import (
     set_combo_items,
     show_message,
 )
-from .live_position import _reference_slot, world_pos_to_cell_local_offset
+from .live_position import (
+    _live_cluster_frame,
+    _reference_slot,
+    world_pos_to_cell_local_offset,
+)
 from .rename import collect_graph_files, find_dict_entry_file
 from .scheme_list import snapshot_with_resolved_sheets
 
@@ -503,108 +498,6 @@ def overlay_world_bbox_mm(entry: dict, origin: Vector2, rotation_deg: float,
         xs.append(x_mm)
         ys.append(y_mm)
     return (min(xs), min(ys), max(xs), max(ys))
-
-
-def _live_cluster_frame(adapter, cell, cluster: str, sheet: str, sheet_names):
-    """(mount, rotation_deg, mirror) of ONE cell EXACTLY as it stands on the
-    board right now — derived from the LIVE CLUSTER alone (2026-09-10, plan
-    overlay_frame_from_cluster).
-
-    The cell's roles are resolved to live footprints by the working
-    (Cluster, Sheet) — resolve_footprint_by_cluster_role, the same exact-match
-    resolver "Select on board" and the dumb placer use, sheet narrowing included
-    — the reference slot is cell.anchor_role's when it resolved, else the first
-    resolved slot (_reference_slot, live_position.py), and the frame comes out
-    of THAT footprint's live position/angle through the pure inverse
-    clone_origin_from_component. Mirror is read from the live footprint's own
-    side against the cell's layer, never from a record: we draw what is on the
-    board.
-
-    Neither resolve_clone_context_live, nor materialize_entity_placements, nor
-    cfg.clone_placements, nor the trees take any part in this path. The cluster
-    standing on the board is the truth (Denis, 2026-09-10: "Размещение берётся
-    bbox из текущего положения кластера. И никак иначе. Никакой привязки к
-    деревьям быть не должно"), so a cell that has just been extracted — with an
-    Entity but no tree node yet — gets an overlay like any other.
-
-    Raises ValidationError with an HONEST message — "cluster X is not on the
-    live board" / "role Y of this cell has no footprint in cluster X" — never
-    the old "place the cell first".
-
-    2026-09-10 (plan stale_board_snapshot K.1): the board is REFRESHED first.
-    The GUI's automatic poll tick is a deliberate no-op while connected, so
-    adapter.get_footprints() (which resolve_footprint_by_cluster_role reads)
-    can be a cache from the moment of connection — a cluster the user has just
-    moved in KiCad would draw its overlay at the OLD position ("Show bbox" after
-    moving the cluster, Denis 2026-09-10). Every other live-reading path in the
-    project refreshes before it reads (board_overlay.read_marker/sweep_layer,
-    cascade, apply_pipeline, cli); this one did not. The refresh happens inside
-    the worker (all three overlay workers are dispatched through start_long_op,
-    which holds the socket exclusively), so it creates no extra races."""
-    adapter.refresh_board()
-    label = _("cell {cell!r} on cluster {cluster!r}").format(
-        cell=getattr(cell, "name", "?"), cluster=cluster)
-    role_to_fp: dict = {}
-    for slot in cell.components:
-        try:
-            role_to_fp[slot.role] = resolve_footprint_by_cluster_role(
-                adapter, cluster, slot.role, label, sheet=sheet or None,
-                sheet_names=sheet_names)
-        except ValidationError:
-            # This role is not uniquely present in the working cluster (absent,
-            # or a tagging ambiguity) — it simply cannot be the reference slot.
-            continue
-    if not role_to_fp:
-        on_board = {adapter.get_field_value(fp, CLUSTER_FIELD_NAME)
-                    for fp in adapter.get_footprints()}
-        if cluster not in on_board:
-            raise ValidationError(format_fatal_error(
-                _("cluster {cluster!r} is not on the live board")
-                .format(cluster=cluster),
-                [_("check the working Cluster on the Source tab, or place the "
-                   "cluster on this board")]))
-        first_role = cell.components[0].role if cell.components else "?"
-        raise ValidationError(format_fatal_error(
-            _("role {role!r} of this cell has no footprint in cluster "
-              "{cluster!r}").format(role=first_role, cluster=cluster),
-            [_("the cell's roles must be the components tagged with the working "
-               "Cluster on the board")]))
-    slot = _reference_slot(cell, role_to_fp)
-    fp = role_to_fp[slot.role]
-    # Mirror comes from the LIVE footprint's side against the cell's own layer
-    # (clone_geometry's rule) — not from clone.mirror.
-    mirror = (fp.layer == BoardLayer.BL_B_Cu) != (cell.layer == "B.Cu")
-    role_to_ref = {role: live_fp.ref for role, live_fp in role_to_fp.items()}
-    resolved_mount = resolve_pad_mount(adapter, cell, role_to_ref, label)
-    if resolved_mount is None:
-        ax_mm, ay_mm = cell_mount_offset(cell)
-    else:
-        ax_mm, ay_mm = resolved_mount
-    # The ROTATION is fitted from the stored offsets against the live deltas of
-    # EVERY resolved role at once — the ONE cell<->world transform of
-    # kicadstamp/cell_frame.py, the same one the geometry refresh uses. Never
-    # from one component's angle: a two-pin part is symmetric and its angle
-    # ambiguous by 180° (measured 2026-09-10: four capacitors gave +90 while
-    # FB_PI_FLT gave -90). Mirror stays the physical layer rule above (which
-    # side of the board the instance stands on), which the fit is constrained
-    # to; how far the cluster is from a rigid copy of the cell comes back as
-    # residual_mm (unused here — the overlay still draws what is on the board).
-    slot_by_role = {s.role: s for s in cell.components}
-    reference = (float(slot.offset_along_mm), float(slot.offset_across_mm),
-                 fp.position.x / MM, fp.position.y / MM)
-    fit = fit_cell_frame(
-        reference_relative_pairs(reference, [
-            (float(slot_by_role[role].offset_along_mm),
-             float(slot_by_role[role].offset_across_mm),
-             live.position.x / MM, live.position.y / MM)
-            for role, live in role_to_fp.items() if role in slot_by_role]),
-        mirror=mirror)
-    frame = CellFrame.from_reference(
-        rotation_deg=fit.rotation_deg if fit is not None else 0.0,
-        mirror=mirror, mount=(ax_mm, ay_mm), stored_ref=reference[:2],
-        live_ref_mm=reference[2:],
-        residual_mm=fit.residual_mm if fit is not None else 0.0)
-    return frame.placement_origin, frame.rotation_deg, frame.mirror
 
 
 def _draw_bbox_worker(adapter, cell, cluster, sheet, sheet_names,

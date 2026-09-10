@@ -336,6 +336,24 @@ like the anchor dialog's own Sheet field always was — NOT from the ~2s board s
 diffs against the chosen component (not
 the parent), so the typed offset is relative to the right base.
 
+Since 2026-09-11 (plan tree_node_live_read_and_board_frame) the editor and the STORED data speak
+deliberately different frames. The **Offset** row (labeled *Offset (board frame)*) and the
+**Rotation** field show BOARD-frame values — x right, y down, rotation as the ABSOLUTE board angle —
+so the user never has to rotate axes in their head because the node's base (a parent node, the tree
+anchor, or a "Relative to component" anchor) happens to be turned. The CONFIG keeps storing them in
+the BASE's LOCAL frame (a local offset and a rotation relative to the base — see `docs/config.md`,
+`trees:`), which is what makes one tree reusable by channels whose copies are rotated differently. The
+conversion runs in exactly TWO places — when the form loads and when it saves — is bit-exact at
+multiples of 90° (opening and closing a node never moves the config), and in Polar mode touches only
+the angle (the radius is unchanged). The **Pivot (embedded tree's own frame)** row is deliberately NOT
+converted: a module's pivot lives in the EMBEDDED tree's own frame, not the board frame (the label says
+so). With no live connection — or a base that cannot be resolved — the form falls back to the RAW
+stored values and DISABLES the offset/rotation fields with a one-line explanation, so an offline
+rename + Save cannot corrupt a node. **Read current position** now reads a `kind="placement"` node from
+the LIVE CLUSTER of its Entity's cell (the same reader the board overlay uses), never from the tree
+node that places it — a cluster moved by hand in KiCad is read where it actually stands; a MIRRORED
+instance is refused with an explicit warning (the trees layer has no mirror storage) and writes nothing.
+
 Since 2026-09-04 a SINGLE click on a non-module tree node already loads its editor onto the
 master-detail **Node** tab, so double-clicking such a node no longer opens a modal — it just makes
 sure the node is selected and brings the Node tab to the front; a module node / a "⇐ embedded in" /
@@ -405,7 +423,8 @@ move is applied via a per-run, non-persistent position override (Option 1, see t
 module** in the Add/Edit-node dialog embeds ANOTHER tree as a rigid sub-layout. The **Ref:** list
 switches to the NAMES of the other trees — excluding the current one, any tree this one already
 embeds, and any tree that would close a module cycle — and the node's offset/rotation position the
-embedded tree's marker. A second, module-only **Pivot (child frame)** offset set says which point
+embedded tree's marker. A second, module-only **Pivot (embedded tree's own frame)** offset set says
+which point
 INSIDE the referenced tree's own local frame must land exactly on the marker (blank = the referenced
 tree's origin); **From child node...** copies an existing child-tree node's offset there. Module refs
 are NEVER auto-numbered and are NOT counted as "used" record refs (the same child tree may be

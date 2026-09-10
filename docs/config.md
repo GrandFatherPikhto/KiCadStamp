@@ -501,6 +501,16 @@ entities: a node with `kind "placement"` whose `ref` is an `Entity.name` IS that
 - The one-ref-per-node tree chain means an Entity is always 1:1 with its tree node — an Entity cannot
   stand in two places.
 
+**Storage frame (2026-09-11, plan tree_node_live_read_and_board_frame).** A node's `xy`/`polar` is
+stored in the **BASE's LOCAL frame** (the parent's frame — the offset vector is rotated along WITH that
+base) and `rotation` is the node's angle **RELATIVE to the base**, never a board-frame value. That is
+exactly what makes ONE tree reusable by rotated copies of the same channels: the live redraw
+regenerates the cluster with whatever rotation the base currently carries. The node EDITOR
+(TreesDock), by contrast, always SHOWS the **BOARD frame** (x right, y down, absolute rotation) so the
+user never has to rotate axes in their head; the editor converts between the two frames on load and on
+save, nowhere else, and bit-exactly at multiples of 90°. A module node's `pivot_*` is a THIRD thing —
+it lives in the EMBEDDED tree's own frame and is deliberately never converted.
+
 **An `(anchor (ref ...))` may point at an Entity** — the tree is then anchored on ANOTHER tree's
 placement node (cross-tree entity anchoring, since Phase 4.1 live). Because an Entity carries no
 position of its own, such an anchor base is resolved RECURSIVELY at materialization: find the

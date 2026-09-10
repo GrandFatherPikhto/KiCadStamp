@@ -3838,3 +3838,337 @@ def test_auto_anchor_tree_single_node_not_marked(main_window):
     item = dock._node_items["fpga"]
     assert item.background(0).color() != _ANCHOR_DUPLICATE_BG
     assert item.toolTip(0) == ""
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 2026-09-11: tree node — honest live read + one coordinate system
+# (plan_2026_09_11_tree_node_live_read_and_board_frame.md)
+# ═══════════════════════════════════════════════════════════════════════════
+from types import SimpleNamespace                                    # noqa: E402
+
+from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME  # noqa: E402
+from kicadstamp.domain.board import Footprint                         # noqa: E402
+from kicadstamp.domain.geometry import BoardLayer, Vector2            # noqa: E402
+from kicadstamp.tree_position import (                                # noqa: E402
+    node_position,
+    relative_rotation_deg,
+)
+
+
+class _ClusterAdapter:
+    """Minimal live-board stand-in for the placement/cluster read: refresh +
+    the footprint list + the Role/Cluster field reads
+    resolve_footprint_by_cluster_role touches (mirrors
+    tests/gui/test_cell_anchor_view.py's _ClusterAdapter)."""
+
+    def __init__(self, footprints):
+        self._fps = list(footprints)
+        self.calls = []
+
+    def refresh_board(self):
+        self.calls.append("refresh")
+
+    def get_footprints(self):
+        return list(self._fps)
+
+    def get_field_value(self, fp, name):
+        if name == ROLE_FIELD_NAME:
+            return fp.role
+        if name == CLUSTER_FIELD_NAME:
+            return fp.cluster
+        return None
+
+
+def _live_fp(ref, role, cluster, x_mm, y_mm, angle=0.0, layer=None):
+    fp = Footprint(ref=ref, uuid=f"u-{ref}",
+                   position=Vector2.from_xy_mm(x_mm, y_mm),
+                   angle_deg=angle, layer=layer or BoardLayer.BL_F_Cu)
+    fp.role = role
+    fp.cluster = cluster
+    fp.sheet_path_uuids = []
+    return fp
+
+
+# A cell whose two roles are 10 mm apart, and a tree that places the cell's
+# Entity at the ORIGIN — deliberately NOT where the cluster stands on the live
+# board below. The old read echoed the TREE (resolve_entity_live_position), so
+# it returned (0,0); the honest read returns the cluster's position (0.1).
+LIVE_CLUSTER_CFG = {
+    "cells": {
+        "buf": {"layer": "F.Cu", "components": [
+            {"role": "ORIG", "offset_along_mm": 0.0, "offset_across_mm": 0.0,
+             "angle_deg": 0.0},
+            {"role": "CAP", "offset_along_mm": 10.0, "offset_across_mm": -4.0,
+             "angle_deg": 0.0},
+        ]},
+    },
+    "entities": [
+        {"name": "ENT_A", "cell": "buf", "cluster": "CL"},
+    ],
+    "trees": [
+        {"name": "t1", "anchor": {"origin": True},
+         "nodes": [{"ref": "ENT_A", "kind": "placement"}]},
+    ],
+}
+
+# A two-node tree (a clone parent + a clone child) used by the reread
+# idempotency test — the base is MOCKED there, so the records only need to
+# resolve by name/kind.
+REREAD_ROT_CFG = {
+    "clone_placements": [
+        {"name": "PARENT", "cluster": "c", "cell": "t", "xy": [0.0, 0.0]},
+        {"name": "CHILD", "cluster": "c", "cell": "t", "xy": [3.0, 2.0]},
+    ],
+    "trees": [
+        {"name": "t1", "anchor": {"origin": True},
+         "nodes": [{"ref": "PARENT", "kind": "clone",
+                    "children": [{"ref": "CHILD", "kind": "clone",
+                                  "xy": [3.0, 2.0], "rotation": 0.0}]}]},
+    ],
+}
+
+
+@pytest.mark.parametrize("base_rot", [0.0, 90.0, 180.0, 270.0])
+def test_read_offset_is_what_the_node_would_store_and_node_position_returns_it(
+        base_rot, monkeypatch):
+    """§3.1 invariant: the pair the read returns, fed to node_position against
+    the SAME live base, reproduces the child's live position EXACTLY — for a
+    rotated base too (today it stored the world delta, so a base-90 node landed
+    somewhere else entirely)."""
+    import gui.docks.trees_dock as td_mod
+
+    base_pos = Vector2.from_xy_mm(10.0, 20.0)
+    child_pos = Vector2.from_xy_mm(13.0, 22.0)
+    child_deg = base_rot + 90.0
+
+    monkeypatch.setattr(td_mod, "_resolve_probe_ref",
+                        lambda *a, **k: (SimpleNamespace(kind="clone"), False))
+    monkeypatch.setattr(td_mod, "_resolve_node_base_pose",
+                        lambda *a, **k: (base_pos, base_rot, False))
+    monkeypatch.setattr(td_mod, "resolve_base_live_position",
+                        lambda *a, **k: child_pos)
+    monkeypatch.setattr(td_mod, "resolve_base_rotation_deg",
+                        lambda *a, **k: child_deg)
+
+    offset_mm, rotation = td_mod._resolve_live_offset(
+        object(), object(), {}, object(), None, "CHILD", "clone")
+
+    assert rotation == relative_rotation_deg(child_deg, base_rot)
+    node = TreeNode(ref="CHILD", kind="clone", xy=offset_mm, polar=None,
+                    rotation=rotation, name=None, group=None)
+    got = node_position(node, base_pos, base_rot)
+    # node_position composes through the project's nm-grid rotate_local_offset,
+    # whose int() truncation can cost up to ONE nanometre per axis (that is the
+    # tree layer's own storage grid, unchanged by this work) — the invariant is
+    # exact to that grid, and, crucially, STABLE (see the idempotency test).
+    assert abs(got.x - child_pos.x) <= 1
+    assert abs(got.y - child_pos.y) <= 1
+
+
+@pytest.mark.parametrize("base_rot", [0.0, 90.0, 180.0, 270.0])
+def test_reread_is_idempotent_with_a_rotated_base(
+        base_rot, main_window, tmp_path, monkeypatch):
+    """§4.2: two consecutive reads of an UNMOVED board leave node.xy/
+    node.rotation bit-identical. Before the fix a base-90 node gained +90 on
+    the second press (the read returned the world delta)."""
+    import gui.docks.trees_dock as td_mod
+
+    dock, _root = _dock_with(main_window, tmp_path, REREAD_ROT_CFG)
+    tree = dock._current_tree()
+    node = tree.nodes[0].children[0]           # CHILD under PARENT
+    node.xy = (3.0, 2.0)
+    node.rotation = 40.0
+
+    base_pos = Vector2.from_xy_mm(100.0, 200.0)
+    # The live board stands STILL across both presses — Reread only READS it.
+    live_child = Vector2.from_xy_mm(103.0, 202.0)
+    live_child_deg = base_rot + 40.0
+    main_window.connection.board = _FakeBoard()
+
+    monkeypatch.setattr(td_mod, "_resolve_node_base_pose",
+                        lambda *a, **k: (base_pos, base_rot, False))
+    monkeypatch.setattr(td_mod, "resolve_base_live_position",
+                        lambda *a, **k: live_child)
+    monkeypatch.setattr(td_mod, "resolve_base_rotation_deg",
+                        lambda *a, **k: live_child_deg)
+
+    dock._reread_node_flow(tree, node)
+    first = (node.xy, node.polar, node.rotation)
+    assert first[1] is None
+    assert first[2] == 40.0
+    # what was stored is the LOCAL offset: node_position composes it back onto
+    # the live position (to the engine's nm grid).
+    got = node_position(node, base_pos, base_rot)
+    assert abs(got.x - live_child.x) <= 1
+    assert abs(got.y - live_child.y) <= 1
+
+    # the actual bug: a SECOND press must not move the node any further.
+    dock._reread_node_flow(tree, node)
+    assert (node.xy, node.polar, node.rotation) == first
+
+
+def test_read_position_of_a_placement_node_comes_from_the_live_cluster(
+        main_window, tmp_path):
+    """0.1 (the main regression): a placement node's read is taken from the
+    CLUSTER standing on the board, NOT from the tree node that places the
+    Entity. The tree says (0,0); the cluster stands at (50,60) — the read must
+    report (50,60)."""
+    import gui.docks.trees_dock as td_mod
+
+    dock, _root = _dock_with(main_window, tmp_path, LIVE_CLUSTER_CFG)
+    tree = dock._current_tree()
+    adapter = _ClusterAdapter([
+        _live_fp("IC1", "ORIG", "CL", 50.0, 60.0, 0.0),
+        _live_fp("IC2", "CAP", "CL", 60.0, 56.0, 0.0),
+    ])
+
+    offset_mm, rotation = td_mod._resolve_live_offset(
+        dock._cfg, adapter, {}, tree, None, "ENT_A", "placement")
+
+    assert offset_mm == (50.0, 60.0)
+    assert rotation == 0.0
+
+
+def test_read_position_rotation_comes_from_the_live_cluster(
+        main_window, tmp_path):
+    """§4.4: the cluster stands rotated 90° on the board relative to what the
+    config implies — node.rotation picks that up (the read is a live read, not
+    a restatement of the stored rotation)."""
+    import gui.docks.trees_dock as td_mod
+
+    dock, _root = _dock_with(main_window, tmp_path, LIVE_CLUSTER_CFG)
+    tree = dock._current_tree()
+    adapter = _ClusterAdapter([
+        _live_fp("IC1", "ORIG", "CL", 50.0, 60.0, 90.0),
+        _live_fp("IC2", "CAP", "CL", 46.0, 50.0, 90.0),   # rotate90 of (10,-4)
+    ])
+
+    offset_mm, rotation = td_mod._resolve_live_offset(
+        dock._cfg, adapter, {}, tree, None, "ENT_A", "placement")
+
+    assert offset_mm == (50.0, 60.0)
+    assert rotation == 90.0
+
+
+def test_mirrored_live_instance_is_refused(main_window, tmp_path):
+    """§2.3: the trees layer has NO mirror storage, so a mirrored live instance
+    is an honest refusal (ValidationError), never a silently unmirrored read."""
+    import gui.docks.trees_dock as td_mod
+
+    dock, _root = _dock_with(main_window, tmp_path, LIVE_CLUSTER_CFG)
+    tree = dock._current_tree()
+    adapter = _ClusterAdapter([
+        _live_fp("IC1", "ORIG", "CL", 50.0, 60.0, 0.0,
+                 layer=BoardLayer.BL_B_Cu),
+        _live_fp("IC2", "CAP", "CL", 60.0, 56.0, 0.0,
+                 layer=BoardLayer.BL_B_Cu),
+    ])
+
+    with pytest.raises(ValidationError) as ei:
+        td_mod._resolve_live_offset(dock._cfg, adapter, {}, tree, None,
+                                    "ENT_A", "placement")
+    assert "MIRRORED" in str(ei.value)
+
+
+def test_reread_mirrored_instance_warns_and_leaves_the_node_untouched(
+        main_window, tmp_path, monkeypatch):
+    """§2.3: "Reread current position" on a mirrored instance shows the honest
+    warning and writes NOTHING."""
+    import gui.docks.trees_dock as td_mod
+
+    dock, _root = _dock_with(main_window, tmp_path, LIVE_CLUSTER_CFG)
+    tree = dock._current_tree()
+    node = tree.nodes[0]
+    before = (node.xy, node.polar, node.rotation)
+
+    main_window.connection.board = SimpleNamespace(adapter=_ClusterAdapter([
+        _live_fp("IC1", "ORIG", "CL", 50.0, 60.0, 0.0,
+                 layer=BoardLayer.BL_B_Cu),
+        _live_fp("IC2", "CAP", "CL", 60.0, 56.0, 0.0,
+                 layer=BoardLayer.BL_B_Cu),
+    ]))
+    warnings = []
+    monkeypatch.setattr(td_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or None)
+
+    dock._reread_node_flow(tree, node)
+
+    assert warnings
+    assert "MIRRORED" in str(warnings[0][2])
+    assert (node.xy, node.polar, node.rotation) == before
+    assert dock._dirty is False
+
+
+def test_offline_form_shows_raw_values_disabled_and_saves_them_unchanged(
+        main_window, tmp_path):
+    """§3.4: with no live base the form shows the RAW stored (base-frame)
+    values and DISABLES them — opening a node and saving offline cannot
+    corrupt it."""
+    dock, _root = _dock_with(main_window, tmp_path)   # ref anchor, no board
+    tree = dock._current_tree()
+    node = TreeNode(ref="R_OFF", kind="clone", xy=(-0.5, 1.0), polar=None,
+                    rotation=90.0, name=None, group=None)
+
+    dlg = _build_dialog(dock, tree, None, existing=node, title="Edit node")
+
+    assert dlg.offset_widget.x_edit.text() == "-0.5"
+    assert dlg.offset_widget.y_edit.text() == "1.0"
+    assert dlg.rotation_edit.text() == "90.0"
+    assert dlg.offset_widget.isEnabled() is False
+    assert dlg.rotation_edit.isEnabled() is False
+    assert dlg.offset_frame_label.text() != ""
+
+    built = dlg.build_node()
+    assert built is not None
+    assert built.xy == (-0.5, 1.0)
+    assert built.rotation == 90.0
+
+
+def test_form_shows_the_offset_in_the_board_frame_for_a_rotated_base(
+        main_window, tmp_path, monkeypatch):
+    """§3.1/§3.3: config (xy -0.5 1.0) with a base of 90° -> the form shows
+    rotate((-0.5, 1.0), +90) = (1.0, 0.5); a no-op save is bit-identical."""
+    import gui.docks.trees_dock as td_mod
+
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    node = TreeNode(ref="R_FR", kind="clone", xy=(-0.5, 1.0), polar=None,
+                    rotation=90.0, name=None, group=None)
+    monkeypatch.setattr(td_mod, "_resolve_node_base_pose",
+                        lambda *a, **k: (Vector2.from_xy(0, 0), 90.0, False))
+
+    dlg = _build_dialog(dock, tree, None, existing=node, title="Edit node")
+
+    assert dlg.offset_widget.x_edit.text() == "1.0"
+    assert dlg.offset_widget.y_edit.text() == "0.5"
+    assert dlg.rotation_edit.text() == "180.0"
+    assert dlg.offset_widget.isEnabled() is True
+
+    built = dlg.build_node()
+    assert built is not None
+    assert built.xy == (-0.5, 1.0)
+    assert built.rotation == 90.0
+
+
+def test_form_shows_polar_offset_with_the_angle_shifted_by_the_base(
+        main_window, tmp_path, monkeypatch):
+    """§3.2: in polar mode the radius is UNTOUCHED and the angle is shifted by
+    the base rotation — never routed through Cartesian."""
+    import gui.docks.trees_dock as td_mod
+
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    node = TreeNode(ref="R_POL", kind="clone", xy=None, polar=(3.0, 45.0),
+                    rotation=0.0, name=None, group=None)
+    monkeypatch.setattr(td_mod, "_resolve_node_base_pose",
+                        lambda *a, **k: (Vector2.from_xy(0, 0), 90.0, False))
+
+    dlg = _build_dialog(dock, tree, None, existing=node, title="Edit node")
+
+    assert dlg.offset_widget.radius_edit.text() == "3.0"
+    assert dlg.offset_widget.angle_edit.text() == "135.0"
+
+    built = dlg.build_node()
+    assert built is not None
+    assert built.xy is None
+    assert built.polar == (3.0, 45.0)

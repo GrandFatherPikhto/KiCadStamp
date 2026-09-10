@@ -1662,3 +1662,54 @@ def test_layout_own_anchor_node_without_adapter_is_validation_error():
     tree = _leaf_tree("t", [node])
     with pytest.raises(ValidationError, match="needs a live board"):
         layout_tree_from_base(tree, _ORIGIN, 0.0)
+
+
+# ── Board frame <-> config frame, the tree-node form's conversion pair ──────
+# (plan_2026_09_11_tree_node_live_read_and_board_frame §3). The form shows the
+# offset/rotation in the BOARD frame; the config stores them in the base's
+# local frame. These are pure mm conversions and MUST be bit-exact at
+# multiples of 90° — opening and closing the form may not move the config.
+
+_ORTHO_BASES = [0.0, 90.0, 180.0, 270.0, -90.0]
+_OFFSET_SAMPLES = [(-0.5, 1.0), (5.0, 2.0), (-2.1283, -2.55),
+                   (-5.05, -0.295), (3.37, 0.0), (0.0, 0.0), (-0.001, 0.001)]
+
+
+@pytest.mark.parametrize("base_rot", _ORTHO_BASES)
+def test_board_local_offset_round_trip_is_bit_exact(base_rot):
+    from kicadstamp.tree_position import (
+        board_offset_to_local_mm,
+        local_offset_to_board_mm,
+    )
+
+    for local in _OFFSET_SAMPLES:
+        board = local_offset_to_board_mm(local, base_rot)
+        assert board_offset_to_local_mm(board, base_rot) == local
+
+
+@pytest.mark.parametrize("base_rot", _ORTHO_BASES)
+def test_board_local_rotation_round_trip_is_bit_exact(base_rot):
+    from kicadstamp.tree_position import (
+        board_rotation_to_local_deg,
+        local_rotation_to_board_deg,
+    )
+
+    for rel in (0.0, 90.0, 270.0, 40.0, -0.1):
+        assert board_rotation_to_local_deg(
+            local_rotation_to_board_deg(rel, base_rot), base_rot) == rel
+
+
+@pytest.mark.parametrize("base_rot", _ORTHO_BASES)
+def test_board_frame_offset_is_the_node_position_delta(base_rot):
+    """The board-frame value the form shows IS the world delta node_position
+    composes from the same stored offset (to the nm grid) — the two halves of
+    the contract cannot drift."""
+    from kicadstamp.tree_position import local_offset_to_board_mm
+
+    base = Vector2.from_xy_mm(10.0, 20.0)
+    node = TreeNode(ref="N", kind="clone", xy=(-0.5, 1.0), polar=None,
+                    rotation=0.0, name=None, group=None)
+    bx, by = local_offset_to_board_mm((-0.5, 1.0), base_rot)
+    got = node_position(node, base, base_rot)
+    assert abs(got.x - round((10.0 + bx) * MM)) <= 1
+    assert abs(got.y - round((20.0 + by) * MM)) <= 1

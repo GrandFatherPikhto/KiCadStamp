@@ -32,6 +32,7 @@ import dataclasses
 import logging
 
 from .anchor_graph import Record, build_records
+from .cell_frame import rotate_ydown_mm
 from .exceptions import ValidationError, format_fatal_error
 from .i18n import _
 from .domain.geometry import Vector2
@@ -172,6 +173,69 @@ def child_absolute_position(parent_pos: Vector2, parent_rotation_deg: float,
     offset = rotate_local_offset(local_offset.x / MM, local_offset.y / MM,
                                  parent_rotation_deg)
     return Vector2.from_xy(parent_pos.x + offset.x, parent_pos.y + offset.y)
+
+
+# ── board frame <-> config frame: the tree-node FORM's own conversion pair ──
+# (plan_2026_09_11_tree_node_live_read_and_board_frame §3). The node editor
+# shows a node's offset/rotation in the BOARD frame (x right, y down) and the
+# config STORES them in the BASE's local frame — a rotated base would otherwise
+# force the user to rotate axes in their head. These two are the ONLY places
+# that pair is converted.
+#
+# Deliberately NOT child_local_offset/child_absolute_position: those run the
+# project's nm-grid rotate_local_offset (correct for real placement maths, but
+# its int() truncation loses a micrometre per form toggle, so merely opening
+# and saving a node would "eat" the stored value). rotate_offset_mm below is a
+# pure-mm rotation and is EXACT at multiples of 90°; round(..., 9) removes the
+# leftover float noise without touching any digit the config can carry (the
+# storage grid is 1 nm = 1e-6 mm).
+
+def _snap_mm(value: float) -> float:
+    """round(..., 9) — kills the |error| ~ 1e-16 a pure float rotation leaves
+    (plan §3.3: a no-op config -> form -> config round-trip must be
+    bit-for-bit), while preserving every digit the config can actually carry."""
+    return round(value, 9)
+
+
+def rotate_offset_mm(x_mm: float, y_mm: float, rotation_deg: float
+                     ) -> tuple[float, float]:
+    """Pure mm rotation in the project's one Y-down convention (the same formula
+    as rotate_ydown_mm / rotate_local_offset), EXACT at multiples of 90°:
+    integer swap/negate (x, y) -> (y, -x) instead of cos/sin rounding."""
+    if rotation_deg % 90.0 == 0.0:
+        for _ in range(int(round(rotation_deg / 90.0)) % 4):
+            x_mm, y_mm = y_mm, -x_mm
+        return (_snap_mm(x_mm), _snap_mm(y_mm))
+    rx, ry = rotate_ydown_mm(x_mm, y_mm, rotation_deg)
+    return (_snap_mm(rx), _snap_mm(ry))
+
+
+def local_offset_to_board_mm(local_offset_mm, base_rot_deg: float
+                             ) -> tuple[float, float]:
+    """A node's config-frame local offset -> the board-frame delta the form
+    shows (node_position's own "rotate the offset into the parent frame")."""
+    return rotate_offset_mm(local_offset_mm[0], local_offset_mm[1], base_rot_deg)
+
+
+def board_offset_to_local_mm(board_offset_mm, base_rot_deg: float
+                             ) -> tuple[float, float]:
+    """A board-frame delta (the form's value) -> the config-frame local offset
+    (child_local_offset's formula, in exact mm)."""
+    return rotate_offset_mm(board_offset_mm[0], board_offset_mm[1], -base_rot_deg)
+
+
+def local_rotation_to_board_deg(local_rot_deg: float, base_rot_deg: float) -> float:
+    """A node's config-frame RELATIVE rotation -> the absolute board angle the
+    form shows."""
+    return _snap_mm(local_rot_deg + base_rot_deg)
+
+
+def board_rotation_to_local_deg(board_rot_deg: float, base_rot_deg: float) -> float:
+    """The form's absolute board angle -> the node's config-frame RELATIVE
+    rotation. Deliberately NOT relative_rotation_deg: that normalises into
+    (-180, 180] and would silently rewrite a stored 270° as -90° on a no-op save
+    (§3.3)."""
+    return _snap_mm(board_rot_deg - base_rot_deg)
 
 
 # ── module embedding geometry (2026-09-02, plan P2) ────────────────────────

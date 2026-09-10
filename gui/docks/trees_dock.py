@@ -29,7 +29,7 @@ from kicadstamp.config import TreeInstance, load_config, load_tree
 from kicadstamp.kicad.adapter import KiCadBoardAdapter
 from kicadstamp.config_writer import read_data, upsert_entity, write_data
 from kicadstamp.domain.geometry import Vector2
-from kicadstamp.exceptions import ValidationError
+from kicadstamp.exceptions import ValidationError, format_fatal_error
 from kicadstamp.i18n import _
 from kicadstamp.link_trees import (
     _PLACEABLE_KINDS,
@@ -43,6 +43,10 @@ from kicadstamp.tree_position import (
     _anchor_base_live_position,
     _root_entity_record,
     _root_entity_ref,
+    board_offset_to_local_mm,
+    board_rotation_to_local_deg,
+    local_offset_to_board_mm,
+    local_rotation_to_board_deg,
     resolve_base_live_position,
     resolve_base_rotation_deg,
     relative_rotation_deg,
@@ -59,6 +63,7 @@ from kicadstamp.utils.units import MM
 from .. import settings
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
+from .live_position import read_record_live_pose
 from ._common import (configure_searchable, confirm_first_run_adoption,
                       highlight_stylesheet_for, set_combo_items,
                       SplitterSizeKeeper)
@@ -194,21 +199,79 @@ def _resolve_probe_ref(cfg, ref: str, kind: str | None) -> tuple[Record | None, 
     return _resolve_node_ref(probe, by_key, by_name)
 
 
+def _resolve_node_base_pose(cfg, adapter, sheet_names, tree: Tree,
+                            parent_node: Optional[TreeNode],
+                            base_anchor: Optional[TreeAnchor]
+                            ) -> tuple[Vector2, Optional[float], bool]:
+    """(position_nm, rotation_deg | None, mirror) of the frame a node's stored
+    xy/rotation are expressed against — shared by the live read
+    (_resolve_live_offset) and the node FORM's board-frame conversion, so the
+    two can never disagree about where the base is (plan_2026_09_11 §3).
+
+    - base_anchor (the node's OWN anchor, "Relative to component") — resolved
+      live through the SAME ComponentResolver the recursive walks use (plan
+      tree_node_own_anchor §2.3). A role anchor names a COMPONENT, never a cell
+      instance, so it has no mirror concept (mirror=False).
+    - parent_node is None — the tree's OWN anchor, via
+      _anchor_base_live_position (every anchor mode: origin/auto/role/point/ref).
+    - a parent NODE — its live pose via read_record_live_pose: a placement
+      Entity is read from its LIVE CLUSTER, not from the tree that places it
+      (the BASE has the same disease as the child, plan §2.2).
+
+    Raises ValidationError on any resolution failure — the callers turn it into
+    a warning (read) / a raw+disabled form (no connection), never a guess."""
+    if base_anchor is not None:
+        resolver = ComponentResolver(adapter, cfg, sheet_names)
+        fp = resolver.resolve_anchor_fp(
+            None, base_anchor.role, base_anchor.anchor_sheet,
+            base_anchor.anchor_cluster, label=base_anchor.role)
+        parent_pos = fp.position
+        parent_deg = fp.angle_deg
+        if base_anchor.anchor_pad:
+            parent_pos = resolve_anchor_pad_position(
+                adapter, fp, base_anchor.anchor_pad, base_anchor.role)
+        return parent_pos, parent_deg, False
+    if parent_node is None:
+        parent_pos, parent_deg = _anchor_base_live_position(
+            adapter, cfg, tree, sheet_names)
+        return parent_pos, parent_deg, False
+    parent_record, _is_external = _resolve_probe_ref(
+        cfg, parent_node.ref, parent_node.kind)
+    pose = read_record_live_pose(adapter, cfg, parent_node.ref, parent_record,
+                                 sheet_names)
+    return pose.position, pose.rotation_deg, pose.mirror
+
+
 def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
                          parent_node: Optional[TreeNode], ref: str, kind: str | None,
                          base_anchor: Optional[TreeAnchor] = None
                          ) -> tuple[tuple[float, float], Optional[float]]:
-    """((offset_x_mm, offset_y_mm), relative_rotation_deg | None) for the
-    "would-be" child `ref`/`kind` relative to `parent_node` (None = the tree's
-    own anchor). Reuses the EXACT link_trees resolution rules via
-    _resolve_probe_ref + the existing tree_position resolvers — nothing
-    duplicated here. The tree's own anchor base is resolved by
-    _anchor_base_live_position so EVERY anchor mode works (origin/auto/role/
-    point/ref); a parent NODE is resolved the same single-ref way as before.
-    Rotation is None when either side has no rotation concept (point kind) —
-    the caller must leave the field blank, never write a fake 0. Raises
-    ValidationError on any resolution failure (ref not found/ambiguous, adapter
-    not connected, ref missing on the live board, a non-canonical auto tree)."""
+    """((local_offset_x_mm, local_offset_y_mm), relative_rotation_deg | None) for
+    the "would-be" child `ref`/`kind` relative to its base (parent_node None =
+    the tree's own anchor) — expressed in the BASE'S LOCAL (config) frame, i.e.
+    EXACTLY the two numbers a tree node stores (plan_2026_09_11 §3.1).
+
+    The child's live pose comes from the "where does this record stand right
+    now" dispatcher (read_record_live_pose): a placement Entity is read from its
+    LIVE CLUSTER, never from the tree that places it — a cluster the user moved
+    by hand far from where the config records put it is now visible (bug 0.1).
+
+    Reuses the EXACT link_trees resolution rules via _resolve_probe_ref, and the
+    shared base resolver (_resolve_node_base_pose) for own_anchor / tree anchor /
+    parent node.
+
+    Rotation is None when the CHILD has no rotation concept (point kind) — the
+    caller must leave the field blank, never write a fake 0. Raises
+    ValidationError on any resolution failure, INCLUDING a MIRRORED live
+    instance: the trees layer has no mirror storage at all (neither
+    tree_position.py nor link_trees.py nor entity_placement.py reads or writes
+    one), so a mirrored read is refused with an honest message instead of being
+    silently imported as an unmirrored pose (plan §2.3).
+
+    A note on the historic path: `resolve_base_live_position` /
+    `resolve_base_rotation_deg` stay on THIS module's names, so the existing
+    tests' monkeypatches of them keep driving the pass-through kinds (clone/
+    chain/coordinate/point/external/rule)."""
     child_record, _is_external = _resolve_probe_ref(cfg, ref, kind)
 
     # No KeyError boundary here any more: bug #6 (2026-08-31) made
@@ -219,39 +282,39 @@ def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
     # superseded. Real resolution failures (a missing point, a ref not on the
     # board, ...) are ValidationErrors, caught by the callers
     # (_on_read_position / _reread_node_flow), which turn them into a warning.
-    if base_anchor is not None:
-        # The node's OWN anchor (plan tree_node_own_anchor §2.3): the read
-        # offset is measured from the anchor's LIVE role frame, NOT the parent —
-        # otherwise the button would diff against the wrong base for a node
-        # positioned relative to a component. Same ComponentResolver resolution
-        # the recursive walks use (shared semantics, no duplicated logic).
-        resolver = ComponentResolver(adapter, cfg, sheet_names)
-        fp = resolver.resolve_anchor_fp(
-            None, base_anchor.role, base_anchor.anchor_sheet,
-            base_anchor.anchor_cluster, label=base_anchor.role)
-        parent_pos = fp.position
-        parent_deg = fp.angle_deg
-        if base_anchor.anchor_pad:
-            parent_pos = resolve_anchor_pad_position(
-                adapter, fp, base_anchor.anchor_pad, base_anchor.role)
-    elif parent_node is None:
-        # The base is the tree's own anchor — full anchor-mode support, not the
-        # old origin-only/ref-only split (role/point/auto used to read ref=None).
-        parent_pos, parent_deg = _anchor_base_live_position(
-            adapter, cfg, tree, sheet_names)
+    base_pos, base_deg, base_mirror = _resolve_node_base_pose(
+        cfg, adapter, sheet_names, tree, parent_node, base_anchor)
+    if base_mirror:
+        raise ValidationError(format_fatal_error(
+            _("the base of this node is MIRRORED on the live board"),
+            [_("a tree node cannot store a mirror — unmirror the component in "
+               "KiCad (or pick another base), then read the position again")]))
+    base_rot = base_deg if base_deg is not None else 0.0
+
+    if child_record is not None and getattr(child_record, "kind", None) == "placement":
+        child_pose = read_record_live_pose(adapter, cfg, ref, child_record,
+                                          sheet_names)
+        child_pos = child_pose.position
+        child_deg = child_pose.rotation_deg
+        child_mirror = child_pose.mirror
     else:
-        # The base is the parent NODE's own resolved record (external node ->
-        # live refdes read, same as _resolve_probe_ref used to provide).
-        parent_record, _is_external = _resolve_probe_ref(cfg, parent_node.ref, parent_node.kind)
-        parent_pos = resolve_base_live_position(adapter, cfg, parent_node.ref, parent_record, {}, sheet_names)
-        parent_deg = resolve_base_rotation_deg(adapter, cfg, parent_node.ref, parent_record, sheet_names)
+        # Historic path, kept on THIS module's names for the monkeypatch seam.
+        child_pos = resolve_base_live_position(adapter, cfg, ref, child_record,
+                                               {}, sheet_names)
+        child_deg = resolve_base_rotation_deg(adapter, cfg, ref, child_record,
+                                              sheet_names)
+        child_mirror = False
+    if child_mirror:
+        raise ValidationError(format_fatal_error(
+            _("this node's instance is MIRRORED on the live board"),
+            [_("a tree node cannot store a mirror — unmirror the component in "
+               "KiCad, then read the position again")]))
 
-    child_pos = resolve_base_live_position(adapter, cfg, ref, child_record, {}, sheet_names)
-    child_deg = resolve_base_rotation_deg(adapter, cfg, ref, child_record, sheet_names)
-
-    offset_mm = ((child_pos.x - parent_pos.x) / MM, (child_pos.y - parent_pos.y) / MM)
-    rotation = (relative_rotation_deg(child_deg, parent_deg)
-                if parent_deg is not None and child_deg is not None else None)
+    board_offset = ((child_pos.x - base_pos.x) / MM,
+                    (child_pos.y - base_pos.y) / MM)
+    offset_mm = board_offset_to_local_mm(board_offset, base_rot)
+    rotation = (relative_rotation_deg(child_deg, base_rot)
+                if child_deg is not None else None)
     return offset_mm, rotation
 
 
@@ -2468,6 +2531,14 @@ class NodeFormWidget(QWidget):
         self._role_candidates = list(role_candidates or [])
         self._cluster_candidates = list(cluster_candidates or [])
 
+        # Board-frame form state (plan_2026_09_11 §3): the base rotation the
+        # displayed offset/rotation are expressed against, resolved LIVE once
+        # per form load. None = no live base -> the form shows the RAW stored
+        # values and (Edit mode) disables the fields, so a rename+save offline
+        # can never corrupt them.
+        self._base_resolved: bool = False
+        self._base_rot: Optional[float] = None
+
         # Two-tab node editor (plan tree_node_own_anchor §3): the old single
         # form becomes the "General" tab (everything below is moved verbatim —
         # same `form` name so no other line changes); the "Position" tab is
@@ -2499,16 +2570,27 @@ class NodeFormWidget(QWidget):
         form.addRow(_("Ref:"), self.ref_combo)
 
         # offset block — xy/polar only, reused from the shared widget (design §3).
+        # The value is shown in the BOARD frame (x right, y down); the config
+        # stores it in the BASE's local frame. The conversion lives in _prefill
+        # (load) and build_node (save) — nowhere else (plan_2026_09_11 §3.1).
         self.offset_widget = AnchorOriginWidget(modes=["xy"], polar=True)
-        form.addRow(_("Offset:"), self.offset_widget)
+        form.addRow(_("Offset (board frame):"), self.offset_widget)
+        # Why the offset/rotation fields below may be read-only (no live base).
+        self.offset_frame_label = QLabel("")
+        self.offset_frame_label.setWordWrap(True)
+        self.offset_frame_label.setVisible(False)
+        form.addRow("", self.offset_frame_label)
 
         # pivot block (kind=="module" only; hidden otherwise, plan P4 п.1) —
         # which point INSIDE the referenced tree's own local offset frame must
         # land on this marker. The offset above stays the MARKER's own offset
-        # in the parent; pivot is a second, independent field.
+        # in the parent; pivot is a second, independent field. NOTE (plan
+        # §3.5): the pivot is in the EMBEDDED TREE's own frame, NOT the board
+        # frame — deliberately NOT converted, and the label says so, so it
+        # cannot be mistaken for the board-frame Offset right above.
         self.pivot_widget = AnchorOriginWidget(modes=["xy"], polar=True)
         self.pivot_widget.fieldChanged.connect(self._on_pivot_widget_field_changed)
-        form.addRow(_("Pivot (child frame):"), self.pivot_widget)
+        form.addRow(_("Pivot (embedded tree's own frame):"), self.pivot_widget)
         self.pivot_from_node_button = QPushButton(_("From child node..."))
         self.pivot_from_node_button.setToolTip(_(
             "Compute a static pivot-xy from a node's CURRENT position — a "
@@ -2686,6 +2768,44 @@ class NodeFormWidget(QWidget):
             self.apply_status_label.setText(
                 _("Applied — no live board Redraw available."))
 
+    # ── Board frame <-> config frame (plan_2026_09_11 §3) ─────────────────
+
+    def _base_rotation_deg(self) -> Optional[float]:
+        """The node's BASE rotation, live-resolved ONCE per form load — the
+        frame the displayed offset/rotation are expressed against.
+
+        None means "no live base": no connection, or the base itself cannot be
+        resolved (a role anchor the board does not carry, an Entity no tree
+        places, a point anchor with no live chain). The form then shows the RAW
+        stored values and, in Edit mode, disables the fields (plan §3.4) —
+        never a silent conversion against an assumed 0°."""
+        if self._base_resolved:
+            return self._base_rot
+        self._base_resolved = True
+        self._base_rot = None
+        if self._adapter is None or self._cfg is None or self._tree is None:
+            return None
+        try:
+            base_anchor = (self.own_anchor()
+                           if self.own_anchor_widget.mode == "anchor" else None)
+            _pos, rot, _mirror = _resolve_node_base_pose(
+                self._cfg, self._adapter, self._sheet_names, self._tree,
+                self._parent_node, base_anchor)
+            self._base_rot = rot if rot is not None else 0.0
+        except Exception:  # noqa: BLE001 — "no base" is a UI state, not a crash
+            self._base_rot = None
+        return self._base_rot
+
+    def _set_offset_editable(self, editable: bool, *, reason: str = "") -> None:
+        """Enable/disable the offset + rotation fields as a group. Disabled
+        means the form is showing the RAW stored (config-frame) values because
+        the board frame is unavailable — editing them would silently change
+        their meaning, so the user must reconnect first (plan §3.4)."""
+        self.offset_widget.setEnabled(editable)
+        self.rotation_edit.setEnabled(editable)
+        self.offset_frame_label.setText(reason)
+        self.offset_frame_label.setVisible(bool(reason))
+
     def _prefill(self, existing: TreeNode) -> None:
         """Edit mode: populate every field from an existing node. Called
         BEFORE _on_kind_changed() so the ref combo is repopulated for the
@@ -2704,13 +2824,37 @@ class NodeFormWidget(QWidget):
                 pad=existing.own_anchor.anchor_pad or "")
         else:
             self.own_anchor_widget.load(mode="parent")
+        # Board frame (plan §3): the form shows the offset/rotation in the BOARD
+        # frame, the config stores them in the base's local frame. The
+        # conversion happens HERE (load) and in build_node (save) — twice,
+        # nowhere else. Without a live base the RAW stored values are shown and
+        # the fields are disabled (§3.4), so an offline rename+save is safe.
+        base_rot = self._base_rotation_deg()
+        online = base_rot is not None
         if existing.xy is not None:
-            self.offset_widget.load(x=existing.xy[0], y=existing.xy[1])
+            if online:
+                bx, by = local_offset_to_board_mm(existing.xy, base_rot)
+                self.offset_widget.load(x=bx, y=by)
+            else:
+                self.offset_widget.load(x=existing.xy[0], y=existing.xy[1])
         elif existing.polar is not None:
-            self.offset_widget.load(polar=True, radius=existing.polar[0],
-                                    angle=existing.polar[1])
+            if online:
+                # Polar is converted EXACTLY (radius untouched, angle shifted by
+                # the base) — never via Cartesian, which would add microns.
+                self.offset_widget.load(
+                    polar=True, radius=existing.polar[0],
+                    angle=local_rotation_to_board_deg(existing.polar[1], base_rot))
+            else:
+                self.offset_widget.load(polar=True, radius=existing.polar[0],
+                                        angle=existing.polar[1])
         else:
             self.offset_widget.load()
+        self._set_offset_editable(
+            online,
+            reason="" if online else _(
+                "No live board connection — showing the STORED values in the "
+                "base's own frame; editing the offset and rotation is disabled "
+                "until KiCad is connected."))
         if existing.kind == "module":
             # pivot round-trips through Edit (plan 2026-09-02 P4 п.1; pivot_ref
             # added 2026-09-07). pivot_widget.load() always runs FIRST (it
@@ -2729,7 +2873,9 @@ class NodeFormWidget(QWidget):
             self.pivot_widget.load()
             self._pivot_ref = None
         self._update_pivot_ref_label()
-        self.rotation_edit.setText(str(existing.rotation))
+        self.rotation_edit.setText(str(
+            local_rotation_to_board_deg(existing.rotation, base_rot)
+            if online else existing.rotation))
         self.name_edit.setText(existing.name or "")
         self.group_edit.setText(existing.group or "")
 
@@ -2779,15 +2925,24 @@ class NodeFormWidget(QWidget):
         except ValidationError as e:
             QMessageBox.warning(self, _("Read current position"), str(e))
             return
+        # The read returns the CONFIG-frame pair (exactly what a node stores);
+        # the form displays the BOARD frame. Convert with the SAME cached base
+        # rotation the fields would be saved back with (0.0 when no live base is
+        # known — then the two frames coincide in every case that reaches here).
+        base_rot = self._base_rotation_deg()
+        if base_rot is None:
+            base_rot = 0.0
+        bx, by = local_offset_to_board_mm(offset_mm, base_rot)
         # Fill the Cartesian offset only — the offset widget's own xy/polar
         # toggle is the user's choice (never guess polar from a flat delta).
-        self.offset_widget.x_edit.setText(f"{offset_mm[0]:.3f}")
-        self.offset_widget.y_edit.setText(f"{offset_mm[1]:.3f}")
+        self.offset_widget.x_edit.setText(f"{bx:.3f}")
+        self.offset_widget.y_edit.setText(f"{by:.3f}")
         if rotation is None:
             self.read_status_label.setText(
                 _("rotation not available for this record kind"))
         else:
-            self.rotation_edit.setText(f"{rotation:.3f}")
+            self.rotation_edit.setText(
+                f"{local_rotation_to_board_deg(rotation, base_rot):.3f}")
 
     def _set_ref_items(self, items: list[tuple[str, Optional[str], str]]) -> None:
         """Repopulate ref_combo with (display_text, kind, name) triples,
@@ -3013,11 +3168,21 @@ class NodeFormWidget(QWidget):
         if err:
             QMessageBox.warning(self, _("Add node"), err)
             return None
+        # Board frame -> config frame: the save half of the pair _prefill opens.
+        # What the user typed is a board-frame offset / absolute angle; the node
+        # stores the base's LOCAL offset / RELATIVE angle. base_rot is the SAME
+        # cached value _prefill displayed — no re-resolution, no drift.
+        base_rot = self._base_rotation_deg()
+        online = base_rot is not None
         if "radius" in fields:
-            polar = (fields["radius"], fields["angle"])
+            # Polar is exact: radius untouched, angle shifted by the base.
+            polar = (fields["radius"],
+                     (board_rotation_to_local_deg(fields["angle"], base_rot)
+                      if online else fields["angle"]))
             xy = None
         else:
-            xy = (fields["x"], fields["y"])
+            xy = (board_offset_to_local_mm((fields["x"], fields["y"]), base_rot)
+                  if online else (fields["x"], fields["y"]))
             polar = None
 
         try:
@@ -3025,6 +3190,8 @@ class NodeFormWidget(QWidget):
         except ValueError:
             QMessageBox.warning(self, _("Add node"), _("Rotation must be a number."))
             return None
+        if online:
+            rotation = board_rotation_to_local_deg(rotation, base_rot)
 
         name = self.name_edit.text().strip() or None
         group = self.group_edit.text().strip() or None
