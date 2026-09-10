@@ -51,6 +51,7 @@ from .exceptions import ValidationError, format_fatal_error
 from .kicad.adapter import KiCadBoardAdapter
 from .net_resolution import RULE_NETS, discover_net_template_pattern, parametrize_net
 from .net_from_role_resolver import classify_net
+from .utils.layers import layer_to_str
 from .utils.units import MM
 from .i18n import _
 from .template_selection import _find_origin, _filter_tracks_and_vias_within_selection
@@ -384,7 +385,9 @@ def extract_template_from_selection(
             "angle_deg": fp.angle_deg,
         }
         if fp.layer != tpl_layer:
-            slot["layer"] = 'F.Cu' if fp.layer == BoardLayer.BL_F_Cu else 'B.Cu'
+            # Shared mapper (utils/layers.py) — the F.Cu/B.Cu ternary was
+            # duplicated here and in cell_geometry_refresh.py.
+            slot["layer"] = layer_to_str(fp.layer)
 
         if role in net_template_role:
             literal = net_template_role[role]
@@ -580,7 +583,7 @@ def extract_template_from_selection(
             if role_net_pad is not None:
                 entry["net_from_role_pad"] = role_net_pad
         if t.layer != tpl_layer:
-            entry["layer"] = 'F.Cu' if t.layer == BoardLayer.BL_F_Cu else 'B.Cu'
+            entry["layer"] = layer_to_str(t.layer)
         spoke_tracks.append(entry)
         logger.debug(_("  track: ({sx},{sy}) -> ({ex},{ey}), net={net}{layer}")
                      .format(sx=start_along_mm, sy=start_across_mm,

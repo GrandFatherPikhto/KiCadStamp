@@ -606,6 +606,50 @@ def test_cell_copy_requested_runs_copy_and_opens_dialog(real_main_window,
     # opened (Denis 2026-09-06: no "Edit template" window pops up on a copy)
     assert not dialog.isVisible()
 
+
+def test_cell_refresh_requested_does_not_open_the_cell_dialog(real_main_window,
+                                                              monkeypatch,
+                                                              tmp_path):
+    """H.3 (plan_2026_09_10_cell_refresh_symmetric_and_no_dialog): the Config
+    tree's "Update from selection..." routes to CellDock's own refresh entry
+    point and does NOT open the Cell dialog — the per-record report goes to the
+    Log dock and the change is staged by _autostage(), the same precedent as
+    "Copy placement from cell..." above. "Edit cell..." still opens it."""
+    root = tmp_path / "root.sexp"
+    _write(root, {"cells": {"one_role": {"components": []}}})
+    hub = real_main_window._dock_hub
+    hub.cells_dock.set_root_path(root)
+    dialog = hub.cell_dialog
+    calls = []
+    monkeypatch.setattr(hub.cells_dock, "refresh_from_selection_requested",
+                        lambda name, file_path: calls.append((name, file_path)))
+
+    real_main_window.config_tree_dock.cell_refresh_requested.emit("one_role", root)
+
+    assert calls == [("one_role", root)]
+    assert not dialog.isVisible()
+
+
+def test_cell_import_requested_does_not_open_the_cell_dialog(real_main_window,
+                                                             monkeypatch,
+                                                             tmp_path):
+    """H.3, the additive counterpart: "Import from selection..." reports in the
+    Log and stages the change, with no Cell dialog popping up either."""
+    root = tmp_path / "root.sexp"
+    _write(root, {"cells": {"one_role": {"components": []}}})
+    hub = real_main_window._dock_hub
+    hub.cells_dock.set_root_path(root)
+    dialog = hub.cell_dialog
+    calls = []
+    monkeypatch.setattr(hub.cells_dock, "import_from_selection_requested",
+                        lambda name, file_path: calls.append((name, file_path)))
+
+    real_main_window.config_tree_dock.cell_import_requested.emit("one_role", root)
+
+    assert calls == [("one_role", root)]
+    assert not dialog.isVisible()
+
+
 def test_edit_cell_requested_loads_cell_and_opens_dialog(real_main_window, tmp_path):
     """ConfigTreeDock -> CellDock wiring (cell_edit_requested -> _edit_cell,
     see gui/dock_hub.py's _edit_cell) — the context menu's "Edit cell..." /

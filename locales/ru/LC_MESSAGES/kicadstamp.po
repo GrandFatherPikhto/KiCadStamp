@@ -1661,10 +1661,11 @@ msgstr "Ничего не изменилось — выделение уже с�
 #, python-brace-format
 msgid ""
 "Updated cell {name!r} from selection — {updated} record(s) updated, {added} "
-"via/track record(s) added. Save to write the change."
+"via/track record(s) added, {removed} record(s) removed. Save to write the change."
 msgstr ""
 "Обновлён шаблон {name!r} по выделению — обновлено записей: {updated}, "
-"добавлено via/track записей: {added}. Сохраните, чтобы записать изменение."
+"добавлено via/track записей: {added}, удалено записей: {removed}. "
+"Сохраните, чтобы записать изменение."
 
 #: gui/docks/cell_editor.py:294
 msgid "New vias/tracks to add"
@@ -14608,3 +14609,15 @@ msgstr "Якорь по роли"
 
 msgid "This tab edits the CELL TEMPLATE (cells:) — every placed instance of this cell changes at once."
 msgstr "Эта вкладка правит ШАБЛОН ячейки (cells:) — все размещённые экземпляры этой ячейки меняются сразу."
+
+msgid "net_from_role {role}"
+msgstr "net_from_role {role}"
+
+msgid "net_from_role {role}/{pad}"
+msgstr "net_from_role {role}/{pad}"
+
+msgid "{sign} track {net}{layer} w={width} {coords}"
+msgstr "{sign} трек {net}{layer} ширина={width} {coords}"
+
+msgid "{sign} via {net}{layer} {coords}"
+msgstr "{sign} via {net}{layer} {coords}"

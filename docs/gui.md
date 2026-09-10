@@ -1416,24 +1416,33 @@ net. The origin is the cell's single zero-offset (local `(0,0)`) component, reso
 selection. Vias/tracks are matched by resolved net (a `net_from_role` via/track via its role's real
 pad, a plain literal as-is); a parametrized literal net (a `{placeholder}` written at extract time)
 is matched by its SHAPE, not by guessing the parameter value; a `net: null` via/track (rule-net
-convention) is matched by pure position against whatever copper the named nets left unclaimed. A
-missing/extra component role or a per-net count mismatch is a fatal — all problems shown at once,
-nothing is changed, no Apply.
+convention) is matched by pure position against whatever copper the named nets left unclaimed.
+TRACKS are further grouped by their effective copper layer (`layer:` on the record, else the cell's own
+`layer:`) since 2026-09-10 — an F.Cu record is never paired with a B.Cu live track of the same net, and
+a NEW track record keeps its `layer:` key when the live track sits on the other side. The pairing is
+globally nearest (both endpoints, orientation-free) with a deterministic tie-break, so the outcome does
+not depend on the order records happen to sit in the file. A missing/extra component role stays a fatal
+— that check is what catches a partial/foreign selection BEFORE any copper disappears.
 
-Since 2026-09-05, live via/track copper the cell's current records do not describe is NO LONGER a
-fatal: it is ADDED to the cell as NEW records (the drawn-copper case — a cell saved before the copper
-was routed, then re-read after you drew it; e.g. `pif_p5v`). The run updates the matched existing
-records' geometry AND appends the new records (nothing is written to disk until the project **Save**).
-A new record's net is classified by the extractor's own heuristic (a net a selected role's pad carries
--> `net_from_role`(+pad), else a plain literal net — never `net: null`), its geometry relative to the
-same zero-offset origin.
+Since 2026-09-05, live via/track copper the cell's current records do not describe is ADDED to the cell
+as NEW records (the drawn-copper case — a cell saved before the copper was routed, then re-read after
+you drew it; e.g. `pif_p5v`), and since 2026-09-10 the run is SYMMETRIC: a RECORD with no live
+counterpart is REMOVED from the cell (Denis, 2026-09-10: "перечитывание целла — целиком на моей совести.
+В лог говорим: добавили то-то, удалили то-то"). The selection is therefore the truth for the cell's
+copper: updates + additions + removals in ONE run (nothing is written to disk until the project
+**Save**). A new record's net is classified by the extractor's own heuristic (a net a selected role's
+pad carries -> `net_from_role`(+pad), else a plain literal net — never `net: null`), its geometry
+relative to the same zero-offset origin.
 
-A clean run APPLIES the plan directly — since 2026-09-06 there is NO preview dialog (the old
-line-by-line Item/Field/Old/New/Δ review is gone; Denis: "построчный нахрен не нужен"). Click the
-button = apply immediately; the result is a text line in the Log dock ("Updated cell ... — N
-record(s) updated, M via/track record(s) added. Save to write the change."), and a selection that
-already matches reports "Nothing changed". Mutation/autostage go through the same path as a manual row
-Update/Add.
+A clean run APPLIES the plan directly — since 2026-09-06 there is NO preview dialog, and since
+2026-09-10 **"Update from selection..." does not open the Cell dialog either** (Denis: clicking refresh
+in the flat Config list popped an Edit Cell window nobody asked for; the result is reported in the Log
+and staged for Save, exactly like "Copy placement from cell..."). One Log line per added and per
+removed record names WHAT changed — `+ track <net> <layer> w=<width> (x,y) -> (x,y)`,
+`- via net_from_role <role>/<pad> (x,y)` — followed by the summary ("Updated cell ... — N record(s)
+updated, M via/track record(s) added, K record(s) removed. Save to write the change."); a selection
+that already matches reports "Nothing changed". Mutation/autostage go through the same path as a manual
+row Update/Add. **"Edit cell..." still opens its dialog** — that is that action's own purpose.
 
 **Import vias/tracks from selection** (2026-09-03) — the additive counterpart of Refresh: a button
 right next to it in the Cell dialog AND a right-click **Import from selection...** action on a Cell leaf

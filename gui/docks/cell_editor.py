@@ -106,6 +106,45 @@ from ..cell_edit_context import (
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       WARN_STYLE as _WARN_STYLE, configure_searchable, display_path,
                       merge_write, parse_float_field, set_combo_items, show_message)
+
+
+def record_report_line(sign: str, record: dict, kind: str) -> str:
+    """One '+ '/'- ' Log line naming ONE added/removed via/track record
+    (H.2.4 of plan_2026_09_10_cell_refresh_symmetric_and_no_dialog.md).
+
+    Denis: "перечитывание целла — целиком на моей совести. В лог говорим:
+    добавили то-то, удалили то-то." A bare counter does not say WHICH record
+    changed — exactly the complaint that started this task ("4 record(s) in the
+    cell, 3 live item(s)" named nothing). The line carries the net (a literal,
+    or `net_from_role ROLE/PAD`), the track's layer, its width and the
+    coordinates in the CELL's own mm frame, e.g.
+      - track net_from_role C_OUT_BYPASS/1 F.Cu w=0.254 (2.135,-5.04) -> (3.335,-5.04)
+      + via net_from_role C_IN_BULK/1 (0.8625,1.374)
+    """
+    if record.get("net_from_role"):
+        pad = record.get("net_from_role_pad")
+        net = (_("net_from_role {role}/{pad}").format(
+                   role=record["net_from_role"], pad=pad)
+               if pad else
+               _("net_from_role {role}").format(role=record["net_from_role"]))
+    elif record.get("net"):
+        net = str(record["net"])
+    else:
+        net = _("(no net)")
+    layer = record.get("layer")
+    layer_txt = (" " + str(layer)) if (kind == "track" and layer) else ""
+    if kind == "via":
+        coords = "({along},{across})".format(
+            along=record.get("offset_along_mm", 0.0),
+            across=record.get("offset_across_mm", 0.0))
+        return _("{sign} via {net}{layer} {coords}").format(
+            sign=sign, net=net, layer=layer_txt, coords=coords)
+    coords = "({sx},{sy}) -> ({ex},{ey})".format(
+        sx=record.get("start_along_mm", 0.0), sy=record.get("start_across_mm", 0.0),
+        ex=record.get("end_along_mm", 0.0), ey=record.get("end_across_mm", 0.0))
+    return _("{sign} track {net}{layer} w={width} {coords}").format(
+        sign=sign, net=net, layer=layer_txt,
+        width=record.get("width_mm", ""), coords=coords)
 from .rename import collect_all_cell_names, collect_section_entries, find_dict_entry_file
 
 logger = logging.getLogger(__name__)
@@ -1489,6 +1528,10 @@ class CellDock(QWidget):
             "vias": list(self._vias),
             "tracks": list(self._tracks),
             "origin_role": self._refresh_origin_role(),
+            # H.1.1: the cell's own copper layer, so the engine never pairs a
+            # record with a live track on the OTHER layer of the same net (same
+            # formula as _build_cell_dict).
+            "cell_layer": self.layer_combo.currentData() or "F.Cu",
         }
         self._active_op = start_long_op(
             connection, (self.refresh_geometry_button,),
@@ -1509,7 +1552,12 @@ class CellDock(QWidget):
                 payload["components"], payload["vias"], payload["tracks"],
                 footprints, vias, tracks, adapter,
                 origin_role=payload.get("origin_role"),
-                add_new_copper=True)
+                add_new_copper=True,
+                # H.2: Refresh is symmetric — an unpaired record is DELETED
+                # (the user's explicit call: the selection is the truth for the
+                # cell's copper, the report goes to the Log).
+                remove_missing=True,
+                cell_layer=payload.get("cell_layer"))
         except ValidationError as e:
             return {"error": str(e)}
         return {"plan": plan}
@@ -1531,17 +1579,32 @@ class CellDock(QWidget):
         # through _apply_refresh_plan — no pointless autostage write.
         has_work = bool(plan.component_updates or plan.via_updates
                         or plan.track_updates or plan.new_via_records
-                        or plan.new_track_records)
+                        or plan.new_track_records or plan.removed_via_records
+                        or plan.removed_track_records)
         if not has_work:
             self._show_message(
                 _("Nothing changed — the selection already matches this cell's geometry."),
                 _SUCCESS_STYLE)
             return
-        updated, added = self._apply_refresh_plan(plan)
+        updated, added, removed = self._apply_refresh_plan(plan)
+        # H.2.4: one line per added/removed record BEFORE the summary — "в лог
+        # говорим: добавили то-то, удалили то-то" (Denis). Added = the live
+        # copper the cell did not describe, removed = the records with no live
+        # counterpart.
+        for record in plan.new_via_records:
+            self._show_message(record_report_line("+", record, "via"), _SUCCESS_STYLE)
+        for record in plan.new_track_records:
+            self._show_message(record_report_line("+", record, "track"), _SUCCESS_STYLE)
+        for record in plan.removed_via_records:
+            self._show_message(record_report_line("-", record, "via"), _WARN_STYLE)
+        for record in plan.removed_track_records:
+            self._show_message(record_report_line("-", record, "track"), _WARN_STYLE)
         self._show_message(
             _("Updated cell {name!r} from selection — {updated} record(s) updated, "
-              "{added} via/track record(s) added. Save to write the change.")
-            .format(name=self.name_edit.text().strip(), updated=updated, added=added),
+              "{added} via/track record(s) added, {removed} record(s) removed. "
+              "Save to write the change.")
+            .format(name=self.name_edit.text().strip(), updated=updated,
+                    added=added, removed=removed),
             _SUCCESS_STYLE)
 
     def _on_refresh_op_failed(self, message: str) -> None:
@@ -1554,10 +1617,12 @@ class CellDock(QWidget):
         keys on the SAME dict objects already in self._components/_vias/
         _tracks (plan records ARE those dicts), then APPEND the plan's
         brand-new via/track records (add_new_copper mode, 2026-09-05) to
-        self._vias/_tracks (extend, never replace), then refresh tables +
+        self._vias/_tracks (extend, never replace), then DROP the records the
+        plan found no live counterpart for (H.2.3), then refresh tables +
         autostage exactly like a manual row Update/Add. Returns
-        (updated_count, added_count). Nothing is written to disk here — Save
-        remains a separate explicit action, as everywhere in this dock."""
+        (updated_count, added_count, removed_count). Nothing is written to disk
+        here — Save remains a separate explicit action, as everywhere in this
+        dock."""
         updated = 0
         for record, new_geo in (plan.component_updates + plan.via_updates
                                 + plan.track_updates):
@@ -1566,9 +1631,24 @@ class CellDock(QWidget):
         added = len(plan.new_via_records) + len(plan.new_track_records)
         self._vias.extend(plan.new_via_records)
         self._tracks.extend(plan.new_track_records)
+        removed = self._drop_records(plan.removed_via_records, self._vias)
+        removed += self._drop_records(plan.removed_track_records, self._tracks)
         self._refresh_all_tables()
         self._autostage()
-        return updated, added
+        return updated, added, removed
+
+    @staticmethod
+    def _drop_records(removed_records: list, bucket: list) -> int:
+        """Drop exactly the plan's removed records from `bucket` and return how
+        many went. Identity-based (`id()`), never by value: identical records
+        may legitimately appear several times in a list, and only the one the
+        plan actually unpaired may go."""
+        doomed = {id(r) for r in removed_records or []}
+        if not doomed:
+            return 0
+        before = len(bucket)
+        bucket[:] = [r for r in bucket if id(r) not in doomed]
+        return before - len(bucket)
 
     def refresh_from_selection_requested(self, name: str, file_path) -> None:
         """ConfigTreeDock's cell_refresh_requested delegate (2026-09-03) — the
@@ -1613,6 +1693,10 @@ class CellDock(QWidget):
             "vias": list(self._vias),
             "tracks": list(self._tracks),
             "origin_role": self._refresh_origin_role(),
+            # H.1.2: Import stays purely ADDITIVE (no remove_missing here) but
+            # still needs the cell's layer so a NEW record on the other layer
+            # keeps its `layer` key instead of silently becoming the cell's.
+            "cell_layer": self.layer_combo.currentData() or "F.Cu",
         }
         self._active_op = start_long_op(
             connection, (self.import_vias_tracks_button,),
@@ -1632,7 +1716,8 @@ class CellDock(QWidget):
             plan = build_import_plan(
                 payload["components"], payload["vias"], payload["tracks"],
                 footprints, vias, tracks, adapter,
-                origin_role=payload.get("origin_role"))
+                origin_role=payload.get("origin_role"),
+                cell_layer=payload.get("cell_layer"))
         except ValidationError as e:
             return {"error": str(e)}
         return {"plan": plan}

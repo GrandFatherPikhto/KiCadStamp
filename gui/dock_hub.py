@@ -2201,9 +2201,16 @@ class DockHub:
         same explicit file handling as _edit_cell, then drive CellDock's own
         refresh entry point (which loads the cell when it is not the currently
         open one and runs the same _on_refresh_geometry path as the button).
-        Opens the (non-modal) Cell dialog with the loaded cell."""
+
+        2026-09-10 (plan_2026_09_10_cell_refresh_symmetric_and_no_dialog, H.3):
+        deliberately does NOT open the Cell dialog, exactly like
+        _copy_cell_placement below. The flat Config list made it look like
+        "clicked refresh — an Edit Cell window popped up", and it is not needed:
+        the per-record report goes to the Log dock and the change is staged for
+        Save by _autostage(). "Edit cell..." keeps opening the dialog — that is
+        that action's own purpose (its component/via/track tables have no home
+        on the merged QView page)."""
         self.cells_dock.refresh_from_selection_requested(name, file_path)
-        self._open_cell_dialog()
 
     def _import_cell_from_selection(self, name, file_path) -> None:
         """ConfigTreeDock's cell_import_requested delegate (2026-09-03, plan
@@ -2213,10 +2220,12 @@ class DockHub:
         never MODIFIES one). Same explicit file handling as _edit_cell, then
         drive CellDock's own import entry point (loads the cell when it is
         not the currently open one and runs the same _on_import_vias_tracks
-        path as the button). Opens the (non-modal) Cell dialog with the
-        loaded cell."""
+        path as the button).
+
+        H.3 (2026-09-10): no Cell dialog here either — same reasoning as
+        _refresh_cell_from_selection above; the result is reported in the Log
+        and staged by _autostage()."""
         self.cells_dock.import_from_selection_requested(name, file_path)
-        self._open_cell_dialog()
 
     def _copy_cell_placement(self, name, file_path) -> None:
         """ConfigTreeDock's cell_copy_requested delegate (2026-09-06, plan

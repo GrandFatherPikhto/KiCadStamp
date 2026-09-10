@@ -1096,6 +1096,92 @@ def test_refresh_geometry_validation_error_shows_warning_tables_untouched(
     assert dock.vias_table.rowCount() == 1
 
 
+# ── H.2.3 / H.2.4: symmetric Refresh — removal + the per-record Log report ──
+# plan_2026_09_10_cell_refresh_symmetric_and_no_dialog.md.
+
+def test_apply_refresh_plan_removes_exactly_the_plan_records(main_window,
+                                                             tmp_path,
+                                                             monkeypatch):
+    """_apply_refresh_plan drops the plan's removed_* records from the dock's
+    lists BY IDENTITY (`id()`), not by value: two byte-identical records may
+    legitimately coexist and only the one the plan unpaired may go. Returns the
+    removed count and still autostages."""
+    from kicadstamp.cell_geometry_refresh import RefreshPlan
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    doomed = dock._vias[0]
+    twin = dict(doomed)                  # equal by VALUE, a different object
+    dock._vias.append(twin)
+
+    staged = []
+    monkeypatch.setattr(dock, "_autostage", lambda: staged.append(True))
+
+    updated, added, removed = dock._apply_refresh_plan(
+        RefreshPlan([], [], [], removed_via_records=[doomed]))
+
+    assert (updated, added, removed) == (0, 0, 1)
+    # Identity, not equality: the twin is byte-identical, so `in` would match it.
+    assert all(v is not doomed for v in dock._vias)
+    assert any(v is twin for v in dock._vias)
+    assert dock.vias_table.rowCount() == 1
+    assert staged == [True]
+
+
+def test_finish_refresh_reports_each_added_and_removed_record(main_window,
+                                                              tmp_path,
+                                                              monkeypatch):
+    """H.2.4: one '+ '/'- ' Log line per added/removed record BEFORE the
+    summary, and the summary carries the removed counter — "в лог говорим:
+    добавили то-то, удалили то-то" (Denis)."""
+    from kicadstamp.cell_geometry_refresh import RefreshPlan
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    messages = []
+    monkeypatch.setattr(dock, "_show_message",
+                        lambda text, style="": messages.append(text))
+    monkeypatch.setattr(dock, "_autostage", lambda: None)
+
+    added = {"net": "/N", "layer": "F.Cu", "width_mm": 0.254,
+             "start_along_mm": 2.135, "start_across_mm": -5.04,
+             "end_along_mm": 3.335, "end_across_mm": -5.04}
+    removed = {"net_from_role": "C_OUT_BYPASS", "net_from_role_pad": "1",
+               "layer": "B.Cu", "width_mm": 0.65,
+               "start_along_mm": 0.0, "start_across_mm": 0.0,
+               "end_along_mm": 1.0, "end_across_mm": 0.0}
+    # The removed record must actually BE in the dock's list — the counter
+    # reports what was dropped, not what the plan wished for.
+    dock._tracks.append(removed)
+    plan = RefreshPlan([], [], [], new_track_records=[added],
+                       removed_track_records=[removed])
+
+    dock._finish_refresh_geometry({"plan": plan})
+
+    lines = [m for m in messages if m.startswith("+ ") or m.startswith("- ")]
+    assert len(lines) == 2
+    assert lines[0].startswith("+ track /N F.Cu w=0.254")
+    assert "(2.135,-5.04) -> (3.335,-5.04)" in lines[0]
+    assert lines[1].startswith("- track net_from_role C_OUT_BYPASS/1 B.Cu")
+    assert "1 record(s) removed" in messages[-1]
+
+
+def test_record_report_line_formats_via_track_and_missing_net():
+    """The one formatting helper both directions and both sections share."""
+    from gui.docks.cell_editor import record_report_line
+
+    via = {"net_from_role": "C_IN_BULK", "net_from_role_pad": "1",
+           "offset_along_mm": 0.8625, "offset_across_mm": 1.374}
+    line = record_report_line("+", via, "via")
+    assert line.startswith("+ via net_from_role C_IN_BULK/1 ")
+    assert "(0.8625,1.374)" in line
+
+    bare = {"net": None, "offset_along_mm": 0.0, "offset_across_mm": 0.0}
+    assert "(no net)" in record_report_line("-", bare, "via")
+
+    literal = {"net": "/N", "start_along_mm": 0.0, "start_across_mm": 0.0,
+               "end_along_mm": 1.0, "end_across_mm": 0.0, "width_mm": 0.65}
+    assert "- track /N w=0.65" in record_report_line("-", literal, "track")
+
+
 # ── Import vias/tracks from selection (2026-09-03, plan
 #    fpga_oscill_missing_copper_and_cell_import §B.3) ──────────────────────
 

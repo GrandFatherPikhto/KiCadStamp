@@ -59,6 +59,7 @@ from .exceptions import ValidationError, format_fatal_error
 from .i18n import _
 from .net_resolution import resolve_net_from_role
 from .template_extraction import _selection_role_nets, _suggest_net_from_role
+from .utils.layers import layer_to_str
 from .utils.units import MM
 
 __all__ = [
@@ -179,11 +180,19 @@ def _point_dist_sq(a: tuple[int, int], b: tuple[int, int]) -> int:
 
 def _greedy_nearest(records: list[dict], live_items: list[Any],
                     origin: Vector2, kind: str) -> list[tuple[dict, Any]]:
-    """Greedy nearest-neighbour pairing (O(n^2), n is a handful): each record
-    (in fixed order) claims the closest still-unclaimed live item. Distance for
-    a via is its single point; for a track, the sum of both endpoints' squared
-    distances, minimised over start/end orientation (a re-routed segment may
-    have flipped direction). Returns [(record, live_item), ...]."""
+    """Globally-nearest pairing (O(n^2), n is a handful): EVERY (record, live
+    item) pair is scored, the pairs are walked in ascending distance and taken
+    when BOTH sides are still free, with a deterministic tie-break (record
+    index, then live index). Distance for a via is its single point; for a
+    track, the sum of both endpoints' squared distances, minimised over
+    start/end orientation (a re-routed segment may have flipped direction).
+    Returns [(record, live_item), ...] in record order.
+
+    It used to walk the records IN LIST ORDER and hand each the closest free
+    live item (plan H.1.3). With equal counts that usually gave the same answer;
+    with unequal counts the "odd one out" was whichever record happened to be
+    last in the file rather than the genuinely farthest — and since an unpaired
+    record is now DELETED (H.2), file order must not decide a record's fate."""
     if kind == "via":
         rec_pts = [_record_offset(r, origin, "offset_along_mm", "offset_across_mm")
                    for r in records]
@@ -202,21 +211,25 @@ def _greedy_nearest(records: list[dict], live_items: list[Any],
         return min(_point_dist_sq(rs, ls) + _point_dist_sq(re_, le),
                    _point_dist_sq(rs, le) + _point_dist_sq(re_, ls))
 
-    taken = [False] * len(live_items)
-    pairs: list[tuple[dict, Any]] = []
-    for rp, rec in zip(rec_pts, records):
-        best_idx = None
-        best_d = None
-        for j, lp in enumerate(live_pts):
-            if taken[j]:
-                continue
-            d = _dist(rp, lp)
-            if best_d is None or d < best_d:
-                best_d, best_idx = d, j
-        if best_idx is not None:
-            taken[best_idx] = True
-            pairs.append((rec, live_items[best_idx]))
-    return pairs
+    # Stable by construction: the key is (distance, record index, live index),
+    # so equal distances always resolve the same way however the lists around
+    # them are ordered.
+    candidates = sorted(
+        ((_dist(rp, lp), ri, li)
+         for ri, rp in enumerate(rec_pts)
+         for li, lp in enumerate(live_pts)),
+        key=lambda t: (t[0], t[1], t[2]))
+
+    rec_taken = [False] * len(records)
+    live_taken = [False] * len(live_items)
+    taken_pairs: list[tuple[int, dict, Any]] = []
+    for _d, ri, li in candidates:
+        if rec_taken[ri] or live_taken[li]:
+            continue
+        rec_taken[ri] = live_taken[li] = True
+        taken_pairs.append((ri, records[ri], live_items[li]))
+    taken_pairs.sort(key=lambda t: t[0])
+    return [(rec, live) for _ri, rec, live in taken_pairs]
 
 
 def _mm(value: float) -> float:
@@ -255,11 +268,14 @@ def _match_copper(records: list[dict], live_items: list[Any], origin: Vector2,
                   role_to_ref: dict[str, str], adapter: Any, kind: str,
                   *,
                   leftover_is_fatal: bool = True,
-                  ) -> tuple[list[tuple[dict, dict]], list[str], list[Any]]:
+                  missing_is_fatal: bool = True,
+                  cell_layer: str | None = None,
+                  ) -> tuple[list[tuple[dict, dict]], list[str], list[Any],
+                             list[dict]]:
     """Match one copper section (kind: 'via' | 'track') through the four tiers
-    of plan §1.4.2. Returns (updates, problems, leftover) — never raises here;
-    the caller raises once with ALL problems collected. Does not mutate
-    `records` or `live_items`.
+    of plan §1.4.2. Returns (updates, problems, leftover, removed) — never
+    raises here; the caller raises once with ALL problems collected. Does not
+    mutate `records` or `live_items`.
 
     leftover_is_fatal — the tier-4 treatment of whatever live items the named
     tiers 1-3 left unclaimed:
@@ -269,9 +285,30 @@ def _match_copper(records: list[dict], live_items: list[Any], origin: Vector2,
         — the caller (build_import_plan) turns each into a NEW record instead
         of a fatal. The count-mismatch fatals of tiers 1-3 are NOT softened
         in this mode: only tier 4 changes, never a named-net check.
+
+    missing_is_fatal (H.2.1) — a RECORD with no live counterpart:
+      - True (default, strict): today's count-mismatch fatal, message text
+        unchanged.
+      - False (the symmetric Refresh, remove_missing=True): no count fatal —
+        the group is paired up to min(n, m) and the unpaired RECORDS come back
+        as the fourth element (`removed`) — the SAME dict objects the caller
+        passed in, so it drops them from its lists by identity. Live items left
+        without a record stay in the pool for the later tiers, exactly like the
+        named tiers' unclaimed items do today.
+
+    cell_layer (H.1.1) — the cell's own copper layer ('F.Cu'/'B.Cu'). When it is
+    given, TRACKS are grouped by (net/template, effective layer): a record's
+    effective layer is `rec.get("layer") or cell_layer`, a live track's is its
+    own `layer` name. Without this an F.Cu record paired with a B.Cu live track
+    of the same net (they share an endpoint, so distance 0) and had its geometry
+    rewritten to the B.Cu path while keeping `layer: F.Cu` — and now that an
+    unpaired record is DELETED, that would be silent corruption of the cell.
+    Vias are layer-less (through-hole) and are never split. `cell_layer is None`
+    keeps the historical net-only grouping, so existing callers are unaffected.
     """
     updates: list[tuple[dict, dict]] = []
     problems: list[str] = []
+    removed: list[dict] = []
     # A mutable pool of live items, claimed as tiers consume them.
     pool = list(live_items)
 
@@ -280,6 +317,27 @@ def _match_copper(records: list[dict], live_items: list[Any], origin: Vector2,
         the same item object appears in pool only once)."""
         claimed = {id(m) for m in matched}
         pool[:] = [i for i in pool if id(i) not in claimed]
+
+    def _removed_from(group: list[dict],
+                      pairs: list[tuple[dict, Any]]) -> None:
+        """Symmetric mode: records this group could not pair up are collected
+        for deletion (identity-based, so the caller can drop exactly them)."""
+        if missing_is_fatal:
+            return
+        paired = {id(rec) for rec, _live in pairs}
+        removed.extend(rec for rec in group if id(rec) not in paired)
+
+    def _rec_layer(rec: dict) -> str | None:
+        """A record's effective layer (tracks only, and only when the caller
+        told us the cell's own layer)."""
+        if kind != "track" or cell_layer is None:
+            return None
+        return rec.get("layer") or cell_layer
+
+    def _live_layer(item: Any) -> str | None:
+        if kind != "track" or cell_layer is None:
+            return None
+        return layer_to_str(item.layer)
 
     # Split the cell's records into the three net families.
     parametrized: list[tuple[str, dict]] = []   # (template, record)
@@ -299,26 +357,30 @@ def _match_copper(records: list[dict], live_items: list[Any], origin: Vector2,
     # Records with the SAME template string are one group (several vias can
     # share one parametrized net). Groups processed in first-appearance order;
     # whoever claims a live item first owns it (no double use by construction).
-    by_template: dict[str, list[dict]] = {}
+    # The effective layer joins the key when the caller supplied one (H.1.1).
+    by_template: dict[tuple, list[dict]] = {}
     for template, rec in parametrized:
-        by_template.setdefault(template, []).append(rec)
-    for template, group in by_template.items():
+        by_template.setdefault((template, _rec_layer(rec)), []).append(rec)
+    for (template, layer), group in by_template.items():
         regex = net_template_regex(template)
         candidates = [i for i in pool if i.net_name is not None
-                      and regex.fullmatch(i.net_name)]
-        if len(group) != len(candidates):
+                      and regex.fullmatch(i.net_name)
+                      and _live_layer(i) == layer]
+        if len(group) != len(candidates) and missing_is_fatal:
             problems.append(_("template {pattern!r}: {n} record(s) in the cell, "
                               "{m} live item(s) matching its shape")
                             .format(pattern=template, n=len(group), m=len(candidates)))
             continue
-        for rec, live in _greedy_nearest(group, candidates, origin, kind):
+        pairs = _greedy_nearest(group, candidates, origin, kind)
+        for rec, live in pairs:
             new_geo = _via_new_geo(live, origin) if kind == "via" \
                 else _track_new_geo(live, origin)
             updates.append((rec, new_geo))
-        _claim(candidates)
+        _claim([live for _rec, live in pairs])
+        _removed_from(group, pairs)
 
     # ── Tier 2: concrete nets (net_from_role resolved, or plain literal) ──
-    existing_by_net: dict[str, list[dict]] = {}
+    existing_by_net: dict[tuple, list[dict]] = {}
     for rec in concrete:
         if rec.get("net_from_role") is not None:
             try:
@@ -335,45 +397,74 @@ def _match_copper(records: list[dict], live_items: list[Any], origin: Vector2,
             # resolver fatals) — defensive; treat as rule-net fallback.
             net_null.append(rec)
             continue
-        existing_by_net.setdefault(net, []).append(rec)
+        existing_by_net.setdefault((net, _rec_layer(rec)), []).append(rec)
 
-    live_by_net: dict[str, list[Any]] = {}
+    live_by_net: dict[tuple, list[Any]] = {}
     for i in pool:
         if i.net_name is not None:
-            live_by_net.setdefault(i.net_name, []).append(i)
+            live_by_net.setdefault((i.net_name, _live_layer(i)), []).append(i)
 
-    for net in sorted(existing_by_net):
-        existing = existing_by_net[net]
-        live = live_by_net.get(net, [])
-        if len(existing) != len(live):
+    for group_key in sorted(existing_by_net, key=lambda k: (k[0], k[1] or "")):
+        net, _layer = group_key
+        existing = existing_by_net[group_key]
+        live = live_by_net.get(group_key, [])
+        if len(existing) != len(live) and missing_is_fatal:
             problems.append(_("net {net!r}: {n} record(s) in the cell, "
                               "{m} live item(s)")
                             .format(net=net, n=len(existing), m=len(live)))
             continue
-        for rec, live_item in _greedy_nearest(existing, live, origin, kind):
+        pairs = _greedy_nearest(existing, live, origin, kind)
+        for rec, live_item in pairs:
             new_geo = _via_new_geo(live_item, origin) if kind == "via" \
                 else _track_new_geo(live_item, origin)
             updates.append((rec, new_geo))
-        _claim(live)
+        _claim([live_item for _rec, live_item in pairs])
+        _removed_from(existing, pairs)
 
     # ── Tier 3: net: null records — pure positional elimination ───────────
     # Whatever remains in the pool after tiers 1-2 is copper not claimed by any
     # NAMED net; net:null records have no name at all, so if their count equals
     # the leftover count they are the leftover's counterparts (matched by
-    # position only, no net involved — their net stays null).
+    # position only, no net involved — their net stays null). With a known cell
+    # layer the elimination runs PER LAYER, so an F.Cu rule-net record cannot
+    # swallow a B.Cu leftover (H.1.1).
     if net_null:
-        if len(net_null) != len(pool):
-            problems.append(_("rule-net (net: null — inherits the enclosing "
-                              "Rule's own net): {n} record(s) in the cell, "
-                              "{m} unclaimed live item(s) after resolving every "
-                              "named net")
-                            .format(n=len(net_null), m=len(pool)))
+        if cell_layer is None:
+            if len(net_null) != len(pool) and missing_is_fatal:
+                problems.append(_("rule-net (net: null — inherits the enclosing "
+                                  "Rule's own net): {n} record(s) in the cell, "
+                                  "{m} unclaimed live item(s) after resolving every "
+                                  "named net")
+                                .format(n=len(net_null), m=len(pool)))
+            else:
+                pairs = _greedy_nearest(net_null, pool, origin, kind)
+                for rec, live in pairs:
+                    new_geo = _via_new_geo(live, origin) if kind == "via" \
+                        else _track_new_geo(live, origin)
+                    updates.append((rec, new_geo))
+                _claim([live for _rec, live in pairs])
+                _removed_from(net_null, pairs)
         else:
-            for rec, live in _greedy_nearest(net_null, pool, origin, kind):
-                new_geo = _via_new_geo(live, origin) if kind == "via" \
-                    else _track_new_geo(live, origin)
-                updates.append((rec, new_geo))
-            _claim(pool)
+            by_layer: dict = {}
+            for rec in net_null:
+                by_layer.setdefault(_rec_layer(rec), []).append(rec)
+            for layer, group in sorted(by_layer.items(),
+                                       key=lambda kv: kv[0] or ""):
+                layer_pool = [i for i in pool if _live_layer(i) == layer]
+                if len(group) != len(layer_pool) and missing_is_fatal:
+                    problems.append(_("rule-net (net: null — inherits the enclosing "
+                                      "Rule's own net): {n} record(s) in the cell, "
+                                      "{m} unclaimed live item(s) after resolving every "
+                                      "named net")
+                                    .format(n=len(group), m=len(layer_pool)))
+                    continue
+                pairs = _greedy_nearest(group, layer_pool, origin, kind)
+                for rec, live in pairs:
+                    new_geo = _via_new_geo(live, origin) if kind == "via" \
+                        else _track_new_geo(live, origin)
+                    updates.append((rec, new_geo))
+                _claim([live for _rec, live in pairs])
+                _removed_from(group, pairs)
 
     # ── Tier 4: anything still unclaimed ──────────────────────────────────
     # Refresh: extra copper (collected fatal, nothing imported). Import:
@@ -383,8 +474,8 @@ def _match_copper(records: list[dict], live_items: list[Any], origin: Vector2,
             problems.append(_("extra copper in selection: {desc} — not described "
                               "by any net/template/net:null record of this cell")
                             .format(desc=_live_description(i, kind)))
-        return updates, problems, []
-    return updates, problems, list(pool)
+        return updates, problems, [], removed
+    return updates, problems, list(pool), removed
 
 
 def _live_description(item: Any, kind: str) -> str:
@@ -406,12 +497,19 @@ class RefreshPlan:
     (new_via_records/new_track_records, already net-classified like Import's —
     net_from_role(+pad) or a plain literal, NEVER `net: null`) for the live
     copper the cell's current records do not describe; the caller appends them
-    (extend) after applying the geometry updates. Empty unless requested."""
+    (extend) after applying the geometry updates. Empty unless requested.
+
+    remove_missing mode (H.2.1) additionally returns the records that had NO
+    live counterpart (removed_via_records/removed_track_records) — again the
+    SAME dict objects the caller passed in, so it drops exactly them from its
+    lists (by identity). Empty unless requested."""
     component_updates: list[tuple[dict, dict]]
     via_updates: list[tuple[dict, dict]]
     track_updates: list[tuple[dict, dict]]
     new_via_records: list[dict] = field(default_factory=list)
     new_track_records: list[dict] = field(default_factory=list)
+    removed_via_records: list[dict] = field(default_factory=list)
+    removed_track_records: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -524,6 +622,8 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
                        net_template_map: dict[str, str] | None = None,
                        origin_role: str | None = None,
                        add_new_copper: bool = False,
+                       remove_missing: bool = False,
+                       cell_layer: str | None = None,
                        ) -> RefreshPlan:
     """Build the full refresh plan for one loaded cell.
 
@@ -549,6 +649,20 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
         tier-1/2 named-net count mismatches and the symmetric role match are
         NOT softened — they stay collected fatals exactly like Refresh and
         Import.
+
+    remove_missing (H.2.1, the symmetric counterpart of add_new_copper, passed
+    by CellDock._run_refresh_geometry): a RECORD with no live counterpart is no
+    longer a count fatal — the group is paired up to min(n, m) (globally
+    nearest, H.1.3) and the unpaired records are returned in RefreshPlan's
+    removed_* lists for the caller to DELETE. Tier-4 leftover live copper keeps
+    its add_new_copper treatment; the symmetric ROLE match stays a hard fatal
+    (H.2.2 — it is what catches a partial/foreign selection BEFORE any copper
+    disappears).
+
+    cell_layer (H.1.1) — the cell's own copper layer, threaded into the track
+    grouping (net/template + effective layer) so records and live tracks of the
+    same net but different layers are never paired. `None` keeps the historical
+    net-only behaviour (existing callers/tests unchanged).
 
     Raises ValidationError (format_fatal_error, EVERY problem collected into
     one message — missing/extra roles AND every per-net/template/net:null
@@ -584,13 +698,19 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
     track_problems: list[str] = []
     via_leftover: list[Any] = []
     track_leftover: list[Any] = []
+    via_removed: list[dict] = []
+    track_removed: list[dict] = []
     if origin is not None:
-        via_updates, via_problems, via_leftover = _match_copper(
+        via_updates, via_problems, via_leftover, via_removed = _match_copper(
             vias, raw_via_items, origin, role_to_ref, adapter, "via",
-            leftover_is_fatal=not add_new_copper)
-        track_updates, track_problems, track_leftover = _match_copper(
+            leftover_is_fatal=not add_new_copper,
+            missing_is_fatal=not remove_missing,
+            cell_layer=cell_layer)
+        track_updates, track_problems, track_leftover, track_removed = _match_copper(
             tracks, raw_track_items, origin, role_to_ref, adapter, "track",
-            leftover_is_fatal=not add_new_copper)
+            leftover_is_fatal=not add_new_copper,
+            missing_is_fatal=not remove_missing,
+            cell_layer=cell_layer)
 
     # EVERY problem collected into ONE message (design §2.3-2.5) — role
     # mismatches and every per-net/template/net:null count problem and every
@@ -614,7 +734,7 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
             _classify_import_net(rec, live, role_nets, components)
             new_via_records.append(rec)
         for live in track_leftover:
-            rec = _import_track_record(live, origin)
+            rec = _import_track_record(live, origin, cell_layer)
             _classify_import_net(rec, live, role_nets, components)
             new_track_records.append(rec)
 
@@ -624,6 +744,8 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
         track_updates=track_updates,
         new_via_records=new_via_records,
         new_track_records=new_track_records,
+        removed_via_records=via_removed,
+        removed_track_records=track_removed,
     )
 
 
@@ -639,16 +761,29 @@ def _import_via_record(live: Via, origin: Vector2) -> dict:
     }
 
 
-def _import_track_record(live: Track, origin: Vector2) -> dict:
+def _import_track_record(live: Track, origin: Vector2,
+                         cell_layer: str | None = None) -> dict:
     """New track dict in the exact shape extract writes (template_extraction.py:
-    570-583) — geometry + width; net filled by _classify_import_net."""
-    return {
+    570-583) — geometry + width; net filled by _classify_import_net.
+
+    H.1.2: `layer` is written ONLY when the live track sits on a DIFFERENT layer
+    than the cell's own — exactly the extractor's rule
+    (template_extraction.py's `if t.layer != tpl_layer`). Without it a live F.Cu
+    track adopted as a NEW record in a B.Cu cell would silently become a B.Cu
+    record: the same data loss as the mixed-layer pairing, from the other side.
+    `cell_layer=None` keeps the historical "never writes layer"."""
+    record = {
         "start_along_mm": _mm(live.start.x - origin.x),
         "start_across_mm": _mm(live.start.y - origin.y),
         "end_along_mm": _mm(live.end.x - origin.x),
         "end_across_mm": _mm(live.end.y - origin.y),
         "width_mm": round(live.width_mm, 4),
     }
+    if cell_layer is not None:
+        live_layer = layer_to_str(live.layer)
+        if live_layer != cell_layer:
+            record["layer"] = live_layer
+    return record
 
 
 def _classify_import_net(record: dict, live: Via | Track, role_nets: dict,
@@ -695,7 +830,8 @@ def _classify_import_net(record: dict, live: Via | Track, role_nets: dict,
 def build_import_plan(components: list[dict], vias: list[dict], tracks: list[dict],
                       footprints: list[Footprint], raw_via_items: list[Via],
                       raw_track_items: list[Track], adapter: Any,
-                      origin_role: str | None = None) -> ImportPlan:
+                      origin_role: str | None = None,
+                      cell_layer: str | None = None) -> ImportPlan:
     """Build the plan for "Import vias/tracks from selection": append NEW via/
     track records to an EXISTING cell for live copper its current records do
     not describe — the additive counterpart of build_refresh_plan (Refresh
@@ -728,12 +864,12 @@ def build_import_plan(components: list[dict], vias: list[dict], tracks: list[dic
     via_problems: list[str] = []
     track_problems: list[str] = []
     if origin is not None:
-        _via_updates, via_problems, via_leftover = _match_copper(
+        _via_updates, via_problems, via_leftover, _via_removed = _match_copper(
             vias, raw_via_items, origin, role_to_ref, adapter, "via",
-            leftover_is_fatal=False)
-        _track_updates, track_problems, track_leftover = _match_copper(
+            leftover_is_fatal=False, cell_layer=cell_layer)
+        _track_updates, track_problems, track_leftover, _trk_removed = _match_copper(
             tracks, raw_track_items, origin, role_to_ref, adapter, "track",
-            leftover_is_fatal=False)
+            leftover_is_fatal=False, cell_layer=cell_layer)
 
     all_problems = problems + via_problems + track_problems
     if all_problems:
@@ -752,7 +888,7 @@ def build_import_plan(components: list[dict], vias: list[dict], tracks: list[dic
         new_via_records.append(rec)
     new_track_records = []
     for live in track_leftover:
-        rec = _import_track_record(live, origin)
+        rec = _import_track_record(live, origin, cell_layer)
         _classify_import_net(rec, live, role_nets, components)
         new_track_records.append(rec)
 

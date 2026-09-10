@@ -697,7 +697,7 @@ def _match_copper_leftover(vias, tracks, raw_vias, raw_tracks, components=None,
             vias, raw_vias, origin, role_to_ref, adapter, "via",
             leftover_is_fatal=leftover_fatal)
     else:
-        updates, probs, leftover = mod._match_copper(
+        updates, probs, leftover, _removed = mod._match_copper(
             tracks, raw_tracks, origin, role_to_ref, adapter, "track",
             leftover_is_fatal=leftover_fatal)
     return leftover, probs + problems
@@ -711,11 +711,12 @@ def test_match_copper_leftover_is_fatal_true_yields_problems_not_leftover():
     adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})
     role_to_ref, _m, origin, _p = mod._cell_selection_context(
         components, footprints, adapter, "refresh")
-    updates, problems, leftover = mod._match_copper(
+    updates, problems, leftover, removed = mod._match_copper(
         [], [_via("GND", 1.0, 1.0)], origin, role_to_ref, adapter, "via",
         leftover_is_fatal=True)
     assert updates == []
     assert leftover == []
+    assert removed == []
     assert any("extra copper" in p for p in problems)
 
 
@@ -728,12 +729,13 @@ def test_match_copper_leftover_is_fatal_false_returns_leftover():
     adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})
     role_to_ref, _m, origin, _p = mod._cell_selection_context(
         components, footprints, adapter, "import")
-    updates, problems, leftover = mod._match_copper(
+    updates, problems, leftover, removed = mod._match_copper(
         [], [_via("GND", 1.0, 1.0)], origin, role_to_ref, adapter, "via",
         leftover_is_fatal=False)
     assert updates == []
     assert problems == []
     assert len(leftover) == 1
+    assert removed == []
 
 
 def test_build_import_plan_empty_cell_imports_literal_via():
@@ -1027,3 +1029,145 @@ def test_refresh_add_new_copper_net_from_role_via_gets_role_not_literal(
     rec = plan.new_via_records[0]
     assert rec["net_from_role"] == "ORIG"
     assert "net" not in rec
+
+
+# ── H.1.1 / H.1.2: the copper LAYER is part of track identity ──────────────
+#
+# plan_2026_09_10_cell_refresh_symmetric_and_no_dialog.md: `_match_copper`
+# grouped tracks by net alone, so the F.Cu stub and the B.Cu tracks of one net
+# were one group and "nearest" paired across layers. Once an unpaired record is
+# DELETED (H.2) that mis-pairing silently rewrote one record and deleted another.
+
+def _track_on(net, x1, y1, x2, y2, layer=BoardLayer.BL_B_Cu, width=0.65):
+    return Track(uuid=f"t-{net}-{x1}-{y1}", net_name=net,
+                 start=Vector2.from_xy_mm(x1, y1),
+                 end=Vector2.from_xy_mm(x2, y2),
+                 width_mm=width, layer=layer)
+
+
+def _refresh_tracks(records, live_tracks, cell_layer="B.Cu", **kw):
+    components = [{"role": "ORIG", "offset_along_mm": 0.0,
+                   "offset_across_mm": 0.0}]
+    footprints = [_fp("R-ORIG", "ORIG", 0.0, 0.0)]
+    adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})
+    return build_refresh_plan(components, [], records, footprints, [],
+                              live_tracks, adapter, cell_layer=cell_layer, **kw)
+
+
+def _stub_record(net="/N"):
+    return {"net": net, "layer": "F.Cu", "width_mm": 0.254,
+            "start_along_mm": 2.135, "start_across_mm": -5.04,
+            "end_along_mm": 3.335, "end_across_mm": -5.04}
+
+
+def test_track_layer_is_part_of_the_grouping_key():
+    """H.1.1: an F.Cu record and a B.Cu live track of the SAME net are never
+    paired — with a known cell layer they are different groups entirely."""
+    records = [_stub_record()]
+    live = [_track_on("/N", 2.135, -5.04, 0.8625, -5.04)]
+    with pytest.raises(ValidationError) as e:
+        _refresh_tracks(records, live)
+    assert "1 record(s) in the cell, 0 live item(s)" in str(e.value)
+
+
+def test_cell_layer_none_keeps_the_historical_net_only_grouping():
+    """Regression guarantee: existing callers that pass no cell_layer keep the
+    pre-H.1 net-only grouping (the F.Cu record DOES pair with the B.Cu track)."""
+    records = [_stub_record()]
+    live = [_track_on("/N", 2.135, -5.04, 0.8625, -5.04)]
+    plan = _refresh_tracks(records, live, cell_layer=None,
+                           remove_missing=True)
+    assert len(plan.track_updates) == 1
+    assert plan.removed_track_records == []
+
+
+# ── H.2.1: remove_missing makes Refresh symmetric ──────────────────────────
+
+def test_remove_missing_returns_the_unpaired_record_by_identity():
+    stale = _stub_record()
+    records = [stale,
+               {"net": "/N", "width_mm": 0.65,
+                "start_along_mm": 0.0, "start_across_mm": 0.0,
+                "end_along_mm": 1.0, "end_across_mm": 0.0}]
+    live = [_track_on("/N", 0.0, 0.0, 1.0, 0.0)]
+    plan = _refresh_tracks(records, live, remove_missing=True)
+    assert len(plan.track_updates) == 1
+    assert plan.removed_track_records == [stale]
+    assert plan.removed_track_records[0] is stale   # the SAME object
+
+
+def test_remove_missing_false_is_still_the_count_fatal():
+    """The strict default keeps today's collected fatal, text unchanged."""
+    records = [_stub_record(),
+               {"net": "/N", "width_mm": 0.65,
+                "start_along_mm": 0.0, "start_across_mm": 0.0,
+                "end_along_mm": 1.0, "end_across_mm": 0.0}]
+    live = [_track_on("/N", 0.0, 0.0, 1.0, 0.0)]
+    with pytest.raises(ValidationError) as e:
+        _refresh_tracks(records, live)          # remove_missing defaults False
+    assert "record(s) in the cell" in str(e.value)
+
+
+def test_remove_missing_and_add_new_copper_in_one_plan():
+    """Both switches at once: the stale record goes, the undescribed live item
+    becomes a NEW record — and no live item is ever both paired and new."""
+    stale = _stub_record("/N")
+    live = [_track_on("/M", 5.0, 5.0, 6.0, 5.0)]
+    plan = _refresh_tracks([stale], live, remove_missing=True,
+                           add_new_copper=True)
+    assert plan.removed_track_records == [stale]
+    assert len(plan.new_track_records) == 1
+    assert plan.track_updates == []
+
+
+def test_role_mismatch_is_still_fatal_in_symmetric_mode():
+    """H.2.2: the symmetric COMPONENT role match stays a hard fatal even with
+    remove_missing=True — it is what catches a partial/foreign selection BEFORE
+    any copper is deleted."""
+    components = [
+        {"role": "ORIG", "offset_along_mm": 0.0, "offset_across_mm": 0.0},
+        {"role": "CAP", "offset_along_mm": 1.0, "offset_across_mm": 1.0},
+    ]
+    footprints = [_fp("R-ORIG", "ORIG", 0.0, 0.0)]      # CAP not selected
+    adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})
+    with pytest.raises(ValidationError) as e:
+        build_refresh_plan(components, [], [], footprints, [], [], adapter,
+                           remove_missing=True)
+    assert "'CAP'" in str(e.value)
+
+
+# ── H.1.2: a NEW track record must not lose its layer ──────────────────────
+
+def test_new_track_record_keeps_the_other_layer():
+    """B.Cu cell + a live F.Cu track -> the NEW record carries layer: F.Cu."""
+    live = [_track_on("/N", 1.0, 1.0, 2.0, 1.0, layer=BoardLayer.BL_F_Cu)]
+    plan = _import_case(live, cell_layer="B.Cu")
+    assert plan.new_track_records[0]["layer"] == "F.Cu"
+
+
+def test_new_track_record_omits_the_cell_layer():
+    """F.Cu cell + the same live F.Cu track -> no `layer` key at all (the
+    extractor's own rule: only a DIFFERENT layer is written)."""
+    live = [_track_on("/N", 1.0, 1.0, 2.0, 1.0, layer=BoardLayer.BL_F_Cu)]
+    plan = _import_case(live, cell_layer="F.Cu")
+    assert "layer" not in plan.new_track_records[0]
+
+
+def test_refresh_add_new_copper_also_keeps_the_other_layer():
+    components = [{"role": "ORIG", "offset_along_mm": 0.0,
+                   "offset_across_mm": 0.0}]
+    footprints = [_fp("R-ORIG", "ORIG", 0.0, 0.0)]
+    adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})
+    live = [_track_on("/N", 1.0, 1.0, 2.0, 1.0, layer=BoardLayer.BL_F_Cu)]
+    plan = build_refresh_plan(components, [], [], footprints, [], live, adapter,
+                              add_new_copper=True, cell_layer="B.Cu")
+    assert plan.new_track_records[0]["layer"] == "F.Cu"
+
+
+def _import_case(live_tracks, cell_layer):
+    components = [{"role": "ORIG", "offset_along_mm": 0.0,
+                   "offset_across_mm": 0.0}]
+    footprints = [_fp("R-ORIG", "ORIG", 0.0, 0.0)]
+    adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})
+    return build_import_plan(components, [], [], footprints, [],
+                             live_tracks, adapter, cell_layer=cell_layer)
