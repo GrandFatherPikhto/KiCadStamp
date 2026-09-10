@@ -118,9 +118,9 @@ from typing import Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QShortcut
-from PyQt6.QtWidgets import (QAbstractItemView, QDockWidget, QFileDialog,
-                              QInputDialog, QMenu, QMessageBox, QSplitter,
-                              QStackedWidget, QTreeWidget,
+from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QDockWidget,
+                              QFileDialog, QInputDialog, QMenu, QMessageBox,
+                              QSplitter, QStackedWidget, QTreeWidget,
                               QTreeWidgetItem, QTreeWidgetItemIterator,
                               QVBoxLayout, QWidget)
 
@@ -428,6 +428,15 @@ class ConfigTreeDock(QDockWidget):
         # mode either way.
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tree.itemClicked.connect(self._on_clicked)
+        # G.5: keyboard navigation (arrow keys) moves the CURRENT item without
+        # ever emitting itemClicked, so the whole tree's one-click navigation
+        # (cells, clone_placements, thermal_via_arrays, coordinate_placements,
+        # points, net_traces, scheme_lists, chain/anchor/pad) used to be
+        # mouse-only. currentItemChanged fires for BOTH mouse and keyboard and
+        # routes into the same handler. itemClicked stays connected on purpose:
+        # currentItemChanged does not fire on a repeat click of the already
+        # current item, and that repeat click must still re-open the right page.
+        self.tree.currentItemChanged.connect(self._on_current_item_changed)
         # Double click on a points: leaf -> Points edit dialog (2026-09-01,
         # plan plan_2026_09_01_points_dialog.md) — see _on_double_clicked.
         self.tree.itemDoubleClicked.connect(self._on_double_clicked)
@@ -443,6 +452,11 @@ class ConfigTreeDock(QDockWidget):
         # rebuild would fire a write storm from expandAll/setExpanded).
         self._collapsed: set = set()
         self._restoring_expand_state = False
+        # G.5: suppresses the currentItemChanged navigation while the dock
+        # itself sets the current item programmatically (refresh() rebuild,
+        # select_chains_chain's selection sync) — otherwise those would drag
+        # the Config right page along with them.
+        self._suppress_current_change = False
         self.tree.itemExpanded.connect(self._on_item_expanded)
         self.tree.itemCollapsed.connect(self._on_item_collapsed)
 
@@ -782,26 +796,40 @@ class ConfigTreeDock(QDockWidget):
         would be disruptive there). Remove this block once the bottleneck
         is found and fixed."""
         if os.environ.get("KICADSTAMP_PROFILE_TREE") == "1":
-            self._refresh_profiled()
+            # A rebuild is programmatic — never let it navigate (see below).
+            self._suppress_current_change = True
+            try:
+                self._refresh_profiled()
+            finally:
+                self._suppress_current_change = False
             return
         selection = self._capture_selection()
         # (P3) Reload the persisted collapsed-branch set — refresh() can be
         # triggered by a Save anywhere in the app, so the on-disk state may
         # have changed since the dock last read it.
         self._collapsed = self._load_collapsed()
-        self.tree.clear()
-        if self._root_path is None:
-            return
+        # G.5: refresh() runs on almost every dock's `saved` signal, and
+        # tree.clear() emits currentItemChanged(None, previous). A programmatic
+        # rebuild must be navigation-silent — suppress the whole body (the
+        # handler also returns on a None current as a second safety).
+        self._suppress_current_change = True
         try:
-            node = walk_include_tree(str(self._root_path))
-        except (ValidationError, OSError) as e:
-            QTreeWidgetItem(self.tree, [str(e)])
-            return
-        self._build_file_item(self.tree.invisibleRootItem(), node, parent_path=None)
-        # (P3) Default = everything expanded (a new/never-seen entry must be
-        # visible); then selectively re-collapse what the user collapsed.
-        self._expand_and_restore_collapsed()
-        self._restore_selection(selection)
+            self.tree.clear()
+            if self._root_path is None:
+                return
+            try:
+                node = walk_include_tree(str(self._root_path))
+            except (ValidationError, OSError) as e:
+                QTreeWidgetItem(self.tree, [str(e)])
+                return
+            self._build_file_item(self.tree.invisibleRootItem(), node,
+                                  parent_path=None)
+            # (P3) Default = everything expanded (a new/never-seen entry must be
+            # visible); then selectively re-collapse what the user collapsed.
+            self._expand_and_restore_collapsed()
+            self._restore_selection(selection)
+        finally:
+            self._suppress_current_change = False
 
     def _refresh_profiled(self) -> None:
         """See the TEMPORARY note on refresh() — same body, instrumented.
@@ -1016,6 +1044,33 @@ class ConfigTreeDock(QDockWidget):
     # ── Click routing (left-click anywhere in the tree) ─────────────────
 
     def _on_clicked(self, item, column) -> None:
+        """Single-left-click routing (mouse). Delegates to the shared
+        _route_tree_item, which the keyboard path (currentItemChanged) uses
+        too — one routing implementation, two entry points."""
+        self._route_tree_item(item)
+
+    def _on_current_item_changed(self, current, previous) -> None:
+        """Keyboard navigation: the arrow keys move the CURRENT tree item
+        without emitting itemClicked, so this signal is what makes the tree's
+        one-click navigation respond to the keyboard (G.5).
+
+        Guarded three ways:
+          * `current is None` — tree.clear() during refresh() emits
+            currentItemChanged(None, previous); refresh() runs on almost every
+            dock's `saved` signal, so this must be a silent no-op;
+          * `self._suppress_current_change` — a programmatic setCurrentItem by
+            this dock (refresh() rebuild, select_chains_chain's sync) must not
+            drag the Config right page;
+          * a MOUSE-driven change is skipped: the accompanying itemClicked
+            routes it, and routing both would double-emit file_selected and the
+            picked signal."""
+        if current is None or self._suppress_current_change:
+            return
+        if QApplication.mouseButtons() != Qt.MouseButton.NoButton:
+            return
+        self._route_tree_item(current)
+
+    def _route_tree_item(self, item) -> None:
         file_ctx = self._file_context_for_item(item)
         if file_ctx is not None:
             self.file_selected.emit(file_ctx[0])
@@ -1502,7 +1557,14 @@ class ConfigTreeDock(QDockWidget):
                 while parent is not None:
                     parent.setExpanded(True)
                     parent = parent.parent()
-                self.tree.setCurrentItem(item)
+                # G.5: this is a selection SYNC from another dock, not user
+                # navigation — the currentItemChanged it emits must not drag
+                # the Config right page.
+                self._suppress_current_change = True
+                try:
+                    self.tree.setCurrentItem(item)
+                finally:
+                    self._suppress_current_change = False
                 self.tree.scrollToItem(item)
                 return
             for child in range(item.childCount()):

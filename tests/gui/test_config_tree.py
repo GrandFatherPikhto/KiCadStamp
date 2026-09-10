@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import pytest
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QMessageBox, QWidget
+from PyQt6.QtWidgets import QApplication, QMessageBox, QWidget
 
 import gui.docks.config_tree as config_tree_mod
 from gui.docks.config_tree import ConfigTreeDock
@@ -2093,3 +2093,174 @@ def test_persist_ui_state_flushes_collapsed_from_widget(main_window, tmp_path):
     dock.persist_ui_state()
     assert ["category", str(root), "cells"] in settings.state.get(
         "config_tree_collapsed")
+
+
+# ── G.5: keyboard navigation of the Config tree ────────────────────────────
+#
+# The tree used to be wired to itemClicked alone, so the arrow keys moved the
+# CURRENT item without ever routing: the Config right pages (Placer, anchor,
+# points, ...) never learned the selection had moved. currentItemChanged fires
+# for BOTH mouse and keyboard and now feeds the same idempotent router.
+
+
+def test_keyboard_current_item_change_emits_the_click_signals(main_window,
+                                                              tmp_path):
+    """G.5: moving the CURRENT item (exactly what an arrow key does) must route
+    like a click — checked here for cells and for a second section.
+    setCurrentItem emits currentItemChanged and NO itemClicked; the mouse guard
+    stays awake because no button is held."""
+    root = tmp_path / "root.sexp"
+    _write(root, {
+        "cells": {"cell_a": {}, "cell_b": {}},
+        "clone_placements": [
+            {"name": "pl_a", "cell": "cell_a"},
+            {"name": "pl_b", "cell": "cell_b"},
+        ],
+    })
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    top = dock.tree.topLevelItem(0)
+    cell_b = _find(_find(top, "Cells"), "cell_b")
+    pl_b = _find(_find(top, "Clone placements"), "pl_b")
+
+    cells = []
+    placements = []
+    dock.cell_picked.connect(cells.append)
+    dock.placement_picked.connect(placements.append)
+
+    dock.tree.setCurrentItem(cell_b)
+    dock.tree.setCurrentItem(pl_b)
+
+    assert cells == ["cell_b"]
+    assert [p["name"] for p in placements] == ["pl_b"]
+
+
+def test_refresh_does_not_navigate(main_window, tmp_path):
+    """G.5 gotcha #1: refresh() (run on almost every dock's `saved`) clears the
+    tree, which emits currentItemChanged(None, previous). A rebuild must stay
+    navigation-silent — otherwise every Save would re-open a right page."""
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+    leaf = _find(_find(dock.tree.topLevelItem(0), "Cells"), "one_role")
+    dock.tree.setCurrentItem(leaf)
+
+    cells = []
+    files = []
+    dock.cell_picked.connect(cells.append)
+    dock.file_selected.connect(files.append)
+
+    dock.refresh()
+
+    assert cells == []
+    assert files == []
+
+
+def test_programmatic_set_current_item_does_not_navigate(main_window, tmp_path):
+    """G.5 gotcha #2: select_chains_chain is a selection SYNC from another dock
+    (the chains drill row); its setCurrentItem emits currentItemChanged and must
+    be suppressed so it cannot drag the Config right page."""
+    root = tmp_path / "root.sexp"
+    chain = {"net": "+3V3", "anchor_ref": "U1", "spokes": []}
+    _write(root, {"chains": [chain]})
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    chains = []
+    files = []
+    dock.chain_picked.connect(chains.append)
+    dock.file_selected.connect(files.append)
+
+    dock.select_chains_chain(chain)
+
+    assert dock.tree.currentItem() is not None  # the sync really happened
+    assert chains == []
+    assert files == []
+
+
+def test_repeat_click_on_the_current_item_still_navigates(main_window, tmp_path):
+    """G.5 gotcha #4: currentItemChanged does NOT fire on a repeat click of the
+    already-current item — itemClicked stays connected so the repeat click still
+    re-opens the right page (e.g. coming back after switching away)."""
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+    leaf = _find(_find(dock.tree.topLevelItem(0), "Cells"), "one_role")
+
+    cells = []
+    dock.cell_picked.connect(cells.append)
+
+    dock.tree.setCurrentItem(leaf)          # arrival (current item = leaf)
+    dock.tree.itemClicked.emit(leaf, 0)     # repeat clicks, no current change
+    dock.tree.itemClicked.emit(leaf, 0)
+
+    assert cells == ["one_role", "one_role", "one_role"]
+
+
+def test_mouse_click_does_not_emit_file_selected_twice(main_window, tmp_path,
+                                                       monkeypatch):
+    """G.5 gotcha #4 (dedupe): a REAL mouse click emits currentItemChanged AND
+    itemClicked. The current-change router skips while a mouse button is held,
+    so itemClicked is the single router — file_selected (and the pick signal)
+    must fire exactly once."""
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+    leaf = _find(_find(dock.tree.topLevelItem(0), "Cells"), "one_role")
+
+    class _FakeApp:
+        @staticmethod
+        def mouseButtons():
+            return Qt.MouseButton.LeftButton
+
+    monkeypatch.setattr(config_tree_mod, "QApplication", _FakeApp)
+
+    files = []
+    cells = []
+    dock.file_selected.connect(files.append)
+    dock.cell_picked.connect(cells.append)
+
+    # What Qt actually emits for one mouse click, in order.
+    dock.tree.currentItemChanged.emit(leaf, None)
+    dock.tree.itemClicked.emit(leaf, 0)
+
+    assert files == [root]
+    assert cells == ["one_role"]
+
+
+def test_keyboard_switch_to_another_cell_reloads_the_anchor_page(
+        real_main_window, tmp_path):
+    """End-to-end G.4 + G.5 (Denis's live symptom): with the anchor page open
+    for cell A and Sheet/Cluster set, an arrow-key move to cell B must reload
+    the page and clear the working context. Before G.5 the keyboard move never
+    reached cell_picked, so the fields stayed put."""
+    hub = real_main_window._dock_hub
+    target = tmp_path / "root.sexp"
+    target.write_text(dict_to_sexp({"cells": {
+        "A": {"components": [{"role": "C1", "offset_along_mm": 0.0,
+                              "offset_across_mm": 0.0}]},
+        "B": {"components": [{"role": "C1", "offset_along_mm": 0.0,
+                              "offset_across_mm": 0.0}]},
+    }}), encoding="utf-8")
+
+    hub.config_tree_dock.set_root_file(target)
+    hub.cell_anchor_view.set_root_path(target)
+    hub.cell_anchor_view.load_entry("A", target)
+    hub.cell_anchor_view._cluster_combo.setCurrentText("PIF_3V3_VDD")
+    hub.cell_anchor_view._sheet_combo.setCurrentText("MCU")
+    hub.config_tree_dock.show_page(hub._cell_anchor_page)
+
+    cells = _find(hub.config_tree_dock.tree.topLevelItem(0), "Cells")
+    leaf_b = _find(cells, "B")
+
+    # The arrow key: move the CURRENT item, no itemClicked.
+    hub.config_tree_dock.tree.setCurrentItem(leaf_b)
+    QApplication.processEvents()
+
+    assert hub.cell_anchor_view._cell_name == "B"
+    assert hub.cell_anchor_view._cluster_combo.currentText() == ""
+    assert hub.cell_anchor_view._sheet_combo.currentText() == ""
