@@ -1311,6 +1311,82 @@ def test_cell_picked_still_switches_to_placer(real_main_window):
             is real_main_window.placer_dock)
 
 
+# ── G.4: the anchor page follows the Config-tree cell selection ────────────
+
+def test_cell_click_reloads_the_anchor_page_when_active(real_main_window,
+                                                        monkeypatch):
+    """While the Cell-anchor editor is the active Config right page, a cell
+    click reloads THAT cell there (G.4) — and the click must NOT jump to the
+    Placer page."""
+    hub = real_main_window._dock_hub
+    calls = []
+    monkeypatch.setattr(hub.cell_anchor_view, "load_entry",
+                        lambda name, file_path: calls.append((name, file_path)))
+    hub.cell_anchor_view._cell_name = "pif_3v3_vdd"
+    hub.config_tree_dock.show_page(hub._cell_anchor_page)
+
+    real_main_window.config_tree_dock.cell_picked.emit("pif_3v3_vdda")
+
+    assert calls == [("pif_3v3_vdda", None)]
+    assert hub.config_tree_dock.right_stack.currentWidget() is hub.cell_anchor_view
+
+
+def test_cell_click_reload_clears_the_working_context(real_main_window, tmp_path):
+    """End to end: the reload goes through the real load_entry, so the previous
+    cell's Sheet/Cluster are cleared by _prefill_cell_context (the live leak
+    Denis reported)."""
+    hub = real_main_window._dock_hub
+    target = tmp_path / "root.sexp"
+    target.write_text(dict_to_sexp({"cells": {
+        "A": {"components": [{"role": "C1", "offset_along_mm": 0.0,
+                              "offset_across_mm": 0.0}]},
+        "B": {"components": [{"role": "C1", "offset_along_mm": 0.0,
+                              "offset_across_mm": 0.0}]},
+    }}), encoding="utf-8")
+    hub.cell_anchor_view.set_root_path(target)
+    hub.cell_anchor_view.load_entry("A", target)
+    hub.cell_anchor_view._cluster_combo.setCurrentText("PIF_3V3_VDD")
+    hub.cell_anchor_view._sheet_combo.setCurrentText("MCU")
+    hub.config_tree_dock.show_page(hub._cell_anchor_page)
+
+    real_main_window.config_tree_dock.cell_picked.emit("B")
+
+    assert hub.cell_anchor_view._cluster_combo.currentText() == ""
+    assert hub.cell_anchor_view._sheet_combo.currentText() == ""
+    assert hub.cell_anchor_view._cell_name == "B"
+
+
+def test_cell_click_does_not_open_the_anchor_page(real_main_window, monkeypatch):
+    """A click never OPENS the anchor page: when it is not the active right
+    page the ordinary behavior stays (reveal the Placer page)."""
+    hub = real_main_window._dock_hub
+    calls = []
+    monkeypatch.setattr(hub.cell_anchor_view, "load_entry",
+                        lambda *a, **k: calls.append(a))
+    hub._config_right_page_index = 0   # placeholder page, not the anchor page
+
+    real_main_window.config_tree_dock.cell_picked.emit("ldo_adj")
+
+    assert calls == []
+    assert hub.config_tree_dock.right_stack.currentWidget() is hub.placer_dock
+
+
+def test_repeat_cell_click_is_a_noop_for_the_anchor_page(real_main_window,
+                                                         monkeypatch):
+    """Re-clicking the cell already loaded must not reload it — that would drop
+    unsaved input and remove the overlay the user is working with."""
+    hub = real_main_window._dock_hub
+    calls = []
+    monkeypatch.setattr(hub.cell_anchor_view, "load_entry",
+                        lambda *a, **k: calls.append(a))
+    hub.cell_anchor_view._cell_name = "pif_3v3_vdd"
+    hub.config_tree_dock.show_page(hub._cell_anchor_page)
+
+    real_main_window.config_tree_dock.cell_picked.emit("pif_3v3_vdd")
+
+    assert calls == []
+
+
 def test_net_trace_picked_routes_to_config_net_trace_page(real_main_window):
     """S-B (plan config_qview_placer_nettrace): a net_trace record click
     (net_trace_picked) brings the Config dock's NetTrace right page to the

@@ -74,6 +74,7 @@ from kicadstamp.geometry.cell_anchor import cell_mount_offset
 from kicadstamp.geometry.spoke_layout import rotate_local_offset
 from kicadstamp.i18n import _
 from kicadstamp.placement.entity_placement import materialize_entity_placements
+from kicadstamp.placement.services.role_narrowing import narrow_candidates_by_sheet
 from kicadstamp.utils.units import MM
 
 from .. import board_overlay, settings
@@ -98,6 +99,7 @@ from .live_position import (
     read_clone_origin_live,
 )
 from .rename import find_dict_entry_file
+from .scheme_list import snapshot_with_resolved_sheets
 
 logger = logging.getLogger(__name__)
 
@@ -648,6 +650,18 @@ class CellAnchorView(QWidget):
         self._file_path: Optional[Path] = None
         self._root_path: Optional[Path] = None
         self._active_op = None
+        # G.2: the config's {uuid: name} sheet map, cached in set_root_path so
+        # the per-snapshot-tick re-resolution/narrowing never reloads the config
+        # itself. The live snapshot and its sheet-resolved twin (see
+        # refresh_known_roles); the resolved one is what the cluster narrowing
+        # filters.
+        self._sheet_names: dict = {}
+        self._snapshot: list = []
+        self._resolved_snapshot: list = []
+        # G.3: the same programmatic-population guard CellDock uses — combo
+        # refills / prefill must never write the remembered context over fresh
+        # data.
+        self._loading = False
         # Persisted overlay uuids (survive an app restart, see _OVERLAY_STATE_KEY).
         self._marker_uuid: Optional[str] = None
         self._bbox_uuid: Optional[str] = None
@@ -778,6 +792,9 @@ class CellAnchorView(QWidget):
         self._tabs.addTab(marker_page, _("Marker"))
 
         self._cluster_combo.currentTextChanged.connect(self._on_cluster_changed)
+        # G.2: the Sheet narrows the Cluster list; G.3: both combos persist the
+        # working context on a manual pick.
+        self._sheet_combo.currentTextChanged.connect(self._on_sheet_changed)
         self._tabs.currentChanged.connect(lambda _i: self._reload_form())
 
     # ── Loading / context ─────────────────────────────────────────────────
@@ -796,7 +813,9 @@ class CellAnchorView(QWidget):
         NOT drop a marker/bbox the user is mid-edit with."""
         if path != self._root_path:
             self.cleanup()
+            self._snapshot = []      # a stale snapshot belongs to the old root
         self._root_path = path
+        self._sheet_names = {}
         if path is not None:
             try:
                 _cfg, ctx = load_config(str(path))
@@ -805,14 +824,27 @@ class CellAnchorView(QWidget):
             if ctx is not None:
                 # ctx.sheet_names is a "sheet path -> readable name" dict; the
                 # combo shows the NAMES, not the uuid-path keys (same as
-                # rename.py's sorted(set(ctx.sheet_names.values()))).
-                sheet_names = ctx.sheet_names or {}
-                set_combo_items(self._sheet_combo,
-                                sorted(set(sheet_names.values())))
+                # rename.py's sorted(set(ctx.sheet_names.values()))). The map is
+                # CACHED too — the sheet->cluster narrowing and the snapshot
+                # re-resolution need it on every snapshot tick without
+                # reloading the config there (G.2).
+                self._sheet_names = ctx.sheet_names or {}
+                self._loading = True
+                try:
+                    set_combo_items(self._sheet_combo,
+                                    sorted(set(self._sheet_names.values())))
+                finally:
+                    self._loading = False
         else:
-            self._sheet_combo.clear()
+            self._loading = True
+            try:
+                self._sheet_combo.clear()
+            finally:
+                self._loading = False
         self._marker_uuid = None
         self._bbox_uuid = None
+        # The sheet map may have changed — re-narrow the Cluster list.
+        self._refill_cluster_choices()
         if self._cell_name is not None:
             self._reload_form()
 
@@ -821,13 +853,82 @@ class CellAnchorView(QWidget):
         (wired into DockHub.push_snapshot like every other dock's
         refresh_known_roles — a Phase C gap fixed with Phase E: the combo was
         never populated, so the anchor page could only be narrowed by hand or
-        by "Read from selection"). Fill, never restrict: the combo stays an
-        editable picker, the list is only a hint (a typed cluster not on the
-        board is still accepted). The Role combo is deliberately NOT touched —
-        it is a closed list of THIS cell's own components, not a live-board
-        value."""
-        clusters = sorted({s.cluster for s in snapshot if s.cluster})
-        set_combo_items(self._cluster_combo, clusters)
+        by "Read from selection").
+
+        G.2: the snapshot is STORED and re-resolved through
+        snapshot_with_resolved_sheets against the cached config sheet map — a
+        live Board's own .sheet is always a list of None (Board.connect passes
+        no schematic_dir), so filtering on it directly would match nothing at
+        any sheet. The Cluster list is then refilled narrowed by the currently
+        selected Sheet. Fill, never restrict: the combo stays an editable
+        picker, the list is only a hint (a typed cluster not on the board is
+        still accepted). The Role combo is deliberately NOT touched — it is a
+        closed list of THIS cell's own components, not a live-board value."""
+        self._snapshot = list(snapshot or [])
+        # Re-resolve .sheet against the config map — a live Board's own sheet
+        # resolution is always all-None (Board.connect passes no schematic_dir).
+        # A synthetic snapshot without the raw .fp handle (some tests) has
+        # nothing to re-resolve, so it is used as-is rather than crashing the
+        # whole feed.
+        if all(hasattr(s, "fp") for s in self._snapshot):
+            self._resolved_snapshot = snapshot_with_resolved_sheets(
+                self._snapshot, self._sheet_names)
+        else:
+            self._resolved_snapshot = list(self._snapshot)
+        self._refill_cluster_choices()
+
+    def _refill_cluster_choices(self) -> None:
+        """Refill the Cluster combo from the sheet-resolved snapshot, narrowed by
+        the currently selected Sheet (G.2): only the clusters whose footprints
+        actually sit on that sheet survive. Uses ONLY narrow_candidates_by_sheet —
+        it narrows only when that genuinely reduces the set, an empty sheet is a
+        no-op, and a cluster deeper than the chosen sheet segment still matches
+        (_fp_on_sheet checks every path segment). set_combo_items preserves the
+        current text when it survives the refill, so a cluster the user already
+        picked is not reset silently."""
+        snapshot = self._resolved_snapshot
+        if all(hasattr(s, "fp") for s in snapshot):
+            # narrow_candidates_by_sheet narrows a list of FOOTPRINTS (its
+            # _fp_on_sheet reads fp.sheet_path_uuids) — pass the Selected pair's
+            # raw .fp, then map the survivors back to their clusters.
+            kept = {id(fp) for fp in narrow_candidates_by_sheet(
+                [s.fp for s in snapshot], self._sheet_combo.currentText().strip(),
+                self._sheet_names)}
+            clusters = sorted({s.cluster for s in snapshot
+                               if s.cluster and id(s.fp) in kept})
+        else:
+            # A synthetic snapshot without the raw fp handle (tests) carries no
+            # sheet information to narrow on — plain distinct clusters.
+            clusters = sorted({s.cluster for s in snapshot if s.cluster})
+        self._loading = True
+        try:
+            set_combo_items(self._cluster_combo, clusters)
+        finally:
+            self._loading = False
+
+    def _on_sheet_changed(self) -> None:
+        """The working Sheet changed — re-narrow the Cluster list to that sheet
+        (G.2) and persist the working context (G.3)."""
+        if self._loading:
+            return
+        self._refill_cluster_choices()
+        self._remember_working_context()
+
+    def _remember_working_context(self) -> None:
+        """Persist the working (Cluster, Sheet) for the loaded cell (G.3) —
+        manual combo picks must survive too, not only "Read from selection".
+        Best-effort and never raises (remember_cell_edit_context swallows
+        everything internally); guarded by _loading so prefill / snapshot
+        refills never write over fresh data, and an empty cluster writes
+        nothing (also guaranteed inside the callee)."""
+        if self._loading or self._cell_name is None:
+            return
+        cluster = self._cluster_combo.currentText().strip()
+        if not cluster:
+            return
+        remember_cell_edit_context(
+            self._root_path, self._cell_name, cluster,
+            self._sheet_combo.currentText().strip() or None)
 
     def load_entry(self, name: str, file_path) -> None:
         """Open the requested cell for anchor editing — (name, owning file),
@@ -859,24 +960,40 @@ class CellAnchorView(QWidget):
         on the current live board (renamed/deleted/other board), or a missing
         record, leaves BOTH fields empty — exactly the pre-Phase-E "ask again"
         state. A stale Sheet (not among the current config's sheet names) is
-        dropped too. Never a fatal, never an exception."""
-        # A reused view must not leak the PREVIOUS cell's working context.
-        self._sheet_combo.setCurrentText("")
-        self._cluster_combo.setCurrentText("")
+        dropped too. Never a fatal, never an exception.
+
+        G.3: "unresolvable" only applies when the board IS connected. With no
+        adapter the remembered cluster is a HINT we simply cannot confirm (not a
+        stale one), so it is applied as-is — cluster_present_on_board() returns
+        False for a missing adapter, which used to throw a perfectly good
+        remembered context away offline."""
+        # A reused view must not leak the PREVIOUS cell's working context, and
+        # this prefill must never persist anything itself (G.3).
+        self._loading = True
+        try:
+            self._sheet_combo.setCurrentText("")
+            self._cluster_combo.setCurrentText("")
+        finally:
+            self._loading = False
         if self._cell_name is None or self._root_path is None:
             return
         cluster, sheet = remembered_cell_edit_context(
             self._root_path, self._cell_name)
         if not cluster:
             return
-        if not cluster_present_on_board(self._adapter(), cluster):
-            return                      # stale context -> fields stay empty
-        self._cluster_combo.setCurrentText(cluster)
-        if sheet:
-            sheets = {self._sheet_combo.itemText(i)
-                      for i in range(self._sheet_combo.count())}
-            if sheet in sheets:
-                self._sheet_combo.setCurrentText(sheet)
+        adapter = self._adapter()
+        if adapter is not None and not cluster_present_on_board(adapter, cluster):
+            return                      # live board, cluster gone -> stay empty
+        self._loading = True
+        try:
+            self._cluster_combo.setCurrentText(cluster)
+            if sheet:
+                sheets = {self._sheet_combo.itemText(i)
+                          for i in range(self._sheet_combo.count())}
+                if sheet in sheets:
+                    self._sheet_combo.setCurrentText(sheet)
+        finally:
+            self._loading = False
 
     # ── Persisted overlay uuids ───────────────────────────────────────────
 
@@ -999,6 +1116,9 @@ class CellAnchorView(QWidget):
     # ── Component tab handlers ────────────────────────────────────────────
 
     def _on_cluster_changed(self) -> None:
+        # G.3: a manual Cluster pick persists the working context (guarded by
+        # _loading, so programmatic refills/prefill never write).
+        self._remember_working_context()
         if self._cell_name is None:
             return
         entry = self._current_entry()
@@ -1342,6 +1462,13 @@ class CellAnchorView(QWidget):
         worker thread via start_long_op (never a synchronous adapter call on
         the UI thread)."""
         if self._cell_name is None:
+            return
+        if getattr(self._connection, "long_op_active", False):
+            # Never interleave two IPC ops on the shared kipy REQ socket —
+            # rapid Config-tree clicks switch cells faster than an overlay
+            # removal completes. Leave this cell's state AND its persisted
+            # uuids in place so the GUI-exit / whole-layer sweep still finds
+            # the shape later (same discipline as cleanup_all_overlays_sync).
             return
         marker, bbox = self._marker_uuid, self._bbox_uuid
         self._marker_uuid = None

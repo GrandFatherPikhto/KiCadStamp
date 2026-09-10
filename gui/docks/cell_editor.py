@@ -277,9 +277,12 @@ class CellDock(QWidget):
         self._vias: List[Dict[str, Any]] = []
         self._tracks: List[Dict[str, Any]] = []
         self._nested: List[Dict[str, Any]] = []
-        # The anchor_xy (v2 mount) LOADED from the entry — carried through
-        # verbatim on save (this form no longer edits it; see _build_cell_dict).
-        self._loaded_anchor_xy: Optional[list] = None
+        # The NAME this form was LOADED from — _build_cell_dict reads anchor_xy
+        # from DISK by it at save time. The Cell dialog is non-modal (closing it
+        # only hides it) and survives an edit of the same cell by the "Cell
+        # anchor" page, so a load-time snapshot of anchor_xy is stale either way
+        # (see _build_cell_dict).
+        self._loaded_name: Optional[str] = None
         self._selected_component: Optional[int] = None
         self._selected_via: Optional[int] = None
         self._selected_track: Optional[int] = None
@@ -1328,6 +1331,17 @@ class CellDock(QWidget):
 
     # ── Building the Cell entry dict (Save) ──────────────────────────────
 
+    def _loaded_entry_on_disk(self) -> dict:
+        """The CURRENT on-disk entry of the cell this form was LOADED from
+        (keyed by the loaded NAME, not the current name_edit), read fresh
+        through the include graph; {} for a new cell / no root. The Cell dialog
+        is non-modal, so the "Cell anchor" page may have edited the same cell
+        while it stayed open — this is how _build_cell_dict sees that edit."""
+        if self._root_path is None or self._loaded_name is None:
+            return {}
+        return collect_section_entries(self._root_path, "cells").get(
+            self._loaded_name) or {}
+
     def _build_cell_dict(self) -> Optional[tuple]:
         name = self.name_edit.text().strip()
         if not name:
@@ -1355,15 +1369,18 @@ class CellDock(QWidget):
             pad = self.anchor_pad_edit.text().strip()
             if pad:
                 entry["anchor_pad"] = pad
-        # anchor_xy is edited ONLY in the dedicated "Cell anchor" page (Фаза C)
-        # — this form carries a LOADED value through verbatim, so an unrelated
-        # edit here never drops it. Dropping it would be catastrophic: an
-        # explicit anchor_xy WINS over Role/Pad (§A.5 GUARD 1), and losing it
-        # from a Role+Pad cell turns it into the legacy rebase-by-pad shape
-        # that resolves the mount to (0,0) and silently moves the content
-        # (§A.5 GUARD 2).
-        if self._loaded_anchor_xy is not None:
-            entry["anchor_xy"] = list(self._loaded_anchor_xy)
+        # anchor_xy is edited ONLY in the dedicated "Cell anchor" page, so this
+        # form takes the CURRENT on-disk value — read at save time, never from a
+        # load-time snapshot. A snapshot loses data: it would resurrect an
+        # anchor_xy the anchor page just removed (GUARD 1 — a stale anchor_xy
+        # WINS over the fresh Role/Pad anchor) or drop a marker it just placed.
+        # Read by the loaded name, so renaming here copies the loaded cell's
+        # anchor_xy into the new record. Dropping anchor_xy from a Role+Pad cell
+        # is equally catastrophic: it becomes the legacy rebase-by-pad shape
+        # resolving the mount to (0,0) and silently moves the content (GUARD 2).
+        on_disk_anchor_xy = self._loaded_entry_on_disk().get("anchor_xy")
+        if on_disk_anchor_xy is not None:
+            entry["anchor_xy"] = list(on_disk_anchor_xy)
 
         try:
             load_cell(name, entry)
@@ -1877,7 +1894,7 @@ class CellDock(QWidget):
             self.anchor_mode_combo.setCurrentIndex(0)   # "(none)"
             self.anchor_role_combo.setCurrentText("")
             self.anchor_pad_edit.setText("")
-            self._loaded_anchor_xy = None
+            self._loaded_name = None
             self._on_anchor_mode_changed()
             self._components = []
             self._vias = []
@@ -1918,6 +1935,9 @@ class CellDock(QWidget):
         entry = {}
         if self._root_path is not None:
             entry = collect_section_entries(self._root_path, "cells").get(name) or {}
+        # Remember the LOADED name for _build_cell_dict's on-disk anchor_xy read
+        # (a rename in the form must still carry the LOADED cell's anchor_xy).
+        self._loaded_name = name
         self._loading = True
         try:
             self.name_edit.setText(name)
@@ -1939,9 +1959,6 @@ class CellDock(QWidget):
                     max(0, self.anchor_mode_combo.findData("none")))
                 self.anchor_role_combo.setCurrentText("")
             self.anchor_pad_edit.setText(str(entry.get("anchor_pad", "") or ""))
-            self._loaded_anchor_xy = (
-                list(entry["anchor_xy"]) if entry.get("anchor_xy") is not None
-                else None)
             self._on_anchor_mode_changed()
 
             self._components = [dict(c) for c in (entry.get("components") or [])]

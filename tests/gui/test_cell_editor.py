@@ -779,19 +779,19 @@ def test_load_entry_round_trips_same_as_role(main_window, tmp_path):
 
 def test_load_entry_with_anchor_xy_only(main_window, tmp_path):
     """An anchor_xy-only cell (no anchor_role) opens in "(none)" — the Role
-    form does not manage that anchor — but the value is CARRIED through on
-    save (see test_build_cell_dict_carries_loaded_anchor_xy_through)."""
+    form does not manage that anchor — but the value is kept on save (read
+    back from disk by the loaded name; see G.1 tests below)."""
     dock, _ = _make_dock(main_window, tmp_path, {"cells": {
         "t": {"components": [], "anchor_xy": [1.5, -2.0]},
     }})
     dock.load_entry("t")
     assert dock.anchor_mode_combo.currentData() == "none"
-    assert dock._loaded_anchor_xy == [1.5, -2.0]
+    assert dock._loaded_name == "t"
 
 
 def test_load_entry_role_pad_keeps_stored_anchor_xy(main_window, tmp_path):
     """A saved v2 Role+Pad+XY cell reloads in Role mode; the stored anchor_xy
-    is remembered for carry-forward (the form no longer has X/Y editors)."""
+    is still on disk for the save-time read (the form has no X/Y editors)."""
     dock, _ = _make_dock(main_window, tmp_path, {"cells": {
         "t": {
             "components": [{"role": "C_OUT_BYPASS", "offset_along_mm": -5.05,
@@ -805,12 +805,12 @@ def test_load_entry_role_pad_keeps_stored_anchor_xy(main_window, tmp_path):
     assert dock.anchor_mode_combo.currentData() == "role"
     assert dock.anchor_role_combo.currentText() == "C_OUT_BYPASS"
     assert dock.anchor_pad_edit.text() == "1"
-    assert dock._loaded_anchor_xy == [-8.05, -2.795]
+    assert dock._loaded_entry_on_disk()["anchor_xy"] == [-8.05, -2.795]
 
 
 def test_load_entry_role_only_has_no_carried_anchor_xy(main_window, tmp_path):
-    """A legacy role-only cell (no anchor_xy) reloads in Role mode with no
-    carried anchor_xy — cell_mount_offset's role-centre branch resolves it."""
+    """A legacy role-only cell (no anchor_xy) reloads in Role mode; nothing to
+    carry — cell_mount_offset's role-centre branch resolves it."""
     dock, _ = _make_dock(main_window, tmp_path, {"cells": {
         "t": {
             "components": [{"role": "A", "offset_along_mm": 1.0,
@@ -821,7 +821,72 @@ def test_load_entry_role_only_has_no_carried_anchor_xy(main_window, tmp_path):
     dock.load_entry("t")
     assert dock.anchor_mode_combo.currentData() == "role"
     assert dock.anchor_role_combo.currentText() == "A"
-    assert dock._loaded_anchor_xy is None
+    assert "anchor_xy" not in dock._loaded_entry_on_disk()
+
+
+# ── G.1: anchor_xy is read from DISK at save time (non-modal Cell dialog) ──
+
+def _anchor_base_cell(**extra):
+    cell = {"components": [{"role": "A", "offset_along_mm": -5.05,
+                            "offset_across_mm": -0.295, "angle_deg": 0.0}]}
+    cell.update(extra)
+    return {"cells": {"t": cell}}
+
+
+def test_anchor_xy_is_read_from_disk_at_save_case_a(main_window, tmp_path):
+    """G.1 case A: the anchor page placed a marker (anchor_xy written on disk)
+    while CellDock held the cell. An unrelated CellDock save must KEEP it."""
+    dock, target = _make_dock(main_window, tmp_path, _anchor_base_cell())
+    dock.load_entry("t")
+
+    _write(target, _anchor_base_cell(anchor_xy=[1.5, 2.5]))
+
+    dock.comment_edit.setText("unrelated edit")
+    _name, entry = dock._build_cell_dict()
+    assert entry["anchor_xy"] == [1.5, 2.5]
+
+
+def test_anchor_xy_is_read_from_disk_at_save_case_b(main_window, tmp_path):
+    """G.1 case B: the anchor page removed anchor_xy (Component anchor) while
+    CellDock held the old value. The save must NOT resurrect it — a stale
+    anchor_xy would WIN over the fresh Role/Pad anchor (GUARD 1)."""
+    dock, target = _make_dock(main_window, tmp_path,
+                              _anchor_base_cell(anchor_xy=[-8.05, -2.795]))
+    dock.load_entry("t")
+
+    _write(target, _anchor_base_cell(anchor_role="A", anchor_pad="1"))
+
+    dock.comment_edit.setText("unrelated edit")
+    _name, entry = dock._build_cell_dict()
+    assert "anchor_xy" not in entry
+
+
+def test_anchor_xy_survives_the_real_save_path(main_window, tmp_path):
+    """G.1 case A through the real save: merge_write replaces the whole cell
+    entry, so the marker must come from the save-time disk read."""
+    dock, target = _make_dock(main_window, tmp_path, _anchor_base_cell())
+    dock.load_entry("t")
+    _write(target, _anchor_base_cell(anchor_xy=[1.5, 2.5]))
+
+    dock.comment_edit.setText("unrelated edit")
+    dock._on_save()
+
+    on_disk = _load(target)["cells"]["t"]
+    assert on_disk["anchor_xy"] == [1.5, 2.5]
+
+
+def test_rename_carries_the_loaded_anchor_xy(main_window, tmp_path):
+    """G.1 rename: changing the name in the form copies the cell — the
+    anchor_xy must come from the LOADED cell, not be looked up under the new
+    (absent) name."""
+    dock, _ = _make_dock(main_window, tmp_path,
+                         _anchor_base_cell(anchor_xy=[-8.05, -2.795]))
+    dock.load_entry("t")
+    dock.name_edit.setText("t_copy")
+
+    name, entry = dock._build_cell_dict()
+    assert name == "t_copy"
+    assert entry["anchor_xy"] == [-8.05, -2.795]
 
 
 def test_load_entry_with_no_anchor(main_window, tmp_path):

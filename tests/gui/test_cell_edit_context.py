@@ -418,3 +418,64 @@ def test_select_cluster_worker_stale_context_selects_nothing(main_window,
 
     assert result["selected"] == 0
     assert adapter.selected == []
+
+
+# ── G.3: the working context is remembered on a MANUAL pick ───────────────
+
+def test_manual_cluster_pick_remembers_the_context(main_window, tmp_path):
+    """Until G.3 the context was written ONLY by "Read from selection" — a
+    hand-picked Cluster was never persisted."""
+    view, root = _make_view(main_window, tmp_path)
+
+    view._cluster_combo.setCurrentText("PIF_3V3_VDD")
+
+    assert remembered_cell_edit_context(root, "cell1") == ("PIF_3V3_VDD", None)
+
+
+def test_manual_sheet_pick_remembers_the_context(main_window, tmp_path):
+    view, root = _make_view(main_window, tmp_path)
+
+    view._cluster_combo.setCurrentText("PIF_3V3_VDD")
+    view._sheet_combo.setCurrentText("MCU")
+
+    assert remembered_cell_edit_context(root, "cell1") == ("PIF_3V3_VDD", "MCU")
+
+
+def test_prefill_does_not_write_a_parasitic_context(main_window, tmp_path):
+    """Opening a cell (prefill + the guarded combo refills) must not persist
+    anything by itself."""
+    _view, root = _make_view(main_window, tmp_path)
+
+    assert remembered_cell_edit_context(root, "cell1") == (None, None)
+
+
+def test_offline_prefill_applies_the_remembered_context(main_window, tmp_path):
+    """G.3 cause 2: with NO live board the remembered cluster is a hint we
+    cannot confirm (not a stale one) — it must be applied, not thrown away."""
+    root = tmp_path / "root.sexp"
+    _write(root, _cell_data())
+    remember_cell_edit_context(root, "cell1", "PIF_3V3_VDD", "MCU")
+    assert main_window.connection.board is None
+
+    view = CellAnchorView(main_window, connection=main_window.connection)
+    view.set_root_path(root)
+    view.load_entry("cell1", root)
+
+    assert view._cluster_combo.currentText() == "PIF_3V3_VDD"
+
+
+def test_live_prefill_drops_a_stale_remembered_cluster(main_window, tmp_path):
+    """The §E.5 behaviour is unchanged WITH a live board: a cluster that is not
+    on it is silently dropped, never a fatal."""
+    adapter = FakeAdapter()
+    adapter.footprints = []
+    root = tmp_path / "root.sexp"
+    _write(root, _cell_data())
+    remember_cell_edit_context(root, "cell1", "GONE", None)
+    main_window.connection.board = SimpleNamespace(adapter=adapter)
+
+    view = CellAnchorView(main_window, connection=main_window.connection)
+    view.set_root_path(root)
+    view.load_entry("cell1", root)
+
+    assert view._cluster_combo.currentText() == ""

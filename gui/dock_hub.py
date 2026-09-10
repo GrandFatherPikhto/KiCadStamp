@@ -739,7 +739,10 @@ class DockHub:
         # wiring, same target methods, unified single source).
         self.tree_dock.cluster_picked.connect(self.placer_dock.set_cluster_name)
         self.config_tree_dock.cell_picked.connect(self.placer_dock.set_selected_cell)
-        self.config_tree_dock.cell_picked.connect(self._show_config_placer)
+        # A cell-leaf click normally reveals the Placer page, but while the
+        # Cell-anchor editor is the active Config right page it must make THAT
+        # page follow the tree selection instead (G.4) — see _on_cell_picked.
+        self.config_tree_dock.cell_picked.connect(self._on_cell_picked)
         # Entities leaf (2026-09-05, design config_qview_chain_entity_pages):
         # a single click opens the Entity right-QView page (record editor) —
         # NO longer routed into Placer's Entity mode (that mode stays available
@@ -2208,6 +2211,25 @@ class DockHub:
         copy through its normal save path and reports the result in the Log —
         no Cell dialog, no entity/net editor pops up (Denis 2026-09-06)."""
         self.cells_dock.copy_from_cell_requested(name, file_path)
+
+    def _on_cell_picked(self, name: str) -> None:
+        """A Config-tree cell-leaf click (G.4). Ordinary behavior is to reveal
+        the Placer page; but while the Cell-anchor editor is the ACTIVE Config
+        right page, the page must FOLLOW the tree selection — it reloads the
+        clicked cell through load_entry, which first clears the previous cell's
+        working-context combos (_prefill_cell_context), so the Sheet/Cluster of
+        the previously edited cell no longer leak. A click never OPENS the anchor
+        page (that stays the context menu's job), and a repeat click on the cell
+        already loaded is a no-op — it must not drop unsaved input or remove the
+        overlay the user is working with."""
+        anchor_page = getattr(self, "_cell_anchor_page", None)
+        if anchor_page is None or getattr(
+                self, "_config_right_page_index", 0) != anchor_page:
+            self._show_config_placer()
+            return
+        if getattr(self.cell_anchor_view, "_cell_name", None) == name:
+            return
+        self.cell_anchor_view.load_entry(name, None)
 
     def _edit_cell_anchor(self, name, file_path) -> None:
         """ConfigTreeDock's cell_anchor_requested delegate (2026-09-09, Phase C

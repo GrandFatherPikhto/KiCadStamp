@@ -25,6 +25,7 @@ from gui.docks.cell_anchor_view import (
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.domain.board import Footprint, Via
 from kicadstamp.domain.geometry import Vector2
+from kicadstamp.explore import Selected
 from kicadstamp.exceptions import ValidationError
 
 # A fresh Pad stand-in class, patched in place of kipy's Pad per test — the
@@ -765,3 +766,83 @@ def test_cleanup_all_overlays_sync_removes_every_persisted_uuid(qapp, main_windo
 
     assert sorted(adapter.removed) == ["b1", "m1", "m2"]
     assert view_mod.board_overlay.persisted_overlay_uuids() == []
+
+
+# ── G.2: the Sheet narrows the Cluster list ───────────────────────────────
+
+def _sel_on_sheet(ref, cluster, sheet_uuid, role=None):
+    """A Selected whose footprint resolves to ONE sheet segment via
+    sheet_uuid. `.sheet` is left DEGENERATE (all None) on purpose — that is what
+    a live Board produces (Board.connect passes no schematic_dir), and what
+    snapshot_with_resolved_sheets has to fix."""
+    fp = Footprint(ref=ref, uuid=f"uuid-{ref}", position=Vector2.from_xy(0, 0),
+                   angle_deg=0.0, layer="F.Cu",
+                   sheet_path_uuids=(sheet_uuid, "comp"))
+    return Selected(ref=ref, role=role, cluster=cluster, sheet=[None],
+                    nets={}, fp=fp)
+
+
+def _feed_snapshot(view, sheet_names):
+    view._sheet_names = dict(sheet_names)
+    view.refresh_known_roles([
+        _sel_on_sheet("R1", "PIF_3V3_VDD", "mcu"),
+        _sel_on_sheet("R2", "FPGA", "fpga"),
+    ])
+
+
+def _clusters(view):
+    return [view._cluster_combo.itemText(i)
+            for i in range(view._cluster_combo.count())]
+
+
+def test_sheet_narrows_the_cluster_list(main_window, tmp_path):
+    view, _ = _make_view(main_window, tmp_path)
+    _feed_snapshot(view, {"mcu": "MCU", "fpga": "FPGA"})
+    assert _clusters(view) == ["FPGA", "PIF_3V3_VDD"]
+
+    view._sheet_combo.setCurrentText("MCU")     # fires _on_sheet_changed
+    assert _clusters(view) == ["PIF_3V3_VDD"]
+
+
+def test_degenerate_live_sheets_are_re_resolved(main_window, tmp_path):
+    """THE G.2 trap: a live snapshot's .sheet is a list of None. After the
+    snapshot_with_resolved_sheets rebuild the stored snapshot must carry the
+    config-based names, otherwise a sheet filter could never match."""
+    view, _ = _make_view(main_window, tmp_path)
+    _feed_snapshot(view, {"mcu": "MCU", "fpga": "FPGA"})
+
+    resolved = {tuple(s.sheet) for s in view._resolved_snapshot}
+    assert resolved == {("MCU",), ("FPGA",)}     # NOT {(None,), (None,)}
+
+
+def test_sheet_that_does_not_reduce_keeps_the_full_list(main_window, tmp_path):
+    view, _ = _make_view(main_window, tmp_path)
+    view._sheet_names = {"mcu": "MCU"}
+    view.refresh_known_roles([
+        _sel_on_sheet("R1", "PIF_3V3_VDD", "mcu"),
+        _sel_on_sheet("R2", "PIF_AVDD", "mcu"),
+    ])
+
+    view._sheet_combo.setCurrentText("MCU")     # both clusters on MCU
+
+    assert _clusters(view) == ["PIF_3V3_VDD", "PIF_AVDD"]
+
+
+def test_empty_sheet_restores_the_full_list(main_window, tmp_path):
+    view, _ = _make_view(main_window, tmp_path)
+    _feed_snapshot(view, {"mcu": "MCU", "fpga": "FPGA"})
+    view._sheet_combo.setCurrentText("MCU")
+    assert _clusters(view) == ["PIF_3V3_VDD"]
+
+    view._sheet_combo.setCurrentText("")
+    assert _clusters(view) == ["FPGA", "PIF_3V3_VDD"]
+
+
+def test_selected_cluster_survives_narrowing_when_it_matches(main_window, tmp_path):
+    view, _ = _make_view(main_window, tmp_path)
+    _feed_snapshot(view, {"mcu": "MCU", "fpga": "FPGA"})
+    view._cluster_combo.setCurrentText("PIF_3V3_VDD")
+
+    view._sheet_combo.setCurrentText("MCU")     # PIF_3V3_VDD IS on MCU
+
+    assert view._cluster_combo.currentText() == "PIF_3V3_VDD"
