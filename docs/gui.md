@@ -1351,38 +1351,46 @@ board_overlay.md`) — a NEW dedicated anchor editor, separate from the full Cel
 click a Cell leaf in the Cells category → **Cell anchor...** opens it as a Config right-QView page
 (the full cell form keeps editing Components/Vias/Tracks/Nested; this page edits ONLY the anchor).
 It is the v2 declarative anchor UI — the anchor is a REFERENCE resolved at apply time (Phase A's
-`resolve_pad_mount`), no board round-trip at save time. Two tabs:
+`resolve_pad_mount`), no board round-trip at save time. Three tabs:
 
-- **Component** (the first tab) hosts the **working context — Sheet (optional) / Cluster** of the
-  placed instance, then **Role** (closed combo from THIS cell's own components, narrowed by the
-  working Cluster — the roles actually present on that cluster) and an optional **Pad**. **Read from
-  selection** understands the three selection cases: a selected **pad** → its owner footprint's
-  Role + Cluster and the pad number; a selected **footprint** → Role + Cluster (Pad untouched); a
-  selected **Via** → an explicit "this is the Marker tab's case" message, never "nothing selected".
-  A selection spanning SEVERAL clusters is a fatal listing them (never "take the first"). **Set as
-  anchor** writes `anchor_role` (+`anchor_pad`) and REMOVES any stale `anchor_xy` (GUARD 1 — so the
-  live pad resolution actually runs). Role-only = the component's stored centre (offline — the live
-  board is needed ONLY for Read from selection; picking Role/Pad by hand and saving works with no
-  board, proven by test).
-- **Marker** — draws the cell's bbox rectangle and a draggable marker circle as REAL KiCad graphics
-  on the overlay layer (the **Settings → Board overlay** layer, `User.Drawings` by default; the
-  stroke/radius come from the same page too; colour comes from the LAYER, no colour setting), all IPC
-  on the worker thread. It maps through the placed instance of this cell on the working Cluster (Sheet
-  optional); without such a placed instance the buttons explain to place the cell first. **Place
-  marker** puts the marker at the current anchor (or bbox centre when there is no anchor), you drag it
-  with KiCad's own tools, **Read position** converts the dragged world point into the cell's bbox
-  frame (reusing `_world_pos_to_cell_local_offset`) and writes `anchor_xy`, clearing any Role/Pad
-  anchor. Marker/bbox uuids are persisted in `gui_state.json` (key `cell_anchor_overlay`).
+- **Source** (the first tab) hosts ONLY the **working context — Sheet (optional) / Cluster** of the
+  placed instance. The **Role anchor** tab holds **Role** (closed combo from THIS cell's own
+  components, narrowed by the working Cluster — the roles actually present on that cluster) and an
+  optional **Pad**. **Read from selection** understands the three selection cases: a selected **pad** →
+  its owner footprint's Role + Cluster and the pad number; a selected **footprint** → Role + Cluster
+  (Pad untouched); a selected **Via** → an explicit "this is the Marker anchor tab's case" message,
+  never "nothing selected". A selection spanning SEVERAL clusters is a fatal listing them (never
+  "take the first"). **Set as anchor** writes `anchor_role` (+`anchor_pad`) and REMOVES any stale
+  `anchor_xy` (GUARD 1 — so the live pad resolution actually runs). Role-only = the component's stored
+  centre (offline — the live board is needed ONLY for Read from selection; picking Role/Pad by hand
+  and saving works with no board, proven by test).
+- **Marker anchor** — draws the cell's bbox rectangle and a draggable marker circle as REAL KiCad
+  graphics on the overlay layer (the **Settings → Board overlay** layer, `User.Drawings` by default;
+  the stroke/radius come from the same page too; colour comes from the LAYER, no colour setting), all
+  IPC on the worker thread. The world frame is derived from the LIVE CLUSTER alone (2026-09-10, plan
+  `overlay_frame_from_cluster`): the cell's roles are resolved to live footprints by the working
+  (Cluster, Sheet), the reference slot is `anchor_role`'s (else the first resolved), and the frame
+  comes from that footprint through the pure inverse `clone_origin_from_component` — mirror/rotation
+  are read from the live footprints themselves, never from a record. Neither a placement, nor the
+  trees take part (a cell that was just extracted — an Entity with no tree node yet — gets an overlay
+  like any other, and the frame can no longer follow a stale placement instead of the cluster on the
+  board). A cluster that is not on the board, or a cell whose roles do not resolve in it, is an honest
+  error naming the cluster/role — never "place the cell first". **Place marker** puts the marker at
+  the current anchor (or bbox centre when there is no anchor), you drag it with KiCad's own tools,
+  **Read position** converts the dragged world point into the cell's bbox frame (reusing
+  `world_pos_to_cell_local_offset`) and writes `anchor_xy`, clearing any Role/Pad anchor. Marker/bbox
+  uuids are persisted in `gui_state.json` (key `cell_anchor_overlay`).
 
   **Overlay cleanup** (Phase D, 2026-09-09): the drawn marker/bbox are an editing aid, removed
-  explicitly when done — the Marker tab's **Remove overlay** button (by-uuid), when you leave the
-  anchor page (open another Config tree node) or open a different cell/root, and at GUI exit (all
+  explicitly when done — the Marker anchor tab's **Remove overlay** button (by-uuid), when you
+  leave the anchor page (open another Config tree node) or open a different cell/root, and at GUI
+  exit (all
   persisted uuids, bounded + best-effort). The guaranteed recovery from a uuid leak is the
   Settings → Board overlay **Remove entire overlay layer** button, which sweeps the WHOLE chosen
   user layer (confirmed first; only that layer is affected).
 
 **Remembered cell context** (2026-09-09, Phase E of the same plan): when a Cell is created
-(`Extract cluster...` / `Extract tree...`) or its anchor is re-read with the Component tab's
+(`Extract cluster...` / `Extract tree...`) or its anchor is re-read with the Role anchor tab's
 **Read from selection**, the (Cluster, Sheet) of the instance it was taken from is remembered in
 `gui_state.json` (key `cell_edit_context`, scoped by the root config path — the cell name is a
 Cluster-tag slug, so the same name in two profiles means different boards). Two consumers:

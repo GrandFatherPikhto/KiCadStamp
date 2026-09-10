@@ -18,21 +18,26 @@ declarative model (§0.1): the anchor is a REFERENCE, resolved at apply time
     dragged world point into the cell's own bbox frame and writes anchor_xy,
     clearing anchor_role/anchor_pad.
 
-Working context (Sheet optional / Cluster) — the first (Component) tab hosts
-the Sheet/Cluster pickers (Denis, 2026-09-09: "У нас должны быть выбраны в
-первом табе Лист(если он нужен)/Кластер. Тогда живой инстанс будет
-работать"). A Cell is abstract and may be placed several times (channels), so
-the Marker tab's world<->cell-local mapping (read_clone_origin_live,
-_world_pos_to_cell_local_offset — reused, NOT reimplemented) needs to know
-WHICH placed instance is meant: the view finds the placement of this cell
-whose own cluster matches the working Cluster (optionally narrowed by Sheet)
-among the UNION of the top-level clone_placements and the placements
-materialized from the entity trees (C.5.1 — a cell may be placed only as an
-entity, e.g. pif_3v3_vdd -> entity pif_3v3_vdd_mcu). The lookup runs on the
-WORKER thread (_resolve_context_then), because materializing the entity half
-reads the trees' anchors live from the board. Without such a placed instance
-the Marker buttons explain what to do (place the cell first); they never
-guess.
+Working context (Sheet optional / Cluster) — the "Source" tab hosts the
+Sheet/Cluster pickers (Denis, 2026-09-09: "У нас должны быть выбраны в первом
+табе Лист(если он нужен)/Кластер. Тогда живой инстанс будет работать").
+
+2026-09-10 (plan overlay_frame_from_cluster): the frame is taken from the LIVE
+CLUSTER and from nothing else. The cell's roles are resolved to live footprints
+by the working (Cluster, Sheet), the reference slot is cell.anchor_role's (else
+the first resolved one), and the world frame is re-derived from THAT footprint
+via the pure inverse clone_origin_from_component (see _live_cluster_frame).
+Mirror/rotation come from the live footprints too — we draw what is on the
+board. Neither the top-level clone_placements, nor the entity placements
+materialized from the trees, nor resolve_clone_context_live take any part: a
+cell that has just been extracted (Entity created, no tree node yet) gets an
+overlay like any other, and the frame can no longer follow a stale placement
+instead of the cluster standing in front of the user.
+
+The lookup still runs on the WORKER thread (_dispatch / start_long_op), because
+it reads the live board (adapter.get_footprints + per-role field reads). An
+honest error replaces the old "place the cell first" hint: "cluster X is not on
+the live board" or "role Y of this cell has no footprint in cluster X".
 
 Entry read/write uses the SAME path CellDock/Placer use
 (find_dict_entry_file + read_data / merge_write — the pair that Phase B will
@@ -68,12 +73,16 @@ from kicadstamp.config import (
 )
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.domain.board import Footprint, Track, Via
-from kicadstamp.domain.geometry import Vector2
+from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.exceptions import ValidationError, format_fatal_error
 from kicadstamp.geometry.cell_anchor import cell_mount_offset
+from kicadstamp.geometry.clone_geometry import clone_origin_from_component
 from kicadstamp.geometry.spoke_layout import rotate_local_offset
 from kicadstamp.i18n import _
-from kicadstamp.placement.entity_placement import materialize_entity_placements
+from kicadstamp.placement.services.component_resolver import resolve_pad_mount
+from kicadstamp.placement.services.coordinate_position_calculator import (
+    resolve_footprint_by_cluster_role,
+)
 from kicadstamp.placement.services.role_narrowing import narrow_candidates_by_sheet
 from kicadstamp.utils.units import MM
 
@@ -95,23 +104,11 @@ from ._common import (
     set_combo_items,
     show_message,
 )
-from .live_position import (
-    _world_pos_to_cell_local_offset,
-    read_clone_origin_live,
-)
+from .live_position import _reference_slot, world_pos_to_cell_local_offset
 from .rename import collect_graph_files, find_dict_entry_file
 from .scheme_list import snapshot_with_resolved_sheets
 
 logger = logging.getLogger(__name__)
-
-# C.5.1 — a worker's "no result" marker: the cell has NO placed instance in
-# the working Cluster/Sheet (neither a top-level clone_placement nor an entity
-# placement materialized from the trees). Resolution runs on the worker thread
-# (materializing the entities reads the live tree anchors), so the sentinel is
-# returned instead of a value and the UI turns it into the "place the cell
-# first" hint — never a crash. `None` is NOT usable here: it is a legitimate
-# worker result ("no geometry" / "marker gone").
-_NO_CLONE = object()
 
 # The gui_state.json key holding the currently-drawn overlay uuids, scoped by
 # the root config and the cell. Owned by gui.board_overlay (Phase D — the
@@ -348,11 +345,11 @@ def roles_for_cluster(adapter, cell_roles, cluster: str) -> list:
 
 
 def _matches_clone_context(cp, cell_name: str, cluster: str, sheet: str) -> bool:
-    """True when ONE placed instance (a top-level ClonePlacement or a
-    materialized entity clone — C.5.1) is a placement of `cell_name` for the
-    working Cluster (+ optional Sheet). A placement matches by its OWN cluster
-    field (cluster_prefix_match — the same convention as role_narrowing) and,
-    when Sheet is given and the placement carries one, by exact sheet."""
+    """True when ONE top-level ClonePlacement is a placement of `cell_name` for
+    the working Cluster (+ optional Sheet). A placement matches by its OWN
+    cluster field (cluster_prefix_match — the same convention as
+    role_narrowing) and, when Sheet is given and the placement carries one, by
+    exact sheet. NOT part of the overlay any more (see the module docstring)."""
     if getattr(cp, "cell", None) != cell_name:
         return False
     cp_cluster = getattr(cp, "cluster", None) or ""
@@ -364,25 +361,12 @@ def _matches_clone_context(cp, cell_name: str, cluster: str, sheet: str) -> bool
     return True
 
 
-def _placement_key(cp):
-    """Identity of ONE physical placement across representations. Two
-    candidates are the SAME placement — NOT an ambiguity — when they share
-    (cell, effective name, cluster, sheet). A placed cell may legitimately
-    exist BOTH as a top-level clone_placement and as a tree entity node
-    (e.g. after a migration); the union in resolve_clone_context_live must
-    not count such a duplicate twice."""
-    return (getattr(cp, "cell", None),
-            clone_placement_effective_name(cp),
-            getattr(cp, "cluster", None) or "",
-            getattr(cp, "sheet", None))
-
-
 def context_clone_candidates(cfg, cell_name: str, cluster: str,
                              sheet: str) -> list:
     """Top-level ClonePlacements of this cell matching the working Cluster
-    (+ optional Sheet) — the OFFLINE (board-free) candidate list. The Marker
-    tab's full lookup also covers placements materialized from entity trees —
-    see resolve_clone_context_live (C.5.1)."""
+    (+ optional Sheet) — the OFFLINE (board-free) candidate list. NOT used by
+    the overlay any more: since 2026-09-10 the cell page's frame comes from the
+    LIVE CLUSTER (see _live_cluster_frame), never from a placement."""
     return [cp for cp in getattr(cfg, "clone_placements", []) or []
             if _matches_clone_context(cp, cell_name, cluster, sheet)]
 
@@ -390,8 +374,7 @@ def context_clone_candidates(cfg, cell_name: str, cluster: str,
 def _single_candidate(candidates, cell_name: str, cluster: str):
     """None when nothing matches; the sole candidate when exactly one; fatal
     when several DISTINCT placements match (never "take the first" — the C.3 /
-    C.5.1 "several matched -> fatal with enumeration" rule, shared by the
-    offline and the live resolvers)."""
+    C.5.1 "several matched -> fatal with enumeration" rule)."""
     if not candidates:
         return None
     if len(candidates) > 1:
@@ -408,69 +391,25 @@ def _single_candidate(candidates, cell_name: str, cluster: str):
 def resolve_clone_context(cfg, cell_name: str, cluster: str, sheet: str):
     """The ONE top-level clone placement of this cell for the working
     Cluster/Sheet — None when nothing matches; fatal when several match
-    (never "take the first"). The OFFLINE (board-free) twin; the live lookup
-    that also covers entity placements is resolve_clone_context_live."""
+    (never "take the first"). Board-free, and NOT part of the overlay any more:
+    since 2026-09-10 the cell page's frame comes from the LIVE CLUSTER
+    (_live_cluster_frame), not from a placement of any kind. Kept as the
+    flat clone_placements lookup for record-oriented readers.
+
+    The union-with-trees twin (resolve_clone_context_live) and its worker
+    wrapper (_resolve_context_then / the _NO_CLONE sentinel) were DELETED with
+    that change — nothing else used them, and their "no clone placement ... is
+    placed" hint was the very message the live case disproved."""
     return _single_candidate(
         context_clone_candidates(cfg, cell_name, cluster, sheet),
         cell_name, cluster)
 
 
-def resolve_clone_context_live(adapter, cfg, cell_name: str, cluster: str,
-                               sheet: str, sheet_names):
-    """The ONE placement of this cell for the working Cluster/Sheet among the
-    UNION of the top-level clone_placements and the entity placements
-    materialized from cfg.trees (C.5.1). A cell may be placed ONLY as an
-    entity — e.g. pif_3v3_vdd is placed as entity pif_3v3_vdd_mcu (cluster
-    PIF_3V3_VDD, sheet MCU), not as its own clone_placement; the
-    top-level-only scan (resolve_clone_context) found nothing for it and the
-    Marker tab dead-ended on 23 of 24 cells. None when nothing matches; fatal
-    when several DISTINCT placements match (never "take the first").
-
-    Runs on the WORKER thread (the Marker tab's dispatch): materialize_entity_placements
-    resolves the trees' anchors LIVE from the board, so this must never be
-    called on the UI thread. With no entities/trees the union degrades to the
-    top-level clones and the materialization is a cheap empty pass."""
-    candidates: list = []
-    keys: set = set()
-    for cp in getattr(cfg, "clone_placements", []) or []:
-        if _matches_clone_context(cp, cell_name, cluster, sheet):
-            keys.add(_placement_key(cp))
-            candidates.append(cp)
-    for cp in materialize_entity_placements(adapter, cfg, sheet_names=sheet_names):
-        if not _matches_clone_context(cp, cell_name, cluster, sheet):
-            continue
-        key = _placement_key(cp)
-        if key in keys:
-            continue            # the SAME placement, already in the union
-        keys.add(key)
-        candidates.append(cp)
-    return _single_candidate(candidates, cell_name, cluster)
-
-
 # ────────────────────────────────────────────────────────────────────────────
 # Overlay worker functions (run on the worker thread via start_long_op —
-# pure IPC/file work, NO widget access). The overlay layer is resolved from
-# the LIVE board inside the worker (never on the UI thread).
+# pure IPC/file work, NO widget access). The frame is derived from the LIVE
+# CLUSTER inside the worker (_live_cluster_frame): no placement, no trees.
 # ────────────────────────────────────────────────────────────────────────────
-
-def _resolve_context_then(adapter, cfg, cell_name: str, cluster: str,
-                          sheet: str, sheet_names, fn, *extra):
-    """Resolve the ONE placed instance of this cell for the working
-    Cluster/Sheet (top-level clone_placement + entity placements materialized
-    from the trees — C.5.1) ON THE WORKER THREAD, then run
-    `fn(adapter, cfg, clone, cell_name, sheet_names, *extra)`.
-
-    This is where the placement lookup lives (not on the UI thread): the
-    union's entity half is materialize_entity_placements, which resolves the
-    trees' anchors LIVE from the board. Returns _NO_CLONE (never raises) when
-    the cell has no placed instance in the working context — the caller turns
-    it into the "place the cell first" hint; a several-matches ambiguity is a
-    ValidationError raised here and routed to the op's failure handler."""
-    clone = resolve_clone_context_live(
-        adapter, cfg, cell_name, cluster, sheet, sheet_names)
-    if clone is None:
-        return _NO_CLONE
-    return fn(adapter, cfg, clone, cell_name, sheet_names, *extra)
 
 
 def _resolve_layer(adapter, layer_name: str):
@@ -562,17 +501,84 @@ def overlay_world_bbox_mm(entry: dict, origin: Vector2, rotation_deg: float,
     return (min(xs), min(ys), max(xs), max(ys))
 
 
-def _draw_bbox_worker(adapter, cfg, clone, cell_name, sheet_names,
+def _live_cluster_frame(adapter, cell, cluster: str, sheet: str, sheet_names):
+    """(mount, rotation_deg, mirror) of ONE cell EXACTLY as it stands on the
+    board right now — derived from the LIVE CLUSTER alone (2026-09-10, plan
+    overlay_frame_from_cluster).
+
+    The cell's roles are resolved to live footprints by the working
+    (Cluster, Sheet) — resolve_footprint_by_cluster_role, the same exact-match
+    resolver "Select on board" and the dumb placer use, sheet narrowing included
+    — the reference slot is cell.anchor_role's when it resolved, else the first
+    resolved slot (_reference_slot, live_position.py), and the frame comes out
+    of THAT footprint's live position/angle through the pure inverse
+    clone_origin_from_component. Mirror is read from the live footprint's own
+    side against the cell's layer, never from a record: we draw what is on the
+    board.
+
+    Neither resolve_clone_context_live, nor materialize_entity_placements, nor
+    cfg.clone_placements, nor the trees take any part in this path. The cluster
+    standing on the board is the truth (Denis, 2026-09-10: "Размещение берётся
+    bbox из текущего положения кластера. И никак иначе. Никакой привязки к
+    деревьям быть не должно"), so a cell that has just been extracted — with an
+    Entity but no tree node yet — gets an overlay like any other.
+
+    Raises ValidationError with an HONEST message — "cluster X is not on the
+    live board" / "role Y of this cell has no footprint in cluster X" — never
+    the old "place the cell first"."""
+    label = _("cell {cell!r} on cluster {cluster!r}").format(
+        cell=getattr(cell, "name", "?"), cluster=cluster)
+    role_to_fp: dict = {}
+    for slot in cell.components:
+        try:
+            role_to_fp[slot.role] = resolve_footprint_by_cluster_role(
+                adapter, cluster, slot.role, label, sheet=sheet or None,
+                sheet_names=sheet_names)
+        except ValidationError:
+            # This role is not uniquely present in the working cluster (absent,
+            # or a tagging ambiguity) — it simply cannot be the reference slot.
+            continue
+    if not role_to_fp:
+        on_board = {adapter.get_field_value(fp, CLUSTER_FIELD_NAME)
+                    for fp in adapter.get_footprints()}
+        if cluster not in on_board:
+            raise ValidationError(format_fatal_error(
+                _("cluster {cluster!r} is not on the live board")
+                .format(cluster=cluster),
+                [_("check the working Cluster on the Source tab, or place the "
+                   "cluster on this board")]))
+        first_role = cell.components[0].role if cell.components else "?"
+        raise ValidationError(format_fatal_error(
+            _("role {role!r} of this cell has no footprint in cluster "
+              "{cluster!r}").format(role=first_role, cluster=cluster),
+            [_("the cell's roles must be the components tagged with the working "
+               "Cluster on the board")]))
+    slot = _reference_slot(cell, role_to_fp)
+    fp = role_to_fp[slot.role]
+    # Mirror comes from the LIVE footprint's side against the cell's own layer
+    # (clone_geometry's rule) — not from clone.mirror.
+    mirror = (fp.layer == BoardLayer.BL_B_Cu) != (cell.layer == "B.Cu")
+    role_to_ref = {role: live_fp.ref for role, live_fp in role_to_fp.items()}
+    resolved_mount = resolve_pad_mount(adapter, cell, role_to_ref, label)
+    if resolved_mount is None:
+        ax_mm, ay_mm = cell_mount_offset(cell)
+    else:
+        ax_mm, ay_mm = resolved_mount
+    origin, rotation = clone_origin_from_component(
+        fp.position, fp.angle_deg, slot, mirror, ax_mm, ay_mm)
+    return origin, rotation, mirror
+
+
+def _draw_bbox_worker(adapter, cell, cluster, sheet, sheet_names,
                       layer_name) -> Optional[str]:
-    """Draw the cell's bbox rectangle around the placed instance of this
-    clone — returns the created rectangle's uuid. Resolves the live frame via
-    read_clone_origin_live (the same mount read as "Read current position")."""
+    """Draw the cell's bbox rectangle over the LIVE cluster's instance of this
+    cell — returns the created rectangle's uuid. The frame is read from the
+    cluster standing on the board (_live_cluster_frame), never from a
+    placement."""
     layer = _resolve_layer(adapter, layer_name)
-    read = read_clone_origin_live(adapter, cfg, clone, sheet_names)
-    cell = cfg.cells.get(cell_name)
-    box = overlay_world_bbox_mm(_cell_to_entry(cell), read.position,
-                                read.rotation_deg,
-                                bool(getattr(clone, "mirror", False)))
+    origin, rotation, mirror = _live_cluster_frame(
+        adapter, cell, cluster, sheet, sheet_names)
+    box = overlay_world_bbox_mm(_cell_to_entry(cell), origin, rotation, mirror)
     if box is None:
         return None
     x1, y1, x2, y2 = box
@@ -582,25 +588,24 @@ def _draw_bbox_worker(adapter, cfg, clone, cell_name, sheet_names,
                                    board_overlay.overlay_bbox_stroke_mm())
 
 
-def _place_marker_worker(adapter, cfg, clone, cell_name, sheet_names,
+def _place_marker_worker(adapter, cell, cluster, sheet, sheet_names,
                          layer_name) -> Optional[str]:
     """Draw the draggable marker circle at the cell's CURRENT anchor (the
-    mount's world position) or, when the cell has no anchor, at the centre of
-    its bbox — returns the marker's uuid."""
+    live cluster's mount) or, when the cell has no anchor, at the centre of its
+    bbox — returns the marker's uuid."""
     layer = _resolve_layer(adapter, layer_name)
-    read = read_clone_origin_live(adapter, cfg, clone, sheet_names)
-    cell = cfg.cells.get(cell_name)
+    origin, rotation, mirror = _live_cluster_frame(
+        adapter, cell, cluster, sheet, sheet_names)
     entry = _cell_to_entry(cell)
     ax, ay = _cell_entry_mount_offset(entry)
     if ax or ay:
-        x_mm, y_mm = read.position.x / MM, read.position.y / MM
+        x_mm, y_mm = origin.x / MM, origin.y / MM
     else:
         bbox = cell_content_bbox(entry)
         centre = ((bbox[0] + bbox[1]) / 2.0, (bbox[2] + bbox[3]) / 2.0) \
             if bbox else (0.0, 0.0)
         x_mm, y_mm = _cell_point_to_world_mm(
-            read.position, read.rotation_deg, bool(getattr(clone, "mirror", False)),
-            0.0, 0.0, centre[0], centre[1])
+            origin, rotation, mirror, 0.0, 0.0, centre[0], centre[1])
     # Phase D: radius/stroke come from the Settings "Board overlay" page
     # (board_overlay module constants are only the DEFAULTS).
     return board_overlay.draw_marker(adapter, layer, x_mm, y_mm,
@@ -608,26 +613,21 @@ def _place_marker_worker(adapter, cfg, clone, cell_name, sheet_names,
                                      board_overlay.overlay_marker_stroke_mm())
 
 
-def _read_marker_worker(adapter, cfg, clone, cell_name, sheet_names,
+def _read_marker_worker(adapter, cell, cluster, sheet, sheet_names,
                         marker_uuid) -> Optional[tuple[float, float]]:
     """Read the (user-dragged) marker's world position and convert it into the
-    cell's own bbox-frame anchor (anchor_xy) — the world->local inversion
-    reuses _world_pos_to_cell_local_offset (live_position.py, NOT a second
-    implementation); the result is the ABSOLUTE bbox offset (the current mount
-    + the offset relative to it), exactly what the old placer Point flow
-    computed. None when the marker is no longer on the board."""
+    cell's own bbox-frame anchor (anchor_xy) — the world->local inversion uses
+    the SAME live-cluster frame the marker was placed from
+    (world_pos_to_cell_local_offset, live_position.py — one implementation); the
+    result is the ABSOLUTE bbox offset (the current mount + the offset relative
+    to it). None when the marker is no longer on the board."""
     pos = board_overlay.read_marker(adapter, marker_uuid)
     if pos is None:
         return None
+    origin, rotation, mirror = _live_cluster_frame(
+        adapter, cell, cluster, sheet, sheet_names)
     world = Vector2.from_xy(int(round(pos[0] * MM)), int(round(pos[1] * MM)))
-    rel = _world_pos_to_cell_local_offset(
-        adapter, cfg, clone, sheet_names, world,
-        bool(getattr(clone, "mirror", False)))
-    cell = cfg.cells.get(cell_name)
-    if cell is None:
-        raise ValidationError(format_fatal_error(
-            _("cell {cell!r} not found in config").format(cell=cell_name),
-            [_("reload the config and try again")]))
+    rel = world_pos_to_cell_local_offset(origin, rotation, mirror, world)
     a0, a1 = cell_mount_offset(cell)
     return (round(a0 + rel[0], 9), round(a1 + rel[1], 9))
 
@@ -1080,10 +1080,9 @@ class CellAnchorView(QWidget):
         working (Cluster, Sheet) as (path, item) pairs.
 
         RAW and OFFLINE on purpose: the write path is raw (read_data/
-        merge_write), and the union resolution that covers tree placements
-        (resolve_clone_context_live) must never run on the UI thread — while a
-        tree-materialized placement has NO record to write into, which is the
-        case that must stay read-only (writing one would duplicate the tree).
+        merge_write), and a tree-materialized placement has NO record to write
+        into — the case that must stay read-only (writing one would duplicate
+        the tree). Only the flat top-level clone_placements are considered.
         The matching rule mirrors context_clone_candidates' on the loaded
         dataclasses: cluster_prefix_match + exact sheet when both sides carry
         one."""
@@ -1405,15 +1404,13 @@ class CellAnchorView(QWidget):
     # ── Marker tab: context + worker dispatch ─────────────────────────────
 
     def _context(self):
-        """(cfg, sheet_names, cluster, sheet) for the Marker tab's live frame,
-        or None with a message shown when the working context can't be
-        resolved.
+        """(cfg, sheet_names, cluster, sheet) for the overlay's live frame, or
+        None with a message shown when the working context can't be resolved.
 
-        The placed-instance lookup itself (top-level clone_placement + entity
-        placements — C.5.1) runs on the WORKER thread (_resolve_context_then):
-        its entity half is materialized from the trees, which reads their
-        anchors LIVE from the board. Here we only validate the project/working
-        Cluster and hand the inputs over."""
+        Purely UI-thread validation: the project root, the loaded cell and the
+        working Cluster must be set. Everything that touches the board — and
+        therefore the whole frame derivation — happens on the WORKER thread
+        (_live_cluster_frame / _dispatch)."""
         if self._root_path is None or self._cell_name is None:
             show_message(_("Marker needs a project root — open a project "
                            "first."), _WARN_STYLE, logger)
@@ -1421,7 +1418,7 @@ class CellAnchorView(QWidget):
         cluster = self._cluster_combo.currentText().strip()
         sheet = self._sheet_combo.currentText().strip()
         if not cluster:
-            show_message(_("Marker: pick the working Cluster first (Component "
+            show_message(_("Marker: pick the working Cluster first (Source "
                            "tab)."), _WARN_STYLE, logger)
             return None
         try:
@@ -1444,14 +1441,16 @@ class CellAnchorView(QWidget):
     def _dispatch(self, fn, on_success, on_error, *extra_args):
         """Resolve the working context + live adapter and dispatch one overlay
         worker function on the worker thread via start_long_op (inputs
-        collected on the UI thread, the placed-instance lookup + IPC on the
+        collected on the UI thread, the live-cluster frame + all IPC on the
         worker, completion back on the UI thread).
 
-        The worker resolves the placed instance of this cell among the UNION
-        of top-level clones and entity placements (C.5.1) and returns the
-        _NO_CLONE sentinel when the cell has none in the working context — we
-        then explain what to do (the previous "no clone placement ... is
-        placed" hint), never a crash."""
+        The worker takes the loaded CELL plus the working (Cluster, Sheet) and
+        derives its frame from the LIVE CLUSTER (2026-09-10, plan
+        overlay_frame_from_cluster): no placement lookup, no
+        materialize_entity_placements, no _NO_CLONE sentinel and no "place the
+        cell first" hint. An honest ValidationError from it (cluster not on the
+        board / role not in the cluster) travels the normal failure path and is
+        shown verbatim."""
         adapter = self._adapter_required()
         if adapter is None:
             return
@@ -1459,25 +1458,17 @@ class CellAnchorView(QWidget):
         if ctx is None:
             return
         cfg, sheet_names, cluster, sheet = ctx
+        cell = cfg.cells.get(self._cell_name)
+        if cell is None:
+            show_message(_("cell {cell!r} not found in config")
+                         .format(cell=self._cell_name), _ERROR_STYLE, logger)
+            return
         widgets = [self._place_marker_button, self._read_marker_button,
                    self._remove_marker_button, self._show_bbox_button,
                    self._hide_bbox_button, self._remove_overlay_button]
-
-        def _ok(result):
-            if result is _NO_CLONE:
-                show_message(
-                    _("Marker: no clone placement of cell {cell!r} on cluster "
-                      "{cluster!r} is placed — the live frame cannot be "
-                      "derived. Place the cell on that cluster first.")
-                    .format(cell=self._cell_name, cluster=cluster),
-                    _WARN_STYLE, logger)
-                return
-            on_success(result)
-
         self._active_op = start_long_op(
-            self._connection, widgets, _resolve_context_then, _ok, on_error,
-            adapter, cfg, self._cell_name, cluster, sheet, sheet_names,
-            fn, *extra_args)
+            self._connection, widgets, fn, on_success, on_error,
+            adapter, cell, cluster, sheet, sheet_names, *extra_args)
 
     def _dispatch_draw(self, worker_fn, success_msg_ok, on_error):
         """Dispatch a DRAW overlay op (worker takes the layer name — Phase D:

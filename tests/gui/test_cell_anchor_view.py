@@ -19,14 +19,15 @@ from gui.docks.cell_anchor_view import (
     find_pad_owner,
     read_anchor_source,
     resolve_clone_context,
-    resolve_clone_context_live,
     roles_for_cluster,
 )
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
+from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.domain.board import Footprint, Via
-from kicadstamp.domain.geometry import Vector2
+from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.explore import Selected
 from kicadstamp.exceptions import ValidationError
+from kicadstamp.utils.units import MM
 
 # A fresh Pad stand-in class, patched in place of kipy's Pad per test — the
 # selection helpers branch on isinstance(item, KipyPad), so a test's selected
@@ -214,193 +215,207 @@ def test_resolve_clone_context_none_one_many(monkeypatch):
     assert "p1" in str(ei.value) and "p2" in str(ei.value)
 
 
-# ── C.5.1: the Marker tab sees Entity placements (union with materialized) ──
+# ── The overlay frame comes from the LIVE CLUSTER (2026-09-10, plan
+#    overlay_frame_from_cluster) ────────────────────────────────────────────
+#
+# The frame used to come from a PLACEMENT (the union of top-level
+# clone_placements and entity placements materialized from the trees). That
+# dead-ended right after an extract (Entity exists, no tree node yet) and made
+# the overlay follow a stale placement instead of the cluster standing on the
+# board. Now only the live cluster is used.
 
-def _entity_clone(name="pif_3v3_vdd_mcu", cell="cell1", cluster="PIF_3V3_VDD",
-                  sheet="MCU"):
-    """A transient clone SHAPE as materialize_entity_placements produces for a
-    tree entity placement node (Entity fields + absolute position)."""
-    return SimpleNamespace(name=name, cell=cell, cluster=cluster, sheet=sheet,
-                           mirror=False, ignore_selection=False)
+class _ClusterAdapter:
+    """Minimal adapter for the live-cluster frame: the footprint list plus the
+    Role/Cluster field reads resolve_footprint_by_cluster_role touches."""
 
+    def __init__(self, footprints):
+        self._fps = list(footprints)
 
-def _monkeypatch_materialize(monkeypatch, clones):
-    """Replace view_mod.materialize_entity_placements with a fake returning
-    `clones` — the live-tree IPC is out of scope of these unit tests (it is
-    covered by tests/test_entity_placement.py); here we test OUR union logic."""
-    monkeypatch.setattr(view_mod, "materialize_entity_placements",
-                        lambda adapter, cfg_, sheet_names=None,
-                        position_overrides=None: list(clones))
-    monkeypatch.setattr(view_mod, "clone_placement_effective_name",
-                        lambda cp: cp.name)
+    def get_footprints(self):
+        return list(self._fps)
 
-
-def test_resolve_clone_context_live_finds_entity_placed_cell(monkeypatch):
-    """THE C.5.1 regression: a cell placed ONLY through an entity in the tree
-    (no own clone_placement) is found by its Cluster and Sheet via the union
-    with the materialized entity placements. Before the fix the top-level-only
-    scan returned None and the Marker tab dead-ended."""
-    _monkeypatch_materialize(monkeypatch, [_entity_clone()])
-    cfg = SimpleNamespace(clone_placements=[], entities=[object()],
-                          trees=[object()])
-    found = resolve_clone_context_live(object(), cfg, "cell1", "PIF_3V3_VDD",
-                                       "MCU", {"MCU": "MCU"})
-    assert found is not None
-    assert found.name == "pif_3v3_vdd_mcu"
-    # A cell with no entity/clone placement in context -> None, never a guess.
-    assert resolve_clone_context_live(object(), cfg, "absent_cell",
-                                      "PIF_3V3_VDD", "", {}) is None
+    def get_field_value(self, fp, name):
+        if name == ROLE_FIELD_NAME:
+            return fp.role
+        if name == CLUSTER_FIELD_NAME:
+            return fp.cluster
+        return None
 
 
-def test_resolve_clone_context_live_entity_must_match_cluster_and_sheet(monkeypatch):
-    """The entity placement only counts when its OWN cluster_prefix_matches the
-    working Cluster and its Sheet equals the working Sheet — the same
-    selection as the top-level clone path."""
-    _monkeypatch_materialize(monkeypatch, [
-        _entity_clone(name="a_mcu", cluster="PIF_3V3_VDD", sheet="MCU"),
-        _entity_clone(name="b_fpga", cluster="PIF_3V3_VDD", sheet="FPGA"),
-        _entity_clone(name="c_dac", cluster="AD_DAC", sheet="MCU"),
-    ])
-    cfg = SimpleNamespace(clone_placements=[], entities=[object()],
-                          trees=[object()])
-    # Cluster matches but Sheet differs -> the a_mcu placement is excluded.
-    found = resolve_clone_context_live(object(), cfg, "cell1", "PIF_3V3_VDD",
-                                       "FPGA", {"FPGA": "FPGA"})
-    assert found is not None and found.name == "b_fpga"
-    # Different cluster entirely -> nothing.
-    assert resolve_clone_context_live(object(), cfg, "cell1", "AD_DAC", "MCU",
-                                      {"MCU": "MCU"}) is not None
-    assert resolve_clone_context_live(object(), cfg, "cell1", "NOPE", "", {}) is None
+def _live_fp(ref, role, cluster, x_mm, y_mm, angle=0.0,
+             layer=BoardLayer.BL_F_Cu):
+    fp = Footprint(ref=ref, uuid=f"u-{ref}",
+                   position=Vector2.from_xy_mm(x_mm, y_mm),
+                   angle_deg=angle, layer=layer)
+    fp.role = role
+    fp.cluster = cluster
+    fp.sheet_path_uuids = []
+    return fp
 
 
-def test_resolve_clone_context_live_union_keeps_top_level_clones(monkeypatch):
-    """A top-level clone_placement is still found when there are also entity
-    placements materialized for OTHER cells — the union never hides the
-    offline-represented placements."""
-    _monkeypatch_materialize(monkeypatch, [
-        _entity_clone(cell="other_cell", cluster="AD_DAC")])
-    top = _entity_clone(name="cell1_clone", cell="cell1", cluster="PIF_3V3_VDD",
-                        sheet=None)
-    cfg = SimpleNamespace(clone_placements=[top], entities=[object()],
-                          trees=[object()])
-    found = resolve_clone_context_live(object(), cfg, "cell1", "PIF_3V3_VDD",
-                                       "", {})
-    assert found is top
+def _cell(**overrides):
+    """A cell whose stored geometry is ORIG at (0,0) and CAP at (10,-4) — the
+    live footprints below stand exactly there, so the frame must reproduce the
+    cell's own bbox."""
+    comps = [SimpleNamespace(role="ORIG", offset_along_mm=0.0,
+                             offset_across_mm=0.0, angle_deg=0.0),
+             SimpleNamespace(role="CAP", offset_along_mm=10.0,
+                             offset_across_mm=-4.0, angle_deg=0.0)]
+    base = dict(name="cell1", layer="F.Cu", components=comps, anchor_xy=None,
+                anchor_pad=None, anchor_role="ORIG", vias=[], tracks=[],
+                clone_placements=[])
+    base.update(overrides)
+    return SimpleNamespace(**base)
 
 
-def test_resolve_clone_context_live_dedupes_same_placement_across_sources(monkeypatch):
-    """The SAME physical placement represented BOTH as a top-level clone and as
-    a tree entity node counts ONCE — no spurious "several matched" fatal."""
-    _monkeypatch_materialize(monkeypatch, [
-        _entity_clone(name="cell1_mcu", sheet=None)])
-    top = _entity_clone(name="cell1_mcu", sheet=None)
-    cfg = SimpleNamespace(clone_placements=[top], entities=[object()],
-                          trees=[object()])
-    found = resolve_clone_context_live(object(), cfg, "cell1", "PIF_3V3_VDD",
-                                       "", {})
-    assert found is top
+def _live_cluster_fps(origin_x_mm=100.0, origin_y_mm=200.0, cluster="CL"):
+    return [_live_fp("IC1", "ORIG", cluster, origin_x_mm, origin_y_mm),
+            _live_fp("IC2", "CAP", cluster, origin_x_mm + 10.0,
+                     origin_y_mm - 4.0)]
 
 
-def test_resolve_clone_context_live_several_distinct_placements_fatal(monkeypatch):
-    """Two DISTINCT entity placements of the same cell on the same cluster are
-    ambiguous — fatal with enumeration, never "take the first" (the C.5.1 rule
-    carried over from the top-level clone path)."""
-    _monkeypatch_materialize(monkeypatch, [
-        _entity_clone(name="pif_3v3_vdd_mcu_a"),
-        _entity_clone(name="pif_3v3_vdd_mcu_b")])
-    cfg = SimpleNamespace(clone_placements=[], entities=[object()],
-                          trees=[object()])
+def _fatal_title(message: str) -> str:
+    """The 'FATAL ERROR: ...' line of a format_fatal_error message. The shared
+    formatter also appends a generic footer ("Placement stopped, board not
+    modified...") whose wording is not the error under test — the honest-error
+    assertions look at the title line only."""
+    return next(line for line in message.splitlines() if "FATAL ERROR" in line)
+
+
+def test_frame_comes_from_the_live_cluster_without_any_placement():
+    """THE live case (2026-09-10, 14:38): the cell was just extracted — an Entity
+    exists, there is NO tree node and NO clone_placement at all, yet the cluster
+    stands on the board. The frame must come from it."""
+    adapter = _ClusterAdapter(_live_cluster_fps())
+    origin, rotation, mirror = view_mod._live_cluster_frame(
+        adapter, _cell(), "CL", "", {"MCU": "MCU"})
+    assert origin.x == int(100 * MM) and origin.y == int(200 * MM)
+    assert rotation == 0.0
+    assert mirror is False
+
+
+def test_frame_follows_the_cluster_not_a_placement():
+    """The frame is where the cluster IS: the anchor component stands 20 mm away
+    from where a stale record would have put it, and the frame reads THAT."""
+    adapter = _ClusterAdapter([_live_fp("IC1", "ORIG", "CL", 20.0, 30.0)])
+    origin, _rotation, _mirror = view_mod._live_cluster_frame(
+        adapter, _cell(), "CL", "", {})
+    assert origin.x == int(20 * MM) and origin.y == int(30 * MM)
+
+
+def test_frame_cluster_not_on_the_board_is_an_honest_error():
+    """No such cluster on the board -> say so, and never mention a placement."""
+    adapter = _ClusterAdapter([_live_fp("IC1", "ORIG", "OTHER", 1.0, 1.0)])
     with pytest.raises(ValidationError) as ei:
-        resolve_clone_context_live(object(), cfg, "cell1", "PIF_3V3_VDD", "MCU",
-                                   {"MCU": "MCU"})
-    message = str(ei.value)
-    assert "several clone placements" in message
-    assert "_a" in message and "_b" in message
+        view_mod._live_cluster_frame(adapter, _cell(), "PIF_OA_N2V5", "", {})
+    title = _fatal_title(str(ei.value))
+    assert "not on the live board" in title
+    assert "placement" not in title.lower()
 
 
-def test_resolve_context_then_returns_sentinel_without_placement(monkeypatch):
-    """The worker wrapper returns _NO_CLONE (never raises) when the cell has no
-    placed instance in the working context, and the delegated op is NOT run."""
-    _monkeypatch_materialize(monkeypatch, [])
-    cfg = SimpleNamespace(clone_placements=[], entities=[object()],
-                          trees=[object()])
-
-    def _boom(*_args, **_kwargs):      # must never be reached
-        raise AssertionError("op must not run without a placed instance")
-
-    result = view_mod._resolve_context_then(
-        object(), cfg, "cell1", "PIF_3V3_VDD", "MCU", {"MCU": "MCU"}, _boom)
-    assert result is view_mod._NO_CLONE
+def test_frame_role_missing_from_the_cluster_is_an_honest_error():
+    """The cluster is there but none of the cell's roles resolves in it."""
+    adapter = _ClusterAdapter([_live_fp("IC9", "OTHER_ROLE", "CL", 1.0, 1.0)])
+    with pytest.raises(ValidationError) as ei:
+        view_mod._live_cluster_frame(adapter, _cell(), "CL", "", {})
+    title = _fatal_title(str(ei.value))
+    assert "has no footprint in cluster" in title
+    assert "placement" not in title.lower()
 
 
-def test_entity_placed_cell_show_bbox_worker_draws(main_window, tmp_path,
-                                                   monkeypatch):
-    """THE C.5.1 acceptance: a cell placed ONLY through an entity in the tree
-    is resolved by the worker wrapper and "Show bbox" actually draws the
-    rectangle — the flow that previously dead-ended on the "no clone
-    placement" warning."""
+def test_frame_mirror_comes_from_the_live_footprint_side():
+    """Mirror is read from the live footprint's own layer against the cell's."""
+    back = _ClusterAdapter(
+        [_live_fp("IC1", "ORIG", "CL", 0.0, 0.0, layer=BoardLayer.BL_B_Cu)])
+    # Cell on F.Cu, live component on B.Cu -> mirrored.
+    _origin, _rotation, mirror = view_mod._live_cluster_frame(
+        back, _cell(), "CL", "", {})
+    assert mirror is True
+
+    front = _ClusterAdapter(
+        [_live_fp("IC1", "ORIG", "CL", 0.0, 0.0, layer=BoardLayer.BL_F_Cu)])
+    # Cell on B.Cu, live component on F.Cu -> mirrored too (opposite sides).
+    _origin, _rotation, mirror = view_mod._live_cluster_frame(
+        front, _cell(layer="B.Cu"), "CL", "", {})
+    assert mirror is True
+
+
+class _OverlayBoard:
+    def __init__(self):
+        from kipy.board_types import BoardLayer
+        self.names = {BoardLayer.BL_User_5: "User.KiCadStamp"}
+
+    def get_enabled_layers(self):
+        return list(self.names)
+
+    def get_layer_name(self, layer):
+        return self.names.get(layer, str(layer))
+
+    def get_shapes(self):
+        return []
+
+
+class _OverlayAdapter(_ClusterAdapter):
+    """The cluster adapter plus the little overlay IPC surface draw_bbox/
+    draw_marker need."""
+
+    def __init__(self, footprints):
+        super().__init__(footprints)
+        self._board = _OverlayBoard()
+        self.created = []
+
+    def refresh_board(self):
+        pass
+
+    def create_items(self, items):
+        items = list(items)
+        self.created.extend(items)
+        return items
+
+    def select_items(self, items):
+        pass
+
+    def remove_by_ids(self, uuids):
+        return True
+
+
+def test_bbox_and_marker_are_drawn_over_the_live_cluster(monkeypatch):
+    """Acceptance: with the cluster on the board and NO placement/tree at all,
+    "Show bbox" and "Place marker" both produce a shape — and the rectangle is
+    centred on the LIVE cluster's bbox (the stored cell geometry, placed at the
+    live frame)."""
     import gui.board_overlay as bo
-    from kipy.board_types import BoardLayer
-    from kicadstamp.config.models import Cell
-    from kicadstamp.domain.geometry import Vector2
-    from kicadstamp.utils.units import MM
-    from gui.docks.live_position import LiveRead
-
-    KS_LAYER = BoardLayer.BL_User_5
-
-    class _Board:
-        def __init__(self):
-            self.names = {KS_LAYER: "User.KiCadStamp"}
-
-        def get_enabled_layers(self):
-            return list(self.names)
-
-        def get_layer_name(self, layer):
-            return self.names.get(layer, str(layer))
-
-        def get_shapes(self):
-            return []
-
-    class _Adapter:
-        def __init__(self):
-            self._board = _Board()
-            self.created = []
-
-        def refresh_board(self):
-            pass
-
-        def create_items(self, items):
-            items = list(items)
-            self.created.extend(items)
-            return items
-
-        def select_items(self, items):
-            pass
-
-        def remove_by_ids(self, uuids):
-            return True
-
     view_mod.settings.state.set(bo.OVERLAY_LAYER_KEY, "User.KiCadStamp")
-    _monkeypatch_materialize(monkeypatch, [_entity_clone()])
-    monkeypatch.setattr(
-        view_mod, "read_clone_origin_live",
-        lambda adapter_, cfg_, clone_, sheet_names:
-            LiveRead(position=Vector2.from_xy(int(100 * MM), int(200 * MM)),
-                     rotation_deg=0.0, footprint=None))
-    monkeypatch.setattr(view_mod, "cell_content_bbox",
-                        lambda entry: (0.0, 10.0, 0.0, 10.0))
+    adapter = _OverlayAdapter(_live_cluster_fps())
+    cell = _cell()
 
-    cell = Cell(name="cell1")
-    cfg = SimpleNamespace(cells={"cell1": cell}, clone_placements=[],
-                          entities=[object()], trees=[object()])
-    adapter = _Adapter()
-    result = view_mod._resolve_context_then(
-        adapter, cfg, "cell1", "PIF_3V3_VDD", "MCU", {"MCU": "MCU"},
-        view_mod._draw_bbox_worker, "User.KiCadStamp")
-    assert result is not view_mod._NO_CLONE
-    assert result is not None
+    uuid = view_mod._draw_bbox_worker(adapter, cell, "CL", "", {},
+                                      "User.KiCadStamp")
+    assert uuid is not None
     assert len(adapter.created) == 1
-    assert adapter.created[0].layer == KS_LAYER
+    rect = adapter.created[0]
+    # Stored bbox is along 0..10 / across -4..0 -> centre (5,-2); the origin is
+    # IC1 at the live (100, 200) mm -> the drawn centre must be (105, 198) mm,
+    # which IS the live footprints' own bbox centre.
+    centre_x_mm = (rect.top_left.x + rect.bottom_right.x) / 2 / MM
+    centre_y_mm = (rect.top_left.y + rect.bottom_right.y) / 2 / MM
+    assert abs(centre_x_mm - 105.0) <= 0.01
+    assert abs(centre_y_mm - 198.0) <= 0.01
+
+    adapter.created.clear()
+    assert view_mod._place_marker_worker(
+        adapter, cell, "CL", "", {}, "User.KiCadStamp") is not None
+
+
+def test_bbox_worker_reports_the_honest_error(monkeypatch):
+    """The worker lets the frame's honest error through (no placement wording)."""
+    import gui.board_overlay as bo
+    view_mod.settings.state.set(bo.OVERLAY_LAYER_KEY, "User.KiCadStamp")
+    adapter = _OverlayAdapter([_live_fp("IC1", "ORIG", "OTHER", 1.0, 1.0)])
+    with pytest.raises(ValidationError) as ei:
+        view_mod._draw_bbox_worker(adapter, _cell(), "CL", "", {},
+                                   "User.KiCadStamp")
+    assert "not on the live board" in str(ei.value)
 
 
 # ── Widget: the offline write path (board = None) ─────────────────────────
@@ -554,77 +569,37 @@ def test_set_root_path_same_path_keeps_overlay_state(main_window, tmp_path):
     assert view._bbox_uuid is None
 
 
-def test_marker_worker_draws_with_settings_layer_and_radius(main_window, tmp_path,
-                                                            monkeypatch):
+def test_marker_worker_draws_with_settings_layer_and_radius(main_window, tmp_path):
     """THE Phase-D acceptance criterion: a layer/radius changed in the Settings
     "Board overlay" page really reaches create_items — the drawing is wired to
-    the settings, not merely stored in gui_state.json."""
+    the settings, not merely stored in gui_state.json.
+
+    2026-09-10 (plan overlay_frame_from_cluster): the marker's frame now comes
+    from the LIVE CLUSTER, so the fake adapter serves live footprints for the
+    working cluster instead of a monkeypatched read_clone_origin_live."""
     import gui.board_overlay as bo
     from kipy.board_types import BoardLayer
-    from kicadstamp.config.models import Cell
-    from kicadstamp.domain.geometry import Vector2
+    from kicadstamp.config.models import Cell, TemplateComponentSlot
     from kicadstamp.utils.units import MM
-    from gui.docks.live_position import LiveRead
-
-    KS_LAYER = BoardLayer.BL_User_5
-
-    class _Board:
-        def __init__(self):
-            self.names = {KS_LAYER: "User.KiCadStamp",
-                          BoardLayer.BL_Dwgs_User: "User.Drawings"}
-
-        def get_enabled_layers(self):
-            return list(self.names)
-
-        def get_layer_name(self, layer):
-            return self.names.get(layer, str(layer))
-
-        def get_shapes(self):
-            return []
-
-    class _Adapter:
-        def __init__(self):
-            self._board = _Board()
-            self.created = []
-            self.selected = []
-
-        def refresh_board(self):
-            pass
-
-        def create_items(self, items):
-            items = list(items)
-            self.created.extend(items)
-            return items
-
-        def select_items(self, items):
-            self.selected.append(list(items))
-
-        def remove_by_ids(self, uuids):
-            return True
 
     # The values the Settings page would have persisted.
     view_mod.settings.state.set(bo.OVERLAY_LAYER_KEY, "User.KiCadStamp")
     view_mod.settings.state.set(bo.OVERLAY_MARKER_RADIUS_KEY, 0.9)
     view_mod.settings.state.set(bo.OVERLAY_MARKER_STROKE_KEY, 0.05)
 
-    cell = Cell(name="cell1", anchor_xy=(10.0, 5.0))
-    cfg = SimpleNamespace(cells={"cell1": cell})
-    clone = SimpleNamespace(cell="cell1", mirror=False)
+    # A cell whose only role stands live at 100/200 mm — no anchor, so the
+    # mount is the ORIG slot itself.
+    cell = Cell(name="cell1", components=[TemplateComponentSlot(role="ORIG")])
+    adapter = _OverlayAdapter([_live_fp("IC1", "ORIG", "CL", 100.0, 200.0)])
 
-    def _fake_read_live(adapter_, cfg_, clone_, sheet_names):
-        return LiveRead(position=Vector2.from_xy(int(100 * MM), int(200 * MM)),
-                        rotation_deg=0.0, footprint=None)
-
-    monkeypatch.setattr(view_mod, "read_clone_origin_live", _fake_read_live)
-
-    adapter = _Adapter()
-    uuid = view_mod._place_marker_worker(adapter, cfg, clone, "cell1", [],
+    uuid = view_mod._place_marker_worker(adapter, cell, "CL", "", [],
                                          "User.KiCadStamp")
     assert uuid is not None
     assert len(adapter.created) == 1
     circle = adapter.created[0]
     # Layer resolved from the settings DISPLAY name ('User.KiCadStamp').
-    assert circle.layer == KS_LAYER
+    assert circle.layer == BoardLayer.BL_User_5
+    # The marker sits on the live cluster's mount (IC1 at 100/200 mm).
     assert circle.center.x == int(100 * MM)
     # Radius = the configured 0.9 mm (radius_point sits ON the circle).
     assert circle.radius_point.x == int((100 + 0.9) * MM)
@@ -634,68 +609,30 @@ def test_marker_worker_draws_with_settings_layer_and_radius(main_window, tmp_pat
 
 def test_draw_bbox_worker_uses_settings_stroke(main_window, tmp_path, monkeypatch):
     """The bbox outline width also comes from the settings (0.22 seeded below)
-    — the draw reaches create_items with the configured stroke."""
+    — the draw reaches create_items with the configured stroke.
+
+    2026-09-10 (plan overlay_frame_from_cluster): the frame comes from the LIVE
+    CLUSTER now; the stored cell bbox itself is still read through
+    cell_content_bbox, so that is what stays stubbed here."""
     import gui.board_overlay as bo
     from kipy.board_types import BoardLayer
-    from kicadstamp.config.models import Cell
-    from kicadstamp.domain.geometry import Vector2
+    from kicadstamp.config.models import Cell, TemplateComponentSlot
     from kicadstamp.utils.units import MM
-    from gui.docks.live_position import LiveRead
 
-    KS_LAYER = BoardLayer.BL_User_5
-
-    class _Board:
-        def __init__(self):
-            self.names = {KS_LAYER: "User.KiCadStamp"}
-
-        def get_enabled_layers(self):
-            return list(self.names)
-
-        def get_layer_name(self, layer):
-            return self.names.get(layer, str(layer))
-
-        def get_shapes(self):
-            return []
-
-    class _Adapter:
-        def __init__(self):
-            self._board = _Board()
-            self.created = []
-
-        def refresh_board(self):
-            pass
-
-        def create_items(self, items):
-            items = list(items)
-            self.created.extend(items)
-            return items
-
-        def select_items(self, items):
-            pass
-
-        def remove_by_ids(self, uuids):
-            return True
-
+    view_mod.settings.state.set(bo.OVERLAY_LAYER_KEY, "User.KiCadStamp")
     view_mod.settings.state.set(bo.OVERLAY_BBOX_STROKE_KEY, 0.22)
 
-    cell = Cell(name="cell1")
-    cfg = SimpleNamespace(cells={"cell1": cell})
-    clone = SimpleNamespace(cell="cell1", mirror=False)
+    cell = Cell(name="cell1", components=[TemplateComponentSlot(role="ORIG")])
+    adapter = _OverlayAdapter([_live_fp("IC1", "ORIG", "CL", 100.0, 200.0)])
+    monkeypatch.setattr(view_mod, "cell_content_bbox",
+                        lambda entry: (0.0, 10.0, 0.0, 10.0))
 
-    def _fake_read_live(adapter_, cfg_, clone_, sheet_names):
-        return LiveRead(position=Vector2.from_xy(int(100 * MM), int(200 * MM)),
-                        rotation_deg=0.0, footprint=None)
-
-    monkeypatch.setattr(view_mod, "read_clone_origin_live", _fake_read_live)
-    monkeypatch.setattr(view_mod, "cell_content_bbox", lambda entry: (0.0, 10.0, 0.0, 10.0))
-
-    adapter = _Adapter()
-    uuid = view_mod._draw_bbox_worker(adapter, cfg, clone, "cell1", [],
+    uuid = view_mod._draw_bbox_worker(adapter, cell, "CL", "", [],
                                       "User.KiCadStamp")
     assert uuid is not None
     assert len(adapter.created) == 1
     rect = adapter.created[0]
-    assert rect.layer == KS_LAYER
+    assert rect.layer == BoardLayer.BL_User_5
     assert rect.attributes.stroke.width == int(0.22 * MM)
 
 

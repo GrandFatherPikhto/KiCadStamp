@@ -177,32 +177,44 @@ def read_clone_origin_live(adapter, cfg, clone, sheet_names) -> LiveRead:
     return LiveRead(position=origin, rotation_deg=rotation, footprint=fp)
 
 
-def _world_pos_to_cell_local_offset(adapter, cfg, clone, sheet_names,
-                                    world_pos: Vector2,
-                                    is_mirror: bool) -> tuple[float, float]:
-    """The SHARED tail both live-anchor readers reuse (2026-09-06, plan
-    cell_anchor_from_selection): an absolute world point -> (ax_mm, ay_mm) in
-    the CELL's own local (unrotated, unmirrored) frame RELATIVE TO THE CELL'S
-    CURRENT MOUNT. The mount (origin + rotation_deg) is read for the SAME
-    clone via read_clone_origin_live; a mirrored clone's world point is first
-    un-mirrored about the vertical axis through the origin (the same X-flip as
-    clone_geometry's _mirror_x) — stored cell offsets are described
-    unmirrored, so the point must be unmirrored too. Then the difference is
-    inverted through the placement rotation:
+def world_pos_to_cell_local_offset(origin: Vector2, rotation_deg: float,
+                                   is_mirror: bool, world_pos: Vector2
+                                   ) -> tuple[float, float]:
+    """An absolute world point -> (along_mm, across_mm) in the CELL's own local
+    (unrotated, unmirrored) frame RELATIVE TO A MOUNT the caller has already
+    resolved. A mirrored instance's world point is first un-mirrored about the
+    vertical axis through the origin (the same X-flip as clone_geometry's
+    _mirror_x) — stored cell offsets are described unmirrored, so the point must
+    be unmirrored too. Then the difference is inverted through the rotation:
       delta = world_pos - origin
-      (ax_mm, ay_mm) = rotate_local_offset(delta.x/MM, delta.y/MM, -rotation_deg)
-    Fatal ValidationError when the clone's mount can't be derived (the same
-    "never guess" discipline read_clone_origin_live enforces)."""
-    origin_read = read_clone_origin_live(adapter, cfg, clone, sheet_names)
-    origin = origin_read.position
+      (along_mm, across_mm) = rotate_local_offset(delta.x/MM, delta.y/MM, -rotation_deg)
+
+    PURE — no board access, no clone: the caller supplies the frame, whether it
+    came from a clone (_world_pos_to_cell_local_offset below) or from the live
+    cluster (cell_anchor_view._live_cluster_frame). 2026-09-10: split out when
+    the overlay stopped deriving its frame from a placement."""
     wx = world_pos.x
     wy = world_pos.y
     if is_mirror:
         wx = 2 * origin.x - wx  # un-mirror about the vertical axis through origin
     delta_x_mm = (wx - origin.x) / MM
     delta_y_mm = (wy - origin.y) / MM
-    offset = rotate_local_offset(delta_x_mm, delta_y_mm, -origin_read.rotation_deg)
+    offset = rotate_local_offset(delta_x_mm, delta_y_mm, -rotation_deg)
     return (offset.x / MM, offset.y / MM)
+
+
+def _world_pos_to_cell_local_offset(adapter, cfg, clone, sheet_names,
+                                    world_pos: Vector2,
+                                    is_mirror: bool) -> tuple[float, float]:
+    """The clone-based twin the live-anchor readers use (2026-09-06, plan
+    cell_anchor_from_selection): resolves the mount (origin + rotation_deg) for
+    the SAME clone via read_clone_origin_live, then delegates the pure inversion
+    to world_pos_to_cell_local_offset. Fatal ValidationError when the clone's
+    mount can't be derived (the same "never guess" discipline
+    read_clone_origin_live enforces)."""
+    origin_read = read_clone_origin_live(adapter, cfg, clone, sheet_names)
+    return world_pos_to_cell_local_offset(
+        origin_read.position, origin_read.rotation_deg, is_mirror, world_pos)
 
 
 def _reference_slot(cell, role_to_ref: dict[str, str]):

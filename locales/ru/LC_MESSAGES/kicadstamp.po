@@ -14318,6 +14318,27 @@ msgstr "Маркер: на кластере {cluster!r} нет размещён�
 #: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
 msgid "Marker: pick the working Cluster first (Component tab)."
 msgstr "Маркер: сначала выберите рабочий Кластер (таб «Компонент»)."
+#: gui/docks/cell_anchor_view.py
+msgid "Marker: pick the working Cluster first (Source tab)."
+msgstr "Маркер: сначала выберите рабочий Кластер (таб «Источник»)."
+#: gui/docks/cell_anchor_view.py
+#, python-brace-format
+msgid "cell {cell!r} on cluster {cluster!r}"
+msgstr "ячейка {cell!r} на кластере {cluster!r}"
+#: gui/docks/cell_anchor_view.py
+#, python-brace-format
+msgid "cluster {cluster!r} is not on the live board"
+msgstr "кластера {cluster!r} нет на живой плате"
+#: gui/docks/cell_anchor_view.py
+msgid "check the working Cluster on the Source tab, or place the cluster on this board"
+msgstr "проверьте рабочий Кластер на вкладке «Источник» или разместите кластер на этой плате"
+#: gui/docks/cell_anchor_view.py
+#, python-brace-format
+msgid "role {role!r} of this cell has no footprint in cluster {cluster!r}"
+msgstr "у роли {role!r} этой ячейки нет футпринта в кластере {cluster!r}"
+#: gui/docks/cell_anchor_view.py
+msgid "the cell's roles must be the components tagged with the working Cluster on the board"
+msgstr "роли ячейки — это компоненты, помеченные рабочим Кластером на плате"
 #: gui/docks/cell_anchor_view.py gui/docks/config_tree.py
 msgid "No live board connection — the overlay needs KiCad."
 msgstr "Нет подключения к живой плате — оверлею нужен KiCad."
