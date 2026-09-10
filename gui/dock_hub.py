@@ -2230,20 +2230,23 @@ class DockHub:
         self.cells_dock.copy_from_cell_requested(name, file_path)
 
     def _on_cell_picked(self, name: str) -> None:
-        """A Config-tree cell-leaf click (G.4). Ordinary behavior is to reveal
-        the Placer page; but while the Cell-anchor editor is the ACTIVE Config
-        right page, the page must FOLLOW the tree selection — it reloads the
-        clicked cell through load_entry, which first clears the previous cell's
-        working-context combos (_prefill_cell_context), so the Sheet/Cluster of
-        the previously edited cell no longer leak. A click never OPENS the anchor
-        page (that stays the context menu's job), and a repeat click on the cell
-        already loaded is a no-op — it must not drop unsaved input or remove the
-        overlay the user is working with."""
+        """A Config-tree cell selection ALWAYS opens the ONE merged cell page
+        (task V, prompt_2026_09_11_cell_page_merge.md) — whether it came from a
+        mouse click, an arrow key (G.5) or the context menu. It used to reveal
+        the Placer page and merely FOLLOW while the anchor page happened to be
+        active; the two editors are one page now, so every cell pick goes there.
+
+        The page reloads the picked cell through load_entry, which first clears
+        the previous cell's working-context combos (_prefill_cell_context), so
+        the Sheet/Cluster of the previously edited cell never leak (G.4). A
+        repeat pick of the cell already loaded is a no-op — it must not drop
+        unsaved input or remove the overlay the user is working with."""
         anchor_page = getattr(self, "_cell_anchor_page", None)
-        if anchor_page is None or getattr(
-                self, "_config_right_page_index", 0) != anchor_page:
+        if anchor_page is None:
             self._show_config_placer()
             return
+        self._focus_config_tree_dock()
+        self.config_tree_dock.show_page(anchor_page)
         if getattr(self.cell_anchor_view, "_cell_name", None) == name:
             return
         self.cell_anchor_view.load_entry(name, None)

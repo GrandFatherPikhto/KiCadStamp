@@ -14584,3 +14584,27 @@ msgstr "Выделить кластер на плате"
 #, python-brace-format
 msgid "Selected {count} footprint(s) of cluster {cluster!r} on the board — ready for “Refresh geometry from selection”."
 msgstr "На плате выделено {count} футпринтов кластера {cluster!r} — кластер готов для «Обновить геометрию из выделения»."
+
+msgid "(Cluster, Sheet) set the working context for the other tabs — they decide which placed instance of this cell is edited."
+msgstr "(Кластер, Лист) задают рабочий контекст для остальных вкладок — они определяют, какой размещённый экземпляр ячейки правится."
+
+msgid "Cell {name!r}"
+msgstr "Ячейка {name!r}"
+
+msgid "Cell {name!r}: placement identity stored."
+msgstr "Ячейка {name!r}: идентичность размещения сохранена."
+
+msgid "Identity save failed: {error}"
+msgstr "Не удалось сохранить идентичность: {error}"
+
+msgid "Marker anchor"
+msgstr "Якорь по маркеру"
+
+msgid "Pick a Cell in the Config tree."
+msgstr "Выберите ячейку в дереве Config."
+
+msgid "Role anchor"
+msgstr "Якорь по роли"
+
+msgid "This tab edits the CELL TEMPLATE (cells:) — every placed instance of this cell changes at once."
+msgstr "Эта вкладка правит ШАБЛОН ячейки (cells:) — все размещённые экземпляры этой ячейки меняются сразу."

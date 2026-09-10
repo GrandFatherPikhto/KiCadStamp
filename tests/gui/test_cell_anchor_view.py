@@ -846,3 +846,147 @@ def test_selected_cluster_survives_narrowing_when_it_matches(main_window, tmp_pa
     view._sheet_combo.setCurrentText("MCU")     # PIF_3V3_VDD IS on MCU
 
     assert view._cluster_combo.currentText() == "PIF_3V3_VDD"
+
+
+# ── Task V: ONE merged page (Source / Role anchor / Marker anchor) ─────────
+#
+# prompt_2026_09_11_cell_page_merge.md — the cell's identity block moved onto
+# the shared CellIdentityWidget, the page is what a cell selection opens, and
+# the Name/Comment fields write the top-level clone_placements record only
+# (never a tree-materialized one).
+
+def _view_with_placements(main_window, tmp_path, placements):
+    data = {"cells": {"cell1": {
+        "layer": "F.Cu",
+        "components": [{"role": "C1", "offset_along_mm": 0.0,
+                        "offset_across_mm": 0.0}],
+    }}, "clone_placements": placements}
+    target = tmp_path / "root.sexp"
+    target.write_text(dict_to_sexp(data), encoding="utf-8")
+    view = CellAnchorView(main_window, connection=main_window.connection)
+    view.set_root_path(target)
+    view.load_entry("cell1", target)
+    view._cluster_combo.setCurrentText("CL1")
+    return view, target
+
+
+def test_merged_page_has_source_and_two_anchor_tabs(main_window, tmp_path):
+    """The merged page: Source, Role anchor, Marker anchor — and NO
+    "Placement" tab (positions live in the trees; a tab here would create a
+    duplicate top-level record shadowing the tree — the mine the plan warns
+    about)."""
+    view, _ = _make_view(main_window, tmp_path)
+    titles = [view._tabs.tabText(i) for i in range(view._tabs.count())]
+    assert titles == ["Source", "Role anchor", "Marker anchor"]
+
+
+def test_identity_block_is_the_shared_widget_in_both_pages(real_main_window):
+    """One class, two places — the duplication is what desynchronised the two
+    cell pages this task merges."""
+    from gui.docks._cell_identity import CellIdentityWidget
+    hub = real_main_window._dock_hub
+    for owner in (hub.cell_anchor_view._identity, hub.placer_dock._name_row):
+        assert isinstance(owner, CellIdentityWidget)
+    assert (type(hub.cell_anchor_view._identity)
+            is type(hub.placer_dock._name_row))
+
+
+def test_identity_loads_from_the_top_level_record(main_window, tmp_path):
+    view, _ = _view_with_placements(
+        main_window, tmp_path,
+        [{"name": "cell1", "cell": "cell1", "cluster": "CL1",
+          "comment": "hi"}])
+
+    assert view._name_edit.text() == "cell1"
+    assert view._comment_edit.text() == "hi"
+    assert view._name_edit.isReadOnly() is False
+    assert view._comment_edit.isReadOnly() is False
+
+
+def test_tree_placement_identity_is_read_only_and_never_saved(main_window,
+                                                              tmp_path):
+    """THE mine: with no top-level clone_placements record (the usual case —
+    all 36 real placements materialize from trees) Name/Comment must be
+    read-only and committing must write NOTHING, never a duplicate entry that
+    shadows the tree."""
+    view, target = _view_with_placements(main_window, tmp_path, [])
+
+    assert view._name_edit.isReadOnly() is True
+    assert view._comment_edit.isReadOnly() is True
+    view._name_edit.setText("sneaky")
+    view._comment_edit.setText("sneaky")
+    view._on_identity_edited()
+
+    data = sexp_to_dict(target.read_text(encoding="utf-8"))
+    assert not data.get("clone_placements")
+
+
+def test_identity_edit_writes_back_into_the_top_level_record(main_window,
+                                                             tmp_path):
+    view, target = _view_with_placements(
+        main_window, tmp_path,
+        [{"name": "cell1", "cell": "cell1", "cluster": "CL1"}])
+
+    view._name_edit.setText("renamed")
+    view._comment_edit.setText("new note")
+    view._on_identity_edited()
+
+    data = sexp_to_dict(target.read_text(encoding="utf-8"))
+    items = data.get("clone_placements")
+    assert len(items) == 1                      # updated in place, no duplicate
+    assert items[0]["name"] == "renamed"
+    assert items[0]["comment"] == "new note"
+    assert items[0]["cell"] == "cell1"
+
+
+def test_anchor_tabs_still_write_the_cell_template(main_window, tmp_path):
+    """The anchor tabs edit cells: (the TEMPLATE), never this placement."""
+    view, target = _view_with_placements(
+        main_window, tmp_path,
+        [{"name": "cell1", "cell": "cell1", "cluster": "CL1"}])
+
+    view._role_combo.setCurrentText("C1")
+    view._on_set_component_anchor()
+
+    data = sexp_to_dict(target.read_text(encoding="utf-8"))
+    assert data["cells"]["cell1"]["anchor_role"] == "C1"
+    # The placement record is untouched by the anchor tabs.
+    assert "anchor_role" not in data["clone_placements"][0]
+
+
+def test_identity_works_without_a_board(main_window, tmp_path):
+    """Acceptance (Phase C, preserved by task V): the page works with
+    connection.board = None."""
+    assert main_window.connection.board is None
+    view, _ = _view_with_placements(
+        main_window, tmp_path,
+        [{"name": "cell1", "cell": "cell1", "cluster": "CL1"}])
+    assert view._name_edit.text() == "cell1"
+
+
+def test_cell_selection_by_keyboard_opens_the_merged_page(real_main_window,
+                                                          tmp_path):
+    """Task V + G.5: moving the CURRENT item (what an arrow key does) opens the
+    merged cell page for the picked cell — not the Placer."""
+    from PyQt6.QtWidgets import QApplication
+    hub = real_main_window._dock_hub
+    target = tmp_path / "root.sexp"
+    target.write_text(dict_to_sexp({"cells": {
+        "A": {"components": [{"role": "C1", "offset_along_mm": 0.0,
+                              "offset_across_mm": 0.0}]},
+        "B": {"components": [{"role": "C1", "offset_along_mm": 0.0,
+                              "offset_across_mm": 0.0}]},
+    }}), encoding="utf-8")
+    hub.config_tree_dock.set_root_file(target)
+    hub.cell_anchor_view.set_root_path(target)
+
+    top = hub.config_tree_dock.tree.topLevelItem(0)
+    cells = next(top.child(i) for i in range(top.childCount())
+                 if top.child(i).text(0) == "Cells")
+    leaf_b = next(cells.child(i) for i in range(cells.childCount())
+                  if cells.child(i).text(0) == "B")
+    hub.config_tree_dock.tree.setCurrentItem(leaf_b)
+    QApplication.processEvents()
+
+    assert hub.config_tree_dock.current_right_page() is hub.cell_anchor_view
+    assert hub.cell_anchor_view._cell_name == "B"

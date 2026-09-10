@@ -15935,3 +15935,27 @@ msgstr ""
 #, python-brace-format
 msgid "Selected {count} footprint(s) of cluster {cluster!r} on the board — ready for “Refresh geometry from selection”."
 msgstr ""
+
+msgid "(Cluster, Sheet) set the working context for the other tabs — they decide which placed instance of this cell is edited."
+msgstr ""
+
+msgid "Cell {name!r}"
+msgstr ""
+
+msgid "Cell {name!r}: placement identity stored."
+msgstr ""
+
+msgid "Identity save failed: {error}"
+msgstr ""
+
+msgid "Marker anchor"
+msgstr ""
+
+msgid "Pick a Cell in the Config tree."
+msgstr ""
+
+msgid "Role anchor"
+msgstr ""
+
+msgid "This tab edits the CELL TEMPLATE (cells:) — every placed instance of this cell changes at once."
+msgstr ""

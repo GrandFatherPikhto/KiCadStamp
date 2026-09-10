@@ -135,6 +135,7 @@ from kicadstamp.utils.units import MM
 from ..ui_utils import busy
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
+from ._cell_identity import CellIdentityWidget
 from .live_position import (LiveRead, read_anchor_live,
                             read_clone_origin_live, read_coordinate_live)
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
@@ -797,29 +798,17 @@ class PlacerDock(QWidget):
         entity_form.addRow(_("Entity:"), self.entity_combo)
         source_page_layout.addWidget(self._entity_row)
 
-        self._name_row = QWidget()
-        form = QFormLayout(self._name_row)
-        form.setContentsMargins(0, 0, 0, 0)
-        # Own-identity sheet (2026-08-15, Cell mode): narrows ambiguous
-        # Cluster+Role when this cell is cloned across reused sheets — optional,
-        # same (Sheet, Cluster, Role) order as the Single-component row above.
-        self.sheet_edit = QComboBox()
-        configure_searchable(self.sheet_edit)
-        self.sheet_edit.lineEdit().setPlaceholderText(
-            _("sheet name (narrows ambiguous Cluster+Role when this cell is "
-              "cloned across reused sheets, optional)"))
-        form.addRow(_("Sheet:"), self.sheet_edit)
-        self.cluster_edit = QComboBox()
-        configure_searchable(self.cluster_edit)
-        self.cluster_edit.lineEdit().setPlaceholderText(_("cluster tag (written onto the board's components)"))
-        form.addRow(_("Cluster:"), self.cluster_edit)
-        self.placer_name_edit = QLineEdit()
-        self.placer_name_edit.setPlaceholderText(
-            _("same as Cluster unless changed (identity for Save/--only)"))
-        form.addRow(_("Name:"), self.placer_name_edit)
-        self.placer_comment_edit = QLineEdit()
-        self.placer_comment_edit.setPlaceholderText(_("optional free-form note"))
-        form.addRow(_("Comment:"), self.placer_comment_edit)
+        # The identity block is the SHARED CellIdentityWidget (task V,
+        # prompt_2026_09_11_cell_page_merge.md) — the very same class
+        # CellAnchorView's "Source" tab hosts. The block used to be a copy in
+        # each page, and that duplication is what desynchronised the two cell
+        # pages the task merges. The attribute names below are kept as aliases:
+        # every existing call site and signal wiring refers to them.
+        self._name_row = CellIdentityWidget(self)
+        self.sheet_edit = self._name_row.sheet_edit
+        self.cluster_edit = self._name_row.cluster_edit
+        self.placer_name_edit = self._name_row.name_edit
+        self.placer_comment_edit = self._name_row.comment_edit
         source_page_layout.addWidget(self._name_row)
         # Auto-fill on the PLACEMENT's Cluster COMMIT (plan 2026-08-13, p.2;
         # re-tied to cluster_edit 2026-08-14, split anchor_cluster: the

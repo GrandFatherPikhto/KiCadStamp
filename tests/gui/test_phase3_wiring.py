@@ -152,15 +152,15 @@ def test_cell_picked_fills_placer_selected_cell(real_main_window):
     see gui/docks/config_tree.py's cell_picked docstring) — clicking a Cell
     leaf in the real Config tree must reach PlacerDock's Cell field
     end-to-end, not just via a direct set_selected_cell() call (already
-    covered elsewhere, but never through the actual signal). Also brings
-    the Config dock's Placer right page to front (2026-09-05, plan
-    config_qview_placer_nettrace)."""
+    covered elsewhere, but never through the actual signal).
+
+    Since task V the Placer is no longer REVEALED by a cell pick — the merged
+    cell page is — so only the field fill is asserted here. The Placer keeps
+    receiving the signal because a clone_placements leaf still uses it."""
     real_main_window.config_tree_dock.cell_picked.emit("ldo_adj")
 
     assert real_main_window.placer_dock._selected_cell == "ldo_adj"
     assert real_main_window.placer_dock.cell_combo.currentText() == "ldo_adj"
-    assert (real_main_window._dock_hub.config_tree_dock.current_right_page()
-            is real_main_window.placer_dock)
 
 
 def test_placement_picked_loads_into_placer_form(real_main_window):
@@ -1299,16 +1299,17 @@ def test_file_selected_no_longer_switches_the_right_page(real_main_window, tmp_p
             is real_main_window.placer_dock)
 
 
-def test_cell_picked_still_switches_to_placer(real_main_window):
-    """A Cell-leaf click fires file_selected THEN cell_picked in that order
-    (see config_tree.py's _on_clicked) — the specific signal routes into the
-    Config dock's Placer page (file_selected never routes; cell_picked's
-    placer routing must still win)."""
+def test_cell_picked_opens_the_merged_cell_page(real_main_window):
+    """Task V (prompt_2026_09_11_cell_page_merge.md): a Cell-leaf click fires
+    file_selected THEN cell_picked in that order (see config_tree.py's
+    _on_clicked) and lands on the ONE merged cell page — the Placer is no
+    longer the cell's editor."""
+    hub = real_main_window._dock_hub
     real_main_window.config_tree_dock.file_selected.emit(None)
     real_main_window.config_tree_dock.cell_picked.emit("ldo_adj")
 
-    assert (real_main_window._dock_hub.config_tree_dock.current_right_page()
-            is real_main_window.placer_dock)
+    assert hub.config_tree_dock.current_right_page() is hub.cell_anchor_view
+    assert hub.config_tree_dock.current_right_page_index() == hub._cell_anchor_page
 
 
 # ── G.4: the anchor page follows the Config-tree cell selection ────────────
@@ -1356,19 +1357,20 @@ def test_cell_click_reload_clears_the_working_context(real_main_window, tmp_path
     assert hub.cell_anchor_view._cell_name == "B"
 
 
-def test_cell_click_does_not_open_the_anchor_page(real_main_window, monkeypatch):
-    """A click never OPENS the anchor page: when it is not the active right
-    page the ordinary behavior stays (reveal the Placer page)."""
+def test_cell_click_opens_the_merged_cell_page(real_main_window, monkeypatch):
+    """Task V: a cell click now OPENS the page even when a different right
+    page was active (it used to reveal the Placer instead) and loads the
+    picked cell into it."""
     hub = real_main_window._dock_hub
     calls = []
     monkeypatch.setattr(hub.cell_anchor_view, "load_entry",
                         lambda *a, **k: calls.append(a))
-    hub._config_right_page_index = 0   # placeholder page, not the anchor page
+    hub.config_tree_dock.set_current_page(0)   # placeholder, not the cell page
 
     real_main_window.config_tree_dock.cell_picked.emit("ldo_adj")
 
-    assert calls == []
-    assert hub.config_tree_dock.current_right_page() is hub.placer_dock
+    assert calls == [("ldo_adj", None)]
+    assert hub.config_tree_dock.current_right_page() is hub.cell_anchor_view
 
 
 def test_repeat_cell_click_is_a_noop_for_the_anchor_page(real_main_window,

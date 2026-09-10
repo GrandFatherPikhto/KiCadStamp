@@ -84,6 +84,7 @@ from ..cell_edit_context import (
     remembered_cell_edit_context,
 )
 from ..worker import start_long_op
+from ._cell_identity import CellIdentityWidget
 from ._common import (
     ERROR_STYLE as _ERROR_STYLE,
     SUCCESS_STYLE as _SUCCESS_STYLE,
@@ -98,7 +99,7 @@ from .live_position import (
     _world_pos_to_cell_local_offset,
     read_clone_origin_live,
 )
-from .rename import find_dict_entry_file
+from .rename import collect_graph_files, find_dict_entry_file
 from .scheme_list import snapshot_with_resolved_sheets
 
 logger = logging.getLogger(__name__)
@@ -682,29 +683,36 @@ class CellAnchorView(QWidget):
         self._tabs = QTabWidget()
         layout.addWidget(self._tabs)
 
-        # ── Tab 1 — Component (also hosts the working Sheet/Cluster context) ──
+        # ── Tab 1 — Source: identity + working context (task V) ───────────
+        # The ONE page a cell selection opens (prompt_2026_09_11_cell_page_
+        # merge.md). The identity block is the SHARED CellIdentityWidget — also
+        # plugged into PlacerDock, since duplicating it is exactly what
+        # desynchronised the two pages this task merges. Its (Cluster, Sheet)
+        # pair is the working context every other tab resolves against.
+        source_page = QWidget()
+        source_layout = QVBoxLayout(source_page)
+        source_layout.setContentsMargins(4, 4, 4, 4)
+        self._identity = CellIdentityWidget(
+            sheet_placeholder=_("Sheet (optional)"),
+            cluster_placeholder=_("Cluster of the placed cell"))
+        # The pre-task-V attribute names stay: the working-context combos moved
+        # here from the Component tab and G.2/G.3 are wired to these objects.
+        self._cluster_combo = self._identity.cluster_edit
+        self._sheet_combo = self._identity.sheet_edit
+        self._name_edit = self._identity.name_edit
+        self._comment_edit = self._identity.comment_edit
+        self._identity.note.setText(
+            _("(Cluster, Sheet) set the working context for the other tabs — "
+              "they decide which placed instance of this cell is edited."))
+        source_layout.addWidget(self._identity)
+        source_layout.addStretch(1)
+        self._tabs.addTab(source_page, _("Source"))
+
+        # ── Tab 2 — Role anchor (the old "Component" tab) ─────────────────
         comp_page = QWidget()
         comp_layout = QVBoxLayout(comp_page)
         comp_layout.setContentsMargins(4, 4, 4, 4)
-
-        ctx_box = QGroupBox(_("Working context (Sheet/Cluster of the placed "
-                              "instance)"))
-        ctx_form = QFormLayout(ctx_box)
-        self._cluster_combo = QComboBox()
-        configure_searchable(self._cluster_combo)
-        self._cluster_combo.setPlaceholderText(_("Cluster of the placed cell"))
-        ctx_form.addRow(_("Cluster:"), self._cluster_combo)
-        self._sheet_combo = QComboBox()
-        configure_searchable(self._sheet_combo)
-        self._sheet_combo.setPlaceholderText(_("Sheet (optional)"))
-        ctx_form.addRow(_("Sheet:"), self._sheet_combo)
-        ctx_note = QLabel(_("The Marker tab maps through the placed instance "
-                            "of this cell on the chosen Cluster — the live "
-                            "board is used only then and for “Read from "
-                            "selection”."))
-        ctx_note.setWordWrap(True)
-        ctx_form.addRow(ctx_note)
-        comp_layout.addWidget(ctx_box)
+        comp_layout.addWidget(self._template_scope_note())
 
         comp_box = QGroupBox(_("Component anchor"))
         comp_form = QFormLayout(comp_box)
@@ -737,12 +745,13 @@ class CellAnchorView(QWidget):
         comp_form.addRow(comp_note)
         comp_layout.addWidget(comp_box)
         comp_layout.addStretch(1)
-        self._tabs.addTab(comp_page, _("Component"))
+        self._tabs.addTab(comp_page, _("Role anchor"))
 
-        # ── Tab 2 — Marker ────────────────────────────────────────────────
+        # ── Tab 3 — Marker anchor (the old "Marker" tab) ──────────────────
         marker_page = QWidget()
         marker_layout = QVBoxLayout(marker_page)
         marker_layout.setContentsMargins(4, 4, 4, 4)
+        marker_layout.addWidget(self._template_scope_note())
 
         marker_box = QGroupBox(_("Marker"))
         marker_form = QFormLayout(marker_box)
@@ -789,13 +798,29 @@ class CellAnchorView(QWidget):
         marker_form.addRow(m_note)
         marker_layout.addWidget(marker_box)
         marker_layout.addStretch(1)
-        self._tabs.addTab(marker_page, _("Marker"))
+        self._tabs.addTab(marker_page, _("Marker anchor"))
 
         self._cluster_combo.currentTextChanged.connect(self._on_cluster_changed)
         # G.2: the Sheet narrows the Cluster list; G.3: both combos persist the
         # working context on a manual pick.
         self._sheet_combo.currentTextChanged.connect(self._on_sheet_changed)
+        # Name/Comment (task V) write back into the top-level clone_placements
+        # record of this cell — only when one exists; otherwise the fields are
+        # read-only (see _load_identity / _identity_record).
+        self._name_edit.editingFinished.connect(self._on_identity_edited)
+        self._comment_edit.editingFinished.connect(self._on_identity_edited)
         self._tabs.currentChanged.connect(lambda _i: self._reload_form())
+
+    @staticmethod
+    def _template_scope_note() -> QLabel:
+        """Both anchor tabs write the CELL TEMPLATE (cells:), not this
+        placement — every placed instance of the cell shifts at once. Said in
+        the interface because the Source tab's fields write the placement only
+        (task V)."""
+        note = QLabel(_("This tab edits the CELL TEMPLATE (cells:) — every "
+                        "placed instance of this cell changes at once."))
+        note.setWordWrap(True)
+        return note
 
     # ── Loading / context ─────────────────────────────────────────────────
 
@@ -908,11 +933,13 @@ class CellAnchorView(QWidget):
 
     def _on_sheet_changed(self) -> None:
         """The working Sheet changed — re-narrow the Cluster list to that sheet
-        (G.2) and persist the working context (G.3)."""
+        (G.2), persist the working context (G.3) and re-resolve the placement
+        identity, whose record is scoped by (Cluster, Sheet) too (task V)."""
         if self._loading:
             return
         self._refill_cluster_choices()
         self._remember_working_context()
+        self._reload_identity()
 
     def _remember_working_context(self) -> None:
         """Persist the working (Cluster, Sheet) for the loaded cell (G.3) —
@@ -1046,13 +1073,136 @@ class CellAnchorView(QWidget):
         return sorted({c.get("role") for c in entry.get("components", [])
                        if c.get("role")})
 
+    # ── Task V: the Source tab's placement identity (Name/Comment) ─────────
+
+    def _identity_raw_matches(self) -> list:
+        """Every RAW top-level clone_placements dict of this cell matching the
+        working (Cluster, Sheet) as (path, item) pairs.
+
+        RAW and OFFLINE on purpose: the write path is raw (read_data/
+        merge_write), and the union resolution that covers tree placements
+        (resolve_clone_context_live) must never run on the UI thread — while a
+        tree-materialized placement has NO record to write into, which is the
+        case that must stay read-only (writing one would duplicate the tree).
+        The matching rule mirrors context_clone_candidates' on the loaded
+        dataclasses: cluster_prefix_match + exact sheet when both sides carry
+        one."""
+        if self._root_path is None or self._cell_name is None:
+            return []
+        cluster = self._cluster_combo.currentText().strip()
+        if not cluster or not Path(self._root_path).exists():
+            return []
+        sheet = self._sheet_combo.currentText().strip()
+        matches = []
+        for path in collect_graph_files(self._root_path):
+            try:
+                items = read_data(path).get("clone_placements") or []
+            except (ValidationError, OSError):
+                continue
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("cell") != self._cell_name:
+                    continue
+                if not cluster_prefix_match(item.get("cluster") or "", cluster):
+                    continue
+                if sheet and item.get("sheet") and item["sheet"] != sheet:
+                    continue
+                matches.append((path, item))
+        return matches
+
+    def _reload_identity(self) -> None:
+        """Fill Name/Comment from the ONE top-level record of this cell, and
+        mark them editable only when such a record exists. Several matches stay
+        a FATAL with the enumeration (same rule as _single_candidate), never
+        'take the first'. Runs under the _loading guard so a programmatic fill
+        never writes the working context back (G.3)."""
+        matches = self._identity_raw_matches()
+        if len(matches) > 1:
+            names = ", ".join(sorted(
+                str(m[1].get("name") or m[1].get("cluster") or "?")
+                for m in matches))
+            show_message(
+                _("cell {cell!r}: several clone placements match cluster "
+                  "{cluster!r} — {names}").format(
+                    cell=self._cell_name,
+                    cluster=self._cluster_combo.currentText().strip(),
+                    names=names),
+                _ERROR_STYLE, logger)
+        editable = len(matches) == 1
+        self._identity.set_record_fields_editable(editable)
+        self._loading = True
+        try:
+            if editable:
+                item = matches[0][1]
+                self._name_edit.setText(str(item.get("name") or ""))
+                self._comment_edit.setText(str(item.get("comment") or ""))
+            else:
+                self._name_edit.setText("")
+                self._comment_edit.setText("")
+        finally:
+            self._loading = False
+
+    def _on_identity_edited(self) -> None:
+        """Name/Comment committed — write them back into the ONE top-level
+        record, IN PLACE.
+
+        Never creates a record: with no top-level placement in context the two
+        fields are read-only and this is a no-op, so a tree placement's
+        position is never duplicated as a clone_placements entry. The entry is
+        re-located by its PRE-edit identity, because Name itself is the record's
+        identity — a plain identity lookup after the edit would miss it and
+        append a duplicate."""
+        if self._loading or self._cell_name is None:
+            return
+        if self._name_edit.isReadOnly():
+            return
+        matches = self._identity_raw_matches()
+        if len(matches) != 1:
+            return
+        path, item = matches[0]
+        old_key = item.get("name") or item.get("cluster")
+        name = self._name_edit.text().strip()
+        comment = self._comment_edit.text().strip()
+        new_item = dict(item)
+        # Same "never write a redundant field" rule every other save path uses
+        # (placer.py's _build_entry_dict): absent Name means "equal to Cluster".
+        if name and name != (item.get("cluster") or ""):
+            new_item["name"] = name
+        else:
+            new_item.pop("name", None)
+        if comment:
+            new_item["comment"] = comment
+        else:
+            new_item.pop("comment", None)
+        try:
+            items = list(read_data(path).get("clone_placements") or [])
+            for i, raw in enumerate(items):
+                if (isinstance(raw, dict)
+                        and (raw.get("name") or raw.get("cluster")) == old_key):
+                    items[i] = new_item
+                    break
+            else:
+                return
+            # clone_placements is a LIST section: merge_write's `section=`
+            # form is for dict sections, so the whole (re-read) list is merged
+            # at the top level — every other top-level key is preserved.
+            merge_write(path, {"clone_placements": items})
+        except (ValidationError, OSError) as e:
+            show_message(_("Identity save failed: {error}").format(error=e),
+                         _ERROR_STYLE, logger)
+            return
+        show_message(_("Cell {name!r}: placement identity stored.")
+                     .format(name=self._cell_name), _SUCCESS_STYLE, logger)
+        self.saved.emit()
+
     def _reload_form(self) -> None:
         """Refill the whole form from the current cell entry — called on open,
-        on tab switch and after a save so both tabs stay in sync."""
+        on tab switch and after a save so all tabs stay in sync."""
         self._refresh_overlay_layer_note()
+        self._reload_identity()
         if self._cell_name is None:
-            self._title.setText(_("Pick a Cell in the Config tree, then use "
-                                  "“Cell anchor...” from its context menu."))
+            self._title.setText(_("Pick a Cell in the Config tree."))
             self._set_anchor_button.setEnabled(False)
             self._clear_anchor_button.setEnabled(False)
             self._read_selection_button.setEnabled(False)
@@ -1064,7 +1214,7 @@ class CellAnchorView(QWidget):
                 b.setEnabled(False)
             return
 
-        self._title.setText(_("Cell {name!r} — anchor").format(name=self._cell_name))
+        self._title.setText(_("Cell {name!r}").format(name=self._cell_name))
         entry = self._current_entry()
         if entry is None:
             show_message(_("Cell {name!r} not found in the project config")
@@ -1127,6 +1277,9 @@ class CellAnchorView(QWidget):
         roles = sorted({c.get("role") for c in entry.get("components", [])
                         if c.get("role")})
         self._fill_role_choices(roles, self._cluster_combo.currentText().strip())
+        # Task V: the placement record the identity fields edit is scoped by the
+        # working (Cluster, Sheet) too — re-resolve it on a context change.
+        self._reload_identity()
 
     def _on_read_from_selection(self) -> None:
         adapter = self._adapter()
