@@ -24,7 +24,7 @@ from typing import List, Optional, Sequence, Tuple
 from PyQt6.QtCore import QEvent, QObject, Qt, pyqtSignal
 from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QCompleter,
                              QHBoxLayout, QHeaderView, QLineEdit, QMessageBox,
-                             QPushButton, QSizePolicy, QSplitter, QTableWidget,
+                             QPushButton, QSplitter, QTableWidget,
                              QTableWidgetItem, QVBoxLayout, QWidget)
 
 from kicadstamp.i18n import _
@@ -336,34 +336,13 @@ def apply_compact_field_minimums(app) -> None:
         app.setStyleSheet((existing + "\n" + FIELD_MIN_WIDTH_QSS).strip())
 
 
-def make_dock_grow_vertically(dock, widget=None) -> None:
-    """Give a dock's central widget vertical `Expanding` so it can ABSORB the
-    height freed by shrinking the Log dock (S.1 of techdocs/me/scroll.md /
-    prompt_2026_09_10_splitters_and_log_sizing.md).
-
-    A left-area dock whose widget is vertically `Preferred` sits exactly at its
-    content minimumSizeHint and never grows: free height is simply handed to the
-    log, so the log's own height is `window - 804` and the horizontal separator
-    cannot be dragged (measured: tree 282 + config 522 fixed at every window
-    size). `Expanding` lets the top docks take that height, which is what makes
-    the separator move and the log shrinkable.
-
-    Only the VERTICAL policy is touched — the horizontal one is whatever the
-    widget already had. Deliberately NOT applied to the log itself: it already
-    receives all the slack, and making IT expanding would harden the very
-    defect this fixes."""
-    target = widget if widget is not None else dock.widget()
-    if target is None:
-        return
-    policy = target.sizePolicy()
-    policy.setVerticalPolicy(QSizePolicy.Policy.Expanding)
-    target.setSizePolicy(policy)
-    # The QDockWidget's OWN policy is what QMainWindow's dock layout consults
-    # when it splits the window height — without this the central widget's
-    # Expanding had no effect (measured).
-    dock_policy = dock.sizePolicy()
-    dock_policy.setVerticalPolicy(QSizePolicy.Policy.Expanding)
-    dock.setSizePolicy(dock_policy)
+# S.1's make_dock_grow_vertically() lived here (task S, 2026-09-10). It set the
+# three left docks + their widgets to a vertical `Expanding` policy — and was
+# measured to change NOTHING: with no central widget, QMainWindow hands every
+# spare pixel to the bottom dock area regardless of the docks' policies. Task T
+# made the three widgets pages of a central QTabWidget, which is the real
+# elastic centre, so the helper was removed rather than left as a change that
+# looks effective but does nothing (prompt_2026_09_10_central_widget_layout.md).
 
 
 class SplitterSizeKeeper(QObject):

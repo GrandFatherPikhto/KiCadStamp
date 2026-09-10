@@ -119,7 +119,13 @@ SELECTION_POLL_INTERVAL_MS = 400
 # fieldstool dock (right) and the Pending dock (bottom) are gone — both are
 # now pages of the Components master-detail dock, so the old 6-dock blob
 # would be mapped onto a 4-dock set and must be ignored.
-_DOCK_STATE_VERSION = 3
+# Version 4 (2026-09-10, task T prompt_2026_09_10_central_widget_layout): the
+# three left-area docks (tree/config/trees) are no longer QDockWidgets at all —
+# they are the pages of the window's CENTRAL QTabWidget, so a v3 blob that
+# describes them as docks cannot be applied. Bumping the version is the
+# sanctioned migration documented above: restoreState() returns False and the
+# default layout DockHub just built is kept.
+_DOCK_STATE_VERSION = 4
 
 
 class MainWindow(QMainWindow):
@@ -445,7 +451,10 @@ class MainWindow(QMainWindow):
         # restarting. Every QDockWidget ships a ready-made toggleViewAction()
         # (checkable, self-tracks shown/hidden) — wire one per real top-level
         # dock (DockHub.docks), see gui/dock_hub.py for why DetailDock's
-        # internal panels are excluded.
+        # internal panels are excluded. Since task T (2026-09-10) the
+        # Components/Config/Trees widgets are pages of the central QTabWidget,
+        # not docks: they cannot be floated or closed, so they correctly have no
+        # entry here — DockHub.docks holds only the Log now.
         view_menu = self.menuBar().addMenu(_("View"))
         for dock in self._dock_hub.docks:
             view_menu.addAction(dock.toggleViewAction())

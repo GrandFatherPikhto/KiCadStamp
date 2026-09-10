@@ -32,7 +32,9 @@ def test_plain_construction_has_no_master_detail(main_window, qapp):
     dock = RoleClusterTreeDock(main_window)
     assert dock.splitter is None
     assert dock._left_tabs is None
-    assert dock.widget() is dock._tree_page
+    # A plain QWidget page now (task T): its content is the first item of its
+    # layout rather than a QDockWidget.setWidget() payload.
+    assert dock.layout().itemAt(0).widget() is dock._tree_page
 
 
 def test_master_detail_layout(main_window, qapp):

@@ -1553,16 +1553,17 @@ def test_dock_hub_constructs_all_docks(main_window, tmp_path):
         _teardown_hub(hub)
 
 
-def test_left_dock_tabs_are_on_the_south(main_window):
-    """Plan §4 (trees master-detail): the whole LEFT dock area's tab bar sits at
-    the BOTTOM of the group (RoleClusterTreeDock + ConfigTreeDock + TreesDock —
-    confirmed with Denis: the full triple moves, not just the Config/Trees pair).
-    setTabPosition is per DOCK-WIDGET-AREA, so DockHub's single call covers all
-    three tabbed left docks."""
+def test_central_tab_bar_is_on_the_south(main_window):
+    """Plan §4 (trees master-detail) + task T: the Components/Config/Trees group
+    is the window's CENTRAL QTabWidget, and its tab bar sits at the BOTTOM of
+    the group (confirmed with Denis: the full triple moves, not just the
+    Config/Trees pair)."""
     hub = DockHub(main_window, connection=main_window.connection, verbose=False)
     try:
-        assert main_window.tabPosition(
-            Qt.DockWidgetArea.LeftDockWidgetArea) == QTabWidget.TabPosition.South
+        assert main_window.centralWidget() is hub.left_tabs
+        assert (hub.left_tabs.tabPosition()
+                == QTabWidget.TabPosition.South)
+        assert hub.left_tabs.count() == 3
     finally:
         _teardown_hub(hub)
 
@@ -1929,14 +1930,12 @@ def test_dock_hub_delegates_route_to_the_right_docks(real_main_window, monkeypat
     assert hub._selection_footprints == ["sel"]
     assert placer_selected == [(["raw"], ["sel"])]
 
-    # open_fieldstool (2026-09-05 master-detail) shows/raises the Components
-    # dock (tree_dock), which hosts the embedded fieldstool pane.
-    shown, raised = [], []
-    monkeypatch.setattr(hub.tree_dock, "setVisible", lambda v: shown.append(v))
-    monkeypatch.setattr(hub.tree_dock, "raise_", lambda: raised.append(True))
+    # open_fieldstool (2026-09-05 master-detail; task T since 2026-09-10) brings
+    # the Components TAB to the front — the three widgets are pages of the
+    # central QTabWidget now, so there is no dock to show()/raise_().
+    hub.left_tabs.setCurrentWidget(hub.config_tree_dock)
     hub.open_fieldstool()
-    assert shown == [True]
-    assert raised == [True]
+    assert hub.left_tabs.currentWidget() is hub.tree_dock
 
 
 # ── graph_changed broadcast (2026-08-15, plan graph_changed_broadcast) ─────

@@ -39,11 +39,14 @@ def test_fieldstool_window_is_embedded_in_the_components_dock(real_main_window):
     assert left_tabs.widget(1) is hub.pending_dock
 
 
-def test_open_fieldstool_shows_and_raises_the_components_dock(real_main_window):
-    real_main_window.tree_dock.setVisible(False)
+def test_open_fieldstool_brings_the_components_tab_to_the_front(real_main_window):
+    """open_fieldstool() raises the Components TAB of the central QTabWidget
+    (task T) — the three widgets are no longer docks, so there is nothing to
+    show()/raise_()."""
+    hub = real_main_window._dock_hub
+    hub.left_tabs.setCurrentWidget(hub.config_tree_dock)
     real_main_window.open_fieldstool()
-    assert real_main_window.tree_dock.isVisible()
-    assert real_main_window.isVisible()
+    assert hub.left_tabs.currentWidget() is hub.tree_dock
 
 
 # ── Phase 5.1: one connection, one polling loop ─────────────────────────────

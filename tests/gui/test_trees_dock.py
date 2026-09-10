@@ -3491,7 +3491,9 @@ def test_tree_splitter_sizes_restored_on_dock_recreate(main_window, tmp_path, qa
         "alpha": {"anchor_expanded": True, "splitter_sizes": [260, 720]}}})
 
     dock = TreesDock(main_window)
-    main_window.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+    # A plain QWidget page now (task T), not a dock: install it as the central
+    # widget so its page splitters are laid out on show().
+    main_window.setCentralWidget(dock)
     dock.set_root_file(root)
     main_window.resize(1200, 600)
     main_window.show()

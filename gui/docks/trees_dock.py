@@ -17,7 +17,7 @@ from typing import Optional
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QBrush, QColor
-from PyQt6.QtWidgets import (QComboBox, QDialog, QDockWidget,
+from PyQt6.QtWidgets import (QComboBox, QDialog,
                              QFormLayout, QHBoxLayout, QInputDialog, QLabel,
                              QLineEdit, QMenu, QMessageBox, QPushButton,
                              QSizePolicy, QSplitter, QTabWidget,
@@ -60,8 +60,8 @@ from .. import settings
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from ._common import (configure_searchable, confirm_first_run_adoption,
-                      highlight_stylesheet_for, make_dock_grow_vertically,
-                      set_combo_items, SplitterSizeKeeper)
+                      highlight_stylesheet_for, set_combo_items,
+                      SplitterSizeKeeper)
 from .cascade import (run_curated_forest_redraw_worker, run_curated_tree_redraw_worker,
                       run_single_node_redraw_worker)
 from .entity_delete import backup_file
@@ -273,23 +273,22 @@ def _copy_node_onto(target: TreeNode, built: TreeNode) -> None:
     target.own_anchor = built.own_anchor
 
 
-class TreesDock(QDockWidget):
-    """QDockWidget hosting the hand-authored trees editor for the root
-    config's trees: section (design_2026_08_27_trees_in_config_file.md).
+class TreesDock(QWidget):
+    """Editor for the root config's trees: section (design_2026_08_27_trees_
+    in_config_file.md) — one page of DockHub's central QTabWidget (it used to
+    be a QDockWidget; 2026-09-10, task T).
     Since 2026-09-03 (plan plan_2026_09_03_trees_menu_tools.md) the
     whole-tree actions (Create/Rename/Delete tree, Anchor position, Redraw
-    selected/whole) live in the top-level menu Tools → Trees; the dock itself
+    selected/whole) live in the top-level menu Tools → Trees; this widget itself
     keeps the per-tree tabs, the per-node context menus and the read-only
-    status row. dock_hub adds and tabifies it like the other tree docks. No
-    file identity of its own — the trees live in the root config (cfg.trees),
-    read via root_changed and saved through config_writer."""
+    status row. No file identity of its own — the trees live in the root config
+    (cfg.trees), read via root_changed and saved through config_writer."""
 
     def __init__(self, main_window):
-        super().__init__(_("Trees"), main_window)
-        # Stable QDockWidget identity for QMainWindow.saveState()/restoreState()
-        # (handoff sync_skip_message_and_view_menu §0) — without a unique
-        # objectName Qt cannot reliably map a saved layout blob back to this
-        # dock between runs.
+        super().__init__(main_window)
+        # Stable widget identity for diagnostics/findChild. This is NO LONGER a
+        # QDockWidget (2026-09-10, task T): it is one page of DockHub's central
+        # QTabWidget, so saveState()/restoreState() never sees it.
         self.setObjectName("trees_dock")
         self._main_window = main_window
         self._trees: list[Tree] = []
@@ -334,10 +333,13 @@ class TreesDock(QDockWidget):
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(4, 4, 4, 4)
-        self.setWidget(container)
-        # S.1: this left-area dock must absorb the height freed by shrinking the
-        # Log dock, or the separator cannot be dragged.
-        make_dock_grow_vertically(self, container)
+        # A page of DockHub's central QTabWidget, not a dock (task T): the
+        # QTabWidget is the elastic centre that makes the Log separator
+        # draggable (S.1's make_dock_grow_vertically was measured inert and
+        # removed).
+        dock_layout = QVBoxLayout(self)
+        dock_layout.setContentsMargins(0, 0, 0, 0)
+        dock_layout.addWidget(container)
 
         # ── No whole-tree toolbar (2026-09-03, plan
         #    plan_2026_09_03_trees_menu_tools.md): every whole-tree action —

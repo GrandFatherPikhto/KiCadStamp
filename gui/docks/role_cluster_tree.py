@@ -72,9 +72,9 @@ from typing import Any, Callable, Dict, List, Optional
 
 from PyQt6.QtCore import QItemSelectionModel, Qt, pyqtSignal
 from PyQt6.QtGui import QStandardItem, QStandardItemModel
-from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDockWidget, QHBoxLayout,
-                              QLineEdit, QMessageBox, QPushButton, QSplitter,
-                              QTabWidget, QTreeView, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QLineEdit,
+                              QMessageBox, QPushButton, QSplitter, QTabWidget,
+                              QTreeView, QVBoxLayout, QWidget)
 
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.exceptions import ValidationError
@@ -84,8 +84,7 @@ from kicadstamp.i18n import _
 from .. import settings
 from ..worker import start_long_op
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
-                      highlight_stylesheet_for, make_dock_grow_vertically,
-                      show_message, SplitterSizeKeeper)
+                      highlight_stylesheet_for, show_message, SplitterSizeKeeper)
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +113,7 @@ class _Row:
     divergent: bool = field(default=False)
 
 
-class RoleClusterTreeDock(QDockWidget):
+class RoleClusterTreeDock(QWidget):
     """Master-detail "Components" dock — since 2026-09-05 (plan
     components_fieldstool_master_detail) the components tree lives in a left
     QTabWidget (tabs on top: "Components" + the shared Pending page) with the
@@ -132,11 +131,10 @@ class RoleClusterTreeDock(QDockWidget):
 
     def __init__(self, main_window, connection=None,
                  pending_panel=None, fieldstool_window=None):
-        super().__init__(_("Components"), main_window)
-        # Stable QDockWidget identity for QMainWindow.saveState()/restoreState()
-        # (handoff sync_skip_message_and_view_menu §0) — without a unique
-        # objectName Qt cannot reliably map a saved layout blob back to this
-        # dock between runs.
+        super().__init__(main_window)
+        # Stable widget identity for diagnostics/findChild. This is NO LONGER a
+        # QDockWidget (2026-09-10, task T): it is one page of DockHub's central
+        # QTabWidget, so saveState()/restoreState() never sees it.
         self.setObjectName("tree_dock")
         self._main_window = main_window
         # Injected BoardConnection — falls back to the owning window's when
@@ -267,11 +265,18 @@ class RoleClusterTreeDock(QDockWidget):
         if self._fieldstool_window is not None:
             self._build_master_detail()
         else:
-            self.setWidget(self._tree_page)
-        # S.1 (techdocs/me/scroll.md): let this left-area dock absorb the height
-        # freed by shrinking the Log dock — in BOTH modes (the central widget is
-        # the splitter in master-detail, the bare tree page otherwise).
-        make_dock_grow_vertically(self)
+            self._install_content(self._tree_page)
+        # No size policy to set here: this widget is a page of DockHub's central
+        # QTabWidget, which is the elastic centre (task T). S.1's
+        # make_dock_grow_vertically was measured inert and removed.
+
+    def _install_content(self, widget: QWidget) -> None:
+        """Fill this central-TAB page with `widget`. It used to be a
+        QDockWidget owned by QMainWindow, so QDockWidget.setWidget() was the
+        install path; now it is a plain QWidget page (task T)."""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(widget)
 
     def _build_master_detail(self) -> None:
         """Wrap the components-tree page (plus the shared Pending page as a
@@ -293,7 +298,7 @@ class RoleClusterTreeDock(QDockWidget):
         self.splitter.addWidget(self._fieldstool_window)
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
-        self.setWidget(self.splitter)
+        self._install_content(self.splitter)
         # S.3: remember the last good handle position while visible, so a quit
         # with this dock hidden (tabbed behind Config/Trees) cannot persist the
         # [0, 0] Qt reports for a hidden splitter.

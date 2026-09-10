@@ -119,7 +119,7 @@ from typing import List, Optional
 from PyQt6.QtCore import QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (QAbstractItemView, QAbstractScrollArea,
-                              QApplication, QDockWidget, QFileDialog, QFrame,
+                              QApplication, QFileDialog, QFrame,
                               QInputDialog, QMenu, QMessageBox, QScrollArea,
                               QSizePolicy, QSplitter, QStackedWidget,
                               QTreeWidget, QTreeWidgetItem,
@@ -131,9 +131,8 @@ from kicadstamp.i18n import _
 
 from .. import settings, yaml_io
 from ._common import (add_include, disable_include, display_path,
-                      highlight_stylesheet_for, make_dock_grow_vertically,
-                      non_includable_keys, SplitterSizeKeeper,
-                      upsert_list_entry)
+                      highlight_stylesheet_for, non_includable_keys,
+                      SplitterSizeKeeper, upsert_list_entry)
 from .entity_delete import backup_file, delete_entry, find_references
 from .entity_export import ExportItem, export_entries
 from .rename import CASCADE_FIELD, collect_graph_files, entry_effective_name, rename_entry
@@ -223,7 +222,7 @@ def _identity_from_json(raw: list) -> tuple:
     return tuple(Path(x) if i == 1 else x for i, x in enumerate(raw))
 
 
-class ConfigTreeDock(QDockWidget):
+class ConfigTreeDock(QWidget):
     # Fired when a Cell leaf is clicked — PlacerDock listens to fill its
     # Cell field (see gui/dock_hub.py). Left CLICK stays "pick this cell as
     # a placement's content" (unchanged) — editing a cell's own content is a
@@ -422,11 +421,12 @@ class ConfigTreeDock(QDockWidget):
     graph_changed = pyqtSignal()
 
     def __init__(self, main_window):
-        super().__init__(_("Config"), main_window)
-        # Stable QDockWidget identity for QMainWindow.saveState()/restoreState()
-        # (handoff sync_skip_message_and_view_menu §0) — without a unique
-        # objectName Qt cannot reliably map a saved layout blob back to this
-        # dock between runs.
+        super().__init__(main_window)
+        # Stable widget identity for diagnostics / findChild. This is NO LONGER
+        # a QDockWidget (2026-09-10, task T): it is one page of DockHub's
+        # central QTabWidget, so saveState()/restoreState() never sees it — the
+        # saved-layout blob was version-bumped for exactly that reason (see
+        # _DOCK_STATE_VERSION in gui/main_window.py).
         self.setObjectName("config_tree_dock")
         self._main_window = main_window
         self._root_path: Optional[Path] = None
@@ -530,10 +530,13 @@ class ConfigTreeDock(QDockWidget):
         self._rename_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self._rename_shortcut.activated.connect(self._on_rename_shortcut)
 
-        self.setWidget(container)
-        # S.1: this left-area dock must absorb the height freed by shrinking
-        # the Log dock, or the separator cannot be dragged at all.
-        make_dock_grow_vertically(self, container)
+        # A page of DockHub's central QTabWidget, not a dock (task T): the
+        # QTabWidget is the elastic centre that makes the Log separator
+        # draggable, so no per-widget size policy is needed here (S.1's
+        # make_dock_grow_vertically was measured inert and removed).
+        dock_layout = QVBoxLayout(self)
+        dock_layout.setContentsMargins(0, 0, 0, 0)
+        dock_layout.addWidget(container)
 
     # ── Master-detail right pages (2026-09-05, plan config_qview_placer_nettrace) ──
 
@@ -617,12 +620,14 @@ class ConfigTreeDock(QDockWidget):
         return self._right_stack.currentIndex()
 
     def show_page(self, index: int) -> None:
-        """Switch the right page AND make sure this dock is visible/raised —
-        the same raise-on-switch convention DetailDock's show_X() had (the
-        dock shares its area with role_cluster_tree/trees_dock tabs)."""
+        """Switch the right context page to `index`.
+
+        The old 'make this dock visible and raise it' half is gone (task T):
+        this widget is a page of DockHub's central QTabWidget, and bringing the
+        Config tab to the front is DockHub.show_left_page()'s job — calling
+        setVisible(True) on a NON-current tab page would try to show it next to
+        the current one."""
         self.set_current_page(index)
-        self.setVisible(True)
-        self.raise_()
 
     def apply_highlight(self) -> None:
         """Re-apply the highlight stylesheet to this tree's selected item —

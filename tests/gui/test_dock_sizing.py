@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import (QFrame, QScrollArea, QSizePolicy, QTreeWidget,
                              QWidget)
@@ -54,23 +54,47 @@ class _StubSplitter(QObject):
         return self._collapsible
 
 
-# ── S.1: the left docks must be able to grow, the log must not ─────────────
+# ── T: the CENTRAL tab widget is the elastic centre ────────────────────────
 
-def test_left_docks_allow_vertical_growth(real_main_window):
-    """S.1: tree/config/trees docks are vertically `Expanding` (both the dock
-    and its central widget — QMainWindow's dock layout consults the DOCK's own
-    policy), so height freed by shrinking the log goes somewhere."""
+def test_central_widget_is_the_elastic_tab_group(real_main_window):
+    """Task T: the Components/Config/Trees group is the window's central
+    QTabWidget — the elastic element that was MISSING while they were docks.
+    With centralWidget() == None QMainWindow handed every spare pixel to the
+    Log dock regardless of the docks' size policies (S.1 measured exactly
+    that), so neither resizeDocks() nor a separator drag could shrink it."""
     hub = real_main_window._dock_hub
-    for dock in (hub.tree_dock, hub.config_tree_dock, hub.trees_dock):
-        assert (dock.sizePolicy().verticalPolicy()
-                == QSizePolicy.Policy.Expanding), dock.objectName()
-        assert (dock.widget().sizePolicy().verticalPolicy()
-                == QSizePolicy.Policy.Expanding), dock.objectName()
+    central = real_main_window.centralWidget()
+    assert central is hub.left_tabs
+    assert central.sizePolicy().verticalPolicy() == QSizePolicy.Policy.Expanding
+    # 1, not 0 (Qt's "unset" sentinel), so the log can be grown past the tabs'
+    # content height — the pages inside then scroll.
+    assert central.minimumHeight() == 1
+
+
+def test_the_three_left_widgets_are_central_tabs(real_main_window):
+    """They are pages of the central QTabWidget now, not docks (task T); only
+    the Log is still a real top-level dock."""
+    hub = real_main_window._dock_hub
+    assert hub.left_tabs.count() == 3
+    assert hub.left_tabs.widget(0) is hub.tree_dock
+    assert hub.left_tabs.widget(1) is hub.config_tree_dock
+    assert hub.left_tabs.widget(2) is hub.trees_dock
+    assert hub.left_tabs.tabPosition() == hub.left_tabs.TabPosition.South
+    assert hub.docks == [hub.log_dock]
+
+
+def test_show_left_page_brings_a_central_tab_to_the_front(real_main_window):
+    """show_left_page() replaces the old dock show()/raise_() pair."""
+    hub = real_main_window._dock_hub
+    hub.show_left_page(hub.config_tree_dock)
+    assert hub.left_tabs.currentWidget() is hub.config_tree_dock
+    hub.show_left_page(hub.trees_dock)
+    assert hub.left_tabs.currentWidget() is hub.trees_dock
 
 
 def test_log_dock_is_not_expanding(real_main_window):
-    """S.1 gotcha: the log already receives all the slack — making IT expanding
-    would harden the very defect being fixed."""
+    """The log already receives all the slack — making IT expanding would
+    harden the very defect being fixed."""
     log = real_main_window._dock_hub.log_dock
     assert (log.sizePolicy().verticalPolicy()
             != QSizePolicy.Policy.Expanding)
@@ -78,34 +102,63 @@ def test_log_dock_is_not_expanding(real_main_window):
             != QSizePolicy.Policy.Expanding)
 
 
-def test_shrinking_the_log_grows_the_active_left_dock(real_main_window):
-    """S.1 acceptance: forcing the log small must hand the height to the left
-    area (its active tab), not leave it stranded. Before S.1 the left docks were
-    pinned at their content minimums and nothing above the log grew."""
+def test_shrinking_the_log_grows_the_central_widget(real_main_window):
+    """T acceptance by measurement: forcing the log small must hand the height
+    to the central tab group. Before T nothing grew — the log absorbed 100% of
+    every window resize (measured 509 -> 309 -> 230 for windows 1000/800/700)."""
     win = real_main_window
-    hub = win._dock_hub
-    log = hub.log_dock
+    log = win._dock_hub.log_dock
     win.resize(1900, 1000)
     win.show()
     QTest.qWaitForWindowExposed(win)
     QTest.qWait(80)
-    # Bring a specific left dock to the front of its tab group: a tabified
-    # sibling that is NOT active keeps a stale height, so measuring whichever
-    # dock happens to report visible is unreliable.
-    hub.trees_dock.show()
-    hub.trees_dock.raise_()
-    QTest.qWait(80)
 
-    before = hub.trees_dock.height()
+    central = win.centralWidget()
+    before = central.height()
     try:
         log.setMaximumHeight(200)
         QTest.qWait(80)
-        after = hub.trees_dock.height()
+        after = central.height()
     finally:
         log.setMaximumHeight(16777215)
         QTest.qWait(40)
     assert after > before, (
-        f"shrinking the log did not grow the left dock ({before} -> {after})")
+        f"shrinking the log did not grow the central tab group "
+        f"({before} -> {after})")
+
+
+def test_resize_docks_actually_resizes_the_log(real_main_window):
+    """T acceptance: resizeDocks([log], [200]) used to be silently IGNORED (the
+    log stayed at its content-driven height); with an elastic centre it is
+    honoured exactly."""
+    win = real_main_window
+    log = win._dock_hub.log_dock
+    win.resize(1900, 1000)
+    win.show()
+    QTest.qWaitForWindowExposed(win)
+    QTest.qWait(80)
+
+    win.resizeDocks([log], [200], Qt.Orientation.Vertical)
+    QTest.qWait(80)
+    assert log.height() == 200
+
+
+def test_log_height_is_stable_across_window_resizes(real_main_window):
+    """T acceptance: with an elastic centre the log HOLDS its height while the
+    window is resized (it used to move 1:1 with the window)."""
+    win = real_main_window
+    log = win._dock_hub.log_dock
+    win.resize(1900, 1000)
+    win.show()
+    QTest.qWaitForWindowExposed(win)
+    QTest.qWait(80)
+
+    heights = []
+    for h in (1000, 800, 700):
+        win.resize(1900, h)
+        QTest.qWait(70)
+        heights.append(log.height())
+    assert len(set(heights)) == 1, f"log height moved with the window: {heights}"
 
 
 # ── S.2: the right stack must stop flooring the Config dock ────────────────
@@ -162,6 +215,39 @@ def test_self_scrolling_page_is_not_wrapped(main_window):
     index = dock.add_right_page(tree)
     assert dock.right_stack.widget(index) is tree
     assert dock.right_page_at(index) is tree
+
+
+def test_squeezing_the_centre_makes_the_config_page_scroll(real_main_window):
+    """S.2 becomes the behaviour Denis asked for only once the centre can be
+    squeezed (task T): with the central tab group forced small, a tall Config
+    right page must SCROLL — not be clipped, and not force the whole dock tall
+    (its wrap's minimum height is 1)."""
+    win = real_main_window
+    hub = win._dock_hub
+    hub.show_left_page(hub.config_tree_dock)
+    win.resize(1900, 1000)
+    win.show()
+    QTest.qWaitForWindowExposed(win)
+    QTest.qWait(80)
+
+    dock = hub.config_tree_dock
+    page = QWidget()
+    page.setMinimumHeight(600)
+    index = dock.add_right_page(page)
+    dock.set_current_page(index)
+    QTest.qWait(60)
+    area = dock.right_stack.widget(index)
+    assert area.minimumSizeHint().height() == 1
+
+    central = win.centralWidget()
+    central.setMaximumHeight(120)
+    try:
+        QTest.qWait(150)
+        assert central.height() <= 150       # the centre really was squeezed
+        assert area.verticalScrollBar().maximum() > 0
+    finally:
+        central.setMaximumHeight(16777215)
+        QTest.qWait(60)
 
 
 # ── S.3: degenerate splitter sizes must never be persisted ─────────────────
