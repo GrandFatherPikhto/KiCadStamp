@@ -3878,6 +3878,10 @@ class _ClusterAdapter:
             return fp.cluster
         return None
 
+    def get_selected_items(self):
+        # ComponentResolver's role narrowing always asks for the selection.
+        return []
+
 
 def _live_fp(ref, role, cluster, x_mm, y_mm, angle=0.0, layer=None):
     fp = Footprint(ref=ref, uuid=f"u-{ref}",
@@ -4172,3 +4176,63 @@ def test_form_shows_polar_offset_with_the_angle_shifted_by_the_base(
     assert built is not None
     assert built.xy is None
     assert built.polar == (3.0, 45.0)
+
+
+def test_reread_agrees_with_extract_tree_for_a_rotated_anchor(
+        main_window, tmp_path):
+    """§0.4/§4.11: on ONE and the same live geometry with a TURNED anchor, the
+    node the extract path builds (`build_tree_from_clusters`) and the node the
+    "Reread current position" read produces must carry the SAME xy/rotation.
+    They used to be two different answers — a bug by definition, and the
+    regression gate for the whole coordinate-system work."""
+    import gui.docks.trees_dock as td_mod
+    from gui.docks.reead import ReReadCluster
+    from gui.docks.tree_from_selection import (
+        build_tree_from_clusters,
+        resolve_entity_live_position_mm,
+        resolve_role_anchor_base_mm,
+    )
+    from kicadstamp.config import Config
+    from kicadstamp.config.models import Cell, Entity, TemplateComponentSlot
+    from kicadstamp.trees import TreeAnchor
+
+    cell = Cell(name="buf", layer="F.Cu", anchor_role="ORIG", components=[
+        TemplateComponentSlot(role="ORIG", offset_along_mm=0.0,
+                              offset_across_mm=0.0, angle_deg=0.0),
+        TemplateComponentSlot(role="CAP", offset_along_mm=10.0,
+                              offset_across_mm=-4.0, angle_deg=0.0),
+    ])
+    entity = Entity(name="ENT_A", cell="buf", cluster="CL")
+    cfg = Config(cells={"buf": cell}, entities=[entity], trees=[])
+
+    # Live board: the role anchor ANCH is turned 90°, and the cluster CL is a
+    # RIGID copy of the cell, itself turned 90°, standing at (150, 60).
+    adapter = _ClusterAdapter([
+        _live_fp("U1", "ANCH", "ANC", 100.0, 200.0, 90.0),
+        _live_fp("IC1", "ORIG", "CL", 150.0, 60.0, 90.0),
+        _live_fp("IC2", "CAP", "CL", 146.0, 50.0, 90.0),   # rotate90 of (10,-4)
+    ])
+    anchor = TreeAnchor(role="ANCH", anchor_cluster="ANC")
+
+    # ── path 1: "Extract tree from selection" (the reference implementation) ─
+    c = ReReadCluster(cluster="CL", sheet="Channel_0", entity_name="ENT_A",
+                      cell="buf", profile_key=None, refs=["IC1", "IC2"])
+    positions = {"ENT_A": resolve_entity_live_position_mm(adapter, cfg, entity, {})}
+    anchor_live = resolve_role_anchor_base_mm(adapter, cfg, anchor, {})
+    tree, errors = build_tree_from_clusters(
+        [c], "t1", anchor, cfg.entities, cfg,
+        entity_positions=positions, anchor_base=anchor_live[:2],
+        anchor_rot_deg=anchor_live[2])
+    assert errors == []
+    extract_node = tree.nodes[0]
+    assert extract_node.ref == "ENT_A"
+
+    # ── path 2: "Reread current position" on that very Entity ────────────────
+    offset_mm, rotation = td_mod._resolve_live_offset(
+        cfg, adapter, {}, tree, None, "ENT_A", "placement")
+
+    # The extract path goes through the nm-grid child_local_offset, the read
+    # through the exact mm helper — they may differ by ONE nanometre, no more.
+    assert offset_mm[0] == pytest.approx(extract_node.xy[0], abs=2e-6)
+    assert offset_mm[1] == pytest.approx(extract_node.xy[1], abs=2e-6)
+    assert rotation == pytest.approx(extract_node.rotation, abs=1e-9)
