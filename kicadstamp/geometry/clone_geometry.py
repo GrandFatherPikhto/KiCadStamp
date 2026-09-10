@@ -219,9 +219,11 @@ def resolve_pad_anchor_offset(
 ) -> tuple[float, float]:
     """(along_mm, across_mm) of ONE pad of a live footprint, expressed in the
     cell's OWN reference (stored, angle-0) bbox frame — the typed-data twin of
-    resolve_anchor_point (kicadstamp/cell_geometry_refresh.py, GUI dict
-    shape), with the role lookup dropped (the role is already known) and the
-    live pad read hoisted to the caller so geometry stays board-free.
+    the former resolve_anchor_point (kicadstamp/cell_geometry_refresh.py, the
+    GUI dict shape REMOVED in Фаза B of plan_2026_09_09_cell_anchor_v2; this
+    function is now the only implementation), with the role lookup dropped
+    (the role is already known) and the live pad read hoisted to the caller so
+    geometry stays board-free.
 
     fp — the LIVE instance of the cell's anchor_role component (its slot is
     `slot`); pad_position — the ABSOLUTE live position of the anchor pad (the
@@ -231,9 +233,9 @@ def resolve_pad_anchor_offset(
     cell's REFERENCE frame — exactly the value that, stored as the cell's
     anchor A, makes the pad the mount at materialization.
 
-    Same rotation/mirror inverse as resolve_anchor_point — see that docstring
-    and plan_2026_09_09_placer_cell_anchor_selection_unify.md §2b for the
-    derivation. Math is byte-identical to resolve_anchor_point's
+    Same rotation/mirror inverse as the former resolve_anchor_point (now
+    removed) — see plan_2026_09_09_placer_cell_anchor_selection_unify.md §2b
+    for the derivation. Math is byte-identical to resolve_anchor_point's
     (cell_geometry_refresh.py): the component's STORED offset is rotated into
     the live instance's frame to reconstruct the reference origin, then the
     target delta is un-mirrored (about the vertical axis through that origin)

@@ -435,6 +435,20 @@ def test_role_combo_lists_cell_components_without_board(main_window, tmp_path):
     assert items == ["C1", "C2"]
 
 
+def test_legacy_role_pad_xy_cell_opens_in_anchor_page(main_window, tmp_path):
+    """Фаза B regression: a cell stored in the OLD anchor_xy+anchor_role+
+    anchor_pad shape still opens correctly in the new "Cell anchor" page —
+    Role/Pad prefilled, no crash. The stored anchor_xy keeps governing the
+    mount (GUARD 1); this page is where it is edited/cleared."""
+    data = _cell_data()
+    data["cells"]["cell1"].update(
+        {"anchor_xy": [-8.05, -2.795], "anchor_role": "C1", "anchor_pad": "1"})
+    view, _ = _make_view(main_window, tmp_path, data)
+
+    assert view._role_combo.currentText() == "C1"
+    assert view._pad_edit.text() == "1"
+
+
 def test_manual_role_save_works_without_board(main_window, tmp_path):
     """THE acceptance criterion of Phase C: with connection.board = None,
     hand-picking Role/Pad still writes the anchor to the file."""

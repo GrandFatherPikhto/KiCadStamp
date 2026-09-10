@@ -903,33 +903,12 @@ the tabs — they act on the whole placement, not one tab.
     is still on the default Absolute (XY), the mode is auto-switched to the filled Anchor/Point set
     (silently, no dialog) so the read expresses the origin as the SHIFT from that anchor instead of
     silently writing absolute coordinates.
-- **Cell anchor** (2026-09-04; reworked 2026-09-05, design_2026_09_05 v2) — RECORDS the *cell's*
-  mount point A on its own file WITHOUT rewriting any stored offset. Stored offsets always live in
-  the bbox-anchored frame; geometry subtracts A at placement (`element = origin + rotate(offset −
-  A)`), so the anchor can be changed freely and reversibly — no per-edit data rewrite. Two anchor-
-  source TABS (2026-09-09, plan placer_cell_anchor_selection_unify — the old separate "Bbox (0,0)"
-  tab was merged into Point; the bbox default is simply BOTH X/Y fields empty):
-  - **Point** (free X/Y in the bbox frame) — "Set as anchor" with both fields empty CLEARS any
-    custom anchor back to the bbox default; with X/Y filled it records that bbox point as
-    `anchor_xy`. The tab also has a **Take from selection** button (2026-09-06): it reads the
-    position of the CURRENTLY selected single Via or footprint on the live board and fills the X/Y
-    fields with its bbox-frame point (the current mount A is added, same frame maths as the Role+Pad
-    mode) — the user then presses "Set as anchor" to record it. This tab's point is an ARBITRARY
-    board point, so the read still goes through a named Clone (Cluster+Cell required) — unchanged
-    by design.
-  - **Component** (Role, optional Pad — without a pad the anchor is the component's geometric
-    centre, with a pad the pad's centre). **Role only** is a pure offline write of the role's stored
-    centre. **Role + Pad** resolves the pad's position from ONE footprint selected on the board
-    carrying that Role (the shared `resolve_anchor_point`, rotation/mirror-aware since 2026-09-09):
-    `anchor_role/anchor_pad/anchor_xy` are fields of the Cell itself, so NO Cluster/Cell is read or
-    required on this path — select the live component, done. `resolve_anchor_point` compares the
-    live footprint's angle/layer against the cell's own layer, so a rotated or mirrored instance
-    resolves the SAME reference-frame anchor an identity instance does.
-  It writes `anchor_xy` (the mount, real data) plus `anchor_role`/`anchor_pad` identity into the
-  file that actually holds the cell — NOT the Origin section above, which is about THIS placement's
-  own position. Moving the mount shifts every already-applied place of this cell (other clones, tree
-  materialization) on the next Redraw/Apply — expected, no blocking warning (design §2.4). The Role
-  picker lists the picked cell's own `components:` roles.
+- **Cell anchor** — REMOVED from the Placer (Фаза B of
+  `plan_2026_09_09_cell_anchor_v2_declarative_and_board_overlay.md`, 2026-09-10). It recorded the
+  cell's mount point by COMPUTING a numeric `anchor_xy` at save time — the mechanism §0.1 of that
+  plan established as wrong (a Role+Pad anchor is a REFERENCE resolved at apply time, not a number).
+  The anchor is now edited in the Config tree's dedicated **Cell anchor...** page (see the
+  "Cell anchor..." section below); this Placer form only ever positions THIS placement (Origin page).
 - **Rotation / Layer / Mirror** — as in `ClonePlacement`'s own fields (see
   [docs/config.md](config.md)).
 - **Redraw** — builds the placement, validates it, and actually runs it against the live board
@@ -1331,22 +1310,17 @@ recurse — that tree is Config tree's own Cells category, which now shows a com
 `clone_placements:` as child nodes for read-only navigation, not this dock's internal editor.)
 
 - **Name**/**Layer** — the cell's own identity and absolute layer (`F.Cu`/`B.Cu`).
-- **Anchor** — **(none)** / **XY** / **Role** (`+Pad`, optional) — the cell's **mount point A** in its
-  stored bbox-local frame (design_2026_09_05 v2), read by `cell_mount_offset`
+- **Anchor** — **(none)** / **Role** (`+Pad`, optional) — the cell's **mount point A** in its stored
+  bbox-local frame (design_2026_09_05 v2), read by `cell_mount_offset`
   (kicadstamp/geometry/cell_anchor.py) at every cell consumer — see
   `Cell.anchor_xy`/`anchor_role`/`anchor_pad` in [docs/config.md](config.md). **Role** is a closed
   combo sourced from THIS cell's own current Components list (not the live board) — it must name one
-  of them. In Role mode the X/Y row is ALSO visible (since 2026-09-08): it shows the resolved
-  bbox-local numbers when they exist. **Take coordinates from selection** (a button under the anchor
-  block, enabled when the live board is connected and the cell has components) fills X/Y by resolving
-  ONE selected live component — its centre, or one of its pads if **Pad** is filled — whose Role is
-  already one of this cell's own components. That is how a Role+Pad anchor gets its required
-  `anchor_xy`: without it a Role+Pad pair is the LEGACY rebase-by-pad shape and `cell_mount_offset`
-  treats it as (0,0), so the anchor would be silently ignored. `anchor_xy` stays bbox-local
-  throughout — the button does the live-to-bbox arithmetic, there is no absolute-coordinate display.
-  The resolution is rotation/mirror-aware since 2026-09-09: the live component's angle and layer
-  (against the cell's own layer) are inverted back, so a rotated or mirrored instance resolves the
-  same reference-frame anchor an identity instance does.
+  of them. The combo is keyed by `currentData()` strings (`none`/`role`), so its item ORDER can never
+  silently break a reader. Since Фаза B (2026-09-10) this form owns ONLY the offline Role anchor: the
+  old **XY** mode and the **Take coordinates from selection** button are GONE (computing a numeric
+  `anchor_xy` at save time was the rejected mechanism). A STORED `anchor_xy` is not edited here — it
+  is carried through verbatim on save (never dropped: it WINS over Role/Pad, and losing it would move
+  the cell's content) and is edited in the Config tree's **Cell anchor...** page.
 - **Components** — Role (searchable, autocompleted from the live board's `Role` field, same source
   as Chain's own anchor-role combo), Offset along/across, Angle, Layer (inherit/`F.Cu`/`B.Cu`), Net
   template (for `clone_placements:`'s by-nets role matching only).

@@ -293,9 +293,17 @@ def track_from_kipy(track: KipyTrack) -> Track:
 def board_item_from_kipy(item: Any) -> Any:
     """Map one mixed board item (from ``get_selected_items``/``get_vias``/
     ``get_tracks``) to its DTO; leave non-entity items (BoardText, drawings,
-    etc.) untouched."""
+    etc.) untouched.
+
+    A selected PAD is mapped too (Фаза B of plan_2026_09_09_cell_anchor_v2,
+    §0.3): ``get_selected_items`` returns raw kipy Pads when the user clicks a
+    pad, and this function used to leave them opaque (``ref=None`` /
+    ``net_name=None`` for every consumer) even though ``pad_from_kipy`` and the
+    Pad DTO already existed."""
     if isinstance(item, FootprintInstance):
         return footprint_from_kipy(item)
+    if isinstance(item, KipyPad):
+        return pad_from_kipy(item)
     if isinstance(item, KipyVia):
         return via_from_kipy(item)
     if isinstance(item, KipyTrack):

@@ -22,7 +22,7 @@ handler turns it into a QMessageBox warning."""
 from dataclasses import dataclass
 
 from kicadstamp.config import clone_placement_effective_name
-from kicadstamp.domain.board import Footprint, Track, Via
+from kicadstamp.domain.board import Footprint
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import ValidationError, format_fatal_error
 from kicadstamp.geometry.cell_anchor import cell_mount_offset
@@ -203,67 +203,6 @@ def _world_pos_to_cell_local_offset(adapter, cfg, clone, sheet_names,
     delta_y_mm = (wy - origin.y) / MM
     offset = rotate_local_offset(delta_x_mm, delta_y_mm, -origin_read.rotation_deg)
     return (offset.x / MM, offset.y / MM)
-
-
-def _selection_item_label(item) -> str:
-    """A short user-facing kind name for one raw get_selected_items() item,
-    used by read_cell_anchor_offset_from_selection's "select a Via or a
-    footprint" fatal message."""
-    if isinstance(item, Via):
-        return _("via")
-    if isinstance(item, Footprint):
-        return _("footprint")
-    if isinstance(item, Track):
-        return _("track")
-    return _("board item")
-
-
-def read_cell_anchor_offset_from_selection(adapter, cfg, clone,
-                                           sheet_names) -> tuple[float, float]:
-    """(ax_mm, ay_mm) of the CURRENT LIVE SELECTION's single Via or footprint
-    centre, expressed in the cell's own local (unrotated, unmirrored) frame
-    RELATIVE TO THE CELL'S CURRENT MOUNT — the Placer "Point" tab's "Take
-    from selection" (2026-09-06; a Via or footprint is a supported source
-    since plan placer_cell_anchor_selection_unify §1.3, 2026-09-09). The
-    world point comes from the live board — the current selection (exactly
-    ONE Via or footprint) — and the mount inversion is the shared
-    _world_pos_to_cell_local_offset tail. This tab's point is an ARBITRARY
-    board point (not necessarily a pad/centre of THIS cell's component), so
-    its local meaning genuinely needs the named clone's own mount/rotation to
-    invert through — the Cluster+Cell dependency stays here by design (§0).
-
-    Fatal ValidationError (never a guess): nothing selected, more than one
-    object selected, or the single selected object is neither a Via nor a
-    footprint."""
-    cell = cfg.cells.get(clone.cell)
-    if cell is None:
-        raise ValidationError(format_fatal_error(
-            _("cell {cell!r} not found in config").format(cell=clone.cell),
-            [_("extract/save the cell and make sure include: is wired (see Extract)")]))
-    name = clone_placement_effective_name(clone)
-    items = list(adapter.get_selected_items())
-    if not items:
-        raise ValidationError(format_fatal_error(
-            _("clone {name!r}: nothing is selected on the board — 'Take from "
-              "selection' needs exactly one Via or footprint").format(name=name),
-            [_("select the Via or footprint whose position should become the "
-               "cell's mount point, then press the button again")]))
-    if len(items) != 1:
-        raise ValidationError(format_fatal_error(
-            _("clone {name!r}: select exactly ONE object — {count} objects are "
-              "currently selected").format(name=name, count=len(items)),
-            [_("select only the Via or footprint whose position should become "
-               "the cell's mount point")]))
-    item = items[0]
-    if not isinstance(item, (Via, Footprint)):
-        raise ValidationError(format_fatal_error(
-            _("clone {name!r}: only a Via or a footprint is supported as the "
-              "anchor source — selected: {kind}").format(
-                  name=name, kind=_selection_item_label(item)),
-            [_("select a Via or a footprint whose position should become the "
-               "cell's mount point")]))
-    return _world_pos_to_cell_local_offset(
-        adapter, cfg, clone, sheet_names, item.position, clone.mirror)
 
 
 def _reference_slot(cell, role_to_ref: dict[str, str]):

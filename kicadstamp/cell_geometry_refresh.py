@@ -54,10 +54,8 @@ from typing import Any
 
 from .constants import ROLE_FIELD_NAME
 from .domain.board import Footprint, Track, Via
-from .domain.geometry import BoardLayer, Vector2
+from .domain.geometry import Vector2
 from .exceptions import ValidationError, format_fatal_error
-from .geometry.clone_geometry import clone_rotation_from_component
-from .geometry.spoke_layout import rotate_local_offset
 from .i18n import _
 from .net_resolution import resolve_net_from_role
 from .template_extraction import _selection_role_nets, _suggest_net_from_role
@@ -73,7 +71,6 @@ __all__ = [
     "match_components",
     "net_template_regex",
     "normalize_cell_anchor_frame",
-    "resolve_anchor_point",
 ]
 
 # One str.format placeholder, as resolve_placeholder (net_resolution.py)
@@ -519,100 +516,6 @@ def _cell_selection_context(components: list[dict], footprints: list[Footprint],
                 origin_fp.position.x - int(surrogate_along * MM),
                 origin_fp.position.y - int(surrogate_across * MM))
     return role_to_ref, matched, origin, problems
-
-
-def resolve_anchor_point(
-    fp: Footprint,
-    components: list[dict],
-    adapter: Any,
-    pad: str | None = None,
-    layer: str = "F.Cu",
-) -> tuple[str, float, float]:
-    """Given ONE live footprint (the intended anchor subject) and the cell's
-    own component list, resolves (role, along_mm, across_mm) — the bbox-local
-    point of either fp's own centre (pad is None) or one of its pads (pad
-    given), expressed in the cell's REFERENCE (stored, angle-0) frame — for
-    use as Cell.anchor_xy (+anchor_role/anchor_pad).
-
-    fp's Role must already be one of this cell's OWN components; that
-    component's stored offset_along_mm/offset_across_mm/angle_deg is the only
-    way to know where the cell's reference local (0,0) currently lives on the
-    real board. Rotation/mirror-aware (2026-09-09, plan
-    placer_cell_anchor_selection_unify §2b): fp's LIVE angle_deg/layer are
-    compared against the matched component's OWN stored angle_deg (+ the cell's
-    own layer, passed in) via clone_rotation_from_component — the SAME proven
-    inverse the project's clone-placement machinery (clone_origin_from_
-    component, read_clone_origin_live) already uses for exactly this "recover
-    the cell's own frame from one live component" problem. The component's
-    stored offset is rotated into the live instance's frame to reconstruct the
-    reference origin, then the target delta is un-mirrored (about the vertical
-    axis through that origin) and un-rotated back into the reference frame.
-    The cell's currently-stored anchor A cancels out of the delta, so the
-    result is the pad/centre's reference-frame point regardless of how the
-    cell was previously anchored — a plain (unrotated) subtraction is correct
-    only for the identity-orientation special case this generalizes.
-
-    layer — the cell's own reference layer ('F.Cu' | 'B.Cu'); mirror is
-    inferred by comparing fp's live side against it.
-
-    Raises ValidationError (format_fatal_error) when: fp carries no Role
-    field; that role is not one of this cell's own components; pad is given
-    but the footprint has no such pad."""
-    role = adapter.get_field_value(fp, ROLE_FIELD_NAME)
-    if role is None:
-        raise ValidationError(format_fatal_error(
-            _("selected footprint {ref!r} has no {field!r} field").format(
-                ref=fp.ref, field=ROLE_FIELD_NAME),
-            [_("the anchor subject must already be one of this cell's own "
-               "components — its {field!r} field is how the cell's stored "
-               "offset for that role is found").format(field=ROLE_FIELD_NAME)]))
-    comp = next((c for c in components if c.get("role") == role), None)
-    if comp is None:
-        raise ValidationError(format_fatal_error(
-            _("role {role!r} of selected footprint {ref!r} is not a component "
-              "of this cell").format(role=role, ref=fp.ref),
-            [_("the anchor subject's role must already be one of this cell's "
-               "own components — only that component's stored offset can tell "
-               "where the cell's local (0,0) lives on the board")]))
-    surrogate_along = float(comp.get("offset_along_mm", 0.0))
-    surrogate_across = float(comp.get("offset_across_mm", 0.0))
-    slot_angle_deg = float(comp.get("angle_deg", 0.0))
-    # Mirror is a physical fact of the LIVE instance vs the cell's own stored
-    # side: an F.Cu-extracted cell placed mirrored has its footprints on B.Cu.
-    mirror = (fp.layer == BoardLayer.BL_B_Cu) != (layer == "B.Cu")
-    rotation_deg = clone_rotation_from_component(
-        fp.angle_deg, slot_angle_deg, mirror)
-    # Reconstruct the cell's reference origin from this live component: its
-    # STORED offset rotated into the live instance's frame, subtracted (or
-    # X-added under mirror — the mirror flip about the vertical axis through
-    # the origin, exactly clone_origin_from_component's inverse branch).
-    rotated = rotate_local_offset(surrogate_along, surrogate_across,
-                                  rotation_deg)
-    if mirror:
-        origin = Vector2.from_xy(
-            fp.position.x + rotated.x, fp.position.y - rotated.y)
-    else:
-        origin = Vector2.from_xy(
-            fp.position.x - rotated.x, fp.position.y - rotated.y)
-    if pad is None:
-        target = fp.position
-    else:
-        p = adapter.get_pad_by_number(fp, pad)
-        if p is None:
-            raise ValidationError(format_fatal_error(
-                _("footprint {ref!r} has no pad {pad!r}").format(
-                    ref=fp.ref, pad=pad),
-                [_("the pad number must match a real pad of the selected "
-                   "component — type it exactly as KiCad shows it")]))
-        target = p.position
-    # Target delta in the live instance frame -> un-mirror -> un-rotate back
-    # into the cell's reference (stored, angle-0) frame.
-    delta_x = target.x - origin.x
-    delta_y = target.y - origin.y
-    if mirror:
-        delta_x = -delta_x
-    local = rotate_local_offset(delta_x / MM, delta_y / MM, -rotation_deg)
-    return role, _mm(local.x), _mm(local.y)
 
 
 def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[dict],

@@ -412,7 +412,8 @@ def live_record_centre_mm(record_refs: list, footprints) -> tuple[float, float] 
     _region_centre formula capture uses) — to translate a live-board point into
     the record's centre-frame consistently with Reread/Apply. None when NONE of
     the recorded refs is on the board (edge 1) — the centre cannot be computed;
-    we never guess (pattern read_cell_anchor_offset_from_selection).
+    we never guess (the same never-guess discipline as the other live readers
+    in gui/docks/live_position.py).
 
     `footprints` is the full-board footprint SNAPSHOT (Iterable[Selected] —
     BoardConnection.snapshot), NOT a live adapter: each Selected carries .ref
@@ -450,8 +451,8 @@ def pivot_centre_frame_from_selection(record_refs: list, footprints, selected
     running under the modal dialog's nested event loop must never issue a
     second, unsynchronized adapter.get_footprints() while a poll tick is
     mid-flight on the same socket). Fatal-like cases are a ValidationError
-    with a clear message (pattern read_cell_anchor_offset_from_selection —
-    never guess):
+    with a clear message (the same never-guess discipline as the other live
+    readers in gui/docks/live_position.py):
       - none of the recorded refs is on the board (edge 1 — centre unknown);
       - the selection is empty / has no positions (edge 3)."""
     centre_mm = live_record_centre_mm(record_refs, footprints)
