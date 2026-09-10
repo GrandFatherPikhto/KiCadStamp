@@ -952,6 +952,10 @@ class _RefreshBoard:
     literal-net fallback, same as _ImportBoard)."""
     def __init__(self, items, roles=None):
         self.adapter = SimpleNamespace(
+            # K.1 (2026-09-10, plan stale_board_snapshot): refresh_board is part
+            # of the adapter surface the workers now use — a live read refreshes
+            # the board before touching the cached footprint list.
+            refresh_board=lambda: None,
             get_selected_items=lambda: list(items),
             get_field_value=lambda fp, name: (roles or {}).get(fp.ref),
             get_footprint_pads=lambda fp: [])
@@ -970,6 +974,36 @@ def _loaded_cell_data():
         "vias": [{"offset_along_mm": 0.5, "offset_across_mm": 1.5, "net": "GND"}],
         "tracks": [],
     }}}
+
+
+def test_run_refresh_geometry_refreshes_the_board_first(main_window, tmp_path):
+    """K.1 (2026-09-10, plan stale_board_snapshot): the refresh worker is a LIVE
+    read — refresh_board() must run BEFORE get_selected_items()/get_footprints(),
+    because build_refresh_plan resolves roles and fields through the adapter's
+    cached footprint list and the GUI poll tick no longer refreshes it."""
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    calls = []
+
+    class _Adapter:
+        def refresh_board(self):
+            calls.append("refresh")
+
+        def get_selected_items(self):
+            calls.append("select")
+            return []
+
+        def get_field_value(self, fp, name):
+            return None
+
+    class _Board:
+        adapter = _Adapter()
+
+    result = dock._run_refresh_geometry(
+        {"board": _Board(), "components": [], "vias": [], "tracks": []})
+
+    assert calls == ["refresh", "select"]
+    assert "error" in result      # the empty payload is a role problem, not ours
 
 
 def test_refresh_geometry_button_enabled_only_with_board_and_components(main_window, tmp_path):
@@ -1219,6 +1253,7 @@ class _ImportBoard:
     empty-pads adapter)."""
     def __init__(self, items, roles=None):
         self.adapter = SimpleNamespace(
+            refresh_board=lambda: None,   # K.1 live-read hook
             get_selected_items=lambda: list(items),
             get_field_value=lambda fp, name: (roles or {}).get(fp.ref),
             get_footprint_pads=lambda fp: [])

@@ -226,12 +226,25 @@ def test_resolve_clone_context_none_one_many(monkeypatch):
 
 class _ClusterAdapter:
     """Minimal adapter for the live-cluster frame: the footprint list plus the
-    Role/Cluster field reads resolve_footprint_by_cluster_role touches."""
+    Role/Cluster field reads resolve_footprint_by_cluster_role touches.
+
+    `calls` records the live-read sequence and `on_refresh` lets a test MOVE a
+    footprint at refresh time — the K.1 (2026-09-10) regression: the GUI poll
+    tick is a no-op while connected, so a live read must refresh the board
+    itself, and it must do so BEFORE reading footprints."""
 
     def __init__(self, footprints):
         self._fps = list(footprints)
+        self.calls = []
+        self.on_refresh = None
+
+    def refresh_board(self):
+        self.calls.append("refresh")
+        if self.on_refresh is not None:
+            self.on_refresh(self)
 
     def get_footprints(self):
+        self.calls.append("get_footprints")
         return list(self._fps)
 
     def get_field_value(self, fp, name):
@@ -280,6 +293,32 @@ def _fatal_title(message: str) -> str:
     modified...") whose wording is not the error under test — the honest-error
     assertions look at the title line only."""
     return next(line for line in message.splitlines() if "FATAL ERROR" in line)
+
+
+def test_frame_refreshes_the_board_before_reading_footprints():
+    """K.1 (2026-09-10, plan stale_board_snapshot): a live read refreshes the
+    board itself — the GUI's automatic poll tick is a deliberate no-op while
+    connected — and it does so BEFORE the first get_footprints()."""
+    adapter = _ClusterAdapter(_live_cluster_fps())
+    view_mod._live_cluster_frame(adapter, _cell(), "CL", "", {"MCU": "MCU"})
+
+    assert adapter.calls[0] == "refresh"
+    assert adapter.calls.count("refresh") == 1
+    assert "get_footprints" in adapter.calls
+
+
+def test_frame_is_built_from_the_refreshed_position():
+    """THE live case (Denis, 2026-09-10): the cluster was moved in KiCad AFTER
+    the connection was made and "Show bbox" drew the rectangle at the OLD
+    position — the cache was stale. A refresh at read time fixes it."""
+    adapter = _ClusterAdapter(_live_cluster_fps())
+    moved = _live_fp("IC1", "ORIG", "CL", 500.0, 600.0)
+    adapter.on_refresh = lambda a: a._fps.__setitem__(0, moved)
+
+    origin, _rotation, _mirror = view_mod._live_cluster_frame(
+        adapter, _cell(), "CL", "", {})
+
+    assert origin.x == int(500 * MM) and origin.y == int(600 * MM)
 
 
 def test_frame_comes_from_the_live_cluster_without_any_placement():
@@ -365,9 +404,6 @@ class _OverlayAdapter(_ClusterAdapter):
         self.created = []
         self.removed = []
         self._next_id = 0
-
-    def refresh_board(self):
-        pass
 
     def create_items(self, items):
         items = list(items)

@@ -58,6 +58,15 @@ _BRIDGE_ROLES = ("R_FL_HOLD", "R_FL_WP")
 _RAIL_NET = "+3V3_FLASH"
 _RAIL_ANCHOR_ROLE = "C_OUT_BULK"
 
+# K.3 (2026-09-10, plan stale_board_snapshot): this whole module is pinned to a
+# LOCAL, GITIGNORED profile (profiles/** is in .gitignore), which can be absent
+# or renamed on another machine — then load_config below raises FileNotFoundError
+# at fixture setup and 4 tests ERROR on every run of the main suite. The project
+# already has the right guard for exactly this (tests/test_sexp_config_convert.py):
+# skip, do not fail, when the local profile is not there.
+if not _PROFILE.exists():
+    pytest.skip(f"real profile not present: {_PROFILE}", allow_module_level=True)
+
 
 def _slot(cell, role: str):
     """The component slot of `role` in `cell`."""

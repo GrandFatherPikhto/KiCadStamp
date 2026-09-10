@@ -1544,6 +1544,13 @@ class CellDock(QWidget):
         format_fatal_error text shown verbatim in a QMessageBox)."""
         try:
             adapter = payload["board"].adapter
+            # K.1 (2026-09-10, plan stale_board_snapshot): a LIVE read must see
+            # the live board — the GUI's poll tick is a no-op while connected,
+            # and build_refresh_plan resolves roles/fields through
+            # adapter.get_footprints() (cached per board generation, cleared by
+            # refresh_board()). Same rule board_overlay/cascade/apply_pipeline
+            # already follow.
+            adapter.refresh_board()
             items = adapter.get_selected_items()
             footprints = [i for i in items if isinstance(i, Footprint)]
             vias = [i for i in items if isinstance(i, Via)]
@@ -1715,6 +1722,10 @@ class CellDock(QWidget):
         format_fatal_error text shown verbatim in a QMessageBox)."""
         try:
             adapter = payload["board"].adapter
+            # K.1: the same live-read rule as _run_refresh_geometry — the import
+            # plan resolves the selected roles' fields (and net_from_role)
+            # against adapter.get_footprints().
+            adapter.refresh_board()
             items = adapter.get_selected_items()
             footprints = [i for i in items if isinstance(i, Footprint)]
             vias = [i for i in items if isinstance(i, Via)]

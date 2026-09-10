@@ -529,7 +529,19 @@ def _live_cluster_frame(adapter, cell, cluster: str, sheet: str, sheet_names):
 
     Raises ValidationError with an HONEST message — "cluster X is not on the
     live board" / "role Y of this cell has no footprint in cluster X" — never
-    the old "place the cell first"."""
+    the old "place the cell first".
+
+    2026-09-10 (plan stale_board_snapshot K.1): the board is REFRESHED first.
+    The GUI's automatic poll tick is a deliberate no-op while connected, so
+    adapter.get_footprints() (which resolve_footprint_by_cluster_role reads)
+    can be a cache from the moment of connection — a cluster the user has just
+    moved in KiCad would draw its overlay at the OLD position ("Show bbox" after
+    moving the cluster, Denis 2026-09-10). Every other live-reading path in the
+    project refreshes before it reads (board_overlay.read_marker/sweep_layer,
+    cascade, apply_pipeline, cli); this one did not. The refresh happens inside
+    the worker (all three overlay workers are dispatched through start_long_op,
+    which holds the socket exclusively), so it creates no extra races."""
+    adapter.refresh_board()
     label = _("cell {cell!r} on cluster {cluster!r}").format(
         cell=getattr(cell, "name", "?"), cluster=cluster)
     role_to_fp: dict = {}
