@@ -1665,6 +1665,16 @@ msgstr ""
 msgid "New vias/tracks to add"
 msgstr "New vias/tracks to add"
 
+#: kicadstamp/cell_geometry_refresh.py
+#, python-brace-format
+msgid "the selection is not a rigid copy of this cell (worst deviation {deviation} mm) — the geometry was re-read anyway"
+msgstr ""
+
+#: kicadstamp/cell_geometry_refresh.py
+#, python-brace-format
+msgid "the instance is rotated {angle}° — the geometry was expressed in the cell's own frame, anchor_xy is left unchanged"
+msgstr ""
+
 #: gui/docks/cell_editor.py:1581
 #, python-brace-format
 msgid ""

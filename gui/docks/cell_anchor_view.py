@@ -75,8 +75,12 @@ from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.exceptions import ValidationError, format_fatal_error
+from kicadstamp.cell_frame import (
+    CellFrame,
+    fit_cell_frame,
+    reference_relative_pairs,
+)
 from kicadstamp.geometry.cell_anchor import cell_mount_offset
-from kicadstamp.geometry.clone_geometry import clone_origin_from_component
 from kicadstamp.geometry.spoke_layout import rotate_local_offset
 from kicadstamp.i18n import _
 from kicadstamp.placement.services.component_resolver import resolve_pad_mount
@@ -564,9 +568,31 @@ def _live_cluster_frame(adapter, cell, cluster: str, sheet: str, sheet_names):
         ax_mm, ay_mm = cell_mount_offset(cell)
     else:
         ax_mm, ay_mm = resolved_mount
-    origin, rotation = clone_origin_from_component(
-        fp.position, fp.angle_deg, slot, mirror, ax_mm, ay_mm)
-    return origin, rotation, mirror
+    # The ROTATION is fitted from the stored offsets against the live deltas of
+    # EVERY resolved role at once — the ONE cell<->world transform of
+    # kicadstamp/cell_frame.py, the same one the geometry refresh uses. Never
+    # from one component's angle: a two-pin part is symmetric and its angle
+    # ambiguous by 180° (measured 2026-09-10: four capacitors gave +90 while
+    # FB_PI_FLT gave -90). Mirror stays the physical layer rule above (which
+    # side of the board the instance stands on), which the fit is constrained
+    # to; how far the cluster is from a rigid copy of the cell comes back as
+    # residual_mm (unused here — the overlay still draws what is on the board).
+    slot_by_role = {s.role: s for s in cell.components}
+    reference = (float(slot.offset_along_mm), float(slot.offset_across_mm),
+                 fp.position.x / MM, fp.position.y / MM)
+    fit = fit_cell_frame(
+        reference_relative_pairs(reference, [
+            (float(slot_by_role[role].offset_along_mm),
+             float(slot_by_role[role].offset_across_mm),
+             live.position.x / MM, live.position.y / MM)
+            for role, live in role_to_fp.items() if role in slot_by_role]),
+        mirror=mirror)
+    frame = CellFrame.from_reference(
+        rotation_deg=fit.rotation_deg if fit is not None else 0.0,
+        mirror=mirror, mount=(ax_mm, ay_mm), stored_ref=reference[:2],
+        live_ref_mm=reference[2:],
+        residual_mm=fit.residual_mm if fit is not None else 0.0)
+    return frame.placement_origin, frame.rotation_deg, frame.mirror
 
 
 def _draw_bbox_worker(adapter, cell, cluster, sheet, sheet_names,
@@ -611,6 +637,42 @@ def _place_marker_worker(adapter, cell, cluster, sheet, sheet_names,
     return board_overlay.draw_marker(adapter, layer, x_mm, y_mm,
                                      board_overlay.overlay_marker_radius_mm(),
                                      board_overlay.overlay_marker_stroke_mm())
+
+
+def _remove_overlay_silently(adapter, uuids) -> None:
+    """Best-effort removal of already-drawn overlay shapes (J.2). A shape the
+    user has already deleted in KiCad, or a stale uuid from a previous session,
+    is NOT an error — the caller is about to draw a fresh one."""
+    doomed = [u for u in (uuids or ()) if u]
+    if not doomed:
+        return
+    try:
+        board_overlay.remove_overlay(adapter, doomed)
+    except Exception:  # noqa: BLE001 — the draw that follows is the point
+        logger.debug("overlay replacement could not remove %s", doomed,
+                     exc_info=True)
+
+
+def _replace_bbox_worker(adapter, cell, cluster, sheet, sheet_names,
+                         layer_name, old_uuids) -> Optional[str]:
+    """Draw the cell's bbox, REPLACING any rectangle already drawn for it: the
+    remembered uuid(s) are removed in the SAME worker operation as the draw —
+    ONE start_long_op, never two in a row (that would race the redraw), because
+    Denis, 2026-09-10: "Если он есть, его не надо рисовать ещё!" A stale bbox
+    left from a previous position was also a direct cause of "маркер не попадает
+    в bbox"."""
+    _remove_overlay_silently(adapter, old_uuids)
+    return _draw_bbox_worker(adapter, cell, cluster, sheet, sheet_names,
+                             layer_name)
+
+
+def _replace_marker_worker(adapter, cell, cluster, sheet, sheet_names,
+                           layer_name, old_uuids) -> Optional[str]:
+    """The marker twin of _replace_bbox_worker — the previously drawn marker is
+    removed in the same worker op before the new one is drawn."""
+    _remove_overlay_silently(adapter, old_uuids)
+    return _place_marker_worker(adapter, cell, cluster, sheet, sheet_names,
+                                layer_name)
 
 
 def _read_marker_worker(adapter, cell, cluster, sheet, sheet_names,
@@ -1046,6 +1108,14 @@ class CellAnchorView(QWidget):
         per_root[self._cell_name] = {"marker": marker, "bbox": bbox}
         settings.state.set(_OVERLAY_STATE_KEY, state)
 
+    def _stale_overlay_uuids(self, which: str) -> list:
+        """Every uuid this cell's overlay may still own for `which`
+        ('marker' | 'bbox') — the in-memory one AND the persisted one, so a
+        leftover from a previous session is replaced too (J.2, 2026-09-10)."""
+        current = self._marker_uuid if which == "marker" else self._bbox_uuid
+        persisted = self._cell_overlay_state().get(which)
+        return [u for u in dict.fromkeys([current, persisted]) if u]
+
     # ── Entry / form state ────────────────────────────────────────────────
 
     def _current_entry(self) -> Optional[dict]:
@@ -1470,14 +1540,15 @@ class CellAnchorView(QWidget):
             self._connection, widgets, fn, on_success, on_error,
             adapter, cell, cluster, sheet, sheet_names, *extra_args)
 
-    def _dispatch_draw(self, worker_fn, success_msg_ok, on_error):
+    def _dispatch_draw(self, worker_fn, success_msg_ok, on_error, *extra):
         """Dispatch a DRAW overlay op (worker takes the layer name — Phase D:
         the CURRENT configured overlay layer from Settings, read on the UI
-        thread and passed into the worker)."""
+        thread and passed into the worker, then `*extra` — J.2's stale uuids)."""
         def ok(uuid: Optional[str]) -> None:
             success_msg_ok(uuid)
 
-        self._dispatch(worker_fn, ok, on_error, board_overlay.overlay_layer_name())
+        self._dispatch(worker_fn, ok, on_error,
+                       board_overlay.overlay_layer_name(), *extra)
 
     def _on_place_marker(self) -> None:
         def ok(uuid: Optional[str]) -> None:
@@ -1496,7 +1567,10 @@ class CellAnchorView(QWidget):
             show_message(_("Place marker failed: {message}").format(message=message),
                          _ERROR_STYLE, logger)
 
-        self._dispatch_draw(_place_marker_worker, ok, err)
+        # J.2: REPLACE the marker instead of piling a second one on the board —
+        # the remembered uuid(s) are dropped in the same worker op.
+        self._dispatch_draw(_replace_marker_worker, ok, err,
+                            self._stale_overlay_uuids("marker"))
 
     def _on_show_bbox(self) -> None:
         def ok(uuid: Optional[str]) -> None:
@@ -1514,7 +1588,11 @@ class CellAnchorView(QWidget):
             show_message(_("Show bbox failed: {message}").format(message=message),
                          _ERROR_STYLE, logger)
 
-        self._dispatch_draw(_draw_bbox_worker, ok, err)
+        # J.2: the same replacement semantics for the bbox — a stale rectangle
+        # left at the previous position was the "marker doesn't land in the
+        # bbox" complaint.
+        self._dispatch_draw(_replace_bbox_worker, ok, err,
+                            self._stale_overlay_uuids("bbox"))
 
     def _on_read_marker(self) -> None:
         if not self._marker_uuid:

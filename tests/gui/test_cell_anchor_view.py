@@ -363,12 +363,20 @@ class _OverlayAdapter(_ClusterAdapter):
         super().__init__(footprints)
         self._board = _OverlayBoard()
         self.created = []
+        self.removed = []
+        self._next_id = 0
 
     def refresh_board(self):
         pass
 
     def create_items(self, items):
         items = list(items)
+        # A real board stamps each created shape with its own id — the fake must
+        # too, or both draws would come back as the same empty uuid and J.2's
+        # "old shape replaced by a NEW one" could not be told apart.
+        for item in items:
+            self._next_id += 1
+            item.id.value = f"shape-{self._next_id}"
         self.created.extend(items)
         return items
 
@@ -376,6 +384,7 @@ class _OverlayAdapter(_ClusterAdapter):
         pass
 
     def remove_by_ids(self, uuids):
+        self.removed.extend(uuids)
         return True
 
 
@@ -405,6 +414,62 @@ def test_bbox_and_marker_are_drawn_over_the_live_cluster(monkeypatch):
     adapter.created.clear()
     assert view_mod._place_marker_worker(
         adapter, cell, "CL", "", {}, "User.KiCadStamp") is not None
+
+
+def test_replace_marker_worker_removes_the_previous_marker_first(monkeypatch):
+    """J.2 (2026-09-10, Denis: "Если он есть, его не надо рисовать ещё!"):
+    a second "Place marker" must leave ONE marker on the board — the remembered
+    uuid is removed in the SAME worker operation, before the new draw."""
+    import gui.board_overlay as bo
+    view_mod.settings.state.set(bo.OVERLAY_LAYER_KEY, "User.KiCadStamp")
+    adapter = _OverlayAdapter(_live_cluster_fps())
+    cell = _cell()
+
+    first = view_mod._replace_marker_worker(adapter, cell, "CL", "", {},
+                                            "User.KiCadStamp", [])
+    assert first is not None
+    assert len(adapter.created) == 1
+
+    adapter.created.clear()
+    second = view_mod._replace_marker_worker(adapter, cell, "CL", "", {},
+                                             "User.KiCadStamp", [first])
+    assert second is not None and second != first
+    assert adapter.removed == [first]        # the old shape is gone...
+    assert len(adapter.created) == 1         # ...and exactly ONE was drawn
+
+
+def test_replace_bbox_worker_removes_the_previous_bbox_first(monkeypatch):
+    """The bbox twin of the marker replacement — a stale rectangle left at the
+    previous position was the "marker doesn't land in the bbox" complaint."""
+    import gui.board_overlay as bo
+    view_mod.settings.state.set(bo.OVERLAY_LAYER_KEY, "User.KiCadStamp")
+    adapter = _OverlayAdapter(_live_cluster_fps())
+    cell = _cell()
+
+    first = view_mod._replace_bbox_worker(adapter, cell, "CL", "", {},
+                                          "User.KiCadStamp", [])
+    adapter.created.clear()
+    second = view_mod._replace_bbox_worker(adapter, cell, "CL", "", {},
+                                           "User.KiCadStamp", [first])
+    assert second is not None and second != first
+    assert adapter.removed == [first]
+    assert len(adapter.created) == 1
+
+
+def test_replace_worker_survives_a_shape_already_swept():
+    """A uuid the user already deleted in KiCad (or a stale one from a previous
+    session) is NOT an error — the draw simply proceeds."""
+    import gui.board_overlay as bo
+    view_mod.settings.state.set(bo.OVERLAY_LAYER_KEY, "User.KiCadStamp")
+
+    class _AngryAdapter(_OverlayAdapter):
+        def remove_by_ids(self, uuids):
+            raise ValidationError("no such shape")
+
+    adapter = _AngryAdapter(_live_cluster_fps())
+    assert view_mod._replace_marker_worker(
+        adapter, _cell(), "CL", "", {}, "User.KiCadStamp", ["stale"]) is not None
+    assert len(adapter.created) == 1
 
 
 def test_bbox_worker_reports_the_honest_error(monkeypatch):
@@ -634,6 +699,21 @@ def test_draw_bbox_worker_uses_settings_stroke(main_window, tmp_path, monkeypatc
     rect = adapter.created[0]
     assert rect.layer == BoardLayer.BL_User_5
     assert rect.attributes.stroke.width == int(0.22 * MM)
+
+
+def test_stale_overlay_uuids_merge_memory_and_persistence(main_window, tmp_path):
+    """J.2: the uuids handed to the replace-worker are BOTH the in-memory one
+    and the persisted one (a leftover from a previous session must be replaced
+    too), without duplicates."""
+    view, _path = _make_view(main_window, tmp_path)
+    view._cell_name = "cell1"
+    view._marker_uuid = "mem-marker"
+    view._bbox_uuid = None
+    view._remember_overlay("persisted-marker", None)
+
+    assert view._stale_overlay_uuids("marker") == ["mem-marker",
+                                                   "persisted-marker"]
+    assert view._stale_overlay_uuids("bbox") == []
 
 
 def test_overlay_uuids_persist_across_view_recreation(main_window, tmp_path):

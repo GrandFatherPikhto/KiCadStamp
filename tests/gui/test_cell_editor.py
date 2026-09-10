@@ -1164,6 +1164,25 @@ def test_finish_refresh_reports_each_added_and_removed_record(main_window,
     assert "1 record(s) removed" in messages[-1]
 
 
+def test_finish_refresh_prints_the_frames_warnings(main_window, tmp_path,
+                                                  monkeypatch):
+    """J.1 (2026-09-10): the plan's honest frame warnings (non-rigid cluster /
+    turned instance) are printed in the Log as their OWN lines — a warning-only
+    plan must not fall into the "nothing changed" branch."""
+    from kicadstamp.cell_geometry_refresh import RefreshPlan
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    messages = []
+    monkeypatch.setattr(dock, "_show_message",
+                        lambda text, style="": messages.append(text))
+    monkeypatch.setattr(dock, "_autostage", lambda: None)
+
+    plan = RefreshPlan([], [], [], warnings=["the instance is rotated -90°"])
+    dock._finish_refresh_geometry({"plan": plan})
+
+    assert "the instance is rotated -90°" in messages
+
+
 def test_record_report_line_formats_via_track_and_missing_net():
     """The one formatting helper both directions and both sections share."""
     from gui.docks.cell_editor import record_report_line

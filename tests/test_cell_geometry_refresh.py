@@ -681,24 +681,37 @@ def test_track_1_to_1_direct_match():
 # ── Import vias/tracks from selection (Part B, plan
 #    fpga_oscill_missing_copper_and_cell_import) ────────────────────────────
 
+def _frame(origin, mount=(0.0, 0.0), rotation_deg=0.0, mirror=False):
+    """The cell frame the engine threads through the matchers (J.1) — the very
+    object build_refresh_plan builds. theta=0/mirror=False reproduces the
+    historical origin-only behaviour exactly."""
+    return mod.CellFrame(placement_origin=origin, rotation_deg=rotation_deg,
+                         mirror=mirror, mount=mount)
+
+
 def _match_copper_leftover(vias, tracks, raw_vias, raw_tracks, components=None,
                            footprints=None, adapter=None, leftover_fatal=True,
                            kind="via"):
-    """Helper: run _match_copper directly (no GUI) and return the leftover."""
+    """Helper: run _match_copper directly (no GUI) and return the leftover.
+
+    2026-09-10 (J.1): the matchers take the cell FRAME now, not a bare origin.
+    The legacy (0,0)-mount tests build the historical theta=0/mirror=False
+    frame, which is byte-for-byte the old behaviour."""
     components = components or [{"role": "ORIG"}]
     footprints = footprints or [_fp("R-ORIG", "ORIG", 0.0, 0.0)]
     adapter = adapter or _FakeAdapter(roles={"R-ORIG": "ORIG"})
-    role_to_ref, _m, origin, problems = mod._cell_selection_context(
+    role_to_ref, _m, origin, mount, problems = mod._cell_selection_context(
         components, footprints, adapter, "import")
     if origin is None:
         return [], problems
+    frame = _frame(origin, mount)
     if kind == "via":
         updates, probs, leftover = mod._match_copper(
-            vias, raw_vias, origin, role_to_ref, adapter, "via",
+            vias, raw_vias, frame, role_to_ref, adapter, "via",
             leftover_is_fatal=leftover_fatal)
     else:
         updates, probs, leftover, _removed = mod._match_copper(
-            tracks, raw_tracks, origin, role_to_ref, adapter, "track",
+            tracks, raw_tracks, frame, role_to_ref, adapter, "track",
             leftover_is_fatal=leftover_fatal)
     return leftover, probs + problems
 
@@ -709,11 +722,11 @@ def test_match_copper_leftover_is_fatal_true_yields_problems_not_leftover():
     components = [{"role": "ORIG"}]
     footprints = [_fp("R-ORIG", "ORIG", 0.0, 0.0)]
     adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})
-    role_to_ref, _m, origin, _p = mod._cell_selection_context(
+    role_to_ref, _m, origin, mount, _p = mod._cell_selection_context(
         components, footprints, adapter, "refresh")
     updates, problems, leftover, removed = mod._match_copper(
-        [], [_via("GND", 1.0, 1.0)], origin, role_to_ref, adapter, "via",
-        leftover_is_fatal=True)
+        [], [_via("GND", 1.0, 1.0)], _frame(origin, mount), role_to_ref,
+        adapter, "via", leftover_is_fatal=True)
     assert updates == []
     assert leftover == []
     assert removed == []
@@ -727,11 +740,11 @@ def test_match_copper_leftover_is_fatal_false_returns_leftover():
     components = [{"role": "ORIG"}]
     footprints = [_fp("R-ORIG", "ORIG", 0.0, 0.0)]
     adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})
-    role_to_ref, _m, origin, _p = mod._cell_selection_context(
+    role_to_ref, _m, origin, mount, _p = mod._cell_selection_context(
         components, footprints, adapter, "import")
     updates, problems, leftover, removed = mod._match_copper(
-        [], [_via("GND", 1.0, 1.0)], origin, role_to_ref, adapter, "via",
-        leftover_is_fatal=False)
+        [], [_via("GND", 1.0, 1.0)], _frame(origin, mount), role_to_ref,
+        adapter, "via", leftover_is_fatal=False)
     assert updates == []
     assert problems == []
     assert len(leftover) == 1
@@ -1171,3 +1184,183 @@ def _import_case(live_tracks, cell_layer):
     adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})
     return build_import_plan(components, [], [], footprints, [],
                              live_tracks, adapter, cell_layer=cell_layer)
+
+
+# ── J.1 (2026-09-10, plan marker_frame_and_sheets): the refresh expresses the
+#    live geometry in the CELL's own frame ──────────────────────────────────
+#
+# Denis, 2026-09-10: "Якорь меняет точку монтажа. При чтении и перечтении у
+# нас ВСЕГДА 0°." The reader must express the live geometry in the cell's frame,
+# with the frame DERIVED FROM THE DATA (stored offsets vs live deltas of every
+# matched role at once) — never from a placement record. Before this, the
+# placement's rotation was baked INTO the cell and applied a second time by the
+# next Redraw.
+
+# The measured cell (plan's "до" column, pif_oa_n2v5 with placement rotation
+# 270, mirror=False): (role, offset_along_mm, offset_across_mm, angle_deg).
+_MEASURED_270 = [
+    ("C_IN_BULK", 0.0, 0.0, -90.0),
+    ("C_OUT_BULK", -3.37, 0.0, -90.0),
+    ("C_OUT_BYPASS", -5.05, -0.295, -90.0),
+    ("C_IN_BYPASS", -1.64, -0.295, -90.0),
+    ("FB_PI_FLT", -2.1283, -2.55, 180.0),
+]
+_MEASURED_ORIGIN_MM = (120.0, 60.0)
+
+
+def _norm(angle):
+    """(-180, 180] — the engine's own angle normalisation."""
+    return (angle + 180.0) % 360.0 - 180.0
+
+
+def _spec_components(spec):
+    return [{"role": role, "offset_along_mm": along,
+             "offset_across_mm": across, "angle_deg": angle}
+            for role, along, across, angle in spec]
+
+
+def _live_cluster(spec, theta, mirror=False, mount=(0.0, 0.0),
+                  origin_mm=_MEASURED_ORIGIN_MM):
+    """The live footprints of a placement of `spec`, rotated by theta (and
+    optionally mirrored) — the FORWARD mapping of apply_clone_geometry: rotate
+    the stored offset about the mount, flip X when mirrored, translate to the
+    placement origin; angles follow comp_angle (angle + theta, mirrored rule).
+    The surrogate role (stored (0,0)) lands exactly on the placement origin."""
+    from kicadstamp.cell_frame import rotate_ydown_mm
+    fps = []
+    for role, along, across, angle in spec:
+        rx, ry = rotate_ydown_mm(along - mount[0], across - mount[1], theta)
+        if mirror:
+            rx = -rx
+        live_angle = (angle + theta) % 360.0 if not mirror \
+            else (180.0 - (angle + theta)) % 360.0
+        fps.append(_fp(f"R-{role}", role, origin_mm[0] + rx, origin_mm[1] + ry,
+                       live_angle))
+    return fps
+
+
+def _refresh_spec(spec, theta, mirror=False, origin_role="C_IN_BULK", **kw):
+    """A full round trip: the SAME spec re-read from its own rotated/mirrored
+    live cluster. mount == the surrogate's stored offset (0,0 here), exactly as
+    _cell_selection_context defines it."""
+    components = _spec_components(spec)
+    footprints = _live_cluster(spec, theta, mirror)
+    adapter = _FakeAdapter(roles={f"R-{role}": role for role, *_rest in spec})
+    return build_refresh_plan(components, [], [], footprints, [], [], adapter,
+                              origin_role=origin_role, **kw)
+
+
+def _geo_by_role(pairs):
+    return {rec["role"]: geo for rec, geo in pairs}
+
+
+def test_refresh_round_trip_rotation_270_is_idempotent():
+    """THE main J.1 guarantee: a cell standing in a 270° placement re-reads to
+    its OWN offsets and angles — the placement's rotation is not baked in and
+    the next Redraw does not turn the cell again."""
+    plan = _refresh_spec(_MEASURED_270, 270.0)
+    geo = _geo_by_role(plan.component_updates)
+    assert set(geo) == {role for role, *_ in _MEASURED_270}
+    for role, along, across, angle in _MEASURED_270:
+        assert geo[role]["offset_along_mm"] == pytest.approx(along, abs=1e-4)
+        assert geo[role]["offset_across_mm"] == pytest.approx(across, abs=1e-4)
+        assert _norm(geo[role]["angle_deg"]) == pytest.approx(_norm(angle),
+                                                              abs=1e-6)
+
+
+def test_refresh_round_trip_zero_rotation_matches_the_old_behaviour():
+    """Regression guarantee: an unrotated instance produces exactly the
+    historical live-minus-origin offsets and the live angle as-is."""
+    plan = _refresh_spec(_MEASURED_270, 0.0)
+    geo = _geo_by_role(plan.component_updates)
+    for role, along, across, angle in _MEASURED_270:
+        assert geo[role]["offset_along_mm"] == pytest.approx(along, abs=1e-4)
+        assert geo[role]["offset_across_mm"] == pytest.approx(across, abs=1e-4)
+        assert _norm(geo[role]["angle_deg"]) == pytest.approx(_norm(angle),
+                                                              abs=1e-6)
+    assert plan.warnings == []
+
+
+def test_refresh_round_trip_mirrored_is_idempotent():
+    """The same idempotency for a MIRRORED instance: theta=90 + mirror=True
+    re-reads to the stored offsets and angles."""
+    plan = _refresh_spec(_MEASURED_270, 90.0, mirror=True)
+    geo = _geo_by_role(plan.component_updates)
+    for role, along, across, angle in _MEASURED_270:
+        assert geo[role]["offset_along_mm"] == pytest.approx(along, abs=1e-4)
+        assert geo[role]["offset_across_mm"] == pytest.approx(across, abs=1e-4)
+        assert _norm(geo[role]["angle_deg"]) == pytest.approx(_norm(angle),
+                                                              abs=1e-6)
+
+
+def test_refresh_never_writes_an_anchor_key():
+    """anchor_xy is not part of the refresh AT ALL: the plan's geometric dicts
+    carry only offsets/angle for components, nothing anchor-shaped, so an
+    anchored cell's frame cannot drift on re-read (J.1)."""
+    plan = _refresh_spec(_MEASURED_270, 270.0)
+    for record, geo in plan.component_updates:
+        assert set(geo) == {"offset_along_mm", "offset_across_mm", "angle_deg"}
+        assert "anchor_xy" not in record
+
+
+def test_refresh_turned_instance_reports_the_rotation_in_warnings():
+    """A turned instance is NOT an error — but the GUI needs to say what
+    happened (the geometry was expressed in the cell's frame; anchor untouched)."""
+    plan = _refresh_spec(_MEASURED_270, 270.0)
+    assert len(plan.warnings) == 1
+    # The angle is reported in the project's (-180, 180] convention, so a 270°
+    # placement reads as -90° (the same rotation).
+    assert "-90" in plan.warnings[0]
+    assert "anchor_xy" in plan.warnings[0]
+
+
+def test_refresh_moved_slot_lands_in_new_offsets_and_warns():
+    """A slot that genuinely moved on the board (~0.8 mm, the plan's FB_PI_FLT
+    case) honestly lands in NEW offsets; every other slot keeps its stored
+    offset, and the non-rigid cluster is reported as a warning instead of being
+    silently 'straightened'."""
+    theta = 270.0
+    components = _spec_components(_MEASURED_270)
+    footprints = _live_cluster(_MEASURED_270, theta)
+    shift_mm = 0.8
+    for fp in footprints:
+        if fp.ref == "R-FB_PI_FLT":
+            fp.position = Vector2.from_xy_mm(fp.position.x / 1_000_000 + shift_mm,
+                                             fp.position.y / 1_000_000)
+    adapter = _FakeAdapter(roles={f"R-{role}": role for role, *_rest in _MEASURED_270})
+
+    plan = build_refresh_plan(components, [], [], footprints, [], [], adapter,
+                              origin_role="C_IN_BULK")
+    geo = _geo_by_role(plan.component_updates)
+
+    # The moved slot: its live point moved +0.8 mm along the BOARD's X — in the
+    # CELL's frame (this placement is turned 270°) that is -0.8 mm across.
+    assert geo["FB_PI_FLT"]["offset_along_mm"] == pytest.approx(-2.1283, abs=1e-3)
+    assert geo["FB_PI_FLT"]["offset_across_mm"] == pytest.approx(-2.55 - shift_mm,
+                                                                 abs=1e-3)
+    # Everyone else keeps exactly what the cell already said — the frame is
+    # snapped to the orthogonal grid, so a neighbour's move does not skew them.
+    for role, along, across, _angle in _MEASURED_270:
+        if role == "FB_PI_FLT":
+            continue
+        assert geo[role]["offset_along_mm"] == pytest.approx(along, abs=1e-4)
+        assert geo[role]["offset_across_mm"] == pytest.approx(across, abs=1e-4)
+    # Honest report: a non-rigid cluster (plus the rotation line).
+    assert len(plan.warnings) == 2
+    assert "not a rigid copy" in plan.warnings[0]
+    assert "0.8" in plan.warnings[0]
+
+
+def test_import_from_a_rotated_instance_uses_the_cell_frame():
+    """Import (the additive twin) shares the SAME frame: a via sitting at the
+    placement origin + 1 mm along the board's X lands in the cell's frame at
+    (1, 0) rotated back by 270 -> (0, -1) with a negative X flip for mirror."""
+    components = _spec_components(_MEASURED_270)
+    footprints = _live_cluster(_MEASURED_270, 270.0)
+    adapter = _FakeAdapter(roles={f"R-{role}": role for role, *_rest in _MEASURED_270})
+    live = [_via("GND", _MEASURED_ORIGIN_MM[0] + 1.0, _MEASURED_ORIGIN_MM[1])]
+
+    plan = build_import_plan(components, [], [], footprints, live, [], adapter)
+    rec = plan.new_via_records[0]
+    assert rec["offset_along_mm"] == pytest.approx(0.0, abs=1e-4)
+    assert rec["offset_across_mm"] == pytest.approx(-1.0, abs=1e-4)

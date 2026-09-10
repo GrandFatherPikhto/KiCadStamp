@@ -328,7 +328,12 @@ anchors the node to a chosen live component instead: pick a **Role** (optionally
 from that component's live position/rotation, and the node's own children keep inheriting that frame. The
 grammar writes it as a nested `(anchor (role ...) [(sheet ...) (cluster ...) (pad ...)])` inside the node
 — a per-node `own_anchor`; only the role shape is valid there (origin/ref/point/external are
-tree-anchor-only). **Read current position** in component mode diffs against the chosen component (not
+tree-anchor-only). Since 2026-09-10 (plan marker_frame_and_sheets J.3) the node editor's **Sheet**
+combo is fed from the PROJECT's sheet map (`RuntimeContext.sheet_names`, built from the schematics),
+like the anchor dialog's own Sheet field always was — NOT from the ~2s board snapshot, whose
+`Selected.sheet` was empty for every footprint (measured live: 325 footprints, 72 roles, 34 clusters,
+0 sheet names), which left this combo permanently blank. **Read current position** in component mode
+diffs against the chosen component (not
 the parent), so the typed offset is relative to the right base.
 
 Since 2026-09-04 a SINGLE click on a non-module tree node already loads its editor onto the
@@ -1379,7 +1384,12 @@ It is the v2 declarative anchor UI — the anchor is a REFERENCE resolved at app
   the current anchor (or bbox centre when there is no anchor), you drag it with KiCad's own tools,
   **Read position** converts the dragged world point into the cell's bbox frame (reusing
   `world_pos_to_cell_local_offset`) and writes `anchor_xy`, clearing any Role/Pad anchor. Marker/bbox
-  uuids are persisted in `gui_state.json` (key `cell_anchor_overlay`).
+  uuids are persisted in `gui_state.json` (key `cell_anchor_overlay`). Since 2026-09-10 **Place
+  marker** and **Show bbox** REPLACE the shape already drawn for this cell — the remembered uuid, plus
+  any leftover persisted from a previous session, is removed in the SAME worker operation before the
+  new shape is drawn (Denis: "Если он есть, его не надо рисовать ещё!"), so pressing the button twice
+  leaves ONE marker. A stale bbox at the previous position was itself a cause of "the marker does not
+  land in the bbox".
 
   **Overlay cleanup** (Phase D, 2026-09-09): the drawn marker/bbox are an editing aid, removed
   explicitly when done — the Marker anchor tab's **Remove overlay** button (by-uuid), when you
@@ -1441,6 +1451,21 @@ copper: updates + additions + removals in ONE run (nothing is written to disk un
 **Save**). A new record's net is classified by the extractor's own heuristic (a net a selected role's
 pad carries -> `net_from_role`(+pad), else a plain literal net — never `net: null`), its geometry
 relative to the same zero-offset origin.
+
+2026-09-10 (plan marker_frame_and_sheets J.1) — the re-read expresses the live geometry in the CELL's
+own frame, and that frame is DERIVED FROM THE DATA: rotation and mirror are fitted from the cell's
+stored offsets against the live deltas of every matched role AT ONCE (`kicadstamp/cell_frame.py` — the
+very same transform the marker/bbox overlay uses), never from one component's angle (a two-pin part is
+symmetric, its angle ambiguous by 180°; measured 2026-09-10: four capacitors gave +90, FB_PI_FLT -90).
+A turned instance is therefore NOT an error, and its rotation is no longer baked INTO the cell — the
+failure Denis hit, where the next Redraw applied that rotation a second time, swapped x and y, and left
+the marker "at the old position". Slot angles are written as `live angle - theta`, and `anchor_xy` is
+NOT read or written here (the cell's frame does not change, so the anchor stays truthful). A cluster
+that is genuinely not a rigid copy of the cell — a role moved by hand on the board, ~0.8 mm in the
+live case — still re-reads: every OTHER slot keeps its stored offset and the Log gets honest lines:
+"the selection is not a rigid copy of this cell (worst deviation X mm) — the geometry was re-read
+anyway", plus "the instance is rotated N° — the geometry was expressed in the cell's own frame,
+anchor_xy is left unchanged" for a turned one.
 
 A clean run APPLIES the plan directly — since 2026-09-06 there is NO preview dialog, and since
 2026-09-10 **"Update from selection..." does not open the Cell dialog either** (Denis: clicking refresh

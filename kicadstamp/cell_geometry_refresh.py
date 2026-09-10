@@ -38,10 +38,20 @@ Matching identity:
       4. Any live item left unclaimed after 1-3 is extra copper not described
          by the cell -> collected fatal.
   Within each matching group of size > 1, a greedy nearest-neighbour by the
-  record's CURRENT absolute position (origin + stored offset) pairs records to
-  live items. Origin is the cell's single zero-offset component's live
-  footprint position (the project's "zero-offset slot" convention, see
-  placement/entity_placement.py) — a pure point, no rotation.
+  record's CURRENT absolute position (predicted through the CELL FRAME)
+  pairs records to live items. The frame is the ONE cell<->world transform of
+  kicadstamp/cell_frame.py: its origin is the surrogate role's live footprint
+  position and its rotation/mirror are FITTED from the stored offsets against
+  the live deltas of every matched role AT ONCE (2026-09-10, plan
+  marker_frame_and_sheets J.1) — never read from a placement record, and never
+  from one component's angle (a two-pin part is ambiguous by 180°, measured
+  2026-09-10: four capacitors gave +90, FB_PI_FLT gave -90).
+
+  Live geometry is then expressed in the cell's own frame through the INVERSE
+  of that same transform, so a rotated instance is no longer "baked into" the
+  cell: re-reading is idempotent, a slot that sits at 0° in a 270° placement
+  stays at 0°, and anchor_xy is left completely alone (the cell's frame does
+  not change).
 
 build_refresh_plan never mutates its inputs and collects EVERY structural
 problem into a single ValidationError (format_fatal_error), never raising on
@@ -52,6 +62,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
+from .cell_frame import CellFrame, fit_cell_frame
 from .constants import ROLE_FIELD_NAME
 from .domain.board import Footprint, Track, Via
 from .domain.geometry import Vector2
@@ -156,13 +167,14 @@ def net_template_regex(template: str) -> re.Pattern[str]:
 
 # ── Live-position helpers (nm) ──────────────────────────────────────────────
 
-def _record_offset(record: dict, origin: Vector2, along_key: str,
+def _record_offset(record: dict, frame: CellFrame, along_key: str,
                    across_key: str) -> tuple[int, int]:
-    """The CURRENT absolute (nm) position of a cell record's point: origin +
-    its stored mm offset. round() guards float drift; extract itself rounds to
-    micrometre precision."""
-    return (origin.x + int(round(float(record.get(along_key, 0.0)) * MM)),
-            origin.y + int(round(float(record.get(across_key, 0.0)) * MM)))
+    """The CURRENT absolute (nm) position of a cell record's point — its stored
+    mm offset mapped through the cell frame (kicadstamp/cell_frame.py). At the
+    historical theta=0 / mirror=False frame this is EXACTLY origin + stored*MM
+    (the previous formula), so unrotated selections behave identically."""
+    return frame.point_to_world_nm(float(record.get(along_key, 0.0)),
+                                   float(record.get(across_key, 0.0)))
 
 
 def _live_point(item: Any, which: str) -> tuple[int, int]:
@@ -179,7 +191,7 @@ def _point_dist_sq(a: tuple[int, int], b: tuple[int, int]) -> int:
 
 
 def _greedy_nearest(records: list[dict], live_items: list[Any],
-                    origin: Vector2, kind: str) -> list[tuple[dict, Any]]:
+                    frame: CellFrame, kind: str) -> list[tuple[dict, Any]]:
     """Globally-nearest pairing (O(n^2), n is a handful): EVERY (record, live
     item) pair is scored, the pairs are walked in ascending distance and taken
     when BOTH sides are still free, with a deterministic tie-break (record
@@ -194,12 +206,12 @@ def _greedy_nearest(records: list[dict], live_items: list[Any],
     last in the file rather than the genuinely farthest — and since an unpaired
     record is now DELETED (H.2), file order must not decide a record's fate."""
     if kind == "via":
-        rec_pts = [_record_offset(r, origin, "offset_along_mm", "offset_across_mm")
+        rec_pts = [_record_offset(r, frame, "offset_along_mm", "offset_across_mm")
                    for r in records]
         live_pts = [_live_point(i, "position") for i in live_items]
     else:
-        rec_pts = [(_record_offset(r, origin, "start_along_mm", "start_across_mm"),
-                    _record_offset(r, origin, "end_along_mm", "end_across_mm"))
+        rec_pts = [(_record_offset(r, frame, "start_along_mm", "start_across_mm"),
+                    _record_offset(r, frame, "end_along_mm", "end_across_mm"))
                    for r in records]
         live_pts = [(_live_point(i, "start"), _live_point(i, "end"))
                     for i in live_items]
@@ -237,34 +249,42 @@ def _mm(value: float) -> float:
     return round(value / MM, 4)
 
 
-def _via_new_geo(live: Via, origin: Vector2) -> dict:
-    return {
-        "offset_along_mm": _mm(live.position.x - origin.x),
-        "offset_across_mm": _mm(live.position.y - origin.y),
-    }
+def _via_new_geo(live: Via, frame: CellFrame) -> dict:
+    """A live via expressed in the cell's OWN frame (J.1) — the inverse of the
+    frame's mapping, so the placement's rotation/mirror never lands in the
+    cell."""
+    along, across = frame.point_to_cell(live.position.x / MM, live.position.y / MM)
+    return {"offset_along_mm": round(along, 4), "offset_across_mm": round(across, 4)}
 
 
-def _track_new_geo(live: Track, origin: Vector2) -> dict:
+def _track_new_geo(live: Track, frame: CellFrame) -> dict:
+    sx, sy = frame.point_to_cell(live.start.x / MM, live.start.y / MM)
+    ex, ey = frame.point_to_cell(live.end.x / MM, live.end.y / MM)
     return {
-        "start_along_mm": _mm(live.start.x - origin.x),
-        "start_across_mm": _mm(live.start.y - origin.y),
-        "end_along_mm": _mm(live.end.x - origin.x),
-        "end_across_mm": _mm(live.end.y - origin.y),
+        "start_along_mm": round(sx, 4),
+        "start_across_mm": round(sy, 4),
+        "end_along_mm": round(ex, 4),
+        "end_across_mm": round(ey, 4),
         "width_mm": round(live.width_mm, 4),
     }
 
 
-def _component_new_geo(fp: Footprint, origin: Vector2) -> dict:
+def _component_new_geo(fp: Footprint, frame: CellFrame) -> dict:
+    """The slot's geometry in the cell's frame — offsets through the inverse
+    transform AND the angle expressed as (live angle - theta, mirrored rule),
+    never `fp.angle_deg` as-is (J.1: the placement rotation used to be baked
+    into the cell and applied a second time by the next Redraw)."""
+    along, across = frame.point_to_cell(fp.position.x / MM, fp.position.y / MM)
     return {
-        "offset_along_mm": _mm(fp.position.x - origin.x),
-        "offset_across_mm": _mm(fp.position.y - origin.y),
-        "angle_deg": fp.angle_deg,
+        "offset_along_mm": round(along, 4),
+        "offset_across_mm": round(across, 4),
+        "angle_deg": frame.angle_to_cell(fp.angle_deg),
     }
 
 
 # ── Copper tiers (shared by vias and tracks, kept separate) ────────────────
 
-def _match_copper(records: list[dict], live_items: list[Any], origin: Vector2,
+def _match_copper(records: list[dict], live_items: list[Any], frame: CellFrame,
                   role_to_ref: dict[str, str], adapter: Any, kind: str,
                   *,
                   leftover_is_fatal: bool = True,
@@ -371,10 +391,10 @@ def _match_copper(records: list[dict], live_items: list[Any], origin: Vector2,
                               "{m} live item(s) matching its shape")
                             .format(pattern=template, n=len(group), m=len(candidates)))
             continue
-        pairs = _greedy_nearest(group, candidates, origin, kind)
+        pairs = _greedy_nearest(group, candidates, frame, kind)
         for rec, live in pairs:
-            new_geo = _via_new_geo(live, origin) if kind == "via" \
-                else _track_new_geo(live, origin)
+            new_geo = _via_new_geo(live, frame) if kind == "via" \
+                else _track_new_geo(live, frame)
             updates.append((rec, new_geo))
         _claim([live for _rec, live in pairs])
         _removed_from(group, pairs)
@@ -413,10 +433,10 @@ def _match_copper(records: list[dict], live_items: list[Any], origin: Vector2,
                               "{m} live item(s)")
                             .format(net=net, n=len(existing), m=len(live)))
             continue
-        pairs = _greedy_nearest(existing, live, origin, kind)
+        pairs = _greedy_nearest(existing, live, frame, kind)
         for rec, live_item in pairs:
-            new_geo = _via_new_geo(live_item, origin) if kind == "via" \
-                else _track_new_geo(live_item, origin)
+            new_geo = _via_new_geo(live_item, frame) if kind == "via" \
+                else _track_new_geo(live_item, frame)
             updates.append((rec, new_geo))
         _claim([live_item for _rec, live_item in pairs])
         _removed_from(existing, pairs)
@@ -437,10 +457,10 @@ def _match_copper(records: list[dict], live_items: list[Any], origin: Vector2,
                                   "named net")
                                 .format(n=len(net_null), m=len(pool)))
             else:
-                pairs = _greedy_nearest(net_null, pool, origin, kind)
+                pairs = _greedy_nearest(net_null, pool, frame, kind)
                 for rec, live in pairs:
-                    new_geo = _via_new_geo(live, origin) if kind == "via" \
-                        else _track_new_geo(live, origin)
+                    new_geo = _via_new_geo(live, frame) if kind == "via" \
+                        else _track_new_geo(live, frame)
                     updates.append((rec, new_geo))
                 _claim([live for _rec, live in pairs])
                 _removed_from(net_null, pairs)
@@ -458,10 +478,10 @@ def _match_copper(records: list[dict], live_items: list[Any], origin: Vector2,
                                       "named net")
                                     .format(n=len(group), m=len(layer_pool)))
                     continue
-                pairs = _greedy_nearest(group, layer_pool, origin, kind)
+                pairs = _greedy_nearest(group, layer_pool, frame, kind)
                 for rec, live in pairs:
-                    new_geo = _via_new_geo(live, origin) if kind == "via" \
-                        else _track_new_geo(live, origin)
+                    new_geo = _via_new_geo(live, frame) if kind == "via" \
+                        else _track_new_geo(live, frame)
                     updates.append((rec, new_geo))
                 _claim([live for _rec, live in pairs])
                 _removed_from(group, pairs)
@@ -510,6 +530,9 @@ class RefreshPlan:
     new_track_records: list[dict] = field(default_factory=list)
     removed_via_records: list[dict] = field(default_factory=list)
     removed_track_records: list[dict] = field(default_factory=list)
+    # J.1: honest report lines the GUI prints in the Log (non-rigid cluster /
+    # turned instance). Empty for an ordinary unrotated rigid selection.
+    warnings: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -527,13 +550,16 @@ def _cell_selection_context(components: list[dict], footprints: list[Footprint],
                             adapter: Any, action_label: str,
                             origin_role: str | None = None,
                             ) -> tuple[dict[str, str], list[dict], Vector2 | None,
-                                       list[str]]:
+                                       tuple[float, float], list[str]]:
     """Shared origin/role prelude for BOTH refresh and import (plan §B.2:
     "Import ТРЕБУЕТ тот же чистый матчинг компонентов по ролям, что и
     Refresh" — a missing/extra role is the same "wrong/incomplete cluster"
     fatal in both).
 
-    Returns (role_to_ref, matched_components, origin_or_None, problems).
+    Returns (role_to_ref, matched_components, origin_or_None, mount, problems).
+    `mount` is the surrogate role's STORED offset (the cell's mount A, in the
+    cell's own frame) — callers need it to build the cell frame (cell_frame.py:
+    the stored offsets are measured from A, not from the stored (0,0)).
     Never raises itself; a zero/multiple zero-slot cell raises via
     cell_zero_slot_role (a cell-local defect, nothing can proceed without a
     known origin). Collected role problems are the caller's to merge with its
@@ -613,7 +639,62 @@ def _cell_selection_context(components: list[dict], footprints: list[Footprint],
             origin = Vector2.from_xy(
                 origin_fp.position.x - int(surrogate_along * MM),
                 origin_fp.position.y - int(surrogate_across * MM))
-    return role_to_ref, matched, origin, problems
+    return role_to_ref, matched, origin, (surrogate_along, surrogate_across), problems
+
+
+def _cell_frame_for(components: list[dict], matched: list[dict],
+                    footprints: list[Footprint], role_to_ref: dict[str, str],
+                    origin: Vector2, mount: tuple[float, float]) -> CellFrame:
+    """The ONE cell<->world frame for a live selection (J.1): its origin is the
+    surrogate's live position offset back by the mount, and its rotation/mirror
+    are FITTED — never read from a placement, never from one component's angle.
+
+    The fit's pairs are (stored offset − mount) vs (live delta from the
+    placement origin) over EVERY matched role at once, so a two-pin part's
+    180° angle ambiguity cannot decide the frame. No usable pair (the first
+    extraction of a cell, a single-component cell) keeps the historical
+    theta=0 / mirror=False frame."""
+    placement_origin = Vector2.from_xy(
+        origin.x + int(round(mount[0] * MM)),
+        origin.y + int(round(mount[1] * MM)))
+    ref_to_fp = {fp.ref: fp for fp in footprints}
+    pairs: list[tuple[float, float, float, float]] = []
+    for rec in matched:
+        fp = ref_to_fp.get(role_to_ref.get(rec.get("role")))
+        if fp is None:
+            continue
+        pairs.append((
+            float(rec.get("offset_along_mm", 0.0)) - mount[0],
+            float(rec.get("offset_across_mm", 0.0)) - mount[1],
+            (fp.position.x - placement_origin.x) / MM,
+            (fp.position.y - placement_origin.y) / MM))
+    fit = fit_cell_frame(pairs)
+    if fit is None:
+        return CellFrame(placement_origin=placement_origin,
+                         mount=(mount[0], mount[1]))
+    return CellFrame(placement_origin=placement_origin,
+                     rotation_deg=fit.rotation_deg, mirror=fit.mirror,
+                     mount=(mount[0], mount[1]), residual_mm=fit.residual_mm)
+
+
+def _frame_warnings(frame: CellFrame | None) -> list[str]:
+    """The user-facing lines for a fitted frame (J.1) — the honest report of a
+    non-rigid cluster and/or a turned instance. Empty for None, for the
+    historical unrotated rigid frame and for a fit that found nothing."""
+    if frame is None:
+        return []
+    warnings: list[str] = []
+    if not frame.is_rigid:
+        warnings.append(
+            _("the selection is not a rigid copy of this cell (worst deviation "
+              "{deviation} mm) — the geometry was re-read anyway")
+            .format(deviation=f"{frame.residual_mm:.3f}"))
+    if frame.rotation_deg:
+        warnings.append(
+            _("the instance is rotated {angle}° — the geometry was expressed in "
+              "the cell's own frame, anchor_xy is left unchanged")
+            .format(angle=f"{frame.rotation_deg:g}"))
+    return warnings
 
 
 def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[dict],
@@ -672,20 +753,29 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
     unused in v1: the cell does not store params, so existing parametrized
     literals are handled by template-shape matching (§1.4), which needs no map.
     """
-    role_to_ref, matched, origin, problems = _cell_selection_context(
+    role_to_ref, matched, origin, mount, problems = _cell_selection_context(
         components, footprints, adapter,
         _("refresh"), origin_role)
 
+    # J.1: the ONE cell<->world frame (kicadstamp/cell_frame.py) — rotation and
+    # mirror are FITTED from the stored offsets against the live deltas of every
+    # matched role at once, so a rotated instance is no longer baked INTO the
+    # cell (re-reading is idempotent) and anchor_xy is never touched (the cell's
+    # own frame does not change). None when the origin could not be resolved.
+    frame = _cell_frame_for(components, matched, footprints, role_to_ref,
+                            origin, mount) if origin is not None else None
+    warnings = _frame_warnings(frame)
+
     # Components — every matched role recomputed from its own live footprint.
-    # Built only once the origin is known (its position is the reference for
-    # every recomputed offset); matched is [] when role problems were found,
-    # so a pure-role problem run yields no half-built geometry.
+    # Built only once the frame is known (its origin is the reference for every
+    # recomputed offset); matched is [] when role problems were found, so a
+    # pure-role problem run yields no half-built geometry.
     component_updates: list[tuple[dict, dict]] = []
-    if origin is not None and matched:
+    if frame is not None and matched:
         ref_to_fp = {fp.ref: fp for fp in footprints}
         for rec in matched:
             fp = ref_to_fp[role_to_ref[rec["role"]]]
-            component_updates.append((rec, _component_new_geo(fp, origin)))
+            component_updates.append((rec, _component_new_geo(fp, frame)))
 
     # Vias / tracks — independent sections. Run only when the origin resolved
     # (the nearest-match it feeds needs a reference point); an unresolvable
@@ -700,14 +790,14 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
     track_leftover: list[Any] = []
     via_removed: list[dict] = []
     track_removed: list[dict] = []
-    if origin is not None:
+    if frame is not None:
         via_updates, via_problems, via_leftover, via_removed = _match_copper(
-            vias, raw_via_items, origin, role_to_ref, adapter, "via",
+            vias, raw_via_items, frame, role_to_ref, adapter, "via",
             leftover_is_fatal=not add_new_copper,
             missing_is_fatal=not remove_missing,
             cell_layer=cell_layer)
         track_updates, track_problems, track_leftover, track_removed = _match_copper(
-            tracks, raw_track_items, origin, role_to_ref, adapter, "track",
+            tracks, raw_track_items, frame, role_to_ref, adapter, "track",
             leftover_is_fatal=not add_new_copper,
             missing_is_fatal=not remove_missing,
             cell_layer=cell_layer)
@@ -727,14 +817,14 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
     # never `net: null`). Never reached when a problem was raised above.
     new_via_records: list[dict] = []
     new_track_records: list[dict] = []
-    if add_new_copper and origin is not None and (via_leftover or track_leftover):
+    if add_new_copper and frame is not None and (via_leftover or track_leftover):
         role_nets = _selection_role_nets(adapter, footprints)
         for live in via_leftover:
-            rec = _import_via_record(live, origin)
+            rec = _import_via_record(live, frame)
             _classify_import_net(rec, live, role_nets, components)
             new_via_records.append(rec)
         for live in track_leftover:
-            rec = _import_track_record(live, origin, cell_layer)
+            rec = _import_track_record(live, frame, cell_layer)
             _classify_import_net(rec, live, role_nets, components)
             new_track_records.append(rec)
 
@@ -746,22 +836,26 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
         new_track_records=new_track_records,
         removed_via_records=via_removed,
         removed_track_records=track_removed,
+        warnings=warnings,
     )
 
 
-def _import_via_record(live: Via, origin: Vector2) -> dict:
+def _import_via_record(live: Via, frame: CellFrame) -> dict:
     """New via dict in the exact shape extract_template_from_selection writes
     (template_extraction.py:531-541) — geometry + physical, net filled by the
-    caller via _classify_import_net (which needs role nets + cell components)."""
+    caller via _classify_import_net (which needs role nets + cell components).
+    J.1: the geometry goes through the cell frame, so importing from a ROTATED
+    instance appends offsets in the cell's own frame, not the board's."""
+    along, across = frame.point_to_cell(live.position.x / MM, live.position.y / MM)
     return {
-        "offset_along_mm": _mm(live.position.x - origin.x),
-        "offset_across_mm": _mm(live.position.y - origin.y),
+        "offset_along_mm": round(along, 4),
+        "offset_across_mm": round(across, 4),
         "drill_mm": round(live.drill_mm, 4),
         "diameter_mm": round(live.diameter_mm, 4),
     }
 
 
-def _import_track_record(live: Track, origin: Vector2,
+def _import_track_record(live: Track, frame: CellFrame,
                          cell_layer: str | None = None) -> dict:
     """New track dict in the exact shape extract writes (template_extraction.py:
     570-583) — geometry + width; net filled by _classify_import_net.
@@ -772,11 +866,13 @@ def _import_track_record(live: Track, origin: Vector2,
     track adopted as a NEW record in a B.Cu cell would silently become a B.Cu
     record: the same data loss as the mixed-layer pairing, from the other side.
     `cell_layer=None` keeps the historical "never writes layer"."""
+    sx, sy = frame.point_to_cell(live.start.x / MM, live.start.y / MM)
+    ex, ey = frame.point_to_cell(live.end.x / MM, live.end.y / MM)
     record = {
-        "start_along_mm": _mm(live.start.x - origin.x),
-        "start_across_mm": _mm(live.start.y - origin.y),
-        "end_along_mm": _mm(live.end.x - origin.x),
-        "end_across_mm": _mm(live.end.y - origin.y),
+        "start_along_mm": round(sx, 4),
+        "start_across_mm": round(sy, 4),
+        "end_along_mm": round(ex, 4),
+        "end_across_mm": round(ey, 4),
         "width_mm": round(live.width_mm, 4),
     }
     if cell_layer is not None:
@@ -855,20 +951,25 @@ def build_import_plan(components: list[dict], vias: list[dict], tracks: list[dic
     anything else -> a plain literal `net:` — never None. Never mutates its
     inputs.
     """
-    role_to_ref, _matched, origin, problems = _cell_selection_context(
+    role_to_ref, matched, origin, mount, problems = _cell_selection_context(
         components, footprints, adapter,
         _("import"), origin_role)
+
+    # J.1: the very SAME cell frame as Refresh (cell_frame.py) — importing from
+    # a rotated instance must append offsets in the cell's own frame too.
+    frame = _cell_frame_for(components, matched, footprints, role_to_ref,
+                            origin, mount) if origin is not None else None
 
     via_leftover: list[Any] = []
     track_leftover: list[Any] = []
     via_problems: list[str] = []
     track_problems: list[str] = []
-    if origin is not None:
+    if frame is not None:
         _via_updates, via_problems, via_leftover, _via_removed = _match_copper(
-            vias, raw_via_items, origin, role_to_ref, adapter, "via",
+            vias, raw_via_items, frame, role_to_ref, adapter, "via",
             leftover_is_fatal=False, cell_layer=cell_layer)
         _track_updates, track_problems, track_leftover, _trk_removed = _match_copper(
-            tracks, raw_track_items, origin, role_to_ref, adapter, "track",
+            tracks, raw_track_items, frame, role_to_ref, adapter, "track",
             leftover_is_fatal=False, cell_layer=cell_layer)
 
     all_problems = problems + via_problems + track_problems
@@ -880,15 +981,15 @@ def build_import_plan(components: list[dict], vias: list[dict], tracks: list[dic
     # Net classification — build the role -> pad -> nets map ONCE from the
     # selection (extractor's _selection_role_nets), then classify each leftover
     # via/track against the CELL's own components (geometric tiebreak).
-    role_nets = _selection_role_nets(adapter, footprints) if origin is not None else {}
+    role_nets = _selection_role_nets(adapter, footprints) if frame is not None else {}
     new_via_records = []
     for live in via_leftover:
-        rec = _import_via_record(live, origin)
+        rec = _import_via_record(live, frame)
         _classify_import_net(rec, live, role_nets, components)
         new_via_records.append(rec)
     new_track_records = []
     for live in track_leftover:
-        rec = _import_track_record(live, origin, cell_layer)
+        rec = _import_track_record(live, frame, cell_layer)
         _classify_import_net(rec, live, role_nets, components)
         new_track_records.append(rec)
 

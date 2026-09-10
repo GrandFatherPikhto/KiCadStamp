@@ -1580,13 +1580,19 @@ class CellDock(QWidget):
         has_work = bool(plan.component_updates or plan.via_updates
                         or plan.track_updates or plan.new_via_records
                         or plan.new_track_records or plan.removed_via_records
-                        or plan.removed_track_records)
+                        or plan.removed_track_records
+                        or getattr(plan, "warnings", None))
         if not has_work:
             self._show_message(
                 _("Nothing changed — the selection already matches this cell's geometry."),
                 _SUCCESS_STYLE)
             return
         updated, added, removed = self._apply_refresh_plan(plan)
+        # J.1 (2026-09-10): the frame's honest report lines — the live cluster is
+        # not a rigid copy of the cell, and/or the instance is turned (the
+        # geometry was expressed in the cell's own frame, anchor_xy untouched).
+        for warning in getattr(plan, "warnings", None) or []:
+            self._show_message(warning, _WARN_STYLE)
         # H.2.4: one line per added/removed record BEFORE the summary — "в лог
         # говорим: добавили то-то, удалили то-то" (Denis). Added = the live
         # copper the cell did not describe, removed = the records with no live

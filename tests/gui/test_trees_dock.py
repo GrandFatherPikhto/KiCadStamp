@@ -3792,6 +3792,30 @@ def test_tree_without_duplicate_has_no_marked_node(main_window):
         assert item.toolTip(0) == ""
 
 
+def test_node_form_sheet_combo_comes_from_the_config(main_window, tmp_path,
+                                                     monkeypatch):
+    """J.3 (2026-09-10): the node editor's Position tab lists the CONFIG's sheet
+    names (RuntimeContext.sheet_names, built from the schematics) — NOT the ~2s
+    board snapshot. Measured live: 325 footprints, 72 roles, 34 clusters and
+    ZERO sheet names (`sheet=[None, None]` on every row), so this combo was
+    permanently blank and any sheet narrowing in the node editor degraded
+    silently."""
+    import types
+
+    dock, _root = _module_dock(main_window, tmp_path)
+    # An EMPTY board snapshot — the old _live_sheets() source can offer nothing.
+    monkeypatch.setattr(dock._main_window, "connection",
+                        types.SimpleNamespace(snapshot=[]), raising=False)
+    dock._ctx = types.SimpleNamespace(
+        sheet_names={"uuid-a": "Channel_0", "uuid-b": "OpAmp"})
+
+    tree = _tree_of(dock, "fpga")
+    form = dock._build_node_form(tree, tree.nodes[0])
+    combo = form.own_anchor_widget.anchor_sheet_edit
+    assert [combo.itemText(i) for i in range(combo.count())] == \
+        ["Channel_0", "OpAmp"]
+
+
 def test_auto_anchor_tree_single_node_not_marked(main_window):
     """§3: an auto-anchored tree's single top-level placement node is NOT a
     duplicate (it IS the anchor source by construction — _auto_anchor_base

@@ -1215,7 +1215,6 @@ class TreesDock(QWidget):
             module_candidates=self._module_tree_candidates(tree),
             all_trees=self._trees,
             role_candidates=self._live_roles(),
-            sheet_candidates=self._live_sheets(),
             cluster_candidates=self._live_clusters())
 
     @staticmethod
@@ -1753,7 +1752,6 @@ class TreesDock(QWidget):
             # Position-tab (own_anchor) candidate lists — the same live sources
             # the anchor dialog uses (plan tree_node_own_anchor §3.1).
             role_candidates=self._live_roles(),
-            sheet_candidates=self._live_sheets(),
             cluster_candidates=self._live_clusters(),
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
@@ -2447,8 +2445,7 @@ class NodeFormWidget(QWidget):
                  title: str, cfg=None, adapter=None, sheet_names=None,
                  tree=None, parent_node=None, existing=None,
                  module_candidates=None, all_trees=None,
-                 role_candidates=None, sheet_candidates=None,
-                 cluster_candidates=None):
+                 role_candidates=None, cluster_candidates=None):
         super().__init__(parent)
         # `title` is accepted for signature compatibility with the former
         # QDialog (its caller set the window title); a plain QWidget form has
@@ -2469,7 +2466,6 @@ class NodeFormWidget(QWidget):
         self._all_trees = list(all_trees or [])
 
         self._role_candidates = list(role_candidates or [])
-        self._sheet_candidates = list(sheet_candidates or [])
         self._cluster_candidates = list(cluster_candidates or [])
 
         # Two-tab node editor (plan tree_node_own_anchor §3): the old single
@@ -2582,7 +2578,12 @@ class NodeFormWidget(QWidget):
         position_form.addRow(self.own_anchor_widget)
         self.own_anchor_widget.set_known_roles(
             self._role_candidates, self._cluster_candidates)
-        self.own_anchor_widget.set_known_sheets(self._sheet_candidates)
+        # J.3 (2026-09-10): the Sheet combo is fed from the CONFIG's sheet map
+        # (RuntimeContext.sheet_names, built from the schematics), exactly like
+        # AnchorFormWidget does — NOT from the ~2s board snapshot, whose
+        # Selected.sheet was empty for every footprint (measured: 325
+        # footprints, 0 sheet names), leaving this combo permanently blank.
+        self.own_anchor_widget.set_known_sheets(list(self._sheet_names.values()))
 
         self.tabs.addTab(general_widget, _("General"))
         self.tabs.addTab(position_widget, _("Position"))
@@ -3074,8 +3075,7 @@ class _NodeDialog(QDialog):
                  title: str, cfg=None, adapter=None, sheet_names=None,
                  tree=None, parent_node=None, existing=None,
                  module_candidates=None, all_trees=None,
-                 role_candidates=None, sheet_candidates=None,
-                 cluster_candidates=None):
+                 role_candidates=None, cluster_candidates=None):
         super().__init__(parent)
         self.setWindowTitle(title)
         # The FORM is built with the original `parent` (the TreesDock, not this
@@ -3086,7 +3086,7 @@ class _NodeDialog(QDialog):
             sheet_names=sheet_names, tree=tree, parent_node=parent_node,
             existing=existing, module_candidates=module_candidates,
             all_trees=all_trees, role_candidates=role_candidates,
-            sheet_candidates=sheet_candidates, cluster_candidates=cluster_candidates)
+            cluster_candidates=cluster_candidates)
         layout = QVBoxLayout(self)
         layout.addWidget(self._form)
         buttons = QHBoxLayout()
