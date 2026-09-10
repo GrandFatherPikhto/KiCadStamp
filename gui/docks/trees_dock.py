@@ -60,7 +60,8 @@ from .. import settings
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from ._common import (configure_searchable, confirm_first_run_adoption,
-                      highlight_stylesheet_for, set_combo_items)
+                      highlight_stylesheet_for, make_dock_grow_vertically,
+                      set_combo_items, SplitterSizeKeeper)
 from .cascade import (run_curated_forest_redraw_worker, run_curated_tree_redraw_worker,
                       run_single_node_redraw_worker)
 from .entity_delete import backup_file
@@ -325,11 +326,18 @@ class TreesDock(QDockWidget):
         # state — the rebuild persists its final state itself).
         self._pending_active_name: Optional[str] = None
         self._rebuilding_tabs = False
+        # S.3 (techdocs/me/scroll.md): one SplitterSizeKeeper per page splitter,
+        # keyed by tree name. Every non-active tab page is hidden ALWAYS, so a
+        # naive sizes() read at quit wrote [0, 0] for each of them.
+        self._page_splitter_keepers: dict = {}
 
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(4, 4, 4, 4)
         self.setWidget(container)
+        # S.1: this left-area dock must absorb the height freed by shrinking the
+        # Log dock, or the separator cannot be dragged.
+        make_dock_grow_vertically(self, container)
 
         # ── No whole-tree toolbar (2026-09-03, plan
         #    plan_2026_09_03_trees_menu_tools.md): every whole-tree action —
@@ -570,6 +578,8 @@ class TreesDock(QDockWidget):
         # persisted below, once it is restored.
         self._rebuilding_tabs = True
         self.tree_tabs.clear()
+        # Fresh page splitters replace the old ones — drop their keepers too.
+        self._page_splitter_keepers = {}
         self._node_items = {}
         if not self._trees:
             # Nothing to apply a pending active tab to — drop it so a stale
@@ -653,6 +663,9 @@ class TreesDock(QDockWidget):
                         splitter.setSizes([int(v) for v in splitter_sizes])
                     except (TypeError, ValueError):
                         logger.warning("Ignoring invalid saved splitter sizes for %r", tree.name)
+            # S.3: remember this page splitter's last good size while it is laid
+            # out — a hidden page reports [0, 0].
+            self._page_splitter_keepers[tree.name] = SplitterSizeKeeper(splitter)
             self.tree_tabs.addTab(splitter, tree.name)
         # (P1) Restore the active tab by name.
         desired = self._pending_active_name
@@ -813,6 +826,20 @@ class TreesDock(QDockWidget):
         return {"anchor_expanded": anchor_expanded,
                 "expanded_refs": expanded_refs}
 
+    def _good_page_splitter_sizes(self, name: str,
+                                  splitter: QSplitter) -> Optional[list]:
+        """The page splitter's last GOOD size list (S.3 of techdocs/me/scroll.md):
+        the keeper's remembered value when it has one, else the live sizes only
+        when they are non-degenerate. None when neither exists — the caller then
+        keeps the previously persisted value instead of writing [0, 0]."""
+        keeper = self._page_splitter_keepers.get(name)
+        if keeper is not None:
+            return keeper.capture()
+        sizes = list(splitter.sizes())
+        if len(sizes) == splitter.count() and any(size > 0 for size in sizes):
+            return sizes
+        return None
+
     def persist_ui_state(self) -> None:
         """Final flush — called by MainWindow._persist_settings() on quit/
         close. Re-reads the CURRENT widget state so an interaction that
@@ -837,9 +864,17 @@ class TreesDock(QDockWidget):
                     # Splitter position (2026-09-05): the tree | form-panel
                     # divider of THIS tree's page (the page is the QSplitter).
                     if isinstance(widget, QSplitter):
-                        sizes = list(widget.sizes())
-                        if len(sizes) == widget.count():
+                        sizes = self._good_page_splitter_sizes(tree.name, widget)
+                        if sizes is not None:
                             entry["splitter_sizes"] = sizes
+                        else:
+                            # No good size this session (the page was never laid
+                            # out) — keep the previously saved handle position
+                            # rather than dropping the key or writing [0, 0].
+                            previous = trees.get(tree.name)
+                            if (isinstance(previous, dict)
+                                    and "splitter_sizes" in previous):
+                                entry["splitter_sizes"] = previous["splitter_sizes"]
                     trees[tree.name] = entry
         self._update_trees_dock_state(_fn)
 

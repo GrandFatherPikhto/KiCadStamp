@@ -21,11 +21,11 @@ import logging
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QObject, Qt, pyqtSignal
 from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QCompleter,
                              QHBoxLayout, QHeaderView, QLineEdit, QMessageBox,
-                             QPushButton, QTableWidget, QTableWidgetItem,
-                             QVBoxLayout, QWidget)
+                             QPushButton, QSizePolicy, QSplitter, QTableWidget,
+                             QTableWidgetItem, QVBoxLayout, QWidget)
 
 from kicadstamp.i18n import _
 
@@ -334,6 +334,95 @@ def apply_compact_field_minimums(app) -> None:
     existing = app.styleSheet()
     if FIELD_MIN_WIDTH_QSS not in existing:
         app.setStyleSheet((existing + "\n" + FIELD_MIN_WIDTH_QSS).strip())
+
+
+def make_dock_grow_vertically(dock, widget=None) -> None:
+    """Give a dock's central widget vertical `Expanding` so it can ABSORB the
+    height freed by shrinking the Log dock (S.1 of techdocs/me/scroll.md /
+    prompt_2026_09_10_splitters_and_log_sizing.md).
+
+    A left-area dock whose widget is vertically `Preferred` sits exactly at its
+    content minimumSizeHint and never grows: free height is simply handed to the
+    log, so the log's own height is `window - 804` and the horizontal separator
+    cannot be dragged (measured: tree 282 + config 522 fixed at every window
+    size). `Expanding` lets the top docks take that height, which is what makes
+    the separator move and the log shrinkable.
+
+    Only the VERTICAL policy is touched — the horizontal one is whatever the
+    widget already had. Deliberately NOT applied to the log itself: it already
+    receives all the slack, and making IT expanding would harden the very
+    defect this fixes."""
+    target = widget if widget is not None else dock.widget()
+    if target is None:
+        return
+    policy = target.sizePolicy()
+    policy.setVerticalPolicy(QSizePolicy.Policy.Expanding)
+    target.setSizePolicy(policy)
+    # The QDockWidget's OWN policy is what QMainWindow's dock layout consults
+    # when it splits the window height — without this the central widget's
+    # Expanding had no effect (measured).
+    dock_policy = dock.sizePolicy()
+    dock_policy.setVerticalPolicy(QSizePolicy.Policy.Expanding)
+    dock.setSizePolicy(dock_policy)
+
+
+class SplitterSizeKeeper(QObject):
+    """Remembers the last GOOD size list a QSplitter reported, so quitting while
+    the splitter is hidden (tabbed behind another dock, or a non-active
+    QTabWidget page) cannot persist the `[0, 0]` Qt returns for a hidden widget
+    (S.3 of techdocs/me/scroll.md / prompt_2026_09_10_splitters_and_log_sizing.md).
+
+    A hidden widget's `splitter.sizes()` is `[0, 0]` — the arity is still
+    correct, so a `len(sizes) == count()` guard never caught it and the
+    degenerate value was written on every quit; on the next start
+    `childrenCollapsible(False)` clamped it to the minimums and the divider
+    "flew left" ("спорадически", depending on whether the dock was visible when
+    the app closed).
+
+    The keeper captures a good size while the splitter is laid out (every handle
+    drag and every resize) and keeps the last one; `capture()` returns it — used
+    by the persisting docks, which write THAT instead of the live `[0, 0]`.
+
+    "Good" is judged on the VALUES, not on visibility (the values are the
+    symptom, and this also keeps an explicitly-set split alive in a never-shown
+    unit test): correct arity, and at least one non-zero entry when the splitter
+    is `childrenCollapsible()` (a user MAY legally collapse one pane to zero);
+    when it is NOT collapsible no pane may legally be zero, so every entry must
+    be positive."""
+
+    def __init__(self, splitter: QSplitter) -> None:
+        super().__init__(splitter)
+        self._splitter = splitter
+        self._last_good: Optional[List[int]] = None
+        splitter.splitterMoved.connect(lambda *_: self.capture())
+        splitter.installEventFilter(self)
+
+    def _is_good(self, sizes: List[int]) -> bool:
+        if len(sizes) != self._splitter.count() or not sizes:
+            return False
+        # Empty tabs/hidden pages report all-zero; a collapsible splitter may
+        # legitimately hold a single zero pane, a non-collapsible one may not
+        # hold any.
+        if self._splitter.childrenCollapsible():
+            return any(size > 0 for size in sizes)
+        return all(size > 0 for size in sizes)
+
+    def capture(self) -> Optional[List[int]]:
+        """Store the splitter's CURRENT sizes when they are good; always return
+        the last good value (or None when none was ever seen)."""
+        sizes = list(self._splitter.sizes())
+        if self._is_good(sizes):
+            self._last_good = sizes
+        return self._last_good
+
+    def eventFilter(self, obj, event) -> bool:
+        """Refresh the remembered size whenever the splitter is laid out — a
+        Resize/Show is the moment a real geometry exists, Hide is the last
+        chance to read one before Qt zeroes a hidden widget's sizes."""
+        if obj is self._splitter and event.type() in (
+                QEvent.Type.Resize, QEvent.Type.Show, QEvent.Type.Hide):
+            self.capture()
+        return super().eventFilter(obj, event)
 
 
 class KeyValueTableEditor(QWidget):

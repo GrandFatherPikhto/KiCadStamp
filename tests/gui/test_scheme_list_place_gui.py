@@ -658,7 +658,7 @@ def _set_hub_root(hub, root: Path) -> None:
 
 def test_dock_hub_registers_scheme_list_place_page(hub):
     idx = hub._scheme_list_place_page
-    assert hub.config_tree_dock.right_stack.widget(idx) is hub.scheme_list_place_dock
+    assert hub.config_tree_dock.right_page_at(idx) is hub.scheme_list_place_dock
 
 
 def test_dock_hub_scheme_list_place_requested_opens_page_and_presets(hub, tmp_path):
@@ -669,7 +669,7 @@ def test_dock_hub_scheme_list_place_requested_opens_page_and_presets(hub, tmp_pa
     record = _scheme_record("amp")
     hub.config_tree_dock.scheme_list_place_requested.emit(record, root)
 
-    assert (hub.config_tree_dock.right_stack.currentWidget()
+    assert (hub.config_tree_dock.current_right_page()
             is hub.scheme_list_place_dock)
     assert hub.scheme_list_place_dock.scheme_list_combo.currentText() == "amp"
 
@@ -688,7 +688,7 @@ def test_dock_hub_place_scheme_list_with_no_selection_presets_nothing(hub, tmp_p
 
     # The page opens, but preset_scheme_list is NEVER called blindly.
     assert presets == []
-    assert (hub.config_tree_dock.right_stack.currentWidget()
+    assert (hub.config_tree_dock.current_right_page()
             is hub.scheme_list_place_dock)
 
 
@@ -706,7 +706,7 @@ def test_dock_hub_place_scheme_list_with_selection_presets_record(hub, tmp_path)
 
     hub.place_scheme_list()
 
-    assert (hub.config_tree_dock.right_stack.currentWidget()
+    assert (hub.config_tree_dock.current_right_page()
             is hub.scheme_list_place_dock)
     assert hub.scheme_list_place_dock.scheme_list_combo.currentText() == "amp"
 

@@ -159,7 +159,7 @@ def test_cell_picked_fills_placer_selected_cell(real_main_window):
 
     assert real_main_window.placer_dock._selected_cell == "ldo_adj"
     assert real_main_window.placer_dock.cell_combo.currentText() == "ldo_adj"
-    assert (real_main_window._dock_hub.config_tree_dock.right_stack.currentWidget()
+    assert (real_main_window._dock_hub.config_tree_dock.current_right_page()
             is real_main_window.placer_dock)
 
 
@@ -1295,7 +1295,7 @@ def test_file_selected_no_longer_switches_the_right_page(real_main_window, tmp_p
 
     real_main_window.config_tree_dock.file_selected.emit(target_file)
 
-    assert (real_main_window._dock_hub.config_tree_dock.right_stack.currentWidget()
+    assert (real_main_window._dock_hub.config_tree_dock.current_right_page()
             is real_main_window.placer_dock)
 
 
@@ -1307,7 +1307,7 @@ def test_cell_picked_still_switches_to_placer(real_main_window):
     real_main_window.config_tree_dock.file_selected.emit(None)
     real_main_window.config_tree_dock.cell_picked.emit("ldo_adj")
 
-    assert (real_main_window._dock_hub.config_tree_dock.right_stack.currentWidget()
+    assert (real_main_window._dock_hub.config_tree_dock.current_right_page()
             is real_main_window.placer_dock)
 
 
@@ -1328,7 +1328,7 @@ def test_cell_click_reloads_the_anchor_page_when_active(real_main_window,
     real_main_window.config_tree_dock.cell_picked.emit("pif_3v3_vdda")
 
     assert calls == [("pif_3v3_vdda", None)]
-    assert hub.config_tree_dock.right_stack.currentWidget() is hub.cell_anchor_view
+    assert hub.config_tree_dock.current_right_page() is hub.cell_anchor_view
 
 
 def test_cell_click_reload_clears_the_working_context(real_main_window, tmp_path):
@@ -1368,7 +1368,7 @@ def test_cell_click_does_not_open_the_anchor_page(real_main_window, monkeypatch)
     real_main_window.config_tree_dock.cell_picked.emit("ldo_adj")
 
     assert calls == []
-    assert hub.config_tree_dock.right_stack.currentWidget() is hub.placer_dock
+    assert hub.config_tree_dock.current_right_page() is hub.placer_dock
 
 
 def test_repeat_cell_click_is_a_noop_for_the_anchor_page(real_main_window,
@@ -1394,7 +1394,7 @@ def test_net_trace_picked_routes_to_config_net_trace_page(real_main_window):
     hub = real_main_window._dock_hub
     real_main_window.config_tree_dock.net_trace_picked.emit(
         {"net": "GND", "anchor_role": "FPGA", "tracks": [], "vias": []})
-    assert hub.config_tree_dock.right_stack.currentWidget() is hub.net_trace_dock
+    assert hub.config_tree_dock.current_right_page() is hub.net_trace_dock
 
 
 def test_placer_saved_refreshes_config_tree_placements(real_main_window, tmp_path):

@@ -84,7 +84,8 @@ from kicadstamp.i18n import _
 from .. import settings
 from ..worker import start_long_op
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
-                      highlight_stylesheet_for, show_message)
+                      highlight_stylesheet_for, make_dock_grow_vertically,
+                      show_message, SplitterSizeKeeper)
 
 logger = logging.getLogger(__name__)
 
@@ -262,10 +263,15 @@ class RoleClusterTreeDock(QDockWidget):
         self.tree.setStyleSheet(highlight_stylesheet_for("QTreeView::item:selected"))
 
         # Master-detail wrap (only when DockHub supplied the collaborators).
+        self._splitter_sizes: Optional[SplitterSizeKeeper] = None
         if self._fieldstool_window is not None:
             self._build_master_detail()
         else:
             self.setWidget(self._tree_page)
+        # S.1 (techdocs/me/scroll.md): let this left-area dock absorb the height
+        # freed by shrinking the Log dock — in BOTH modes (the central widget is
+        # the splitter in master-detail, the bare tree page otherwise).
+        make_dock_grow_vertically(self)
 
     def _build_master_detail(self) -> None:
         """Wrap the components-tree page (plus the shared Pending page as a
@@ -288,6 +294,10 @@ class RoleClusterTreeDock(QDockWidget):
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
         self.setWidget(self.splitter)
+        # S.3: remember the last good handle position while visible, so a quit
+        # with this dock hidden (tabbed behind Config/Trees) cannot persist the
+        # [0, 0] Qt reports for a hidden splitter.
+        self._splitter_sizes = SplitterSizeKeeper(self.splitter)
 
     # ── Master-detail UI-state persistence (2026-09-05, plan
     #    components_fieldstool_master_detail) ───────────────────────────────
@@ -301,13 +311,22 @@ class RoleClusterTreeDock(QDockWidget):
     # have a real, laid-out width) — mirrors ConfigTreeDock exactly.
 
     def persist_ui_state(self) -> None:
-        """Flush the CURRENT splitter handle position + active left tab to
+        """Flush the last GOOD splitter handle position + the active left tab to
         gui_state.json. Runs unconditionally on quit (MainWindow.
-        _persist_settings); safe to call before the widget is realized
-        (sizes()/setSizes() round-trip cleanly then too). No-op when not in
-        master-detail mode (plain standalone tree page)."""
-        if self.splitter is not None and self.splitter.count() == 2:
-            settings.state.set("components_splitter_sizes", list(self.splitter.sizes()))
+        _persist_settings). No-op when not in master-detail mode (plain
+        standalone tree page).
+
+        The handle position goes through SplitterSizeKeeper, never straight
+        `sizes()`: a HIDDEN splitter reports [0, 0], and writing that restored
+        the divider to the left on the next start (S.3 of
+        techdocs/me/scroll.md). An earlier docstring here claimed
+        sizes()/setSizes() round-trip cleanly before the widget is realized —
+        that claim was WRONG, and it is exactly the defect: the values are only
+        meaningful while the splitter is laid out."""
+        if self._splitter_sizes is not None:
+            sizes = self._splitter_sizes.capture()
+            if sizes is not None:
+                settings.state.set("components_splitter_sizes", list(sizes))
         if self._left_tabs is not None:
             settings.state.set("components_left_tab", self._left_tabs.currentIndex())
 

@@ -1289,11 +1289,11 @@ def test_dock_hub_registers_scheme_list_page_and_routes_pick(main_window, tmp_pa
     hub = DockHub(main_window, connection=main_window.connection, verbose=False)
     try:
         idx = hub._scheme_list_page
-        assert hub.config_tree_dock.right_stack.widget(idx) is hub.scheme_list_dock
+        assert hub.config_tree_dock.right_page_at(idx) is hub.scheme_list_dock
         adapter = _line_board()
         d = _record_dict(adapter)
         hub.config_tree_dock.scheme_list_picked.emit(d)
-        assert hub.config_tree_dock.right_stack.currentWidget() is hub.scheme_list_dock
+        assert hub.config_tree_dock.current_right_page() is hub.scheme_list_dock
         assert hub.scheme_list_dock._entry.get("name") == "amp"
     finally:
         hub.log_dock.remove_handler()

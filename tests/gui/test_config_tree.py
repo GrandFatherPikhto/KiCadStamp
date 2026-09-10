@@ -100,12 +100,12 @@ def test_add_right_page_and_routing(main_window):
     assert dock.right_page_count() == 3
 
     dock.set_current_page(placer_index)
-    assert dock.right_stack.currentWidget() is placer
+    assert dock.current_right_page() is placer
     dock.set_current_page(net_index)
-    assert dock.right_stack.currentWidget() is net_trace
+    assert dock.current_right_page() is net_trace
     # Category/file click -> placeholder.
     dock.set_current_page(0)
-    assert dock.right_stack.currentWidget() is dock.right_stack.widget(0)
+    assert dock.current_right_page() is dock.right_page_at(0)
     dock.set_current_page(-5)
     assert dock.current_right_page_index() == 0
 
@@ -117,7 +117,7 @@ def test_show_page_raises_the_dock(main_window):
     page = QWidget()
     idx = dock.add_right_page(page)
     dock.show_page(idx)
-    assert dock.right_stack.currentWidget() is page
+    assert dock.current_right_page() is page
     # Visible flag requested (the dock has no shown parent in a unit test, so
     # isVisible() stays False — but it must not be marked hidden).
     assert not dock.isHidden()

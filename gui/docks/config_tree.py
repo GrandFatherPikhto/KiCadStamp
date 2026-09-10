@@ -114,15 +114,16 @@ import os
 import pstats
 import time
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QShortcut
-from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QDockWidget,
-                              QFileDialog, QInputDialog, QMenu, QMessageBox,
-                              QSplitter, QStackedWidget, QTreeWidget,
-                              QTreeWidgetItem, QTreeWidgetItemIterator,
-                              QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QAbstractItemView, QAbstractScrollArea,
+                              QApplication, QDockWidget, QFileDialog, QFrame,
+                              QInputDialog, QMenu, QMessageBox, QScrollArea,
+                              QSizePolicy, QSplitter, QStackedWidget,
+                              QTreeWidget, QTreeWidgetItem,
+                              QTreeWidgetItemIterator, QVBoxLayout, QWidget)
 
 from kicadstamp.config.includes import IncludeTreeNode, walk_include_tree
 from kicadstamp.exceptions import ValidationError
@@ -130,13 +131,36 @@ from kicadstamp.i18n import _
 
 from .. import settings, yaml_io
 from ._common import (add_include, disable_include, display_path,
-                      highlight_stylesheet_for, non_includable_keys,
+                      highlight_stylesheet_for, make_dock_grow_vertically,
+                      non_includable_keys, SplitterSizeKeeper,
                       upsert_list_entry)
 from .entity_delete import backup_file, delete_entry, find_references
 from .entity_export import ExportItem, export_entries
 from .rename import CASCADE_FIELD, collect_graph_files, entry_effective_name, rename_entry
 
 logger = logging.getLogger(__name__)
+
+
+class _RightPageScrollArea(QScrollArea):
+    """QScrollArea wrapper for ONE Config right page (S.2 of
+    techdocs/me/scroll.md / prompt_2026_09_10_splitters_and_log_sizing.md).
+
+    QStackedWidget.minimumSizeHint() is the MAX over ALL pages — hidden ones
+    included — so a single tall page floored the whole Config dock (measured:
+    ThermalViaArrayDock 495 px pinned the dock at 522). Wrapping each page caps
+    that page's contribution.
+
+    This subclass caps the HEIGHT floor at 1 while leaving the WIDTH floor at the
+    content's own minimumSizeHint: a plain QScrollArea reports a small,
+    content-INDEPENDENT minimum width (measured 68 px for every page), which
+    shrank the whole left dock area from 556 to 150 px — wrapping must be
+    horizontally transparent, or the "fix" becomes a width regression."""
+
+    def minimumSizeHint(self) -> QSize:
+        widget = self.widget()
+        width = (widget.minimumSizeHint().width() if widget is not None
+                 else super().minimumSizeHint().width())
+        return QSize(width, 1)
 
 # Display label per recognized section, in the order shown under a file
 # node. Order matches config/includes.py's _LIST_SECTIONS + _DICT_SECTIONS.
@@ -467,8 +491,18 @@ class ConfigTreeDock(QDockWidget):
         # added from DockHub via add_right_page(); stack page 0 is an empty
         # placeholder shown for a category/file selection (nothing loaded).
         self._right_stack = QStackedWidget()
+        # S.2 (techdocs/me/scroll.md): QStackedWidget.minimumSizeHint() is the
+        # MAX over ALL pages — a single tall hidden page floored this whole
+        # dock. The per-page QScrollArea wraps installed by add_right_page()
+        # cap that; the stack's own minimum is pinned as well (0 is Qt's
+        # "unset" sentinel, so 1 — see log_panel.py:157).
+        self._right_stack.setMinimumHeight(1)
         self._placeholder_page = QWidget()
         self._right_stack.addWidget(self._placeholder_page)
+        # Stack index -> the ORIGINAL page widget add_right_page() was given
+        # (index 0 is the placeholder). right_page_at()/current_right_page()
+        # unwrap the QScrollArea so callers keep getting their own dock back.
+        self._right_page_widgets: List[QWidget] = [self._placeholder_page]
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.setChildrenCollapsible(False)
         self.splitter.addWidget(self.tree)
@@ -476,6 +510,10 @@ class ConfigTreeDock(QDockWidget):
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
         layout.addWidget(self.splitter)
+        # S.3: remember the last good handle position while this dock is laid
+        # out, so a quit while it is hidden (tabbed behind Trees/Components)
+        # cannot persist the [0, 0] Qt reports for a hidden splitter.
+        self._splitter_sizes = SplitterSizeKeeper(self.splitter)
 
         # Splitter position persistence (2026-09-05): the tree | right-QView
         # divider is flushed on quit (persist_ui_state) and re-applied the
@@ -493,6 +531,9 @@ class ConfigTreeDock(QDockWidget):
         self._rename_shortcut.activated.connect(self._on_rename_shortcut)
 
         self.setWidget(container)
+        # S.1: this left-area dock must absorb the height freed by shrinking
+        # the Log dock, or the separator cannot be dragged at all.
+        make_dock_grow_vertically(self, container)
 
     # ── Master-detail right pages (2026-09-05, plan config_qview_placer_nettrace) ──
 
@@ -506,9 +547,61 @@ class ConfigTreeDock(QDockWidget):
     def add_right_page(self, widget: QWidget) -> int:
         """Append a context QView page to the right stack (e.g. Placer,
         NetTrace) and return its stack index (>= 1 — page 0 is the
-        placeholder)."""
-        self._right_stack.addWidget(widget)
+        placeholder).
+
+        S.2 (techdocs/me/scroll.md): the page is wrapped in a QScrollArea
+        (_wrap_right_page) so one tall hidden page can no longer floor the whole
+        dock; a widget that already scrolls itself is left unwrapped."""
+        self._right_stack.addWidget(self._wrap_right_page(widget))
+        self._right_page_widgets.append(widget)
         return self._right_stack.count() - 1
+
+    @staticmethod
+    def _wrap_right_page(widget: QWidget) -> QWidget:
+        """Return the widget that actually goes INTO the stack: `widget` itself
+        when it already scrolls its own content, otherwise a QScrollArea around
+        it (S.2 of techdocs/me/scroll.md).
+
+        Nesting a scroll area around a QPlainTextEdit/tree/table is the
+        project's documented anti-pattern (log_panel.py:157, pending.py:240)."""
+        if isinstance(widget, QAbstractScrollArea):
+            return widget
+        area = _RightPageScrollArea()
+        area.setWidgetResizable(True)
+        # The load-bearing line: with setWidgetResizable(True) the area still
+        # stretches from its content, so its own minimum must be overridden
+        # explicitly. 1, not 0 — Qt treats an explicit 0 as "unset" and falls
+        # back to minimumSizeHint() (same sentinel as log_panel.py:157).
+        area.setMinimumHeight(1)
+        # NoFrame: a per-page frame is part of the "распухание" a previous
+        # attempt produced.
+        area.setFrameShape(QFrame.Shape.NoFrame)
+        # As-needed bars on both axes: nothing is reserved until the page
+        # really has something to scroll.
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        # Vertical `Ignored` keeps the page from dictating the stack's height
+        # (the explicit setMinimumHeight(1) above caps it); horizontal stays
+        # `Preferred` so the enclosing splitter still allocates width from the
+        # hint/stretch — an `Ignored` horizontal policy collapsed the whole
+        # right page to 0 px (measured with probe_splitter_and_log_floor).
+        area.setSizePolicy(QSizePolicy.Policy.Preferred,
+                           QSizePolicy.Policy.Ignored)
+        area.setWidget(widget)
+        return area
+
+    def right_page_at(self, index: int) -> Optional[QWidget]:
+        """The USER-facing widget of right-stack page `index` — unwraps the
+        QScrollArea add_right_page() installed, so callers get the Placer/
+        NetTrace/... dock they added, not its scrolling container."""
+        if 0 <= index < len(self._right_page_widgets):
+            return self._right_page_widgets[index]
+        return None
+
+    def current_right_page(self) -> Optional[QWidget]:
+        """right_page_at() of the CURRENT stack page (the placeholder for a
+        category/file selection)."""
+        return self.right_page_at(self.current_right_page_index())
 
     def right_page_count(self) -> int:
         return self._right_stack.count()
@@ -753,13 +846,18 @@ class ConfigTreeDock(QDockWidget):
     # (only then does the splitter have a real, laid-out width).
 
     def _persist_splitter_sizes(self) -> None:
-        """Flush the CURRENT splitter handle position to gui_state.json.
+        """Flush the last GOOD splitter handle position to gui_state.json.
+
         Runs unconditionally on quit (even with no project open) so the user's
-        chosen split is kept — the widget is fully laid out by the time
-        closeEvent fires, so sizes()/setSizes() round-trip cleanly."""
-        sizes = list(self.splitter.sizes())
-        if len(sizes) == self.splitter.count():
-            settings.state.set("config_splitter_sizes", sizes)
+        chosen split is kept. Reads through SplitterSizeKeeper, never straight
+        from sizes(): while this dock is hidden (tabbed behind Trees/Components)
+        sizes() reports [0, 0] and the old unconditional write snapped the
+        divider to the left on the next start (S.3 of techdocs/me/scroll.md).
+        When no good size was ever seen the previous state value is left
+        untouched."""
+        sizes = self._splitter_sizes.capture()
+        if sizes is not None:
+            settings.state.set("config_splitter_sizes", list(sizes))
 
     def restore_splitter_sizes(self) -> None:
         """Apply the persisted handle position (if any) to the splitter.
