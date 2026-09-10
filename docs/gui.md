@@ -1515,6 +1515,23 @@ the extractor's own heuristic (a net a selected role's pad carries -> `net_from_
 plain literal net — Import never writes `net: null`, 2026-09-04), and its geometry is relative to the
 same zero-offset origin.
 
+Since 2026-09-11 (plan plan_2026_09_11_nested_cell_placement_live_read.md) **Update from selection...**
+also re-reads the cell's **NESTED clone_placements** (the "Nested cells" tab) — the one part of a cell
+that used to have to be typed by hand, in the cell's CANONICAL frame while looking at a ROTATED instance
+on the board. A nested placement is identified by ITS OWN cell's roles, resolved on the live board by the
+very resolver Apply uses (role + expected net + the placement's own Sheet/Cluster narrowing, falling back
+to the current selection and then to proximity to the position the parent's live frame predicts) — never
+by guessing. Its live origin and rotation are then expressed in the PARENT's frame: `xy` through the
+parent cell frame's `point_to_cell`, `rotation_deg` through `angle_to_cell`, `mirror` from the reference
+footprint's side against the NESTED cell's own layer. A `role:`-only nested placement goes through the
+same path (its synthesized one-slot cell). Nothing is invented: a nested placement whose instance cannot
+be identified unambiguously — not on the board, its cell is missing from the config, it shares a role
+NAME with the parent cell, its roles resolve to a component the parent already claims, or the parent
+instance is mirrored (a composite cell cannot be mirrored at all, so a relative mirror has no defined
+composition) — is left COMPLETELY untouched with one honest line in the Log. One Log line per CHANGED
+placement names it with its old -> new xy/rotation/mirror, the same reporting rule the added/removed
+copper already uses.
+
 A clean plan opens a read-only **preview dialog** listing the NEW records (Kind / Position / Net) —
 **Apply** appends them to the loaded cell in memory and auto-stages it exactly like a manual row Add;
 nothing is written to disk until the project **Save**.

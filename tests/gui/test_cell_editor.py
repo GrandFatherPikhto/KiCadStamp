@@ -1598,3 +1598,50 @@ def test_copy_placement_no_fitting_donor_shows_message(main_window, tmp_path,
 
     assert dock._vias == [] and dock._tracks == []
     assert any("fits" in r.message for r in caplog.records)
+
+
+# ── N (2026-09-11): nested clone_placements in "Update from selection" ──────
+
+def test_apply_refresh_plan_applies_nested_updates_and_drops_defaults(
+        main_window, tmp_path, monkeypatch):
+    """N: a nested clone_placement's update writes ONLY what the live board
+    says and REMOVES the keys that became their default (the nested editor's own
+    dict convention) — an update back to the origin clears xy/rotation/mirror."""
+    from kicadstamp.cell_geometry_refresh import RefreshPlan
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    record = {"name": "n1", "cell": "sub", "xy": [5.0, 6.0],
+              "rotation_deg": 90.0, "mirror": True}
+    dock._nested = [record]
+    staged = []
+    monkeypatch.setattr(dock, "_autostage", lambda: staged.append(True))
+
+    updated, added, removed = dock._apply_refresh_plan(
+        RefreshPlan([], [], [], nested_updates=[(record, {"xy": [1.0, 2.0]})]))
+
+    assert (updated, added, removed) == (1, 0, 0)
+    assert record["xy"] == [1.0, 2.0]
+    assert "rotation_deg" not in record       # 90 -> 0 (the default) is REMOVED
+    assert "mirror" not in record             # True -> False is REMOVED
+    assert staged == [True]
+
+
+def test_finish_refresh_prints_the_nested_report_lines(main_window, tmp_path,
+                                                       monkeypatch):
+    """N: the per-nested Log lines are printed next to the summary, exactly like
+    the via/track added/removed lines (H.2.4 reporting style)."""
+    from kicadstamp.cell_geometry_refresh import RefreshPlan
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    messages = []
+    monkeypatch.setattr(
+        dock, "_show_message",
+        lambda text, style=None: messages.append(text) or True)
+    monkeypatch.setattr(dock, "_apply_refresh_plan", lambda plan: (1, 0, 0))
+
+    dock._finish_refresh_geometry({"plan": RefreshPlan(
+        [], [], [], nested_updates=[({"name": "n1"}, {"xy": [1.0, 2.0]})],
+        nested_reports=["nested 'n1' (cell:sub): xy (0.0, 0.0) rot 0.0° "
+                        "mirror=false -> xy (1.0, 2.0) rot 0.0° mirror=false"])})
+
+    assert any("nested 'n1'" in m for m in messages)

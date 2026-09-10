@@ -9,8 +9,16 @@ CellDock keeps in memory.
 The adapter is faked to the module's needs: Role reads (get_field_value) and
 net_from_role resolution (get_footprint/get_pad_by_number/get_footprint_pads)
 — the module never writes anything through it and never receives cfg/Entity.
+
+N (2026-09-11, plan plan_2026_09_11_nested_cell_placement_live_read.md): the
+last block exercises the nested-CellPlacement read, which DOES take typed
+cells (the nested cell's own definitions) — still no Qt, no real board.
 """
 import pytest
+
+from kicadstamp.cell_frame import rotate_ydown_mm
+from kicadstamp.config import Cell, TemplateComponentSlot
+from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 
 from kicadstamp import cell_geometry_refresh as mod
 from kicadstamp.cell_geometry_refresh import (
@@ -1364,3 +1372,263 @@ def test_import_from_a_rotated_instance_uses_the_cell_frame():
     rec = plan.new_via_records[0]
     assert rec["offset_along_mm"] == pytest.approx(0.0, abs=1e-4)
     assert rec["offset_across_mm"] == pytest.approx(-1.0, abs=1e-4)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# N (2026-09-11): a nested CellPlacement re-read from the live board
+# (plan plan_2026_09_11_nested_cell_placement_live_read.md §N)
+# ═══════════════════════════════════════════════════════════════════════════
+
+_PARENT_COMPS = [
+    {"role": "PORIG", "offset_along_mm": 0.0, "offset_across_mm": 0.0,
+     "angle_deg": 0.0},
+    {"role": "PCAP", "offset_along_mm": 10.0, "offset_across_mm": -4.0,
+     "angle_deg": 0.0},
+]
+# The nested placement's cell — its role names are deliberately DISJOINT from
+# the parent's (the collision case has its own test and is refused).
+_NESTED_SLOTS = [("NORIG", 0.0, 0.0), ("NCAP", 10.0, -4.0)]
+
+
+def _nested_cell(name="nested_cell", slots=None, layer="F.Cu"):
+    return Cell(name=name, layer=layer, components=[
+        TemplateComponentSlot(role=role, offset_along_mm=along,
+                              offset_across_mm=across, angle_deg=0.0)
+        for role, along, across in (slots or _NESTED_SLOTS)])
+
+
+class _NestedBoardAdapter(_FakeAdapter):
+    """_FakeAdapter + the board-wide surface resolve_roles_by_nets needs
+    (get_footprints / get_selected_items / the Cluster field)."""
+
+    def __init__(self, footprints, roles, clusters=None):
+        super().__init__(roles=roles, pads={})
+        self._footprints = list(footprints)
+        self.clusters = clusters or {}
+
+    def get_field_value(self, fp, name):
+        if name == ROLE_FIELD_NAME:
+            return self.roles.get(fp.ref)
+        if name == CLUSTER_FIELD_NAME:
+            return self.clusters.get(fp.ref)
+        return None
+
+    def get_footprints(self):
+        return list(self._footprints)
+
+    def get_selected_items(self):
+        return []
+
+
+def _fp_on(ref, role, x_mm, y_mm, angle=0.0, layer=BoardLayer.BL_F_Cu):
+    return Footprint(ref=ref, uuid=f"uuid-{ref}",
+                     position=Vector2.from_xy_mm(x_mm, y_mm),
+                     angle_deg=angle, layer=layer)
+
+
+def _world(origin_mm, theta, slots, mirror=False):
+    """The live world positions of a rigid placement of a cell whose slots are
+    `slots` = [(role, along, across)] at `origin_mm`, rotated by theta and
+    x-flipped when the instance is MIRRORED — the exact composition
+    apply_clone_geometry performs."""
+    placed = []
+    for role, along, across in slots:
+        dx, dy = rotate_ydown_mm(along, across, theta)
+        if mirror:
+            dx = -dx
+        placed.append((role, origin_mm[0] + dx, origin_mm[1] + dy))
+    return placed
+
+
+def _rigid_board(parent_origin=(100.0, 200.0), parent_theta=0.0,
+                 nested_xy=(3.0, 2.0), nested_theta=0.0,
+                 parent_layer=BoardLayer.BL_F_Cu, nested_layer=BoardLayer.BL_F_Cu,
+                 parent_mirror=False, cluster="CL"):
+    """A live rigid composite: the parent cell's own roles + one nested
+    placement's roles. Returns (selection_fps, board_fps, adapter) — the
+    selection deliberately holds ONLY the parent's own roles (today's mandatory
+    contract for Update from selection; the nested content is resolved
+    board-wide, exactly as Apply resolves it)."""
+    parent_slots = [(c["role"], c["offset_along_mm"], c["offset_across_mm"])
+                    for c in _PARENT_COMPS]
+    parent_world = _world(parent_origin, parent_theta, parent_slots,
+                          mirror=parent_mirror)
+    dx, dy = rotate_ydown_mm(nested_xy[0], nested_xy[1], parent_theta)
+    if parent_mirror:
+        dx = -dx
+    nested_world = _world((parent_origin[0] + dx, parent_origin[1] + dy),
+                          parent_theta + nested_theta, _NESTED_SLOTS,
+                          mirror=parent_mirror)
+
+    selection = [_fp_on(f"P{i}", role, x, y, parent_theta, parent_layer)
+                 for i, (role, x, y) in enumerate(parent_world)]
+    nested_fps = [_fp_on(f"N{i}", role, x, y, parent_theta + nested_theta,
+                         nested_layer)
+                  for i, (role, x, y) in enumerate(nested_world)]
+    roles = {}
+    clusters = {}
+    for fp, (role, _x, _y) in zip(selection + nested_fps,
+                                  parent_world + nested_world):
+        roles[fp.ref] = role
+        clusters[fp.ref] = cluster
+    board = selection + nested_fps
+    return selection, board, _NestedBoardAdapter(board, roles, clusters)
+
+
+def _refresh(nested_records, cells, selection, adapter, **kw):
+    return build_refresh_plan(_PARENT_COMPS, [], [], selection, [], [], adapter,
+                              nested_placements=nested_records, cells=cells,
+                              sheet_names={}, **kw)
+
+
+@pytest.mark.parametrize("parent_theta", [0.0, 90.0, 180.0, -90.0])
+def test_nested_read_of_a_still_board_changes_nothing(parent_theta):
+    """§N.4.1/§N.4.2: with the nested placement exactly where the live board has
+    it, the read returns the SAME xy/rotation — the trivial case is the gate
+    against an invented extra shift, and it must hold for a rotated parent too
+    (the whole point of expressing xy in the parent's frame)."""
+    selection, _board, adapter = _rigid_board(parent_theta=parent_theta,
+                                              nested_xy=(3.0, 2.0))
+    record = {"name": "n1", "cell": "nested_cell", "xy": [3.0, 2.0]}
+    plan = _refresh([record], {"nested_cell": _nested_cell()}, selection, adapter)
+
+    assert plan.nested_updates == []
+    assert plan.nested_reports == []
+    assert not [w for w in plan.warnings if w.startswith("nested")]
+
+
+@pytest.mark.parametrize("parent_theta", [0.0, 90.0, 180.0, -90.0])
+def test_nested_read_writes_the_parent_local_offset(parent_theta):
+    """§N.4.2 (the main test): when the cell's stored xy is WRONG, the read
+    writes the position expressed in the parent's frame — re-projecting it by
+    the parent's theta (point_to_world) reproduces EXACTLY the live position the
+    nested cluster stands at."""
+    nested_xy = (3.0, 2.0)
+    selection, board, adapter = _rigid_board(parent_theta=parent_theta,
+                                             nested_xy=nested_xy)
+    record = {"name": "n1", "cell": "nested_cell", "xy": [0.0, 0.0]}
+    plan = _refresh([record], {"nested_cell": _nested_cell()}, selection, adapter)
+
+    assert len(plan.nested_updates) == 1
+    updated_record, new_geo = plan.nested_updates[0]
+    assert updated_record is record
+    x, y = new_geo["xy"]
+    assert (x, y) == pytest.approx(nested_xy, abs=1e-3)
+    assert "rotation_deg" not in new_geo          # 0° is the default (omitted)
+    assert "mirror" not in new_geo
+    # point_to_world_mm: rotating the stored offset by the PARENT's theta and
+    # adding the parent's origin lands exactly on the live nested origin (the
+    # N0 footprint of the nested cluster).
+    live = next(fp for fp in board if fp.ref == "N0")
+    dx, dy = rotate_ydown_mm(x, y, parent_theta)
+    assert (100.0 + dx, 200.0 + dy) == pytest.approx(
+        (live.position.x / 1e6, live.position.y / 1e6), abs=1e-3)
+    assert len(plan.nested_reports) == 1 and "'n1'" in plan.nested_reports[0]
+
+
+def test_nested_read_captures_the_nested_rotation_and_mirror():
+    """§N.4.3/§N.4.4: a nested instance turned 90° relative to the parent stores
+    rotation_deg = 90 (the parent frame's own rotation is taken out by
+    angle_to_cell), and a nested cluster standing on the BACK side stores
+    mirror: True."""
+    selection, _board, adapter = _rigid_board(
+        parent_theta=180.0, nested_xy=(3.0, 2.0), nested_theta=90.0,
+        nested_layer=BoardLayer.BL_B_Cu)
+    record = {"name": "n1", "cell": "nested_cell", "xy": [0.0, 0.0]}
+    plan = _refresh([record], {"nested_cell": _nested_cell()}, selection, adapter)
+
+    assert len(plan.nested_updates) == 1
+    _record, new_geo = plan.nested_updates[0]
+    assert new_geo["rotation_deg"] == pytest.approx(90.0, abs=1e-6)
+    assert new_geo["mirror"] is True
+    assert new_geo["xy"] == pytest.approx([3.0, 2.0], abs=1e-3)
+
+
+def test_nested_read_is_idempotent_after_applying_the_update():
+    """§N.4.4: applying the plan's own update and reading again is a no-op (the
+    classic "reread rotates the cell a little more" bug)."""
+    selection, _board, adapter = _rigid_board(parent_theta=90.0, nested_xy=(3.0, 2.0))
+    record = {"name": "n1", "cell": "nested_cell", "xy": [0.0, 0.0]}
+    cells = {"nested_cell": _nested_cell()}
+
+    plan = _refresh([record], cells, selection, adapter)
+    assert len(plan.nested_updates) == 1
+    for key in ("xy", "rotation_deg", "mirror"):
+        record.pop(key, None)
+    record.update(plan.nested_updates[0][1])
+
+    second = _refresh([record], cells, selection, adapter)
+    assert second.nested_updates == []
+    assert second.nested_reports == []
+
+
+def test_nested_absent_from_the_board_is_reported_and_untouched():
+    """§N.4.5: a nested placement whose cluster is not on the live board gets an
+    honest Log line and its record is NOT touched (no fatal, no deletion)."""
+    selection, _board, adapter = _rigid_board()
+    adapter._footprints = list(selection)          # no nested content at all
+    record = {"name": "n1", "cell": "nested_cell", "xy": [3.0, 2.0]}
+    plan = _refresh([record], {"nested_cell": _nested_cell()}, selection, adapter)
+
+    assert plan.nested_updates == []
+    assert record["xy"] == [3.0, 2.0]
+    assert any("n1" in w for w in plan.warnings)
+
+
+def test_nested_sharing_a_role_name_with_the_parent_is_refused():
+    """§N.4.6 / §N.1 Q2: when the nested cell reuses one of the PARENT's role
+    names the two instances cannot be told apart — the read REFUSES (Log line,
+    record untouched) instead of silently writing the parent's geometry."""
+    selection, _board, adapter = _rigid_board()
+    colliding = _nested_cell(slots=[("NORIG", 0.0, 0.0), ("PORIG", 10.0, -4.0)])
+    record = {"name": "n1", "cell": "nested_cell", "xy": [0.0, 0.0]}
+    plan = _refresh([record], {"nested_cell": colliding}, selection, adapter)
+
+    assert plan.nested_updates == []
+    assert record["xy"] == [0.0, 0.0]
+    assert any("shares a role name" in w for w in plan.warnings)
+
+
+def test_nested_missing_cell_is_reported_and_untouched():
+    """An unresolvable definition (the named cell is not in the config) is a Log
+    line, not a crash and not a deletion."""
+    selection, _board, adapter = _rigid_board()
+    record = {"name": "n1", "cell": "ghost", "xy": [0.0, 0.0]}
+    plan = _refresh([record], {}, selection, adapter)
+
+    assert plan.nested_updates == []
+    assert any("ghost" in w for w in plan.warnings)
+
+
+def test_mirrored_parent_instance_refuses_the_nested_read():
+    """§N.4.3 deviation, documented: a MIRRORED parent cannot legally exist for
+    a composite cell (clone_position_calculator refuses to mirror a cell that
+    has nested clone_placements), so the relative mirror has no defined
+    composition — the read refuses with a Log line rather than inventing one."""
+    selection, _board, adapter = _rigid_board(parent_layer=BoardLayer.BL_B_Cu,
+                                              parent_mirror=True)
+    record = {"name": "n1", "cell": "nested_cell", "xy": [0.0, 0.0]}
+    plan = _refresh([record], {"nested_cell": _nested_cell()}, selection, adapter)
+
+    assert plan.nested_updates == []
+    assert any("mirrored" in w for w in plan.warnings)
+
+
+def test_role_only_nested_placement_reads_its_position():
+    """§N.1 Q3: a `role:`-only nested placement is covered by the same
+    mechanism — its synthesized one-slot cell resolves the role live and the
+    position is written in the parent's frame (the rotation comes from that
+    component's own live angle, the synthesized slot being at 0°)."""
+    selection, _board, adapter = _rigid_board(parent_theta=90.0)
+    solo = _fp_on("S1", "SOLO_ROLE", 95.0, 198.0, 90.0)
+    adapter._footprints = list(selection) + [solo]
+    adapter.roles["S1"] = "SOLO_ROLE"
+    record = {"name": "solo", "role": "SOLO_ROLE"}
+
+    plan = _refresh([record], {}, selection, adapter)
+
+    assert len(plan.nested_updates) == 1
+    _record, new_geo = plan.nested_updates[0]
+    dx, dy = rotate_ydown_mm(new_geo["xy"][0], new_geo["xy"][1], 90.0)
+    assert (dx, dy) == pytest.approx((solo.position.x / 1e6 - 100.0,
+                                      solo.position.y / 1e6 - 200.0), abs=1e-3)

@@ -16023,3 +16023,36 @@ msgstr ""
 
 msgid "a tree node cannot store a mirror — unmirror the component in KiCad, then read the position again"
 msgstr ""
+
+msgid "nested {name!r} ({content}): xy ({x0}, {y0}) rot {r0}° mirror={m0} -> xy ({x1}, {y1}) rot {r1}° mirror={m1}"
+msgstr ""
+
+msgid "the parent instance is mirrored — a composite cell cannot be mirrored, so the relative mirror of this nested placement is not defined"
+msgstr ""
+
+msgid "its cell shares a role name with the parent cell — the two instances cannot be told apart"
+msgstr ""
+
+msgid "no role of its cell could be resolved on the live board"
+msgstr ""
+
+msgid "its roles resolve to a component the parent cell already claims — ambiguous"
+msgstr ""
+
+msgid "none of its resolved components is on the live board"
+msgstr ""
+
+msgid "none of the resolved components is a role of its cell"
+msgstr ""
+
+msgid "cannot identify its live instance ({error})"
+msgstr ""
+
+msgid "nested {name!r}: cell {cell!r} is not in the config — record left untouched"
+msgstr ""
+
+msgid "nested {name!r}: {reason} — record left untouched"
+msgstr ""
+
+msgid "nested {name!r} is not a valid placement ({error}) — record left untouched"
+msgstr ""

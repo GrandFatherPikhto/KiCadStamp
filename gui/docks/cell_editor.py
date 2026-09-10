@@ -106,6 +106,7 @@ from ..cell_edit_context import (
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       WARN_STYLE as _WARN_STYLE, configure_searchable, display_path,
                       merge_write, parse_float_field, set_combo_items, show_message)
+from .rename import collect_all_cell_names, collect_section_entries, find_dict_entry_file
 
 
 def record_report_line(sign: str, record: dict, kind: str) -> str:
@@ -145,7 +146,7 @@ def record_report_line(sign: str, record: dict, kind: str) -> str:
     return _("{sign} track {net}{layer} w={width} {coords}").format(
         sign=sign, net=net, layer=layer_txt,
         width=record.get("width_mm", ""), coords=coords)
-from .rename import collect_all_cell_names, collect_section_entries, find_dict_entry_file
+
 
 logger = logging.getLogger(__name__)
 
@@ -1527,6 +1528,11 @@ class CellDock(QWidget):
             "components": list(self._components),
             "vias": list(self._vias),
             "tracks": list(self._tracks),
+            # N (2026-09-11): the cell's NESTED clone_placements are re-read by
+            # the same action. The worker resolves their cells/sheet map from
+            # the root config (they name OTHER cells).
+            "clone_placements": list(self._nested),
+            "root_path": str(self._root_path) if self._root_path else None,
             "origin_role": self._refresh_origin_role(),
             # H.1.1: the cell's own copper layer, so the engine never pairs a
             # record with a live track on the OTHER layer of the same net (same
@@ -1555,6 +1561,18 @@ class CellDock(QWidget):
             footprints = [i for i in items if isinstance(i, Footprint)]
             vias = [i for i in items if isinstance(i, Via)]
             tracks = [i for i in items if isinstance(i, Track)]
+            # N: the nested placements name OTHER cells, so their definitions
+            # (and the project's sheet map, used by the role-narrowing cascade)
+            # come from the root config. Loaded ONLY when there is something to
+            # read — an ordinary cell keeps the previous cost exactly.
+            nested = payload.get("clone_placements") or []
+            cells: Dict[str, Any] = {}
+            sheet_names: Dict[str, Any] = {}
+            if nested and payload.get("root_path"):
+                from kicadstamp.config import load_config
+                _cfg, ctx = load_config(payload["root_path"])
+                cells = dict(getattr(_cfg, "cells", {}) or {})
+                sheet_names = dict(getattr(ctx, "sheet_names", {}) or {})
             plan = build_refresh_plan(
                 payload["components"], payload["vias"], payload["tracks"],
                 footprints, vias, tracks, adapter,
@@ -1564,7 +1582,10 @@ class CellDock(QWidget):
                 # (the user's explicit call: the selection is the truth for the
                 # cell's copper, the report goes to the Log).
                 remove_missing=True,
-                cell_layer=payload.get("cell_layer"))
+                cell_layer=payload.get("cell_layer"),
+                nested_placements=nested,
+                cells=cells,
+                sheet_names=sheet_names)
         except ValidationError as e:
             return {"error": str(e)}
         return {"plan": plan}
@@ -1588,6 +1609,8 @@ class CellDock(QWidget):
                         or plan.track_updates or plan.new_via_records
                         or plan.new_track_records or plan.removed_via_records
                         or plan.removed_track_records
+                        or getattr(plan, "nested_updates", None)
+                        or getattr(plan, "nested_reports", None)
                         or getattr(plan, "warnings", None))
         if not has_work:
             self._show_message(
@@ -1600,6 +1623,11 @@ class CellDock(QWidget):
         # geometry was expressed in the cell's own frame, anchor_xy untouched).
         for warning in getattr(plan, "warnings", None) or []:
             self._show_message(warning, _WARN_STYLE)
+        # N (2026-09-11): one line per CHANGED nested clone_placement (name +
+        # old -> new) — the same "в лог говорим: добавили то-то" rule as the
+        # via/track lines below.
+        for line in getattr(plan, "nested_reports", None) or []:
+            self._show_message(line, _SUCCESS_STYLE)
         # H.2.4: one line per added/removed record BEFORE the summary — "в лог
         # говорим: добавили то-то, удалили то-то" (Denis). Added = the live
         # copper the cell did not describe, removed = the records with no live
@@ -1639,6 +1667,16 @@ class CellDock(QWidget):
         updated = 0
         for record, new_geo in (plan.component_updates + plan.via_updates
                                 + plan.track_updates):
+            record.update(new_geo)
+            updated += 1
+        # N: a nested clone_placement's update carries ONLY the keys that
+        # changed, and a DEFAULT value must be REMOVED rather than stored (the
+        # nested editor's own dict convention: xy omitted at (0,0), rotation
+        # omitted at 0, mirror omitted when False) — so drop the three
+        # geometric keys first, then write what the live board says.
+        for record, new_geo in getattr(plan, "nested_updates", None) or []:
+            for key in ("xy", "rotation_deg", "mirror"):
+                record.pop(key, None)
             record.update(new_geo)
             updated += 1
         added = len(plan.new_via_records) + len(plan.new_track_records)

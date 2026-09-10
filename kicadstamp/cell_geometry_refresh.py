@@ -62,13 +62,17 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
-from .cell_frame import CellFrame, fit_cell_frame
+from .cell_frame import CellFrame, fit_cell_frame, reference_relative_pairs
+from .config import Cell, TemplateComponentSlot, load_cell_placement
 from .constants import ROLE_FIELD_NAME
 from .domain.board import Footprint, Track, Via
-from .domain.geometry import Vector2
+from .domain.geometry import BoardLayer, Vector2
 from .exceptions import ValidationError, format_fatal_error
+from .geometry.cell_anchor import cell_mount_offset
+from .geometry.clone_geometry import clone_layout_origin
 from .i18n import _
 from .net_resolution import resolve_net_from_role
+from .placement.services.clone_role_resolver import resolve_roles_by_nets
 from .template_extraction import _selection_role_nets, _suggest_net_from_role
 from .utils.layers import layer_to_str
 from .utils.units import MM
@@ -526,6 +530,16 @@ class RefreshPlan:
     component_updates: list[tuple[dict, dict]]
     via_updates: list[tuple[dict, dict]]
     track_updates: list[tuple[dict, dict]]
+    # N (2026-09-11): the cell's NESTED clone_placements re-read from the live
+    # board — (record_dict, new_geo) pairs, record_dict being the SAME dict the
+    # caller passed in and new_geo carrying ONLY the keys that changed
+    # (xy/rotation_deg/mirror; a default is OMITTED, matching the nested
+    # editor's own dict convention). The caller must drop those three keys
+    # before `record.update(new_geo)`.
+    nested_updates: list[tuple[dict, dict]] = field(default_factory=list)
+    # The human Log lines for the nested_updates (one per CHANGED placement,
+    # name + old -> new), same H.2.4 reporting style as the via/track lines.
+    nested_reports: list[str] = field(default_factory=list)
     new_via_records: list[dict] = field(default_factory=list)
     new_track_records: list[dict] = field(default_factory=list)
     removed_via_records: list[dict] = field(default_factory=list)
@@ -677,6 +691,153 @@ def _cell_frame_for(components: list[dict], matched: list[dict],
                      mount=(mount[0], mount[1]), residual_mm=fit.residual_mm)
 
 
+def _nested_role_cell(role: str) -> Cell:
+    """The synthesized one-component Cell for a `role:`-only nested placement —
+    the SAME construction clone_position_calculator._resolve_content uses at
+    apply time (a single slot at the cell's own (0, 0), angle 0)."""
+    return Cell(name=f"__role__{role}",
+                components=[TemplateComponentSlot(
+                    role=role, offset_along_mm=0.0, offset_across_mm=0.0,
+                    angle_deg=0.0)])
+
+
+def _nested_target_norm(record: dict) -> tuple[float, float, float, bool]:
+    """The comparable identity of a nested record's geometry: the same tuple
+    shape this module WRITES (see _nested_target_geo), so "did anything
+    change?" is one equality test and a re-read of an unmoved board is
+    bit-for-bit idempotent."""
+    xy = record.get("xy") or [0.0, 0.0]
+    return (round(float(xy[0]), 4), round(float(xy[1]), 4),
+            round(float(record.get("rotation_deg", 0.0)), 4),
+            bool(record.get("mirror", False)))
+
+
+def _nested_new_geo(norm: tuple) -> dict:
+    """The update dict for one nested record, in the SAME convention the
+    nested-cell editor's own writer uses (gui/docks/cell_editor.py::
+    _build_nested_dict): a DEFAULT value is not stored at all — xy only when
+    not (0, 0), rotation_deg only when not 0, mirror only when True."""
+    x, y, rot, mirror = norm
+    new: dict = {}
+    if (x, y) != (0.0, 0.0):
+        new["xy"] = [x, y]
+    if rot != 0.0:
+        new["rotation_deg"] = rot
+    if mirror:
+        new["mirror"] = True
+    return new
+
+
+def _nested_report_line(record: dict, before: tuple, after: tuple) -> str:
+    """One Log line per CHANGED nested placement (H.2.4 style: name + old ->
+    new, never a bare counter)."""
+    content = record.get("cell")
+    content = (f"cell:{content}" if content is not None
+               else f"role:{record.get('role', '')}")
+    return _("nested {name!r} ({content}): xy ({x0}, {y0}) rot {r0}° "
+             "mirror={m0} -> xy ({x1}, {y1}) rot {r1}° mirror={m1}").format(
+        name=record.get("name", "?"), content=content,
+        x0=before[0], y0=before[1], r0=before[2], m0=str(before[3]).lower(),
+        x1=after[0], y1=after[1], r1=after[2], m1=str(after[3]).lower())
+
+
+def _read_nested_live(adapter, placement, cell, parent_frame: CellFrame,
+                      sheet_names: dict, parent_roles: set, parent_refs: set
+                      ) -> tuple[tuple | None, str | None]:
+    """N.1 — read ONE nested CellPlacement's live geometry. Returns
+    ((xy_mm_x, xy_mm_y, rotation_deg, mirror) | None, honest reason | None).
+
+    IDENTIFICATION (the Step-0 answer): the nested cell's OWN slot roles,
+    resolved to live footprints by the resolver Apply itself uses,
+    `resolve_roles_by_nets` — same nets / sheet / Cluster / proximity cascade,
+    no second implementation. `predicted` (the nested's world origin computed
+    from the PARENT's live frame + its stored xy) is handed over as the
+    proximity anchor, exactly as clone_position_calculator._resolve_one_level
+    does at apply time, so a sibling instance of the same composite cell on
+    another channel is not picked.
+
+    REFUSALS (never a guess — the record is left untouched and a Log line
+    explains why):
+      * the nested cell shares a ROLE NAME with the parent cell (its roles could
+        resolve to the parent's own components — the ambiguity N.1 Q2 names);
+      * resolution fails / is ambiguous (resolve_roles_by_nets raises);
+      * a resolved ref is one the PARENT's own role match already claimed;
+      * the parent instance is MIRRORED (a composite cell cannot be mirrored at
+        apply time at all — clone_position_calculator refuses it explicitly, so
+        the relative mirror is not defined either)."""
+    if parent_frame.mirror:
+        return None, _("the parent instance is mirrored — a composite cell "
+                       "cannot be mirrored, so the relative mirror of this "
+                       "nested placement is not defined")
+    if {s.role for s in cell.components} & parent_roles:
+        return None, _("its cell shares a role name with the parent cell — the "
+                       "two instances cannot be told apart")
+    predicted = clone_layout_origin(placement, parent_frame.placement_origin,
+                                    parent_frame.rotation_deg)
+    try:
+        role_to_ref = resolve_roles_by_nets(adapter, cell, placement,
+                                            anchor_position=predicted,
+                                            sheet_names=sheet_names)
+    except ValidationError as e:
+        return None, _("cannot identify its live instance ({error})").format(
+            error=" ".join(str(e).split()))
+    if not role_to_ref:
+        return None, _("no role of its cell could be resolved on the live board")
+    if set(role_to_ref.values()) & parent_refs:
+        return None, _("its roles resolve to a component the parent cell "
+                       "already claims — ambiguous")
+    ref_to_fp = {fp.ref: fp for fp in adapter.get_footprints()}
+    matched = [(role, ref_to_fp[ref]) for role, ref in role_to_ref.items()
+               if ref in ref_to_fp]
+    if not matched:
+        return None, _("none of its resolved components is on the live board")
+    slot_by_role = {s.role: s for s in cell.components}
+    ref_slot = None
+    if cell.anchor_role and cell.anchor_role in slot_by_role \
+            and cell.anchor_role in role_to_ref:
+        ref_slot = slot_by_role[cell.anchor_role]
+    if ref_slot is None:
+        ref_slot = next((slot_by_role[role] for role, _fp in matched
+                         if role in slot_by_role), None)
+    if ref_slot is None:
+        return None, _("none of the resolved components is a role of its cell")
+    ref_fp = ref_to_fp[role_to_ref[ref_slot.role]]
+    # Mirror — the SAME "which side of the board" rule _live_cluster_frame and
+    # clone_geometry use, read off the reference footprint against the NESTED
+    # cell's layer (the parent's own mirror is refused above, so this IS the
+    # relative mirror).
+    mirror = (ref_fp.layer == BoardLayer.BL_B_Cu) != (cell.layer == "B.Cu")
+    ax_mm, ay_mm = cell_mount_offset(cell)
+    reference = (float(ref_slot.offset_along_mm), float(ref_slot.offset_across_mm),
+                 ref_fp.position.x / MM, ref_fp.position.y / MM)
+    fit = fit_cell_frame(
+        reference_relative_pairs(reference, [
+            (float(slot_by_role[role].offset_along_mm),
+             float(slot_by_role[role].offset_across_mm),
+             fp.position.x / MM, fp.position.y / MM)
+            for role, fp in matched if role in slot_by_role]),
+        mirror=mirror)
+    if fit is not None:
+        frame = CellFrame.from_reference(
+            rotation_deg=fit.rotation_deg, mirror=mirror, mount=(ax_mm, ay_mm),
+            stored_ref=reference[:2], live_ref_mm=reference[2:],
+            residual_mm=fit.residual_mm)
+        origin_mm = (frame.placement_origin.x / MM, frame.placement_origin.y / MM)
+        abs_rotation = fit.rotation_deg
+    else:
+        # A one-role nested placement (`role:`, whose synthesized cell has a
+        # single slot at (0, 0)) has NO usable pair to fit a direction from:
+        # the origin IS the component and the rotation comes from its own live
+        # angle. That reproduces the live orientation exactly (the synthesized
+        # slot's stored angle is 0), and it is the ONE place where a single
+        # component's angle is used — there is no geometry left to fit.
+        origin_mm = reference[2:]
+        abs_rotation = ref_fp.angle_deg
+    xy = parent_frame.point_to_cell(origin_mm[0], origin_mm[1])
+    return (round(xy[0], 4), round(xy[1], 4),
+            round(parent_frame.angle_to_cell(abs_rotation), 4), mirror), None
+
+
 def _frame_warnings(frame: CellFrame | None) -> list[str]:
     """The user-facing lines for a fitted frame (J.1) — the honest report of a
     non-rigid cluster and/or a turned instance. Empty for None, for the
@@ -705,6 +866,9 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
                        add_new_copper: bool = False,
                        remove_missing: bool = False,
                        cell_layer: str | None = None,
+                       nested_placements: list[dict] | None = None,
+                       cells: dict | None = None,
+                       sheet_names: dict | None = None,
                        ) -> RefreshPlan:
     """Build the full refresh plan for one loaded cell.
 
@@ -765,6 +929,49 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
     frame = _cell_frame_for(components, matched, footprints, role_to_ref,
                             origin, mount) if origin is not None else None
     warnings = _frame_warnings(frame)
+
+    # N (2026-09-11): the cell's NESTED clone_placements — same action, same
+    # frame. The nested instance is identified by its OWN cell's roles through
+    # the Apply resolver (see _read_nested_live); a nested placement that is
+    # not on the board (or whose instance cannot be told apart) yields a Log
+    # line and is left COMPLETELY untouched — never a fatal, never a deletion.
+    nested_updates: list[tuple[dict, dict]] = []
+    nested_reports: list[str] = []
+    if frame is not None and nested_placements:
+        parent_roles = {c.get("role") for c in components}
+        parent_refs = set(role_to_ref.values())
+        for record in nested_placements:
+            name = record.get("name") or record.get("cell") or record.get("role") or "?"
+            try:
+                placement = load_cell_placement("nested", record)
+            except ValidationError as e:
+                warnings.append(_("nested {name!r} is not a valid placement "
+                                  "({error}) — record left untouched")
+                                .format(name=name, error=" ".join(str(e).split())))
+                continue
+            nested_cell = (cells or {}).get(placement.cell)
+            if placement.cell is not None and nested_cell is None:
+                warnings.append(_("nested {name!r}: cell {cell!r} is not in the "
+                                  "config — record left untouched")
+                                .format(name=name, cell=placement.cell))
+                continue
+            if nested_cell is None:
+                # `role:`-only placement — the synthesized one-slot cell, the
+                # SAME construction clone_position_calculator._resolve_content
+                # uses at apply time.
+                nested_cell = _nested_role_cell(placement.role)
+            target, reason = _read_nested_live(
+                adapter, placement, nested_cell, frame, sheet_names or {},
+                parent_roles, parent_refs)
+            if target is None:
+                warnings.append(_("nested {name!r}: {reason} — record left "
+                                  "untouched").format(name=name, reason=reason))
+                continue
+            before = _nested_target_norm(record)
+            if before == target:
+                continue  # an unmoved board changes nothing — idempotent
+            nested_updates.append((record, _nested_new_geo(target)))
+            nested_reports.append(_nested_report_line(record, before, target))
 
     # Components — every matched role recomputed from its own live footprint.
     # Built only once the frame is known (its origin is the reference for every
@@ -832,6 +1039,8 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
         component_updates=component_updates,
         via_updates=via_updates,
         track_updates=track_updates,
+        nested_updates=nested_updates,
+        nested_reports=nested_reports,
         new_via_records=new_via_records,
         new_track_records=new_track_records,
         removed_via_records=via_removed,
