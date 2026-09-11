@@ -4178,6 +4178,190 @@ def test_form_shows_polar_offset_with_the_angle_shifted_by_the_base(
     assert built.polar == (3.0, 45.0)
 
 
+def test_extract_bridge_reads_the_cell_mount_not_the_zero_slot(
+        main_window, tmp_path):
+    """P.0.1/P.2.1 (plan_2026_09_11_entity_live_position_mount_point.md): the
+    extract bridge must measure an Entity's live position from the cell's MOUNT
+    A (what the tree node and the materializer put on the target point), not
+    from a component that happens to sit at the cell's stored (0, 0).
+
+    Cell `buf` here carries `anchor_xy = (-2.258536, -5.046273)` (Denis's
+    measured `pif_oa_n2v5` value) with a zero-slot component `ORIG` at (0, 0):
+    the two points are |A| = 5.53 mm apart, so reading the zero-slot shifts the
+    node by exactly that much. The rotated anchor (90°) makes the two paths
+    disagree in BOTH components."""
+    import gui.docks.trees_dock as td_mod
+    from gui.docks.reead import ReReadCluster
+    from gui.docks.tree_from_selection import (
+        build_tree_from_clusters,
+        resolve_entity_live_position_mm,
+        resolve_role_anchor_base_mm,
+    )
+    from kicadstamp.cell_frame import rotate_ydown_mm
+    from kicadstamp.config import Config
+    from kicadstamp.config.models import Cell, Entity, TemplateComponentSlot
+    from kicadstamp.trees import TreeAnchor
+
+    anchor_xy = (-2.258536, -5.046273)          # the cell's MOUNT A
+    slots = [("ORIG", 0.0, 0.0), ("CAP", 10.0, -4.0)]
+    cell = Cell(name="buf", layer="F.Cu", anchor_xy=anchor_xy, components=[
+        TemplateComponentSlot(role=role, offset_along_mm=along,
+                              offset_across_mm=across, angle_deg=0.0)
+        for role, along, across in slots])
+    entity = Entity(name="ENT_A", cell="buf", cluster="CL")
+    cfg = Config(cells={"buf": cell}, entities=[entity], trees=[])
+
+    # Live board: the cluster is a RIGID copy of the cell turned 90°, with its
+    # MOUNT A standing at (150, 60) — i.e. every slot is at
+    # origin + rotate(slot_offset - A, 90).
+    parent_theta = 90.0
+    cluster_fps = []
+    for i, (role, along, across) in enumerate(slots):
+        dx, dy = rotate_ydown_mm(along - anchor_xy[0], across - anchor_xy[1],
+                                 parent_theta)
+        cluster_fps.append(_live_fp(f"IC{i}", role, "CL", 150.0 + dx, 60.0 + dy,
+                                    parent_theta))
+    cluster = _ClusterAdapter(cluster_fps)
+    anchor = TreeAnchor(role="ANCH", anchor_cluster="ANC")
+    anchor_adapter = _ClusterAdapter([
+        _live_fp("U1", "ANCH", "ANC", 100.0, 200.0, 90.0)])
+
+    class _Both(_ClusterAdapter):
+        def get_footprints(self):
+            return cluster.get_footprints() + anchor_adapter.get_footprints()
+
+    adapter = _Both(cluster.get_footprints())
+
+    c = ReReadCluster(cluster="CL", sheet="Channel_0", entity_name="ENT_A",
+                      cell="buf", profile_key=None, refs=["IC0", "IC1"])
+    positions = {"ENT_A": resolve_entity_live_position_mm(adapter, cfg, entity, {})}
+    anchor_live = resolve_role_anchor_base_mm(adapter, cfg, anchor, {})
+    tree, errors = build_tree_from_clusters(
+        [c], "t1", anchor, cfg.entities, cfg,
+        entity_positions=positions, anchor_base=anchor_live[:2],
+        anchor_rot_deg=anchor_live[2])
+    assert errors == []
+    extract_node = tree.nodes[0]
+
+    offset_mm, rotation = td_mod._resolve_live_offset(
+        cfg, adapter, {}, tree, None, "ENT_A", "placement")
+
+    assert offset_mm[0] == pytest.approx(extract_node.xy[0], abs=2e-6)
+    assert offset_mm[1] == pytest.approx(extract_node.xy[1], abs=2e-6)
+    assert rotation == pytest.approx(extract_node.rotation, abs=1e-9)
+
+
+def test_extract_bridge_agrees_with_the_mount_when_anchor_role_holds_it(
+        main_window, tmp_path):
+    """P.2.2: a cell whose MOUNT is its `anchor_role` slot (no `anchor_xy`) —
+    `CAP` at (10, -4), NOT the zero-slot `ORIG`. Both paths must give the same
+    xy/rotation. (This one agreed even before the fix: the old bridge preferred
+    `anchor_role` too — it is the regression guard that the new mount path did
+    not break it.)"""
+    import gui.docks.trees_dock as td_mod
+    from gui.docks.reead import ReReadCluster
+    from gui.docks.tree_from_selection import (
+        build_tree_from_clusters,
+        resolve_entity_live_position_mm,
+        resolve_role_anchor_base_mm,
+    )
+    from kicadstamp.cell_frame import rotate_ydown_mm
+    from kicadstamp.config import Config
+    from kicadstamp.config.models import Cell, Entity, TemplateComponentSlot
+    from kicadstamp.trees import TreeAnchor
+
+    cell = Cell(name="buf", layer="F.Cu", anchor_role="CAP", components=[
+        TemplateComponentSlot(role="ORIG", offset_along_mm=0.0,
+                              offset_across_mm=0.0, angle_deg=0.0),
+        TemplateComponentSlot(role="CAP", offset_along_mm=10.0,
+                              offset_across_mm=-4.0, angle_deg=0.0)])
+    entity = Entity(name="ENT_A", cell="buf", cluster="CL")
+    cfg = Config(cells={"buf": cell}, entities=[entity], trees=[])
+
+    # Rigid copy turned -90°, with the mount (the CAP slot) at (150, 60).
+    mount_mm = (150.0, 60.0)
+    slots = [("ORIG", 0.0, 0.0), ("CAP", 10.0, -4.0)]
+    fps = []
+    for i, (role, along, across) in enumerate(slots):
+        dx, dy = rotate_ydown_mm(along - 10.0, across + 4.0, -90.0)
+        fps.append(_live_fp(f"IC{i}", role, "CL", mount_mm[0] + dx,
+                            mount_mm[1] + dy, -90.0))
+    fps.append(_live_fp("U1", "ANCH", "ANC", 100.0, 200.0, 45.0))
+    adapter = _ClusterAdapter(fps)
+
+    anchor = TreeAnchor(role="ANCH", anchor_cluster="ANC")
+    c = ReReadCluster(cluster="CL", sheet="Channel_0", entity_name="ENT_A",
+                      cell="buf", profile_key=None, refs=["IC0", "IC1"])
+    positions = {"ENT_A": resolve_entity_live_position_mm(adapter, cfg, entity, {})}
+    anchor_live = resolve_role_anchor_base_mm(adapter, cfg, anchor, {})
+    tree, errors = build_tree_from_clusters(
+        [c], "t1", anchor, cfg.entities, cfg, entity_positions=positions,
+        anchor_base=anchor_live[:2], anchor_rot_deg=anchor_live[2])
+    assert errors == []
+    node = tree.nodes[0]
+
+    offset_mm, rotation = td_mod._resolve_live_offset(
+        cfg, adapter, {}, tree, None, "ENT_A", "placement")
+
+    assert offset_mm[0] == pytest.approx(node.xy[0], abs=2e-6)
+    assert offset_mm[1] == pytest.approx(node.xy[1], abs=2e-6)
+    assert rotation == pytest.approx(node.rotation, abs=1e-9)
+
+
+def test_extract_bridge_is_bit_exact_when_the_mount_is_the_zero_slot(
+        main_window, tmp_path):
+    """P.2.3 (regression): for the ordinary extracted cell — mount == the
+    zero-slot component — the bridge returns EXACTLY that component's live
+    position, bit for bit, i.e. the numbers did not move by a nanometre."""
+    from gui.docks.tree_from_selection import resolve_entity_live_position_mm
+    from kicadstamp.config import Config
+    from kicadstamp.config.models import Cell, Entity, TemplateComponentSlot
+
+    cell = Cell(name="buf", layer="F.Cu", anchor_role="ORIG", components=[
+        TemplateComponentSlot(role="ORIG", offset_along_mm=0.0,
+                              offset_across_mm=0.0, angle_deg=0.0),
+        TemplateComponentSlot(role="CAP", offset_along_mm=10.0,
+                              offset_across_mm=-4.0, angle_deg=0.0)])
+    entity = Entity(name="ENT_A", cell="buf", cluster="CL")
+    cfg = Config(cells={"buf": cell}, entities=[entity], trees=[])
+    adapter = _ClusterAdapter([
+        _live_fp("IC1", "ORIG", "CL", 50.0, 60.0, 90.0),
+        _live_fp("IC2", "CAP", "CL", 46.0, 50.0, 90.0)])
+
+    x, y, rot = resolve_entity_live_position_mm(adapter, cfg, entity, {})
+
+    assert (x, y) == (50.0, 60.0)
+    assert rot == 90.0
+
+
+def test_extract_bridge_without_a_cluster_falls_back_and_logs(
+        main_window, tmp_path, caplog):
+    """P.2.4 / §P.1.3: an Entity with no cluster tag (an unsaved / transitional
+    Entity) cannot be read from a live cluster at all — the historical zero-slot
+    path is used AND the degraded read is announced in the log, never silent."""
+    import logging
+
+    from gui.docks.tree_from_selection import resolve_entity_live_position_mm
+    from kicadstamp.config import Config
+    from kicadstamp.config.models import Cell, Entity, TemplateComponentSlot
+
+    cell = Cell(name="buf", layer="F.Cu", anchor_xy=(-2.0, -5.0), components=[
+        TemplateComponentSlot(role="ORIG", offset_along_mm=0.0,
+                              offset_across_mm=0.0, angle_deg=0.0)])
+    entity = Entity(name="ENT_A", cell="buf")          # no cluster
+    cfg = Config(cells={"buf": cell}, entities=[entity], trees=[])
+    adapter = _ClusterAdapter([_live_fp("IC1", "ORIG", "CL", 50.0, 60.0, 0.0)])
+
+    with caplog.at_level(logging.WARNING):
+        x, y, _rot = resolve_entity_live_position_mm(adapter, cfg, entity, {})
+
+    # the historical zero-slot read, i.e. NOT the mount (-2, -5) — and it is
+    # announced, not silent.
+    assert (x, y) == (50.0, 60.0)
+    assert any("cannot read the live mount" in r.message for r in caplog.records)
+    assert any("no cluster" in r.getMessage() for r in caplog.records)
+
+
 def test_reread_agrees_with_extract_tree_for_a_rotated_anchor(
         main_window, tmp_path):
     """§0.4/§4.11: on ONE and the same live geometry with a TURNED anchor, the

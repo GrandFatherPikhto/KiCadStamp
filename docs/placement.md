@@ -29,6 +29,19 @@ Since 2026-08-30 the former `ClonePlacement` family splits into TWO concepts (au
    `Entity.name`, and its `xy`/polar/`rotation` (resolved as `parent_position + node offset`, see
    `kicadstamp/tree_position.py::node_position`) is where that Entity stands.
 
+The node's position is where the cell's **MOUNT A** lands: the point `cell_mount_offset`
+(`kicadstamp/geometry/cell_anchor.py`) derives — `anchor_xy`, else the `anchor_role` component's centre,
+else the stored (0,0) — and the same point `apply_clone_geometry` calls `origin`. Every LIVE read of an
+Entity's position measures THAT point (2026-09-11, plan_2026_09_11_entity_live_position_mount_point):
+"Read current position" on a tree node and the "Extract tree from selection" bridge both go through the
+one live-cluster frame (`_live_cluster_frame`, `gui/docks/live_position.py`), which is why the two
+actions now report identical numbers. Before that fix the extract bridge measured a component sitting at
+the cell's stored (0,0) instead — a different point, up to |A| apart (5.53 mm measured on `pif_oa_n2v5`,
+`anchor_xy -2.258536 -5.046273`), so the node came out shifted by that much. The degraded path still
+exists for an Entity that cannot be read from a live cluster at all (no `cell`, no `cluster`, or the
+cell is missing from the config) — and it now ANNOUNCES itself in the Log instead of silently measuring
+the wrong point.
+
 Trees are the ONLY store of positions; there is no separate `placements:` section. A flat single
 placement is a one-node tree under `(anchor (origin))` or a component/point anchor. `kind "clone"`
 was renamed to `kind "placement"` (`"clone"` still loads as an alias during the migration), and

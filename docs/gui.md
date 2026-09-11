@@ -641,7 +641,12 @@ anchor's LOCAL frame and `rotation` = the Entity's own angle relative to the anc
 angle − baked mount angle) − anchor angle (autopositioning, like "Reread current position": the tree
 freezes the current geometry relative to the anchor even when the anchor is not at 0°, so a redraw no
 longer double-rotates the node; without a live read the node is saved without `xy` and positions are
-read live at apply). The checked inter-cluster nets are captured as `net_traces:` records alongside. The new tree
+read live at apply). That live Entity position is measured at the cell's **MOUNT A** — the point the
+tree node and the materializer put on the target position (`cell_mount_offset`: `anchor_xy`, else the
+`anchor_role` component's centre, else the stored (0,0)), read through the same live-cluster frame the
+per-node "Read current position" uses (2026-09-11, plan_2026_09_11_entity_live_position_mount_point) —
+never at a component that merely happens to sit at the cell's stored (0,0). The checked inter-cluster
+nets are captured as `net_traces:` records alongside. The new tree
 is written into the root config's `trees:` section through the same `config_writer` chokepoint
 (backup + round-trip `link_trees` check); TreesDock and the Config tree refresh immediately. Rows
 whose cluster has no Entity or a missing cell are marked and block OK; an empty/duplicate tree name

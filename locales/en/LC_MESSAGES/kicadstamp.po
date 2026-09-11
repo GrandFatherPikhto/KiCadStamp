@@ -16056,3 +16056,18 @@ msgstr ""
 
 msgid "nested {name!r} is not a valid placement ({error}) — record left untouched"
 msgstr ""
+
+msgid "the Entity has no cell"
+msgstr ""
+
+msgid "cell {cell!r} is not in the config"
+msgstr ""
+
+msgid "the Entity has no cluster"
+msgstr ""
+
+msgid "Entity {name!r}: cannot read the live mount ({reason}) — using the historical tree/zero-slot position instead, which may differ from the cell's mount A"
+msgstr ""
+
+msgid "Entity {name!r}: cannot read the live mount ({reason}) — using the zero-slot component's position instead, which may differ from the cell's mount A"
+msgstr ""

@@ -41,6 +41,8 @@ logger = logging.getLogger(__name__)
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.i18n import _
+
+from .live_position import entity_mount_fallback_reason
 from kicadstamp.net_resolution import RULE_NETS
 from kicadstamp.placement.anchor_identity import (
     entity_anchor_identity,
@@ -951,15 +953,45 @@ def detect_inter_cluster_nets(raw_items: Iterable[Any],
 def resolve_entity_live_position_mm(adapter, cfg, entity: Any, sheet_names,
                                     label: Optional[str] = None
                                     ) -> tuple[float, float, float]:
-    """(x_mm, y_mm, rot_deg) of a cluster's Entity — its cell's zero-offset
-    (local (0,0)) component's role, live-resolved over the whole board (the SAME
-    derivation the tree auto-anchor and tree_position's "placement" branch use —
-    an Entity carries no position by design, so its current board position IS its
-    zero-slot component). rot_deg is that component's live angle_deg (previously
-    discarded as `_rot`) — needed to capture the node's own rotation relative to
-    the anchor at build time. Local import: entity_placement imports
-    tree_position at module level, so a module-level import here would be
-    circular on the entity_placement side."""
+    """(x_mm, y_mm, rot_deg) of a cluster's Entity measured at the cell's MOUNT
+    A — the cell point that lands on the placement origin at materialization
+    (`cell_mount_offset`; the tree node and the Apply-time materializer both put
+    A on the target position). `rot_deg` is the cluster's live rotation.
+
+    Read through `_live_cluster_frame` (the ONE live-cluster reader the board
+    overlay and the tree-node read share): its `placement_origin` IS A's world
+    point (see its docstring and `CellFrame.placement_origin`).
+
+    Historically this bridge read the Entity's ZERO-SLOT component
+    (`_entity_own_zero_slot_live_position`) instead, which is the same point only
+    for a cell whose mount sits at the stored (0, 0). On Denis's `pif_oa_n2v5`
+    (`anchor_xy -2.258536 -5.046273`, no anchor_role) the two are |A| = 5.53 mm
+    apart, so "Extract tree from selection" placed the node 5.5 mm off while the
+    per-node reread was already right (plan_2026_09_11_entity_live_position_
+    mount_point §P.0.2, measured by diagnostics/probe_entity_mount_vs_zero_slot.py).
+
+    The old path is kept ONLY as a fallback for the cases where the mount cannot
+    be read at all (no cell / no cluster / the cell is not in the config — e.g.
+    an Entity that is not saved yet), and it is never silent: it logs which
+    Entity and why (§P.1.3). `_entity_own_zero_slot_live_position` itself is
+    deliberately NOT touched — the tree auto-anchor and two other consumers
+    depend on its zero-slot semantics (§P.1.2)."""
+    reason = entity_mount_fallback_reason(cfg, entity)
+    if reason is None:
+        # Local import: this module is imported by the dock hub before the
+        # live_position module is needed; importing it lazily keeps the
+        # load-time graph flat (the same idiom the fallback below uses).
+        from .live_position import _live_cluster_frame
+        origin, rotation_deg, _mirror = _live_cluster_frame(
+            adapter, cfg.cells[entity.cell], entity.cluster,
+            getattr(entity, "sheet", None) or "", sheet_names)
+        return origin.x / MM, origin.y / MM, rotation_deg
+    logger.warning(
+        _("Entity {name!r}: cannot read the live mount ({reason}) — using the "
+          "zero-slot component's position instead, which may differ from the "
+          "cell's mount A").format(name=getattr(entity, "name", "?"), reason=reason))
+    # Local import: entity_placement imports tree_position at module level, so a
+    # module-level import here would be circular on the entity_placement side.
     from kicadstamp.placement.entity_placement import _entity_own_zero_slot_live_position
     pos, rot = _entity_own_zero_slot_live_position(
         adapter, cfg, entity, sheet_names, label=label)

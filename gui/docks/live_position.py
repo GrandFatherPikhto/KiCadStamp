@@ -19,6 +19,7 @@ QApplication (the forms own the buttons/fields/fill-in; this module only
 computes). Raises the same fatal ValidationError the underlying resolvers
 raise on none/ambiguous — the "never guess silently" principle — and the GUI
 handler turns it into a QMessageBox warning."""
+import logging
 from dataclasses import dataclass
 
 from kicadstamp.cell_frame import CellFrame, fit_cell_frame, reference_relative_pairs
@@ -47,6 +48,27 @@ from kicadstamp.placement.services.coordinate_position_calculator import (
 )
 from kicadstamp.placement.services.point_resolver import resolve_point_chain
 from kicadstamp.utils.units import MM
+
+logger = logging.getLogger(__name__)
+
+
+def entity_mount_fallback_reason(cfg, entity) -> str | None:
+    """None when an Entity CAN be read from the live cluster of its own cell
+    (it names a cell, that cell exists in cfg, and it carries the cluster tag);
+    otherwise the human reason why the caller must fall back to the historical
+    zero-slot / tree-placement read (plan_2026_09_11_entity_live_position_mount_point
+    §P.1.3).
+
+    The fallback path measures a DIFFERENT point than the cell's MOUNT A
+    (cell_mount_offset) — up to |A| apart, 5.53 mm on Denis's measured
+    `pif_oa_n2v5` — so it is never silent: whoever takes it logs this reason."""
+    if cfg is None or getattr(entity, "cell", None) is None:
+        return _("the Entity has no cell")
+    if cfg.cells.get(entity.cell) is None:
+        return _("cell {cell!r} is not in the config").format(cell=entity.cell)
+    if not getattr(entity, "cluster", None):
+        return _("the Entity has no cluster")
+    return None
 
 
 @dataclass
@@ -379,7 +401,11 @@ def read_record_live_pose(adapter, cfg, ref: str, record, sheet_names
     only position source until the cluster is placed) — falls back to the
     historic resolve_base_live_position / resolve_base_rotation_deg pair, so
     every existing resolution path keeps working unchanged. That path has no
-    mirror concept (mirror=False)."""
+    mirror concept (mirror=False).
+
+    That fallback is never SILENT (§P.1.3 of
+    plan_2026_09_11_entity_live_position_mount_point): it measures a different
+    point than the cell's mount A, so it logs which Entity and why."""
     if record is not None and getattr(record, "kind", None) == "placement":
         entity = record.obj
         cell_name = getattr(entity, "cell", None)
@@ -392,6 +418,13 @@ def read_record_live_pose(adapter, cfg, ref: str, record, sheet_names
                 sheet_names)
             return LiveRecordPose(position=pos, rotation_deg=rot,
                                   mirror=mirror, from_cluster=True)
+        reason = entity_mount_fallback_reason(cfg, entity)
+        if reason is not None:
+            logger.warning(
+                _("Entity {name!r}: cannot read the live mount ({reason}) — "
+                  "using the historical tree/zero-slot position instead, which "
+                  "may differ from the cell's mount A")
+                .format(name=getattr(entity, "name", ref), reason=reason))
     # Local import: this module is load-time light on purpose (the GUI imports
     # it from several docks), and tree_position pulls in the whole placement
     # service stack.
