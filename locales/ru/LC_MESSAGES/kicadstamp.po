@@ -14957,3 +14957,24 @@ msgstr "ручка"
 
 msgid "this node is the tree's suspension point (pivot-ref) — the tree is positioned and rotated around it"
 msgstr "этот узел — точка подвеса дерева (pivot-ref): относительно неё дерево позиционируется и вращается"
+
+msgid "Shift: X and Y must be numbers."
+msgstr "Сдвиг: X и Y должны быть числами."
+
+msgid "The anchor shift is stored on an existing tree — create the tree first."
+msgstr "Сдвиг привязки хранится на существующем дереве — сначала создайте дерево."
+
+msgid "The selected anchor does not resolve on the live board — the shift is shown as the raw config value and disabled until it resolves."
+msgstr "Выбранная привязка не резолвится на живой плате — сдвиг показан сырым значением конфига и отключён, пока она не зарезолвится."
+
+msgid "anchor: shift must be exactly two numbers"
+msgstr "anchor: shift должен быть ровно двумя числами"
+
+msgid "anchor: shift needs a base — set one of origin/ref/role/point"
+msgstr "anchor: shift требует базы — задайте одно из origin/ref/role/point"
+
+msgid "mount node {ref!r}: anchor supports only (role ...) — origin/ref/point/external/shift are tree-anchor-only"
+msgstr "mount-узел {ref!r}: anchor поддерживает только (role ...) — origin/ref/point/external/shift относятся только к якорю дерева"
+
+msgid "tree {name!r}: anchor shift must be exactly two numbers"
+msgstr "tree {name!r}: сдвиг якоря должен быть ровно двумя числами"

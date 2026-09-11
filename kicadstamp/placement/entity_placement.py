@@ -23,8 +23,8 @@ compose the found node's own offset on top (the same composition _walk()
 uses). The recursion is cycle-guarded (a set of visited Entity names): an
 Entity with no placement node, one referenced by more than one node, or a
 chain that loops into a cycle is a CONFIG error — fatal for the whole run,
-never a per-tree skip (that skip is reserved for live-board conditions like a
-point/unresolvable-role anchor).
+never a per-tree skip (that skip is reserved for live-board conditions like an
+unresolvable-role or unresolvable-point anchor).
 
 Materialization is purely in-memory: the saved config is never rewritten,
 and legacy clone_placements/rules/coordinate_placements are untouched. With
@@ -39,6 +39,7 @@ from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
 from ..link_trees import LinkedNode, LinkedTree, link_trees
 from ..tree_position import (
+    anchor_shift_offset_nm,
     mount_node_base,
     node_position,
     resolve_base_live_position,
@@ -50,6 +51,7 @@ from .services.component_resolver import (
     ComponentResolver,
     resolve_anchor_pad_position,
 )
+from .services.point_resolver import resolve_point_chain
 
 if TYPE_CHECKING:
     from ..config import Config
@@ -257,9 +259,10 @@ def _anchor_base(adapter: "KiCadBoardAdapter", cfg: "Config",
 def _anchor_base_raw(adapter: "KiCadBoardAdapter", cfg: "Config",
                      linked_tree: LinkedTree, sheet_names: dict,
                      forest: list[LinkedTree] | None = None,
-                     visited: set[str] | None = None) -> tuple[Vector2, float]:
-    """(position_nm, rotation_deg) for a tree's RAW anchor base — the anchor
-    itself, BEFORE the tree's own inner point / angle are applied (see
+                     visited: set[str] | None = None
+                     ) -> tuple[Vector2, float | None]:
+    """(position_nm, rotation_deg | None) for a tree's RAW anchor base — the
+    anchor itself, BEFORE the tree's own inner point / angle are applied (see
     _anchor_base, which every layout caller must use instead of this one).
     AUTO (no explicit (anchor ...)) -> derived from the tree's own root Entity
     placement's cell zero slot (_auto_anchor_base) — live role resolution.
@@ -281,16 +284,25 @@ def _anchor_base_raw(adapter: "KiCadBoardAdapter", cfg: "Config",
     resolve_record_live_position's kind == "rule" branch, tree_position.py);
     anchor_sheet/anchor_cluster narrow the same ambiguity cascade, anchor_pad
     moves the base onto that specific pad.
-    (point ...) anchors are not live-resolvable for entity materialization
-    yet — raise a clear error instead of guessing."""
+    (point ...) -> the points: entry's resolved chain position, via the SAME
+    resolve_point_chain the live read (_anchor_base_live_position) uses — ONE
+    resolver, two paths (plan §X.1.2/§X.1.4). A Point has no orientation by
+    design, so rotation is None; the tree's OWN rotation then becomes the sole
+    source of content rotation (§X.1.3), applied by _anchor_base's
+    tree_effective_base. The rotation is deliberately None, not a silent 0.0:
+    a ref anchor resolving to a record with no rotation concept also returns
+    None now, matching the "never silently 0" contract of
+    resolve_record_rotation_deg.
+    The anchor's OWN (shift x y) is applied LAST, at the anchor's angle
+    (anchor_shift_offset_nm) — the same helper the live path uses."""
     anchor = linked_tree.anchor
     if anchor.anchor.is_auto:
         # No explicit (anchor ...): derive the base from the tree's own root
         # Entity placement's cell zero slot, live-resolved like a role anchor.
-        return _auto_anchor_base(adapter, cfg, linked_tree, sheet_names)
-    if anchor.is_origin:
-        return _ORIGIN, 0.0
-    if anchor.anchor.role is not None:
+        pos, rot = _auto_anchor_base(adapter, cfg, linked_tree, sheet_names)
+    elif anchor.is_origin:
+        pos, rot = _ORIGIN, 0.0
+    elif anchor.anchor.role is not None:
         resolver = ComponentResolver(adapter, cfg, sheet_names)
         fp = resolver.resolve_anchor_fp(
             None, anchor.anchor.role, anchor.anchor.anchor_sheet,
@@ -300,14 +312,15 @@ def _anchor_base_raw(adapter: "KiCadBoardAdapter", cfg: "Config",
                    adapter, fp, anchor.anchor.anchor_pad,
                    _("tree {name!r} anchor").format(name=linked_tree.name))
                if anchor.anchor.anchor_pad else fp.position)
-        return pos, fp.angle_deg
-    if anchor.anchor.point is not None:
-        raise ValidationError(format_fatal_error(
-            _("tree anchor (point ...) is not wired for entity placement "
-              "materialization yet"),
-            [_("entity placements under a point tree anchor are a future phase; "
-               "use an (origin), (ref ...) or (role ...) anchor for now")]))
-    if anchor.record is not None and anchor.record.kind == "placement":
+        rot = fp.angle_deg
+    elif anchor.anchor.point is not None:
+        # X.1: materialization by a (point ...) anchor — the SAME resolver the
+        # live read already used (never a second one). Position only; the point
+        # carries no orientation (config/points.py), so rot stays None.
+        resolved = resolve_point_chain(adapter, cfg.points, anchor.anchor.point,
+                                       sheet_names)
+        pos, rot = resolved.position, None
+    elif anchor.record is not None and anchor.record.kind == "placement":
         # ref anchor resolved to an Entity: the Entity's live position comes
         # from the tree that places it — find that tree, resolve its anchor
         # base RECURSIVELY, then compose the found node's own offset. This
@@ -319,14 +332,23 @@ def _anchor_base_raw(adapter: "KiCadBoardAdapter", cfg: "Config",
                 _("internal error: Entity-anchored tree resolved without the "
                   "tree forest"),
                 []))
-        return resolve_entity_live_position(
+        pos, rot = resolve_entity_live_position(
             adapter, cfg, anchor.record.name, sheet_names,
             forest=forest, visited=visited)
-    pos = resolve_base_live_position(adapter, cfg, anchor.anchor.ref,
-                                     anchor.record, {}, sheet_names)
-    rot = resolve_base_rotation_deg(adapter, cfg, anchor.anchor.ref,
-                                    anchor.record, sheet_names) or 0.0
-    return pos, rot
+    else:
+        pos = resolve_base_live_position(adapter, cfg, anchor.anchor.ref,
+                                         anchor.record, {}, sheet_names)
+        # None stays None — the "never silently 0" contract of
+        # resolve_record_rotation_deg. _anchor_base's tree_effective_base
+        # already turns a None into the tree's own EXPLICIT rotation.
+        rot = resolve_base_rotation_deg(adapter, cfg, anchor.anchor.ref,
+                                        anchor.record, sheet_names)
+    # A ZERO shift returns `pos` unchanged — bit-for-bit the pre-shift result
+    # (and the live `_anchor_base_live_position` twin does exactly the same).
+    shift = anchor_shift_offset_nm(anchor.anchor, rot)
+    if shift.x == 0 and shift.y == 0:
+        return pos, rot
+    return Vector2.from_xy(pos.x + shift.x, pos.y + shift.y), rot
 
 
 def resolve_entity_live_position(adapter: "KiCadBoardAdapter", cfg: "Config",
@@ -529,12 +551,12 @@ def materialize_entity_placements(adapter: "KiCadBoardAdapter", cfg: "Config",
     path, behavior unchanged.
 
     Per-tree tolerance (bug #4, 2026-08-30): a tree whose anchor is not
-    resolvable (a (point ...) anchor — still unwired — or an unresolvable
-    role/ref) is LOCAL to that tree (warning + skip), never fatal for the
-    whole run. A real profile may have 21 of 22 trees role-anchored; without
-    this tolerance Apply/Redraw died before materializing ANY entity
-    placement. (role ...) anchors are LIVE-resolved since Phase 4.2 — only
-    (point ...) remains unwired. This is the same per-item tolerance the
+    resolvable (an undefined point name, or an unresolvable role/ref) is LOCAL
+    to that tree (warning + skip), never fatal for the whole run. A real
+    profile may have 21 of 22 trees role-anchored; without this tolerance
+    Apply/Redraw died before materializing ANY entity placement. (role ...)
+    anchors are LIVE-resolved since Phase 4.2, and (point ...) anchors since
+    2026-09-11 (§X.1). This is the same per-item tolerance the
     Extract dock's Sub-placements catalog already applies at the call level
     (gui/docks/extract.py).
 

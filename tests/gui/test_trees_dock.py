@@ -5007,6 +5007,140 @@ def test_tree_settings_fields_disabled_when_anchor_does_not_resolve(
     assert tree.pivot_xy == (1.0, 2.0) and tree.rotation == 0.0
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Anchor's own SHIFT (§X.2.3) + mode table (§X.3): board-frame display, no
+# cached angle, disabled with a reason, and every mode round-trips.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_anchor_shift_shown_in_board_mm_stored_local(main_window, tmp_path, monkeypatch):
+    """X.5.2 #11: the shift field shows the BOARD frame (anchor angle 90 turns
+    the stored (1, 2) into a (2, -1) board vector); the config keeps (1, 2)."""
+    monkeypatch.setattr(trees_dock_mod, "_anchor_base_live_position",
+                        lambda *a, **k: (Vector2.from_xy(0, 0), 90.0))
+    dock, _root = _one_tree_dock(main_window, tmp_path, {
+        "name": "t", "anchor": {"origin": True, "shift": [1.0, 2.0]},
+        "nodes": [{"ref": "E1", "kind": "external", "xy": [0.0, 0.0]}]})
+    form = _settings_form(dock)
+    tree = dock._current_tree()
+    assert float(form.shift_x_edit.text()) == pytest.approx(2.0)
+    assert float(form.shift_y_edit.text()) == pytest.approx(-1.0)
+    assert form.apply() is True
+    assert tree.anchor.shift_xy == (1.0, 2.0)
+
+
+def test_anchor_shift_noop_apply_leaves_it_unchanged(main_window, tmp_path):
+    """X.5.2 #10: open a tree with an anchor shift, apply nothing, the config
+    does not move a nanometre (origin anchor -> offline angle 0)."""
+    dock, _root = _one_tree_dock(main_window, tmp_path, {
+        "name": "t", "anchor": {"origin": True, "shift": [5.0, -2.25]},
+        "nodes": [{"ref": "E1", "kind": "external", "xy": [0.0, 0.0]}]})
+    form = _settings_form(dock)
+    tree = dock._current_tree()
+    assert tree.anchor.shift_xy == (5.0, -2.25)
+    assert form.apply() is True
+    assert tree.anchor.shift_xy == (5.0, -2.25)
+
+
+def test_anchor_shift_display_follows_new_anchor_not_stored(
+        main_window, tmp_path, monkeypatch):
+    """X.5.2 #12 (the X.2.3 trap): switching the anchor changes the DISPLAY of
+    the shift (new anchor angle) but NOT the stored value; typing after the
+    switch is converted by the NEW angle. No cached angle survives."""
+    angle = {"v": 0.0}
+    monkeypatch.setattr(trees_dock_mod, "_anchor_base_live_position",
+                        lambda *a, **k: (Vector2.from_xy(0, 0), angle["v"]))
+    dock, _root = _one_tree_dock(main_window, tmp_path, {
+        "name": "t", "anchor": {"origin": True, "shift": [1.0, 2.0]},
+        "nodes": [{"ref": "E1", "kind": "external", "xy": [0.0, 0.0]}]})
+    form = _settings_form(dock)
+    tree = dock._current_tree()
+    assert float(form.shift_x_edit.text()) == pytest.approx(1.0)
+    # Switch the anchor to a role whose live angle is 90 — the mode switch
+    # refreshes the board frame at once (no timer).
+    angle["v"] = 90.0
+    form.mode_combo.setCurrentIndex(form.mode_combo.findData("role"))
+    form.role_edit.setCurrentText("R")
+    # Fill the role, then re-express the board frame (the field edit is
+    # debounced behind a 250 ms timer in the live UI, not synchronous here).
+    form._reload_settings_display()
+    assert float(form.shift_x_edit.text()) == pytest.approx(2.0)
+    assert float(form.shift_y_edit.text()) == pytest.approx(-1.0)
+    # Typed board coords are converted by the NEW angle: board (3, 4) at 90 ->
+    # tree frame (-4, 3).
+    form.shift_x_edit.setText("3")
+    form.shift_y_edit.setText("4")
+    assert form.apply() is True
+    assert tree.anchor.shift_xy == (-4.0, 3.0)
+
+
+def test_anchor_shift_disabled_with_reason_when_anchor_does_not_resolve(
+        main_window, tmp_path, monkeypatch):
+    """X.5.2 #13: an unresolvable anchor disables the shift with a reason, and
+    Apply writes nothing (the stored shift is untouched)."""
+    def _boom(*a, **k):
+        raise ValidationError("no live board")
+
+    monkeypatch.setattr(trees_dock_mod, "_anchor_base_live_position", _boom)
+    dock, _root = _one_tree_dock(main_window, tmp_path, {
+        "name": "t", "anchor": {"origin": True, "shift": [1.0, 2.0]},
+        "nodes": [{"ref": "E1", "kind": "external", "xy": [0.0, 0.0]}]})
+    form = _settings_form(dock)
+    tree = dock._current_tree()
+    assert form.shift_x_edit.isEnabled() is False
+    assert form.shift_y_edit.isEnabled() is False
+    assert form.shift_reason_label.text() != ""
+    assert form.apply() is False
+    assert tree.anchor.shift_xy == (1.0, 2.0)
+
+
+def test_every_tree_anchor_mode_roundtrips(main_window):
+    """X.5.3 #15: every mode remaining in the grammar is reachable and
+    round-trips without loss (adding a mode = one _TREE_ANCHOR_MODES entry)."""
+    expected = {
+        "origin": dict(ref=None, is_origin=True, is_external=False),
+        "auto": dict(is_auto=True),
+        "role": dict(role="R", anchor_sheet="S", anchor_cluster="C", anchor_pad="3"),
+        "point": dict(point="P"),
+        "record": dict(ref="REC", is_external=False),
+        "external": dict(ref="U3", is_external=True),
+    }
+    for mode, kwargs in expected.items():
+        form = AnchorFormWidget(main_window, [("placement", "REC")], cfg=object())
+        assert form.mode_combo.findData(mode) >= 0
+        form.mode_combo.setCurrentIndex(form.mode_combo.findData(mode))
+        if mode == "role":
+            form.role_edit.setCurrentText("R")
+            form.sheet_edit.setCurrentText("S")
+            form.cluster_edit.setCurrentText("C")
+            form.pad_edit.setText("3")
+        elif mode == "point":
+            form.point_edit.setCurrentText("P")
+        elif mode in ("record", "external"):
+            form.ref_combo.setCurrentText(kwargs["ref"])
+        anchor, err = form.build_anchor()
+        assert err is None, mode
+        assert anchor == TreeAnchor(**kwargs), mode
+
+
+def test_anchor_origin_widget_fields_survive_shared_builder(main_window):
+    """X.5.3 #16: the shared field builder did not change AnchorOriginWidget's
+    public attribute surface (Points/Placer/Chain/ThermalVia/NetTrace rely on
+    it)."""
+    from gui.docks._anchor_origin import AnchorOriginWidget
+    w = AnchorOriginWidget(modes=["xy", "anchor", "point", "board_origin"],
+                           anchor_fields=["sheet", "pad", "cluster"], shift=True,
+                           polar=True)
+    for attr in ("anchor_ref_edit", "anchor_role_edit", "anchor_sheet_edit",
+                 "anchor_pad_edit", "anchor_cluster_edit", "point_edit",
+                 "x_edit", "y_edit", "shift_x_edit", "shift_y_edit"):
+        assert getattr(w, attr) is not None, attr
+    w.origin_mode_combo.setCurrentIndex(w._modes.index("anchor"))
+    w.anchor_role_edit.setCurrentText("R")
+    fields, err = w.build()
+    assert err is None
+    assert fields["role"] == "R"
+
+
 def test_render_tree_marks_the_pivot_ref_handle(main_window):
     """§W.8.5 items 13/14: the node named in pivot-ref is marked in the tree
     (a handle tag, single column), and moving the ref moves the mark."""

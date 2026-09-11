@@ -490,6 +490,7 @@ entities: a node with `kind "placement"` whose `ref` is an `Entity.name` IS that
   ; (anchor (ref "CONN_PM5V"))                 ;   by refdes (external = live-board-only)
   ; (anchor (role "FPGA") (sheet "...") (cluster "...") (pad "A1"))
   ; (anchor (point "P1"))
+  ; (anchor (role "FPGA") (shift 5.0 0.0))     ; own shift, LOCAL mm of the base
   (node (ref "DAC_BUF_CH0") (kind placement) (xy 10.0 20.0) (rotation 90.0)
         (children ...)))                       ; nested nodes form a rigid group
 ```
@@ -510,6 +511,20 @@ regenerates the cluster with whatever rotation the base currently carries. The n
 user never has to rotate axes in their head; the editor converts between the two frames on load and on
 save, nowhere else, and bit-exactly at multiples of 90°. A module node's `pivot_*` is a THIRD thing —
 it lives in the EMBEDDED tree's own frame and is deliberately never converted.
+
+**The tree's OUTER point is the anchor (Б3.1, 2026-09-11).** The `(anchor ...)` block carries
+`origin` / `ref` (+`external`) / `role` (+`sheet`/`cluster`/`pad`) / `point`, plus an optional own
+**`(shift x y)`**. That shift is stored in **LOCAL millimetres of the base frame** — rotated by the
+anchor's own angle (e.g. a role's live `angle_deg`) with `rotate_local_offset`, the same primitive a
+node's `xy` uses — NOT board-absolute. So a `(shift 5 0)` on a channel whose anchor role is turned 90°
+moves the tree 5 mm along the component's own body, not 5 mm in board X (design §3.8: this is what makes
+ONE tree survive rotated per-channel copies). It combines with ANY base: a `(point ...)` anchor is
+resolved by its OWN rules first (including the point's own, **board-absolute**
+`shift_x_mm`/`shift_y_mm`), then the anchor's local shift is added on top. Do not confuse the two:
+`Point`'s shift stays board-absolute (spokes, rules, via arrays depend on that); only the anchor's
+`(shift ...)` is local. Every anchor mode now APPLIES at materialization — a `(point ...)` anchor used to
+be readable in the GUI yet fatal at Apply. Because a `Point` has no orientation, a `(point ...)` /
+`(origin)` anchor takes its content rotation SOLELY from the tree's own `(rotation ...)`.
 
 **An `(anchor (ref ...))` may point at an Entity** — the tree is then anchored on ANOTHER tree's
 placement node (cross-tree entity anchoring, since Phase 4.1 live). Because an Entity carries no

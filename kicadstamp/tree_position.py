@@ -58,7 +58,7 @@ from .placement.services.coordinate_position_calculator import (
     resolve_target_position,
 )
 from .placement.services.point_resolver import resolve_point_chain
-from .trees import Tree, TreeNode
+from .trees import Tree, TreeAnchor, TreeNode
 from .utils.units import MM
 
 _ORIGIN = Vector2.from_xy(0, 0)
@@ -597,6 +597,30 @@ def relative_rotation_deg(child_deg: float, parent_deg: float) -> float:
 #    mode — origin/auto/role/point/ref — without touching a widget dock) ─────
 
 
+def anchor_shift_offset_nm(anchor: "TreeAnchor | None",
+                           base_rot_deg: float | None) -> Vector2:
+    """The anchor's OWN ``(shift x y)`` as an absolute board delta in NATIVE
+    units — THE one place the anchor shift is turned into geometry (design
+    §3.8, plan_2026_09_11_external_point_materialization §X.2), shared by the
+    live read (`_anchor_base_live_position`) and materialization
+    (`entity_placement._anchor_base_raw`) so the two can never drift.
+
+    The shift is stored in LOCAL millimetres of the anchor's base frame, so it
+    is rotated by the anchor's angle via the project's rotate_local_offset —
+    the SAME primitive node.xy uses. That is the whole point of §3.8: on a
+    channel where the anchor role is turned 90°, a (5, 0) shift must become the
+    base's local +5 mm along its own X, NOT +5 mm in board X.
+
+    `base_rot_deg` is None when the anchor has no orientation at all (a
+    (point ...) or (origin)): its local frame IS the board frame, so the shift
+    is left unrotated — a documented convention, not a silent zero. No shift
+    (or no anchor) returns (0, 0)."""
+    if anchor is None or getattr(anchor, "shift_xy", None) is None:
+        return Vector2.from_xy(0, 0)
+    return rotate_local_offset(anchor.shift_xy[0], anchor.shift_xy[1],
+                               base_rot_deg or 0.0)
+
+
 def _root_entity_ref(tree: Tree | None) -> str | None:
     """The ref of the tree's OWN single top-level kind="placement" node — the
     "root Entity" whose record must never be offered as this tree's own ref
@@ -650,8 +674,8 @@ def _anchor_base_live_position(adapter, cfg, tree: Tree, sheet_names: dict,
     warning (never a silent partial write, never a crash)."""
     anchor = tree.anchor
     if anchor.is_origin:
-        return _ORIGIN, 0.0
-    if anchor.is_auto:
+        pos, deg = _ORIGIN, 0.0
+    elif anchor.is_auto:
         entity = _root_entity_record(cfg, tree)
         if entity is None:
             # Reuses the materializer's own existing message for a tree that
@@ -663,10 +687,10 @@ def _anchor_base_live_position(adapter, cfg, tree: Tree, sheet_names: dict,
         # Local import: entity_placement imports tree_position at module level,
         # so the same soft-edge idiom tree_position itself uses for the cycle.
         from .placement.entity_placement import _entity_own_zero_slot_live_position
-        return _entity_own_zero_slot_live_position(
+        pos, deg = _entity_own_zero_slot_live_position(
             adapter, cfg, entity, sheet_names,
             label=_("tree {name!r} auto-anchor").format(name=tree.name))
-    if anchor.role:
+    elif anchor.role:
         resolver = ComponentResolver(adapter, cfg, sheet_names)
         label = anchor.role
         fp = resolver.resolve_anchor_fp(
@@ -675,17 +699,26 @@ def _anchor_base_live_position(adapter, cfg, tree: Tree, sheet_names: dict,
         pos = fp.position
         if anchor.anchor_pad:
             pos = resolve_anchor_pad_position(adapter, fp, anchor.anchor_pad, label)
-        return pos, fp.angle_deg
-    if anchor.point:
+        deg = fp.angle_deg
+    elif anchor.point:
         resolved = resolve_point_chain(adapter, cfg.points, anchor.point, sheet_names)
-        return resolved.position, None
-    # A ref anchor — record-or-external, the pre-existing path.
-    records = build_records(cfg)
-    by_name = _build_by_name_index(records)
-    record, _is_external = _resolve_anchor_ref(anchor, by_name)
-    pos = resolve_base_live_position(adapter, cfg, anchor.ref, record, {}, sheet_names)
-    deg = resolve_base_rotation_deg(adapter, cfg, anchor.ref, record, sheet_names)
-    return pos, deg
+        pos, deg = resolved.position, None
+    else:
+        # A ref anchor — record-or-external, the pre-existing path.
+        records = build_records(cfg)
+        by_name = _build_by_name_index(records)
+        record, _is_external = _resolve_anchor_ref(anchor, by_name)
+        pos = resolve_base_live_position(adapter, cfg, anchor.ref, record, {}, sheet_names)
+        deg = resolve_base_rotation_deg(adapter, cfg, anchor.ref, record, sheet_names)
+    # The anchor's OWN (shift x y), in its base frame (§X.2): applied to the
+    # resolved position at the anchor's angle. `deg` None (a point/origin has no
+    # orientation) leaves the shift in board axes — documented, not silent. A
+    # ZERO shift returns `pos` UNCHANGED (identity, not a rebuilt Vector2) so the
+    # no-shift behaviour is bit-for-bit what it always was.
+    shift = anchor_shift_offset_nm(anchor, deg)
+    if shift.x == 0 and shift.y == 0:
+        return pos, deg
+    return Vector2.from_xy(pos.x + shift.x, pos.y + shift.y), deg
 
 
 @dataclasses.dataclass

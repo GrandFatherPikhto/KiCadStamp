@@ -342,6 +342,13 @@ disabled with a reason and Apply writes nothing. The node serving as the handle 
 tree list with a blue accent and a `(handle)` tag (never a second column), and the mark follows the
 `pivot-ref` when it changes.
 
+**UPDATE 2026-09-11 (Б3.1, plan_2026_09_11_external_point_materialization):** the anchor block also
+carries the anchor's OWN **Shift X/Y** — stored in LOCAL mm of the base and shown in the PCB Editor frame
+(board mm), converted at the ANCHOR's angle (the shift lives in the base frame, before the tree's
+dovоrот; never a cached angle), and disabled with a reason when the anchor does not resolve. A
+`(point ...)` anchor now APPLIES, not only reads; at a point/origin anchor the tree's own angle is the
+sole source of content rotation.
+
 Since 2026-09-03 the node editor is a TWO-TAB form — shown in the
 master-detail panel for a selected node, and inside the modal Add dialog while no node exists
 yet: **General**

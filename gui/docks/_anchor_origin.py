@@ -63,6 +63,58 @@ _BOARD_ORIGIN_KINDS = [
 ]
 
 
+def build_role_anchor_fields(form: QFormLayout, *, show_ref: bool = True,
+                             anchor_fields: Sequence[str] = ()) -> Dict[str, Any]:
+    """THE one place the anchor-IDENTITY widgets (Ref / Role / Sheet / Pad /
+    Cluster) are constructed and added to `form`, in the project's canonical
+    order. Shared by AnchorOriginWidget (Points/Placer/Chain/ThermalVia/
+    NetTrace/Extract) AND the trees dock's tree-anchor form (AnchorFormWidget,
+    gui/docks/trees_dock.py), so the two can never drift in labels,
+    placeholders or the "populate, don't restrict" combo behaviour (design
+    §3.2 — one question, one dictionary).
+
+    Returns a dict holding only the widgets actually built: always "role";
+    "ref" unless show_ref=False; "sheet"/"pad"/"cluster" per `anchor_fields`
+    (a subset of {"sheet", "pad", "cluster"}). The CALLER assigns them to its
+    own attribute names — the two consumers name them differently
+    (anchor_role_edit vs role_edit), and that is deliberate: this helper owns
+    the FIELDS, not the attribute surface."""
+    widgets: Dict[str, Any] = {}
+    if show_ref:
+        ref = QLineEdit()
+        ref.setPlaceholderText(
+            _("e.g. U3 (refdes — mostly avoided in this project)"))
+        form.addRow(_("Ref:"), ref)
+        widgets["ref"] = ref
+    role = QComboBox()
+    configure_searchable(role)
+    form.addRow(_("Role:"), role)
+    widgets["role"] = role
+    if "sheet" in anchor_fields:
+        # Searchable combo (2026-08-15, plan
+        # plan_2026_08_15_sheet_combo_everywhere.md) — same "populate, don't
+        # restrict" picker pattern as role/cluster, but sourced from the
+        # project's schematic files (set_known_sheets), NOT the live board —
+        # sheet names live in .kicad_sch, not on the board.
+        sheet = QComboBox()
+        configure_searchable(sheet)
+        sheet.lineEdit().setPlaceholderText(
+            _("sheet name (narrows an ambiguous Role, optional)"))
+        form.addRow(_("Sheet:"), sheet)
+        widgets["sheet"] = sheet
+    if "pad" in anchor_fields:
+        pad = QLineEdit()
+        pad.setPlaceholderText(_("pad (optional)"))
+        form.addRow(_("Pad:"), pad)
+        widgets["pad"] = pad
+    if "cluster" in anchor_fields:
+        cluster = QComboBox()
+        configure_searchable(cluster)
+        form.addRow(_("Anchor cluster:"), cluster)
+        widgets["cluster"] = cluster
+    return widgets
+
+
 class AnchorOriginWidget(QWidget):
     """One QWidget: the Origin combo plus whichever of its mode-specific
     rows (XY / Anchor / Point / Board origin / the empty "parent" state) and
@@ -177,34 +229,17 @@ class AnchorOriginWidget(QWidget):
             self._anchor_row = QWidget()
             anchor_form = QFormLayout(self._anchor_row)
             anchor_form.setContentsMargins(0, 0, 0, 0)
-            if self._show_ref:
-                self.anchor_ref_edit = QLineEdit()
-                self.anchor_ref_edit.setPlaceholderText(
-                    _("e.g. U3 (refdes — mostly avoided in this project)"))
-                anchor_form.addRow(_("Ref:"), self.anchor_ref_edit)
-            self.anchor_role_edit = QComboBox()
-            configure_searchable(self.anchor_role_edit)
-            anchor_form.addRow(_("Role:"), self.anchor_role_edit)
-            if "sheet" in self._anchor_fields:
-                # Searchable combo (2026-08-15, plan
-                # plan_2026_08_15_sheet_combo_everywhere.md) — same
-                # "populate, don't restrict" picker pattern as
-                # anchor_role_edit/anchor_cluster_edit, but sourced from the
-                # project's schematic files (set_known_sheets), NOT the live
-                # board — Sheet names live in .kicad_sch, not on the board.
-                self.anchor_sheet_edit = QComboBox()
-                configure_searchable(self.anchor_sheet_edit)
-                self.anchor_sheet_edit.lineEdit().setPlaceholderText(
-                    _("sheet name (narrows an ambiguous Role, optional)"))
-                anchor_form.addRow(_("Sheet:"), self.anchor_sheet_edit)
-            if "pad" in self._anchor_fields:
-                self.anchor_pad_edit = QLineEdit()
-                self.anchor_pad_edit.setPlaceholderText(_("pad (optional)"))
-                anchor_form.addRow(_("Pad:"), self.anchor_pad_edit)
-            if "cluster" in self._anchor_fields:
-                self.anchor_cluster_edit = QComboBox()
-                configure_searchable(self.anchor_cluster_edit)
-                anchor_form.addRow(_("Anchor cluster:"), self.anchor_cluster_edit)
+            # The five identity fields come from ONE shared builder (also used
+            # by the trees dock's tree-anchor form) — see
+            # build_role_anchor_fields.
+            _w = build_role_anchor_fields(
+                anchor_form, show_ref=self._show_ref,
+                anchor_fields=tuple(self._anchor_fields))
+            self.anchor_ref_edit = _w.get("ref")
+            self.anchor_role_edit = _w["role"]
+            self.anchor_sheet_edit = _w.get("sheet")
+            self.anchor_pad_edit = _w.get("pad")
+            self.anchor_cluster_edit = _w.get("cluster")
             layout.addWidget(self._anchor_row)
 
         self.point_edit: Optional[QComboBox] = None

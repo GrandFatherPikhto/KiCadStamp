@@ -89,11 +89,12 @@ def test_nested_node_rotation_accumulates():
 
 
 def test_point_anchor_tree_is_skipped_locally_not_fatal(caplog):
-    """Bug #4 / Phase 4.2: a (point ...) tree anchor is NOT live-resolvable
-    for entity materialization (point anchors are a future phase) — that is
-    LOCAL to the tree: warn + skip it, NEVER fatal for the whole run. A single
-    point-anchored tree with nothing else yields no materialized clones, not a
-    ValidationError."""
+    """Bug #4 / Phase 4.2: a (point ...) tree anchor whose point does NOT
+    resolve (here: the name is absent from points:) is a local board/data
+    condition — LOCAL to the tree: warn + skip it, NEVER fatal for the whole
+    run. A single point-anchored tree with nothing else yields no materialized
+    clones, not a ValidationError. (Since Б3.1 a RESOLVABLE point anchor DOES
+    materialize — see tests/test_external_point_materialization.py.)"""
     cfg = _cfg(
         [Entity(name="E1", cell="c")],
         [Tree(name="t", anchor=TreeAnchor(point="Origin"),
@@ -405,9 +406,10 @@ def test_apply_cluster_filter_does_not_fatal_when_only_entities_match():
 
 def test_point_anchor_tree_skipped_but_neighbor_origin_tree_materialized(caplog):
     """Bug #4 gate scenario: ONE origin tree (materializable entity E1) next
-    to a point-anchored tree (still unwired for materialization) — the origin
-    tree's placement survives, the point tree is skipped with a warning, the
-    call never fatal. (Role trees are wired since Phase 4.2; point is not.)"""
+    to a point-anchored tree whose point name is ABSENT from points: — the
+    origin tree's placement survives, the point tree is skipped with a warning,
+    the call never fatal. (Role anchors are wired since Phase 4.2 and point
+    anchors since Б3.1 — a RESOLVABLE point no longer skips.)"""
     cfg = Config(
         cells={"c": _cell("c")},
         entities=[Entity(name="E1", cell="c", cluster="CH0"),

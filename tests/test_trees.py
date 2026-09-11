@@ -910,3 +910,78 @@ def test_config_dict_tree_with_mount_node_passes_known_key_check():
                                 children=[], anchor=TreeAnchor(role="IC1"))])
     loaded = _load_tree(tree_to_dict(tree))
     assert loaded.nodes[0].anchor == TreeAnchor(role="IC1")
+
+
+# ── the anchor's OWN (shift x y) — plan §X.2 ───────────────────────────────
+
+def test_anchor_shift_sexp_roundtrip(tmp_path):
+    """save_trees -> load_trees keeps the anchor's own (shift x y) verbatim."""
+    trees = [Tree(name="t", anchor=TreeAnchor(role="R", shift_xy=(5.0, -2.0)),
+                  nodes=[TreeNode(ref="E1", kind="placement", xy=(1.0, 0.0),
+                                  polar=None, rotation=0.0, name=None,
+                                  group=None, children=[])])]
+    path = tmp_path / "shift.trees"
+    save_trees(str(path), trees)
+    text = path.read_text(encoding="utf-8")
+    assert "(shift 5.0 -2.0)" in text
+    assert load_trees(str(path)) == trees
+
+
+def test_anchor_shift_absent_when_not_set(tmp_path):
+    """No shift -> no (shift ...) noise in the serialized tree."""
+    trees = [Tree(name="t", anchor=TreeAnchor(is_origin=True), nodes=[])]
+    path = tmp_path / "noshift.trees"
+    save_trees(str(path), trees)
+    assert "shift" not in path.read_text(encoding="utf-8")
+
+
+def test_anchor_shift_dict_bridge_roundtrip():
+    """The config-dict bridge keeps the anchor's own shift on any base kind."""
+    tree = Tree(name="t", anchor=TreeAnchor(point="P", shift_xy=(5.0, -2.0)),
+                nodes=[])
+    d = tree_to_dict(tree)
+    assert d["anchor"] == {"point": "P", "shift": [5.0, -2.0]}
+    assert tree_from_dict(d) == tree
+
+
+def test_anchor_shift_dict_requires_two_numbers():
+    with pytest.raises(ValidationError,
+                       match="anchor shift must be exactly two numbers"):
+        tree_from_dict({"name": "t",
+                        "anchor": {"origin": True, "shift": [1.0]},
+                        "nodes": []})
+
+
+def test_anchor_shift_sexp_requires_two_numbers(tmp_path):
+    path = tmp_path / "bad.trees"
+    path.write_text(
+        '(kicadstamp-trees (version 1) (tree (name "t") '
+        '(anchor (origin) (shift 1.0)) '
+        '(node (ref "E1") (kind external))))',
+        encoding="utf-8")
+    with pytest.raises(ValidationError,
+                       match="anchor: shift must be exactly two numbers"):
+        load_trees(str(path))
+
+
+def test_mount_node_anchor_rejects_shift():
+    """Dict-path: a mount node's anchor is role-only — a shift there is fatal,
+    never a silent drop (the shift belongs to the tree's OUTER point)."""
+    mount = TreeNode(ref="M1", kind="mount", xy=None, polar=None,
+                     rotation=0.0, name=None, group=None, children=[],
+                     anchor=TreeAnchor(role="R"))
+    d = tree_to_dict(Tree(name="t", anchor=TreeAnchor(is_origin=True),
+                          nodes=[mount]))
+    d["nodes"][0]["anchor"]["shift"] = [1.0, 0.0]
+    with pytest.raises(ValidationError, match="anchor supports only"):
+        tree_from_dict(d)
+
+
+def test_anchor_shift_passes_config_known_key_check():
+    """_TREE_ANCHOR_KNOWN_KEYS (config/entries.py) must accept the anchor's
+    "shift" key — the config inlay must not fatal on it."""
+    from kicadstamp.config.entries import _load_tree
+    tree = Tree(name="t", anchor=TreeAnchor(role="R", shift_xy=(5.0, -2.0)),
+                nodes=[])
+    loaded = _load_tree(tree_to_dict(tree))
+    assert loaded.anchor == TreeAnchor(role="R", shift_xy=(5.0, -2.0))

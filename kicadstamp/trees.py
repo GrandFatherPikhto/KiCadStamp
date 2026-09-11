@@ -94,6 +94,14 @@ class TreeAnchor:
     from its own root Entity placement's cell "zero slot" (the single
     component at local offset (0,0)), live-resolved like a (role ...) anchor.
     Explicit anchors ALWAYS win; is_auto is only ever the ABSENT-anchor case.
+
+    shift_xy (2026-09-11, plan_2026_09_11_external_point_materialization §X.2):
+    the anchor's OWN ``(shift x y)`` — an offset in LOCAL millimetres of the
+    anchor's base frame, rotated by the anchor's angle (rotate_local_offset),
+    NOT board-absolute. Combines with ANY base mode: a (point ...) is resolved
+    by its own rules FIRST (including the point's OWN absolute shift), then
+    this shift is added on top. Deliberately DIFFERENT from Point.shift_x_mm/
+    shift_y_mm, which stay board-absolute (design §3.8).
     """
     ref: str | None = None        # None unless a ref anchor
     is_origin: bool = False
@@ -104,6 +112,7 @@ class TreeAnchor:
     anchor_pad: str | None = None
     point: str | None = None
     is_auto: bool = False
+    shift_xy: tuple[float, float] | None = None
 
 
 @dataclass
@@ -212,6 +221,20 @@ def _opt_sval(value) -> str | None:
     return sval(value) if value is not None else None
 
 
+def _parse_anchor_shift(anchor_node) -> tuple[float, float] | None:
+    """An (anchor ...)'s optional (shift x y) child — the anchor's OWN offset
+    in LOCAL mm of its base frame (plan_2026_09_11_external_point_materialization
+    §X.2), or None when absent. Exactly two numbers, or a fatal (same "exactly
+    two numbers" discipline as a node's xy)."""
+    c = child(anchor_node, "shift")
+    if c is None:
+        return None
+    if len(c) != 3 or not all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                              for v in c[1:]):
+        _fatal(_("anchor: shift must be exactly two numbers"))
+    return float(c[1]), float(c[2])
+
+
 def _parse_anchor(anchor_node) -> TreeAnchor:
     """(anchor (origin)) -> origin anchor;
     (anchor (ref "...") [(external)]) -> ref anchor (external = live-board-only
@@ -221,7 +244,10 @@ def _parse_anchor(anchor_node) -> TreeAnchor:
     (anchor (point "...")) -> points: entry anchor.
     Exactly one base kind is required (fatal otherwise). ref/role/point are NOT
     validated for uniqueness against nodes — an anchor is a base, not something
-    the tree places (rule 2)."""
+    the tree places (rule 2).
+    An optional (shift x y) child is the anchor's own LOCAL-mm offset (§X.2),
+    orthogonal to the base kind (combines with any of them)."""
+    shift_xy = _parse_anchor_shift(anchor_node)
     is_origin = child(anchor_node, "origin") is not None
     is_external = child(anchor_node, "external") is not None
     ref = atom(anchor_node, "ref")
@@ -235,7 +261,8 @@ def _parse_anchor(anchor_node) -> TreeAnchor:
     if is_origin:
         if is_external:
             _fatal(_("anchor: (origin) and (external) are mutually exclusive"))
-        return TreeAnchor(ref=None, is_origin=True, is_external=False)
+        return TreeAnchor(ref=None, is_origin=True, is_external=False,
+                          shift_xy=shift_xy)
     # (external) is a REF-anchor modifier only: a role/point anchor is never a
     # config record, so "external" on it would be silently meaningless. Checked
     # HERE (before the ref/point/role branches) so a (point ...) (external) or
@@ -244,15 +271,17 @@ def _parse_anchor(anchor_node) -> TreeAnchor:
     if is_external and ref is None:
         _fatal(_("anchor: (external) is only valid with a (ref \"...\") anchor"))
     if ref is not None:
-        return TreeAnchor(ref=sval(ref), is_origin=False, is_external=is_external)
+        return TreeAnchor(ref=sval(ref), is_origin=False, is_external=is_external,
+                          shift_xy=shift_xy)
     if point is not None:
-        return TreeAnchor(point=sval(point), is_origin=False)
+        return TreeAnchor(point=sval(point), is_origin=False, shift_xy=shift_xy)
     return TreeAnchor(
         role=sval(role),
         is_origin=False,
         anchor_sheet=_opt_sval(atom(anchor_node, "sheet")),
         anchor_cluster=_opt_sval(atom(anchor_node, "cluster")),
         anchor_pad=_opt_sval(atom(anchor_node, "pad")),
+        shift_xy=shift_xy,
     )
 
 
@@ -262,13 +291,16 @@ def _parse_mount_anchor(ref: str, anchor_node) -> TreeAnchor:
     anchor's LIVE role position instead of the parent. (origin)/(ref ...)/
     (point ...)/(external) are tree-anchor-only concepts — hard fatal, mirroring
     the tree-level _parse_anchor discipline; sheet/cluster narrow an ambiguous
-    Role, pad moves the base onto a specific pad (all optional)."""
+    Role, pad moves the base onto a specific pad (all optional). A (shift x y)
+    is likewise tree-anchor-only for now (the shift belongs to the tree's OUTER
+    point, plan §X.2): fatal rather than silently dropped."""
     if (child(anchor_node, "origin") is not None
             or atom(anchor_node, "ref") is not None
             or atom(anchor_node, "point") is not None
-            or child(anchor_node, "external") is not None):
+            or child(anchor_node, "external") is not None
+            or child(anchor_node, "shift") is not None):
         _fatal(_("mount node {ref!r}: anchor supports only (role ...) — "
-                 "origin/ref/point/external are tree-anchor-only")
+                 "origin/ref/point/external/shift are tree-anchor-only")
                .format(ref=ref))
     role = atom(anchor_node, "role")
     if not role:
@@ -738,28 +770,32 @@ def _node_to_sexp(node: TreeNode) -> list:
 
 def _anchor_to_sexp(anchor: TreeAnchor) -> list | None:
     """Serialize one anchor node: (origin), (ref ...) [(external)],
-    (role ...) (+ sheet/cluster/pad), (point ...). None for an AUTO anchor
-    (no explicit anchor — the (anchor ...) node is omitted entirely, so the
-    round-trip load_trees(save_trees(x)) == x keeps holding)."""
+    (role ...) (+ sheet/cluster/pad), (point ...), and the optional own
+    (shift x y). None for an AUTO anchor (no explicit anchor — the (anchor ...)
+    node is omitted entirely, so the round-trip load_trees(save_trees(x)) == x
+    keeps holding)."""
     if anchor.is_auto:
         return None
     if anchor.is_origin:
-        return [sym("anchor"), [sym("origin")]]
-    out = [sym("anchor")]
-    if anchor.ref is not None:
-        out.append([sym("ref"), anchor.ref])
-        if anchor.is_external:
-            out.append([sym("external")])
-    elif anchor.point is not None:
-        out.append([sym("point"), anchor.point])
+        out = [sym("anchor"), [sym("origin")]]
     else:
-        out.append([sym("role"), anchor.role])
-        if anchor.anchor_sheet is not None:
-            out.append([sym("sheet"), anchor.anchor_sheet])
-        if anchor.anchor_cluster is not None:
-            out.append([sym("cluster"), anchor.anchor_cluster])
-        if anchor.anchor_pad is not None:
-            out.append([sym("pad"), anchor.anchor_pad])
+        out = [sym("anchor")]
+        if anchor.ref is not None:
+            out.append([sym("ref"), anchor.ref])
+            if anchor.is_external:
+                out.append([sym("external")])
+        elif anchor.point is not None:
+            out.append([sym("point"), anchor.point])
+        else:
+            out.append([sym("role"), anchor.role])
+            if anchor.anchor_sheet is not None:
+                out.append([sym("sheet"), anchor.anchor_sheet])
+            if anchor.anchor_cluster is not None:
+                out.append([sym("cluster"), anchor.anchor_cluster])
+            if anchor.anchor_pad is not None:
+                out.append([sym("pad"), anchor.anchor_pad])
+    if anchor.shift_xy is not None:
+        out.append([sym("shift"), anchor.shift_xy[0], anchor.shift_xy[1]])
     return out
 
 
@@ -807,25 +843,28 @@ def save_trees(path: str, trees: list[Tree]) -> None:
 
 def _anchor_to_dict(anchor: TreeAnchor) -> dict | None:
     """Mirror of _anchor_to_sexp in plain-dict shape (the config inlay). None
-    for an AUTO anchor — tree_to_dict then omits the "anchor" key entirely."""
+    for an AUTO anchor — tree_to_dict then omits the "anchor" key entirely.
+    The anchor's own "shift" (local-mm, §X.2) is added on ANY base kind."""
     if anchor.is_auto:
         return None
     if anchor.is_origin:
-        return {"origin": True}
-    if anchor.ref is not None:
-        out: dict = {"ref": anchor.ref}
+        out: dict = {"origin": True}
+    elif anchor.ref is not None:
+        out = {"ref": anchor.ref}
         if anchor.is_external:
             out["external"] = True
-        return out
-    if anchor.point is not None:
-        return {"point": anchor.point}
-    out: dict = {"role": anchor.role}
-    if anchor.anchor_sheet is not None:
-        out["sheet"] = anchor.anchor_sheet
-    if anchor.anchor_cluster is not None:
-        out["cluster"] = anchor.anchor_cluster
-    if anchor.anchor_pad is not None:
-        out["pad"] = anchor.anchor_pad
+    elif anchor.point is not None:
+        out = {"point": anchor.point}
+    else:
+        out = {"role": anchor.role}
+        if anchor.anchor_sheet is not None:
+            out["sheet"] = anchor.anchor_sheet
+        if anchor.anchor_cluster is not None:
+            out["cluster"] = anchor.anchor_cluster
+        if anchor.anchor_pad is not None:
+            out["pad"] = anchor.anchor_pad
+    if anchor.shift_xy is not None:
+        out["shift"] = [anchor.shift_xy[0], anchor.shift_xy[1]]
     return out
 
 
@@ -888,23 +927,29 @@ def tree_to_dict(tree: Tree) -> dict:
 
 def _raw_anchor(anchor_node) -> dict:
     """(anchor ...) -> the config-dict anchor shape, WITHOUT validation — the
-    converter must be able to read whatever a pre-2026-09-11 config holds."""
+    converter must be able to read whatever a pre-2026-09-11 config holds.
+    A (shift x y) is passed through verbatim (it is the NEW grammar, but the
+    converter must round-trip it unchanged — idempotency)."""
     if child(anchor_node, "origin") is not None:
-        return {"origin": True}
-    ref = atom(anchor_node, "ref")
-    if ref is not None:
-        out: dict = {"ref": sval(ref)}
-        if child(anchor_node, "external") is not None:
-            out["external"] = True
-        return out
-    point = atom(anchor_node, "point")
-    if point is not None:
-        return {"point": sval(point)}
-    out = {"role": sval(atom(anchor_node, "role"))}
-    for key in ("sheet", "cluster", "pad"):
-        value = atom(anchor_node, key)
-        if value is not None:
-            out[key] = sval(value)
+        out: dict = {"origin": True}
+    else:
+        ref = atom(anchor_node, "ref")
+        point = atom(anchor_node, "point")
+        if ref is not None:
+            out = {"ref": sval(ref)}
+            if child(anchor_node, "external") is not None:
+                out["external"] = True
+        elif point is not None:
+            out = {"point": sval(point)}
+        else:
+            out = {"role": sval(atom(anchor_node, "role"))}
+            for key in ("sheet", "cluster", "pad"):
+                value = atom(anchor_node, key)
+                if value is not None:
+                    out[key] = sval(value)
+    shift = _raw_offset(anchor_node, "shift")
+    if shift is not None:
+        out["shift"] = shift
     return out
 
 
@@ -1008,11 +1053,11 @@ def _dict_offset(data: dict, key: str, location: str) -> tuple[float, float] | N
 def _dict_mount_anchor(ref: str, anchor_data: dict) -> TreeAnchor:
     """A kind "mount" node dict's nested "anchor" mapping (mirror of the s-expr
     (anchor (role ...)) child). Only the role shape is valid — origin/ref/point/
-    external on a mount node's anchor are tree-anchor-only concepts and are
-    load-time fatal (mirrors _parse_mount_anchor)."""
+    external/shift on a mount node's anchor are tree-anchor-only concepts and
+    are load-time fatal (mirrors _parse_mount_anchor)."""
     if not isinstance(anchor_data, dict):
         _fatal(_("mount node {ref!r}: anchor must be a mapping").format(ref=ref))
-    forbidden = [k for k in ("origin", "ref", "point", "external")
+    forbidden = [k for k in ("origin", "ref", "point", "external", "shift")
                  if anchor_data.get(k) is not None]
     if forbidden:
         _fatal(_("mount node {ref!r}: anchor supports only role — {keys} are "
@@ -1134,6 +1179,22 @@ def _dict_tree_pivot(data: dict, tree_name: str, nodes: list[TreeNode]
     return pivot_xy, pivot_polar, pivot_ref
 
 
+def _dict_anchor_shift(anchor_data: dict, tree_name: str
+                       ) -> tuple[float, float] | None:
+    """The anchor dict's optional "shift" [x, y] — the anchor's OWN LOCAL-mm
+    offset (plan_2026_09_11_external_point_materialization §X.2), or None.
+    Exactly two numbers, or a fatal (mirror of _parse_anchor_shift)."""
+    raw = anchor_data.get("shift")
+    if raw is None:
+        return None
+    if not (isinstance(raw, (list, tuple)) and len(raw) == 2
+            and all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                    for v in raw)):
+        _fatal(_("tree {name!r}: anchor shift must be exactly two numbers")
+               .format(name=tree_name))
+    return float(raw[0]), float(raw[1])
+
+
 def tree_from_dict(data: dict, seen_refs: set[str] | None = None) -> Tree:
     """Plain dict -> Tree, the inverse of tree_to_dict. seen_refs (optional,
     shared across the whole config) enforces node-ref uniqueness across the
@@ -1147,6 +1208,7 @@ def tree_from_dict(data: dict, seen_refs: set[str] | None = None) -> Tree:
     if name is None:
         _fatal(_("a tree is missing a (name ...)"))
     anchor_data = data.get("anchor") or {}
+    shift_xy = _dict_anchor_shift(anchor_data, name)
     anchor_modes = [k for k in ("origin", "ref", "role", "point")
                     if anchor_data.get(k) is not None]
     if len(anchor_modes) > 1:
@@ -1154,15 +1216,20 @@ def tree_from_dict(data: dict, seen_refs: set[str] | None = None) -> Tree:
     if not anchor_modes:
         # A tree with no (anchor ...) gets an AUTO anchor, derived at
         # materialization time from its own root Entity placement's cell zero
-        # slot (2026-08-31, plan tree_self_anchor_from_entity).
+        # slot (2026-08-31, plan tree_self_anchor_from_entity). A shift with no
+        # base is meaningless — fatal (mirrors the s-expr mode-count fatal).
+        if shift_xy is not None:
+            _fatal(_("anchor: shift needs a base — set one of "
+                     "origin/ref/role/point"))
         anchor = TreeAnchor(is_auto=True)
     elif anchor_data.get("origin"):
         if anchor_data.get("external"):
             _fatal(_("anchor: origin and external are mutually exclusive"))
-        anchor = TreeAnchor(is_origin=True)
+        anchor = TreeAnchor(is_origin=True, shift_xy=shift_xy)
     elif anchor_data.get("ref") is not None:
         anchor = TreeAnchor(ref=anchor_data["ref"],
-                            is_external=bool(anchor_data.get("external")))
+                            is_external=bool(anchor_data.get("external")),
+                            shift_xy=shift_xy)
     else:
         # (external) is a REF-anchor modifier only — a role/point anchor is
         # never a config record, so "external" on it would be silently
@@ -1170,13 +1237,14 @@ def tree_from_dict(data: dict, seen_refs: set[str] | None = None) -> Tree:
         if anchor_data.get("external"):
             _fatal(_("anchor: external is only valid with a ref anchor"))
         if anchor_data.get("point") is not None:
-            anchor = TreeAnchor(point=anchor_data["point"])
+            anchor = TreeAnchor(point=anchor_data["point"], shift_xy=shift_xy)
         else:
             anchor = TreeAnchor(
                 role=anchor_data["role"],
                 anchor_sheet=anchor_data.get("sheet"),
                 anchor_cluster=anchor_data.get("cluster"),
                 anchor_pad=anchor_data.get("pad"),
+                shift_xy=shift_xy,
             )
     parsed_nodes = [_dict_node(n, seen_refs, f"tree {name!r}")
                     for n in data.get("nodes") or []]

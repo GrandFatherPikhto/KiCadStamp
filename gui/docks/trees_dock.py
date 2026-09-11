@@ -68,7 +68,7 @@ from kicadstamp.utils.units import MM
 
 from .. import settings
 from ..worker import start_long_op
-from ._anchor_origin import AnchorOriginWidget
+from ._anchor_origin import AnchorOriginWidget, build_role_anchor_fields
 from .live_position import read_record_live_pose
 from ._common import (ERROR_STYLE as _ERROR_STYLE,
                       configure_searchable, confirm_first_run_adoption,
@@ -3574,9 +3574,31 @@ class _NodeDialog(QDialog):
         return self._form.mount_anchor()
 
 
+# The tree-anchor MODE TABLE (design §3.2; plan_2026_09_11_external_point_
+# materialization §X.3.2). DATA, not code: the combo, the per-mode row
+# visibility (_on_mode_changed) and any future append read THIS table, so
+# adding a mode is adding one entry here (plus its build/prefill line) — never
+# a re-plumbing of hand-wired mode switches. The mode list is deliberately
+# OPEN: the follow-up task replaces `is_auto` with a new explicit `self` mode
+# ("my own live root"), which is exactly one more entry below.
+#
+# `rows` names the field groups the mode shows: "record" = the kind-filtered
+# ref row, "role" = the role/sheet/pad/cluster row, "point" = the point row.
+# The order is FROZEN: existing tests drive the combo by INDEX (0 origin,
+# 1 record, 2 external, ...), so new modes append AFTER point.
+_TREE_ANCHOR_MODES = (
+    ("origin", _("Origin (board 0,0)"), ()),
+    ("record", _("Config record"), ("record",)),
+    ("external", _("External refdes"), ("record",)),
+    ("auto", _("Auto (derive from Entity's own cell)"), ()),
+    ("role", _("Role"), ("role",)),
+    ("point", _("Point"), ("point",)),
+)
+
+
 class AnchorFormWidget(QWidget):
-    """The tree-anchor picker/edit FORM (no modal wrapper): all six TreeAnchor
-    modes (see kicadstamp/trees.py):
+    """The tree-anchor picker/edit FORM (no modal wrapper): every TreeAnchor
+    mode in _TREE_ANCHOR_MODES (see kicadstamp/trees.py):
       - origin   -> (anchor (origin)): absolute board origin (0,0)
       - record   -> (anchor (ref "...")): a config record name, narrowed by a
                     kind filter (Entity/Rule/Coordinate/Point/Clone + All) —
@@ -3588,6 +3610,9 @@ class AnchorFormWidget(QWidget):
                     way to get an auto anchor through the GUI
       - role     -> (anchor (role "...") [(sheet ...) (cluster ...) (pad ...)])
       - point    -> (anchor (point "...")): a points: entry name
+    Every mode also carries an OPTIONAL own (shift x y) in LOCAL mm of the
+    base (§X.2).
+
     `existing` (a TreeAnchor) switches to EDIT mode: the mode and every field
     are pre-filled (symmetric to NodeFormWidget's existing=), so a user can
     just tweak e.g. the sheet of a role anchor instead of rebuilding it.
@@ -3654,16 +3679,13 @@ class AnchorFormWidget(QWidget):
         root = QVBoxLayout(self)
         form = QFormLayout()
 
-        # Mode combo — the six TreeAnchor modes. The first three keep their
-        # historic indices (0/1/2) so nothing that drives the combo by index
-        # regresses; auto/role/point are appended after them.
+        # Mode combo — built from the DATA table _TREE_ANCHOR_MODES, not
+        # hand-listed here. Its order keeps the historic indices (0 origin,
+        # 1 record, 2 external, ...) so nothing that drives the combo by index
+        # regresses; a new mode is one table entry.
         self.mode_combo = QComboBox()
-        self.mode_combo.addItem(_("Origin (board 0,0)"), "origin")
-        self.mode_combo.addItem(_("Config record"), "record")
-        self.mode_combo.addItem(_("External refdes"), "external")
-        self.mode_combo.addItem(_("Auto (derive from Entity's own cell)"), "auto")
-        self.mode_combo.addItem(_("Role"), "role")
-        self.mode_combo.addItem(_("Point"), "point")
+        for _mode_key, _mode_label, _rows in _TREE_ANCHOR_MODES:
+            self.mode_combo.addItem(_mode_label, _mode_key)
         form.addRow(_("Anchor:"), self.mode_combo)
 
         # record / external rows: a kind filter (picker aid) + the ref combo.
@@ -3690,27 +3712,22 @@ class AnchorFormWidget(QWidget):
         record_form.addRow(self.hint_label)
         form.addRow(self.record_row)
 
-        # role rows: role/sheet/cluster searchable combos + pad free text.
+        # role rows: role/sheet/pad/cluster — built by the SAME shared builder
+        # the mount-node picker and the other docks use (design §3.2, one
+        # dictionary). show_ref=False: the tree's Ref lives in the separate
+        # kind-filtered record/external row above, not a bare line edit.
         self.role_row = QWidget()
         role_form = QFormLayout(self.role_row)
         role_form.setContentsMargins(0, 0, 0, 0)
-        self.role_edit = QComboBox()
-        configure_searchable(self.role_edit)
+        _role_w = build_role_anchor_fields(
+            role_form, show_ref=False, anchor_fields=("sheet", "pad", "cluster"))
+        self.role_edit = _role_w["role"]
+        self.sheet_edit = _role_w["sheet"]
+        self.pad_edit = _role_w["pad"]
+        self.cluster_edit = _role_w["cluster"]
         set_combo_items(self.role_edit, self._role_candidates)
-        role_form.addRow(_("Role:"), self.role_edit)
-        self.sheet_edit = QComboBox()
-        configure_searchable(self.sheet_edit)
         set_combo_items(self.sheet_edit, list(self._sheet_names.values()))
-        self.sheet_edit.lineEdit().setPlaceholderText(
-            _("sheet name (narrows an ambiguous Role, optional)"))
-        role_form.addRow(_("Sheet:"), self.sheet_edit)
-        self.cluster_edit = QComboBox()
-        configure_searchable(self.cluster_edit)
         set_combo_items(self.cluster_edit, self._cluster_candidates)
-        role_form.addRow(_("Cluster:"), self.cluster_edit)
-        self.pad_edit = QLineEdit()
-        self.pad_edit.setPlaceholderText(_("pad (optional)"))
-        role_form.addRow(_("Pad:"), self.pad_edit)
         form.addRow(self.role_row)
 
         # point row: searchable combo over the cfg.points names.
@@ -3723,6 +3740,28 @@ class AnchorFormWidget(QWidget):
             set_combo_items(self.point_edit, sorted(getattr(self._cfg, "points", {}) or {}))
         point_form.addRow(_("Point:"), self.point_edit)
         form.addRow(self.point_row)
+
+        # Shift row (§X.2.3): the anchor's OWN (shift x y). Stored in LOCAL mm
+        # of the base, SHOWN in board mm — the same five conversion functions
+        # as the tree settings, converted at the ANCHOR's own angle (never a
+        # cached one). Applies to every mode; disabled with a reason when the
+        # anchor does not resolve on the live board.
+        self.shift_row = QWidget()
+        shift_layout = QHBoxLayout(self.shift_row)
+        shift_layout.setContentsMargins(0, 0, 0, 0)
+        shift_layout.addWidget(QLabel(_("Shift X:")))
+        self.shift_x_edit = QLineEdit()
+        self.shift_x_edit.setPlaceholderText(_("shift X mm (0)"))
+        shift_layout.addWidget(self.shift_x_edit)
+        shift_layout.addWidget(QLabel(_("Shift Y:")))
+        self.shift_y_edit = QLineEdit()
+        self.shift_y_edit.setPlaceholderText(_("shift Y mm (0)"))
+        shift_layout.addWidget(self.shift_y_edit)
+        form.addRow(self.shift_row)
+        self.shift_reason_label = QLabel("")
+        self.shift_reason_label.setWordWrap(True)
+        self.shift_reason_label.setVisible(False)
+        form.addRow(self.shift_reason_label)
 
         # The button row is NOT part of the form — plan
         # plan_2026_09_04_trees_dock_master_detail.md §2.1: a plain QWidget form
@@ -3779,6 +3818,10 @@ class AnchorFormWidget(QWidget):
         self._stored_pivot_polar = None
         self._stored_pivot_ref = None
         self._stored_rotation = 0.0
+        # The anchor's OWN shift, in the CONFIG frame (LOCAL mm of the base),
+        # or None (§X.2). Same rule as the pivot: the board-frame display is
+        # derived, never the stored truth.
+        self._stored_anchor_shift = None
         # Reentrancy counter for programmatic widget loads (they emit signals).
         self._loading_settings = 0
 
@@ -3816,6 +3859,10 @@ class AnchorFormWidget(QWidget):
         self.cluster_edit.currentTextChanged.connect(self._mark_touched)
         self.point_edit.currentTextChanged.connect(self._mark_touched)
         self.pad_edit.textChanged.connect(self._mark_touched)
+        self.shift_x_edit.textChanged.connect(self._on_shift_edited)
+        self.shift_y_edit.textChanged.connect(self._on_shift_edited)
+        self.shift_x_edit.textChanged.connect(self._mark_touched)
+        self.shift_y_edit.textChanged.connect(self._mark_touched)
 
         # ── Tree settings wiring (plan_2026_09_11_tree_settings_form) ──────
         self.pivot_mode_combo.currentIndexChanged.connect(self._on_pivot_mode_changed)
@@ -3849,12 +3896,24 @@ class AnchorFormWidget(QWidget):
         context/§3; the flag itself is owned here."""
         self._touched = True
 
+    @staticmethod
+    def _mode_rows(mode: str) -> tuple:
+        """The field-group tuple _TREE_ANCHOR_MODES declares for `mode` (empty
+        for a mode with no extra rows). THE only place the table is read."""
+        for key, _label, rows in _TREE_ANCHOR_MODES:
+            if key == mode:
+                return rows
+        return ()
+
     def _on_mode_changed(self) -> None:
-        mode = self.mode_combo.currentData()
-        self.record_row.setVisible(mode in ("record", "external"))
-        self.role_row.setVisible(mode == "role")
-        self.point_row.setVisible(mode == "point")
-        if mode in ("record", "external"):
+        # Row visibility is DATA-driven off _TREE_ANCHOR_MODES: a new mode gets
+        # its rows for free. "record" covers both the record and external modes
+        # (the same kind-filtered ref row, only is_external differs on save).
+        rows = self._mode_rows(self.mode_combo.currentData())
+        self.record_row.setVisible("record" in rows)
+        self.role_row.setVisible("role" in rows)
+        self.point_row.setVisible("point" in rows)
+        if "record" in rows:
             self._on_kind_changed()
 
     def _on_kind_changed(self) -> None:
@@ -4154,7 +4213,10 @@ class AnchorFormWidget(QWidget):
         resolution failure disables the fields."""
         if self._cfg is None or self._tree is None:
             return None
-        anchor, err = self.build_anchor()
+        # The IDENTITY part only — the shift is a translation and cannot change
+        # the anchor's angle, and build_anchor() would need THIS base to convert
+        # the shift, which would recurse.
+        anchor, err = self._anchor_identity()
         if err or anchor is None:
             return None
         probe = replace(self._tree, anchor=anchor)
@@ -4204,6 +4266,16 @@ class AnchorFormWidget(QWidget):
         self.settings_frame_label.setText(reason)
         self.settings_frame_label.setVisible(bool(reason))
 
+    def _set_shift_editable(self, editable: bool, *, reason: str = "") -> None:
+        """Enable/disable the anchor-shift row (§X.2.3). Disabled means the
+        board frame is unavailable, so the fields hold the RAW stored value and
+        editing them would silently change their meaning — the same rule
+        _set_settings_editable applies to the tree settings."""
+        self.shift_x_edit.setEnabled(editable)
+        self.shift_y_edit.setEnabled(editable)
+        self.shift_reason_label.setText(reason)
+        self.shift_reason_label.setVisible(bool(reason))
+
     def _show_raw_settings(self) -> None:
         """Show the RAW stored (config-frame) settings — used when no live base
         is available, so a save can never re-interpret board-frame numbers."""
@@ -4219,6 +4291,14 @@ class AnchorFormWidget(QWidget):
                                        angle=self._stored_pivot_polar[1])
             else:
                 self.pivot_widget.load()
+            # The RAW (config-frame, LOCAL-mm) shift — the same "show the stored
+            # truth when the board frame is unavailable" rule as the pivot.
+            if self._stored_anchor_shift is not None:
+                self.shift_x_edit.setText(str(self._stored_anchor_shift[0]))
+                self.shift_y_edit.setText(str(self._stored_anchor_shift[1]))
+            else:
+                self.shift_x_edit.setText("")
+                self.shift_y_edit.setText("")
         finally:
             self._loading_settings -= 1
 
@@ -4235,6 +4315,10 @@ class AnchorFormWidget(QWidget):
                     "The selected anchor does not resolve on the live board — "
                     "the suspension point and angle are shown disabled until it "
                     "resolves."))
+                self._set_shift_editable(False, reason=_(
+                    "The selected anchor does not resolve on the live board — "
+                    "the shift is shown as the raw config value and disabled "
+                    "until it resolves."))
                 return
             eff_rot, anchor_rot = base
             self.rotation_edit.setText(str(
@@ -4250,6 +4334,18 @@ class AnchorFormWidget(QWidget):
             else:
                 self.pivot_widget.load()
             self._set_settings_editable(True)
+            # The shift is converted at the ANCHOR's own angle (§X.2.3) — NOT
+            # eff_rot (which adds the tree's dovоrот): the shift lives in the
+            # base frame, before the tree turns.
+            self._set_shift_editable(True)
+            if self._stored_anchor_shift is not None:
+                sx, sy = local_offset_to_board_mm(self._stored_anchor_shift,
+                                                  anchor_rot)
+                self.shift_x_edit.setText(str(sx))
+                self.shift_y_edit.setText(str(sy))
+            else:
+                self.shift_x_edit.setText("")
+                self.shift_y_edit.setText("")
         finally:
             self._loading_settings -= 1
 
@@ -4261,6 +4357,11 @@ class AnchorFormWidget(QWidget):
         self._update_pivot_hint()
         if self._tree is None:
             self.settings_box.setVisible(False)
+            # No tree yet (create-tree dialog): there is no stored anchor to
+            # carry a shift, and no live base to express one in board mm.
+            self._set_shift_editable(False, reason=_(
+                "The anchor shift is stored on an existing tree — create the "
+                "tree first."))
             return
         self._loading_settings += 1
         try:
@@ -4268,6 +4369,7 @@ class AnchorFormWidget(QWidget):
             self._stored_pivot_xy = self._tree.pivot_xy
             self._stored_pivot_polar = self._tree.pivot_polar
             self._stored_pivot_ref = self._tree.pivot_ref
+            self._stored_anchor_shift = getattr(self._tree.anchor, "shift_xy", None)
             if self._tree.pivot_ref is not None:
                 mode = "node"
             elif (self._tree.pivot_xy is not None
@@ -4345,12 +4447,61 @@ class AnchorFormWidget(QWidget):
         return ({"pivot_xy": pivot_xy, "pivot_polar": pivot_polar,
                  "pivot_ref": pivot_ref, "rotation": rotation}, None)
 
-    def build_anchor(self) -> tuple[Optional[TreeAnchor], Optional[str]]:
-        """Collect + validate the form into a TreeAnchor, or an error string —
-        the same (value, error) idiom as AnchorOriginWidget.build()/build_node()
-        (plan §2.2). Pure — no QMessageBox, no self.accept(); the caller
-        (Apply in the Anchor tab, or _AnchorDialog's OK) decides how to surface
-        an error (apply_status_label vs a modal warning)."""
+    def _build_shift(self) -> tuple[Optional[tuple], Optional[str]]:
+        """The anchor's own (shift x y) in CONFIG (LOCAL) mm, or None, plus an
+        optional error (§X.2.3). When the base resolves, the board-mm field is
+        converted by the ANCHOR angle in force RIGHT NOW (never a cached one);
+        when it does not resolve, the field is disabled and the STORED
+        config-frame value is returned UNCHANGED — a disabled form can never
+        reinterpret (and silently rewrite) the numbers."""
+        if self._tree is None:
+            return None, None
+        base = self._conversion_base_deg()
+        if base is None:
+            return self._stored_anchor_shift, None
+        anchor_rot = base[1]
+        tx = self.shift_x_edit.text().strip()
+        ty = self.shift_y_edit.text().strip()
+        if tx == "" and ty == "":
+            return None, None
+        try:
+            bx = float(tx) if tx != "" else 0.0
+            by = float(ty) if ty != "" else 0.0
+        except ValueError:
+            return None, _("Shift: X and Y must be numbers.")
+        if bx == 0.0 and by == 0.0:
+            return None, None
+        return board_offset_to_local_mm((bx, by), anchor_rot), None
+
+    def _on_shift_edited(self) -> None:
+        """A shift edit updates the CONFIG-frame state using the anchor angle in
+        force RIGHT NOW (§X.2.3) — never a cached base (the 9887468 trap)."""
+        if self._loading_settings or self._tree is None:
+            return
+        base = self._conversion_base_deg()
+        if base is None:
+            return
+        anchor_rot = base[1]
+        tx = self.shift_x_edit.text().strip()
+        ty = self.shift_y_edit.text().strip()
+        if tx == "" and ty == "":
+            self._stored_anchor_shift = None
+            return
+        try:
+            bx = float(tx) if tx != "" else 0.0
+            by = float(ty) if ty != "" else 0.0
+        except ValueError:
+            return  # incomplete — build_anchor reports it on Apply
+        if bx == 0.0 and by == 0.0:
+            self._stored_anchor_shift = None
+        else:
+            self._stored_anchor_shift = board_offset_to_local_mm((bx, by), anchor_rot)
+
+    def _anchor_identity(self) -> tuple[Optional[TreeAnchor], Optional[str]]:
+        """The anchor from the mode/field rows, WITHOUT its own shift — the part
+        the live-base probe needs (_conversion_base_deg). build_anchor() adds
+        the shift on top. Adding a mode means one _TREE_ANCHOR_MODES entry and
+        one branch HERE."""
         mode = self.mode_combo.currentData()
         if mode == "origin":
             return (TreeAnchor(ref=None, is_origin=True, is_external=False), None)
@@ -4378,6 +4529,22 @@ class AnchorFormWidget(QWidget):
         # carry it as is_external so the resolver can't hit a name collision.
         return (TreeAnchor(ref=ref, is_origin=False,
                            is_external=(mode == "external")), None)
+
+    def build_anchor(self) -> tuple[Optional[TreeAnchor], Optional[str]]:
+        """Collect + validate the form into a TreeAnchor (including its own
+        (shift x y), §X.2), or an error string — the same (value, error) idiom
+        as AnchorOriginWidget.build()/build_node() (plan §2.2). Pure — no
+        QMessageBox, no self.accept(); the caller (Apply in the Anchor tab, or
+        _AnchorDialog's OK) decides how to surface an error (apply_status_label
+        vs a modal warning)."""
+        anchor, err = self._anchor_identity()
+        if err:
+            return (None, err)
+        shift_xy, shift_err = self._build_shift()
+        if shift_err:
+            return (None, shift_err)
+        anchor.shift_xy = shift_xy
+        return (anchor, None)
 
     def apply(self) -> bool:
         """Anchor + tree-settings Phase B Apply (plan §2.3, §W.2): write the

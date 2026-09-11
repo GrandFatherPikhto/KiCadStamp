@@ -16307,3 +16307,24 @@ msgstr ""
 
 msgid "this node is the tree's suspension point (pivot-ref) — the tree is positioned and rotated around it"
 msgstr ""
+
+msgid "Shift: X and Y must be numbers."
+msgstr ""
+
+msgid "The anchor shift is stored on an existing tree — create the tree first."
+msgstr ""
+
+msgid "The selected anchor does not resolve on the live board — the shift is shown as the raw config value and disabled until it resolves."
+msgstr ""
+
+msgid "anchor: shift must be exactly two numbers"
+msgstr ""
+
+msgid "anchor: shift needs a base — set one of origin/ref/role/point"
+msgstr ""
+
+msgid "mount node {ref!r}: anchor supports only (role ...) — origin/ref/point/external/shift are tree-anchor-only"
+msgstr ""
+
+msgid "tree {name!r}: anchor shift must be exactly two numbers"
+msgstr ""
