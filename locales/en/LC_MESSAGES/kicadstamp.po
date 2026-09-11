@@ -16202,3 +16202,51 @@ msgstr ""
 msgid "tree {tree!r}: {what} is anchored to role {role!r}, which this tree places itself — the base must be OUTSIDE the tree, otherwise every redraw silently drifts"
 msgstr ""
 
+
+msgid "Tree conversion: {trees} tree(s) touched, {mounts} mount node(s) created, {wrapped} node(s) wrapped, {pivots} inner point(s) moved onto a tree"
+msgstr ""
+
+msgid "node {ref!r}: {key} is no longer valid on a node — the tree's inner point moved to the (tree ...) level; run the tree converter (kicadstamp convert-trees) on this config"
+msgstr ""
+
+msgid "node {ref!r}: {key} is no longer valid on a node — the tree's inner point moved to the TREES level; run the tree converter (kicadstamp convert-trees) on this config"
+msgstr ""
+
+msgid "tree pivot conversion: {n} place(s) need a human decision — nothing was written"
+msgstr ""
+
+msgid "tree {name!r}: already carries its own pivot, which differs from the one its embedding asks for"
+msgstr ""
+
+msgid "tree {name!r}: embedded with a NON-ZERO pivot ({pivot}) while it is also a root tree — moving it onto the tree would shift its standalone placement"
+msgstr ""
+
+msgid "tree {name!r}: embedded with {count} DIFFERENT pivots — the inner point is one per tree"
+msgstr ""
+
+msgid "tree {name!r}: pivot-ref {ref!r} is a kind \"external\" node — a live refdes is not portable, so it cannot be the tree's inner point"
+msgstr ""
+
+msgid "tree {name!r}: pivot-ref {ref!r} is a kind {kind!r} node, which the layout cannot resolve yet (it places no record of its own) — use a record-backed node of this tree as the inner point"
+msgstr ""
+
+msgid "tree {name!r}: pivot-ref {ref!r} names no node of this tree"
+msgstr ""
+
+msgid "tree {name!r}: pivot-xy, pivot-polar and pivot-ref are mutually exclusive (use at most one)"
+msgstr ""
+
+msgid "tree {name!r}: pivot_ref must be a string"
+msgstr ""
+
+msgid "tree {name!r}: pivot_xy, pivot_polar and pivot_ref are mutually exclusive (use at most one)"
+msgstr ""
+
+msgid "tree {name!r}: rotation must be a number"
+msgstr ""
+
+msgid "tree {name!r}: {key} must be exactly two numbers"
+msgstr ""
+
+msgid "tree {tree_name!r}: pivot-ref {pivot_ref!r} not found in its own layout"
+msgstr ""

@@ -338,8 +338,10 @@ def _copy_node_onto(target: TreeNode, built: TreeNode) -> None:
     target.rotation = built.rotation
     target.name = built.name
     target.group = built.group
-    target.pivot_xy = built.pivot_xy
-    target.pivot_polar = built.pivot_polar
+    # NOTE (2026-09-11, plan_2026_09_11_tree_inner_point_and_rotation §V.3): the
+    # pivot_xy/pivot_polar copy that used to sit here is GONE — a node carries no
+    # pivot any more (the inner point belongs to the TREE). The tree-level
+    # editor arrives in stage Б2.1.
     target.anchor = built.anchor
 
 
@@ -3181,23 +3183,12 @@ class NodeFormWidget(QWidget):
                 "No live board connection — showing the STORED values in the "
                 "base's own frame; editing the offset and rotation is disabled "
                 "until KiCad is connected."))
-        if existing.kind == "module":
-            # pivot round-trips through Edit (plan 2026-09-02 P4 п.1; pivot_ref
-            # added 2026-09-07). pivot_widget.load() always runs FIRST (it
-            # fires fieldChanged, which would clear self._pivot_ref) — the
-            # authoritative value is set right after, so load()'s side effect
-            # never wins.
-            if existing.pivot_xy is not None:
-                self.pivot_widget.load(x=existing.pivot_xy[0], y=existing.pivot_xy[1])
-            elif existing.pivot_polar is not None:
-                self.pivot_widget.load(polar=True, radius=existing.pivot_polar[0],
-                                       angle=existing.pivot_polar[1])
-            else:
-                self.pivot_widget.load()
-            self._pivot_ref = existing.pivot_ref
-        else:
-            self.pivot_widget.load()
-            self._pivot_ref = None
+        # The per-NODE pivot round-trip that used to sit here is GONE
+        # (2026-09-11, plan §V.3): a node carries no inner point any more — it
+        # belongs to the TREE, whose editor arrives in stage Б2.1. The widget
+        # itself is kept (hidden) so `build_node` needs no branching.
+        self.pivot_widget.load()
+        self._pivot_ref = None
         self._update_pivot_ref_label()
         self.rotation_edit.setText(str(
             local_rotation_to_board_deg(existing.rotation, base_rot)
@@ -3305,14 +3296,17 @@ class NodeFormWidget(QWidget):
         kind = self.kind_combo.currentData()
         is_module = kind == "module"
         is_mount = kind == "mount"
-        # Module-only rows: pivot + its convenience sugar. Everything else:
-        # the "Read current position" row (a live read of a module ref — a
-        # tree, not a record — is meaningless; a MOUNT node's position IS its
-        # anchor, so a read is meaningless there too).
-        self.pivot_widget.setVisible(is_module)
-        self.pivot_from_node_button.setVisible(is_module)
-        self.pivot_by_ref_button.setVisible(is_module)
-        self.pivot_ref_status_label.setVisible(is_module)
+        # The pivot rows are HIDDEN for every kind now (2026-09-11, plan §V.3):
+        # a node carries no inner point — it belongs to the TREE, and the
+        # tree-level editor arrives in stage Б2.1. Kept (not deleted) so
+        # `build_node` and the tests that reference them stay simple until then.
+        # Everything else: the "Read current position" row (a live read of a
+        # module ref — a tree, not a record — is meaningless; a MOUNT node's
+        # position IS its anchor, so a read is meaningless there too).
+        self.pivot_widget.setVisible(False)
+        self.pivot_from_node_button.setVisible(False)
+        self.pivot_by_ref_button.setVisible(False)
+        self.pivot_ref_status_label.setVisible(False)
         self.read_position_button.setVisible(not is_module and not is_mount)
         self.read_status_label.setVisible(not is_module and not is_mount)
         # The mount anchor picker belongs to a MOUNT node only (plan §Y.1/Y.2)
@@ -3546,22 +3540,8 @@ class NodeFormWidget(QWidget):
         name = self.name_edit.text().strip() or None
         group = self.group_edit.text().strip() or None
         kind = self.kind_combo.currentData()
-        pivot_xy = pivot_polar = pivot_ref = None
-        if kind == "module":
-            if self._pivot_ref is not None:
-                # Pivot-by-ref (2026-09-07): persistent, re-resolved live at
-                # every redraw — skips pivot_widget.build() entirely (its
-                # fields are required-if-touched, but irrelevant here).
-                pivot_ref = self._pivot_ref
-            else:
-                pfields, perr = self.pivot_widget.build()
-                if perr:
-                    QMessageBox.warning(self, _("Add node"), perr)
-                    return None
-                if "radius" in pfields:
-                    pivot_polar = (pfields["radius"], pfields["angle"])
-                else:
-                    pivot_xy = (pfields["x"], pfields["y"])
+        # No pivot on a node any more (2026-09-11, plan §V.3): the tree's inner
+        # point is edited on the tree (stage Б2.1); the widget above is hidden.
         # A mount node WITHOUT a Role anchor is a hard refusal (a mount node is
         # a point of reference — with nothing to reference it is meaningless);
         # every other kind carries no anchor at all (its base is its parent).
@@ -3575,9 +3555,7 @@ class NodeFormWidget(QWidget):
         else:
             node_anchor = None
         return TreeNode(ref=ref, kind=kind, xy=xy, polar=polar, rotation=rotation,
-                        name=name, group=group, pivot_xy=pivot_xy,
-                        pivot_polar=pivot_polar, pivot_ref=pivot_ref,
-                        anchor=node_anchor)
+                        name=name, group=group, anchor=node_anchor)
 
 
 class _NodeDialog(QDialog):

@@ -43,6 +43,7 @@ from ..tree_position import (
     node_position,
     resolve_base_live_position,
     resolve_base_rotation_deg,
+    tree_effective_base,
 )
 from ..utils.units import MM
 from .services.component_resolver import (
@@ -212,11 +213,54 @@ def _entity_own_zero_slot_live_position(adapter: "KiCadBoardAdapter",
     return fp.position, fp.angle_deg
 
 
+def _plain_tree(cfg: "Config", name: str):
+    """The plain Tree dataclass named `name` in cfg.trees, or None. The linked
+    forest carries no back-reference to it, and the tree's own inner point /
+    angle live on the Tree (2026-09-11, plan_2026_09_11_tree_inner_point_and_
+    rotation §V.1), so the effective-base wrapper below resolves it by name."""
+    for t in getattr(cfg, "trees", []) or []:
+        if t.name == name:
+            return t
+    return None
+
+
+def _forest_by_name(cfg: "Config") -> dict:
+    """{tree name: plain Tree} for the layout helper (a module node's embedded
+    content is looked up by the tree NAME there)."""
+    return {t.name: t for t in getattr(cfg, "trees", []) or []}
+
+
 def _anchor_base(adapter: "KiCadBoardAdapter", cfg: "Config",
                  linked_tree: LinkedTree, sheet_names: dict,
                  forest: list[LinkedTree] | None = None,
                  visited: set[str] | None = None) -> tuple[Vector2, float]:
-    """(position_nm, rotation_deg) for a tree's anchor base.
+    """The EFFECTIVE base of a tree (2026-09-11, plan_2026_09_11_tree_inner_point_
+    and_rotation §V.2.2): the RAW live anchor pose (_anchor_base_raw — every
+    anchor mode) with the tree's OWN inner point and angle applied
+    (tree_position.tree_effective_base), so the tree's suspension point lands on
+    the outer anchor and its `rotation` turns the content around it.
+
+    THE one seam: _walk (materialization), scheme_list_apply and every live-read
+    of an Entity's position go through this, so the materialized result can never
+    drift apart from the live curated layout (plan §V.7.3 test 14). A tree with
+    no inner point and rotation 0 returns the raw pose unchanged (bit-identical
+    to the pre-2026-09-11 behaviour)."""
+    pos, rot = _anchor_base_raw(adapter, cfg, linked_tree, sheet_names,
+                                forest, visited)
+    tree = _plain_tree(cfg, linked_tree.name)
+    if tree is None:
+        return pos, rot
+    return tree_effective_base(tree, pos, rot, _forest_by_name(cfg),
+                               adapter=adapter, cfg=cfg, sheet_names=sheet_names)
+
+
+def _anchor_base_raw(adapter: "KiCadBoardAdapter", cfg: "Config",
+                     linked_tree: LinkedTree, sheet_names: dict,
+                     forest: list[LinkedTree] | None = None,
+                     visited: set[str] | None = None) -> tuple[Vector2, float]:
+    """(position_nm, rotation_deg) for a tree's RAW anchor base — the anchor
+    itself, BEFORE the tree's own inner point / angle are applied (see
+    _anchor_base, which every layout caller must use instead of this one).
     AUTO (no explicit (anchor ...)) -> derived from the tree's own root Entity
     placement's cell zero slot (_auto_anchor_base) — live role resolution.
     (origin) -> the board origin (0,0), rotation 0.

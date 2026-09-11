@@ -14852,3 +14852,51 @@ msgstr "дерево {tree!r}: имена mount-узлов {refs} совпада
 msgid "tree {tree!r}: {what} is anchored to role {role!r}, which this tree places itself — the base must be OUTSIDE the tree, otherwise every redraw silently drifts"
 msgstr "дерево {tree!r}: {what} привязан к роли {role!r}, которую это дерево размещает само — база обязана быть ВНЕ дерева, иначе каждый Redraw тихо уезжает"
 
+
+msgid "Tree conversion: {trees} tree(s) touched, {mounts} mount node(s) created, {wrapped} node(s) wrapped, {pivots} inner point(s) moved onto a tree"
+msgstr "Преобразование деревьев: затронуто деревьев — {trees}, создано mount-узлов — {mounts}, обёрнуто узлов — {wrapped}, перенесено внутренних точек на дерево — {pivots}"
+
+msgid "node {ref!r}: {key} is no longer valid on a node — the tree's inner point moved to the (tree ...) level; run the tree converter (kicadstamp convert-trees) on this config"
+msgstr "узел {ref!r}: {key} больше не допустим на узле — внутренняя точка дерева переехала на уровень (tree ...); запусти конвертер деревьев (kicadstamp convert-trees) на этом конфиге"
+
+msgid "node {ref!r}: {key} is no longer valid on a node — the tree's inner point moved to the TREES level; run the tree converter (kicadstamp convert-trees) on this config"
+msgstr "узел {ref!r}: {key} больше не допустим на узле — внутренняя точка дерева переехала на уровень TREES; запусти конвертер деревьев (kicadstamp convert-trees) на этом конфиге"
+
+msgid "tree pivot conversion: {n} place(s) need a human decision — nothing was written"
+msgstr "преобразование внутренних точек деревьев: {n} мест(а) требуют решения человека — ничего не записано"
+
+msgid "tree {name!r}: already carries its own pivot, which differs from the one its embedding asks for"
+msgstr "дерево {name!r}: уже несёт свою внутреннюю точку, и она отличается от той, которую просит его встраивание"
+
+msgid "tree {name!r}: embedded with a NON-ZERO pivot ({pivot}) while it is also a root tree — moving it onto the tree would shift its standalone placement"
+msgstr "дерево {name!r}: встроено с НЕНУЛЕВОЙ внутренней точкой ({pivot}) и при этом само является корневым деревом — перенос точки на дерево сдвинул бы его самостоятельное размещение"
+
+msgid "tree {name!r}: embedded with {count} DIFFERENT pivots — the inner point is one per tree"
+msgstr "дерево {name!r}: встроено с {count} РАЗНЫМИ внутренними точками — внутренняя точка одна на дерево"
+
+msgid "tree {name!r}: pivot-ref {ref!r} is a kind \"external\" node — a live refdes is not portable, so it cannot be the tree's inner point"
+msgstr "дерево {name!r}: pivot-ref {ref!r} — узел вида \"external\": живой refdes непереносим, поэтому он не может быть внутренней точкой дерева"
+
+msgid "tree {name!r}: pivot-ref {ref!r} is a kind {kind!r} node, which the layout cannot resolve yet (it places no record of its own) — use a record-backed node of this tree as the inner point"
+msgstr "дерево {name!r}: pivot-ref {ref!r} — узел вида {kind!r}, который раскладка пока не умеет резолвить (он не размещает свою запись) — используй в качестве внутренней точки узел этого дерева, опирающийся на запись"
+
+msgid "tree {name!r}: pivot-ref {ref!r} names no node of this tree"
+msgstr "дерево {name!r}: pivot-ref {ref!r} не называет ни одного узла этого дерева"
+
+msgid "tree {name!r}: pivot-xy, pivot-polar and pivot-ref are mutually exclusive (use at most one)"
+msgstr "дерево {name!r}: pivot-xy, pivot-polar и pivot-ref взаимоисключающие (используй не более одного)"
+
+msgid "tree {name!r}: pivot_ref must be a string"
+msgstr "дерево {name!r}: pivot_ref должен быть строкой"
+
+msgid "tree {name!r}: pivot_xy, pivot_polar and pivot_ref are mutually exclusive (use at most one)"
+msgstr "дерево {name!r}: pivot_xy, pivot_polar и pivot_ref взаимоисключающие (используй не более одного)"
+
+msgid "tree {name!r}: rotation must be a number"
+msgstr "дерево {name!r}: rotation должен быть числом"
+
+msgid "tree {name!r}: {key} must be exactly two numbers"
+msgstr "дерево {name!r}: {key} должен состоять ровно из двух чисел"
+
+msgid "tree {tree_name!r}: pivot-ref {pivot_ref!r} not found in its own layout"
+msgstr "дерево {tree_name!r}: pivot-ref {pivot_ref!r} не найден в его собственной раскладке"

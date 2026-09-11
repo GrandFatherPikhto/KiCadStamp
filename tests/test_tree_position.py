@@ -47,10 +47,11 @@ from kicadstamp.tree_position import (
     layout_tree_from_base,
     node_offset,
     node_position,
-    pivot_offset,
     resolve_module_effective_base,
     resolve_record_live_position,
     resolve_record_rotation_deg,
+    tree_effective_base,
+    tree_pivot_offset,
 )
 from kicadstamp.utils.units import MM
 
@@ -1284,14 +1285,21 @@ def test_mixed_tree_rule_override_lands_on_override_not_own_anchor(monkeypatch):
 
 # ── module embedding geometry (2026-09-02, plan P2) ────────────────────────
 
-def _mod(ref, xy=None, pivot_xy=None, pivot_polar=None, rotation=0.0, children=None):
+def _mod(ref, xy=None, rotation=0.0, children=None):
+    """A module NODE. 2026-09-11 (plan_2026_09_11_tree_inner_point_and_rotation
+    §V.3): it carries ONLY its own position — the inner point belongs to the
+    embedded TREE now, so this helper no longer takes pivot_* at all."""
     return TreeNode(ref=ref, kind="module", xy=xy, polar=None, rotation=rotation,
-                    name=None, group=None, children=children or [],
-                    pivot_xy=pivot_xy, pivot_polar=pivot_polar)
+                    name=None, group=None, children=children or [])
 
 
-def _leaf_tree(name, nodes):
-    return Tree(name=name, anchor=TreeAnchor(is_auto=True), nodes=nodes)
+def _leaf_tree(name, nodes, *, pivot_xy=None, pivot_polar=None, pivot_ref=None,
+               rotation=0.0):
+    """A standalone leaf tree; the pivot_*/rotation kwargs are the TREE's own
+    inner point and angle (plan §V.1/§V.2)."""
+    return Tree(name=name, anchor=TreeAnchor(is_auto=True), nodes=nodes,
+                pivot_xy=pivot_xy, pivot_polar=pivot_polar, pivot_ref=pivot_ref,
+                rotation=rotation)
 
 
 def _mm(vec):
@@ -1309,12 +1317,13 @@ def test_module_layout_pivot_zero_direct(tmp_path):
     assert _mm(pos) == (11.0, 7.0)
 
 
-def test_module_pivot_lands_exactly_on_marker_with_rotation():
-    """Invariant: a referenced-tree node whose local offset == pivot lands on
-    the marker's position, even with a rotated marker/pivot."""
-    child = _leaf_tree("ch0", [_node_dc(ref="d0", xy=(1.0, 2.0))])
-    parent = _leaf_tree("p", [_mod(ref="ch0", xy=(10.0, 0.0), rotation=30.0,
-                                  pivot_xy=(1.0, 2.0))])
+def test_embedded_tree_inner_point_lands_exactly_on_marker_with_rotation():
+    """Invariant: a referenced-tree node whose local offset == the TREE's inner
+    point lands on the marker's position, even with a rotated marker — the
+    inner point now lives on the EMBEDDED tree (plan §V.3), not the node."""
+    child = _leaf_tree("ch0", [_node_dc(ref="d0", xy=(1.0, 2.0))],
+                       pivot_xy=(1.0, 2.0))
+    parent = _leaf_tree("p", [_mod(ref="ch0", xy=(10.0, 0.0), rotation=30.0)])
     out = layout_tree_from_base(parent, _ORIGIN, 0.0, {"ch0": child})
     pos, _rot = out["d0"]
     # d0 at local offset == pivot must coincide with the marker at (10,0).
@@ -1324,12 +1333,12 @@ def test_module_pivot_lands_exactly_on_marker_with_rotation():
 
 def test_module_own_children_stage1_vs_referenced_stage2():
     """A module node's OWN children are laid from its raw marker (stage 1),
-    while the referenced tree's content is laid from the pivot-inverted
-    effective base (stage 2) — distinct positions when pivot != 0."""
+    while the referenced tree's content is laid from the inner-point-inverted
+    effective base (stage 2) — distinct positions when the pivot != 0."""
     own = _node_dc(ref="local_cap", xy=(1.0, 0.0))
-    child = _leaf_tree("ch0", [_node_dc(ref="d0", xy=(10.0, 0.0))])
-    parent = _leaf_tree("p", [_mod(ref="ch0", xy=(0.0, 0.0), pivot_xy=(5.0, 0.0),
-                                  children=[own])])
+    child = _leaf_tree("ch0", [_node_dc(ref="d0", xy=(10.0, 0.0))],
+                       pivot_xy=(5.0, 0.0))
+    parent = _leaf_tree("p", [_mod(ref="ch0", xy=(0.0, 0.0), children=[own])])
     out = layout_tree_from_base(parent, _ORIGIN, 0.0, {"ch0": child})
     # own child from marker (0,0)+(1,0) = (1,0); referenced d0 from eff
     # (-5,0)+(10,0) = (5,0).
@@ -1347,85 +1356,76 @@ def test_module_nested_layout_a_b_c():
     assert _mm(out["d0"][0]) == (13.0, 0.0)
 
 
-def test_pivot_offset_reads_xy_polar_and_default():
-    """pivot_offset mirrors node_offset over the pivot fields; None = (0,0)."""
-    assert pivot_offset(_mod(ref="m", pivot_xy=(2.0, 3.0))) == \
+def test_tree_pivot_offset_reads_xy_polar_and_default():
+    """tree_pivot_offset mirrors node_offset over the TREE's pivot fields;
+    absent = (0,0) = the tree's own origin (plan §V.1)."""
+    assert tree_pivot_offset(_leaf_tree("t", [], pivot_xy=(2.0, 3.0))) == \
         Vector2.from_xy(int(2.0 * MM), int(3.0 * MM))
-    assert pivot_offset(_mod(ref="m", pivot_polar=(5.0, 0.0))) == \
+    assert tree_pivot_offset(_leaf_tree("t", [], pivot_polar=(5.0, 0.0))) == \
         local_to_absolute(_ORIGIN, 5.0, 0.0, 0.0)
-    assert pivot_offset(_mod(ref="m")) == _ORIGIN
+    assert tree_pivot_offset(_leaf_tree("t", [])) == _ORIGIN
 
 
-# ── pivot-ref (2026-09-07, design_2026_09_07_module_pivot_by_ref.md) ───────
-# A pivot-ref names a node's ref INSIDE the referenced tree instead of a bare
-# number — resolved by laying that tree out from a bare (0,0)/0deg base
-# (which directly yields the same local-offset value pivot_xy/pivot_polar
-# already carry) and reading the named ref's position back out.
+# ── pivot-ref (2026-09-07, design_2026_09_07_module_pivot_by_ref.md; moved to
+# ── the TREE 2026-09-11, plan §V.1.2) ──────────────────────────────────────
+# A pivot-ref names a node's ref INSIDE THE TREE ITSELF instead of a bare
+# number — resolved by laying that tree out from a bare (0,0)/0deg base (which
+# directly yields the same local-offset value pivot_xy/pivot_polar already
+# carry) and reading the named ref's position back out.
 
-def _mod_ref(ref, xy=None, pivot_ref=None, rotation=0.0, children=None):
-    return TreeNode(ref=ref, kind="module", xy=xy, polar=None, rotation=rotation,
-                    name=None, group=None, children=children or [],
-                    pivot_ref=pivot_ref)
-
-
-def test_pivot_offset_ref_resolves_to_the_named_node_local_position():
-    """pivot_offset(node, child, forest) with pivot_ref returns the SAME
-    Vector2 a manually-computed pivot_xy for that node would — the whole
-    point of pivot-ref is to make this number automatic, not a new value."""
-    child = _leaf_tree("ch0", [_node_dc(ref="d0", xy=(1.0, 2.0))])
-    node = _mod_ref(ref="ch0", pivot_ref="d0")
-    got = pivot_offset(node, child, {"ch0": child})
+def test_tree_pivot_offset_ref_resolves_to_the_named_node_local_position():
+    """tree_pivot_offset(tree, forest) with pivot_ref returns the SAME Vector2 a
+    manually-computed pivot_xy would — pivot-ref makes the number automatic,
+    it does not invent a new one."""
+    tree = _leaf_tree("t", [_node_dc(ref="d0", xy=(1.0, 2.0))], pivot_ref="d0")
+    got = tree_pivot_offset(tree, {"t": tree})
     assert _mm(got) == (1.0, 2.0)
 
 
-def test_pivot_offset_ref_missing_child_is_fatal():
-    """pivot_ref set but no `child` tree passed — a caller error (link_trees
-    already guarantees the ref exists BY THE TIME apply reaches this; a pure
-    caller must still fail loudly, never silently treat it as (0,0))."""
-    node = _mod_ref(ref="ch0", pivot_ref="d0")
-    with pytest.raises(ValidationError, match="needs the referenced tree"):
-        pivot_offset(node)
+def test_tree_pivot_offset_ref_not_found_is_fatal():
+    """A pivot_ref whose node is not in the tree's own layout (shape changed
+    since load, which already validates the name) is a clear fatal, never a
+    silent (0,0)."""
+    tree = _leaf_tree("t", [_node_dc(ref="d0", xy=(1.0, 2.0))], pivot_ref="ghost")
+    with pytest.raises(ValidationError, match="not found in its own layout"):
+        tree_pivot_offset(tree, {"t": tree})
 
 
-def test_pivot_offset_ref_not_found_is_fatal():
-    """A pivot_ref not present in `child` (tree shape changed since Save,
-    since link_trees already rejects this at Save time) is a clear fatal,
-    never a silent (0,0)."""
-    child = _leaf_tree("ch0", [_node_dc(ref="d0", xy=(1.0, 2.0))])
-    node = _mod_ref(ref="ch0", pivot_ref="ghost")
-    with pytest.raises(ValidationError, match="not found inside the embedded tree"):
-        pivot_offset(node, child, {"ch0": child})
-
-
-def test_module_layout_pivot_ref_equivalent_to_manual_pivot_xy():
-    """End-to-end: a module using pivot-ref="d0" lays out IDENTICALLY to the
-    same module using the manually-computed pivot-xy for d0's local position
-    — pivot-ref is sugar over the same geometry, not a different mechanism."""
-    child = _leaf_tree("ch0", [_node_dc(ref="d0", xy=(1.0, 2.0)),
-                              _node_dc(ref="d1", xy=(4.0, -3.0))])
-    by_ref = _leaf_tree("p", [_mod_ref(ref="ch0", xy=(10.0, 0.0), rotation=30.0,
-                                       pivot_ref="d0")])
-    by_xy = _leaf_tree("p", [_mod(ref="ch0", xy=(10.0, 0.0), rotation=30.0,
-                                  pivot_xy=(1.0, 2.0))])
-    out_ref = layout_tree_from_base(by_ref, _ORIGIN, 0.0, {"ch0": child})
-    out_xy = layout_tree_from_base(by_xy, _ORIGIN, 0.0, {"ch0": child})
+def test_embedded_tree_pivot_ref_equivalent_to_manual_pivot_xy():
+    """End-to-end: an EMBEDDED tree whose inner point is pivot-ref="d0" lays out
+    IDENTICALLY to the same tree with the manually-computed pivot-xy for d0's
+    local position — pivot-ref is sugar over the same geometry."""
+    d0 = _node_dc(ref="d0", xy=(1.0, 2.0))
+    d1 = _node_dc(ref="d1", xy=(4.0, -3.0))
+    marker = [_mod(ref="ch0", xy=(10.0, 0.0), rotation=30.0)]
+    by_ref = _leaf_tree("p", marker)
+    by_xy = _leaf_tree("p", [_mod(ref="ch0", xy=(10.0, 0.0), rotation=30.0)])
+    ch_ref = _leaf_tree("ch0", [d0, d1], pivot_ref="d0")
+    ch_xy = _leaf_tree("ch0", [_node_dc(ref="d0", xy=(1.0, 2.0)),
+                               _node_dc(ref="d1", xy=(4.0, -3.0))],
+                       pivot_xy=(1.0, 2.0))
+    out_ref = layout_tree_from_base(by_ref, _ORIGIN, 0.0, {"ch0": ch_ref})
+    out_xy = layout_tree_from_base(by_xy, _ORIGIN, 0.0, {"ch0": ch_xy})
     assert out_ref == out_xy
 
 
-def test_module_pivot_ref_reaches_through_nested_module_geometry():
-    """A pivot-ref may land on a ref reachable only through a NESTED module's
-    own referenced tree (mirrors test_module_nested_layout_a_b_c's shape) —
-    pivot resolution uses the SAME recursive layout as the outer walk, so it
-    sees exactly what the outer walk would eventually place."""
-    c = _leaf_tree("c", [_node_dc(ref="d0", xy=(1.0, 0.0))])
-    b = _leaf_tree("b", [_mod(ref="c", xy=(2.0, 0.0))])  # b embeds c, pivot 0
-    a = _leaf_tree("a", [_mod_ref(ref="b", xy=(10.0, 0.0), pivot_ref="d0")])
-    out = layout_tree_from_base(a, _ORIGIN, 0.0, {"b": b, "c": c})
-    # d0's position inside a standalone "b" (pivot 0) is (2+1, 0) = (3, 0) —
-    # that becomes the pivot, so eff_pos = marker(10,0) - (3,0) = (7,0), and
-    # d0 lands back on the marker exactly (the pivot invariant, same as
-    # test_module_pivot_lands_exactly_on_marker_with_rotation).
-    assert _mm(out["d0"][0]) == (10.0, 0.0)
+def test_tree_rotation_turns_the_embedded_content_around_the_inner_point():
+    """A tree's OWN rotation is a DОВОРОТ: the embedded content is laid at
+    marker_rot + tree.rotation, and the inner point still lands on the marker
+    (plan §V.2.1/§V.2.2 — the whole reason the inner point and the angle are
+    done in the same stage).
+
+    NOTE: a pivot-ref is restricted to THIS tree's own nodes by the grammar
+    (plan §V.1.2 / trees.py::_validate_tree_pivot_ref); reaching a ref behind a
+    nested module is deliberately NOT declarable any more (it used to be, when
+    the pivot lived on the node) — see the report."""
+    child = _leaf_tree("ch0", [_node_dc(ref="d0", xy=(1.0, 0.0))],
+                       pivot_xy=(1.0, 0.0), rotation=30.0)
+    parent = _leaf_tree("p", [_mod(ref="ch0", xy=(10.0, 0.0))])
+    out = layout_tree_from_base(parent, _ORIGIN, 0.0, {"ch0": child})
+    pos, rot = out["d0"]
+    assert abs(pos.x - 10.0 * MM) < 1        # inner point (== d0) on the marker
+    assert abs(rot - 30.0) < 1e-9            # 0 (marker) + 30 (tree dovоrот)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

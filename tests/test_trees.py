@@ -421,56 +421,63 @@ def test_save_trees_writes_non_default_fields(tmp_path):
 
 # ── module node (kind module) + pivot fields (2026-09-02, plan P0) ──────────
 
-def _module_node(ref, xy=None, pivot_xy=None, pivot_polar=None, pivot_ref=None,
-                 rotation=0.0, children=None):
+def _module_node(ref, xy=None, rotation=0.0, children=None):
+    """A module NODE — only its own position (the inner point moved to the TREE,
+    plan_2026_09_11_tree_inner_point_and_rotation §V.3)."""
     return TreeNode(ref=ref, kind="module", xy=xy, polar=None, rotation=rotation,
-                    name=None, group=None, children=children or [],
-                    pivot_xy=pivot_xy, pivot_polar=pivot_polar, pivot_ref=pivot_ref)
+                    name=None, group=None, children=children or [])
 
 
 def test_module_kind_roundtrips_through_sexp(tmp_path):
-    """kind module + pivot_xy survive save_trees -> load_trees identically; a
-    module node may also carry its own children."""
+    """kind module + the TREE's own pivot_xy/rotation survive
+    save_trees -> load_trees identically; a module node may still carry its own
+    children."""
     child = TreeNode(ref="fpga_flash", kind="placement", xy=(1.0, 2.0), polar=None,
                      rotation=0.0, name=None, group=None, children=[])
     marker = _module_node(ref="ch0_dac_buf", xy=(10.0, 5.0), rotation=15.0,
-                          pivot_xy=(0.5, -0.25), children=[child])
-    trees = [Tree(name="fpga", anchor=TreeAnchor(is_auto=True), nodes=[marker])]
+                          children=[child])
+    trees = [Tree(name="fpga", anchor=TreeAnchor(is_auto=True), nodes=[marker],
+                  pivot_xy=(0.5, -0.25), rotation=7.5)]
     path = tmp_path / "module.trees"
     save_trees(str(path), trees)
     assert load_trees(str(path)) == trees
 
 
-def test_module_pivot_polar_roundtrips_through_sexp(tmp_path):
-    """pivot_polar serializes as (pivot-polar r a) and round-trips."""
-    marker = _module_node(ref="ch0_dac_buf", pivot_polar=(3.0, 45.0))
-    trees = [Tree(name="t", anchor=TreeAnchor(is_auto=True), nodes=[marker])]
+def test_tree_pivot_polar_roundtrips_through_sexp(tmp_path):
+    """A tree's pivot_polar serializes as (pivot-polar r a) and round-trips."""
+    tree = Tree(name="t", anchor=TreeAnchor(is_auto=True),
+                nodes=[_module_node(ref="ch0")], pivot_polar=(3.0, 45.0))
+    trees = [tree]
     path = tmp_path / "module.trees"
     save_trees(str(path), trees)
     assert "(pivot-polar 3.0 45.0)" in path.read_text(encoding="utf-8")
     assert load_trees(str(path)) == trees
 
 
-def test_module_pivot_default_omitted_in_sexp(tmp_path):
-    """A pivot default (None = (0,0)) must NOT be written — same no-noise
-    discipline as xy/polar."""
-    marker = _module_node(ref="ch0_dac_buf", xy=(10.0, 5.0))
-    trees = [Tree(name="t", anchor=TreeAnchor(is_auto=True), nodes=[marker])]
+def test_tree_pivot_default_omitted_in_sexp(tmp_path):
+    """A tree pivot default (None = (0,0)) and rotation 0 must NOT be written —
+    same no-noise discipline as xy/polar."""
+    tree = Tree(name="t", anchor=TreeAnchor(is_auto=True),
+                nodes=[_module_node(ref="ch0", xy=(10.0, 5.0))])
+    trees = [tree]
     path = tmp_path / "module.trees"
     save_trees(str(path), trees)
     assert "pivot" not in path.read_text(encoding="utf-8")
+    assert "rotation" not in path.read_text(encoding="utf-8")
     assert load_trees(str(path)) == trees
 
 
-def test_module_dict_bridge_roundtrips():
-    """The config-dict bridge (tree_to_dict/tree_from_dict) keeps pivot_xy and
-    omits the default None — same no-noise discipline as the sexp path."""
-    marker = _module_node(ref="ch0_dac_buf", xy=(10.0, 5.0), pivot_xy=(0.5, -0.25))
-    tree = Tree(name="fpga", anchor=TreeAnchor(is_auto=True), nodes=[marker])
+def test_tree_dict_bridge_roundtrips():
+    """The config-dict bridge (tree_to_dict/tree_from_dict) keeps the TREE's
+    pivot_xy/rotation and omits the defaults — same no-noise discipline."""
+    marker = _module_node(ref="ch0_dac_buf", xy=(10.0, 5.0))
+    tree = Tree(name="fpga", anchor=TreeAnchor(is_auto=True), nodes=[marker],
+                pivot_xy=(0.5, -0.25), rotation=7.5)
     d = tree_to_dict(tree)
     assert d["nodes"][0]["kind"] == "module"
-    assert d["nodes"][0]["pivot_xy"] == [0.5, -0.25]
-    assert "pivot_polar" not in d["nodes"][0]
+    assert d["pivot_xy"] == [0.5, -0.25]
+    assert d["rotation"] == 7.5
+    assert "pivot_polar" not in d
     assert tree_from_dict(d) == tree
 
 
@@ -501,106 +508,122 @@ def test_module_ref_exempt_in_dict_node_seen_refs():
 
 def test_module_children_are_allowed_and_parse(tmp_path):
     """A module node may carry its own (node ...) children — they belong to the
-    marker itself (stage 1), not to the referenced tree (stage 2, P2)."""
+    marker itself (stage 1), not to the referenced tree (stage 2, P2). The
+    TREE may carry the inner point next to them (plan §V.1)."""
     text = """(kicadstamp-trees
   (tree
     (name "fpga")
     (anchor (origin))
-    (node (ref "ch0_dac_buf") (kind module) (xy 10.0 5.0) (pivot-xy 0.5 -0.25)
+    (pivot-xy 0.5 -0.25)
+    (node (ref "ch0_dac_buf") (kind module) (xy 10.0 5.0)
       (node (ref "local_cap") (xy 1.0 2.0)))))"""
-    m = load_trees(_write(tmp_path, text))[0].nodes[0]
+    tree = load_trees(_write(tmp_path, text))[0]
+    assert tree.pivot_xy == (0.5, -0.25)
+    m = tree.nodes[0]
     assert m.kind == "module"
-    assert m.pivot_xy == (0.5, -0.25)
     assert len(m.children) == 1
     assert m.children[0].ref == "local_cap"
 
 
-def test_pivot_xy_polar_mutually_exclusive(tmp_path):
-    """pivot-xy and pivot-polar on one module node are contradictory — fatal
-    (same discipline as xy/polar). 2026-09-07: the mutex now spans a third
-    option, pivot-ref (design_2026_09_07_module_pivot_by_ref.md) — the
-    message text changed accordingly, the mutex itself did not."""
+# ── the tree's own inner point (2026-09-11, plan_2026_09_11_tree_inner_point_
+# ── and_rotation §V.1) ────────────────────────────────────────────────────
+
+def test_tree_pivot_xy_polar_mutually_exclusive(tmp_path):
+    """pivot-xy and pivot-polar on one TREE are contradictory — fatal, same
+    discipline as xy/polar, now at the TREES level."""
     text = """(kicadstamp-trees
-  (tree (name "t") (anchor (origin))
-    (node (ref "ch0") (kind module) (pivot-xy 1 1) (pivot-polar 3 45))))"""
+  (tree (name "t") (anchor (origin)) (pivot-xy 1 1) (pivot-polar 3 45)))"""
     with pytest.raises(ValidationError,
-                       match="pivot-xy, pivot-polar and pivot-ref are mutually exclusive"):
+                       match="tree 't': pivot-xy, pivot-polar and pivot-ref are "
+                             "mutually exclusive"):
         load_trees(_write(tmp_path, text))
 
 
-def test_pivot_xy_polar_mutually_exclusive_dict():
-    """Same mutex in the config-dict shape (2026-09-07: now a 3-way mutex,
-    see test_pivot_xy_polar_mutually_exclusive)."""
-    d = {"name": "t", "nodes": [{"ref": "ch0", "kind": "module",
-                                 "pivot_xy": [1, 1], "pivot_polar": [3, 45]}]}
+def test_tree_pivot_xy_polar_mutually_exclusive_dict():
+    """Same 3-way mutex in the config-dict shape."""
+    d = {"name": "t", "pivot_xy": [1, 1], "pivot_polar": [3, 45], "nodes": []}
     with pytest.raises(ValidationError,
-                       match="pivot_xy, pivot_polar and pivot_ref are mutually exclusive"):
+                       match="tree 't': pivot_xy, pivot_polar and pivot_ref are "
+                             "mutually exclusive"):
         tree_from_dict(d)
 
 
-# ── pivot-ref (2026-09-07, design_2026_09_07_module_pivot_by_ref.md) ───────
+def _record_node(ref="N1", xy=(1.0, 2.0)):
+    """A record-backed node (kind None) — the only kind a pivot-ref can name
+    (a module/mount node places no record of its own, so the layout cannot
+    resolve its position; trees.py rejects those at load)."""
+    return TreeNode(ref=ref, kind=None, xy=xy, polar=None, rotation=0.0,
+                    name=None, group=None, children=[])
 
-def test_module_pivot_ref_roundtrips_through_sexp(tmp_path):
-    """pivot_ref serializes as (pivot-ref "...") and round-trips — a THIRD
-    pivot source alongside pivot-xy/pivot-polar, an identity (a node's ref
-    inside the referenced tree) instead of a bare number."""
-    marker = _module_node(ref="ch0_dac_buf", pivot_ref="U3")
-    trees = [Tree(name="t", anchor=TreeAnchor(is_auto=True), nodes=[marker])]
+
+def test_tree_pivot_ref_roundtrips_through_sexp(tmp_path):
+    """A TREE's pivot_ref serializes as (pivot-ref "...") and round-trips — an
+    identity (a node's ref inside THIS tree) instead of a bare number."""
+    tree = Tree(name="t", anchor=TreeAnchor(is_origin=True),
+                nodes=[_record_node("N1")], pivot_ref="N1")
+    trees = [tree]
     path = tmp_path / "module.trees"
     save_trees(str(path), trees)
-    assert '(pivot-ref "U3")' in path.read_text(encoding="utf-8")
+    assert '(pivot-ref "N1")' in path.read_text(encoding="utf-8")
     assert load_trees(str(path)) == trees
 
 
-def test_module_pivot_ref_dict_bridge_roundtrips():
+def test_tree_pivot_ref_dict_bridge_roundtrips():
     """Same round trip through the config-dict bridge (pivot_ref key)."""
-    marker = _module_node(ref="ch0_dac_buf", pivot_ref="U3")
-    tree = Tree(name="fpga", anchor=TreeAnchor(is_auto=True), nodes=[marker])
+    tree = Tree(name="fpga", anchor=TreeAnchor(is_origin=True),
+                nodes=[_record_node("N1")], pivot_ref="N1")
     d = tree_to_dict(tree)
-    assert d["nodes"][0]["pivot_ref"] == "U3"
-    assert "pivot_xy" not in d["nodes"][0]
-    assert "pivot_polar" not in d["nodes"][0]
+    assert d["pivot_ref"] == "N1"
+    assert "pivot_xy" not in d
+    assert "pivot_polar" not in d
     assert tree_from_dict(d) == tree
-
-
-def test_pivot_xy_and_pivot_ref_mutually_exclusive(tmp_path):
-    """pivot-xy and pivot-ref on one module node are contradictory — fatal,
-    same 3-way mutex as pivot-xy/pivot-polar."""
-    text = """(kicadstamp-trees
-  (tree (name "t") (anchor (origin))
-    (node (ref "ch0") (kind module) (pivot-xy 1 1) (pivot-ref "U3"))))"""
-    with pytest.raises(ValidationError,
-                       match="pivot-xy, pivot-polar and pivot-ref are mutually exclusive"):
-        load_trees(_write(tmp_path, text))
 
 
 def test_pivot_ref_must_be_a_string_in_dict():
     """A hand-broken config-dict pivot_ref (wrong type) is a clear fatal, not
     a crash deeper in the pipeline."""
-    d = {"name": "t", "nodes": [{"ref": "ch0", "kind": "module", "pivot_ref": 3}]}
-    with pytest.raises(ValidationError, match="pivot_ref must be a string"):
+    d = {"name": "t", "pivot_ref": 3, "nodes": []}
+    with pytest.raises(ValidationError, match="tree 't': pivot_ref must be a string"):
+        tree_from_dict(d)
+
+
+def test_tree_pivot_ref_naming_a_missing_node_is_fatal():
+    """A tree's pivot-ref must name a node OF THIS TREE (plan §V.1.3)."""
+    d = {"name": "t", "pivot_ref": "ghost", "nodes": []}
+    with pytest.raises(ValidationError, match="names no node of this tree"):
+        tree_from_dict(d)
+
+
+def test_tree_pivot_ref_on_an_external_node_is_fatal():
+    """A tree's pivot-ref may not name a kind "external" node: a live refdes is
+    not portable, so it cannot be the tree's suspension point (plan §V.1.3)."""
+    d = {"name": "t", "pivot_ref": "U1",
+         "nodes": [{"ref": "U1", "kind": "external"}]}
+    with pytest.raises(ValidationError, match="not portable"):
         tree_from_dict(d)
 
 
 def test_config_dict_tree_with_pivot_passes_known_key_check():
-    """_TREE_NODE_KNOWN_KEYS must accept pivot_xy/pivot_polar — the same class
-    of unknown-key fatal that killed is_reference (config/entries.py:1274)."""
+    """_TREE_KNOWN_KEYS must accept the tree-level pivot_*/rotation keys — the
+    same class of unknown-key fatal that killed is_reference."""
     from kicadstamp.config.entries import _load_tree
     tree = Tree(name="fpga", anchor=TreeAnchor(is_auto=True),
-                nodes=[_module_node(ref="ch0_dac_buf", pivot_xy=(0.5, -0.25))])
+                nodes=[_module_node(ref="ch0_dac_buf")],
+                pivot_xy=(0.5, -0.25), rotation=7.5)
     loaded = _load_tree(tree_to_dict(tree))
-    assert loaded.nodes[0].pivot_xy == (0.5, -0.25)
+    assert loaded.pivot_xy == (0.5, -0.25)
+    assert loaded.rotation == 7.5
 
 
-def test_config_dict_tree_with_pivot_ref_passes_known_key_check():
-    """Same known-key check for pivot_ref (2026-09-07) — must not regress
-    into an "unknown fields" fatal like the pre-existing pivot_xy/pivot_polar
-    keys already guard against."""
+def test_config_dict_node_with_pivot_still_reaches_the_converter_fatal():
+    """A node that STILL carries pivot_* (the old grammar) must reach the
+    parse-side fatal that POINTS AT THE CONVERTER — not a generic "unknown
+    fields" error (the keys stay listed in _TREE_NODE_KNOWN_KEYS on purpose)."""
     from kicadstamp.config.entries import _load_tree
-    tree = Tree(name="fpga", anchor=TreeAnchor(is_auto=True),
-                nodes=[_module_node(ref="ch0_dac_buf", pivot_ref="U3")])
-    loaded = _load_tree(tree_to_dict(tree))
-    assert loaded.nodes[0].pivot_ref == "U3"
+    d = {"name": "t", "nodes": [{"ref": "m", "kind": "module",
+                                 "pivot_xy": [1, 2]}]}
+    with pytest.raises(ValidationError, match="convert-trees"):
+        _load_tree(d)
 
 
 # ── mount nodes (kind "mount", plan_2026_09_11_tree_mount_nodes §Y.1) ──────

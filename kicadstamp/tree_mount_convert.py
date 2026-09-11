@@ -22,8 +22,18 @@ Geometry is preserved EXACTLY: a mount node has no xy/rotation of its own and
 the wrapped node keeps its xy/polar/rotation unchanged, so the child's base is
 the very same live point it already used.
 
-What it does NOT touch (those are the next stages, not this task): pivot-*,
-a tree's own (anchor ...), is_auto, and every non-trees section.
+Two STAGES, one command (the user does not care which stage moves what):
+
+  1. own_anchor node -> kind "mount" node (above);
+  2. the tree's INNER POINT: pivot-xy / pivot-polar / pivot-ref lift off the
+     module NODE onto the REFERENCED tree (2026-09-11, plan_2026_09_11_tree_
+     inner_point_and_rotation §V.4) — the inner point is one per tree, never
+     per embedding (design Р3). Numbers are never touched. If the move cannot
+     be a pure relocation the converter REFUSES (see _move_pivots) and writes
+     nothing at all.
+
+What it does NOT touch: a tree's own (anchor ...), is_auto, the tree's own
+`rotation`, and every non-trees section (those are stage Б3 / later).
 """
 from __future__ import annotations
 
@@ -32,6 +42,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
+from kicadstamp.exceptions import ValidationError, format_fatal_error
 from kicadstamp.i18n import _
 from kicadstamp.utils.file_cache import invalidate_path
 
@@ -43,7 +54,7 @@ _ANCHOR_KEYS = ("role", "sheet", "cluster", "pad")
 
 def _new_report() -> dict:
     return {"trees_touched": 0, "mounts_created": 0, "nodes_wrapped": 0,
-            "grouped": 0, "renames": [], "trees": {}}
+            "grouped": 0, "renames": [], "trees": {}, "pivots_moved": 0}
 
 
 def _is_old_grammar(node: Any) -> bool:
@@ -184,6 +195,9 @@ def convert_trees_dict(data: dict) -> tuple[dict, dict]:
                                               tree.get("name", "?"))
         new_trees.append(new_tree)
     out["trees"] = new_trees
+    # Stage Б2 (2026-09-11, plan_2026_09_11_tree_inner_point_and_rotation §V.4):
+    # the tree's inner point moved from the module NODE to the TREE.
+    _move_pivots(out["trees"], report)
     return out, report
 
 
@@ -198,12 +212,119 @@ def _iter_nodes(nodes: list):
             yield from _iter_nodes(children)
 
 
+# ── stage Б2: the tree's inner point (plan §V.4) ───────────────────────────
+#
+# Before 2026-09-11 a MODULE NODE carried pivot-xy / pivot-polar / pivot-ref —
+# the point of the EMBEDDED tree that must land on the node's marker. That
+# point belongs to the TREE (one per tree, design Р3), so this pass lifts it
+# onto the REFERENCED tree, numbers untouched, and drops it from the node.
+
+_PIVOT_KEYS = ("pivot_xy", "pivot_polar", "pivot_ref")
+
+
+def _node_pivot(node: dict) -> dict:
+    """The pivot descriptor a raw dict carries ({key: value} for the one pivot
+    key present, {} when none). Used for both a node dict and a tree dict — the
+    keys are the same."""
+    return {k: node[k] for k in _PIVOT_KEYS if node.get(k) is not None}
+
+
+def _pivot_descriptor(pivot: dict) -> tuple:
+    """A hashable/comparable form of a pivot descriptor (the raw dicts carry
+    lists, which neither compare nor hash the way we need)."""
+    return tuple(sorted(
+        (k, tuple(v) if isinstance(v, list) else v) for k, v in pivot.items()))
+
+
+def _is_zero_pivot(pivot: dict) -> bool:
+    """True for a pivot that is a NO-OP today: (0,0) or r=0. Relocating it
+    changes nothing, so it needs no human decision."""
+    if "pivot_ref" in pivot:
+        return False
+    for key in ("pivot_xy", "pivot_polar"):
+        if key in pivot:
+            return all(float(v) == 0.0 for v in pivot[key])
+    return True
+
+
+def _move_pivots(trees: list, report: dict) -> None:
+    """Lift every module node's pivot onto the tree it references (§V.4.1).
+
+    STOPS — raises ValidationError, so convert_config_file writes NOTHING (a
+    partial conversion is never allowed, §V.4.2):
+
+      * one tree embedded with DIFFERENT pivots: the inner point is one per
+        tree, so choosing between them is a human decision;
+      * the tree already carries its own pivot and an embedding disagrees;
+      * a NON-ZERO pivot (or a pivot-ref) on a tree that is ALSO a root tree in
+        this config: after the move it would shift that tree's STANDALONE
+        placement — the case §V.3 calls out explicitly.
+    """
+    by_name = {t.get("name"): t for t in trees if isinstance(t, dict)}
+    asked: dict[str, list[tuple[dict, dict]]] = {}
+    for tree in trees:
+        if not isinstance(tree, dict):
+            continue
+        pending = list(tree.get("nodes") or [])
+        while pending:
+            node = pending.pop()
+            if not isinstance(node, dict):
+                continue
+            pending.extend(node.get("children") or [])
+            if node.get("kind") != "module":
+                continue
+            pivot = _node_pivot(node)
+            if pivot:
+                asked.setdefault(node.get("ref"), []).append((node, pivot))
+
+    problems: list[str] = []
+    for ref, entries in sorted(asked.items()):
+        target = by_name.get(ref)
+        if target is None:
+            continue  # unknown module target: link_trees reports it elsewhere
+        variants = {_pivot_descriptor(p) for _n, p in entries}
+        if len(variants) > 1:
+            problems.append(_(
+                "tree {name!r}: embedded with {count} DIFFERENT pivots — the "
+                "inner point is one per tree").format(name=ref, count=len(variants)))
+            continue
+        pivot = entries[0][1]
+        existing = _node_pivot(target)
+        if existing and _pivot_descriptor(existing) != _pivot_descriptor(pivot):
+            problems.append(_(
+                "tree {name!r}: already carries its own pivot, which differs "
+                "from the one its embedding asks for").format(name=ref))
+            continue
+        if existing:
+            continue  # identical — nothing to move
+        if not _is_zero_pivot(pivot):
+            problems.append(_(
+                "tree {name!r}: embedded with a NON-ZERO pivot ({pivot}) while "
+                "it is also a root tree — moving it onto the tree would shift "
+                "its standalone placement").format(name=ref, pivot=pivot))
+            continue
+        # Pure relocation: the descriptor goes ONTO the tree and off the node(s).
+        target.update(pivot)
+        for node, _pivot in entries:
+            for key in _PIVOT_KEYS:
+                node.pop(key, None)
+        report["pivots_moved"] += 1
+
+    if problems:
+        raise ValidationError(format_fatal_error(
+            _("tree pivot conversion: {n} place(s) need a human decision — "
+              "nothing was written").format(n=len(problems)),
+            problems))
+
+
 def _format_report(report: dict) -> list[str]:
     lines = [
-        _("Tree mount conversion: {trees} tree(s) touched, {mounts} mount "
-          "node(s) created, {wrapped} node(s) wrapped")
+        _("Tree conversion: {trees} tree(s) touched, {mounts} mount "
+          "node(s) created, {wrapped} node(s) wrapped, {pivots} inner point(s) "
+          "moved onto a tree")
         .format(trees=report["trees_touched"], mounts=report["mounts_created"],
-                wrapped=report["nodes_wrapped"]),
+                wrapped=report["nodes_wrapped"],
+                pivots=report.get("pivots_moved", 0)),
     ]
     if report["grouped"]:
         lines.append(_("  grouped {n} node(s) under a shared mount node")

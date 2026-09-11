@@ -240,49 +240,97 @@ def board_rotation_to_local_deg(board_rot_deg: float, base_rot_deg: float) -> fl
 
 # ── module embedding geometry (2026-09-02, plan P2) ────────────────────────
 
-def pivot_offset(node: TreeNode, child: "Tree | None" = None,
-                 forest: "dict[str, Tree] | None" = None, *,
-                 adapter=None, cfg=None, sheet_names=None) -> Vector2:
-    """A module node's pivot point in its own local offset frame — the mirror
-    of node_offset() over pivot_xy/pivot_polar/pivot_ref. Absent (None) =
-    (0, 0): the pivot is the referenced tree's own origin.
+def tree_pivot_offset(tree: "Tree", forest: "dict[str, Tree] | None" = None, *,
+                      adapter=None, cfg=None, sheet_names=None) -> Vector2:
+    """The TREE's inner (suspension) point in the tree's OWN local offset frame
+    (2026-09-11, plan_2026_09_11_tree_inner_point_and_rotation §V.1) — the
+    successor of the old node-level pivot_offset, now fed by the tree's own
+    pivot_xy/pivot_polar/pivot_ref. Absent (None) = (0, 0) = the tree's own
+    origin.
 
-    pivot_ref (2026-09-07, design_2026_09_07_module_pivot_by_ref.md): instead
-    of a bare number, names a node's `ref` INSIDE the referenced tree (`child`)
-    whose position must land on the marker. Resolved by laying `child` out
-    from a bare (0,0)/0deg base (layout_tree_from_base) — composing from a
-    zero base directly YIELDS the local-offset value pivot_xy/pivot_polar
-    already carry, with no separate "subtract the anchor" step needed — and
-    reading `node.pivot_ref`'s resolved position back out of the result. This
-    correctly handles a pivot_ref that sits behind a nested module or a
-    mount node (both already handled by layout_tree_from_base itself);
-    it needs `child`/`forest` (and adapter/cfg/sheet_names only if something
-    inside `child` actually uses a mount anchor) — every OTHER pivot mode stays
-    pure geometry, no live board, as before. Raises ValidationError if
-    `child`/`forest` are missing or the ref cannot be found (link_trees
-    already rejects an unreachable pivot_ref at Save time — reaching this at
-    apply time would mean the tree changed shape since the last Save)."""
-    if node.pivot_xy is not None:
-        return Vector2.from_xy(int(node.pivot_xy[0] * MM), int(node.pivot_xy[1] * MM))
-    if node.pivot_polar is not None:
-        radius_mm, angle_deg = node.pivot_polar
+    pivot_ref: instead of a bare number, names a node's `ref` INSIDE THIS TREE
+    (a mount node included) whose position must land on the outer anchor.
+    Resolved by laying THIS tree out from a bare (0,0)/0deg base
+    (layout_tree_from_base) — composing from a zero base directly YIELDS the
+    local-offset value pivot_xy/pivot_polar already carry, with no separate
+    "subtract the anchor" step needed — and reading that ref's position back.
+    A mount-node ref is legitimate (its base is live). NOTE the grammar NARROWS
+    this to the tree's OWN nodes (plan §V.1.2, validated at load by
+    trees.py::_validate_tree_pivot_ref): a ref reachable ONLY through a nested
+    module is rejected there, even though the layout below could resolve it.
+    `forest` is therefore needed only to lay the tree's own nodes out when they
+    themselves embed modules; adapter/cfg/sheet_names are needed only if
+    something inside the tree actually uses a mount anchor — every OTHER pivot
+    mode stays pure geometry, no live board. (tree_from_sexp / tree_from_dict
+    already reject a pivot_ref that names no node of the tree, or names a kind
+    "external" one, at LOAD time — reaching the missing-ref case here would mean
+    the tree changed shape since the last Save.)"""
+    if tree.pivot_xy is not None:
+        return Vector2.from_xy(int(tree.pivot_xy[0] * MM), int(tree.pivot_xy[1] * MM))
+    if tree.pivot_polar is not None:
+        radius_mm, angle_deg = tree.pivot_polar
         return local_to_absolute(_ORIGIN, radius_mm, 0.0, angle_deg)
-    if node.pivot_ref is not None:
-        if child is None:
-            raise ValidationError(_(
-                "node {ref!r}: pivot-ref {pivot_ref!r} needs the referenced "
-                "tree to resolve").format(ref=node.ref, pivot_ref=node.pivot_ref))
+    if tree.pivot_ref is not None:
         resolved = layout_tree_from_base(
-            child, _ORIGIN, 0.0, forest,
+            tree, _ORIGIN, 0.0, forest,
             adapter=adapter, cfg=cfg, sheet_names=sheet_names)
-        if node.pivot_ref not in resolved:
+        if tree.pivot_ref not in resolved:
             raise ValidationError(_(
-                "node {ref!r}: pivot-ref {pivot_ref!r} not found inside the "
-                "embedded tree {tree_name!r}").format(
-                    ref=node.ref, pivot_ref=node.pivot_ref, tree_name=child.name))
-        target_pos, _target_rot = resolved[node.pivot_ref]
+                "tree {tree_name!r}: pivot-ref {pivot_ref!r} not found in its own "
+                "layout").format(tree_name=tree.name, pivot_ref=tree.pivot_ref))
+        target_pos, _target_rot = resolved[tree.pivot_ref]
         return target_pos
     return Vector2.from_xy(0, 0)
+
+
+def tree_effective_base(tree: "Tree", marker_pos: Vector2,
+                        marker_rot_deg: float | None,
+                        forest: "dict[str, Tree] | None" = None, *,
+                        adapter=None, cfg=None, sheet_names=None
+                        ) -> tuple[Vector2, float]:
+    """The base a tree's CONTENT is laid out from so that the tree's INNER point
+    lands exactly on its OUTER marker, with the tree's own angle added on top of
+    the marker's (plan §V.2.2) — THE one seam every layout path must go through
+    (live curated redraw, materialization, scheme lists), so those paths cannot
+    drift apart.
+
+        effective_rotation = marker_rotation + tree.rotation
+        effective_position = invert(pivot lands on marker) at that rotation
+
+    Reuses resolve_module_effective_base — NO new math. `marker_rot_deg` may be
+    None (a (point ...) / point-ref anchor carries no orientation at all): that
+    is treated as the tree's rotation alone, which is an EXPLICIT user-set
+    number (plan §V.2.3) — the old silent-zero substitution in gui/docks/
+    cascade.py is replaced by this one documented place."""
+    eff_rot = (0.0 if marker_rot_deg is None else marker_rot_deg) + tree.rotation
+    pivot = tree_pivot_offset(tree, forest, adapter=adapter, cfg=cfg,
+                              sheet_names=sheet_names)
+    return resolve_module_effective_base(marker_pos, eff_rot, pivot)
+
+
+def tree_layout_base(adapter, cfg, tree: "Tree", sheet_names, forest=None
+                     ) -> tuple[Vector2, float]:
+    """The EFFECTIVE layout base of a tree placed from its OWN live anchor: the
+    tree's raw anchor pose (tree_position._anchor_base_live_position, every
+    anchor mode) with tree_effective_base on top. The single call every caller
+    that LAYS OUT or READS OFFSETS of a standalone tree should use — the anchor
+    POSITION indicator keeps calling the raw resolver, because it shows where
+    the anchor lives, not where the content starts (plan §V.5.2)."""
+    anchor_pos, anchor_rot = _anchor_base_live_position(
+        adapter, cfg, tree, sheet_names)
+    return tree_effective_base(tree, anchor_pos, anchor_rot, forest,
+                               adapter=adapter, cfg=cfg, sheet_names=sheet_names)
+
+
+def layout_tree_from_anchor(tree: "Tree", forest: "dict[str, Tree] | None" = None, *,
+                            adapter=None, cfg=None, sheet_names=None
+                            ) -> dict[str, tuple[Vector2, float]]:
+    """The live tree's whole content, laid out from its OWN anchor through the
+    inner point + own angle (tree_layout_base) — the convenience wrapper the
+    curated redraw and the GUI use, so no caller can forget the seam."""
+    base_pos, base_rot = tree_layout_base(adapter, cfg, tree, sheet_names, forest)
+    return layout_tree_from_base(tree, base_pos, base_rot, forest,
+                                 adapter=adapter, cfg=cfg, sheet_names=sheet_names)
 
 
 def resolve_module_effective_base(marker_pos: Vector2, marker_rot_deg: float,
@@ -307,13 +355,21 @@ def layout_tree_from_base(tree: Tree, base_pos: Vector2, base_rot_deg: float,
     embedding uses (plan 2026-09-02 tree_module_embedding, stage 2). A module
     node:
       - lays its OWN children from its marker (stage 1, raw node_position);
-      - lays its REFERENCED tree from the pivot-inverted effective base
-        (stage 2, resolve_module_effective_base), recursively into nested
-        modules (a child tree may itself embed a third one).
+      - lays its REFERENCED tree from ITS inner point + own angle (stage 2,
+        tree_effective_base), recursively into nested modules (a child tree may
+        itself embed a third one). 2026-09-11, plan_2026_09_11_tree_inner_point_
+        and_rotation §V.3: the inner point now belongs to the EMBEDDED tree, not
+        to the module node — a module node carries only its own position.
     Returns {node.ref: (absolute_position, absolute_rotation_deg)} for every
     NON-module record node reached (module nodes place no record of their own).
     Cycles cannot occur (link_trees rejects them); the stack is a defensive
     guard for this pure helper.
+
+    NOTE the top-level `(base_pos, base_rot_deg)` is taken as given: THIS
+    function does NOT apply `tree`'s own inner point / rotation — the caller
+    owns the outer marker and must convert it with tree_effective_base (or use
+    the tree_layout_base / layout_tree_from_anchor wrappers). Only the CHILD
+    trees embedded by module nodes get the conversion here.
 
     A kind "mount" node (plan_2026_09_11_tree_mount_nodes §Y.1) hangs from its
     OWN (role) anchor's LIVE position instead of its parent frame; its children
@@ -344,10 +400,9 @@ def layout_tree_from_base(tree: Tree, base_pos: Vector2, base_rot_deg: float,
                 child = forest.get(n.ref)                   # stage 2
                 if child is None or child.name in stack:
                     continue
-                eff_pos, eff_rot = resolve_module_effective_base(
-                    abs_pos, abs_rot,
-                    pivot_offset(n, child, forest,
-                                adapter=adapter, cfg=cfg, sheet_names=sheet_names))
+                eff_pos, eff_rot = tree_effective_base(
+                    child, abs_pos, abs_rot, forest,
+                    adapter=adapter, cfg=cfg, sheet_names=sheet_names)
                 stack.append(child.name)
                 lay(child.nodes, eff_pos, eff_rot)
                 stack.pop()

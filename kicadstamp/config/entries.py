@@ -1636,12 +1636,22 @@ def _load_tree_instance(data: dict[str, Any]) -> TreeInstance:
 # / yaml.safe_load produce for the trees: section; _load_tree wraps the
 # already-tested trees.py::tree_from_dict (the dict bridge) with the config's
 # usual known-key discipline and fatal formatting.
-_TREE_KNOWN_KEYS = {"name", "anchor", "nodes"}
+# The tree's OWN inner point + angle live at the TREES level (2026-09-11,
+# plan_2026_09_11_tree_inner_point_and_rotation §V.1/§V.2): pivot_xy /
+# pivot_polar / pivot_ref (mutually exclusive, absent = the tree's origin) and
+# rotation (the tree's own dovоrот).
+_TREE_KNOWN_KEYS = {"name", "anchor", "nodes", "pivot_xy", "pivot_polar",
+                    "pivot_ref", "rotation"}
 # Anchor grammar v2 (design_2026_08_30_entity_placement_grammar.md §2.2.3):
 # origin / ref(+external) / role(+sheet/cluster/pad) / point.
 _TREE_ANCHOR_KNOWN_KEYS = {"ref", "origin", "external", "role", "point",
                            "sheet", "cluster", "pad"}
 _TREE_NODE_KNOWN_KEYS = {"ref", "kind", "xy", "polar", "rotation", "name", "group", "children",
+                         # pivot_* stayed LISTED here on purpose (2026-09-11, plan
+                         # §V.3): they moved to the tree level, but a config still
+                         # carrying them on a node must reach the parse-side fatal
+                         # that POINTS AT THE CONVERTER — not a generic
+                         # "unknown fields" error. trees.py::_dict_node raises it.
                          "pivot_xy", "pivot_polar", "pivot_ref",
                          # 2026-09-11 (plan_2026_09_11_tree_mount_nodes §Y.1): a
                          # kind "mount" node carries its (role ...) anchor here.

@@ -116,11 +116,6 @@ class TreeNode:
     name: str | None       # display label, default = ref
     group: str | None      # pure UI tag, does not participate in geometry
     children: list["TreeNode"] = field(default_factory=list)
-    # Module node only (kind "module"): which point INSIDE the referenced tree
-    # (its own local offset frame) must land on the marker. None = (0, 0) — the
-    # referenced tree's own origin. Mutually exclusive, independent of xy/polar.
-    pivot_xy: tuple[float, float] | None = None
-    pivot_polar: tuple[float, float] | None = None   # (radius_mm, angle_deg)
     # kind "mount" ONLY (2026-09-11, plan_2026_09_11_tree_mount_nodes §Y.1): the
     # node's own live (role ...) anchor — the point this node (and therefore its
     # whole subtree) hangs from. Only the role-anchor shape is meaningful
@@ -129,18 +124,14 @@ class TreeNode:
     # kind is a load-time fatal pointing at the tree converter — that was the
     # removed TreeNode.own_anchor grammar (2026-09-03 .. 2026-09-11). None
     # (default) = an ordinary node, measured from its parent.
+    #
+    # NOTE (2026-09-11, plan_2026_09_11_tree_inner_point_and_rotation §V.3): the
+    # pivot_xy/pivot_polar/pivot_ref fields that used to live HERE moved to the
+    # TREE (see Tree below) — the inner point is a property of the TREE, not of
+    # one embedding of it (design Р3: one inner point per tree, no per-node
+    # override). A node carrying them is now a load-time fatal pointing at the
+    # converter.
     anchor: TreeAnchor | None = None
-    # Module node only (kind "module", 2026-09-07 design_2026_09_07_module_
-    # pivot_by_ref.md): a THIRD pivot source, mutually exclusive with
-    # pivot_xy/pivot_polar — names a node's `ref` INSIDE the referenced tree
-    # whose LIVE-resolved position must land on the marker, instead of a raw
-    # number typed by hand. Fixes the one place in the tree grammar where
-    # "where do we position from" was a bare coordinate instead of an
-    # identity, unlike TreeAnchor/own_anchor (ref/role+sheet+cluster+pad/
-    # point/origin) everywhere else. Resolved in tree_position.pivot_offset()
-    # by laying the referenced tree out from a bare (0,0)/0 base and reading
-    # this ref's position back — see that function's docstring.
-    pivot_ref: str | None = None
 
 
 @dataclass
@@ -148,6 +139,26 @@ class Tree:
     name: str
     anchor: TreeAnchor
     nodes: list[TreeNode]  # top-level nodes
+    # The tree's INNER point (the "handle"): the ONE point of THIS tree that
+    # must land on the tree's OUTER anchor, and the centre the tree's own
+    # `rotation` turns around (2026-09-11, plan_2026_09_11_tree_inner_point_and_
+    # rotation §V.1). EXACTLY one of the three forms, or none = (0,0) = the
+    # tree's own origin. Moved here from the module NODE (design Р3): described
+    # once per tree, so embedding one tree in three places cannot describe its
+    # handle three ways.
+    #   pivot_ref: the `ref` of a node OF THIS TREE (a mount node included),
+    #              resolved by laying the tree out from a bare (0,0)/0 base —
+    #              pure geometry, no live board (unless the tree has mount
+    #              nodes, whose bases are live by nature).
+    #   pivot_xy / pivot_polar: a raw coordinate in the tree's OWN frame.
+    pivot_xy: tuple[float, float] | None = None
+    pivot_polar: tuple[float, float] | None = None   # (radius_mm, angle_deg)
+    pivot_ref: str | None = None
+    # The tree's OWN angle (plan §V.2): a DОВОРОТ (increment) added ON TOP of
+    # the outer anchor's angle, NOT a replacement — a role anchor still supplies
+    # the channel rotation, and this turns the tree a bit further AROUND ITS
+    # INNER POINT. Default 0.0 keeps every pre-existing tree bit-identical.
+    rotation: float = 0.0
 
 
 def _fatal(message: str) -> None:
@@ -448,17 +459,18 @@ def _parse_node(node, seen_refs: set[str], location: str) -> TreeNode:
         _fatal(_("node {ref!r}: xy and polar are mutually exclusive "
                  "(use exactly one)").format(ref=ref))
 
-    # Module node: pivot point inside the referenced tree (default (0,0) = its
-    # own origin). pivot-xy/pivot-polar/pivot-ref mutually exclusive,
-    # independent of the node's own xy/polar (2026-09-07: pivot-ref added,
-    # design_2026_09_07_module_pivot_by_ref.md).
-    pivot_xy = _parse_offset(node, "pivot-xy")
-    pivot_polar = _parse_offset(node, "pivot-polar")
-    raw_pivot_ref = atom(node, "pivot-ref")
-    pivot_ref = sval(raw_pivot_ref) if raw_pivot_ref is not None else None
-    if sum(v is not None for v in (pivot_xy, pivot_polar, pivot_ref)) > 1:
-        _fatal(_("node {ref!r}: pivot-xy, pivot-polar and pivot-ref are mutually "
-                 "exclusive (use at most one)").format(ref=ref))
+    # pivot-* used to live HERE, on a module node. It moved to the TREE level
+    # (2026-09-11, plan_2026_09_11_tree_inner_point_and_rotation §V.3): the inner
+    # point is one per TREE, never per embedding (design Р3). A config still
+    # carrying it on a node is the old grammar — fatal with a pointer to the
+    # converter, the SAME discipline the removed own_anchor gets, never a silent
+    # drop.
+    for leftover in ("pivot-xy", "pivot-polar", "pivot-ref"):
+        if child(node, leftover) is not None:
+            _fatal(_("node {ref!r}: {key} is no longer valid on a node — the "
+                     "tree's inner point moved to the (tree ...) level; run the "
+                     "tree converter (kicadstamp convert-trees) on this config")
+                   .format(ref=ref, key=leftover))
 
     child_nodes = children(node, "node")
     parsed_children = [
@@ -476,11 +488,83 @@ def _parse_node(node, seen_refs: set[str], location: str) -> TreeNode:
         name=sval(raw_name) if raw_name is not None else None,
         group=sval(raw_group) if raw_group is not None else None,
         children=parsed_children,
-        pivot_xy=pivot_xy,
-        pivot_polar=pivot_polar,
-        pivot_ref=pivot_ref,
         anchor=node_anchor,
     )
+
+
+def _parse_tree_offset(tree_node, key: str, tree_name: str
+                       ) -> tuple[float, float] | None:
+    """A TREE-level (key x y) offset as a pair of floats, or None. Mirror of
+    _parse_offset with a tree-shaped error message (the node-level helper
+    formats "node {ref!r}", which would read "node None" here)."""
+    c = child(tree_node, key)
+    if c is None:
+        return None
+    if len(c) != 3 or not all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                              for v in c[1:]):
+        _fatal(_("tree {name!r}: {key} must be exactly two numbers")
+               .format(name=tree_name, key=key))
+    return float(c[1]), float(c[2])
+
+
+def _parse_tree_rotation(tree_node, tree_name: str) -> float:
+    """A TREE-level (rotation ...) as a float, default 0.0 (plan §V.2.1)."""
+    raw = atom(tree_node, "rotation")
+    if raw is None:
+        return 0.0
+    if not isinstance(raw, (int, float)) or isinstance(raw, bool):
+        _fatal(_("tree {name!r}: rotation must be a number").format(name=tree_name))
+    return float(raw)
+
+
+def _validate_tree_pivot_ref(tree_name: str, nodes: list[TreeNode],
+                             pivot_ref: str | None) -> None:
+    """A tree's pivot-ref must name a node OF THIS TREE (a mount node is fine —
+    its base is live, that is a legitimate handle) and must NOT be a kind
+    "external" node: an external node is a bare live refdes with no config
+    record, so hanging the tree's handle on it would cost the WHOLE tree its
+    portability — exactly what the inner point exists to provide (plan §V.1.3)."""
+    if pivot_ref is None:
+        return
+    by_ref = {n.ref: n for n in _walk_nodes(nodes)}
+    target = by_ref.get(pivot_ref)
+    if target is None:
+        _fatal(_("tree {name!r}: pivot-ref {ref!r} names no node of this tree")
+               .format(name=tree_name, ref=pivot_ref))
+    if target.kind == "external":
+        _fatal(_("tree {name!r}: pivot-ref {ref!r} is a kind \"external\" node — a "
+                 "live refdes is not portable, so it cannot be the tree's inner "
+                 "point").format(name=tree_name, ref=pivot_ref))
+    # kind "module" / "mount" are deliberately NOT accepted YET. Both are absent
+    # from layout_tree_from_base's returned map (a module node places no record
+    # of its own; a mount node's base is LIVE), so tree_pivot_offset could not
+    # resolve them — it would raise at apply time instead of here. Rejecting at
+    # LOAD keeps the failure early and explicit. Opening this up needs a real
+    # decision about the FRAME a live mount base is expressed in (plan §V.7.1
+    # test 4 assumed it "just works") — stage Б2.1.
+    if target.kind in ("module", "mount"):
+        _fatal(_("tree {name!r}: pivot-ref {ref!r} is a kind {kind!r} node, which "
+                 "the layout cannot resolve yet (it places no record of its own) — "
+                 "use a record-backed node of this tree as the inner point")
+               .format(name=tree_name, ref=pivot_ref, kind=target.kind))
+
+
+def _parse_tree_pivot(tree_node, tree_name: str, nodes: list[TreeNode]
+                      ) -> tuple[tuple[float, float] | None,
+                                 tuple[float, float] | None, str | None]:
+    """The tree's INNER point (plan §V.1): pivot-xy / pivot-polar / pivot-ref,
+    mutually exclusive, absent = (0,0) = the tree's own origin. Same three
+    keywords the module node used to carry — the converter then just lifts the
+    s-expr one level up, and the user has no second name to learn."""
+    pivot_xy = _parse_tree_offset(tree_node, "pivot-xy", tree_name)
+    pivot_polar = _parse_tree_offset(tree_node, "pivot-polar", tree_name)
+    raw_pivot_ref = atom(tree_node, "pivot-ref")
+    pivot_ref = sval(raw_pivot_ref) if raw_pivot_ref is not None else None
+    if sum(v is not None for v in (pivot_xy, pivot_polar, pivot_ref)) > 1:
+        _fatal(_("tree {name!r}: pivot-xy, pivot-polar and pivot-ref are mutually "
+                 "exclusive (use at most one)").format(name=tree_name))
+    _validate_tree_pivot_ref(tree_name, nodes, pivot_ref)
+    return pivot_xy, pivot_polar, pivot_ref
 
 
 def tree_from_sexp(tree_node, seen_names: set[str], seen_refs: set[str],
@@ -508,7 +592,13 @@ def tree_from_sexp(tree_node, seen_names: set[str], seen_refs: set[str],
     parsed_nodes = [_parse_node(n, seen_refs, f"{location}:tree {name!r}")
                     for n in top_nodes]
     _validate_mount_refs(parsed_nodes, name)
-    return Tree(name=name, anchor=anchor, nodes=parsed_nodes)
+    # The tree's OWN inner point + angle (plan §V.1/§V.2) — parsed here, so a
+    # pivot-ref is validated against THIS tree's nodes without needing a Config.
+    pivot_xy, pivot_polar, pivot_ref = _parse_tree_pivot(tree_node, name, parsed_nodes)
+    rotation = _parse_tree_rotation(tree_node, name)
+    return Tree(name=name, anchor=anchor, nodes=parsed_nodes,
+                pivot_xy=pivot_xy, pivot_polar=pivot_polar, pivot_ref=pivot_ref,
+                rotation=rotation)
 
 
 def tree_to_sexp(tree: Tree) -> list:
@@ -556,12 +646,6 @@ def _node_to_sexp(node: TreeNode) -> list:
         out.append([sym("name"), node.name])
     if node.group is not None:
         out.append([sym("group"), node.group])
-    if node.pivot_xy is not None:
-        out.append([sym("pivot-xy"), node.pivot_xy[0], node.pivot_xy[1]])
-    elif node.pivot_polar is not None:
-        out.append([sym("pivot-polar"), node.pivot_polar[0], node.pivot_polar[1]])
-    elif node.pivot_ref is not None:
-        out.append([sym("pivot-ref"), node.pivot_ref])
     if node.anchor is not None:
         # A kind "mount" node's anchor serializes as a nested (anchor ...) child
         # with the SAME role shape as a tree-level role anchor (plan §Y.1.1) —
@@ -610,12 +694,22 @@ def _anchor_to_sexp(anchor: TreeAnchor) -> list | None:
 
 
 def _tree_to_sexp(tree: Tree) -> list:
-    """Serialize one Tree (name, anchor, top-level nodes). The (anchor ...)
-    node is omitted for an AUTO anchor (None from _anchor_to_sexp)."""
+    """Serialize one Tree (name, anchor, inner point, own angle, top-level
+    nodes). The (anchor ...) node is omitted for an AUTO anchor (None from
+    _anchor_to_sexp); the pivot-*/rotation keys are written only when set, the
+    same no-noise discipline every other optional field follows."""
     out: list = [sym("tree"), [sym("name"), tree.name]]
     anchor_sexp = _anchor_to_sexp(tree.anchor)
     if anchor_sexp is not None:
         out.append(anchor_sexp)
+    if tree.pivot_xy is not None:
+        out.append([sym("pivot-xy"), tree.pivot_xy[0], tree.pivot_xy[1]])
+    elif tree.pivot_polar is not None:
+        out.append([sym("pivot-polar"), tree.pivot_polar[0], tree.pivot_polar[1]])
+    elif tree.pivot_ref is not None:
+        out.append([sym("pivot-ref"), tree.pivot_ref])
+    if tree.rotation != 0.0:
+        out.append([sym("rotation"), tree.rotation])
     for node in tree.nodes:
         out.append(_node_to_sexp(node))
     return out
@@ -679,12 +773,6 @@ def _node_to_dict(node: TreeNode) -> dict:
         out["name"] = node.name
     if node.group is not None:
         out["group"] = node.group
-    if node.pivot_xy is not None:
-        out["pivot_xy"] = [node.pivot_xy[0], node.pivot_xy[1]]
-    elif node.pivot_polar is not None:
-        out["pivot_polar"] = [node.pivot_polar[0], node.pivot_polar[1]]
-    elif node.pivot_ref is not None:
-        out["pivot_ref"] = node.pivot_ref
     if node.anchor is not None:
         # A kind "mount" node's anchor in the dict node shape — role-only
         # (mirror of the s-expr (anchor ...) child of a node), written
@@ -707,11 +795,20 @@ def _node_to_dict(node: TreeNode) -> dict:
 def tree_to_dict(tree: Tree) -> dict:
     """Tree -> plain dict (the config-dict shape). Default-valued fields are
     omitted (kind None, rotation 0.0, name/group None, no offset, empty
-    children) so the dict stays minimal — same principle as _node_to_sexp."""
+    children) so the dict stays minimal — same principle as _node_to_sexp.
+    The tree's own inner point + angle (§V.1/§V.2) are written only when set."""
     out: dict = {"name": tree.name}
     anchor_dict = _anchor_to_dict(tree.anchor)
     if anchor_dict is not None:
         out["anchor"] = anchor_dict
+    if tree.pivot_xy is not None:
+        out["pivot_xy"] = [tree.pivot_xy[0], tree.pivot_xy[1]]
+    elif tree.pivot_polar is not None:
+        out["pivot_polar"] = [tree.pivot_polar[0], tree.pivot_polar[1]]
+    elif tree.pivot_ref is not None:
+        out["pivot_ref"] = tree.pivot_ref
+    if tree.rotation != 0.0:
+        out["rotation"] = tree.rotation
     if tree.nodes:
         out["nodes"] = [_node_to_dict(n) for n in tree.nodes]
     return out
@@ -796,11 +893,28 @@ def raw_tree_from_sexp(tree_node) -> dict:
     removed per-node own_anchor grammar, so the converter can read a
     pre-2026-09-11 config and rewrite it. Every normal reader must keep using
     tree_from_sexp, which fatals on the removed grammar with a pointer to the
-    converter."""
+    converter.
+
+    BOTH pivot locations are read here (2026-09-11, plan_2026_09_11_tree_inner_
+    point_and_rotation §V.4): the tree-level one (the NEW grammar) and the
+    node-level one (_raw_node keeps it verbatim — the OLD grammar the converter
+    has to lift). The converter needs to see both to decide whether they
+    conflict (V.4.2) and to be idempotent."""
     out: dict = {"name": sval(atom(tree_node, "name"))}
     anchor_node = child(tree_node, "anchor")
     if anchor_node is not None:
         out["anchor"] = _raw_anchor(anchor_node)
+    for sexp_key, dict_key in (("pivot-xy", "pivot_xy"),
+                               ("pivot-polar", "pivot_polar")):
+        value = _raw_offset(tree_node, sexp_key)
+        if value is not None:
+            out[dict_key] = value
+    pivot_ref = atom(tree_node, "pivot-ref")
+    if pivot_ref is not None:
+        out["pivot_ref"] = sval(pivot_ref)
+    rotation = atom(tree_node, "rotation")
+    if rotation is not None:
+        out["rotation"] = rotation
     nodes = children(tree_node, "node")
     if nodes:
         out["nodes"] = [_raw_node(n) for n in nodes]
@@ -890,14 +1004,15 @@ def _dict_node(data: dict, seen_refs: set[str], location: str) -> TreeNode:
         _fatal(_("node {ref!r}: xy and polar are mutually exclusive "
                  "(use exactly one)").format(ref=ref))
 
-    pivot_xy = _dict_offset(data, "pivot_xy", location)
-    pivot_polar = _dict_offset(data, "pivot_polar", location)
-    pivot_ref = data.get("pivot_ref")
-    if pivot_ref is not None and not isinstance(pivot_ref, str):
-        _fatal(_("node {ref!r}: pivot_ref must be a string").format(ref=ref))
-    if sum(v is not None for v in (pivot_xy, pivot_polar, pivot_ref)) > 1:
-        _fatal(_("node {ref!r}: pivot_xy, pivot_polar and pivot_ref are mutually "
-                 "exclusive (use at most one)").format(ref=ref))
+    # pivot-* on a NODE is the old grammar (plan §V.3) — the inner point moved
+    # to the TREE. Mirror of the s-expr path's leftover fatal, so the dict
+    # pipeline (config/entries.py -> tree_from_dict) fails the same way.
+    for leftover in ("pivot_xy", "pivot_polar", "pivot_ref"):
+        if data.get(leftover) is not None:
+            _fatal(_("node {ref!r}: {key} is no longer valid on a node — the "
+                     "tree's inner point moved to the TREES level; run the tree "
+                     "converter (kicadstamp convert-trees) on this config")
+                   .format(ref=ref, key=leftover))
 
     raw_rotation = data.get("rotation")
     if raw_rotation is not None and not isinstance(raw_rotation, (int, float)):
@@ -912,11 +1027,41 @@ def _dict_node(data: dict, seen_refs: set[str], location: str) -> TreeNode:
         name=data.get("name"),
         group=data.get("group"),
         children=[_dict_node(c, seen_refs, f"{location}.node") for c in data.get("children") or []],
-        pivot_xy=pivot_xy,
-        pivot_polar=pivot_polar,
-        pivot_ref=pivot_ref,
         anchor=node_anchor,
     )
+
+
+def _dict_tree_offset(data: dict, key: str, tree_name: str
+                      ) -> tuple[float, float] | None:
+    """Tree dict's (key, [x, y]) as a pair of floats, or None — the tree-level
+    mirror of _dict_offset (which formats a node-shaped error message)."""
+    raw = data.get(key)
+    if raw is None:
+        return None
+    if not (isinstance(raw, (list, tuple)) and len(raw) == 2
+            and all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                    for v in raw)):
+        _fatal(_("tree {name!r}: {key} must be exactly two numbers")
+               .format(name=tree_name, key=key))
+    return float(raw[0]), float(raw[1])
+
+
+def _dict_tree_pivot(data: dict, tree_name: str, nodes: list[TreeNode]
+                     ) -> tuple[tuple[float, float] | None,
+                                tuple[float, float] | None, str | None]:
+    """The dict-bridge mirror of _parse_tree_pivot (config-dict tree shape):
+    pivot_xy / pivot_polar / pivot_ref, mutually exclusive, validated against
+    THIS tree's own nodes."""
+    pivot_xy = _dict_tree_offset(data, "pivot_xy", tree_name)
+    pivot_polar = _dict_tree_offset(data, "pivot_polar", tree_name)
+    pivot_ref = data.get("pivot_ref")
+    if pivot_ref is not None and not isinstance(pivot_ref, str):
+        _fatal(_("tree {name!r}: pivot_ref must be a string").format(name=tree_name))
+    if sum(v is not None for v in (pivot_xy, pivot_polar, pivot_ref)) > 1:
+        _fatal(_("tree {name!r}: pivot_xy, pivot_polar and pivot_ref are mutually "
+                 "exclusive (use at most one)").format(name=tree_name))
+    _validate_tree_pivot_ref(tree_name, nodes, pivot_ref)
+    return pivot_xy, pivot_polar, pivot_ref
 
 
 def tree_from_dict(data: dict, seen_refs: set[str] | None = None) -> Tree:
@@ -966,4 +1111,12 @@ def tree_from_dict(data: dict, seen_refs: set[str] | None = None) -> Tree:
     parsed_nodes = [_dict_node(n, seen_refs, f"tree {name!r}")
                     for n in data.get("nodes") or []]
     _validate_mount_refs(parsed_nodes, name)
-    return Tree(name=name, anchor=anchor, nodes=parsed_nodes)
+    # The tree's OWN inner point + angle (plan §V.1/§V.2) — the dict mirror of
+    # tree_from_sexp's tail.
+    pivot_xy, pivot_polar, pivot_ref = _dict_tree_pivot(data, name, parsed_nodes)
+    raw_rotation = data.get("rotation")
+    if raw_rotation is not None and not isinstance(raw_rotation, (int, float)):
+        _fatal(_("tree {name!r}: rotation must be a number").format(name=name))
+    return Tree(name=name, anchor=anchor, nodes=parsed_nodes,
+                pivot_xy=pivot_xy, pivot_polar=pivot_polar, pivot_ref=pivot_ref,
+                rotation=float(raw_rotation) if raw_rotation is not None else 0.0)

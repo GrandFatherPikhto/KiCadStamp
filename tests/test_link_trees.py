@@ -533,54 +533,51 @@ def test_module_cycle_is_fatal(tmp_path):
         link_trees(cfg, trees)
 
 
-# ── module pivot-ref (2026-09-07, design_2026_09_07_module_pivot_by_ref.md) ─
+# ── the tree's own pivot-ref (2026-09-07 → moved to the TREE 2026-09-11) ───
+# A pivot-ref names a node OF THE TREE ITSELF; it is validated at LOAD time
+# (trees.py::_validate_tree_pivot_ref), so link_trees does NOT re-check it.
 
-def test_module_pivot_ref_found_inside_embedded_tree_links_ok(tmp_path):
-    """A pivot-ref naming a real node ref inside the embedded tree links
-    without error (structural existence only — no live board here)."""
+def test_tree_pivot_ref_on_its_own_node_links_ok(tmp_path):
+    """A tree whose inner point names one of its OWN nodes links without error
+    (link_trees no longer looks at a pivot at all — the load already did)."""
     cfg = _cfg()
     trees = _tree(
-        '(tree (name "ch0") (anchor (origin))\n'
+        '(tree (name "ch0") (anchor (origin)) (pivot-ref "CL_A")\n'
         '  (node (ref "CL_A") (kind clone) (xy 0 0)))\n'
         '(tree (name "p1") (anchor (origin))\n'
-        '  (node (ref "ch0") (kind module) (xy 1 2) (pivot-ref "CL_A")))',
-        tmp_path=tmp_path)
-    linked = link_trees(cfg, trees)  # must not raise
-    by_name = {lt.name: lt for lt in linked}
-    assert by_name["p1"].nodes[0].node.pivot_ref == "CL_A"
-
-
-def test_module_pivot_ref_not_found_inside_embedded_tree_is_fatal(tmp_path):
-    """A pivot-ref naming something NOT inside the referenced tree (typo, or a
-    ref from a DIFFERENT tree) is a config fatal at link time — the same
-    "fatal at Save, never a silent wrong position" discipline as unknown
-    module targets."""
-    cfg = _cfg()
-    trees = _tree(
-        '(tree (name "ch0") (anchor (origin))\n'
-        '  (node (ref "CL_A") (kind clone) (xy 0 0)))\n'
-        '(tree (name "p1") (anchor (origin))\n'
-        '  (node (ref "ch0") (kind module) (xy 1 2) (pivot-ref "CL_B")))',
-        tmp_path=tmp_path)
-    with pytest.raises(ValidationError, match="pivot-ref 'CL_B' is not found inside it"):
-        link_trees(cfg, trees)
-
-
-def test_module_pivot_ref_reaches_through_nested_module(tmp_path):
-    """A pivot-ref may name a ref that lives inside a NESTED module's own
-    referenced tree — pivot-ref's search space mirrors tree_position.
-    layout_tree_from_base's full recursive traversal, not just the immediate
-    tree's own top-level nodes."""
-    cfg = _cfg()
-    trees = _tree(
-        '(tree (name "inner") (anchor (origin))\n'
-        '  (node (ref "CL_A") (kind clone) (xy 0 0)))\n'
-        '(tree (name "ch0") (anchor (origin))\n'
-        '  (node (ref "inner") (kind module) (xy 0 0)))\n'
-        '(tree (name "p1") (anchor (origin))\n'
-        '  (node (ref "ch0") (kind module) (xy 1 2) (pivot-ref "CL_A")))',
+        '  (node (ref "ch0") (kind module) (xy 1 2)))',
         tmp_path=tmp_path)
     link_trees(cfg, trees)  # must not raise
+    by_name = {t.name: t for t in trees}
+    assert by_name["ch0"].pivot_ref == "CL_A"     # names ch0's OWN node
+    assert by_name["p1"].nodes[0].kind == "module"
+
+
+def test_tree_pivot_ref_naming_a_foreign_node_is_fatal_at_load(tmp_path):
+    """A tree's pivot-ref must name a node of THAT tree: naming a node that
+    lives in a DIFFERENT tree is a LOAD fatal (the validation moved from link
+    time to the grammar, where the tree's own nodes are known)."""
+    with pytest.raises(ValidationError, match="names no node of this tree"):
+        _tree(
+            '(tree (name "ch0") (anchor (origin))\n'
+            '  (node (ref "CL_A") (kind clone) (xy 0 0)))\n'
+            '(tree (name "p1") (anchor (origin)) (pivot-ref "CL_A")\n'
+            '  (node (ref "ch0") (kind module) (xy 1 2)))',
+            tmp_path=tmp_path)
+
+
+def test_tree_pivot_ref_is_NOT_allowed_to_reach_through_a_nested_module(tmp_path):
+    """Deliberate narrowing (plan §V.1.2: "a node OF THIS tree"): a ref that is
+    only reachable through a NESTED module is no longer declarable — it was,
+    back when the pivot lived on the node. The geometry could still resolve it;
+    the grammar refuses to describe it (the GUI lists THIS tree's nodes)."""
+    with pytest.raises(ValidationError, match="names no node of this tree"):
+        _tree(
+            '(tree (name "inner") (anchor (origin))\n'
+            '  (node (ref "CL_A") (kind clone) (xy 0 0)))\n'
+            '(tree (name "ch0") (anchor (origin)) (pivot-ref "CL_A")\n'
+            '  (node (ref "inner") (kind module) (xy 0 0)))',
+            tmp_path=tmp_path)
 
 
 # ── module_linked: recursive CONTENT linking (2026-09-02, plan P3a / design

@@ -32,13 +32,13 @@ from kicadstamp.kicad.adapter import KiCadBoardAdapter
 from kicadstamp.link_trees import link_trees
 from kicadstamp.tree_position import (
     PositionOverride,
-    _anchor_base_live_position,
     apply_rigid_override,
     capture_rigid_state,
     curated_forest_module_content,
     curated_redraw_plan,
     curated_redraw_plan_forest,
     layout_tree_from_base,
+    tree_layout_base,
 )
 from kicadstamp.trees import Tree
 
@@ -250,15 +250,20 @@ def run_curated_forest_redraw(config_path: str, cfg, ctx, trees: list[Tree],
         if root is None:
             continue
         try:
-            base_pos, base_rot = _anchor_base_live_position(
-                adapter, cfg, root, sheet_names)
+            # tree_layout_base = the RAW live anchor pose + the tree's OWN inner
+            # point and angle (plan_2026_09_11_tree_inner_point_and_rotation
+            # §V.2.2). The old inline `base_rot if base_rot is not None else 0.0`
+            # silent-zero substitution is gone: a None rotation (a (point ...)
+            # anchor has none by construction) now simply contributes the tree's
+            # own EXPLICIT rotation, which the user sees and edits (§V.2.3).
+            base_pos, base_rot = tree_layout_base(
+                adapter, cfg, root, sheet_names, by_tree)
             stage2.update(layout_tree_from_base(
-                root, base_pos, base_rot if base_rot is not None else 0.0,
-                by_tree,
-                # Own-anchor nodes (plan tree_node_own_anchor §2) need the live
-                # board to lay out from their own (role) anchor — the pure
-                # module-embedding callers pass nothing, this live caller has
-                # the adapter right here.
+                root, base_pos, base_rot, by_tree,
+                # mount nodes (plan tree_node_own_anchor §2) need the live board
+                # to lay out from their own (role) anchor — the pure module-
+                # embedding callers pass nothing, this live caller has the
+                # adapter right here.
                 adapter=adapter, cfg=cfg, sheet_names=sheet_names))
         except Exception as e:  # noqa: BLE001 — honest, module content stays put
             logger.warning(_("Forest redraw: root tree {name!r} — stage-2 base "

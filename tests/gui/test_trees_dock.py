@@ -2584,9 +2584,11 @@ def test_node_dialog_edit_kind_none_collision_ref_stays_clean(main_window, tmp_p
 MODULE_TREES = {
     "trees": [
         {"name": "fpga", "anchor": {"origin": True},
-         "nodes": [{"ref": "ch0_dac_buf", "kind": "module", "xy": [10.0, 5.0],
-                    "pivot_xy": [1.0, 2.0]}]},
+         "nodes": [{"ref": "ch0_dac_buf", "kind": "module", "xy": [10.0, 5.0]}]},
+        # 2026-09-11 (plan_2026_09_11_tree_inner_point_and_rotation §V.3): the
+        # inner point lives on the EMBEDDED TREE now, not on the module node.
         {"name": "ch0_dac_buf", "anchor": {"origin": True},
+         "pivot_xy": [1.0, 2.0],
          "nodes": [{"ref": "D0", "xy": [0.0, 0.0]}]},
         {"name": "dac_x", "anchor": {"origin": True}, "nodes": []},
     ],
@@ -2685,47 +2687,47 @@ def test_node_dialog_module_kind_lists_trees_and_builds_pivot(main_window, tmp_p
     assert "ch0_dac_buf" in texts and "dac_x" in texts
     # The dialog is not shown, so visibility means "not explicitly hidden
     # w.r.t. the dialog" (isVisibleTo), not Qt's on-screen isVisible().
-    assert dlg.pivot_widget.isVisibleTo(dlg)
+    # Interim (2026-09-11, plan §V.3): the per-node pivot rows are HIDDEN — the
+    # inner point moves to the TREE, whose editor arrives in stage Б2.1.
+    assert not dlg.pivot_widget.isVisibleTo(dlg)
     assert not dlg.read_position_button.isVisibleTo(dlg)
 
     dlg.ref_combo.setCurrentText("ch0_dac_buf")
     # A module marker always has its own (marker) offset in the parent.
     dlg.offset_widget.x_edit.setText("10.0")
     dlg.offset_widget.y_edit.setText("5.0")
-    dlg.pivot_widget.load(x=1.5, y=-2.0)
     node = dlg.build_node()
     assert node is not None
     assert node.kind == "module"
     assert node.ref == "ch0_dac_buf"
-    assert node.pivot_xy == (1.5, -2.0)
-    assert node.pivot_polar is None
+    assert not hasattr(node, "pivot_xy")   # interim: no pivot on a node (Б2.1)
 
 
-def test_node_dialog_module_prefill_round_trips_pivot(main_window, tmp_path):
-    """P4 п.1: editing a module node pre-fills the pivot fields from the
-    existing node (pivot survives an Edit open/rebuild)."""
+def test_node_dialog_module_prefill_round_trips_the_marker_offset(main_window, tmp_path):
+    """P4 п.1 (migrated 2026-09-11, plan §V.3): editing a module node pre-fills
+    its MARKER offset/rotation. The per-node pivot is gone (the widget is
+    hidden); its editor moves to the TREE in stage Б2.1."""
     dock, _root = _module_dock(main_window, tmp_path)
     fpga = _tree_of(dock, "fpga")
     existing = TreeNode(ref="ch0_dac_buf", kind="module", xy=(10.0, 5.0),
-                        polar=None, rotation=0.0, name=None, group=None,
-                        pivot_xy=(1.0, 2.0))
+                        polar=None, rotation=0.0, name=None, group=None)
     dlg = _NodeDialog(dock, [], set(), "Edit node", tree=fpga, existing=existing,
                       module_candidates=["ch0_dac_buf"], all_trees=dock._trees)
+    assert not dlg.pivot_widget.isVisibleTo(dlg)
     node = dlg.build_node()
     assert node is not None
     assert node.kind == "module"
     assert node.ref == "ch0_dac_buf"
-    assert node.pivot_xy == (1.0, 2.0)
     assert node.xy == (10.0, 5.0)
 
 
-def test_node_dialog_pivot_by_ref_sets_pivot_ref_and_clears_xy_polar(
+def test_node_dialog_pivot_rows_are_hidden_until_stage_b2_1(
         main_window, tmp_path, monkeypatch):
-    """2026-09-07 design_2026_09_07_module_pivot_by_ref.md: picking a node via
-    'Pivot by ref...' stores TreeNode.pivot_ref and clears any typed pivot_xy/
-    pivot_polar (the three pivot sources are mutually exclusive)."""
-    from PyQt6.QtWidgets import QInputDialog
-
+    """MIGRATED 2026-09-11 (plan §V.3): the pivot-by-ref flow used to store
+    TreeNode.pivot_ref. The inner point now lives on the TREE, so every
+    per-node pivot row is HIDDEN and build_node carries no pivot at all. The
+    tree-level editor (pivot-xy / pivot-polar / pivot-ref on the ROOT row) is
+    stage Б2.1 — this test pins the interim contract."""
     dock, _root = _module_dock(main_window, tmp_path)
     fpga = _tree_of(dock, "fpga")
     dlg = _NodeDialog(dock, [], set(), "Add child", tree=fpga,
@@ -2734,25 +2736,19 @@ def test_node_dialog_pivot_by_ref_sets_pivot_ref_and_clears_xy_polar(
     idx = dlg.kind_combo.findData("module")
     dlg.kind_combo.setCurrentIndex(idx)
     dlg.ref_combo.setCurrentText("ch0_dac_buf")
-    # A module marker always has its own (marker) offset in the parent.
     dlg.offset_widget.x_edit.setText("10.0")
     dlg.offset_widget.y_edit.setText("5.0")
-    dlg.pivot_widget.load(x=1.5, y=-2.0)  # a stale manual pivot, to be cleared
 
-    monkeypatch.setattr(QInputDialog, "getItem",
-                        staticmethod(lambda *a, **k: ("D0", True)))
-    dlg._on_pick_pivot_ref()
-
-    assert dlg._pivot_ref == "D0"
-    assert dlg.pivot_widget.x_edit.text() == ""
-    assert dlg.pivot_widget.y_edit.text() == ""
-    assert "D0" in dlg.pivot_ref_status_label.text()
+    assert not dlg.pivot_widget.isVisibleTo(dlg)
+    assert not dlg.pivot_by_ref_button.isVisibleTo(dlg)
+    assert not dlg.pivot_from_node_button.isVisibleTo(dlg)
+    assert not dlg.pivot_ref_status_label.isVisibleTo(dlg)
 
     node = dlg.build_node()
     assert node is not None
-    assert node.pivot_ref == "D0"
-    assert node.pivot_xy is None
-    assert node.pivot_polar is None
+    assert node.kind == "module"
+    assert node.xy == (10.0, 5.0)
+    assert not hasattr(node, "pivot_ref")
 
 
 def test_node_dialog_pivot_by_ref_none_sentinel_clears_existing_ref(
@@ -2828,23 +2824,22 @@ def test_node_dialog_pivot_by_ref_no_nodes_warns(main_window, tmp_path, monkeypa
     assert dlg._pivot_ref is None
 
 
-def test_node_dialog_module_prefill_round_trips_pivot_ref(main_window, tmp_path):
-    """pivot_ref survives an Edit open/rebuild, same as pivot_xy/pivot_polar
-    (test_node_dialog_module_prefill_round_trips_pivot)."""
+def test_node_dialog_module_prefill_ignores_a_legacy_node_pivot_ref(
+        main_window, tmp_path):
+    """MIGRATED 2026-09-11 (plan §V.3): a pivot_ref can no longer sit on a node,
+    so an Edit open neither reads nor echoes one — the pivot is a TREE property
+    now (stage Б2.1 wires its editor)."""
     dock, _root = _module_dock(main_window, tmp_path)
     fpga = _tree_of(dock, "fpga")
     existing = TreeNode(ref="ch0_dac_buf", kind="module", xy=(10.0, 5.0),
-                        polar=None, rotation=0.0, name=None, group=None,
-                        pivot_ref="D0")
+                        polar=None, rotation=0.0, name=None, group=None)
     dlg = _NodeDialog(dock, [], set(), "Edit node", tree=fpga, existing=existing,
                       module_candidates=["ch0_dac_buf"], all_trees=dock._trees)
-    assert dlg._pivot_ref == "D0"
-    assert "D0" in dlg.pivot_ref_status_label.text()
+    assert dlg._pivot_ref is None
+    assert dlg.pivot_ref_status_label.text() == ""
     node = dlg.build_node()
     assert node is not None
-    assert node.pivot_ref == "D0"
-    assert node.pivot_xy is None
-    assert node.pivot_polar is None
+    assert not hasattr(node, "pivot_ref")
 
 
 def test_prompt_node_module_ref_not_auto_numbered(main_window, tmp_path, monkeypatch):
@@ -2902,25 +2897,28 @@ def test_prompt_node_module_ref_not_auto_numbered_on_record_collision(
     assert not any("_1" in r for r in refs)  # the module was NOT renamed
 
 
-def test_master_detail_module_node_apply_copies_pivot(main_window, tmp_path):
-    """P4 п.1 / §6: editing a MODULE node on the master-detail Node tab copies
-    pivot_xy/pivot_polar onto the existing node (the Edit round-trip the plan
-    calls out) — the master-detail replacement for the retired modal
-    _edit_node_flow module test."""
+def test_master_detail_module_node_apply_leaves_the_tree_pivot_untouched(
+        main_window, tmp_path):
+    """MIGRATED 2026-09-11 (plan §V.3): applying a MODULE node must NOT touch
+    the TREE's inner point — they are different objects now (the node's own
+    marker offset is the only thing an Apply writes)."""
     dock, _root = _module_dock(main_window, tmp_path)
     fpga = _tree_of(dock, "fpga")
-    node = fpga.nodes[0]  # module node, pivot_xy (1,2)
+    embedded = _tree_of(dock, "ch0_dac_buf")
+    assert embedded.pivot_xy == (1.0, 2.0)     # the fixture's inner point
+    node = fpga.nodes[0]                       # the module marker
     dock.tree_tabs.setCurrentIndex(dock._trees.index(fpga))
     tree_widget = dock._tree_widget_of_page(dock.tree_tabs.currentWidget())
     tree_widget.expandAll()
     tree_widget.setCurrentItem(dock._node_items[node.ref])
     form = _embedded_form(dock._active_form_page())
     assert isinstance(form, NodeFormWidget)
-    form.pivot_widget.x_edit.setText("3")
-    form.pivot_widget.y_edit.setText("4")
+    form.offset_widget.x_edit.setText("11.0")
+    form.offset_widget.y_edit.setText("6.0")
     assert form.apply() is True
-    assert node.pivot_xy == (3.0, 4.0)
-    assert node.pivot_polar is None
+    assert node.xy == (11.0, 6.0)
+    assert embedded.pivot_xy == (1.0, 2.0)     # UNTOUCHED
+    assert embedded.rotation == 0.0
     assert dock._dirty is True
 
 

@@ -246,59 +246,12 @@ def _module_graph(trees: list[Tree]) -> dict[str, set[str]]:
     return graph
 
 
-def _reachable_refs_in_tree(tree: Tree, by_tree: dict[str, Tree],
-                            seen_trees: frozenset[str] = frozenset()) -> set[str]:
-    """Every non-module node ref reachable inside `tree`'s own geometry — its
-    own nodes/children PLUS, recursively, the content of any tree it embeds by
-    module (mirrors tree_position.layout_tree_from_base's traversal shape,
-    structural-only, no position math). Used to validate a pivot-ref actually
-    names something INSIDE the referenced tree (2026-09-07, design_2026_09_07_
-    module_pivot_by_ref.md). `seen_trees` is a defensive cycle guard — real
-    module cycles are already rejected by _check_module_cycles before this
-    ever runs."""
-    refs: set[str] = set()
-
-    def walk(nodes: list[TreeNode]) -> None:
-        for n in nodes:
-            if n.kind == "module":
-                walk(n.children)
-                nested = by_tree.get(n.ref)
-                if nested is None or nested.name in seen_trees:
-                    continue
-                refs.update(_reachable_refs_in_tree(
-                    nested, by_tree, seen_trees | {nested.name}))
-                continue
-            refs.add(n.ref)
-            walk(n.children)
-
-    walk(tree.nodes)
-    return refs
-
-
-def _check_module_pivot_refs(trees: list[Tree]) -> None:
-    """A module node's pivot-ref must name something reachable INSIDE the
-    tree it embeds (2026-09-07, design_2026_09_07_module_pivot_by_ref.md) —
-    same "fatal at link/Save, never a silent wrong position" discipline as
-    _module_graph's own unknown-tree/cycle checks. Assumes _module_graph
-    already validated that every module ref names a REAL tree (an unknown
-    target is skipped here, already fatal elsewhere)."""
-    by_tree = {t.name: t for t in trees}
-
-    def walk(nodes: list[TreeNode]) -> None:
-        for n in nodes:
-            if n.kind == "module" and n.pivot_ref is not None:
-                target = by_tree.get(n.ref)
-                if target is not None:
-                    reachable = _reachable_refs_in_tree(target, by_tree)
-                    if n.pivot_ref not in reachable:
-                        _fatal(_(
-                            "module node embedding {tree!r}: pivot-ref {pivot_ref!r} "
-                            "is not found inside it").format(
-                                tree=n.ref, pivot_ref=n.pivot_ref))
-            walk(n.children)
-
-    for tree in trees:
-        walk(tree.nodes)
+# NOTE (2026-09-11, plan_2026_09_11_tree_inner_point_and_rotation §V.3): the
+# module-node pivot-ref check that lived here (and its _reachable_refs_in_tree
+# helper) is GONE — a node no longer carries a pivot, so there is nothing to
+# validate at link time. A tree's own pivot-ref is validated against its own
+# nodes at LOAD time (trees.py::_validate_tree_pivot_ref: must name a node of
+# THIS tree, and may not name a kind "external" one).
 
 
 def _check_module_cycles(graph: dict[str, set[str]]) -> None:
@@ -432,7 +385,6 @@ def link_trees(cfg, trees: list[Tree]) -> list[LinkedTree]:
     by_tree = {t.name: t for t in trees}
     if trees:
         _check_module_cycles(_module_graph(trees))
-        _check_module_pivot_refs(trees)
     # memo: tree name -> shared module CONTENT LinkedTree (design P3 D1) — one
     # referenced tree links to one module_linked content, shared by all parents.
     memo: dict[str, "LinkedTree"] = {}
