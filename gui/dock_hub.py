@@ -129,6 +129,13 @@ class DockHub:
         # the user finds "tree" in one place.
         self.config_tree_dock = ConfigTreeDock(main_window)
         self.trees_dock = TreesDock(main_window)
+        # S.3.2 (plan_2026_09_11_stale_snapshot_role_lists.md): the tree dock's
+        # dialogs read their Role/Cluster candidates lazily from
+        # connection.snapshot, so it gets the SAME "rebuild the snapshot, then
+        # distribute it" operation the other docks receive through
+        # push_snapshot — injected here instead of reached for through
+        # main_window._dock_hub (see TreesDock.set_snapshot_refresher).
+        self.trees_dock.set_snapshot_refresher(self.refresh_snapshot_and_push)
 
         # Tab labels at the BOTTOM, matching the tab bar the dock area used
         # (plan_2026_09_04_trees_dock_master_detail.md §4, confirmed with Denis:
@@ -1006,22 +1013,112 @@ class DockHub:
     def push_snapshot(self, snapshot, board) -> None:
         """Feed a freshly rebuilt BoardConnection.snapshot into the docks
         that display it — the ONE consumer of the snapshot (see
-        gui/main_window.py's _poll)."""
+        gui/main_window.py's _poll): the Components tree model (the ROWS) plus
+        every Role/Cluster/NET known-value LIST, via push_known_lists (which
+        now feeds TreesDock too — S.3.2 of
+        plan_2026_09_11_stale_snapshot_role_lists.md).
+
+        Only the manual Refresh/Reconnect path drives this one; the
+        navigational freshness trigger uses push_known_lists alone, because
+        the tree-model rebuild is exactly the churn the idle auto-tick
+        deliberately avoids (see main_window.py's module docstring)."""
         self.tree_dock.set_footprints(snapshot)
-        self.placer_dock.refresh_known_roles(snapshot)
+        self.push_known_lists(snapshot, board)
         # NOTE (2026-09-05): placer_dock.refresh_known_nets is GONE — the
         # Placer's manual Nets/Net overrides/Refs tabs were removed (nets
-        # auto-resolve); the other docks' refresh_known_nets stay below.
-        self.thermal_via_dock.refresh_known_roles(snapshot)
+        # auto-resolve); the other docks' refresh_known_nets stay here (they
+        # read the BOARD, so they belong to the explicit Refresh path only —
+        # see push_known_lists).
         self.thermal_via_dock.refresh_known_nets(board)
+        self.chain_dock.refresh_known_nets(board)
+        self.net_trace_dock.refresh_known_nets(board)
+        self.tools_dock.refresh_known_nets(board)
+
+    def push_known_lists(self, snapshot, board) -> None:
+        """The SNAPSHOT-derived known-value lists: every Role/Cluster
+        suggestion source, WITHOUT the Components-tree model rebuild
+        (tree_dock.set_footprints) — that one shows board ROWS, not the
+        known-value lists. This is what the navigational freshness trigger
+        distributes (S.2/S.3, plan_2026_09_11_stale_snapshot_role_lists.md),
+        while the row views keep what they have until the user asks for a full
+        Refresh.
+
+        Deliberately NOT the NET lists: refresh_known_nets reads the BOARD
+        itself (adapter.get_all_nets()/get_tracks()), i.e. a live IPC call, and
+        this trigger fires on the UI thread — a direct board read there is
+        exactly what S.1 forbids (the 2026-08-08 hang). Those calls stay on the
+        manual Refresh path (push_snapshot).
+
+        The two TREE docks take no argument: they re-read the live cache
+        themselves (RoleClusterTreeDock._connection.snapshot /
+        TreesDock._live_roles/_live_clusters), so this call must simply happen
+        AFTER the rebuild — the caller's contract (see
+        refresh_snapshot_and_push)."""
+        self.tree_dock.refresh_known_lists()
+        self.trees_dock.refresh_known_lists()
+        self.placer_dock.refresh_known_roles(snapshot)
+        self.thermal_via_dock.refresh_known_roles(snapshot)
         self.points_dock.refresh_known_roles(snapshot)
         self.chain_dock.refresh_known_roles(snapshot)
-        self.chain_dock.refresh_known_nets(board)
         self.net_trace_dock.refresh_known_roles(snapshot)
-        self.net_trace_dock.refresh_known_nets(board)
         self.cells_dock.refresh_known_roles(snapshot)
         self.cell_anchor_view.refresh_known_roles(snapshot)
-        self.tools_dock.refresh_known_nets(board)
+
+    def refresh_snapshot_and_push(self, on_ready=None) -> None:
+        """THE one "rebuild the board snapshot, then distribute the fresh
+        lists" operation (S.3.1, K.2 #1/#2/#9,
+        plan_2026_09_11_stale_snapshot_role_lists.md).
+
+        ``BoardConnection.snapshot`` is rebuilt only by connect()/manual
+        refresh — the automatic poll tick is a deliberate no-op once connected
+        (gui/main_window.py) — so every Role/Cluster combo kept showing the
+        values the board had at connect time until the user hit Refresh. The
+        rebuild runs on the WORKER thread (gui.worker.refresh_snapshot_then ->
+        start_long_op, the shared kipy REQ socket's only in-flight owner) and
+        never as a direct adapter call on the UI thread — that was the
+        2026-08-08 hang fixed by Commit H. On success the fresh snapshot is
+        distributed through push_known_lists (lists only, see its docstring);
+        ``on_ready`` then runs on the UI thread — the tree dock's dialogs open
+        there, with the candidates already fresh (TreesDock._refresh_snapshot_
+        then).
+
+        Without a live board behind the connection there is nothing fresher to
+        distribute — the docks already hold THIS very snapshot (it was pushed
+        when it was built) — so only ``on_ready`` runs; that also keeps the
+        page-switch trigger safe (see below). While another long op holds the
+        socket the rebuild is refused and ``on_ready`` still runs, so a user's
+        click never dead-ends (gui.worker.refresh_snapshot_then's docstring)."""
+        from .worker import refresh_snapshot_then, snapshot_refresh_supported
+        connection = self.main_window.connection
+
+        def _distribute() -> None:
+            self.push_known_lists(
+                list(getattr(connection, "snapshot", None) or []),
+                getattr(connection, "board", None))
+            if on_ready is not None:
+                on_ready()
+
+        def _failed(message: str) -> None:
+            # A failed rebuild means the live board is gone (BoardConnection.
+            # refresh() drops the connection): log it and carry on — the
+            # caller's own offline guards handle the rest.
+            logger.warning("Board snapshot rebuild failed: %s", message)
+            if on_ready is not None:
+                on_ready()
+
+        if not snapshot_refresh_supported(connection):
+            # Nothing to rebuild. Do NOT distribute either: this trigger fires
+            # from inside right_stack.setCurrentIndex (the page switch), and
+            # pushing widget updates into the middle of that Qt transition
+            # aborted the process (found live 2026-09-11 in
+            # test_cell_selection_by_keyboard_opens_the_merged_page). With a
+            # live board the distribution runs from the worker's completion
+            # signal — i.e. outside the transition, which is safe.
+            if on_ready is not None:
+                on_ready()
+            return
+
+        refresh_snapshot_then(connection, (), _distribute, _failed)
 
     def clear_components(self) -> None:
         """Connection-lost path: empty the Components tree (live mode only —
@@ -2347,9 +2444,18 @@ class DockHub:
         navigates AWAY from the cell-anchor editor page, its drawn overlay
         (marker + bbox) is removed from the board and forgotten. The overlay
         is an editing aid shown only while the page is open; leaving it
-        (opening another Config tree node) is the explicit 'page close'."""
+        (opening another Config tree node) is the explicit 'page close'.
+
+        T2 (S.2/S.3, plan_2026_09_11_stale_snapshot_role_lists.md): the pages
+        of this QView host the docks whose Role/Cluster/NET combos come from
+        the live board, and a page switch is the explicit "I am about to use
+        them" moment — so it is the freshness trigger for those lists (a
+        worker-thread rebuild + push_known_lists; the row views are left alone,
+        see push_known_lists)."""
         prev = getattr(self, "_config_right_page_index", 0)
         self._config_right_page_index = index
+        if index != prev:
+            self.refresh_snapshot_and_push()
         anchor_page = getattr(self, "_cell_anchor_page", None)
         if anchor_page is None or prev != anchor_page or index == anchor_page:
             return

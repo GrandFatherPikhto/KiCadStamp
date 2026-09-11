@@ -124,7 +124,14 @@ current tree selection. Both fields in one click become ONE commit, so KiCad's C
 whole batch; a footprint missing a field you're actually writing is skipped and reported, it never
 rolls back the batch. The combo boxes offer as suggestions the sorted unique Role/Cluster values
 already present in the live snapshot — there is no separate fixed vocabulary, the board is its own
-source of known values, and a value you just typed stays on the board and in the suggestions. This
+source of known values, and a value you just typed stays on the board and in the suggestions. Those
+suggestion lists (every dock's Role/Cluster combos, the working-context Cluster combo, the tree
+dialog candidates) are re-read from a board snapshot REBUILT on the worker thread at the point of use
+— switching a Config right-QView page, or opening a Tree node/anchor dialog (2026-09-11,
+plan_2026_09_11_stale_snapshot_role_lists.md) — instead of freezing at connect time (the automatic
+poll tick is a no-op once connected); the components TREE rows themselves and the status-bar counter
+still update only on the manual Refresh. A live KiCad connection is what feeds them; offline they are
+simply empty and every combo stays a free-text picker. This
 covers "one Cluster for a whole group" (Role left empty), "a narrowed subgroup, one Role" (Cluster
 left empty), or both at once — authoring Role/Cluster no longer requires the offline
 fieldstool/.kicad_sch round-trip.

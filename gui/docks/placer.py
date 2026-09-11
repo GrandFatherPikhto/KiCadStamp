@@ -1404,9 +1404,13 @@ class PlacerDock(QWidget):
         роли то надо и поле anchor cluster да и лист" (2026-08-01);
         Cluster itself made a searchable dropdown too, same reasoning,
         2026-08-04 ("а мы можем сделать кластер в пласере выпадающим?").
-        Called by MainWindow at the same ~2s full-poll cadence as the rest
-        of the docks (not the 400ms selection-watch tick — the known-value
-        list barely changes tick to tick). `snapshot` is the cached
+        Called by DockHub.push_known_lists — from the manual
+        Refresh/Reconnect poll tick AND, since 2026-09-11, from the
+        navigational freshness trigger (K.2 #1/#9,
+        plan_2026_09_11_stale_snapshot_role_lists.md: the snapshot is rebuilt
+        on the worker thread and distributed BEFORE the lists are read), never
+        from the 400ms selection-watch tick — the known-value list barely
+        changes tick to tick. `snapshot` is the cached
         BoardConnection.snapshot the caller already built — this used to
         call board.select() itself, a second full snapshot build per
         refresh (1.2 in techdocs/handoff/).

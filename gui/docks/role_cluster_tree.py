@@ -415,6 +415,22 @@ class RoleClusterTreeDock(QWidget):
             self._refresh_tag_combo_suggestions()
             self._rebuild()
 
+    def refresh_known_lists(self) -> None:
+        """S.3.2 (plan_2026_09_11_stale_snapshot_role_lists.md): update the
+        "Tag selected" Role/Cluster SUGGESTION lists from the CURRENT
+        BoardConnection.snapshot WITHOUT rebuilding the tree model.
+        Deliberately NOT routed through set_footprints: the model rebuild is
+        exactly the churn commit 431bcef removed (see gui/main_window.py's
+        module docstring — the visible flash/scroll-jump on an idle, unchanged
+        board), so a navigation-triggered list refresh must not pay for it.
+        Called by DockHub.push_known_lists (i.e. only AFTER the cache has been
+        rebuilt), which is why it takes no snapshot argument — it reads the
+        same live cache the other docks are fed from. Live mode only, like
+        set_footprints: an active schematic view keeps its own values."""
+        self._selected = list(getattr(self._connection, "snapshot", None) or [])
+        if not self.mode_checkbox.isChecked():
+            self._refresh_tag_combo_suggestions()
+
     def refresh_schematic_view(self) -> None:
         """Wired to fieldstool's on_components_changed hook (see
         gui/docks/fieldstool_dock.py) — an explicit Rescan/Apply-triggered

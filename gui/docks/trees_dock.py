@@ -1790,6 +1790,59 @@ class TreesDock(QWidget):
         snapshot = getattr(getattr(self._main_window, "connection", None), "snapshot", None)
         return sorted({s.cluster for s in (snapshot or []) if s.cluster})
 
+    def set_snapshot_refresher(self, refresher) -> None:
+        """Injected once by DockHub at construction (S.3.2,
+        plan_2026_09_11_stale_snapshot_role_lists.md):
+        ``DockHub.refresh_snapshot_and_push`` — the ONE "rebuild the board
+        snapshot, then distribute the fresh lists" operation. Injected rather
+        than reached for through ``main_window._dock_hub``, so this dock keeps
+        talking only to ``main_window.connection``."""
+        self._snapshot_refresher = refresher
+
+    def _refresh_snapshot_then(self, on_ready) -> None:
+        """T1 — for the TREE surfaces the trigger is the DIALOG open: every
+        flow below fills Role/Cluster CANDIDATES by reading
+        ``main_window.connection.snapshot`` lazily at the moment the dialog is
+        built. That snapshot freezes at connect/manual-refresh time (the
+        automatic poll tick is a deliberate no-op once connected), so it is
+        rebuilt FIRST — on the worker thread, never a direct adapter call on
+        the UI thread (the Commit H hang) — and ``on_ready`` (which builds and
+        execs the dialog) then runs on the UI thread with fresh candidates.
+
+        No refresher injected (a standalone dock), or no live board behind the
+        connection (the docks' own stand-ins, an offline session): ``on_ready``
+        runs at once on the cached snapshot — the exact previous behaviour."""
+        refresher = getattr(self, "_snapshot_refresher", None)
+        if refresher is None:
+            on_ready()
+            return
+        refresher(on_ready)
+
+    def refresh_known_lists(self) -> None:
+        """Feed the LIVE known-value lists into the Role/Cluster suggestion
+        combos of the embedded node/anchor FORMS currently on screen — the
+        lists this dock owns. Called by ``DockHub.push_known_lists`` (and
+        therefore by ``push_snapshot`` too): S.3.2 — this dock used to take no
+        part in the snapshot distribution at all and read
+        ``connection.snapshot`` directly.
+
+        No snapshot argument: it re-reads the same live cache through
+        ``_live_roles()``/``_live_clusters()`` (its documented source), exactly
+        as the dialogs do — so a caller only has to guarantee the rebuild
+        happened first (DockHub.refresh_snapshot_and_push).
+
+        Deliberately does NOT rebuild any page: the embedded forms are edited
+        in place, and a rebuild would discard an in-progress edit (design §9.4,
+        ``_discard_if_touched``). The combos are repopulated through
+        ``set_combo_items``, which preserves whatever the user already typed
+        ("populate, don't restrict")."""
+        roles = self._live_roles()
+        clusters = self._live_clusters()
+        for index in range(self.tree_tabs.count()):
+            form = self._embedded_form_of(self.tree_tabs.widget(index))
+            if isinstance(form, (NodeFormWidget, AnchorFormWidget)):
+                form.set_candidates(roles, clusters)
+
     def _prompt_node(self, title: str, tree: Tree,
                      parent_node: Optional[TreeNode] = None,
                      existing: Optional[TreeNode] = None) -> Optional[TreeNode]:
@@ -1862,6 +1915,12 @@ class TreesDock(QWidget):
         return f"{base}_{i}"
 
     def _add_child_flow(self, tree: Tree, parent: TreeNode) -> None:
+        """T1 (S.3.2): the node dialog lists live Role/Cluster candidates, so
+        rebuild the snapshot before it opens (see _refresh_snapshot_then)."""
+        self._refresh_snapshot_then(
+            lambda: self._add_child_flow_now(tree, parent))
+
+    def _add_child_flow_now(self, tree: Tree, parent: TreeNode) -> None:
         node = self._prompt_node(_("Add child"), tree, parent_node=parent)
         if node is not None:
             parent.children.append(node)
@@ -1869,6 +1928,11 @@ class TreesDock(QWidget):
             self._rebuild_tabs()
 
     def _add_sibling_flow(self, tree: Tree, sibling: TreeNode) -> None:
+        """T1 — same as _add_child_flow (fresh Role/Cluster candidates)."""
+        self._refresh_snapshot_then(
+            lambda: self._add_sibling_flow_now(tree, sibling))
+
+    def _add_sibling_flow_now(self, tree: Tree, sibling: TreeNode) -> None:
         parent = self._find_parent(tree, sibling)
         node = self._prompt_node(_("Add sibling"), tree, parent_node=parent)
         if node is None:
@@ -1881,6 +1945,10 @@ class TreesDock(QWidget):
         self._rebuild_tabs()
 
     def _add_node_flow(self, tree: Tree) -> None:
+        """T1 — same as _add_child_flow (fresh Role/Cluster candidates)."""
+        self._refresh_snapshot_then(lambda: self._add_node_flow_now(tree))
+
+    def _add_node_flow_now(self, tree: Tree) -> None:
         node = self._prompt_node(_("Add node"), tree, parent_node=None)
         if node is not None:
             tree.nodes.append(node)
@@ -2067,6 +2135,13 @@ class TreesDock(QWidget):
             self._collect_move_candidates(child, forbidden, out)
 
     def _on_create_tree(self) -> None:
+        """T1 (S.3.2, plan_2026_09_11_stale_snapshot_role_lists.md): the anchor
+        dialog below lists live Role/Cluster candidates, so the snapshot is
+        rebuilt on the worker thread BEFORE it opens — see
+        _refresh_snapshot_then."""
+        self._refresh_snapshot_then(self._on_create_tree_now)
+
+    def _on_create_tree_now(self) -> None:
         """Tools → Trees → Create tree… (2026-09-03, plan
         plan_2026_09_03_trees_menu_tools.md): create a NEW empty (manual)
         tree in the dock's buffer — name + the six-mode anchor dialog, then an
@@ -2128,6 +2203,14 @@ class TreesDock(QWidget):
         return (pos.x / MM, pos.y / MM)
 
     def _instantiate_from_cell(self, selected, raw_items=()) -> None:
+        """T1 (S.3.2, plan_2026_09_11_stale_snapshot_role_lists.md): the
+        Instantiate dialog lists the current selection's fully-selected
+        clusters AND the live Cluster candidates, so the snapshot is rebuilt on
+        the worker thread BEFORE it opens — see _refresh_snapshot_then."""
+        self._refresh_snapshot_then(
+            lambda: self._instantiate_from_cell_now(selected, raw_items))
+
+    def _instantiate_from_cell_now(self, selected, raw_items=()) -> None:
         """Add ONE new group into the CURRENT tree (2026-09-03, plan
         instantiate_from_entity; second tab 2026-09-04, plan
         instantiate_new_cell_from_selection). The group's internal layout comes
@@ -2720,6 +2803,19 @@ class NodeFormWidget(QWidget):
         master-detail Node tab). Connected per-widget in the embedding
         context/§3; the flag itself is owned here."""
         self._touched = True
+
+    def set_candidates(self, role_candidates=None, cluster_candidates=None) -> None:
+        """S.3.2 (plan_2026_09_11_stale_snapshot_role_lists.md): refresh the
+        Role/Cluster SUGGESTION lists of this form IN PLACE from a freshly
+        rebuilt board snapshot. Nothing is rebuilt or staged and the
+        typed/picked values are kept (set_known_roles -> set_combo_items
+        preserves the current text), so an in-progress edit survives — this is
+        the whole point of updating the lists instead of re-creating the form
+        (design §9.4, _discard_if_touched)."""
+        self._role_candidates = list(role_candidates or [])
+        self._cluster_candidates = list(cluster_candidates or [])
+        self.own_anchor_widget.set_known_roles(
+            self._role_candidates, self._cluster_candidates)
 
     def own_anchor(self) -> TreeAnchor | None:
         """The Position tab's value: None when "Relative to parent" (the
@@ -3577,6 +3673,17 @@ class AnchorFormWidget(QWidget):
             self.hint_label.show()
         else:
             self.hint_label.hide()
+
+    def set_candidates(self, role_candidates=None, cluster_candidates=None) -> None:
+        """S.3.2 (plan_2026_09_11_stale_snapshot_role_lists.md) — the anchor
+        form's half of NodeFormWidget.set_candidates: the embedded anchor page
+        is long-lived, so its Role/Cluster combos are refreshed IN PLACE
+        (set_combo_items keeps the current text) instead of re-creating the
+        form, which would throw away an unsaved edit."""
+        self._role_candidates = list(role_candidates or [])
+        self._cluster_candidates = list(cluster_candidates or [])
+        set_combo_items(self.role_edit, self._role_candidates)
+        set_combo_items(self.cluster_edit, self._cluster_candidates)
 
     def _set_ref_items(self, items: list[tuple[str, Optional[str], str]]) -> None:
         """Repopulate ref_combo with (display_text, kind, name) triples,
