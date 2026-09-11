@@ -6,6 +6,7 @@ DOES write a throwaway tmp_path fixture (never anything under the real
 repo) to prove the whole staging -> Apply -> write chain actually
 round-trips, not just that each piece is individually plausible.
 """
+import logging
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -664,19 +665,24 @@ def test_sync_from_schematic_fires_on_board_written_callback(
 
 
 def test_sync_from_schematic_requires_connection(
-        fieldstool_window, tmp_path, monkeypatch):
-    """Not connected -> a warning, nothing is written (and no long op is
-    started)."""
+        fieldstool_window, tmp_path, monkeypatch, caplog):
+    """Not connected -> ONE ERROR line in the Log (never a modal —
+    plan_2026_09_11_no_modals_and_busy_kicad X.1), nothing is written and no
+    long op is started."""
     root = _write_root(tmp_path, symbol_block(["R1"], role="OLD"))
     fieldstool_window._set_root_sheet(root)
-    warnings = []
-    monkeypatch.setattr(fieldstool_window_mod.QMessageBox, "warning",
-                        lambda *a, **k: warnings.append(a) or None)
+
+    def _no_boxes(*a, **k):
+        raise AssertionError("a connection-state error must not open a QMessageBox")
+    monkeypatch.setattr(fieldstool_window_mod.QMessageBox, "warning", _no_boxes)
     fieldstool_window._pending_edits = [PendingEdit("R1", "Role", "OLD", "NEW")]
+    caplog.clear()
 
     fieldstool_window._on_sync_from_schematic()
 
-    assert warnings
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1
+    assert "Connect to KiCad first." in errors[0].message
     assert fieldstool_window._pending_edits  # unchanged, nothing written
 
 

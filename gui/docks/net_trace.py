@@ -35,6 +35,7 @@ from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QHBoxLayout, QLa
                              QLineEdit, QPushButton, QVBoxLayout, QWidget)
 
 from kicadstamp.apply_pipeline import ApplyPipeline
+from kicadstamp.cli_common import api_error_message
 from kicadstamp.config import Config, RuntimeContext, load_config, load_net_trace
 from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.i18n import _
@@ -333,6 +334,12 @@ class NetTraceDock(QWidget):
             write_net_trace(str(payload["path"]), nt)
         except (PlacerError, ValidationError, OSError) as e:
             return {"error": _("Extract failed: {error}").format(error=e)}
+        except ApiError as e:
+            # KiCad IPC failure = board STATE, not a bug (plan_2026_09_11_no_
+            # modals_and_busy_kicad X.2.2): the human explanation (AS_BUSY ->
+            # "finish the unfinished tool in KiCad") instead of a raw stack.
+            return {"error": _("Extract failed: {error}").format(
+                error=api_error_message(e))}
         except Exception as e:
             logger.exception("net_trace extract failed")
             return {"error": _("Extract failed: {error}").format(error=e)}
@@ -495,8 +502,12 @@ class NetTraceDock(QWidget):
                                  only=[payload["name"]], dry_run=False)
         try:
             pipeline.run()
-        except (PlacerError, ValidationError, ApiError) as e:
+        except (PlacerError, ValidationError) as e:
             return {"error": _("Placement failed: {error}").format(error=e)}
+        except ApiError as e:
+            # Same board-state rule as the extract above (X.2.2).
+            return {"error": _("Placement failed: {error}").format(
+                error=api_error_message(e))}
         except Exception as e:
             logger.exception("net_trace redraw failed")
             return {"error": _("Placement failed: {error}").format(error=e)}

@@ -59,6 +59,7 @@ from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QHBoxLayout,
                               QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget)
 
 from kicadstamp.apply_pipeline import ApplyPipeline
+from kicadstamp.cli_common import api_error_message
 from kicadstamp.config import (Config, RuntimeContext, load_config,
                                 load_thermal_via_array)
 from kicadstamp.exceptions import PlacerError, ValidationError
@@ -365,8 +366,14 @@ class ThermalViaArrayDock(QWidget):
                                  only=[payload["name"]], dry_run=False)
         try:
             pipeline.run()
-        except (PlacerError, ValidationError, ApiError) as e:
+        except (PlacerError, ValidationError) as e:
             return {"error": _("Placement failed: {error}").format(error=e)}
+        except ApiError as e:
+            # KiCad IPC failure = board STATE, not a bug (plan_2026_09_11_no_
+            # modals_and_busy_kicad X.2.2): the human explanation, never a raw
+            # stack in the Log.
+            return {"error": _("Placement failed: {error}").format(
+                error=api_error_message(e))}
         except Exception as e:
             logger.exception("Thermal via array redraw failed")
             return {"error": _("Placement failed: {error}").format(error=e)}

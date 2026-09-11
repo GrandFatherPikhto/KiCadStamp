@@ -120,6 +120,7 @@ from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFormLayout,
                               QWidget)
 
 from kicadstamp.apply_pipeline import ApplyPipeline
+from kicadstamp.cli_common import api_error_message
 from kicadstamp.config import (ClonePlacement, Config, Entity, RuntimeContext,
                                clone_placement_effective_name,
                                coordinate_placement_effective_name,
@@ -1833,8 +1834,14 @@ class PlacerDock(QWidget):
                                  only=[payload.get("only_name", payload["name"])], dry_run=False)
         try:
             pipeline.run()
-        except (PlacerError, ValidationError, ApiError) as e:
+        except (PlacerError, ValidationError) as e:
             return {"error": _("Placement failed: {error}").format(error=e)}
+        except ApiError as e:
+            # KiCad IPC failure = board STATE, not a bug (plan_2026_09_11_no_
+            # modals_and_busy_kicad X.2.2): the human explanation (AS_BUSY ->
+            # "finish the unfinished tool in KiCad"), never a raw stack.
+            return {"error": _("Placement failed: {error}").format(
+                error=api_error_message(e))}
         except Exception as e:
             logger.exception("Placer redraw failed")
             return {"error": _("Placement failed: {error}").format(error=e)}
@@ -1846,6 +1853,11 @@ class PlacerDock(QWidget):
 
         try:
             tagged = self._tag_cluster(pipeline, payload["cfg"], payload["ctx"], payload["name"])
+        except ApiError as e:
+            # The placement itself landed; tagging failed on a live-board
+            # write — same board-state rule as above (X.2.2).
+            return {"warn": _("Placed, but tagging Cluster failed: {error}").format(
+                error=api_error_message(e))}
         except Exception as e:
             logger.exception("Cluster tagging after placement failed")
             return {"warn": _("Placed, but tagging Cluster failed: {error}").format(error=e)}
@@ -1978,9 +1990,12 @@ class PlacerDock(QWidget):
         with busy(self._action_buttons()):
             board = self._main_window.connection.board
             if board is None or getattr(board, "adapter", None) is None:
-                QMessageBox.warning(
-                    self, _("Read current position"),
-                    _("No live board connection — connect KiCad first."))
+                # Connection state, not user input — a Log line, never a modal
+                # (plan_2026_09_11_no_modals_and_busy_kicad X.1); the read is
+                # still refused and nothing is written.
+                self._show_message(
+                    _("No live board connection — connect KiCad first."),
+                    _ERROR_STYLE)
                 return
             form = self.coordinate_form
             cluster = form.cluster_combo.currentText().strip()
@@ -2097,9 +2112,10 @@ class PlacerDock(QWidget):
         with busy(self._action_buttons()):
             board = self._main_window.connection.board
             if board is None or getattr(board, "adapter", None) is None:
-                QMessageBox.warning(
-                    self, _("Read current position"),
-                    _("No live board connection — connect KiCad first."))
+                # Same connection-state rule as the coordinate read above.
+                self._show_message(
+                    _("No live board connection — connect KiCad first."),
+                    _ERROR_STYLE)
                 return
             if self._placer_path is None:
                 QMessageBox.warning(self, _("Read current position"),

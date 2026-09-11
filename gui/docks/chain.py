@@ -73,6 +73,7 @@ from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFormLayout,
                               QWidget)
 
 from kicadstamp.apply_pipeline import ApplyPipeline
+from kicadstamp.cli_common import api_error_message
 from kicadstamp.config import (Chain, Config, RuntimeContext, load_config,
                                load_chain, load_manual_spoke,
                                chain_effective_name)
@@ -375,9 +376,12 @@ class ChainDock(QWidget):
         and the resolution doubles as an ambiguity check."""
         board = self._main_window.connection.board
         if board is None or getattr(board, "adapter", None) is None:
-            QMessageBox.warning(
-                self, _("Read current position"),
-                _("No live board connection — connect KiCad first."))
+            # The state of the CONNECTION, not the user's input: a Log line
+            # (red in the Log dock), never a modal (plan_2026_09_11_no_modals_
+            # and_busy_kicad X.1). The operation still stops right here.
+            self._show_message(
+                _("No live board connection — connect KiCad first."),
+                _ERROR_STYLE)
             return
         fields, err = self.origin_widget.build()
         if err:
@@ -807,8 +811,14 @@ class ChainDock(QWidget):
                                  isolate_spokes=payload.get("isolate_spokes"))
         try:
             pipeline.run()
-        except (PlacerError, ValidationError, ApiError) as e:
+        except (PlacerError, ValidationError) as e:
             return {"error": _("Placement failed: {error}").format(error=e)}
+        except ApiError as e:
+            # KiCad IPC failure = board STATE, not a bug (plan_2026_09_11_no_
+            # modals_and_busy_kicad X.2.2): the human explanation (AS_BUSY ->
+            # "finish the unfinished tool in KiCad"), never a raw stack.
+            return {"error": _("Placement failed: {error}").format(
+                error=api_error_message(e))}
         except Exception as e:
             logger.exception("Chain redraw failed")
             return {"error": _("Placement failed: {error}").format(error=e)}

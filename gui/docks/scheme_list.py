@@ -41,12 +41,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from kipy.errors import ApiError
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFormLayout,
                              QHBoxLayout, QLabel, QLineEdit, QMessageBox,
                              QPlainTextEdit, QPushButton, QTabWidget,
                              QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
+from kicadstamp.cli_common import api_error_message
 from kicadstamp.config import SchemeListConfig, load_scheme_list
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
@@ -825,8 +827,13 @@ class RecordSchemeListDialog(QDialog):
         (Commit H — see live_record_centre_mm). Without a refreshable
         connection the cached snapshot is used as before (tests/fallback)."""
         if self._adapter is None:
-            QMessageBox.warning(self, _("Scheme Lists"),
-                                _("Connect to KiCad first."))
+            # Connection state, not user input — a Log line, never a modal
+            # (plan_2026_09_11_no_modals_and_busy_kicad X.1). RecordSchemeList
+            # Dialog has no _show_message (only the embedded SchemeListForm
+            # Widget has one), so this goes through the shared helper. The
+            # button is disabled without an adapter anyway; the pivot is still
+            # never guessed here.
+            show_message(_("Connect to KiCad first."), _ERROR_STYLE, logger)
             return
         refs = self._checked_refs()
         if not refs:
@@ -857,11 +864,15 @@ class RecordSchemeListDialog(QDialog):
     def _on_pivot_snapshot_refresh_failed(self, message: str) -> None:
         """UI thread: the worker could not rebuild the snapshot (the live board
         is gone — BoardConnection.refresh() drops the connection). Say so
-        instead of silently computing the pivot from stale coordinates."""
-        QMessageBox.warning(
-            self, _("Scheme Lists"),
+        instead of silently computing the pivot from stale coordinates.
+
+        Also a CONNECTION-state failure (not user input) — a Log line, never a
+        modal (plan_2026_09_11_no_modals_and_busy_kicad X.1.2's "more cases of
+        the same kind"): the message IS about the lost board connection."""
+        show_message(
             _("Could not refresh the board snapshot: {error}").format(
-                error=message))
+                error=message),
+            _ERROR_STYLE, logger)
 
     # ── "By sheet" helpers ──────────────────────────────────────────────
 
@@ -1607,6 +1618,12 @@ class SchemeListFormWidget(QWidget):
                                           scope_refs=payload.get("scope_refs"))
         except ValidationError as e:
             return {"error": str(e)}
+        except ApiError as e:
+            # KiCad IPC failure = board STATE, not a bug (plan_2026_09_11_no_
+            # modals_and_busy_kicad X.2.2): the human explanation (AS_BUSY ->
+            # "finish the unfinished tool in KiCad"), never a raw stack.
+            return {"error": _("Reread failed: {error}").format(
+                error=api_error_message(e))}
         except Exception as e:
             logger.exception("Scheme List Reread failed")
             return {"error": _("Reread failed: {error}").format(error=e)}
@@ -1695,6 +1712,10 @@ class SchemeListFormWidget(QWidget):
             written = write_scheme_list_record(root_path, fresh, target_path=target_path)
         except (ValidationError, OSError) as e:
             return {"error": _("Reread apply failed: {error}").format(error=e)}
+        except ApiError as e:
+            # Same board-state rule as _run_reread above (X.2.2).
+            return {"error": _("Reread apply failed: {error}").format(
+                error=api_error_message(e))}
         except Exception as e:
             logger.exception("Scheme List Reread apply failed")
             return {"error": _("Reread apply failed: {error}").format(error=e)}

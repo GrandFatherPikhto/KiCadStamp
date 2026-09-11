@@ -554,9 +554,18 @@ class KiCadBoardAdapter(IBoardAdapter):
     def _mutating_call(self, op_name: str, fn, retries: int = 2, backoff_s: float = 1.5):
         """
         Wrapper for mutating calls: before first — check_write_crash_risk,
-        on ApiError 'not ready' — retry with backoff (KiCad busy with modal
-        state), on ConnectionError — clear diagnosis instead of raw stack trace:
+        on ApiError AS_BUSY (KiCad busy with modal state) — retry with backoff,
+        on ConnectionError — clear diagnosis instead of raw stack trace:
         pipe break during write = KiCad probably crashed (see issue #24966).
+
+        Busy is matched by CODE (ApiStatusCode.AS_BUSY), not by text. The old
+        check looked for the substring "not ready", but the real KiCad message
+        is "KiCad is busy and cannot respond to API requests right now" — it
+        never contained that substring, so the retry never fired at all (fixed
+        2026-09-11, plan_2026_09_11_no_modals_and_busy_kicad X.2.3). The old
+        substring test is KEPT as an extra condition: no code path in this repo
+        produces it, but it is harmless and still covers any older/other
+        wording KiCad may raise without the AS_BUSY tag.
         """
         self.check_write_crash_risk()
         last_exc = None
@@ -564,7 +573,12 @@ class KiCadBoardAdapter(IBoardAdapter):
             try:
                 return fn()
             except kipy.errors.ApiError as e:
-                if "not ready" in str(e).lower() and attempt < retries:
+                # Lazy, like cli_common.api_error_message: the status enum is
+                # imported only when an IPC error actually happened.
+                from kipy.errors import ApiStatusCode
+                busy = (getattr(e, "code", None) == ApiStatusCode.AS_BUSY
+                        or "not ready" in str(e).lower())
+                if busy and attempt < retries:
                     wait = backoff_s * (attempt + 1)
                     logger.warning(_("{op}: KiCad not ready to respond "
                                      "(busy/modal dialog?), retrying in {wait:.1f}s "

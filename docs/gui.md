@@ -1643,6 +1643,25 @@ panel's own handler above — to the live `QueueListener` when one is running, s
 happens on the listener's single thread and can never block the GUI thread on a handler lock; with
 no listener configured it attaches directly to the root logger, as before.
 
+Since 2026-09-11 a **lost KiCad connection is reported HERE, not in a dialog**
+(plan `2026_09_11_no_modals_and_busy_kicad`): every "no live board connection / connect KiCad first"
+guard in the docks — the Chain/Rules anchor's *Read current position*, Placer's two *Read current
+position* buttons, Trees' *Reread current position* and the node form's, the Scheme List pivot's
+*Take from selection*, DockHub's two Scheme-List Tools flows, the fieldstool's Stage/Sync and the
+Board-overlay sweep — writes **one ERROR line** into this panel (red, see the level colours) and
+still REFUSES the operation. Only form VALIDATION keeps its dialog ("Ref is required", a bad number
+in a field, …), because that is a direct answer to what you just typed.
+
+A **busy KiCad** (`KiCad is busy and cannot respond to API requests right now` — usually an
+unfinished tool in the GUI: dimensioning, interactive routing, the move tool) also lands here as one
+ERROR line with the actionable explanation ("finish the tool — Esc or right-click → Cancel — and run
+it again; the board was not modified") instead of a ~20-line Python traceback. The traceback is
+still written, but at DEBUG level only, so **Verbose** shows it when you actually need it. That
+covers every long operation (Extract / Redraw / Apply, the Scheme List capture, the fieldstool's
+writes) plus the redraw chain's per-record failures. `_mutating_call` (the adapter's write wrapper)
+also finally RETRIES a write when KiCad answers AS_BUSY — it used to match the text `not ready`,
+which the real message never contains, so the retry silently never fired (2026-09-11).
+
 ## Tray icon
 
 The **Tray icon** status-bar checkbox creates an OS tray icon with the app's real icon

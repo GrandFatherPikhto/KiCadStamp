@@ -7,6 +7,8 @@ read_anchor_live) are monkeypatched — the test drives the dock's orchestration
 (adapter check, current-form identity read, mode-aware fill, warning on
 failure) exactly like test_trees_dock.py drives _resolve_live_offset. The
 resolvers' own correctness is covered by tests/test_live_position.py."""
+import logging
+
 import gui.docks.placer as placer_mod
 from gui.docks.live_position import LiveRead
 from gui.docks.placer import PlacerDock
@@ -121,19 +123,25 @@ def test_coordinate_read_position_anchor_writes_offset(main_window, tmp_path, mo
     assert form.rotation_edit.text() == "0.000"
 
 
-def test_coordinate_read_position_warns_when_no_live_connection(main_window, tmp_path, monkeypatch):
-    """No live board connection -> a warning, and NOTHING is written to the
-    position fields (no silent partial state)."""
+def test_coordinate_read_position_logs_error_when_no_live_connection(
+        main_window, tmp_path, monkeypatch, caplog):
+    """No live board connection -> ONE ERROR line in the Log (never a modal —
+    plan_2026_09_11_no_modals_and_busy_kicad X.1), and NOTHING is written to
+    the position fields (no silent partial state). The missing connection is
+    board STATE, not user input, so it must not open a dialog."""
     dock, _ = _make_coordinate_dock(main_window, tmp_path)
     form = dock.coordinate_form
     _set_identity(form)
 
-    warnings = []
-    monkeypatch.setattr(placer_mod.QMessageBox, "warning",
-                        lambda *a, **k: warnings.append(a) or None)
+    def _no_boxes(*a, **k):
+        raise AssertionError("a connection-state error must not open a QMessageBox")
+    monkeypatch.setattr(placer_mod.QMessageBox, "warning", _no_boxes)
+    caplog.clear()
     dock._on_coordinate_read_position()
 
-    assert warnings
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1
+    assert "No live board connection" in errors[0].message
     assert form.x_edit.text() == ""
     assert form.rotation_edit.text() == ""
 
@@ -211,14 +219,21 @@ def test_clone_read_position_anchor_writes_shift(main_window, tmp_path, monkeypa
     assert dock.rotation_edit.text() == "0.000"
 
 
-def test_clone_read_position_warns_when_no_live_connection(main_window, tmp_path, monkeypatch):
-    """No live board connection -> a warning, and nothing is written."""
+def test_clone_read_position_logs_error_when_no_live_connection(
+        main_window, tmp_path, monkeypatch, caplog):
+    """No live board connection -> ONE ERROR line in the Log (never a modal),
+    and nothing is written — same rule as the coordinate read above."""
     dock, _ = _make_clone_dock(main_window, tmp_path)
-    warnings = []
-    monkeypatch.setattr(placer_mod.QMessageBox, "warning",
-                        lambda *a, **k: warnings.append(a) or None)
+
+    def _no_boxes(*a, **k):
+        raise AssertionError("a connection-state error must not open a QMessageBox")
+    monkeypatch.setattr(placer_mod.QMessageBox, "warning", _no_boxes)
+    caplog.clear()
     dock._on_clone_read_position()
-    assert warnings
+
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1
+    assert "No live board connection" in errors[0].message
     assert dock.origin_widget.x_edit.text() == ""
     assert dock.rotation_edit.text() == ""
 

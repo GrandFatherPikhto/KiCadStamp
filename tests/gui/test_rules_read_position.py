@@ -9,6 +9,8 @@ Headless: the live resolver (read_anchor_live) is monkeypatched — the test
 drives the dock's orchestration (adapter check, anchor read, label text,
 failure warning) exactly like test_trees_dock.py drives _resolve_live_offset.
 """
+import logging
+
 import gui.docks.chain as rules_mod
 from gui.docks.cell_editor import CellDock
 from gui.docks.chain import ChainDock as RuleDock
@@ -43,17 +45,24 @@ def test_rule_origin_read_position_shows_anchor_readout(main_window, monkeypatch
     assert "90.0" in label
 
 
-def test_rule_origin_read_position_warns_when_no_live_connection(main_window, monkeypatch):
-    """No live board connection -> a warning, the readout label stays empty."""
+def test_rule_origin_read_position_logs_error_when_no_live_connection(
+        main_window, monkeypatch, caplog):
+    """No live board connection -> ONE ERROR line in the Log (never a modal —
+    plan_2026_09_11_no_modals_and_busy_kicad X.1), the readout label stays
+    empty."""
     dock = RuleDock(main_window)
     dock.origin_widget.load(mode="anchor", ref="U3")
-    warnings = []
-    monkeypatch.setattr(rules_mod.QMessageBox, "warning",
-                        lambda *a, **k: warnings.append(a) or None)
+
+    def _no_boxes(*a, **k):
+        raise AssertionError("a connection-state error must not open a QMessageBox")
+    monkeypatch.setattr(rules_mod.QMessageBox, "warning", _no_boxes)
+    caplog.clear()
 
     dock._on_origin_read_position()
 
-    assert warnings
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1
+    assert "No live board connection" in errors[0].message
     assert dock.anchor_position_label.text() == ""
 
 

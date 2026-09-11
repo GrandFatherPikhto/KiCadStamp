@@ -21,8 +21,11 @@ abort the rest of the chain; they are logged with their order position.
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
+from kipy.errors import ApiError
+
 from kicadstamp.anchor_graph import build_anchor_graph, redraw_records_in_order
 from kicadstamp.apply_pipeline import ApplyPipeline
+from kicadstamp.cli_common import api_error_message
 from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.i18n import _
 from kicadstamp.kicad.adapter import KiCadBoardAdapter
@@ -40,6 +43,19 @@ from kicadstamp.tree_position import (
 from kicadstamp.trees import Tree
 
 logger = logging.getLogger(__name__)
+
+
+def _api_error_text(error) -> str:
+    """Human-readable text for a KiCad IPC failure during a redraw, with the
+    traceback kept at DEBUG only (plan_2026_09_11_no_modals_and_busy_kicad
+    X.2.2). ``api_error_message`` (cli_common) turns AS_BUSY into the
+    "KiCad is busy — finish the unfinished tool and run it again; the board
+    was not modified" explanation, every other code into a plain
+    "KiCad returned API error: ...". The Log dock renders ERROR records in red
+    and shows nothing below INFO by default, so the user reads the human text,
+    never the stack."""
+    logger.debug("KiCad IPC error during a redraw", exc_info=True)
+    return api_error_message(error)
 
 
 def cascade_records(cfg, start_key: str) -> list:
@@ -78,6 +94,13 @@ def run_cascade(config_path: str, cfg, ctx,
             results.append((name, False, str(e)))
             logger.warning(_("Redraw dependents: {name!r} — FAILED: {error}")
                            .format(name=name, error=e))
+        except ApiError as e:
+            # A busy (or otherwise failing) KiCad is board STATE, not a bug:
+            # say so in words, keep the stack at DEBUG (see _api_error_text).
+            message = _api_error_text(e)
+            results.append((name, False, message))
+            logger.error(_("Redraw dependents: {name!r} — FAILED: {error}")
+                         .format(name=name, error=message))
         except Exception as e:  # noqa: BLE001 — genuinely unexpected, keep the traceback
             logger.exception("Redraw dependents: %s failed", name)
             results.append((name, False, str(e)))
@@ -158,6 +181,13 @@ def run_curated_tree_redraw(config_path: str, cfg, ctx, trees: list[Tree],
             # traceback needed (a per-record failure must not abort the rest).
             results.append((name, False, str(e)))
             logger.warning(_("Tree redraw: {name!r} — FAILED: {error}").format(name=name, error=e))
+        except ApiError as e:
+            # Same board-state rule as run_cascade (X.2.2) — this is the path
+            # Denis actually hit: a busy KiCad used to arrive as a raw stack.
+            message = _api_error_text(e)
+            results.append((name, False, message))
+            logger.error(_("Tree redraw: {name!r} — FAILED: {error}")
+                         .format(name=name, error=message))
         except Exception as e:  # noqa: BLE001 — genuinely unexpected, keep the traceback
             logger.exception("Tree redraw: %s failed", name)
             results.append((name, False, str(e)))
@@ -281,6 +311,12 @@ def run_curated_forest_redraw(config_path: str, cfg, ctx, trees: list[Tree],
             # traceback needed (a per-record failure must not abort the rest).
             results.append((name, False, str(e)))
             logger.warning(_("Forest redraw: {name!r} — FAILED: {error}").format(name=name, error=e))
+        except ApiError as e:
+            # Same board-state rule as run_cascade (X.2.2).
+            message = _api_error_text(e)
+            results.append((name, False, message))
+            logger.error(_("Forest redraw: {name!r} — FAILED: {error}")
+                         .format(name=name, error=message))
         except Exception as e:  # noqa: BLE001 — genuinely unexpected, keep the traceback
             logger.exception("Forest redraw: %s failed", name)
             results.append((name, False, str(e)))
@@ -331,6 +367,12 @@ def run_single_node_redraw_worker(payload: dict) -> tuple:
         logger.warning(_("Tree redraw: {name!r} — FAILED: {error}")
                        .format(name=ref, error=e))
         return [(ref, False, str(e))], []
+    except ApiError as e:
+        # Same board-state rule as run_cascade (X.2.2).
+        message = _api_error_text(e)
+        logger.error(_("Tree redraw: {name!r} — FAILED: {error}")
+                     .format(name=ref, error=message))
+        return [(ref, False, message)], []
     except Exception as e:  # noqa: BLE001 — genuinely unexpected, keep traceback
         logger.exception("Single node redraw %s failed", ref)
         return [(ref, False, str(e))], []

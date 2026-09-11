@@ -16,6 +16,7 @@ test_phase3_wiring.py:
     single click emits scheme_list_picked (-> DockHub opens the right page).
 """
 import json
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -2816,19 +2817,24 @@ def test_record_dialog_pivot_take_from_selection_fills_using_selection(
         dialog.close()
 
 
-def test_record_dialog_pivot_take_from_selection_no_adapter_warns(
-        main_window, monkeypatch):
-    """Commit F — without a live adapter the handler warns and leaves the
-    (0,0) default untouched (it never guesses a pivot)."""
+def test_record_dialog_pivot_take_from_selection_no_adapter_logs_error(
+        main_window, monkeypatch, caplog):
+    """Commit F — without a live adapter the handler writes ONE ERROR line to
+    the Log (never a modal — plan_2026_09_11_no_modals_and_busy_kicad X.1) and
+    leaves the (0,0) default untouched (it never guesses a pivot)."""
     import gui.docks.scheme_list as sl_mod
-    warns = []
-    monkeypatch.setattr(sl_mod.QMessageBox, "warning",
-                        lambda parent, title, text: warns.append(text))
+
+    def _no_boxes(*a, **k):
+        raise AssertionError("a connection-state error must not open a QMessageBox")
+    monkeypatch.setattr(sl_mod.QMessageBox, "warning", _no_boxes)
     dialog = RecordSchemeListDialog(_snap(*_HIER), ["C4"], main_window)
     try:
         assert not dialog.pivot_from_selection_button.isEnabled()  # no adapter
+        caplog.clear()
         dialog._on_pivot_from_selection()
-        assert warns and "Connect to KiCad first." in warns[0]
+        errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+        assert len(errors) == 1
+        assert "Connect to KiCad first." in errors[0].message
         assert dialog.pivot_value() == (0.0, 0.0)
     finally:
         dialog.close()

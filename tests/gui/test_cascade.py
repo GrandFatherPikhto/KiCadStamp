@@ -15,6 +15,8 @@ from unittest.mock import MagicMock
 
 from kicadstamp.config import Config, Cell, TemplateComponentSlot, ClonePlacement
 from kicadstamp.exceptions import PlacerError, ValidationError
+from kipy.errors import ApiError, ApiStatusCode
+
 from kicadstamp.trees import load_trees
 
 import gui.docks.cascade as cascade_mod
@@ -366,3 +368,119 @@ def test_run_curated_forest_redraw_stage2_places_module_content(monkeypatch, tmp
     assert ov.rotation_deg == 0.0
     assert results == [("CL_A", True, None)]
     assert warnings == []
+
+
+# ── KiCad IPC failures: words, not a stack (X.2.2) ─────────────────────────
+# plan_2026_09_11_no_modals_and_busy_kicad X.2.2: the redraw path used to let
+# an ApiError fall into the generic `except Exception` -> logger.exception, and
+# the Log dock showed ~20 lines of stack whose last line was
+# "kipy.errors.ApiError: KiCad returned error: KiCad is busy and cannot respond
+# to API requests right now" (found live on a tree Redraw). The ApiError branch
+# now goes through cli_common.api_error_message (AS_BUSY -> "finish the
+# unfinished tool in KiCad; the board was not modified"), logs it at ERROR —
+# red in the Log dock — and keeps the traceback at DEBUG only.
+
+
+def _busy_error():
+    return ApiError(
+        "KiCad returned error: KiCad is busy and cannot respond to API "
+        "requests right now", code=ApiStatusCode.AS_BUSY)
+
+
+def _tree_and_cfg(tmp_path):
+    cfg = _curated_cfg()
+    trees = _load_tree(tmp_path,
+        '(tree (name "t") (anchor (origin))\n'
+        '      (node (ref "CL_A") (xy 1 2))\n'
+        '      (node (ref "CL_B") (xy 3 4)))')
+    return cfg, trees
+
+
+def test_api_error_busy_in_tree_redraw_logs_human_text_without_a_stack(
+        monkeypatch, tmp_path, caplog):
+    """X.4 п.4 — a busy KiCad in the curated tree redraw: the per-record result
+    carries the human explanation, the Log gets ONE ERROR line with it, and NO
+    record at INFO or above carries a traceback."""
+    cfg, trees = _tree_and_cfg(tmp_path)
+    monkeypatch.setattr(cascade_mod, "KiCadBoardAdapter", lambda **k: MagicMock())
+    monkeypatch.setattr(cascade_mod, "ApplyPipeline",
+                        _raising_pipeline(_busy_error()))
+
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG):
+        results, _warnings = run_curated_tree_redraw(
+            "/root.sexp", cfg, None, trees, "t", {"CL_B"})
+
+    assert results and results[0][0] == "CL_B" and results[0][1] is False
+    assert "KiCad is busy" in results[0][2]
+    assert any(r.levelno == logging.ERROR and "KiCad is busy" in r.getMessage()
+               for r in caplog.records)
+    assert not any(r.exc_info and r.levelno >= logging.INFO
+                   for r in caplog.records), \
+        "the stack must stay at DEBUG for a board-state failure"
+
+
+def test_api_error_busy_covers_cascade_forest_and_single_node(monkeypatch,
+                                                              tmp_path, caplog):
+    """The same branch guards the other three redraw entry points — "Redraw
+    dependents" (run_cascade), the forest redraw and the node editor's Redraw
+    (run_single_node_redraw_worker)."""
+    monkeypatch.setattr(cascade_mod, "ApplyPipeline",
+                        _raising_pipeline(_busy_error()))
+    monkeypatch.setattr(cascade_mod, "KiCadBoardAdapter", lambda **k: MagicMock())
+
+    caplog.clear()
+    cascade_results = run_cascade("/root.sexp", None, None, ["A"])
+    assert cascade_results[0][0] == "A" and cascade_results[0][1] is False
+    assert "KiCad is busy" in cascade_results[0][2]
+    assert any(r.levelno == logging.ERROR and "KiCad is busy" in r.getMessage()
+               for r in caplog.records)
+
+    cfg, trees = _tree_and_cfg(tmp_path)
+    caplog.clear()
+    forest_results, _warnings = run_curated_forest_redraw(
+        "/root.sexp", cfg, None, trees, {"CL_B"})
+    assert "KiCad is busy" in forest_results[0][2]
+    assert any(r.levelno == logging.ERROR and "KiCad is busy" in r.getMessage()
+               for r in caplog.records)
+
+    caplog.clear()
+    node_results, node_warnings = run_single_node_redraw_worker({"ref": "CL_A"})
+    assert node_results == [("CL_A", False, node_results[0][2])]
+    assert "KiCad is busy" in node_results[0][2]
+    assert node_warnings == []
+    assert any(r.levelno == logging.ERROR and "KiCad is busy" in r.getMessage()
+               for r in caplog.records)
+
+
+def test_api_error_other_code_gets_the_generic_text_not_the_busy_one(
+        monkeypatch, caplog):
+    """X.4 п.5 — only AS_BUSY gets the long "finish the unfinished tool in
+    KiCad" explanation; any OTHER IPC code keeps api_error_message's plain
+    "KiCad returned API error: ..." wording (still words, still no stack)."""
+    monkeypatch.setattr(cascade_mod, "ApplyPipeline",
+                        _raising_pipeline(ApiError("nope",
+                                                   code=ApiStatusCode.AS_TIMEOUT)))
+
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG):
+        results = run_cascade("/root.sexp", None, None, ["A"])
+
+    assert "KiCad returned API error" in results[0][2]
+    assert "KiCad is busy" not in results[0][2]
+    assert not any(r.exc_info and r.levelno >= logging.INFO
+                   for r in caplog.records)
+
+
+def test_unexpected_exception_keeps_the_traceback_branch(monkeypatch, caplog):
+    """X.4 п.6 — the ApiError branch must not have swallowed the general one:
+    a genuinely unexpected Exception still goes through logger.exception."""
+    monkeypatch.setattr(cascade_mod, "ApplyPipeline",
+                        _raising_pipeline(RuntimeError("boom")))
+
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG):
+        results = run_cascade("/root.sexp", None, None, ["A"])
+
+    assert results == [("A", False, "boom")]
+    assert any(r.exc_info and r.levelno >= logging.ERROR for r in caplog.records)

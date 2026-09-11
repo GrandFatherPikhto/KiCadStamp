@@ -21,6 +21,7 @@ deleted the C++ object); the thread reference is captured right after
 start() (before any pump) and only used for a final wait(), which is safe
 because the completion handler has already run (posting quit()) by then.
 """
+import logging
 import threading
 import time
 from types import SimpleNamespace
@@ -242,3 +243,68 @@ def test_selection_tick_suspends_during_long_op(real_main_window, monkeypatch, q
     window._poll_board_selection()
     _pump(qapp, lambda: not window.connection.long_op_active)
     assert get_selected_calls == [1]
+
+
+# ── KiCad IPC failures: human text, never a raw stack (X.2.2) ───────────────
+# plan_2026_09_11_no_modals_and_busy_kicad X.2.2: EVERY GUI long op (Apply /
+# Extract / Redraw — the docks' worker fns AND everything that lets an ApiError
+# escape) funnels its failures through _LongOpWorker, so this is the one
+# chokepoint that turns "kipy.errors.ApiError: KiCad returned error: KiCad is
+# busy and cannot respond to API requests right now" (the last line of a ~20
+# line stack, found live on a tree Redraw) into words the user can act on.
+
+
+def test_long_op_api_error_reports_human_text_without_a_stack(qapp, caplog):
+    """A busy KiCad inside a long op: on_error gets cli_common.
+    api_error_message's explanation, the Log gets it at ERROR, and the
+    traceback is kept at DEBUG only (never INFO+)."""
+    from kipy.errors import ApiError, ApiStatusCode
+
+    connection = SimpleNamespace(long_op_active=False)
+    errors = []
+
+    def busy():
+        raise ApiError(
+            "KiCad returned error: KiCad is busy and cannot respond to API "
+            "requests right now", code=ApiStatusCode.AS_BUSY)
+
+    controller = LongOpController(connection, [])
+    controller.failed.connect(errors.append)
+
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG):
+        controller.start(busy)
+        thread = controller._thread
+        _pump(qapp, lambda: errors)
+        assert thread.wait(2000), "worker thread did not finish"
+
+    assert errors and "KiCad is busy" in errors[0]
+    assert any(r.levelno == logging.ERROR and "KiCad is busy" in r.getMessage()
+               for r in caplog.records)
+    assert not any(r.exc_info and r.levelno >= logging.INFO
+                   for r in caplog.records), \
+        "the traceback must stay at DEBUG for a board-state failure"
+    assert connection.long_op_active is False
+
+
+def test_long_op_unexpected_exception_still_logs_the_stack(qapp, caplog):
+    """The ApiError branch must not have weakened the general one: a genuinely
+    unexpected Exception keeps logger.exception's traceback at ERROR."""
+    connection = SimpleNamespace(long_op_active=False)
+    errors = []
+
+    def boom():
+        raise RuntimeError("kaboom")
+
+    controller = LongOpController(connection, [])
+    controller.failed.connect(errors.append)
+
+    caplog.clear()
+    with caplog.at_level(logging.ERROR):
+        controller.start(boom)
+        thread = controller._thread
+        _pump(qapp, lambda: errors)
+        assert thread.wait(2000), "worker thread did not finish"
+
+    assert errors == ["kaboom"]
+    assert any(r.exc_info and r.levelno >= logging.ERROR for r in caplog.records)

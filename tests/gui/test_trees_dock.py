@@ -9,6 +9,7 @@ Per-tree tabs with a read-only QTreeWidget render + the static node_offset()
 preview; structural editing; Save + dirty tracking; checkbox subtree
 selection + background curated Redraw.
 """
+import logging
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -1700,17 +1701,19 @@ def test_node_dialog_read_position_point_kind_rotation_left_blank(
     assert "rotation not available" in dlg.read_status_label.text()
 
 
-def test_node_dialog_read_position_warns_when_no_live_connection(
-        main_window, tmp_path, monkeypatch):
-    """adapter is None (not connected) -> a warning, and nothing is written
-    to the offset fields (no silent partial state)."""
+def test_node_dialog_read_position_logs_error_when_no_live_connection(
+        main_window, tmp_path, monkeypatch, caplog):
+    """adapter is None (not connected) -> ONE ERROR line in the Log (never a
+    modal — plan_2026_09_11_no_modals_and_busy_kicad X.1), and nothing is
+    written to the offset fields (no silent partial state)."""
     import gui.docks.trees_dock as td_mod
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
 
-    warnings = []
-    monkeypatch.setattr(td_mod.QMessageBox, "warning",
-                        lambda *a, **k: warnings.append(a) or None)
+    def _no_boxes(*a, **k):
+        raise AssertionError("a connection-state error must not open a QMessageBox")
+    monkeypatch.setattr(td_mod.QMessageBox, "warning", _no_boxes)
+    caplog.clear()
     dlg = _NodeDialog(dock, dock._all_ref_candidates(), dock._used_refs(),
                       "Add child", cfg=dock._cfg, adapter=None,
                       sheet_names={}, tree=tree, parent_node=None)
@@ -1718,7 +1721,9 @@ def test_node_dialog_read_position_warns_when_no_live_connection(
     dlg.ref_combo.setCurrentText("C_OUT")
     dlg._on_read_position()
 
-    assert warnings
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1
+    assert "No live board connection" in errors[0].message
     assert dlg.offset_widget.x_edit.text() == ""
     assert dlg.rotation_edit.text() == ""
 

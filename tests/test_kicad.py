@@ -534,6 +534,89 @@ def test_get_items_by_id_genuine_error_still_warns(caplog):
     assert any("Failed to look up items by id" in r.getMessage() for r in warnings)
 
 
+class TestMutatingCallBusyRetry:
+    """plan_2026_09_11_no_modals_and_busy_kicad X.2.3: _mutating_call's retry
+    matched the SUBSTRING "not ready", while the real KiCad message is "KiCad
+    is busy and cannot respond to API requests right now" — so the retry NEVER
+    fired for a genuinely busy KiCad (the exact server-side state Denis hit
+    live, see the X.2 preamble). It now matches ApiStatusCode.AS_BUSY by CODE;
+    the old substring test is kept as a harmless extra condition."""
+
+    @staticmethod
+    def _adapter():
+        adapter = Adapter.__new__(Adapter)
+        adapter._board = MagicMock()
+        adapter._write_risk_checked = True  # skip check_write_crash_risk's own IPC call
+        return adapter
+
+    def test_busy_by_code_is_retried_and_the_second_attempt_wins(self):
+        from kipy.errors import ApiError, ApiStatusCode
+
+        adapter = self._adapter()
+        calls = []
+
+        def fn():
+            calls.append(len(calls) + 1)
+            if len(calls) == 1:
+                raise ApiError(
+                    "KiCad returned error: KiCad is busy and cannot respond to "
+                    "API requests right now", code=ApiStatusCode.AS_BUSY)
+            return "ok"
+
+        assert adapter._mutating_call("update_items", fn, retries=1,
+                                      backoff_s=0) == "ok"
+        assert calls == [1, 2]
+
+    def test_busy_stops_after_exactly_retries_plus_one_attempts(self):
+        """X.4 п.8 — no endless loop: 1 + retries attempts, then the ApiError
+        goes out to the caller unchanged."""
+        from kipy.errors import ApiError, ApiStatusCode
+
+        adapter = self._adapter()
+        calls = []
+
+        def fn():
+            calls.append(1)
+            raise ApiError("busy", code=ApiStatusCode.AS_BUSY)
+
+        with pytest.raises(ApiError):
+            adapter._mutating_call("update_items", fn, retries=2, backoff_s=0)
+        assert len(calls) == 3
+
+    def test_non_busy_api_error_is_not_retried(self):
+        from kipy.errors import ApiError, ApiStatusCode
+
+        adapter = self._adapter()
+        calls = []
+
+        def fn():
+            calls.append(1)
+            raise ApiError("nope", code=ApiStatusCode.AS_TIMEOUT)
+
+        with pytest.raises(ApiError):
+            adapter._mutating_call("update_items", fn, retries=2, backoff_s=0)
+        assert calls == [1]
+
+    def test_not_ready_wording_without_the_busy_tag_still_retries(self):
+        """X.2.3's fallback condition: a "not ready" message that KiCad does
+        NOT tag AS_BUSY keeps retrying, exactly as the old substring test did —
+        the new code check was ADDED to it, not substituted for it."""
+        from kipy.errors import ApiError, ApiStatusCode
+
+        adapter = self._adapter()
+        calls = []
+
+        def fn():
+            calls.append(1)
+            if len(calls) == 1:
+                raise ApiError("KiCad is not ready", code=ApiStatusCode.AS_TIMEOUT)
+            return "ok"
+
+        assert adapter._mutating_call("update_items", fn, retries=1,
+                                      backoff_s=0) == "ok"
+        assert len(calls) == 2  # the first attempt + ONE retry
+
+
 if __name__ == "__main__":
     print("Running kicad tests (without KiCad connection)...")
     test_import()

@@ -66,8 +66,9 @@ from .. import settings
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from .live_position import read_record_live_pose
-from ._common import (configure_searchable, confirm_first_run_adoption,
-                      highlight_stylesheet_for, set_combo_items,
+from ._common import (ERROR_STYLE as _ERROR_STYLE,
+                      configure_searchable, confirm_first_run_adoption,
+                      highlight_stylesheet_for, set_combo_items, show_message,
                       SplitterSizeKeeper)
 from .cascade import (run_curated_forest_redraw_worker, run_curated_tree_redraw_worker,
                       run_single_node_redraw_worker)
@@ -2004,9 +2005,12 @@ class TreesDock(QWidget):
         as a warning."""
         adapter = self._live_adapter()
         if adapter is None:
-            QMessageBox.warning(
-                self, _("Reread current position"),
-                _("No live board connection — connect KiCad first."))
+            # Connection state, not user input — a Log line, never a modal
+            # (plan_2026_09_11_no_modals_and_busy_kicad X.1). The node is
+            # still left untouched (nothing below runs).
+            show_message(
+                _("No live board connection — connect KiCad first."),
+                _ERROR_STYLE, logger)
             return
         try:
             offset_mm, rotation = _resolve_live_offset(
@@ -3197,9 +3201,14 @@ class NodeFormWidget(QWidget):
         if not ref:
             return
         if self._adapter is None:
-            QMessageBox.warning(
-                self, _("Read current position"),
-                _("No live board connection — connect KiCad first."))
+            # Connection state, not user input — a Log line, never a modal
+            # (plan_2026_09_11_no_modals_and_busy_kicad X.1). NodeFormWidget
+            # has no _show_message (the inline read_status_label is the READ
+            # READOUT, not a log), so this uses the shared helper. Fields stay
+            # untouched below.
+            show_message(
+                _("No live board connection — connect KiCad first."),
+                _ERROR_STYLE, logger)
             return
         if self._cfg is None or self._tree is None:
             QMessageBox.warning(

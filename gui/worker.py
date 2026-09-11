@@ -69,6 +69,25 @@ class _LongOpWorker(QObject):
         try:
             result = self._fn(*self._args)
         except Exception as e:
+            # A KiCad IPC failure is a board STATE problem (KiCad busy with an
+            # unfinished tool, a dropped connection), not a bug: log the human
+            # explanation and hand THAT to the caller, keeping the traceback at
+            # DEBUG only (plan_2026_09_11_no_modals_and_busy_kicad X.2.2 — every
+            # GUI long op, Apply/Extract/Redraw alike, funnels through here, so
+            # this one branch closes the "raw stack in the Log for a busy
+            # KiCad" gap for all of them). Genuinely unexpected exceptions keep
+            # the traceback as before.
+            from kipy.errors import ApiError
+            if isinstance(e, ApiError):
+                # Lazy, like cli_common.api_error_message: only an actual IPC
+                # error pays for the import.
+                from kicadstamp.cli_common import api_error_message
+                message = api_error_message(e)
+                logger.error(message)
+                logger.debug("Long operation failed with a KiCad IPC error",
+                             exc_info=True)
+                self.failed.emit(message)
+                return
             logger.exception("Long operation failed")
             self.failed.emit(str(e))
             return
@@ -294,6 +313,18 @@ class PollWorker(QObject):
         try:
             value = task.fn(*task.args)
         except Exception as e:
+            # Same board-state rule as _LongOpWorker.run (see the X.2.2 comment
+            # there): a KiCad IPC failure gets the human text at ERROR, the
+            # traceback only at DEBUG.
+            from kipy.errors import ApiError
+            if isinstance(e, ApiError):
+                from kicadstamp.cli_common import api_error_message
+                message = api_error_message(e)
+                logger.error(message)
+                logger.debug("Poll worker task failed with a KiCad IPC error",
+                             exc_info=True)
+                self.resultReady.emit(PollResult(task.tag, None, message))
+                return
             logger.exception("Poll worker task failed")
             self.resultReady.emit(PollResult(task.tag, None, str(e)))
             return

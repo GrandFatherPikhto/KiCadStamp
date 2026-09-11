@@ -69,7 +69,8 @@ from kicadstamp.schematic_editing import check_kicad_not_running, write_files
 from kicadstamp.schematic_set_fields import (plan_ensure_fields_for_root,
                                              plan_set_edits_for_root)
 
-from .docks._common import configure_searchable
+from .docks._common import (ERROR_STYLE as _ERROR_STYLE, configure_searchable,
+                            show_message)
 from .docks.pending import PendingChangesDock, PendingEdit, compute_pending_edits, edits_to_fields_cfg
 from .schema_model import (SchematicComponent, SchematicInstance,
                            load_schematic_components, load_schematic_instances)
@@ -518,7 +519,10 @@ class MainWindow(QMainWindow):
         if not self._current_targets:
             return
         if not self.connection.is_connected:
-            QMessageBox.warning(self, _("Not connected"), _("Connect to KiCad first."))
+            # Connection state, not user input — a Log line, never a modal
+            # (plan_2026_09_11_no_modals_and_busy_kicad X.1). Nothing is
+            # staged below.
+            show_message(_("Connect to KiCad first."), _ERROR_STYLE, logger)
             return
         # A background long op (Extract/Redraw) or another poll tick holds
         # the shared socket; writing now would interleave into its
@@ -618,7 +622,8 @@ class MainWindow(QMainWindow):
         if not syncable:
             return
         if not self.connection.is_connected:
-            QMessageBox.warning(self, _("Not connected"), _("Connect to KiCad first."))
+            # Same connection-state rule as Stage above.
+            show_message(_("Connect to KiCad first."), _ERROR_STYLE, logger)
             return
         if self.connection.long_op_active:
             return

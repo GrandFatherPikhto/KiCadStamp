@@ -46,6 +46,7 @@ value is written into connection.timeout_ms on apply(), which BoardConnection re
 by reference on every connect() — so it takes effect on the NEXT connection without
 disturbing any open one.
 """
+import logging
 from functools import partial
 from typing import Dict
 
@@ -65,7 +66,10 @@ from .. import board_overlay, settings
 from ..color_schemes import available_color_schemes, load_color_scheme
 from ..hotkeys import get_shortcut, registered_hotkeys, set_shortcut
 from ..worker import start_long_op
-from ._common import DEFAULT_HIGHLIGHT_COLOR
+from ._common import (DEFAULT_HIGHLIGHT_COLOR, ERROR_STYLE as _ERROR_STYLE,
+                      show_message)
+
+logger = logging.getLogger(__name__)
 
 # Sensible bounds for the connection timeout spinbox, in milliseconds.
 TIMEOUT_MIN_MS = 1000
@@ -473,10 +477,13 @@ class ConfiguratorDock(QWidget):
         and nothing is deleted."""
         adapter = self._overlay_adapter()
         if adapter is None:
-            QMessageBox.warning(
-                self, _("Board overlay"),
+            # Connection state, not user input — a Log line, never a modal
+            # (plan_2026_09_11_no_modals_and_busy_kicad X.1). The sweep is
+            # still refused here.
+            show_message(
                 _("No live board — sweeping the overlay layer needs a KiCad "
-                  "connection."))
+                  "connection."),
+                _ERROR_STYLE, logger)
             return
         layer_name = self.overlay_layer_combo.currentText().strip()
         if not layer_name:

@@ -35,16 +35,18 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from kipy.errors import ApiError
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtWidgets import (QDialog, QMessageBox, QSizePolicy, QTabWidget)
 
-from .docks._common import display_path, show_message
+from .docks._common import (ERROR_STYLE as _ERROR_STYLE, display_path,
+                            show_message)
 from .docks.entity_delete import delete_entry
 from .docks.extract_diagnostics import (format_cluster_rejections,
                                         rejections_log_detail)
 from .docks.rename import entry_effective_name
 
-from kicadstamp.cli_common import peek_log_file
+from kicadstamp.cli_common import api_error_message, peek_log_file
 from kicadstamp.config_working_set import WORKING_SET
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
@@ -474,8 +476,10 @@ class DockHub:
         board = getattr(connection, "board", None)
         adapter = getattr(board, "adapter", None) if board is not None else None
         if adapter is None:
-            QMessageBox.warning(self.main_window, _("Scheme Lists"),
-                                _("Connect to KiCad first."))
+            # Connection state, not user input — a Log line, never a modal
+            # (plan_2026_09_11_no_modals_and_busy_kicad X.1). The flow still
+            # stops here (no dialog, no capture).
+            show_message(_("Connect to KiCad first."), _ERROR_STYLE, logger)
             return
         # source_sheet derivation (capture_scheme_list's sheet_names parameter)
         # needs the {uuid: sheetname} map — best-effort, same as Record (a
@@ -1372,8 +1376,9 @@ class DockHub:
         board = getattr(connection, "board", None)
         adapter = getattr(board, "adapter", None) if board is not None else None
         if adapter is None:
-            QMessageBox.warning(self.main_window, _("Scheme Lists"),
-                                _("Connect to KiCad first."))
+            # Same connection-state rule as the Re-source flow above
+            # (plan_2026_09_11_no_modals_and_busy_kicad X.1).
+            show_message(_("Connect to KiCad first."), _ERROR_STYLE, logger)
             return
         # source_sheet derivation (capture_scheme_list's sheet_names parameter)
         # needs the {uuid: sheetname} map the project config carries
@@ -1496,6 +1501,11 @@ class DockHub:
                 scope_presets=[SchemeListScopePreset(**p)
                                for p in (payload.get("scope_presets") or [])],
                 boundary_net_actions=payload.get("boundary_net_actions"))
+        except ApiError as e:
+            # KiCad IPC failure = board STATE, not a bug (plan_2026_09_11_no_
+            # modals_and_busy_kicad X.2.2): the human explanation (AS_BUSY ->
+            # "finish the unfinished tool in KiCad"), never a raw stack.
+            return {"error": api_error_message(e)}
         except Exception as e:  # noqa: BLE001 — ValidationError family surfaces verbatim
             logging.getLogger(__name__).exception("Scheme List record capture failed")
             return {"error": str(e)}
@@ -1600,6 +1610,9 @@ class DockHub:
                 scope_presets=[SchemeListScopePreset(**p)
                                for p in (payload.get("scope_presets") or [])],
                 boundary_net_actions=payload.get("boundary_net_actions"))
+        except ApiError as e:
+            # Same board-state rule as the record capture above (X.2.2).
+            return {"error": api_error_message(e)}
         except Exception as e:  # noqa: BLE001 — ValidationError family surfaces verbatim
             logging.getLogger(__name__).exception(
                 "Scheme List re-source capture failed")
