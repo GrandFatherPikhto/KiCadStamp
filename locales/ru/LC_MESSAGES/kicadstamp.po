@@ -15201,3 +15201,32 @@ msgstr "Нет точек для показа."
 #: gui/docks/points.py
 msgid "Show all points failed: {error}"
 msgstr "Показ всех точек не удался: {error}"
+
+# ── Trees dock: anchor/base overlay circles (plan_2026_09_12_tree_point_markers) ──
+#: gui/docks/trees_dock.py
+msgid "Show tree markers"
+msgstr "Показать маркеры дерева"
+
+#: gui/docks/trees_dock.py
+msgid "Hide tree markers"
+msgstr "Скрыть маркеры дерева"
+
+#: gui/docks/trees_dock.py
+msgid "Draw the tree's anchor (where it hangs) and the origin of its local frame on the board overlay — the vector between the two circles is the suspension point."
+msgstr "Нарисовать якорь дерева (где оно висит) и начало его локального кадра на слое оверлея — вектор между двумя кружками и есть точка подвеса."
+
+#: gui/docks/trees_dock.py
+msgid "Tree {name!r}: the anchor did not resolve: {error}"
+msgstr "Дерево {name!r}: якорь не разрешился: {error}"
+
+#: gui/docks/trees_dock.py
+msgid "Tree {name!r}: the anchor marker was not drawn — the overlay layer {layer!r} is not enabled on this board, or the board read failed."
+msgstr "Дерево {name!r}: маркер якоря не нарисован — слой оверлея {layer!r} не включён на этой плате, либо не удалось прочитать плату."
+
+#: gui/docks/trees_dock.py
+msgid "Tree {name!r}: the base marker was not drawn — the overlay layer {layer!r} is not enabled on this board, or the board read failed."
+msgstr "Дерево {name!r}: маркер базы не нарисован — слой оверлея {layer!r} не включён на этой плате, либо не удалось прочитать плату."
+
+#: gui/docks/trees_dock.py
+msgid "Show tree markers failed: {error}"
+msgstr "Показ маркеров дерева не удался: {error}"

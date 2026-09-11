@@ -16551,3 +16551,32 @@ msgstr ""
 #: gui/docks/points.py
 msgid "Show all points failed: {error}"
 msgstr ""
+
+# ── Trees dock: anchor/base overlay circles (plan_2026_09_12_tree_point_markers) ──
+#: gui/docks/trees_dock.py
+msgid "Show tree markers"
+msgstr ""
+
+#: gui/docks/trees_dock.py
+msgid "Hide tree markers"
+msgstr ""
+
+#: gui/docks/trees_dock.py
+msgid "Draw the tree's anchor (where it hangs) and the origin of its local frame on the board overlay — the vector between the two circles is the suspension point."
+msgstr ""
+
+#: gui/docks/trees_dock.py
+msgid "Tree {name!r}: the anchor did not resolve: {error}"
+msgstr ""
+
+#: gui/docks/trees_dock.py
+msgid "Tree {name!r}: the anchor marker was not drawn — the overlay layer {layer!r} is not enabled on this board, or the board read failed."
+msgstr ""
+
+#: gui/docks/trees_dock.py
+msgid "Tree {name!r}: the base marker was not drawn — the overlay layer {layer!r} is not enabled on this board, or the board read failed."
+msgstr ""
+
+#: gui/docks/trees_dock.py
+msgid "Show tree markers failed: {error}"
+msgstr ""

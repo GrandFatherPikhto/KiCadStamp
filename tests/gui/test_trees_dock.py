@@ -5178,3 +5178,405 @@ def test_render_tree_marks_the_pivot_ref_handle(main_window):
     dock._refresh_tree_marks(tree)
     assert "(handle)" not in dock._node_items["A"].text(0)
     assert "(handle)" in dock._node_items["B"].text(0)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Tree anchor/base overlay circles (З, plan_2026_09_12_tree_point_markers.md):
+# the "Show tree markers" toggle on the tree-settings form. The fake adapter is
+# the same duck surface gui/board_overlay.py and gui/overlay_markers.py already
+# use, so created circles REALLY land on the fake board — "two circles, not
+# one" is observable rather than asserted on a call log.
+# ═══════════════════════════════════════════════════════════════════════════
+
+from types import SimpleNamespace
+
+from PyQt6.QtWidgets import QInputDialog
+
+from kicadstamp.utils.units import MM
+
+# This module ALREADY rebinds the name `BoardLayer` (the copper-only domain
+# enum from kicadstamp.domain.geometry, used by the cluster/mirror tests above)
+# — importing kipy's full BoardLayer under the same name here would silently
+# shadow it for EVERY test in the file (found the hard way: the two "MIRRORED"
+# tests broke), so kipy's enum gets an explicit alias.
+from kipy.board_types import BoardCircle
+from kipy.board_types import BoardLayer as KicadBoardLayer
+
+import gui.overlay_markers as markers_mod
+
+_tree_anchor_key = trees_dock_mod._tree_anchor_key
+_tree_base_key = trees_dock_mod._tree_base_key
+
+_TREE_LAYER = KicadBoardLayer.BL_Dwgs_User
+_TREE_OTHER_LAYER = KicadBoardLayer.BL_User_5
+_ANCHOR_XY = (100.0, 50.0)
+
+
+class _OverlayBoard:
+    """Duck-typed `_board` — the exact surface gui/board_overlay.py reads."""
+
+    def __init__(self, layers=None):
+        self.layers = (list(layers) if layers is not None
+                       else [_TREE_LAYER, _TREE_OTHER_LAYER])
+        self.shapes = []
+        self.names = {_TREE_LAYER: "User.Drawings",
+                      _TREE_OTHER_LAYER: "User.KiCadStamp"}
+
+    def get_enabled_layers(self):
+        return list(self.layers)
+
+    def get_layer_name(self, layer):
+        return self.names.get(layer, str(layer))
+
+    def get_shapes(self):
+        return list(self.shapes)
+
+
+class _OverlayAdapter:
+    """Board-mutation-free fake with the overlay-drawing duck surface (the same
+    one tests/gui/test_points_dock.py uses): created shapes are registered on
+    the fake board and remove_by_ids() really removes them."""
+
+    def __init__(self, board=None):
+        self._board = board if board is not None else _OverlayBoard()
+        self.created = []
+        self.removed = []
+        self.refreshes = 0
+        self.selections = []
+        self._next_id = 0
+
+    def refresh_board(self):
+        self.refreshes += 1
+
+    def create_items(self, items):
+        items = list(items)
+        for item in items:
+            self._next_id += 1
+            item.id.value = f"shape-{self._next_id}"
+        self.created.extend(items)
+        self._board.shapes = list(self._board.shapes) + items
+        return items
+
+    def select_items(self, items):
+        self.selections.append(list(items))
+
+    def remove_by_ids(self, uuid_strs):
+        doomed = {str(u) for u in uuid_strs}
+        self.removed.extend(uuid_strs)
+        self._board.shapes = [s for s in self._board.shapes
+                              if str(s.id.value) not in doomed]
+        return True
+
+
+def _tree_circles(adapter, layer=_TREE_LAYER):
+    return [s for s in adapter._board.shapes
+            if isinstance(s, BoardCircle) and s.layer == layer]
+
+
+@pytest.fixture
+def sync_long_ops(monkeypatch):
+    """Run every start_long_op in trees_dock INLINE: headless tests never spin
+    the worker thread, so a draw/removal is complete when the call returns."""
+    def _run(connection, widgets, fn, on_success, on_error, *args):
+        try:
+            result = fn(*args)
+        except Exception as e:  # noqa: BLE001 — mirror the real worker contract
+            on_error(str(e))
+            return None
+        on_success(result)
+        return None
+    monkeypatch.setattr(trees_dock_mod, "start_long_op", _run)
+
+
+def _marker_cfg(name="t1", pivot_xy=(5.0, 0.0), rotation=0.0, point="P"):
+    """A root config whose tree anchors to a points: entry at (100, 50) — an
+    xy-literal point, so the anchor resolves with no board maths involved."""
+    tree: dict = {"name": name, "anchor": {"point": point},
+                  "nodes": [{"ref": "E1", "kind": "external", "xy": [0.0, 0.0]}]}
+    if pivot_xy is not None:
+        tree["pivot_xy"] = list(pivot_xy)
+    if rotation:
+        tree["rotation"] = rotation
+    return {"points": {point: {"xy": list(_ANCHOR_XY)}}, "trees": [tree]}
+
+
+def _marker_dock(main_window, tmp_path, cfg):
+    """(dock, root, adapter, active anchor form) — a TreesDock on `cfg` WITH a
+    live (fake) board, and the anchor form its active page shows."""
+    dock, root = _dock_with(main_window, tmp_path, cfg)
+    adapter = _OverlayAdapter()
+    main_window.connection.board = SimpleNamespace(adapter=adapter)
+    return dock, root, adapter, _settings_form(dock)
+
+
+def _no_modal(monkeypatch):
+    """Fail loudly if any modal is shown — a visualisation must never raise a
+    dialog (Е.2.6 / З.2.4)."""
+    def _boom(*_a, **_k):
+        raise AssertionError("no modal must ever be shown")
+    for name in ("warning", "critical", "information"):
+        monkeypatch.setattr(QMessageBox, name, _boom)
+
+
+def test_show_markers_draws_anchor_and_base_two_circles_numbers(
+        main_window, tmp_path, sync_long_ops):
+    """З.4.1 — pivot (5, 0), no rotation, known anchor: TWO circles, and both
+    centres are NUMBERS against _anchor_base_live_position / tree_layout_base
+    (not against a hand-copied literal)."""
+    dock, _root, adapter, form = _marker_dock(main_window, tmp_path, _marker_cfg())
+    tree = dock._current_tree()
+
+    assert form.show_markers_button.text() == "Show tree markers"
+    form._do_toggle_markers()
+
+    circles = _tree_circles(adapter)
+    assert len(circles) == 2
+    anchor_pos, _arot = trees_dock_mod._anchor_base_live_position(
+        adapter, dock._cfg, tree, {})
+    base_pos, _brot = trees_dock_mod.tree_layout_base(
+        adapter, dock._cfg, tree, {}, {t.name: t for t in dock._trees})
+    assert (circles[0].center.x, circles[0].center.y) == (anchor_pos.x, anchor_pos.y)
+    assert (circles[1].center.x, circles[1].center.y) == (base_pos.x, base_pos.y)
+    # …and the millimetre numbers of З.1's own measurement.
+    assert circles[0].center.x == int(100.0 * MM)
+    assert circles[0].center.y == int(50.0 * MM)
+    assert circles[1].center.x == int(95.0 * MM)
+    assert circles[1].center.y == int(50.0 * MM)
+    assert markers_mod.owner.has_key(_tree_anchor_key("t1"))
+    assert markers_mod.owner.has_key(_tree_base_key("t1"))
+    assert form.show_markers_button.text() == "Hide tree markers"
+
+
+def test_show_markers_with_a_zero_pivot_draws_one_circle(
+        main_window, tmp_path, sync_long_ops):
+    """З.4.2 — a zero suspension point puts base == anchor, so exactly ONE
+    circle is drawn and there is no tree-base key at all."""
+    _dock, _root, adapter, form = _marker_dock(
+        main_window, tmp_path, _marker_cfg(pivot_xy=None))
+
+    form._do_toggle_markers()
+
+    circles = _tree_circles(adapter)
+    assert len(circles) == 1
+    assert (circles[0].center.x, circles[0].center.y) == (int(100.0 * MM),
+                                                          int(50.0 * MM))
+    assert markers_mod.owner.has_key(_tree_anchor_key("t1"))
+    assert not markers_mod.owner.has_key(_tree_base_key("t1"))
+
+
+def test_zeroing_the_pivot_then_showing_again_leaves_one_circle(
+        main_window, tmp_path, sync_long_ops):
+    """З.4.3 / З.2.3 — shown at pivot (5, 0), then the user zeroes the pivot
+    and turns the toggle back on: ONE circle and no tree-base key."""
+    dock, _root, adapter, form = _marker_dock(main_window, tmp_path, _marker_cfg())
+    tree = dock._current_tree()
+
+    form._do_toggle_markers()
+    assert len(_tree_circles(adapter)) == 2
+
+    tree.pivot_xy = None          # the user zeroes the suspension point
+    form._do_toggle_markers()     # OFF
+    form._do_toggle_markers()     # ON again, now with a zero pivot
+
+    assert len(_tree_circles(adapter)) == 1
+    assert not markers_mod.owner.has_key(_tree_base_key("t1"))
+    assert markers_mod.owner.has_key(_tree_anchor_key("t1"))
+
+
+def test_show_drops_a_stale_tree_base_key_when_base_meets_anchor(
+        main_window, tmp_path, sync_long_ops):
+    """З.2.3's second half: a `tree-base` key left over from a DIFFERENT pivot
+    is removed by the very draw that finds base == anchor — two circles in one
+    spot are impossible even for a leftover key."""
+    _dock, _root, adapter, form = _marker_dock(
+        main_window, tmp_path, _marker_cfg(pivot_xy=None))
+    stale = markers_mod.owner.ensure_marker(
+        adapter, _tree_base_key("t1"), 1.0, 2.0)
+    assert stale is not None
+    assert len(_tree_circles(adapter)) == 1
+
+    form._do_toggle_markers()
+
+    assert len(_tree_circles(adapter)) == 1        # the stale one is gone
+    assert not markers_mod.owner.has_key(_tree_base_key("t1"))
+
+
+def test_show_markers_rotation_90_moves_the_base(
+        main_window, tmp_path, sync_long_ops):
+    """З.4.4 — the tree's own 90° rotation moves the base by the rotated pivot
+    (З.1's measurement: anchor (100, 50) -> base (100, 55))."""
+    _dock, _root, adapter, form = _marker_dock(
+        main_window, tmp_path, _marker_cfg(rotation=90.0))
+
+    form._do_toggle_markers()
+
+    circles = _tree_circles(adapter)
+    assert len(circles) == 2
+    assert (circles[0].center.x, circles[0].center.y) == (int(100.0 * MM),
+                                                          int(50.0 * MM))
+    assert (circles[1].center.x, circles[1].center.y) == (int(100.0 * MM),
+                                                          int(55.0 * MM))
+
+
+def test_switching_tree_takes_the_previous_trees_circles_down(
+        main_window, tmp_path, sync_long_ops):
+    """З.4.5 / З.2.5 — only the tree being looked at may keep its circles:
+    switching tabs drops the previous tree's keys and shapes, and the new
+    tree's toggle starts from "Show"."""
+    cfg = {"points": {"P": {"xy": list(_ANCHOR_XY)},
+                      "Q": {"xy": [10.0, 20.0]}},
+           "trees": [
+               {"name": "t1", "anchor": {"point": "P"}, "pivot_xy": [5.0, 0.0],
+                "nodes": [{"ref": "E1", "kind": "external", "xy": [0.0, 0.0]}]},
+               {"name": "t2", "anchor": {"point": "Q"},
+                "nodes": [{"ref": "E2", "kind": "external", "xy": [0.0, 0.0]}]}]}
+    dock, _root, adapter, form1 = _marker_dock(main_window, tmp_path, cfg)
+
+    form1._do_toggle_markers()
+    assert len(_tree_circles(adapter)) == 2
+    assert markers_mod.owner.has_key(_tree_anchor_key("t1"))
+
+    dock.tree_tabs.setCurrentIndex(1)
+
+    assert not markers_mod.owner.has_key(_tree_anchor_key("t1"))
+    assert not markers_mod.owner.has_key(_tree_base_key("t1"))
+    assert _tree_circles(adapter) == []
+    form2 = _settings_form(dock)
+    assert form2._tree is dock._trees[1]
+    assert form2.show_markers_button.text() == "Show tree markers"
+
+    form2._do_toggle_markers()
+    assert len(_tree_circles(adapter)) == 1     # t2 has no pivot -> one circle
+    assert markers_mod.owner.has_key(_tree_anchor_key("t2"))
+
+
+def test_second_press_clears_our_keys_and_spares_a_foreign_namespace(
+        main_window, tmp_path, sync_long_ops):
+    """З.4.6 — the second press drops both tree keys and their shapes; a shape
+    of a DIFFERENT namespace (the points consumer) is untouched."""
+    _dock, _root, adapter, form = _marker_dock(main_window, tmp_path, _marker_cfg())
+    foreign_key = "point/p1"
+    foreign_uuid = markers_mod.owner.ensure_marker(adapter, foreign_key, 50.0, 50.0)
+
+    form._do_toggle_markers()
+    assert form.show_markers_button.text() == "Hide tree markers"
+    assert len(_tree_circles(adapter)) == 3     # anchor + base + foreign
+
+    form._do_toggle_markers()
+
+    assert not markers_mod.owner.has_key(_tree_anchor_key("t1"))
+    assert not markers_mod.owner.has_key(_tree_base_key("t1"))
+    assert markers_mod.owner.has_key(foreign_key)
+    assert foreign_uuid not in [str(u) for u in adapter.removed]
+    assert len(_tree_circles(adapter)) == 1     # only the foreign circle
+    assert form.show_markers_button.text() == "Show tree markers"
+
+
+def test_toggle_without_a_board_logs_and_shows_no_modal(
+        main_window, tmp_path, monkeypatch, caplog):
+    """З.4.7 (a) — no board: one Log line, no exception, no modal, and the
+    button never "sticks"."""
+    dock, _root = _dock_with(main_window, tmp_path, _marker_cfg())
+    form = _settings_form(dock)
+    _no_modal(monkeypatch)
+
+    form._on_show_markers()
+
+    assert "Not connected." in caplog.text
+    assert markers_mod.owner.keys() == []
+    assert form.show_markers_button.text() == "Show tree markers"
+
+
+def test_toggle_with_an_unresolvable_anchor_logs_and_draws_nothing(
+        main_window, tmp_path, sync_long_ops, monkeypatch, caplog):
+    """З.4.7 (b) — the anchor does not resolve (its component is not on the
+    board): a Log line naming the tree, no exception, no modal, no circles."""
+    _dock, _root, adapter, form = _marker_dock(main_window, tmp_path, _marker_cfg())
+
+    def _boom(*_a, **_k):
+        raise ValidationError("anchor gone")
+    monkeypatch.setattr(trees_dock_mod, "_anchor_base_live_position", _boom)
+    _no_modal(monkeypatch)
+
+    form._do_toggle_markers()
+
+    assert _tree_circles(adapter) == []
+    assert markers_mod.owner.keys() == []
+    assert "did not resolve" in caplog.text
+    assert form.show_markers_button.text() == "Show tree markers"
+
+
+def test_toggle_dispatches_on_a_worker_with_the_button_locked(
+        main_window, tmp_path, monkeypatch):
+    """Both halves run through start_long_op (every position is a LIVE read),
+    with the toggle locked — the same discipline every other dock long op has.
+    The hide half touches OUR two keys only (remove_overlay, not a sweep)."""
+    dock, _root, adapter, form = _marker_dock(main_window, tmp_path, _marker_cfg())
+    captured = {}
+    def fake_start(connection, widgets, worker, finish, failed, *args):
+        captured.update(widgets=widgets, worker=worker, args=args)
+        return object()
+    monkeypatch.setattr(trees_dock_mod, "start_long_op", fake_start)
+
+    form._on_show_markers()      # draw half
+
+    assert captured["widgets"] == (form.show_markers_button,)
+    assert captured["worker"] is trees_dock_mod._show_tree_markers_worker
+    assert captured["args"][0]["tree"] is dock._current_tree()
+    assert captured["args"][0]["adapter"] is adapter
+
+    markers_mod.owner.ensure_marker(
+        adapter, _tree_anchor_key("t1"), 1.0, 2.0)
+    captured.clear()
+    form._on_show_markers()      # hide half
+
+    assert captured["widgets"] == (form.show_markers_button,)
+    assert captured["worker"] is trees_dock_mod.board_overlay.remove_overlay
+
+
+def test_root_switch_clears_both_namespaces(
+        main_window, tmp_path, sync_long_ops):
+    """З.4.8 / З.2.5 — a new root config clears tree-anchor AND tree-base
+    entirely (a foreign namespace's key survives), while a repeat call with the
+    SAME root must not clear anything."""
+    dock, _root, adapter, form = _marker_dock(main_window, tmp_path, _marker_cfg())
+    foreign_key = "point/p1"
+    markers_mod.owner.ensure_marker(adapter, foreign_key, 50.0, 50.0)
+    form._do_toggle_markers()
+    assert len(_tree_circles(adapter)) == 3
+
+    other = tmp_path / "other.sexp"
+    other.write_text(dict_to_sexp(_marker_cfg(name="t9")), encoding="utf-8")
+    dock.set_root_file(other)
+
+    assert [k for k in markers_mod.owner.keys()
+            if k.startswith("tree-anchor/") or k.startswith("tree-base/")] == []
+    assert markers_mod.owner.has_key(foreign_key)
+    assert len(_tree_circles(adapter)) == 1     # only the foreign circle
+
+    form9 = _settings_form(dock)
+    form9._do_toggle_markers()
+    assert markers_mod.owner.has_key(_tree_anchor_key("t9"))
+
+    dock.set_root_file(other)     # the SAME root — a broadcast, not a switch
+
+    assert markers_mod.owner.has_key(_tree_anchor_key("t9"))
+
+
+def test_renaming_a_tree_drops_the_old_names_circles(
+        main_window, tmp_path, sync_long_ops, monkeypatch):
+    """З.2.5 — the overlay keys are named after the tree, so a rename through
+    the dock takes the old name's circles (key AND shape) down."""
+    dock, _root, adapter, form = _marker_dock(main_window, tmp_path, _marker_cfg())
+    form._do_toggle_markers()
+    assert len(_tree_circles(adapter)) == 2
+
+    tree = dock._current_tree()
+    monkeypatch.setattr(QInputDialog, "getText",
+                        lambda *a, **k: ("t1_renamed", True))
+    dock._on_rename_tree()
+
+    assert tree.name == "t1_renamed"
+    assert not markers_mod.owner.has_key(_tree_anchor_key("t1"))
+    assert not markers_mod.owner.has_key(_tree_base_key("t1"))
+    assert _tree_circles(adapter) == []

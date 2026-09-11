@@ -49,6 +49,7 @@ from kicadstamp.tree_position import (
     local_offset_to_board_mm,
     local_rotation_to_board_deg,
     rotate_offset_mm,
+    tree_layout_base,
     tree_pivot_offset,
     resolve_base_live_position,
     resolve_base_rotation_deg,
@@ -65,11 +66,12 @@ from kicadstamp.trees import (KINDS, Tree, TreeAnchor, TreeNode,
                               tree_self_ref_candidates, tree_to_dict)
 from kicadstamp.utils.units import MM
 
-from .. import settings
+from .. import board_overlay, overlay_markers, settings
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget, build_role_anchor_fields
 from .live_position import read_record_live_pose
 from ._common import (ERROR_STYLE as _ERROR_STYLE,
+                      WARN_STYLE as _WARN_STYLE,
                       configure_searchable, confirm_first_run_adoption,
                       highlight_stylesheet_for, set_combo_items, show_message,
                       SplitterSizeKeeper)
@@ -171,6 +173,108 @@ def _anchor_label(anchor: TreeAnchor) -> str:
 
 
 _ORIGIN = Vector2.from_xy(0, 0)
+
+# ── Overlay circles for a tree's anchor and base (З, 2026-09-12) ──────────
+# The overlay owner (gui/overlay_markers.py, task Е) owns the key -> uuid map;
+# these two namespaced keys are what the tree-settings form draws through it.
+# The slugs live HERE rather than in the owner because the owner reserves
+# `tree-inner` / `tree-outer` — the design §О.3.1 pair this task deliberately
+# REPLACES: the inner (suspension) point lands EXACTLY on the anchor by
+# construction (resolve_module_effective_base makes the pivot land on the
+# marker), so two circles there would coincide. The pair worth drawing is the
+# ANCHOR (where the tree hangs — what it is moved and rotated by) and the BASE
+# (the origin of its local frame, from which every node's xy is measured and
+# which is invisible today); the vector between them IS the rotated suspension
+# point made visible.
+_TREE_ANCHOR_NS = "tree-anchor"
+_TREE_BASE_NS = "tree-base"
+
+
+def _tree_anchor_key(name) -> str:
+    """Overlay key of the circle showing where tree `name` hangs."""
+    return f"{_TREE_ANCHOR_NS}/{name}"
+
+
+def _tree_base_key(name) -> str:
+    """Overlay key of the circle showing the origin of tree `name`'s own local
+    frame."""
+    return f"{_TREE_BASE_NS}/{name}"
+
+
+def _tree_marker_keys(name) -> tuple:
+    """BOTH overlay keys one tree's toggle owns, anchor first."""
+    return (_tree_anchor_key(name), _tree_base_key(name))
+
+
+def _tree_marker_points(adapter, cfg, tree, sheet_names, forest) -> tuple:
+    """(anchor_mm, base_mm) for `tree` — the two LIVE positions the circles
+    show, in world mm. anchor = `_anchor_base_live_position` (every anchor
+    mode); base = `tree_layout_base` (that same raw anchor pose plus the tree's
+    own suspension point and angle). No new maths is introduced: both functions
+    already exist and are only converted from nm to mm here. Raises
+    ValidationError when the anchor cannot resolve — the caller turns that into
+    one Log line."""
+    anchor_pos, _anchor_rot = _anchor_base_live_position(
+        adapter, cfg, tree, sheet_names)
+    base_pos, _base_rot = tree_layout_base(
+        adapter, cfg, tree, sheet_names, forest)
+    return ((anchor_pos.x / MM, anchor_pos.y / MM),
+            (base_pos.x / MM, base_pos.y / MM))
+
+
+def _show_tree_markers_worker(payload) -> dict:
+    """WORKER thread — no widget access anywhere in here.
+
+    Draw ONE tree's anchor circle and (when it does not coincide with the
+    anchor) a second circle at its local-frame base, through the shared overlay
+    owner. The owner's ensure_marker is idempotent BY KEY (Е.2.2), so pressing
+    the toggle again MOVES the two circles instead of stacking new ones.
+
+    З.2.3: when base and anchor are closer than
+    `overlay_markers.orphan_tolerance_mm()` (a zero suspension point at a zero
+    angle — the first row of the task's own measurement) ONLY the anchor is
+    drawn and a stale `tree-base` key is removed, so two circles can never end
+    up in one spot, even if the user enabled the toggle at a different pivot
+    first.
+
+    Never raises (Е.2.6): a circle is a visualisation, so a failed anchor
+    resolve or a disabled overlay layer degrades to one Log line returned in
+    the result dict — never to an exception or a modal."""
+    adapter = payload["adapter"]
+    tree = payload["tree"]
+    try:
+        anchor_mm, base_mm = _tree_marker_points(
+            adapter, payload["cfg"], tree, payload["sheet_names"],
+            payload["forest"])
+    except Exception as e:  # noqa: BLE001 — a resolve failure is a Log line
+        return {"error": _("Tree {name!r}: the anchor did not resolve: {error}")
+                .format(name=tree.name, error=e)}
+    try:
+        overlay_markers.owner.ensure_marker(
+            adapter, _tree_anchor_key(tree.name), anchor_mm[0], anchor_mm[1])
+    except Exception:  # noqa: BLE001 — drawing never breaks the caller
+        return {"error": _(
+            "Tree {name!r}: the anchor marker was not drawn — the overlay "
+            "layer {layer!r} is not enabled on this board, or the board read "
+            "failed.").format(name=tree.name,
+                              layer=board_overlay.overlay_layer_name())}
+    tol = overlay_markers.orphan_tolerance_mm()
+    if (abs(base_mm[0] - anchor_mm[0]) <= tol
+            and abs(base_mm[1] - anchor_mm[1]) <= tol):
+        # No second circle in the same spot — and drop a base key left over
+        # from an earlier pivot (З.2.3).
+        overlay_markers.owner.remove_key(adapter, _tree_base_key(tree.name))
+        return {"anchor_mm": anchor_mm, "base_mm": None}
+    try:
+        overlay_markers.owner.ensure_marker(
+            adapter, _tree_base_key(tree.name), base_mm[0], base_mm[1])
+    except Exception:  # noqa: BLE001 — the anchor circle is already down
+        return {"anchor_mm": anchor_mm, "base_mm": None, "warning": _(
+            "Tree {name!r}: the base marker was not drawn — the overlay layer "
+            "{layer!r} is not enabled on this board, or the board read "
+            "failed.").format(name=tree.name,
+                              layer=board_overlay.overlay_layer_name())}
+    return {"anchor_mm": anchor_mm, "base_mm": base_mm}
 
 
 def collect_tree_refs(tree: "Tree") -> list[str]:
@@ -478,6 +582,14 @@ class TreesDock(QWidget):
         config (cfg/ctx for link_trees at Save) and reads self._trees = the
         section's trees. Empty when there is no root yet or the section is
         absent. Same pattern as ConfigTreeDock.set_root_file."""
+        previous_path = self._root_path
+        if path != previous_path:
+            # З.2.5: an ACTUAL root switch invalidates every tree the circles
+            # belonged to — clear BOTH tree-marker namespaces now (state; the
+            # shapes go on a worker). A repeat call with the SAME path (DockHub
+            # broadcasts root_changed on graph refreshes) must NOT wipe circles
+            # the user is looking at — the same guard PointsDock uses.
+            self._clear_all_tree_markers()
         self._root_path = path
         self._cfg = None
         self._ctx = None
@@ -834,6 +946,9 @@ class TreesDock(QWidget):
         master-detail form panel for the newly active tree (§3.2)."""
         if self._rebuilding_tabs:
             return
+        # З.2.5: leaving a tree takes ITS circles down — only the tree being
+        # looked at may keep its anchor/base keys.
+        self._clear_other_tree_markers()
         self._persist_active_tab()
         self._rebuild_active_form_panel()
 
@@ -1890,6 +2005,90 @@ class TreesDock(QWidget):
         snapshot = getattr(getattr(self._main_window, "connection", None), "snapshot", None)
         return sorted({s.cluster for s in (snapshot or []) if s.cluster})
 
+    # ── Overlay circles of the tree's anchor / base (З, 2026-09-12) ────────
+    # The DRAWING half lives on AnchorFormWidget (the form owns the toggle
+    # button, next to the anchor/pivot/angle rows it visualises); these are the
+    # CLEANUP entry points the dock needs because a circle must go when the
+    # thing it points at is replaced (a root switch, a rename, leaving the
+    # tree). Every one of them derives what to drop from the OWNER'S MAP, never
+    # from a widget flag that could drift, and drops state on the UI thread
+    # while the shapes go on a worker (the cell_anchor_view.cleanup() split).
+
+    def _refresh_markers_button(self) -> None:
+        """Ask the ACTIVE anchor form (when one is shown) to re-read the map —
+        its toggle label follows the fact, and a root switch / rename changes
+        the fact without the form being re-created."""
+        form = self._embedded_form_of(self._active_form_page())
+        if isinstance(form, AnchorFormWidget):
+            form._refresh_show_markers_button()
+
+    def _clear_tree_markers(self, name: str) -> None:
+        """Drop ONE tree's two overlay keys (a rename, or leaving the tree):
+        state on the UI thread, the shapes themselves on a worker. A tree whose
+        markers were never shown is a no-op; without a live board the keys are
+        still dropped and the leftover shapes become orphans — exactly the
+        accepted outcome of Ж.2.3 (the owner's reconcile counts them)."""
+        if getattr(self._main_window.connection, "long_op_active", False):
+            return  # never interleave two IPC ops on the shared kipy REQ socket
+        uuids: list = []
+        for key in _tree_marker_keys(name):
+            uuid = overlay_markers.owner.forget_key(key)
+            if uuid:
+                uuids.append(uuid)
+        if not uuids:
+            return
+        self._refresh_markers_button()
+        adapter = self._live_adapter()
+        if adapter is None:
+            return
+        self._active_op = start_long_op(
+            self._main_window.connection, (), board_overlay.remove_overlay,
+            lambda _result: None, lambda _message: None, adapter, uuids)
+
+    def _clear_other_tree_markers(self) -> None:
+        """Keep only the CURRENT tree's circles (З.2.5, a tree switch): every
+        other tree's anchor/base keys are dropped. What to drop is derived from
+        the owner's MAP, so a tree whose form was never opened here is covered
+        too."""
+        if getattr(self._main_window.connection, "long_op_active", False):
+            return
+        current = self._current_tab_tree_name()
+        keep = set(_tree_marker_keys(current)) if current is not None else set()
+        doomed = [
+            key for key in overlay_markers.owner.keys()
+            if key not in keep
+            and (key.startswith(_TREE_ANCHOR_NS + "/")
+                 or key.startswith(_TREE_BASE_NS + "/"))]
+        uuids: list = []
+        for key in doomed:
+            uuid = overlay_markers.owner.forget_key(key)
+            if uuid:
+                uuids.append(uuid)
+        self._refresh_markers_button()
+        adapter = self._live_adapter()
+        if not uuids or adapter is None:
+            return
+        self._active_op = start_long_op(
+            self._main_window.connection, (), board_overlay.remove_overlay,
+            lambda _result: None, lambda _message: None, adapter, uuids)
+
+    def _clear_all_tree_markers(self) -> None:
+        """Drop BOTH tree-marker namespaces entirely (an actual root switch,
+        З.2.5): every key belonged to the previous project. State now, shapes
+        on a worker."""
+        if getattr(self._main_window.connection, "long_op_active", False):
+            return
+        uuids: list = []
+        for namespace in (_TREE_ANCHOR_NS, _TREE_BASE_NS):
+            uuids.extend(overlay_markers.owner.forget_scope(namespace))
+        self._refresh_markers_button()
+        adapter = self._live_adapter()
+        if not uuids or adapter is None:
+            return
+        self._active_op = start_long_op(
+            self._main_window.connection, (), board_overlay.remove_overlay,
+            lambda _result: None, lambda _message: None, adapter, uuids)
+
     def set_snapshot_refresher(self, refresher) -> None:
         """Injected once by DockHub at construction (S.3.2,
         plan_2026_09_11_stale_snapshot_role_lists.md):
@@ -2500,7 +2699,12 @@ class TreesDock(QWidget):
             QMessageBox.warning(self, _("Rename tree"),
                                 _("A tree named {name!r} already exists.").format(name=new_name))
             return
+        old_name = tree.name
         tree.name = new_name
+        if old_name != new_name:
+            # З.2.5: the overlay keys are named after the tree, so the old
+            # name's circles point at a tree that no longer exists.
+            self._clear_tree_markers(old_name)
         self._mark_dirty()
         self._rebuild_tabs()
 
@@ -3663,6 +3867,9 @@ class AnchorFormWidget(QWidget):
         self._all_trees = list(all_trees or [])
         self._dock = parent if getattr(parent, "_mark_dirty", None) else None
         self._touched = False
+        # The overlay-marker toggle launches a long op (every position is a
+        # live board read) — keep the controller alive here, like every dock.
+        self._active_op = None
 
         # Self-reference guard (plan 2026-08-31 anchor_self_ref_guard): a tree
         # whose OWN single top-level node is a placement record must never be
@@ -3833,6 +4040,19 @@ class AnchorFormWidget(QWidget):
         self.settings_frame_label.setWordWrap(True)
         self.settings_frame_label.setVisible(False)
         settings_form.addRow(self.settings_frame_label)
+        # The toggle that puts the tree's anchor and the origin of its LOCAL
+        # frame on the board overlay (З.2.4) — exactly the two positions this
+        # group edits. ONE button, and its state is read from the owner's MAP
+        # (see _refresh_show_markers_button), never a widget flag that could
+        # drift from what is really on the board. Hidden with the group for a
+        # tree-less (create-tree) form.
+        self.show_markers_button = QPushButton(_("Show tree markers"))
+        self.show_markers_button.setToolTip(_(
+            "Draw the tree's anchor (where it hangs) and the origin of its "
+            "local frame on the board overlay — the vector between the two "
+            "circles is the suspension point."))
+        self.show_markers_button.clicked.connect(self._on_show_markers)
+        settings_form.addRow(self.show_markers_button)
         root.addWidget(self.settings_box)
         # Form state kept in the CONFIG frame (the tree's own frame / dovоrот):
         # the board-frame DISPLAY is derived from it, never the other way round,
@@ -4382,6 +4602,9 @@ class AnchorFormWidget(QWidget):
         dialog (tree is None)."""
         self._refresh_pivot_candidates()
         self._update_pivot_hint()
+        # The toggle's label follows the map, which survives a GUI restart —
+        # so it is (re)read whenever the form (re)loads a tree.
+        self._refresh_show_markers_button()
         if self._tree is None:
             self.settings_box.setVisible(False)
             # No tree yet (create-tree dialog): there is no stored anchor to
@@ -4607,6 +4830,125 @@ class AnchorFormWidget(QWidget):
         self._touched = False
         self.apply_status_label.setText(_("Applied — keep editing or Redraw."))
         return True
+
+    # ── Overlay circles of the anchor and the local-frame base (З) ────────
+    # plan_2026_09_12_tree_point_markers.md. Both positions are LIVE reads, so
+    # everything below runs on a worker — never IPC on the UI thread. The
+    # toggle's state is READ FROM THE OWNER'S MAP (`tree-anchor/<this tree>`),
+    # never a widget flag that could drift from what is really on the board —
+    # the same discipline PointsDock's own toggle uses.
+
+    def _tree_markers_shown(self) -> bool:
+        """True when the owner holds THIS tree's anchor key — the toggle's
+        state, read from the fact."""
+        if self._tree is None:
+            return False
+        return overlay_markers.owner.has_key(_tree_anchor_key(self._tree.name))
+
+    def _refresh_show_markers_button(self) -> None:
+        """The label follows the fact: with no `tree-anchor/<this tree>` key
+        the button offers to draw the circles, with one it offers to take them
+        down."""
+        self.show_markers_button.setText(
+            _("Hide tree markers") if self._tree_markers_shown()
+            else _("Show tree markers"))
+
+    def _marker_connection(self):
+        """The live connection, reached through the owning dock — None for a
+        standalone form (the create-tree dialog, or a headless test form)."""
+        dock = self._dock
+        return getattr(getattr(dock, "_main_window", None), "connection", None)
+
+    def _marker_adapter(self):
+        """The LIVE board adapter at the moment the button is pressed (not the
+        one cached when the form was built), or None without a board."""
+        connection = self._marker_connection()
+        board = getattr(connection, "board", None) if connection is not None else None
+        return getattr(board, "adapter", None) if board is not None else None
+
+    def _marker_payload(self) -> dict:
+        """The worker payload — plain data only, no widgets. The forest lets
+        tree_layout_base lay a pivot-ref tree out."""
+        return {"adapter": self._marker_adapter(), "cfg": self._cfg,
+                "tree": self._tree, "sheet_names": self._sheet_names,
+                "forest": {t.name: t for t in self._all_trees}}
+
+    def _on_show_markers(self) -> None:
+        """The ONE toggle button (З.2.4). With no board it writes one Log line
+        and does nothing else — never a modal, and the button never "sticks"
+        (З.2.2/Е.2.6). Both halves run on a worker under start_long_op, the same
+        lock the whole-tree redraw uses."""
+        if self._tree is None:
+            return
+        if self._marker_adapter() is None:
+            show_message(_("Not connected."), _ERROR_STYLE, logger)
+            return
+        if self._tree_markers_shown():
+            self._hide_tree_markers()
+            return
+        self._active_op = start_long_op(
+            self._marker_connection(), (self.show_markers_button,),
+            _show_tree_markers_worker, self._finish_show_tree_markers,
+            self._on_show_markers_failed, self._marker_payload())
+
+    def _finish_show_tree_markers(self, result: dict) -> None:
+        if result.get("error"):
+            show_message(result["error"], _ERROR_STYLE, logger)
+        elif result.get("warning"):
+            show_message(result["warning"], _WARN_STYLE, logger)
+        self._refresh_show_markers_button()
+
+    def _on_show_markers_failed(self, message: str) -> None:
+        show_message(
+            _("Show tree markers failed: {error}").format(error=message),
+            _ERROR_STYLE, logger)
+
+    def _forget_tree_marker_keys(self) -> list:
+        """Pop this tree's two keys from the owner's map and return their
+        uuids — state only, no board call at all."""
+        if self._tree is None:
+            return []
+        uuids: list = []
+        for key in _tree_marker_keys(self._tree.name):
+            uuid = overlay_markers.owner.forget_key(key)
+            if uuid:
+                uuids.append(uuid)
+        return uuids
+
+    def _hide_tree_markers(self) -> None:
+        """UI thread: forget both keys AT ONCE (so the button flips
+        immediately) and delete the shapes on a worker — the split
+        cell_anchor_view.cleanup() uses. OUR two keys only: shapes of other
+        namespaces/consumers on the same layer are never touched."""
+        uuids = self._forget_tree_marker_keys()
+        self._refresh_show_markers_button()
+        adapter = self._marker_adapter()
+        if not uuids or adapter is None:
+            return
+        self._active_op = start_long_op(
+            self._marker_connection(), (self.show_markers_button,),
+            board_overlay.remove_overlay,
+            lambda _result: self._refresh_show_markers_button(),
+            self._on_show_markers_failed, adapter, uuids)
+
+    def _do_toggle_markers(self) -> None:
+        """Synchronous composition of the toggle — for tests and any headless
+        caller that must not return until the circles are on/off (the same
+        `_do_*` idiom PointsDock uses for its own toggle)."""
+        if self._tree is None:
+            return
+        adapter = self._marker_adapter()
+        if adapter is None:
+            show_message(_("Not connected."), _ERROR_STYLE, logger)
+            return
+        if self._tree_markers_shown():
+            uuids = self._forget_tree_marker_keys()
+            if uuids:
+                board_overlay.remove_overlay(adapter, uuids)
+            self._refresh_show_markers_button()
+            return
+        self._finish_show_tree_markers(
+            _show_tree_markers_worker(self._marker_payload()))
 
     def redraw(self) -> None:
         """Anchor-tab Phase B Redraw (plan §2.3): apply() first, then the

@@ -351,6 +351,22 @@ dovоrот; never a cached angle), and disabled with a reason when the anchor do
 `(point ...)` anchor now APPLIES, not only reads; at a point/origin anchor the tree's own angle is the
 sole source of content rotation.
 
+**UPDATE 2026-09-12 (plan_2026_09_12_tree_point_markers, З):** the tree-settings form carries ONE
+**Show tree markers / Hide tree markers** toggle. Pressed, it draws two circles on the board overlay
+(the layer/colour from Settings → Board overlay) for the tree SELECTED right now: the **anchor** (where
+the tree hangs — the point it is moved and rotated by) and the **base** (the origin of the tree's own
+local frame, from which every node's `xy` is measured and which used to be invisible). The vector
+between the two circles IS the rotated suspension point made visible, which is how a `pivot-xy` number
+can finally be checked against the board. With a zero suspension point at a zero angle the two positions
+coincide and only the anchor circle is drawn. Both positions are LIVE reads, so the whole operation runs
+on a worker, and the button's label is read from the overlay owner's key map (not from a widget flag that
+could drift). The circles belong to ONE tree at a time — switching to another tree (or renaming/deleting
+it, or loading a different root config) takes the previous tree's circles down. No board, or an anchor
+that does not resolve, is one line in the Log and nothing else — never a dialog; circles are pure
+visualisation and are never written to the config. The suspension point itself has NO separate circle: by
+construction it always lands exactly on the anchor (`resolve_module_effective_base` inverts the pivot onto
+the marker), so a second circle there would sit on top of the anchor.
+
 Since 2026-09-03 the node editor is a TWO-TAB form — shown in the
 master-detail panel for a selected node, and inside the modal Add dialog while no node exists
 yet: **General**
